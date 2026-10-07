@@ -106,12 +106,14 @@ _HAS_SUBSTANCE = re.compile(r"[^\W_]", re.UNICODE)
 #: ("Sections 4 and 5") from swallowing a measurement that follows the
 #: conjunction ("Section 4 and 50 mm"): the second number is a reference only
 #: when nothing measurable follows it.
-_UNIT_AHEAD = (
-    r"(?!\s*(?:mm|um|µm|μm|cm|km|m|kg|g|t|mpa|kpa|gpa|bar|psi|%|percent|per\s?cent|"
+_UNIT_WORDS = (
+    r"(?:mm|um|µm|μm|cm|km|m|kg|g|t|mpa|kpa|gpa|bar|psi|%|percent|per\s?cent|"
     r"hours?|hrs?|h|minutes?|mins?|seconds?|secs?|days?|weeks?|months?|years?|"
     r"inch(?:es)?|in|ft|feet|foot|degrees?|°|kn|n|nm|kw|w|kv|v|a|hz|l|litres?|"
-    r"liters?|ml|mg|ppm|db|x|times|layers?|coats?|passes?)\b)"
+    r"liters?|ml|mg|ppm|db|x|times|layers?|coats?|passes?)"
 )
+_UNIT_AHEAD = r"(?!\s*" + _UNIT_WORDS + r"\b)"
+
 #: Numerals that REFER rather than MEASURE. "Document 17", "clause 6.1",
 #: "Table 1", "Revision 2", "page 183" and the filename "doc17.pdf" all carry a
 #: digit that names a place in the corpus, not a quantity the cited span must
@@ -134,11 +136,10 @@ _REFERENCE_NUMERAL = re.compile(
       | \b[\w.-]*\d[\w.-]*\.(?:pdf|docx?|xlsx?|pptx?|txt|csv|md|dwg)\b  # doc17.pdf
       | \b(?:sections?|sec\.?|clauses?|cl\.?|sub-?clauses?|paragraphs?|paras?\.?|
             articles?|art\.?|chapters?|ch\.?|parts?|annex(?:es)?|appendi(?:x|ces))
-            \s*\#?\s*\d+(?:\.\d+)*                            # Section 4, clause 6.1
+            \s*\#?\s*\d+(?:\.\d+)*(?!\d|\s*(?:mm|cm|km|m|kg|bar|mpa|kpa|psi|%|\u00b0|ppm)\b)  # Section 4, clause 6.1 (not "Part 6 bar")
       | §\s*\d+(?:\.\d+)*                                     # §4.2
       | \b(?:tables?|tbl\.?|figures?|figs?\.?)\s*\d+(?:\.\d+)*  # Table 1, Fig. 3
       | \b(?:revisions?|rev\.?|versions?|ver\.?)\s*\d+(?:\.\d+)*  # Revision 2, rev. 2
-      | \b[rv]\d+\b                                           # r5, v2
       | \b(?:pages?|pp?\.)\s*\d+                              # page 183, p.183, pp. 12
       | \bsources?\s*S?\d+                                    # source 1, source S1
     )
@@ -501,6 +502,16 @@ def first_unsupported_value(sentence: str, span_numbers: set[str]) -> str | None
     return None
 
 
+#: "r5 supersedes r4", "v2 replaces v1": a revision NAMED in shorthand. Taken
+#: out only when the sentence is about revisions (audit H07): everywhere else
+#: R10 and V2 are quantities or tags (a rating, a vessel) and are held to the
+#: span like any other figure.
+_REVISION_SHORTHAND = re.compile(r"\b[rv]\d+\b", re.IGNORECASE)
+_REVISION_CONTEXT = re.compile(
+    r"\b(?:revs?|revisions?|versions?|supersed\w*|replac\w*|issues?|editions?)\b",
+    re.IGNORECASE)
+
+
 def strip_reference_numerals(sentence: str) -> str:
     """Remove the numerals in a sentence that refer to a place rather than
     state a quantity: document names, filenames, section and clause numbers,
@@ -517,7 +528,10 @@ def strip_reference_numerals(sentence: str) -> str:
     grammar, AFTER the reference patterns - so "SAES-H-001.pdf" is taken whole
     as a filename and "SAES-H-001" alone as a standard name.
     """
-    return _STANDARD_IDENTIFIER.sub(" ", _REFERENCE_NUMERAL.sub(" ", sentence))
+    out = _REFERENCE_NUMERAL.sub(" ", sentence)
+    if _REVISION_CONTEXT.search(sentence):
+        out = _REVISION_SHORTHAND.sub(" ", out)
+    return _STANDARD_IDENTIFIER.sub(" ", out)
 
 
 def span_numbers(text: str) -> set[str]:
@@ -525,6 +539,51 @@ def span_numbers(text: str) -> set[str]:
     numerals removed exactly as they are from the sentence (`claimed_numbers`),
     so both sides of the comparison mean the same thing by "a figure"."""
     return _numbers(strip_reference_numerals(text))
+
+
+#: Units a figure can be BOUND to for the unit check (audit H07). A closed,
+#: unambiguous list: no "a", "in", "x" or "times", which are also English
+#: words. A compound ("mm/s") or a bracketed form binds nothing, so the check
+#: can only be lenient there, never stricter.
+_BOUND_UNIT = re.compile(
+    r"\s?(mm|um|\u00b5m|\u03bcm|cm|km|m|kg|g|mpa|kpa|gpa|pa|bar|psi|%|\u00b0\s?[cf]|kn|nm|kw|kv|hz|"
+    r"ml|l|mg|ppm|db|hours?|hrs?|minutes?|mins?|seconds?|secs?|percent)(?![A-Za-z0-9/(])",
+    re.IGNORECASE)
+_UNIT_SPELLING = {"\u00b5m": "um", "\u03bcm": "um", "hr": "h", "hrs": "h", "hour": "h",
+                  "hours": "h", "min": "minute", "mins": "minute", "minutes": "minute",
+                  "sec": "second", "secs": "second", "seconds": "second",
+                  "percent": "%"}
+
+
+def _figures_with_units(text: str) -> list[tuple[str, str | None, str]]:
+    """(canonical number, bound unit or None, the figure as written)."""
+    held = strip_reference_numerals(_CITATION.sub("", text))
+    out = []
+    for n in numparse.find_numbers(held):
+        m = _BOUND_UNIT.match(held, n.end)
+        unit = re.sub(r"\s", "", m.group(1).lower()) if m else None
+        out.append((numparse.canonical(n), _UNIT_SPELLING.get(unit, unit) if unit else None,
+                    f"{n.raw} {m.group(1)}" if m else n.raw))
+    return out
+
+
+def first_unit_conflict(sentence: str, spans: str) -> str | None:
+    """The first figure in `sentence` that the cited spans state only in
+    ANOTHER unit - "6 bar" over a span that says "6 mm" - else None.
+
+    `claimed_numbers` is a bag of numbers and cannot see this: 6 is on the
+    page, so 6 mm and 6 bar both passed. A figure the spans print with no unit
+    (a table cell, whose unit is a column away) is not a conflict; a figure
+    the spans do not contain at all is not this check's business (the bag
+    check removes that sentence)."""
+    page = _figures_with_units(spans)
+    for value, unit, written in _figures_with_units(sentence):
+        if unit is None:
+            continue
+        same_value = [u for v, u, _ in page if v == value]
+        if same_value and unit not in same_value and None not in same_value:
+            return written
+    return None
 
 
 def claimed_numbers(sentence: str) -> set[str]:
@@ -653,6 +712,10 @@ def _cite(
             # Named as the reader sees it: "value 300 not in cited passage".
             value = first_unsupported_value(sentence, supported) or sorted(unsupported)[0]
             dropped.append((sentence, f"value {value} not in cited passage"))
+            continue
+        wrong_unit = first_unit_conflict(sentence, spans)
+        if wrong_unit:
+            dropped.append((sentence, f"value {wrong_unit} not in cited passage with that unit"))
             continue
         # The third form, and the one an engineering reader is least able to
         # catch: the sentence cites a real page and asserts a compliance,

@@ -58,14 +58,14 @@ def test_strict_space_thousands_are_read(text, expected):
 
 
 # ----------------------------------------------------------- N3 EU thousands
-@pytest.mark.parametrize("text", ["4.000", "1.200", "12.345", "-4.000", "<= 4.000"])
+@pytest.mark.parametrize("text", ["4.000", "12.000", "-4.000", "<= 4.000"])
 def test_three_decimals_is_ambiguous_none(text):
     assert claims.parse_value(text) is None
 
 
 @pytest.mark.parametrize("text,expected", [
     ("1,200", 1200.0), ("3,0", 3.0), ("3.5", 3.5), ("6.89", 6.89),
-    ("0.125", 0.125), ("1234.567", 1234.567), ("3,600", 3600.0), ("1,200.5", 1200.5),
+    ("0.125", 0.125), ("1234.567", 1234.567), ("3.175", 3.175), ("1.200", 1.2), ("12.345", 12.345), ("3,600", 3600.0), ("1,200.5", 1200.5),
 ])
 def test_unambiguous_shapes_keep_their_value(text, expected):
     assert claims.parse_value(text) == expected

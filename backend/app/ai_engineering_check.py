@@ -67,6 +67,11 @@ PASS_FAIL_WORDS = (
     "non compliant", "approved", "approve", "acceptable", "unacceptable", "accepted",
     "rejected", "pass", "passes", "passed", "fail", "fails", "failed",
     "meets the requirement", "does not meet",
+    # A09: verdicts in other words. "satisfies the spec" was accepted.
+    "satisfies", "satisfy", "satisfied", "does not satisfy", "conforms", "conform",
+    "conforming", "conformance", "non-conforming", "nonconforming", "does not conform",
+    "meets", "meet", "adequate", "inadequate", "violates", "violation",
+    "not acceptable", "not compliant", "not approved", "in compliance",
 )
 CONFIDENCES = ("low", "medium")
 
@@ -224,7 +229,11 @@ def _held_clause(item: dict, held: dict[str, list[str]]) -> tuple[str, str] | No
         return None
     for name, clauses in held.items():
         stem = _fold(re.sub(r"\.(pdf|docx?)$", "", name, flags=re.IGNORECASE))
-        if stem and (stem in relates or relates in stem) and clause in clauses:
+        # The item must NAME the held standard in full (audit A10). The old
+        # `relates in stem` also accepted "API" for "API 610" and "SAES-D-00"
+        # for "SAES-D-001", attaching the clause to the wrong standard.
+        if stem and re.search(r"(?<![a-z0-9])" + re.escape(stem) + r"(?![a-z0-9])",
+                              relates) and clause in clauses:
             return name, clause
     return None
 

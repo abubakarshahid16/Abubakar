@@ -63,6 +63,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from enum import Enum
 
 from . import comparison, crs_mapping, numparse
@@ -295,7 +296,12 @@ def _strip_citations(folded: str, inputs: dict) -> str:
     for key in ("citation", "standard_code", "page_section", "clause"):
         piece = _fold(inputs[key])
         if piece:
-            folded = folded.replace(piece, " ")
+            # WHOLE TOKENS ONLY (audit C-H3). A plain str.replace of the
+            # clause "5" erased the 5 of "typically 56 bar", leaving "6 bar",
+            # which the inputs allowed: an invented number passed. The piece
+            # must not start or end inside a longer word or number.
+            folded = re.sub(r"(?<![\w.,])" + re.escape(piece) + r"(?![\w]|[.,]\d)",
+                            " ", folded)
     return folded
 
 

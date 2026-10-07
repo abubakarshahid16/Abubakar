@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from pathlib import Path
 
 import pytest
@@ -135,6 +136,53 @@ def test_the_explicit_map_keeps_what_the_pipeline_relied_on_from_nfkc():
     assert quality.normalise_text(f"{MINUS}29") == "-29"
     assert quality.normalise_text("H\u2082S and CO\u2082") == "H2S and CO2"
     assert quality.normalise_text("5 \u339c") == "5 mm"
+
+
+# ===================== the explicit map loses nothing NFKC gave us (F14 follow-up)
+
+def _nfkc(text):
+    return unicodedata.normalize("NFKC", text)
+
+
+@pytest.mark.parametrize("name, text, plain", [
+    ("ligature fi", "\ufb01", "fi"), ("ligature fl", "\ufb02", "fl"),
+    ("ligature ffi", "\ufb03", "ffi"), ("ligature ffl", "\ufb04", "ffl"),
+    ("ligature ff", "\ufb00", "ff"), ("long-s t", "\ufb05", "st"),
+    ("fullwidth digits", "".join(chr(0xFF10 + d) for d in range(10)), "0123456789"),
+    ("fullwidth capitals", "\uff21\uff22\uff3a", "ABZ"),
+    ("fullwidth small letters", "\uff41\uff42\uff5a", "abz"),
+    ("no-break space", "a\u00a0b", "a b"), ("thin space", "a\u2009b", "a b"),
+    ("narrow no-break space", "a\u202fb", "a b"), ("figure space", "a\u2007b", "a b"),
+    ("ideographic space", "a\u3000b", "a b"),
+    ("superscript two", "m\u00b2", "m2"), ("superscript three", "m\u00b3", "m3"),
+    ("superscript four to nine", "x\u2074\u2075\u2076\u2077\u2078\u2079", "x456789"),
+    ("superscript one and zero", "x\u00b9\u2070", "x10"),
+    ("subscript digits", "H\u2082S CO\u2082 X\u2080\u2089", "H2S CO2 X09"),
+    ("micro sign", "5 \u00b5m", "5 \u03bcm"),
+    ("degree celsius sign", "\u2103", "\u00b0C"),
+    ("ellipsis", "a\u2026", "a..."),
+])
+def test_the_map_gives_the_plain_form_nfkc_gave(name, text, plain):
+    assert numparse.normalise_text(text) == plain
+    assert numparse.normalise_text(text) == _nfkc(text), "must equal what NFKC gave"
+
+
+def test_every_space_separator_becomes_one_plain_space_as_under_nfkc():
+    unmapped = [hex(c) for c in range(0x110000)
+                if unicodedata.category(chr(c)) == "Zs" and chr(c) != "\u1680"
+                and numparse.normalise_text(chr(c)) != " "]
+    assert unmapped == []          # U+1680 (ogham) is left alone by NFKC too
+
+
+def test_every_fullwidth_ascii_character_becomes_its_ascii_form():
+    wrong = [hex(c) for c in range(0xFF01, 0xFF5F)
+             if numparse.normalise_text(chr(c)) != _nfkc(chr(c))]
+    assert wrong == []
+
+
+def test_exponents_stay_exponents_while_unit_powers_become_digits():
+    assert numparse.normalise_text("1\u00d710\u207b\u2076 and 10\u2074 Pa, area m\u00b2, s\u207b\u00b9") == (
+        "1\u00d710^-6 and 10^4 Pa, area m2, s^-1")
 
 
 # ============================================ #446: the reader value gates
@@ -283,9 +331,14 @@ def test_claims_extract_a_negative_measurement_with_its_sign(text):
     assert [(m.raw_value, m.normalized_value) for m in found] == [("-29", -29000.0)]
 
 
-@pytest.mark.parametrize("text", ["5-10 mm", "ISO 8501-1 mm", f"T{EN_DASH}29 mm"])
-def test_claims_do_not_read_a_range_or_identifier_dash_as_a_minus(text):
+@pytest.mark.parametrize("text", ["ISO 8501-1 mm", f"T{EN_DASH}29 mm"])
+def test_claims_do_not_read_an_identifier_dash_as_a_minus(text):
     assert claims.extract_measurements(f"Use {text}.") == ()
+
+
+def test_claims_read_a_range_as_two_positive_ends_never_a_minus():
+    found = claims.extract_measurements("Use 5-10 mm.")
+    assert [m.normalized_value for m in found] == [5000.0, 10000.0]
 
 
 def test_claims_keep_the_comparator_in_front_of_a_negative_value():

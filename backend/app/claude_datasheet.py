@@ -76,6 +76,12 @@ class Reason(Enum):
     #: Rule 1. The quote does not appear on the page, whitespace-folded. The
     #: fabrication catch: an imagined row has no true quote.
     QUOTE_NOT_ON_PAGE = "quote_not_on_page"
+    #: Audit M2. The quote is on the page but is not a ROW: it is most of the
+    #: page, or several lines. A whole-page quote contains every value, so
+    #: rules 2 and 3 prove nothing against it.
+    QUOTE_TOO_BROAD = "quote_too_broad"
+    #: Audit M2. The unit the model reports is not in its own quote.
+    UNIT_NOT_IN_QUOTE = "unit_not_in_quote"
     #: Rule 2. The value is not inside the words the model says it read it
     #: from.
     VALUE_NOT_IN_QUOTE = "value_not_in_quote"
@@ -203,10 +209,29 @@ def _field_in_quote(field: str, quote: str) -> bool:
     """
     quote_folded = _fold(quote)
     field_folded = _fold(field)
-    words = _FIELD_WORD.findall(field_folded)
+    words = list(dict.fromkeys(_FIELD_WORD.findall(field_folded)))
     if not words:
         return _contains(quote_folded, field_folded)
-    return any(_contains(quote_folded, w) for w in words)
+    # Audit M2: ONE four-letter word was enough, so "Casing material" was
+    # satisfied by a quote that held only "material". Half of the label's
+    # words are needed, and at least two when it has two or more.
+    needed = min(len(words), max(2, (len(words) + 1) // 2)) if len(words) > 1 else 1
+    return sum(1 for w in words if _contains(quote_folded, w)) >= needed
+
+
+#: A quote is one row: at most this many characters and this many lines, and
+#: not most of the page. Measured on the fixture pages: a row is under 120.
+MAX_QUOTE_CHARS = 240
+MAX_QUOTE_LINES = 3
+MAX_QUOTE_SHARE_OF_PAGE = 0.5
+
+
+def _quote_too_broad(raw_quote: str, folded_page: str) -> bool:
+    text = str(raw_quote or "")
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    if len(text.strip()) > MAX_QUOTE_CHARS or len(lines) > MAX_QUOTE_LINES:
+        return True
+    return len(folded_page) > 80 and len(_fold(text)) > MAX_QUOTE_SHARE_OF_PAGE * len(folded_page)
 
 
 def _unit_recognised(unit: str) -> bool:
@@ -408,6 +433,9 @@ def accept(proposals: list[dict], page_text: str, known_fields: list[str] | None
         if not quote or not _contains(folded_page, quote):
             drop(p, Reason.QUOTE_NOT_ON_PAGE)
             continue
+        if _quote_too_broad(p["quote"], folded_page):
+            drop(p, Reason.QUOTE_TOO_BROAD)
+            continue
         if not _value_in_quote(p["value"], quote):
             drop(p, Reason.VALUE_NOT_IN_QUOTE)
             continue
@@ -416,6 +444,9 @@ def accept(proposals: list[dict], page_text: str, known_fields: list[str] | None
             continue
         if p.get("unit") and not _unit_recognised(p["unit"]):
             drop(p, Reason.UNIT_UNRECOGNISED)
+            continue
+        if p.get("unit") and not _contains(quote, _fold(p["unit"])):
+            drop(p, Reason.UNIT_NOT_IN_QUOTE)
             continue
         field_name = datasheets.normalise_field_name(p["field"])
         if field_name in known:

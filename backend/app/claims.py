@@ -148,6 +148,7 @@ _UNIT_TABLE: dict[str, tuple[str, str, float]] = {
     # pressure -> MPa
     "mpa": ("pressure", "MPa", 1.0),
     "bar": ("pressure", "MPa", 0.1),
+    "pa": ("pressure", "MPa", 0.000001),
     "kpa": ("pressure", "MPa", 0.001),
     "psi": ("pressure", "MPa", 0.00689476),
     # temperature -> C (Celsius only)
@@ -733,6 +734,13 @@ def _identifiers_for(sentence: str, measurements: tuple[Measurement, ...]) -> tu
     return tuple(out)
 
 
+#: The number in front of a range dash: "10" in "10-40 C".
+_RANGE_START = re.compile(r"(?<![\w.,/-])(\d+(?:[.,]\d+)?)\s?[-\u2013\u2014]\s?$")
+#: What follows the unit "in" when it is the English word: a space and a
+#: lower-case word that is not the multiplication "x".
+_ENGLISH_IN = re.compile(r"\s+(?!x\b)[a-z]")
+
+
 def extract_measurements(sentence: str) -> tuple[Measurement, ...]:
     """Numbers with a recognised unit. keyword.IDENTIFIER also matches "9.0"
     (its clause-number alternative), so a plain decimal that is itself an
@@ -747,12 +755,26 @@ def extract_measurements(sentence: str) -> tuple[Measurement, ...]:
         # always did; a minus - ASCII, U+2212 or a Word en dash - is part of
         # the value (it used to be dropped: "\u221229 mm" was read as +29 mm).
         sign, begin = numparse.sign_before(sentence, start)
-        if start > 0 and sentence[start - 1] in numparse.DASH_LIKE and sign != "-":
-            continue
+        joiner = (start > 0 and sentence[start - 1] in numparse.DASH_LIKE
+                  and sign != "-")
+        range_start = None
+        if sign != "-" and (joiner or sentence[start - 1:start].isspace()):
+            # "10-40 C", "10 - 40 C": a range. The number before the dash
+            # shares the unit. Anything else a dash joins ("T-29 mm",
+            # "5 -10 mm") is no measurement, as it always was.
+            lead = _RANGE_START.search(sentence[:start])
+            if lead is not None:
+                range_start = lead.group(1)
+            elif joiner:
+                continue
         inside = [(a, b) for a, b in spans if a <= start < b]
         if inside and not _is_measurement_not_code(sentence, inside, start, end, m.group("value")):
             continue
         unit = m.group("unit")
+        # "5 in the vessel" is the English word, not 5 inches. Inches are
+        # written "5 in.", "5 in)", "5 in x 3 in", "5 in" at the end.
+        if unit.lower() == "in" and _ENGLISH_IN.match(sentence, m.end("unit")):
+            continue
         if not _recognised_folded(_fold_unit(unit)):
             if "/" in unit:
                 # An UNKNOWN compound unit is no measurement. Falling back to
@@ -785,6 +807,8 @@ def extract_measurements(sentence: str) -> tuple[Measurement, ...]:
         prefix = sentence[:begin].rstrip()
         cmp_match = re.search(r"(?:" + _COMPARATOR_RE + r")\s*$", prefix, re.IGNORECASE)
         comparator = parse_comparator(cmp_match.group(0)) if cmp_match else None
+        if range_start is not None:
+            found.append(normalise(range_start, unit, None))
         found.append(normalise(("-" if sign == "-" else "") + m.group("value"),
                                unit, comparator))
     return tuple(found)
@@ -1381,6 +1405,20 @@ def _same_printed_quantity(a: Measurement, b: Measurement, *,
     return gap <= tolerance * (1 + 1e-9)
 
 
+def _agrees_with_any(a: Measurement, others: list[Measurement]) -> bool:
+    """True when `a` is not in conflict with at least one of `others` (the
+    same dimension, in another row). One value printed twice, or compatible
+    ranges, count as agreement."""
+    for b in others:
+        if _same_printed_quantity(a, b):
+            return True
+        if _distinct_same_direction_limits(a, b):
+            continue
+        if _compatible(a, b) is not False:
+            return True
+    return False
+
+
 def label_cluster(rows: tuple[Claim, ...] | list[Claim]) -> tuple[ClaimLabel, str | None]:
     rows = tuple(rows)
     mismatch = _designators_conflict(rows)
@@ -1402,19 +1440,21 @@ def label_cluster(rows: tuple[Claim, ...] | list[Claim]) -> tuple[ClaimLabel, st
                     unnormalised.append(m)
                 else:
                     by_dim.setdefault(m.dimension or "", []).append((row_no, m))
+        # A conflict is a quantity in one row that NO quantity of the same
+        # dimension in another row agrees with. Two measurements printed in
+        # the SAME sentence are never compared with each other, and two rows
+        # that print the same set of quantities agree: "design 10 bar, test
+        # 15 bar" in two documents is not a conflict because 10 differs from
+        # 15 (audit B03).
         conflict = False
         for ms in by_dim.values():
-            for i, (row_a, a) in enumerate(ms):
-                for row_b, b in ms[i + 1:]:
-                    if _same_printed_quantity(a, b):
-                        # "1,000 psi (6.89 MPa)": one value printed twice.
-                        continue
-                    if row_a != row_b and _distinct_same_direction_limits(a, b):
-                        # Two UPPER limits (or two lower) are not one claim: both
-                        # intervals reach infinity, so they always "overlap", yet
-                        # <= 3.0 and <= 4.5 are two different requirements.
-                        conflict = True
-                    elif _compatible(a, b) is False:
+            rows_of = sorted({row for row, _ in ms})
+            for i, row_a in enumerate(rows_of):
+                for row_b in rows_of[i + 1:]:
+                    side_a = [m for r, m in ms if r == row_a]
+                    side_b = [m for r, m in ms if r == row_b]
+                    if (any(not _agrees_with_any(a, side_b) for a in side_a)
+                            or any(not _agrees_with_any(b, side_a) for b in side_b)):
                         conflict = True
         if conflict:
             return ("possible_conflict", POSSIBLE_CONFLICT_NOTE)

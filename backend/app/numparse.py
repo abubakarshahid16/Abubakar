@@ -153,9 +153,11 @@ _TOKEN = re.compile(
 _GROUPED = re.compile(r"[0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]+)?")
 _COMMA_DECIMAL = re.compile(r"[0-9]+,[0-9]+")
 _DOT_DECIMAL = re.compile(r"[0-9]+(?:\.[0-9]+)?")
-#: d.ddd with 1-3 leading digits (not 0) and exactly three decimals: the
-#: decimal 4.000 or the EU thousands 4,000 - the text alone cannot say.
-_EU_THOUSANDS_LOOKALIKE = re.compile(r"[1-9][0-9]{0,2}\.[0-9]{3}")
+#: d.000 with 1-3 leading digits (not 0): the decimal 4.000 or the EU thousands
+#: 4,000 - the text alone cannot say. Any other three decimals ("3.175",
+#: "1.200", "12.345") are decimals: 3.175 mm is 1/8 inch and no EU thousands
+#: group is written with a trailing zero group other than 000.
+_EU_THOUSANDS_LOOKALIKE = re.compile(r"[1-9][0-9]{0,2}\.000")
 
 
 @dataclass(frozen=True)
@@ -313,11 +315,13 @@ def parse_value(value_str: str) -> float | None:
     * Space may separate thousands ONLY as groups of exactly three digits after
       a first group of 1-3 digits ("1 200", "12 345 678"). "34 3", "5 10" and
       "1 2 3" are two or three numbers, not one: None.
-    * d.ddd with a leading integer part of 1-3 digits other than 0 and EXACTLY
-      three decimals ("4.000", "1.200", "12.345") is ambiguous between the
-      decimal 4.000 and the EU thousands 4,000: None. "0.125" (EU thousands
-      never start with 0), "6.89", "3.5" and "1234.567" are unambiguous. The
-      comparison then goes to NEEDS_ENGINEER_REVIEW rather than guessing.
+    * d.000 with a leading integer part of 1-3 digits other than 0 ("4.000",
+      "12.000") is ambiguous between the decimal 4.000 and the EU thousands
+      4,000: None. Every other three-decimal value ("3.175", "1.200",
+      "12.345", "0.125") is a decimal, as is "6.89", "3.5" and "1234.567" (W2:
+      3.175 mm is a normal size and used to go to engineer review). The
+      comparison for an ambiguous one goes to NEEDS_ENGINEER_REVIEW rather
+      than guessing.
     * U+2212 is a minus. An en/em dash directly before the digits is a minus
       only when it begins the value or follows whitespace or a comparator; a
       dash separated from its digits ("- 29"), glued to a letter, or inside a
@@ -358,7 +362,7 @@ def parse_value(value_str: str) -> float | None:
         num = num.replace(",", "")
     elif re.fullmatch(r"\d+,\d+", num):
         num = num.replace(",", ".")
-    elif re.fullmatch(r"[1-9]\d{0,2}\.\d{3}", num):
+    elif re.fullmatch(r"[1-9]\d{0,2}\.000", num):
         return None
     try:
         return float(sign + num)

@@ -45,7 +45,7 @@ from datetime import datetime, timezone
 import json
 from contextvars import ContextVar
 
-from . import (blank_markers, claims, datasheet_inputs, orphan_guard, page_ledger,
+from . import (blank_markers, claims, datasheet_inputs, numparse, orphan_guard, page_ledger,
                provenance, row_noise, submittal_review, tables)
 from .config import settings
 from .db import connect
@@ -2688,10 +2688,10 @@ def _geometry_agrees(raw_value: str, is_blank: bool, fact: dict) -> bool:
                 and measurement.normalized_unit == fact["normalized_unit"]):
             return abs(measurement.normalized_value - fact["normalized_value"]) <= 1e-9 * max(
                 1.0, abs(fact["normalized_value"]))
-        try:
-            return float(number.replace(",", ".")) == float(str(fact["raw_value"]).replace(",", "."))
-        except ValueError:
-            return _fold(number) == _fold(fact["raw_value"])
+        left, right = numparse.as_number(number), numparse.as_number(str(fact["raw_value"]))
+        if left is not None and right is not None:
+            return left == right
+        return _fold(number) == _fold(fact["raw_value"])
     return _fold(raw_value) == _fold(fact["field_value"])
 
 
