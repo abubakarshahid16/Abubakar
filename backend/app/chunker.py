@@ -1008,6 +1008,10 @@ def _table_run_length(lines: list[str], i: int, stop=None) -> int:
     return j - i
 
 
+#: A bare top-level number, then its title, on one line: '4 Vibration'.
+_BARE_NUMBER_TITLE = re.compile(r"^\s*(\d{1,2})\s+(\S.{1,89})$")
+
+
 def _split_line_heading(lines: list[str], i: int) -> tuple[str | None, int]:
     """A clause number alone on its line, with the title on the next.
 
@@ -1020,6 +1024,22 @@ def _split_line_heading(lines: list[str], i: int) -> tuple[str | None, int]:
     """
     m = _CLAUSE_NUMBER_ONLY.match(lines[i])
     if not m:
+        # THE SAME HEADING ON ONE LINE: '4 Vibration', a bare top-level number
+        # and its title together (CHUNKER_VERSION 11). It used to be refused
+        # outright, so the heading stayed on the END of the previous clause
+        # ('3.2 ... returned to service. 4 Vibration') and a question about
+        # vibration found that clause, not the one under the heading
+        # (P1-01, P1-15, P1-23, P1-24). The title gets the split-line form's
+        # strict tests, plus: it must not read as the opening of a sentence.
+        # Whether the number is REAL is still decided for the whole document
+        # (plausible_heading_numbers) and, in segment_document, at this
+        # position (monotonic) - exactly as for the split-line form.
+        one = _BARE_NUMBER_TITLE.match(lines[i])
+        if one:
+            title = one.group(2).strip()
+            head = _validate_heading(one.group(1), title, allow_bare_integer=True)
+            if head and not _obliges(head):
+                return head, 1
         return None, 1
 
     for j in range(i + 1, min(i + 3, len(lines))):
@@ -2702,7 +2722,11 @@ def chunk_id(doc_sha: str, page_start: int, ordinal: int, chash: str) -> str:
 #: one searchable chunk labelled "title page". Nothing re-chunks by itself:
 #: only `chunk_document` (a new upload, or a re-run on one document) and
 #: `scripts/reindex_chunking.py --apply` apply it to a stored document.
-CHUNKER_VERSION = "10"
+#:
+#: 11 (2026-10-07, P1 question set): a top-level heading written on one line
+#: ("4 Vibration") is a heading. It used to be refused, so it stayed on the
+#: end of the PREVIOUS clause and a question about it found the wrong clause.
+CHUNKER_VERSION = "11"
 
 
 def _chunk_signature(doc_sha: str, pages: list[tuple[int, str]],
