@@ -6,6 +6,12 @@ interpolated from caller input unchecked), queries are SELECT-only, and
 row caps are enforced. No db import: the caller owns the connection, so
 this tests standalone against an in-memory database.
 
+SCOPE: this explorer reads every table, including document text and findings,
+whatever the administrator's document grants are. That is a decision (owner,
+2026-10-07: "admin can read everything"), stated here so no one reads the
+document routes' grant-based scope as a limit on this screen. Credential
+columns are still masked, and the gate is `admin.current_admin`.
+
 Pre-built and pre-tested by Cowork (8 standalone tests, including the
 injection-shaped-name case) on branch cowork/phase-8-admin-explorer.
 Integration (admin-gated endpoints + the Administration page UI) is the
