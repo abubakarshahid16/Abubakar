@@ -159,7 +159,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M1240", phase=97,
         description="CHUNKER_VERSION not bumped: old chunks are not detected stale",
         path=_CH,
-        anchor='CHUNKER_VERSION = "10"',
+        anchor='CHUNKER_VERSION = "11"',
         replacement='CHUNKER_VERSION = "8"',
         # Re-targeted 2026-09-30: the old target compared the version with
         # itself minus one and passed whatever the number was (audit entry 83).
