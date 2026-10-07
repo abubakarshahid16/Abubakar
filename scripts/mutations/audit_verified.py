@@ -27,9 +27,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M1451", phase=_PHASE,
         description="a quote may end inside a longer number ('is 10' found in 'is 100')",
         path=APP / "model_evidence.py",
-        anchor='        (r"(?<!\\w)" if re.match(r"\\w", needle) else "") + re.escape(needle)\n'
-               '        + (r"(?!\\w)" if re.search(r"\\w$", needle) else ""))\n',
-        replacement="        re.escape(needle))\n",
+        anchor='            (r"(?<!\\w)" if re.match(r"\\w", frag) else "") + re.escape(frag)\n'
+               '            + (r"(?!\\w)" if re.search(r"\\w$", frag) else ""))\n',
+        replacement="            re.escape(frag))\n",
         target=_T, keyword="ending_inside_a_longer_number",
         tags=("honesty",),
     ),
@@ -48,6 +48,15 @@ MUTATIONS: tuple[Mutation, ...] = (
         anchor='not claim_quote_verified(out["quote"], passages[n - 1].get("text")):',
         replacement='(out["quote"] or "") not in (passages[n - 1].get("text") or ""):',
         target=_T, keyword="judge_rejects_a_two_word_quote",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M2043", phase=_PHASE,
+        description="an ellipsis quote's pieces may appear in any order on the page",
+        path=APP / "model_evidence.py",
+        anchor="        pos = m.end()\n",
+        replacement="        pos = 0\n",
+        target=_T, keyword="ellipsis_fragments_must_appear_in_order",
         tags=("honesty",),
     ),
     # ---- 2. every figure in a claim must be in a cited passage --------------
