@@ -40,7 +40,7 @@ def list_items(*, allowed_document_ids: frozenset[str] | None = None, risk_type:
         # document, so a row written before `document_id` was carried (NULL)
         # still does not reach a caller who may not read the deliverable's
         # document.
-        clauses.append(f"(deliverable_id IS NULL OR deliverable_id IN (SELECT id FROM deliverables WHERE document_id IS NULL OR document_id IN ({marks})))")
+        clauses.append(f"(deliverable_id IS NULL OR deliverable_id IN (SELECT id FROM deliverables WHERE org_wide = 1 OR document_id IN ({marks})))")
         args.extend(sorted(allowed_document_ids))
     sql="SELECT * FROM risks" + (" WHERE " + " AND ".join(clauses) if clauses else "") + " ORDER BY updated_at DESC"
     return [dict(row) for row in connect().execute(sql,args).fetchall()]
