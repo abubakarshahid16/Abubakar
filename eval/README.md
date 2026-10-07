@@ -21,7 +21,7 @@ than substituting anything.
 | `--limit N` | candidates considered per question (default 3) |
 
 Every run writes `eval/results/<timestamp>-<tier>.json` containing the summary
-and the per-question rows, so any two runs can be diffed. That is the only way
+and the per-question rows, so any two runs can be diffed. The folder is git-ignored: the rows hold corpus file names and passage text, which stay on this machine (CLAUDE.md rule 3). Keep a run you want to compare against outside the repo. That is the only way
 to know whether a change helped or merely moved the failures around.
 
 ## P1: the gate that blocks a score drop

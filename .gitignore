@@ -137,3 +137,6 @@ gold/*.jsonl
 # the list is itself a list of client identifiers, so it never enters git.
 # One regex per line; see .githooks/pre-commit section 2b.
 .githooks/client-identifiers.local
+
+# Eval output lists corpus file names and passage text. Local only (privacy rule 3).
+eval/results/
