@@ -1714,7 +1714,8 @@ def export_review_report(
     _require_identity_to_write(scope)
     require_document(body.document_id, scope)
     try:
-        path = review_mod.render_report(body.document_id)
+        path = review_mod.render_report(
+            body.document_id, allowed_document_ids=scope.allowed_document_ids)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "review document not found"))
