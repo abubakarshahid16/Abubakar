@@ -22,9 +22,8 @@ judged on structure. Rejection is reserved for text that is unrecoverable.
 from __future__ import annotations
 
 import re
-import unicodedata
 
-from . import ligatures
+from . import ligatures, numparse
 from . import symbols
 
 # Control characters that PDF symbol fonts leave behind. Kept as a module
@@ -60,7 +59,9 @@ def normalise_text(text: str) -> str:
     """
     if not text:
         return ""
-    text = unicodedata.normalize("NFKC", text)
+    # NFC plus an explicit map, NOT NFKC (audit F14): NFKC read the exponent in
+    # 10⁻⁶ as "10-6". See numparse.CHARACTER_MAP for what is rewritten.
+    text = numparse.normalise_text(text)
     text = text.replace("\x00", "")
     # keep \n and \t, drop the rest of the control range
     text = CONTROL_CHARS.sub(" ", text)

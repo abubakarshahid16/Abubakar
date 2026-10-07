@@ -25,7 +25,7 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
-from . import keyword, lexical
+from . import keyword, lexical, numparse
 from .sentence_guard import NOT_AN_ABBREVIATION
 
 NORMALIZER_VERSION = "1"
@@ -510,7 +510,7 @@ _NUMBER = r"\d+(?:[.,]\d+)?"
 #: A number followed by a unit token. Numbers glued to identifiers ("5.3.2",
 #: "8501-1", "P-101A") are filtered out afterwards by span overlap.
 _MEASUREMENT = re.compile(
-    r"(?<![\w.,/-])(?P<value>" + _NUMBER + r")(?![\d.,]*[.,]\d)\s?(?P<unit>"
+    r"(?<![\w.,/])(?P<value>" + _NUMBER + r")(?![\d.,]*[.,]\d)\s?(?P<unit>"
     # base word, optional one-digit power ("m3"), then EITHER a one-letter
     # bracket ("dB(A)") OR "/per" with its own optional power ("m3/h", "mm/s").
     r"[A-Za-zµμ°%][A-Za-z°]*(?:[0-9²³](?![0-9]))?"
@@ -554,73 +554,9 @@ def comparator_ending(text: str) -> str | None:
     return {"min": ">=", "max": "<="}.get(symbol, symbol)
 
 
-#: Characters a printed minus sign comes as. U+2212 is the typographic minus
-#: and is unambiguous. En/em dash are ALSO used as range separators, so they
-#: are a sign only when `parse_value` can see they are one (see there).
-_MINUS_SIGN = "\u2212"
-_DASH_CHARS = "\u2013\u2014"
-#: A space may group thousands only in the strict form "12 345 678".
-_SPACE_GROUPED = re.compile(r"\d{1,3}(?:[ \u00a0\u202f\u2009]\d{3})+(?:[.,]\d+)?")
-
-
-def parse_value(value_str: str) -> float | None:
-    """Parse a written number. Anything unparseable or ambiguous is None,
-    never a guess.
-
-    * Comma decimals ("9,0") are decimals - NORSOK writes them so. A comma
-      followed by exactly three digits ("1,200") is a thousands separator.
-    * Space may separate thousands ONLY as groups of exactly three digits after
-      a first group of 1-3 digits ("1 200", "12 345 678"). "34 3", "5 10" and
-      "1 2 3" are two or three numbers, not one: None.
-    * d.ddd with a leading integer part of 1-3 digits other than 0 and EXACTLY
-      three decimals ("4.000", "1.200", "12.345") is ambiguous between the
-      decimal 4.000 and the EU thousands 4,000: None. "0.125" (EU thousands
-      never start with 0), "6.89", "3.5" and "1234.567" are unambiguous. The
-      comparison then goes to NEEDS_ENGINEER_REVIEW rather than guessing.
-    * U+2212 is a minus. An en/em dash directly before the digits is a minus
-      only when it begins the value or follows whitespace or a comparator; a
-      dash separated from its digits ("- 29"), glued to a letter, or inside a
-      range ("29-343") is ambiguous: None.
-    """
-    s = (value_str or "").strip().replace(_MINUS_SIGN, "-")
-    m = re.fullmatch(r"(?P<cmp>[^\d]*?)\s*(?P<num>[-+]?\d[\d.,\s]*)", s)
-    if not m:
-        return None
-    prefix = s[:m.start("num")]
-    stripped = prefix.rstrip()
-    negative_dash = False
-    if stripped and stripped[-1] in "-" + _DASH_CHARS:
-        if prefix != stripped:
-            return None          # "- 29": dash separated from its digits
-        before = stripped[:-1]
-        if stripped[-1] in _DASH_CHARS:
-            if before and not (before[-1].isspace() or not before[-1].isalnum()):
-                return None      # "T\u201329": glued to a letter
-            negative_dash = True
-        else:
-            return None          # "x-29" / "- 29" with an ASCII hyphen: not a sign
-    num = m.group("num")
-    if re.search(r"\s", num):
-        if not _SPACE_GROUPED.fullmatch(num.lstrip("+-")):
-            return None
-        num = re.sub(r"\s", "", num)
-    sign = ""
-    if num[:1] in "+-":
-        sign, num = num[0], num[1:]
-    if negative_dash:
-        if sign:
-            return None
-        sign = "-"
-    if re.fullmatch(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?", num):
-        num = num.replace(",", "")
-    elif re.fullmatch(r"\d+,\d+", num):
-        num = num.replace(",", ".")
-    elif re.fullmatch(r"[1-9]\d{0,2}\.\d{3}", num):
-        return None
-    try:
-        return float(sign + num)
-    except ValueError:
-        return None
+#: The one number parser lives in `numparse` (W2, issue #445); this name stays
+#: because `comparison`, `datasheets`, `conditions` and `rule_eval` call it.
+parse_value = numparse.parse_value
 
 
 # ------------------------------------------------------------------ dataclasses
@@ -806,6 +742,13 @@ def extract_measurements(sentence: str) -> tuple[Measurement, ...]:
     found: list[Measurement] = []
     for m in _MEASUREMENT.finditer(sentence):
         start, end = m.span("value")
+        # The sign is numparse's. A dash that is a joiner or a range separator
+        # ("8501-1", "5-10 mm", "5 -10 mm") makes this no measurement, as it
+        # always did; a minus - ASCII, U+2212 or a Word en dash - is part of
+        # the value (it used to be dropped: "\u221229 mm" was read as +29 mm).
+        sign, begin = numparse.sign_before(sentence, start)
+        if start > 0 and sentence[start - 1] in numparse.DASH_LIKE and sign != "-":
+            continue
         inside = [(a, b) for a, b in spans if a <= start < b]
         if inside and not _is_measurement_not_code(sentence, inside, start, end, m.group("value")):
             continue
@@ -834,15 +777,16 @@ def extract_measurements(sentence: str) -> tuple[Measurement, ...]:
         if not sentence[m.end("value"):m.start("unit")] and len(unit) == 1                 and unit.isalpha():
             continue
         # A number introduced as a designator is a name, not a quantity.
-        if _DESIGNATOR_LEAD.search(sentence[:start]):
+        if _DESIGNATOR_LEAD.search(sentence[:begin]):
             continue
         # Nor is a percentage that names a submittal phase - see _PHASE_PERCENT.
         if unit == "%" and _PHASE_PERCENT.match(sentence[m.end("unit"):]):
             continue
-        prefix = sentence[:start].rstrip()
+        prefix = sentence[:begin].rstrip()
         cmp_match = re.search(r"(?:" + _COMPARATOR_RE + r")\s*$", prefix, re.IGNORECASE)
         comparator = parse_comparator(cmp_match.group(0)) if cmp_match else None
-        found.append(normalise(m.group("value"), unit, comparator))
+        found.append(normalise(("-" if sign == "-" else "") + m.group("value"),
+                               unit, comparator))
     return tuple(found)
 
 

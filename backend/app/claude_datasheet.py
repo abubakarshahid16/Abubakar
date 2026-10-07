@@ -46,7 +46,7 @@ import json
 import re
 from enum import Enum
 
-from . import blank_markers, claims, datasheets, submittal_review
+from . import blank_markers, claims, datasheets, numparse, submittal_review
 from .claude_spend import StopRun
 from .db import connect
 
@@ -169,14 +169,6 @@ def _fold(text: str) -> str:
     return re.sub(r"\s+", " ", str(text)).strip().lower()
 
 
-_THOUSANDS = re.compile(r"(?<=\d),(?=\d{3}(?!\d))")
-_NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
-
-
-def _fold_numbers(text: str) -> str:
-    return _THOUSANDS.sub("", _fold(text))
-
-
 def _contains(haystack: str, needle: str) -> bool:
     """Whole-word containment on already-folded text. `reader_api._contains`,
     with the same lookarounds, for the same reason: "design pressure" must
@@ -189,16 +181,9 @@ def _contains(haystack: str, needle: str) -> bool:
 
 def _value_in_quote(value, quote: str) -> bool:
     """Rule 2, tolerant of printing and of nothing else. "8,300" and "8300"
-    are the same number; "23.55" and "99.9" are not."""
-    quote_folded = _fold_numbers(quote)
-    value_folded = _fold_numbers(value)
-    if _contains(quote_folded, value_folded):
-        return True
-    try:
-        wanted = float(value_folded)
-    except ValueError:
-        return False
-    return any(float(found) == wanted for found in _NUMBER.findall(quote_folded))
+    are the same number; "23.55" and "99.9" are not; 5 is not "-5" and not
+    the 5 of "2.5" (audit F01-F03). `numparse.value_in_text`."""
+    return numparse.value_in_text(value, quote)
 
 
 #: Words in a field label that carry its meaning. Four letters or more, so
@@ -461,7 +446,7 @@ def _identity(p: dict) -> tuple:
     the row is imagined."""
     return (
         datasheets.normalise_field_name(p.get("field") or ""),
-        _fold_numbers(p.get("value") or ""),
+        numparse.fold_numbers(p.get("value") or ""),
         _fold(p.get("unit") or ""),
     )
 

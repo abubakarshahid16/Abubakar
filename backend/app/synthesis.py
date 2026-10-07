@@ -77,7 +77,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Literal, Protocol
 
-from . import assertions, context_budget
+from . import assertions, context_budget, numparse
 
 #: Sources are numbered for the model and cited back by number. Shared with
 #: answer.py via citations.py (zero dependencies beyond re), so this module
@@ -101,7 +101,6 @@ _ABBREVIATION_TAIL = re.compile(
 #: A sentence a reader could read. Anything without a letter or a digit is
 #: stray punctuation from the split, never prose that was removed.
 _HAS_SUBSTANCE = re.compile(r"[^\W_]", re.UNICODE)
-_NUMBER_TOKEN = re.compile(r"\d+(?:[.,]\d+)*")
 
 #: A unit a REAL number is written with. Used only to stop a reference range
 #: ("Sections 4 and 5") from swallowing a measurement that follows the
@@ -482,20 +481,13 @@ def _numbers(text: str) -> set[str]:
     A comma before exactly three digits is a thousands separator; a comma
     anywhere else is a decimal point, because NORSOK writes them that way.
     """
-    return {_normalise_number(token) for token in _NUMBER_TOKEN.findall(text)}
+    return {numparse.canonical(n) for n in numparse.find_numbers(text)}
 
 
 def _normalise_number(token: str) -> str:
-    """One number token in the form `_numbers` compares."""
-    cleaned = token
-    if re.fullmatch(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?", cleaned):
-        cleaned = cleaned.replace(",", "")
-    elif re.fullmatch(r"\d+,\d+", cleaned):
-        cleaned = cleaned.replace(",", ".")
-    try:
-        return repr(float(cleaned))
-    except ValueError:
-        return cleaned  # "5.3.2" is a clause number, compared as written
+    """One number token in the form `_numbers` compares (`numparse`). "5.3.2"
+    is a clause number and is compared as written."""
+    return numparse.canonical_token(token)
 
 
 def first_unsupported_value(sentence: str, span_numbers: set[str]) -> str | None:
@@ -503,9 +495,9 @@ def first_unsupported_value(sentence: str, span_numbers: set[str]) -> str | None
     MODEL WROTE IT - "300", not the normalised "300.0" - so the reason shown to
     a reader names the value they can see in the removed sentence."""
     held = strip_reference_numerals(_CITATION.sub("", sentence))
-    for token in _NUMBER_TOKEN.findall(held):
-        if _normalise_number(token) not in span_numbers:
-            return token
+    for n in numparse.find_numbers(held):
+        if numparse.canonical(n) not in span_numbers:
+            return n.raw
     return None
 
 
