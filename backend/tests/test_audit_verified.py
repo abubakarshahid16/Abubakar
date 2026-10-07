@@ -158,3 +158,26 @@ def test_verify_claims_keeps_an_image_only_sentence_unverified():
     assert clean == "The nameplate shows a stamp from the inspector [S1]."
     assert verification["verified"] == 0 and verification["image_only"] == 1
     assert claims == [] and removed == 0
+
+
+# ---- a quote the model shortened with an ellipsis (found live, 7 Oct 2026)
+_ELL_PAGE = ("STD-A-001 Definitions PWHT: Post-Weld Heat Treatment "
+             "PMI: Positive Material Identification - Verification that the "
+             "nominal chemical composition is met")
+
+
+def test_trailing_ellipsis_quote_is_checked_on_the_words_before_it():
+    assert claim_quote_verified("PWHT: Post-Weld Heat Treatment PMI: Positive ...", _ELL_PAGE)
+    assert claim_quote_verified("PWHT: Post-Weld Heat Treatment …", _ELL_PAGE)
+
+
+def test_ellipsis_fragments_must_appear_in_order_on_the_page():
+    assert claim_quote_verified("Post-Weld Heat Treatment ... nominal chemical composition", _ELL_PAGE)
+    assert not claim_quote_verified("nominal chemical composition ... Post-Weld Heat Treatment", _ELL_PAGE)
+
+
+def test_ellipsis_cannot_launder_a_short_or_invented_quote():
+    assert not claim_quote_verified("the ... is", _ELL_PAGE)                 # too little left
+    assert not claim_quote_verified("Post-Weld Heat Treatment ... of 999 barg", _ELL_PAGE)
+    assert not claim_quote_verified("Post-Weld ... Treatment", _ELL_PAGE)    # 2 words total
+    assert not claim_quote_verified("Post-Weld Heat Treatment ... barg", _ELL_PAGE)  # 1-word piece
