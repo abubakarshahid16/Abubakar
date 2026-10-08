@@ -1,9 +1,10 @@
 """P1: the labelled question set blocks a change that lowers the score.
 
 The set (eval/p1/questions.json, version 2) is 60 invented-name questions run
-through the real chat on an invented eleven-document corpus, no model call. A question that
-passes in eval/p1/baseline.json must keep passing, and no unanswerable
-question may start getting an answer. The score may rise; it may not fall.
+through the real chat on an invented eleven-document corpus, no model call.
+The gate (owner decision 2026-10-08, `gate` in eval/p1/baseline.json): at
+least 37 of the 60 pass, and all 23 version 1 questions that passed still
+pass. No unanswerable question may start getting an answer.
 
 Raise the bar after an improvement with:
     python eval/p1/run_p1.py --write-baseline
@@ -73,6 +74,39 @@ def test_an_improvement_and_a_known_failure_do_not_block():
     rows = [_row("A", True, clause_ok=True), _row("B", True), _row("C", True),
             _row("U", False, answerable=False, answered=True)]
     assert harness.compare_with_baseline(rows, BASE) == []
+
+
+GATED = {"passing": ["A", "B"], "clause_passing": ["A", "B"], "failing_known": [],
+         "gate": {"min_passing": 2, "protected": ["A"]}}
+
+
+def test_with_a_gate_an_unprotected_question_may_trade_places():
+    """B passed in the baseline and fails now, C passes instead: the total
+    holds and A (protected) holds, so the change is not blocked."""
+    rows = [_row("A", True, clause_ok=True), _row("B", False, clause_ok=False),
+            _row("C", True)]
+    assert harness.compare_with_baseline(rows, GATED) == []
+
+
+def test_with_a_gate_a_protected_question_that_fails_blocks():
+    rows = [_row("A", False), _row("B", True), _row("C", True)]
+    assert any(r.startswith("A passed") for r in harness.compare_with_baseline(rows, GATED))
+
+
+def test_with_a_gate_a_total_below_the_minimum_blocks():
+    rows = [_row("A", True, clause_ok=True), _row("B", False), _row("C", False)]
+    reasons = harness.compare_with_baseline(rows, GATED)
+    assert any("the gate needs at least 2" in r for r in reasons), reasons
+
+
+def test_the_committed_gate_is_37_of_60_with_the_23_original_passes():
+    """The README states this gate; the file it is enforced from must agree."""
+    base = harness.load_baseline()
+    gate = base["gate"]
+    assert gate["min_passing"] == 37 and base["total"][1] == 60
+    assert len(gate["protected"]) == 23
+    assert all(int(q.split("-")[1]) <= 30 for q in gate["protected"])
+    assert set(gate["protected"]) <= set(base["passing"])
 
 
 _MULTI = {"id": "M", "answerable": True, "expected_sources": [
