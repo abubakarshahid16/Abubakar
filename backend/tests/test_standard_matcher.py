@@ -13,6 +13,10 @@ is invented test data (a filename and a document number, no document text).
 
 from __future__ import annotations
 
+import json
+import re
+from pathlib import Path
+
 import pytest
 
 from app import (
@@ -218,3 +222,101 @@ def test_the_contractual_gate_matches_the_cited_spelling_not_a_prefix():
     summary = {"referenced_standards": ["API RP 520 Pt-1", "API 65"]}
     assert claude_selection.is_referenced("API 520 Part I", summary)
     assert not claude_selection.is_referenced("API 650", summary)
+
+
+# ============ generic: bodies the matcher has no special case for (#621 review)
+#
+# None of these is in the library fixture above or in any bug report: they
+# prove the GENERAL shape (issuing body + number + optional part, year
+# ignored) and the vocabulary file, not a list of remembered spellings.
+
+UNSEEN = [
+    # (cited as, family, number, part)
+    ("IEC 61511-1", "IEC", "61511", "1"),
+    ("IEC 61511 Part 1", "IEC", "61511", "1"),
+    ("BS EN 13445-3", "EN", "13445", "3"),
+    ("EN 13445 Part 3", "EN", "13445", "3"),
+    ("ISA 84.00.01", "ISA", "84.00.01", None),
+    ("ANSI/ISA-84.00.01", "ISA", "84.00.01", None),
+    ("ISO 10418:2019", "ISO", "10418", None),
+    ("ASME B31.3-2022", "ASME B", "31.3", None),
+]
+
+
+@pytest.mark.parametrize(("cited", "family", "number", "part"), UNSEEN)
+def test_an_unseen_standard_is_recognised_as_an_identifier(cited, family, number, part):
+    assert standard_ids.parse(cited) == standard_ids.StandardId(family, number, part)
+
+
+#: Invented library files for those standards, each named the way a file is
+#: usually saved - not the way it is cited.
+UNSEEN_LIBRARY = [
+    _entry("iec_2", "IEC-61511-2.pdf"),
+    _entry("iec_1", "IEC 61511-1 Ed2 2016.pdf"),
+    _entry("en_4", "BS EN 13445-4 2021.pdf"),
+    _entry("en_3", "BS EN 13445-3 2021.pdf"),
+    _entry("isa", "ANSI-ISA-84.00.01-2004.pdf", "ISA 84.00.01"),
+    _entry("iso", "ISO 10418 2019.pdf"),
+    _entry("b313", "ASME B31.3-2022 Process Piping.pdf"),
+]
+_UNSEEN_EXPECTED = {"IEC 61511-1": "iec_1", "IEC 61511 Part 1": "iec_1", "BS EN 13445-3": "en_3",
+                    "EN 13445 Part 3": "en_3", "ISA 84.00.01": "isa", "ANSI/ISA-84.00.01": "isa",
+                    "ISO 10418:2019": "iso", "ASME B31.3-2022": "b313"}
+
+
+@pytest.mark.parametrize("cited", [row[0] for row in UNSEEN])
+def test_an_unseen_standard_finds_its_document_when_one_is_held(cited):
+    assert _found(cited, UNSEEN_LIBRARY) == _UNSEEN_EXPECTED[cited]
+
+
+@pytest.mark.parametrize("cited", [row[0] for row in UNSEEN])
+def test_an_unseen_standard_is_listed_missing_when_no_document_is_held(cited):
+    unrelated = [_entry("api650", "API-650.pdf"), _entry("iec_2", "IEC-61511-2.pdf"),
+                 _entry("en_4", "BS EN 13445-4.pdf"), _entry("b314", "ASME B31.4.pdf")]
+    assert applicability.missing_references(unrelated, [cited]) == [cited]
+    assert applicability.missing_references(UNSEEN_LIBRARY, [cited]) == []
+
+
+# ============ the equivalences are DATA, not code
+
+def test_no_equivalence_is_written_in_the_matcher_code():
+    source = (Path(standard_ids.__file__)).read_text(encoding="utf-8")
+    code = "\n".join(line for line in source.splitlines() if not line.lstrip().startswith("#"))
+    code_without_docstrings = re.sub(r'"""[\s\S]*?"""', "", code)
+    for token in ("MR0175", "15156", "BS EN", "DIN EN", "ANSI/ISA", '"RP"', '"STD"'):
+        assert token not in code_without_docstrings, f"{token} is hard-coded in standard_ids.py"
+
+
+@pytest.fixture
+def vocabulary_file(tmp_path, monkeypatch):
+    """A copy of the vocabulary file the test may edit; caches reset around it."""
+    original = json.loads(standard_ids.VOCABULARY_PATH.read_text(encoding="utf-8"))
+    path = tmp_path / "standard_identifiers.json"
+    monkeypatch.setattr(standard_ids, "VOCABULARY_PATH", path)
+
+    def write(data):
+        path.write_text(json.dumps(data), encoding="utf-8")
+        standard_ids.reload_vocabulary()
+    write(original)
+    yield original, write
+    monkeypatch.undo()
+    standard_ids.reload_vocabulary()
+
+
+def test_editing_the_vocabulary_file_changes_what_is_one_standard(vocabulary_file):
+    original, write = vocabulary_file
+    assert standard_ids.same_standard("NACE MR0175", "ISO 15156")
+    assert standard_ids.same_standard("BS EN 13445-3", "EN 13445 Part 3")
+    write({**original, "equivalent": [], "body_aliases": {}})
+    assert not standard_ids.same_standard("NACE MR0175", "ISO 15156")
+    assert not standard_ids.same_standard("BS EN 13445-3", "EN 13445 Part 3")
+    write({**original, "equivalent": [["IEC 61511", "ISA 84.00.01"]]})
+    assert standard_ids.same_standard("ANSI/ISA-84.00.01", "IEC 61511")
+
+
+def test_the_api_document_words_come_from_the_vocabulary_file(vocabulary_file):
+    original, write = vocabulary_file
+    assert standard_ids.same_standard("API RP 520 Pt-1", "API 520 Part 1")
+    write({**original, "api_document_words": []})
+    assert standard_ids.parse("API RP 520 Pt-1") is None or not standard_ids.same_standard(
+        "API RP 520 Pt-1", "API 520 Part 1")

@@ -15,11 +15,20 @@ own way, and two of the ways were wrong in opposite directions:
   review never used API 520.
 
 So an identifier is PARSED into (family, number, part) instead of compared as a
-string:
+string. HOW: one GENERAL shape - issuing body (ANSI/ISA allowed), optional
+series letters, a whole number, an optional part or division, any year
+ignored - reads every body it has never seen (IEC 61511-1, EN 13445 Part 3,
+ISA 84.00.01, ...). Six families whose layout differs (API, ASME B, ASME BPVC
+sections, ISO, NACE, and the SAES/SAMSS company series) have their own SHAPE.
+No equivalence is written in code: which names are one standard (NACE MR0175 =
+ISO 15156), which body prefixes adopt another's standard (BS EN = EN) and which
+words after "API" are not identity all live in the editable file
+`reference/standard_identifiers.json`.
 
 - the family absorbs the ways engineers write it: "API RP 520", "API Std 520",
   "API-520" are API 520; "Section VIII Div 1", "Sec VIII Div. 1", "BPVC VIII-1"
-  are ASME BPVC VIII division 1; NACE MR0175 and ISO 15156 are one standard;
+  are ASME BPVC VIII division 1; NACE MR0175 and ISO 15156 are one standard
+  (from the file); BS EN 13445-3 is EN 13445 Part 3 (from the file);
 - the number is compared WHOLE: 65, 650 and 6500 are three standards;
 - a part or division must agree when BOTH sides state one (Part I is not
   Part II); when only one side states it, a citation of part of a standard is
@@ -31,9 +40,11 @@ punctuation-free key - never a prefix.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from functools import lru_cache
+from pathlib import Path
 
 _DASHES = re.compile(r"[‐-―−]")
 #: A number ends here: no more digits, and no decimal point followed by a digit
@@ -48,6 +59,30 @@ _PART = (r"(?:\s*,?\s*(?:PART|PT)\.?\s*-?\s*(?P<part>\d{1,2}|[IVX]{1,4})\b"
          r"|-(?P<dpart>\d{1,2}|[IVX]{1,4})\b)?")
 
 
+#: THE EDITABLE PART: which names are one standard, which body prefixes adopt
+#: another body's standard, and which words after "API" are not identity. Code
+#: below holds only shapes; an equivalence lives in this file (#452).
+VOCABULARY_PATH = Path(__file__).parent / "reference" / "standard_identifiers.json"
+
+
+@lru_cache(maxsize=1)
+def vocabulary() -> dict:
+    """The editable vocabulary, read once. Keys upper-cased; see the file's _comment."""
+    data = json.loads(VOCABULARY_PATH.read_text(encoding="utf-8"))
+    return {
+        "equivalent": [list(group) for group in data.get("equivalent") or []],
+        "body_aliases": {k.upper(): v.upper() for k, v in (data.get("body_aliases") or {}).items()},
+        "api_document_words": [w.upper() for w in data.get("api_document_words") or []],
+    }
+
+
+def reload_vocabulary() -> None:
+    """Forget the cached vocabulary and every parse made with it. A test (or a
+    future admin edit) that rewrites the file calls this."""
+    for cached in (vocabulary, _specific, _equivalences, parse_all):
+        cached.cache_clear()
+
+
 @dataclass(frozen=True)
 class StandardId:
     """A parsed standard identifier. `part` is a part or division number, or None."""
@@ -57,7 +92,8 @@ class StandardId:
 
     @property
     def identity(self) -> tuple[str, str]:
-        return _EQUIVALENT.get((self.family, self.number), (self.family, self.number))
+        """(family, number), after the equivalences in the vocabulary file."""
+        return _equivalences().get((self.family, self.number), (self.family, self.number))
 
     def key(self) -> str:
         """One stable comparison key, for de-duplicating and sorting."""
@@ -65,9 +101,21 @@ class StandardId:
         return f"{family} {number}" + (f" PART {self.part}" if self.part else "")
 
 
-#: Two designations of ONE standard. NACE MR0175 was re-issued as ISO 15156 and
-#: is cited both ways ("NACE MR0175/ISO 15156").
-_EQUIVALENT = {("NACE", "MR0175"): ("ISO", "15156")}
+@lru_cache(maxsize=1)
+def _equivalences() -> dict[tuple[str, str], tuple[str, str]]:
+    """(family, number) -> the canonical (family, number), from `equivalent`.
+    Each name in the file is read by this module's own parser, so the file is
+    written the way engineers write identifiers, not in an internal format."""
+    out: dict[tuple[str, str], tuple[str, str]] = {}
+    for group in vocabulary()["equivalent"]:
+        idents = [parse(name) for name in group]
+        if not idents or idents[0] is None:
+            continue
+        canonical = (idents[0].family, idents[0].number)
+        for ident in idents[1:]:
+            if ident is not None:
+                out[(ident.family, ident.number)] = canonical
+    return out
 
 
 def _arabic(token: str | None) -> str | None:
@@ -111,29 +159,40 @@ def _samss(m: re.Match) -> StandardId:
     return StandardId("SAMSS", f"{int(m.group('cat')):02d}-{int(m.group('num')):03d}")
 
 
-#: Families with a known shape, found ANYWHERE in the text. A number is read
-#: whole and must not run on into more digits or a decimal point.
-_SPECIFIC: list[tuple[re.Pattern, object]] = [
-    (re.compile(r"\b(?P<cat>\d{2})[-\s]*SAMSS[-\s]*(?P<num>\d{1,4})(?!\d)"), _samss),
-    (re.compile(r"\bSAES[-\s]*(?P<letter>[A-Z])[-\s]*(?P<num>\d{1,4})(?!\d)"), _saes),
-    (re.compile(r"\b(?:NACE[-\s]*(?:STANDARD|STD\.?)?[-\s]*(?P<series>MR|TM|SP|RP)|(?P<series_bare>MR))"
-                r"[-\s]?(?P<num>\d{4})(?!\d)"), _nace),
-    (re.compile(r"\bISO[-\s]*(?P<num>\d{3,5})" + _END + _PART), _iso),
-    (re.compile(r"\b(?:ASME|ANSI)(?:\s*/\s*ANSI)?[-\s]*B[-\s]*(?P<num>\d{1,2}(?:\.\d{1,3}){1,2})" + _END),
-     _asme_b),
-    (re.compile(r"\bASME[-\s]*(?:BPVC[-\s]*)?,?\s*(?:SEC(?:TION)?\.?[-\s]*)?"
-                r"(?P<sec>XII|XI|X|IX|VIII|VII|VI|V|IV|III|II|I)\b"
-                r"(?:\s*,?\s*DIV(?:ISION)?\.?[-\s]*(?P<div>\d)\b|-(?P<ddiv>\d)\b)?"), _asme_section),
-    (re.compile(r"\bAPI[-\s]*(?:(?:RP|STD|STANDARD|SPEC|PUBL|MPMS|BULL|TR)\.?[-\s]*)?"
-                r"(?P<num>\d{1,4}[A-Z]{0,2})" + _END + _PART), _api),
-]
+@lru_cache(maxsize=1)
+def _specific() -> list[tuple[re.Pattern, object]]:
+    """Families whose SHAPE differs from the general one, found ANYWHERE in the
+    text: where their section, division or company series sits. Shapes only -
+    no equivalence and no word list is written here (API's document words come
+    from the vocabulary file). A number is read whole: it must not run on into
+    more digits or a decimal point."""
+    api_words = "|".join(re.escape(w) for w in vocabulary()["api_document_words"]) or "(?!)"
+    return [
+        (re.compile(r"\b(?P<cat>\d{2})[-\s]*SAMSS[-\s]*(?P<num>\d{1,4})(?!\d)"), _samss),
+        (re.compile(r"\bSAES[-\s]*(?P<letter>[A-Z])[-\s]*(?P<num>\d{1,4})(?!\d)"), _saes),
+        (re.compile(r"\b(?:NACE[-\s]*(?:STANDARD|STD\.?)?[-\s]*(?P<series>MR|TM|SP|RP)|(?P<series_bare>MR))"
+                    r"[-\s]?(?P<num>\d{4})(?!\d)"), _nace),
+        (re.compile(r"\bISO[-\s]*(?P<num>\d{3,5})" + _END + _PART), _iso),
+        (re.compile(r"\b(?:ASME|ANSI)(?:\s*/\s*ANSI)?[-\s]*B[-\s]*(?P<num>\d{1,2}(?:\.\d{1,3}){1,2})" + _END),
+         _asme_b),
+        (re.compile(r"\bASME[-\s]*(?:BPVC[-\s]*)?,?\s*(?:SEC(?:TION)?\.?[-\s]*)?"
+                    r"(?P<sec>XII|XI|X|IX|VIII|VII|VI|V|IV|III|II|I)\b"
+                    r"(?:\s*,?\s*DIV(?:ISION)?\.?[-\s]*(?P<div>\d)\b|-(?P<ddiv>\d)\b)?"), _asme_section),
+        (re.compile(r"\bAPI[-\s]*(?:(?:" + api_words + r")\.?[-\s]*)?"
+                    r"(?P<num>\d{1,4}[A-Z]{0,2})" + _END + _PART), _api),
+    ]
 
-#: Anything else (NFPA 20, IEEE 1584, MSS SP 58, PIP VEFV1100, KOC-ME-003,
-#: the invented STD-A-001): a family word, optional series letters, a whole
-#: number. Read only at the START of the text, where a citation or a library
-#: filename puts the identifier, so a number later in a title is never taken.
+
+#: THE GENERAL SHAPE, for every other body (IEC 61511-1, EN 13445 Part 3,
+#: ISA 84.00.01, NFPA 20, IEEE 1584, MSS SP 58, PIP VEFV1100, KOC-ME-003, the
+#: invented STD-A-001): issuing body (one word, or two joined by "/" as in
+#: ANSI/ISA), optional series letters (BS EN, MSS SP), a whole number (dotted
+#: allowed: 84.00.01), optional part or division; a trailing year (":2019",
+#: "-2022", " 2021") is not part of the identity and is ignored. Read only at
+#: the START of the text, where a citation or a library filename puts the
+#: identifier, so a number later in a title is never taken.
 _GENERIC = re.compile(
-    r"^\s*(?P<fam>[A-Z]{2,6})(?P<series>(?:[-\s]*[A-Z]{1,4}(?=[-\s]*\d))?)[-\s]*"
+    r"^\s*(?P<fam>[A-Z]{2,6}(?:/[A-Z]{2,6})?)(?P<series>(?:[-\s]*[A-Z]{1,4}(?=[-\s]*\d))?)[-\s]*"
     r"(?P<num>\d{1,5}(?:\.\d{1,3})*[A-Z]?)" + _END + _PART)
 
 
@@ -147,7 +206,7 @@ def parse_all(text: str) -> tuple[StandardId, ...]:
     clean = _clean(text)
     found: list[tuple[int, StandardId]] = []
     taken: list[tuple[int, int]] = []
-    for pattern, build in _SPECIFIC:
+    for pattern, build in _specific():
         for m in pattern.finditer(clean):
             if any(s < m.end() and m.start() < e for s, e in taken):
                 continue  # already read by a more specific family
@@ -157,6 +216,9 @@ def parse_all(text: str) -> tuple[StandardId, ...]:
         m = _GENERIC.match(clean)
         if m:
             family = m.group("fam") + (" " + re.sub(r"[-\s]", "", m.group("series")) if m.group("series").strip("- ") else "")
+            # A national adoption is the adopted standard (BS EN 13445 = EN 13445):
+            # the vocabulary file's body_aliases, never a list in code.
+            family = vocabulary()["body_aliases"].get(family, family)
             number = m.group("num")
             number = str(int(number)) if number.isdigit() else number
             found.append((m.start(), StandardId(family, number, _part(m))))
