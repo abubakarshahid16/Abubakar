@@ -152,3 +152,89 @@ def test_a_cited_iec_standard_is_selected_when_held_and_listed_missing_when_not(
     assert referenced == [std]
     assert [m["identifier"] for m in result["missing_references"]] == [
         "BS EN 13445-3", "ANSI/ISA-84.00.01", "ISO 10418"]
+
+
+# ============ live check 2026-10-08 (#628 review): two more /api/standards/missing cases
+
+# ---- 1. separators between number groups: dot, hyphen, space, underscore
+
+B16_47_FILE = "asme-b16-47-2011-large-diameter-steel-flanged.pdf"
+
+
+@pytest.mark.parametrize("cited", ["ASME B16.47", "ASME B16-47", "ASME B16 47", "ASME_B16_47"])
+def test_a_library_file_named_with_hyphens_and_no_metadata_matches_every_spelling(cited):
+    held = [{"id": "b1647", "filename": B16_47_FILE, "document_number": None, "title": None}]
+    assert applicability.find_standard(held, cited) is not None
+    assert applicability.missing_references(held, [cited]) == []
+
+
+@pytest.mark.parametrize("cited", ["ASME B16.5", "ASME B16.4", "ASME B16.470", "ASME B16"])
+def test_the_hyphen_named_file_is_still_not_a_different_number(cited):
+    held = [{"id": "b1647", "filename": B16_47_FILE, "document_number": None, "title": None}]
+    assert applicability.find_standard(held, cited) is None
+
+
+@pytest.mark.parametrize(("a", "b", "same"), [
+    ("ISA-84-00-01", "ISA 84.00.01", True),     # the same rule for any family
+    ("ISA_84_00_01", "ISA 84.00.01", True),
+    ("API 65", "API-650.pdf", False),           # numbers still whole
+    ("API 6500", "API 650", False),
+    ("IEC 61511-1", "IEC 61511-2", False),      # a stated part still decides
+    ("EN 13445-3", "EN 13445 Part 4", False),
+])
+def test_number_group_separators_are_spelling_but_numbers_stay_whole(a, b, same):
+    assert standard_ids.same_standard(a, b) is same
+    assert standard_ids.same_standard(b, a) is same
+
+
+
+@pytest.mark.parametrize("text", ["Large flanges to ASME B16-47 Series A", "Large flanges to ASME B16 47 Series A"])
+def test_a_hyphen_or_space_written_asme_number_is_read_in_running_text(text):
+    assert len(datasheets.referenced_standards(text)) == 1
+    assert standard_ids.same_standard(datasheets.referenced_standards(text)[0], "ASME B16.47")
+
+def test_a_hyphen_named_held_file_is_used_by_the_review(temp_storage):
+    std = _doc("std_b1647", B16_47_FILE, "COMPANY_STANDARD")
+    sub = _doc("sub", "flanges.pdf", "CONTRACTOR_SUBMITTAL", text="Large flanges to ASME B16.47 Series A.")
+    result = applicability.select(sub, allowed_document_ids=frozenset({std, sub}), persist=False)
+    assert [s["standard_document_id"] for s in result["selected"]
+            if s["method"] == applicability.METHOD_REFERENCED] == [std]
+    assert result["missing_references"] == []
+
+
+# ---- 2. plain words and abbreviations are not standards
+
+@pytest.mark.parametrize("text", [
+    "HVAC per CMP", "the P&ID and PSV list", "HVAC, CMP, P&ID, PSV, MCC, VFD and UPS",
+    "PSV set at 10 barg per P&ID", "CMP 25 and HVAC 30 units", "PSV 4303 and MCC 12",
+])
+def test_plain_words_and_abbreviations_are_not_citations(text):
+    assert datasheets.referenced_standards(text) == []
+
+
+def _requirement(req_id: str, standard_document_id: str, *, text: str) -> None:
+    with db.connect() as conn:
+        conn.execute(
+            """INSERT INTO standard_requirements
+                (id, standard_document_id, clause, page, requirement_text,
+                 source_text, category, requirement_type, extraction_method,
+                 created_at, updated_at)
+               VALUES (?,?,'5.1',3,?,?,'requirement','applicability_trigger','test',
+                       '2026-10-08T00:00:00Z','2026-10-08T00:00:00Z')""",
+            (req_id, standard_document_id, text, text))
+
+
+def test_a_deferral_to_a_plain_word_is_not_a_missing_standard(temp_storage):
+    """`cited_document` takes any upper-case designation, so "HVAC" and "CMP"
+    after "in accordance with" were listed as missing standards. Only what the
+    citation reader recognises - a body and a number - may be listed; a real
+    standard in the same kind of sentence still is."""
+    from app import standards_inventory
+    std = _doc("std_own", "SAES-K-001.pdf", "COMPANY_STANDARD")
+    _requirement("r1", std, text="Ventilation shall be designed in accordance with HVAC.")
+    _requirement("r2", std, text="Compressors shall be in accordance with CMP.")
+    _requirement("r3", std, text="Relief valves shall be sized in accordance with IEC 61511-1.")
+    missing = [row["identifier"] for row in standards_inventory.cited_but_not_held(
+        allowed_document_ids=frozenset({std}))]
+    assert "IEC 61511-1" in missing
+    assert "HVAC" not in missing and "CMP" not in missing

@@ -54,7 +54,7 @@ import re
 from dataclasses import dataclass
 from typing import Sequence
 
-from . import datasheets, db, standards
+from . import datasheets, db, standard_ids, standards
 from .db import connect, schema_once
 
 # --------------------------------------------------------------- vocabulary
@@ -528,6 +528,16 @@ def _requirement_citations(*, allowed_document_ids: frozenset[str]) -> list[dict
         identifier = cited_document(row["text"] or "")
         if identifier is None:
             continue
+        # A deferral names A DOCUMENT; only one the citation reader recognises
+        # as a standard - an issuing body and a number (#623) - can be held or
+        # missing. `cited_document` takes any upper-case designation, so "HVAC"
+        # or "CMP" after "in accordance with" was listed as a missing standard.
+        # The designation itself first, else the first standard the sentence
+        # names ("per the HVAC design guide, SAES-K-001" names SAES-K-001).
+        found = standard_ids.find_citations(identifier) or standard_ids.find_citations(row["text"] or "")
+        if not found:
+            continue
+        identifier = found[0][0]
         out.append({
             "identifier": identifier, "source_type": "requirement",
             "document_id": row["standard_document_id"],

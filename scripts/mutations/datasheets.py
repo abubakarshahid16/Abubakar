@@ -102,7 +102,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         # Re-anchored 2026-10-08 (#623): the ASME B shape is in standard_ids;
         # the shape becomes the bare family letter "ASME B", read again.
         path=APP / "standard_ids.py",
-        anchor=r'B[-\s]*(?P<num>\d{1,2}(?:\.\d{1,3}){1,2})" + _END),',
+        anchor=r'B[-\s]*(?P<num>\d{1,2}(?:(?:\.\d{1,3}){1,2}|[-_ ]\d{1,3}(?![\d.])))" + _END),',
         replacement=r'B(?P<num>)\b"),',
         target="tests/test_reference_identifiers.py",
         keyword="bare_asme_family_letter or incomplete_asme_reference",

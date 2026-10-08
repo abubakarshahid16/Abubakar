@@ -42,7 +42,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
@@ -92,6 +92,14 @@ class StandardId:
     family: str
     number: str
     part: str | None = None
+    #: The number read with a short trailing group as its decimal ("ASME-B16-47"
+    #: is B16.47, not B16 Part 47). Not part of equality: it is an ALTERNATIVE
+    #: reading `same_identifier` also tries, never a second identity.
+    alt: str | None = field(default=None, compare=False)
+
+    def readings(self) -> tuple["StandardId", ...]:
+        """This identifier, and its alternative reading when it has one."""
+        return (self,) if self.alt is None else (self, StandardId(self.family, self.alt))
 
     @property
     def identity(self) -> tuple[str, str]:
@@ -144,7 +152,9 @@ def _api(m: re.Match) -> StandardId:
 
 
 def _asme_b(m: re.Match) -> StandardId:
-    return StandardId("ASME B", m.group("num"))
+    # "B16-47", "B16_47" and "B16 47" are B16.47: the separator between the
+    # number groups is spelling, the digits are the identity.
+    return StandardId("ASME B", re.sub(r"[-_ ]", ".", m.group("num")))
 
 
 def _asme_section(m: re.Match) -> StandardId:
@@ -182,7 +192,7 @@ def _specific() -> list[tuple[re.Pattern, object]]:
         (re.compile(r"\b(?:NACE[-\s]*(?:STANDARD|STD\.?)?[-\s]*(?P<series>MR|TM|SP|RP)|(?P<series_bare>MR))"
                     r"[-\s]?(?P<num>\d{4})(?!\d)"), _nace),
         (re.compile(r"\bISO[-\s]*(?P<num>\d{3,5})" + _END + _PART), _iso),
-        (re.compile(r"\b(?:ASME|ANSI)(?:\s*/\s*ANSI)?[-\s]*B[-\s]*(?P<num>\d{1,2}(?:\.\d{1,3}){1,2})" + _END),
+        (re.compile(r"\b(?:ASME|ANSI)(?:\s*/\s*ANSI)?[-\s]*B[-\s]*(?P<num>\d{1,2}(?:(?:\.\d{1,3}){1,2}|[-_ ]\d{1,3}(?![\d.])))" + _END),
          _asme_b),
         (re.compile(r"\bASME[-\s]*(?:BPVC[-\s]*)?,?\s*(?:SEC(?:TION)?\.?[-\s]*)?"
                     r"(?P<sec>XII|XI|X|IX|VIII|VII|VI|V|IV|III|II|I)\b"
@@ -206,7 +216,15 @@ _GENERIC = re.compile(
 
 
 def _clean(text: str) -> str:
-    return _DASHES.sub("-", " ".join((text or "").split())).upper()
+    # An underscore is a space: library filenames use it between words and
+    # between number groups ("asme_b16_47").
+    return _DASHES.sub("-", " ".join((text or "").replace("_", " ").split())).upper()
+
+
+#: Short digit groups right after a general-shape number, joined by a hyphen or
+#: a space: "-47" of "ASME-B16-47", "-00-01" of "ISA-84-00-01". Each group at
+#: most three digits and complete, so an edition year ("-2011") is never one.
+_NUMBER_TAIL = re.compile(r"(?:[-\s]\d{1,3}(?![\d.]))+")
 
 
 @lru_cache(maxsize=4096)
@@ -230,7 +248,11 @@ def parse_all(text: str) -> tuple[StandardId, ...]:
             family = vocabulary()["body_aliases"].get(family, family)
             number = m.group("num")
             number = str(int(number)) if number.isdigit() else number
-            found.append((m.start(), StandardId(family, number, _part(m))))
+            # "ASME-B16-47" is read as B16 Part 47 by the part rule; the same
+            # digits may equally be B16.47. Both readings are kept (`alt`).
+            tail = _NUMBER_TAIL.match(clean, m.end("num"))
+            alt = (number + "." + ".".join(re.findall(r"\d+", tail.group(0)))) if tail else None
+            found.append((m.start(), StandardId(family, number, _part(m), alt)))
     return tuple(ident for _, ident in sorted(found, key=lambda pair: pair[0]))
 
 
@@ -252,8 +274,11 @@ def key(text: str) -> str:
 
 
 def same_identifier(a: StandardId, b: StandardId) -> bool:
-    """Same standard; a part or division must agree only when both state one."""
-    return a.identity == b.identity and (a.part is None or b.part is None or a.part == b.part)
+    """Same standard; a part or division must agree only when both state one.
+    Each side's alternative reading is tried too ("ASME-B16-47" = "ASME B16.47");
+    numbers are still whole, so API 65 is never API 650."""
+    return any(x.identity == y.identity and (x.part is None or y.part is None or x.part == y.part)
+               for x in a.readings() for y in b.readings())
 
 
 def same_standard(cited: str, other: str) -> bool:
