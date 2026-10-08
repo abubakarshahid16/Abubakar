@@ -172,7 +172,13 @@ def test_a_definition_never_becomes_a_check():
     cited = {f["requirement_id"] for f in again["findings"]}
     assert control in cited
     assert definition not in cited
-    assert again["requirements_excluded"] == {"definition": 1}
+    # Since #614, `standards.list_requirements` drops definitions before the
+    # run reaches the gate, so the run no longer counts one as excluded. The
+    # gate's own rule is still the second guard, proven on its own here.
+    out = table_gate.gate([{"id": "d", "requirement_type": "definition"},
+                           {"id": "k", "requirement_type": "numeric_limit"}], [])
+    assert [r["id"] for r in out["kept"]] == ["k"]
+    assert out["excluded"] == {"definition": 1}
 
 
 def test_unconfirmed_garbled_text_is_never_a_check_but_a_confirmed_row_is():
