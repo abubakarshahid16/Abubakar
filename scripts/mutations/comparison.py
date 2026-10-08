@@ -805,8 +805,9 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "cannot tell other documents are needed",
         path=APP / "comparison.py",
         # Re-anchored 2026-09-27 (CRS quick wins): `_out_of_scope_reason`.
-        anchor='            "reason": _out_of_scope_reason(findings),',
-        replacement='            "reason": "Manual review required",',
+        # Re-anchored 2026-10-08 (#450): the sentence now also counts blanks.
+        anchor='            "reason": _out_of_scope_reason(findings) + (',
+        replacement='            "reason": "Manual review required" + (',
         target="tests/test_comparison.py",
         keyword="never_approve",
         tags=("honesty",),
@@ -900,9 +901,12 @@ MUTATIONS: tuple[Mutation, ...] = (
         path=APP / "comparison.py",
         # Re-anchored 2026-09-27 (CRS quick wins): one level deeper, inside
         # the per-item loop.
-        anchor="            if fact is None and verdict.get(\"status\") == MISSING_INFORMATION:\n"
-               "                verdict = qualify_by_pages(verdict, pages_read)\n",
-        replacement="",
+        # Re-anchored 2026-10-08 (#450): the call now sits in the `else` of the
+        # pairing-not-checked branch.
+        anchor="                else:\n"
+               "                    verdict = qualify_by_pages(verdict, pages_read)\n",
+        replacement="                else:\n"
+                    "                    verdict = verdict\n",
         target=_B3_TEST, keyword="not_called_the_contractors_omission or decides_the_code",
         tags=("honesty", "critical"),
     ),

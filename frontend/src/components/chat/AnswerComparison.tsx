@@ -70,8 +70,11 @@ export function ComparisonAnswer({
         // documents you can read", whatever its answer_type says.
         const notInLibrary = side.answer_type === "not_in_library" || side.searched === false;
         const notFound = !notInLibrary && side.answer_type === "insufficient_evidence";
+        // #451: a side that failed, was stopped or could not be supported is
+        // NOT "not found". It says it could not be checked, and why.
+        const couldNotCheck = !notInLibrary && side.answer_type === "could_not_be_checked";
         const chipIndexes: number[] = [];
-        if (!notFound && !notInLibrary) {
+        if (!notFound && !notInLibrary && !couldNotCheck) {
           if (typeof side.source_start === "number" && typeof side.source_count === "number") {
             for (let k = 0; k < side.source_count; k += 1) {
               chipIndexes.push(side.source_start + k);
@@ -94,6 +97,11 @@ export function ComparisonAnswer({
             {notInLibrary ? (
               <p className="mt-1 text-sm italic text-slateish-400">
                 Not among the documents you can read.
+              </p>
+            ) : couldNotCheck ? (
+              <p className="mt-1 text-sm text-warn-500" data-testid="side-could-not-be-checked">
+                Could not be checked{side.reason ? `: ${side.reason}` : ""}.
+                Nothing can be concluded about this side.
               </p>
             ) : notFound ? (
               <p className="mt-1 text-sm italic text-slateish-400">
