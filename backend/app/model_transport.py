@@ -279,6 +279,12 @@ def _shared_client() -> httpx.Client:
         return _client
 
 
+def host_key() -> str:
+    """The configured model host, as a cache key for callers outside this
+    module (which must not name the setting themselves)."""
+    return str(settings.ollama_url)
+
+
 def close_shared_client() -> None:
     """Close and forget the shared client (shutdown, and tests)."""
     global _client
@@ -317,5 +323,5 @@ def get_json(path: str, *, timeout: float, required: bool = True) -> Any | None:
 
 
 __all__ = [
-    "ModelHostRefused", "close_shared_client", "endpoint", "get_json", "post_json", "remote_audit",
+    "ModelHostRefused", "close_shared_client", "endpoint", "get_json", "host_key", "post_json", "remote_audit",
 ]

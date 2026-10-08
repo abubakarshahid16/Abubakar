@@ -289,7 +289,7 @@ def _ollama_state() -> dict:
     Keyed on the host and the model, so changing either asks again. A refused
     host is NEVER cached: it raises every time, in the operator's face.
     """
-    key = (str(settings.ollama_url), settings.answer_model)
+    key = (model_transport.host_key(), settings.answer_model)
     now = time.monotonic()
     with _probe_lock:
         hit = _probe_cache.get("entry")
