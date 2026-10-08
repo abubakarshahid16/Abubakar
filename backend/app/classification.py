@@ -1506,13 +1506,9 @@ def confirm(document_id: str, *, doc_type: str | None,
     return of_document(document_id) or {}
 
 
-def of_document(document_id: str) -> dict | None:
-    """The stored classification, or None. No scope check - the ROUTE scopes."""
-    row = connect().execute(
-        "SELECT * FROM document_classification WHERE document_id = ?",
-        (document_id,)).fetchone()
-    if row is None:
-        return None
+def _decode(row, subjects: list[dict]) -> dict:
+    """One stored row as the API shape. Shared by `of_document` and
+    `of_documents` so the list and the single read can never disagree."""
     out = dict(row)
     # Stored as a JSON array in one TEXT column; decoded here so no caller has
     # to know that. A row written before this column existed holds NULL, and a
@@ -1532,11 +1528,50 @@ def of_document(document_id: str) -> dict | None:
     out["equipment_type_evidence"] = evidence if isinstance(evidence, dict) else None
     # #176's per-field provenance map, same tolerance. NULL/malformed -> None.
     out["field_evidence"] = _load_evidence(out.get("field_evidence")) or None
-    out["subjects"] = [dict(r) for r in connect().execute(
-        "SELECT s.id, s.name, s.kind, ds.suggested_by, ds.confirmed_by"
-        " FROM document_subjects ds JOIN subjects s ON s.id = ds.subject_id"
-        " WHERE ds.document_id = ? ORDER BY s.kind, s.name", (document_id,))]
+    out["subjects"] = subjects
     out["confirmed"] = row["confirmed_by"] is not None
+    return out
+
+
+def empty_record(document_id: str) -> dict:
+    """In scope but never classified: an empty, honest record, not a 404."""
+    return {"document_id": document_id, "doc_type": None,
+            "discipline": None, "doc_class": None, "register_id": None,
+            "suggested_by": SOURCE_NONE,
+            "confirmed_by": None, "confirmed_at": None,
+            "confirmed": False, "subjects": []}
+
+
+def of_document(document_id: str) -> dict | None:
+    """The stored classification, or None. No scope check - the ROUTE scopes."""
+    return of_documents([document_id]).get(document_id)
+
+
+def of_documents(document_ids: list[str]) -> dict[str, dict]:
+    """The stored classification of every given document that has one, in TWO
+    queries however many ids (the Documents page used to make one request per
+    document). No scope check - the CALLER passes ids it has already scoped.
+    A document with no row is absent from the result, as `of_document` says
+    None for it."""
+    ids = list(dict.fromkeys(document_ids))
+    out: dict[str, dict] = {}
+    conn = connect()
+    for start in range(0, len(ids), 500):
+        chunk = ids[start:start + 500]
+        marks = ",".join("?" * len(chunk))
+        rows = conn.execute(
+            f"SELECT * FROM document_classification WHERE document_id IN ({marks})",
+            chunk).fetchall()
+        subjects: dict[str, list[dict]] = {}
+        for r in conn.execute(
+                "SELECT ds.document_id, s.id, s.name, s.kind, ds.suggested_by,"
+                " ds.confirmed_by FROM document_subjects ds"
+                f" JOIN subjects s ON s.id = ds.subject_id"
+                f" WHERE ds.document_id IN ({marks}) ORDER BY s.kind, s.name", chunk):
+            item = dict(r)
+            subjects.setdefault(item.pop("document_id"), []).append(item)
+        for row in rows:
+            out[row["document_id"]] = _decode(row, subjects.get(row["document_id"], []))
     return out
 
 
