@@ -107,6 +107,10 @@ export interface DocumentRecord {
   pages_excluded_with_clause_headings?: number;
   uploaded_at: string;       // ISO 8601
   indexed_at: string | null;
+  /** This document's classification, carried on the LIST so the Documents
+   *  page makes one request, not one per document. Same shape as
+   *  `GET /documents/{id}/classification`. Absent on any other route. */
+  classification?: DocumentClassification | null;
   /** ---------------------------------- AI submittal review, phase 2
    *  Every one of these is NULL on every document classified before this
    *  workflow existed - all 19 in the live corpus at the time of writing.
