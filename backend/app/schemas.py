@@ -2421,6 +2421,10 @@ class ReviewRunSummary(BaseModel):
     # fields, which were not and why. Null for a run made before the ledger
     # existed; null renders as nothing, never as "every page read".
     page_coverage: dict | None = None
+    #: #598: standards-table values this run did NOT compare because the
+    #: submittal has no field that answers them, one grouped line per
+    #: standard with the tables behind it. Empty for a run that predates it.
+    table_values_not_compared: list[dict] = []
     #: P3: the job running this review: its state, named progress (step N of
     #: 3) and whether cancellation was requested. Null for a run made before
     #: reviews were queued.

@@ -19,7 +19,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, reviews as reviewsApi } from "../api/client";
 import type {
   CrsPreview, CrsReviewNote, DocumentRecord, ReviewFinding, ReviewReadiness,
-  ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary, VisionReaderStatus,
+  ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary, TableValuesNotCompared,
+  VisionReaderStatus,
 } from "../types/api";
 import { FindingDetail } from "../components/review/FindingDetail";
 import { FindingsTable } from "../components/review/FindingsTable";
@@ -534,6 +535,9 @@ export function ReviewRunsView(
 
           {showStandards && (
             <StandardsInScope standards={standards} missing={missingStandards} error={standardsError} />
+          )}
+          {run && (run.table_values_not_compared?.length ?? 0) > 0 && (
+            <TableValuesNotComparedList lines={run.table_values_not_compared ?? []} />
           )}
           {showStandards && run && (
             <StandardOverrideControl
@@ -1064,6 +1068,30 @@ function CrsPreviewSheet(
         </p>
       )}
     </section>
+  );
+}
+
+/** #598: the table cells this run did not compare, one expandable line per
+ *  standard. They are counted, never dropped silently. */
+function TableValuesNotComparedList({ lines }: { lines: TableValuesNotCompared[] }) {
+  return (
+    <ul className="space-y-1 text-sm" data-testid="table-values-not-compared">
+      {lines.map((item) => (
+        <li key={item.standard_document_id}>
+          <details>
+            <summary className="cursor-pointer text-slateish-300">{item.line}</summary>
+            <ul className="mt-1 list-disc ps-5 text-xs text-slateish-400">
+              {item.tables.map((table, index) => (
+                <li key={index}>
+                  {table.count} on {table.page != null ? `page ${table.page}` : "an unnumbered page"}
+                  {table.examples.length > 0 ? `, for example ${table.examples.join(", ")}` : ""}
+                </li>
+              ))}
+            </ul>
+          </details>
+        </li>
+      ))}
+    </ul>
   );
 }
 
