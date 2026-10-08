@@ -7,7 +7,8 @@ with the same scorer as `eval/run_eval.py`, and compares the result with
 `baseline.json`.
 
 THE RULE IT ENFORCES (owner decision 2026-10-08, the `gate` in
-`baseline.json`): at least 37 of the 60 questions pass, and all 23 version 1
+`baseline.json`, raised 2026-10-09): at least 41 of the 64 questions pass,
+and all 23 version 1
 questions that passed (P1-01 to P1-30) still pass, with their clause labels.
 Any other question may trade places with another. An unanswerable question
 that was refused and is now answered fails the run whatever the total.
