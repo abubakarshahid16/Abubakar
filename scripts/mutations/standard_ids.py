@@ -26,8 +26,9 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T, keyword="different_number_never_matches", tags=("w3",)),
     Mutation(id="M2602", phase=2602, description="a part or division no longer has to agree",
              path=_IDS,
-             anchor="    return a.identity == b.identity and (a.part is None or b.part is None or a.part == b.part)\n",
-             replacement="    return a.identity == b.identity\n",
+             # Re-anchored 2026-10-08 (#628): same_identifier now compares readings.
+             anchor="    return any(x.identity == y.identity and (x.part is None or y.part is None or x.part == y.part)\n",
+             replacement="    return any(x.identity == y.identity\n",
              target=_T, keyword="part_one_never_matches_part_two", tags=("w3",)),
     Mutation(id="M2603", phase=2603, description="SAES-B-14 is no longer SAES-B-014 (no zero padding)",
              path=_IDS,
