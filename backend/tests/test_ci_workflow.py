@@ -163,3 +163,7 @@ def test_a_green_nightly_run_refreshes_the_durations_for_the_next_runs(jobs):
     assert save["with"]["key"].startswith("test-durations-")
     audit = next(i for i, s in enumerate(steps) if "ci_test_ids.py compare" in s.get("run", ""))
     assert audit < steps.index(merge), "durations refresh only after the audit passed"
+    upload = next(s for s in steps if s.get("with", {}).get("name") == "test-durations")
+    # .test_durations is a dot-file: without this the artifact is silently empty.
+    assert upload["with"]["include-hidden-files"] is True
+    assert upload["with"]["if-no-files-found"] == "error"

@@ -273,6 +273,10 @@ jobs:
         with:
           name: test-durations
           path: backend/.test_durations
+          # The file name starts with a dot; upload-artifact skips hidden files
+          # unless told otherwise, and would then upload nothing.
+          include-hidden-files: true
+          if-no-files-found: error
           retention-days: 30
 
   backend-slow:
