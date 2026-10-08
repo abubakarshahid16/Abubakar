@@ -43,7 +43,7 @@ import json
 import logging
 
 from . import condition_choice as cc
-from . import lexical
+from . import lexical, standard_ids
 from . import understanding as understanding_mod
 from .config import settings
 from .datasheets import referenced_standards
@@ -129,11 +129,12 @@ def _condition_explains(top: dict, p: dict) -> bool:
     return bool(cc.differing_kinds(read(top), read(p)))
 
 
-def _held(allowed: frozenset[str]) -> set[str]:
-    """Normalised designations of the documents the reader can open."""
+def _held(allowed: frozenset[str]) -> list[str]:
+    """Designations of the documents the reader can open, as written. Compared
+    with `standard_ids.same_standard` (#452), so "API RP 520 Pt-1" in a clause
+    is the held "API-520-I" and "API 65" is never the held "API-650"."""
     names = understanding_mod.document_names(allowed)
-    return {re.sub(r"[^A-Z0-9]", "", d.upper())
-            for d in (understanding_mod.designation(f) for f in names.values()) if d}
+    return [d for d in (understanding_mod.designation(f) for f in names.values()) if d]
 
 
 def _dropped_copies(result: dict, top: dict, allowed: frozenset[str]) -> list[dict]:
@@ -216,10 +217,9 @@ def assess(question: str, result: dict, *, allowed_document_ids: frozenset[str])
     # false alarms.
     if _DEFERS.search(sentence) and not _quantities(sentence):
         held = _held(allowed_document_ids)
-        asked = re.sub(r"[^A-Z0-9]", "", question.upper())
         missing = [ref for ref in referenced_standards(sentence)
-                   if re.sub(r"[^A-Z0-9]", "", ref.upper()) not in held
-                   and re.sub(r"[^A-Z0-9]", "", ref.upper()) not in asked]
+                   if not any(standard_ids.same_standard(ref, d) for d in held)
+                   and not standard_ids.names_standard(question, ref)]
         if missing:
             return verdict(ANOTHER_DOCUMENT, "the matching clause defers to "
                            + ", ".join(missing) + ", which is not among your documents", [top])

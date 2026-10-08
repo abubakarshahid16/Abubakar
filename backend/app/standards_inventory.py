@@ -391,14 +391,18 @@ def _evidence_json(field: CoverField, *, method: str) -> str:
 
 # ------------------------------------------------------------- inventory read
 
-def _cited_identifiers(*, allowed_document_ids: frozenset[str]) -> set[str]:
-    """Every standard identifier's NORMALISED key cited by any
-    CONTRACTOR_SUBMITTAL the caller may read - the union `applicability.py`
-    computes per submittal, taken here across every submittal at once."""
-    from .applicability import normalise_identifier
+def _cited_identifiers(*, allowed_document_ids: frozenset[str]) -> list[str]:
+    """Every standard identifier cited by any CONTRACTOR_SUBMITTAL the caller
+    may read, one per standard, as written - the union `applicability.py`
+    computes per submittal, taken here across every submittal at once.
+
+    The identifiers themselves, not exact keys: whether one names a held
+    standard is `applicability.find_standard`'s question (#452), so "API RP
+    520 Pt-1" counts as citing the API 520 Part I document."""
+    from . import standard_ids
 
     if not allowed_document_ids:
-        return set()
+        return []
     marks = ",".join("?" for _ in allowed_document_ids)
     rows = connect().execute(
         f"""SELECT ch.text FROM chunks ch
@@ -407,8 +411,10 @@ def _cited_identifiers(*, allowed_document_ids: frozenset[str]) -> set[str]:
               AND c.document_role = 'CONTRACTOR_SUBMITTAL'""",
         sorted(allowed_document_ids)).fetchall()
     text = " ".join(r["text"] or "" for r in rows)
-    return {normalise_identifier(ident)
-            for ident in datasheets.referenced_standards(text)}
+    out: dict[str, str] = {}
+    for ident in datasheets.referenced_standards(text):
+        out.setdefault(standard_ids.key(ident), ident)
+    return list(out.values())
 
 
 def inventory_rows(*, allowed_document_ids: frozenset[str],
@@ -422,7 +428,7 @@ def inventory_rows(*, allowed_document_ids: frozenset[str],
     re-deriving the scope query, so the two can never disagree about which
     documents are in scope.
     """
-    from .applicability import normalise_identifier, library_identifier
+    from .applicability import find_standard, library_identifier
 
     ensure_schema()
     base = standards.list_standards(
@@ -448,13 +454,12 @@ def inventory_rows(*, allowed_document_ids: frozenset[str],
         family = info.get("standard_family") or family_from_identifier(identifier)
         licence = info.get("licence_status") or default_licence_status(
             family, held=True)  # a row here is, by construction, held
-        key = normalise_identifier(identifier)
         out.append({
             **row,
             "standard_family": family,
             "licence_status": licence,
             "source_file_sha256": info.get("sha256"),
-            "cited_by_submittal": bool(key) and key in cited,
+            "cited_by_submittal": any(find_standard([row], c) is not None for c in cited),
         })
     return out
 
@@ -537,8 +542,8 @@ def cited_but_not_held(*, allowed_document_ids: frozenset[str]) -> list[dict]:
     in the local library, with where it was cited - the missing list for
     the CRS and for the owner to take to the standards body.
 
-    ONE HOME FOR THE MATCHING RULE, reusing `applicability._match_referenced`
-    exactly as `applicability.missing_references` does (that function's own
+    ONE HOME FOR THE MATCHING RULE, reusing `applicability.find_standard`
+    exactly as `applicability.missing_references` does (#452; that function's own
     docstring: two independent copies of this rule disagreed about whether a
     submittal citation was a document id or an identifier, and one of them
     reported six held standards as missing). Matching here is by-name against
@@ -550,9 +555,11 @@ def cited_but_not_held(*, allowed_document_ids: frozenset[str]) -> list[dict]:
     (a standard can be cited by more than one submittal, or by more than one
     requirement) under one entry, listing every place it was cited - never
     one row per citation, which would make "3 mentions of API 610" look like
-    three different missing standards.
+    three different missing standards. "The same" is `standard_ids.key`: two
+    spellings of one standard ("API RP 520 Pt-1", "API 520 Part 1") are one row.
     """
-    from .applicability import _match_referenced, normalise_identifier
+    from . import standard_ids
+    from .applicability import find_standard
 
     library = standards.list_standards(
         allowed_document_ids=allowed_document_ids, include_superseded=True)
@@ -563,11 +570,10 @@ def cited_but_not_held(*, allowed_document_ids: frozenset[str]) -> list[dict]:
     by_key: dict[str, dict] = {}
     for citation in citations:
         identifier = citation["identifier"]
-        key = normalise_identifier(identifier)
+        key = standard_ids.key(identifier)
         if not key:
             continue
-        matched = _match_referenced(library, [identifier])
-        if matched:
+        if find_standard(library, identifier) is not None:
             continue  # held - not a gap
         entry = by_key.setdefault(key, {
             "identifier": identifier,
