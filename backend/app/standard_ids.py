@@ -344,7 +344,7 @@ def _same_length_upper(text: str) -> str:
 
 def _standalone(text: str, start: int, end: int) -> bool:
     """A citation stands on its own: it is not the middle of a hyphen-joined
-    code (a tag "21-PV-1043A", a document number "P-1000001-2003-SP-0810") and
+    code (a tag "21-PV-1234", a document number "P-1234-0001-SP-9999") and
     nothing alphanumeric is glued to either end. A four-digit edition year after
     a dash ("API 610-2010") is allowed; any other "-X" continuation is not."""
     if start > 0:

@@ -22,7 +22,7 @@
     "citation_bodies: issuing bodies the CITATION READER accepts for the general",
     "shape when it scans running text (datasheet text, a requirement). A list of",
     "BODIES, never of standards: any number from a listed body is read. Without",
-    "it every tag (21-PV-1043A) and label (LINE 12, DWG 4501) would look like a",
+    "it every tag (21-PV-1234) and label (LINE 12, DWG 4501) would look like a",
     "citation. API, ASME, ISO, NACE, SAES and SAMSS have their own shapes and need",
     "no entry. IP is deliberately absent: in a datasheet \"IP 66\" is an ingress",
     "rating, not the Energy Institute; nor are AS, SS and ABS (\"as 25 mm\", \"SS 316\" stainless, \"ABS\" plastic). A body is read only when written in upper case.",

@@ -62,9 +62,9 @@ def test_two_spellings_of_one_code_are_one_citation():
 # ---------------------------------------------- not detected: false positives
 
 @pytest.mark.parametrize("text", [
-    "Tag 21-PV-1043A and 21-PV-1043B",             # equipment tags
-    "PSV tag 10-IEC-1234 and spare 10-EN-2001",    # a body name inside a tag
-    "Doc. No. P-1000001-2003-SP-0810-0003",        # a document number
+    "Tag 21-PV-1234 and 22-PV-1234",             # equipment tags
+    "PSV tag 10-IEC-1234 and spare 10-EN-1234",    # a body name inside a tag
+    "Doc. No. P-1234-0001-SP-9999-0001",        # a document number
     "Ref. doc EN-12345-B rev 2",                   # a body name glued into a code
     "Line 6-PL-1234-A1, LINE 12, DWG 4501, REV 3",  # line, drawing and revision numbers
     "Flow 1200 m3/h at 25 bar, item 25, 3 off",    # plain numbers
@@ -80,7 +80,7 @@ def test_a_citation_next_to_a_tag_is_still_read():
     """Asserted as a presence on the same input as an absence, so the negative
     cases cannot pass by the reader having stopped reading anything."""
     assert datasheets.referenced_standards(
-        "Tag 21-PV-1043A, relief per IEC 61511-1, doc P-1000001-2003-SP-0810-0003") == ["IEC 61511-1"]
+        "Tag 21-PV-1234, relief per IEC 61511-1, doc P-1234-0001-SP-9999-0001") == ["IEC 61511-1"]
 
 
 # ---------------------------------------------- the bodies are data
