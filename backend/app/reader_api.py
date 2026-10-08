@@ -58,6 +58,7 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 
+from . import numparse
 from .config import model_host_of, settings
 
 # --------------------------------------------------------------- vocabulary
@@ -205,20 +206,6 @@ def _fold(text: str) -> str:
     return re.sub(r"\s+", " ", str(text)).strip().lower()
 
 
-#: A thousands separator INSIDE a number: the 8,300 of "shall be 8,300 kPa".
-#: The bare-equality worked case is written that way in the standard and the
-#: model habitually answers "8300", so without this rule 2 rejects a true
-#: reading of a real clause.
-_THOUSANDS = re.compile(r"(?<=\d),(?=\d{3}(?!\d))")
-
-#: Any number in a piece of text, comma-separators already removed.
-_NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
-
-
-def _fold_numbers(text: str) -> str:
-    return _THOUSANDS.sub("", _fold(text))
-
-
 def _contains(haystack: str, needle: str) -> bool:
     """Whole-word containment on already-folded text.
 
@@ -238,20 +225,11 @@ def _value_in_quote(value, quote: str) -> bool:
     Two spellings of the same number are the same number: "8,300" in the
     standard and "8300" from the model. A DIFFERENT number is a different
     number, and that is the case this rule exists to catch - the model that
-    quoted a 23.55 row and reported 99.9.
+    quoted a 23.55 row and reported 99.9. The sign is part of the number
+    (audit F01-F03): 5 is not -5, and 5 is not the 5 of "2.5". The comparison
+    is `numparse.value_in_text`, the same one every gate uses.
     """
-    quote_folded = _fold_numbers(quote)
-    value_folded = _fold_numbers(value)
-    if _contains(quote_folded, value_folded):
-        return True
-    # Numeric equality as a last resort, so "370.0" against "370" is not read
-    # as an invention. Only for values that are a bare number: a comparison
-    # this module cannot do arithmetic on stays a string comparison.
-    try:
-        wanted = float(value_folded)
-    except ValueError:
-        return False
-    return any(float(found) == wanted for found in _NUMBER.findall(quote_folded))
+    return numparse.value_in_text(value, quote)
 
 
 # ------------------------------------------------------- direction and shape
@@ -523,7 +501,7 @@ def _identity(p: dict) -> tuple:
     return (
         p.get("kind"),
         p.get("operator"),
-        _fold_numbers(value) if value not in (None, "") else "",
+        numparse.fold_numbers(value) if value not in (None, "") else "",
         _fold(p.get("unit") or ""),
         _fold(p.get("subject") or ""),
     )

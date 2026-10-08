@@ -45,10 +45,10 @@ import re
 from datetime import datetime, timezone
 from enum import Enum
 
-from . import claude_spend
+from . import claude_spend, numparse
 from .config import settings
 from .db import connect
-from .reader_api import _NUMBER, _contains, _fold, _fold_numbers
+from .reader_api import _contains, _fold
 
 #: The budget step (claude_spend) this lane is charged to.
 STEP = "review_ai_check"
@@ -67,6 +67,11 @@ PASS_FAIL_WORDS = (
     "non compliant", "approved", "approve", "acceptable", "unacceptable", "accepted",
     "rejected", "pass", "passes", "passed", "fail", "fails", "failed",
     "meets the requirement", "does not meet",
+    # A09: verdicts in other words. "satisfies the spec" was accepted.
+    "satisfies", "satisfy", "satisfied", "does not satisfy", "conforms", "conform",
+    "conforming", "conformance", "non-conforming", "nonconforming", "does not conform",
+    "meets", "meet", "adequate", "inadequate", "violates", "violation",
+    "not acceptable", "not compliant", "not approved", "in compliance",
 )
 CONFIDENCES = ("low", "medium")
 
@@ -203,8 +208,8 @@ def build_prompt(fields: list[dict], pages: dict[int, str], cited: list[str],
 
 # ------------------------------------------------------------------ gate
 
-def _numbers(text: str) -> set[float]:
-    return {float(n) for n in _NUMBER.findall(_fold_numbers(text))}
+def _numbers(text: str) -> set[float | str]:
+    return numparse.number_keys(text)
 
 
 def _strip_names(folded: str, names) -> str:
@@ -224,7 +229,11 @@ def _held_clause(item: dict, held: dict[str, list[str]]) -> tuple[str, str] | No
         return None
     for name, clauses in held.items():
         stem = _fold(re.sub(r"\.(pdf|docx?)$", "", name, flags=re.IGNORECASE))
-        if stem and (stem in relates or relates in stem) and clause in clauses:
+        # The item must NAME the held standard in full (audit A10). The old
+        # `relates in stem` also accepted "API" for "API 610" and "SAES-D-00"
+        # for "SAES-D-001", attaching the clause to the wrong standard.
+        if stem and re.search(r"(?<![a-z0-9])" + re.escape(stem) + r"(?![a-z0-9])",
+                              relates) and clause in clauses:
             return name, clause
     return None
 
@@ -245,9 +254,9 @@ def accept(item: dict, pages: dict[int, str], held: dict[str, list[str]],
     page = item.get("page")
     if not isinstance(page, int) or isinstance(page, bool) or page not in pages:
         return refuse(Reason.PAGE_NOT_IN_DATASHEET)
-    page_text = _fold_numbers(pages[page])
+    page_text = pages[page]
     value = str(item.get("value") or "").strip()
-    if value and _fold_numbers(value) not in page_text:
+    if value and not numparse.value_in_text(value, page_text):
         return refuse(Reason.VALUE_NOT_ON_PAGE)
     prose = f"{item['observation']} {item['action']}"
     if len(prose) + len(item["topic"]) > MAX_TEXT_CHARS:

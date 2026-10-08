@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import claims, comparison, datasheets
+from app import claims, comparison, datasheets, numparse
 
 
 # ----------------------------------------------------------------- N1 signs
@@ -59,26 +59,33 @@ def test_strict_space_thousands_are_read(text, expected):
 
 # ----------------------------------------------------------- N3 EU thousands
 @pytest.mark.parametrize("text", ["4.000", "1.200", "12.345", "-4.000", "<= 4.000"])
-def test_three_decimals_is_ambiguous_none(text):
-    assert claims.parse_value(text) is None
+def test_three_decimals_is_ambiguous_none_in_a_decimal_comma_document(text):
+    # W2 (owner decision 2026-10-08): ambiguous only where the document writes
+    # a decimal comma somewhere; elsewhere it is a decimal (3.175 mm).
+    with numparse.document_context("pressure 9,0 bar"):
+        assert claims.parse_value(text) is None
+    assert claims.parse_value(text) is not None
 
 
 @pytest.mark.parametrize("text,expected", [
     ("1,200", 1200.0), ("3,0", 3.0), ("3.5", 3.5), ("6.89", 6.89),
-    ("0.125", 0.125), ("1234.567", 1234.567), ("3,600", 3600.0), ("1,200.5", 1200.5),
+    ("0.125", 0.125), ("1234.567", 1234.567), ("3.175", 3.175), ("1.200", 1.2), ("12.345", 12.345), ("3,600", 3600.0), ("1,200.5", 1200.5),
 ])
 def test_unambiguous_shapes_keep_their_value(text, expected):
     assert claims.parse_value(text) == expected
 
 
-def test_ambiguous_fact_goes_to_engineer_review_not_a_verdict():
+def test_ambiguous_fact_goes_to_engineer_review_not_a_verdict(monkeypatch):
     requirement = {"requirement_type": "numeric_limit", "operator": "<=",
                    "raw_value": "3,600", "raw_unit": "rpm", "value": 3600.0,
                    "unit": "rpm", "subject": "speed", "requirement_text": "<= 3,600 rpm",
                    "source_text": "Speed shall not exceed 3,600 rpm.", "field": "speed",
                    "exceptions": []}
     fact = {"id": "f1", "field_name": "speed", "field_value": "4.000 rpm",
-            "raw_value": "4.000", "raw_unit": "rpm", "is_blank": 0, "page": 1}
+            "raw_value": "4.000", "raw_unit": "rpm", "is_blank": 0, "page": 1,
+            "document_id": "doc-eu"}
+    # the sheet writes a decimal comma elsewhere, so 4.000 may be 4,000
+    monkeypatch.setattr(comparison, "_document_uses_decimal_comma", lambda _id: True)
     assert comparison.compare(requirement, fact)["status"] == comparison.NEEDS_ENGINEER_REVIEW
 
 

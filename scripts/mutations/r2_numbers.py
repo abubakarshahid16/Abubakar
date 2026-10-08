@@ -1,7 +1,7 @@
 """Mutations for the round-2 number-reading fixes (M1990-M1999): signs, space
 groups, ambiguous EU decimals, compound units, tolerant field names, the
 figure checker's unit/sign/polarity layer and cluster labels.
-Files: backend/app/claims.py, comparison.py, answer.py. Targets:
+Files: backend/app/numparse.py (moved from claims.py by W2, #445), comparison.py, answer.py. Targets:
 tests/test_r2_numbers_*.py.
 """
 
@@ -17,27 +17,27 @@ _TAG = ("r2_numbers",)
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1990", phase=1990,
              description="U+2212 is no longer normalised to a minus, so a negative value reads positive",
-             path=APP / "claims.py",
-             anchor='    s = (value_str or "").strip().replace(_MINUS_SIGN, "-")',
-             replacement='    s = (value_str or "").strip()',
+             path=APP / "numparse.py",
+             anchor='        s = s.replace(c, "-")',
+             replacement='        pass',
              target=_P, keyword="unicode_minus or the_minus_survives", tags=_TAG),
     Mutation(id="M1991", phase=1991,
              description="an en/em dash glued to its digits is no longer read as a minus",
-             path=APP / "claims.py",
+             path=APP / "numparse.py",
              anchor="            negative_dash = True",
              replacement="            negative_dash = False",
              target=_P, keyword="dash_directly", tags=_TAG),
     Mutation(id="M1992", phase=1992,
              description="whitespace-separated digit groups are joined again without the strict thousands form",
-             path=APP / "claims.py",
+             path=APP / "numparse.py",
              anchor='        if not _SPACE_GROUPED.fullmatch(num.lstrip("+-")):',
              replacement='        if False and not _SPACE_GROUPED.fullmatch(num.lstrip("+-")):',
              target=_P, keyword="digit_groups", tags=_TAG),
     Mutation(id="M1993", phase=1993,
              description="d.ddd (three decimals) is read as a decimal again instead of being ambiguous",
-             path=APP / "claims.py",
-             anchor='    elif re.fullmatch(r"[1-9]\\d{0,2}\\.\\d{3}", num):',
-             replacement='    elif re.fullmatch(r"[1-9]\\d{0,2}\\.\\d{3}x", num):',
+             path=APP / "numparse.py",
+             anchor='re.fullmatch(r"[1-9]\\d{0,2}\\.\\d{3}", num):',
+             replacement='re.fullmatch(r"[1-9]\\d{0,2}\\.\\d{3}x", num):',
              target=_P, keyword="three_decimals or ambiguous_fact", tags=_TAG),
     Mutation(id="M1994", phase=1994,
              description="abbreviation / generic-word tolerance in field-name matching is removed",
@@ -66,13 +66,13 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1998", phase=1998,
              description="two different upper limits are labelled agreement again",
              path=APP / "claims.py",
-             anchor="                    if row_a != row_b and _distinct_same_direction_limits(a, b):",
-             replacement="                    if False and _distinct_same_direction_limits(a, b):",
+             anchor="        if _distinct_same_direction_limits(a, b):\n            continue\n",
+             replacement="        if False and _distinct_same_direction_limits(a, b):\n            continue\n",
              target=_C, keyword="upper_limits or lower_limits", tags=_TAG),
     Mutation(id="M1999", phase=1999,
              description="one dual-unit value printed twice is a conflict again",
              path=APP / "claims.py",
-             anchor="                    if _same_printed_quantity(a, b):",
-             replacement="                    if False:",
-             target=_C, keyword="dual_unit_value_printed_twice", tags=_TAG),
+             anchor="        if _same_printed_quantity(a, b):\n            return True\n",
+             replacement="        if False:\n            return True\n",
+             target="tests/test_w2_audit_fixes.py", keyword="dual_unit", tags=_TAG),
 )

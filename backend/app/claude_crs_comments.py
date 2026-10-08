@@ -24,7 +24,7 @@ and argued over in a meeting. "Submitted 8 g/L against a 5 g/L limit" with a
 model-invented "typically 6 g/L" in the middle is a comment the engineer
 cannot defend, and the invention is the kind of thing a fluent model does
 without noticing. So every number in the draft must appear in the inputs
-(after `reader_api._fold_numbers`, so "8,300" and "8300" are one number); the
+(read by `numparse.number_keys`, so "8,300" and "8300" are one number and "-5" is not "5"); the
 clause's own digits and the page reference are excused because they are
 inputs too, and are stripped before the check so "Para. 6.2.3" is not read as
 three numbers.
@@ -63,12 +63,13 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from enum import Enum
 
-from . import comparison, crs_mapping
+from . import comparison, crs_mapping, numparse
 from .claude_spend import StopRun
 from .crs_export import row_reference
-from .reader_api import _NUMBER, _contains, _fold, _fold_numbers
+from .reader_api import _contains, _fold
 
 # --------------------------------------------------------------- constants
 
@@ -283,8 +284,8 @@ def parse_response(raw: str) -> tuple[dict | None, str | None]:
 
 # --------------------------------------------------------------- the gate
 
-def _numbers(text: str) -> set[float]:
-    return {float(n) for n in _NUMBER.findall(_fold_numbers(text))}
+def _numbers(text: str) -> set[float | str]:
+    return numparse.number_keys(text)
 
 
 def _strip_citations(folded: str, inputs: dict) -> str:
@@ -295,7 +296,12 @@ def _strip_citations(folded: str, inputs: dict) -> str:
     for key in ("citation", "standard_code", "page_section", "clause"):
         piece = _fold(inputs[key])
         if piece:
-            folded = folded.replace(piece, " ")
+            # WHOLE TOKENS ONLY (audit C-H3). A plain str.replace of the
+            # clause "5" erased the 5 of "typically 56 bar", leaving "6 bar",
+            # which the inputs allowed: an invented number passed. The piece
+            # must not start or end inside a longer word or number.
+            folded = re.sub(r"(?<![\w.,])" + re.escape(piece) + r"(?![\w]|[.,]\d)",
+                            " ", folded)
     return folded
 
 
@@ -326,7 +332,7 @@ def accept(proposal: dict, finding: dict, row: dict) -> dict:
       2. the clause number appears in the comment
       3. the standard code appears in the comment
       4. every number in comment + action appears in the inputs
-         (`_fold_numbers` both sides; the citation and page are excused)
+         (`numparse.number_keys` both sides; the citation and page are excused)
       5. comment + action is at most `MAX_DRAFT_CHARS`
       6. the prose does not contradict the stored status
       7. (in `draft_comment`) both runs passed 1-6

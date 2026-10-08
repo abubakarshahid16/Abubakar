@@ -28,6 +28,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -161,6 +162,15 @@ def test_a_disagreement_is_stored_as_a_conflict_and_counted(key):
             return []
         start = page.index(found_a[1])
         end = page.index(found_b[1]) + len(found_b[1])
+        # The quote runs to the end of row B's VALUE and its UNIT: since W2
+        # (audit M2) a unit must be in the quote or its column header, so a
+        # quote that stopped at "85" and reported unit "m" would be refused
+        # for that, not for the disagreement this test is about.
+        unit = second.get("unit")
+        if unit:
+            tail = re.match(r"\s*" + re.escape(unit), page[end:])
+            if tail:
+                end += tail.end()
         return [{"field": found_a[0], "value": second["value"], "unit": second.get("unit"),
                  "quote": page[start:end], "kind": "offered"}]
     reading = bench.read_file_with("hybrid:ollama", RULED, model_call=_model(cross))
