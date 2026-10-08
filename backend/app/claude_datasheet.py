@@ -46,7 +46,7 @@ import json
 import re
 from enum import Enum
 
-from . import claims, datasheets, submittal_review
+from . import blank_markers, claims, datasheets, submittal_review
 from .claude_spend import StopRun
 from .db import connect
 
@@ -84,6 +84,11 @@ class Reason(Enum):
     FIELD_NOT_IN_QUOTE = "field_not_in_quote"
     FIELD_MISSING = "field_missing"
     VALUE_MISSING = "value_missing"
+    #: The value IS a printed "not provided" marker ("By Vendor", "TBD", "-",
+    #: "to be confirmed"). Decided by `blank_markers`, the project's one list,
+    #: whatever the model was told: a blank cell is not a fact, and the
+    #: protection must not depend on the model obeying its prompt.
+    VALUE_IS_BLANK_MARKER = "value_is_blank_marker"
     KIND_UNKNOWN = "kind_unknown"
     #: A unit was given and `claims` has never heard of it. A null unit is
     #: fine - a categorical value has none - but a spelling no table knows is
@@ -227,6 +232,105 @@ def _unit_recognised(unit: str) -> bool:
     return claims.is_unit(unit)
 
 
+# ------------------------------------------------------- one value, one fact
+
+#: A leading quantity: a number, then a unit word when one is printed.
+_QUANTITY = re.compile(r"^\s*([-+]?\d[\d.,]*)(\s*)([A-Za-z%µμ°][A-Za-z0-9/%()µμ°.\-]{0,12})?")
+#: Two quantities joined by a word or a semicolon are two facts.
+_SECOND_VALUE = re.compile(r"\s+(?:or|and)\s+(?=[-+]?\d)|\s*;\s*(?=[-+]?\d)", re.IGNORECASE)
+
+
+def _one_quantity(text: str):
+    """`(value, unit, qualifier)` when `text` is ONE quantity followed by words,
+    else None (leave it exactly as the page printed it). Conservative on
+    purpose: a range ("10-20 bar"), a comparator, a bare number or a value
+    whose unit the system does not know is never split, because a wrong split
+    would change a value and not only trim it."""
+    m = _QUANTITY.match(text)
+    if not m:
+        return None
+    number, gap, unit = m.group(1), m.group(2), m.group(3)
+    rest = text[m.end():]
+    if not rest.strip():
+        return None
+    if unit and not _unit_recognised(unit):
+        return None
+    if unit and not gap and len(unit) == 1:
+        return None  # "316L SS" is a steel grade, not 316 litres with a note
+    if not re.match(r"\s*[,;(]|\s+[A-Za-z]", rest):
+        return None
+    qualifier = rest.strip(" ,;()").strip() or None
+    return number, unit, qualifier
+
+
+def _bare_quantity(text: str):
+    m = _QUANTITY.match(text)
+    if not m or (m.group(3) and not _unit_recognised(m.group(3))):
+        return None
+    if text[m.end():].strip():
+        return None
+    if m.group(3) and not m.group(2) and len(m.group(3)) == 1:
+        return None
+    return m.group(1), m.group(3), None
+
+
+#: A pressure-class value with a standards-body acronym in front of it:
+#: "ASME Class 600". The acronym (two to six capitals, nothing else) names who
+#: defines the class; it is context, not part of the value. Deliberately
+#: narrow: nothing may follow the number, so "ASME B16.5 Class 600", "Class 600
+#: RF" and "Class 600 or 900" are never touched.
+_CLASS_WITH_BODY = re.compile(r"^\s*([A-Z]{2,6})\s+((?:Class|Cl\.?)\s*\d{2,4})\s*$", re.IGNORECASE)
+
+
+def _strip_standards_body(value: str):
+    """`(value, body)` for "ASME Class 600" -> ("Class 600", "ASME"), else None.
+    The acronym must be written in capitals (so a lower-case word is never
+    mistaken for one) and is returned as the qualifier."""
+    m = _CLASS_WITH_BODY.match(value)
+    if not m or not m.group(1).isupper():
+        return None
+    return m.group(2), m.group(1)
+
+
+def atomise(proposals: list[dict]) -> list[dict]:
+    """One fact, one value. Code, not the model, enforces it.
+
+    "16 weeks from purchase order, ex works" becomes value 16, unit weeks,
+    qualifier "from purchase order, ex works". "18 months from delivery or 12
+    months from start-up" becomes TWO facts, one per condition, so a
+    comparison never has to guess which number it is reading. The quote is
+    unchanged and stays the evidence for every piece. Idempotent."""
+    out: list[dict] = []
+    for p in proposals:
+        value = p.get("value")
+        if not value or not isinstance(value, str):
+            out.append(p)
+            continue
+        trimmed = _strip_standards_body(value)
+        if trimmed is not None:
+            out.append({**p, "value": trimmed[0],
+                        "qualifier": p.get("qualifier") or trimmed[1]})
+            continue
+        pieces = [x for x in _SECOND_VALUE.split(value) if x and x.strip()]
+        if len(pieces) < 2:
+            pieces = [value]
+        parts = [_one_quantity(x) or (_bare_quantity(x) if len(pieces) > 1 else None)
+                 for x in pieces]
+        if any(x is None for x in parts):
+            out.append(p)
+            continue
+        if len(parts) > 1 and all(
+                datasheets.same_quantity_twice(parts[0][0], parts[0][1] or "", n, u or "")
+                for n, u, _q in parts[1:]):
+            parts = parts[:1]  # "75 kW or 100 hp": one quantity printed twice
+        for number, unit, qualifier in parts:
+            if qualifier and re.match(r"(?:note|see|ref)\b", qualifier, re.IGNORECASE):
+                qualifier = None  # a note reference is not a condition
+            out.append({**p, "value": number, "unit": p.get("unit") or unit,
+                        "qualifier": qualifier or p.get("qualifier")})
+    return out
+
+
 # -------------------------------------------------------------------- parse
 
 def parse_response(raw: str) -> tuple[list[dict], str | None]:
@@ -260,6 +364,8 @@ def parse_response(raw: str) -> tuple[list[dict], str | None]:
                      if p.get("unit") not in (None, "") else None),
             "quote": str(p["quote"]),
             "kind": str(p.get("kind") or "").strip().lower(),
+            **({"qualifier": str(p["qualifier"]).strip()}
+               if p.get("qualifier") not in (None, "") else {}),
         })
     return out, None
 
@@ -277,6 +383,7 @@ def accept(proposals: list[dict], page_text: str, known_fields: list[str] | None
       1. the quote appears on the page, whitespace-folded
       2. the value appears inside the quote
       3. the field's main word appears inside the quote
+      0. the value is not a blank marker (`blank_markers.classify`)
       4. the unit, when given, is one `claims` recognises
       5. the field is not one the deterministic extractor already found
       6. (in `read_page`) two runs of the page agreed
@@ -299,12 +406,15 @@ def accept(proposals: list[dict], page_text: str, known_fields: list[str] | None
     def drop(proposal: dict, reason: Reason) -> None:
         rejected.append({**proposal, "reason": reason.value})
 
-    for p in proposals:
+    for p in atomise(proposals):
         if not p.get("field"):
             drop(p, Reason.FIELD_MISSING)
             continue
         if not p.get("value"):
             drop(p, Reason.VALUE_MISSING)
+            continue
+        if blank_markers.classify(p["value"])[0]:
+            drop(p, Reason.VALUE_IS_BLANK_MARKER)
             continue
         if p.get("kind") not in KINDS:
             drop(p, Reason.KIND_UNKNOWN)
@@ -371,12 +481,15 @@ def read_page(page_text: str, page_no: int, known_fields: list[str] | None,
     known_fields = list(known_fields or [])
     prompt = build_prompt(page_text, page_no, known_fields)
     first, err = parse_response(model_call(prompt))
+    if not err:
+        first = atomise(first)
     if err:
         return {"page": page_no, "accepted": [], "rejected": [], "counts": {}, "error": err}
     again = second_call if second_call is not None else model_call
     second, err2 = parse_response(again(prompt))
     if err2:
         return {"page": page_no, "accepted": [], "rejected": [], "counts": {}, "error": err2}
+    second = atomise(second)
     seen = {_identity(p) for p in second}
     stable = [p for p in first if _identity(p) in seen]
     unstable = [{**p, "reason": Reason.MODEL_UNSTABLE.value}

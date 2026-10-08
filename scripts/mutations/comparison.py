@@ -244,7 +244,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="DELETE CONFIRMED FINDINGS ON RE-RUN, destroying an "
                     "engineer's decision with a routine maintenance action",
         path=APP / "comparison.py",
-        anchor='                "DELETE FROM review_findings WHERE review_run_id = ?"\n                " AND confirmed_by IS NULL",',
+        # Re-anchored 2026-09-30 (audit): any engineer decision is kept.
+        anchor='                "DELETE FROM review_findings WHERE review_run_id = ?"\n                f" AND {review_mod.UNDECIDED_SQL}",',
         replacement='                "DELETE FROM review_findings WHERE review_run_id = ?",',
         target="tests/test_comparison.py",
         keyword="confirmed",
@@ -731,7 +732,8 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "requirement reaches a verdict with its condition "
                     "unevaluated - the Phase 0.5 defect exactly",
         path=APP / "comparison.py",
-        anchor="    condition = conditions.evaluate(requirement, submittal_facts)",
+        # Re-anchored 2026-09-30: the gate now also takes the compared fact.
+        anchor="    condition = conditions.evaluate(requirement, submittal_facts, about=fact)",
         replacement="    condition = None  # MUTANT: B24 gate removed",
         target="tests/test_condition_gate.py",
         tags=("honesty", "critical"),

@@ -1,5 +1,11 @@
 # Reindex + re-calibration rehearsal plan (Part C, refusal-calibration-2026-09-29)
 
+> **Version 8 note (2026-09-30).** The run started on 2026-09-29 measures
+> CHUNKER_VERSION 7. `feat/context-notes-and-tables` moves the chunker to 8
+> (heading chains for search; see `docs/limitations.md`). Once it merges,
+> repeat this plan on version 8 with the SAME questions, so 7 and 8 are
+> compared like for like, before the live re-process.
+
 **Status: not run yet. Waiting for the other session to report "LAST-LINES
 MERGED" (CHUNKER_VERSION 7).** This file only records the plan and the exact
 commands - written and stopped per owner instruction (2026-09-29), not
@@ -96,7 +102,10 @@ from whatever state it is currently in (`app/ingest.py:389`) - the same
 method the test suite calls directly (e.g. `tests/test_correctness_fixes.py`'s
 `upload()` helper), not a simulation of the worker. This is the step with the
 real, currently-unmeasured cost: keyword indexing plus re-embedding every
-chunk in the corpus.
+chunk in the corpus. (Since 2026-09-30 a re-chunk keeps a vector whose chunk
+id, section and heading chain are unchanged; for the CHUNKER_VERSION 8
+re-process that is still nearly every chunk, because the chain goes from NULL
+to set and every heading-v1 vector is upgraded - so the estimate stands.)
 
 **Step 4 - re-run the calibration against the reindexed copy:**
 ```powershell

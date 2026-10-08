@@ -286,7 +286,7 @@ function FindingRow({ finding, name, selected, onSelect }: {
           <span className="mt-1 block text-xs text-slateish-300">{kindLabel(finding)}</span>
         )}
         {finding.confirmed_by && (
-          <span className="mt-1 block text-xs text-emerald-300">
+          <span className="mt-1 block text-xs text-signal-300">
             confirmed by {finding.confirmed_by}
           </span>
         )}

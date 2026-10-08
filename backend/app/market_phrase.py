@@ -24,8 +24,14 @@ plausible and nobody discovers the leak by reading it.
 
 A whitelist inverts the default. A token reaches the output ONLY by
 affirmatively matching something we have decided is safe to say out loud: an
-ordinary English subject word, or a public standard designator. Anything
-unrecognised is dropped. So the failure mode of an input nobody thought of is
+ordinary English subject word - one in the bundled English vocabulary
+(`reference/english_words.txt.gz`, lower-case dictionary words only, so no
+proper noun is ever vouched for) or its short list of public engineering
+abbreviations (`reference/market_extra_words.txt`) - or a public standard
+designator. Anything unrecognised is dropped: "zqx", a project code, a
+facility's name. (Audit leftover 2026-09-30: until then any lower-case run
+of three letters counted as an "ordinary word", so this paragraph and the
+code disagreed.) So the failure mode of an input nobody thought of is
 a SHORTER phrase, or no phrase at all - the feature declines to search rather
 than over-sharing. That is the direction a privacy control has to fail in.
 
@@ -48,8 +54,11 @@ imports rather than trusting this paragraph.
 
 from __future__ import annotations
 
+import gzip
 import re
 from collections.abc import Iterable
+from functools import lru_cache
+from pathlib import Path
 
 #: Hard cap on what may leave, matching `market.preview_query`'s own cap. A
 #: phrase longer than this is not a search term, it is a paragraph.
@@ -135,6 +144,45 @@ _DESIGNATOR_WINDOW = 2
 #: are split before this is applied, so "corrosion-resistant" arrives as two
 #: tokens and both pass on their own merits.
 _SUBJECT_WORD = re.compile(r"^[a-z]{3,}$")
+
+_REFERENCE = Path(__file__).resolve().parent / "reference"
+
+#: British spellings mapped to the American ones the vocabulary is built
+#: from (SCOWL en_US), tried only when the word itself is not in it. Longest
+#: ending first. Each maps a real spelling variant, so nothing the
+#: vocabulary does not already vouch for gets through.
+_BRITISH = (
+    ("isations", "izations"), ("isation", "ization"), ("ising", "izing"),
+    ("ised", "ized"), ("ises", "izes"), ("ise", "ize"),
+    ("ysing", "yzing"), ("ysed", "yzed"), ("yses", "yzes"), ("yse", "yze"),
+    ("ours", "ors"), ("our", "or"), ("tres", "ters"), ("tre", "ter"),
+    ("lling", "ling"), ("lled", "led"), ("ogues", "ogs"), ("ogue", "og"),
+)
+
+
+@lru_cache(maxsize=1)
+def _vocabulary() -> frozenset[str]:
+    """Every word this module can vouch for. Read once, from the two
+    committed files - never from the corpus, the network or the database."""
+    words = gzip.decompress((_REFERENCE / "english_words.txt.gz").read_bytes()
+                            ).decode("ascii").split()
+    extra = [line.strip().lower() for line in
+             (_REFERENCE / "market_extra_words.txt").read_text(encoding="utf-8").splitlines()
+             if line.strip() and not line.lstrip().startswith("#")]
+    return frozenset(words) | frozenset(extra)
+
+
+def vouched_for(word: str) -> bool:
+    """Is this lower-case word one the vocabulary knows (or a British
+    spelling of one)? A word it does not know is dropped by `market_phrase`."""
+    vocabulary = _vocabulary()
+    if word in vocabulary:
+        return True
+    for british, american in _BRITISH:
+        if word.endswith(british) and word[:-len(british)] + american in vocabulary:
+            return True
+    return False
+
 
 #: Function and instruction words. Dropped because they carry no subject and
 #: make the phrase longer for a human to approve, NOT for privacy reasons -
@@ -317,8 +365,9 @@ def market_phrase(question: str, corpus_filenames: Iterable[str]) -> str | None:
                 seen.add(low)
             continue
 
-        # (c) an ordinary subject word.
-        if _SUBJECT_WORD.match(low) and low not in _NOISE:
+        # (c) an ordinary subject word: word-shaped, not noise, AND one the
+        #     vocabulary vouches for.
+        if _SUBJECT_WORD.match(low) and low not in _NOISE and vouched_for(low):
             if low not in seen:
                 kept.append(low)
                 seen.add(low)

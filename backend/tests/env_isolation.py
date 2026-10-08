@@ -59,6 +59,14 @@ from app.config import BACKEND_DIR, Settings
 DIRECT_ENV_NAMES = ("ANTHROPIC_API_KEY", "RAG_LIVE_WRITER")
 DIRECT_ENV_PREFIXES = ("STANDARDS_READER_",)
 
+class OneOf(tuple):
+    """An EGRESS_SAFE entry with more than one safe value."""
+
+
+#: The TestClient sends `Host: testserver`. Trusted in TEST configuration only
+#: (here), never by a production default - see `config.trusted_host_names`.
+TEST_ALLOWED_HOSTS = "testserver"
+
 #: The only values these fields may hold when a test session starts. A test
 #: that needs one of them on sets it itself, with a fake transport - that is
 #: the established pattern (monkeypatch.setattr / setenv, undone per test).
@@ -105,6 +113,12 @@ EGRESS_SAFE: dict[str, object] = {
     "crs_company_name": "",
     # --- the process binds loopback only
     "host": "127.0.0.1",
+    "allow_unauthenticated_network_bind": False,
+    # Inbound, not egress, but it names hosts so it is classified here. The
+    # code default is "" and `isolate()` sets the TestClient's name; both are
+    # safe, and nothing else is.
+    "allowed_hosts": OneOf(("", TEST_ALLOWED_HOSTS)),
+    "api_docs_enabled": False,
     # --- reads outside the test's own dirs
     "watch_folder": "",
     "watch_owner_email": "",
@@ -159,12 +173,15 @@ def isolate(target: Settings, env=None) -> list[str]:
     clean = Settings()
     for name in Settings.model_fields:
         setattr(target, name, getattr(clean, name))
+    target.allowed_hosts = TEST_ALLOWED_HOSTS
     return removed
 
 
 def unsafe_fields(target: Settings) -> list[str]:
     """Fields of `target` not at their safe value. Names only, never values."""
-    return sorted(n for n, safe in EGRESS_SAFE.items() if getattr(target, n) != safe)
+    return sorted(n for n, safe in EGRESS_SAFE.items()
+                  if (getattr(target, n) not in safe if isinstance(safe, OneOf)
+                      else getattr(target, n) != safe))
 
 
 def paths_outside(target: Settings, root: Path) -> list[str]:

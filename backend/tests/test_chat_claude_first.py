@@ -111,8 +111,13 @@ def test_tell_me_about_this_document_calls_read_document_and_is_not_a_refusal(mo
     # flagged in the delivery report rather than fixed in this PR.
     _scripted(monkeypatch, [
         _tool_use("read_document", {"document_id": doc}),
+        # Cites BOTH pages: "4" is only on page 2 (S2), and since 2026-09-30
+        # every figure must be in a passage the sentence cites
+        # (answer.verify_claims) - citing S1 alone for "systems 1 and 4" is
+        # now, correctly, removed.
         _text('This document covers coating systems 1 and 4 '
-             '[S1 "shall have a NDFT nominal dry film thickness of 280 um"].'),
+             '[S1 "shall have a NDFT nominal dry film thickness of 280 um"] '
+             '[S2 "shall have a NDFT nominal dry film thickness of 450 um"].'),
     ], calls)
     convo = client.post("/api/conversations").json()["id"]
     body = _ask(client, convo, "tell me about this document", document_id=doc, tier="generated")
@@ -293,7 +298,11 @@ def test_the_tool_call_cap_stops_the_loop_rather_than_running_forever(monkeypatc
     body = _ask(client, convo, "tell me everything, page by page", document_id=doc, tier="generated")
     # 2 tool-bearing calls + exactly one forced final call with no tools = 3
     assert len(calls) == 3, "the loop must stop offering tools after the cap"
-    assert calls[-1].get("tools") in (None, [])
+    # The history holds tool blocks, so the API needs `tools` defined; the cap
+    # is enforced with tool_choice none instead (see test_claude_request_shape).
+    assert calls[-1].get("tools")
+    assert calls[-1].get("tool_choice") == {"type": "none"}
+    assert all("tool_choice" not in c for c in calls[:-1])
     assert body["answer_type"] in ("generated", "general")
 
 

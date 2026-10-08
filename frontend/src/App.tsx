@@ -23,6 +23,7 @@ import { ReportsScreen } from "./views/ReportsScreen";
 import { DeliverablesView } from "./views/DeliverablesView";
 import { ReviewRunsView } from "./views/ReviewRunsView";
 import type { AuthStatus, Me } from "./types/api";
+import { NavigationContext } from "./components/NavLink";
 import { parseRoute, pathForView, titleForView, type AppRoute } from "./routing";
 
 //: One key, named once. A typo in a second literal is a preference that
@@ -252,6 +253,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
   }
 
   return (
+    <NavigationContext.Provider value={onNavigate}>
     <Shell
       view={view}
       onNavigate={onNavigate}
@@ -330,6 +332,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
               connection={connection} onRetryConnection={recheck}
               onOpenReview={(runId) => onNavigate("review", runId)}
               onOpenDocuments={() => onNavigate("documents")}
+              onOpenDeliverables={() => onNavigate("deliverables")}
             />
           )}
           {view === "standards" && <StandardsView isAdmin={canAdmin} />}
@@ -351,5 +354,6 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
         </>
       )}
     </Shell>
+    </NavigationContext.Provider>
   );
 }

@@ -440,7 +440,9 @@ LOWERING = [
 
 def test_everything_clear_is_medium_and_nothing_else_is():
     checks = confidence_checks(**CLEAR)
-    assert [c.fired for c in checks] == [False] * len(checks)
+    # Six checks ran and cleared; the seventh (a credible passage retrieved and
+    # not used) is never computed by this system, so it is None, not False.
+    assert [c.fired for c in checks] == [False, False, False, False, None, False, False]
     assert confidence_from(checks) == "medium"
 
 
@@ -449,7 +451,7 @@ def test_each_lowering_fact_on_its_own_gives_low(field, value):
     """One test per rule, so a regression says WHICH check stopped counting."""
     checks = confidence_checks(**{**CLEAR, field: value})
     assert confidence_from(checks) == "low", field
-    assert sum(c.fired for c in checks) == 1, f"{field} fired the wrong number of checks"
+    assert sum(1 for c in checks if c.fired is True) == 1, f"{field} fired the wrong number of checks"
 
 
 def test_high_is_unreachable_from_every_combination_of_checks():
@@ -482,7 +484,8 @@ def test_coverage_complete_true_is_refused_as_an_input():
     with pytest.raises(ValueError):
         confidence_checks(**{**CLEAR, "coverage_complete": True})
     assert confidence_checks(**{**CLEAR, "coverage_complete": False})[4].fired is True
-    assert confidence_checks(**{**CLEAR, "coverage_complete": None})[4].fired is False
+    # None means nobody computed it: NOT "checked and clear" (review finding 2026-10-02).
+    assert confidence_checks(**{**CLEAR, "coverage_complete": None})[4].fired is None
 
 
 def test_no_recommendation_means_null_confidence_never_low():
@@ -497,7 +500,7 @@ def test_the_recommendation_folds_its_own_truncation_into_the_checklist_once():
     assert rec is not None
     labels = [c.label for c in rec.checks]
     assert len(labels) == len(set(labels)), "the same fact was listed twice"
-    fired = [c.label for c in rec.checks if c.fired]
+    fired = [c.label for c in rec.checks if c.fired is True]
     assert fired == ["a generation stopped at its length limit"]
     assert rec.confidence == "low"
 
@@ -669,3 +672,32 @@ def test_a_genuinely_uncited_sentence_is_still_reported_as_removed():
     assert len(kept) == 1
     assert len(dropped) == 1
     assert dropped[0][0].strip() and dropped[0][1].strip()
+
+
+def test_an_uncomputed_check_survives_the_merge_as_not_checked():
+    """THE MUTATION TARGET: the caller did not look and this module did not
+    look either, so the row is None - never False."""
+    rec = recommend(QUESTION, TWO, Stub("Verify the 280 um requirement [S1]."),
+                    checks=confidence_checks(**CLEAR))
+    by_label = {c.label: c.fired for c in rec.checks}
+    assert by_label["a credible passage was retrieved and not used"] is None
+    assert by_label["a generation stopped at its length limit"] is False
+
+
+def test_a_check_one_side_computed_outranks_one_nobody_ran():
+    from app.synthesis import _merge_checks
+    label = "a credible passage was retrieved and not used"
+    merged = _merge_checks((ConfidenceCheck(label, False),), (ConfidenceCheck(label, None),))
+    assert merged[0].fired is False
+    merged = _merge_checks((ConfidenceCheck(label, None),), (ConfidenceCheck(label, None),))
+    assert merged[0].fired is None
+    merged = _merge_checks((ConfidenceCheck(label, None),), (ConfidenceCheck(label, True),))
+    assert merged[0].fired is True
+
+
+def test_the_api_carries_null_for_a_check_that_was_not_run():
+    rec = recommend(QUESTION, TWO, Stub("Verify the 280 um requirement [S1]."),
+                    checks=confidence_checks(**CLEAR))
+    out = recommendation_to_api(rec)
+    by_label = {c["label"]: c["fired"] for c in out["checks"]}
+    assert by_label["a credible passage was retrieved and not used"] is None

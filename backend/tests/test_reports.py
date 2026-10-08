@@ -577,6 +577,13 @@ def _user(email, role_id, doc_ids):
     return uid
 
 
+def _own_conversations(uid: str) -> None:
+    """`answered_message` asks under auth-off, so its conversation has no owner;
+    since r2 S4 a report needs the caller to own the conversation."""
+    with db.connect() as conn:
+        conn.execute("UPDATE conversations SET owner_user_id = ?", (uid,))
+
+
 def test_a_report_vanishes_when_a_cited_document_leaves_the_readers_scope(monkeypatch):
     """404, not 403, and not partially redacted. The listing shows only THAT
     something is hidden."""
@@ -584,6 +591,7 @@ def test_a_report_vanishes_when_a_cited_document_leaves_the_readers_scope(monkey
     m = answered_message()
     monkeypatch.setattr(settings, "auth_mode", access.AUTH_REQUIRED)
     uid = _user("a@x.test", "role_a", [doc_id])
+    _own_conversations(uid)
     scope = access.scope_for_user(uid)
     assert scope.allowed_document_ids == {doc_id}, "fixture: the user cannot see the document"
 
@@ -613,6 +621,7 @@ def test_another_users_report_is_404(monkeypatch):
     owner = _user("a@x.test", "role_a", [doc_id])
     other = _user("b@x.test", "role_b", [doc_id])
     assert owner != other
+    _own_conversations(owner)
     rec = reports.generate(m["id"], access.scope_for_user(owner))
 
     monkeypatch.setattr(access, "_resolve_user_id", lambda request: other)
@@ -831,3 +840,60 @@ def test_the_passage_label_names_no_clause():
     assert "9.9.9" not in text, "the clause number reached the PDF"
     # And the citation is still usable: the document and page must remain.
     assert "page" in text.lower(), "the passage label lost its page as well"
+
+
+# ------------------------------------------- the label over a quoted answer
+
+
+def _mark_every_passage(m, **fields):
+    conn = db.connect()
+    payload = json.loads(conn.execute("SELECT payload FROM messages WHERE id = ?",
+                                      (m["id"],)).fetchone()["payload"])
+    payload["passage"].update(fields)
+    for ap in (payload.get("answer_passages") or []) + (payload.get("supporting") or []):
+        ap.update(fields)
+    with conn:
+        conn.execute("UPDATE messages SET payload = ? WHERE id = ?",
+                     (json.dumps(payload), m["id"]))
+
+
+def test_a_quoted_answer_over_text_layer_text_is_labelled_verbatim():
+    ingest()
+    rec = reports.generate(answered_message()["id"], access.unrestricted_scope())
+    assert "Quoted verbatim from the document" in all_text(pdf_of(rec))
+
+
+def test_a_quoted_answer_over_ocr_text_is_never_labelled_verbatim():
+    """THE MUTATION TARGET (review finding, 2026-10-02): the PDF printed the
+    verbatim label unconditionally, over text OCR read off a page image."""
+    ingest()
+    m = answered_message()
+    _mark_every_passage(m, text_source="recognised", ocr_min_conf=0.6)
+    text = all_text(pdf_of(reports.generate(m["id"], access.unrestricted_scope())))
+    assert "Quoted verbatim from the document" not in text
+    assert "read by OCR off a scanned page" in text
+
+
+def test_a_quoted_answer_with_no_recorded_source_is_not_called_verbatim():
+    ingest()
+    m = answered_message()
+    _mark_every_passage(m, text_source=None)
+    text = all_text(pdf_of(reports.generate(m["id"], access.unrestricted_scope())))
+    assert "Quoted verbatim from the document" not in text
+    assert "how this text was read is not recorded" in text
+
+
+@pytest.mark.parametrize("passages,expected", [
+    ([{"cited": True, "text_source": "extracted"}], "Quoted verbatim from the document"),
+    ([{"cited": True, "text_source": "recognised"}], "read by OCR"),
+    ([{"cited": True, "text_source": "extracted"},
+      {"cited": True, "text_source": "recognised"}], "read by OCR"),
+    ([{"cited": True, "text_source": "mixed"}], "not recorded"),
+    ([{"cited": True}], "not recorded"),
+    ([], "not recorded"),
+    # only the passages the answer cites decide the label
+    ([{"cited": True, "text_source": "extracted"},
+      {"cited": False, "text_source": "recognised"}], "Quoted verbatim from the document"),
+])
+def test_extract_label_follows_the_provenance_of_the_cited_passages(passages, expected):
+    assert expected in reports._extract_label({"passages": passages})

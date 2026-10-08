@@ -232,6 +232,26 @@ export function onSignedOut(fn: (() => void) | null) {
   onUnauthenticated = fn;
 }
 
+/** THE ONE HOME FOR "the backend said the token is no good": drop the dead
+ *  token and tell the app once. Every transport calls this on its own 401 -
+ *  the JSON path, the answer stream, the report download, the page image and
+ *  the upload (audit 2026-09-30: the image/PDF fetch and the upload did not,
+ *  so a reader with an expired session saw "could not render" or "Upload
+ *  failed" and stayed on a screen that could no longer do anything).
+ *  No auto-retry and no refresh flow: there is no refresh token by design. */
+function signOutOn401(status: number): void {
+  if (status === 401) {
+    token = null;
+    onUnauthenticated?.();
+  }
+}
+
+/** For the one transport this module does not own (the XHR upload): report
+ *  the status it got, so a 401 there signs out exactly as one here does. */
+export function reportResponseStatus(status: number): void {
+  signOutOn401(status);
+}
+
 /** What to tell a reader, in words they can act on. */
 function humanMessage(status: number): string {
   if (status === 401) {
@@ -510,6 +530,7 @@ export const reviews = {
         e instanceof Error ? e.message : "Network request failed.");
     }
     if (!response.ok) {
+      signOutOn401(response.status);
       let error: ApiError = {
         code: response.status === 404 ? "not_found" : "internal",
         message: humanMessage(response.status),
@@ -525,10 +546,19 @@ export const reviews = {
     }
     const disposition = response.headers.get("Content-Disposition") ?? "";
     const match = /filename="([^"]+)"/.exec(disposition);
+    let blob: Blob;
+    try {
+      blob = await response.blob();
+    } catch (e) {
+      // The status line arrives before the bytes: a dropped connection throws
+      // here, on a response that already said 200.
+      return disconnected(
+        e instanceof Error ? e.message : "The download was interrupted.");
+    }
     return {
       ok: true,
       data: {
-        blob: await response.blob(),
+        blob,
         filename: match?.[1] ?? `CRS_${runId}.xlsx`,
       },
     };
@@ -820,7 +850,10 @@ export async function fetchImageObjectUrl(url: string): Promise<ImageObjectResul
     const headers = new Headers();
     if (token) headers.set("Authorization", `Bearer ${token}`);
     const response = await fetch(url, { headers });
-    if (!response.ok) return { url: null, answerLocated: null };
+    if (!response.ok) {
+      signOutOn401(response.status);
+      return { url: null, answerLocated: null };
+    }
     const located = response.headers.get("X-Answer-Located");
     return {
       url: URL.createObjectURL(await response.blob()),
@@ -859,8 +892,7 @@ async function downloadReport(path: string, fallback: string): Promise<DownloadR
     if (response.status === 401) {
       // Same side effects as the JSON path: drop the dead token and tell the
       // app once. No retry - there is no refresh token by design.
-      token = null;
-      onUnauthenticated?.();
+      signOutOn401(response.status);
       return { ok: false, failure: { kind: "unauthenticated" } };
     }
     if (response.status === 403) return { ok: false, failure: { kind: "forbidden" } };
@@ -930,10 +962,7 @@ async function failureOf(response: Response): Promise<Result<never>> {
   // Clear it and tell the app once. No auto-retry and no refresh flow:
   // there is no refresh token by design, and a silent retry against a
   // revoked session is a loop that hides the reason from the reader.
-  if (response.status === 401) {
-    token = null;
-    onUnauthenticated?.();
-  }
+  signOutOn401(response.status);
 
   let error: ApiError = {
     code: "internal",
@@ -971,7 +1000,24 @@ async function request<T>(
 
   if (!response.ok) return failureOf(response);
 
-  const body = await response.json();
+  // A 200 whose body is not JSON (a proxy's HTML page, a truncated body) must
+  // become the same typed failure every caller already handles - never a
+  // rejected promise, which strands whatever flag the caller set before it.
+  let body: unknown;
+  try {
+    body = response.status === 204 ? null : await response.json();
+  } catch {
+    return {
+      ok: false,
+      disconnected: false,
+      error: {
+        code: "internal",
+        message:
+          "The server's reply could not be read. If you changed something, it may " +
+          "or may not have been saved - reload to check before trying again.",
+      },
+    };
+  }
   if (expect && !expect(body)) {
     // Never a white screen. The reader gets the same card any other API
     // failure produces, and the console keeps the detail for whoever is
@@ -1203,7 +1249,8 @@ export const api = {
   /** Stop an answer being written. The server closes the provider call and
    *  stores the turn as stopped, with what the reader had been shown. */
   /** "Search once": run the one web search a consent turn offered. Sends
-   *  no text - the server rebuilds the phrase from the stored question. */
+   *  no text - the server sends exactly the phrase the consent turn showed
+   *  and stored, after re-checking it against the whitelist. */
   webSearch: (conversationId: string, messageId: string) =>
     request<Message>(
       `/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/web-search`,

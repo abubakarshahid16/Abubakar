@@ -5,9 +5,11 @@ import { ComparisonScopeNotice as ComparisonScopeNoticeView } from "./Comparison
 import { type AnswerView, type UpgradeFailure, asksForComparison, documentsAnsweredFrom, sourcesOf, asSentence, formatDuration, Chip, ChipMark, CitedProse, Label, ReportAction, UpgradeFailureNotice } from "./AnswerCardContent";
 import { CorpusPart, CountsBoundedNote, GuidanceAnswer, MetadataAnswer } from "./AnswerNonDocument";
 import { InsufficientAnswer } from "./AnswerInsufficient";
-import { ScopeNotice, VerdictNotice, WithheldNotice } from "./AnswerVerdict";
+import { ComparisonAnswer } from "./AnswerComparison";
+import { ConditionNotice, ScopeNotice, VerdictNotice, WithheldNotice } from "./AnswerVerdict";
 import type { AnswerPassage, ChatSource } from "../../types/api";
 import { GeneratedAnswer } from "./GeneratedAnswer";
+import { ProviderNotice, providerNoteFor } from "./ProviderNotice";
 
 function RetrievalDetails({ passage }: { passage: AnswerPassage }) {
   return passage.score == null ? null : (
@@ -43,6 +45,8 @@ export function AnswerCard(props: Parameters<typeof AnswerCardBody>[0]) {
       {/* A refusal card already says it cannot determine this; saying it twice is noise. */}
       {verdict && view.answer_type !== "insufficient_evidence" && <VerdictNotice verdict={verdict.verdict} reason={verdict.reason} evidence={verdict.evidence} />}
       <ScopeNotice understanding={view.understanding} ambiguity={view.scope_ambiguity} />
+      <ConditionNotice choice={view.condition_choice} />
+      <ProviderNotice note={providerNoteFor(view)} />
     </>
   );
   if (!twoPart && !bounded) {
@@ -158,6 +162,26 @@ function AnswerCardBody({
   // ---------------------------------------------------------- no answer
   if (view.answer_type === "insufficient_evidence") {
     return <InsufficientAnswer view={view} onSelectSource={onSelectSource} />;
+  }
+
+  if (view.answer_type === "model_unavailable" && view.provider === "claude") {
+    return (
+      <div role="alert" className="surface-card rounded-[var(--radius-md)] border border-warn-500/50 bg-warn-500/10 p-4">
+        <p className="text-sm font-semibold text-warn-500">
+          Claude could not answer
+        </p>
+        <p className="mt-1 text-sm text-slateish-300">
+          {asSentence(view.reason ?? "The Claude call failed")} The quoted
+          answer above is unaffected — only the explanation needs the model.
+          Try again, or switch Model to Local.
+        </p>
+      </div>
+    );
+  }
+
+  // ---------------------------------------------------- plan C3: comparison
+  if (view.answer_type === "comparison") {
+    return <ComparisonAnswer view={view} onSelectSource={onSelectSource} activeSource={activeSource} />;
   }
 
   if (view.answer_type === "model_unavailable") {

@@ -18,12 +18,11 @@ filled sheet holds no standard text - but it is still a description of a
 client's standards, and this project's rule is that such material lives in the
 local database and not in git. Keep the filled sheets beside the database.
 
-**Two filled sheets break this rule and are tracked anyway:** `SAES-A-105.csv`
-and `PAIRS-216400C.csv`. Both were committed before anyone checked them against
-the rule, and both are already on GitHub. The owner accepted that risk on
-2026-09-21: the repository is private, and untracking them would not remove
-them from history. `.gitignore` names them as exceptions, so the rule and the
-repository agree. Do not add a third.
+**No filled sheet is tracked.** Two were, as named exceptions in `.gitignore`,
+under an accepted risk recorded while the repository was private. It is public
+now, and both were untracked on 2026-10-08 (they stay on the owner's disk).
+Untracking does not remove them from history. `backend/tests/test_gold_sheets_untracked.py`
+fails if a filled sheet is tracked again.
 
 Nothing in the test suite depends on a filled sheet existing.
 

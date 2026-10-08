@@ -31,6 +31,7 @@ import sqlite3
 
 from .db import connect, schema_once
 from .rates import Timer, rate
+from . import acronyms, states
 
 #: Keep `.`, `-`, `/` and `_` inside tokens so identifiers survive intact.
 #: The tokenizer cannot say "only between two alphanumerics", which is why
@@ -45,7 +46,11 @@ TOKENIZER = "unicode61 remove_diacritics 2 tokenchars '.-/_'"
 #:   (none) raw chunk text, trailing sentence punctuation glued onto tokens
 #:   "2"    `index_text`: edge punctuation stripped, identifier / thousands /
 #:          compound-word aliases appended (2026-09-27, audit R1/R3/R4, F3)
-INDEX_VERSION = "2"
+#:   "3"    the section column carries the chunk's heading CHAIN
+#:          (`chunks.context`) when it has one, else its section as before
+#:          (2026-09-30, context notes). A chunk made before CHUNKER_VERSION 8
+#:          has no context, so its row is identical to version 2's.
+INDEX_VERSION = "3"
 
 META_SCHEMA = """
 CREATE TABLE IF NOT EXISTS keyword_index_meta (
@@ -272,15 +277,18 @@ def index_is_stale(conn: sqlite3.Connection | None = None) -> bool:
 def _index_rows(conn: sqlite3.Connection, document_id: str) -> int:
     """(Re)write one document's rows. The caller owns the transaction."""
     rows = conn.execute(
-        """SELECT id, text, section, filename FROM chunks
+        """SELECT id, text, section, context, filename FROM chunks
            WHERE document_id = ? AND retrievable = 1 ORDER BY ordinal""",
         (document_id,),
     ).fetchall()
     conn.execute("DELETE FROM chunks_fts WHERE document_id = ?", (document_id,))
+    # The heading chain ends with the section itself, so it replaces the
+    # section in this column rather than repeating it. Index-only: search
+    # returns chunk ids and the quoted text is read from `chunks`.
     conn.executemany(
         """INSERT INTO chunks_fts (text, section, filename, chunk_id, document_id)
            VALUES (?, ?, ?, ?, ?)""",
-        [(index_text(r["text"]), index_text(r["section"] or ""),
+        [(index_text(r["text"]), index_text(r["context"] or r["section"] or ""),
           index_text(r["filename"]), r["id"], document_id) for r in rows],
     )
     return len(rows)
@@ -769,7 +777,8 @@ def build_phrase_query(question: str) -> str:
 
 
 def build_match_query(
-    question: str, variants: dict[str, list[str]] | None = None
+    question: str, variants: dict[str, list[str]] | None = None,
+    extra_spellings: list[str] | None = None,
 ) -> str:
     """Turn a natural question into an FTS5 MATCH expression.
 
@@ -821,6 +830,9 @@ def build_match_query(
             parts.append("(" + " OR ".join(spelled) + ")")
     if words or optional:
         spellings: list[str] = list(optional)
+        # Abbreviations standing for a spelled-out phrase the question typed
+        # (additive; see acronyms.expansion_phrases).
+        spellings.extend(_escape(a) for a in (extra_spellings or ()))
         for w in words:
             forms = (variants or {}).get(w.lower())
             if forms:
@@ -881,6 +893,10 @@ def search(
     `dropped`, so the signature stays a list of hits for every caller that
     does not care what was corrected.
     """
+    # A document that stopped without being answerable (failed, ...) is not
+    # searched - states.NOT_SEARCHABLE_STATES. Narrowing only, and first, so
+    # the acronym and spelling variants below read the same scope.
+    allowed_document_ids = states.searchable_scope(allowed_document_ids)
     question = normalise_query(question)
     variants = _acronym_variants(
         question, document_id, allowed_document_ids=allowed_document_ids
@@ -892,7 +908,11 @@ def search(
         variants[word] = list(dict.fromkeys([*variants.get(word, word_forms(word)), *phrases]))
         if synonyms is not None:
             synonyms[word] = list(phrases)
-    match = build_match_query(question, variants)
+    # A question typed in full ("post weld heat treatment") also finds the
+    # passages that only print the abbreviation the library defines for it.
+    spelled_as = acronyms.expansion_phrases(
+        question, document_id, allowed_document_ids=allowed_document_ids)
+    match = build_match_query(question, variants, spelled_as)
     if not match:
         return []
 
@@ -1008,8 +1028,6 @@ def _acronym_variants(
     only add spellings the corpus actually uses - see app/acronyms.py. Imported
     lazily because acronyms.py imports this module.
     """
-    from . import acronyms
-
     out: dict[str, list[str]] = {}
     for word in re.findall(r"[A-Za-z][\w.\-/]*", question):
         key = word.lower()
@@ -1024,7 +1042,13 @@ def _acronym_variants(
             )
         )
         if equivalents:
-            out[key] = [key, *equivalents]
+            # The tail of a spelled-out form ("heat treatment" of "post weld
+            # heat treatment") is OR-ed too, so the clause that only says
+            # "heat treatment" is a CANDIDATE. Candidate generation only: the
+            # lexical gate and the reranker still judge it.
+            tails = [t for e in equivalents if " " in e
+                     for t in acronyms.retrieval_tails(e)]
+            out[key] = list(dict.fromkeys([key, *equivalents, *tails]))
     return out
 
 

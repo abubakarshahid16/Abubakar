@@ -28,6 +28,7 @@ import type {
   GrantRequest,
   LoadFailure,
 } from "../types/admin";
+import { reportResponseStatus } from "../api/client";
 import { AdminView } from "./AdminView";
 import { DatabaseSection } from "./admin/DatabaseSection";
 
@@ -75,6 +76,9 @@ async function adminRequest<T>(
         error: { code: "internal", message: "Cannot reach the backend. Nothing answered on the API port." },
       };
     }
+    // The same 401 handling as api/client.ts: drop the dead token and tell the
+    // app once, so an expired session on this screen returns to sign-in.
+    reportResponseStatus(response.status);
     let code = response.status === 404 ? "not_found" : "internal";
     let message = MESSAGES[code] ?? "The backend could not complete this request.";
     try {
@@ -90,7 +94,20 @@ async function adminRequest<T>(
     return { ok: false, disconnected: false, error: { code, message } };
   }
 
-  return { ok: true, data: (await response.json()) as T };
+  // A 200 that is not JSON (a proxy's page) is a failure the screen can show,
+  // not a rejected promise.
+  try {
+    return { ok: true, data: (await response.json()) as T };
+  } catch {
+    return {
+      ok: false,
+      disconnected: false,
+      error: {
+        code: "internal",
+        message: "The backend's reply could not be read. If you changed something, it may or may not have been saved - reload to check before trying again.",
+      },
+    };
+  }
 }
 
 /** The admin routes as api/client.ts would express them. See the file note. */

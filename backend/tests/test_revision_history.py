@@ -235,17 +235,28 @@ def test_a_parenthetical_obligation_is_still_a_titled_heading():
 
 
 def test_a_change_table_vouches_for_numbers_the_body_prints_bare():
-    """A body that prints "4.2" alone above its sentence leaves a gap in the
-    4.x group the heading detector sees (4.1, 4.3, 4.4), and the gap refuses
-    4.3 and 4.4. The change table names 4.2 - a paragraph of THIS revision -
-    so it may vouch for the numbering, without ever setting a section."""
-    changes = ("Summary of Changes\nParagraph\nChange Type\n1\n4.2\nModification\n"
-               "Clarified the design basis.\n")
+    """A body that prints 4.2, 4.3 and 4.4 alone on their lines, each above its
+    sentence, gives the heading detector only 4.1, 4.5 and 4.6 - and a run
+    that jumps from 4.1 to 4.5 is refused (a gap of more than three). The
+    change table names 4.2 to 4.4 - paragraphs of THIS revision - so it may
+    vouch for the numbering, without ever setting a section.
+
+    (Until 2026-10-01 this body had a single bare number, 4.2. The gap
+    tolerance added by audit F4 accepts one missing sibling by itself, so the
+    test passed with the vouching deleted - mutation M911 was not detected.
+    The gap is now wider than that tolerance, so only the change table can
+    close it.)"""
+    changes = ("Summary of Changes\nParagraph\nChange Type\n"
+               "1\n4.2\nModification\nClarified the design basis.\n"
+               "2\n4.3\nModification\nClarified the load sources.\n"
+               "3\n4.4\nModification\nClarified the impact loads.\n")
     body = ("4\nDesign\n4.1 General\nThe design shall be prepared by a qualified engineer.\n"
             "4.2\nDesign loads shall be taken from the governing building code.\n"
-            "4.3 Connections\nConnection details shall allow for erection tolerances.\n"
-            "4.4 Openings\nOpenings in panels shall be reinforced at their perimeter.\n")
+            "4.3\nLoad combinations shall be taken from the governing building code.\n"
+            "4.4\nImpact loads shall be taken from the governing building code.\n"
+            "4.5 Connections\nConnection details shall allow for erection tolerances.\n"
+            "4.6 Openings\nOpenings in panels shall be reinforced at their perimeter.\n")
     blocks = _segment([(2, changes), (3, body)])
     sections = {b.section for b in blocks if b.page_start == 3}
-    assert {"4.3 Connections", "4.4 Openings"} <= sections
+    assert {"4.5 Connections", "4.6 Openings"} <= sections
     assert not any(ch.is_revision_history(b.section) for b in blocks if b.page_start == 3)

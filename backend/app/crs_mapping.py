@@ -141,9 +141,70 @@ def _rejected(finding: dict) -> bool:
     return finding.get("approval_status") == "rejected"
 
 
+def finding_comment_key(f: dict) -> str:
+    """The permanent-number key of the comment one finding makes - the same
+    key `build_crs_rows` gives the row it leads. One home for all three
+    shapes (a requirement comment, a chat comment, an AI/web check item)."""
+    origin = f.get("origin")
+    if origin == "chat":
+        return comment_key(
+            "chat", f.get("engineer_comment") or f.get("finding"),
+            f.get("contractor_page"), f.get("contractor_section"))
+    if origin in (_AI_ORIGIN, _WEB_ORIGIN):
+        return comment_key(
+            origin, f.get("finding"), f.get("required_action"),
+            f.get("contractor_page"), f.get("contractor_section"))
+    return _subject_key(f)
+
+
+def rejected_comment_keys(findings: list[dict]) -> set[str]:
+    """The comment keys of the findings an engineer rejected. A rejected
+    comment is never issued: `main._crs_content` never carries these forward
+    and `main._mint_crs_numbers` withdraws their numbers."""
+    return {finding_comment_key(f) for f in findings if _rejected(f)}
+
+
 def _edited_by(finding: dict) -> str:
     who = finding.get("confirmed_by_name") or finding.get("confirmed_by") or "an engineer"
     return f"AI Review, edited and confirmed by {who}"
+
+
+#: The shapes a stored "Comment By" names one person in, as `_by`, the
+#: AI/web rows and chat comments write them: (prefix, the person, suffix).
+_BYLINE_SHAPES = (
+    re.compile(r"^(AI Review, (?:edited and )?confirmed by )(?P<who>.+?)()$"),
+    re.compile("^(" + re.escape(_AI_CONFIRMED_BY) + r")(?P<who>.+?)()$"),
+    re.compile("^(" + re.escape(_WEB_CONFIRMED_BY) + r")(?P<who>.+?)()$"),
+    re.compile(r"^()(?P<who>.+?)( \(filed from chat\))$"),
+)
+
+
+def byline_person(byline: str | None) -> str | None:
+    """The person a stored "Comment By" names, or None when it names nobody
+    ("AI Review", an unconfirmed draft's label)."""
+    for shape in _BYLINE_SHAPES:
+        match = shape.match(byline or "")
+        if match:
+            return match.group("who")
+    return None
+
+
+def resolve_byline(byline: str | None, names: dict[str, str]) -> str:
+    """A stored "Comment By" with a raw user id replaced by that user's
+    display name. Audit leftover 2026-09-30: carry-forward snapshots written
+    before bylines printed names still say "confirmed by eng-1". Only an id
+    that `names` maps to a non-empty display name is replaced - a name is
+    never invented, and a byline that already names a person, or names an
+    unknown one, is returned unchanged."""
+    text = byline or ""
+    for shape in _BYLINE_SHAPES:
+        match = shape.match(text)
+        if match:
+            name = names.get(match.group("who"))
+            if name:
+                return f"{match.group(1)}{name}{match.group(3)}"
+            return text
+    return text
 
 
 def _fold(text) -> str:
@@ -192,6 +253,16 @@ NOTE_OTHER_DOCUMENT = "Requires another document"
 #: the note claimed 9, 2 were true).
 NOTE_NO_FIELD = "No datasheet field found - engineer to check"
 _NO_FIELD_MARKER = "no_field_matched"
+#: Review conditions (2026-09-30): a requirement the datasheet's own facts
+#: put OUTSIDE its condition ("for pipes larger than 2 inch" against NPS 1).
+#: NOT a contractor comment and NOT a breach - there is nothing for the
+#: contractor to do - but never silently dropped either: the engineer sees
+#: each one, with the condition and the value that excused it, and can
+#: overrule it. One note per finding, because each has its own evidence.
+NOTE_CONDITION_NOT_MET = "Not applicable - datasheet is outside the requirement's condition"
+#: `comparison.CONDITION_NOT_MET`, as a literal for the reason given above.
+_CONDITION_NOT_MET_MARKER = "condition_not_met"
+_NOT_APPLICABLE = "NOT_APPLICABLE"
 
 
 def build_review_notes(findings: list[dict], missing_references: list[str],
@@ -205,6 +276,9 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
     apart from them, the statements no datasheet field was found for, which
     name no document (quick wins; they were counted as the first kind). Every
     count states its boundary: "of this run's requirements from <standard>".
+    Last, one note per requirement found NOT APPLICABLE because the
+    datasheet's own facts put it outside the requirement's condition, quoting
+    the condition and the value (and page) that decided it.
     """
     notes: list[dict] = []
     for ref in missing_references:
@@ -254,6 +328,14 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
                                  "was found for them. They do not name another document; "
                                  "check each against the datasheet, or the document "
                                  "that governs it.")})
+    for f in findings:
+        if (f.get("compliance_status") == _NOT_APPLICABLE
+                and (f.get("ai_rationale") or "").startswith(_CONDITION_NOT_MET_MARKER)):
+            ref = _standard_reference(f)
+            notes.append({"note": NOTE_CONDITION_NOT_MET,
+                          "standard": ref, "count": None,
+                          "detail": (f"{_clause_sentence(f, 160)}. Not checked: "
+                                     f"{_reason_words(f)}")})
     return notes
 
 
@@ -380,9 +462,10 @@ def _provided(finding: dict) -> str:
 
 def _reason_words(finding: dict) -> str:
     """An engineer-review reason without its machine code: "unit_mismatch:
-    the requirement is in ..." -> "the requirement is in ..."."""
+    the requirement is in ..." -> "the requirement is in ...", and
+    "LOW_TRUST_VALUE: the value was read ..." -> "the value was read ..."."""
     text = " ".join(str(finding.get("ai_rationale") or "").split())
-    return re.sub(r"^[a-z_]+:\s*", "", text)
+    return re.sub(r"^(?:[a-z_]+|[A-Z][A-Z_]+):\s*", "", text)
 
 
 def _action(finding: dict, field: str) -> str:
@@ -566,14 +649,15 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             "document_name": submittal_name,
             "page_section": "",
             "comment": f.get("engineer_comment") or f.get("finding") or "",
-            "comment_by": f"{f.get('confirmed_by') or 'Engineer'} (filed from chat)",
+            # The engineer's DISPLAY NAME, never their user id (audit
+            # 2026-09-30); the id only when no name is on record.
+            "comment_by": (f"{f.get('confirmed_by_name') or f.get('confirmed_by') or 'Engineer'}"
+                           " (filed from chat)"),
             "standard_reference": "",
             "row_kind": ROW_KIND_ENGINEER_COMMENT,
             "engineer_confirmed": True,
             # An engineer's own free-text comment IS its subject.
-            "comment_key": comment_key(
-                "chat", f.get("engineer_comment") or f.get("finding"),
-                f.get("contractor_page"), f.get("contractor_section")),
+            "comment_key": finding_comment_key(f),
         })
 
     # Owner order 2d/2f and 2d-2: AI engineering check (kind C) and public-web
@@ -614,9 +698,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             "engineer_confirmed": confirmed,
             # The machine's finding text, not the engineer's edit of it, so
             # confirming or re-wording an AI/web item keeps its number.
-            "comment_key": comment_key(
-                origin, f.get("finding"), f.get("required_action"),
-                f.get("contractor_page"), f.get("contractor_section")),
+            "comment_key": finding_comment_key(f),
         })
 
     # OWNER ORDER 2f: THE INTERNAL NOTES LEFT THIS SHEET. Requirements that

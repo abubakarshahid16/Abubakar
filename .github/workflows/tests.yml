@@ -59,6 +59,12 @@ jobs:
       - name: Lint backend for correctness errors
         run: python -m ruff check backend/app backend/tests --select E9,F63,F7,F82
 
+      # No tests run: reads each mutation's target file and fails when an
+      # anchor in scripts/mutations/ no longer matches exactly once, so a
+      # refactor cannot silently turn a mutation into a no-op.
+      - name: Check mutation anchors
+        run: python scripts/check_mutation_anchors.py
+
       # ~400 MB. Cached on the requirements hash rather than on a date, so a
       # dependency bump re-fetches and an unchanged tree does not.
       - name: Cache models

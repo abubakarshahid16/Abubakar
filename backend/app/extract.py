@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import concurrent.futures as cf
 import json
+import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -25,6 +26,8 @@ from .quality import normalise_text
 from . import tables as tables_mod
 from .db import connect
 from .rates import Timer, rate
+
+log = logging.getLogger(__name__)
 
 # Which pages go to recognition is decided HERE, per page, by
 # `ocr.route_page` (audit F6) - detection only at this stage; ocr.py later
@@ -90,7 +93,9 @@ def page_count(pdf_path: str) -> int:
 
 #: Bump when what `page_tables` stores changes. Part of the chunk signature
 #: through `pages.tables_json`, so a re-extraction is detected as new input.
-TABLE_READER_VERSION = "1"
+#: 2 (2026-09-30, reading audit): tables on pages rotated 90/180/270 are
+#: kept, their box and rows in the unrotated space the text is read in.
+TABLE_READER_VERSION = "2"
 
 #: A page with fewer vector paths than this has no ruling to find. Checked
 #: first because `get_drawings` costs about a millisecond and `find_tables`
@@ -112,6 +117,45 @@ def _raw_lines(page) -> tuple[list[str], list[tuple[float, float, float, float]]
             texts.append("".join(span["text"] for span in line["spans"]))
             boxes.append(tuple(line["bbox"]))
     return texts, boxes
+
+
+# ROTATED PAGES (audit 2026-09-30, reading finding 1). `find_tables` works
+# in the DISPLAYED page's coordinates - after /Rotate is applied - while
+# `get_text("dict")` reports line boxes in the UNROTATED page space. On a page
+# with rotation 90 or 270 the table box therefore never contained a single
+# text line and every table on the page was discarded. Both are brought into
+# the unrotated space, the one the text is read in: the box through
+# `page.derotation_matrix`, and the rows rebuilt from each cell's derotated
+# position so they read in the same order as the text lines (on a 90-degree
+# page the displayed rows are the text's columns).
+
+
+def _unrotated_bbox(bbox, derotate) -> tuple[float, float, float, float]:
+    """`bbox` in the unrotated page space; unchanged when `derotate` is None."""
+    if derotate is None:
+        return tuple(bbox)
+    r = pymupdf.Rect(bbox) * derotate
+    r.normalize()
+    return (r.x0, r.y0, r.x1, r.y1)
+
+
+def _unrotated_rows(table, cells: list[list], derotate) -> list[list]:
+    """The table's cell texts laid out as rows and columns of the UNROTATED
+    page: each displayed cell is placed by its derotated top-left corner.
+    A merged or missing cell leaves an empty string, as `extract()` does."""
+    placed: list[tuple[float, float, str | None]] = []
+    for i, row in enumerate(table.rows):
+        for j, box in enumerate(row.cells):
+            if box is None or i >= len(cells) or j >= len(cells[i]):
+                continue
+            x0, y0, _x1, _y1 = _unrotated_bbox(box, derotate)
+            placed.append((round(y0, 1), round(x0, 1), cells[i][j]))
+    ys = sorted({y for y, _x, _t in placed})
+    xs = sorted({x for _y, x, _t in placed})
+    grid: list[list] = [[None] * len(xs) for _ in ys]
+    for y, x, text in placed:
+        grid[ys.index(y)][xs.index(x)] = text
+    return grid
 
 
 def page_tables(page, raw_text: str) -> list[dict]:
@@ -143,10 +187,14 @@ def page_tables(page, raw_text: str) -> list[dict]:
         return []
     out: list[dict] = []
     claimed: set[int] = set()
+    derotate = page.derotation_matrix if page.rotation % 360 else None
     for table in found:
         try:
+            cells = table.extract()
+            if derotate is not None:
+                cells = _unrotated_rows(table, cells, derotate)
             rows = [[tables_mod._clean(normalise_text(c or "")) for c in row]
-                    for row in table.extract()]
+                    for row in cells]
         except Exception:  # noqa: BLE001
             continue
         rows = [row for row in rows if any(cell for cell in row)]
@@ -157,7 +205,7 @@ def page_tables(page, raw_text: str) -> list[dict]:
             continue
         if width > tables_mod.MAX_COLUMNS or tables_mod._is_fragmented(rows):
             continue
-        x0, y0, x1, y1 = table.bbox
+        x0, y0, x1, y1 = _unrotated_bbox(table.bbox, derotate)
         lines = [
             i for i, (bx0, by0, bx1, by1) in enumerate(boxes)
             if i not in claimed
@@ -208,6 +256,32 @@ def extract_batch(pdf_path: str, first_page: int, last_page: int
             out.append((pno + 1, text, route.needs_ocr, eq_heavy, route.reason,
                         _tables_json(page, raw, text)))
     return out
+
+
+def _office_rows(path: str) -> list[tuple] | None:
+    """`extract_batch`-shaped rows for an office datasheet; None for a PDF.
+
+    `needs_ocr` is False (there is no image to recognise), no routing reason
+    is claimed (none was decided), and the rows are stored as the page's
+    tables (`datasheet_inputs.tables_json`) so the chunker keeps them. A file
+    `datasheet_inputs` refuses (a DOCTYPE, a bomb) RAISES, and the worker
+    records the document as failed with that reason.
+    """
+    from . import datasheet_inputs
+
+    if datasheet_inputs.office_kind(path) is None:
+        return None
+    reading = datasheet_inputs.read(path)
+    if reading.notes:
+        # Counts and positions only - never document text.
+        log.info("office datasheet read with %d note(s): %s",
+                 len(reading.notes), "; ".join(reading.notes[:10]))
+    rows = []
+    for p in reading.pages:
+        text = normalise_text(p.text)
+        rows.append((p.page_no, text, False, False, None,
+                     datasheet_inputs.tables_json(p, text)))
+    return rows
 
 
 def _batches(total_pages: int, size: int, start_batch: int) -> list[tuple[int, int, int]]:
@@ -295,7 +369,13 @@ def extract_document(doc_id: str, progress=None) -> dict:
                 "seconds": 0.0, "pages_per_sec": None, "resumed_from_batch": 0,
                 "error": "stored file is missing"}
 
-    total = doc["page_count"] or page_count(pdf_path)
+    # DATASHEET_OFFICE_INPUT seam (off by default): a workbook or Word
+    # document is read by `datasheet_inputs` - one page per visible sheet /
+    # per explicit page break - in THIS process and one batch. A PDF never
+    # takes this branch, so its path below is exactly what it was.
+    office_rows = _office_rows(pdf_path) if settings.datasheet_office_input else None
+    total = (len(office_rows) if office_rows is not None
+             else doc["page_count"] or page_count(pdf_path))
     if doc["page_count"] is None:
         with conn:
             conn.execute("UPDATE documents SET page_count = ? WHERE id = ?", (total, doc_id))
@@ -306,7 +386,12 @@ def extract_document(doc_id: str, progress=None) -> dict:
     timer = Timer()
     pages_this_run = 0
 
-    if todo:
+    if todo and office_rows is not None:
+        _commit_batch(doc_id, job["id"], 0, office_rows)
+        pages_this_run = len(office_rows)
+        if progress:
+            progress(len(office_rows), total)
+    elif todo:
         # Two processes, never threads. Commit strictly in order so the
         # checkpoint stays a contiguous high-water mark.
         with cf.ProcessPoolExecutor(max_workers=settings.extract_processes) as pool:

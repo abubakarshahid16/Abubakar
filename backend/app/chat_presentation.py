@@ -84,12 +84,21 @@ def _what_was_checked(document_ids: list[str], meta: dict[str, dict]) -> str:
 def _answer_passages(result: dict) -> list[dict]:
     """The passages the answer USED, in the order its source numbers refer to."""
     kind = result.get("answer_type")
-    if kind == "generated":
+    if kind in ("generated", "comparison"):
         return list(result.get("passages") or [])
     if kind == "extract":
         return list(result.get("answer_passages") or
                     ([result["passage"]] if result.get("passage") else []))
     return []
+
+
+def used_passages(result: dict) -> list[dict]:
+    """The passages an answer actually used, whatever its tier - extract
+    (`passage`/`answer_passages`) or generated/comparison (`passages`).
+    Public so another module answering per-side (`chat_comparison`) can ask
+    "what did this side's own answer actually use" without a second
+    dispatch on `answer_type`."""
+    return _answer_passages(result)
 
 
 def sources(result: dict) -> list[dict]:
@@ -163,6 +172,8 @@ def steps(result: dict) -> list[dict]:
         out.append({"label": "Read the best sources", "count": read, "done": True})
     if kind == "generated":
         out.append({"label": "Wrote the answer from them", "count": None, "done": True})
+    if kind == "comparison":
+        out.append({"label": "Searched each named side on its own", "count": None, "done": True})
     return out
 
 
@@ -177,6 +188,32 @@ def answer_kind(result: dict) -> str:
 
 def _engine(result: dict) -> str:
     return "Claude" if result.get("provider") == "claude" else "Local model"
+
+
+def _comparison_line(result: dict) -> str | None:
+    """What a compare REALLY searched, from its own per-side results: every
+    named side that had a search run, and how many of those found text. The
+    ordinary "Checked N" counts only documents that produced passages, which
+    for a compare would claim fewer than were searched."""
+    sides = (result.get("comparison") or {}).get("sides") or []
+    if not sides:
+        return None
+    searched = [s for s in sides if s.get("searched", s.get("answer_type") != "not_in_library")]
+    if not searched:
+        return None
+    found = sum(1 for s in searched if (s.get("source_count") or 0) > 0)
+    reps = [(s.get("document_ids") or [None])[0] for s in searched]
+    reps = [r for r in reps if r]
+    if len(reps) == len(searched):
+        what = _what_was_checked(reps, _roles(reps))
+    else:
+        what = "1 document" if len(searched) == 1 else f"{len(searched)} documents"
+    line = f"Searched {what}, found text in {found if found else 'none'}"
+    absent = len(sides) - len(searched)
+    if absent:
+        line += (", 1 named document not among those you can read" if absent == 1
+                 else f", {absent} named documents not among those you can read")
+    return line
 
 
 def used_line(result: dict) -> str:
@@ -206,6 +243,10 @@ def used_line(result: dict) -> str:
         return f"{prefix} · {_engine(result)}" + tail
     if kind == "metadata":
         return "Counted from your library, not from document text" + tail
+    if kind == "comparison":
+        line = _comparison_line(result)
+        if line:
+            return line + tail
     used = _answer_passages(result)
     if used:
         ids = list(dict.fromkeys(p["document_id"] for p in used))

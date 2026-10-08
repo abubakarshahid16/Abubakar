@@ -77,6 +77,25 @@ export const STATUS_TONE: Record<ComplianceStatus, string> = {
   NOT_IN_DOCUMENT_SCOPE: "border-dashed border-ink-600 bg-ink-900 text-slateish-400",
 };
 
+/** A review RUN's lifecycle status in plain words (audit 2026-09-30: the raw
+ *  database value was printed). The five values the backend writes are
+ *  `queued`, `running`, `completed`, `failed` and `cancelled`
+ *  (review_jobs.py, comparison.py). Null renders as nothing; a value this
+ *  list does not know is shown as itself rather than guessed at. */
+export const RUN_STATUS_LABEL: Record<string, string> = {
+  queued: "Waiting to start",
+  running: "Running",
+  completed: "Finished",
+  failed: "Failed",
+  cancelled: "Cancelled",
+};
+
+export function runStatusLabel(status: string | null | undefined): string {
+  if (!status) return "";
+  return Object.prototype.hasOwnProperty.call(RUN_STATUS_LABEL, status)
+    ? RUN_STATUS_LABEL[status] : status;
+}
+
 export function statusLabel(status: string | null | undefined): string {
   if (!status) return "";
   return STATUS_LABEL[status as ComplianceStatus] ?? status;
@@ -384,4 +403,47 @@ export function groupFindingsByTopic<
   return [...groups.entries()]
     .sort(([a], [b]) => (a === "Other" ? 1 : b === "Other" ? -1 : a.localeCompare(b)))
     .map(([topic, list]) => ({ topic, findings: list }));
+}
+
+/** The backend's page size for a document list, and its hard maximum. A list
+ *  asked without `limit` silently stops at 20; every picker asks for this. */
+export const LIST_MAX = 200;
+
+/** X-Total-Count from a list response, or null when the header is absent or
+ *  unreadable. Null is "not known", never 0. */
+export function totalFromResponse(
+  response: { headers?: { get?: (name: string) => string | null } } | null | undefined,
+): number | null {
+  const raw = response?.headers?.get?.("X-Total-Count");
+  if (raw == null || raw === "") return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+/** Say where a list was cut, or nothing when it was not. States the boundary
+ *  (newest N) and, when the server told us, the total; never invents one. */
+export function truncationNote(
+  shown: number, total: number | null, noun: string,
+): string | null {
+  if (total !== null) {
+    return total > shown
+      ? `Showing the newest ${shown} of ${total} ${noun}. Older ones are not listed here.`
+      : null;
+  }
+  return shown >= LIST_MAX
+    ? `Showing the newest ${LIST_MAX} ${noun}; there may be more that are not listed here.`
+    : null;
+}
+
+/** The step line of a running review. A total is shown only when the server
+ *  reported one: an invented denominator ("of 3") reads as a measurement. */
+export function progressLine(
+  done: number | null | undefined, total: number | null | undefined,
+  label: string | null | undefined,
+): string {
+  const step = (done ?? 0) + 1;
+  const text = label ?? "working";
+  return typeof total === "number" && total > 0
+    ? `Step ${Math.min(step, total)} of ${total}: ${text}`
+    : `Step ${step}: ${text}`;
 }

@@ -38,6 +38,9 @@ test-results/
 # --- additions (not in section 9; required for this environment) ---
 # Synthetic CI fixtures are the ONLY PDFs allowed in Git. Re-include explicitly.
 !tests/fixtures/synthetic/*.pdf
+# The made-up datasheet benchmark (scripts/make_datasheet_bench.py): every
+# value invented. Anchored at the repository root, where the tests live.
+!backend/tests/fixtures/synthetic/datasheets/*.pdf
 
 # Scratch folders left by audit runs (pytest basetemp and similar). Ignored
 # explicitly because their subfolders can be permission-denied, which makes git
@@ -117,17 +120,17 @@ gold/*.csv
 !gold/QUESTIONS-TEMPLATE.csv
 # The question sets built from those sheets quote the same client documents.
 gold/*.json
-# EXCEPTIONS, tracked although this rule forbids them - listed so that the rule
-# and the repository agree about what is in Git. Both were committed before
-# anyone checked them against the rule (99591dd, cdf156b) and are already on
-# GitHub. Owner decision 2026-09-21: ACCEPTED RISK (private repository, content
-# already published, and untracking would not remove it from history). Recorded
-# as B27 in .cowork/CURRENT_STATE_AND_BLOCKERS.md, left open to be revisited.
-# Every OTHER filled sheet stays ignored. Do not add to this list.
-!gold/SAES-A-105.csv
-!gold/PAIRS-216400C.csv
+# Per-question calibration logs (eval/refusal_calibration.py) - scores/ids only,
+# but kept out of git the same as every other gold/ artifact.
+gold/*.jsonl
+# No exceptions: the two filled sheets once tracked here were untracked on
+# 2026-10-08 (the repository is public now). They stay on the owner's disk.
+# backend/tests/test_gold_sheets_untracked.py fails if one is tracked again.
 
 # Client identifiers the pre-commit hook blocks in added lines. LOCAL ONLY:
 # the list is itself a list of client identifiers, so it never enters git.
 # One regex per line; see .githooks/pre-commit section 2b.
 .githooks/client-identifiers.local
+
+# Eval output lists corpus file names and passage text. Local only (privacy rule 3).
+eval/results/

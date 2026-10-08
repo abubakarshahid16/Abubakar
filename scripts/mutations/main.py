@@ -356,8 +356,11 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="the CRS export stops passing the run's stored unread "
                     "pages, so the summary names no page (B3)",
         path=APP / "main.py",
-        anchor="        unread_pages=unread)\n",
-        replacement="        unread_pages=[])\n",
+        # Re-anchored 2026-10-01: `build_crs_rows` ignores `unread_pages` (the
+        # old anchor was a dead argument, so the mutation proved nothing); the
+        # pages are named by the Review notes, built a few lines further on.
+        anchor="        \"review_notes\": crs_mapping_mod.build_review_notes(findings, missing, unread),",
+        replacement="        \"review_notes\": crs_mapping_mod.build_review_notes(findings, missing, []),",
         target=_B3_TEST, keyword="crs_names_the_unread_pages",
         tags=("honesty",),
     ),

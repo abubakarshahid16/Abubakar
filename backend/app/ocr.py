@@ -28,6 +28,12 @@ Three things about this module are architectural rather than tuning:
     recogniser cannot process is stored with its error and empty text, so it
     is consumed, shown as `ocr_failed`, and the rest of the document goes on
     to be embedded. It used to stay pending forever and fail the document.
+    The same holds when the ENGINE fails rather than a page: a missing or
+    corrupt model (`_build_engine` raising) or a killed worker process
+    (`BrokenProcessPool`) records every page it was given as failed, with
+    the reason, and the document finishes on its extracted text. Both used
+    to raise out of `recognise_document` and mark a readable document
+    `failed` (audit 2026-09-30). `retry_failed` is the way back.
 
   * **Recognised text goes to `page_ocr`, which extraction cannot reach.**
     `pages` is written with INSERT OR REPLACE, so a re-extraction - which
@@ -35,12 +41,17 @@ Three things about this module are architectural rather than tuning:
     otherwise overwrite recognition with the empty extraction that triggered
     it. See ADR-0006.
 
-Batches are committed strictly in order so `jobs.last_completed_batch` stays a
-contiguous high-water mark a restart can trust, exactly as extraction does.
+Batches are committed strictly in order. The resume point is `page_ocr`
+itself: a page with a row there is never recognised again (`pending_pages`),
+so a restart re-reads only the pages no committed batch covered. (This used
+to say `jobs.last_completed_batch` was the high-water mark, as in extraction;
+nothing ever wrote it for recognition, and writing it would clobber the
+extraction checkpoint the same job row carries.)
 """
 
 from __future__ import annotations
 
+import bisect
 import concurrent.futures as cf
 import re
 from dataclasses import dataclass
@@ -203,6 +214,102 @@ def _norm(line: str) -> str:
     return _NON_ALNUM.sub(" ", line.casefold()).strip()
 
 
+#: Lines whose tops are this close (image pixels) are one visual row. A
+#: fixed 6-pixel BUCKET used to split a row at every bucket edge (99 and 100
+#: landed in different rows); rows are now grouped by distance to the row's
+#: first line.
+_ROW_TOLERANCE = 6.0
+#: A column must hold at least this many lines, and its lines must be at
+#: least this many words long at the median, to be read as a column of TEXT.
+#: A label/value data sheet has the same two x positions, but short cells -
+#: it must keep reading row by row ("Design pressure" then "15 barg").
+_MIN_COLUMN_LINES = 3
+_MIN_COLUMN_WORDS = 4
+#: The gap between the two x clusters must be this share of the x span.
+_COLUMN_GAP_SHARE = 0.25
+
+
+def _rows(items: list[tuple[float, float, str]]) -> list[list[tuple[float, float, str]]]:
+    """`items` grouped into visual rows, top to bottom, each left to right."""
+    rows: list[list[tuple[float, float, str]]] = []
+    anchor = None
+    for it in sorted(items, key=lambda it: (it[0], it[1])):
+        if anchor is None or it[0] - anchor > _ROW_TOLERANCE:
+            rows.append([])
+            anchor = it[0]
+        rows[-1].append(it)
+    return [sorted(row, key=lambda it: it[1]) for row in rows]
+
+
+def _median(values: list[int]) -> float:
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    return ordered[mid] if len(ordered) % 2 else (ordered[mid - 1] + ordered[mid]) / 2
+
+
+def _reading_order(items: list[tuple[float, float, str]]) -> list[str]:
+    """Lines in reading order, column-aware.
+
+    AUDIT 2026-09-30 (reading finding 6): sorting by row then column read a
+    two-column page ACROSS the gutter - left line 1, right line 1, left line
+    2 - so every sentence was interleaved with the other column's. The x
+    positions are now split at their widest gap; when both sides hold
+    `_MIN_COLUMN_LINES` lines of running text, the page is read as two
+    columns: lines above the right column (a full-width header, a stamp) and
+    below it (a footer) stay where they are, the left column is read top to
+    bottom, then the right. Anything else - a single column, a label/value
+    sheet, a stamp in the margin - keeps the row order.
+    """
+    xs = sorted({round(x, 1) for _, x, _ in items})
+    if len(xs) >= 2 and xs[-1] > xs[0]:
+        gap, cut = max((b - a, (a + b) / 2) for a, b in zip(xs, xs[1:]))
+        left = [it for it in items if it[1] < cut]
+        right = [it for it in items if it[1] >= cut]
+        if gap >= (xs[-1] - xs[0]) * _COLUMN_GAP_SHARE and len(right) >= _MIN_COLUMN_LINES:
+            top = min(it[0] for it in right) - _ROW_TOLERANCE
+            bottom = max(it[0] for it in right) + _ROW_TOLERANCE
+            body_left = [it for it in left if top <= it[0] <= bottom]
+            if (len(body_left) >= _MIN_COLUMN_LINES
+                    and _median([len(t.split()) for _, _, t in body_left]) >= _MIN_COLUMN_WORDS
+                    and _median([len(t.split()) for _, _, t in right]) >= _MIN_COLUMN_WORDS):
+                head = [it for it in left if it[0] < top]
+                foot = [it for it in left if it[0] > bottom]
+                ordered = [*_rows(head), *_rows(body_left), *_rows(right), *_rows(foot)]
+                return [t for row in ordered for _, _, t in row]
+    return [t for row in _rows(items) for _, _, t in row]
+
+
+def _near_duplicate(n: str, y: float, native: list[tuple[float, str]],
+                    window: float) -> bool:
+    """Is recognised line `n` a misreading of a text-layer line near it?
+
+    AUDIT 2026-09-30 (reading finding 6): every recognised line was compared
+    with EVERY text-layer line by `SequenceMatcher.ratio()`, quadratic in
+    lines and in characters - 2.2 s for one 150-line page. A misread line sits
+    where the line it misreads sits, so only text-layer lines within `window`
+    pixels vertically are compared (all of them when the recognised line has
+    no position), and the cheap upper bounds (length, then
+    real_quick_ratio/quick_ratio) reject before the full ratio is computed.
+    """
+    if y == float("inf") or y != y:
+        candidates = [m for _, m in native]
+    else:
+        ys = [ny for ny, _ in native]
+        lo = bisect.bisect_left(ys, y - window)
+        hi = bisect.bisect_right(ys, y + window)
+        candidates = [m for _, m in native[lo:hi]]
+    for m in candidates:
+        la, lb = len(n), len(m)
+        if 2 * min(la, lb) / (la + lb) < _DUP_RATIO:
+            continue
+        sm = SequenceMatcher(None, n, m)
+        if sm.real_quick_ratio() < _DUP_RATIO or sm.quick_ratio() < _DUP_RATIO:
+            continue
+        if sm.ratio() >= _DUP_RATIO:
+            return True
+    return False
+
+
 def merge_page_text(native: list[tuple[float, float, str]],
                     recognised: list[tuple[float, float, str]]) -> tuple[str, int]:
     """Merge a page's text layer with what recognition read from its image.
@@ -210,15 +317,23 @@ def merge_page_text(native: list[tuple[float, float, str]],
     Both lists are (y, x, line) in the SAME image coordinates. The text layer
     is kept whole - it is exact where OCR is a guess - and a recognised line
     is added only when the text layer does not already say it: its words
-    appear there in order, or it is a near-identical misreading of one of its
-    lines. Lines are then laid out top to bottom, left to right, so a digital
-    header stays above the scanned body and a footer or stamp below it.
+    appear there in order, or it is a near-identical misreading of a line
+    near it. Lines are then laid out in reading order (`_reading_order`: top
+    to bottom, left to right, one column after the other on a two-column
+    page), so a digital header stays above the scanned body and a footer or
+    stamp below it.
 
     Returns (merged text, number of recognised lines added). Zero added means
     recognition contributed nothing new on this page.
     """
     native_norms = [n for n in (_norm(t) for _, _, t in native) if n]
     haystack = f" {' '.join(native_norms)} "
+    placed = sorted((y, n) for y, n in ((y, _norm(t)) for y, _, t in native) if n)
+    ys = sorted({y for y, _ in placed})
+    gaps = [b - a for a, b in zip(ys, ys[1:]) if b - a > _ROW_TOLERANCE]
+    # Two line spacings either way; at least 4 rows' tolerance on a page
+    # with too few lines to measure a spacing.
+    window = max(2 * (sorted(gaps)[len(gaps) // 2] if gaps else 0.0), 4 * _ROW_TOLERANCE)
     added: list[tuple[float, float, str]] = []
     for y, x, line in recognised:
         n = _norm(line)
@@ -226,12 +341,11 @@ def merge_page_text(native: list[tuple[float, float, str]],
             continue
         if f" {n} " in haystack:
             continue
-        if any(SequenceMatcher(None, n, m).ratio() >= _DUP_RATIO for m in native_norms):
+        if _near_duplicate(n, y, placed, window):
             continue
         added.append((y, x, line))
     items = [(y, x, t) for y, x, t in native if t.strip()] + added
-    items.sort(key=lambda it: (round(it[0] / 6.0), it[1]))
-    return "\n".join(t for _, _, t in items), len(added)
+    return "\n".join(_reading_order(items)), len(added)
 
 
 def _native_lines(stored_path: str, page_no: int, scale: float) -> list[tuple[float, float, str]]:
@@ -386,7 +500,10 @@ def recognise_batch(stored_path: str, sha256: str, page_nos: list[int]) -> list[
 
     import time
 
-    ocr = _build_engine()
+    try:
+        ocr = _build_engine()
+    except Exception as exc:  # noqa: BLE001 - a missing model is every page failing, not the document
+        return failed_rows(page_nos, f"engine_unavailable: {type(exc).__name__}: {exc}")
     out: list[tuple] = []
     doc = {"sha256": sha256, "stored_path": stored_path}
     scale = settings.ocr_dpi / 72.0
@@ -430,6 +547,24 @@ def recognise_batch(stored_path: str, sha256: str, page_nos: list[int]) -> list[
     return out
 
 
+def failed_page_reason(error: str) -> str:
+    """The exclusion-ledger reason for a page recognition failed on. One home:
+    the chunker writes it when it rebuilds the ledger, `_commit_batch` when a
+    round fails pages without a re-chunk following it."""
+    return f"recognition failed on this page: {error}"
+
+
+def failed_rows(page_nos: list[int], reason: str) -> list[tuple]:
+    """`recognise_batch`'s row shape for pages recognition could not run on.
+
+    Stored by `_commit_batch` as consumed-and-failed (empty text, `error` set),
+    so the ledger reports each page as `ocr_failed` with `reason` and the
+    document goes on without them. Never document text: the reason is an
+    exception type and message about the engine or the worker.
+    """
+    return [(p, "", None, None, 0, 0, 0.0, 0, "", reason[:500]) for p in page_nos]
+
+
 # ------------------------------------------------------------------ stage
 
 def pending_pages(doc_id: str) -> list[int]:
@@ -451,9 +586,9 @@ def pending_pages(doc_id: str) -> list[int]:
     return [r["page_no"] for r in rows]
 
 
-def _commit_batch(doc_id: str, job_id: str | None, batch_no: int,
+def _commit_batch(doc_id: str, batch_no: int,
                   rows: list[tuple], model: str) -> dict:
-    """Persist one batch and advance the checkpoint atomically.
+    """Persist one batch and the document's recognised-page count atomically.
 
     A page whose recognition raised is stored too - empty text, `error` set -
     so it is CONSUMED: `pending_pages` no longer returns it, the ledger shows
@@ -467,10 +602,12 @@ def _commit_batch(doc_id: str, job_id: str | None, batch_no: int,
     conn = connect()
     now = _now()
     payload = []
+    failed_pages = []
     with_text = failed = 0
     for (pno, text, mean_c, min_c, boxes, low_conf, secs, viol, sample, err) in rows:
         if err is not None:
             failed += 1
+            failed_pages.append((failed_page_reason(err), doc_id, pno))
             text, mean_c, min_c, boxes, low_conf, viol, sample = "", None, None, 0, 0, 0, ""
         elif text.strip():
             with_text += 1
@@ -487,6 +624,16 @@ def _commit_batch(doc_id: str, job_id: str | None, batch_no: int,
                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 payload,
             )
+        # THE EXCLUSION LEDGER TOO. A round that only FAILED pages is not
+        # followed by a re-chunk (nothing new to chunk), so the rows the last
+        # chunk pass wrote would keep saying "recognition has not run" about
+        # pages it ran on and failed. Corrected in place, with the reason.
+        conn.executemany(
+            "UPDATE exclusions SET rule = 'ocr_failed', reason = ?"
+            " WHERE document_id = ? AND scope = 'page' AND page_start = ?"
+            " AND rule = 'ocr_not_run'",
+            failed_pages,
+        )
         # Only pages that actually produced text count as recognised. A blank
         # page is not a recognised page, and conflating them would put a false
         # number on the document record.
@@ -496,10 +643,6 @@ def _commit_batch(doc_id: str, job_id: str | None, batch_no: int,
         ).fetchone()["c"]
         conn.execute(
             "UPDATE documents SET recognised_pages = ? WHERE id = ?", (n, doc_id))
-        if job_id is not None:
-            conn.execute(
-                "UPDATE jobs SET last_completed_batch = ?, updated_at = ? WHERE id = ?",
-                (batch_no, now, job_id))
     return {"stored": len(payload) - failed, "with_text": with_text, "failed": failed}
 
 
@@ -560,22 +703,44 @@ def recognise_document(doc_id: str, progress=None, max_pages: int | None = None)
     model = model_signature()
     recognised = with_text = failed = 0
 
-    with cf.ProcessPoolExecutor(max_workers=settings.ocr_processes) as pool:
-        inflight: dict[int, cf.Future] = {}
-        queue = list(enumerate(batches))
-        while queue or inflight:
-            while queue and len(inflight) < settings.ocr_processes:
-                bno, pages = queue.pop(0)
-                inflight[bno] = pool.submit(
-                    recognise_batch, doc["stored_path"], doc["sha256"], pages)
-            nxt = min(inflight)
-            rows = inflight.pop(nxt).result()
-            counts = _commit_batch(doc_id, None, nxt, rows, model)
-            recognised += counts["stored"]
-            with_text += counts["with_text"]
-            failed += counts["failed"]
-            if progress:
-                progress(recognised, len(todo))
+    queue = list(enumerate(batches))
+    while queue:
+        # A killed worker breaks the WHOLE pool: every in-flight future then
+        # raises BrokenProcessPool and every later submit is refused. So the
+        # batches that were in flight are recorded as failed and the rest go
+        # to a fresh pool - one dead child costs the pages it held, never the
+        # document.
+        with cf.ProcessPoolExecutor(max_workers=settings.ocr_processes) as pool:
+            inflight: dict[int, tuple[list[int], cf.Future]] = {}
+            broken = False
+            while (queue and not broken) or inflight:
+                while queue and not broken and len(inflight) < settings.ocr_processes:
+                    bno, pages = queue.pop(0)
+                    try:
+                        future = pool.submit(
+                            recognise_batch, doc["stored_path"], doc["sha256"], pages)
+                    except cf.BrokenExecutor as exc:
+                        # refused outright: this batch is recorded as failed
+                        # below, so even a pool that never starts makes progress
+                        broken = True
+                        future = cf.Future()
+                        future.set_exception(exc)
+                    inflight[bno] = (pages, future)
+                nxt = min(inflight)
+                pages, future = inflight.pop(nxt)
+                try:
+                    rows = future.result()
+                except Exception as exc:  # noqa: BLE001 - the worker, not the document, failed
+                    if isinstance(exc, cf.BrokenExecutor):
+                        broken = True
+                    rows = failed_rows(
+                        pages, f"worker_failed: {type(exc).__name__}: {exc}")
+                counts = _commit_batch(doc_id, nxt, rows, model)
+                recognised += counts["stored"]
+                with_text += counts["with_text"]
+                failed += counts["failed"]
+                if progress:
+                    progress(recognised, len(todo))
 
     remaining = len(pending_pages(doc_id))
     stats = conn.execute(

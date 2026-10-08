@@ -33,13 +33,15 @@ import time
 import uuid
 from dataclasses import dataclass, field
 
+from .sentence_guard import NOT_AN_ABBREVIATION
+
 #: How long a finished turn stays findable (for a late cancel), seconds.
 TTL_SECONDS = 300
 MAX_TURNS = 256
 
 #: A sentence ends at . ! ? followed by space, or at a newline - but never
 #: inside an open citation bracket, whose quoted words may contain either.
-_BOUNDARY = re.compile(r"(?<=[.!?])\s+|\n")
+_BOUNDARY = re.compile(r"(?<=[.!?])" + NOT_AN_ABBREVIATION + r"\s+|\n")
 
 
 @dataclass
@@ -100,8 +102,16 @@ class Turn:
         if self.general:
             clean = answer_mod.drop_citations(sentence)
         elif self.verify:
+            from .chat_claude_first import _relabel_image_only_citations
+
             clean, _verification, _claims, _removed = answer_mod.verify_claims(
-                sentence, self.passages or [])
+                sentence, self.passages or [], final=False, narration_from_line=None)
+            # THE STREAMED LABEL IS THE FINAL LABEL (audit leftover
+            # 2026-09-30): a point `look_at_page` read from a page with no
+            # text layer streamed as a bare "[S1]" and only became "read from
+            # image - check the page" in the done answer. Same function, same
+            # order as `chat_claude_first._finish`: verify first, then label.
+            clean, _labels = _relabel_image_only_citations(clean, self.passages or [])
         else:
             n = len(self.passages or [])
             clean = answer_mod._CITATION.sub(

@@ -24,6 +24,8 @@ Two rules, in order of decisiveness:
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import re
 
 from . import acronyms
@@ -44,6 +46,14 @@ STOPWORDS = {
     "you", "your", "our", "tell", "give", "show", "please",
     "used", "use", "using", "need", "needs", "needed", "get", "gets",
     "specified", "specify", "require", "required", "requirement", "requirements",
+    # Question filler: the verbs and prepositions a reader wraps round a topic
+    # ("what does X say about Y", "is it mentioned", "according to"). A
+    # standard does not write them about itself, so as terms they were always
+    # absent and pushed a short question over LONG_QUESTION_TERM_COUNT.
+    "say", "says", "said", "saying", "mention", "mentions", "mentioned",
+    "state", "states", "stated", "according", "describe", "describes",
+    "described", "define", "defines", "defined", "provide", "provides",
+    "provided", "regarding", "concerning", "concerns",
     # designator connectives: "system no. 1" carries its meaning in the number
     "no", "nos", "number", "numbered",
 }
@@ -101,7 +111,18 @@ SHARED_TERMS_REQUIRED_SHORT = 1
 #: Shorter than this and a word is not a subject term.
 MIN_TERM_LENGTH = 3
 
+#: An identifier-shaped fragment of a designation must be at least this long
+#: (normalised) to count as naming the document.
+MIN_FRAGMENT_LENGTH = 8
+
 _TERM = re.compile(r"[A-Za-z][A-Za-z0-9./-]*")
+
+#: A plain decimal ("2.5", "0.75", "1.6"): a value the reader typed, not a
+#: designation. `keyword.IDENTIFIER` matches it through its clause-number
+#: shape, which made every decimal in a question a named subject that had to
+#: appear in the corpus. Three-part clause numbers (5.3.2) are not decimals
+#: and still count; so does anything with a letter (A106, API 5L).
+_PLAIN_DECIMAL = re.compile(r"\d+\.\d+")
 
 
 #: A question asking for TWO things. Only a compound question can justify a
@@ -153,6 +174,8 @@ def distinctive_terms(
             terms.append(term)
 
     for ident in keyword.IDENTIFIER.findall(question):
+        if _PLAIN_DECIMAL.fullmatch(ident):
+            continue
         add(ident)
 
     remaining = question
@@ -182,6 +205,8 @@ def looks_like_a_named_subject(term: str, question: str) -> bool:
     than merely poorly matched. A lowercase ordinary word is not held to this
     standard, because a reader's wording need not match the document's.
     """
+    if _PLAIN_DECIMAL.fullmatch(term):
+        return False
     if keyword.IDENTIFIER.fullmatch(term):
         return True
     # A user may paste a heading or a whole question in ALL CAPS. Long
@@ -195,6 +220,119 @@ def looks_like_a_named_subject(term: str, question: str) -> bool:
     if len(term) < 4 or not term[:1].isupper():
         return False
     return not question.strip().startswith(term)
+
+
+def searched_scope(
+    document_id: str | None, allowed_document_ids: frozenset[str]
+) -> str:
+    """What a refusal says it looked in. One named, permitted document is
+    reported as that document and its passage count - "not mentioned in
+    STD-A-001.pdf (12 passages searched)" - never as "the indexed documents",
+    which would claim a library-wide search that did not happen. Anything
+    else keeps the library-wide wording."""
+    if document_id and document_id in allowed_document_ids:
+        from .db import connect
+
+        row = connect().execute(
+            "SELECT filename FROM documents WHERE id = ?", (document_id,)).fetchone()
+        count = keyword.indexed_count(
+            document_id, allowed_document_ids=allowed_document_ids)
+        if row and count:
+            noun = "passage" if count == 1 else "passages"
+            return f"{row['filename']} ({count} {noun} searched)"
+    return "the indexed documents"
+
+
+_NON_ALNUM = re.compile(r"[^A-Za-z0-9]+")
+
+
+def _norm_id(text: str) -> str:
+    return _NON_ALNUM.sub("", text).upper()
+
+
+def _names_an_indexed_document(
+    term: str, document_id: str | None, *, allowed_document_ids: frozenset[str]
+) -> bool:
+    """True when `term` is the designation of a document already indexed
+    AND permitted for this caller - by FILE NAME, the same
+    `understanding.designation` the rest of the system already uses to
+    recognise "our SAES-W-010" in a question, never by content search.
+
+    Scoped to `document_id` when the question is already narrowed to one
+    document, else to `allowed_document_ids` - never the whole corpus
+    (CLAUDE.md rule 5: a filter only narrows what a caller may already read).
+    """
+    from . import understanding
+    from .db import connect
+
+    scope = frozenset({document_id}) if document_id else allowed_document_ids
+    if not scope:
+        return False
+    wanted = _norm_id(term)
+    if not wanted:
+        return False
+    marks = ",".join("?" * len(scope))
+    rows = connect().execute(
+        f"SELECT filename FROM documents WHERE id IN ({marks})", list(scope)).fetchall()
+    for row in rows:
+        designation = understanding.designation(row["filename"])
+        if designation and _norm_id(designation) == wanted:
+            return True
+    return False
+
+
+def _scope_wholly_named(term: str, scope: frozenset[str]) -> bool:
+    """True when EVERY document in `scope` is designated `term` by file name.
+    Never true for an empty scope or one that includes any other document."""
+    from . import understanding
+    from .db import connect
+
+    wanted = _norm_id(term)
+    if not scope or not wanted:
+        return False
+    marks = ",".join("?" * len(scope))
+    rows = connect().execute(
+        f"SELECT filename FROM documents WHERE id IN ({marks})", list(scope)).fetchall()
+    if len(rows) != len(scope):
+        return False
+    # A long designation is found twice by `distinctive_terms`: whole (the word
+    # scan) and as the tail the identifier pattern happens to match
+    # ("NACE-MR0175-ISO15156-specification" and "MR0175-ISO15156-specification").
+    # The tail is part of the document's own name, so an identifier-shaped
+    # term that sits inside the designation counts as naming it.
+    fragment_ok = bool(keyword.IDENTIFIER.fullmatch(term)) and len(wanted) >= MIN_FRAGMENT_LENGTH
+    for row in rows:
+        designation = understanding.designation(row["filename"])
+        if not designation:
+            return False
+        have = _norm_id(designation)
+        if have != wanted and not (fragment_ok and wanted in have):
+            return False
+    return True
+
+
+#: The documents a word's COMMONNESS is judged against, when that differs from
+#: the documents being searched. `chat_comparison` narrows each side to ONE
+#: standard on purpose; judged inside that one standard, a word the standard
+#: is about ("heat treatment" in a welding standard that covers it in 10 of
+#: its chunks) looked "common to the whole document", stopped counting as a
+#: distinctive term, and the side was refused as having no answer - the more a
+#: standard covered the topic the likelier it was reported silent. Set it to
+#: what the CALLER may read (never wider: rule 5) and commonness is judged
+#: across that library instead. Unset, nothing changes.
+_COMMONNESS_IDS: contextvars.ContextVar[frozenset[str] | None] = contextvars.ContextVar(
+    "lexical_commonness_ids", default=None)
+
+
+@contextlib.contextmanager
+def commonness_against(document_ids: frozenset[str]):
+    """Judge term commonness across `document_ids` (the caller's readable
+    set) for every `assess` call inside the block."""
+    token = _COMMONNESS_IDS.set(frozenset(document_ids))
+    try:
+        yield
+    finally:
+        _COMMONNESS_IDS.reset(token)
 
 
 def assess(
@@ -237,8 +375,12 @@ def assess(
         document_id, allowed_document_ids=allowed_document_ids)
     if not indexed:
         return empty
-    common_cutoff = max(1, int(indexed * COMMON_TERM_FRACTION))
-    judge_commonness = indexed >= MIN_CORPUS_FOR_COMMONNESS
+    common_ids = _COMMONNESS_IDS.get()
+    common_indexed = indexed
+    if common_ids is not None:
+        common_indexed = keyword.indexed_count(None, allowed_document_ids=common_ids)
+    common_cutoff = max(1, int(common_indexed * COMMON_TERM_FRACTION))
+    judge_commonness = common_indexed >= MIN_CORPUS_FOR_COMMONNESS
 
     body = passage_text.lower()
     expanded = glossary.expansions(question)
@@ -248,7 +390,25 @@ def assess(
     present: list[str] = []
     distinguishing_count = 0
 
+    # When the search is narrowed to documents that ALL carry one designation
+    # (one file, or several files of the same standard such as a re-issue or a
+    # duplicate upload), every passage in scope is "about" that designation by
+    # construction. A standard almost never prints its own number on the page
+    # that answers a topic, so asking "What does SAES-W-017 say about <topic>"
+    # turned the designation into a third distinctive term, pushed the
+    # question over LONG_QUESTION_TERM_COUNT, demanded two shared terms from a
+    # passage that can only supply the topic, and refused the right page
+    # (2026-10-02, owner's library). The designation is credited ONLY when
+    # every document in scope is named by it (by file name); in any wider or
+    # mixed scope a passage gets no credit.
+    scope_ids = frozenset({document_id}) if document_id else allowed_document_ids
+
     for term in terms:
+        if _scope_wholly_named(term, scope_ids):
+            present.append(term)
+            covered.append(term)
+            distinguishing_count += 1
+            continue
         # Every way this corpus writes the same thing. A document that spells
         # out "nominal dry film thickness" and never writes NDFT used to
         # refuse a question about the NDFT: the term genuinely was not there,
@@ -291,20 +451,44 @@ def assess(
             # FTS could not parse any form; it tells us nothing either way
             continue
         if occurrences == 0:
+            # FOUND 2026-10-01: a standard's own pages almost never print its
+            # own file name ("SAES-W-010 says..." is not how a standard
+            # refers to itself), so a content search alone - the only thing
+            # `occurrences` measures - reports the term absent even when the
+            # document is indexed, permitted and exactly the one the reader
+            # named. Checked by FILENAME, scoped to what this caller may
+            # read, never corpus-wide (CLAUDE.md rule 5).
+            if _names_an_indexed_document(
+                    term, document_id, allowed_document_ids=allowed_document_ids):
+                present.append(term)
+                covered.append(term)
+                distinguishing_count += 1
+                continue
             absent.append(term)
             continue
 
         present.append(term)
         if any(form.lower() in body for form in forms):
             covered.append(term)
-            if not judge_commonness or occurrences <= common_cutoff:
+            common_occurrences = occurrences
+            if common_ids is not None:
+                common_occurrences = 0
+                for form in forms:
+                    count = keyword.term_occurrences(
+                        form, None, allowed_document_ids=common_ids)
+                    if count >= 0:
+                        common_occurrences = max(common_occurrences, count)
+            if not judge_commonness or common_occurrences <= common_cutoff:
                 distinguishing_count += 1
 
     named_absent = [t for t in absent if looks_like_a_named_subject(t, question)]
     if named_absent:
         joined = ", ".join(named_absent)
         verb = "does" if len(named_absent) == 1 else "do"
-        reason = f"{joined} {verb} not appear anywhere in the indexed documents"
+        where = searched_scope(document_id, allowed_document_ids)
+        reason = (f"{joined} {verb} not appear anywhere in the indexed documents"
+                  if where == "the indexed documents"
+                  else f"{joined} {verb} not appear in {where}")
         # A dead end is not a useful refusal. If the missing term is written
         # like an abbreviation, the corpus may spell it out under a name the
         # reader has not tried - and the expansion map only knows the forms
@@ -324,7 +508,8 @@ def assess(
     if not present:
         return {
             "ok": False,
-            "reason": "none of the terms in this question appear in the indexed documents",
+            "reason": "none of the terms in this question appear in "
+                      + searched_scope(document_id, allowed_document_ids),
             "terms": terms,
             "covered": covered,
             "absent_from_corpus": absent,

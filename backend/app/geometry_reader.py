@@ -36,7 +36,7 @@ import re
 import statistics
 from typing import Any
 
-from . import blank_markers
+from . import blank_markers, claims
 
 # --------------------------------------------------------------------------
 # Units
@@ -569,9 +569,16 @@ def is_unit_label(text: str | None, *, allow_single: bool = False) -> bool:
     made only of ambiguous single letters ("C", "A") is NOT a unit label
     unless `allow_single` (e.g. right after a '*' marker: "* m")."""
     words = [w for w in re.split(r"[\s()/\-·.,°º\[\]]+", (text or "").lower()) if w]
-    if not words or not all(w in _UNIT_WORDS for w in words):
+    if words and all(w in _UNIT_WORDS for w in words):
+        return allow_single or not all(w in _AMBIGUOUS_UNIT_WORDS for w in words)
+    # THE SHARED VOCABULARY TOO (`claims.is_unit`, rule 8): the word list above
+    # is this reader's own and does not know "ms", "weeks" or a rate such as
+    # "kg/h" that the claims grammar accepts. A single letter still needs
+    # `allow_single` - alone it is a letter, whichever table knows it.
+    stripped = (text or "").strip()
+    if not stripped or not claims.is_unit(stripped):
         return False
-    return allow_single or not all(w in _AMBIGUOUS_UNIT_WORDS for w in words)
+    return allow_single or sum(ch.isalpha() for ch in stripped) > 1
 
 
 def _unit_of(text: str) -> str:

@@ -11,6 +11,15 @@ Version 6 (2026-09-29): a heading with nothing under it, and the heading lines
 of a contents page, are kept in chunk text instead of nowhere. Same script.
 Version 7 (2026-09-29): a table read as all header, and a note inside a table's
 border in no cell, are kept too. Same script.
+Version 8 (2026-09-30): each chunk records its heading chain (`chunks.context`)
+for the keyword index, the embedder and the reranker. Chunk text and ids are
+unchanged; the documents' vectors are re-embedded when the worker processes
+them (a chunk whose chain changed loses its vector at the re-chunk, and a
+heading-v1 vector is upgraded by `embed_pending`). Same script.
+Version 9 (2026-09-30, reading audit): unruled data sheets are read as rows
+instead of fake clauses; a tab-aligned data sheet is no longer excluded as a
+contents page; the page header of a 2-4 page document is stripped. Chunk text
+changes for such documents. Same script.
 
 WHAT "STALE" MEANS: `documents.chunk_signature` differs from the signature the
 current chunker computes (`chunker.is_stale`) - an older CHUNKER_VERSION, or
@@ -40,7 +49,10 @@ APPLY writes the database, so:
   * Each rebuilt document is left at `indexing_keyword`. Start the server
     (`python run.py`): its worker rebuilds the keyword index and the vectors,
     marks the document READY, and re-queues requirement extraction for
-    standards. Chunk ids change, so every chunk is re-embedded.
+    standards. A vector is kept only when its chunk's id, retrievability,
+    section and heading chain are all unchanged (`chunk_document`); every
+    other chunk is re-embedded, and so is every legacy-format vector. Before
+    2026-09-30 the re-chunk deleted every vector of the document.
 
 Output carries document ids, filenames and counts only - never document text.
 """

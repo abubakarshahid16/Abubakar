@@ -19,11 +19,14 @@ from __future__ import annotations
 
 import contextvars
 import re
+from decimal import ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal, InvalidOperation
 
 from . import corpus as corpus_mod
 from . import intent as intent_mod
 from . import keyword
+from . import condition_choice as cc
 from . import context_budget
+from . import claims as claims_mod
 from . import coverage
 from . import progress
 from . import lexical
@@ -34,6 +37,7 @@ from . import claude_spend
 from . import reasoning_provider
 from . import telemetry
 from . import search as search_mod
+from .sentence_guard import NOT_AN_ABBREVIATION
 from .config import settings
 from .rates import Timer
 
@@ -117,7 +121,7 @@ MIN_RRF_SCORE = 0.012
 
 from .citations import _CITATION, _HALF_CITATION, strip_half_citation, validate_citations
 
-_SENTENCE = re.compile(r"(?<=[.!?])\s+")
+_SENTENCE = re.compile(r"(?<=[.!?])" + NOT_AN_ABBREVIATION + r"\s+")
 _REVIEW_REQUEST = re.compile(
     r"\b(?:review|critique|criteque|assess|evaluate|audit|commentary|criticism)\b",
     re.IGNORECASE,
@@ -206,11 +210,13 @@ def _searchable_text(hit: dict) -> str:
     """Heading plus body, the same shape Candidate.searchable_text returns.
 
     The heading is not decoration: it carries the clause number and the
-    designator, which is exactly what a question tends to name.
+    designator, which is exactly what a question tends to name. It is the
+    chunk's heading CHAIN when it has one (CHUNKER_VERSION 8), as in
+    Candidate.searchable_text - one shape in both homes.
     """
-    section = (hit.get("section") or "").strip()
+    heading = (hit.get("context") or hit.get("section") or "").strip()
     body = hit.get("text") or ""
-    return f"{section}\n{body}" if section else body
+    return f"{heading}\n{body}" if heading else body
 
 
 #: How many ranked candidates the lexical gate may examine. Bounded rather than
@@ -422,6 +428,234 @@ def _second_passage(
     return None
 
 
+#: How many passages a conditional answer may show: the top one and up to two
+#: rivals. More would bury the answer; a clause family with more conditions
+#: than this is named in the notice and the rest stay in `supporting`.
+CONDITION_OPTIONS = 3
+
+
+def _close_enough(hit: dict, first: dict) -> bool:
+    """The rule `_second_passage` uses for "near the top": a fraction of the
+    query's own spread, or the measured absolute gap on a field too small.
+    And ALWAYS above the credibility floor: a clause chosen by its condition
+    is quoted as the answer, so it must pass the gate the top one passed."""
+    if not _is_semantically_credible(hit):
+        return False
+    apart = hit.get("separation")
+    if apart is not None:
+        return apart <= SUPPORTING_SEPARATION
+    primary, score = first.get("rerank_score"), hit.get("rerank_score")
+    if primary is None or score is None:
+        return _is_semantically_credible(hit)
+    return primary - score <= SECOND_PASSAGE_MAX_GAP
+
+
+def _option(hit: dict, conditions: list, kinds: set[str]) -> dict:
+    return {
+        "chunk_id": hit["chunk_id"], "document_id": hit["document_id"],
+        "filename": hit.get("filename"), "section": hit.get("section"),
+        "page_start": hit.get("page_start"), "page_end": hit.get("page_end"),
+        "conditions": cc.describe(conditions, kinds),
+    }
+
+
+def _condition_choice(
+    question: str,
+    hits: list[dict],
+    lead: dict,
+    document_id: str | None,
+    allowed_document_ids: frozenset[str],
+) -> dict | None:
+    """Rival clauses that set a different value under a different condition.
+
+    A rival is near the top (`_close_enough`), from a different clause,
+    lexically plausible for the question in its own right, states different
+    values from `lead`, and differs from it on a condition both passages
+    state (`condition_choice.differing_kinds`). With no rival: None, and the
+    answer is exactly what it was.
+
+    With rivals, the question decides:
+      * it names a condition of a kind they differ on, and exactly ONE of them
+        holds under it -> {"mode": "matched", "winner": that passage}; None
+        when the winner is `lead` already (nothing changed, nothing to say);
+      * it names none of those kinds -> {"mode": "options"}: every rival is
+        shown with its condition and the reader is asked which applies;
+      * it names one but no single passage holds (none, or several) -> None:
+        the top passage stands, as before. Never a guess.
+    """
+    lead_conditions = cc.extract(_searchable_text(lead))
+    if not lead_conditions:
+        return None
+    lead_values = cc.stated_values(lead.get("text"))
+    rivals: list[tuple[dict, list, set[str]]] = []
+    for hit in hits[:gate_candidates()]:
+        if hit["chunk_id"] == lead["chunk_id"]:
+            continue
+        if (hit["document_id"] == lead["document_id"] and hit.get("section")
+                and hit.get("section") == lead.get("section")):
+            continue
+        if not _close_enough(hit, lead):
+            continue
+        conditions = cc.extract(_searchable_text(hit))
+        kinds = cc.differing_kinds(lead_conditions, conditions)
+        if not kinds:
+            continue
+        values = cc.stated_values(hit.get("text"))
+        if not values or not lead_values or values == lead_values:
+            continue
+        if not lexical.assess(question, _searchable_text(hit), document_id,
+                              allowed_document_ids=allowed_document_ids)["ok"]:
+            continue
+        rivals.append((hit, conditions, kinds))
+    if not rivals:
+        return None
+
+    kinds = set().union(*(k for _, _, k in rivals))
+    asked = cc.extract(question, question=True)
+    group = [(lead, lead_conditions), *((h, c) for h, c, _ in rivals)]
+    verdicts = [(h, c, cc.verdict(asked, c, kinds)) for h, c in group]
+    if any(v is not None for _, _, v in verdicts):
+        holds = [(h, c) for h, c, v in verdicts if v]
+        if len(holds) != 1 or holds[0][0]["chunk_id"] == lead["chunk_id"]:
+            return None
+        winner, conditions = holds[0]
+        named = cc.describe(asked, kinds)
+        return {
+            "mode": "matched",
+            "within_passage": False,
+            "winner": winner,
+            "kinds": sorted(kinds),
+            "question_names": named,
+            "options": [_option(winner, conditions, kinds)],
+            "reason": (f"the question names {', '.join(named)}; this clause applies to "
+                       f"{', '.join(cc.describe(conditions, kinds))}, so it answers "
+                       "rather than a higher-ranked clause written for a different case"),
+        }
+    shown = group[:CONDITION_OPTIONS]
+    return {
+        "mode": "options",
+        "within_passage": False,
+        "kinds": sorted(kinds),
+        "question_names": [],
+        "options": [_option(h, c, kinds) for h, c in shown],
+        "hits": [h for h, _ in shown],
+        "reason": ("these clauses set different values for different "
+                   f"{' / '.join(sorted(kinds))}, and the question does not say which "
+                   "applies - each is shown with its condition; name the "
+                   f"{' / '.join(sorted(kinds))} to get one answer"),
+    }
+
+
+#: How many lines of ONE passage an options notice lists. A table with more
+#: size ranges than this is still quoted whole; the notice names the first.
+CASE_OPTIONS = 8
+
+
+def _passage_cases(question: str, payload: dict) -> dict | None:
+    """ONE passage (a clause or a table) that sets a different value for each
+    of several cases - "pipes 2 inch and smaller: 3 mm; pipes larger than 2
+    inch: 6 mm", or rows that are size ranges (`condition_choice.cases`).
+
+    The passage is quoted whole, as before; its TEXT IS NEVER CHANGED. What
+    changes is the highlight, which used to follow shared vocabulary and so
+    ignored the numbers that tell the lines apart:
+      * the question names a condition of the kind the lines differ on, and
+        exactly one line holds under it -> that line is highlighted and
+        {"mode": "matched", "within_passage": True} says so;
+      * it names none of that kind -> every line is listed with its condition
+        ({"mode": "options", "within_passage": True}, each option the SAME
+        chunk with its own condition, line and offsets), and the highlight
+        spans all the lines rather than landing on one;
+      * it names one that no line (or several lines) meets -> None.
+    Only when the highlighted sentence is part of (or leads straight into)
+    the lines - a table listing sizes is not the answer to every question
+    its passage happens to answer."""
+    text = payload.get("text") or ""
+    found = cc.cases(text)
+    if not found:
+        return None
+    hl = payload.get("highlight")
+    if hl:
+        overlaps = any(hl[0] < c.end and hl[1] > c.start for c in found)
+        leads_in = hl[1] <= found[0].start and not text[hl[1]:found[0].start].strip(" \n:;,.-")
+        if not (overlaps or leads_in):
+            return None
+    kind = found[0].condition.kind
+    kinds = {kind}
+
+    def option(case: cc.Case) -> dict:
+        return {**_option(payload, [case.condition], kinds),
+                "line": case.text, "highlight": [case.start, case.end]}
+
+    asked = cc.extract(question, question=True)
+    named = cc.describe(asked, kinds)
+    if named:
+        holds = [c for c in found if cc.verdict(asked, [c.condition], kinds)]
+        if len(holds) != 1:
+            return None
+        case = holds[0]
+        payload["highlight"] = [case.start, case.end]
+        return {
+            "mode": "matched",
+            "within_passage": True,
+            "kinds": [kind],
+            "question_names": named,
+            "options": [option(case)],
+            "reason": (f"this passage sets a value for each {kind}; the question names "
+                       f"{', '.join(named)}, so the line for {case.condition.text} is "
+                       "highlighted - the passage is quoted whole"),
+        }
+    payload["highlight"] = [found[0].start, found[-1].end]
+    return {
+        "mode": "options",
+        "within_passage": True,
+        "kinds": [kind],
+        "question_names": [],
+        "options": [option(c) for c in found[:CASE_OPTIONS]],
+        "reason": (f"this passage sets different values for different {kind}, and the "
+                   "question does not say which applies - each line is listed with its "
+                   f"condition; name the {kind} to get one line"),
+    }
+
+
+def _holding_first(question: str, hits: list[dict], choice: dict) -> list[dict]:
+    """Tier 2, a question that named a condition: the clause that holds
+    under it leads, and a clause WRITTEN FOR a different case of the same
+    kind is not sent to the model at all. A clause stating no condition of
+    that kind (a general clause) is kept - it contradicts nothing."""
+    winner = choice.pop("winner")
+    asked = cc.extract(question, question=True)
+    kinds = set(choice["kinds"])
+    kept = [winner]
+    for hit in hits:
+        if hit["chunk_id"] == winner["chunk_id"]:
+            continue
+        conditions = cc.extract(_searchable_text(hit))
+        if any(c.kind in kinds for c in conditions) and cc.verdict(asked, conditions, kinds) is False:
+            continue
+        kept.append(hit)
+    return kept
+
+
+def _choice_for_sent(choice: dict | None, passages: list[dict]) -> dict | None:
+    """Tier 2: the condition notice, narrowed to the passages the model was
+    actually given. Options need two of them; a match needs its clause."""
+    if choice is None:
+        return None
+    sent = {p["chunk_id"] for p in passages}
+    options = [o for o in choice["options"] if o["chunk_id"] in sent]
+    if len(options) < (2 if choice["mode"] == "options" else 1):
+        return None
+    out = {k: v for k, v in choice.items() if k not in ("hits", "winner")}
+    out["options"] = options
+    if choice["mode"] == "options":
+        out["reason"] = (f"the passages this answer was written from set different values for "
+                         f"different {' / '.join(choice['kinds'])}, and the question does not say "
+                         "which applies - the answer may mix them; name the "
+                         f"{' / '.join(choice['kinds'])} to get one answer")
+    return out
+
+
 # ------------------------------------------------------------------ tier 2
 
 
@@ -473,11 +707,77 @@ def claude_lane() -> bool:
 _QUOTED_CITATION = re.compile(r'\[S(\d+)(?:\s*[:,]?\s*["\u201c]([^"\u201d\]]+)["\u201d])?\]')
 #: Something a reader would check against the page: a digit, or an identifier.
 _CHECKABLE = re.compile(r"\d|\b[A-Z]{2,}[-/]?\w*")
-_SEGMENT = re.compile(r"(?<=[.!?])\s+")
+_SEGMENT = re.compile(r"(?<=[.!?])" + NOT_AN_ABBREVIATION + r"\s+")
 
 
-def verify_claims(text: str, passages: list[dict]) -> tuple[str, dict, list[dict], int]:
-    """Keep only the claims whose quote is on the page they cite.
+_ONLY_CITATIONS = re.compile(r'^\s*(?:\[S\d+(?:\s*[:,]?\s*["\u201c][^"\u201d\]]+["\u201d])?\]\s*)+$')
+
+
+def _join_stranded_citations(segments: list[str]) -> list[str]:
+    """Put a citation that stands alone back on the sentence it follows.
+
+    A model often writes the citation AFTER the full stop: `... shall be
+    used. [S1 "quote"]`. The sentence splitter cut there, so the claim became
+    an uncited sentence (dropped when it carried a figure or an acronym) and
+    the citation became a claim of its own and was kept: the reader saw only
+    a bare marker where the wording had been (found 2026-10-02 on the owner's
+    library: "Minimum temperature: 1"). A fragment that is nothing but
+    citations belongs to the segment before it.
+    """
+    joined: list[str] = []
+    for segment in segments:
+        if joined and _ONLY_CITATIONS.match(segment):
+            joined[-1] = f"{joined[-1]} {segment.strip()}"
+        else:
+            joined.append(segment)
+    return joined
+
+
+def _image_only(passage: dict) -> bool:
+    """A page `look_at_page` read from its image, with no text layer: there is
+    no page text to check a quote or a figure against."""
+    return bool(passage.get("read_from_image")) and not passage.get("has_text_layer")
+
+
+#: A sentence that only promises an action and never does it ("Let me confirm
+#: directly."). Whole sentence, no citation, no figure: nothing the reader
+#: could check is lost by dropping it. "Let me know ..." is an offer, not
+#: narration, and is not matched.
+_NARRATION = re.compile(
+    r"^(?:let me|let's|i(?:'ll| will| am going to|'m going to)(?: now)?)\s+(?:now\s+|first\s+)?"
+    r"(?:check|confirm|verify|look|search|read|find|pull|open|review|examine|double-check|dig|go|start|begin|see)\b"
+    r"|^i will now\b|^i'll now\b", re.IGNORECASE)
+#: How a lead-in ends when its content is meant to follow.
+_LEAD_IN_END = re.compile(
+    r"(?:[:]|\be\.g\.|\bfor example|\bincluding|\bsuch as|\bstates?|\bsays?)[ \t]*,?[ \t]*$",
+    re.IGNORECASE)
+_MARKERS = re.compile(r"\[S\d+\]")
+_LIST_PREFIX = re.compile(r"^[\s>*#\-+]+|^\s*\d{1,2}[.)]\s+")
+
+
+def _is_filler_narration(segment: str) -> bool:
+    bare = _LIST_PREFIX.sub("", segment).strip()
+    return (bool(_NARRATION.match(bare)) and not _QUOTED_CITATION.search(bare)
+            and not bare.endswith(":") and len(bare.split()) <= 14)
+
+
+def _hollow_markers(segment: str) -> bool:
+    """Nothing but citation markers and punctuation: no words to show."""
+    rest = _QUOTED_CITATION.sub("", segment)
+    return not re.search(r"\w", rest)
+
+
+def _ends_in_lead_in(plain: str) -> bool:
+    """The text, ignoring trailing citation markers, ends where content was
+    meant to follow (':' 'e.g.' 'including' ...)."""
+    return bool(_LEAD_IN_END.search(_MARKERS.sub("", plain).rstrip()))
+
+
+def verify_claims(text: str, passages: list[dict], *,
+                  final: bool = True,
+                  narration_from_line: int | None = 0,
+                  dropped: list[dict] | None = None) -> tuple[str, dict, list[dict], int]:
+    """Keep only the claims whose quote AND figures are on the page they cite.
 
     Returns (clean text with [S#] markers only, {verified, total, method},
     the verified claims as {n, quote}, how many were removed). A sentence
@@ -485,36 +785,165 @@ def verify_claims(text: str, passages: list[dict]) -> tuple[str, dict, list[dict
     figure or identifier in it - a fact with no source is not shown either.
     A plain sentence with neither ("Partly.", "What I'd do: ask the vendor")
     is not a document claim and is kept as written.
-    """
-    from .model_evidence import quote_verified
 
-    kept_lines, claims = [], []
-    total = verified = 0
-    for line in text.splitlines():
-        kept_segments = []
-        for segment in _SEGMENT.split(line):
+    A cited claim is verified only when BOTH hold:
+    1. every quote is meaningful evidence on the page it cites
+       (`model_evidence.claim_quote_verified`: at least three words, on word
+       boundaries) - "[S1 "the"]" proves nothing;
+    2. every figure in the sentence is in a cited passage - the SAME check
+       the local lane runs (`ground_numbers`: reference numerals stripped on
+       both sides, only a genuine rounding accepted). The quote is a
+       substring of its passage, so "in the quote or the cited passage" is
+       "in the cited passage". Without this, "The minimum wall thickness is
+       6 mm [S1 "minimum wall thickness"]" over a page saying 3 mm was shown
+       as verified (audit 2026-09-30).
+
+    HOLLOW LEFTOVERS ARE NOT SHOWN (2026-10-06, found on screen: "(pipelines): 1",
+    a bullet of bare numbers, "Let me confirm directly.", "... e.g." with
+    nothing after it). Plain code, no model: a sentence that is only citation
+    markers; a filler sentence promising an action ("Let me check ...");
+    and, when `final`, a lead-in ending in ':' / "e.g." / "including" / "such
+    as" / "states" / "says" whose content was removed or never came (a
+    lead-in that still has its content is kept). A dropped verified point is
+    taken out of both `verified` and `total`, so "N of M" describes what is
+    shown. `final=False` is the streaming per-sentence call: a lead-in is
+    alone in its sentence there, so only the sentence-level rules apply.
+
+    `narration_from_line`: filler narration ("Let me confirm directly.") is
+    dropped only from this line on; None never drops it. Text written BEFORE a
+    tool call was already streamed to the reader and is kept by the done
+    answer (audit 2026-09-30), so the tool-using caller passes the first line
+    of the LAST round and the streaming call passes None: only a promise made
+    in the final text, with no tool call after it, is an empty promise.
+
+    A citation of an IMAGE-ONLY page (`_image_only`) has no text to check
+    against. Such a sentence is kept - its other citations' quotes must still
+    verify - but it is never counted as verified: it is counted in
+    `verification["image_only"]`, and the caller labels it "read from image -
+    check the page" (`chat_claude_first`). Its citation is only ever a marker
+    here, never a figure the sentence claims.
+    """
+    from .model_evidence import claim_quote_verified
+
+    # Each kept segment is [text, kind, claims]: kind "verified", "image" or
+    # "plain" - so a segment dropped later is taken out of the right count.
+    lines: list[dict] = []
+    total = verified = image_only = 0
+
+    def note(segment: str, why: str) -> None:
+        # What was removed and why, kept for the reader's own audit of a
+        # refusal (stored with the answer, never shown as an answer).
+        if dropped is not None and segment.strip():
+            dropped.append({"text": segment.strip()[:400], "why": why})
+
+    for line_index, line in enumerate(text.splitlines()):
+        kept_segments: list[list] = []
+        lost_tail = False
+        narration_on = narration_from_line is not None and line_index >= narration_from_line
+        for segment in _join_stranded_citations(_SEGMENT.split(line)):
             cites = list(_QUOTED_CITATION.finditer(segment))
             if not cites:
                 bare = re.sub(r"^[\s>*#\-\d.)]+", "", segment)
                 if _CHECKABLE.search(bare) and not bare.rstrip().endswith(":"):
                     total += 1
+                    lost_tail = True
+                    note(segment, "states a figure, code or abbreviation with no quoted source")
                     continue
-                kept_segments.append(segment)
+                if narration_on and _is_filler_narration(segment):
+                    lost_tail = True
+                    note(segment, "promises an action instead of answering")
+                    continue
+                kept_segments.append([segment, "plain", []])
+                lost_tail = False
+                continue
+            if _hollow_markers(segment):
+                lost_tail = True
+                note(segment, "citation numbers with no words")
+                continue
+            plain = _QUOTED_CITATION.sub(lambda m: f"[S{m.group(1)}]", segment)
+            if not all(1 <= int(m.group(1)) <= len(passages) for m in cites):
+                total += 1
+                lost_tail = True
+                note(segment, "cites a source number that does not exist")
+                continue
+            from_image = [m for m in cites if _image_only(passages[int(m.group(1)) - 1])]
+            textual = [m for m in cites if m not in from_image]
+            quotes_ok = all(m.group(2)
+                            and claim_quote_verified(m.group(2), passages[int(m.group(1)) - 1].get("text"))
+                            for m in textual)
+            if from_image:
+                if quotes_ok:
+                    image_only += 1
+                    kept_segments.append([plain, "image", []])
+                    lost_tail = False
+                else:
+                    total += 1
+                    lost_tail = True
+                    note(segment, "quote from a page image not found")
                 continue
             total += 1
-            ok = all(m.group(2) and 1 <= int(m.group(1)) <= len(passages)
-                     and quote_verified(m.group(2), passages[int(m.group(1)) - 1].get("text"))
-                     for m in cites)
-            if not ok:
+            if not quotes_ok:
+                lost_tail = True
+                note(segment, "quoted words not found on the cited page")
+                continue
+            _figures_ok, figures_removed = ground_numbers(plain, passages)
+            if figures_removed:
+                lost_tail = True
+                note(segment, "a figure in it is not on the cited page")
+                continue
+            # The sentence must not say the opposite of what it quotes
+            # ("shall exceed" over a quote that says "shall not exceed").
+            quoted_text = " ".join(m.group(2) or "" for m in cites)
+            if polarity_conflict(plain, quoted_text) is not None:
+                lost_tail = True
+                note(segment, "says the opposite of the words it quotes")
                 continue
             verified += 1
-            claims.extend({"n": int(m.group(1)), "quote": m.group(2)} for m in cites)
-            kept_segments.append(_QUOTED_CITATION.sub(lambda m: f"[S{m.group(1)}]", segment))
-        if kept_segments or not line.strip():
-            kept_lines.append(" ".join(kept_segments))
+            kept_segments.append([plain, "verified",
+                                  [{"n": int(m.group(1)), "quote": m.group(2)} for m in cites]])
+            lost_tail = False
+        lines.append({"segments": kept_segments, "lost_tail": lost_tail,
+                      "blank": not line.strip(), "drop": False})
+
+    claims: list[dict] = []
+
+    def drop_segment(seg: list) -> None:
+        nonlocal total, verified, image_only
+        if seg[1] == "verified":
+            total -= 1
+            verified -= 1
+        elif seg[1] == "image":
+            image_only -= 1
+
+    if final:
+        # From the bottom up, so a lead-in whose only content was itself a
+        # dropped lead-in goes too. A lead-in is dropped only when what was
+        # meant to follow it is gone: removed in its own line, or the next
+        # non-blank line is entirely gone, or there is no next line.
+        for i in range(len(lines) - 1, -1, -1):
+            entry = lines[i]
+            segs = entry["segments"]
+            if not segs or not _ends_in_lead_in(segs[-1][0]):
+                continue
+            nxt = next((e for e in lines[i + 1:] if not e["blank"]), None)
+            content_gone = entry["lost_tail"] or nxt is None or not nxt["segments"] or nxt["drop"]
+            if content_gone:
+                note(segs[-1][0], "lead-in whose content was removed")
+                drop_segment(segs.pop())
+                if not segs:
+                    entry["drop"] = True
+    kept_lines = []
+    for entry in lines:
+        if entry["drop"] or (not entry["segments"] and not entry["blank"]):
+            continue
+        for seg in entry["segments"]:
+            claims.extend(seg[2])
+        kept_lines.append(" ".join(seg[0] for seg in entry["segments"]))
     clean = re.sub(r"\n{3,}", "\n\n", "\n".join(kept_lines)).strip()
-    return clean, {"verified": verified, "total": total,
-                   "method": "quote found on the page"}, claims, total - verified
+    verification = {"verified": verified, "total": total, "method": "quote found on the page"}
+    if image_only:
+        verification["image_only"] = image_only
+    return clean, verification, claims, total - verified
 
 
 #: A markdown list marker at the start of a line ("- ", "* ", "1. ", "2) ").
@@ -527,37 +956,214 @@ _LIST_MARKER = re.compile(r"^\s*(?:[-*+>#]+|\d{1,2}[.)])(?:\s+|$)")
 NUMBERS_NOTICE = ("{n} sentence{s} removed: a figure in {it} was not in the passage "
                   "{it2} cited.")
 
-#: An ordinary rounding is not a wrong figure. A passage stating "17.24 barg"
-#: and an answer saying "17.2 barg" differ by ~0.2% - normal significant-figure
-#: rounding, not an invented number, and treating it as unsupported silently
-#: dropped an accurate sentence. 1% comfortably covers rounding to 2-3
-#: significant figures on the units this project sees (mm/s, barg, mm) while
-#: staying far below the gap a genuinely different figure has: 0.28 mm vs 280
-#: um is a ~1,000,000% mismatch, and this is checked on already-normalised
-#: numbers, so it never masks a units confusion.
-ROUNDING_RELATIVE_TOLERANCE = 0.01
+# An ordinary rounding is not a wrong figure: "17.2 barg" for a passage
+# stating "17.24 barg" is accurate, and dropping it lost a true sentence. But
+# ONLY a genuine rounding: the claim has FEWER decimals than the passage
+# value and equals that value rounded to the claim's own precision. A
+# relative tolerance (1% until 2026-09-30) also let "17.4" pass for 17.24 -
+# a different figure with MORE precision than the page, which no rounding
+# produces (audit 2026-09-30).
+def _decimals(value: Decimal) -> int:
+    return max(0, -value.normalize().as_tuple().exponent)
 
 
 def _is_rounding_of(value: str, spans: set[str]) -> bool:
-    """True when `value` (a `synthesis._normalise_number` output) is within
-    ROUNDING_RELATIVE_TOLERANCE of some number in `spans` - an ordinary
-    rounding, never a different figure. A non-numeric token (a clause number
-    like "5.3.2", left un-normalised by `_normalise_number` on purpose) never
-    matches here: it either exact-matches upstream or is a genuine miss.
+    """True when `value` (a `synthesis._normalise_number` output) is a
+    genuine rounding of some number in `spans`: fewer decimals than that
+    number, and equal to it rounded (half-up or half-even) to `value`'s own
+    decimals. "17.2" and "17" round 17.24; "17.4" and "17.3" do not; "18"
+    rounds 17.6. A non-numeric token (a clause number like "5.3.2", left
+    un-normalised by `_normalise_number` on purpose) never matches here: it
+    either exact-matches upstream or is a genuine miss.
     """
     try:
-        claimed_value = float(value)
-    except ValueError:
+        claimed_value = Decimal(value)
+    except InvalidOperation:
         return False
+    if not claimed_value.is_finite():
+        return False
+    places = _decimals(claimed_value)
+    step = Decimal(1).scaleb(-places)
     for span in spans:
         try:
-            span_value = float(span)
-        except ValueError:
+            span_value = Decimal(span)
+        except InvalidOperation:
             continue
-        scale = max(abs(claimed_value), abs(span_value), 1e-9)
-        if abs(claimed_value - span_value) <= ROUNDING_RELATIVE_TOLERANCE * scale:
+        if not span_value.is_finite() or _decimals(span_value) <= places:
+            continue
+        if claimed_value in (span_value.quantize(step, rounding=ROUND_HALF_UP),
+                             span_value.quantize(step, rounding=ROUND_HALF_EVEN)):
             return True
     return False
+
+
+# ------------------------------------------------------------------ figures with units and signs (audit N4)
+#
+# The bag-of-numbers check above answers "is this NUMBER on the page". It does
+# not know that 343 on the page was a temperature and the sentence says mm/s,
+# that -29 on the page lost its minus in the sentence, or that "shall not
+# exceed" became "shall exceed". The checks below close those three gaps, and
+# ONLY those: a figure with no unit and no sign keeps the old behaviour.
+_DASHES_AS_SIGN = "-\u2212\u2013\u2014"
+_SIGN_LEAD = set(" \t([=:<>\u2264\u2265~,;")
+
+
+def _figure_occurrences(text: str) -> list[dict]:
+    """Every number token in `text` as {start, end, sign, value, unit}.
+
+    sign is "-" (clearly a minus), "+" (no sign) or "?" (a dash that could be a
+    range separator: "5 -10", "5 \u201310"). unit is the folded unit the number
+    is bound to when the unit is one `claims` recognises (a compound such as
+    mm/s whole, or not at all), else None - an unrecognised word after a number
+    binds nothing, so it can only make the check more lenient, never stricter.
+    """
+    from . import synthesis
+
+    bound: dict[int, str] = {}
+    for m in claims_mod._MEASUREMENT.finditer(text):
+        unit = m.group("unit")
+        folded = claims_mod._fold_unit(unit)
+        if not claims_mod._recognised_folded(folded):
+            if "/" in unit:
+                continue
+            unit = unit.split("(")[0]
+            folded = claims_mod._fold_unit(unit)
+            if folded not in claims_mod._RECOGNISED_UNITS:
+                continue
+        if len(unit) == 1 and unit.isalpha() and not unit.isupper():
+            continue
+        if not text[m.end("value"):m.start("unit")] and len(unit) == 1 and unit.isalpha():
+            continue
+        bound[m.start("value")] = folded
+    out: list[dict] = []
+    for m in synthesis._NUMBER_TOKEN.finditer(text):
+        start = m.start()
+        sign = "+"
+        if start > 0 and text[start - 1] in _DASHES_AS_SIGN:
+            lead = text[start - 2] if start >= 2 else ""
+            if lead == "" or lead in _SIGN_LEAD:
+                before = text[:start - 1].rstrip()
+                # "5 -10" is a range as likely as a negative: not decidable.
+                sign = "?" if lead.isspace() and before[-1:].isdigit() else "-"
+        out.append({"start": start, "end": m.end(), "sign": sign,
+                    "value": synthesis._normalise_number(m.group(0)),
+                    "unit": bound.get(start)})
+    return out
+
+
+def _unit_base(folded: str) -> str:
+    """A pressure unit without its gauge/absolute suffix: barg -> bar."""
+    return claims_mod._REFERENCE_SUFFIX.get(folded, (folded,))[0]
+
+
+def _value_matches(claimed: str, found: str) -> bool:
+    return claimed == found or _is_rounding_of(claimed, {found})
+
+
+def _unit_value_matches(claim: dict, found: dict) -> bool:
+    """Same quantity, same value: equal spelling and an exact or rounded value,
+    or two table units of one dimension equal after conversion to within half a
+    unit of the claim's last printed digit. Anything else (another dimension, an
+    unconverted unit with another spelling) does not match."""
+    a, b = _unit_base(claim["unit"]), _unit_base(found["unit"])
+    if a == b:
+        return _value_matches(claim["value"], found["value"])
+    ea, eb = claims_mod._UNIT_TABLE.get(a), claims_mod._UNIT_TABLE.get(b)
+    if ea is None or eb is None or ea[0] != eb[0]:
+        return False
+    try:
+        cv, fv = Decimal(claim["value"]), Decimal(found["value"])
+    except InvalidOperation:
+        return False
+    if not cv.is_finite() or not fv.is_finite():
+        return False
+    half = Decimal(1).scaleb(-_decimals(cv)) / 2 * Decimal(repr(ea[2]))
+    return abs(cv * Decimal(repr(ea[2])) - fv * Decimal(repr(eb[2]))) <= half * Decimal("1.000001")
+
+
+def figure_conflict(segment: str, claimed: set[str], passage_text: str) -> str | None:
+    """The first figure in `segment` (one of `claimed`) that the passage does
+    not state with the same SIGN and, when the sentence gives it a unit, in a
+    compatible unit - or None when every figure is grounded.
+
+    A claimed figure is grounded by a passage figure of the same value, whose
+    sign is the same (or could be a range dash), and which is either bare (a
+    table cell: its unit is a column away and cannot be judged) or bound to the
+    same quantity. A sentence figure with no unit is held to value and sign
+    only - the old behaviour. Integer rounding is `_is_rounding_of`'s rule,
+    unchanged: fewer decimals AND equal to the page value rounded to the
+    sentence's own precision (so 2 from 1.5 and 3 from 3.4 are ordinary
+    roundings; 3 from 3.6 or 4.5 mm/s from 3.0 mm/s are not)."""
+    from . import synthesis
+
+    held = synthesis.strip_reference_numerals(_CITATION.sub("", segment))
+    page = _figure_occurrences(synthesis.strip_reference_numerals(passage_text))
+    for claim in _figure_occurrences(held):
+        if claim["value"] not in claimed:
+            # A token the bag check did not hold the sentence to (a count of
+            # documents): not ours to judge.
+            continue
+        if claim["sign"] == "?":
+            continue
+        grounded = False
+        for found in page:
+            if found["sign"] not in (claim["sign"], "?"):
+                continue
+            if claim["unit"] is None or found["unit"] is None:
+                if _value_matches(claim["value"], found["value"]):
+                    grounded = True
+                    break
+            elif _unit_value_matches(claim, found):
+                grounded = True
+                break
+        if not grounded:
+            return held[claim["start"]:claim["end"]]
+    return None
+
+
+#: "shall exceed" / "shall not be used" - the verb a modal governs, and whether
+#: it is negated. "no more than" / "not more than" / "not to exceed" are the
+#: negated exceed. Both polarities for one verb on the page mean the page is
+#: not contradicting the sentence.
+_MODAL_VERB = re.compile(
+    r"\b(?:shall|must|may|should|will|is|are|does|do|can)\s+(?P<neg>not\s+)?(?:be\s+)?(?P<verb>[a-z]+)",
+    re.IGNORECASE)
+_NO_MORE_THAN = re.compile(r"\b(?:no|not)\s+(?:to\s+)?(?:more\s+than|exceed(?:ing)?)\b", re.IGNORECASE)
+_VERB_STOP = frozenset({"be", "to", "the", "a", "an", "less", "more", "at", "in", "on", "of",
+                        "than", "equal", "greater", "same", "also", "only", "then"})
+
+
+def _polarities(text: str) -> dict[str, set[bool]]:
+    found: dict[str, set[bool]] = {}
+    for m in _MODAL_VERB.finditer(text):
+        verb = m.group("verb").lower()
+        if verb in _VERB_STOP:
+            continue
+        found.setdefault(verb, set()).add(bool(m.group("neg")))
+    for m in _NO_MORE_THAN.finditer(text):
+        word = m.group(0).lower()
+        if word.startswith("no") and "more" not in word and "exceed" not in word:
+            continue
+        found.setdefault("exceed", set()).add(True)
+    return found
+
+
+def polarity_conflict(claim_text: str, evidence_text: str) -> str | None:
+    """The verb on which the sentence says the OPPOSITE of the evidence, or None.
+
+    "The vibration shall exceed 3.0 mm/s" against a quote "shall not exceed
+    3.0 mm/s" is a verb the sentence affirms and the evidence negates. Only a
+    verb that BOTH state counts, and only when the evidence states it in one
+    polarity alone: if the evidence uses it both ways the sentence may be
+    quoting either, and nothing is said about it. No modal verb in the sentence
+    means nothing to compare - behaviour unchanged."""
+    mine, theirs = _polarities(claim_text), _polarities(evidence_text)
+    for verb, polarity in mine.items():
+        other = theirs.get(verb)
+        if other and len(other) == 1 and len(polarity) == 1 and polarity != other:
+            return verb
+    return None
+
 
 
 def _first_unsupported_value(segment: str, spans: set[str]) -> str | None:
@@ -588,10 +1194,12 @@ def ground_numbers(text: str, passages: list[dict]) -> tuple[str, list[dict]]:
     spans - so "0.28 mm [S1]" over a page saying "280 um" is caught the same
     way here as in a summary. An exact miss is then given one more chance:
     `_is_rounding_of` lets it through when it is an ordinary rounding of a
-    number that IS in the spans (within ROUNDING_RELATIVE_TOLERANCE), so
-    "17.2" is not stripped from a page that says "17.24" - correct, not
-    invented. The synthesis-side exact/thousands-separator normalisation
-    itself is untouched.
+    number that IS in the spans (a genuine rounding: fewer decimals, equal
+    after rounding), so "17.2" is not stripped from a page that says "17.24"
+    - correct, not invented - while "17.4" still is. Reference numerals are
+    stripped from the passages too (`synthesis.span_numbers`), so a page's
+    "clause 6" never supports a sentence's "6 mm". The synthesis-side
+    exact/thousands-separator normalisation itself is untouched.
 
     A sentence citing passages is held to THOSE passages. An uncited sentence
     (the local format allows "Yes." and bullets under one citation) is held to
@@ -602,7 +1210,7 @@ def ground_numbers(text: str, passages: list[dict]) -> tuple[str, list[dict]]:
     """
     from . import synthesis
 
-    every = synthesis._numbers(" ".join(p.get("text") or "" for p in passages))
+    every = synthesis.span_numbers(" ".join(p.get("text") or "" for p in passages))
     kept_lines: list[str] = []
     removed: list[dict] = []
     for line in text.splitlines():
@@ -629,7 +1237,7 @@ def ground_numbers(text: str, passages: list[dict]) -> tuple[str, list[dict]]:
             if claimed:
                 cited = sorted({int(n) for n in _CITATION.findall(segment)
                                 if 1 <= int(n) <= len(passages)})
-                spans = (synthesis._numbers(" ".join(
+                spans = (synthesis.span_numbers(" ".join(
                     passages[n - 1].get("text") or "" for n in cited)) if cited else every)
                 # Exact match (incl. thousands separators, via `spans`/`claimed`
                 # themselves) is unchanged. A claimed number missing from
@@ -641,6 +1249,14 @@ def ground_numbers(text: str, passages: list[dict]) -> tuple[str, list[dict]]:
                     value = (_first_unsupported_value(segment, spans)
                              or sorted(unsupported)[0])
                     removed.append({"value": value, "cited": cited})
+                    continue
+                # The number is on the page. Is it the SAME figure: same sign,
+                # and the same quantity when the sentence gives it a unit?
+                page_text = " ".join(passages[n - 1].get("text") or "" for n in cited) \
+                    if cited else " ".join(p.get("text") or "" for p in passages)
+                wrong = figure_conflict(segment, claimed, page_text)
+                if wrong is not None:
+                    removed.append({"value": wrong, "cited": cited})
                     continue
             kept.append(segment)
         if kept:
@@ -902,6 +1518,14 @@ def _answer(
     return result
 
 
+def _nothing_matched(readable: int) -> str:
+    """What an unscoped search actually covered, in plain words."""
+    if readable > 0:
+        return (f"nothing in the {readable} document{'s' if readable != 1 else ''} "
+                "you can read matched this question")
+    return "no passage you can read matched this question"
+
+
 def _answer_from_documents(
     question: str,
     tier: str,
@@ -1008,7 +1632,15 @@ def _answer_from_documents(
     review_fallback = _is_broad_review_request(question, lexical_verdict, tier)
     if not hits or not lexical_verdict["ok"] or (not _is_semantically_credible(lead) and not review_fallback):
         if not hits:
-            reason = "none of the indexed documents mention this topic"
+            if document_id:
+                # A question scoped to one named document searched that
+                # document only; say so instead of claiming a library search.
+                where = lexical.searched_scope(document_id, allowed_document_ids)
+                reason = ("none of the indexed documents mention this topic"
+                          if where == "the indexed documents"
+                          else f"{where} has nothing on this topic")
+            else:
+                reason = _nothing_matched(len(allowed_document_ids))
         elif not lexical_verdict["ok"]:
             reason = lexical_verdict["reason"]
         else:
@@ -1023,16 +1655,33 @@ def _answer_from_documents(
         }
 
     if tier == "extract":
-        primary = _passage_payload(lead, question)
-        answers = [primary]
-        second = _second_passage(
+        # Which clause applies, when near-equal clauses set different values
+        # for different conditions - see _condition_choice. None leaves the
+        # answer exactly as it was.
+        choice = _condition_choice(
             gate_question, hits, lead, document_id, allowed_document_ids)
-        if second is not None:
-            answers.append(_passage_payload(second, question))
+        demoted = None
+        if choice is not None and choice["mode"] == "matched":
+            # the clause that ranked first stays visible, as supporting
+            demoted, lead = lead, choice.pop("winner")
+        primary = _passage_payload(lead, question)
+        if choice is None:
+            # no clause competed: does the ONE quoted passage list cases?
+            choice = _passage_cases(gate_question, primary)
+        answers = [primary]
+        if choice is not None and choice["mode"] == "options" and not choice["within_passage"]:
+            # every competing clause IS part of the answer, each with its own
+            # condition; none is demoted to "supporting"
+            answers += [_passage_payload(h, question) for h in choice.pop("hits")[1:]]
+        else:
+            second = _second_passage(
+                gate_question, hits, lead, document_id, allowed_document_ids)
+            if second is not None:
+                answers.append(_passage_payload(second, question))
         used = {p["chunk_id"] for p in answers}
         supporting = [
             _passage_payload(h, question)
-            for h in hits[1:limit]
+            for h in ([demoted] if demoted else []) + hits[1:limit]
             if h["chunk_id"] not in used
         ]
         return {
@@ -1046,6 +1695,10 @@ def _answer_from_documents(
             # appears only when the first cannot cover the question alone.
             "answer_passages": answers,
             "supporting": supporting,
+            # Which clause applies, when clauses differ by condition: the
+            # options shown and why, or the condition that chose. Absent
+            # (None) when no clause competed - the ordinary case.
+            "condition_choice": choice,
             # Which documents the question was about, and which of them this
             # answer used. Report-only: it describes what happened above it
             # and changes none of it.
@@ -1069,6 +1722,15 @@ def _answer_from_documents(
     # sufficient evidence; keeping another digit-heavy near-duplicate can
     # push the prompt over the practical context budget (or make generation
     # appear to hang). Keep the normal multi-source behaviour for prose.
+    # WHICH CLAUSE APPLIES, for the generated answer too. The model's prose
+    # is not touched and its checks below are not changed: a question naming
+    # a condition is given the clause that holds first and not the clause
+    # written for another case; a question naming none gets the notice the
+    # quoted answer gets, narrowed to the passages the model saw.
+    choice = _condition_choice(gate_question, hits, lead, document_id, allowed_document_ids)
+    model_hits, model_gate = hits, gate_index
+    if choice is not None and choice["mode"] == "matched":
+        model_hits, model_gate = _holding_first(gate_question, hits, choice), 0
     decimal_lookup = bool(re.search(r"(?<![\w.])\d+\.\d+(?![\w.])", question))
     # PER PROVIDER: the local 4B model and Claude were packed identically.
     budget = context_budget_for_lane()
@@ -1079,13 +1741,13 @@ def _answer_from_documents(
         # on its own and avoids feeding a second digit-heavy OCR page to the
         # local model. Keep a second page only when the lead page lacks it.
         target = re.search(r"(?<![\w.])\d+\.\d+(?![\w.])", question).group(0)
-        lead_text = hits[0].get("text", "") if hits else ""
+        lead_text = model_hits[0].get("text", "") if model_hits else ""
         passage_limit = 1 if re.search(
             r"(?<![\w.])" + re.escape(target) + r"(?![\w.])", lead_text
         ) else min(passage_limit, 2)
     passages = [
         _passage_payload(h, question, budget=budget["chars"])
-        for h in with_gating_passage(hits, gate_index, passage_limit)
+        for h in with_gating_passage(model_hits, model_gate, passage_limit)
     ]
 
     # The character budget above is a stand-in for a token budget, and the
@@ -1147,6 +1809,7 @@ def _answer_from_documents(
         return {
             **base,
             "answer_type": "model_unavailable",
+            "provider": reasoning_provider.CLAUDE,
             "answer": None,
             "reason": f"the Claude spending cap would be exceeded, so no answer was generated ({exc})",
             "passages": passages,
@@ -1157,6 +1820,7 @@ def _answer_from_documents(
         return {
             **base,
             "answer_type": "model_unavailable",
+            "provider": reasoning_provider.CLAUDE if claude_lane() else reasoning_provider.OLLAMA,
             "answer": None,
             "reason": f"the answer model would not answer ({str(exc).split(':')[0]})",
             "passages": passages,
@@ -1167,8 +1831,10 @@ def _answer_from_documents(
         return {
             **base,
             "answer_type": "model_unavailable",
+            "provider": reasoning_provider.CLAUDE if claude_lane() else reasoning_provider.OLLAMA,
             "answer": None,
-            "reason": f"the local answer model could not be reached ({type(exc).__name__})",
+            "reason": (f"the {'Claude' if claude_lane() else 'local'} answer model could not be "
+                       f"reached ({type(exc).__name__})"),
             "passages": passages,
             "evidence_removed": evidence_removed,
             "seconds": timer.seconds(),
@@ -1230,8 +1896,9 @@ def _answer_from_documents(
     # THE LOCAL LANE'S CLAIM CHECK. Citation numbers alone were all it had: a
     # figure the model invented beside a valid [S1] was shown. Every sentence
     # stating a figure its cited passage does not contain is removed and
-    # counted (ground_numbers). The Claude lane's quote check above is
-    # stricter and already covers this.
+    # counted (ground_numbers). The Claude lane gets the SAME figure check
+    # inside verify_claims above (a verified quote alone does not prove the
+    # sentence's figures - audit 2026-09-30), so it is not run twice here.
     numbers_removed: list[dict] = []
     if not claude_lane():
         text, numbers_removed = ground_numbers(text, passages)
@@ -1336,6 +2003,9 @@ def _answer_from_documents(
         # cited passage does not contain them (values only, never sentences).
         "numbers_unsupported": [r["value"] for r in numbers_removed],
         "notices": _numbers_notice(numbers_removed),
+        # Which clause applies, for the passages the model was given - a
+        # warning beside the prose, never a change to it.
+        "condition_choice": _choice_for_sent(choice, passages),
         # How many sentences had a count of documents re-bounded to the
         # passages retrieved. Reported so a screen can say so, and a test can.
         "counts_bounded": counts_bounded,

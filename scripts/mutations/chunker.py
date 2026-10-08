@@ -159,9 +159,12 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M1240", phase=97,
         description="CHUNKER_VERSION not bumped: old chunks are not detected stale",
         path=_CH,
-        anchor='CHUNKER_VERSION = "7"',
-        replacement='CHUNKER_VERSION = "6"',
-        target=_T, keyword="previous_chunker_are_stale",
+        anchor='CHUNKER_VERSION = "11"',
+        replacement='CHUNKER_VERSION = "8"',
+        # Re-targeted 2026-09-30: the old target compared the version with
+        # itself minus one and passed whatever the number was (audit entry 83).
+        target="tests/test_context_notes.py",
+        keyword="before_context_notes_are_detected_stale",
     ),
     Mutation(
         id="M1241", phase=97,

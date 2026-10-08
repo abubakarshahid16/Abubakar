@@ -47,10 +47,33 @@ from .db import connect
 NOT_IMPLEMENTED = [
     "conflict resolution across revisions (documents carry no revision or "
     "approval status)",
-    "public market research (this machine is offline; the panel shows a "
-    "labelled sample)",
+    # The market line is NOT written here: it states what this build does
+    # about the internet, so it is derived from the same settings that decide
+    # it (`market_line`). It was the literal "this machine is offline",
+    # printed in four API responses whether or not egress was switched on
+    # (review finding, 2026-10-02).
+    None,
     "analysis lifecycle and cancellation (there is no analyses table)",
 ]
+
+
+def market_line() -> str:
+    """The public-market-research gap, worded from the settings that decide it
+    (`market.egress_state`), never from a literal."""
+    state = market.egress_state()
+    if state["web_search_enabled"] and state["allow_public_egress"]:
+        return ("public market research (not part of this analysis; it runs only "
+                "when a search is approved from the market panel)")
+    if state["web_search_enabled"]:
+        return ("public market research (switched on, but this deployment does not "
+                "allow traffic to leave the machine, so nothing is sent; the panel "
+                "shows a labelled sample)")
+    return ("public market research (switched off in this build's settings; the "
+            "panel shows a labelled sample)")
+
+
+def not_implemented_sections() -> list[str]:
+    return [market_line() if item is None else item for item in NOT_IMPLEMENTED]
 
 
 #: WHAT THE TWO MODES MEAN, in the backend rather than in the button.
@@ -747,7 +770,7 @@ def summary(question: str, scope: access.AccessScope, *, limit: int = 8,
         "question": question,
         "evidence_ledger": evidence,
         **synthesis.summary_to_api(result),
-        "not_implemented_sections": list(NOT_IMPLEMENTED),
+        "not_implemented_sections": not_implemented_sections(),
     }
 
 
@@ -815,7 +838,7 @@ def gaps(question: str, scope: access.AccessScope, *, limit: int = 8,
                 {e["evidence_id"]: e["document_id"] for e in evidence},
             ),
         },
-        "not_implemented_sections": list(NOT_IMPLEMENTED),
+        "not_implemented_sections": not_implemented_sections(),
     }
 
 
@@ -1103,7 +1126,7 @@ def recommendation(question: str, scope: access.AccessScope, *, limit: int = 8,
             "recommendation": None,
             "recommendation_refusal": why or REFUSAL_NO_DOCUMENT_LAYER,
             "public_market_findings": market.findings()["findings"],
-            "not_implemented_sections": list(NOT_IMPLEMENTED),
+            "not_implemented_sections": not_implemented_sections(),
         }
 
     removed: list[tuple[str, str]] = []
@@ -1125,5 +1148,5 @@ def recommendation(question: str, scope: access.AccessScope, *, limit: int = 8,
             else why or REFUSAL_NO_ADVICE
         ),
         "public_market_findings": market.findings()["findings"],
-        "not_implemented_sections": list(NOT_IMPLEMENTED),
+        "not_implemented_sections": not_implemented_sections(),
     }

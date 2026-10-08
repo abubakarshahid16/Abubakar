@@ -334,9 +334,14 @@ def run_check(
         allowed_document_ids=allowed_document_ids, review_run_id=review_run_id)
     submittal_text = _submittal_text(submittal)
     conn = connect()
+    # An engineer's decision survives a re-run (`review.UNDECIDED_SQL`), and an
+    # item they rejected is not proposed again word for word beside it.
+    rejected_items = {(" ".join(str(r.get("finding") or "").lower().split()),
+                       " ".join(str(r.get("required_action") or "").lower().split()))
+                      for r in review_mod.rejected_in_run(review_run_id, ORIGIN)}
     with conn:
         conn.execute("DELETE FROM review_findings WHERE review_run_id = ? AND origin = ?"
-                     " AND confirmed_by IS NULL", (review_run_id, ORIGIN))
+                     f" AND {review_mod.UNDECIDED_SQL}", (review_run_id, ORIGIN))
     counts = dict(empty)
     for identifier in missing_identifiers:
         # A COMPANY IDENTIFIER IS NEVER ATTEMPTED - not searched, not fetched,
@@ -376,6 +381,9 @@ def run_check(
             verdict, fact = compare(requirement, facts)
             finding_text = label
             action = verdict.get("detail") or "Engineer to confirm."
+        if (" ".join(finding_text.lower().split()),
+                " ".join(str(action).lower().split())) in rejected_items:
+            continue
         finding = review_mod.create({
             "document_id": submittal,
             "category": "technical_query",

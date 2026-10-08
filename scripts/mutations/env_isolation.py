@@ -119,7 +119,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="the safety check reports nothing unsafe, whatever the "
                     "settings hold",
         path=_ISO,
-        anchor="    return sorted(n for n, safe in EGRESS_SAFE.items() if getattr(target, n) != safe)",
+        anchor="    return sorted(n for n, safe in EGRESS_SAFE.items()\n"
+               "                  if (getattr(target, n) not in safe if isinstance(safe, OneOf)\n"
+               "                      else getattr(target, n) != safe))",
         replacement="    return []",
         target=_TARGET,
         keyword="hostile_machine_really or real_conftest",

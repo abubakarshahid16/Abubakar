@@ -27,7 +27,8 @@ DocStatus = Literal[
     "failed",
 ]
 
-ChunkKind = Literal["prose", "table", "toc", "frontmatter", "index", "references"]
+ChunkKind = Literal["prose", "table", "toc", "frontmatter", "index", "references",
+                  "revision_history"]
 
 #: What part a document plays in a submittal review.
 #:
@@ -292,7 +293,15 @@ class StandardRequirement(BaseModel):
 #: with no recognisable limit is a `statement`, which is a true description of
 #: it - not a `numeric_limit` carrying a null value, a shape that reads as a
 #: limit nobody bothered to record.
-RequirementType = Literal["numeric_limit", "statement", "table_value"]
+#: Every type `requirements_3b` can STORE - the three core types plus the
+#: three it writes for shapes it will not force into a limit
+#: (`APPLICABILITY_TRIGGER`, `RELATIVE_LIMIT`, `TABLE_ROW`). The response model
+#: listed only three, so a standard holding any of the others failed its
+#: requirements list with a 500 (found 2026-09-30 by the frontend contract
+#: check). `requirements_3b.STORED_REQUIREMENT_TYPES` is the other home;
+#: tests/test_requirement_types_contract.py keeps them equal.
+RequirementType = Literal["numeric_limit", "statement", "table_value",
+                          "applicability_trigger", "relative_limit", "table_row"]
 
 #: An engineer's decision on an extracted requirement.
 RequirementDecision = Literal["confirm", "edit", "reject"]
@@ -1214,6 +1223,8 @@ AnswerType = Literal[
     # the result of the one search the reader approved
     "web_consent",
     "web",
+    # plan C3: a comparison, retrieved and cited per named side
+    "comparison",
 ]
 
 
@@ -1520,7 +1531,9 @@ class AnalysisGaps(BaseModel):
 
 class ConfidenceCheckOut(BaseModel):
     label: str
-    fired: bool = Field(description="true = this check lowered confidence")
+    fired: bool | None = Field(
+        description="true = this check lowered confidence, false = it was checked "
+        "and did not, null = it was not checked in this run")
 
 
 class RecommendationOut(BaseModel):
@@ -1873,16 +1886,18 @@ RiskType = Literal["schedule", "review", "dependency", "compliance"]
 
 
 class RiskCreate(BaseModel):
+    # BOUNDED (audit 2026-09-30): this was an unauthenticated writer that
+    # accepted a 100 kB description into SQLite. Same limits as a deliverable.
     risk_type: RiskType
-    title: str
-    description: str
-    severity: str = "medium"
-    status: str = "open"
-    deliverable_id: str | None = None
-    document_id: str | None = None
-    owner_user_id: str | None = None
-    due_date: str | None = None
-    source_finding_id: str | None = None
+    title: str = Field(min_length=1, max_length=500)
+    description: str = Field(max_length=5000)
+    severity: str = Field(default="medium", max_length=50)
+    status: str = Field(default="open", max_length=50)
+    deliverable_id: str | None = Field(default=None, max_length=200)
+    document_id: str | None = Field(default=None, max_length=200)
+    owner_user_id: str | None = Field(default=None, max_length=200)
+    due_date: str | None = Field(default=None, max_length=50)
+    source_finding_id: str | None = Field(default=None, max_length=200)
 
 
 class Risk(BaseModel):
@@ -2056,6 +2071,9 @@ class ReviewFinding(BaseModel):
     standard_clause: str | None = None
     standard_page: int | None = None
     requirement_source_text: str | None = None
+    #: True when the standard this finding was decided against is one the
+    #: caller may not read: the fields above and `requirement` are withheld.
+    standard_withheld: bool = False
     contractor_page: int | None = None
     contractor_section: str | None = None
     contractor_evidence_text: str | None = None
@@ -2748,11 +2766,25 @@ class EvidenceRemoved(BaseModel):
     characters_dropped: int
 
 
+class CorpusFactBreakdownEntry(BaseModel):
+    """One named role's own count, within a multi-role `CorpusFact`."""
+
+    role: str | None
+    loaded: int
+    not_loaded: int = 0
+    families: dict[str, int] | None = Field(
+        None, description="a COMPANY_STANDARD count, further split by standard "
+        "family (SAES, ASME, API, ...), when more than one family is present")
+
+
 class CorpusFact(BaseModel):
     """A count of the library, from the database, under the caller's grants.
 
     `text` carries its own boundary - "272 company standards are loaded and
-    readable by you" - so it cannot be quoted without it.
+    readable by you" - so it cannot be quoted without it. `role`/`loaded`/
+    `not_loaded` are the combined total (role is null when more than one
+    role was named together, or every role); `breakdown` names each role's
+    own count when the question named more than one in the same breath.
     """
 
     text: str
@@ -2764,6 +2796,52 @@ class CorpusFact(BaseModel):
     qualified: bool = Field(
         False, description="the question also asked about content, so retrieval "
         "answered that part separately")
+    breakdown: list[CorpusFactBreakdownEntry] | None = Field(
+        None, description="one entry per role, when the question named more than one")
+
+
+class ComparisonSide(BaseModel):
+    """One named side of a comparison and what its OWN, separately retrieved
+    search found - never what another side's search found."""
+
+    name: str = Field(description="the designation named in the question")
+    document_ids: list[str]
+    answer_type: str | None = Field(
+        None, description="this side's own answer_type - insufficient_evidence "
+        "means its targeted search found nothing; not_in_library means the "
+        "designation typed in the question matches no document the caller can read")
+    text: str | None = Field(
+        None, description="this side's own text, kept apart from the other sides'")
+    source_start: int = Field(
+        0, description="index into `passages` of this side's first source")
+    source_count: int = Field(0, description="how many `passages` belong to this side")
+    searched: bool = Field(
+        True, description="whether a search was really run for this side; false for a "
+        "named document the caller cannot read (never reported as a search that found nothing)")
+
+
+class ComparisonFamily(BaseModel):
+    """Issue #373: present when the sides were not NAMED by the reader but
+    found by the app from a family phrase ("the welding standards"). Which
+    standards belong to the family is the app's guess until a person confirms
+    it."""
+
+    label: str = Field(description="the reader's own descriptor words")
+    searched: list[str] = Field(description="the standards searched, one side each")
+    judged: int = Field(
+        description="how many readable standards matched; more than len(searched) "
+        "means the rest were not searched")
+    membership_is_a_guess: bool = Field(True, description="always true")
+    note: str = Field(description="the sentence written in code saying what was searched")
+
+
+class Comparison(BaseModel):
+    """Plan C3: a comparison's side breakdown, alongside the combined `answer`
+    text. Present only on `answer_type == \"comparison\"`."""
+
+    sides: list[ComparisonSide]
+    family: ComparisonFamily | None = Field(
+        None, description="issue #373: set when the app resolved a family phrase to the sides")
 
 
 class EvidenceRef(BaseModel):
@@ -2778,7 +2856,7 @@ class Answerability(BaseModel):
     code can check, never by the reranker score; never "high" confidence."""
     verdict: Literal["supported", "insufficient_evidence", "conflicting_evidence",
                      "ambiguous_evidence", "requires_another_document",
-                     "requires_engineer_review"]
+                     "requires_engineer_review", "depends_on_condition"]
     reason: str
     evidence: list[EvidenceRef] = []
 
@@ -2807,6 +2885,39 @@ class ScopeAmbiguity(BaseModel):
     """B6C: the answer's text is in more than one document."""
     reason: str
     documents: list[ScopeDocument]
+
+
+class ConditionOption(BaseModel):
+    """One clause competing to answer, and the condition it is written for."""
+    chunk_id: str
+    document_id: str
+    filename: str | None = None
+    section: str | None = None
+    page_start: int | None = None
+    page_end: int | None = None
+    conditions: list[str] = Field(
+        [], description="the conditions as the clause writes them, e.g. 'larger than 2 inch'")
+    line: str | None = Field(
+        None, description="within_passage only: the line of the passage written for this "
+        "condition, exactly as the passage writes it")
+    highlight: list[int] | None = Field(
+        None, description="within_passage only: [start, end] of that line in the passage text")
+
+
+class ConditionChoice(BaseModel):
+    """Plan step 4: clauses near the top set different values for different
+    conditions. `options`: the question named none of them, so every clause is
+    shown with its condition and the reader is asked which applies - none is
+    picked for them. `matched`: the question named one, and the one clause
+    that holds under it answers instead of a higher-ranked clause.
+    `within_passage`: the cases are lines (or table rows) of ONE passage -
+    every option points at the same chunk, each with its own line."""
+    mode: Literal["options", "matched"]
+    reason: str
+    within_passage: bool = False
+    kinds: list[str] = Field([], description="size, class, temperature, pressure, service, material, location")
+    question_names: list[str] = Field([], description="conditions the question itself named")
+    options: list[ConditionOption] = []
 
 
 AnswerKind = Literal["general", "document", "web", "mixed", "rewrite", "action", "records"]
@@ -2856,6 +2967,10 @@ class ChatPresentation(BaseModel):
     notices: list[str] = Field([], description="plain notices above the answer, e.g. the engineer notice")
     model: str | None = None
     provider: str | None = None
+    requested_provider: str | None = Field(
+        None, description="'claude' when the reader chose Claude; kept only when the local model answered")
+    provider_note: str | None = Field(
+        None, description="plain words: Claude was not used, and why (audit 101)")
     seconds: float | None = None
     cost_usd: float | None = None
 
@@ -2915,6 +3030,13 @@ class AnswerResult(ChatPresentation):
         "the answer; on any other answer_type the question also asked about "
         "content, and this is the separate, database half of a two-part reply",
     )
+    comparison: Comparison | None = Field(
+        None,
+        description="plan C3: present on answer_type=='comparison' - each named "
+        "side's own document ids and its own answer_type, so a side reported as "
+        "'not found in the pages read' is shown as its own targeted search, "
+        "never bundled into the other side's evidence",
+    )
     counts_bounded: int = Field(
         0,
         description="sentences in a generated answer whose count of documents "
@@ -2933,6 +3055,8 @@ class AnswerResult(ChatPresentation):
         None, description="B6C: document scope, clause and notes the question was understood with")
     scope_ambiguity: ScopeAmbiguity | None = Field(
         None, description="B6C: the answer's own text is in more than one document")
+    condition_choice: ConditionChoice | None = Field(
+        None, description="which clause applies when near-equal clauses differ by condition")
     answerability: Answerability | None = Field(
         None, description="B8: whether the evidence answers the question, and why")
 

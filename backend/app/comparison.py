@@ -93,6 +93,10 @@ REQUIRES_OTHER_DOCUMENT = "requires_other_document"
 #: class, PWHT...) named nothing of the kind. Only a clause whose own sentence
 #: names a document (`required_evidence_type`) carries the first token now.
 NO_FIELD_MATCHED = "no_field_matched"
+#: The reason code a NOT_APPLICABLE finding leads with when the requirement's
+#: condition was established as NOT holding by a datasheet fact (B24 and the
+#: condition reader in `conditions`). Read by `crs_mapping` as a literal.
+CONDITION_NOT_MET = "condition_not_met"
 
 #: Statuses that block approval. `MISSING_INFORMATION` is deliberately NOT
 #: here: a field nobody filled in is a question, not a failure, and it steers
@@ -359,7 +363,7 @@ def _applicable_exception(requirement: dict, subject: str | None) -> dict | None
             exceptions = []
     if not exceptions:
         return None
-    wanted = " ".join(str(subject).lower().split())
+    spellings = subject_spellings(subject)
     for exception in exceptions:
         applies_to = " ".join(str(exception.get("applies_to") or "").lower().split())
         if not applies_to:
@@ -367,16 +371,125 @@ def _applicable_exception(requirement: dict, subject: str | None) -> dict | None
         # Singular/plural tolerance without a stemmer: compare on the stem of
         # each word, which is enough for "valve"/"valves" and refuses to be
         # clever beyond that.
-        a = {w.rstrip("s") for w in wanted.split()}
-        b = {w.rstrip("s") for w in applies_to.split()}
-        if a and (a <= b or b <= a):
-            return exception
+        b = {w.rstrip("s") for w in re.findall(r"[a-z0-9]+", applies_to)}
+        # ONE DIRECTION ONLY (audit 2026-09-30): every word of the exception's
+        # equipment must be in the subject - the subject is AT LEAST as
+        # specific as the exception. The reverse ("valve" inside "pressure
+        # relief valves") would let a sheet classified only as a generic kind
+        # borrow a narrower kind's relaxed limit, which excuses a breach.
+        for wanted in spellings:
+            a = {w.rstrip("s") for w in re.findall(r"[a-z0-9]+", wanted)}
+            if a and b and b <= a:
+                return exception
     return None
+
+
+#: A SUBJECT'S OTHER NAMES, where a standard names the same equipment class in
+#: different words. Each entry is a CLASS MEMBERSHIP, one direction only: a
+#: pressure safety valve IS a pressure relief valve (API 520 Part I uses
+#: "pressure relief valve" as the generic term covering safety, relief and
+#: safety-relief valves), so an exception for pressure relief valves covers a
+#: PSV; an exception naming only safety valves does NOT cover every relief
+#: valve. Nothing is added here that is not a strict "is a" relation.
+_SUBJECT_IS_A: dict[str, tuple[str, ...]] = {
+    "pressure safety valve": ("pressure relief valve", "safety valve", "relief valve"),
+    "psv": ("pressure safety valve", "pressure relief valve", "safety valve",
+            "relief valve"),
+    "safety relief valve": ("pressure relief valve", "relief valve"),
+}
+
+
+def subject_spellings(subject: str | None) -> list[str]:
+    """The subject folded to lowercase words, plus the classes it belongs to."""
+    folded = " ".join(re.findall(r"[a-z0-9]+", str(subject or "").lower()))
+    if not folded:
+        return []
+    out = [folded]
+    for word, classes in _SUBJECT_IS_A.items():
+        if word == folded or word == folded.rstrip("s"):
+            out.extend(classes)
+    return list(dict.fromkeys(out))
+
+
+def equipment_subject(classification: dict | None) -> str | None:
+    """What equipment this submittal is about, for `_applicable_exception`.
+
+    The submittal's STORED classification `equipment_type` - the word an
+    engineer confirmed, or the classifier read from the sheet's own title
+    block (with its page and quote kept as evidence). None when there is none:
+    the field names are NOT used here, because an exception applied on a guess
+    excuses a breach, and an unknown subject gets the general limit.
+    """
+    value = ((classification or {}).get("equipment_type") or "").strip()
+    return value or None
+
+
+#: The reason code on a breach held back because the datasheet VALUE it rests
+#: on is not yet trusted (audit 2026-09-30).
+LOW_TRUST_VALUE = "LOW_TRUST_VALUE"
+#: `submittal_facts.validation_state` values that mean "not yet trusted":
+#: below the confidence threshold (the OCR fallback tier among them) and a
+#: geometry reading that disagrees with the rule reader. Spelled here as
+#: literals because `datasheets` owns them (`NEEDS_ENGINEER_REVIEW`,
+#: `GEOMETRY_CONFLICT`); a test pins the two spellings together.
+_LOW_TRUST_STATES = frozenset({"needs_engineer_review", "conflict"})
+
+
+def low_trust_reason(fact: dict | None) -> str | None:
+    """Why this datasheet value is not trusted enough to rest a breach on, or
+    None. An engineer's confirmation of the value (`confirmed_by`) makes it
+    trusted whatever read it."""
+    if not fact or fact.get("confirmed_by"):
+        return None
+    state = (fact.get("validation_state") or "").strip().lower()
+    if state in _LOW_TRUST_STATES:
+        return (f"the value was read with validation state '{state}' "
+                "(a low-confidence or conflicting reading)")
+    if (fact.get("extraction_method") or "").strip().lower() == "model":
+        return "the value was read by the model reader and no engineer has confirmed it"
+    return None
+
+
+#: The verdicts an untrusted value may not produce. BOTH of them (audit
+#: leftover 2026-09-30): a COMPLIANT resting on an OCR-fallback or model-read
+#: value is the same guess as a breach resting on one - it only fails the
+#: other way, silently passing a value nobody has checked.
+_VERDICTS_HELD_ON_LOW_TRUST = frozenset({NON_COMPLIANT, COMPLIANT})
+
+
+def _hold_low_trust_breach(verdict: dict, fact: dict | None) -> dict:
+    """A verdict - breach OR compliance - resting on an untrusted value becomes
+    a question for the engineer, with the arithmetic kept in the words. Audit
+    2026-09-30: an OCR-fallback or model-read value (confidence 0.5 or below)
+    produced a contractor-facing breach, which is a guess shown as a finding
+    (CLAUDE.md rule 4); the same value read as "within the limit" was
+    accepted, which is the same guess. Every other status (already a
+    question, missing information) passes unchanged."""
+    if verdict.get("status") not in _VERDICTS_HELD_ON_LOW_TRUST:
+        return verdict
+    reason = low_trust_reason(fact)
+    if reason is None:
+        return verdict
+    return {**verdict, "status": NEEDS_ENGINEER_REVIEW, "rationale": (
+        f"{LOW_TRUST_VALUE}: {reason}, so no verdict (neither compliant nor a "
+        f"breach) is stated until an engineer checks the value on the page; "
+        f"the arithmetic on the value as read: "
+        f"{verdict.get('rationale') or ''}")}
 
 
 def compare(requirement: dict, fact: dict | None, *,
             subject: str | None = None,
             submittal_facts: list[dict] | None = None) -> dict:
+    """`_compare`'s verdict, with a breach on an untrusted value held for an
+    engineer (`_hold_low_trust_breach`). Every caller gets the guard."""
+    return _hold_low_trust_breach(
+        _compare(requirement, fact, subject=subject, submittal_facts=submittal_facts),
+        fact)
+
+
+def _compare(requirement: dict, fact: dict | None, *,
+             subject: str | None = None,
+             submittal_facts: list[dict] | None = None) -> dict:
     """The DETERMINISTIC verdict for one requirement against one fact.
 
     Returns `{status, rationale, limit, observed, exception_applied}`, plus
@@ -547,7 +660,9 @@ def compare(requirement: dict, fact: dict | None, *,
     # carrying a real condition, so every other requirement type - including the
     # 4,246 `table_value` rows whose `condition` column holds a table row label
     # like "Arsenic" or "100" - reaches the code below unchanged.
-    condition = conditions.evaluate(requirement, submittal_facts)
+    # `about=fact`: only facts about the same tag / nozzle as the compared
+    # value may establish the condition (review conditions, 2026-09-30).
+    condition = conditions.evaluate(requirement, submittal_facts, about=fact)
     if condition is not None and condition["state"] != conditions.SATISFIED:
         if condition["state"] == conditions.NOT_SATISFIED:
             return {
@@ -555,8 +670,12 @@ def compare(requirement: dict, fact: dict | None, *,
                 # fact was read and states something the condition is not, and
                 # that fact travels with the finding.
                 "status": NOT_APPLICABLE,
+                # CONDITION_NOT_MET leads, so the CRS can list the excused
+                # requirement - with the condition and the datasheet value
+                # that excused it - on the engineer's Review notes rather than
+                # dropping it or printing it as a breach (`crs_mapping`).
                 "rationale": (
-                    f"this requirement is conditional on "
+                    f"{CONDITION_NOT_MET}: this requirement is conditional on "
                     f"{condition['condition']!r} and the submittal establishes "
                     f"otherwise: {condition['reason']}"),
                 "limit": None,
@@ -664,13 +783,27 @@ def compare(requirement: dict, fact: dict | None, *,
     # sides carry the identical spelling, and returns None when it cannot do
     # either. None means NO COMPARISON WAS MADE, which is a result.
     verdict = claims._compatible(observed, limit)
+    if verdict is None and (claims.parse_value(str(observed.raw_value or "")) is None
+                            or claims.parse_value(str(limit.raw_value or "")) is None):
+        # AN UNREADABLE NUMBER IS NOT A UNIT PROBLEM (audit 2026-09-30). The
+        # sentence below used to read "the submitted unit 'mm' and the
+        # required unit 'mm' cannot be compared" for a value like "see note"
+        # - a false reason, naming two identical units as the obstacle.
+        which, value = (("submitted", observed.raw_value)
+                        if claims.parse_value(str(observed.raw_value or "")) is None
+                        else ("required", limit.raw_value))
+        return {
+            "status": NEEDS_ENGINEER_REVIEW,
+            "rationale": (f"the {which} value {value!r} could not be read as a "
+                          "number, so no comparison was made"),
+            "limit": _describe(limit, governing),
+            "observed": _describe(observed, fact),
+            "exception_applied": exception, **_cond,
+        }
     if verdict is None:
         return {
             "status": NEEDS_ENGINEER_REVIEW,
-            "rationale": (
-                f"the submitted unit {fact.get('raw_unit')!r} and the required "
-                f"unit {governing.get('raw_unit')!r} cannot be compared by this "
-                "system; no conversion is guessed"),
+            "rationale": _unit_obstacle(fact.get("raw_unit"), governing.get("raw_unit")),
             "limit": _describe(limit, governing),
             "observed": _describe(observed, fact),
             "exception_applied": exception, **_cond,
@@ -698,6 +831,33 @@ def compare(requirement: dict, fact: dict | None, *,
         "observed": _describe(observed, fact),
         "exception_applied": exception, **_cond,
     }
+
+
+#: The fixed words every "a unit is missing" refusal ends with, so a reader of
+#: `ai_rationale` (`claude_recheck`'s blocked check) matches them the way it
+#: matches the two-unit refusal's "no conversion is guessed".
+UNIT_NOT_GUESSED_PHRASE = "no unit is guessed, so no comparison was made"
+
+
+def _unit_obstacle(submitted_unit: str | None, required_unit: str | None) -> str:
+    """Why two readable numbers were not compared, naming only the units that
+    exist. Audit leftover 2026-09-30: two values with no unit read "the
+    submitted unit '' and the required unit '' cannot be compared" - a
+    sentence about two units nobody wrote."""
+    got = (submitted_unit or "").strip()
+    want = (required_unit or "").strip()
+    if not got and not want:
+        return ("neither the submitted value nor the requirement states a unit, "
+                "so this system cannot tell whether they measure the same "
+                f"quantity; {UNIT_NOT_GUESSED_PHRASE}")
+    if not got:
+        return (f"the submitted value states no unit and the requirement is in "
+                f"{want!r}; {UNIT_NOT_GUESSED_PHRASE}")
+    if not want:
+        return (f"the requirement states no unit and the submitted value is in "
+                f"{got!r}; {UNIT_NOT_GUESSED_PHRASE}")
+    return (f"the submitted unit {got!r} and the required unit {want!r} cannot "
+            "be compared by this system; no conversion is guessed")
 
 
 def _plain(number: float) -> str:
@@ -829,9 +989,10 @@ def _prepare_finding(
     # never deleted" note. This gate stops a SECOND unconfirmed row from
     # existing beside the first, not a re-run from proposing one at all.
     fact_id = (fact or {}).get("id")
+    from . import review as review_mod
     duplicate = None if stored_replaced else connect().execute(
         "SELECT id FROM review_findings WHERE review_run_id = ?"
-        " AND requirement_id = ? AND fact_id IS ? AND confirmed_by IS NULL",
+        f" AND requirement_id = ? AND fact_id IS ? AND {review_mod.UNDECIDED_SQL}",
         (review_run_id, requirement.get("id"), fact_id)).fetchone()
     # The same test against the batch not yet written. `requirement_id = ?`
     # never matches a NULL in SQL, so a requirement with no id is never a
@@ -990,9 +1151,15 @@ def _write_run_findings(review_run_id: str, rows: list[dict], *,
             #
             # `standard_requirements` has followed this rule since 3B; findings
             # are the same kind of artefact and now follow it too.
+            #
+            # Audit 2026-09-30: "confirmed" meant `confirmed_by` only, so a
+            # rejection or acceptance (`approval_status`) was deleted here and
+            # the rejected comment came back as a new draft. Any engineer
+            # decision now keeps the row (`review.UNDECIDED_SQL`).
+            from . import review as review_mod
             conn.execute(
                 "DELETE FROM review_findings WHERE review_run_id = ?"
-                " AND confirmed_by IS NULL",
+                f" AND {review_mod.UNDECIDED_SQL}",
                 (review_run_id,))
         _insert_findings(conn, rows)
 
@@ -1555,12 +1722,26 @@ def run_comparison(
     from . import classification as classification_mod
     stored = classification_mod.of_document(submittal_id) or {}
     sheet = match_rules.sheet_kind(facts, stored.get("equipment_type"))
+    # THE EQUIPMENT SUBJECT, for equipment-specific exceptions ("90 dB(A),
+    # except pressure relief valves 115 dB(A)"). Audit 2026-09-30: neither
+    # production caller passed one, so every exception was dead code and a
+    # PSV at 100 dB(A) was reported as a breach. Derived HERE, once, so no
+    # caller can forget it; a caller that names a subject still wins.
+    if subject is None:
+        subject = equipment_subject(stored)
     findings: list[dict] = []
     # The run's findings, prepared and gated but NOT yet written: they go in
     # one transaction after the loop. `pending` is the duplicate gate's view
     # of them (see `_prepare_finding`).
     prepared_rows: list[dict] = []
     pending: dict = {}
+    # PAIRS AN ENGINEER REJECTED in this run. The rejected finding is kept
+    # (`_write_run_findings`), and proposing the same pair again would put the
+    # rejected comment back on the sheet as a new draft (audit 2026-09-30).
+    from . import review as review_mod
+    rejected_pairs = {(r.get("requirement_id"), r.get("fact_id"))
+                      for r in review_mod.rejected_in_run(review_run_id)
+                      if r.get("requirement_id")}
     matches_attempted = matches_made = 0
     rule_refusals: dict[str, int] = {}
     model_matches = 0
@@ -1650,8 +1831,9 @@ def run_comparison(
             # `facts` is the WHOLE submittal's fact set, not the matched fact. B24
             # needs the material/service/class fields to establish a condition, and
             # those are different rows from the one being compared.
-            verdict = rule_verdict or compare(requirement, fact, subject=subject,
-                                              submittal_facts=facts)
+            verdict = (_hold_low_trust_breach(rule_verdict, fact) if rule_verdict
+                       else compare(requirement, fact, subject=subject,
+                                    submittal_facts=facts))
             if rule_verdict is None and rule_unread and verdict.get("status") == NEEDS_ENGINEER_REVIEW:
                 verdict = {**verdict, "rationale": f"{verdict.get('rationale') or ''}; {rule_unread}"}
             # THE TABLE-ROW REFUSAL OUTRANKS THE UNIT GUARD. Both end in
@@ -1769,6 +1951,8 @@ def run_comparison(
                 if notes:
                     verdict = {**verdict, "rationale": (
                         f"{verdict.get('rationale') or ''} ({'; '.join(notes)})")}
+            if (requirement.get("id"), (fact or {}).get("id")) in rejected_pairs:
+                continue
             opinion = (model_opinions or {}).get(requirement.get("id"))
             # ONE FINDING PER ITEM, WRITTEN THROUGH THE BATCH HELPER: `_prepare_finding`
             # applies every gate `create_finding` would (duplicate check against
@@ -2098,6 +2282,7 @@ def _containment_hits(requirement: dict, subject: str, facts: list[dict],
     rejected = _rejected_keys_for(requirement)
     tag_scoped = facts_are_tag_scoped(facts)
     canonical_subject = field_links.canonical(subject)
+    subject_form = _match_form(subject)
     hits: list[dict] = []
     for fact in facts:
         if not eligible(fact):
@@ -2118,7 +2303,53 @@ def _containment_hits(requirement: dict, subject: str, facts: list[dict],
         elif _contains_words(canonical_subject, canonical_name):
             hits.append({"fact": fact, "name": name, "key": canonical_name,
                          "item": item, "synonym": canonical_name})
+        elif (_contains_words(subject_form, _match_form(name))
+              and len(_match_form(name)) >= 4
+              and _same_quantity_units(requirement, fact)):
+            # ABBREVIATION / GENERIC-WORD TOLERANCE (audit N5): "Noise" meets
+            # "Noise level", "Maximum operating temperature" meets "Max
+            # operating temperature". Only the fact name's own words are
+            # searched inside the subject (never the reverse, which would let
+            # "Pressure" claim "Design pressure"), and only when both sides
+            # state a unit of the same quantity - this route is the loosest
+            # one, so it carries the strictest unit gate.
+            hits.append({"fact": fact, "name": name, "key": canonical_name,
+                         "item": item, "synonym": None})
     return hits
+
+
+#: Abbreviations a datasheet label and a standard's sentence spell differently.
+_ABBREVIATIONS_FOR_MATCH = {
+    "max": "maximum", "min": "minimum", "temp": "temperature",
+    "press": "pressure", "pres": "pressure", "dia": "diameter",
+}
+#: Words that only say "this is the number": dropped from the END of a name.
+_GENERIC_TRAILING_WORDS = frozenset({"level", "value", "values", "rating", "data"})
+
+
+def _match_form(text: str) -> str:
+    """`_normalise_for_match` text with abbreviations spelled out and trailing
+    generic words (level, value, rating, data) removed. Never empties a name
+    to nothing: a name made only of generic words is left as it was."""
+    words = [_ABBREVIATIONS_FOR_MATCH.get(w, w) for w in text.split()]
+    trimmed = list(words)
+    while len(trimmed) > 1 and trimmed[-1] in _GENERIC_TRAILING_WORDS:
+        trimmed.pop()
+    return " ".join(trimmed)
+
+
+def _same_quantity_units(requirement: dict, fact: dict) -> bool:
+    """Both sides state a unit, and it is the same unit or the same known
+    dimension. A missing or unknown unit is NOT compatible here."""
+    left = str(requirement.get("raw_unit") or "").strip()
+    right = str(fact.get("raw_unit") or "").strip()
+    if not left or not right:
+        return False
+    if claims.same_unit(claims.Measurement("", left, None, None, None),
+                        claims.Measurement("", right, None, None, None)):
+        return True
+    left_dim, right_dim = claims.unit_dimension(left), claims.unit_dimension(right)
+    return left_dim is not None and left_dim == right_dim
 
 
 def _item_of(hit: dict) -> str | None:

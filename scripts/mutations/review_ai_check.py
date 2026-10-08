@@ -44,7 +44,8 @@ MUTATIONS: tuple[Mutation, ...] = (
              tags=("honesty", "critical")),
     Mutation(id="M1036", phase=86, description="a rerun deletes an engineer's confirmed item",
              path=APP / "ai_engineering_check.py",
-             anchor='                     " AND confirmed_by IS NULL", (review_run_id, ORIGIN))\n',
+             # Re-anchored 2026-09-30 (audit): any engineer decision is kept.
+             anchor='                     f" AND {review_mod.UNDECIDED_SQL}", (review_run_id, ORIGIN))\n',
              replacement='                     "", (review_run_id, ORIGIN))\n',
              target=_T, keyword="never_an_engineers_confirmation", tags=("honesty",)),
     Mutation(id="M1033", phase=86, description="the review job drafts with the flag off",
@@ -83,22 +84,17 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T, keyword="under_the_engineers_name", tags=("honesty",)),
     Mutation(id="M1038", phase=86, description="a rejected AI item stays on the sheet",
              path=APP / "crs_mapping.py",
-             anchor='        if f.get("origin") != _AI_ORIGIN or f.get("approval_status") == "rejected":\n',
-             replacement='        if f.get("origin") != _AI_ORIGIN:\n',
+             # Re-anchored 2026-10-01 (audit entry 90). The old anchor was the
+             # inner per-origin check, which is redundant: `build_crs_rows`
+             # already drops every rejected finding at its top. A rejection is
+             # therefore guarded in TWO places, and removing either one alone is
+             # (correctly) invisible. This mutation removes the rejection from
+             # the findings before BOTH places see them - the feature "a
+             # rejected item stays off the sheet" is then truly gone.
+             anchor="    findings = [f for f in findings if not _rejected(f)]\n",
+             replacement=("    findings = [{**f, \"approval_status\": None} if _rejected(f) else f\n"
+                          "                for f in findings]\n"),
              target=_T, keyword="rejected_item_is_not_on_the_sheet", tags=("honesty",)),
-    #: NOT RE-ANCHORED (found 2026-09-27, honesty group investigation, left as
-    #: found-but-not-fixed): this anchor has been stale since an earlier,
-    #: unrelated refactor merged the kind C and kind D origin checks (`origin
-    #: not in (_AI_ORIGIN, _WEB_ORIGIN)` replaced `f.get("origin") !=
-    #: _AI_ORIGIN`), so this mutation currently reports a harness ERROR, not a
-    #: verdict. Re-anchoring it to the current text would also reveal that its
-    #: own test does not detect it: `build_crs_rows` already drops every
-    #: rejected finding at its own top (`findings = [f for f in findings if
-    #: not _rejected(f)]`, before ANY per-origin loop runs), so the inner
-    #: `approval_status == "rejected"` check the anchor targets is dead code -
-    #: removing it changes nothing a test could observe. Fixing this requires
-    #: a design decision (delete the dead inner check, or find what the
-    #: outer/global filter does NOT already cover) outside this task's scope.
     Mutation(id="M1132", phase=95,
              description="honesty: an unconfirmed AI/web item's Comment By "
                          "goes back to blank instead of naming it a draft",

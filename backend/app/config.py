@@ -24,6 +24,64 @@ class NotificationConfigError(RuntimeError):
     """SMTP notifications were enabled without a complete configuration."""
 
 
+class UnsafeBindRefused(RuntimeError):
+    """The server was told to listen beyond this machine with nobody signing in."""
+
+
+#: Host header values that always name this machine. `testserver` (the
+#: TestClient's name) is deliberately NOT here: the tests add it through
+#: `tests/env_isolation.isolate`, so a production default never trusts it.
+LOOPBACK_HOST_HEADERS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+#: Bind addresses that mean "every interface" - not a name a browser uses.
+WILDCARD_BINDS = frozenset({"0.0.0.0", "::", ""})
+
+
+def is_loopback_bind(host: str) -> bool:
+    """Whether binding `host` keeps the port on this machine."""
+    h = (host or "").strip().strip("[]").lower()
+    if h in LOOPBACK_NAMES:
+        return True
+    try:
+        return ipaddress.ip_address(h).is_loopback
+    except ValueError:
+        return False
+
+
+def host_header_name(value: str) -> str:
+    """The host part of a Host header, lowercased, port removed.
+
+    `[::1]:8000` -> `::1`; `localhost:5173` -> `localhost`; a bare IPv6
+    literal with no brackets is taken whole.
+    """
+    v = (value or "").strip().lower()
+    if v.startswith("["):
+        end = v.find("]")
+        return v[1:end] if end > 0 else ""
+    if v.count(":") == 1:
+        return v.split(":", 1)[0]
+    return v
+
+
+def trusted_host_names(cfg: "Settings") -> frozenset[str]:
+    """Every Host header value this server answers. Read per request.
+
+    DNS REBINDING is why this exists. The server binds loopback, but a web
+    page on `attacker.example` can re-point its own name at 127.0.0.1 and
+    then read this API from the victim's browser as a same-origin request -
+    CORS never applies, and under `AUTH_MODE=disabled` every document is
+    served. The browser still sends `Host: attacker.example`, so refusing any
+    name this machine was not configured to be called closes it.
+    """
+    names = set(LOOPBACK_HOST_HEADERS)
+    bind = (cfg.host or "").strip().strip("[]").lower()
+    if bind not in WILDCARD_BINDS:
+        names.add(bind)
+    names.update(h.strip().lower() for h in (cfg.allowed_hosts or "").split(",")
+                 if h.strip())
+    return frozenset(names)
+
+
 #: Host names that mean "this machine" without being an IP literal.
 #: `localhost` only. NOT any name a resolver happens to point at 127.0.0.1: a
 #: DNS name is somebody else's to change, and a check that trusts resolution
@@ -176,8 +234,21 @@ class Settings(BaseSettings):
         env_file=BACKEND_DIR / ".env", extra="ignore")
 
     # Bind loopback only. Never 0.0.0.0 - document content must not be reachable.
+    # ENFORCED, not only advised: a non-loopback bind under AUTH_MODE=disabled
+    # is refused at startup unless `allow_unauthenticated_network_bind` is set.
     host: str = "127.0.0.1"
     port: int = 8000
+    #: Extra names the server may be addressed by, comma-separated (the Host
+    #: header check - see `trusted_host_names`). localhost, 127.0.0.1, ::1
+    #: and a named `host` are always trusted; empty is the right value for a
+    #: laptop. Add a name only when a browser really reaches this server by it.
+    allowed_hosts: str = ""
+    #: The deliberate override for serving the network with nobody signing
+    #: in. Every caller would see every document. Off, and should stay off.
+    allow_unauthenticated_network_bind: bool = False
+    #: /docs, /redoc and /openapi.json describe every route. Served only under
+    #: AUTH_MODE=disabled (a developer's machine) unless this is set.
+    api_docs_enabled: bool = False
 
     data_dir: Path = BACKEND_DIR / "data"
     upload_dir: Path = BACKEND_DIR / "data" / "uploads"
@@ -375,6 +446,28 @@ class Settings(BaseSettings):
     #: datasheets.vision_route). A ceiling on cost and time per document, on
     #: top of claude_spend's USD caps. Env: VISION_MAX_PAGES_PER_DOCUMENT.
     vision_max_pages_per_document: int = 10
+    #: "AI READS, CODE CHECKS" (`datasheet_ai.py`): during
+    #: `datasheets.extract_facts`, every page with text is also read by a model
+    #: (`claude_datasheet.read_page`: two runs must agree, and every fact must
+    #: quote the page) and the reading is MERGED with the rule readers' facts -
+    #: agreement raises confidence (never to "high"), disagreement keeps both
+    #: flagged `validation_state='conflict'`, an AI-only fact is kept only
+    #: because its quote was proved on the page. One of:
+    #:   "off"    - the default; extraction is exactly what it was before.
+    #:   "ollama" - the local engine, through `model_transport` (loopback, or
+    #:              a host `check_model_url` permits).
+    #:   "claude" - the Claude API, only when REASONING_PROVIDER=claude AND
+    #:              both STANDARDS_READER_* egress flags AND a key, and every
+    #:              call metered by `claude_spend` (USD caps) under the step
+    #:              `datasheet-ai-reader`.
+    #: An engine that is unavailable, fails or is refused by a cap leaves the
+    #: page to the rule readers, with the reason recorded; ingestion never
+    #: fails on it. NOT YET MEASURED on real datasheets. Any other value is
+    #: treated as off. Env: DATASHEET_AI_READER. The owner flips it.
+    datasheet_ai_reader: str = "off"
+    #: The local model the "ollama" engine uses; empty = `answer_model`.
+    #: Env: DATASHEET_AI_OLLAMA_MODEL.
+    datasheet_ai_ollama_model: str = ""
     #: B8: after the structural answerability checks, a reasoning model
     #: (local Ollama, or Claude through reader_transport under the USD caps)
     #: judges whether the passages ANSWER the question. It may only downgrade
@@ -415,6 +508,18 @@ class Settings(BaseSettings):
     #: 2026-09-25, after the measurement above; set it false to go back to the
     #: rule readers alone.
     geometry_table_reader_enabled: bool = True
+    #: Datasheets that are NOT a PDF text layer (`datasheet_inputs.py`): an
+    #: uploaded .docx is accepted, an .xlsx or .docx is INDEXED (its pages
+    #: are the rendered sheets / document, read by `datasheet_inputs` instead
+    #: of PyMuPDF) rather than stored as `stored_not_indexed`, the datasheet
+    #: reader pairs their rows and records `extraction_method` 'xlsx' /
+    #: 'docx', and a scanned page's OCR text also yields table-shaped lines
+    #: ("label  value  unit", "label | value | unit") beside "LABEL: VALUE",
+    #: still at the OCR fallback's low confidence and engineer-review state.
+    #: Trade-off to measure before switching on: a CRS template workbook is
+    #: then indexed too. OFF by default - merging changes nothing.
+    #: Env: DATASHEET_OFFICE_INPUT.
+    datasheet_office_input: bool = False
     #: Generous, because a refusal costs more than a wait: a timeout is
     #: `model_unavailable` and the requirement falls back to
     #: MISSING_INFORMATION, so a tight bound would quietly convert slow
@@ -942,7 +1047,7 @@ class Settings(BaseSettings):
     #: every one of the 10 historical calls at that cap hit `finish_reason ==
     #: "length"` and produced zero storable items - the check was truncating
     #: silently on every single run. Still finite (a worst-case estimate feeds
-    #: `claude_spend.ensure_affordable` before the call leaves).
+    #: `claude_spend.reserve` before the call leaves).
     review_ai_check_max_output_tokens: int = 12000
     #: Owner order 2d-2: for a standard the datasheet cites but the library
     #: does not hold, an OPTIONAL check against a PUBLIC web copy. OFF BY
@@ -1094,6 +1199,20 @@ class Settings(BaseSettings):
             allow_remote=self.answer_model_allow_remote_host,
             allowed_hosts=self.answer_model_allowed_hosts,
         )
+        return self
+
+    @model_validator(mode="after")
+    def _refuse_an_open_unauthenticated_bind(self) -> "Settings":
+        """HOST=0.0.0.0 (or any LAN address) with AUTH_MODE=disabled serves
+        every document to anyone who can reach the port. Refused at startup
+        unless `allow_unauthenticated_network_bind` says it is deliberate."""
+        if (self.auth_mode == "disabled" and not is_loopback_bind(self.host)
+                and not self.allow_unauthenticated_network_bind):
+            raise UnsafeBindRefused(
+                f"HOST={self.host!r} is not loopback and AUTH_MODE=disabled: "
+                "every caller on the network would see every document. Set "
+                "AUTH_MODE=demo_required, bind 127.0.0.1, or set "
+                "ALLOW_UNAUTHENTICATED_NETWORK_BIND=true deliberately.")
         return self
 
     @model_validator(mode="after")

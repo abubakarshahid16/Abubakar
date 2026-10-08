@@ -42,7 +42,23 @@ EMBEDDING_DIM = 384
 #: Recorded on every stored vector (chunk_vectors.model) so a vector computed
 #: from the body alone is identifiable. The STORED chunk text - what a
 #: citation quotes - is unchanged; only the model's input is.
-PASSAGE_INPUT_VERSION = "heading-v1"
+#:
+#: "context-v1" (2026-09-30, CHUNKER_VERSION 8): the heading is the chunk's
+#: heading CHAIN (`chunks.context`) when it has one - "4 Piping > 4.2 Pipes
+#: larger than 2 inch > 4.2.1" rather than "4.2.1" - else its section, as in
+#: heading-v1. See `LEGACY_PASSAGE_INPUT_VERSIONS` for why heading-v1 vectors
+#: stay searchable until they are re-embedded.
+PASSAGE_INPUT_VERSION = "context-v1"
+
+#: Input formats whose vectors are STILL SEARCHABLE. heading-v1 and
+#: context-v1 differ only in how much heading the SAME model read, so a
+#: heading-v1 vector's cosine against today's query is as meaningful as it
+#: was yesterday. Treating it as stale would switch dense search off for
+#: every document the moment this code is deployed, until each one is
+#: re-processed. So it is searched as before, and `embed_pending` upgrades it
+#: whenever its document is processed. A different MODEL is never legacy:
+#: its vectors live in another space and stay stale.
+LEGACY_PASSAGE_INPUT_VERSIONS: tuple[str, ...] = ("heading-v1",)
 
 
 @dataclass(frozen=True)
@@ -82,6 +98,15 @@ def embedding_tag(model_file: str | None = None) -> str:
     by the current build stay current - no re-embed is forced by this change.
     """
     return f"{model_file or EmbedderConfig().model_file}+{PASSAGE_INPUT_VERSION}"
+
+
+def searchable_tags(model_file: str | None = None) -> tuple[str, ...]:
+    """Every `chunk_vectors.model` tag dense search may use: today's, then
+    the legacy input formats of the SAME model. `embedding_tag()` alone still
+    decides what is written and what `embed_pending` upgrades."""
+    model = model_file or EmbedderConfig().model_file
+    return (embedding_tag(model),
+            *(f"{model}+{v}" for v in LEGACY_PASSAGE_INPUT_VERSIONS))
 
 
 def mean_pool(last_hidden_state: np.ndarray, attention_mask: np.ndarray) -> np.ndarray:

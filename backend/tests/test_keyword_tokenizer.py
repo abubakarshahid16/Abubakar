@@ -42,7 +42,7 @@ def _document(doc_id: str, chunks: list[tuple[str, str]]) -> str:
     conn.execute(
         """INSERT INTO documents (id, filename, sha256, size_bytes, stored_path,
                                   status, uploaded_at)
-           VALUES (?, ?, ?, 1, '/nowhere', 'indexed', '2026-09-27T00:00:00Z')""",
+           VALUES (?, ?, ?, 1, '/nowhere', 'ready', '2026-09-27T00:00:00Z')""",
         (doc_id, f"{doc_id}.pdf", f"sha-{doc_id}"),
     )
     conn.executemany(

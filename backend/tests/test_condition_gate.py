@@ -67,6 +67,17 @@ def material(value, **over) -> dict:
     return base
 
 
+#: The same material guarantees, held on BOTH routes through the gate:
+#: "carbon steel" is parsed by the condition reader (`conditions.read_condition`,
+#: review conditions 2026-09-30); "Cr-Mo" is a term the reader does not parse,
+#: so it still goes through the v1 term gate (`_evaluate_terms`). Each pair is
+#: (condition, a material value inside it).
+GATES = pytest.mark.parametrize("cond,inside", [
+    ("carbon steel", "SA-516 Gr 70 carbon steel"),
+    ("Cr-Mo", "SA-387 Gr 11 Cr-Mo steel"),
+], ids=["reader", "v1"])
+
+
 # ------------------------------------------------------- 1. missing material
 
 def test_1_a_missing_material_condition_cannot_produce_non_compliant():
@@ -87,11 +98,12 @@ def test_1b_omitting_the_facts_entirely_also_abstains():
     assert out["condition"]["state"] == conditions.UNKNOWN
 
 
-def test_1c_a_material_field_that_does_state_carbon_steel_lets_it_proceed():
+@GATES
+def test_1c_a_material_field_that_does_state_carbon_steel_lets_it_proceed(cond, inside):
     """The control. Without this, every test here could pass by abstaining
     always — the vacuous-test failure mode this project has shipped before."""
     out = comparison.compare(
-        req(), fact(), submittal_facts=[material("SA-516 Gr 70 carbon steel")])
+        req(condition=cond), fact(), submittal_facts=[material(inside)])
     assert out["status"] == comparison.NON_COMPLIANT, (
         "with the material established as carbon steel the clause applies and "
         "0 mm really is below 1.6 mm")
@@ -197,11 +209,12 @@ def test_6_a_mismatch_without_a_proving_fact_is_needs_engineer_review():
     assert out["condition"]["state"] == conditions.UNKNOWN
 
 
-def test_6b_a_placeholder_material_is_absent_evidence_not_a_mismatch():
+@GATES
+def test_6b_a_placeholder_material_is_absent_evidence_not_a_mismatch(cond, inside):
     """"N/A" does not establish that the material is not carbon steel."""
     for placeholder in ("N/A", "NA", "not applicable", "----", "BY VENDOR",
                         "TBD", "hold", ""):
-        out = comparison.compare(req(), fact(),
+        out = comparison.compare(req(condition=cond), fact(),
                                  submittal_facts=[material(placeholder)])
         assert out["status"] == comparison.NEEDS_ENGINEER_REVIEW, (
             f"{placeholder!r} produced {out['status']}")
@@ -330,13 +343,14 @@ def _length_valued_but_material_named() -> list[dict]:
                 "design thickness margin for cover material B"))]
 
 
-def test_b49_a_length_cannot_establish_a_material_however_it_is_labelled():
+@GATES
+def test_b49_a_length_cannot_establish_a_material_however_it_is_labelled(cond, inside):
     """THE DEFECT. Six material fields state nothing; two length fields carry
     the word "material" in their labels. The material is NOT established, so
     the only honest answer is UNKNOWN - and the requirement stays open."""
     facts = _named_material_fields() + _length_valued_but_material_named()
 
-    out = comparison.compare(req(), fact(), submittal_facts=facts)
+    out = comparison.compare(req(condition=cond), fact(), submittal_facts=facts)
 
     assert out["condition"]["state"] == conditions.UNKNOWN, (
         "a corrosion-allowance length was accepted as proof of a material: "
@@ -345,14 +359,15 @@ def test_b49_a_length_cannot_establish_a_material_however_it_is_labelled():
         "the clause was excused on evidence that says nothing about material")
 
 
-def test_b49_excusing_a_requirement_needs_a_material_that_is_actually_stated():
+@GATES
+def test_b49_excusing_a_requirement_needs_a_material_that_is_actually_stated(cond, inside):
     """The control in the direction that matters. A real material outside the
     clause's scope still excuses it - the fix makes NOT_APPLICABLE harder to
     reach, not unreachable."""
     facts = _named_material_fields("316L stainless steel") \
         + _length_valued_but_material_named()
 
-    out = comparison.compare(req(), fact(), submittal_facts=facts)
+    out = comparison.compare(req(condition=cond), fact(), submittal_facts=facts)
 
     assert out["condition"]["state"] == conditions.NOT_SATISFIED
     assert out["status"] == comparison.NOT_APPLICABLE
@@ -360,27 +375,29 @@ def test_b49_excusing_a_requirement_needs_a_material_that_is_actually_stated():
         "the decision must cite the material that proves it, never a length")
 
 
-def test_b49_a_stated_carbon_steel_still_lets_the_comparison_proceed():
+@GATES
+def test_b49_a_stated_carbon_steel_still_lets_the_comparison_proceed(cond, inside):
     """The anti-vacuity control: the fix must not turn every case into UNKNOWN.
     With carbon steel stated, the clause binds and 0 mm is still below 1.6 mm,
     even with the length-valued impostors present."""
-    facts = _named_material_fields("SA-516 Gr 70 carbon steel") \
+    facts = _named_material_fields(inside) \
         + _length_valued_but_material_named()
 
-    out = comparison.compare(req(), fact(), submittal_facts=facts)
+    out = comparison.compare(req(condition=cond), fact(), submittal_facts=facts)
 
     assert out["condition"]["state"] == conditions.SATISFIED
     assert out["status"] == comparison.NON_COMPLIANT
 
 
-def test_b49_the_role_test_reads_the_unit_even_when_only_the_value_carries_it():
+@GATES
+def test_b49_the_role_test_reads_the_unit_even_when_only_the_value_carries_it(cond, inside):
     """Extraction populates the unit columns unevenly. A fact whose unit lives
     only inside its value ("0 mm", no raw_unit) must be recognised as a
     measurement too, or the defect returns for every unparsed row."""
     inline = fact(id="fact-inline", field_name="thickness margin material C",
                   field_value="0 mm", raw_value=None, raw_unit=None)
 
-    out = comparison.compare(req(), fact(),
+    out = comparison.compare(req(condition=cond), fact(),
                              submittal_facts=[*_named_material_fields(), inline])
 
     assert out["condition"]["state"] == conditions.UNKNOWN

@@ -68,4 +68,8 @@ def test_a_table_joined_onto_one_line_still_reads_as_rows():
     label; a measurement by its lower-case unit or the rest of the sentence."""
     flat = "1 Design pressure 23.5 barg 2 Set pressure 340 psig 3 Compressibility factor 0.892"
     assert longest_clause(flat) == 3
-    assert not assess(flat)["ok"]
+    # Changed 2026-09-30 (audit reading finding 5): barg and psig are now
+    # measured-value units, so these rows are kept as DATA - not as a clause,
+    # which is what this test is about. Before, they were dropped as debris.
+    verdict = assess(flat)
+    assert verdict["ok"] and verdict["kind"] == "data" and verdict["clause"] == 3

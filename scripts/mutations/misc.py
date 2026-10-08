@@ -276,8 +276,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M569", phase=61,
         description="the total cap only counts the current step",
         path=APP / "claude_spend.py",
-        anchor="    step_spent, total_spent = spent(step), spent()\n",
-        replacement="    step_spent, total_spent = spent(step), spent(step)\n",
+        # Re-anchored 2026-09-30: the caps are checked in `reserve_all` (audit_spend).
+        anchor="        total = sum(float(e.get(\"cost_usd\") or 0) for e in current)\n",
+        replacement="        total = sum(float(e.get(\"cost_usd\") or 0) for e in current if e.get(\"step\") == items[0][0])\n",
         target="tests/test_claude_provider.py",
         keyword="total_cap_counts",
         tags=("safety", "budget"),
@@ -340,8 +341,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M671", phase=62,
         description="a batch is created without checking its worst case against the caps",
         path=APP / "reasoning_provider.py",
-        anchor="            for step in steps:\n                claude_spend.ensure_affordable(step, worst)\n",
-        replacement="            for step in ():\n                claude_spend.ensure_affordable(step, worst)\n",
+        # Re-anchored 2026-09-30: the batch is now reserved as a whole (audit_spend).
+        anchor="            held = dict(zip(todo, claude_spend.reserve_all(\n                worsts, model=self.requested_model, batch=True)))\n",
+        replacement="            held = {c: claude_spend.Reservation(c, s, \"\", 0.0, \"\", 0.0, True)\n                    for c, (s, _w) in zip(todo, worsts)}\n",
         target="tests/test_claude_provider.py",
         keyword="refused_before_it_is_created",
         tags=("safety", "budget"),
@@ -435,7 +437,11 @@ MUTATIONS: tuple[Mutation, ...] = (
         path=APP / "chunker.py",
         anchor="            if _numbered_paragraph([ln.strip() for ln in lines], i):\n                keep.append(line)\n                continue\n",
         replacement="",
-        target="tests/test_b6b_e4_numbered_paragraphs.py", keyword="one_clause_per_paragraph",
+        # Re-targeted 2026-10-01 (audit entry 90): the old test used dotted
+        # numbers with no letter, which `_is_running` never treats as furniture
+        # (audit F2), so it passed with this guard deleted. The new test uses
+        # a lettered clause number that repeats at every page top.
+        target="tests/test_b6b_e4_numbered_paragraphs.py", keyword="top_of_page_prefixed_number",
     ),
     # ---- the four claude_api review routes under the USD caps (2026-09-27)
     Mutation(
@@ -455,8 +461,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M1161", phase=96,
         description="the USD meter sends a call without checking its worst case against the caps",
         path=APP / "claude_spend.py",
-        anchor="        ensure_affordable(step, worst)\n        digest = ",
-        replacement="        digest = ",
+        # Re-anchored 2026-09-30: `metered` reserves instead of checking (audit_spend).
+        anchor="        held = reserve(step, worst, model=model, prompt_sha256=digest)\n",
+        replacement="        held = Reservation(\"m\", step, model, 0.0, digest, time.time())\n",
         target="tests/test_claude_spend_routes.py",
         keyword="refuses_before or total_cap_counts or stops_the_next_call or over_the_cap or 409_helper",
         tags=("safety", "budget"),
@@ -465,8 +472,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M1162", phase=96,
         description="a failed call that may have been billed is left off the USD ledger",
         path=APP / "claude_spend.py",
-        anchor="            if unbilled is None or not unbilled(exc):\n",
-        replacement="            if False:\n",
+        # Re-anchored 2026-09-30: the rule now lives in `settle_failure` (audit_spend).
+        anchor="    if isinstance(exc, StopRun) or (unbilled is not None and unbilled(exc)):\n",
+        replacement="    if True:\n",
         target="tests/test_claude_spend_routes.py",
         keyword="may_have_been_billed or every_failure_is_charged",
         tags=("budget", "honesty"),
@@ -536,5 +544,36 @@ MUTATIONS: tuple[Mutation, ...] = (
         replacement="    required = SHARED_TERMS_REQUIRED_SHORT",
         target="tests/test_lexical_shared_terms.py",
         keyword="sharing_only_one_term_is_now_refused",
+    ),
+    # ---- from NAMED_STANDARD_REFUSAL_2026_10_01 ----------------------------
+    #: A standard's own pages almost never print its own file name, so the
+    #: content-only absence check refused a question naming an indexed,
+    #: permitted standard. Fixed by checking the FILE NAME too.
+    Mutation(
+        id="M1825", phase=1825,
+        description="a named standard already indexed and permitted is still "
+                    "reported absent - the file-name check never runs",
+        path=APP / "lexical.py",
+        anchor="            if _names_an_indexed_document(\n"
+               "                    term, document_id, allowed_document_ids=allowed_document_ids):\n",
+        replacement="            if False:\n",
+        target="tests/test_lexical_named_standard.py",
+        keyword="not_refused",
+        tags=("honesty",),
+    ),
+    # ---- from COMPARISON_BOTH_SIDES_2026_10_01 -----------------------------
+    #: Plan C3: a side whose own targeted search found nothing gets the ONE
+    #: sentence this file writes for that - never a model's own words for an
+    #: absence, which is indistinguishable from a genuine "does not mention".
+    Mutation(
+        id="M1827", phase=1827,
+        description="a comparison side with nothing found stops saying "
+                    "'not found in the pages read'",
+        path=APP / "chat_comparison.py",
+        anchor='    return f"{name}: not found in the pages read."\n',
+        replacement='    return f"{name}: does not mention this"\n',
+        target="tests/test_chat_comparison.py",
+        keyword="not_found_never_does_not_mention",
+        tags=("honesty",),
     ),
 )

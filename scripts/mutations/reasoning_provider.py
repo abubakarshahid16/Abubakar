@@ -60,7 +60,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M566", phase=61,
         description="a missing API key no longer forces the ollama fallback",
         path=APP / "reasoning_provider.py",
-        anchor='        return False, "no ANTHROPIC_API_KEY"\n',
+        # Re-anchored 2026-10-01: the check moved into `claude_unavailable`,
+        # which returns a (code, why) pair.
+        anchor='        return UNAVAILABLE_KEY_MISSING, "no ANTHROPIC_API_KEY"\n',
         replacement="        pass\n",
         target="tests/test_claude_provider.py",
         keyword="missing_key_falls_back",
@@ -70,10 +72,11 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M567", phase=61,
         description="the provider's refusal message carries the request headers (the key)",
         path=APP / "reasoning_provider.py",
+        # Re-anchored 2026-09-30: the failure is settled before it is raised (audit_spend).
         anchor=("            # TYPE only - reader_transport never puts headers in it).\n"
-                '            raise ProviderRefused(f"{self.name}: {type(exc).__name__}: {exc}") from exc\n'),
+                '            refused = ProviderRefused(f"{self.name}: {type(exc).__name__}: {exc}")\n'),
         replacement=("            # TYPE only - reader_transport never puts headers in it).\n"
-                     '            raise ProviderRefused(f"{self.name}: {exc} {request}") from exc\n'),
+                     '            refused = ProviderRefused(f"{self.name}: {exc} {request}")\n'),
         target="tests/test_claude_provider.py",
         keyword="key_never_reaches",
         tags=("safety",),
@@ -82,8 +85,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M568", phase=61,
         description="the budget check before a Claude call is skipped",
         path=APP / "reasoning_provider.py",
-        anchor="        claude_spend.ensure_affordable(\n",
-        replacement="        (lambda *a, **k: None)(\n",
+        # Re-anchored 2026-09-30: the check is now a reservation (audit_spend).
+        anchor="        held = claude_spend.reserve(\n            step, claude_spend.worst_case_usd(self.requested_model, prompt_chars,\n",
+        replacement="        held = (lambda s, w, **k: claude_spend.Reservation(\"m\", s, \"\", 0.0, \"\", 0.0))(\n            step, claude_spend.worst_case_usd(self.requested_model, prompt_chars,\n",
         target="tests/test_claude_provider.py",
         keyword="step_cap_stops or total_cap_counts",
         tags=("safety", "budget"),
@@ -123,8 +127,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M573", phase=61,
         description="temperature is sent to a model that rejects it (Sonnet 5: 400)",
         path=APP / "reasoning_provider.py",
-        anchor="        if no_temperature(self.requested_model):\n",
-        replacement="        if False:\n",
+        # Re-anchored 2026-10-01: the condition also covers thinking mode. The
+        # mutation keeps the thinking clause so only the model rule is removed.
+        anchor="        if no_temperature(self.requested_model) or packet.thinking_budget:\n",
+        replacement="        if packet.thinking_budget:\n",
         target="tests/test_claude_provider.py",
         keyword="rejects_temperature",
         tags=("model",),

@@ -139,12 +139,33 @@ export interface StandardClause {
   chunk_id: string;
 }
 
+/** What kind of thing a requirement states (phase 3B). Mirrors the backend's
+ *  `schemas.RequirementType` exactly. Nothing is invented for text the parser
+ *  did not understand: an obligation with no recognisable limit is a
+ *  `statement`, never a `numeric_limit` carrying a null value. */
+export type RequirementType = "numeric_limit" | "statement" | "table_value"
+  | "applicability_trigger" | "relative_limit" | "table_row";
+
+/** One carve-out of a requirement, as `requirements_3b.parse_exceptions`
+ *  records it. `applies_to` is always written; the limit keys only when the
+ *  exception states a limit of its own. Stored as JSON, so every key is read
+ *  defensively - a malformed entry renders as nothing. */
+export interface RequirementException {
+  applies_to?: string | null;
+  operator?: string | null;
+  value?: number | null;
+  unit?: string | null;
+  raw_value?: string | null;
+  raw_unit?: string | null;
+}
+
 /** One atomic requirement, with its resolving citation.
  *
- *  Phase 3A carries no requirement_type, operator, value, unit, condition or
- *  exceptions. Those are 3B: half a numeric limit is worse than none, because
- *  a row carrying `value: 90` with no operator reads as a limit and is not
- *  one. */
+ *  The phase-3B structured fields below are MACHINE-EXTRACTED from the quoted
+ *  clause and stay a guess until `confirmed_by` is set. Half a numeric limit
+ *  is worse than none: a row carrying `value: 90` with no operator reads as a
+ *  limit and is not one - so every one of them is nullable and null renders
+ *  as nothing. */
 export interface StandardRequirement {
   id: string;
   standard_document_id: string;
@@ -167,6 +188,33 @@ export interface StandardRequirement {
   confirmed_by: string | null;
   confirmed_at: string | null;
   needs_verification: boolean;
+  // ------------------------------------------------------------ phase 3B
+  /** Always present in the response (the backend defaults every one), and
+   *  null on every row extracted before phase 3B. */
+  requirement_type: RequirementType | null;
+  /** What is being limited. From a table this is the column header the
+   *  document wrote; from a sentence it is null rather than guessed. */
+  field: string | null;
+  /** "<=", ">=", "<", ">" as the backend writes them. Null when none. */
+  operator: string | null;
+  /** The NORMALISED number, or null. NULL WHEN THE UNIT IS UNKNOWN - never 0,
+   *  which would read as a limit of zero. */
+  value: number | null;
+  /** The canonical unit, or null when the spelling is not recognised. */
+  unit: string | null;
+  /** Exactly as the document wrote it - still quotable when un-normalisable. */
+  raw_value: string | null;
+  raw_unit: string | null;
+  /** ON `table_value` ROWS THIS IS THE TABLE'S ROW LABEL, NOT A CONDITION
+   *  (see backend `conditions.py`). On every other type it is the
+   *  circumstance the requirement holds under, parsed conservatively and null
+   *  when unclear. */
+  condition: string | null;
+  /** Carve-outs with their own limits. Empty means none recorded. */
+  exceptions: RequirementException[];
+  discipline: string | null;
+  /** The table row a `table_value` came from. */
+  table_row: number | null;
   /** False when the cited chunk is gone - re-extract. Shown rather than the
    *  row being silently dropped. */
   citation_resolves: boolean;
@@ -959,8 +1007,6 @@ export interface Passage {
   section: string | null;
   text: string;              // exact source text, never paraphrased
   score: number;             // post-rerank
-  /** char offsets into `text` for the answer span, when Tier 1 can locate one */
-  highlight: [number, number] | null;
 }
 
 // ---------- answers (two-tier) ----------
@@ -998,7 +1044,9 @@ export type AnswerType =
   /** chat redesign PR 6: a web question, asked first - nothing was sent */
   | "web_consent"
   /** chat redesign PR 6: the one web search the reader approved */
-  | "web";
+  | "web"
+  /** plan C3: a comparison, retrieved and cited per named side */
+  | "comparison";
 
 /** Chat redesign (2026-09-26): what kind of answer this is on the Chat screen. */
 export type AnswerKind = "general" | "document" | "web" | "mixed" | "rewrite" | "action" | "records";
@@ -1048,6 +1096,10 @@ export interface ChatPresentation {
   draft?: Record<string, unknown> | null;
   notices?: string[];
   provider?: string | null;
+  /** audit 101: "claude" when the reader chose Claude and the local model answered */
+  requested_provider?: string | null;
+  /** plain words: Claude was not used, and why */
+  provider_note?: string | null;
   cost_usd?: number | null;
 }
 
@@ -1406,7 +1458,7 @@ export interface AnalysisGapsResult {
 export interface ConfidenceCheckOut {
   label: string;
   /** true = this check lowered confidence */
-  fired: boolean;
+  fired: boolean | null;
 }
 
 export interface RecommendationOut {
@@ -1696,9 +1748,22 @@ export interface GenerateReport {
   message_id: string;
 }
 
+/** One named role's own count, within a multi-role CorpusFact. */
+export interface CorpusFactBreakdownEntry {
+  role: string | null;
+  loaded: number;
+  not_loaded: number;
+  /** a COMPANY_STANDARD count, further split by standard family
+   *  (SAES, ASME, API, ...), when more than one family is present */
+  families: Record<string, number> | null;
+}
+
 /** A count of the library, from the database, under the caller's grants.
  *  `text` carries its own boundary - "272 company standards are loaded and
- *  readable by you" - so it cannot be shown without it. */
+ *  readable by you" - so it cannot be shown without it. `role`/`loaded`/
+ *  `not_loaded` are the combined total (role is null when more than one
+ *  role was named together, or every role); `breakdown` names each role's
+ *  own count when the question named more than one in the same breath. */
 export interface CorpusFact {
   text: string;
   /** document_role counted; null means every role */
@@ -1710,13 +1775,62 @@ export interface CorpusFact {
   source: "database";
   /** the question also asked about content, answered separately by retrieval */
   qualified: boolean;
+  /** one entry per role, when the question named more than one */
+  breakdown?: CorpusFactBreakdownEntry[] | null;
+}
+
+/** Plan C3: one named side of a comparison and what its OWN, separately
+ *  retrieved search found - never what another side's search found. */
+export interface ComparisonSide {
+  /** the designation named in the question */
+  name: string;
+  document_ids: string[];
+  /** this side's own answer_type - insufficient_evidence means its targeted
+   *  search found nothing; not_in_library - the designation typed in the
+   *  question matches no document the caller can read */
+  answer_type: string | null;
+  /** this side's own text, kept apart from the other sides' */
+  text?: string | null;
+  /** index into the answer's passages of this side's first source */
+  source_start?: number;
+  /** how many passages belong to this side */
+  source_count?: number;
+  /** whether a search was really run for this side (false: not readable) */
+  searched?: boolean;
+}
+
+/** Plan C3: a comparison's side breakdown, alongside the combined `answer`
+ *  text. Present only on answer_type === "comparison". */
+export interface Comparison {
+  sides: ComparisonSide[];
+  /** issue #373: set when the app resolved a family phrase ("the welding
+   *  standards") to the sides; membership is a guess until a person confirms */
+  family?: ComparisonFamily | null;
+}
+
+/** Issue #373: the standards the app judged to belong to a family phrase. */
+export interface ComparisonFamily {
+  /** the reader's own descriptor words */
+  label: string;
+  /** the standards searched, one side each */
+  searched: string[];
+  /** how many readable standards matched; more than searched.length means
+   *  the rest were not searched */
+  judged: number;
+  /** always true */
+  membership_is_a_guess: boolean;
+  /** the sentence written in code saying what was searched */
+  note: string;
 }
 
 /** B8: whether the evidence answers the question. Decided by structure the
  *  code can check - never by the reranker score, never "high" confidence. */
 export type AnswerabilityVerdict =
   | "supported" | "insufficient_evidence" | "conflicting_evidence"
-  | "ambiguous_evidence" | "requires_another_document" | "requires_engineer_review";
+  | "ambiguous_evidence" | "requires_another_document" | "requires_engineer_review"
+  /** the answer lists clauses (or lines) for different conditions and the
+   *  question named none: no single supported answer until the reader says */
+  | "depends_on_condition";
 
 export interface EvidenceRef {
   document_id: string | null;
@@ -1747,6 +1861,38 @@ export interface Understanding {
 export interface ScopeAmbiguity {
   reason: string;
   documents: { document_id: string; filename: string | null }[];
+}
+
+/** Plan step 4: one clause competing to answer, and the condition it is
+ *  written for (as the clause writes it, e.g. "larger than 2 inch"). */
+export interface ConditionOption {
+  chunk_id: string;
+  document_id: string;
+  filename: string | null;
+  section: string | null;
+  page_start: number | null;
+  page_end: number | null;
+  conditions: string[];
+  /** within_passage only: the line written for this condition, as written */
+  line?: string | null;
+  /** within_passage only: [start, end] of that line in the passage text */
+  highlight?: [number, number] | null;
+}
+
+/** Plan step 4: clauses near the top set different values for different
+ *  conditions. "options": the question named none, so every clause is shown
+ *  with its condition and the reader is asked which applies - none is picked
+ *  for them. "matched": the question named one, and the one clause that holds
+ *  under it answers instead of a higher-ranked clause. */
+export interface ConditionChoice {
+  mode: "options" | "matched";
+  reason: string;
+  /** the cases are lines (or table rows) of ONE passage: every option is the
+   *  same chunk, each with its own `line` */
+  within_passage?: boolean;
+  kinds: string[];
+  question_names: string[];
+  options: ConditionOption[];
 }
 
 export interface AnswerResult extends ChatPresentation {
@@ -1798,12 +1944,19 @@ export interface AnswerResult extends ChatPresentation {
   understanding?: Understanding | null;
   /** B6C */
   scope_ambiguity?: ScopeAmbiguity | null;
+  /** Plan step 4: which clause applies when clauses differ by condition */
+  condition_choice?: ConditionChoice | null;
   /** B8 */
   answerability?: Answerability | null;
   /** The LIBRARY's answer, counted from the database. On a metadata answer it
    *  IS the answer; on any other answer_type the question also asked about
    *  content, and this is the separate database half of a two-part reply. */
   corpus?: CorpusFact | null;
+  /** Plan C3: present on answer_type === "comparison" - each named side's own
+   *  document ids and its own answer_type, so a side reported as "not found
+   *  in the pages read" is shown as its own targeted search, never bundled
+   *  into the other side's evidence. */
+  comparison?: Comparison | null;
   /** Sentences in a generated answer whose count of documents was re-bounded
    *  to the passages retrieved - the model sees a few passages, never the
    *  library, so any such count is a count of them. */

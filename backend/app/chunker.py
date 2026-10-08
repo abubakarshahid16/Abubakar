@@ -28,6 +28,7 @@ from .rates import Timer, rate
 from . import states
 from . import keyword
 from . import orphan_guard
+from .ocr import failed_page_reason
 from .quality import MIN_CLAUSE_WORDS, assess, longest_clause
 from . import tables as tables_mod
 
@@ -91,7 +92,7 @@ def detect_running_lines(pages: list[tuple[int, str]]) -> set[str]:
     that merely shares a digit-masked shape is not taken for furniture.
     """
     if len(pages) < 5:
-        return set()
+        return _short_document_running_lines(pages)
     n = settings.running_line_scan_lines * 2
     counts: Counter[str] = Counter()
     exact: Counter[str] = Counter()
@@ -121,6 +122,59 @@ def detect_running_lines(pages: list[tuple[int, str]]) -> set[str]:
     found = {line for line, c in counts.items() if c >= floor}
     found |= {_EXACT_MARK + form for form, c in exact.items() if c >= floor}
     found |= {f"{_PAGENO_MARK}{off}" for off, c in offsets.items() if c >= floor}
+    return found
+
+
+#: On a short document only this many lines at each page edge are looked at.
+_SHORT_DOC_EDGE_LINES = 3
+
+
+def _short_document_running_lines(pages: list[tuple[int, str]]) -> set[str]:
+    """Running lines of a document too short for the repeat count (2-4 pages).
+
+    AUDIT 2026-09-30 (reading finding 4): below five pages nothing was ever
+    furniture, so a two-page standard's header - "SAES-X-901 Process Piping
+    Design Issue 2 Page 2 of 2" - was read as text: the last chunk of page 1
+    swallowed it with the clauses of page 2, and two issues of the same
+    standard then "conflicted" on "Issue 2 Page" against "Issue 3 Page".
+
+    Two pages that merely repeat a line prove nothing (a title and a real
+    clause both repeat), so the evidence here is stricter than on a long
+    document. A line counts only when ALL of these hold:
+      - it sits within the first or last `_SHORT_DOC_EDGE_LINES` lines of
+        EVERY page, with the same digit-masked shape;
+      - its exact text DIFFERS between pages, and one of its numbers moves in
+        step with the page number (Page 1 / Page 2) - a page header, not a
+        sentence that happens to recur.
+    Real clause text repeated on two pages has no page-tracking number and is
+    kept.
+    """
+    if len(pages) < 2:
+        return set()
+    shapes: list[dict[str, str]] = []
+    for _page_no, text in pages:
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        edge = lines[:_SHORT_DOC_EDGE_LINES] + lines[-_SHORT_DOC_EDGE_LINES:]
+        by_shape: dict[str, str] = {}
+        for line in edge:
+            norm = normalise_line(line)
+            if norm and len(norm) <= 120 and _HAS_LETTER.search(line):
+                by_shape.setdefault(norm, line)
+        shapes.append(by_shape)
+    found: set[str] = set()
+    for norm in set.intersection(*(set(s) for s in shapes)):
+        exact = [s[norm] for s in shapes]
+        if len({_exact_line(e) for e in exact}) < 2:
+            continue
+        numbers = [[int(d) for d in _DIGITS.findall(e)] for e in exact]
+        width = len(numbers[0])
+        if width == 0 or any(len(ns) != width for ns in numbers):
+            continue
+        tracks_page = any(
+            len({ns[k] - page_no for ns, (page_no, _t) in zip(numbers, pages)}) == 1
+            for k in range(width))
+        if tracks_page:
+            found.add(norm)
     return found
 
 
@@ -340,6 +394,43 @@ def _is_page_number_column(lines: list[str], total_pages: int) -> bool:
     return ascending >= (len(in_range) - 1) * 0.75
 
 
+#: Dot leaders between a contents title and its page number:
+#: "5.3.1 Identity Theft ........ 257" or ". . . . 257".
+_DOT_LEADER = re.compile(r"(?:\.\s*){4,}\d{1,4}\s*$|\u2026\s*\d{1,4}\s*$")
+_TRAILING_NUMBER = re.compile(r"(\d{1,4})\s*$")
+
+
+def _contents_evidence(toc: list[str], page_no: int, total_pages: int) -> bool:
+    """Is a page of "text ... number" lines a contents or index page?
+
+    AUDIT 2026-09-30 (reading finding 3): the shape alone was the test, so a
+    tab-aligned data sheet - "Rated flow (m3/h) 250", "Speed (rpm) 2980" -
+    was a contents page wherever it sat and every row was excluded from
+    search. A contents or index page gives itself away by what its numbers
+    ARE, so one of these is now required:
+      - dot leaders on at least half of the lines (a typeset contents page);
+      - the numbers are page numbers: nearly all fit the document, and on a
+        contents page (not at the back) they run in ascending order. An index
+        at the back is alphabetical by term, so its numbers need only fit.
+    A data sheet's values - flows, speeds, diameters - neither fit a short
+    document nor ascend. The bound is the same one `_is_page_number_column`
+    uses for a two-column contents page.
+    """
+    if sum(1 for line in toc if _DOT_LEADER.search(line)) >= len(toc) * 0.5:
+        return True
+    numbers = [int(m.group(1)) for line in toc if (m := _TRAILING_NUMBER.search(line))]
+    if len(numbers) < 2:
+        return False
+    ceiling = max(total_pages, 1) * 1.2
+    in_range = [n for n in numbers if 1 <= n <= ceiling]
+    if len(in_range) < len(numbers) * 0.9:
+        return False
+    if page_no > total_pages * 0.85:
+        return True
+    ascending = sum(1 for a, b in zip(in_range, in_range[1:]) if b >= a)
+    return ascending >= (len(in_range) - 1) * 0.75
+
+
 _REFERENCE_HEADING = re.compile(
     r"(?i)\b(?:references|bibliography|works\s+cited|further\s+reading|"
     r"selected\s+readings)\b"
@@ -450,8 +541,10 @@ def classify_page(text: str, page_no: int, total_pages: int) -> str:
     if _TABLE_CAPTION.search(text):
         return "prose"
 
-    toc_lines = sum(1 for line in lines if _TOC_LINE.match(line))
-    if len(lines) >= 6 and toc_lines >= len(lines) * 0.4 and toc_lines >= 5:
+    toc = [line for line in lines if _TOC_LINE.match(line)]
+    toc_lines = len(toc)
+    if (len(lines) >= 6 and toc_lines >= len(lines) * 0.4 and toc_lines >= 5
+            and _contents_evidence(toc, page_no, total_pages)):
         # An index has the same shape but sits at the back of the book.
         if page_no > total_pages * 0.85:
             return "index"
@@ -495,6 +588,119 @@ def classify_page(text: str, page_no: int, total_pages: int) -> str:
 
 # Only these kinds are searchable. The rest are kept for inspection.
 RETRIEVABLE_KINDS = frozenset({"prose", "table"})
+
+# ------------------------------------------- change tables and title pages
+
+#: One row of a "Summary of Changes" table written on a single line: an optional
+#: row number, the paragraph, the type of change, then what changed.
+#:     "6.5 Addition PMI application responsibilities."
+_CHANGE_ROW = re.compile(
+    r"^\s*(?:\d{1,3}\s+)?(?:[A-Z]\.)?\d+(?:\.\d+){0,4}\s+"
+    r"(?:Addition|Deletion|Modification|Editorial|Exceptions?)\b")
+_NUMBER_LEAD = re.compile(r"^\s*(?:[A-Z]\.)?\d+(?:\.\d+){0,4}\b")
+_PARAGRAPH_COLUMN = re.compile(r"\bparagraph\b", re.IGNORECASE)
+_CHANGE_TYPE_COLUMN = re.compile(r"\bchange\s+type\b", re.IGNORECASE)
+#: How many rows make a table, and how much of the page's numbered lines they
+#: must be. A body page has numbered clauses that are not change rows; a
+#: change table has little else.
+_MIN_CHANGE_ROWS = 3
+_MIN_CHANGE_ROW_SHARE = 0.6
+
+#: Page kind for a page that records what changed between revisions.
+HISTORY_KIND = "revision_history"
+#: Page kind for the title block of a document, kept searchable.
+TITLE_KIND = "title_page"
+#: What a title page's chunk is filed under.
+TITLE_SECTION = "title page"
+_TITLE_PAGE_MAX_WORDS = 80
+_TITLE_PAGE_MAX_LINES = 20
+_COVER_RIGHTS_MARKERS = ("all rights reserved", "copyright \u00a9")
+_CONTENTS_WORD = re.compile(r"^\s*(?:table\s+of\s+)?contents\s*$", re.IGNORECASE)
+
+#: The wording recorded for an excluded change table.
+HISTORY_REASON = (
+    "summary of changes / revision history table: it records what changed "
+    "between revisions and is not a requirement; excluded from search on purpose")
+
+
+def _change_table_evidence(lines: list[str]) -> bool:
+    """Do most of this page's numbered lines read "number + change type"?"""
+    starters = [ln for ln in lines if _NUMBER_LEAD.match(ln)]
+    rows = [ln for ln in starters if _CHANGE_ROW.match(ln)]
+    return (len(rows) >= _MIN_CHANGE_ROWS
+            and len(rows) >= len(starters) * _MIN_CHANGE_ROW_SHARE)
+
+
+def is_change_table_page(text: str, continues_history: bool = False) -> bool:
+    """Whether a page is a Summary of Changes / Revision History table.
+
+    Needs the rows ("6.5 Addition ...": most numbered lines) AND a cue: a
+    history title, the columns "Paragraph" and "Change Type", or - on the page
+    after one - nothing more, since a long change table does not always reprint
+    its header. Rows alone, on a page with no cue and no history before it, are
+    not enough: a clause called "Addition of ..." is body text.
+    """
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if not _change_table_evidence(lines):
+        return False
+    if continues_history:
+        return True
+    if any(_REVISION_HISTORY_TITLE.match(ln) for ln in lines):
+        return True
+    return bool(_PARAGRAPH_COLUMN.search(text) and _CHANGE_TYPE_COLUMN.search(text))
+
+
+def _is_title_page(text: str, page_no: int) -> bool:
+    """A document's first page when it is a short title block - not a contents
+    page, not a copyright page. Called only for a page `classify_page` called
+    front matter. Bounded: page 1, at most 80 words and 20 lines, none of the
+    publishing markers that mean a credits page (a plain rights line is
+    allowed), no contents word
+    and no dot-leader line."""
+    if page_no != 1:
+        return False
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if not lines or len(lines) > _TITLE_PAGE_MAX_LINES or len(text.split()) > _TITLE_PAGE_MAX_WORDS:
+        return False
+    low = text.lower()
+    # A rights line is normal on a standard's cover; the publishing markers
+    # (ISBN, editors, library catalogue) mean a book's credits page.
+    markers = [m for m in (*_FRONTMATTER_MARKERS, *_AMBIGUOUS_FRONTMATTER_MARKERS)
+               if m not in _COVER_RIGHTS_MARKERS]
+    if any(m in low for m in markers):
+        return False
+    if any(_CONTENTS_WORD.match(ln) or _DOT_LEADER.search(ln) for ln in lines):
+        return False
+    return True
+
+
+def classify_document_pages(pages: list[tuple[int, str]], total_pages: int) -> dict[int, str]:
+    """`classify_page` for every page, then the two judgements that need the
+    document: a change table continuing over several pages, and the title page.
+
+    * a page that is a change table (see is_change_table_page) becomes
+      `revision_history` - excluded from search with its reason recorded;
+    * page 1, when `classify_page` called it front matter and it is a short
+      title block, becomes `title_page` - one searchable chunk, so a
+      document's own title and number can be found inside the document.
+    """
+    kinds = {pno: classify_page(text, pno, total_pages) for pno, text in pages}
+    previous_history = False
+    previous_no: int | None = None
+    for pno, text in pages:
+        if kinds[pno] == "prose" and is_change_table_page(
+                text, continues_history=previous_history and previous_no == pno - 1):
+            kinds[pno] = HISTORY_KIND
+        elif kinds[pno] == "frontmatter" and _is_title_page(text, pno):
+            kinds[pno] = TITLE_KIND
+        previous_history = kinds[pno] == HISTORY_KIND
+        previous_no = pno
+    return kinds
+
+
+#: Page kinds whose text is searched: the two chunk kinds, and a title page
+#: (published as prose under its own section label).
+SEARCHED_PAGE_KINDS = RETRIEVABLE_KINDS | {TITLE_KIND}
 
 # ------------------------------------------------------- content quality gate
 
@@ -598,6 +804,30 @@ def looks_like_heading(line: str) -> str | None:
     return _validate_heading(number, title)
 
 
+#: The change-type words of a "Summary of Changes" table. A row there reads
+#: "6.5 Addition PMI application responsibilities." - a paragraph number, the
+#: type of change, then what changed - and is not a clause titled "Addition".
+#: "Exception(s)" is left out of the LABEL rule on purpose: "5.4 Exceptions" is
+#: a genuine clause title in many standards. The table detector (below) still
+#: reads it, because there it needs a column of such rows to count.
+_CHANGE_TYPE_LABELS = frozenset({"addition", "deletion", "modification", "editorial"})
+#: A change-type word followed by one of these opens a real title ("Addition of
+#: new materials", "Modification to existing piping"), not a table row.
+_TITLE_CONNECTIVES = frozenset({
+    "of", "to", "and", "for", "in", "on", "or", "the", "from", "by", "with", "at",
+    "when", "where", "after", "before"})
+
+
+def _is_change_type_title(title: str) -> bool:
+    """A "title" that is a change-type word on its own, or one followed by
+    something other than a connective: the row of a change table, never a
+    clause heading. No section label is ever built from it."""
+    words = title.split()
+    if not words or words[0].strip(".,;:").casefold() not in _CHANGE_TYPE_LABELS:
+        return False
+    return len(words) == 1 or words[1].strip(".,;:").casefold() not in _TITLE_CONNECTIVES
+
+
 def _validate_heading(
     number: str, title: str, allow_bare_integer: bool = False
 ) -> str | None:
@@ -609,6 +839,8 @@ def _validate_heading(
     raw_title = title.strip()
     title = raw_title.rstrip(".")
     if not title or len(title) > 90:
+        return None
+    if _is_change_type_title(title):
         return None
 
     # An annex clause (A.4) carries a letter prefix; body clauses do not.
@@ -776,6 +1008,10 @@ def _table_run_length(lines: list[str], i: int, stop=None) -> int:
     return j - i
 
 
+#: A bare top-level number, then its title, on one line: '4 Vibration'.
+_BARE_NUMBER_TITLE = re.compile(r"^\s*(\d{1,2})\s+(\S.{1,89})$")
+
+
 def _split_line_heading(lines: list[str], i: int) -> tuple[str | None, int]:
     """A clause number alone on its line, with the title on the next.
 
@@ -788,6 +1024,22 @@ def _split_line_heading(lines: list[str], i: int) -> tuple[str | None, int]:
     """
     m = _CLAUSE_NUMBER_ONLY.match(lines[i])
     if not m:
+        # THE SAME HEADING ON ONE LINE: '4 Vibration', a bare top-level number
+        # and its title together (CHUNKER_VERSION 11). It used to be refused
+        # outright, so the heading stayed on the END of the previous clause
+        # ('3.2 ... returned to service. 4 Vibration') and a question about
+        # vibration found that clause, not the one under the heading
+        # (P1-01, P1-15, P1-23, P1-24). The title gets the split-line form's
+        # strict tests, plus: it must not read as the opening of a sentence.
+        # Whether the number is REAL is still decided for the whole document
+        # (plausible_heading_numbers) and, in segment_document, at this
+        # position (monotonic) - exactly as for the split-line form.
+        one = _BARE_NUMBER_TITLE.match(lines[i])
+        if one:
+            title = one.group(2).strip()
+            head = _validate_heading(one.group(1), title, allow_bare_integer=True)
+            if head and not _obliges(head):
+                return head, 1
         return None, 1
 
     for j in range(i + 1, min(i + 3, len(lines))):
@@ -912,13 +1164,90 @@ def _field_row(lines: list[str], i: int) -> tuple[str | None, int]:
     return " ".join(parts), j - i
 
 
+# UNRULED DATA SHEETS (audit 2026-09-30, reading finding 2). A data sheet
+# printed without ruling extracts one CELL per line and no colon at all:
+#     Speed (rpm)
+#     2980
+#     Number of stages
+#     2
+#     Impeller diameter (mm)
+#     310
+# "2" above "Impeller diameter (mm)" is exactly the split-line clause-heading
+# shape, so the value became clause 2, "Number of stages" lost its value to a
+# heading, and the rows after it were filed under a fake clause and dropped by
+# the quality gate as a 'no_clause' fragment. The same class as audit F1 for
+# ruled tables. A run of at least `_MIN_PAIRED_ROWS` strictly alternating
+# label / value lines is read as data-sheet rows instead, before any heading
+# detector sees it.
+
+#: Fewer pairs than this is not evidence of a data sheet: two headings with
+#: one-line bodies alternate too.
+_MIN_PAIRED_ROWS = 4
+#: A value cell is short: "2980", "A216 WCB", "15 barg", "Carbon steel".
+_MAX_VALUE_CHARS = 40
+_MAX_VALUE_WORDS = 5
+
+
+def _value_like(line: str) -> bool:
+    t = line.strip()
+    return (
+        0 < len(t) <= _MAX_VALUE_CHARS and len(t.split()) <= _MAX_VALUE_WORDS
+        and not t.endswith((".", ",", ";", ":"))
+        and not t.startswith(_TABLE_SENTINEL)
+    )
+
+
+def _pair_label(line: str) -> bool:
+    """The label column: a label that does not open with a number, so a value
+    ("2", "310") is never taken for the next label and the pairing cannot
+    slip by one line."""
+    t = line.strip()
+    return _label_like(t) and not t[:1].isdigit() and t[:1] not in "+-"
+
+
+def _paired_run(lines: list[str], i: int) -> tuple[list[str], int]:
+    """An unruled data sheet from line i: (rows, lines consumed), or ([], 0).
+
+    Pairs are read while the lines strictly alternate label, value. The run is
+    kept only when (a) it has `_MIN_PAIRED_ROWS` pairs, (b) most values carry
+    a digit - a data sheet states quantities - and (c) the values are NOT an
+    increasing column of clause numbers, which is what a stack of split-line
+    headings with nothing under them ("Scope" / "2" / "References" / "3")
+    would look like read from the title side.
+    """
+    pairs: list[tuple[str, str]] = []
+    j = i
+    while j + 1 < len(lines):
+        label, value = lines[j].strip(), lines[j + 1].strip()
+        if not (_pair_label(label) and _value_like(value)):
+            break
+        pairs.append((label, value))
+        j += 2
+    if len(pairs) < _MIN_PAIRED_ROWS:
+        return [], 0
+    values = [v for _, v in pairs]
+    if sum(1 for v in values if _DIGITS.search(v)) < len(values) * 0.6:
+        return [], 0
+    numbers = [v for v in values if _CLAUSE_NUMBER_ONLY.match(v)]
+    if len(numbers) >= len(values) * 0.8:
+        keys = [tuple(int(p) for p in n.rstrip(".").split(".") if p.isdigit())
+                for n in numbers]
+        if all(a < b for a, b in zip(keys, keys[1:])):
+            return [], 0
+    return [_md_row([label, value], 2) for label, value in pairs], j - i
+
+
 def _field_run(lines: list[str], i: int) -> tuple[list[str], int]:
     """A run of data-sheet rows from line i: (rows, lines consumed).
 
     A short label between rows ("4 Mixing and Curing") is a GROUP label and
     stays in the run as a row of its own, so one sheet stays one block. Empty
-    when line i does not start a run.
+    when line i does not start a run. An UNRULED sheet - label and value on
+    alternate lines, no colon - is read by `_paired_run`.
     """
+    paired = _paired_run(lines, i)
+    if paired[0]:
+        return paired
     rows: list[str] = []
     j = i
     while j < len(lines):
@@ -988,6 +1317,55 @@ def _heading_number(heading: str) -> str:
     return heading.split(" ", 1)[0]
 
 
+#: A title is a short noun phrase. These limits decide when a numbered line is
+#: the FIRST LINE OF A CLAUSE instead (see _reads_as_sentence). Every one is a
+#: limit on how much a title may look like a sentence, not a list of titles.
+_TITLE_MAX_WORDS = 12
+_MODAL_MIN_WORDS = 5
+_LINKING_MIN_WORDS = 8
+_SUBORDINATE_MIN_WORDS = 6
+_MODALS = frozenset({"must", "should", "may", "will", "can", "cannot", "shall"})
+_LINKING = frozenset({"is", "are", "was", "were", "be", "been", "being", "has", "have"})
+_SUBORDINATORS = frozenset({
+    "when", "if", "unless", "where", "whenever", "while", "once", "until",
+    "because", "although"})
+
+
+def _reads_as_sentence(title: str) -> bool:
+    """Whether a heading's "title" is really the opening of a clause sentence.
+
+    "12.1.4 When heat treating is performed after PMI, the identification
+    marking must be" / "recognizable after heat treatment." became the section
+    label, and the chunk kept only the tail: the page break (or a capital on
+    the next line) hid that the sentence carries on, so the lower-case
+    continuation test could not see it. The line itself says it, and this is
+    the one place that reads it. Limits, all on the title's own words, a
+    parenthetical being a note on a title and not part of it:
+
+    * more than 12 words is not a title;
+    * a modal verb (must, should, may, will, can) in 5 words or more. A short
+      title keeps it: "What you must know";
+    * a linking verb (is, are, be, has ...) in 8 words or more;
+    * a sentence opener (When, If, Unless, Where ...) with a comma, in 6 words
+      or more.
+
+    A title that trips one is not lost: its NUMBER stays the section and its
+    full text stays in the chunk, exactly as for a requirement with "shall".
+    """
+    core = _PARENTHETICAL.sub(" ", title)
+    words = [w.strip(".,;:!?\"'").casefold() for w in core.split()]
+    words = [w for w in words if w]
+    n = len(words)
+    if n > _TITLE_MAX_WORDS:
+        return True
+    if n >= _MODAL_MIN_WORDS and any(w in _MODALS for w in words):
+        return True
+    if n >= _LINKING_MIN_WORDS and any(w in _LINKING for w in words):
+        return True
+    return (n >= _SUBORDINATE_MIN_WORDS and words[0] in _SUBORDINATORS
+            and "," in core)
+
+
 def _obliges(heading: str) -> bool:
     """Whether a heading's "title" is really the first line of a requirement.
 
@@ -1006,6 +1384,8 @@ def _obliges(heading: str) -> bool:
     pre-qualified)", and that is a heading.
     """
     title = heading.split(" ", 1)[1] if " " in heading else ""
+    if _reads_as_sentence(title):
+        return True
     return _OBLIGATION.search(_PARENTHETICAL.sub(" ", title)) is not None
 
 
@@ -1456,14 +1836,59 @@ def _pop_caption(buf: list[str], accept, most: int) -> list[str]:
     return taken
 
 
+#: A heading number whose depth can be read: "4", "4.2", "4.2.1", "A.1".
+_CHAIN_NUMBER = re.compile(r"^(?:[A-Z]\.)?\d+(?:\.\d+)*\.?$")
+
+
 def segment_document(
     pages: list[tuple[int, str]],
     running: set[str],
     page_kinds: dict[int, str] | None = None,
+    paths_out: dict[str, str | None] | None = None,
 ) -> tuple[list[Block], int]:
-    """Flatten pages into blocks, carrying heading state across page boundaries."""
+    """Flatten pages into blocks, carrying heading state across page boundaries.
+
+    `paths_out`, when given, receives the HEADING CHAIN of every section this
+    document sets: "4 Piping > 4.2 Pipes larger than 2 inch > 4.2.1". A
+    chunk's `section` is only the nearest heading - for a numbered
+    requirement only its number - so "4.2.1" alone never said that the clause
+    is about pipes larger than 2 inch, and a question about a 6 inch pipe had
+    nothing to match it on. The chain is written to `chunks.context` and used
+    ONLY to index the chunk (keyword and embedding); the chunk's text, which
+    every answer and CRS row quotes, is never changed. A section string that
+    two different chains set (a clause number reused in an annex) maps to
+    None: no context is better than the wrong one.
+    """
     blocks: list[Block] = []
     section: str | None = None
+    #: (heading number, label) from the outermost heading in force inwards.
+    chain: list[tuple[str, str]] = []
+    paths: dict[str, str | None] = paths_out if paths_out is not None else {}
+
+    def enter(label: str, number: str, key: str) -> None:
+        """Record where `key` (the section just set) sits in the document.
+
+        A numbered heading keeps only the headings whose number is a dotted
+        PREFIX of its own: "4.2.2" sits under "4.2" and "4", never under an
+        "8.2" that happened to come before it on an earlier page. Depth alone
+        was not enough - measured on a synthetic page, "4.4 Ambient
+        conditions" was filed under "8 Thermally sprayed metallic coatings".
+        An unnumbered heading ("GENERAL REQUIREMENTS") starts a new chain,
+        and a numbered one drops it: nothing can be assumed to still apply.
+        """
+        label = " ".join(label.split())
+        if _CHAIN_NUMBER.match(number):
+            own = number.rstrip(".")
+            chain[:] = [(n, text) for n, text in chain
+                        if n and own != n and own.startswith(n + ".")]
+            chain.append((own, label))
+        else:
+            chain[:] = [("", label)]
+        path = " > ".join(text for _, text in chain)
+        if key in paths and paths[key] != path:
+            paths[key] = None
+        else:
+            paths[key] = path
     removed_total = 0
     #: The highest top-level clause number accepted so far. Clause numbering
     #: only increases through a document, so anything at or below this is a
@@ -1538,6 +1963,14 @@ def segment_document(
         cleaned, removed = strip_running_lines(raw, running, page_no)
         removed_total += removed
         lines = cleaned.splitlines()
+
+        if page_kind == TITLE_KIND:
+            # The title block is ONE short searchable chunk, filed under its
+            # own label and setting no heading state.
+            body = cleaned.strip()
+            if body:
+                blocks.append(Block("prose", body, page_no, page_no, TITLE_SECTION))
+            continue
 
         if page_kind != "prose":
             # Front matter, contents and index are kept whole for inspection
@@ -1721,6 +2154,7 @@ def segment_document(
                 settle_heading()
                 if not contents_page:
                     section = _heading_number(head)
+                    enter(section, section, section)
                 buf.extend(lines[i:i + consumed])
                 i += consumed
                 continue
@@ -1736,6 +2170,7 @@ def segment_document(
                 else:
                     # heading state persists across pages until the next heading
                     section = head
+                    enter(head, _heading_number(head), head)
                     pending_heading = (lines[i:i + consumed], page_no, head)
                     pending_mark = len(blocks)
                 i += consumed
@@ -2269,7 +2704,29 @@ def chunk_id(doc_sha: str, page_start: int, ordinal: int, chash: str) -> str:
 #: numbered requirements keep their clause; sentences joined across page
 #: breaks; line-break hyphens repaired; runts merged below 40 tokens;
 #: duplicate chunks in one section kept once for search.
-CHUNKER_VERSION = "7"
+#:
+#: 8 (2026-09-30, context notes): every chunk records its heading chain in
+#: `chunks.context` ("4 Piping > 4.2 Pipes larger than 2 inch > 4.2.1"),
+#: used only to index it. Chunk text and chunk ids are unchanged.
+#:
+#: 9 (2026-09-30, reading audit): an unruled data sheet (label and value on
+#: alternate lines) is read as data-sheet rows, not as "2 Impeller diameter"
+#: clauses; a page of "text  number" lines is a contents page only with
+#: contents evidence (dot leaders or page numbers), not a tab-aligned data
+#: sheet; a 2-4 page document's page header is stripped as a running line.
+#:
+#: 10 (2026-10-06, heading and front-matter audit): a numbered line that reads
+#: as the opening of a sentence is a clause, not a heading, so its sentence
+#: stays in the chunk; a Summary of Changes table is a `revision_history` page,
+#: excluded from search with its reason recorded; the title block on page 1 is
+#: one searchable chunk labelled "title page". Nothing re-chunks by itself:
+#: only `chunk_document` (a new upload, or a re-run on one document) and
+#: `scripts/reindex_chunking.py --apply` apply it to a stored document.
+#:
+#: 11 (2026-10-07, P1 question set): a top-level heading written on one line
+#: ("4 Vibration") is a heading. It used to be refused, so it stayed on the
+#: end of the PREVIOUS clause and a question about it found the wrong clause.
+CHUNKER_VERSION = "11"
 
 
 def _chunk_signature(doc_sha: str, pages: list[tuple[int, str]],
@@ -2422,7 +2879,7 @@ def chunk_document(doc_id: str, force: bool = False,
         raise ValueError(f"{doc_id} has no extracted pages - run extraction first")
 
     total_pages = doc["page_count"] or len(pages)
-    page_kinds = {pno: classify_page(text, pno, total_pages) for pno, text in pages}
+    page_kinds = classify_document_pages(pages, total_pages)
     signature = _chunk_signature(doc["sha256"], pages, raw_tables)
     existing = conn.execute(
         "SELECT COUNT(*) FROM chunks WHERE document_id = ?", (doc_id,)
@@ -2458,7 +2915,8 @@ def chunk_document(doc_id: str, force: bool = False,
     # BEFORE segmentation, so no cell is read as a heading, stripped as a
     # running line, or published twice (as the table and as shredded prose).
     masked = mask_tables(pages, _decode_tables(raw_tables), running)
-    blocks, removed = segment_document(masked, running, page_kinds)
+    paths: dict[str, str | None] = {}
+    blocks, removed = segment_document(masked, running, page_kinds, paths_out=paths)
     chunks = build_chunks(blocks, document_vocabulary(pages))
 
     ceiling = settings.chunk_max_tokens
@@ -2522,6 +2980,7 @@ def chunk_document(doc_id: str, force: bool = False,
                      else None)),
                 *chunk_provenance(c.page_start, c.page_end, recognised_pages,
                                   page_conf, page_viol),
+                paths.get(c.section) if c.section else None,
             )
         )
 
@@ -2575,6 +3034,10 @@ def chunk_document(doc_id: str, force: bool = False,
         """
         if rule.endswith(("_toc", "_index")):
             return 0
+        if rule.endswith("_" + HISTORY_KIND):
+            # A change table's rows are numbered lines by nature. Only what is
+            # LEFT when the rows are taken out can be real content.
+            text = "\n".join(ln for ln in text.splitlines() if not _CHANGE_ROW.match(ln))
         # A references page legitimately carries its own numbered heading -
         # "9.15 References" - followed by bibliography entries long enough to
         # read as prose. The alert fired on exactly that in book4, which is a
@@ -2593,11 +3056,12 @@ def chunk_document(doc_id: str, force: bool = False,
         # endpoints cannot disagree by a trailing newline.
         length = len(ptext.strip())
 
-        if kind not in RETRIEVABLE_KINDS:
+        if kind not in SEARCHED_PAGE_KINDS:
             rule = f"page_classified_{kind}"
             exclusion_rows.append(
                 (doc_id, "page", pno, pno, None, rule,
-                 f"page classified as {kind}", ptext[:2000], length, now,
+                 HISTORY_REASON if kind == HISTORY_KIND else f"page classified as {kind}",
+                 ptext[:2000], length, now,
                  dropped_real_content(ptext, rule))
             )
             continue
@@ -2617,7 +3081,7 @@ def chunk_document(doc_id: str, force: bool = False,
                           "has not run")
             elif rec["error"]:
                 rule = "ocr_failed"
-                reason = f"recognition failed on this page: {rec['error']}"
+                reason = failed_page_reason(rec["error"])
             elif rec["box_count"] == 0:
                 # Measured: 5 of 12 flagged pages return zero boxes at both 150
                 # and 300 dpi. Those pages are BLANK, not unreadable, and
@@ -2681,25 +3145,47 @@ def chunk_document(doc_id: str, force: bool = False,
         # The keyword index is keyed on chunk ids, so a rebuild invalidates
         # it. Dropped here and rebuilt by the indexing stage.
         conn.execute("DELETE FROM chunks_fts WHERE document_id = ?", (doc_id,))
+        # What each OLD chunk's vector was computed from besides its text (the
+        # text is in the id, through content_hash): read before the delete so
+        # a kept id whose heading changed is not mistaken for an unchanged one.
+        old_inputs = {
+            r["id"]: (r["section"], r["context"])
+            for r in conn.execute(
+                "SELECT id, section, context FROM chunks WHERE document_id = ?",
+                (doc_id,))
+        }
         conn.execute("DELETE FROM chunks WHERE document_id = ?", (doc_id,))
-        # Vectors are keyed on chunk id. Re-chunking changes those ids, so any
-        # vector whose chunk no longer exists is an orphan - and embedded_count
-        # counts vector ROWS, so leaving them made progress read above 100%
-        # (1448 embedded against 1356 chunks). Same failure as every other
-        # count derived from something adjacent to the thing it claims.
-        conn.execute(
-            """DELETE FROM chunk_vectors WHERE document_id = ?
-               AND chunk_id NOT IN (SELECT id FROM chunks WHERE document_id = ?)""",
-            (doc_id, doc_id),
-        )
         conn.executemany(
             """INSERT OR REPLACE INTO chunks
                (id, document_id, filename, ordinal, page_start, page_end,
                 section, parent_id, kind, text, token_count, content_hash,
                 retrievable, quality_flags, text_source, ocr_min_conf,
-                ocr_alphabet_violations, ocr_alphabet_sample)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                ocr_alphabet_violations, ocr_alphabet_sample, context)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             rows,
+        )
+        # ORPHANED VECTORS ONLY, and only AFTER the new chunks exist. Vectors
+        # are keyed on chunk id; a vector whose chunk is gone is an orphan and
+        # must go (embedded_count once read 1448 against 1356 chunks). This
+        # delete used to run BEFORE the insert above, when the document had no
+        # chunks at all, so it deleted EVERY vector on every re-chunk - an OCR
+        # round that changed one chunk of 45 re-embedded all 45 (audit
+        # 2026-09-30). A vector is kept when its chunk id survives, the chunk
+        # is still retrievable, and its heading inputs (section, chain) are
+        # unchanged - i.e. when it was computed from exactly what the new
+        # chunk would be embedded from.
+        stale = [
+            r[0] for r in rows
+            if r[0] in old_inputs and (not r[12] or old_inputs[r[0]] != (r[6], r[18]))
+        ]
+        conn.executemany(
+            "DELETE FROM chunk_vectors WHERE chunk_id = ? AND document_id = ?",
+            [(cid, doc_id) for cid in stale],
+        )
+        conn.execute(
+            """DELETE FROM chunk_vectors WHERE document_id = ?
+               AND chunk_id NOT IN (SELECT id FROM chunks WHERE document_id = ?)""",
+            (doc_id, doc_id),
         )
         # chunk_count is the RETRIEVABLE count - what search can actually see.
         # chunk_count_total is every row, including the ones kept only for

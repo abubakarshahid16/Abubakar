@@ -17,6 +17,37 @@ from .db import add_column_if_missing, connect, schema_once
 from .config import settings
 
 
+#: A FINDING NO ENGINEER HAS DECIDED - the only kind a re-run may delete.
+#:
+#: Audit 2026-09-30: every re-run path deleted `confirmed_by IS NULL`, and an
+#: engineer's rejection or acceptance is written to `approval_status` /
+#: `approved_by`, not `confirmed_by`. So a rejected comment was deleted by the
+#: next run and came back as a fresh draft, and the rejection was lost. Any
+#: human act on a finding - confirmation, approval decision, disposition or
+#: re-worded comment - now keeps it. Used by every path that clears a run's
+#: machine rows (`comparison._write_run_findings`, `review_jobs` cancel,
+#: `ai_engineering_check`, `web_standards`).
+UNDECIDED_SQL = ("(confirmed_by IS NULL AND approved_by IS NULL"
+                 " AND COALESCE(approval_status, 'pending') = 'pending'"
+                 " AND disposition IS NULL AND engineer_comment IS NULL)")
+
+
+def rejected_in_run(review_run_id: str, origin: str | None = None) -> list[dict]:
+    """The findings of one run an engineer REJECTED (optionally of one origin).
+
+    A re-run keeps them (`UNDECIDED_SQL`) and must not propose the same comment
+    again beside them - that is the rejected comment returning as a new draft.
+    Each caller compares on its own identity of "the same comment"."""
+    ensure_schema()
+    sql = ("SELECT * FROM review_findings WHERE review_run_id = ?"
+           " AND approval_status = 'rejected'")
+    args: list = [review_run_id]
+    if origin is not None:
+        sql += " AND origin = ?"
+        args.append(origin)
+    return [dict(r) for r in connect().execute(sql, args)]
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
@@ -230,6 +261,61 @@ def _row(row) -> dict:
     return result
 
 
+#: What a finding says where the standard it was decided against is one the
+#: caller holds no grant for (r2 security S2, CLAUDE.md rule 5). The verdict
+#: (compliance_status, severity, category, status) stays; everything that
+#: quotes or names the standard goes.
+STANDARD_WITHHELD = "standard not available to you"
+
+_STANDARD_NULLED = ("standard_document_id", "standard_clause", "standard_page",
+                    "requirement_source_text", "requirement_id", "matched_phrase",
+                    "standard_name")
+_STANDARD_LABELLED = ("requirement", "finding", "ai_rationale")
+_STANDARD_EMPTIED = ("governing_sources", "citation_ids", "unresolved_evidence")
+
+
+def withhold_unreadable_standards(
+        findings: list[dict],
+        allowed_document_ids: frozenset[str] | None) -> list[dict]:
+    """Withhold the standard-derived fields of every finding whose STANDARD the
+    caller may not read. In place; returns the same list.
+
+    A grant on the SUBMITTAL is not a grant on the standard it was compared
+    against: the finding row carries the clause, page, requirement wording and
+    the standard's id, and reading the submittal's findings must not become a
+    way to read the standard. This only ever REMOVES - it is an intersection
+    with the caller's grants, never a union.
+
+    A standard that no longer exists as a document is left alone: the finding
+    is the record that the citation was made, and there is no grant to test.
+    `allowed_document_ids=None` means the caller asked for no scoping at all.
+    """
+    if allowed_document_ids is None:
+        return findings
+    candidates = {f.get("standard_document_id") for f in findings
+                  if f.get("standard_document_id")
+                  and f["standard_document_id"] not in allowed_document_ids}
+    if not candidates:
+        return findings
+    marks = ",".join("?" for _ in candidates)
+    existing = {r["id"] for r in connect().execute(
+        f"SELECT id FROM documents WHERE id IN ({marks})", sorted(candidates))}
+    for f in findings:
+        if f.get("standard_document_id") not in existing:
+            continue
+        for key in _STANDARD_NULLED:
+            if key in f:
+                f[key] = None
+        for key in _STANDARD_LABELLED:
+            if key in f:
+                f[key] = STANDARD_WITHHELD
+        for key in _STANDARD_EMPTIED:
+            if key in f:
+                f[key] = []
+        f["standard_withheld"] = True
+    return findings
+
+
 _TEMPLATE_LIST_FIELDS = (
     "governing_sources", "categories", "severity_levels", "approval_terms",
     "required_sections",
@@ -369,9 +455,12 @@ def traceability(finding_id: str, *, allowed_document_ids: frozenset[str] | None
         owner = connect().execute(
             "SELECT id AS user_id, email, display_name FROM users WHERE id=?",
             (row["owner_user_id"],)).fetchone()
-    return {"finding": _row(row), "document": {"id": row["document_id"], "filename": row["filename"]},
+    finding = _row(row)
+    if allowed_document_ids is not None:
+        withhold_unreadable_standards([finding], allowed_document_ids)
+    return {"finding": finding, "document": {"id": row["document_id"], "filename": row["filename"]},
             "baseline": ({"filename": row["baseline_filename"]} if row["baseline_filename"] else None),
-            "citations": json.loads(row["citation_ids"] or "[]"), "events": events,
+            "citations": finding["citation_ids"], "events": events,
             "deliverables": deliverables, "owner": (dict(owner) if owner else None),
             "action": row["required_action"]}
 
@@ -500,7 +589,9 @@ def list_findings(*, document_id: str | None = None, status: str | None = None,
         sql += " WHERE " + " AND ".join(clauses)
     sql += (" ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'major' THEN 1 "
             "WHEN 'minor' THEN 2 ELSE 3 END, updated_at DESC")
-    return [_row(row) for row in connect().execute(sql, args).fetchall()]
+    return withhold_unreadable_standards(
+        [_row(row) for row in connect().execute(sql, args).fetchall()],
+        allowed_document_ids)
 
 
 def history(finding_id: str) -> list[dict]:
@@ -560,15 +651,24 @@ def update(finding_id: str, changes: dict, *, actor_user_id: str | None = None) 
     return get(finding_id)
 
 
-def render_report(document_id: str) -> Path:
-    """Freeze the current review findings into a readable PDF export."""
+def render_report(document_id: str, *,
+                  allowed_document_ids: frozenset[str] | None = None) -> Path:
+    """Freeze the current review findings into a readable PDF export.
+
+    `allowed_document_ids` is the caller's grants. The PDF prints each
+    finding's requirement wording, clause and page, which come from the
+    STANDARD; a grant on the submittal is not a grant on the standard, so the
+    findings pass through `withhold_unreadable_standards` like every other read.
+    `None` means the caller asked for no scoping (scripts, tests).
+    """
     ensure_schema()
     doc = connect().execute(
         "SELECT filename FROM documents WHERE id = ?", (document_id,)
     ).fetchone()
     if doc is None:
         raise FileNotFoundError(document_id)
-    findings = list_findings(document_id=document_id)
+    findings = list_findings(document_id=document_id,
+                             allowed_document_ids=allowed_document_ids)
     report_dir = settings.data_dir / "review_reports"
     report_dir.mkdir(parents=True, exist_ok=True)
     path = report_dir / f"engineering-review-{uuid.uuid4()}.pdf"

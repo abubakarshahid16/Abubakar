@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from . import acronyms
 from . import glossary
 from . import keyword
 from . import progress
@@ -178,12 +179,21 @@ class Candidate:
     #: Distance below the winner as a fraction of the whole field's spread.
     #: None when the field is too small for the fraction to mean anything.
     separation: float | None = None
+    #: The chunk's heading chain (`chunks.context`, CHUNKER_VERSION 8): where
+    #: it sits, e.g. "4 Piping > 4.2 Pipes larger than 2 inch > 4.2.1". Used
+    #: only for matching and reranking; never shown or quoted.
+    context: str | None = None
 
     @property
     def searchable_text(self) -> str:
         """Heading plus body. What the passage actually is, for matching and
-        reranking - the heading carries the clause number and designator."""
-        return self.section + "\n" + self.text if self.section else self.text
+        reranking - the heading carries the clause number and designator.
+
+        The heading is the chunk's heading CHAIN when it has one (it ends
+        with the section itself), so a clause filed only as "4.2.1" is read
+        with the "4.2 Pipes larger than 2 inch" above it."""
+        heading = self.context or self.section
+        return heading + "\n" + self.text if heading else self.text
 
     @property
     def score(self) -> float:
@@ -223,6 +233,8 @@ class Candidate:
             "defines_term": self.defines_term,
             "heading_declares": self.heading_declares,
             "separation": self.separation,
+            # index-only heading chain; read by answer._searchable_text
+            "context": self.context,
         }
 
 
@@ -278,6 +290,20 @@ def _keyword_candidates(
     rank - a preference - and passages without it still enter the pool.
     """
     soft = tuple(s for s in soft_identifiers if s)
+    # An identifier that names the ONE document the search is already narrowed
+    # to is satisfied by the scope itself: a standard almost never prints its
+    # own designation, so requiring it in the passage returned nothing at all
+    # ("What does STD-A-001 say about PWHT" found 0 keyword candidates inside
+    # STD-A-001 although the passage was there). It becomes soft: tried as
+    # asked first, then without, interleaved. Narrowing only - the scope is
+    # still the caller's.
+    if document_id and allowed_document_ids and document_id in allowed_document_ids:
+        from . import lexical
+
+        soft = tuple(dict.fromkeys([
+            *soft,
+            *(i for i in keyword.IDENTIFIER.findall(question)
+              if lexical._scope_wholly_named(i, frozenset({document_id})))]))
     strict = keyword.search(
         question, limit=limit, document_id=document_id,
         allowed_document_ids=allowed_document_ids,
@@ -724,7 +750,7 @@ def _hydrate(chunk_ids: list[str]) -> dict[str, sqlite3.Row]:
     rows = conn.execute(
         f"""SELECT id, document_id, filename, section, page_start, page_end,
                    text, retrievable, text_source, ocr_min_conf,
-                   ocr_alphabet_violations, ocr_alphabet_sample
+                   ocr_alphabet_violations, ocr_alphabet_sample, context
             FROM chunks WHERE id IN ({marks})""",
         chunk_ids,
     ).fetchall()
@@ -1003,6 +1029,9 @@ def search(
                 ocr_min_conf=row["ocr_min_conf"],
                 ocr_alphabet_violations=row["ocr_alphabet_violations"] or 0,
                 ocr_alphabet_sample=row["ocr_alphabet_sample"],
+                # rows from a caller that selects no context (older fakes,
+                # older databases) simply carry none
+                context=row["context"] if "context" in row.keys() else None,
                 keyword_rank=meta.get("keyword_rank"),
                 dense_rank=meta.get("dense_rank"),
                 bm25=meta.get("bm25"),
@@ -1057,9 +1086,15 @@ def search(
         # neither wording still scores low, so an absent answer stays absent.
         # Only when an entry fired; reported as `synonyms_searched`.
         worded = glossary.rewrite(question) if synonyms else None
-        if scored and worded:
+        # The same for abbreviations: the question spelled out / abbreviated
+        # the way this library writes it (app/acronyms.py), highest score wins.
+        rewordings = ([worded] if worded else []) + acronyms.rewrites(
+            question, document_id, allowed_document_ids=allowed_document_ids)
+        for alt in rewordings:
+            if not scored:
+                break
             also = dict(reranker.rerank(
-                worded, [(c.chunk_id, c.searchable_text) for c in shortlist]))
+                alt, [(c.chunk_id, c.searchable_text) for c in shortlist]))
             scored = [(cid, max(score, also.get(cid, score))) for cid, score in scored]
         timings["rerank_ms"] = round(t.elapsed * 1000, 2)
         if scored:

@@ -173,7 +173,7 @@ def requirement_state(finding: dict) -> str:
     rationale = _fold(finding.get("ai_rationale") or "")
     if any(rationale.startswith(f"{marker}:") for marker in _BLOCKING_REASONS):
         return BLOCKED
-    if _NO_CONVERSION_PHRASE in rationale:
+    if _NO_CONVERSION_PHRASE in rationale or comparison.UNIT_NOT_GUESSED_PHRASE in rationale:
         return BLOCKED
     return {
         comparison.COMPLIANT: EVALUATED,

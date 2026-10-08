@@ -25,6 +25,17 @@ export const VERBATIM_STRINGS = [
   "quoted directly, no AI rewriting",
 ] as const;
 
+/** Taken from the PDF's own text layer - the ONLY source that may be called
+ *  verbatim (audit 2026-09-30: every value that was not 'recognised', a
+ *  missing or "mixed" one included, used to read "Verbatim from PDF"). */
+export function isExtracted(p: ProvenanceSource | null | undefined): boolean {
+  return p?.text_source === "extracted";
+}
+
+/** What the screen says when the source of a passage's text is not recorded
+ *  as either the text layer or OCR. Unknown says unknown. */
+export const PROVENANCE_UNKNOWN = "How this text was read is not recorded";
+
 /** Read off a page image rather than out of the text layer. */
 export function isRecognised(p: ProvenanceSource | null | undefined): boolean {
   return p?.text_source === "recognised";
@@ -117,7 +128,7 @@ export function provenanceLabel(passage: ProvenanceSource): string {
       ? "Read by OCR"
       : `Read by OCR, lowest confidence ${passage.ocr_min_conf.toFixed(2)}`;
   }
-  return "Verbatim from PDF";
+  return isExtracted(passage) ? "Verbatim from PDF" : PROVENANCE_UNKNOWN;
 }
 
 /** Keyboard-accessible source inspection without inventing a second evidence model. */
@@ -164,7 +175,10 @@ export function CitationInspector({ passage, children }: { passage: CitationSour
 
 /** The line beside the duration, stating what the reader should do. */
 export function provenanceDetail(passage: AnswerPassage): string {
-  if (!isRecognised(passage)) return "quoted directly, no AI rewriting";
+  if (isExtracted(passage)) return "quoted directly, no AI rewriting";
+  if (!isRecognised(passage)) {
+    return `${PROVENANCE_UNKNOWN.toLowerCase()} — check it against the page below`;
+  }
   if (hasAlphabetViolation(passage)) {
     const n = passage.ocr_alphabet_violations ?? 0;
     const sample = passage.ocr_alphabet_sample ?? "";

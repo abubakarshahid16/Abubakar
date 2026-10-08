@@ -16,7 +16,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1108", phase=90,
              description="a document claim is shown even when its quote does not verify",
              path=APP / "chat_claude_first.py",
-             anchor='        text, verification, claims, removed = answer_mod.verify_claims(text, sources)\n',
+             anchor='        text, verification, claims, removed = answer_mod.verify_claims(\n'
+                    '            text, sources, narration_from_line=first_last_line, dropped=dropped_points)\n',
              replacement='        verification, claims, removed = {"verified": 1, "total": 1, '
                         '"method": "quote found on the page"}, [], 0\n',
              target="tests/test_chat_pr2_router.py",
@@ -25,8 +26,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1109", phase=90,
              description="the tool-call cap never stops the loop offering more tools",
              path=APP / "chat_claude_first.py",
-             anchor="            offer_tools = tools if tool_calls_made < settings.chat_tool_max_calls else ()\n",
-             replacement="            offer_tools = tools\n",
+             anchor='            tool_choice = ({"type": "none"}\n                           if tool_calls_made >= settings.chat_tool_max_calls else None)\n',
+             replacement="            tool_choice = None\n",
              target="tests/test_chat_claude_first.py",
              keyword="the_tool_call_cap_stops_the_loop_rather_than_running_forever",
              tags=("cost", "critical")),
@@ -36,7 +37,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              path=APP / "chat_claude_first.py",
              anchor="                if tool_calls_made == 0 and not sources:\n"
                    "                    raise _Fallback(str(exc)) from exc\n"
-                   "                return _budget_or_provider_failure(str(exc), sources, steps, started)\n",
+                   "                return _budget_or_provider_failure(exc, sources, steps, started, turn_cost)\n",
              replacement="                raise _Fallback(str(exc)) from exc\n",
              target="tests/test_chat_claude_first.py",
              keyword="a_budget_refusal_mid_loop_is_answered_honestly_not_swallowed",

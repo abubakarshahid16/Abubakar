@@ -50,8 +50,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M1253", phase=_PHASE,
         description="extraction ignores route_page and uses the old 100-char floor",
         path=APP / "extract.py",
-        anchor="out.append((pno + 1, text, route.needs_ocr, eq_heavy, route.reason))",
-        replacement="out.append((pno + 1, text, len(text.strip()) < 100, eq_heavy, route.reason))",
+        anchor="out.append((pno + 1, text, route.needs_ocr, eq_heavy, route.reason,",
+        replacement="out.append((pno + 1, text, len(text.strip()) < 100, eq_heavy, route.reason,",
         target=_T,
         keyword="records_the_decision_and_its_reason",
         tags=("critical",),
@@ -60,7 +60,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M1254", phase=_PHASE,
         description="the routing reason is not stored on the page",
         path=APP / "extract.py",
-        anchor="        reason = rest[0] if rest else None\n",
+        anchor="        reason = rest[0] if len(rest) > 0 else None\n",
         replacement="        reason = None\n",
         target=_T,
         keyword="records_the_decision_and_its_reason",
@@ -70,7 +70,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="merge stops de-duplicating: header/stamp appear twice",
         path=APP / "ocr.py",
         anchor="        if f\" {n} \" in haystack:\n            continue\n"
-               "        if any(SequenceMatcher(None, n, m).ratio() >= _DUP_RATIO for m in native_norms):\n"
+               "        if _near_duplicate(n, y, placed, window):\n"
                "            continue\n",
         replacement="",
         target=_T,

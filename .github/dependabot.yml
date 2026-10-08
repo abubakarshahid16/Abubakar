@@ -10,6 +10,15 @@ updates:
     schedule:
       interval: monthly
     open-pull-requests-limit: 5
+    # React refuses to run when react and react-dom differ; #383 bumped one
+    # without the other. Keep the four React packages in one PR.
+    groups:
+      react:
+        patterns:
+          - react
+          - react-dom
+          - "@types/react"
+          - "@types/react-dom"
   - package-ecosystem: github-actions
     directory: /
     schedule:

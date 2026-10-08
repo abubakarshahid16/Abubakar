@@ -24,7 +24,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T, keyword="never_carries_a_document_citation", tags=("honesty", "critical")),
     Mutation(id="M929", phase=81, description="claims: any quote is accepted without checking the page",
              path=APP / "answer.py",
-             anchor="                     and quote_verified(m.group(2), passages[int(m.group(1)) - 1].get(\"text\"))\n",
+             anchor="                            and claim_quote_verified(m.group(2), passages[int(m.group(1)) - 1].get(\"text\"))\n",
              replacement="",
              target=_T, keyword="quote_is_not_on_the_page", tags=("citation", "critical")),
     Mutation(id="M930", phase=81, description="claims: an uncited figure is shown",
@@ -53,8 +53,8 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T, keyword="rewrite_of_a_general_answer_searches_nothing", tags=("chat",)),
     Mutation(id="M935", phase=81, description="rewrite: a document answer's rewrite loses its sources",
              path=APP / "chat_answers.py",
-             anchor="    if previous.get(\"answer_type\") == \"generated\":\n        return list(payload.get(\"passages\") or [])\n",
-             replacement="    if False:\n        return []\n",
+             anchor="    return [p for p in (payload.get(\"passages\") or []) if isinstance(p, dict) and p.get(\"text\")]\n",
+             replacement="    return []\n",
              target=_T, keyword="keeps_its_sources", tags=("citation",)),
     Mutation(id="M936", phase=81, description="general: general answers run at the document temperature",
              path=APP / "chat_answers.py",
@@ -76,4 +76,15 @@ MUTATIONS: tuple[Mutation, ...] = (
              anchor="    prompt = f\"{history}Question: {question}\" + (f\"\\n\\nAnswer {style}.\" if style else \"\")\n",
              replacement="    prompt = f\"{history}Question: {question}\"\n",
              target=_T, keyword="labelled_and_never_searched", tags=("chat",)),
+    # ---- from LIBRARY_COUNTS_BOTH_MODELS_2026_10_01 ------------------------
+    #: A library count comes from the database, in code, never from a model,
+    #: on EITHER engine (plan N7). Decided before Claude-first is ever asked.
+    Mutation(id="M1826", phase=1826,
+             description="an inventory question reaches Claude-first instead "
+                         "of the database, on Model=Claude",
+             path=APP / "chat.py",
+             anchor="    inventory_result = None\n    if explain_of is None and document_id is None:\n",
+             replacement="    inventory_result = None\n    if False:\n",
+             target="tests/test_corpus_questions.py",
+             keyword="never_asking_claude", tags=("honesty",)),
 )

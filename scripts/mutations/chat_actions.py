@@ -31,7 +31,9 @@ MUTATIONS: tuple[Mutation, ...] = (
              target='tests/test_chat_pr5_actions.py', keyword='submittal_is_chosen', tags=("chat", "critical")),
     Mutation(id="M978", phase=84, description="an engineer's chat comment is signed 'AI Review'",
              path=APP / 'crs_mapping.py',
-             anchor='            "comment_by": f"{f.get(\'confirmed_by\') or \'Engineer\'} (filed from chat)",\n',
+             # Re-anchored 2026-09-30 (audit): the byline prints the display name.
+             anchor=('            "comment_by": (f"{f.get(\'confirmed_by_name\') or f.get(\'confirmed_by\') or \'Engineer\'}"\n'
+                     '                           " (filed from chat)"),\n'),
              replacement='            "comment_by": "AI Review",\n',
              target='tests/test_chat_pr5_actions.py', keyword='under_the_engineers_name', tags=("chat", "critical")),
     Mutation(id="M979", phase=84, description='a filed chat comment never reaches the comment sheet',

@@ -61,6 +61,54 @@ _PHRASES: dict[str, str] = {
     **{p: "about_the_assistant" for p in ABOUT_THE_ASSISTANT},
 }
 
+#: Closing words that are not a question: "that's all", "that's it".
+CLOSERS = {
+    "that's all", "thats all", "that is all", "that's it", "thats it", "that is it",
+    "nothing else", "all good", "no more questions", "that will be all", "that'll be all",
+    "for now", "much", "very much", "so much", "a lot", "again",
+}
+
+#: Which kind a string made only of small-talk phrases is, strongest first:
+#: "ok thanks" is thanks, "thanks, bye" is a farewell.
+_COMPOUND_ORDER = ("farewell", "thanks", "greeting", "acknowledgement")
+
+#: Every phrase a compound may be made of, longest first so "thank you" wins
+#: over "thank", with apostrophes kept ("that's all").
+_COMPOUND_PARTS: dict[str, str] = {
+    **{p: k for p, k in _PHRASES.items() if k != "about_the_assistant"},
+    **{p: "closer" for p in CLOSERS},
+}
+_COMPOUND = re.compile(
+    r"\s*(" + "|".join(re.escape(p) for p in sorted(_COMPOUND_PARTS, key=len, reverse=True))
+    + r")\b[\s,.!;:-]*")
+
+
+def _compound_small_talk(normalised: str) -> str | None:
+    """"thanks, that's all", "ok thanks", "great, thank you" - a message made
+    ENTIRELY of small-talk phrases is small talk.
+
+    FOUND 2026-09-30 (audit): these were classified as document questions, so
+    `intent.route` sent them to EITHER and they ran a search with terms carried
+    from the previous question. Matched whole, phrase by phrase: one word that
+    is not a known phrase ("ok thanks, and the flange rating?") and it is not
+    small talk."""
+    text = normalised.replace("\u2019", "'")
+    kinds: list[str] = []
+    pos = 0
+    while pos < len(text):
+        match = _COMPOUND.match(text, pos)
+        if match is None or match.end() == pos:
+            return None
+        kinds.append(_COMPOUND_PARTS[match.group(1)])
+        pos = match.end()
+    if not kinds:
+        return None
+    for kind in _COMPOUND_ORDER:
+        if kind in kinds:
+            return kind
+    return "acknowledgement"   # only closers: "that's all"
+
+
 DOCUMENT_QUESTION = "document_question"
 ADVICE_REQUEST = "advice_request"
 
@@ -173,6 +221,9 @@ def classify(question: str) -> str:
         return "not_a_question"
 
     kind = _PHRASES.get(normalised)
+    if kind:
+        return kind
+    kind = _compound_small_talk(normalised)
     if kind:
         return kind
 

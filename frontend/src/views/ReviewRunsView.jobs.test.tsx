@@ -142,3 +142,15 @@ describe("the open run's findings, once its job finishes", () => {
     expect(list).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("the step line never invents a total", () => {
+  it("shows no 'of N' when the server reported no total", async () => {
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({ status: "running",
+      job: { id: "job-1", state: "running", progress_done: 1, progress_total: null,
+        progress_label: "comparing", cancel_requested: false } })] } });
+    render(<ReviewRunsView />);
+    const line = await screen.findByTestId("review-progress");
+    expect(line).toHaveTextContent("Step 2: comparing");
+    expect(line.textContent).not.toMatch(/ of \d/);
+  });
+});

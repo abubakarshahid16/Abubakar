@@ -67,7 +67,7 @@ export function StandardOverrideControl({ runId, decided, onChanged }: {
       <ul className="space-y-1">
         {applied.map((s) => (
           <li key={s.standard_document_id}>
-            <button type="button" className="text-xs text-rose-300 underline"
+            <button type="button" className="text-xs text-danger-500 underline"
               onClick={() => { setTarget({ id: s.standard_document_id, include: false }); setError(null); }}>
               Remove {name(s)}
             </button>
@@ -101,7 +101,7 @@ export function StandardOverrideControl({ runId, decided, onChanged }: {
           </button>
         </div>
       )}
-      {error && <p role="alert" className="text-xs text-rose-300">{error}</p>}
+      {error && <p role="alert" className="text-xs text-danger-500">{error}</p>}
     </section>
   );
 }
