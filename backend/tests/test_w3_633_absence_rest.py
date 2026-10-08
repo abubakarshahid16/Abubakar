@@ -309,16 +309,20 @@ def _fact(name, value, unit=None, page=1, **kw):
 
 
 def test_a_revision_block_check_that_could_not_run_says_so_instead_of_vanishing():
-    results = datasheet_checks.evaluate([], equipment_type="Pressure Vessel", page_texts={})
-    [r1] = [r for r in results if r["rule_id"] == "DS-R1"]
-    assert r1["status"] == datasheet_checks.NEEDS_ENGINEER_REVIEW
-    assert "Could not be checked: no page text was read" in r1["detail"]
-    no_type = datasheet_checks.evaluate([], equipment_type=None, page_texts={1: "text"})
-    assert [r["detail"] for r in no_type if r["rule_id"] == "DS-R1"] == [
-        "Could not be checked: the equipment type is unknown."]
-    # Control: with page text and a type the check runs and may pass or fail.
+    assert datasheet_checks.revision_check_not_run("Pressure Vessel", {}) == \
+        "no page text was read for this datasheet"
+    assert datasheet_checks.revision_check_not_run(None, {1: "text"}) == \
+        "the equipment type is unknown"
+    # Control: with page text and a type the check runs.
+    assert datasheet_checks.revision_check_not_run("Pressure Vessel", {1: "text"}) is None
     ran = datasheet_checks.evaluate([], equipment_type="Pressure Vessel", page_texts={1: "text"})
     assert [r["status"] for r in ran if r["rule_id"] == "DS-R1"] == [datasheet_checks.MISSING_INFORMATION]
+    # And the export lists it among the parts that could not be checked.
+    parts = absence.unchecked_parts(
+        run_status="completed",
+        outcome={"datasheet_check_not_run": "the equipment type is unknown"})
+    assert [p["part"] for p in parts] == ["datasheet_check_not_run"]
+    assert "could not be checked: the equipment type is unknown" in parts[0]["line"]
 
 
 def test_a_missing_revision_block_is_not_the_contractors_omission_while_a_page_is_unread(world):

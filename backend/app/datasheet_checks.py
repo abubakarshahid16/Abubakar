@@ -168,6 +168,22 @@ def mandatory_list_key(equipment_type: str | None, rules: dict) -> str:
     return same[0] if len(same) == 1 else GENERIC
 
 
+def revision_check_not_run(equipment_type: str | None, page_texts: dict) -> str | None:
+    """Why the revision-block check (DS-R1) did not run, or None when it did.
+
+    #633: it used to be dropped silently, so a sheet with no page text, or no
+    known equipment type, read as having passed a check nobody made. This is
+    not a finding (a review of a sheet with no equipment type would then always
+    carry one more engineer question); the run records it and every export
+    lists it among the parts that could not be checked.
+    """
+    if not page_texts:
+        return "no page text was read for this datasheet"
+    if not equipment_type:
+        return "the equipment type is unknown"
+    return None
+
+
 def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[int, str],
              rules: dict | None = None) -> list[dict]:
     """Every check's result for one datasheet. Pure."""
@@ -301,15 +317,6 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
                            "A datasheet carries a revision block.",
                            ("A revision block was found." if has_block else
                             "No revision block was found on the datasheet pages read."),
-                           None, "revision_block", None))
-    else:
-        # #633: THE CHECK DID NOT RUN, AND SAYS SO. It used to be dropped, so a
-        # sheet with no page text, or no known equipment type, read as having
-        # passed a check nobody made.
-        why = ("no page text was read for this datasheet" if not page_texts
-               else "the equipment type is unknown")
-        out.append(_result("DS-R1", NEEDS_ENGINEER_REVIEW, "A datasheet carries a revision block.",
-                           _sentence(why),
                            None, "revision_block", None))
     return out
 

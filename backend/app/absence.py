@@ -170,6 +170,10 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
         add("partial_findings",
             f"{partial_findings} finding(s) were written before the review stopped; "
             "they are partial and no review code was recommended.")
+    if outcome.get("datasheet_check_not_run"):
+        add("datasheet_check_not_run",
+            "The datasheet revision-block check could not be checked: "
+            + str(outcome["datasheet_check_not_run"]) + ".")
     stds = outcome.get("standards_not_checked") or []
     if stds:
         add("standards_not_checked",

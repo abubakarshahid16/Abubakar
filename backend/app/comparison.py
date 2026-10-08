@@ -2172,6 +2172,8 @@ def run_comparison(
     from . import datasheet_checks
     page_texts = {r["page_no"]: r["text"] or "" for r in connect().execute(
         "SELECT page_no, text FROM pages WHERE document_id = ?", (submittal_id,))}
+    datasheet_check_not_run = datasheet_checks.revision_check_not_run(
+        stored.get("equipment_type"), page_texts)
     findings.extend(datasheet_checks.store(
         review_run_id, submittal_id,
         datasheet_checks.evaluate(facts, equipment_type=stored.get("equipment_type"),
@@ -2197,7 +2199,8 @@ def run_comparison(
                        requirements_held_back=held_back,
                        unchecked_standards=unchecked_standards,
                        requirements_not_applied=requirements_not_applied,
-                       applicability=applicability_summary)
+                       applicability=applicability_summary,
+                       datasheet_check_not_run=datasheet_check_not_run)
 
     return {
         "review_run_id": review_run_id,
@@ -3292,7 +3295,8 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
                        requirements_held_back: dict | None = None,
                        unchecked_standards: list[str] | None = None,
                        requirements_not_applied: list[dict] | None = None,
-                       applicability: dict | None = None) -> None:
+                       applicability: dict | None = None,
+                       datasheet_check_not_run: str | None = None) -> None:
     """Persist the AI recommendation and the completeness it was gated on.
 
     B3: `page_coverage` is the page ledger's summary AT THE TIME OF THE RUN -
@@ -3330,6 +3334,8 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
                 # grouped by subject, and how the rest were decided.
                 "requirements_not_applied": requirements_not_applied or [],
                 "applicability": applicability,
+                # #633: why the datasheet revision-block check did not run.
+                "datasheet_check_not_run": datasheet_check_not_run,
             # completed_at: the readiness strip's "since the last run" is
             # measured from here, not from updated_at (which the engineer's
             # code decision moves later).
