@@ -59,10 +59,11 @@ Owner decision, 2026-10-08. A change is blocked when ANY of these is true:
 Outside the 23, a question may trade places: P1-34 failing is fine if
 another new question starts passing and the total stays at 37 or more.
 
-The last two rows are kept from the version 1 rule. The owner's
-decision named only the first two. The clause row is limited to the 23
-protected questions. An answer to an unanswerable question is the
-failure this project guards hardest, so that row still blocks on its own.
+The last two rows come from the version 1 rule. The owner confirmed
+on 2026-10-08 that both stay: an unanswerable question must never flip
+from refused to answered, and the 23 protected questions keep their
+clause labels. The clause row covers only those 23, so the other
+questions can still trade places.
 
 `--write-baseline` keeps the `gate` as it is. Only a person edits it, and
 `test_the_committed_gate_is_37_of_60_with_the_23_original_passes` checks
