@@ -73,13 +73,16 @@ def vocabulary() -> dict:
         "equivalent": [list(group) for group in data.get("equivalent") or []],
         "body_aliases": {k.upper(): v.upper() for k, v in (data.get("body_aliases") or {}).items()},
         "api_document_words": [w.upper() for w in data.get("api_document_words") or []],
+        "citation_bodies": [b.upper() for b in data.get("citation_bodies") or []],
+        "class_designations": {k.upper(): [x.upper() for x in v]
+                               for k, v in (data.get("class_designations") or {}).items()},
     }
 
 
 def reload_vocabulary() -> None:
     """Forget the cached vocabulary and every parse made with it. A test (or a
     future admin edit) that rewrites the file calls this."""
-    for cached in (vocabulary, _specific, _equivalences, parse_all):
+    for cached in (vocabulary, _specific, _equivalences, parse_all, _citation_patterns):
         cached.cache_clear()
 
 
@@ -99,6 +102,12 @@ class StandardId:
         """One stable comparison key, for de-duplicating and sorting."""
         family, number = self.identity
         return f"{family} {number}" + (f" PART {self.part}" if self.part else "")
+
+    def literal_key(self) -> str:
+        """The key WITHOUT the vocabulary's equivalences: two spellings of one
+        identifier meet ("API 610", "API-610"), two equivalent standards do not
+        ("NACE MR0175" and "ISO 15156" are both cited, so both are listed)."""
+        return f"{self.family} {self.number}" + (f" PART {self.part}" if self.part else "")
 
 
 @lru_cache(maxsize=1)
@@ -282,3 +291,127 @@ def names_standard(text: str, identifier: str) -> bool:
         return any(same_identifier(want, found) for found in parse_all(text or ""))
     pattern = _token_pattern(identifier)
     return pattern is not None and pattern.search(_clean(text)) is not None
+
+
+# ------------------------------------------------------------ the citation reader
+#
+# THE SAME GRAMMAR, used to FIND identifiers in running text (a datasheet, a
+# requirement) instead of reading one identifier (#623). The matcher above was
+# only as good as what the reader handed it: the old reader in `datasheets` was
+# a list of families, and an IEC, EN, ISA or ISO-with-a-part citation never
+# reached the matcher, so it was neither matched nor listed missing.
+
+#: "Part 1" / "Pt-1" in any case: running text is not upper-cased for the
+#: general shape, so the part word must not need to be.
+_PART_ANY_CASE = _PART.replace("(?:PART|PT)", "(?i:PART|PT)")
+
+#: In running text a short API, SAES or SAMSS number is far more often a
+#: quantity or a truncation than a citation - the reader's long-standing rule,
+#: kept: API needs 3-4 digits, or 1-2 digits with a letter suffix (6D, 5L);
+#: SAES and SAMSS need a 3-4 digit series number as written ("SAES-B-14" in
+#: prose is not read; the forgiving padded read is for FILENAMES only).
+_API_IN_TEXT = re.compile(r"\d{3,4}[A-Z]{0,2}|\d{1,2}[A-Z]{1,2}")
+_FOUR_DIGIT_YEAR_AFTER = re.compile(r"-\d{4}(?![\dA-Za-z])")
+#: One more level of part after a part: the "-1" of "IEC 60534-2-1".
+_SUB_PART = re.compile(r"-\d{1,2}(?![\dA-Za-z])")
+
+
+@lru_cache(maxsize=1)
+def _citation_patterns() -> tuple[re.Pattern, list[re.Pattern]]:
+    """The general shape for the vocabulary's `citation_bodies`, and the
+    class-letter shapes for its `class_designations`. Bodies, never standards,
+    and both from the editable file."""
+    v = vocabulary()
+    bodies = sorted({b.upper() for b in v.get("citation_bodies") or []}, key=len, reverse=True)
+    alt = "|".join(re.escape(b) for b in bodies) or "(?!)"
+    general = re.compile(
+        r"(?P<body>(?:" + alt + r")(?:/(?:" + alt + r"))?)"
+        r"(?P<series>(?:[-\s]+[A-Z]{1,4}(?=[-\s]*\d))?)[-\s]*"
+        r"(?P<num>\d{2,5}(?:\.\d{1,3})*[A-Z]?)" + _END + _PART_ANY_CASE
+        + r"(?P<year>:\d{4}(?!\d))?")
+    classes = [re.compile(re.escape(body.upper()) + r"[-\s]+(?:(?i:CLASS)[-\s]*)?(?:"
+                          + "|".join(re.escape(letter) for letter in letters) + r")\b")
+               for body, letters in (v.get("class_designations") or {}).items()]
+    return general, classes
+
+
+def _same_length_upper(text: str) -> str:
+    """`text` upper-cased and dashes folded, character for character, so a match
+    position in it is the same position in `text`."""
+    folded = _DASHES.sub("-", text)
+    return "".join(c.upper() if len(c.upper()) == 1 else c for c in folded)
+
+
+def _standalone(text: str, start: int, end: int) -> bool:
+    """A citation stands on its own: it is not the middle of a hyphen-joined
+    code (a tag "21-PV-1043A", a document number "P-1000001-2003-SP-0810") and
+    nothing alphanumeric is glued to either end. A four-digit edition year after
+    a dash ("API 610-2010") is allowed; any other "-X" continuation is not."""
+    if start > 0:
+        before = text[start - 1]
+        if before.isalnum():
+            return False
+        if before == "-" and start > 1 and text[start - 2].isalnum():
+            return False
+    if end < len(text):
+        after = text[end]
+        if after.isalnum():
+            return False
+        if after == "-" and end + 1 < len(text) and text[end + 1].isalnum() \
+                and not _FOUR_DIGIT_YEAR_AFTER.match(text, end):
+            return False
+    return True
+
+
+def _strict_enough(build, m: re.Match) -> bool:
+    if build is _api:
+        return bool(_API_IN_TEXT.fullmatch(m.group("num")))
+    if build in (_saes, _samss):
+        return len(m.group("num")) >= 3
+    return True
+
+
+def find_citations(text: str) -> list[tuple[str, int, int]]:
+    """Every standard identifier cited in running `text`: (spelling as printed,
+    start, end), in reading order, never overlapping. The special shapes are
+    read in any case; the general shape and class letters only for a body
+    written in upper case, so ordinary words never become citations. Plain
+    numbers, tags, line numbers and document numbers are not read: a citation
+    needs an issuing body, and must stand on its own (`_standalone`)."""
+    text = text or ""
+    upper = _same_length_upper(text)
+    folded = _DASHES.sub("-", text)
+    found: list[tuple[int, int]] = []
+    for pattern, build in _specific():
+        for m in pattern.finditer(upper):
+            if _strict_enough(build, m):
+                found.append((m.start(), m.end()))
+    general, classes = _citation_patterns()
+    for pattern in [general, *classes]:
+        for m in pattern.finditer(folded):
+            found.append((m.start(), m.end()))
+    out: list[tuple[str, int, int]] = []
+    taken_until = -1
+    # Reading order; at one start the longer reading wins ("BS EN 13445-3", not "BS").
+    for start, end in sorted(found, key=lambda span: (span[0], -span[1])):
+        # A sub-part chain belongs to the citation: "IEC 60534-2-1" is part 2-1,
+        # not "IEC 60534-2" followed by a stray "-1" (which `_standalone` would
+        # then reject as a glued-on code).
+        while (sub := _SUB_PART.match(text, end)) is not None:
+            end = sub.end()
+        if start < taken_until or not _standalone(text, start, end):
+            continue
+        out.append((" ".join(text[start:end].split()), start, end))
+        taken_until = end
+    return out
+
+
+def cited_standards(text: str) -> list[str]:
+    """The standards cited in `text`, one per identifier, as first printed.
+    Two spellings of one identifier are one entry; two EQUIVALENT standards
+    (NACE MR0175, ISO 15156) are two, because both were cited."""
+    seen: dict[str, str] = {}
+    for raw, _, _ in find_citations(text):
+        ident = parse(raw)
+        seen.setdefault(ident.literal_key() if ident else flat_key(raw), raw)
+    return list(seen.values())

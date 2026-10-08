@@ -17,10 +17,24 @@
     "",
     "api_document_words: words written between \"API\" and the number that are",
     "not part of the identity: API RP 520, API Std 520, API Spec 520 are all",
-    "API 520."
+    "API 520.",
+    "",
+    "citation_bodies: issuing bodies the CITATION READER accepts for the general",
+    "shape when it scans running text (datasheet text, a requirement). A list of",
+    "BODIES, never of standards: any number from a listed body is read. Without",
+    "it every tag (21-PV-1043A) and label (LINE 12, DWG 4501) would look like a",
+    "citation. API, ASME, ISO, NACE, SAES and SAMSS have their own shapes and need",
+    "no entry. IP is deliberately absent: in a datasheet \"IP 66\" is an ingress",
+    "rating, not the Energy Institute; nor are AS, SS and ABS (\"as 25 mm\", \"SS 316\" stainless, \"ABS\" plastic). A body is read only when written in upper case.",
+    "",
+    "class_designations: bodies whose documents are named by a class LETTER, not",
+    "a number (\"TEMA Class R\"). Body -> the letters that are real classes."
   ],
   "equivalent": [
-    ["ISO 15156", "NACE MR0175"]
+    [
+      "ISO 15156",
+      "NACE MR0175"
+    ]
   ],
   "body_aliases": {
     "BS EN": "EN",
@@ -34,5 +48,52 @@
     "ANSI/NFPA": "NFPA",
     "ANSI/UL": "UL"
   },
-  "api_document_words": ["RP", "STD", "STANDARD", "SPEC", "PUBL", "MPMS", "BULL", "TR"]
+  "api_document_words": [
+    "RP",
+    "STD",
+    "STANDARD",
+    "SPEC",
+    "PUBL",
+    "MPMS",
+    "BULL",
+    "TR"
+  ],
+  "citation_bodies": [
+    "NFPA",
+    "IEEE",
+    "IEC",
+    "EN",
+    "BS",
+    "DIN",
+    "ISA",
+    "ANSI",
+    "ASTM",
+    "MSS",
+    "UL",
+    "PIP",
+    "KOC",
+    "AWS",
+    "CSA",
+    "JIS",
+    "NEMA",
+    "EEMUA",
+    "DNV",
+    "AMPP",
+    "AGA",
+    "ASCE",
+    "ACI",
+    "AISC",
+    "NORSOK",
+    "CENELEC",
+    "NF",
+    "UNE",
+    "NEN"
+  ],
+  "class_designations": {
+    "TEMA": [
+      "R",
+      "C",
+      "B"
+    ]
+  }
 }
