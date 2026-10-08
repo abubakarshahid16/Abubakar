@@ -2,6 +2,7 @@
 from __future__ import annotations
 import logging
 import threading
+import time
 import uuid
 from datetime import UTC, datetime, timedelta, timezone
 from .config import settings
@@ -142,7 +143,50 @@ def detect_automatic_risks(*, allowed_document_ids: frozenset[str] | None = None
             # r2 S3: carry the SOURCE document so the scope filter can apply.
             "document_id": (by_id.get(alert["deliverable_id"]) or {}).get("document_id")}))
     now = datetime.now(UTC)
-    for finding in _candidate_findings(allowed_document_ids):
+    candidates = _candidate_findings(allowed_document_ids)
+    for start in range(0, len(candidates), RISK_BATCH_SIZE):
+        # #626 GENTLE: a run over ~133,000 findings used to be one unbroken
+        # loop that held the CPU (and the GIL) for as long as it took. A short
+        # pause between batches lets the request threads run.
+        if start:
+            _pause_between_batches()
+        _scan_findings(candidates[start:start + RISK_BATCH_SIZE], now, by_finding, new_items)
+    for item in visible_deliverables:
+        parent_id = item.get("parent_id")
+        if not parent_id or parent_id not in by_id or item["status"] in {"approved", "superseded"}:
+            continue
+        parent = by_id.get(parent_id)
+        if not parent or parent["status"] in {"approved", "superseded"} or not parent.get("due_date"):
+            continue
+        try:
+            overdue = (now.date() - datetime.fromisoformat(parent["due_date"].replace("Z", "+00:00")).date()).days >= 0
+        except ValueError:
+            overdue = False
+        if overdue and ("dependency", item["id"]) not in by_deliverable:
+            by_deliverable.add(("dependency", item["id"]))
+            new_items.append(_new_item({
+                "risk_type": "dependency", "title": f"Dependency overdue: {item['title']}",
+                "description": f"Parent deliverable {parent['title']} is overdue.",
+                "severity": "major", "deliverable_id": item["id"], "due_date": item.get("due_date"),
+                "document_id": item.get("document_id")}))
+    _insert_many(new_items)
+    return new_items
+
+
+#: Findings examined per batch, and the pause between batches (#626).
+RISK_BATCH_SIZE = 1000
+RISK_BATCH_PAUSE_SECONDS = 0.05
+
+
+def _pause_between_batches() -> None:
+    time.sleep(RISK_BATCH_PAUSE_SECONDS)
+
+
+def _scan_findings(findings: list[dict], now: datetime, by_finding: set,
+                   new_items: list[dict]) -> None:
+    """One batch of candidate findings: the overdue-review and the
+    unsupported-requirement rules. Appends to `new_items` and `by_finding`."""
+    for finding in findings:
         try:
             updated = datetime.fromisoformat(finding["updated_at"].replace("Z", "+00:00"))
             if updated.tzinfo is None:
@@ -167,26 +211,6 @@ def detect_automatic_risks(*, allowed_document_ids: frozenset[str] | None = None
                 "description": "Gap analysis found unresolved evidence for this requirement.",
                 "severity": finding["severity"], "document_id": finding["document_id"],
                 "source_finding_id": finding["id"], "owner_user_id": finding.get("owner_user_id")}))
-    for item in visible_deliverables:
-        parent_id = item.get("parent_id")
-        if not parent_id or parent_id not in by_id or item["status"] in {"approved", "superseded"}:
-            continue
-        parent = by_id.get(parent_id)
-        if not parent or parent["status"] in {"approved", "superseded"} or not parent.get("due_date"):
-            continue
-        try:
-            overdue = (now.date() - datetime.fromisoformat(parent["due_date"].replace("Z", "+00:00")).date()).days >= 0
-        except ValueError:
-            overdue = False
-        if overdue and ("dependency", item["id"]) not in by_deliverable:
-            by_deliverable.add(("dependency", item["id"]))
-            new_items.append(_new_item({
-                "risk_type": "dependency", "title": f"Dependency overdue: {item['title']}",
-                "description": f"Parent deliverable {parent['title']} is overdue.",
-                "severity": "major", "deliverable_id": item["id"], "due_date": item.get("due_date"),
-                "document_id": item.get("document_id")}))
-    _insert_many(new_items)
-    return new_items
 
 
 _detect_lock = threading.Lock()
@@ -202,6 +226,8 @@ def run_detection(*, allowed_document_ids: frozenset[str] | None = None) -> dict
     from . import notifications
     if not _detect_lock.acquire(blocking=False):
         return {"status": "already_running", "created": 0, "by_type": {}, "digest": "none"}
+    started = time.monotonic()
+    log.info("risk detection started")
     try:
         from . import deliverables as deliverables_mod
         reminders = deliverables_mod.generate_reminders(allowed_document_ids=allowed_document_ids)
@@ -214,10 +240,13 @@ def run_detection(*, allowed_document_ids: frozenset[str] | None = None) -> dict
         except Exception:  # a mail failure must not undo the detection
             log.exception("risk digest email failed")
             digest = "failed"
-        log.info("risk detection created=%d reminders=%d by_type=%s digest=%s",
-                 len(created), reminders, by_type, digest)
+        log.info("risk detection finished in %.1fs created=%d reminders=%d by_type=%s digest=%s",
+                 time.monotonic() - started, len(created), reminders, by_type, digest)
         return {"status": "ok", "created": len(created), "by_type": by_type, "digest": digest,
                 "reminders_created": reminders}
+    except BaseException:
+        log.warning("risk detection stopped after %.1fs", time.monotonic() - started)
+        raise
     finally:
         _detect_lock.release()
 

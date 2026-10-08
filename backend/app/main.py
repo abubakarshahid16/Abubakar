@@ -632,9 +632,19 @@ def list_documents(request: Request, response: Response,
                     FROM document_classification
                     WHERE document_id IN ({marks})""", page_ids)
         }
+    # THE FULL CLASSIFICATION, ON THE LIST. The Documents page used to ask
+    # `GET /documents/{id}/classification` once per document (about 100
+    # requests on every load). The ids here are exactly the rows this caller's
+    # scope already selected above, so nothing is added to what they may read.
+    # A document with no classification row gets the same empty record the
+    # single route returns.
+    classifications = classification_mod.of_documents(page_ids)
     out = []
     for row in rows:
         doc = upload_mod.to_api(row)
+        doc["classification"] = {
+            **(classifications.get(row["id"]) or classification_mod.empty_record(row["id"])),
+            "document_id": row["id"]}
         meta = metadata.get(row["id"], {})
         for field in ("document_role", "document_number", "title", "revision",
                       "equipment_type", "project", "superseded_by"):
@@ -1294,11 +1304,7 @@ def get_document_classification(
         # In scope but never classified. An empty, honest record rather than a
         # 404: the document exists and the caller may read it, and "not
         # classified yet" is the answer.
-        return {"document_id": document_id, "doc_type": None,
-                "discipline": None, "doc_class": None, "register_id": None,
-                "suggested_by": classification_mod.SOURCE_NONE,
-                "confirmed_by": None, "confirmed_at": None,
-                "confirmed": False, "subjects": []}
+        return classification_mod.empty_record(document_id)
     return {**row, "document_id": document_id}
 
 
