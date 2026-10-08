@@ -9,10 +9,22 @@
  * bearer header has to be attached here explicitly - see `api.authorize`.
  * Without it every upload is a 401 under AUTH_MODE=demo_required, and the
  * screen reports "Cannot reach the backend" for a server that answered.
+ *
+ * WHO MAY SEE IT (#609). With sign-in on, every upload names at least one
+ * discipline, defaulting to the uploader's own and changeable before the
+ * file is chosen. The API refuses an upload with none, because a document no
+ * discipline can see is invisible in every engineer's review and chat. With
+ * sign-in off everyone reads everything, so nothing is asked.
  */
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { authorize, reportResponseStatus } from "../api/client";
+import { api, authorize, reportResponseStatus } from "../api/client";
+
+type Picker =
+  | { s: "loading" }
+  | { s: "off" }
+  | { s: "ready"; choices: string[]; chosen: string[] }
+  | { s: "error" };
 
 export type UploadState =
   | { phase: "uploading"; percent: number }
@@ -33,11 +45,13 @@ export interface UploadItem {
 
 function uploadOne(
   file: File,
+  disciplines: string[],
   onProgress: (percent: number) => void,
 ): Promise<UploadState> {
   return new Promise((resolve) => {
     const form = new FormData();
     form.append("file", file);
+    for (const name of disciplines) form.append("disciplines", name);
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/documents");
     // After open(), before send(): setRequestHeader throws outside that window.
@@ -89,12 +103,48 @@ function uploadOne(
 export function Uploader({ onUploaded }: { onUploaded: () => void }) {
   const [items, setItems] = useState<UploadItem[]>([]);
   const [dragging, setDragging] = useState(false);
+  const [picker, setPicker] = useState<Picker>({ s: "loading" });
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let live = true;
+    void api.uploadDisciplines().then((r) => {
+      if (!live) return;
+      if (!r.ok) {
+        setPicker({ s: "error" });
+      } else if (!r.data.required) {
+        setPicker({ s: "off" });
+      } else {
+        setPicker({ s: "ready", choices: r.data.choices, chosen: r.data.default });
+      }
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  const chosen = picker.s === "ready" ? picker.chosen : [];
+  // Uploading waits for the answer: a file sent before it would carry no
+  // discipline and be refused.
+  const blocked = picker.s === "loading" || picker.s === "error"
+    || (picker.s === "ready" && chosen.length === 0);
+
+  const toggle = (name: string) =>
+    setPicker((p) =>
+      p.s !== "ready"
+        ? p
+        : {
+            ...p,
+            chosen: p.chosen.includes(name)
+              ? p.chosen.filter((c) => c !== name)
+              : [...p.chosen, name].sort(),
+          },
+    );
 
   const start = useCallback(
     async (files: FileList | File[]) => {
       const list = Array.from(files);
-      if (list.length === 0) return;
+      if (list.length === 0 || blocked) return;
 
       const queued: UploadItem[] = list.map((f, i) => ({
         id: `${Date.now()}-${i}-${f.name}`,
@@ -106,7 +156,7 @@ export function Uploader({ onUploaded }: { onUploaded: () => void }) {
 
       for (let i = 0; i < list.length; i += 1) {
         const item = queued[i];
-        const state = await uploadOne(list[i], (percent) =>
+        const state = await uploadOne(list[i], chosen, (percent) =>
           setItems((prev) =>
             prev.map((it) =>
               it.id === item.id ? { ...it, state: { phase: "uploading", percent } } : it,
@@ -117,7 +167,7 @@ export function Uploader({ onUploaded }: { onUploaded: () => void }) {
         onUploaded();
       }
     },
-    [onUploaded],
+    [onUploaded, blocked, chosen],
   );
 
   return (
@@ -125,6 +175,44 @@ export function Uploader({ onUploaded }: { onUploaded: () => void }) {
       <h2 id="upload-heading" className="sr-only">
         Upload documents
       </h2>
+
+      {picker.s === "ready" && (
+        <fieldset className="mb-3" data-testid="upload-disciplines">
+          <legend className="text-xs text-slateish-300">Visible to</legend>
+          {picker.choices.length === 0 ? (
+            <p className="mt-1 text-xs text-warn-500">
+              You are in no discipline, so an upload would be visible to nobody. Ask an
+              administrator to add you to one.
+            </p>
+          ) : (
+            <div className="mt-1 flex flex-wrap gap-3">
+              {picker.choices.map((name) => (
+                <label key={name} className="inline-flex items-center gap-1 text-xs text-slateish-300">
+                  <input
+                    type="checkbox"
+                    checked={chosen.includes(name)}
+                    onChange={() => toggle(name)}
+                  />
+                  {name}
+                </label>
+              ))}
+            </div>
+          )}
+          {picker.choices.length > 0 && chosen.length === 0 && (
+            <p className="mt-1 text-xs text-warn-500">
+              Choose at least one discipline. A document no discipline can see is invisible
+              in every search.
+            </p>
+          )}
+        </fieldset>
+      )}
+      {picker.s === "error" && (
+        // A status, not an alert, and no server text: the screen's own error
+        // card already reports a backend failure, once.
+        <p className="mb-3 text-xs text-warn-500" role="status">
+          Could not load who an upload may be shared with, so uploading is paused.
+        </p>
+      )}
 
       <div
         onDragOver={(e) => {
@@ -135,7 +223,7 @@ export function Uploader({ onUploaded }: { onUploaded: () => void }) {
         onDrop={(e) => {
           e.preventDefault();
           setDragging(false);
-          void start(e.dataTransfer.files);
+          if (!blocked) void start(e.dataTransfer.files);
         }}
         className={[
           "rounded-lg border-2 border-dashed p-6 text-center motion-safe:transition-colors",
@@ -146,6 +234,7 @@ export function Uploader({ onUploaded }: { onUploaded: () => void }) {
           Drag PDFs here, or{" "}
           <button
             type="button"
+            disabled={blocked}
             onClick={() => inputRef.current?.click()}
             className="underline decoration-dotted underline-offset-4 hover:text-slateish-200"
           >

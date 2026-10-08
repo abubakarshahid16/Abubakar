@@ -153,7 +153,7 @@ ROUTES = [
     ("post", "/api/reviews/runs/run-x/claude/select-standards", claude_api.STEP_SELECT_STANDARDS),
     ("post", "/api/reviews/runs/run-x/claude/read-datasheet", claude_api.STEP_READ_DATASHEET),
     ("post", "/api/reviews/runs/run-x/claude/recheck", claude_api.STEP_RECHECK),
-    ("get", "/api/reviews/runs/run-x/claude/crs-draft", claude_api.STEP_CRS_DRAFT),
+    ("post", "/api/reviews/runs/run-x/claude/crs-draft", claude_api.STEP_CRS_DRAFT),
 ]
 
 
