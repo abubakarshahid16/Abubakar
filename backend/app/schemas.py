@@ -280,6 +280,17 @@ class StandardRequirement(BaseModel):
                     "dropped turns a compliant PSV into a false finding")
     discipline: str | None = None
     table_row: int | None = None
+    unit_from: str | None = Field(
+        None, description="'column_header' when the unit was printed only in "
+                          "the table's column header, not in the cell")
+    needs_verification_reason: str | None = Field(
+        None, description="'text_quality' when the text looks garbled or "
+                          "mirrored; null when the row is held for confidence "
+                          "alone or not held")
+    evidence_pages: list[dict] = Field(
+        default_factory=list,
+        description="every page a repeated table cell was read from, as "
+                    "{page, chunk_id}; empty for a row without table identity")
     citation_resolves: bool = Field(
         description="false when the cited chunk is gone - re-extract. Shown "
                     "rather than the row being silently dropped")
@@ -301,7 +312,8 @@ class StandardRequirement(BaseModel):
 #: check). `requirements_3b.STORED_REQUIREMENT_TYPES` is the other home;
 #: tests/test_requirement_types_contract.py keeps them equal.
 RequirementType = Literal["numeric_limit", "statement", "table_value",
-                          "applicability_trigger", "relative_limit", "table_row"]
+                          "applicability_trigger", "relative_limit", "table_row",
+                          "definition"]
 
 #: An engineer's decision on an extracted requirement.
 RequirementDecision = Literal["confirm", "edit", "reject"]

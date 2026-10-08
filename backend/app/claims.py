@@ -1424,7 +1424,7 @@ def _last_digit_half(m: Measurement) -> float | None:
     if entry is None or value is None:
         return None
     text = m.raw_value.strip().replace(" ", "")
-    if re.fullmatch(r"[-+]?\d{1,3}(?:,\d{3})+(?:\.\d+)?", text):
+    if re.fullmatch(r"[-+]?(?!0,)\d{1,3}(?:,\d{3})+(?:\.\d+)?", text):
         text = text.replace(",", "")
     decimals = len(re.split(r"[.,]", text)[1]) if re.search(r"[.,]\d", text) else 0
     return 0.5 * 10 ** (-decimals) * entry[2]

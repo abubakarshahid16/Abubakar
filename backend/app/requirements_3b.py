@@ -29,7 +29,7 @@ from __future__ import annotations
 import json
 import re
 
-from . import claims
+from . import claims, numparse
 
 #: What kind of thing a requirement states. Enforced in Pydantic
 #: (`schemas.RequirementType`), stored as plain TEXT.
@@ -242,9 +242,73 @@ _CELL_VALUE = re.compile(r"^\s*[<>=≤≥±]{0,2}\s*[-+]?\d[\d.,]*\s*[*†‡]?\
 
 def cell_value(cell: str) -> str | None:
     """The number in a table cell, or None when the cell is not a number."""
-    if not cell or not _CELL_VALUE.match(cell):
+    if not cell:
+        return None
+    # A Unicode minus (U+2212) is a sign, not a word: fold it first so "\u22125"
+    # is the value -5 and not a dropped cell (#595).
+    cell = numparse.normalise_text(cell)
+    if not _CELL_VALUE.match(cell):
         return None
     return cell.strip()
+
+
+#: "Max.", "Maximum", "Min", "Minimum" as a WORD of a column header. A header
+#: naming both ("Min/Max") says nothing about one cell and gives no operator.
+_HEADER_MAX = re.compile(r"\bmax(?:imum)?\b", re.IGNORECASE)
+_HEADER_MIN = re.compile(r"\bmin(?:imum)?\b", re.IGNORECASE)
+
+
+def header_operator(header: str | None) -> str | None:
+    """`<=` for a "max" column, `>=` for a "min" column, else None (#595).
+
+    "max" means not more than and "min" means not less than. A header that
+    names both, or neither, gives no operator: None, never a guess.
+    """
+    has_max = bool(_HEADER_MAX.search(header or ""))
+    has_min = bool(_HEADER_MIN.search(header or ""))
+    if has_max == has_min:
+        return None
+    return "<=" if has_max else ">="
+
+
+_CELL_COMPARATOR = re.compile(r"^\s*([<>=\u2264\u2265]{1,2})")
+_CELL_OPERATOR = {"<": "<", ">": ">", "=": "=", "<=": "<=", ">=": ">=",
+                  "\u2264": "<=", "\u2265": ">=", "=<": "<=", "=>": ">="}
+
+#: A zero followed by a comma and exactly three digits: "0,030". A thousands
+#: group never starts with a zero, so this is a decimal comma. numparse reads
+#: it as 30 (its thousands rule has no leading-zero exclusion, unlike its dot
+#: rule), and numparse is not changed here - the cell reader fixes the one
+#: shape it knows is wrong. Recorded in the honesty audit.
+_ZERO_COMMA_DECIMAL = re.compile(r"^(?P<lead>[^\d]*[-+]?)0,(?P<frac>\d{3})(?!\d)")
+
+
+def cell_number(raw_cell: str, *, decimal_comma_document: bool | None = None
+                ) -> tuple[float | None, str | None]:
+    """(number, operator written in the cell) for a table cell, via numparse.
+
+    Signs (a Unicode minus included), a decimal comma and thousands groups are
+    numparse's rules. A range, an ambiguous dash or an ambiguous three-decimal
+    value comes back as (None, ...): the cell is kept as written and no number
+    is invented (#595).
+    """
+    text = numparse.normalise_text(raw_cell or "")
+    comparator = _CELL_COMPARATOR.match(text)
+    operator = _CELL_OPERATOR.get(comparator.group(1)) if comparator else None
+    text = re.sub(r"[*\u2020\u2021\u00b1]", "", text).strip()
+    text = _CELL_COMPARATOR.sub("", text).strip()
+    text = _ZERO_COMMA_DECIMAL.sub(lambda m: f"{m.group('lead')}0.{m.group('frac')}", text)
+    return numparse.parse_value(
+        text, decimal_comma_document=decimal_comma_document), operator
+
+
+def table_signature(columns: list[str]) -> str:
+    """A table's identity across pages: its header, folded (#594).
+
+    The same table printed again on the next page, or read again on a re-run,
+    has the same header, so its cells land on the same identity.
+    """
+    return "|".join(numparse.fold(c or "") for c in columns)
 
 
 def header_unit(header: str) -> str | None:
@@ -882,10 +946,15 @@ def parse_condition(sentence: str) -> str | None:
 #: A requirement whose number belongs to a LOOKUP TABLE, not to a limit.
 TABLE_ROW = "table_row"
 
+#: #596: a clause that only defines a word. Stored, shown, never reviewed and
+#: never counted as a requirement.
+DEFINITION = "definition"
+
 #: EVERY requirement_type this module writes - what the API must be able to
 #: return (`schemas.RequirementType`). `REQUIREMENT_TYPES` above is the core
 #: three the parser may classify an obligation as; these are all of them.
-STORED_REQUIREMENT_TYPES = (*REQUIREMENT_TYPES, APPLICABILITY_TRIGGER, RELATIVE_LIMIT, TABLE_ROW)
+STORED_REQUIREMENT_TYPES = (*REQUIREMENT_TYPES, APPLICABILITY_TRIGGER, RELATIVE_LIMIT, TABLE_ROW,
+                           DEFINITION)
 
 
 def classify(sentence: str, limit: dict | None) -> str:

@@ -239,3 +239,43 @@ def test_a_clause_stating_its_own_value_is_not_a_deferral(library):
 def test_a_standard_the_question_names_is_not_a_missing_document(library):
     v = _ask("which pumps shall be in accordance with API 610?", library, only=["ABC-P-003.pdf"])
     assert v["answerability"]["verdict"] != answerability.ANOTHER_DOCUMENT
+
+
+@pytest.fixture
+def library_with_api_610_part_1(tmp_path, monkeypatch):
+    """The pump clause defers to "API 610"; the reader also holds a file named
+    API-610-1 (part 1 of that standard). Invented text, no client data."""
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    monkeypatch.setattr(settings, "upload_dir", tmp_path / "uploads")
+    monkeypatch.setattr(settings, "db_path", tmp_path / "b8p1.sqlite")
+    db.reset_connection(); db.init_db(); keyword.ensure_schema()
+    settings.upload_dir.mkdir(parents=True, exist_ok=True)
+    client = TestClient(app)
+    ids = {}
+    for name, block in (("ABC-P-003.pdf", PUMPS),
+                        ("API-610-1.pdf", ["1.1 General", "Acceptance limits are listed in Annex B."])):
+        path = tmp_path / name
+        pdf = pymupdf.open()
+        page = pdf.new_page()
+        for i, line in enumerate(block):
+            page.insert_text((72, 100 + i * 16), line)
+        pdf.save(str(path)); pdf.close()
+        with open(path, "rb") as fh:
+            doc = client.post("/api/documents", files={"file": (name, fh, "application/pdf")}).json()["document"]["id"]
+        IngestionWorker().process(doc)
+        ids[name] = doc
+    yield ids
+    db.reset_connection()
+
+
+def test_a_deferral_to_a_held_standard_written_another_way_is_not_another_document(
+        library_with_api_610_part_1):
+    """#452: the deferral names "API 610" and the reader holds "API-610-1". The
+    one matcher says that IS the standard, so chat must not claim the
+    requirement lives in a document the reader does not have. (The old exact
+    key compared "API610" with "API6101" and said it was missing.)"""
+    r = _ask("what requirements apply to the centrifugal pumps for this service?",
+             library_with_api_610_part_1)
+    a = r["answerability"]
+    assert a["evidence"] and a["evidence"][0]["document_id"] == library_with_api_610_part_1["ABC-P-003.pdf"]
+    assert a["verdict"] != answerability.ANOTHER_DOCUMENT

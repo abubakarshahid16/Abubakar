@@ -1,0 +1,38 @@
+{
+  "_comment": [
+    "Editable vocabulary for backend/app/standard_ids.py, the one matcher for",
+    "standard identifiers (#452). Code holds only the SHAPE of an identifier",
+    "(issuing body, optional series, whole number, optional part or division,",
+    "year ignored). Every equivalence between names lives here, so an engineer",
+    "can add one without a code change. Entries are read once and cached.",
+    "",
+    "equivalent: each list names ONE standard several ways. Every entry is",
+    "written as an identifier the matcher itself can read; the first entry is",
+    "the canonical name. A part or year written here is ignored - the whole",
+    "standard is equivalent, and its parts must still agree.",
+    "",
+    "body_aliases: an issuing-body prefix (as the general pattern reads it,",
+    "upper case) mapped to the body it adopts. A national adoption of a",
+    "European standard is the same standard: BS EN 13445 is EN 13445.",
+    "",
+    "api_document_words: words written between \"API\" and the number that are",
+    "not part of the identity: API RP 520, API Std 520, API Spec 520 are all",
+    "API 520."
+  ],
+  "equivalent": [
+    ["ISO 15156", "NACE MR0175"]
+  ],
+  "body_aliases": {
+    "BS EN": "EN",
+    "DIN EN": "EN",
+    "NF EN": "EN",
+    "UNE EN": "EN",
+    "NEN EN": "EN",
+    "SS EN": "EN",
+    "ANSI/ISA": "ISA",
+    "ANSI/IEEE": "IEEE",
+    "ANSI/NFPA": "NFPA",
+    "ANSI/UL": "UL"
+  },
+  "api_document_words": ["RP", "STD", "STANDARD", "SPEC", "PUBL", "MPMS", "BULL", "TR"]
+}

@@ -285,11 +285,12 @@ def run_list_cited_standards(input: dict, *, allowed_document_ids: frozenset[str
     cited = datasheets.referenced_standards(text)
     library = standards.list_standards(allowed_document_ids=allowed_document_ids,
                                        include_superseded=True)
-    matched = applicability._match_referenced(library, cited)
     held, missing = [], []
     for identifier in cited:
-        key = applicability.normalise_identifier(identifier)
-        entry = matched.get(key)
+        # ONE lookup (#452). This used to read `_match_referenced(...)` - a
+        # dict keyed by DOCUMENT ID - with an identifier key, which never
+        # matched, so every cited standard was listed "cited but not held".
+        entry = applicability.find_standard(library, identifier)
         if entry:
             held.append({"identifier": identifier, "held": True,
                         "standard_document_id": entry.get("id"), "filename": entry.get("filename")})

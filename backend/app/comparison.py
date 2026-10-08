@@ -1756,8 +1756,12 @@ def run_comparison(
     requirements: list[dict] = []
     for standard_id in standard_ids:
         from . import standards as standards_mod
-        requirements.extend(standards_mod.list_requirements(
-            standard_id, allowed_document_ids=allowed_document_ids))
+        # #596/#597: a definition, and text the quality gate holds, are not
+        # compared. They stay in the library; they never reach a finding.
+        requirements.extend(
+            r for r in standards_mod.list_requirements(
+                standard_id, allowed_document_ids=allowed_document_ids)
+            if standards_mod.is_reviewable(r))
 
     facts = datasheets.list_facts(
         submittal_id, allowed_document_ids=allowed_document_ids)

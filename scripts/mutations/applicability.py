@@ -23,8 +23,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M58", phase=6,
         description="silently drop a referenced standard the library lacks",
         path=APP / "applicability.py",
-        anchor="        if normalise_identifier(identifier) not in matched_keys",
-        replacement="        if False",
+        anchor="        for identifier in missing_references(library, referenced)\n",
+        replacement="        for identifier in []\n",
         target="tests/test_applicability.py",
         keyword="absent_from_the_library_is_reported_missing",
         tags=("honesty", "missing"),
@@ -125,7 +125,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="PUT THE DEFECT BACK: call every cited standard missing, "
                     "so the CRS tells a contractor held standards are absent",
         path=APP / "applicability.py",
-        anchor="        if not _match_referenced(library, [name]):",
+        anchor="        if find_standard(library, name) is None:",
         replacement="        if True:",
         target="tests/test_crs_endpoint.py",
         keyword="library_holds_gets_no_gap_row",
@@ -136,7 +136,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="the same defect, seen from the Dashboard tile that read "
                     "'21 of 21 cited standards are not in the library'",
         path=APP / "applicability.py",
-        anchor="        if not _match_referenced(library, [name]):",
+        anchor="        if find_standard(library, name) is None:",
         replacement="        if True:",
         target="tests/test_review_dashboard.py",
         keyword="library_holds_is_not_counted_missing",
@@ -148,11 +148,11 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "by document - so two spellings of a held standard collide "
                     "and the loser is reported missing",
         path=APP / "applicability.py",
-        anchor="        if not _match_referenced(library, [name]):\n"
+        anchor="        if find_standard(library, name) is None:\n"
                "            missing.append(name.strip())",
         replacement="        held = {normalise_identifier(v[\"identifier\"])\n"
                     "                for v in _match_referenced(library, referenced).values()}\n"
-                    "        if key not in held:\n"
+                    "        if normalise_identifier(name) not in held:\n"
                     "            missing.append(name.strip())",
         target="tests/test_applicability.py",
         keyword="two_spellings_of_one_held_standard",
