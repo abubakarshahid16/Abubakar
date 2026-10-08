@@ -188,19 +188,80 @@ def test_a16_a_size_condition_with_a_thousands_comma_is_read_whole():
 
 # ------------------------------------------------------- parse_value 3.175
 
-@pytest.mark.parametrize("text, value", [("3.175", 3.175), ("1.200", 1.2), ("12.345", 12.345)])
-def test_three_decimals_are_decimals(text, value):
+@pytest.mark.parametrize("text, value", [("3.175", 3.175), ("1.500", 1.5), ("4.000", 4.0),
+                                          ("12.345", 12.345)])
+def test_three_decimals_are_decimals_in_a_document_with_no_decimal_comma(text, value):
     assert numparse.parse_value(text) == value
     assert claims.parse_value(text) == value
 
 
-@pytest.mark.parametrize("text", ["4.000", "12.000"])
-def test_only_d_000_stays_ambiguous(text):
-    assert numparse.parse_value(text) is None
+@pytest.mark.parametrize("text", ["3.175", "1.500", "4.000", "-12.345"])
+def test_three_decimals_are_ambiguous_in_a_document_that_writes_a_decimal_comma(text):
+    with numparse.document_context("The pressure is 9,0 bar."):
+        assert numparse.parse_value(text) is None
+        assert claims.parse_value(text) is None
 
 
-def test_a_three_decimal_measurement_is_normalised():
+def test_unambiguous_shapes_stay_decimals_in_a_decimal_comma_document():
+    with numparse.document_context("The pressure is 9,0 bar."):
+        assert numparse.parse_value("0.125") == 0.125     # EU thousands never start with 0
+        assert numparse.parse_value("6.89") == 6.89
+        assert numparse.parse_value("1,500") == 1500.0
+
+
+@pytest.mark.parametrize("text, uses", [
+    ("pressure 9,0 bar", True), ("ratio 1,5 and 2,25", True), ("value 12,3456", True),
+    ("stress 8,300 kPa", False), ("items 1,2,3 are listed", False), ("plain 3.175 mm", False)])
+def test_a_document_uses_a_decimal_comma_only_when_a_comma_is_a_decimal_mark(text, uses):
+    assert numparse.uses_decimal_comma(text) is uses
+
+
+def test_a_three_decimal_measurement_is_normalised_or_held_back_by_its_document():
     assert _vals("Wire diameter 3.175 mm.") == [("3.175", "mm", pytest.approx(3175.0))]
+    with numparse.document_context(True):
+        assert _vals("Wire diameter 3.175 mm.") == [("3.175", "mm", None)]
+
+
+def test_claims_read_each_document_by_its_own_spelling():
+    evidence = [
+        {"evidence_id": "e1", "filename": "EU-001.pdf", "page_start": 1,
+         "text": "Wire diameter is 3.175 mm. Pressure is 9,0 bar."},
+        {"evidence_id": "e2", "filename": "US-001.pdf", "page_start": 1,
+         "text": "Wire diameter is 3.175 mm."},
+    ]
+    found = claims.extract_claims(evidence, allowed_document_ids=frozenset())
+    by_file = {c.filename: [m.normalized_value for m in c.measurements]
+               for c in found if "Wire" in c.exact_span}
+    assert by_file["EU-001.pdf"] == [None]
+    assert by_file["US-001.pdf"] == [pytest.approx(3175.0)]
+
+
+def test_a_decimal_comma_document_sends_a_three_decimal_value_to_engineer_review(monkeypatch):
+    from app import comparison
+    requirement = {"requirement_type": "numeric_limit", "operator": "<=", "raw_value": "3,600",
+                   "raw_unit": "rpm", "value": 3600.0, "unit": "rpm", "subject": "speed",
+                   "requirement_text": "<= 3,600 rpm",
+                   "source_text": "Speed shall not exceed 3,600 rpm.", "field": "speed",
+                   "exceptions": []}
+    fact = {"id": "f1", "field_name": "speed", "field_value": "4.000 rpm", "raw_value": "4.000",
+            "raw_unit": "rpm", "is_blank": 0, "page": 1, "document_id": "doc-eu"}
+    monkeypatch.setattr(comparison, "_document_uses_decimal_comma", lambda _id: True)
+    out = comparison.compare(requirement, fact)
+    assert out["status"] == comparison.NEEDS_ENGINEER_REVIEW
+    assert "decimal comma" in out["rationale"] and "unit" not in out["rationale"].split("decimal")[0]
+    monkeypatch.setattr(comparison, "_document_uses_decimal_comma", lambda _id: False)
+    assert comparison.compare(requirement, fact)["status"] == comparison.COMPLIANT
+
+
+def test_the_document_flag_is_read_from_the_stored_chunks(tmp_path, monkeypatch):
+    from app import comparison, db
+    from app.config import settings
+    monkeypatch.setattr(settings, "db_path", tmp_path / "t.sqlite")
+    db.init_db()
+    con = db.connect()
+    cols = [r["name"] for r in con.execute("PRAGMA table_info(chunks)").fetchall()]
+    assert "text" in cols and "document_id" in cols
+    assert comparison._document_uses_decimal_comma("no-such-document") is False
 
 
 # --------------------------------------------------------------- M2 (datasheet)
@@ -244,3 +305,116 @@ def test_m2_one_matching_word_of_a_two_word_label_is_not_enough():
     ok = _gate(field="Casing material", value="Carbon steel", unit=None,
                quote="Casing material | Carbon steel")
     assert len(ok["accepted"]) == 1
+
+
+# ------------------------------------- owner decisions 2026-10-08: header units
+
+TABLE_PAGE = """PRESSURE DATASHEET     Page 1 of 1
+Item | Parameter | Value [barg] | Note
+5 | Design pressure | 23.5 | see note 3
+6 | Test pressure | 35 | hydro
+Item | Parameter | Flow (m3/h)
+7 | Rated flow | 125
+Required flow
+9,970 kg/hr
+"""
+
+
+def _table_gate(**fact):
+    base = {"field": "Design pressure", "value": "23.5", "unit": "barg",
+            "quote": "5 | Design pressure | 23.5 | see note 3", "kind": "offered"}
+    proposals, _ = claude_datasheet.parse_response(json.dumps({"facts": [{**base, **fact}]}))
+    return claude_datasheet.accept(proposals, TABLE_PAGE, [])
+
+
+def test_hd1_a_unit_only_in_the_column_header_is_accepted_and_says_where_it_came_from():
+    out = _table_gate()
+    assert len(out["accepted"]) == 1, out
+    assert out["accepted"][0]["unit_from"] == "column_header"
+
+
+def test_hd1_a_unit_in_the_quote_says_quote():
+    page = "Design pressure | 23.5 barg\n"
+    proposals, _ = claude_datasheet.parse_response(json.dumps({"facts": [
+        {"field": "Design pressure", "value": "23.5", "unit": "barg",
+         "quote": "Design pressure | 23.5 barg", "kind": "offered"}]}))
+    out = claude_datasheet.accept(proposals, page, [])
+    assert out["accepted"][0]["unit_from"] == "quote"
+
+
+def test_hd1_the_header_must_be_the_values_own_column():
+    page = "Item | Parameter | Value | Pressure [barg]\n5 | Design pressure | 23.5 | ref\n"
+    proposals, _ = claude_datasheet.parse_response(json.dumps({"facts": [
+        {"field": "Design pressure", "value": "23.5", "unit": "barg",
+         "quote": "5 | Design pressure | 23.5 | ref", "kind": "offered"}]}))
+    out = claude_datasheet.accept(proposals, page, [])
+    assert [r["reason"] for r in out["rejected"]] == [claude_datasheet.Reason.UNIT_NOT_IN_QUOTE.value]
+
+
+def test_hd1_a_unit_in_a_different_table_header_is_not_borrowed():
+    out = _table_gate(unit="m3/h")
+    assert [r["reason"] for r in out["rejected"]] == [claude_datasheet.Reason.UNIT_NOT_IN_QUOTE.value]
+
+
+def test_hd1_no_unit_in_the_quote_or_any_header_is_refused():
+    out = _table_gate(unit="psig")
+    assert [r["reason"] for r in out["rejected"]] == [claude_datasheet.Reason.UNIT_NOT_IN_QUOTE.value]
+
+
+def test_hd1_a_one_cell_per_line_layout_uses_a_header_like_line_above():
+    page = "Pressure (barg)\nDesign pressure\n23.5\n"
+    proposals, _ = claude_datasheet.parse_response(json.dumps({"facts": [
+        {"field": "Design pressure", "value": "23.5", "unit": "barg",
+         "quote": "Design pressure\n23.5", "kind": "offered"}]}))
+    out = claude_datasheet.accept(proposals, page, [])
+    assert out["accepted"][0]["unit_from"] == "column_header"
+
+
+# --------------------------------------- owner decisions 2026-10-08: "5 -10 mm"
+
+@pytest.mark.parametrize("text", ["5 -10 mm", f"5 {EN}10 mm"])
+def test_sd2_a_space_before_the_dash_only_is_one_unreadable_quantity(text):
+    found = claims.extract_measurements(f"Use {text}.")
+    assert [(m.raw_value, m.raw_unit, m.normalized_value) for m in found] == [
+        (text.rsplit(" ", 1)[0], "mm", None)]
+
+
+@pytest.mark.parametrize("text, ends", [("5-10 mm", [5000.0, 10000.0]), ("5 - 10 mm", [5000.0, 10000.0]),
+                                        ("5 – 10 mm", [5000.0, 10000.0])])
+def test_sd2_a_dash_with_no_space_or_spaces_both_sides_is_still_a_range(text, ends):
+    assert [m.normalized_value for m in claims.extract_measurements(f"Use {text}.")] == ends
+
+
+def test_sd2_a_negative_after_a_word_is_still_a_negative():
+    assert _vals("Minimum -10 mm.") == [("-10", "mm", -10000.0)]
+
+
+def test_sd2_the_ambiguous_value_goes_to_engineer_review_not_a_verdict():
+    from app import comparison
+    requirement = {"requirement_type": "numeric_limit", "operator": "<=", "raw_value": "20",
+                   "raw_unit": "mm", "value": 20.0, "unit": "mm", "subject": "gap",
+                   "requirement_text": "<= 20 mm", "source_text": "The gap shall not exceed 20 mm.",
+                   "field": "gap", "exceptions": []}
+    fact = {"id": "f1", "field_name": "gap", "field_value": "5 -10 mm", "raw_value": "5 -10",
+            "raw_unit": "mm", "is_blank": 0, "page": 1}
+    out = comparison.compare(requirement, fact)
+    assert out["status"] == comparison.NEEDS_ENGINEER_REVIEW
+
+
+# ------------------------------------- CI regression: a quote may span cell lines
+
+def test_m2_a_quote_that_spans_two_one_cell_per_line_rows_is_not_too_broad():
+    """The production bench sheet prints each label and each value on its own
+    line, so one row is two lines and a quote from one label to the next row's
+    value is four. A line limit refused it; only a whole-page quote is too
+    broad. (This is the reading the bench expects to be kept and flagged.)"""
+    page = ("CENTRIFUGAL PUMP DATASHEET\nDoc No.: DS-0001-P\nTag No.: SYN-P-0001\nRev: 0\n"
+            "Project: Synthetic Plant 0001\nRated capacity\n125 m3/h\nDifferential head\n85 m\n"
+            "Suction pressure\n1.5 barg\nDischarge pressure\n9.8 barg\nPumping temperature\n45 C\n"
+            "Speed\n2950 rpm\nDriver power\n55 kW\n")
+    quote = "Rated capacity\n125 m3/h\nDifferential head\n85 m"
+    proposals, _ = claude_datasheet.parse_response(json.dumps({"facts": [
+        {"field": "Rated capacity", "value": "85", "unit": "m", "quote": quote, "kind": "offered"}]}))
+    out = claude_datasheet.accept(proposals, page, [])
+    assert [r["reason"] for r in out["rejected"]] == []
+    assert len(out["accepted"]) == 1

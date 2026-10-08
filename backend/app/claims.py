@@ -736,6 +736,8 @@ def _identifiers_for(sentence: str, measurements: tuple[Measurement, ...]) -> tu
 
 #: The number in front of a range dash: "10" in "10-40 C".
 _RANGE_START = re.compile(r"(?<![\w.,/-])(\d+(?:[.,]\d+)?)\s?[-\u2013\u2014]\s?$")
+#: The number in front of "5 -10": space before the dash, none after it.
+_SPACE_DASH_START = re.compile(r"(?<![\w.,/-])(\d+(?:[.,]\d+)?)\s$")
 #: What follows the unit "in" when it is the English word: a space and a
 #: lower-case word that is not the multiplication "x".
 _ENGLISH_IN = re.compile(r"\s+(?!x\b)[a-z]")
@@ -758,7 +760,15 @@ def extract_measurements(sentence: str) -> tuple[Measurement, ...]:
         joiner = (start > 0 and sentence[start - 1] in numparse.DASH_LIKE
                   and sign != "-")
         range_start = None
-        if sign != "-" and (joiner or sentence[start - 1:start].isspace()):
+        ambiguous_from = None
+        if sign == "?":
+            # "5 -10 mm": a space before the dash only. A range or a negative
+            # number; the text cannot say, so it is kept as ONE unreadable
+            # quantity and goes to engineer review (owner decision 2026-10-08).
+            lead = _SPACE_DASH_START.search(sentence[:start - 1])
+            if lead is not None:
+                ambiguous_from = lead.start(1)
+        elif sign != "-" and (joiner or sentence[start - 1:start].isspace()):
             # "10-40 C", "10 - 40 C": a range. The number before the dash
             # shares the unit. Anything else a dash joins ("T-29 mm",
             # "5 -10 mm") is no measurement, as it always was.
@@ -807,6 +817,9 @@ def extract_measurements(sentence: str) -> tuple[Measurement, ...]:
         prefix = sentence[:begin].rstrip()
         cmp_match = re.search(r"(?:" + _COMPARATOR_RE + r")\s*$", prefix, re.IGNORECASE)
         comparator = parse_comparator(cmp_match.group(0)) if cmp_match else None
+        if ambiguous_from is not None:
+            found.append(normalise(sentence[ambiguous_from:end].strip(), unit, None))
+            continue
         if range_start is not None:
             found.append(normalise(range_start, unit, None))
         found.append(normalise(("-" if sign == "-" else "") + m.group("value"),
@@ -841,10 +854,19 @@ def extract_claims(
     """One Claim per sentence carrying a measurement, identifier or designator.
     Sentences with none are not claims. The sentence is carried verbatim."""
     claims: list[Claim] = []
+    # Per DOCUMENT (by filename): one that writes a decimal comma anywhere in
+    # the text handed to this call reads "3.175" as possibly 3,175.
+    by_file: dict[str, list[str]] = {}
+    for item in evidence:
+        by_file.setdefault(str(item.get("filename", "")), []).append(
+            item.get("exact_span") or item.get("text") or "")
+    comma_files = {fn for fn, texts in by_file.items()
+                   if numparse.uses_decimal_comma(" ".join(texts))}
     for item in evidence:
         text = item.get("exact_span") or item.get("text") or ""
         for sentence in split_sentences(text):
-            measurements = extract_measurements(sentence)
+            with numparse.document_context(str(item.get("filename", "")) in comma_files):
+                measurements = extract_measurements(sentence)
             identifiers = _identifiers_for(sentence, measurements)
             dropped = {i.lower() for i in keyword.IDENTIFIER.findall(sentence)} - {i.lower() for i in identifiers}
             designators = tuple(dict.fromkeys(keyword.find_designators(sentence)))

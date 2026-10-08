@@ -32,8 +32,11 @@ gate without pulling in retrieval or the database.
 """
 from __future__ import annotations
 
+import contextvars
 import re
 import unicodedata
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 # ------------------------------------------------------------------ characters
@@ -153,11 +156,12 @@ _TOKEN = re.compile(
 _GROUPED = re.compile(r"[0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]+)?")
 _COMMA_DECIMAL = re.compile(r"[0-9]+,[0-9]+")
 _DOT_DECIMAL = re.compile(r"[0-9]+(?:\.[0-9]+)?")
-#: d.000 with 1-3 leading digits (not 0): the decimal 4.000 or the EU thousands
-#: 4,000 - the text alone cannot say. Any other three decimals ("3.175",
-#: "1.200", "12.345") are decimals: 3.175 mm is 1/8 inch and no EU thousands
-#: group is written with a trailing zero group other than 000.
-_EU_THOUSANDS_LOOKALIKE = re.compile(r"[1-9][0-9]{0,2}\.000")
+#: d.ddd with 1-3 leading digits (not 0): the decimal 3.175 or the EU thousands
+#: 3,175 - the text alone cannot say, the DOCUMENT can: a document that writes
+#: a comma as a decimal mark anywhere (`uses_decimal_comma`) writes its
+#: thousands with dots, so there a three-decimal dot value is ambiguous;
+#: otherwise it is a decimal (owner decision 2026-10-08).
+_EU_THOUSANDS_LOOKALIKE = re.compile(r"[1-9][0-9]{0,2}\.[0-9]{3}")
 
 
 @dataclass(frozen=True)
@@ -184,13 +188,53 @@ class Number:
         return self.value if self.value is not None else self.raw
 
 
+#: Does the document being read write a comma as a decimal mark? Set by the
+#: code that reads a whole document (`document_context`); read by every parse.
+_DECIMAL_COMMA_DOCUMENT: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "numparse_decimal_comma_document", default=False)
+
+#: A comma used as a decimal mark: one or two digits after it ("9,0", "1,5"),
+#: or four or more. Exactly three digits is a thousands group. A list such as
+#: "items 1,2,3" is not a decimal mark.
+_DECIMAL_COMMA_USE = re.compile(r"(?<![\d,.])\d+,(?:\d{1,2}|\d{4,})(?![\d,])")
+
+
+def uses_decimal_comma(text: str | None) -> bool:
+    """True when `text` writes a comma as a decimal mark anywhere."""
+    return bool(text) and _DECIMAL_COMMA_USE.search(text) is not None
+
+
+@contextmanager
+def document_context(text_or_flag: str | bool | None) -> Iterator[None]:
+    """Read numbers as the document they come from writes them. Pass the
+    document's text (or a ready flag). Inside, a three-decimal dot value
+    ("3.175", "1.500") is AMBIGUOUS if the document uses a decimal comma
+    anywhere, and an ordinary decimal otherwise."""
+    flag = text_or_flag if isinstance(text_or_flag, bool) else uses_decimal_comma(text_or_flag)
+    token = _DECIMAL_COMMA_DOCUMENT.set(flag)
+    try:
+        yield
+    finally:
+        _DECIMAL_COMMA_DOCUMENT.reset(token)
+
+
+def decimal_comma_document() -> bool:
+    return _DECIMAL_COMMA_DOCUMENT.get()
+
+
+def is_three_decimal_dot(text: str | None) -> bool:
+    """The shape that is ambiguous in a decimal-comma document: "3.175"."""
+    return bool(text) and _EU_THOUSANDS_LOOKALIKE.fullmatch(str(text).strip().lstrip("+-")) is not None
+
+
 def _plain_value(token: str) -> tuple[float | None, bool]:
     if _GROUPED.fullmatch(token):
         return float(token.replace(",", "")), False
     if _COMMA_DECIMAL.fullmatch(token):
         return float(token.replace(",", ".")), False
     if _DOT_DECIMAL.fullmatch(token):
-        return float(token), bool(_EU_THOUSANDS_LOOKALIKE.fullmatch(token))
+        return float(token), (decimal_comma_document()
+                              and bool(_EU_THOUSANDS_LOOKALIKE.fullmatch(token)))
     return None, False
 
 
@@ -306,7 +350,7 @@ def as_number(text: str | float | int | None) -> float | None:
 _SPACE_GROUPED = re.compile(r"\d{1,3}(?:[ \u00a0\u202f\u2009]\d{3})+(?:[.,]\d+)?")
 
 
-def parse_value(value_str: str) -> float | None:
+def parse_value(value_str: str, *, decimal_comma_document: bool | None = None) -> float | None:
     """Parse a written number. Anything unparseable or ambiguous is None,
     never a guess.
 
@@ -315,13 +359,14 @@ def parse_value(value_str: str) -> float | None:
     * Space may separate thousands ONLY as groups of exactly three digits after
       a first group of 1-3 digits ("1 200", "12 345 678"). "34 3", "5 10" and
       "1 2 3" are two or three numbers, not one: None.
-    * d.000 with a leading integer part of 1-3 digits other than 0 ("4.000",
-      "12.000") is ambiguous between the decimal 4.000 and the EU thousands
-      4,000: None. Every other three-decimal value ("3.175", "1.200",
-      "12.345", "0.125") is a decimal, as is "6.89", "3.5" and "1234.567" (W2:
-      3.175 mm is a normal size and used to go to engineer review). The
-      comparison for an ambiguous one goes to NEEDS_ENGINEER_REVIEW rather
-      than guessing.
+    * d.ddd with a leading integer part of 1-3 digits other than 0 and EXACTLY
+      three decimals ("3.175", "1.500", "4.000") is a DECIMAL, unless the
+      document it comes from writes a comma as a decimal mark anywhere
+      (`document_context` / `decimal_comma_document`): there it is ambiguous
+      between the decimal 3.175 and the EU thousands 3,175: None. "0.125" (EU
+      thousands never start with 0), "6.89", "3.5" and "1234.567" are always
+      decimals. The comparison for an ambiguous one goes to
+      NEEDS_ENGINEER_REVIEW rather than guessing (owner decision 2026-10-08).
     * U+2212 is a minus. An en/em dash directly before the digits is a minus
       only when it begins the value or follows whitespace or a comparator; a
       dash separated from its digits ("- 29"), glued to a letter, or inside a
@@ -362,7 +407,8 @@ def parse_value(value_str: str) -> float | None:
         num = num.replace(",", "")
     elif re.fullmatch(r"\d+,\d+", num):
         num = num.replace(",", ".")
-    elif re.fullmatch(r"[1-9]\d{0,2}\.000", num):
+    elif (_DECIMAL_COMMA_DOCUMENT.get() if decimal_comma_document is None
+          else decimal_comma_document) and re.fullmatch(r"[1-9]\d{0,2}\.\d{3}", num):
         return None
     try:
         return float(sign + num)

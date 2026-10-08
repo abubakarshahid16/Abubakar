@@ -3086,9 +3086,14 @@ def extract_facts(
             method = datasheet_inputs.extraction_method(row["stored_path"])
     token = _OFFICE_METHOD.set(method)
     try:
-        return _extract_facts_by_plan(
-            document_id, allowed_document_ids=allowed_document_ids,
-            review_run_id=review_run_id, replace=replace)
+        # The sheet's own spelling decides how "3.175" is read: a decimal, or
+        # (when the sheet writes a decimal comma anywhere) possibly 3,175.
+        rows = connect().execute(
+            "SELECT text FROM chunks WHERE document_id = ?", (document_id,)).fetchall()
+        with numparse.document_context(" ".join(str(r["text"] or "") for r in rows)):
+            return _extract_facts_by_plan(
+                document_id, allowed_document_ids=allowed_document_ids,
+                review_run_id=review_run_id, replace=replace)
     finally:
         _OFFICE_METHOD.reset(token)
 

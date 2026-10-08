@@ -219,19 +219,60 @@ def _field_in_quote(field: str, quote: str) -> bool:
     return sum(1 for w in words if _contains(quote_folded, w)) >= needed
 
 
-#: A quote is one row: at most this many characters and this many lines, and
-#: not most of the page. Measured on the fixture pages: a row is under 120.
+#: A quote is a few cells, not the page: at most this many characters and not
+#: most of the page. NOT a line limit - a sheet that prints each label and
+#: value on its own line has a two-line row, and a quote that reaches across
+#: two rows is a reading the gate must see (and flag), not refuse.
 MAX_QUOTE_CHARS = 240
-MAX_QUOTE_LINES = 3
 MAX_QUOTE_SHARE_OF_PAGE = 0.5
 
 
 def _quote_too_broad(raw_quote: str, folded_page: str) -> bool:
     text = str(raw_quote or "")
-    lines = [ln for ln in text.splitlines() if ln.strip()]
-    if len(text.strip()) > MAX_QUOTE_CHARS or len(lines) > MAX_QUOTE_LINES:
+    if len(text.strip()) > MAX_QUOTE_CHARS:
         return True
     return len(folded_page) > 80 and len(_fold(text)) > MAX_QUOTE_SHARE_OF_PAGE * len(folded_page)
+
+
+#: How far above a value to look for the header that names its column.
+HEADER_LOOKBACK_LINES = 30
+
+
+def _header_like(line: str, unit: str) -> bool:
+    """A line that names columns: it holds the unit and no number of its own
+    once the unit's own digits ("m3/h") are taken out."""
+    rest = re.sub(re.escape(unit), " ", line, flags=re.IGNORECASE)
+    return not re.search(r"\d", rest)
+
+
+def _unit_in_column_header(unit: str, raw_quote: str, value: str, page_text: str) -> bool:
+    """True when `unit` is printed only in the header of the column the value
+    sits in. Pipe-delimited rows: the header line above must carry the unit in
+    the SAME column as the value. Any other layout: a header-like line within
+    `HEADER_LOOKBACK_LINES` lines above the quote carries it (a guess about
+    layout, so the fact says `unit_from: column_header`)."""
+    lines = str(page_text or "").splitlines()
+    first = next((_fold(ln) for ln in str(raw_quote or "").splitlines() if ln.strip()), "")
+    at = next((i for i, ln in enumerate(lines) if first and first in _fold(ln)), None)
+    if at is None:
+        return False
+    cells = [c.strip() for c in lines[at].split("|")]
+    column = None
+    if len(cells) > 1:
+        column = next((i for i, c in enumerate(cells) if numparse.value_in_text(value, c)), None)
+        if column is None:
+            return False
+    for line in reversed(lines[max(0, at - HEADER_LOOKBACK_LINES):at]):
+        if not line.strip() or not _header_like(line, unit):
+            continue
+        if column is None:
+            if "|" not in line and _contains(_fold(line), _fold(unit)):
+                return True
+        else:
+            head = [c.strip() for c in line.split("|")]
+            if column < len(head) and _contains(_fold(head[column]), _fold(unit)):
+                return True
+    return False
 
 
 def _unit_recognised(unit: str) -> bool:
@@ -445,14 +486,21 @@ def accept(proposals: list[dict], page_text: str, known_fields: list[str] | None
         if p.get("unit") and not _unit_recognised(p["unit"]):
             drop(p, Reason.UNIT_UNRECOGNISED)
             continue
-        if p.get("unit") and not _contains(quote, _fold(p["unit"])):
-            drop(p, Reason.UNIT_NOT_IN_QUOTE)
-            continue
+        unit_from = None
+        if p.get("unit"):
+            if _contains(quote, _fold(p["unit"])):
+                unit_from = "quote"
+            elif _unit_in_column_header(p["unit"], p["quote"], p["value"], page_text):
+                unit_from = "column_header"
+            else:
+                drop(p, Reason.UNIT_NOT_IN_QUOTE)
+                continue
         field_name = datasheets.normalise_field_name(p["field"])
         if field_name in known:
             drop(p, Reason.ALREADY_EXTRACTED)
             continue
-        accepted.append({**p, "field_name": field_name})
+        accepted.append({**p, "field_name": field_name,
+                         **({"unit_from": unit_from} if unit_from else {})})
     return {"accepted": accepted, "rejected": rejected,
             "counts": rejection_counts(rejected)}
 
