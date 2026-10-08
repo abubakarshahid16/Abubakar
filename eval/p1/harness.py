@@ -6,10 +6,13 @@ WHAT IT DOES. Builds the invented corpus (corpus.py) into whatever database
 with the same scorer as `eval/run_eval.py`, and compares the result with
 `baseline.json`.
 
-THE RULE IT ENFORCES. The score may go up but never down. A drop in any
-category, or any unanswerable question that gets an answer, fails the run.
-`baseline.json` lists each question that currently passes. A question moves
-into the baseline only when it passes; it never moves out.
+THE RULE IT ENFORCES (owner decision 2026-10-08, the `gate` in
+`baseline.json`): at least 37 of the 60 questions pass, and all 23 version 1
+questions that passed (P1-01 to P1-30) still pass, with their clause labels.
+Any other question may trade places with another. An unanswerable question
+that was refused and is now answered fails the run whatever the total.
+A baseline with no `gate` (a private real-library one) keeps the older,
+stricter rule: every question that passed must still pass.
 
 WHAT IT IS NOT. It is not proof on real documents. It uses invented text, and
 this project learned (27 September) that fake-data results can be poor on real
@@ -195,10 +198,22 @@ def summarise_by_category(rows: list[dict]) -> dict:
 
 
 def compare_with_baseline(rows: list[dict], baseline: dict) -> list[str]:
-    """Reasons this run must block the change. Empty list = no regression."""
+    """Reasons this run must block the change. Empty list = no regression.
+
+    With a `gate` in the baseline (owner decision 2026-10-08, version 2 of the
+    set) the score rule is: at least `gate.min_passing` questions pass, and
+    every question in `gate.protected` still passes. Any other question may
+    trade places. Without a gate (a private real-library baseline, say) every
+    baseline pass must still pass. Either way, an unanswerable question that
+    was refused must not start being answered."""
     reasons = []
     passed_now = {r["id"] for r in rows if r["passed"]}
-    for qid in baseline["passing"]:
+    gate = baseline.get("gate")
+    must_pass = baseline["passing"] if gate is None else gate["protected"]
+    if gate is not None and len(passed_now) < gate["min_passing"]:
+        reasons.append(f"{len(passed_now)} questions pass; the gate needs at "
+                       f"least {gate['min_passing']}")
+    for qid in must_pass:
         if qid not in passed_now:
             row = next((r for r in rows if r["id"] == qid), None)
             what = "missing from the run" if row is None else (
@@ -206,7 +221,10 @@ def compare_with_baseline(rows: list[dict], baseline: dict) -> list[str]:
                 f"pages {row['cited_pages']}")
             reasons.append(f"{qid} passed in the baseline and does not now ({what})")
     clause_now = {r["id"] for r in rows if r.get("clause_ok")}
-    for qid in baseline.get("clause_passing", []):
+    clause_kept = baseline.get("clause_passing", [])
+    if gate is not None:
+        clause_kept = [q for q in clause_kept if q in gate["protected"]]
+    for qid in clause_kept:
         if qid not in clause_now:
             reasons.append(f"{qid} cited the right clause in the baseline and does not now")
     known = set(baseline.get("failing_known", []))

@@ -1,8 +1,8 @@
 # P1: the labelled question set
 
 A fixed list of questions with known right answers, run through the real chat
-on every change. If a question that used to pass stops passing, the change is
-blocked.
+on every change. A change is blocked when fewer than 37 of the 60 questions
+pass, or when any of the 23 original passes stops passing (see "The gate").
 
 ## What is in this folder
 
@@ -10,7 +10,7 @@ blocked.
 |---|---|
 | `corpus.py` | eleven invented standards (STD-A-001 to STD-K-010, one of them an old revision) and the code that writes them as PDFs |
 | `questions.json` | 60 invented-name questions, version 2. P1-01 to P1-30: direct, reworded, abbreviation, document named in the question, table, condition, old revision, and six that the corpus cannot answer. P1-31 to P1-60: ten hard paraphrases, five distractors, five more unanswerable, five multi-document, five number/unit/sign |
-| `baseline.json` | which questions pass today. The bar. It only goes up |
+| `baseline.json` | which questions pass today, and the `gate` the run is held to |
 | `harness.py`, `run_p1.py` | build the corpus in a throwaway database, ask every question, score, compare |
 | `../../backend/tests/test_p1_question_set.py` | the gate. GitHub CI runs it with the rest of the suite |
 
@@ -45,8 +45,28 @@ After a real improvement, raise the bar and commit the new `baseline.json`:
   chunk with several short clauses carries the first clause's label. That is a
   citation defect, not a wrong answer, and it should not hide the other score.
 
-A change is blocked when a baseline question fails, a baseline clause label is
-lost, or a new unanswerable question gets an answer.
+## The gate
+
+Owner decision, 2026-10-08. A change is blocked when ANY of these is true:
+
+| rule | where it lives |
+|---|---|
+| fewer than **37 of 60** questions pass | `gate.min_passing` in `baseline.json` |
+| any of the **23 original passes** (P1-02 to P1-30 that passed in version 1) fails | `gate.protected` |
+| one of those 23 loses its right clause label | `clause_passing`, limited to `gate.protected` |
+| an unanswerable question that was refused is now answered | `failing_known` |
+
+Outside the 23, a question may trade places: P1-34 failing is fine if
+another new question starts passing and the total stays at 37 or more.
+
+The last two rows are kept from the version 1 rule. The owner's
+decision named only the first two. The clause row is limited to the 23
+protected questions. An answer to an unanswerable question is the
+failure this project guards hardest, so that row still blocks on its own.
+
+`--write-baseline` keeps the `gate` as it is. Only a person edits it, and
+`test_the_committed_gate_is_37_of_60_with_the_23_original_passes` checks
+that the file still says 37 and 23.
 
 ## What this does not prove
 

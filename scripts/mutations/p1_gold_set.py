@@ -38,4 +38,38 @@ MUTATIONS: tuple[Mutation, ...] = (
         replacement="    pass",
         target=_T, keyword="cites_only_one_side",
     ),
+    # The gate, owner decision 2026-10-08: at least 37 of 60, and the 23
+    # version 1 passes protected.
+    Mutation(
+        id="M2204", phase=2010,
+        description="with a gate, every baseline pass is still required (the old rule)",
+        path=_H,
+        anchor='    must_pass = baseline["passing"] if gate is None else gate["protected"]',
+        replacement='    must_pass = baseline["passing"]',
+        target=_T, keyword="may_trade_places",
+    ),
+    Mutation(
+        id="M2205", phase=2010,
+        description="the minimum number of passes is never checked",
+        path=_H,
+        anchor='    if gate is not None and len(passed_now) < gate["min_passing"]:',
+        replacement="    if False:",
+        target=_T, keyword="below_the_minimum",
+    ),
+    Mutation(
+        id="M2206", phase=2010,
+        description="with a gate, a lost clause label on an unprotected question still blocks",
+        path=_H,
+        anchor='        clause_kept = [q for q in clause_kept if q in gate["protected"]]',
+        replacement="        pass",
+        target=_T, keyword="may_trade_places",
+    ),
+    Mutation(
+        id="M2207", phase=2010,
+        description="a protected question that fails no longer blocks",
+        path=_H,
+        anchor="    for qid in must_pass:\n        if qid not in passed_now:",
+        replacement="    for qid in []:\n        if qid not in passed_now:",
+        target=_T, keyword="protected_question_that_fails",
+    ),
 )
