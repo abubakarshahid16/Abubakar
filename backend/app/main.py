@@ -199,6 +199,8 @@ async def lifespan(app: FastAPI):
     # Drain the upload queue. Without this a document sits at 'queued'
     # forever while the API reports a job id that means nothing.
     ingest_mod.start_worker()
+    # Automatic risk detection, off the request path (#478). No-op in tests.
+    risks_mod.start_background_detection()
     # The watched folder is OFF unless WATCH_FOLDER is set in backend/.env.
     # start_watcher() returns a reason string rather than raising when it does
     # not start, so a machine with no drop folder boots exactly as before.
@@ -211,6 +213,7 @@ async def lifespan(app: FastAPI):
     # blocks this start, never writes the database, and logs any failure.
     warmup_mod.start()
     yield
+    risks_mod.stop_background_detection()
     watcher_mod.stop_watcher()
     ingest_mod.stop_worker()
 
@@ -2414,8 +2417,18 @@ def list_risks(risk_type: str | None = None,
                scope: access.AccessScope = Depends(access.current_scope)):
     if risk_type is not None and risk_type not in risks_mod.RISK_TYPES:
         raise HTTPException(status_code=422, detail="unsupported risk type")
-    risks_mod.detect_automatic_risks(allowed_document_ids=scope.allowed_document_ids)
+    # READ ONLY (#478, #608). Detection used to run here on every GET, looping
+    # over every finding and emailing per risk. It runs in the background
+    # (`risks_mod.start_background_detection`) and from POST /api/risks/detect.
     return {"risks": risks_mod.list_items(risk_type=risk_type, allowed_document_ids=scope.allowed_document_ids)}
+
+
+@app.post("/api/risks/detect", response_model=schemas.RiskDetectionResult,
+          responses={**schemas.ERRORS_404})
+def detect_risks(_actor: dict | None = Depends(admin_mod.current_admin)):
+    """Run automatic risk detection now. Admin only (404 to anyone else, the
+    admin surface's convention). Single-flight; sends at most one digest."""
+    return risks_mod.run_detection()
 
 
 @app.get("/api/reviews/findings/{finding_id}/traceability", response_model=schemas.ReviewTraceability)

@@ -22,10 +22,11 @@ from __future__ import annotations
 
 import math
 import re
+import time
 from dataclasses import dataclass
 from typing import Literal
 
-from . import keyword, lexical
+from . import acronyms, keyword, lexical
 from .sentence_guard import NOT_AN_ABBREVIATION
 
 NORMALIZER_VERSION = "1"
@@ -847,10 +848,11 @@ def extract_measurements(sentence: str) -> tuple[Measurement, ...]:
 
 
 def claim_terms(
-    sentence: str, *, allowed_document_ids: frozenset[str]
+    sentence: str, *, allowed_document_ids: frozenset[str],
+    expansions: list[str] | None = None,
 ) -> frozenset[str]:
     return frozenset(t.lower() for t in lexical.distinctive_terms(
-        sentence, allowed_document_ids=allowed_document_ids))
+        sentence, allowed_document_ids=allowed_document_ids, expansions=expansions))
 
 
 def question_terms(
@@ -868,14 +870,33 @@ def question_terms(
 
 
 def extract_claims(
-    evidence: list[dict], *, allowed_document_ids: frozenset[str]
+    evidence: list[dict], *, allowed_document_ids: frozenset[str],
+    budget=None,
 ) -> list[Claim]:
     """One Claim per sentence carrying a measurement, identifier or designator.
-    Sentences with none are not claims. The sentence is carried verbatim."""
+    Sentences with none are not claims. The sentence is carried verbatim.
+
+    ONE CORPUS READ FOR THE WHOLE CALL (#606). The corpus's multi-word
+    expansions are read once and shared by every sentence; reading them per
+    sentence ran one corpus-wide database query for each (44 claims = 44
+    queries). `budget` (`work_budget.WorkBudget`) stops the loop at its
+    deadline or claim cap and records why; the claims found so far are
+    returned, never a silent short list."""
+    expansions = acronyms.known_expansions(None, allowed_document_ids=allowed_document_ids)
     claims: list[Claim] = []
+    seen_sentences = 0
     for item in evidence:
         text = item.get("exact_span") or item.get("text") or ""
         for sentence in split_sentences(text):
+            seen_sentences += 1
+            if seen_sentences % 25 == 0:
+                time.sleep(0)       # let other requests' threads run
+            if budget is not None:
+                if budget.exceeded():
+                    return claims
+                if budget.max_claims is not None and len(claims) >= budget.max_claims:
+                    budget.note(f"claim cap of {budget.max_claims} reached")
+                    return claims
             measurements = extract_measurements(sentence)
             identifiers = _identifiers_for(sentence, measurements)
             dropped = {i.lower() for i in keyword.IDENTIFIER.findall(sentence)} - {i.lower() for i in identifiers}
@@ -895,6 +916,7 @@ def extract_claims(
                     terms=claim_terms(
                         sentence,
                         allowed_document_ids=allowed_document_ids,
+                        expansions=expansions,
                     ) - frozenset(dropped),
                 )
             )
@@ -1556,12 +1578,17 @@ def _can_merge(small_key: frozenset[str], small_rows: list[Claim],
     return True
 
 
-def _merge_facets(groups: dict[frozenset[str], list[Claim]]
+def _merge_facets(groups: dict[frozenset[str], list[Claim]], *, budget=None
                   ) -> list[tuple[frozenset[str], list[Claim]]]:
     """Fold narrower facets into the broader facet they are a detail of.
 
     Applied to a fixpoint and in a deterministic order - fewest terms first,
     then the sorted key - so the same corpus always produces the same facets.
+
+    Pairwise in the number of facets (each merge restarts the scan), so it is
+    BOUNDED by `budget` (#606): past the deadline merging stops, the facets
+    found so far are returned UNMERGED-FURTHER (still true, only less
+    consolidated) and the budget records why.
     """
     items: list[list] = [[key, list(rows)] for key, rows in groups.items()]
     items.sort(key=lambda it: (len(subject_terms(it[0])), sorted(it[0])))
@@ -1570,6 +1597,9 @@ def _merge_facets(groups: dict[frozenset[str], list[Claim]]
         changed = False
         for i, small in enumerate(items):
             target = None
+            if budget is not None and budget.exceeded():
+                budget.note("facet merging stopped early")
+                return [(key, rows) for key, rows in items]
             for j, big in enumerate(items):
                 if i == j:
                     continue
@@ -1591,7 +1621,8 @@ def _merge_facets(groups: dict[frozenset[str], list[Claim]]
     return [(key, rows) for key, rows in items]
 
 
-def cluster(claims: list[Claim], question_terms: frozenset[str]) -> list[Cluster]:
+def cluster(claims: list[Claim], question_terms: frozenset[str], *,
+            budget=None) -> list[Cluster]:
     """Cluster iff same facet_key, then merge facets that are the same subject
     at two levels of detail (`_can_merge`). Never by text similarity. Claims
     whose facet_key is None are dropped: they cannot be compared to anything,
@@ -1605,9 +1636,11 @@ def cluster(claims: list[Claim], question_terms: frozenset[str]) -> list[Cluster
             continue
         groups.setdefault(key, []).append(c)
     out: list[Cluster] = []
-    for key, rows in _merge_facets(groups):
+    for key, rows in _merge_facets(groups, budget=budget):
         if not rows:
             continue
+        if budget is not None and budget.exceeded():
+            return sorted(out, key=lambda c: c.facet)
         label, note = label_cluster(rows)
         out.append(Cluster(facet=_facet_string(key, rows), label=label,
                            rows=tuple(rows), note=note, key=key))

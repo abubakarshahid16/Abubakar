@@ -88,7 +88,11 @@ def test_overdue_and_escalation_events_send_once_per_level(monkeypatch):
         "wbs_code": "1.1", "title": "Design submittal", "deliverable_type": "PDF",
         "due_date": due,
     }, created_by=None)
+    # W7 (#478): the events are created by the background job's function,
+    # not by reading them. Run it twice: the second creates and sends nothing.
+    assert deliverables.generate_reminders() == 1
     first = deliverables.reminder_events()
+    assert deliverables.generate_reminders() == 0
     second = deliverables.reminder_events()
     assert len(first) == 1 and len(second) == 1
     assert len(FakeSMTP.sent) == 1, "UNIQUE reminder event must not email twice"
@@ -106,7 +110,7 @@ def test_escalation_level_change_uses_escalation_trigger(monkeypatch):
         "wbs_code": "1.2", "title": "Late design", "deliverable_type": "PDF",
         "due_date": due,
     }, created_by=None)
-    deliverables.reminder_events()
+    deliverables.generate_reminders()
     assert len(FakeSMTP.sent) == 1
     assert "escalation level 2" in FakeSMTP.sent[0]["Subject"].lower()
     audit = connect().execute(

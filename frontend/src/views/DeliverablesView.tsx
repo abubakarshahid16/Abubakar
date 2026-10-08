@@ -7,10 +7,17 @@ import type { EscalationRule } from "../types/api";
 
 const statuses: DeliverableStatus[] = ["planned", "in_progress", "submitted", "under_review", "approved", "rejected", "superseded"];
 
+type Panel = "register" | "alerts" | "rules" | "expected" | "risks";
+type Settled<T> = { ok: true; data: T } | { ok: false; error: { message: string } };
+
 export function DeliverablesView() {
   const [items, setItems] = useState<Deliverable[]>([]);
   const [alerts, setAlerts] = useState<{ title: string; days_overdue: number; escalation_level: number; severity: string }[]>([]);
-  const [loading, setLoading] = useState(true);
+  // EACH PANEL LOADS ON ITS OWN (#608). One slow or failed request (the risk
+  // register once hung the whole screen on "Loading deliverables") shows its
+  // own spinner or error and never blocks the WBS register.
+  const [pending, setPending] = useState<Record<Panel, boolean>>({ register: true, alerts: true, rules: true, expected: true, risks: true });
+  const [panelErrors, setPanelErrors] = useState<Partial<Record<Panel, string>>>({});
   const [error, setError] = useState<string | null>(null);
   // WHICH LISTS ARE KNOWN. A list whose request failed is not an empty list
   // (audit 2026-09-30): the error box and "No deliverables have been
@@ -31,27 +38,26 @@ export function DeliverablesView() {
   const [stakeholderRole, setStakeholderRole] = useState<StakeholderRole>("reviewer");
   const [form, setForm] = useState<DeliverableCreate>({ wbs_code: "1.0", title: "", deliverable_type: "Engineering submittal", due_date: "" });
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null);
-    const [list, alertResult, ruleResult, expectedResult, riskResult] = await Promise.all([deliverablesApi.list(), deliverablesApi.alerts(), management.escalationRules(), deliverablesApi.expected(), risksApi.list()]);
-    if (!list.ok) {
-      setItems([]); setRegisterLoaded(false);
-      setError(list.error.message); setLoading(false); return;
-    }
-    setItems(list.data.deliverables);
-    setRegisterLoaded(true);
-    const secondaryErrors = [alertResult, ruleResult, expectedResult, riskResult].filter((result) => !result.ok).map((result) => result.error.message);
-    if (alertResult.ok) setAlerts(alertResult.data.alerts);
-    if (ruleResult.ok) setRules(ruleResult.data.rules);
-    if (expectedResult.ok) setExpected(expectedResult.data.deliverables);
-    setExpectedLoaded(expectedResult.ok);
-    if (riskResult.ok) setRisks(riskResult.data.risks);
-    setRisksLoaded(riskResult.ok);
-    if (secondaryErrors.length > 0) setError(secondaryErrors.join(" "));
-    setLoading(false);
+  const load = useCallback(() => {
+    setError(null); setPanelErrors({});
+    setPending({ register: true, alerts: true, rules: true, expected: true, risks: true });
+    const settle = <T,>(panel: Panel, request: Promise<Settled<T>>, onOk: (data: T) => void, onFail?: () => void) => {
+      request
+        .then((result) => {
+          if (result.ok) onOk(result.data);
+          else { onFail?.(); setPanelErrors((current) => ({ ...current, [panel]: result.error.message })); }
+        })
+        .catch(() => { onFail?.(); setPanelErrors((current) => ({ ...current, [panel]: "The request failed." })); })
+        .finally(() => setPending((current) => ({ ...current, [panel]: false })));
+    };
+    settle("register", deliverablesApi.list(), (data) => { setItems(data.deliverables); setRegisterLoaded(true); }, () => { setItems([]); setRegisterLoaded(false); });
+    settle("alerts", deliverablesApi.alerts(), (data) => setAlerts(data.alerts));
+    settle("rules", management.escalationRules(), (data) => setRules(data.rules));
+    settle("expected", deliverablesApi.expected(), (data) => { setExpected(data.deliverables); setExpectedLoaded(true); }, () => setExpectedLoaded(false));
+    settle("risks", risksApi.list(), (data) => { setRisks(data.risks); setRisksLoaded(true); }, () => setRisksLoaded(false));
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { load(); }, [load]);
 
   async function create() {
     if (!form.title.trim()) return;
@@ -98,6 +104,8 @@ export function DeliverablesView() {
     else setError(result.error.message);
   }
 
+  const shownError = [error, ...Object.values(panelErrors)].filter((message): message is string => Boolean(message)).join(" ");
+
   return (
     <main id="deliverables" className="w-full px-4 py-6">
       <header>
@@ -106,7 +114,7 @@ export function DeliverablesView() {
         <p className="mt-1 max-w-2xl text-sm text-slateish-400">Track the WBS, revision, review status, and due-date risk for every engineering submittal.</p>
       </header>
 
-      {error !== null && <InlineErrorState message={error} />}
+      {shownError !== "" && <InlineErrorState message={shownError} />}
       {alerts.length > 0 && <section className="mt-5 rounded-[var(--radius-md)] border border-warn-500/40 bg-warn-500/10 p-4"><h2 className="text-sm font-semibold text-warn-500">Escalation alerts</h2><ul className="mt-2 space-y-1 text-sm text-warn-500">{alerts.map((alert) => <li key={`${alert.title}-${alert.escalation_level}`}>{alert.title} is {alert.days_overdue} day{alert.days_overdue === 1 ? "" : "s"} overdue · level {alert.escalation_level} · {alert.severity}</li>)}</ul></section>}
 
       <section className="mt-5 rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4">
@@ -122,7 +130,7 @@ export function DeliverablesView() {
 
       <section className="mt-5 overflow-hidden rounded-[var(--radius-md)] border border-ink-600 bg-ink-850">
         <div className="border-b border-ink-700 px-4 py-3"><h2 className="text-sm font-semibold text-slateish-200">WBS register</h2></div>
-      {loading ? <Spinner label="Loading deliverables" /> : !registerLoaded ? <p className="px-4 py-3 text-sm text-slateish-400">The WBS register could not be loaded, so it is not known what is registered.</p> : items.length === 0 ? <EmptyState title="No deliverables have been registered yet." hint="Add a deliverable above to start tracking the engineering submission." /> : <div className="divide-y divide-ink-700/70">{items.map((item) => <div key={item.id} className="px-4 py-3"><div className="grid gap-2 md:grid-cols-[100px_1fr_150px_130px_150px_auto] md:items-center"><span className="font-mono text-xs text-signal-400">{item.wbs_code}</span><div><p className="text-sm text-slateish-200">{item.title}</p><p className="text-xs text-slateish-500">{item.deliverable_type} · revision {item.revision}</p></div><span className="text-xs text-slateish-400">Due {item.due_date || "not set"}</span><StatusBadge tone={item.status === "approved" ? "good" : item.status === "rejected" ? "danger" : "neutral"}>{item.status.replaceAll("_", " ")}</StatusBadge><select value={item.status} onChange={(e) => void changeStatus(item, e.target.value as DeliverableStatus)} aria-label={`Status for ${item.title}`} className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200">{statuses.map((status) => <option key={status} value={status}>{status.replaceAll("_", " ")}</option>)}</select><button type="button" onClick={() => void showStakeholders(item)} className="text-xs text-signal-400 hover:underline">Stakeholders</button></div>{selected === item.id && <div className="mt-2 rounded-[var(--radius-xs)] border border-ink-700 bg-ink-900/60 px-3 py-2 text-xs text-slateish-400">{(stakeholders[item.id] ?? []).length === 0 ? "No stakeholders assigned." : <div className="flex flex-wrap gap-2">{stakeholders[item.id].map((person) => <span key={`${person.user_id}-${person.role}`} className="rounded-full bg-ink-700 px-2 py-1"><strong className="text-signal-300">{person.role}</strong> · {person.display_name || person.email}</span>)}</div>}</div>}</div>)}</div>}
+      {pending.register ? <Spinner label="Loading deliverables" /> : !registerLoaded ? <p className="px-4 py-3 text-sm text-slateish-400">The WBS register could not be loaded, so it is not known what is registered.</p> : items.length === 0 ? <EmptyState title="No deliverables have been registered yet." hint="Add a deliverable above to start tracking the engineering submission." /> : <div className="divide-y divide-ink-700/70">{items.map((item) => <div key={item.id} className="px-4 py-3"><div className="grid gap-2 md:grid-cols-[100px_1fr_150px_130px_150px_auto] md:items-center"><span className="font-mono text-xs text-signal-400">{item.wbs_code}</span><div><p className="text-sm text-slateish-200">{item.title}</p><p className="text-xs text-slateish-500">{item.deliverable_type} · revision {item.revision}</p></div><span className="text-xs text-slateish-400">Due {item.due_date || "not set"}</span><StatusBadge tone={item.status === "approved" ? "good" : item.status === "rejected" ? "danger" : "neutral"}>{item.status.replaceAll("_", " ")}</StatusBadge><select value={item.status} onChange={(e) => void changeStatus(item, e.target.value as DeliverableStatus)} aria-label={`Status for ${item.title}`} className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200">{statuses.map((status) => <option key={status} value={status}>{status.replaceAll("_", " ")}</option>)}</select><button type="button" onClick={() => void showStakeholders(item)} className="text-xs text-signal-400 hover:underline">Stakeholders</button></div>{selected === item.id && <div className="mt-2 rounded-[var(--radius-xs)] border border-ink-700 bg-ink-900/60 px-3 py-2 text-xs text-slateish-400">{(stakeholders[item.id] ?? []).length === 0 ? "No stakeholders assigned." : <div className="flex flex-wrap gap-2">{stakeholders[item.id].map((person) => <span key={`${person.user_id}-${person.role}`} className="rounded-full bg-ink-700 px-2 py-1"><strong className="text-signal-300">{person.role}</strong> · {person.display_name || person.email}</span>)}</div>}</div>}</div>)}</div>}
       </section>
 
       <section aria-label="Expected deliverables" className="mt-5 overflow-hidden rounded-[var(--radius-md)] border border-ink-600 bg-ink-850">
@@ -130,12 +138,12 @@ export function DeliverablesView() {
           <div><h2 className="text-sm font-semibold text-slateish-200">Expected deliverables</h2><p className="mt-1 text-xs text-slateish-500">Requirement-linked expectations compared with the WBS register.</p></div>
           {expectedLoaded && <StatusBadge tone={expected.some((item) => item.state === "missing") ? "warn" : "good"}>{expected.filter((item) => item.state === "missing").length} missing</StatusBadge>}
         </div>
-        {!expectedLoaded ? (loading ? null : <p className="px-4 py-3 text-sm text-slateish-400">The expected deliverables could not be loaded.</p>) : expected.length === 0 ? <EmptyState title="No expectations are configured or inferred yet." hint="Link a requirement document or add an expectation manually." /> : <div className="divide-y divide-ink-700/70">{expected.map((item) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"><div><p className="text-sm text-slateish-200">{item.title}</p><p className="text-xs text-slateish-500">WBS {item.wbs_code} · {item.deliverable_type} · {item.origin}</p>{item.origin === "inferred" && <span className="mt-1 inline-block rounded-[var(--radius-xs)] bg-signal-500/15 px-2 py-0.5 text-xs text-signal-300">AI suggested · review before accepting</span>}</div><StatusBadge tone={item.state === "missing" ? "warn" : "good"}>{item.state}</StatusBadge></div>)}</div>}
+        {!expectedLoaded ? (pending.expected ? <Spinner label="Loading expected deliverables" /> : <p className="px-4 py-3 text-sm text-slateish-400">The expected deliverables could not be loaded.</p>) : expected.length === 0 ? <EmptyState title="No expectations are configured or inferred yet." hint="Link a requirement document or add an expectation manually." /> : <div className="divide-y divide-ink-700/70">{expected.map((item) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"><div><p className="text-sm text-slateish-200">{item.title}</p><p className="text-xs text-slateish-500">WBS {item.wbs_code} · {item.deliverable_type} · {item.origin}</p>{item.origin === "inferred" && <span className="mt-1 inline-block rounded-[var(--radius-xs)] bg-signal-500/15 px-2 py-0.5 text-xs text-signal-300">AI suggested · review before accepting</span>}</div><StatusBadge tone={item.state === "missing" ? "warn" : "good"}>{item.state}</StatusBadge></div>)}</div>}
       </section>
 
       <section aria-label="Risk register" className="mt-5 overflow-hidden rounded-[var(--radius-md)] border border-ink-600 bg-ink-850">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-700 px-4 py-3"><div><h2 className="text-sm font-semibold text-slateish-200">Risk register</h2><p className="mt-1 text-xs text-slateish-500">Schedule, review, dependency, and compliance risks linked to project records.</p></div><div className="flex flex-wrap gap-2"><select aria-label="Risk type filter" value={riskType} onChange={(e) => { const next = e.target.value as import("../types/api").RiskType; setRiskType(next); void risksApi.list(next).then((result) => { setRisksLoaded(result.ok); if (result.ok) setRisks(result.data.risks); else setError(result.error.message); }); }} className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200"><option value="schedule">Schedule</option><option value="review">Review</option><option value="dependency">Dependency</option><option value="compliance">Compliance</option></select><input aria-label="Risk title" value={riskTitle} onChange={(e) => setRiskTitle(e.target.value)} placeholder="Add risk" className="w-40 rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200" /><button type="button" onClick={() => void createRisk()} className="rounded-[var(--radius-xs)] bg-signal-500/20 px-3 py-1.5 text-xs text-signal-300">Create</button></div></div>
-        {!risksLoaded ? (loading ? null : <p className="px-4 py-3 text-sm text-slateish-400">The risk register could not be loaded.</p>) : risks.length === 0 ? <EmptyState title={`No ${riskType} risks are recorded.`} hint="Create a risk or choose another risk type." /> : <div className="divide-y divide-ink-700/70">{risks.map((risk) => <div key={risk.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"><div><p className="text-sm text-slateish-200">{risk.title}</p><p className="text-xs text-slateish-500">{risk.description}</p>{risk.source_finding_id && <span className="mt-1 inline-block rounded-[var(--radius-xs)] bg-signal-500/15 px-2 py-0.5 text-xs text-signal-300">AI suggested · linked to review finding</span>}</div><StatusBadge tone={risk.severity === "critical" ? "danger" : "warn"}>{risk.severity} · {risk.status}</StatusBadge></div>)}</div>}
+        {!risksLoaded ? (pending.risks ? <Spinner label="Loading the risk register" /> : <p className="px-4 py-3 text-sm text-slateish-400">The risk register could not be loaded.</p>) : risks.length === 0 ? <EmptyState title={`No ${riskType} risks are recorded.`} hint="Create a risk or choose another risk type." /> : <div className="divide-y divide-ink-700/70">{risks.map((risk) => <div key={risk.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"><div><p className="text-sm text-slateish-200">{risk.title}</p><p className="text-xs text-slateish-500">{risk.description}</p>{risk.source_finding_id && <span className="mt-1 inline-block rounded-[var(--radius-xs)] bg-signal-500/15 px-2 py-0.5 text-xs text-signal-300">AI suggested · linked to review finding</span>}</div><StatusBadge tone={risk.severity === "critical" ? "danger" : "warn"}>{risk.severity} · {risk.status}</StatusBadge></div>)}</div>}
       </section>
 
       <section className="mt-5 rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4">

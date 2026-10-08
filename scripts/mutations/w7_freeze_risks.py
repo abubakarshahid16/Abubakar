@@ -1,0 +1,116 @@
+"""W7 P0 (#606, #478, #607, #608): each entry deletes one fix and a new test
+must notice. Ids start at M2301 so they cannot collide with the W2 PR's
+M2101-M2151. Files: backend/app/{acronyms,analysis,claims,work_budget,risks,
+deliverables,notifications,main}.py and the Analysis / Deliverables screens.
+"""
+from __future__ import annotations
+
+from ._base import APP, FRONTEND_SRC, Mutation
+
+_G = "tests/test_w7_gaps_freeze.py"
+_R = "tests/test_w7_risks_read_only.py"
+_W = "tests/test_w7_get_routes_read_only.py"
+_TAG = ("w7", "honesty")
+
+MUTATIONS: tuple[Mutation, ...] = (
+    Mutation(id="M2301", phase=2301, description="a gap run builds the acronym maps inside the request again",
+             path=APP / "analysis.py", anchor="    with acronyms.request_scope() as not_ready:\n",
+             replacement="    not_ready: list = []\n    if True:\n",
+             target=_G, keyword="cold_acronym_map", tags=_TAG),
+    Mutation(id="M2302", phase=2302, description="every claim reads the corpus again (one query per claim)",
+             path=APP / "claims.py",
+             anchor="    expansions = acronyms.known_expansions(None, allowed_document_ids=allowed_document_ids)\n",
+             replacement="    expansions = None\n",
+             target=_G, keyword="read_the_corpus_once", tags=_TAG),
+    Mutation(id="M2303", phase=2303, description="identical concurrent gap runs both do the work",
+             path=APP / "analysis.py", anchor="        flight = _flights.get(key)\n",
+             replacement="        flight = None\n",
+             target=_G, keyword="concurrent_identical", tags=_TAG),
+    Mutation(id="M2304", phase=2304, description="the gap run has no time budget",
+             path=APP / "work_budget.py",
+             anchor="        if self._deadline is not None and self._clock() >= self._deadline:\n",
+             replacement="        if False:\n",
+             target=_G, keyword="heavy_run_stops or health_answers", tags=_TAG),
+    Mutation(id="M2305", phase=2305, description="the claim cap is not applied",
+             path=APP / "claims.py",
+             anchor="                if budget.max_claims is not None and len(claims) >= budget.max_claims:\n",
+             replacement="                if False:\n",
+             target=_G, keyword="claim_cap", tags=_TAG),
+    Mutation(id="M2306", phase=2306, description="a request for more evidence than the cap is not cut",
+             path=APP / "analysis.py", anchor="    if limit > budget.max_evidence:\n",
+             replacement="    if False:\n",
+             target=_G, keyword="evidence_request_above", tags=_TAG),
+    Mutation(id="M2307", phase=2307, description="a stopped run is reported as complete",
+             path=APP / "work_budget.py", anchor="        return bool(self.reasons)\n",
+             replacement="        return False\n",
+             target=_G, keyword="heavy_run_stops or claim_cap or evidence_request_above", tags=_TAG),
+    Mutation(id="M2308", phase=2308, description="the background warm rebuilds maps that are already built",
+             path=APP / "acronyms.py",
+             anchor="        if _cached_document_map(key) is not None:\n            continue\n        with _build_lock:\n"
+                    "            if _cached_document_map(key) is None:\n                _build_document_map(doc_id, key)\n"
+                    "                built += 1\n",
+             replacement="        with _build_lock:\n            _build_document_map(doc_id, key)\n            built += 1\n",
+             target=_G, keyword="background_build_the_same_request or changed_document", tags=_TAG),
+    Mutation(id="M2309", phase=2309, description="two cold requests both build the same document map",
+             path=APP / "acronyms.py",
+             anchor="        # Another thread may have built it while this one waited.\n        cached = _cached_document_map(key)\n        if cached is not None:\n            return cached\n",
+             replacement="",
+             target=_G, keyword="two_cold_requests", tags=_TAG),
+    Mutation(id="M2310", phase=2310, description="GET /api/risks runs detection again",
+             path=APP / "main.py",
+             anchor="    # READ ONLY (#478, #608). Detection used to run here on every GET, looping\n",
+             replacement="    risks_mod.detect_automatic_risks(allowed_document_ids=scope.allowed_document_ids)\n"
+                         "    # READ ONLY (#478, #608). Detection used to run here on every GET, looping\n",
+             target=_R, keyword="get_risks_writes_nothing", tags=_TAG),
+    Mutation(id="M2311", phase=2311, description="detection forgets the risks that already exist",
+             path=APP / "risks.py", anchor="    by_deliverable, by_finding = _open_risk_keys()\n",
+             replacement="    by_deliverable, by_finding = set(), set()\n",
+             target=_R, keyword="creates_each_risk_once or fixed_number", tags=_TAG),
+    Mutation(id="M2312", phase=2312, description="detection emails once per risk again",
+             path=APP / "risks.py", anchor="            digest = notifications.send_risk_digest(created)\n",
+             replacement="            digest = \"sent\"\n            for _r in created:\n"
+                         "                notifications.send_email(subject=\"EPC risk\", body=\"x\", trigger=\"t\","
+                         " resource_type=\"risk\", resource_id=_r[\"id\"])\n",
+             target=_R, keyword="one_digest", tags=_TAG),
+    Mutation(id="M2313", phase=2313, description="the risk digest is not rate-limited",
+             path=APP / "notifications.py", anchor='                return "rate_limited"\n',
+             replacement="                pass\n",
+             target=_R, keyword="rate_limited", tags=_TAG),
+    Mutation(id="M2314", phase=2314, description="two detection runs can overlap",
+             path=APP / "risks.py", anchor="    if not _detect_lock.acquire(blocking=False):\n",
+             replacement="    if False:\n",
+             target=_R, keyword="two_detection_runs", tags=_TAG),
+    Mutation(id="M2315", phase=2315, description="reading reminder events creates them (and emails) again",
+             path=APP / "deliverables.py",
+             anchor='    """The reminder events the caller may see. READ ONLY."""\n    ensure_schema()\n',
+             replacement='    """The reminder events the caller may see. READ ONLY."""\n    ensure_schema()\n'
+                         "    generate_reminders(allowed_document_ids=allowed_document_ids)\n",
+             target=_R, keyword="get_reminders_creates_no_events", tags=_TAG),
+    Mutation(id="M2316", phase=2316, description="every deliverables read repairs owners (a write) again",
+             path=APP / "deliverables.py", anchor="    _ensure_tables()\n\n\n",
+             replacement="    _ensure_tables()\n    with connect() as conn:\n        _sync_owner_stakeholders(conn)\n\n\n",
+             target=_R, keyword="does_not_repair_owners", tags=_TAG),
+    Mutation(id="M2317", phase=2317, description="a GET route that writes is not noticed (the walk skips /api/risks)",
+             path=APP / "main.py",
+             anchor="    # READ ONLY (#478, #608). Detection used to run here on every GET, looping\n",
+             replacement="    risks_mod.run_detection()\n"
+                         "    # READ ONLY (#478, #608). Detection used to run here on every GET, looping\n",
+             target=_W, keyword="no_get_route_writes", tags=_TAG),
+    Mutation(id="M2318", phase=2318, runner="vitest",
+             description="one slow panel blocks the WBS register again",
+             path=FRONTEND_SRC / "views" / "DeliverablesView.tsx",
+             anchor='{pending.register ? <Spinner label="Loading deliverables" />',
+             replacement='{(pending.register || pending.risks) ? <Spinner label="Loading deliverables" />',
+             target="src/views/DeliverablesView.independent.test.tsx", keyword="never answers", tags=("ui",)),
+    Mutation(id="M2319", phase=2319, runner="vitest",
+             description="Quote mode switches Gap analysis on again",
+             path=FRONTEND_SRC / "views" / "analysis" / "analysisModel.ts",
+             anchor="    gaps: !quote && toggles.gaps,\n", replacement="    gaps: quote || toggles.gaps,\n",
+             target="src/views/AnalysisModeScreen.quoteMode.test.tsx", keyword="Gap analysis", tags=("ui",)),
+    Mutation(id="M2320", phase=2320, runner="vitest",
+             description="a work-budget (partial) result is shown as complete",
+             path=FRONTEND_SRC / "views" / "analysis" / "analysisStore.ts",
+             anchor='truncatedReason: d.truncated ? (d.truncation_reason ?? "the run stopped at its work limit") : null,',
+             replacement="truncatedReason: null,",
+             target="src/views/AnalysisModeScreen.quoteMode.test.tsx", keyword="partial", tags=("ui",)),
+)

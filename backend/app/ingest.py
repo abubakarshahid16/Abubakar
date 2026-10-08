@@ -18,6 +18,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 
+from . import acronyms as acronyms_mod
 from . import errors, job_queue, page_ledger, states
 from .chunker import chunk_document
 from . import telemetry
@@ -848,6 +849,9 @@ class IngestionWorker:
                      states.PARTIALLY_SEARCHABLE),
                 )
                 _finish_ingestion_jobs(conn, doc_id)
+            # The document's text is now searchable, so its acronym map changed:
+            # rebuild it in the background, never inside the next request.
+            acronyms_mod.warm_in_background()
             _queue_extraction_if_standard(doc_id)
             _extract_facts_if_contractor_submittal(doc_id)
             _classify_equipment_type_if_contractor_submittal(doc_id)

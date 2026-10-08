@@ -75,6 +75,9 @@ def test_the_expectation_status_does_not_reveal_a_hidden_deliverable(world):
 
 def test_an_overdue_risk_carries_its_source_document(world):
     item = _deliverable("doc_std", due_date="2020-01-01")
+    # Detection no longer runs inside GET /api/risks (#478): the background job
+    # (here run directly) creates the risk, the GET only reads it.
+    assert risks.run_detection()["status"] == "ok"
     full = world.get("/api/risks", headers=h("u_full")).json()["risks"]
     [risk] = [r for r in full if r["deliverable_id"] == item["id"]]
     assert risk["document_id"] == "doc_std"
