@@ -640,7 +640,11 @@ def test_an_unavailable_model_says_so_on_the_finding(stub, monkeypatch):
     result = comparison.run_comparison(run, allowed_document_ids=scope)
 
     found = result["findings"][0]
-    assert found["compliance_status"] == comparison.MISSING_INFORMATION
+    # #450: a model that was asked and could not answer is NOT the contractor's
+    # omission. It was MISSING_INFORMATION here before; it is now an engineer's
+    # question that says the check could not be completed.
+    assert found["compliance_status"] == comparison.NEEDS_ENGINEER_REVIEW
+    assert "could not be checked" in found["ai_rationale"]
     assert comparison.MODEL_UNAVAILABLE in found["ai_rationale"]
 
 

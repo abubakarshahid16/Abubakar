@@ -538,8 +538,16 @@ def scope_decisions_by_reasoning(library: list[dict], profile: dict,
             engine = provider or rp.get_provider("reasoning", step=SCOPE_REASONING_STEP)
             decision = _cached_scope_decision(
                 entry["id"], equipment_type, record, engine, SCOPE_REASONING_STEP)
-        except Exception:  # noqa: BLE001 - budget cap, refusal or a down model:
+        except Exception as exc:  # noqa: BLE001 - budget cap, refusal or a down model:
             # stays with an engineer as "not decided", never crashes the review.
+            # #450: AND SAYS SO. It used to be skipped with no record, so a
+            # model that was down for every standard read as "scope checked,
+            # nothing excluded". The standard is UNKNOWN, with the reason.
+            from . import applicability_v2
+            out[entry["id"]] = {
+                "decision": applicability_v2.UNKNOWN, "quote": None, "page": None,
+                "basis": ("could not be checked: the scope reasoning did not "
+                          f"complete ({type(exc).__name__})")}
             continue
         finally:
             if heartbeat is not None:
@@ -1048,13 +1056,22 @@ def applicability_with_reasons(submittal_document_id: str, *,
             and (profile.get(field) or "").strip()
             and entry[field].strip().lower() != profile[field].strip().lower()
         ]
-        reason = ("; ".join(mismatches) if mismatches else
-                 "not cited by the submittal, and no shared equipment type, "
-                 "service or project recorded")
+        if not mismatches:
+            # #450: NOTHING TO COMPARE IS NOT "NOT APPLICABLE". Both sides have
+            # a profile, but they share no filled axis, so nothing was shown to
+            # differ. Absence of a shared field is UNKNOWN, never an exclusion.
+            out.append({"standard_document_id": std_id,
+                       "document_number": entry.get("document_number"),
+                       "filename": entry.get("filename"),
+                       "status": STATUS_UNKNOWN,
+                       "reason": ("not cited by the submittal, and no shared equipment "
+                                  "type, service or project is recorded on both sides - "
+                                  "applicability cannot be determined")})
+            continue
         out.append({"standard_document_id": std_id,
                    "document_number": entry.get("document_number"),
                    "filename": entry.get("filename"),
-                   "status": STATUS_NOT_APPLICABLE, "reason": reason})
+                   "status": STATUS_NOT_APPLICABLE, "reason": "; ".join(mismatches)})
 
     order = {STATUS_APPLICABLE_ASSESSABLE: 0,
             STATUS_APPLICABLE_NEEDS_ANOTHER_DOCUMENT: 1,

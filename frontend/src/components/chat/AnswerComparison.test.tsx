@@ -154,3 +154,26 @@ describe("not found is only said for a side that was searched", () => {
     expect(screen.getByText(/Not among the documents you can read/)).toBeInTheDocument();
   });
 });
+
+describe("#451: a side that could not be checked is not a side that was empty", () => {
+  const stopped = {
+    name: "STD-B-002",
+    document_ids: ["doc-b"],
+    answer_type: "could_not_be_checked",
+    reason: "the run was stopped before this side was finished",
+    text: "could not be checked: the run was stopped before this side was finished.",
+    source_start: 0,
+    source_count: 0,
+    searched: true,
+  };
+
+  it("says it could not be checked, with the reason, and not 'not found'", () => {
+    const v = view({}, [NOT_FOUND_A, stopped], []);
+    render(<AnswerCard view={v} onSelectSource={() => {}} activeSource={null} />);
+    const note = screen.getByTestId("side-could-not-be-checked");
+    expect(note).toHaveTextContent("Could not be checked: the run was stopped before this side was finished");
+    expect(note).toHaveTextContent("Nothing can be concluded about this side");
+    // The side that really searched and found nothing still says so, once.
+    expect(screen.getAllByText("Not found in the pages read.")).toHaveLength(1);
+  });
+});

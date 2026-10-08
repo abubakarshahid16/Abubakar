@@ -1851,12 +1851,20 @@ export interface ComparisonSide {
   source_count?: number;
   /** whether a search was really run for this side (false: not readable) */
   searched?: boolean;
+  /** #451: why this side "could not be checked" (answer_type
+   *  "could_not_be_checked"): it failed, was stopped, was refused or could not
+   *  be supported. NOT an absence: nothing may be inferred from it. */
+  reason?: string | null;
 }
 
 /** Plan C3: a comparison's side breakdown, alongside the combined `answer`
  *  text. Present only on answer_type === "comparison". */
 export interface Comparison {
   sides: ComparisonSide[];
+  /** #451: true when at least one side could not be checked, so this is not a
+   *  complete comparison */
+  incomplete?: boolean;
+  could_not_be_checked?: string[];
   /** issue #373: set when the app resolved a family phrase ("the welding
    *  standards") to the sides; membership is a guess until a person confirms */
   family?: ComparisonFamily | null;

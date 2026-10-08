@@ -51,7 +51,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import (claims, conditions, datasheets, field_links, match_rules, numparse, page_ledger,
+from . import (absence, claims, conditions, datasheets, field_links, match_rules, numparse, page_ledger,
                 requirements_3b, review, schemas, submittal_review)
 from .config import settings
 from .db import connect
@@ -103,6 +103,11 @@ CONDITION_NOT_MET = "condition_not_met"
 #: here: a field nobody filled in is a question, not a failure, and it steers
 #: the code through completeness rather than by masquerading as a breach.
 BLOCKING = frozenset({NON_COMPLIANT})
+#: The statuses `_recommend_code` knows how to count. Any other value (None,
+#: CONDITIONAL, a status added later) is UNRECOGNISED and can never approve.
+RECOGNISED_STATUSES = frozenset({
+    COMPLIANT, NON_COMPLIANT, MISSING_INFORMATION, NOT_APPLICABLE,
+    NEEDS_ENGINEER_REVIEW, NOT_IN_DOCUMENT_SCOPE})
 
 #: THE SEVERITY BUG (found reviewing EF1975-DAS-M-03, 2026-09-28). Every call
 #: to `create_finding`/`_prepare_finding` left `severity` at its hardcoded
@@ -1372,7 +1377,8 @@ def completeness_for_run(
 def recommend_code(findings: list[dict], completeness: dict, *,
                    codes: tuple[str, ...] | None = None,
                    missing_references: list[str] | tuple[str, ...] = (),
-                   page_coverage: dict | None = None) -> dict:
+                   page_coverage: dict | None = None,
+                   unchecked_standards: list[str] | tuple[str, ...] = ()) -> dict:
     """The recommendation, with `reason` in PLAIN WORDS for the engineer and
     the technical sentence kept as `details` (owner order 2g, 2026-09-26).
 
@@ -1382,7 +1388,8 @@ def recommend_code(findings: list[dict], completeness: dict, *,
     """
     codes = codes or review_codes()
     result = _recommend_code(findings, completeness, codes=codes,
-                             missing_references=missing_references)
+                             missing_references=missing_references,
+                             unchecked_standards=unchecked_standards)
     missing = [m for m in dict.fromkeys(missing_references or ()) if m]
     if result["code"] == codes[2]:
         # A PROVEN BREACH, IN AN ENGINEER'S WORDS, with what else is open.
@@ -1503,7 +1510,8 @@ def plain_outcome(outcome: dict) -> tuple[str | None, str | None]:
 
 def _recommend_code(findings: list[dict], completeness: dict, *,
                     codes: tuple[str, ...] = DEFAULT_CODES,
-                    missing_references: list[str] | tuple[str, ...] = ()) -> dict:
+                    missing_references: list[str] | tuple[str, ...] = (),
+                    unchecked_standards: list[str] | tuple[str, ...] = ()) -> dict:
     """The AI-RECOMMENDED review code. Deterministic policy, never the model.
 
     A PROVEN BREACH COMES FIRST (CRS quick wins, 2026-09-27): a requirement
@@ -1522,6 +1530,10 @@ def _recommend_code(findings: list[dict], completeness: dict, *,
     """
     approved, with_comments, rejected, manual = codes
     statuses = [f.get("compliance_status") for f in findings]
+    # #450: A STATUS THIS POLICY DOES NOT KNOW IS NOT A PASS. Only the listed
+    # statuses are counted below; one that is not (None, a status added later)
+    # used to fall through to "every evaluated requirement is met".
+    unrecognised = [s for s in statuses if s not in RECOGNISED_STATUSES]
 
     blocking = [s for s in statuses if s in BLOCKING]
     unresolved = [s for s in statuses if s == NEEDS_ENGINEER_REVIEW]
@@ -1596,6 +1608,16 @@ def _recommend_code(findings: list[dict], completeness: dict, *,
             "blocking": 0, "unresolved": 0, "missing_information": 0,
             "not_in_document_scope": 0, "missing_locally": len(missing_locally),
         }
+    if unrecognised:
+        return {
+            "code": manual,
+            "reason": (f"{len(unrecognised)} finding(s) have no recognised "
+                       "status, so the review cannot be called complete"),
+            "blocking": 0, "unresolved": len(unrecognised),
+            "missing_information": len(missing),
+            "not_in_document_scope": len(out_of_scope),
+            "missing_locally": len(missing_locally),
+        }
     if unresolved:
         return {
             "code": manual,
@@ -1618,17 +1640,24 @@ def _recommend_code(findings: list[dict], completeness: dict, *,
             "not_in_document_scope": len(out_of_scope),
             "missing_locally": len(missing_locally),
         }
-    if missing:
+    unchecked = [n for n in dict.fromkeys(unchecked_standards or ()) if n]
+    if unchecked:
+        # #450: A STANDARD IN SCOPE WITH NOTHING TO CHECK WAS NOT CHECKED. Its
+        # requirements were never extracted (or were all held back), so it adds
+        # no finding, and a run over the other standards would read "every
+        # evaluated requirement is met" for a standard nobody looked through.
         return {
-            # MISSING INFORMATION IS NOT A FAILURE, so it does not reject. It
-            # is also not nothing, so it does not approve silently.
-            "code": with_comments,
-            "reason": f"{len(missing)} field(s) are left for the contractor to "
-                      "provide; no requirement was found unmet",
+            "code": manual,
+            "reason": (f"Manual review: {len(unchecked)} standard(s) in scope had no "
+                       f"requirement that could be checked, so they were not "
+                       f"checked: {', '.join(unchecked)}"),
             "blocking": 0, "unresolved": 0, "missing_information": len(missing),
-            "not_in_document_scope": len(out_of_scope),
-            "missing_locally": 0,
+            "not_in_document_scope": len(out_of_scope), "missing_locally": 0,
+            "unchecked_standards": len(unchecked),
         }
+    # #450: requirements nobody could check come BEFORE the contractor's
+    # blanks. With both, 'Approved with Comments' said every requirement had
+    # been looked at; the out-of-scope ones had not.
     if out_of_scope:
         return {
             # NOT AN APPROVAL. Without this branch a run whose unmatched
@@ -1644,8 +1673,34 @@ def _recommend_code(findings: list[dict], completeness: dict, *,
             # CRS quick wins: a statement with NO FIELD FOUND is not a
             # requirement "for another document" (NO_FIELD_MATCHED); it is
             # counted and named apart so the sentence stays true.
-            "reason": _out_of_scope_reason(findings),
-            "blocking": 0, "unresolved": 0, "missing_information": 0,
+            "reason": _out_of_scope_reason(findings) + (
+                f"; {len(missing)} field(s) are also left for the contractor to provide"
+                if missing else ""),
+            "blocking": 0, "unresolved": 0, "missing_information": len(missing),
+            "not_in_document_scope": len(out_of_scope),
+            "missing_locally": 0,
+        }
+    if missing and COMPLIANT not in statuses:
+        # #450: NOTHING WAS ESTABLISHED. A run whose only findings are blanks
+        # confirmed no requirement as met; "Approved with Comments" would rank
+        # it above the same run with no findings at all (Manual), i.e. better
+        # because values were missing.
+        return {
+            "code": manual,
+            "reason": (f"Manual review: {len(missing)} field(s) are left for the "
+                       "contractor to provide and no requirement could be "
+                       "confirmed as met"),
+            "blocking": 0, "unresolved": 0, "missing_information": len(missing),
+            "not_in_document_scope": len(out_of_scope), "missing_locally": 0,
+        }
+    if missing:
+        return {
+            # MISSING INFORMATION IS NOT A FAILURE, so it does not reject. It
+            # is also not nothing, so it does not approve silently.
+            "code": with_comments,
+            "reason": f"{len(missing)} field(s) are left for the contractor to "
+                      "provide; no requirement was found unmet",
+            "blocking": 0, "unresolved": 0, "missing_information": len(missing),
             "not_in_document_scope": len(out_of_scope),
             "missing_locally": 0,
         }
@@ -1754,14 +1809,30 @@ def run_comparison(
     standard_ids = [a["standard_document_id"] for a in applicable]
 
     requirements: list[dict] = []
+    # #450: WHAT DID NOT REACH A FINDING IS ACCOUNTED FOR. A standard in scope
+    # that holds no requirement at all (extraction never ran) was not checked;
+    # requirements held back as definitions or unreadable text are counted.
+    unchecked_standards: list[str] = []
+    held_back = {"definition": 0, "text_quality": 0}
     for standard_id in standard_ids:
         from . import standards as standards_mod
         # #596/#597: a definition, and text the quality gate holds, are not
         # compared. They stay in the library; they never reach a finding.
-        requirements.extend(
-            r for r in standards_mod.list_requirements(
-                standard_id, allowed_document_ids=allowed_document_ids)
-            if standards_mod.is_reviewable(r))
+        loaded = standards_mod.list_requirements(
+            standard_id, allowed_document_ids=allowed_document_ids)
+        if not loaded:
+            unchecked_standards.append(
+                connect().execute("SELECT filename FROM documents WHERE id = ?",
+                                  (standard_id,)).fetchone()["filename"]
+                if connect().execute("SELECT 1 FROM documents WHERE id = ?",
+                                     (standard_id,)).fetchone() else standard_id)
+        for r in loaded:
+            if standards_mod.is_reviewable(r):
+                requirements.append(r)
+            elif r.get("requirement_type") == "definition":
+                held_back["definition"] += 1
+            else:
+                held_back["text_quality"] += 1
 
     facts = datasheets.list_facts(
         submittal_id, allowed_document_ids=allowed_document_ids)
@@ -1959,7 +2030,20 @@ def run_comparison(
             # B3: "NOT FOUND" IS NOT "NOT PRESENT". A requirement no field answered
             # is only the contractor's omission if every page was read into fields.
             if fact is None and verdict.get("status") == MISSING_INFORMATION:
-                verdict = qualify_by_pages(verdict, pages_read)
+                # #450: A STEP THAT DID NOT COMPLETE IS NOT AN ABSENCE. When the
+                # pairing model failed or was refused, a rule refused the only
+                # candidate field, or a table rule could not be read, "no field
+                # answers this" is not what was established: the value may be on
+                # the sheet. It is an engineer's question, with the reason.
+                not_checked = absence.pairing_not_checked(
+                    match.get("reason"), model_reason, rule_unread)
+                if not_checked:
+                    verdict = {**verdict, "status": NEEDS_ENGINEER_REVIEW,
+                               "rationale": (f"{PAIRING_NOT_CHECKED}: could not be checked: "
+                                             f"{not_checked}. The value may be on the "
+                                             "sheet; an engineer must look")}
+                else:
+                    verdict = qualify_by_pages(verdict, pages_read)
             # THE PAIRING NOTE GOES ON LAST, after every verdict adjustment above,
             # because the unit guard and the tie branch REPLACE the rationale. A
             # prefix written before them would be silently dropped on exactly the
@@ -2063,17 +2147,22 @@ def run_comparison(
         reference_coverage=reference_coverage, findings=findings)
     recommendation = recommend_code(findings, coverage,
                                     missing_references=missing_references or (),
-                                    page_coverage=pages_read)
+                                    page_coverage=pages_read,
+                                    unchecked_standards=unchecked_standards)
     _store_run_outcome(review_run_id, recommendation, coverage,
                        page_coverage=pages_read,
                        missing_references=missing_references or [],
-                       table_values_not_compared=table_values_not_compared)
+                       table_values_not_compared=table_values_not_compared,
+                       requirements_held_back=held_back,
+                       unchecked_standards=unchecked_standards)
 
     return {
         "review_run_id": review_run_id,
         "submittal_document_id": submittal_id,
         "requirements_evaluated": len(requirements),
         "requirements_in_scope": all_requirements,
+        "requirements_held_back": held_back,
+        "standards_not_checked": unchecked_standards,
         "requirements_excluded": gated["excluded"],
         "table_values_not_compared": table_values_not_compared,
         "facts_in_scope": len(facts),
@@ -2159,6 +2248,8 @@ def is_matchable(requirement: dict) -> bool:
 
 #: Why a containment match was refused, when it was.
 AMBIGUOUS_MATCH = "ambiguous_match"
+#: #450: the step that pairs a requirement with a field did not complete.
+PAIRING_NOT_CHECKED = "pairing_not_checked"
 #: Every containment hit was refused by a `match_rules` rule. The `refused`
 #: list on the result names each hit and the rule that removed it.
 REFUSED_BY_RULE = "refused_by_rule"
@@ -3151,7 +3242,9 @@ def attach_crs_context(findings: list[dict]) -> list[dict]:
 def _store_run_outcome(review_run_id: str, recommendation: dict,
                        coverage: dict, *, page_coverage: dict | None = None,
                        missing_references: list[str] | None = None,
-                       table_values_not_compared: list[dict] | None = None) -> None:
+                       table_values_not_compared: list[dict] | None = None,
+                       requirements_held_back: dict | None = None,
+                       unchecked_standards: list[str] | None = None) -> None:
     """Persist the AI recommendation and the completeness it was gated on.
 
     B3: `page_coverage` is the page ledger's summary AT THE TIME OF THE RUN -
@@ -3181,6 +3274,10 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
                     for ref in (missing_references or [])],
                 # #598: the table cells this run did not compare, grouped.
                 "table_values_not_compared": table_values_not_compared or [],
+                # #450: requirements held back as definitions or unreadable
+                # text, and standards in scope with nothing to check.
+                "requirements_held_back": requirements_held_back,
+                "standards_not_checked": unchecked_standards or [],
             # completed_at: the readiness strip's "since the last run" is
             # measured from here, not from updated_at (which the engineer's
             # code decision moves later).
@@ -3223,6 +3320,13 @@ def record_engineer_code(
     if recommended and code != recommended and not (override_reason or "").strip():
         raise ComparisonError(
             "overriding the recommended code requires a reason")
+    if not recommended and code == codes[0] and not (override_reason or "").strip():
+        # #450: A RUN WITH NO RECOMMENDATION (failed, still running, or one that
+        # never produced one) has nothing behind it. The best code is not
+        # recorded over that without a stated reason.
+        raise ComparisonError(
+            "this run has no recommended code (it did not complete); approving "
+            "it requires a reason")
 
     now = _now()
     reason = (override_reason or "").strip() or None
