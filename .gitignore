@@ -123,15 +123,9 @@ gold/*.json
 # Per-question calibration logs (eval/refusal_calibration.py) - scores/ids only,
 # but kept out of git the same as every other gold/ artifact.
 gold/*.jsonl
-# EXCEPTIONS, tracked although this rule forbids them - listed so that the rule
-# and the repository agree about what is in Git. Both were committed before
-# anyone checked them against the rule (99591dd, cdf156b) and are already on
-# GitHub. Owner decision 2026-09-21: ACCEPTED RISK (private repository, content
-# already published, and untracking would not remove it from history). Recorded
-# as B27 in .cowork/CURRENT_STATE_AND_BLOCKERS.md, left open to be revisited.
-# Every OTHER filled sheet stays ignored. Do not add to this list.
-!gold/SAES-A-105.csv
-!gold/PAIRS-216400C.csv
+# No exceptions: the two filled sheets once tracked here were untracked on
+# 2026-10-08 (the repository is public now). They stay on the owner's disk.
+# backend/tests/test_gold_sheets_untracked.py fails if one is tracked again.
 
 # Client identifiers the pre-commit hook blocks in added lines. LOCAL ONLY:
 # the list is itself a list of client identifiers, so it never enters git.
