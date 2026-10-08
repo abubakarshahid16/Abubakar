@@ -26,7 +26,7 @@ to know whether a change helped or merely moved the failures around.
 
 ## P1: the gate that blocks a score drop
 
-`eval/p1/` holds 30 invented-name questions, an invented corpus and a baseline. CI fails a change that makes a passing question fail. See `eval/p1/README.md`.
+`eval/p1/` holds 60 invented-name questions (version 2), an invented corpus and a baseline. CI fails a change that makes a passing question fail. See `eval/p1/README.md`.
 
 ## The question set
 

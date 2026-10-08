@@ -1,6 +1,7 @@
 {
- "corpus": "P1 invented corpus (eval/p1/corpus.py), 7 documents",
- "author": "Claude (Cowork), invented, no client text. An engineer extends this set to 100+ before it is called independent.",
+ "version": 2,
+ "corpus": "P1 invented corpus (eval/p1/corpus.py), 11 documents",
+ "author": "Claude, invented, no client text: P1-01 to P1-30 by Cowork (version 1), P1-31 to P1-60 by Claude Code (version 2, 2026-10-08). An engineer extends this set to 100+ before it is called independent.",
  "questions": [
   {
    "id": "P1-01",
@@ -373,6 +374,462 @@
    "category": "unanswerable",
    "question": "What does STD-F-006 say about vibration limits?",
    "answerable": false
+  },
+  {
+   "id": "P1-31",
+   "category": "paraphrase",
+   "question": "After how much running time is a centrifugal pump due for its next look-over?",
+   "answerable": true,
+   "expected_document": "STD-A-001.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "3.1",
+   "expected_answer_contains": [
+    "4000"
+   ]
+  },
+  {
+   "id": "P1-32",
+   "category": "paraphrase",
+   "question": "How soon after grit blasting does the paint have to go on?",
+   "answerable": true,
+   "expected_document": "STD-B-002.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "3.2",
+   "expected_answer_contains": [
+    "within 4 hours"
+   ]
+  },
+  {
+   "id": "P1-33",
+   "category": "paraphrase",
+   "question": "Above what wall thickness does a welded vessel need stress relieving after fabrication?",
+   "answerable": true,
+   "expected_document": "STD-C-003.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "6.1",
+   "expected_answer_contains": [
+    "32 mm"
+   ]
+  },
+  {
+   "id": "P1-34",
+   "category": "paraphrase",
+   "question": "By what factor is the design pressure multiplied when a vessel is pressure tested with water?",
+   "answerable": true,
+   "expected_document": "STD-C-003.pdf",
+   "expected_pages": [
+    3
+   ],
+   "expected_clause": "7.1",
+   "expected_answer_contains": [
+    "1.3 times"
+   ]
+  },
+  {
+   "id": "P1-35",
+   "category": "paraphrase",
+   "question": "At what sound level must an area be signposted for ear defenders?",
+   "answerable": true,
+   "expected_document": "STD-F-006.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "4.1",
+   "expected_answer_contains": [
+    "85 dB(A)"
+   ]
+  },
+  {
+   "id": "P1-36",
+   "category": "paraphrase",
+   "question": "What must be fitted to cable holes in an enclosure that nobody is using?",
+   "answerable": true,
+   "expected_document": "STD-D-004.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "3.1",
+   "expected_answer_contains": [
+    "certified plugs"
+   ]
+  },
+  {
+   "id": "P1-37",
+   "category": "paraphrase",
+   "question": "Once a year, how much water must the diesel fire pump push out?",
+   "answerable": true,
+   "expected_document": "STD-E-005.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "3.1",
+   "expected_answer_contains": [
+    "150 percent"
+   ]
+  },
+  {
+   "id": "P1-38",
+   "category": "paraphrase",
+   "question": "How hot can the coupling-side bearing of the pump get before the machine is shut down?",
+   "answerable": true,
+   "expected_document": "STD-A-001.pdf",
+   "expected_pages": [
+    3
+   ],
+   "expected_clause": null,
+   "expected_answer_contains": [
+    "95 degC"
+   ]
+  },
+  {
+   "id": "P1-39",
+   "category": "paraphrase",
+   "question": "Are piston pumps covered by the rotating equipment standard?",
+   "answerable": true,
+   "expected_document": "STD-A-001.pdf",
+   "expected_pages": [
+    1
+   ],
+   "expected_clause": "1",
+   "expected_answer_contains": [
+    "reciprocating pumps"
+   ]
+  },
+  {
+   "id": "P1-40",
+   "category": "paraphrase",
+   "question": "What surrounding air temperature are outdoor electrical boxes designed for?",
+   "answerable": true,
+   "expected_document": "STD-D-004.pdf",
+   "expected_pages": [
+    1
+   ],
+   "expected_clause": "2.2",
+   "expected_answer_contains": [
+    "50 degC"
+   ]
+  },
+  {
+   "id": "P1-41",
+   "category": "distractor",
+   "question": "How long must a new storage tank stay full of water during its test?",
+   "answerable": true,
+   "expected_document": "STD-J-009.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "4.1",
+   "expected_answer_contains": [
+    "24 hours"
+   ]
+  },
+  {
+   "id": "P1-42",
+   "category": "distractor",
+   "question": "What vibration limit applies at the fan bearing of an air cooled heat exchanger?",
+   "answerable": true,
+   "expected_document": "STD-K-010.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "3.1",
+   "expected_answer_contains": [
+    "6.0 mm/s"
+   ]
+  },
+  {
+   "id": "P1-43",
+   "category": "distractor",
+   "question": "What is the longest allowed gap between external inspections of a storage tank?",
+   "answerable": true,
+   "expected_document": "STD-J-009.pdf",
+   "expected_pages": [
+    3
+   ],
+   "expected_clause": "5.1",
+   "expected_answer_contains": [
+    "5 years"
+   ]
+  },
+  {
+   "id": "P1-44",
+   "category": "distractor",
+   "question": "At what pressure are instrument impulse lines tested?",
+   "answerable": true,
+   "expected_document": "STD-H-008.pdf",
+   "expected_pages": [
+    3
+   ],
+   "expected_clause": "7.1",
+   "expected_answer_contains": [
+    "1.5 times"
+   ]
+  },
+  {
+   "id": "P1-45",
+   "category": "distractor",
+   "question": "How often are vibration readings taken on air cooler fans?",
+   "answerable": true,
+   "expected_document": "STD-K-010.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "3.2",
+   "expected_answer_contains": [
+    "taken weekly"
+   ]
+  },
+  {
+   "id": "P1-46",
+   "category": "unanswerable",
+   "question": "What is the maximum allowable working pressure of the vessels?",
+   "answerable": false
+  },
+  {
+   "id": "P1-47",
+   "category": "unanswerable",
+   "question": "What vibration limit applies to gearboxes?",
+   "answerable": false
+  },
+  {
+   "id": "P1-48",
+   "category": "unanswerable",
+   "question": "How often must the heat tracing be inspected?",
+   "answerable": false
+  },
+  {
+   "id": "P1-49",
+   "category": "unanswerable",
+   "question": "What is the minimum DFT of the finish coat?",
+   "answerable": false
+  },
+  {
+   "id": "P1-50",
+   "category": "unanswerable",
+   "question": "What does STD-J-009 require for floating roof seals?",
+   "answerable": false
+  },
+  {
+   "id": "P1-51",
+   "category": "multidoc",
+   "question": "Which standards say an exceedance must be reported to the area engineer?",
+   "answerable": true,
+   "expected_clause": null,
+   "expected_sources": [
+    {
+     "document": "STD-A-001.pdf",
+     "pages": [
+      2
+     ],
+     "answer_contains": [
+      "area engineer"
+     ]
+    },
+    {
+     "document": "STD-C-003.pdf",
+     "pages": [
+      3
+     ],
+     "answer_contains": [
+      "area engineer"
+     ]
+    },
+    {
+     "document": "STD-E-005.pdf",
+     "pages": [
+      2
+     ],
+     "answer_contains": [
+      "area engineer"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "P1-52",
+   "category": "multidoc",
+   "question": "Compare the vibration limits for centrifugal pumps and for air cooled heat exchanger fans.",
+   "answerable": true,
+   "expected_clause": null,
+   "expected_sources": [
+    {
+     "document": "STD-A-001.pdf",
+     "pages": [
+      3
+     ],
+     "answer_contains": [
+      "3.0 mm/s"
+     ]
+    },
+    {
+     "document": "STD-K-010.pdf",
+     "pages": [
+      2
+     ],
+     "answer_contains": [
+      "6.0 mm/s"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "P1-53",
+   "category": "multidoc",
+   "question": "What test pressures apply to a pressure vessel and to an instrument impulse line?",
+   "answerable": true,
+   "expected_clause": null,
+   "expected_sources": [
+    {
+     "document": "STD-C-003.pdf",
+     "pages": [
+      3
+     ],
+     "answer_contains": [
+      "1.3 times"
+     ]
+    },
+    {
+     "document": "STD-H-008.pdf",
+     "pages": [
+      3
+     ],
+     "answer_contains": [
+      "1.5 times"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "P1-54",
+   "category": "multidoc",
+   "question": "What are the design ambient temperature for outdoor enclosures and the lowest design temperature for outdoor equipment?",
+   "answerable": true,
+   "expected_clause": null,
+   "expected_sources": [
+    {
+     "document": "STD-D-004.pdf",
+     "pages": [
+      1
+     ],
+     "answer_contains": [
+      "50 degC"
+     ]
+    },
+    {
+     "document": "STD-G-007.pdf",
+     "pages": [
+      2
+     ],
+     "answer_contains": [
+      "-29 degC"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "P1-55",
+   "category": "multidoc",
+   "question": "What are the inspection intervals for centrifugal pumps and for storage tanks?",
+   "answerable": true,
+   "expected_clause": null,
+   "expected_sources": [
+    {
+     "document": "STD-A-001.pdf",
+     "pages": [
+      2
+     ],
+     "answer_contains": [
+      "4000"
+     ]
+    },
+    {
+     "document": "STD-J-009.pdf",
+     "pages": [
+      3
+     ],
+     "answer_contains": [
+      "5 years"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "P1-56",
+   "category": "number",
+   "question": "What is the lowest design temperature for outdoor equipment?",
+   "answerable": true,
+   "expected_document": "STD-G-007.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "3.1",
+   "expected_answer_contains": [
+    "-29 degC"
+   ]
+  },
+  {
+   "id": "P1-57",
+   "category": "number",
+   "question": "Between which temperatures must heat tracing hold the process fluid?",
+   "answerable": true,
+   "expected_document": "STD-G-007.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "3.2",
+   "expected_answer_contains": [
+    "+5 degC",
+    "+15 degC"
+   ]
+  },
+  {
+   "id": "P1-58",
+   "category": "number",
+   "question": "What is the maximum thermal conductivity allowed for line insulation?",
+   "answerable": true,
+   "expected_document": "STD-G-007.pdf",
+   "expected_pages": [
+    3
+   ],
+   "expected_clause": "4.1",
+   "expected_answer_contains": [
+    "0,040 W/(m.K)"
+   ]
+  },
+  {
+   "id": "P1-59",
+   "category": "number",
+   "question": "What minimum insulation resistance must instrument signal cables have?",
+   "answerable": true,
+   "expected_document": "STD-H-008.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "5.3",
+   "expected_answer_contains": [
+    "1.0 x 10^9 ohm"
+   ]
+  },
+  {
+   "id": "P1-60",
+   "category": "number",
+   "question": "How much may a pressure transmitter's zero drift each year?",
+   "answerable": true,
+   "expected_document": "STD-H-008.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "5.2",
+   "expected_answer_contains": [
+    "-0,5 kPa",
+    "+0,5 kPa"
+   ]
   }
  ]
 }

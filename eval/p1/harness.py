@@ -42,6 +42,9 @@ def check_labels(questions: list[dict]) -> list[str]:
     for q in questions:
         if not q["answerable"]:
             continue
+        if q.get("expected_sources"):
+            problems.extend(_check_sources(q))
+            continue
         doc = q["expected_document"]
         if doc not in p1_corpus.DOCS:
             problems.append(f"{q['id']}: unknown document {doc}")
@@ -55,6 +58,52 @@ def check_labels(questions: list[dict]) -> list[str]:
             if needle.lower() not in text:
                 problems.append(f"{q['id']}: {needle!r} is not on the expected page")
     return problems
+
+
+def _check_sources(q: dict) -> list[str]:
+    """A multi-document question names two or more sources; each one must be
+    a real document, page and phrase, the same test a single source passes."""
+    problems = []
+    sources = q["expected_sources"]
+    if len({s["document"] for s in sources}) < 2:
+        problems.append(f"{q['id']}: a multi-document question needs two documents")
+    for s in sources:
+        doc = s["document"]
+        if doc not in p1_corpus.DOCS:
+            problems.append(f"{q['id']}: unknown document {doc}")
+            continue
+        if not any(1 <= p <= len(p1_corpus.DOCS[doc]) for p in s["pages"]):
+            problems.append(f"{q['id']}: page out of range in {doc}")
+            continue
+        text = " ".join(p1_corpus.page_text(doc, p) for p in s["pages"]).lower()
+        for needle in s["answer_contains"]:
+            if needle.lower() not in text:
+                problems.append(f"{q['id']}: {needle!r} is not on the expected page of {doc}")
+    return problems
+
+
+def sources_ok(q: dict, result: dict) -> bool:
+    """A multi-document question passes only when the answer cites EVERY
+    expected document on an expected page and holds every expected phrase.
+    Citing one side of a comparison is half an answer, and a reader who sees
+    only that half is not told the other half exists."""
+    from run_eval import evidence_of
+
+    if result["answer_type"] not in ("extract", "generated"):
+        return False
+    evidence = evidence_of(result)
+    haystack = " ".join(
+        [result.get("answer") or ""] + [p["text"] for p in evidence]).lower()
+    for s in q["expected_sources"]:
+        cited = any(
+            p.get("filename") == s["document"]
+            and set(range(p["page_start"], p["page_end"] + 1)) & set(s["pages"])
+            for p in evidence)
+        if not cited:
+            return False
+        if not all(w.lower() in haystack for w in s["answer_contains"]):
+            return False
+    return True
 
 
 def ingest_corpus(folder: Path) -> dict[str, str]:
@@ -101,6 +150,8 @@ def run_questions(questions: list[dict]) -> list[dict]:
         row = score_one(
             {**q, "question": q["question"]}, result, asked=q["question"])
         row["category"] = q["category"]
+        if q.get("expected_sources"):
+            row["sources_ok"] = sources_ok(q, result)
         row["passed"] = _passed(q, row)
         row["clause_ok"] = clause_ok(q, row)
         rows.append(row)
@@ -116,6 +167,8 @@ def _passed(q: dict, row: dict) -> bool:
     not a wrong answer, and the two should not hide each other."""
     if not q["answerable"]:
         return bool(row["refusal_correct"])
+    if q.get("expected_sources"):
+        return row.get("sources_ok") is True
     return row["retrieval_correct"] is True and row["answer_correct"] is True
 
 
