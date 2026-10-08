@@ -60,6 +60,11 @@ class Vocabulary:
                 folded = _fold(spelling)
                 if folded:
                     self.phrases.setdefault(folded, set()).add(canonical)
+                    # THE PLURAL RULE: "PZVs", "rupture disks" and "pumps"
+                    # mean what the singular means, so the file lists a
+                    # spelling once. A spelling already ending in s is left.
+                    if not folded.endswith("s"):
+                        self.phrases.setdefault(folded + "s", set()).add(canonical)
         ordered = sorted(self.phrases, key=len, reverse=True)
         self.pattern = (re.compile(r"(?<![a-z0-9])(?:" + "|".join(
             re.escape(p) for p in ordered) + r")(?![a-z0-9])") if ordered else None)

@@ -42,7 +42,19 @@
         "prv",
         "prvs",
         "srv",
-        "valve"
+        "valve",
+        "pzv",
+        "pzvs",
+        "pilot-operated relief valve",
+        "pilot operated relief valve",
+        "rupture disk",
+        "rupture disks",
+        "rupture disc",
+        "rupture discs",
+        "bursting disc",
+        "bursting discs",
+        "pilot-operated relief valves",
+        "pilot operated relief valves"
       ]
     },
     "control valve": {
