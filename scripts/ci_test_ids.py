@@ -110,6 +110,19 @@ def merge_durations(ran: dict[int, list[str]], durations: dict[int, dict[str, fl
     return dict(sorted(merged.items()))
 
 
+def drop_flagged(durations: dict[str, float], is_flagged) -> tuple[dict[str, float], int]:
+    """Drop entries whose node id the client-identifier guard would flag.
+
+    Parametrized node ids can repeat a fixture's tag-shaped value; the guard
+    (scripts/check_client_identifiers.py) blocks such a token in any ADDED
+    line, so a durations file carrying one could never be committed. A dropped
+    test is split by the average duration instead - a small loss of balance,
+    never a lost test (pytest-split still assigns it to exactly one shard).
+    """
+    kept = {k: v for k, v in durations.items() if not is_flagged(k)}
+    return kept, len(durations) - len(kept)
+
+
 def _read(p: str) -> list[str]:
     return [line.strip() for line in Path(p).read_text(encoding="utf-8").splitlines() if line.strip()]
 
@@ -131,8 +144,13 @@ def main(argv: list[str] | None = None) -> int:
         durs = {n: json.loads((d / f"durations-{n}.json").read_text(encoding="utf-8"))
                 for n in range(1, args.shards + 1)}
         merged = merge_durations(ran, durs)
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import check_client_identifiers as guard
+        block, allow = guard.load_patterns(Path(__file__).resolve().parents[1])
+        merged, dropped = drop_flagged(merged, lambda k: bool(guard.hits_in(k, block, allow)))
         Path(args.out).write_text(json.dumps(merged, indent=0) + "\n", encoding="utf-8")
-        print(f"merged durations for {len(merged)} tests -> {args.out}")
+        print(f"merged durations for {len(merged)} tests -> {args.out}"
+              f" ({dropped} identifier-shaped node id(s) dropped, split by the average)")
         return 0
     ok, lines = compare(_read(args.full), {Path(s).name: _read(s) for s in args.shards})
     print("\n".join(lines))

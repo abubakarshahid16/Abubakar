@@ -78,3 +78,10 @@ def test_each_duration_comes_from_the_shard_that_ran_the_test(ids):
 def test_a_test_that_ran_without_a_duration_refuses_the_merge(ids):
     with pytest.raises(ValueError, match="no stored duration"):
         ids.merge_durations({1: ["t::a"]}, {1: {}})
+
+
+def test_identifier_shaped_node_ids_are_dropped_from_the_durations(ids):
+    durations = {"tests/test_a.py::test_x[21-PV-1043A]": 1.0, "tests/test_a.py::test_y": 2.0}  # client-id-scan: synthetic
+    kept, dropped = ids.drop_flagged(durations, lambda k: "PV-1043A" in k)
+    assert kept == {"tests/test_a.py::test_y": 2.0}
+    assert dropped == 1
