@@ -167,3 +167,13 @@ def test_a_green_nightly_run_refreshes_the_durations_for_the_next_runs(jobs):
     # .test_durations is a dot-file: without this the artifact is silently empty.
     assert upload["with"]["include-hidden-files"] is True
     assert upload["with"]["if-no-files-found"] == "error"
+
+
+def test_the_committed_durations_file_is_real_and_well_formed():
+    # The fallback the shards split by when no nightly refresh is cached yet.
+    import json
+    path = ROOT / "backend" / ".test_durations"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert isinstance(data, dict) and len(data) > 1000, "durations for the real suite, not a stub"
+    assert all(k.startswith("tests/") and "::" in k for k in data)
+    assert all(isinstance(v, (int, float)) and v >= 0 for v in data.values())
