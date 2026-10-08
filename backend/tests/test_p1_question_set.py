@@ -1,7 +1,7 @@
 """P1: the labelled question set blocks a change that lowers the score.
 
-The set (eval/p1/questions.json) is 30 invented-name questions run through the
-real chat on an invented seven-document corpus, no model call. A question that
+The set (eval/p1/questions.json, version 2) is 60 invented-name questions run
+through the real chat on an invented eleven-document corpus, no model call. A question that
 passes in eval/p1/baseline.json must keep passing, and no unanswerable
 question may start getting an answer. The score may rise; it may not fall.
 
@@ -73,6 +73,39 @@ def test_an_improvement_and_a_known_failure_do_not_block():
     rows = [_row("A", True, clause_ok=True), _row("B", True), _row("C", True),
             _row("U", False, answerable=False, answered=True)]
     assert harness.compare_with_baseline(rows, BASE) == []
+
+
+_MULTI = {"id": "M", "answerable": True, "expected_sources": [
+    {"document": "STD-A-001.pdf", "pages": [3], "answer_contains": ["3.0 mm/s"]},
+    {"document": "STD-K-010.pdf", "pages": [2], "answer_contains": ["6.0 mm/s"]}]}
+
+
+def _passage(filename, page, text):
+    return {"filename": filename, "page_start": page, "page_end": page,
+            "text": text, "section": None}
+
+
+def test_a_multi_document_answer_that_cites_only_one_side_fails():
+    """Both figures are in the answer text, but only one document is cited:
+    the reader cannot check the other figure, so it is not a pass."""
+    one_side = {"answer_type": "extract", "answer": "3.0 mm/s and 6.0 mm/s",
+                "answer_passages": [_passage("STD-A-001.pdf", 3, "3.0 mm/s RMS")]}
+    both = {"answer_type": "extract", "answer": "",
+            "answer_passages": [_passage("STD-A-001.pdf", 3, "3.0 mm/s RMS"),
+                                _passage("STD-K-010.pdf", 2, "6.0 mm/s RMS.")]}
+    assert harness.sources_ok(_MULTI, one_side) is False
+    assert harness.sources_ok(_MULTI, both) is True
+    assert harness._passed(_MULTI, {"sources_ok": True}) is True
+    assert harness._passed(_MULTI, {"sources_ok": False}) is False
+
+
+def test_a_multi_document_label_that_is_not_in_the_corpus_is_caught():
+    wrong = {**_MULTI, "expected_sources": [
+        _MULTI["expected_sources"][0],
+        {"document": "STD-K-010.pdf", "pages": [2], "answer_contains": ["7.5 mm/s"]}]}
+    problems = harness.check_labels([wrong])
+    assert any("7.5 mm/s" in p for p in problems), problems
+    assert harness.check_labels([_MULTI]) == []
 
 
 def test_the_score_has_not_dropped_on_the_invented_corpus(temp_storage):
