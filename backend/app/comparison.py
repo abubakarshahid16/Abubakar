@@ -2035,7 +2035,10 @@ def run_comparison(
                 # candidate field, or a table rule could not be read, "no field
                 # answers this" is not what was established: the value may be on
                 # the sheet. It is an engineer's question, with the reason.
-                not_checked = absence.pairing_not_checked(
+                # A rule verdict (a table or formula evaluated in code) already
+                # says exactly what was and was not found; the pairing steps
+                # did not decide this finding.
+                not_checked = None if rule_verdict else absence.pairing_not_checked(
                     match.get("reason"), model_reason, rule_unread)
                 if not_checked:
                     verdict = {**verdict, "status": NEEDS_ENGINEER_REVIEW,
