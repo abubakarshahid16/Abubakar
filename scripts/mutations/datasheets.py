@@ -63,8 +63,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M52", phase=5,
         description="stop detecting standards referenced by the datasheet",
         path=APP / "datasheets.py",
-        anchor="            for match in _REFERENCED_STANDARD.finditer(text or \"\")]",
-        replacement="            for match in _REFERENCED_STANDARD.finditer(\"\")]",
+        # Re-anchored 2026-10-08 (#623): the reader moved to standard_ids.
+        anchor="    return standard_ids.cited_standards(text or \"\")",
+        replacement="    return standard_ids.cited_standards(\"\")",
         target="tests/test_datasheets.py",
         keyword="referenced_standard_named_in_the_datasheet",
         tags=("datasheet",),
@@ -98,19 +99,22 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M102", phase=8,
         description="MATCH A BARE ASME FAMILY LETTER again, reporting "
                     "'ASME B' as a missing reference nobody can look up",
-        path=APP / "datasheets.py",
-        anchor=r'    r"|ASME\s*B\d{1,2}\.\d{1,3}(?:\.\d{1,3})?"',
-        replacement=r'    r"|ASME\s*[IVXB]+(?:\.\d+)?"',
+        # Re-anchored 2026-10-08 (#623): the ASME B shape is in standard_ids;
+        # the shape becomes the bare family letter "ASME B", read again.
+        path=APP / "standard_ids.py",
+        anchor=r'B[-\s]*(?P<num>\d{1,2}(?:(?:\.\d{1,3}){1,2}|[-_ ]\d{1,3}(?![\d.])))" + _END),',
+        replacement=r'B(?P<num>)\b"),',
         target="tests/test_reference_identifiers.py",
-        keyword="bare_asme_family_letter",
+        keyword="bare_asme_family_letter or incomplete_asme_reference",
         tags=("honesty",),
     ),
     Mutation(
         id="M103", phase=8,
         description="drop the SAMSS alternative, making ten citations invisible",
-        path=APP / "datasheets.py",
-        anchor=r'    r"|\d{2}-SAMSS-\d{3}"',
-        replacement=r'    r"|(?!x)x-SAMSS-\d{3}"',
+        # Re-anchored 2026-10-08 (#623): the SAMSS shape is in standard_ids.
+        path=APP / "standard_ids.py",
+        anchor=r'        (re.compile(r"\b(?P<cat>\d{2})[-\s]*SAMSS[-\s]*(?P<num>\d{1,4})(?!\d)"), _samss),' + "\n",
+        replacement="",
         target="tests/test_reference_identifiers.py",
         keyword="citation_shape_is_read_whole",
     ),
@@ -1392,16 +1396,11 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="the widened citation grammar (NFPA, IEEE, MSS, UL, DIN, "
                     "BS, TEMA, PIP, ASME without SEC) is dropped back to the "
                     "narrower set, missing 41% of common spellings again",
-        path=APP / "datasheets.py",
-        anchor='    r"|NFPA[-\\s]*\\d{1,4}[A-Z]?"\n'
-              '    r"|IEEE[-\\s]*(?:STD\\.?\\s*)?\\d{3,4}(?:\\.\\d{1,3})?"\n'
-              '    r"|MSS[-\\s]*SP[-\\s]*\\d{1,3}"\n'
-              '    r"|UL[-\\s]*\\d{3,4}[A-Z]?"\n'
-              '    r"|DIN[-\\s]*(?:EN[-\\s]*)?\\d{3,5}"\n'
-              '    r"|BS[-\\s]*(?:EN[-\\s]*)?\\d{3,5}"\n'
-              '    r"|TEMA[-\\s]+(?:CLASS[-\\s]*)?[RCB]"\n'
-              '    r"|PIP[-\\s]*[A-Z]{4}\\d{3,4}[A-Z]?"\n',
-        replacement="",
+        # Re-anchored 2026-10-08 (#623): the widened set is now the issuing
+        # bodies the vocabulary file lists; reading none of them drops it again.
+        path=APP / "standard_ids.py",
+        anchor='        "citation_bodies": [b.upper() for b in data.get("citation_bodies") or []],\n',
+        replacement='        "citation_bodies": [],\n',
         target="tests/test_datasheets.py",
         keyword="test_the_widened_citation_grammar_catches_common_spellings",
         tags=("honesty", "critical"),
