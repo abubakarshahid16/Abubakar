@@ -9,11 +9,11 @@
 #
 # What it is NOT. It is deliberately a separate file with its own job name and
 # is NOT one of the checks `main` requires, so a Windows-only failure is visible
-# on the pull request but cannot block a merge until the owner decides, after it
-# has proved reliable, to make it required. It runs on pull requests, on pushes
-# to `main`, and on demand - not on every push to every branch (tests.yml
-# already does that) - so it adds one Windows run per pull request, not one per
-# commit.
+# in its run but cannot block a merge until the owner decides, after it
+# has proved reliable, to make it required. It runs NIGHTLY on `main` and on
+# demand (workflow_dispatch) - not on pull requests or pushes - to save Actions
+# minutes (owner decision 2026-10-08, CI trim). A Windows-only failure is
+# therefore seen within a day on main, or at once when started by hand.
 #
 # It runs the same suite the Linux job runs, with the same model staging and the
 # same "is the suite armed" check. It does not run the lint, the benchmarks or
@@ -22,9 +22,8 @@
 name: tests-windows
 
 on:
-  pull_request:
-  push:
-    branches: [main]
+  schedule:
+    - cron: "41 2 * * *" # nightly, off the hour, on main by default
   workflow_dispatch:
 
 permissions:

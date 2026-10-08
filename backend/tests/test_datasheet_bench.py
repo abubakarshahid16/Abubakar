@@ -370,6 +370,7 @@ def test_a_usd_cap_stops_the_claude_reader_before_anything_is_sent(claude_lane, 
     assert claude_lane == []
 
 
+@pytest.mark.slow
 def test_the_rules_reader_runs_on_a_pdf_without_the_project_database(key):
     from app import db
     from app.config import settings

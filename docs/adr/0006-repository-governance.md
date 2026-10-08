@@ -19,7 +19,9 @@ controls are active.
 - `.github/pull_request_template.md` requires an issue link and verification
   evidence.
 - `tests.yml` runs backend, frontend, typecheck, and production-build checks on
-  every push and pull request.
+  pull requests and pushes to `main`; the backend suite runs in three shards
+  behind the aggregate `backend (pytest)`, and `slow` tests run nightly (#584).
+  `tests-windows.yml` runs nightly and on demand.
 - `secret-scan.yml` runs secret scanning and the client-data guard.
 - Dependabot checks Python, npm, and GitHub Actions dependencies monthly.
 - `CONTRIBUTING.md` requires merge commits, green checks, and local suites.

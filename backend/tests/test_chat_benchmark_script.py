@@ -60,6 +60,7 @@ def test_it_refuses_to_write_a_report_git_would_track(bench, monkeypatch):
     assert not (cowork / "r.md").exists()
 
 
+@pytest.mark.slow
 def test_the_report_records_what_the_chat_did_and_leaves_scores_blank(bench, capsys):
     mod, cowork, client = bench
     upload(client)
