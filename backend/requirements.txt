@@ -15,7 +15,7 @@ argon2-cffi==25.1.0
 PyMuPDF==1.28.2
 
 # Embeddings - local ONNX int8, no torch
-onnxruntime==1.29.0
+onnxruntime==1.30.0
 tokenizers==0.23.2
 numpy==2.5.3
 
