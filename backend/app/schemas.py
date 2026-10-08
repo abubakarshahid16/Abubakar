@@ -648,6 +648,17 @@ class UploadAccepted(BaseModel):
     )
 
 
+class UploadDisciplines(BaseModel):
+    """Who an upload may be made visible to (#609). Names only, never ids."""
+
+    required: bool = Field(description="false only with authentication off, "
+                                       "where every caller reads every document")
+    choices: list[str] = Field(description="disciplines this caller may choose: "
+                                           "their own, or every discipline for "
+                                           "an administrator")
+    default: list[str] = Field(description="the caller's own disciplines")
+
+
 class WorkerStatus(BaseModel):
     alive: bool
     current_document: str | None

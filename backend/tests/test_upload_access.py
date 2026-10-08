@@ -37,6 +37,10 @@ def isolated_store(tmp_path, monkeypatch):
             ("role_civil", "Civil", "Civil engineers", NOW),
         )
         conn.execute(
+            "INSERT INTO roles (id,name,description,created_at) VALUES (?,?,?,?)",
+            ("role_mech", "Mechanical", "Mechanical engineers", NOW),
+        )
+        conn.execute(
             "INSERT INTO user_roles (user_id,role_id,granted_at) VALUES (?,?,?)",
             ("admin_user", "role_admin", NOW),
         )
@@ -54,11 +58,13 @@ def _pdf(marker: bytes = b"x") -> bytes:
     return b"%PDF-1.4\n" + marker * 5000 + b"\n%%EOF\n"
 
 
-def _upload(client: TestClient, user: str | None, data: bytes | None = None):
+def _upload(client: TestClient, user: str | None, data: bytes | None = None,
+            disciplines: list[str] | None = None):
     headers = {"x-test-user": user} if user else {}
     return client.post(
         "/api/documents",
         headers=headers,
+        data={"disciplines": disciplines} if disciplines else None,
         files={"file": ("spec.pdf", io.BytesIO(data or _pdf()), "application/pdf")},
     )
 
@@ -70,20 +76,23 @@ def test_anonymous_upload_is_rejected_before_writing_anything():
     assert connect().execute("SELECT COUNT(*) AS n FROM jobs").fetchone()["n"] == 0
 
 
-def test_new_upload_is_admin_only_until_deliberately_granted():
+def test_new_upload_is_granted_to_admin_and_its_chosen_discipline():
+    """#609: an upload names its disciplines; it is never left visible to no
+    discipline, and the admin capability always holds it."""
     client = TestClient(app)
-    response = _upload(client, "engineer")
+    response = _upload(client, "engineer", disciplines=["Civil"])
     assert response.status_code == 200, response.text
     body = response.json()
     document_id = body["document"]["id"]
-    assert body["awaiting_grant"] is True
+    assert body["awaiting_grant"] is False
 
     grants = connect().execute(
-        "SELECT role_id FROM document_role_access WHERE document_id = ?",
-        (document_id,),
+        "SELECT role_id FROM document_role_access WHERE document_id = ?"
+        " ORDER BY role_id", (document_id,),
     ).fetchall()
-    assert [row["role_id"] for row in grants] == ["role_admin"]
-    assert client.get("/api/documents", headers={"x-test-user": "engineer"}).json() == []
+    assert [row["role_id"] for row in grants] == ["role_admin", "role_civil"]
+    engineer_docs = client.get("/api/documents", headers={"x-test-user": "engineer"}).json()
+    assert [doc["id"] for doc in engineer_docs] == [document_id]
     admin_docs = client.get(
         "/api/documents", headers={"x-test-user": "admin_user"}
     ).json()
@@ -93,8 +102,8 @@ def test_new_upload_is_admin_only_until_deliberately_granted():
 def test_duplicate_cannot_widen_access_or_reveal_the_existing_document():
     client = TestClient(app)
     data = _pdf(b"z")
-    original = _upload(client, "admin_user", data).json()["document"]
-    response = _upload(client, "engineer", data)
+    original = _upload(client, "admin_user", data, ["Mechanical"]).json()["document"]
+    response = _upload(client, "engineer", data, ["Civil"])
     assert response.status_code == 200
     assert response.json() == {
         "document": None,
@@ -103,10 +112,10 @@ def test_duplicate_cannot_widen_access_or_reveal_the_existing_document():
         "awaiting_grant": True,
     }
     grants = connect().execute(
-        "SELECT role_id FROM document_role_access WHERE document_id = ?",
-        (original["id"],),
+        "SELECT role_id FROM document_role_access WHERE document_id = ?"
+        " ORDER BY role_id", (original["id"],),
     ).fetchall()
-    assert [row["role_id"] for row in grants] == ["role_admin"]
+    assert [row["role_id"] for row in grants] == ["role_admin", "role_mech"]
 
 
 def test_required_auth_refuses_upload_when_admin_role_is_not_configured():
