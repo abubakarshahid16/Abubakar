@@ -716,6 +716,16 @@ export interface ReviewRunSummary {
    *  no field that answers them), one grouped line per standard. Empty or
    *  absent renders as nothing. */
   table_values_not_compared?: TableValuesNotCompared[];
+  /** #453: requirements about a DIFFERENT kind of equipment than this
+   *  submittal, one grouped line per subject. Counted and shown, never
+   *  dropped silently. Empty or absent renders as nothing. */
+  requirements_not_applied?: RequirementsNotApplied[];
+  /** #453: how the rest were decided; null for a run that predates it. */
+  applicability?: {
+    submittal_equipment: string[]; equipment_source: string | null;
+    checked_general: number; checked_matching: number;
+    kept_equipment_unknown: number; not_applied: number;
+  } | null;
   /** 2026-09-27: the AI engineering check's own outcome for this run. Null
    *  when it never ran (off, or the Claude lane is off). `complete` is
    *  false whenever a reply was truncated, only partially recovered after
@@ -2622,4 +2632,13 @@ export interface TableValuesNotCompared {
   table_count: number;
   line: string;
   tables: { page: number | null; count: number; examples: string[] }[];
+}
+
+/** One grouped "not applied" line (#453): N requirements about one subject. */
+export interface RequirementsNotApplied {
+  subject: string;
+  submittal_equipment: string;
+  count: number;
+  line: string;
+  standards: { standard_document_id: string; standard_name: string; count: number; clauses: string[] }[];
 }

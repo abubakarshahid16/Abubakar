@@ -19,7 +19,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, reviews as reviewsApi } from "../api/client";
 import type {
   CrsPreview, CrsReviewNote, DocumentRecord, ReviewFinding, ReviewReadiness,
-  ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary, TableValuesNotCompared,
+  ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary, RequirementsNotApplied, TableValuesNotCompared,
   VisionReaderStatus,
 } from "../types/api";
 import { FindingDetail } from "../components/review/FindingDetail";
@@ -535,6 +535,9 @@ export function ReviewRunsView(
 
           {showStandards && (
             <StandardsInScope standards={standards} missing={missingStandards} error={standardsError} />
+          )}
+          {run && (run.requirements_not_applied?.length ?? 0) > 0 && (
+            <RequirementsNotAppliedList lines={run.requirements_not_applied ?? []} />
           )}
           {run && (run.table_values_not_compared?.length ?? 0) > 0 && (
             <TableValuesNotComparedList lines={run.table_values_not_compared ?? []} />
@@ -1068,6 +1071,30 @@ function CrsPreviewSheet(
         </p>
       )}
     </section>
+  );
+}
+
+/** #453: the requirements about a different kind of equipment, one expandable
+ *  line per subject. They are counted, never dropped silently. */
+function RequirementsNotAppliedList({ lines }: { lines: RequirementsNotApplied[] }) {
+  return (
+    <ul className="space-y-1 text-sm" data-testid="requirements-not-applied">
+      {lines.map((item) => (
+        <li key={item.subject}>
+          <details>
+            <summary className="cursor-pointer text-slateish-300">{item.line}</summary>
+            <ul className="mt-1 list-disc ps-5 text-xs text-slateish-400">
+              {item.standards.map((standard) => (
+                <li key={standard.standard_document_id}>
+                  {standard.count} in {standard.standard_name}
+                  {standard.clauses.length > 0 ? `, clauses ${standard.clauses.join(", ")}` : ""}
+                </li>
+              ))}
+            </ul>
+          </details>
+        </li>
+      ))}
+    </ul>
   );
 }
 

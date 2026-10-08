@@ -147,6 +147,34 @@ describe("B3: the pages a run read into fields", () => {
   });
 });
 
+describe("#453: requirements about a different kind of equipment", () => {
+  it("shows one expandable line per subject, never dropping them silently", async () => {
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({
+      requirements_not_applied: [{
+        subject: "steam turbine", submittal_equipment: "relief valve", count: 12,
+        line: "12 requirements not applied: they are about steam turbine, this submittal is relief valve",
+        standards: [{ standard_document_id: "s1", standard_name: "SAES-J-600.pdf",
+                      count: 12, clauses: ["8.7", "8.8", "8.9.3"] }],
+      }],
+    })] } });
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+
+    const block = await screen.findByTestId("requirements-not-applied");
+    expect(within(block).getByText(/12 requirements not applied: they are about steam turbine/))
+      .toBeInTheDocument();
+    expect(within(block).getByText(/12 in SAES-J-600\.pdf, clauses 8\.7, 8\.8, 8\.9\.3/))
+      .toBeInTheDocument();
+  });
+
+  it("shows nothing when every requirement applied", async () => {
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    await screen.findByRole("heading", { name: "drum.pdf", level: 2 });
+    expect(screen.queryByTestId("requirements-not-applied")).toBeNull();
+  });
+});
+
 describe("#598: table values that were not compared", () => {
   it("shows one expandable line per standard, never dropping them silently", async () => {
     reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({

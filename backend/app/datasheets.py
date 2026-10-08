@@ -46,7 +46,7 @@ import json
 from contextvars import ContextVar
 
 from . import (blank_markers, claims, datasheet_inputs, numparse, orphan_guard, page_ledger,
-               provenance, row_noise, submittal_review, tables)
+               provenance, row_noise, standard_ids, submittal_review, tables)
 from .config import settings
 from .db import connect
 
@@ -65,68 +65,13 @@ from .db import connect
 #: `datasheet_checks`). A lone `*`, "VENDOR TO ADVISE", "-" and "LATER" are
 #: blanks there; "N/A" is an answer, never a blank.
 
-#: A referenced standard named inside a datasheet. Both real client sheets name a
-#: stack of them, and phase 5 needs to know which standards a submittal itself
-#: invokes. Spellings vary by vendor, so each family is matched on its own
-#: shape rather than by one loose pattern that would also match a tag number.
-_REFERENCED_STANDARD = re.compile(
-    r"\b("
-    # CRS QUICK WINS (2026-09-27, audit crs.md defect 6): 14 of 34 common
-    # spellings were invisible - "API 6D", "API-610", "API Std 610", "NFPA
-    # 20", "ASME VIII DIV. 1" (the repo's own synthetic vessel sheet), IEEE,
-    # MSS, UL, DIN, BS, TEMA, PIP. A citation nobody detects is a standard
-    # never applied and never reported missing. API takes a hyphen, an
-    # RP/Std/Spec word, three or four digits, or one or two digits ONLY with a
-    # letter suffix (6D, 5L, 12F) - a bare "API 20" in prose stays a number.
-    r"API[-\s]*(?:(?:RP|STD|SPEC|MPMS)\.?[-\s]*)?(?:\d{3,4}|\d{1,2}[A-Z]{1,2})"
-    r"(?:\s*Pt[-\s]?\d)?"
-    r"|NFPA[-\s]*\d{1,4}[A-Z]?"
-    r"|IEEE[-\s]*(?:STD\.?\s*)?\d{3,4}(?:\.\d{1,3})?"
-    r"|MSS[-\s]*SP[-\s]*\d{1,3}"
-    r"|UL[-\s]*\d{3,4}[A-Z]?"
-    r"|DIN[-\s]*(?:EN[-\s]*)?\d{3,5}"
-    r"|BS[-\s]*(?:EN[-\s]*)?\d{3,5}"
-    r"|TEMA[-\s]+(?:CLASS[-\s]*)?[RCB]"
-    r"|PIP[-\s]*[A-Z]{4}\d{3,4}[A-Z]?"
-    # KOC discipline codes are ONE letter (E electrical, G general, I
-    # instrumentation, P painting, Q quality...) or TWO (ME mechanical
-    # equipment, MP mechanical piping...) depending on the discipline, not a
-    # fixed width - a real client datasheet's own reference list names both in
-    # the same document. `{1,2}` reads either; a fixed `{2}` silently dropped
-    # every one-letter citation (KOC-E-003, KOC-P-001, ...) as invisible to
-    # the citation pattern, never applicable and never reported missing.
-    r"|KOC-[A-Z]{1,2}-\d{3}(?:\s*Pt[-\s]?\d)?"
-    r"|NACE\s*MR[-\s]?\d{4}"
-    r"|ISO\s*\d{4,5}"
-    # ASME ONLY WITH A COMPLETE IDENTIFIER. The previous alternative was
-    # `ASME\s*[IVXB]+(?:\.\d+)?`, which matched the two characters "ASME B" out
-    # of "ASME B31.3" and reported that as a missing reference. "ASME B" names
-    # no document: it is a whole family of codes, an engineer cannot look it up,
-    # and it can never match a library entry - so it was a citation that was
-    # guaranteed to be unresolvable, reported as though it were a real gap.
-    #
-    # Two complete shapes, and nothing else: a B-series number with its decimal
-    # (B16.5, B31.3), or a section in roman numerals with an optional division
-    # (Sec VIII, Section VIII Div 1).
-    r"|ASME\s*B\d{1,2}\.\d{1,3}(?:\.\d{1,3})?"
-    # The section word is optional (quick wins 2026-09-27): "ASME VIII DIV.
-    # 1" names Section VIII as surely as "ASME SEC VIII DIV 1". A roman
-    # numeral is still required, so "ASME B" (a family, not a document)
-    # stays unmatched as before.
-    r"|ASME\s*(?:SEC(?:T|TION)?\.?\s*)?[IVX]+(?:\s*,?\s*DIV(?:\.|ISION)?\s*\d+)?"
-    r"|ASTM\s*[A-Z]\d{1,4}"
-    r"|IEC\s*\d{5}"
-    # `\d{3,4}` so a four-digit series (SAES-R-1101) is a citation. The
-    # two-digit form is deliberately NOT here - see `library_identifier`.
-    r"|SAES-[A-Z]-\d{3,4}"
-    # The client's own material system specifications, which this corpus's own
-    # submittal cites ten times and which were invisible to every rule that
-    # reads this pattern.
-    r"|\d{2}-SAMSS-\d{3}"
-    r"|EN\s*\d{3,5}"
-    r")\b",
-    re.IGNORECASE,
-)
+#: THE CITATION READER is `standard_ids.find_citations` (#623): the same
+#: grammar the one matcher reads an identifier with (issuing body + series +
+#: number + part/division/year, special shapes for API, ASME, ISO, NACE,
+#: SAES/SAMSS), with the issuing bodies, aliases and class letters in the
+#: editable reference/standard_identifiers.json. It replaced a list of
+#: families here, which never saw IEC 61511-1, BS EN 13445-3, ANSI/ISA-84.00.01
+#: or an ISO part, so the matcher (#621) never got to match or report them.
 
 #: A label-value row in a numbered form: "5 | Design pressure | 23.5 barg".
 #: The leading number is the sheet's own line number, not data.
@@ -855,10 +800,10 @@ def referenced_standard_spans(text: str) -> list[tuple[str, int, int]]:
 
     The detector `referenced_standards` de-duplicates; this keeps WHERE each
     citation is, so evidence can quote the text around the one that matched.
-    One pattern for both - a second copy would drift.
+    One reader for both - a second copy would drift - and it is the one
+    grammar the matcher uses (`standard_ids.find_citations`, #623).
     """
-    return [(" ".join(match.group(1).split()), match.start(1), match.end(1))
-            for match in _REFERENCED_STANDARD.finditer(text or "")]
+    return standard_ids.find_citations(text or "")
 
 
 def referenced_standards(text: str) -> list[str]:
@@ -867,22 +812,14 @@ def referenced_standards(text: str) -> list[str]:
     Spacing is normalised so "API RP 520" and "API  RP520" are one entry, but
     the document's own spelling of each family is kept - this is a citation,
     and a citation is quoted rather than canonicalised.
+
+    PUNCTUATION IS NOT IDENTITY: "ASME Sec VIII Div.1" and "ASME VIII DIV. 1"
+    are one code, so they are one entry (the denominator reference coverage is
+    measured against must not count a code twice). Equivalent standards that
+    were BOTH cited (NACE MR0175, ISO 15156) stay two entries.
+    `standard_ids.cited_standards` keys each by its parsed identifier.
     """
-    seen: dict[str, str] = {}
-    for raw, _, _ in referenced_standard_spans(text):
-        # PUNCTUATION IS NOT IDENTITY. The key dropped spaces only, so
-        # "ASME Sec VIII Div.1" and "ASME Sec.VIII Div.1" - the same code,
-        # written twice in one document - were two references, and the second
-        # one inflated the denominator that reference coverage is measured
-        # against. The digits are the identity; everything else is spelling.
-        key = re.sub(r"[^A-Z0-9]", "", raw.upper())
-        # "ASME VIII DIV. 1" and "ASME SEC VIII DIV 1" are one code: the
-        # section and division words are spelling, not identity.
-        if key.startswith("ASME"):
-            key = re.sub(r"SECTION|SECT|SEC|DIVISION", lambda m: "DIV" if m.group(0)
-                         == "DIVISION" else "", key)
-        seen.setdefault(key, raw)
-    return list(seen.values())
+    return standard_ids.cited_standards(text or "")
 
 
 #: A cell that is a bare number, with an optional comparator and sign. The

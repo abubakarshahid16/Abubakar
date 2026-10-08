@@ -1,0 +1,233 @@
+{
+  "_about": "The equipment and component types a standard's clause or a submittal can be about (#453). ONE shared, editable vocabulary: read by app/subject_scope.py to decide what a requirement is about (from its own wording and its heading path) and what a submittal is (from its equipment type, title and fields). Each type lists the other spellings that mean it. 'kind' is 'equipment' (a machine or vessel: a clause about a DIFFERENT one does not apply to this submittal) or 'component' (a part that every kind of equipment has: a clause about it can apply to anything, so it never excludes). A spelling listed under two types is ambiguous on purpose: it matches both, and the requirement is kept. Edit here, not in code. A change takes effect on the next review run.",
+  "types": {
+    "steam turbine": {
+      "kind": "equipment",
+      "synonyms": [
+        "steam turbines",
+        "turbine driver",
+        "turbine exhaust casing",
+        "turbine",
+        "turbines",
+        "turbine casing",
+        "turbine casings"
+      ]
+    },
+    "gas turbine": {
+      "kind": "equipment",
+      "synonyms": [
+        "gas turbines",
+        "combustion turbine",
+        "gas turbine engine",
+        "turbine",
+        "turbines",
+        "turbine casing",
+        "turbine casings"
+      ]
+    },
+    "relief valve": {
+      "kind": "equipment",
+      "synonyms": [
+        "relief valves",
+        "pressure relief valve",
+        "pressure relief valves",
+        "safety valve",
+        "safety valves",
+        "safety relief valve",
+        "safety relief valves",
+        "pressure safety valve",
+        "pressure safety valves",
+        "psv",
+        "psvs",
+        "prv",
+        "prvs",
+        "srv",
+        "valve"
+      ]
+    },
+    "control valve": {
+      "kind": "equipment",
+      "synonyms": [
+        "control valves",
+        "valve"
+      ]
+    },
+    "check valve": {
+      "kind": "equipment",
+      "synonyms": [
+        "check valves",
+        "non-return valve",
+        "non return valve",
+        "valve"
+      ]
+    },
+    "pump": {
+      "kind": "equipment",
+      "synonyms": [
+        "pumps",
+        "centrifugal pump",
+        "centrifugal pumps",
+        "reciprocating pump",
+        "reciprocating pumps",
+        "pump driver"
+      ]
+    },
+    "compressor": {
+      "kind": "equipment",
+      "synonyms": [
+        "compressors",
+        "centrifugal compressor",
+        "centrifugal compressors",
+        "reciprocating compressor",
+        "reciprocating compressors"
+      ]
+    },
+    "heat exchanger": {
+      "kind": "equipment",
+      "synonyms": [
+        "heat exchangers",
+        "exchanger",
+        "exchangers",
+        "shell and tube",
+        "shell and tube exchanger",
+        "air cooler",
+        "air coolers",
+        "cooler",
+        "coolers",
+        "condenser",
+        "condensers"
+      ]
+    },
+    "pressure vessel": {
+      "kind": "equipment",
+      "synonyms": [
+        "pressure vessels",
+        "vessel",
+        "vessels",
+        "drum",
+        "drums",
+        "column",
+        "columns",
+        "separator",
+        "separators",
+        "reactor",
+        "reactors",
+        "knockout drum"
+      ]
+    },
+    "storage tank": {
+      "kind": "equipment",
+      "synonyms": [
+        "storage tanks",
+        "tank",
+        "tanks",
+        "atmospheric tank",
+        "atmospheric tanks"
+      ]
+    },
+    "boiler": {
+      "kind": "equipment",
+      "synonyms": [
+        "boilers",
+        "steam generator",
+        "steam generators",
+        "waste heat boiler"
+      ]
+    },
+    "fired heater": {
+      "kind": "equipment",
+      "synonyms": [
+        "fired heaters",
+        "furnace",
+        "furnaces",
+        "process heater",
+        "process heaters"
+      ]
+    },
+    "motor": {
+      "kind": "equipment",
+      "synonyms": [
+        "motors",
+        "electric motor",
+        "electric motors"
+      ]
+    },
+    "transformer": {
+      "kind": "equipment",
+      "synonyms": [
+        "transformers",
+        "power transformer",
+        "power transformers"
+      ]
+    },
+    "battery": {
+      "kind": "equipment",
+      "synonyms": [
+        "batteries",
+        "battery bank",
+        "battery banks"
+      ]
+    },
+    "cable": {
+      "kind": "equipment",
+      "synonyms": [
+        "cables",
+        "power cable",
+        "power cables"
+      ]
+    },
+    "piping": {
+      "kind": "component",
+      "synonyms": [
+        "pipe",
+        "pipes",
+        "pipework",
+        "pipeline",
+        "pipelines",
+        "tubing"
+      ]
+    },
+    "flange": {
+      "kind": "component",
+      "synonyms": [
+        "flanges",
+        "flanged"
+      ]
+    },
+    "bolting": {
+      "kind": "component",
+      "synonyms": [
+        "bolt",
+        "bolts",
+        "stud",
+        "studs",
+        "stud bolts",
+        "fasteners"
+      ]
+    },
+    "gasket": {
+      "kind": "component",
+      "synonyms": [
+        "gaskets"
+      ]
+    },
+    "nozzle": {
+      "kind": "component",
+      "synonyms": [
+        "nozzles"
+      ]
+    }
+  },
+  "submittal_field_labels": [
+    "equipment",
+    "equipment type",
+    "equipment description",
+    "item",
+    "item description",
+    "description",
+    "service",
+    "type",
+    "tag name",
+    "name"
+  ]
+}

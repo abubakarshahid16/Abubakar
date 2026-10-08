@@ -2431,6 +2431,14 @@ class ReviewRunSummary(BaseModel):
     #: submittal has no field that answers them, one grouped line per
     #: standard with the tables behind it. Empty for a run that predates it.
     table_values_not_compared: list[dict] = []
+    #: #453: requirements about a different kind of equipment than this
+    #: submittal, one grouped line per subject ("N requirements not applied:
+    #: they are about X, this submittal is Y") with the standards and clauses
+    #: behind it. Empty for a run that predates it.
+    requirements_not_applied: list[dict] = []
+    #: #453: how the requirements that stayed were decided (general, matching,
+    #: kept because the equipment is unknown). Null for a run that predates it.
+    applicability: dict | None = None
     #: P3: the job running this review: its state, named progress (step N of
     #: 3) and whether cancellation was requested. Null for a run made before
     #: reviews were queued.
