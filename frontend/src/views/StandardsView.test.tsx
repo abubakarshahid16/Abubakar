@@ -133,6 +133,20 @@ describe("the requirements tab", () => {
     expect(screen.getByText("Awaiting verification")).toBeTruthy();
   });
 
+  it("shows text_quality as the reason a row awaits verification, and labels a definition", async () => {
+    mockApi({
+      requirements: [
+        { ...requirement, id: "q1", confidence: 0.1, needs_verification: true,
+          needs_verification_reason: "text_quality" },
+        { ...requirement, id: "d1", requirement_type: "definition" },
+      ],
+    });
+    render(<StandardsView />);
+    fireEvent.click(await screen.findByRole("button", { name: /SAES-A-105/ }));
+    expect(await screen.findByText(/Text looks garbled or mirrored/)).toBeTruthy();
+    expect(screen.getByText("Definition, not a requirement")).toBeTruthy();
+  });
+
   it("labels an extracted requirement as not yet confirmed", async () => {
     mockApi({ requirements: [requirement] });
     render(<StandardsView />);

@@ -128,7 +128,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1638", phase=1638, runner="vitest",
              description="RequirementType gains a value the backend Literal does not allow",
              path=_TYPES,
-             anchor='  | "applicability_trigger" | "relative_limit" | "table_row";',
-             replacement='  | "applicability_trigger" | "relative_limit" | "table_row" | "not_a_backend_type";',
+             anchor='  | "applicability_trigger" | "relative_limit" | "table_row" | "definition";',
+             replacement='  | "applicability_trigger" | "relative_limit" | "table_row" | "definition" | "not_a_backend_type";',
              target=_D, keyword="RequirementType lists", tags=("contract",)),
 )

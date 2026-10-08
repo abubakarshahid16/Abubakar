@@ -144,7 +144,7 @@ export interface StandardClause {
  *  did not understand: an obligation with no recognisable limit is a
  *  `statement`, never a `numeric_limit` carrying a null value. */
 export type RequirementType = "numeric_limit" | "statement" | "table_value"
-  | "applicability_trigger" | "relative_limit" | "table_row";
+  | "applicability_trigger" | "relative_limit" | "table_row" | "definition";
 
 /** One carve-out of a requirement, as `requirements_3b.parse_exceptions`
  *  records it. `applies_to` is always written; the limit keys only when the
@@ -215,6 +215,14 @@ export interface StandardRequirement {
   discipline: string | null;
   /** The table row a `table_value` came from. */
   table_row: number | null;
+  /** "column_header" when the unit was printed only in the table's column
+   *  header. Null otherwise. */
+  unit_from?: string | null;
+  /** "text_quality" when the text looks garbled or mirrored. Show it as the
+   *  reason the row awaits verification. Null renders as nothing. */
+  needs_verification_reason?: string | null;
+  /** Every page a repeated table cell was read from. */
+  evidence_pages?: { page: number | null; chunk_id: string }[];
   /** False when the cited chunk is gone - re-extract. Shown rather than the
    *  row being silently dropped. */
   citation_resolves: boolean;

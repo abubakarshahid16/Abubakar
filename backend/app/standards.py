@@ -41,12 +41,13 @@ statement.
 
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from . import chunker, claims, classification, orphan_guard, provenance, requirements_3b
+from . import chunker, claims, classification, numparse, orphan_guard, provenance, requirement_quality, requirements_3b
 from . import submittal_review
 from . import tables as tables_mod
 from .db import connect
@@ -513,8 +514,39 @@ def needs_verification(row: dict | sqlite3.Row) -> bool:
     """
     if row["confirmed_by"]:
         return False
+    # #597: unreadable text is held whatever its confidence says.
+    if _column(row, "quality_reason"):
+        return True
     confidence = row["confidence"]
     return confidence is None or confidence < VERIFICATION_THRESHOLD
+
+
+def _column(row, name: str):
+    """A column of a row that may predate it (dict or sqlite3.Row), else None."""
+    try:
+        return row[name]
+    except (KeyError, IndexError):
+        return None
+
+
+#: Confidence a row is capped at when its text fails the quality gate. Below
+#: `VERIFICATION_THRESHOLD`, so it also lands in the verification queue.
+TEXT_QUALITY_CONFIDENCE = 0.1
+
+
+def is_reviewable(row) -> bool:
+    """May a review compare against this requirement?
+
+    #596/#597: a definition never, and unreadable text never until a human has
+    confirmed it. A human's confirmation outranks the extractor's doubt about
+    the text, but it cannot turn a definition into a requirement: for that the
+    engineer edits the type. Used by every review that loads requirements.
+    """
+    if _column(row, "requirement_type") == requirement_quality.DEFINITION:
+        return False
+    if _column(row, "quality_reason") and not _column(row, "confirmed_by"):
+        return False
+    return True
 
 
 def create_requirement(
@@ -554,6 +586,24 @@ def create_requirement(
             f"page {page} is outside the cited chunk "
             f"({chunk['page_start']}-{chunk['page_end']})")
 
+    structured = structured or {}
+    identity_key = structured.get("identity_key")
+    if identity_key:
+        # #594 UPSERT, NOT INSERT. A table cell is identified by standard +
+        # table + row key + column (+ written value). Meeting it again - the
+        # same table repeated on another page, or the same page read twice -
+        # adds the page as evidence to the row that exists instead of writing a
+        # second requirement with the same text.
+        existing = connect().execute(
+            "SELECT * FROM standard_requirements"
+            " WHERE standard_document_id = ? AND identity_key = ?"
+            " ORDER BY created_at, id LIMIT 1",
+            (standard_document_id, identity_key)).fetchone()
+        if existing is not None:
+            return _add_evidence(
+                existing, chunk_id=chunk_id,
+                page=page if page is not None else chunk["page_start"])
+
     now = _now()
     row = {
         "id": str(uuid.uuid4()),
@@ -576,11 +626,24 @@ def create_requirement(
     # Phase 3B's structured shape. Absent keys stay NULL, which is what an
     # unrecognised limit looks like - never 0, and never a requirement_type
     # invented for text the parser did not understand.
-    structured = structured or {}
     for key in ("requirement_type", "field", "operator", "value", "unit",
                 "raw_value", "raw_unit", "condition", "exceptions",
-                "discipline", "table_row", "subject", "required_evidence_type"):
+                "discipline", "table_row", "subject", "required_evidence_type",
+                "unit_from", "identity_key"):
         row[key] = structured.get(key)
+    row["evidence_pages"] = json.dumps(
+        [{"page": row["page"], "chunk_id": chunk_id}]) if identity_key else None
+    # #597 THE TEXT-QUALITY GATE, at the one place every extracted row passes.
+    # A human's own row is never gated; an extractor's is, and the row is KEPT
+    # with its reason rather than dropped, so nothing disappears silently.
+    row["quality_reason"] = None
+    if extraction_method == "extracted":
+        row["quality_reason"] = requirement_quality.text_quality(
+            f"{row['requirement_text']} {row['source_text'] or ''}")
+        if row["quality_reason"] and (
+                row["confidence"] is None
+                or row["confidence"] > TEXT_QUALITY_CONFIDENCE):
+            row["confidence"] = TEXT_QUALITY_CONFIDENCE
     conn = connect()
     with conn:
         conn.execute(
@@ -591,7 +654,8 @@ def create_requirement(
                 requirement_type, field, operator, value, unit,
                 raw_value, raw_unit, condition, exceptions, discipline,
                 table_row, subject, required_evidence_type,
-                extractor_version, input_hash)
+                extractor_version, input_hash,
+                identity_key, evidence_pages, unit_from, quality_reason)
                VALUES (:id, :standard_document_id, :clause, :page, :chunk_id,
                        :requirement_text, :source_text, :category,
                        :extraction_method, :confidence, :created_at,
@@ -600,7 +664,42 @@ def create_requirement(
                        :raw_value, :raw_unit, :condition, :exceptions,
                        :discipline, :table_row, :subject,
                        :required_evidence_type,
-                       :extractor_version, :input_hash)""", row)
+                       :extractor_version, :input_hash,
+                       :identity_key, :evidence_pages, :unit_from,
+                       :quality_reason)""", row)
+    row["upserted"] = "created"
+    return row
+
+
+def _decode_evidence(raw) -> list[dict]:
+    """The evidence pages of a requirement; a malformed value reads as none."""
+    try:
+        value = json.loads(raw) if raw else []
+    except ValueError:
+        return []
+    return value if isinstance(value, list) else []
+
+
+def _add_evidence(existing, *, chunk_id: str, page: int | None) -> dict:
+    """Record one more page a requirement was read from; return the row."""
+    row = dict(existing)
+    try:
+        pages = json.loads(row.get("evidence_pages") or "[]")
+    except ValueError:
+        pages = []
+    if not pages:
+        pages = [{"page": row["page"], "chunk_id": row["chunk_id"]}]
+    entry = {"page": page, "chunk_id": chunk_id}
+    if entry not in pages:
+        pages.append(entry)
+        row["evidence_pages"] = json.dumps(pages)
+        conn = connect()
+        with conn:
+            conn.execute(
+                "UPDATE standard_requirements SET evidence_pages = ?,"
+                " updated_at = ? WHERE id = ?",
+                (row["evidence_pages"], _now(), row["id"]))
+    row["upserted"] = "merged"
     return row
 
 
@@ -694,7 +793,24 @@ def extract_requirements(
         for r in connect().execute(
             "SELECT clause, requirement_text FROM standard_requirements"
             " WHERE standard_document_id = ?", (document_id,)))
+    # #596 WHERE THE DEFINITIONS SECTION IS. A heading titled "Terms and
+    # definitions" opens it; it runs over the chunks filed under that clause
+    # (3, 3.1, 3.2.1 ...) and closes at the first chunk filed elsewhere.
+    in_definitions = False
+    definitions_clause: str | None = None
     for chunk in chunks:
+        if requirement_quality.is_definitions_heading(chunk["section"]):
+            in_definitions = True
+            definitions_clause = clause_number(chunk["section"])
+        elif in_definitions:
+            section_clause = clause_number(chunk["section"])
+            under = (
+                section_clause is None if definitions_clause is None
+                else section_clause is None
+                or section_clause == definitions_clause
+                or section_clause.startswith(definitions_clause + "."))
+            if not under:
+                in_definitions = False
         if chunker.is_revision_history(chunk["section"]):
             # A record of what changed between revisions states no obligation:
             # "No CSD recommendation is required to conduct retroactive PMI
@@ -740,8 +856,15 @@ def extract_requirements(
                     confidence = min(confidence, CONTRADICTED_CONFIDENCE)
                     contradicted += 1
                 exceptions = requirements_3b.parse_exceptions(sentence)
+                # #596 A definition states what a word means, not what anyone
+                # must do. Its number (if any) is not a limit, so none is kept.
+                is_definition = in_definitions or requirement_quality.is_defining_sentence(sentence)
+                if is_definition:
+                    limit = None
                 structured = {
-                    "requirement_type": requirements_3b.classify(sentence, limit),
+                    "requirement_type": (
+                        requirements_3b.DEFINITION if is_definition
+                        else requirements_3b.classify(sentence, limit)),
                     "condition": requirements_3b.parse_condition(sentence),
                     "exceptions": requirements_3b.encode_exceptions(exceptions),
                     "discipline": discipline,
@@ -829,10 +952,12 @@ def extract_table_values(
         *("\x1e".join("\x1f".join(c or "" for c in row) for row in (p.rows or []))
           for p in parses))
     written = 0
+    merged = 0
     for parse in parses:
         if not parse.parsed or len(parse.rows) < 2:
             continue
         header = parse.columns
+        signature = requirements_3b.table_signature(header)
         for row_index, row in enumerate(parse.rows[1:], start=1):
             label = (row[0] if row else "").strip()
             if not label:
@@ -849,10 +974,31 @@ def extract_table_values(
                     continue
                 column = header[column_index]
                 unit = requirements_3b.header_unit(column)
-                measurement = requirements_3b.measure(raw_value, unit)
+                # #595 THE NUMBER COMES FROM numparse (decimal comma, sign,
+                # thousands). A unit the table does not know leaves the value
+                # NULL (never 0); a cell with no unit anywhere keeps the
+                # number as written, with no unit.
+                number, cell_operator = requirements_3b.cell_number(raw_value)
+                if unit:
+                    # The parsed number goes in, not the cell's text: the unit
+                    # table reads the text with its own rules, numparse's
+                    # answer for a decimal comma is the one recorded here.
+                    measurement = requirements_3b.measure(
+                        "" if number is None else f"{number:.12f}".rstrip("0").rstrip("."),
+                        unit)
+                    value, normal_unit = (measurement.normalized_value,
+                                          measurement.normalized_unit)
+                else:
+                    value, normal_unit = number, None
+                operator = cell_operator or requirements_3b.header_operator(column)
                 field = requirements_3b.field_name("", column)
+                # #594 IDENTITY: standard (the column below) + table (its
+                # header) + row key + column + the value as written.
+                identity = "\x1f".join((
+                    signature, numparse.fold(label), numparse.fold(column),
+                    numparse.normalise_text(raw_value)))
                 try:
-                    create_requirement(
+                    stored = create_requirement(
                         standard_document_id=document_id,
                         chunk_id=parse.chunk_id,
                         requirement_text=f"{label} - {column}: {raw_value}",
@@ -868,22 +1014,29 @@ def extract_table_values(
                             "requirement_type": "table_value",
                             "field": field,
                             "condition": label,
+                            "operator": operator,
                             "raw_value": raw_value,
                             "raw_unit": unit,
-                            "value": measurement.normalized_value,
-                            "unit": measurement.normalized_unit,
+                            "unit_from": "column_header" if unit else None,
+                            "value": value,
+                            "unit": normal_unit,
                             "table_row": row_index,
+                            "identity_key": identity,
                         },
                         extractor_version=extractor_version,
                         input_hash=inputs)
                 except RequirementError:
                     continue
-                written += 1
+                if stored.get("upserted") == "merged":
+                    merged += 1
+                else:
+                    written += 1
     stats = tables_mod.completeness(parses)
     _audit("standard.table_values_extracted", actor, document_id,
            detail=f"tables={stats['tables_total']} parsed={stats['tables_parsed']} "
-                  f"values={written}")
-    return {"document_id": document_id, "values": written, **stats}
+                  f"values={written} merged_repeats={merged}")
+    return {"document_id": document_id, "values": written,
+            "merged_repeats": merged, **stats}
 
 
 def table_report(document_id: str, *,
@@ -919,11 +1072,15 @@ def verification_queue(*, allowed_document_ids: frozenset[str],
         "SELECT r.*, c.page_start AS chunk_page FROM standard_requirements r"
         " LEFT JOIN chunks c ON c.id = r.chunk_id" + where +
         " AND r.confirmed_by IS NULL"
-        " AND (r.confidence IS NULL OR r.confidence < ?)"
+        " AND COALESCE(r.requirement_type, '') != 'definition'"
+        " AND (r.confidence IS NULL OR r.confidence < ?"
+        "      OR r.quality_reason IS NOT NULL)"
         " ORDER BY r.confidence, r.created_at LIMIT ?",
         [*args, VERIFICATION_THRESHOLD, limit],
     ).fetchall()
     return [{**dict(r), "needs_verification": True,
+             "needs_verification_reason": r["quality_reason"],
+             "evidence_pages": _decode_evidence(r["evidence_pages"]),
              "citation_resolves": r["chunk_page"] is not None} for r in rows]
 
 
@@ -1298,6 +1455,9 @@ def list_requirements(
     for row in rows:
         item = dict(row)
         item["needs_verification"] = needs_verification(row)
+        # #597: WHY, when it is not simply a low confidence.
+        item["needs_verification_reason"] = item.get("quality_reason")
+        item["evidence_pages"] = _decode_evidence(item.get("evidence_pages"))
         item["citation_resolves"] = row["chunk_page"] is not None
         # Decoded here so no caller has to know it is JSON in one column, and
         # a malformed value reads as "none recorded" rather than raising.
@@ -1431,12 +1591,17 @@ def list_standards(*, allowed_document_ids: frozenset[str],
         "SELECT d.id, d.filename, d.status, d.page_count, d.uploaded_at,"
         "       c.title, c.document_number, c.revision, c.effective_date,"
         "       c.discipline, c.discipline_canonical, c.superseded_by,"
+        # #596: a definition is not a requirement, so it is not counted as one.
         "       (SELECT COUNT(*) FROM standard_requirements r"
-        "         WHERE r.standard_document_id = d.id) AS requirement_count,"
+        "         WHERE r.standard_document_id = d.id"
+        "           AND COALESCE(r.requirement_type, '') != 'definition'"
+        "       ) AS requirement_count,"
         "       (SELECT COUNT(*) FROM standard_requirements r"
         "         WHERE r.standard_document_id = d.id"
         "           AND r.confirmed_by IS NULL"
-        "           AND (r.confidence IS NULL OR r.confidence < ?)"
+        "           AND COALESCE(r.requirement_type, '') != 'definition'"
+        "           AND (r.confidence IS NULL OR r.confidence < ?"
+        "                OR r.quality_reason IS NOT NULL)"
         "       ) AS awaiting_verification"
         " FROM documents d"
         " JOIN document_classification c ON c.document_id = d.id" + where +
