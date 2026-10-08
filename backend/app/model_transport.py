@@ -42,6 +42,7 @@ different files. Its callers hand it a body they built; it never fetches one.
 from __future__ import annotations
 
 import logging
+import threading
 from datetime import datetime, timezone
 from typing import Any
 
@@ -265,6 +266,34 @@ def stream_json(path: str, body: dict, *, timeout: float, cancel=None):
         client.close()
 
 
+_client_lock = threading.Lock()
+_client: httpx.Client | None = None
+
+
+def _shared_client() -> httpx.Client:
+    """The one `httpx.Client` the GET probes share (thread-safe by httpx)."""
+    global _client
+    with _client_lock:
+        if _client is None:
+            _client = httpx.Client(follow_redirects=False, trust_env=False)
+        return _client
+
+
+def host_key() -> str:
+    """The configured model host, as a cache key for callers outside this
+    module (which must not name the setting themselves)."""
+    return str(settings.ollama_url)
+
+
+def close_shared_client() -> None:
+    """Close and forget the shared client (shutdown, and tests)."""
+    global _client
+    with _client_lock:
+        if _client is not None:
+            _client.close()
+            _client = None
+
+
 def get_json(path: str, *, timeout: float, required: bool = True) -> Any | None:
     """GET an answer-model API path.
 
@@ -281,10 +310,11 @@ def get_json(path: str, *, timeout: float, required: bool = True) -> Any | None:
     unchecked call site gets written.
     """
     url = endpoint(path)
-    with httpx.Client(
-        timeout=timeout, follow_redirects=False, trust_env=False,
-    ) as client:
-        response = client.get(url)
+    # ONE CLIENT FOR THE PROCESS (#626). Building an `httpx.Client` builds an
+    # SSL context, and `/api/metrics` did that on every call (about 0.5 s of
+    # CPU in 30 s of an idle app) for a plain-HTTP call to the local host. The
+    # per-call timeout and the host check above are unchanged.
+    response = _shared_client().get(url, timeout=timeout)
     if required:
         response.raise_for_status()
     elif response.status_code != 200:
@@ -293,5 +323,5 @@ def get_json(path: str, *, timeout: float, required: bool = True) -> Any | None:
 
 
 __all__ = [
-    "ModelHostRefused", "endpoint", "get_json", "post_json", "remote_audit",
+    "ModelHostRefused", "close_shared_client", "endpoint", "get_json", "host_key", "post_json", "remote_audit",
 ]

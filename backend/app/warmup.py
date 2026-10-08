@@ -78,6 +78,7 @@ def _run(steps) -> None:
     try:
         for name, step in steps:
             started = time.perf_counter()
+            log.info("startup warm-up step %r started", name)
             try:
                 step()
             except Exception as exc:  # noqa: BLE001 - logged and recorded, never swallowed
@@ -86,6 +87,8 @@ def _run(steps) -> None:
             else:
                 result = {"ok": True, "error": None}
             result["seconds"] = round(time.perf_counter() - started, 3)
+            log.info("startup warm-up step %r %s in %.1fs", name,
+                     "finished" if result["ok"] else "FAILED", result["seconds"])
             with _lock:
                 _status[name] = result
     finally:

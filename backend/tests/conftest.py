@@ -147,6 +147,18 @@ def _the_suite_does_not_read_the_developers_env():
 
 
 @pytest.fixture(autouse=True)
+def _fresh_ollama_probe_state():
+    """The Ollama probe answer is cached for 30 s and its HTTP client is shared
+    (#626). Neither may leak from one test into the next."""
+    from app import metrics, model_transport
+    metrics.reset_ollama_cache()
+    model_transport.close_shared_client()
+    yield
+    metrics.reset_ollama_cache()
+    model_transport.close_shared_client()
+
+
+@pytest.fixture(autouse=True)
 def _no_test_reaches_past_loopback():
     """Fail, by name, any test that tried to open a non-loopback socket.
 

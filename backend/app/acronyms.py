@@ -36,6 +36,7 @@ import contextvars
 import logging
 import re
 import threading
+import time
 from collections import OrderedDict
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -399,10 +400,15 @@ def warm_in_background() -> bool:
 
         def run() -> None:
             from . import db
+            log = logging.getLogger("uvicorn.error")
+            started = time.monotonic()
+            log.info("acronym warm-up started")
             try:
-                warm_all()
+                built = warm_all()
+                log.info("acronym warm-up finished in %.1fs, %d document map(s) built",
+                         time.monotonic() - started, built)
             except Exception:  # logged; the next trigger retries
-                logging.getLogger("uvicorn.error").exception("acronym warm-up failed")
+                log.exception("acronym warm-up failed after %.1fs", time.monotonic() - started)
             finally:
                 db.close_thread_connection()
 
