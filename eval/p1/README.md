@@ -1,9 +1,10 @@
 # P1: the labelled question set
 
 A fixed list of questions with known right answers, run through the real chat
-on every change. A change is blocked when fewer than 37 questions pass (the
-gate was set on the 60 of version 2; the set is 66 since version 4), or when
-any of the 23 original passes stops passing (see "The gate").
+on every change. A change is blocked when fewer than 41 questions pass
+(raised from 37 of 60 on 2026-10-09, when version 3 entered the baseline;
+the set is 66 since version 4), or when any of the 23 original passes stops
+passing (see "The gate").
 
 ## What is in this folder
 
@@ -48,17 +49,18 @@ After a real improvement, raise the bar and commit the new `baseline.json`:
 
 ## The gate
 
-Owner decision, 2026-10-08. A change is blocked when ANY of these is true:
+Owner decision, 2026-10-08; the bar raised to 41 of 64 on 2026-10-09. A change
+is blocked when ANY of these is true:
 
 | rule | where it lives |
 |---|---|
-| fewer than **37 of 60** questions pass | `gate.min_passing` in `baseline.json` |
+| fewer than **41 of 64** questions pass | `gate.min_passing` in `baseline.json` |
 | any of the **23 original passes** (P1-02 to P1-30 that passed in version 1) fails | `gate.protected` |
 | one of those 23 loses its right clause label | `clause_passing`, limited to `gate.protected` |
 | an unanswerable question that was refused is now answered | `failing_known` |
 
 Outside the 23, a question may trade places: P1-34 failing is fine if
-another new question starts passing and the total stays at 37 or more.
+another new question starts passing and the total stays at 41 or more.
 
 The last two rows come from the version 1 rule. The owner confirmed
 on 2026-10-08 that both stay: an unanswerable question must never flip
@@ -67,7 +69,7 @@ clause labels. The clause row covers only those 23, so the other
 questions can still trade places.
 
 `--write-baseline` keeps the `gate` as it is. Only a person edits it, and
-`test_the_committed_gate_is_37_of_60_with_the_23_original_passes` checks
+`test_the_committed_gate_is_41_of_64_with_the_23_original_passes` checks
 that the file still says 37 and 23.
 
 ## What this does not prove
@@ -156,8 +158,9 @@ Whole set: **41 of 64**, clause label right 29 of 45, unanswerable 6 of 11.
 All 37 version 2 passes still pass and no unanswerable question flipped.
 The "old code" column was measured on these four questions only, with the
 version 3 corpus; P1-63 passed before the fix too, so it guards the fix
-rather than proving it. The baseline was not rewritten: adding P1-61 to
-P1-64 to it raises the bar, which is the owner's call.
+rather than proving it. On 2026-10-09 the owner raised the bar: the
+baseline now holds P1-61 to P1-64 and `gate.min_passing` is 41 (the 23
+protected questions are unchanged).
 
 ## Version 4 (2026-10-09): 66 questions
 
@@ -168,4 +171,5 @@ N06625 does not appear ..."), measured on an equivalent invented document.
 
 Whole set: **43 of 66**, clause label right 29 of 45, unanswerable 6 of 11.
 All earlier passes still pass and no unanswerable question flipped. The
-baseline was not rewritten (raising the bar is the owner's call).
+baseline was not rewritten for P1-65 and P1-66 (raising the bar is the
+owner's call).
