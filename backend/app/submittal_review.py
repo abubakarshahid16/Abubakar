@@ -223,6 +223,22 @@ def ensure_schema() -> None:
             # stays with an engineer. Additive; NULL on every existing row.
             ("rule_json", "TEXT"),
             ("rule_source", "TEXT"),
+            # #594 STABLE IDENTITY of a table cell: standard + table + row key +
+            # column (+ the cell's written value). NULL on every row that is
+            # not a table cell and on rows written before this column existed
+            # (nothing back-fills it; re-extraction is #599 and needs the
+            # owner's go). Not UNIQUE on purpose: an existing database holds
+            # duplicates, so the upsert lives in `standards.create_requirement`.
+            ("identity_key", "TEXT"),
+            # #594 EVERY page a repeated table cell was read from, a JSON list
+            # of {"page", "chunk_id"}. `page`/`chunk_id` stay the first one.
+            ("evidence_pages", "TEXT"),
+            # #595 where the unit came from: 'column_header' when the cell
+            # carried none and the table's header did. NULL otherwise.
+            ("unit_from", "TEXT"),
+            # #597 why a row is held for a human beyond its confidence:
+            # 'text_quality' (garbled or mirrored text). NULL otherwise.
+            ("quality_reason", "TEXT"),
         ):
             # RACE-SAFE, because this runs on read paths. See
             # `db.add_column_if_missing`.
@@ -241,6 +257,9 @@ def ensure_schema() -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_standard_requirements_chunk "
             "ON standard_requirements(chunk_id)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_standard_requirements_identity "
+            "ON standard_requirements(standard_document_id, identity_key)")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_standard_requirements_unconfirmed "
             "ON standard_requirements(confirmed_by, standard_document_id)")
