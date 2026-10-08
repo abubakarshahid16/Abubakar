@@ -6,7 +6,7 @@
  * happening - 20 requests a minute on an idle corpus, against a 15 W CPU that
  * is also answering questions.
  */
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { StrictMode, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -165,20 +165,32 @@ describe("Documents polls on what it can already see", () => {
    *  wall-clock. The first version of these waited 3.4 real seconds and
    *  compared call counts, which is a race: it read 2 vs 2 and would have
    *  passed against a screen that never polled at all. */
-  async function intervalsFor(status: string): Promise<number[]> {
+  async function intervalsFor(
+    status: string, decided?: (chosen: number[]) => boolean,
+  ): Promise<number[]> {
     const spy = vi.spyOn(window, "setInterval");
     mockApi(status, false);
     render(<App />);
+    const poll = () => spy.mock.calls
+      .map((c) => Number(c[1]))
+      .filter((ms) => ms === FAST_MS || ms === IDLE_MS);
     // Wait for the LIST, not merely for a timer: the first interval is
     // registered before the documents arrive, so it is always the idle one
     // and asserting on it would measure the initial render rather than the
     // decision this hook exists to make.
     await screen.findByText("spec.pdf");
+    // THEN WAIT FOR THE DECISION ITSELF (#631). The list text appears when
+    // the state is committed; the hook registers the interval it chose in an
+    // effect that runs AFTER that commit. Reading the timers straight after
+    // the text was a race that lost about 1 run in 15: it saw only the first
+    // (idle) interval. Flushing pending effects, and for a screen that must
+    // speed up waiting until the fast interval exists, makes the test depend
+    // on the state change and not on how long the machine took.
+    await act(async () => {});
+    if (decided) await waitFor(() => expect(decided(poll())).toBe(true));
     // Every screen and the shell register timers; the poll intervals are the
     // ones this hook uses, and both constants are distinctive.
-    return spy.mock.calls
-      .map((c) => Number(c[1]))
-      .filter((ms) => ms === FAST_MS || ms === IDLE_MS);
+    return poll();
   }
 
   // The LAST interval registered is the one now running. The first is always
@@ -189,8 +201,11 @@ describe("Documents polls on what it can already see", () => {
   const running = (chosen: number[]) => chosen[chosen.length - 1];
 
   it("polls fast while a document is still being worked on", async () => {
-    const chosen = await intervalsFor("chunking");
+    // Waits for the fast interval to be registered; if the screen never
+    // chooses it, this times out and the test fails.
+    const chosen = await intervalsFor("chunking", (c) => c.includes(FAST_MS));
     expect(chosen).toContain(FAST_MS);
+    expect(running(chosen)).toBe(FAST_MS);
   });
 
   it("backs off once every document has settled", async () => {
