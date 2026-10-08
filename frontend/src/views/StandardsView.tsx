@@ -339,6 +339,19 @@ function RequirementsTab({
                     Awaiting verification
                   </span>
                 )}
+                {/* #597: WHY, when it is not simply a low confidence. The row
+                    is kept and shown; it is only kept out of reviews. */}
+                {row.needs_verification_reason === "text_quality" && (
+                  <span className="rounded bg-warn-500/20 px-2 py-0.5 text-warn-500">
+                    Text looks garbled or mirrored (text_quality)
+                  </span>
+                )}
+                {/* #596: a definition is shown, never reviewed or counted. */}
+                {row.requirement_type === "definition" && (
+                  <span className="rounded bg-white/10 px-2 py-0.5 opacity-80">
+                    Definition, not a requirement
+                  </span>
+                )}
                 {row.extraction_method === "extracted" && !row.confirmed_by && (
                   <span className="rounded bg-white/10 px-2 py-0.5 opacity-80">
                     Extracted, not confirmed
