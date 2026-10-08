@@ -62,7 +62,7 @@ import uuid
 from datetime import datetime, timezone
 from enum import Enum
 
-from . import applicability, datasheets, standards, submittal_review
+from . import applicability, datasheets, standard_ids, standards, submittal_review
 from .db import connect
 
 # --------------------------------------------------------------- vocabulary
@@ -275,17 +275,6 @@ def parse_response(raw: str) -> tuple[list[dict], str | None]:
 
 # --------------------------------------------------------------- the gate
 
-def _identifier_key(identifier: str | None) -> str:
-    """One comparison key for a standard code however it was written.
-
-    `applicability.library_identifier` first, so "SAES-B-14" (a filename with
-    the zero dropped) and "SAES-B-014" (the citation) meet; then
-    `normalise_identifier`, so punctuation and spacing are not identity.
-    """
-    padded = applicability.library_identifier(identifier or "")
-    return applicability.normalise_identifier(padded or identifier or "")
-
-
 def _candidate_fields(cand: dict) -> dict:
     """What every proposal and rejection carries so a reviewer can act on it."""
     return {"document_id": cand.get("document_id"), "code": cand.get("code"),
@@ -295,14 +284,16 @@ def _candidate_fields(cand: dict) -> dict:
 def is_referenced(code: str | None, datasheet_summary: dict) -> bool:
     """Does the datasheet cite this code? The CONTRACTUAL check.
 
-    Python's answer, not the model's: the code is keyed and looked for among
-    the identifiers `datasheets.referenced_standards` reads, so a CONTRACTUAL
+    Python's answer, not the model's: the code is looked for among the
+    identifiers `datasheets.referenced_standards` reads, so a CONTRACTUAL
     claim is re-derivable from the sheet afterwards without the model.
+    Compared with the ONE matcher (#452): "SAES-B-14" meets "SAES-B-014",
+    "API RP 520 Pt-1" meets "API 520 Part I", and "API 65" never meets "API 650".
     """
-    key = _identifier_key(code)
-    if not key:
+    if not (code or "").strip():
         return False
-    return key in {_identifier_key(r) for r in _summary_references(datasheet_summary or {})}
+    return any(standard_ids.same_standard(code, r)
+               for r in _summary_references(datasheet_summary or {}))
 
 
 def accept(proposals: list[dict], candidates: list[dict],

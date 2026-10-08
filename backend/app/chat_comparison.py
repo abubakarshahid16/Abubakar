@@ -40,7 +40,7 @@ from __future__ import annotations
 import re
 
 from . import answer as answer_mod
-from . import chat_presentation, lexical
+from . import chat_presentation, lexical, standard_ids
 from . import understanding as understanding_mod
 from .citations import _CITATION
 
@@ -98,7 +98,10 @@ def missing_designations(question: str, matched_names: list[str]) -> list[str]:
         if not re.search(r"\d", token):
             continue
         key = _norm_name(token)
-        if key in have or any(key in h or h in key for h in have):
+        # The ONE matcher (#452), not a substring test: "api65" is inside
+        # "api650", so the old `key in h or h in key` let a compare naming
+        # API 65 treat it as the held API 650 (audit A02/A03).
+        if key in have or any(standard_ids.same_standard(token, n) for n in matched_names):
             continue
         if key not in {_norm_name(o) for o in out}:
             out.append(token)
