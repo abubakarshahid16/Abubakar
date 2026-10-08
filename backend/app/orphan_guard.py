@@ -39,8 +39,10 @@ referenced rows would trade orphans for duplicate findings. What is possible
 with no schema change: count the findings a deletion would orphan, write that
 to `audit_events` whatever happens, and REFUSE unless the caller explicitly
 acknowledges it. So orphaning can no longer happen by default or silently.
-It does not repair the existing orphans, and the requirements versioning
-redesign stays parked for the owner's sign-off.
+It does not repair the existing orphans. The requirements redesign for
+RE-EXTRACTION has since landed (#640, below the facts paragraph's model:
+`standard_requirements.superseded_at`); reject, re-chunk and document delete
+still delete and are still guarded here.
 
 FACTS GOT THE REDESIGN (#179, owner-authorised 2026-09-25). B40's fifth path,
 `datasheets.extract_facts(replace=True)`, no longer deletes anything:
