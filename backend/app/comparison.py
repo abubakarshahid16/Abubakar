@@ -1793,6 +1793,21 @@ def run_comparison(
     # caller can forget it; a caller that names a subject still wins.
     if subject is None:
         subject = equipment_subject(stored)
+    # #453 A REQUIREMENT ABOUT A DIFFERENT KIND OF EQUIPMENT IS NOT A CHECK.
+    # Steam-turbine casing relief was applied to gas-service relief valves.
+    # A requirement is kept when its subject fits this submittal's equipment,
+    # when it has no specific subject, or when either is unclear; the rest are
+    # counted and grouped on the run, never dropped silently. See
+    # `subject_scope`.
+    from . import subject_scope
+    in_scope = len(requirements)
+    scoped = subject_scope.gate(
+        requirements, classification=stored, facts=facts,
+        headings_by_standard=subject_scope.heading_sections(standard_ids),
+        standard_names=names)
+    requirements = scoped["kept"]
+    requirements_not_applied = scoped["not_applied"]
+    applicability_summary = scoped["summary"]
     findings: list[dict] = []
     # The run's findings, prepared and gated but NOT yet written: they go in
     # one transaction after the loop. `pending` is the duplicate gate's view
@@ -2067,13 +2082,18 @@ def run_comparison(
     _store_run_outcome(review_run_id, recommendation, coverage,
                        page_coverage=pages_read,
                        missing_references=missing_references or [],
-                       table_values_not_compared=table_values_not_compared)
+                       table_values_not_compared=table_values_not_compared,
+                       requirements_not_applied=requirements_not_applied,
+                       applicability=applicability_summary)
 
     return {
         "review_run_id": review_run_id,
         "submittal_document_id": submittal_id,
         "requirements_evaluated": len(requirements),
         "requirements_in_scope": all_requirements,
+        "requirements_after_table_gate": in_scope,
+        "requirements_not_applied": requirements_not_applied,
+        "applicability": applicability_summary,
         "requirements_excluded": gated["excluded"],
         "table_values_not_compared": table_values_not_compared,
         "facts_in_scope": len(facts),
@@ -3151,7 +3171,9 @@ def attach_crs_context(findings: list[dict]) -> list[dict]:
 def _store_run_outcome(review_run_id: str, recommendation: dict,
                        coverage: dict, *, page_coverage: dict | None = None,
                        missing_references: list[str] | None = None,
-                       table_values_not_compared: list[dict] | None = None) -> None:
+                       table_values_not_compared: list[dict] | None = None,
+                       requirements_not_applied: list[dict] | None = None,
+                       applicability: dict | None = None) -> None:
     """Persist the AI recommendation and the completeness it was gated on.
 
     B3: `page_coverage` is the page ledger's summary AT THE TIME OF THE RUN -
@@ -3181,6 +3203,10 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
                     for ref in (missing_references or [])],
                 # #598: the table cells this run did not compare, grouped.
                 "table_values_not_compared": table_values_not_compared or [],
+                # #453: the requirements about a different kind of equipment,
+                # grouped by subject, and how the rest were decided.
+                "requirements_not_applied": requirements_not_applied or [],
+                "applicability": applicability,
             # completed_at: the readiness strip's "since the last run" is
             # measured from here, not from updated_at (which the engineer's
             # code decision moves later).
