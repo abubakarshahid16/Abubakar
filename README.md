@@ -284,15 +284,19 @@ Claude lane on made real, paid API calls from the suite (honesty audit 77). A
 test that needs a lane on sets it itself, with a fake transport. The server
 DOES read `backend/.env`: see step 6.
 
-Slow tests that build a real ONNX session are marked `slow` and deselected by
-default. Run them with `python -m pytest -m slow`.
+Slow tests (a real ONNX/OCR engine, the datasheet production bench, the chat
+benchmark script) are marked `slow` and deselected by default; CI runs them
+nightly and on demand. Run them with `python -m pytest -m slow`.
 
 The retrieval latency benchmark (about 105 s on its own) is marked `benchmark`
-and is also deselected by default. CI runs it in a separate step, so it still
-gates every push; run it locally with `python -m pytest -m benchmark`.
+and is also deselected by default. CI runs it in a separate job, so it still
+gates every pull request; run it locally with `python -m pytest -m benchmark`.
 
 A plain run is serial. `pytest-xdist` is installed with the requirements, so on
-a 4-core machine run `python -m pytest -q -n 4` (CI uses `-n auto`).
+a 4-core machine run `python -m pytest -q -n 4` (CI uses `-n auto` in each of
+three shards). Before pushing, `python scripts/test_changed.py` runs only the
+tests mapped to the files you changed against `origin/main` (`--dry-run` to
+list them); CI still runs the whole suite.
 
 If the models are not staged, the suite **stops immediately** with the command
 that fixes it, rather than producing ninety failures with one cause.

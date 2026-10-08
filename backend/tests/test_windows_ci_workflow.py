@@ -68,7 +68,9 @@ def test_the_models_are_staged_and_verified_before_the_suite_runs(job):
 
 
 def test_it_uses_the_same_python_as_the_linux_job(job):
-    linux = yaml.safe_load(LINUX.read_text(encoding="utf-8"))["jobs"]["backend"]
+    # The Linux suite runs in the `backend-shard` matrix; `backend` is now the
+    # aggregate required check and has no steps of its own (#584).
+    linux = yaml.safe_load(LINUX.read_text(encoding="utf-8"))["jobs"]["backend-shard"]
     want = next(s["with"]["python-version"] for s in linux["steps"]
                 if str(s.get("uses", "")).startswith("actions/setup-python"))
     got = next(s["with"]["python-version"] for s in job["steps"]
@@ -89,12 +91,22 @@ def test_it_is_informational_and_says_so(win, job):
     assert "NOT one of the checks" in WINDOWS.read_text(encoding="utf-8")
 
 
-def test_it_does_not_run_on_every_push_to_every_branch(win):
+def test_it_runs_nightly_and_on_demand_only(win):
+    # Owner decision 2026-10-08 (CI trim): nightly on main plus workflow_dispatch,
+    # not on pull requests or pushes, to save Actions minutes.
     triggers = _triggers(win)
-    assert "pull_request" in triggers
     assert "workflow_dispatch" in triggers
-    push = triggers.get("push") or {}
-    assert push.get("branches") == ["main"], "tests.yml already runs on every push"
+    assert [s.get("cron") for s in triggers.get("schedule") or []], "no nightly schedule"
+    assert "pull_request" not in triggers
+    assert "push" not in triggers
+
+
+def test_linux_tests_run_on_pull_requests_and_pushes_to_main_only():
+    linux = yaml.safe_load(LINUX.read_text(encoding="utf-8"))
+    triggers = _triggers(linux)
+    assert "pull_request" in triggers
+    assert (triggers.get("push") or {}).get("branches") == ["main"], \
+        "a push to a PR branch already runs through pull_request"
 
 
 def test_it_asks_for_no_more_than_read_access(win):

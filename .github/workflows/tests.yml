@@ -15,16 +15,31 @@
 # file errors out - which is why fetch_models.py exits non-zero on a partial
 # staging rather than letting a half-armed suite report success.
 
+#
+# SPEED (owner decision 2026-10-08, #584). The backend suite runs in three
+# parallel shards (pytest-split, each with -n auto) beside one job for lint,
+# mutation anchors and benchmarks. `backend (pytest)` - the name `main`
+# requires - is now an AGGREGATE job that passes only if every shard and that
+# job pass, so branch protection still gates on the whole suite. The installed
+# Python environment and frontend/node_modules are cached on the requirements
+# and lock files; the model cache is unchanged. Tests marked `slow` (real OCR
+# engines, production bench, chat benchmark script) run nightly and on demand
+# in `backend slow tests`, not on every pull request.
+
 name: tests
 
 on:
+  # Pull requests, and pushes to main only: a push to a PR branch already runs
+  # through pull_request, so a second push-triggered run on the same commit was
+  # duplicate work (owner decision 2026-10-08, CI trim).
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
   # Safety net for docs/adr/ADR-0004-github-free-tier-gaps.md's recorded gap:
   # a push-triggered run on main did not dispatch at all, twice, for reasons
   # unconfirmed. workflow_dispatch lets a run be started by hand when that
   # happens again; the nightly schedule below catches it even unattended.
+  # The nightly run is also when the `slow` tests run.
   workflow_dispatch:
   schedule:
     - cron: "17 3 * * *" # once a day, off the hour, on main by default
@@ -37,33 +52,44 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  backend:
-    name: backend (pytest)
+  backend-shard:
+    name: backend shard ${{ matrix.group }}/3
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [1, 2, 3]
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v7
+        id: py
         with:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: backend/requirements.txt
 
+      # The whole installed environment, not just pip's download cache: a hit
+      # skips the install step. Keyed on the exact Python and the requirements
+      # file; the CI-only tools are named in the key so bumping one re-installs.
+      - name: Restore the Python environment
+        id: venv
+        uses: actions/cache@v6
+        with:
+          path: ~/venv
+          key: venv-${{ runner.os }}-py${{ steps.py.outputs.python-version }}-${{ hashFiles('backend/requirements.txt') }}-ruff0.16.6-split0.11.0
+
       - name: Install dependencies
+        if: steps.venv.outputs.cache-hit != 'true'
         run: |
-          python -m pip install --upgrade pip
-          pip install -r backend/requirements.txt
-          pip install huggingface_hub ruff==0.16.6
+          python -m venv ~/venv
+          ~/venv/bin/python -m pip install --upgrade pip
+          ~/venv/bin/pip install -r backend/requirements.txt
+          ~/venv/bin/pip install huggingface_hub ruff==0.16.6 pytest-split==0.11.0
 
-      - name: Lint backend for correctness errors
-        run: python -m ruff check backend/app backend/tests --select E9,F63,F7,F82
-
-      # No tests run: reads each mutation's target file and fails when an
-      # anchor in scripts/mutations/ no longer matches exactly once, so a
-      # refactor cannot silently turn a mutation into a no-op.
-      - name: Check mutation anchors
-        run: python scripts/check_mutation_anchors.py
+      - name: Use the environment
+        run: echo "$HOME/venv/bin" >> "$GITHUB_PATH"
 
       # ~400 MB. Cached on the requirements hash rather than on a date, so a
       # dependency bump re-fetches and an unchanged tree does not.
@@ -82,17 +108,196 @@ jobs:
       - name: Confirm the models are staged
         run: python scripts/fetch_models.py --verify-only
 
-      - name: Run the suite
+      # pytest-split gives every collected test to exactly one of the three
+      # groups; pytest.ini's default `-m "not slow and not benchmark"` applies.
+      # scripts/ci_test_ids.py records the node id of every test that RAN, so
+      # the aggregate job can prove none was dropped or run twice.
+      - name: Run this shard of the suite
         working-directory: backend
-        run: python -m pytest -q -n auto --durations=10
+        env:
+          PYTHONPATH: ../scripts
+          CI_TEST_IDS_OUT: ${{ github.workspace }}/test-ids/shard-${{ matrix.group }}.txt
+        run: |
+          mkdir -p ../test-ids
+          python -m pytest -q -n auto -p ci_test_ids --splits 3 --group ${{ matrix.group }} --durations=10
 
-      # THE BENCHMARKS, WHICH THE STEP ABOVE DESELECTS (pytest.ini's
+      # One full collection, same selection as the shards, for that audit.
+      - name: Collect the whole suite once
+        if: matrix.group == 1
+        working-directory: backend
+        env:
+          PYTHONPATH: ../scripts
+          CI_COLLECT_OUT: ${{ github.workspace }}/test-ids/full.txt
+        run: python -m pytest --collect-only -q -p ci_test_ids > /dev/null
+
+      - name: Upload this shard's test ids
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-ids-${{ matrix.group }}
+          path: test-ids/
+          if-no-files-found: error
+          retention-days: 7
+
+  backend-checks:
+    name: backend lint, anchors and benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        id: py
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Restore the Python environment
+        id: venv
+        uses: actions/cache@v6
+        with:
+          path: ~/venv
+          key: venv-${{ runner.os }}-py${{ steps.py.outputs.python-version }}-${{ hashFiles('backend/requirements.txt') }}-ruff0.16.6-split0.11.0
+
+      - name: Install dependencies
+        if: steps.venv.outputs.cache-hit != 'true'
+        run: |
+          python -m venv ~/venv
+          ~/venv/bin/python -m pip install --upgrade pip
+          ~/venv/bin/pip install -r backend/requirements.txt
+          ~/venv/bin/pip install huggingface_hub ruff==0.16.6 pytest-split==0.11.0
+
+      - name: Use the environment
+        run: echo "$HOME/venv/bin" >> "$GITHUB_PATH"
+
+      - name: Lint backend for correctness errors
+        run: python -m ruff check backend/app backend/tests --select E9,F63,F7,F82
+
+      # No tests run: reads each mutation's target file and fails when an
+      # anchor in scripts/mutations/ no longer matches exactly once, so a
+      # refactor cannot silently turn a mutation into a no-op.
+      - name: Check mutation anchors
+        run: python scripts/check_mutation_anchors.py
+
+      - name: Cache models
+        id: models
+        uses: actions/cache@v6
+        with:
+          path: backend/models
+          key: models-${{ hashFiles('scripts/fetch_models.py') }}
+
+      - name: Stage models
+        run: python scripts/fetch_models.py
+
+      - name: Confirm the models are staged
+        run: python scripts/fetch_models.py --verify-only
+
+      # THE BENCHMARKS, WHICH THE SHARDS DESELECT (pytest.ini's
       # `-m "not slow and not benchmark"`). Split out so a local run is not
       # held up by a 105 s latency benchmark - NOT dropped: its recall, MRR
-      # and p95 floors still fail this job. `-m` here replaces the default.
+      # and p95 floors still fail this job, and so `backend (pytest)`. `-m`
+      # here replaces the default.
       - name: Run the benchmarks
         working-directory: backend
         run: python -m pytest -q -m benchmark --durations=10
+
+  # THE REQUIRED CHECK. `main` requires a check named `backend (pytest)`; this
+  # job carries that name and passes only if all three shards and the checks
+  # job passed. `if: always()` makes it run - and fail - when one of them
+  # failed or was cancelled, instead of being skipped (a skipped required check
+  # would leave the merge blocked with no reason shown).
+  backend:
+    name: backend (pytest)
+    needs: [backend-shard, backend-checks]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # "= success", not "!= failure": a cancelled or skipped shard fails it too.
+      - name: Every shard and the checks job passed
+        run: |
+          echo "shards: ${{ needs.backend-shard.result }}, checks: ${{ needs.backend-checks.result }}"
+          test "${{ needs.backend-shard.result }}" = "success"
+          test "${{ needs.backend-checks.result }}" = "success"
+
+      - uses: actions/checkout@v7
+
+      - name: Download the shards' test ids
+        uses: actions/download-artifact@v8
+        with:
+          pattern: test-ids-*
+          path: test-ids
+          merge-multiple: true
+
+      # Fails if any collected test ran in no shard, in two shards, or ran
+      # without being collected (#589).
+      - name: Every collected test ran in exactly one shard
+        run: python3 scripts/ci_test_ids.py compare --full test-ids/full.txt test-ids/shard-1.txt test-ids/shard-2.txt test-ids/shard-3.txt
+
+  backend-slow:
+    name: backend slow tests (nightly)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        id: py
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Restore the Python environment
+        id: venv
+        uses: actions/cache@v6
+        with:
+          path: ~/venv
+          key: venv-${{ runner.os }}-py${{ steps.py.outputs.python-version }}-${{ hashFiles('backend/requirements.txt') }}-ruff0.16.6-split0.11.0
+
+      - name: Install dependencies
+        if: steps.venv.outputs.cache-hit != 'true'
+        run: |
+          python -m venv ~/venv
+          ~/venv/bin/python -m pip install --upgrade pip
+          ~/venv/bin/pip install -r backend/requirements.txt
+          ~/venv/bin/pip install huggingface_hub ruff==0.16.6 pytest-split==0.11.0
+
+      - name: Use the environment
+        run: echo "$HOME/venv/bin" >> "$GITHUB_PATH"
+
+      - name: Cache models
+        id: models
+        uses: actions/cache@v6
+        with:
+          path: backend/models
+          key: models-${{ hashFiles('scripts/fetch_models.py') }}
+
+      - name: Stage models
+        run: python scripts/fetch_models.py
+
+      - name: Confirm the models are staged
+        run: python scripts/fetch_models.py --verify-only
+
+      # `-m slow` replaces pytest.ini's default, which deselects these.
+      - name: Run the slow tests
+        working-directory: backend
+        env:
+          PYTHONPATH: ../scripts
+          CI_TEST_IDS_OUT: ${{ github.workspace }}/slow-ran.txt
+        run: python -m pytest -q -m slow -p ci_test_ids --durations=20
+
+      # Proves the job ran every test marked slow, not some or none.
+      - name: Every slow test ran
+        working-directory: backend
+        env:
+          PYTHONPATH: ../scripts
+          CI_COLLECT_OUT: ${{ github.workspace }}/slow-full.txt
+        run: |
+          python -m pytest --collect-only -q -m slow -p ci_test_ids > /dev/null
+          python ../scripts/ci_test_ids.py compare --full ../slow-full.txt ../slow-ran.txt
 
   frontend:
     name: frontend (vitest + tsc)
@@ -107,7 +312,16 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      # node_modules itself, keyed on the lock file: a hit skips `npm ci`.
+      - name: Restore node_modules
+        id: nm
+        uses: actions/cache@v6
+        with:
+          path: frontend/node_modules
+          key: node-modules-${{ runner.os }}-node24-${{ hashFiles('frontend/package-lock.json') }}
+
       - name: Install dependencies
+        if: steps.nm.outputs.cache-hit != 'true'
         working-directory: frontend
         run: npm ci
 

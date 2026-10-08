@@ -397,6 +397,7 @@ def test_one_page_failing_recognition_fails_the_page_not_the_document(tmp_path, 
     assert ocr.pending_pages(doc_id) == [1]
 
 
+@pytest.mark.slow
 def test_pages_with_text_counts_this_round_only(tmp_path, monkeypatch):
     """A cumulative count re-chunked after every round that added nothing."""
     def blank(doc):
@@ -429,6 +430,7 @@ def _as_decided_by_the_old_rule(doc_id: str) -> None:
                      (states.READY, doc_id))
 
 
+@pytest.mark.slow
 def test_reroute_finds_the_stamped_scan_in_a_stored_document_and_requeues_it(tmp_path):
     doc_id = upload(make_pdf(tmp_path / "old.pdf", add_dense_text, add_stamped_scan))
     extract.extract_document(doc_id)
@@ -453,6 +455,7 @@ def test_reroute_finds_the_stamped_scan_in_a_stored_document_and_requeues_it(tmp
     assert ocr.pending_pages(doc_id) == [2]
 
 
+@pytest.mark.slow
 def test_reroute_of_a_text_only_document_changes_no_state(tmp_path):
     """No forced re-ingest: a document whose decision does not change stays put."""
     doc_id = upload(make_pdf(tmp_path / "txt.pdf", add_dense_text, add_text_with_logo))
