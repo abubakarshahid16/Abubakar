@@ -21,6 +21,13 @@ on:
   push:
     branches: ["**"]
   pull_request:
+  # Safety net for docs/adr/ADR-0004-github-free-tier-gaps.md's recorded gap:
+  # a push-triggered run on main did not dispatch at all, twice, for reasons
+  # unconfirmed. workflow_dispatch lets a run be started by hand when that
+  # happens again; the nightly schedule below catches it even unattended.
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * *" # once a day, off the hour, on main by default
 
 permissions:
   contents: read
