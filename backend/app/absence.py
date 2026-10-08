@@ -111,3 +111,96 @@ def pairing_not_checked(match_reason: str | None, model_reason: str | None,
     if rule_unread:
         return str(rule_unread).strip().rstrip(".")
     return None
+
+
+# ------------------------------------------------- a run that is not complete
+
+#: Past this share of a run's in-scope requirements NOT compared (standards
+#: table values with no matching field, and requirements about other
+#: equipment), the run can not be approved: most of what the standards ask was
+#: not checked against this submittal, and an approval would be a claim about
+#: the rest. A policy choice, not a measurement: the owner can change it here.
+UNCHECKED_SHARE_LIMIT = 0.5
+
+
+def unchecked_share(not_compared: int, not_applied: int, checked: int) -> float | None:
+    """Share of the in-scope requirements that were not compared, or None when
+    there were none in scope at all (nothing to take a share of)."""
+    total = (not_compared or 0) + (not_applied or 0) + (checked or 0)
+    if total <= 0:
+        return None
+    return ((not_compared or 0) + (not_applied or 0)) / total
+
+
+def check_failed_status(name: str, reason: str) -> dict:
+    """The stored status of an optional check (AI, web) that could not run or
+    failed: a fact on the run, never silence that reads as "nothing to raise"."""
+    why = (reason or "").strip().rstrip(".") or "it did not complete"
+    return {"ran": False, "complete": False, "calls_made": 0, "requested_items": 0,
+            "proposed_items": 0, "kept_items": 0, "rejected": {}, "cost_usd": None,
+            "reason": why, "plain": f"{name} could not be checked: {why}."}
+
+
+def unchecked_parts(*, run_status: str | None, outcome: dict | None,
+                    partial_findings: int = 0,
+                    ai_status: dict | None = None,
+                    web_status: dict | None = None) -> list[dict]:
+    """The parts of a review that could NOT be checked, as plain lines.
+
+    ONE LIST for every export: the CRS prints it, the internal review notes
+    carry it, and a sheet is never exported looking complete when it is not.
+    Each entry is {"part", "line"}; an empty list means nothing is known to be
+    unchecked (not that the review is correct).
+    """
+    outcome = outcome or {}
+    parts: list[dict] = []
+
+    def add(part: str, line: str) -> None:
+        parts.append({"part": part, "line": line})
+
+    if run_status != "completed":
+        why = (outcome.get("error") or "").strip().rstrip(".")
+        add("run_not_completed",
+            f"This review did not complete (status: {run_status or 'unknown'})"
+            + (f": {why}" if why else "")
+            + ". Any findings below are partial.")
+    elif outcome.get("partial"):
+        add("partial", "Some findings were written before the review stopped; they are partial.")
+    if partial_findings and run_status != "completed":
+        add("partial_findings",
+            f"{partial_findings} finding(s) were written before the review stopped; "
+            "they are partial and no review code was recommended.")
+    stds = outcome.get("standards_not_checked") or []
+    if stds:
+        add("standards_not_checked",
+            f"{len(stds)} standard(s) in scope had no requirement that could be checked "
+            f"and were not checked: {', '.join(stds[:5])}"
+            + (f" and {len(stds) - 5} more" if len(stds) > 5 else "") + ".")
+    cells = sum(int(l.get("count") or 0) for l in outcome.get("table_values_not_compared") or [])
+    if cells:
+        add("table_values_not_compared",
+            f"{cells} standards-table value(s) were not compared: no matching field on this submittal.")
+    applied = sum(int(l.get("count") or 0) for l in outcome.get("requirements_not_applied") or [])
+    if applied:
+        add("requirements_not_applied",
+            f"{applied} requirement(s) were not applied: they are about other equipment than this submittal.")
+    held = (outcome.get("requirements_held_back") or {}).get("text_quality") or 0
+    if held:
+        add("text_quality_held_back",
+            f"{held} requirement(s) were held back: their text could not be read reliably.")
+    unread = (outcome.get("page_coverage") or {}).get("pages_not_read_into_fields") or []
+    if unread:
+        add("unread_pages", f"{len(unread)} page(s) of this submittal were not read into fields; "
+                            "values on them could not be checked.")
+    for key, status in (("ai_check", ai_status), ("web_check", web_status)):
+        if status and status.get("complete") is False:
+            add(key, str(status.get("plain") or f"{key} did not complete").strip())
+    return parts
+
+
+def notice_for(parts: list[dict]) -> str:
+    """The one line a sheet prints when something could not be checked."""
+    if not parts:
+        return ""
+    return (f"REVIEW INCOMPLETE: {len(parts)} part(s) could not be checked "
+            "- this sheet is not a complete review.")

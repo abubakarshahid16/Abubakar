@@ -356,6 +356,12 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         "recommended_code_reason": ("" if copy == COPY_ISSUE
                                     else meta.get("recommended_code_reason") or ""),
         "recommended_code_status": meta.get("recommended_code_status") or "",
+        # #633: A SHEET THAT COULD NOT CHECK EVERYTHING SAYS SO ON ITSELF, in both
+        # copies. The count and the notice go to the contractor too; the
+        # internal copy also lists each part.
+        "incomplete_notice": meta.get("incomplete_notice") or "",
+        "unchecked_parts": ([str(p) for p in (meta.get("unchecked_parts") or [])]
+                            if copy == COPY_INTERNAL else []),
         # B5: WHICH STANDARDS THE REVIEW APPLIED, AND WHY - each with its
         # method, reason and evidence, plus the ones considered and not
         # included and the cited ones not held (MISSING_LOCALLY). Drawn on a
@@ -505,6 +511,14 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
     # summary row two rows below the table, so the seven-column layout the
     # client's template defines is untouched. The reason renders beside it
     # verbatim - a code with no reason is an opinion, not a review.
+    # #633: the incomplete-review notice sits directly under the table, above
+    # the code, so a reader sees it before anything that reads as a result.
+    if view["incomplete_notice"]:
+        notice_row = COLUMN_HEADER_ROW + len(view["rows"]) + 1
+        ws.merge_cells(start_row=notice_row, start_column=1, end_row=notice_row,
+                       end_column=7)
+        put(notice_row, 1, view["incomplete_notice"], bold=True, wrap=True)
+        ws.row_dimensions[notice_row].height = 30
     code = view["recommended_code"]
     if code:
         row = COLUMN_HEADER_ROW + len(view["rows"]) + 2

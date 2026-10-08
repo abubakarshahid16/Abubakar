@@ -1378,7 +1378,8 @@ def recommend_code(findings: list[dict], completeness: dict, *,
                    codes: tuple[str, ...] | None = None,
                    missing_references: list[str] | tuple[str, ...] = (),
                    page_coverage: dict | None = None,
-                   unchecked_standards: list[str] | tuple[str, ...] = ()) -> dict:
+                   unchecked_standards: list[str] | tuple[str, ...] = (),
+                   unchecked_counts: dict | None = None) -> dict:
     """The recommendation, with `reason` in PLAIN WORDS for the engineer and
     the technical sentence kept as `details` (owner order 2g, 2026-09-26).
 
@@ -1390,6 +1391,23 @@ def recommend_code(findings: list[dict], completeness: dict, *,
     result = _recommend_code(findings, completeness, codes=codes,
                              missing_references=missing_references,
                              unchecked_standards=unchecked_standards)
+    # #633: A RUN WITH LARGE UNCHECKED PARTS CANNOT BE APPROVED. Standards-table
+    # values with no matching field, and requirements about other equipment, are
+    # counted on the run; when they are most of what was in scope, an approval
+    # (outright or with comments) would be a claim about the part nobody
+    # compared. A proven breach (rejected) and a manual review stay as they are.
+    counts = unchecked_counts or {}
+    share = absence.unchecked_share(
+        counts.get("not_compared", 0), counts.get("not_applied", 0), counts.get("checked", 0))
+    if (share is not None and share >= absence.UNCHECKED_SHARE_LIMIT
+            and result["code"] in (codes[0], codes[1])):
+        unchecked_n = counts.get("not_compared", 0) + counts.get("not_applied", 0)
+        total_n = unchecked_n + counts.get("checked", 0)
+        result = {**result, "code": codes[3],
+                  "reason": (f"Manual review: {unchecked_n} of {total_n} requirements in scope "
+                             "were not compared with this submittal (no matching field, or "
+                             "about other equipment), so the rest cannot be called met"),
+                  "unchecked_share": round(share, 3)}
     missing = [m for m in dict.fromkeys(missing_references or ()) if m]
     if result["code"] == codes[2]:
         # A PROVEN BREACH, IN AN ENGINEER'S WORDS, with what else is open.
@@ -2166,7 +2184,12 @@ def run_comparison(
     recommendation = recommend_code(findings, coverage,
                                     missing_references=missing_references or (),
                                     page_coverage=pages_read,
-                                    unchecked_standards=unchecked_standards)
+                                    unchecked_standards=unchecked_standards,
+                                    unchecked_counts={
+                                        "not_compared": sum(int(l.get("count") or 0)
+                                                            for l in table_values_not_compared),
+                                        "not_applied": applicability_summary.get("not_applied", 0),
+                                        "checked": len(requirements)})
     _store_run_outcome(review_run_id, recommendation, coverage,
                        page_coverage=pages_read,
                        missing_references=missing_references or [],

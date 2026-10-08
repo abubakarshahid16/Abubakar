@@ -312,6 +312,8 @@ def ensure_schema() -> None:
             # reply is a fact on the run a reviewer can see, never a run that
             # silently looks like it raised nothing to say.
             ("ai_check_status", "TEXT"),
+            # #633: the web standards check's own outcome, stored the same way.
+            ("web_check_status", "TEXT"),
         ):
             add_column_if_missing(conn, "review_runs", _column, _type)
         conn.execute(

@@ -88,13 +88,22 @@ def test_gauge_against_absolute_is_skipped_not_guessed():
     """M1057: 18 bara against 20 barg cannot be compared without the site's
     atmospheric pressure - no result at all, rather than a wrong one."""
     absolute = fact("design pressure", "18", "bara", normalized=1.8, norm_unit="MPa")
-    assert "DS-C1" not in run(full_vessel(**{"design pressure": absolute}))
+    # #633: no verdict either way (never a guess), but the pair is no longer
+    # SILENT: it is an engineer's question that says it could not be checked.
+    result = run(full_vessel(**{"design pressure": absolute})).get("DS-C1")
+    assert result is not None
+    assert result["status"] == "NEEDS_ENGINEER_REVIEW"
+    assert "Could not be checked" in result["detail"]
 
 
 def test_two_different_values_under_one_name_are_not_chosen_between():
     """M1058."""
     facts = full_vessel() + [P("design pressure", "15")]
-    assert "DS-C1" not in run(facts)
+    # #633: not chosen between (no COMPLIANT / NON_COMPLIANT), and not silent.
+    result = run(facts).get("DS-C1")
+    assert result is not None
+    assert result["status"] == "NEEDS_ENGINEER_REVIEW"
+    assert "two different values" in result["detail"]
 
 
 def test_a_mandatory_field_absent_or_tba_is_a_missing_value():
