@@ -1,8 +1,13 @@
 """Typed EPC risk register, kept separate from evidence-backed findings."""
 from __future__ import annotations
+import logging
+import threading
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta, timezone
+from .config import settings
 from .db import connect, schema_once
+
+log = logging.getLogger("uvicorn.error")
 
 RISK_TYPES = frozenset({"schedule", "review", "dependency", "compliance"})
 
@@ -46,87 +51,211 @@ def list_items(*, allowed_document_ids: frozenset[str] | None = None, risk_type:
     return [dict(row) for row in connect().execute(sql,args).fetchall()]
 
 
-def _doc_of(deliverables: list[dict], deliverable_id: str) -> str | None:
-    for item in deliverables:
-        if item["id"] == deliverable_id:
-            return item.get("document_id")
-    return None
+OPEN_REVIEW_STATUSES = ("open", "in_progress", "awaiting_response")
+
+_COLUMNS = ("id", "risk_type", "title", "description", "severity", "status", "deliverable_id",
+            "document_id", "owner_user_id", "due_date", "source_finding_id", "created_at", "updated_at")
 
 
-def _open_exists(*, risk_type: str, deliverable_id: str | None = None,
-                 source_finding_id: str | None = None, document_id: str | None = None) -> bool:
-    clauses = ["risk_type = ?", "status = 'open'"]
-    args: list[str | None] = [risk_type]
-    if deliverable_id is not None:
-        clauses.append("deliverable_id = ?"); args.append(deliverable_id)
-    if source_finding_id is not None:
-        clauses.append("source_finding_id = ?"); args.append(source_finding_id)
-    if document_id is not None:
-        clauses.append("document_id = ?"); args.append(document_id)
-    return connect().execute("SELECT 1 FROM risks WHERE " + " AND ".join(clauses) + " LIMIT 1", args).fetchone() is not None
+def _new_item(payload: dict) -> dict:
+    now = _now()
+    return {"id": str(uuid.uuid4()), "severity": "medium", "status": "open",
+            "deliverable_id": None, "document_id": None, "owner_user_id": None,
+            "due_date": None, "source_finding_id": None,
+            "created_at": now, "updated_at": now, **payload}
+
+
+def _insert_many(items: list[dict]) -> None:
+    """All new risks in ONE transaction (one commit, not one per risk)."""
+    if not items:
+        return
+    with connect() as conn:
+        conn.executemany(
+            "INSERT INTO risks (" + ",".join(_COLUMNS) + ") VALUES ("
+            + ",".join(":" + c for c in _COLUMNS) + ")", items)
+
+
+def _open_risk_keys() -> tuple[set[tuple], set[tuple]]:
+    """The open risks that already exist, read with ONE query:
+    ({(risk_type, deliverable_id)}, {(risk_type, source_finding_id)}).
+
+    Detection diffs against these sets. It used to ask the database one
+    question per finding (`_open_exists`, about 133,000 of them).
+    """
+    ensure_schema()
+    by_deliverable: set[tuple] = set()
+    by_finding: set[tuple] = set()
+    for row in connect().execute(
+            "SELECT risk_type, deliverable_id, source_finding_id FROM risks WHERE status = 'open'"):
+        if row["deliverable_id"] is not None:
+            by_deliverable.add((row["risk_type"], row["deliverable_id"]))
+        if row["source_finding_id"] is not None:
+            by_finding.add((row["risk_type"], row["source_finding_id"]))
+    return by_deliverable, by_finding
+
+
+def _candidate_findings(allowed_document_ids: frozenset[str] | None) -> list[dict]:
+    """Only the findings detection can act on, and only the columns it reads:
+    an open-ish one (the seven-day rule) or a requirement deviation with
+    unresolved evidence (the compliance rule). One query."""
+    from . import review as review_mod
+    review_mod.ensure_schema()
+    where = ("(status IN (?,?,?) OR (category = 'requirement_deviation'"
+             " AND unresolved_evidence NOT IN ('', '[]', 'null')))")
+    args: list[str] = list(OPEN_REVIEW_STATUSES)
+    if allowed_document_ids is not None:
+        if not allowed_document_ids:
+            return []
+        where += " AND document_id IN (" + ",".join("?" for _ in allowed_document_ids) + ")"
+        args.extend(sorted(allowed_document_ids))
+    rows = connect().execute(
+        "SELECT id, severity, document_id, owner_user_id, due_date, status, updated_at, category,"
+        " unresolved_evidence FROM review_findings WHERE " + where, args).fetchall()
+    return [dict(r) for r in rows]
 
 
 def detect_automatic_risks(*, allowed_document_ids: frozenset[str] | None = None) -> list[dict]:
-    """Create idempotent risks from already-tracked EPC workflow state."""
+    """Create idempotent risks from already-tracked EPC workflow state.
+
+    NOT A REQUEST HANDLER (#478, #608). It reads the whole register and writes,
+    so it runs from `run_detection` (the background job and the admin
+    trigger), never from a GET. It asks the database a fixed number of
+    questions however many findings there are: the existing open risks are
+    read once and diffed, the candidate findings come from one filtered query,
+    and the new risks are inserted in one transaction. It sends NO email: the
+    caller sends one digest for the whole run.
+    """
     ensure_schema()
-    from . import deliverables as deliverables_mod, review as review_mod, notifications
-    created: list[dict] = []
+    from . import deliverables as deliverables_mod
+    by_deliverable, by_finding = _open_risk_keys()
+    new_items: list[dict] = []
     visible_deliverables = deliverables_mod.list_items(allowed_document_ids=allowed_document_ids)
-    visible_ids = {item["id"] for item in visible_deliverables}
+    by_id = {item["id"]: item for item in visible_deliverables}
     for alert in deliverables_mod.alerts(allowed_document_ids=allowed_document_ids):
-        if not _open_exists(risk_type="schedule", deliverable_id=alert["deliverable_id"]):
-            item = create({"risk_type": "schedule", "title": f"Overdue deliverable: {alert['title']}",
-                           "description": f"{alert['days_overdue']} days overdue; escalation level {alert['escalation_level']}.",
-                           "severity": alert["severity"], "deliverable_id": alert["deliverable_id"], "due_date": alert["due_date"],
-                           # r2 S3: carry the SOURCE document so the scope filter can apply.
-                           "document_id": _doc_of(visible_deliverables, alert["deliverable_id"])})
-            created.append(item)
-            notifications.send_email(subject=f"EPC schedule risk: {alert['title']}", body=item["description"],
-                                      trigger="automatic_risk", resource_type="risk", resource_id=item["id"])
-    now = datetime.now(timezone.utc)
-    for finding in review_mod.list_findings(allowed_document_ids=allowed_document_ids):
+        if ("schedule", alert["deliverable_id"]) in by_deliverable:
+            continue
+        by_deliverable.add(("schedule", alert["deliverable_id"]))
+        new_items.append(_new_item({
+            "risk_type": "schedule", "title": f"Overdue deliverable: {alert['title']}",
+            "description": f"{alert['days_overdue']} days overdue; escalation level {alert['escalation_level']}.",
+            "severity": alert["severity"], "deliverable_id": alert["deliverable_id"], "due_date": alert["due_date"],
+            # r2 S3: carry the SOURCE document so the scope filter can apply.
+            "document_id": (by_id.get(alert["deliverable_id"]) or {}).get("document_id")}))
+    now = datetime.now(UTC)
+    for finding in _candidate_findings(allowed_document_ids):
         try:
             updated = datetime.fromisoformat(finding["updated_at"].replace("Z", "+00:00"))
             if updated.tzinfo is None:
-                updated = updated.replace(tzinfo=timezone.utc)
-        except (KeyError, ValueError):
+                updated = updated.replace(tzinfo=UTC)
+        except (KeyError, ValueError, AttributeError):
             continue
-        if finding["status"] in {"open", "in_progress", "awaiting_response"} and now - updated > timedelta(days=7):
-            if not _open_exists(risk_type="review", source_finding_id=finding["id"]):
-                item = create({"risk_type": "review", "title": "Review response overdue",
-                               "description": "This finding has remained open beyond the seven-day review target.",
-                               "severity": finding["severity"], "document_id": finding["document_id"],
-                               "source_finding_id": finding["id"], "owner_user_id": finding.get("owner_user_id"),
-                               "due_date": finding.get("due_date")})
-                created.append(item)
-                notifications.send_email(subject="EPC review risk", body=item["description"], trigger="automatic_risk",
-                                          resource_type="risk", resource_id=item["id"])
-        if finding["category"] == "requirement_deviation" and finding.get("unresolved_evidence"):
-            if not _open_exists(risk_type="compliance", source_finding_id=finding["id"]):
-                item = create({"risk_type": "compliance", "title": "Requirement lacks supporting evidence",
-                               "description": "Gap analysis found unresolved evidence for this requirement.",
-                               "severity": finding["severity"], "document_id": finding["document_id"],
-                               "source_finding_id": finding["id"], "owner_user_id": finding.get("owner_user_id")})
-                created.append(item)
-                notifications.send_email(subject="EPC compliance risk", body=item["description"], trigger="automatic_risk",
-                                          resource_type="risk", resource_id=item["id"])
+        if (finding["status"] in OPEN_REVIEW_STATUSES and now - updated > timedelta(days=7)
+                and ("review", finding["id"]) not in by_finding):
+            by_finding.add(("review", finding["id"]))
+            new_items.append(_new_item({
+                "risk_type": "review", "title": "Review response overdue",
+                "description": "This finding has remained open beyond the seven-day review target.",
+                "severity": finding["severity"], "document_id": finding["document_id"],
+                "source_finding_id": finding["id"], "owner_user_id": finding.get("owner_user_id"),
+                "due_date": finding.get("due_date")}))
+        if (finding["category"] == "requirement_deviation"
+                and finding.get("unresolved_evidence") not in (None, "", "[]", "null")
+                and ("compliance", finding["id"]) not in by_finding):
+            by_finding.add(("compliance", finding["id"]))
+            new_items.append(_new_item({
+                "risk_type": "compliance", "title": "Requirement lacks supporting evidence",
+                "description": "Gap analysis found unresolved evidence for this requirement.",
+                "severity": finding["severity"], "document_id": finding["document_id"],
+                "source_finding_id": finding["id"], "owner_user_id": finding.get("owner_user_id")}))
     for item in visible_deliverables:
         parent_id = item.get("parent_id")
-        if not parent_id or parent_id not in visible_ids or item["status"] in {"approved", "superseded"}:
+        if not parent_id or parent_id not in by_id or item["status"] in {"approved", "superseded"}:
             continue
-        parent = next((candidate for candidate in visible_deliverables if candidate["id"] == parent_id), None)
+        parent = by_id.get(parent_id)
         if not parent or parent["status"] in {"approved", "superseded"} or not parent.get("due_date"):
             continue
         try:
             overdue = (now.date() - datetime.fromisoformat(parent["due_date"].replace("Z", "+00:00")).date()).days >= 0
         except ValueError:
             overdue = False
-        if overdue and not _open_exists(risk_type="dependency", deliverable_id=item["id"]):
-            item_risk = create({"risk_type": "dependency", "title": f"Dependency overdue: {item['title']}",
-                                "description": f"Parent deliverable {parent['title']} is overdue.",
-                                "severity": "major", "deliverable_id": item["id"], "due_date": item.get("due_date"),
-                                "document_id": item.get("document_id")})
-            created.append(item_risk)
-            notifications.send_email(subject="EPC dependency risk", body=item_risk["description"], trigger="automatic_risk",
-                                      resource_type="risk", resource_id=item_risk["id"])
-    return created
+        if overdue and ("dependency", item["id"]) not in by_deliverable:
+            by_deliverable.add(("dependency", item["id"]))
+            new_items.append(_new_item({
+                "risk_type": "dependency", "title": f"Dependency overdue: {item['title']}",
+                "description": f"Parent deliverable {parent['title']} is overdue.",
+                "severity": "major", "deliverable_id": item["id"], "due_date": item.get("due_date"),
+                "document_id": item.get("document_id")}))
+    _insert_many(new_items)
+    return new_items
+
+
+_detect_lock = threading.Lock()
+
+
+def run_detection(*, allowed_document_ids: frozenset[str] | None = None) -> dict:
+    """One detection run: single-flight, then ONE digest email.
+
+    Returns {"status": "ok" | "already_running", "created": n, "by_type": {...},
+    "digest": "sent" | "disabled" | "rate_limited" | "none" | "failed"}.
+    Counts and a status word only: no finding text in the result or the log.
+    """
+    from . import notifications
+    if not _detect_lock.acquire(blocking=False):
+        return {"status": "already_running", "created": 0, "by_type": {}, "digest": "none"}
+    try:
+        from . import deliverables as deliverables_mod
+        reminders = deliverables_mod.generate_reminders(allowed_document_ids=allowed_document_ids)
+        created = detect_automatic_risks(allowed_document_ids=allowed_document_ids)
+        by_type: dict[str, int] = {}
+        for item in created:
+            by_type[item["risk_type"]] = by_type.get(item["risk_type"], 0) + 1
+        try:
+            digest = notifications.send_risk_digest(created)
+        except Exception:  # a mail failure must not undo the detection
+            log.exception("risk digest email failed")
+            digest = "failed"
+        log.info("risk detection created=%d reminders=%d by_type=%s digest=%s",
+                 len(created), reminders, by_type, digest)
+        return {"status": "ok", "created": len(created), "by_type": by_type, "digest": digest,
+                "reminders_created": reminders}
+    finally:
+        _detect_lock.release()
+
+
+# --------------------------------------------------------------- the schedule
+
+_stop = threading.Event()
+_thread: threading.Thread | None = None
+
+
+def start_background_detection() -> threading.Thread | None:
+    """Run `run_detection` every `risk_detection_interval_seconds`, in a daemon
+    thread. Off when the interval is 0 or the background jobs are off (the
+    test suite pins `startup_warmup` off). The first run waits one interval
+    after start so booting is never slowed by it."""
+    global _thread
+    interval = int(settings.risk_detection_interval_seconds)
+    if interval <= 0 or not settings.startup_warmup:
+        return None
+    if _thread is not None and _thread.is_alive():
+        return _thread
+    _stop.clear()
+
+    def loop() -> None:
+        from . import db
+        try:
+            while not _stop.wait(interval):
+                try:
+                    run_detection()
+                except Exception:  # logged; the next tick retries
+                    log.exception("scheduled risk detection failed")
+        finally:
+            db.close_thread_connection()
+
+    _thread = threading.Thread(target=loop, name="risk-detection", daemon=True)
+    _thread.start()
+    return _thread
+
+
+def stop_background_detection() -> None:
+    _stop.set()

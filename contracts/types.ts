@@ -309,6 +309,36 @@ export interface UploadAccepted {
   awaiting_grant?: boolean;
 }
 
+/** GET /api/documents/upload-disciplines (#609).
+ *
+ *  Who a new upload may be made visible to. An upload with an identity must
+ *  name at least one of `choices` (sent as repeated `disciplines` form
+ *  fields); the API refuses one with none, because a document no discipline
+ *  can see is invisible in every engineer's review and chat. */
+export interface UploadDisciplines {
+  /** False only with authentication off, where every caller reads every
+   *  document and no discipline is asked for. */
+  required: boolean;
+  /** An engineer's own disciplines; every discipline for an administrator. */
+  choices: string[];
+  /** The uploader's own disciplines: what the upload form starts with. */
+  default: string[];
+}
+
+/** POST /api/reviews/runs/{id}/claude/crs-draft (#441).
+ *
+ *  The CRS preview with model-drafted comments laid over it. A POST because
+ *  it sends the run's findings to Claude and spends from the USD caps; the
+ *  drafts are not stored, and an audit row names who asked. */
+export interface ClaudeCrsDraft extends CrsPreview {
+  drafted: number;
+  rejected: number;
+  counts: Record<string, number>;
+  complete: boolean;
+  /** The signed-in user who asked; null only with authentication off. */
+  drafted_by: string | null;
+}
+
 /** DELETE /api/documents/{id}
  *
  *  Typed because it was not. The conversation-delete response was a COPY of
@@ -1461,6 +1491,14 @@ export interface AnalysisGapsResult {
   claim_clusters: ClaimClusterOut[];
   gaps: GapAnalysisOut;
   not_implemented_sections: string[];
+  /** true = the run stopped at its work budget (time, evidence or claim cap)
+   *  and this is a PARTIAL result; `truncation_reason` says which limit (#606). */
+  truncated?: boolean;
+  truncation_reason?: string | null;
+  /** documents whose acronym map was still being built in the background */
+  acronym_map?: { documents_not_ready: number; complete: boolean } | null;
+  /** an identical run was already going; this response shares its result */
+  coalesced?: boolean;
 }
 
 export interface ConfidenceCheckOut {

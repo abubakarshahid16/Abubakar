@@ -610,9 +610,11 @@ describe("AnalysisModeScreen: selected work is explicit", () => {
 
     const plan = screen.getByRole("region", { name: "Selected analysis work" });
     expect(within(plan).getByText("Quote: mechanical evidence comparison")).toBeInTheDocument();
-    expect(within(plan).getByText("Gap analysis")).toBeInTheDocument();
+    expect(within(plan).getByText("Quoted evidence")).toBeInTheDocument();
     expect(within(plan).getByText("Summary, recommendation and market")).toBeInTheDocument();
-    expect(within(plan).getByText("Off")).toBeInTheDocument();
+    // #607: Gap analysis is listed, and OFF, in Quote mode - it is not what runs.
+    expect(within(plan).getByText("Gap analysis")).toBeInTheDocument();
+    expect(within(plan).getAllByText("Off")).toHaveLength(2);
     expect(screen.getByText(/Quote mode runs only cited document evidence/)).toBeInTheDocument();
   });
 });

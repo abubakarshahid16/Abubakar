@@ -42,11 +42,11 @@ MUTATIONS: tuple[Mutation, ...] = (
     ),
     Mutation(
         id="M1332", phase=1330,
-        description="memoise the deliverables owner sync with the DDL, so a new "
+        description="the owner sync is dropped from create, so a new "
                     "item's owner never becomes a stakeholder",
         path=APP / "deliverables.py",
-        anchor="    _ensure_tables()\n    with connect() as conn:",
-        replacement="    _ensure_tables()\n    return\n    with connect() as conn:",
+        anchor="        _sync_owner_stakeholders(conn)\n    return item\n",
+        replacement="    return item\n",
         target=_T, keyword="owner_still_becomes",
     ),
     Mutation(

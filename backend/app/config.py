@@ -579,6 +579,16 @@ class Settings(BaseSettings):
     #: How many per-SCOPE merged acronym maps are kept (LRU): one per distinct
     #: (document, caller scope) pair recently asked about.
     acronym_cache_scopes: int = 64
+    #: Automatic risk detection (#478): every this many seconds, in a background
+    #: thread (0 = off). The digest email is rate-limited to one per interval
+    #: below. GET /api/risks never runs detection.
+    risk_detection_interval_seconds: int = 900
+    risk_digest_min_interval_seconds: int = 3600
+    #: Gap analysis work budget (#606). A run that reaches any of these stops,
+    #: returns what it has, and says `truncated: true` with the reason.
+    analysis_gaps_budget_seconds: float = 25.0
+    analysis_max_evidence: int = 60
+    analysis_max_claims: int = 1500
     #: Warm the embedder, reranker and acronym maps in a background thread at
     #: startup, so the first question does not pay the model loads. Never
     #: blocks the server start and never writes the database.
