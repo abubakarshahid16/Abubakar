@@ -301,6 +301,36 @@ export interface UploadAccepted {
   awaiting_grant?: boolean;
 }
 
+/** GET /api/documents/upload-disciplines (#609).
+ *
+ *  Who a new upload may be made visible to. An upload with an identity must
+ *  name at least one of `choices` (sent as repeated `disciplines` form
+ *  fields); the API refuses one with none, because a document no discipline
+ *  can see is invisible in every engineer's review and chat. */
+export interface UploadDisciplines {
+  /** False only with authentication off, where every caller reads every
+   *  document and no discipline is asked for. */
+  required: boolean;
+  /** An engineer's own disciplines; every discipline for an administrator. */
+  choices: string[];
+  /** The uploader's own disciplines: what the upload form starts with. */
+  default: string[];
+}
+
+/** POST /api/reviews/runs/{id}/claude/crs-draft (#441).
+ *
+ *  The CRS preview with model-drafted comments laid over it. A POST because
+ *  it sends the run's findings to Claude and spends from the USD caps; the
+ *  drafts are not stored, and an audit row names who asked. */
+export interface ClaudeCrsDraft extends CrsPreview {
+  drafted: number;
+  rejected: number;
+  counts: Record<string, number>;
+  complete: boolean;
+  /** The signed-in user who asked; null only with authentication off. */
+  drafted_by: string | null;
+}
+
 /** DELETE /api/documents/{id}
  *
  *  Typed because it was not. The conversation-delete response was a COPY of

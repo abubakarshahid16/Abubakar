@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 
-from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
@@ -442,21 +442,43 @@ def metrics(request: Request,
 # --------------------------------------------------------------- documents
 
 
+@app.get("/api/documents/upload-disciplines", response_model=schemas.UploadDisciplines,
+         responses={**schemas.ERRORS_401})
+def upload_disciplines(scope: access.AccessScope = Depends(access.current_scope)):
+    """The disciplines this caller may make an upload visible to (#609), and
+    the default: their own. Empty and not required with authentication off."""
+    if scope.user_id is None:
+        _require_identity_to_write(scope)
+        return {"required": False, "choices": [], "default": []}
+    return {"required": True, **access.upload_discipline_choices(scope.user_id)}
+
+
 @app.post("/api/documents", response_model=schemas.UploadAccepted,
-          responses={**schemas.ERRORS_400, **schemas.ERRORS_401})
+          responses={**schemas.ERRORS_400, **schemas.ERRORS_401, **schemas.ERRORS_422})
 async def upload_document(
     file: UploadFile = File(...),
+    disciplines: list[str] | None = Form(None),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
-    """Accept an identified upload and place it in admin-only review."""
+    """Accept an identified upload, visible to the disciplines it names (#609).
+
+    With an identity, at least one discipline is required and is checked
+    BEFORE the bytes are stored, so no document is left visible to nobody.
+    With authentication off every caller reads every document and grants
+    decide nothing, so none are asked for or written."""
     _require_identity_to_write(scope)
     admin_role: str | None = None
-    uploader_is_admin = scope.unrestricted
+    discipline_roles: list[str] = []
     if scope.user_id is not None:
         try:
-            admin_role, uploader_is_admin = access.upload_admin_role(scope.user_id)
+            admin_role, _uploader_is_admin = access.upload_admin_role(scope.user_id)
         except RuntimeError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
+        try:
+            discipline_roles = access.resolve_upload_disciplines(scope.user_id, disciplines)
+        except access.UploadDisciplineRefused as exc:
+            raise HTTPException(status_code=422, detail=errors.safe_error(
+                errors.INVALID_PARAMETER, str(exc))) from exc
     try:
         row, job_id, duplicate_of = upload_mod.ingest(file.file, file.filename or "")
     except upload_mod.UploadError as e:
@@ -466,14 +488,18 @@ async def upload_document(
         )
     if duplicate_of is None and admin_role is not None and scope.user_id is not None:
         access.grant_uploaded_document_to_admin(row["id"], admin_role, scope.user_id)
+        access.grant_uploaded_document_to_disciplines(
+            row["id"], discipline_roles, scope.user_id)
     elif duplicate_of is not None and not scope.may_read(duplicate_of):
         return {"document": None, "job_id": "", "duplicate_of": None,
                 "awaiting_grant": True}
+    # A new upload is readable by its uploader at once: an engineer may only
+    # choose their own disciplines, and an administrator holds every document.
     return {
         "document": upload_mod.to_api(row),
         "job_id": job_id or "",
         "duplicate_of": duplicate_of,
-        "awaiting_grant": not uploader_is_admin and duplicate_of is None,
+        "awaiting_grant": False,
     }
 
 

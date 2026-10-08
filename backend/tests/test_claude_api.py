@@ -28,7 +28,7 @@ ROUTES = [
     ("post", "/api/reviews/runs/run-x/claude/select-standards"),
     ("post", "/api/reviews/runs/run-x/claude/read-datasheet"),
     ("post", "/api/reviews/runs/run-x/claude/recheck"),
-    ("get", "/api/reviews/runs/run-x/claude/crs-draft"),
+    ("post", "/api/reviews/runs/run-x/claude/crs-draft"),
 ]
 
 

@@ -91,6 +91,8 @@ import type {
   StandardClause,
   StandardRequirement,
   StandardExtraction,
+  ClaudeCrsDraft,
+  UploadDisciplines,
 } from "../types/api";
 
 export interface SearchResult {
@@ -470,6 +472,16 @@ export const reviews = {
     request<CrsPreview>(
       `/reviews/runs/${encodeURIComponent(runId)}/crs/preview`,
       undefined,
+      hasArrayField("rows"),
+    ),
+  /** The CRS preview with Claude-drafted comments (#441). A POST, never a
+   *  GET: it sends the run's findings to Claude and spends from the USD
+   *  caps, so a link or a prefetch must not be able to start it. The server
+   *  records who asked. */
+  claudeCrsDraft: (runId: string) =>
+    request<ClaudeCrsDraft>(
+      `/reviews/runs/${encodeURIComponent(runId)}/claude/crs-draft`,
+      { method: "POST" },
       hasArrayField("rows"),
     ),
   /** Close or re-open one numbered comment (its Final Resolution). Only a
@@ -1041,6 +1053,9 @@ async function request<T>(
 export const api = {
   health: () => request<Health>("/health"),
   metrics: () => request<Metrics>("/metrics"),
+  /** Who a new upload may be made visible to, and the default (#609). */
+  uploadDisciplines: () =>
+    request<UploadDisciplines>("/documents/upload-disciplines", undefined, hasArrayField("choices")),
   search: (query: string) => request<SearchResult>(`/search?q=${encodeURIComponent(query)}&limit=8`),
   /** Whether the watched folder is running, and what it last picked up.
    *  Guarded like the other list-bearing reads: a body without `recent`
