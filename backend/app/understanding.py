@@ -26,6 +26,7 @@ import json
 import re
 from dataclasses import dataclass, field
 
+from . import standard_ids
 from .db import connect
 
 #: A document designation inside a filename: letters/digits in 2+ hyphen- or
@@ -105,6 +106,16 @@ def named_documents(question: str, documents: dict[str, str]) -> dict[str, list[
         des = designation(filename)
         if des and f" {_norm(des)} " in padded:
             found.setdefault(des, []).append(doc_id)
+            continue
+        # The ONE matcher (#452) for the families it knows by shape: a question
+        # asking about "API 520 Part I" names the file "API-520-I.pdf", and
+        # "ASME B16.5" names "ASME B16.5-2020.pdf" - neither is the file's
+        # designation written token for token. Other names keep the exact test.
+        stem = filename.rsplit(".", 1)[0]
+        parsed = standard_ids.parse(stem)
+        if parsed is not None and parsed.family in standard_ids.SPECIFIC_FAMILIES \
+                and standard_ids.names_standard(question, stem):
+            found.setdefault(des or stem, []).append(doc_id)
     return found
 
 

@@ -42,6 +42,6 @@ MUTATIONS: tuple[Mutation, ...] = (
              path=_A, anchor="    if _DEFERS.search(sentence) and not _quantities(sentence):\n",
              replacement="    if _DEFERS.search(sentence):\n", target=_T, keyword="stating_its_own_value"),
     Mutation(id="M828", phase=71, description="B8: a standard the question itself names is reported missing",
-             path=_A, anchor="                   and re.sub(r\"[^A-Z0-9]\", \"\", ref.upper()) not in asked]\n",
+             path=_A, anchor="                   and not standard_ids.names_standard(question, ref)]\n",
              replacement="                   ]\n", target=_T, keyword="question_names"),
 )

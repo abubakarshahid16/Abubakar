@@ -47,7 +47,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import datasheets, keyword, standards, submittal_review
+from . import datasheets, keyword, standard_ids, standards, submittal_review
 from .db import connect
 
 #: The selection rules, in the priority master plan section 11 gives them.
@@ -551,29 +551,43 @@ def scope_decisions_by_reasoning(library: list[dict], profile: dict,
 
 # --------------------------------------------------------------- selection
 
+def _library_names(entry: dict) -> list[str]:
+    """The names a library entry is known by, most reliable first."""
+    return [name for name in (
+        entry.get("document_number"),
+        # The PARSED number before the raw filename: the raw form carries
+        # revision text ("SAES-B-14 -Final Draft 01-29-23"), and an exact
+        # key of it matches no citation.
+        library_identifier(entry.get("filename") or ""),
+        entry.get("filename")) if name]
+
+
+def find_standard(library: list[dict], identifier: str) -> dict | None:
+    """The library entry `identifier` names, or None. THE lookup (#452).
+
+    An exact key first, so a citation written the way the library writes it
+    always finds that entry. Then `standard_ids.same_standard`, which reads
+    family, number and part: "API RP 520 Pt-1" finds the API 520 Part I
+    document, and "API 65" never finds API 650. There is no prefix rule any
+    more - it was the A02/A03 defect ("API650".startswith("API65")).
+    """
+    key = normalise_identifier(identifier)
+    if not key:
+        return None
+    for entry in library:
+        if any(normalise_identifier(name) == key for name in _library_names(entry)):
+            return entry
+    for entry in library:
+        if any(standard_ids.same_standard(identifier, name) for name in _library_names(entry)):
+            return entry
+    return None
+
+
 def _match_referenced(library: list[dict], referenced: list[str]) -> dict[str, dict]:
     """Rule 1: standards the datasheet NAMES that are in the library."""
-    by_key: dict[str, dict] = {}
-    for entry in library:
-        for candidate in (entry.get("document_number"),
-                          # The PARSED number before the raw filename: the raw
-                          # form carries revision text, so its key is
-                          # "SAESB14FINALDRAFT..." and matches no citation.
-                          library_identifier(entry.get("filename") or ""),
-                          entry.get("filename")):
-            key = normalise_identifier(candidate or "")
-            if key:
-                by_key.setdefault(key, entry)
     out: dict[str, dict] = {}
     for identifier in referenced:
-        key = normalise_identifier(identifier)
-        entry = by_key.get(key)
-        if entry is None:
-            # A prefix match catches "API RP 520 Pt-1" against a library entry
-            # numbered "API RP 520". A citation naming a PART of a standard is
-            # a citation of that standard.
-            entry = next((v for k, v in by_key.items()
-                          if key.startswith(k) or k.startswith(key)), None)
+        entry = find_standard(library, identifier)
         if entry is not None:
             out[entry["id"]] = {
                 "method": METHOD_REFERENCED,
@@ -600,28 +614,27 @@ def missing_references(library: list[dict], referenced: list[str]) -> list[str]:
     21 cited standards are not in the library", and the CRS told a contractor
     six standards were unavailable that were sitting in the library.
 
-    Asked PER NAME, of `_match_referenced` itself, rather than by reading the
+    Asked PER NAME, of `find_standard` itself, rather than by reading the
     identifiers back out of one combined result: that result is keyed by
     document, so when two citations reach the SAME standard under DIFFERENT
-    keys - the prefix rule makes "API RP 520 Pt-1" and "API RP 520" both the
-    standard numbered API RP 520 - only the last one's identifier survives,
-    and the other would be reported missing. The same defect, one level down.
-    (Two spellings that normalise to the same key cannot collide this way;
-    the survivor still matches both.) Per name reuses the exact matching rule
-    (exact key, then prefix) and cannot drift from what selection considers a
-    match.
+    spellings - "API RP 520 Pt-1" and "API RP 520" are both API 520 - only
+    the last one's identifier survives, and the other would be reported
+    missing. The same defect, one level down. Per name reuses the exact
+    matching rule (`find_standard`, #452) and cannot drift from what selection
+    considers a match. `select` used to keep a second copy of this list built
+    from the surviving identifiers - exactly that defect - and now asks here.
 
-    Returns the cited names in the submittal's own spelling, one per standard,
-    in citation order.
+    Returns the cited names in the submittal's own spelling, one per standard
+    (two spellings of one missing standard are listed once), in citation order.
     """
     missing: list[str] = []
     seen: set[str] = set()
     for name in referenced:
-        key = normalise_identifier(name)
+        key = standard_ids.key(name)
         if not key or key in seen:
             continue
         seen.add(key)
-        if not _match_referenced(library, [name]):
+        if find_standard(library, name) is None:
             missing.append(name.strip())
     return missing
 
@@ -771,18 +784,15 @@ def select(
             if existing is None or _PRIORITY[row["method"]] < _PRIORITY[existing["method"]]:
                 selected[standard_id] = dict(row)
 
-    matched_keys = {
-        normalise_identifier(row.get("identifier") or "")
-        for row in selected.values() if row["method"] == METHOD_REFERENCED
-    }
     missing = [
         # Listed by THE IDENTIFIER THE DATASHEET USED, not by a canonical form
         # this system prefers. An engineer goes looking for the string their
-        # document wrote.
+        # document wrote. ONE helper (#452): this list used to be rebuilt here
+        # from the identifiers that survived selection, which loses a citation
+        # whenever two spellings reach the same standard.
         {"identifier": identifier,
          "reason": "cited by the submittal and not present in the library"}
-        for identifier in referenced
-        if normalise_identifier(identifier) not in matched_keys
+        for identifier in missing_references(library, referenced)
     ]
     selected, missing = _semantic_cannot_cover_a_missing_reference(selected, missing)
 
