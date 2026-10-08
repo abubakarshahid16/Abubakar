@@ -403,9 +403,12 @@ def metrics(request: Request,
     this endpoint as "the scoped /api/metrics", and that belief is why fields
     were moved here off /api/health.
 
-    ADMIN SEES CORPUS-WIDE FIGURES, AND THAT IS A NEW CAPABILITY. `access.py`
-    grants an administrator no read bypass - an IT+admin user sees exactly the
-    six documents IT sees - so this is not an existing power being surfaced. It
+    ADMIN SEES CORPUS-WIDE FIGURES, AND THAT IS A NEW CAPABILITY. The document
+    routes build an administrator's scope from grants like anyone else's
+    (`access.scope_for_user`) - an IT+admin user sees exactly the six documents
+    IT sees - so this is not an existing power being surfaced. (The ONE
+    deliberate exception is the read-only database explorer below, which reads
+    every table by owner decision 2026-10-07: "admin can read everything".) It
     is deliberately narrow: aggregate counts only, never document content, and
     `corpus_wide` travels in the payload so the screen can say which kind of
     number it is showing. An admin reading counts for documents they cannot
@@ -3913,6 +3916,13 @@ def admin_revoke_grant(body: admin_mod.GrantRequest,
 # no DELETE, and no request model anywhere that accepts a value to store. An
 # explorer that could write would be a second, unaudited path into every table
 # the real endpoints guard with scope checks and honesty invariants.
+#
+# THE EXPLORER READS EVERY TABLE, NOT ONLY WHAT THE ADMIN'S GRANTS COVER. That is
+# a decision, not an oversight (owner, 2026-10-07: "admin can read everything").
+# It is why the gate above matters, why credential columns are masked, and why
+# the document routes' grant-based scope is NOT a statement about this screen.
+# If an administrator must one day be limited to granted documents here too,
+# `admin_explorer.read_rows` is where that filter goes.
 #
 # CREDENTIAL MATERIAL IS MASKED IN `admin_explorer`, before it reaches the
 # wire. Not in the UI: a browser's network tab renders a JSON response just
