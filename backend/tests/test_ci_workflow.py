@@ -132,3 +132,34 @@ def test_the_nightly_job_proves_every_slow_test_ran(jobs):
     runs = "\n".join(_runs(jobs["backend-slow"]))
     assert "--collect-only -q -m slow -p ci_test_ids" in runs
     assert "ci_test_ids.py compare --full ../slow-full.txt ../slow-ran.txt" in runs
+
+
+DURATIONS_RUNS = "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'"
+
+
+def test_shards_split_by_measured_duration(jobs):
+    shard = jobs["backend-shard"]
+    restore = next(s for s in shard["steps"] if str(s.get("uses", "")).startswith("actions/cache/restore"))
+    assert restore["with"]["path"] == "backend/.test_durations"
+    assert restore["with"]["restore-keys"] == "test-durations-"
+    names = [s.get("name") for s in shard["steps"]]
+    assert names.index(restore["name"]) < names.index("Run this shard of the suite")
+    run = next(s for s in shard["steps"] if s.get("name") == "Run this shard of the suite")
+    assert "--splitting-algorithm least_duration" in run["run"]
+
+
+def test_durations_are_stored_only_on_the_nightly_and_on_demand_runs(jobs):
+    run = next(s for s in jobs["backend-shard"]["steps"] if s.get("name") == "Run this shard of the suite")
+    assert run["env"]["STORE_DURATIONS"] == f"${{{{ ({DURATIONS_RUNS}) && '--store-durations' || '' }}}}"
+    assert "$STORE_DURATIONS" in run["run"]
+
+
+def test_a_green_nightly_run_refreshes_the_durations_for_the_next_runs(jobs):
+    steps = jobs["backend"]["steps"]
+    merge = next(s for s in steps if "merge-durations" in s.get("run", ""))
+    save = next(s for s in steps if str(s.get("uses", "")).startswith("actions/cache/save"))
+    assert merge.get("if") == DURATIONS_RUNS and save.get("if") == DURATIONS_RUNS
+    assert save["with"]["path"] == "backend/.test_durations"
+    assert save["with"]["key"].startswith("test-durations-")
+    audit = next(i for i, s in enumerate(steps) if "ci_test_ids.py compare" in s.get("run", ""))
+    assert audit < steps.index(merge), "durations refresh only after the audit passed"
