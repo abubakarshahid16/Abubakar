@@ -59,7 +59,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              replacement='          test "${{ needs.backend-shard.result }}" != "failure"\n',
              target=_T, keyword="failed_cancelled_or_skipped", tags=("ci",)),
     Mutation(id="M2208", phase=2208, description="shards split by test count again, not by duration",
-             path=_W, anchor=" --splitting-algorithm least_duration",
+             path=_W, anchor=" --splitting-algorithm duration_based_chunks",
              replacement="",
              target=_T, keyword="split_by_measured_duration", tags=("ci",)),
     Mutation(id="M2209", phase=2209, description="every PR run stores durations too",

@@ -145,7 +145,7 @@ def test_shards_split_by_measured_duration(jobs):
     names = [s.get("name") for s in shard["steps"]]
     assert names.index(restore["name"]) < names.index("Run this shard of the suite")
     run = next(s for s in shard["steps"] if s.get("name") == "Run this shard of the suite")
-    assert "--splitting-algorithm least_duration" in run["run"]
+    assert "--splitting-algorithm duration_based_chunks" in run["run"]
 
 
 def test_durations_are_stored_only_on_the_nightly_and_on_demand_runs(jobs):

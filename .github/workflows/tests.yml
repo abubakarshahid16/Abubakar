@@ -109,7 +109,9 @@ jobs:
         run: python scripts/fetch_models.py --verify-only
 
       # Durations measured on these runners split the suite by TIME, not by
-      # count (backend/.test_durations, committed). The nightly run refreshes
+      # count (backend/.test_durations, committed), in CONTIGUOUS chunks
+      # (duration_based_chunks) so a file's shared fixtures are set up in one
+      # shard, not paid again in each shard a dealt-out file would land in. The nightly run refreshes
       # them through the cache - main's ruleset forbids a bot commit - and a PR
       # run restores the newest refresh over the committed file. All three
       # shards must split from the same file; the audit in `backend (pytest)`
@@ -134,7 +136,7 @@ jobs:
           STORE_DURATIONS: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '--store-durations' || '' }}
         run: |
           mkdir -p ../test-ids
-          python -m pytest -q -n auto -p ci_test_ids --splits 3 --group ${{ matrix.group }} --splitting-algorithm least_duration $STORE_DURATIONS --durations=10
+          python -m pytest -q -n auto -p ci_test_ids --splits 3 --group ${{ matrix.group }} --splitting-algorithm duration_based_chunks $STORE_DURATIONS --durations=10
 
       - name: Keep this shard's durations (nightly / on demand)
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
