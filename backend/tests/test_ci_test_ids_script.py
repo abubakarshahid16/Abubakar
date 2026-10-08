@@ -41,7 +41,7 @@ def test_a_test_two_shards_ran_fails(ids):
 
 
 def test_a_test_that_ran_without_being_collected_fails(ids):
-    ok, lines = ids.compare(FULL, {"s1": FULL + ["tests/test_c.py::test_stray"]})
+    ok, lines = ids.compare(FULL, {"s1": [*FULL, "tests/test_c.py::test_stray"]})
     assert not ok
     assert any(line.startswith("RAN BUT NOT COLLECTED") for line in lines)
 

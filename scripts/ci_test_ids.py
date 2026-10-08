@@ -26,7 +26,6 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-
 # ------------------------------------------------------------------ plugin
 
 #: True inside a pytest-xdist worker. The controller also receives every
@@ -48,7 +47,7 @@ def ran_once(when: str, outcome: str) -> bool:
 def pytest_runtest_logreport(report):
     out = os.environ.get("CI_TEST_IDS_OUT")
     if out and not _WORKER and ran_once(report.when, report.outcome):
-        with open(out, "a", encoding="utf-8") as fh:
+        with Path(out).open("a", encoding="utf-8") as fh:
             fh.write(report.nodeid + "\n")
 
 
