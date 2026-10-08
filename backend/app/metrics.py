@@ -11,6 +11,7 @@ a dashboard is read as a fact.
 from __future__ import annotations
 
 import shutil
+import threading
 import time
 from datetime import datetime, timezone
 
@@ -265,6 +266,44 @@ def models() -> dict:
         "answer_model_loaded": False,
         "ollama_error": None,
     }
+    info.update(_ollama_state())
+    return info
+
+
+#: How long "is Ollama reachable" is believed (#626). The dashboard refreshes
+#: every 15 s; without this every refresh made two HTTP calls to Ollama.
+OLLAMA_PROBE_TTL_SECONDS = 30.0
+_probe_lock = threading.Lock()
+_probe_cache: dict = {}
+
+
+def reset_ollama_cache() -> None:
+    """Forget the cached probe (tests, and a settings change)."""
+    with _probe_lock:
+        _probe_cache.clear()
+
+
+def _ollama_state() -> dict:
+    """The Ollama part of `models()`, asked at most once per TTL.
+
+    Keyed on the host and the model, so changing either asks again. A refused
+    host is NEVER cached: it raises every time, in the operator's face.
+    """
+    key = (str(settings.ollama_url), settings.answer_model)
+    now = time.monotonic()
+    with _probe_lock:
+        hit = _probe_cache.get("entry")
+        if hit and hit["key"] == key and now - hit["at"] < OLLAMA_PROBE_TTL_SECONDS:
+            return dict(hit["state"])
+    state = _probe_ollama()
+    with _probe_lock:
+        _probe_cache["entry"] = {"key": key, "at": time.monotonic(), "state": state}
+    return dict(state)
+
+
+def _probe_ollama() -> dict:
+    info = {"answer_model_reachable": False, "answer_model_loaded": False,
+            "ollama_error": None}
     try:
         # THROUGH THE ONE TRANSPORT, even though neither probe sends document
         # content. They talk to the same operator-settable host as the answer
