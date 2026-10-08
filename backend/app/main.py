@@ -179,8 +179,10 @@ async def lifespan(app: FastAPI):
     # run while one is going.
     try:
         submittal_review_mod.fail_orphaned_review_runs()
-    except Exception:  # noqa: BLE001 - a sweep that fails must not stop boot
-        pass
+    except Exception as exc:  # noqa: BLE001 - a sweep that fails must not stop boot
+        import logging as _logging
+        _logging.getLogger("uvicorn.error").warning("the sweep for review runs left running by a dead process failed (%s); "
+                          "such a run may still look busy", type(exc).__name__)
     # Put back any extraction that was `running` when a previous process died.
     # `next_extraction_job` only ever claims `queued` (or a `retrying` job
     # whose backoff is due, #177), so without this an
@@ -191,8 +193,10 @@ async def lifespan(app: FastAPI):
     try:
         standards_mod.recover_stale_extraction_jobs()
         review_jobs_mod.recover_stale()
-    except Exception:  # noqa: BLE001 - a sweep that fails must not stop boot
-        pass
+    except Exception as exc:  # noqa: BLE001 - a sweep that fails must not stop boot
+        import logging as _logging
+        _logging.getLogger("uvicorn.error").warning("the recovery of stale extraction and review jobs failed (%s); "
+                          "such a job may stay queued", type(exc).__name__)
     # THE DENSE-SEARCH INDEX: say which backend is active (sqlite-vec, or the
     # exact numpy fallback and why), and backfill/sync the vec0 index from
     # chunk_vectors before the first question pays for it. Never raises.

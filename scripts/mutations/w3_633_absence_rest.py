@@ -87,3 +87,21 @@ MUTATIONS: tuple[Mutation, ...] = (
              target="src/views/ReviewRunsView.test.tsx", keyword="could not check everything",
              tags=_TAG),
 )
+
+_S = "tests/test_w3_633_silent_excepts.py"
+_SILENT = (
+    (3423, "telemetry.py", '        _log.warning("a stage timing for %r was not recorded (%s)", stage, type(exc).__name__)', "stage_timing"),
+    (3424, "progress.py", '            _log.warning("a progress listener failed at stage %r (%s)", name, type(exc).__name__)', "progress_listener"),
+    (3425, "scope_records.py", '        _log.warning("the scope search for %s failed; only the other sources were used (%s)",\n                     document_id, type(exc).__name__)', "scope_search"),
+    (3426, "rule_eval.py", '            _log.warning("the ruled table on page %s of %s could not be re-read (%s)",\n                         page, requirement.get("standard_document_id"), type(exc).__name__)', "re_read"),
+    (3427, "classification.py", '        _log.warning("the equipment-type audit event for %s was not written (%s)",\n                     document_id, type(exc).__name__)', "audit_write"),
+    (3428, "classification.py", '        _log.warning("the field-reclassified audit event for %s was not written (%s)",\n                     document_id, type(exc).__name__)', "no_broad_except"),
+    (3429, "ingest.py", '        _log.warning("the stall diagnosis for %s could not be worked out (%s)",\n                     doc_id, type(exc).__name__)', "stall_diagnosis"),
+    (3430, "main.py", '        _logging.getLogger("uvicorn.error").warning("the sweep for review runs left running by a dead process failed (%s); "\n                          "such a run may still look busy", type(exc).__name__)', "no_broad_except"),
+    (3431, "main.py", '        _logging.getLogger("uvicorn.error").warning("the recovery of stale extraction and review jobs failed (%s); "\n                          "such a job may stay queued", type(exc).__name__)', "no_broad_except"),
+)
+MUTATIONS = MUTATIONS + tuple(
+    _m(i, "an exception is swallowed with no trace again (" + path + ")", path, anchor,
+       anchor.split("\n")[0][: len(anchor.split("\n")[0]) - len(anchor.split("\n")[0].lstrip())] + "pass",
+       kw, target=_S)
+    for i, path, anchor, kw in _SILENT)
