@@ -1,26 +1,42 @@
 version: 2
+# Weekly, and one PR per ecosystem for all minor and patch updates, so each
+# week brings at most a few PRs that are reviewed and merged together instead
+# of one PR per package each needing its own rebase and CI run. Major updates
+# still arrive one PR each, because they need the owner's yes.
 updates:
   - package-ecosystem: pip
     directory: /backend
     schedule:
-      interval: monthly
+      interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      pip-minor-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
   - package-ecosystem: npm
     directory: /frontend
     schedule:
-      interval: monthly
+      interval: weekly
     open-pull-requests-limit: 5
-    # React refuses to run when react and react-dom differ; #383 bumped one
-    # without the other. Keep the four React packages in one PR.
     groups:
+      # React refuses to run when react and react-dom differ; #383 bumped one
+      # without the other. Keep the four React packages in one PR. Listed
+      # FIRST: Dependabot puts a package in the first group that matches.
       react:
         patterns:
           - react
           - react-dom
           - "@types/react"
           - "@types/react-dom"
+      npm-minor-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: monthly
+      interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      actions-minor-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
