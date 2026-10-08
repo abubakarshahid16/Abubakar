@@ -30,6 +30,7 @@ import hashlib
 import math
 import re
 import sqlite3
+import threading
 
 # Imported for its EXCEPTION TYPES only - `_generate_or_refuse` below turns an
 # httpx error into `ModelUnavailable`. This module no longer constructs a
@@ -37,7 +38,8 @@ import sqlite3
 # only module in `app/` allowed to (tests/test_socket_containment.py).
 import httpx
 
-from . import access, claims, market, model_transport, search as search_mod, synthesis
+from . import access, acronyms, claims, market, model_transport, search as search_mod, synthesis
+from .work_budget import WorkBudget
 from .config import settings
 from .db import connect
 
@@ -792,10 +794,66 @@ def _synthesise(question: str, evidence: list[dict], limit: int,
 # ------------------------------------------------------------------ stage 6
 
 
+class _Flight:
+    """One in-progress gap run that identical concurrent requests wait on."""
+
+    def __init__(self) -> None:
+        self.done = threading.Event()
+        self.result: dict | None = None
+        self.error: BaseException | None = None
+
+
+_flights: dict[tuple, _Flight] = {}
+_flights_lock = threading.Lock()
+
+
 def gaps(question: str, scope: access.AccessScope, *, limit: int = 8,
          baseline_document_id: str | None = None,
          comparison_type: str | None = None) -> dict:
+    """`_gaps` run at most ONCE for identical concurrent requests (#606).
+
+    The dev frontend and a double click send the same request twice; both used
+    to run the whole analysis. The second caller now waits for the first and
+    gets its result, marked `coalesced`. The key includes the caller's allowed
+    documents, so a result is only ever shared between callers who may read
+    exactly the same documents. Nothing is cached after the run finishes.
+    """
+    key = (question, limit, baseline_document_id, comparison_type,
+           scope.allowed_document_ids)
+    with _flights_lock:
+        flight = _flights.get(key)
+        leader = flight is None
+        if leader:
+            flight = _flights[key] = _Flight()
+    if not leader:
+        flight.done.wait()
+        if flight.error is not None:
+            raise flight.error
+        return {**flight.result, "coalesced": True}
+    try:
+        flight.result = _gaps(question, scope, limit=limit,
+                              baseline_document_id=baseline_document_id,
+                              comparison_type=comparison_type)
+        return flight.result
+    except BaseException as exc:
+        flight.error = exc
+        raise
+    finally:
+        with _flights_lock:
+            _flights.pop(key, None)
+        flight.done.set()
+
+
+def _gaps(question: str, scope: access.AccessScope, *, limit: int = 8,
+          baseline_document_id: str | None = None,
+          comparison_type: str | None = None) -> dict:
     """Mechanical claim comparison. No model call, and no baseline invented.
+
+    BOUNDED (#606). A `WorkBudget` (seconds, evidence rows, claims) stops the
+    run and returns a PARTIAL result with `truncated: true` and the reason.
+    The acronym maps are never built inside this request
+    (`acronyms.request_scope`): documents whose map is not ready are skipped,
+    counted in `acronym_map`, and a background build is started.
 
     THE BASELINE MUST COME FROM THE USER. Choosing one here - the oldest
     document, the one with "standard" in its name - would be the system
@@ -804,11 +862,24 @@ def gaps(question: str, scope: access.AccessScope, *, limit: int = 8,
     `not_applicable` and the items are still returned, so the reader sees the
     comparison without being told which side is right.
     """
-    evidence, _ = gather(question, scope, limit=limit)
-    rows = claims.extract_claims(
-        evidence, allowed_document_ids=scope.allowed_document_ids)
-    clusters = claims.cluster(rows, claims.question_terms(
-        question, allowed_document_ids=scope.allowed_document_ids))
+    budget = WorkBudget(settings.analysis_gaps_budget_seconds,
+                        max_claims=settings.analysis_max_claims,
+                        max_evidence=settings.analysis_max_evidence)
+    if limit > budget.max_evidence:
+        budget.note(f"evidence capped at {budget.max_evidence} passages "
+                    f"(asked for {limit})")
+        limit = budget.max_evidence
+    with acronyms.request_scope() as not_ready:
+        evidence, _ = gather(question, scope, limit=limit)
+        rows = claims.extract_claims(
+            evidence, allowed_document_ids=scope.allowed_document_ids,
+            budget=budget)
+        clusters = claims.cluster(rows, claims.question_terms(
+            question, allowed_document_ids=scope.allowed_document_ids),
+            budget=budget)
+    not_ready_documents = sorted(set(not_ready))
+    if not_ready_documents:
+        acronyms.warm_in_background()
     applicability = "applicable" if baseline_document_id else "not_applicable"
     baseline = None
     if baseline_document_id:
@@ -839,6 +910,9 @@ def gaps(question: str, scope: access.AccessScope, *, limit: int = 8,
             ),
         },
         "not_implemented_sections": not_implemented_sections(),
+        **budget.to_api(),
+        "acronym_map": {"documents_not_ready": len(not_ready_documents),
+                        "complete": not not_ready_documents},
     }
 
 

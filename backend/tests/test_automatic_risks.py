@@ -26,6 +26,7 @@ def test_automatic_risks_create_all_four_types_and_are_idempotent(tmp_path, monk
         conn.execute("UPDATE review_findings SET updated_at='2020-01-01' WHERE id=?", (finding["id"],))
     created = risks.detect_automatic_risks()
     assert {item["risk_type"] for item in created} == {"schedule", "review", "dependency", "compliance"}
-    assert len(sent) == 4
+    # W7 (#478): detection itself sends nothing; one DIGEST per run, below.
+    assert sent == []
     assert len(risks.detect_automatic_risks()) == 0
     db.reset_connection()

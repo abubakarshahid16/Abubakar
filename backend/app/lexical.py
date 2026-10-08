@@ -152,8 +152,14 @@ def distinctive_terms(
     document_id: str | None = None,
     *,
     allowed_document_ids: frozenset[str],
+    expansions: list[str] | None = None,
 ) -> list[str]:
     """The terms that say what the question is ABOUT, in order, deduplicated.
+
+    `expansions` is the corpus's multi-word expansions (`acronyms.known_expansions`).
+    A caller that tokenises MANY sentences against one scope reads them ONCE and
+    passes them in: looking them up per sentence cost one corpus-wide database
+    query per sentence (#606, 44 claims = 44 queries, 4 to 5 s).
 
     Identifiers are included as written, because "B16.5" is the entire subject
     of the question that carries it.
@@ -179,8 +185,10 @@ def distinctive_terms(
         add(ident)
 
     remaining = question
-    for phrase in acronyms.known_expansions(
-            document_id, allowed_document_ids=allowed_document_ids):
+    if expansions is None:
+        expansions = acronyms.known_expansions(
+            document_id, allowed_document_ids=allowed_document_ids)
+    for phrase in expansions:
         if phrase in remaining.lower():
             add(phrase)
             # case-insensitive removal, so the phrase's own words are not

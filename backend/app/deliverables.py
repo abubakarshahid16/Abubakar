@@ -110,25 +110,27 @@ def _ensure_tables() -> None:
         ]
         for level, days, role, action in defaults:
             conn.execute("INSERT OR IGNORE INTO escalation_rules(level, trigger_days, recipient_role, action) VALUES (?,?,?,?)", (level, days, role, action))
+        # Preserve the pre-stakeholder schema's single owner during migration.
+        _sync_owner_stakeholders(conn)
+
+
+def _sync_owner_stakeholders(conn) -> None:
+    """Make every item's `owner_user_id` an `owner` stakeholder (idempotent)."""
+    conn.execute("""INSERT OR IGNORE INTO deliverable_stakeholders
+        (deliverable_id, user_id, role, created_at)
+        SELECT id, owner_user_id, 'owner', updated_at
+        FROM deliverables WHERE owner_user_id IS NOT NULL""")
 
 
 def ensure_schema() -> None:
-    """The tables (memoised - see `db.schema_once`), then the owner sync.
+    """The tables (memoised - see `db.schema_once`), and nothing that writes.
 
-    THE OWNER SYNC RUNS ON EVERY CALL, AS IT ALWAYS DID. It reads like a
-    one-off migration ("preserve the pre-stakeholder schema's single owner")
-    but `create` writes `owner_user_id` without a stakeholder row, so it is
-    this statement, run by the next read, that makes a new item's owner a
-    stakeholder. Memoising it with the DDL would have silently stopped that.
-    One statement, not the ~40 the table checks cost.
+    The owner sync used to run HERE, on every call, so every deliverables GET
+    wrote to the database (#478). It now runs where an owner can change: once
+    when the tables are ensured (the migration of the pre-stakeholder schema)
+    and inside `create` and `update`, in the same transaction as the change.
     """
     _ensure_tables()
-    with connect() as conn:
-        # Preserve the pre-stakeholder schema's single owner during migration.
-        conn.execute("""INSERT OR IGNORE INTO deliverable_stakeholders
-            (deliverable_id, user_id, role, created_at)
-            SELECT id, owner_user_id, 'owner', updated_at
-            FROM deliverables WHERE owner_user_id IS NOT NULL""")
 
 
 def escalation_rules() -> list[dict]:
@@ -169,6 +171,7 @@ def create(payload: dict, *, created_by: str | None) -> dict:
                     :planned_date,:due_date,:submitted_at,:approved_at,:created_by,:created_at,:updated_at,:org_wide)""", item)
         conn.execute("INSERT INTO deliverable_events (id, deliverable_id, event_type, changes, actor_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
                      (str(uuid.uuid4()), item["id"], "created", json.dumps({"revision": item["revision"], "status": item["status"]}), created_by, now))
+        _sync_owner_stakeholders(conn)
     return item
 
 
@@ -357,6 +360,8 @@ def update(item_id: str, changes: dict, *, actor_user_id: str | None = None) -> 
             return None
         conn.execute("INSERT INTO deliverable_events (id, deliverable_id, event_type, changes, actor_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
                      (str(uuid.uuid4()), item_id, "updated", json.dumps(changed), actor_user_id, now))
+        if "owner_user_id" in changed:
+            _sync_owner_stakeholders(conn)
     row = connect().execute("SELECT * FROM deliverables WHERE id = ?", (item_id,)).fetchone()
     return dict(row) if row else None
 
@@ -399,12 +404,18 @@ def alerts(*, allowed_document_ids: frozenset[str] | None = None) -> list[dict]:
     return result
 
 
-def reminder_events(*, allowed_document_ids: frozenset[str] | None = None) -> list[dict]:
+def generate_reminders(*, allowed_document_ids: frozenset[str] | None = None) -> int:
+    """Create the reminder events that are due and email each stakeholder ONCE.
+
+    This is what `reminder_events` used to do on every GET (#478). It now runs
+    from the background job (`risks.run_detection`). An event is created at
+    most once (UNIQUE deliverable, level, due date) and its email is sent only
+    when it is created. Returns how many new events were created."""
     ensure_schema()
-    items = list_items(allowed_document_ids=allowed_document_ids)
     rules = {r["level"]: r for r in escalation_rules()}
     now = _now()
     conn = connect()
+    created = 0
     for alert in alerts(allowed_document_ids=allowed_document_ids):
         rule = rules.get(alert["escalation_level"]) or rules.get(1)
         if rule is None:
@@ -418,6 +429,7 @@ def reminder_events(*, allowed_document_ids: frozenset[str] | None = None) -> li
                  alert["due_date"], rule["recipient_role"], now),
             ).rowcount
         if inserted:
+            created += 1
             stakeholder_role = "owner"
             role_name = str(rule["recipient_role"]).lower()
             for candidate in STAKEHOLDER_ROLES:
@@ -429,6 +441,13 @@ def reminder_events(*, allowed_document_ids: frozenset[str] | None = None) -> li
                 notifications.send_reminder(deliverable_id=alert["deliverable_id"], title=alert["title"], due_date=alert["due_date"], recipients=recipients or None)
             else:
                 notifications.send_escalation(deliverable_id=alert["deliverable_id"], title=alert["title"], level=alert["escalation_level"], recipients=recipients or None)
+    return created
+
+
+def reminder_events(*, allowed_document_ids: frozenset[str] | None = None) -> list[dict]:
+    """The reminder events the caller may see. READ ONLY."""
+    ensure_schema()
+    items = list_items(allowed_document_ids=allowed_document_ids)
     allowed_ids = {item["id"] for item in items}
     rows = connect().execute(
         "SELECT * FROM reminder_events ORDER BY created_at DESC"

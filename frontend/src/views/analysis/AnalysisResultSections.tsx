@@ -58,7 +58,7 @@ export function SlotBody<T>({ slot, loadingLabel, emptyTitle, emptyHint, onRetry
 }
 
 export function AnalysisResultSections({ ctx }: { ctx: RenderContext }) {
-  const { engines, summarySlot, gapsSlot, recSlot, marketSlot, mode, documents, selected,
+  const { engines, summarySlot, gapsSlot, recSlot, marketSlot, documents, selected,
     onCite, retry, filteredEmptyHint, hasBody, store, createReviewFinding, reviewTemplates,
     reviewFindings, updateReviewFinding, queryOutcome, previewQuery, pendingQuery,
     confirmQuery, cancelQuery, notImplemented } = ctx;
@@ -73,11 +73,16 @@ export function AnalysisResultSections({ ctx }: { ctx: RenderContext }) {
       {d.recommendation && <RecommendationCard recommendation={d.recommendation} onCite={onCite} />}
       <RemovedSentences removed={d.removed} what="recommendation" />
     </div>}</SlotBody></Section>}
-    {engines.gaps && hasBody(gapsSlot) && <Section title="Gap analysis" eyebrow={mode === "quote" ? "quote mode — cited document evidence, no model" : "baseline-controlled"}><SlotBody<GapsSlotData> slot={gapsSlot} loadingLabel="Comparing claims across documents" emptyTitle="No comparable claims were found." emptyHint={filteredEmptyHint("Retrieval found nothing carrying a measurable claim with a page behind it. That is not proof the documents say nothing.")} onRetry={retry}>{(d: GapsSlotData) => <div className="space-y-3">
-      {mode === "quote" && <p className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-850 px-3 py-2 text-xs text-slateish-300">Quote mode ran the mechanical comparison and nothing else. Everything below is document evidence with a page behind it — no model wrote any of it, and no summary or recommendation was requested.</p>}
+    {engines.quote && hasBody(gapsSlot) && <Section title="Quoted evidence" eyebrow="the documents' own words — no model"><SlotBody<GapsSlotData> slot={gapsSlot} loadingLabel="Finding the quoted evidence" emptyTitle="No comparable claims were found." emptyHint={filteredEmptyHint("Retrieval found nothing carrying a measurable claim with a page behind it. That is not proof the documents say nothing.")} onRetry={retry}>{(d: GapsSlotData) => <div className="space-y-3">
+      <p className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-850 px-3 py-2 text-xs text-slateish-300">Quote mode shows the cited document evidence and the claim table, and nothing else. No model wrote any of it. Gap analysis, summary and recommendation were not requested.</p>
+      {d.truncatedReason !== null && <p role="status" className="rounded-[var(--radius-xs)] border border-warn-500/40 bg-warn-500/[0.08] px-3 py-2 text-xs text-warn-500">Partial result: {d.truncatedReason}. Narrow the scope with the type filter, or ask a more specific question.</p>}
+      <ClaimTable clusters={d.clusters} onCite={onCite} selectedEvidenceId={selected} />
+    </div>}</SlotBody></Section>}
+    {engines.gaps && hasBody(gapsSlot) && <Section title="Gap analysis" eyebrow="baseline-controlled"><SlotBody<GapsSlotData> slot={gapsSlot} loadingLabel="Comparing claims across documents" emptyTitle="No comparable claims were found." emptyHint={filteredEmptyHint("Retrieval found nothing carrying a measurable claim with a page behind it. That is not proof the documents say nothing.")} onRetry={retry}>{(d: GapsSlotData) => <div className="space-y-3">
+      {d.truncatedReason !== null && <p role="status" className="rounded-[var(--radius-xs)] border border-warn-500/40 bg-warn-500/[0.08] px-3 py-2 text-xs text-warn-500">Partial result: {d.truncatedReason}. Narrow the scope with the type filter, or ask a more specific question.</p>}
       <GapAnalysisCard gaps={d.gaps} documents={documents} onCite={onCite} onNominateBaseline={store.nominateBaseline} ledger={d.ledger} onCreateFinding={createReviewFinding} templates={reviewTemplates} />
       <ReviewWorkflowPanel findings={reviewFindings} documents={documents} onUpdate={updateReviewFinding} />
-      {(mode === "quote" || (d.gaps.applicability === "applicable" && d.gaps.baseline !== null)) && <ClaimTable clusters={d.clusters} onCite={onCite} selectedEvidenceId={selected} />}
+      {(d.gaps.applicability === "applicable" && d.gaps.baseline !== null) && <ClaimTable clusters={d.clusters} onCite={onCite} selectedEvidenceId={selected} />}
     </div>}</SlotBody></Section>}
     {engines.market && hasBody(marketSlot) && <Section title="Public market intelligence" eyebrow="isolated egress"><SlotBody<MarketSlotData> slot={marketSlot} loadingLabel="Loading the market sample" emptyTitle="No market sample is loaded." emptyHint="No market sample is loaded and no search has returned rows, so there is nothing to show, sample or otherwise." onRetry={retry}>{(d: MarketSlotData) => <div className="space-y-3">
       {queryOutcome && <p role="status" className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-850 px-3 py-2 text-xs text-slateish-300">{queryOutcome}</p>}

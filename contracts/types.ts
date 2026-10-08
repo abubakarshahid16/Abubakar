@@ -1453,6 +1453,14 @@ export interface AnalysisGapsResult {
   claim_clusters: ClaimClusterOut[];
   gaps: GapAnalysisOut;
   not_implemented_sections: string[];
+  /** true = the run stopped at its work budget (time, evidence or claim cap)
+   *  and this is a PARTIAL result; `truncation_reason` says which limit (#606). */
+  truncated?: boolean;
+  truncation_reason?: string | null;
+  /** documents whose acronym map was still being built in the background */
+  acronym_map?: { documents_not_ready: number; complete: boolean } | null;
+  /** an identical run was already going; this response shares its result */
+  coalesced?: boolean;
 }
 
 export interface ConfidenceCheckOut {

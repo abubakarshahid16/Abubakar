@@ -77,7 +77,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1989", phase=1989,
              description="an overdue-deliverable risk drops the source document again",
              path=APP / "risks.py",
-             anchor='"document_id": _doc_of(visible_deliverables, alert["deliverable_id"])})',
-             replacement='"document_id": None})',
+             anchor='"document_id": (by_id.get(alert["deliverable_id"]) or {}).get("document_id")}))',
+             replacement='"document_id": None}))',
              target=_T3, keyword="overdue_risk", tags=_TAG),
 )
