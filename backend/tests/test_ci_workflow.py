@@ -132,3 +132,48 @@ def test_the_nightly_job_proves_every_slow_test_ran(jobs):
     runs = "\n".join(_runs(jobs["backend-slow"]))
     assert "--collect-only -q -m slow -p ci_test_ids" in runs
     assert "ci_test_ids.py compare --full ../slow-full.txt ../slow-ran.txt" in runs
+
+
+DURATIONS_RUNS = "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'"
+
+
+def test_shards_split_by_measured_duration(jobs):
+    shard = jobs["backend-shard"]
+    restore = next(s for s in shard["steps"] if str(s.get("uses", "")).startswith("actions/cache/restore"))
+    assert restore["with"]["path"] == "backend/.test_durations"
+    assert restore["with"]["restore-keys"] == "test-durations-"
+    names = [s.get("name") for s in shard["steps"]]
+    assert names.index(restore["name"]) < names.index("Run this shard of the suite")
+    run = next(s for s in shard["steps"] if s.get("name") == "Run this shard of the suite")
+    assert "--splitting-algorithm duration_based_chunks" in run["run"]
+
+
+def test_durations_are_stored_only_on_the_nightly_and_on_demand_runs(jobs):
+    run = next(s for s in jobs["backend-shard"]["steps"] if s.get("name") == "Run this shard of the suite")
+    assert run["env"]["STORE_DURATIONS"] == f"${{{{ ({DURATIONS_RUNS}) && '--store-durations' || '' }}}}"
+    assert "$STORE_DURATIONS" in run["run"]
+
+
+def test_a_green_nightly_run_refreshes_the_durations_for_the_next_runs(jobs):
+    steps = jobs["backend"]["steps"]
+    merge = next(s for s in steps if "merge-durations" in s.get("run", ""))
+    save = next(s for s in steps if str(s.get("uses", "")).startswith("actions/cache/save"))
+    assert merge.get("if") == DURATIONS_RUNS and save.get("if") == DURATIONS_RUNS
+    assert save["with"]["path"] == "backend/.test_durations"
+    assert save["with"]["key"].startswith("test-durations-")
+    audit = next(i for i, s in enumerate(steps) if "ci_test_ids.py compare" in s.get("run", ""))
+    assert audit < steps.index(merge), "durations refresh only after the audit passed"
+    upload = next(s for s in steps if s.get("with", {}).get("name") == "test-durations")
+    # .test_durations is a dot-file: without this the artifact is silently empty.
+    assert upload["with"]["include-hidden-files"] is True
+    assert upload["with"]["if-no-files-found"] == "error"
+
+
+def test_the_committed_durations_file_is_real_and_well_formed():
+    # The fallback the shards split by when no nightly refresh is cached yet.
+    import json
+    path = ROOT / "backend" / ".test_durations"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert isinstance(data, dict) and len(data) > 1000, "durations for the real suite, not a stub"
+    assert all(k.startswith("tests/") and "::" in k for k in data)
+    assert all(isinstance(v, (int, float)) and v >= 0 for v in data.values())

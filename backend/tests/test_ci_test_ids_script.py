@@ -63,3 +63,25 @@ def test_an_empty_collection_is_not_a_pass(ids):
 ])
 def test_each_test_is_counted_exactly_once(ids, when, outcome, counted):
     assert ids.ran_once(when, outcome) is counted
+
+
+def test_each_duration_comes_from_the_shard_that_ran_the_test(ids):
+    ran = {1: ["t::a"], 2: ["t::b"], 3: []}
+    # Every shard's file holds every test (it started from the same file); only
+    # the shard that RAN a test measured it this time.
+    durations = {1: {"t::a": 1.0, "t::b": 9.0, "t::gone": 5.0},
+                 2: {"t::a": 9.0, "t::b": 2.0, "t::gone": 5.0},
+                 3: {"t::a": 9.0, "t::b": 9.0, "t::gone": 5.0}}
+    assert ids.merge_durations(ran, durations) == {"t::a": 1.0, "t::b": 2.0}
+
+
+def test_a_test_that_ran_without_a_duration_refuses_the_merge(ids):
+    with pytest.raises(ValueError, match="no stored duration"):
+        ids.merge_durations({1: ["t::a"]}, {1: {}})
+
+
+def test_identifier_shaped_node_ids_are_dropped_from_the_durations(ids):
+    durations = {"tests/test_a.py::test_x[21-PV-1043A]": 1.0, "tests/test_a.py::test_y": 2.0}  # client-id-scan: synthetic
+    kept, dropped = ids.drop_flagged(durations, lambda k: "PV-1043A" in k)
+    assert kept == {"tests/test_a.py::test_y": 2.0}
+    assert dropped == 1

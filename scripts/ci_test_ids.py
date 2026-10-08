@@ -16,11 +16,22 @@ Two halves, stdlib only:
 
    Fails (exit 1) if any collected test ran in no shard, ran more than once, or
    ran without having been collected. Prints the counts either way.
+
+3. A MERGE-DURATIONS command, run by the aggregate job on the nightly (and
+   on-demand) run, after each shard stored pytest-split durations:
+
+       python scripts/ci_test_ids.py merge-durations --ids test-ids --out backend/.test_durations
+
+   For every test that ran, takes its duration from the shard that ran it
+   (shard-N.txt says which; durations-N.json is that shard's file), drops tests
+   that no longer exist, and refuses to write if a test that ran has no stored
+   duration.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from collections import Counter
@@ -84,6 +95,34 @@ def compare(full: list[str], shards: dict[str, list[str]]) -> tuple[bool, list[s
     return ok, lines
 
 
+def merge_durations(ran: dict[int, list[str]], durations: dict[int, dict[str, float]]) -> dict[str, float]:
+    """One duration per test that ran, from the shard that ran it."""
+    merged: dict[str, float] = {}
+    missing: list[str] = []
+    for shard, ids in ran.items():
+        for test in ids:
+            if test in durations[shard]:
+                merged[test] = durations[shard][test]
+            else:
+                missing.append(test)
+    if missing:
+        raise ValueError(f"{len(missing)} test(s) ran with no stored duration, e.g. {missing[0]}")
+    return dict(sorted(merged.items()))
+
+
+def drop_flagged(durations: dict[str, float], is_flagged) -> tuple[dict[str, float], int]:
+    """Drop entries whose node id the client-identifier guard would flag.
+
+    Parametrized node ids can repeat a fixture's tag-shaped value; the guard
+    (scripts/check_client_identifiers.py) blocks such a token in any ADDED
+    line, so a durations file carrying one could never be committed. A dropped
+    test is split by the average duration instead - a small loss of balance,
+    never a lost test (pytest-split still assigns it to exactly one shard).
+    """
+    kept = {k: v for k, v in durations.items() if not is_flagged(k)}
+    return kept, len(durations) - len(kept)
+
+
 def _read(p: str) -> list[str]:
     return [line.strip() for line in Path(p).read_text(encoding="utf-8").splitlines() if line.strip()]
 
@@ -94,7 +133,25 @@ def main(argv: list[str] | None = None) -> int:
     c = sub.add_parser("compare")
     c.add_argument("--full", required=True)
     c.add_argument("shards", nargs="+")
+    m = sub.add_parser("merge-durations")
+    m.add_argument("--ids", required=True, help="folder with shard-N.txt and durations-N.json")
+    m.add_argument("--out", required=True)
+    m.add_argument("--shards", type=int, default=3)
     args = ap.parse_args(argv)
+    if args.cmd == "merge-durations":
+        d = Path(args.ids)
+        ran = {n: _read(str(d / f"shard-{n}.txt")) for n in range(1, args.shards + 1)}
+        durs = {n: json.loads((d / f"durations-{n}.json").read_text(encoding="utf-8"))
+                for n in range(1, args.shards + 1)}
+        merged = merge_durations(ran, durs)
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import check_client_identifiers as guard
+        block, allow = guard.load_patterns(Path(__file__).resolve().parents[1])
+        merged, dropped = drop_flagged(merged, lambda k: bool(guard.hits_in(k, block, allow)))
+        Path(args.out).write_text(json.dumps(merged, indent=0) + "\n", encoding="utf-8")
+        print(f"merged durations for {len(merged)} tests -> {args.out}"
+              f" ({dropped} identifier-shaped node id(s) dropped, split by the average)")
+        return 0
     ok, lines = compare(_read(args.full), {Path(s).name: _read(s) for s in args.shards})
     print("\n".join(lines))
     return 0 if ok else 1
