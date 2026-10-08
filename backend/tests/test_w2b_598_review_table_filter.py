@@ -204,7 +204,7 @@ def test_matching_is_by_normalised_words_not_by_a_list():
     assert [r["id"] for r in table_gate.gate(cells, facts)["kept"]] == ["a", "b"]
 
 
-def test_a_table_row_with_a_rule_is_never_filtered_out():
-    cell = {"id": "r", "requirement_type": "table_row", "rule_json": "{}",
+def test_a_table_row_is_never_filtered_because_the_matcher_pairs_it_by_subject():
+    cell = {"id": "r", "requirement_type": "table_row", "subject": "design pressure",
             "standard_document_id": "s", "chunk_id": "c", "condition": "x"}
     assert table_gate.gate([cell], [])["kept"] == [cell]

@@ -3,7 +3,7 @@
 A standards table has one requirement per cell. A review used to turn every
 one of them into a check, so a single datasheet got thousands of "value not
 found by the page reader" findings about grades, sizes and materials it never
-mentioned. A table cell is now CHECKED only when the submittal has a field that
+mentioned. A table cell (`table_value`) is now CHECKED only when the submittal has a field that
 answers it, and the cells that are not checked are COUNTED, in one grouped line
 per standard, never dropped silently.
 
@@ -31,7 +31,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 
-from . import numparse, requirements_3b
+from . import numparse
 
 DEFINITION = "definition"
 TEXT_QUALITY = "text_quality"
@@ -83,7 +83,13 @@ def excluded_reason(requirement: dict) -> str | None:
 
 
 def _is_table_cell(requirement: dict) -> bool:
-    return requirement.get("requirement_type") in ("table_value", requirements_3b.TABLE_ROW)
+    # `table_row` is NOT here. It is a sentence that defers to a table, about a
+    # named subject ("the maximum allowable working pressure"), and the matcher
+    # pairs it by that subject, the model tier included. It is 271 of the
+    # 106,832 live requirements, not the flood, and a gate that cannot see the
+    # model's pairing would drop rows the matcher would have paired. Table and
+    # formula rules (owner order 2a/2b) ride on these rows.
+    return requirement.get("requirement_type") == "table_value"
 
 
 def _fact_words(facts: list[dict]) -> tuple[list[tuple[str, ...]], list[tuple[str, ...]]]:
@@ -121,17 +127,6 @@ def _matches_column(column: tuple[str, ...], labels) -> bool:
                for label in labels)
 
 
-def _has_rule(requirement: dict) -> bool:
-    """A table or formula rule is evaluated in code against its own output
-    field (owner order 2a/2b); it is never one of the flood."""
-    if requirement.get("requirement_type") != requirements_3b.TABLE_ROW:
-        return False
-    if requirement.get("rule_json"):
-        return True
-    from . import rule_eval
-    return rule_eval.known_rule_for(requirement) is not None
-
-
 def gate(requirements: list[dict], facts: list[dict], *,
          standard_names: dict[str, str] | None = None) -> dict:
     """Split `requirements` into what a review checks and what it does not.
@@ -163,9 +158,6 @@ def gate(requirements: list[dict], facts: list[dict], *,
             excluded[reason] += 1
             continue
         if not _is_table_cell(requirement):
-            kept_flags[index] = True
-            continue
-        if _has_rule(requirement):
             kept_flags[index] = True
             continue
         table = _table_of(requirement)
