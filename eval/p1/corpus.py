@@ -1,4 +1,4 @@
-"""The P1 invented corpus: seven made-up standards, no client text.
+"""The P1 invented corpus: eleven made-up standards, no client text.
 
 Every name, number and sentence here is invented. The set is small on purpose
 and built to hit the failure classes found in this project: a reworded
@@ -6,6 +6,14 @@ question, an abbreviation, a document named in the question, the same
 boilerplate in two documents, a value that lives in a table, a condition that
 limits a rule, an old revision beside a new one, and a topic one document has
 and another does not.
+
+Version 2 (2026-10-08) added STD-G-007 to STD-K-010. Each one puts a near miss
+next to an existing topic (a tank's water fill hold beside a vessel's test
+hold, a fan's vibration limit beside a pump's, an impulse line's test pressure
+beside a vessel's) and carries values written the way real standards write
+them: a negative temperature, a signed range, a decimal comma and a power of
+ten. None of them mentions a crane, a warranty, a colour or a flange, so the
+version 1 unanswerable questions stay unanswerable.
 
 `build(folder)` writes the PDFs deterministically. Page numbers below are the
 ground truth the question set points at; `questions.json` is checked against
@@ -139,6 +147,86 @@ DOCS: dict[str, list[list[str]]] = {
             "4.1 Areas where noise exceeds 85 dB(A) shall be marked as hearing",
             "protection zones.",
             "4.2 Noise exposure shall not exceed 90 dB(A) for any worker.",
+        ],
+    ],
+    "STD-G-007.pdf": [
+        [
+            "STD-G-007 Heat Tracing and Winterisation, Revision 1",
+            "1 Scope",
+            "1.1 This standard covers heat tracing and insulation of outdoor process",
+            "lines.",
+            "2 Abbreviations",
+            "LDT means lowest design temperature.",
+        ],
+        [
+            "3 Design temperatures",
+            "3.1 The lowest design temperature for outdoor equipment shall be -29 degC.",
+            "3.2 Heat tracing shall hold the process fluid between +5 degC and +15 degC.",
+        ],
+        [
+            "4 Insulation",
+            "4.1 The thermal conductivity of the insulation shall not exceed",
+            "0,040 W/(m.K) at a mean temperature of 10 degC.",
+            "4.2 Insulation thickness shall be 40 mm to 80 mm depending on line size.",
+        ],
+    ],
+    "STD-H-008.pdf": [
+        [
+            "STD-H-008 Instrument Calibration and Testing, Revision 2",
+            "1 Scope",
+            "1.1 This standard covers pressure and flow instruments.",
+            "2 Abbreviations",
+            "URV means upper range value.",
+        ],
+        [
+            "5 Accuracy",
+            "5.1 Pressure transmitters shall be accurate to within +/-0.25 percent of",
+            "span.",
+            "5.2 Zero drift shall stay within -0,5 kPa to +0,5 kPa per year.",
+            "5.3 The insulation resistance of signal cables shall be at least",
+            "1.0 x 10^9 ohm.",
+        ],
+        [
+            "6 Calibration interval",
+            "6.1 Safety critical instruments shall be calibrated every 12 months.",
+            "6.2 Other instruments shall be calibrated every 24 months.",
+            "7 Impulse lines",
+            "7.1 Impulse lines shall be pressure tested at 1.5 times the design",
+            "pressure.",
+        ],
+    ],
+    "STD-J-009.pdf": [
+        [
+            "STD-J-009 Atmospheric Storage Tank Testing and Inspection, Revision 1",
+            "1 Scope",
+            "1.1 This standard covers welded atmospheric storage tanks.",
+        ],
+        [
+            "4 Water fill test",
+            "4.1 Each new tank shall be filled with water to the design liquid level",
+            "and held full for 24 hours.",
+            "4.2 Settlement shall be measured at eight points around the shell.",
+        ],
+        [
+            "5 Inspection",
+            "5.1 The interval between external inspections shall not exceed 5 years.",
+            "5.2 Bottom plates shall be renewed when the remaining thickness is less",
+            "than 2.5 mm.",
+        ],
+    ],
+    "STD-K-010.pdf": [
+        [
+            "STD-K-010 Air Cooled Heat Exchanger Fans, Revision 1",
+            "1 Scope",
+            "1.1 This standard covers the fans of air cooled heat exchangers.",
+            "2 Blades",
+            "2.1 Blade pitch shall be set within 0.5 degrees of the design angle.",
+        ],
+        [
+            "3 Vibration",
+            "3.1 Vibration measured at the fan bearing shall not exceed 6.0 mm/s",
+            "RMS.",
+            "3.2 Readings shall be taken weekly.",
         ],
     ],
 }

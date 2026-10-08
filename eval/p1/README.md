@@ -1,16 +1,16 @@
 # P1: the labelled question set
 
 A fixed list of questions with known right answers, run through the real chat
-on every change. If a question that used to pass stops passing, the change is
-blocked.
+on every change. A change is blocked when fewer than 37 of the 60 questions
+pass, or when any of the 23 original passes stops passing (see "The gate").
 
 ## What is in this folder
 
 | file | what it is |
 |---|---|
-| `corpus.py` | seven invented standards (STD-A-001 and so on) and the code that writes them as PDFs |
-| `questions.json` | 30 invented-name questions: direct, reworded, abbreviation, document named in the question, table, condition, old revision, and six that the corpus cannot answer |
-| `baseline.json` | which questions pass today. The bar. It only goes up |
+| `corpus.py` | eleven invented standards (STD-A-001 to STD-K-010, one of them an old revision) and the code that writes them as PDFs |
+| `questions.json` | 60 invented-name questions, version 2. P1-01 to P1-30: direct, reworded, abbreviation, document named in the question, table, condition, old revision, and six that the corpus cannot answer. P1-31 to P1-60: ten hard paraphrases, five distractors, five more unanswerable, five multi-document, five number/unit/sign |
+| `baseline.json` | which questions pass today, and the `gate` the run is held to |
 | `harness.py`, `run_p1.py` | build the corpus in a throwaway database, ask every question, score, compare |
 | `../../backend/tests/test_p1_question_set.py` | the gate. GitHub CI runs it with the rest of the suite |
 
@@ -37,12 +37,37 @@ After a real improvement, raise the bar and commit the new `baseline.json`:
 * An answerable question passes when the answer cites the right document and
   page and the returned text holds the expected words.
 * An unanswerable question passes only when it is refused.
+* A multi-document question (`expected_sources` instead of
+  `expected_document`) passes only when the answer cites EVERY listed
+  document on a listed page and holds every listed phrase. Citing one side
+  of a comparison is half an answer.
 * The clause label is scored separately ("clause label right"), because a
   chunk with several short clauses carries the first clause's label. That is a
   citation defect, not a wrong answer, and it should not hide the other score.
 
-A change is blocked when a baseline question fails, a baseline clause label is
-lost, or a new unanswerable question gets an answer.
+## The gate
+
+Owner decision, 2026-10-08. A change is blocked when ANY of these is true:
+
+| rule | where it lives |
+|---|---|
+| fewer than **37 of 60** questions pass | `gate.min_passing` in `baseline.json` |
+| any of the **23 original passes** (P1-02 to P1-30 that passed in version 1) fails | `gate.protected` |
+| one of those 23 loses its right clause label | `clause_passing`, limited to `gate.protected` |
+| an unanswerable question that was refused is now answered | `failing_known` |
+
+Outside the 23, a question may trade places: P1-34 failing is fine if
+another new question starts passing and the total stays at 37 or more.
+
+The last two rows come from the version 1 rule. The owner confirmed
+on 2026-10-08 that both stay: an unanswerable question must never flip
+from refused to answered, and the 23 protected questions keep their
+clause labels. The clause row covers only those 23, so the other
+questions can still trade places.
+
+`--write-baseline` keeps the `gate` as it is. Only a person edits it, and
+`test_the_committed_gate_is_37_of_60_with_the_23_original_passes` checks
+that the file still says 37 and 23.
 
 ## What this does not prove
 
@@ -55,7 +80,7 @@ invented text can be poor on real documents. So:
    `python eval\p1\run_p1.py --questions .cowork\p1-real-questions.json`
    against a copy of the library, never the live database. A real-library
    run needs its own baseline kept in `.cowork/` too.
-2. An engineer should extend the set from 30 to 100 or more, and write the
+2. An engineer should extend the set from 60 to 100 or more, and write the
    expected answers before seeing the system's output. Until then the set
    was written by the same side that builds the system, and says so in
    `questions.json`.
@@ -69,3 +94,43 @@ revision question (1), a condition question (1), one direct question where
 the right page is cited but the wrong chunk (1), and one unanswerable
 question that gets an answer (1). These match the "wrong page and old
 revisions" and "matches words, not meaning" items in the plan.
+
+## Version 2 (2026-10-08): 60 questions
+
+Thirty questions and four invented standards (STD-G-007 to STD-K-010) were
+added for issue #466. Every label is checked against the corpus text by
+`check_labels`, and each new single-document answer phrase was also checked
+to appear in no other document, so a label cannot be satisfied by the wrong
+standard.
+
+| category | what it tests | passed on 2026-10-08 |
+|---|---|---|
+| paraphrase | a version 1 topic asked without the clause's words ("stress relieving" for PWHT, "ear defenders" for hearing protection) | 2 of 10 |
+| distractor | a near-miss passage in another document holds a different number (a tank's 24 hour fill hold beside a vessel's 30 minute test hold) | 5 of 5 |
+| unanswerable | text that looks like an answer sits next to the question (MAWP is defined but never given a value) | 1 of 5 |
+| multidoc | the answer needs two or three documents, all cited | 1 of 5 |
+| number | a negative value, a signed range, a decimal comma, a power of ten | 5 of 5 |
+
+Whole set: **37 of 60** (62 percent), clause label right 25 of 41. Version 1
+was 23 of 30 (77 percent); the lower percentage is the harder questions, not
+a regression: all 23 version 1 passes and all 15 version 1 clause passes
+still hold with the four new documents in the corpus.
+
+Run with the real e5-small embedder and reranker, extract tier, no model
+call, no Claude spend. The new failures, by kind:
+
+* Six of ten paraphrases are refused as insufficient evidence; one cites
+  the weekly-test page for the annual-test question, one cites the new
+  STD-G-007 design temperature for the enclosure ambient question. This is
+  the "matches words, not meaning" gap (#467).
+* Four of five new unanswerable questions get an answer: the MAWP
+  abbreviation line, a pump reading-frequency clause for gearboxes, the
+  heat tracing range for an inspection question, and the primer DFT for a
+  finish coat DFT question.
+* Four of five multi-document questions miss at least one of their
+  documents (one leads on the wrong page of the fan standard).
+
+What the 5 of 5 on numbers does NOT show: the extract tier quotes the PDF
+text verbatim, so a sign, comma or exponent cannot be lost on the way out.
+Those questions test that the right clause is found. They would test number
+handling only when run on a tier that rewrites the value (generated answers).

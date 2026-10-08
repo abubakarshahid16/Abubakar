@@ -23,7 +23,9 @@ controls are active.
   behind the aggregate `backend (pytest)`, and `slow` tests run nightly (#584).
   `tests-windows.yml` runs nightly and on demand.
 - `secret-scan.yml` runs secret scanning and the client-data guard.
-- Dependabot checks Python, npm, and GitHub Actions dependencies monthly.
+- Dependabot checks Python, npm, and GitHub Actions dependencies weekly, with all
+  minor and patch updates grouped into one PR per ecosystem (react, react-dom and
+  their types in their own group); major updates arrive one PR each (2026-10-08).
 - `CONTRIBUTING.md` requires merge commits, green checks, and local suites.
 
 ## Activation checklist

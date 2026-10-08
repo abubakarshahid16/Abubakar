@@ -73,6 +73,10 @@ def main() -> int:
                "clause_passing": sorted(r["id"] for r in rows if r.get("clause_ok")),
                "failing_known": sorted(r["id"] for r in rows if not r["passed"]),
                "total": summary["total"]}
+        # The gate is an owner decision, not a measurement: a rewrite of the
+        # baseline keeps it, and only a person edits it.
+        if "gate" in harness.load_baseline():
+            out["gate"] = harness.load_baseline()["gate"]
         harness.BASELINE.write_text(json.dumps(out, indent=1) + "\n", encoding="utf-8")
         print("baseline written:", out["total"])
         return 0

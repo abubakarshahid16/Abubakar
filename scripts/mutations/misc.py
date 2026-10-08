@@ -1,5 +1,6 @@
 """Mutations of:
 
+    .github/dependabot.yml
     backend/app/chat.py
     backend/app/chunker.py
     backend/app/claude_api.py
@@ -575,5 +576,25 @@ MUTATIONS: tuple[Mutation, ...] = (
         target="tests/test_chat_comparison.py",
         keyword="not_found_never_does_not_mention",
         tags=("honesty",),
+    ),
+    Mutation(
+        id="M2045", phase=2045,
+        description="pip updates are checked monthly again",
+        path=REPO / ".github" / "dependabot.yml",
+        anchor="    directory: /backend\n    schedule:\n      interval: weekly\n",
+        replacement="    directory: /backend\n    schedule:\n      interval: monthly\n",
+        target="tests/test_dependabot_config.py",
+        keyword="checked_weekly",
+        tags=("ci",),
+    ),
+    Mutation(
+        id="M2046", phase=2046,
+        description="pip minor and patch updates are no longer grouped",
+        path=REPO / ".github" / "dependabot.yml",
+        anchor="      pip-minor-patch:\n        patterns: [\"*\"]\n        update-types: [minor, patch]\n",
+        replacement="",
+        target="tests/test_dependabot_config.py",
+        keyword="one_pr_per_ecosystem",
+        tags=("ci",),
     ),
 )
