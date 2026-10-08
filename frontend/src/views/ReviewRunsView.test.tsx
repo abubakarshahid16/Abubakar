@@ -147,6 +147,34 @@ describe("B3: the pages a run read into fields", () => {
   });
 });
 
+describe("#598: table values that were not compared", () => {
+  it("shows one expandable line per standard, never dropping them silently", async () => {
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({
+      table_values_not_compared: [{
+        standard_document_id: "std-1", standard_name: "NACE-X.pdf", count: 57,
+        table_count: 2,
+        line: "57 table values in 2 tables of NACE-X.pdf not compared: no matching field on this submittal",
+        tables: [{ page: 4, count: 30, examples: ["UNS S32205"] },
+                 { page: 9, count: 27, examples: [] }],
+      }],
+    })] } });
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+
+    const block = await screen.findByTestId("table-values-not-compared");
+    expect(within(block).getByText(/57 table values in 2 tables of NACE-X\.pdf not compared/))
+      .toBeInTheDocument();
+    expect(within(block).getByText(/30 on page 4, for example UNS S32205/)).toBeInTheDocument();
+  });
+
+  it("shows nothing for a run with no unmatched table values", async () => {
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    await screen.findByRole("heading", { name: "drum.pdf", level: 2 });
+    expect(screen.queryByTestId("table-values-not-compared")).toBeNull();
+  });
+});
+
 describe("B5: the standards in scope carry their evidence and the missing ones", () => {
   it("shows the citation line and the cited standards not held", async () => {
     reviewRunStandards.mockResolvedValue({

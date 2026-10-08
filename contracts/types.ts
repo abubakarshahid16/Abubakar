@@ -700,6 +700,10 @@ export interface ReviewRunSummary {
   /** B3: the page ledger's summary AS OF THE RUN. Null on a run made before
    *  the ledger existed - null renders as nothing, never "every page read". */
   page_coverage?: PageCoverage | null;
+  /** #598: standards-table values this run did NOT compare (the submittal has
+   *  no field that answers them), one grouped line per standard. Empty or
+   *  absent renders as nothing. */
+  table_values_not_compared?: TableValuesNotCompared[];
   /** 2026-09-27: the AI engineering check's own outcome for this run. Null
    *  when it never ran (off, or the Claude lane is off). `complete` is
    *  false whenever a reply was truncated, only partially recovered after
@@ -2596,4 +2600,14 @@ export interface MissingStandard {
   requested_by: string | null;
   requested_at: string | null;
   obtain: StandardObtainPointer;
+}
+
+/** One grouped "not compared" line (#598): N table values of one standard. */
+export interface TableValuesNotCompared {
+  standard_document_id: string;
+  standard_name: string;
+  count: number;
+  table_count: number;
+  line: string;
+  tables: { page: number | null; count: number; examples: string[] }[];
 }

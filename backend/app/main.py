@@ -1904,6 +1904,7 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         "decided_at": run.get("decided_at"),
         "completeness": outcome.get("completeness"),
         "page_coverage": outcome.get("page_coverage"),
+        "table_values_not_compared": outcome.get("table_values_not_compared") or [],
         # P3: the background job running this review - progress and cancel.
         "job": job,
         # 2e: which standards came into or left scope since the previous run.

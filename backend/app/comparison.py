@@ -1761,6 +1761,18 @@ def run_comparison(
 
     facts = datasheets.list_facts(
         submittal_id, allowed_document_ids=allowed_document_ids)
+    # #598 A TABLE CELL IS A CHECK ONLY WHEN THE SUBMITTAL HAS A FIELD THAT
+    # ANSWERS IT. The rest are counted, one grouped line per standard, in the
+    # run's outcome; a definition or unconfirmed garbled text is never a check.
+    # See `table_gate`.
+    from . import table_gate
+    names = {r["id"]: r["filename"] for r in connect().execute(
+        "SELECT id, filename FROM documents WHERE id IN (%s)" % ",".join(
+            "?" for _ in standard_ids), standard_ids)} if standard_ids else {}
+    gated = table_gate.gate(requirements, facts, standard_names=names)
+    all_requirements = len(requirements)
+    requirements = gated["kept"]
+    table_values_not_compared = gated["not_compared"]
     # B3: WHICH PAGES WERE READ INTO FIELDS, once per run, so no finding says
     # the contractor omitted a value that could sit on a page nobody read.
     page_ledger.refresh(submittal_id, as_submittal=True)
@@ -2050,12 +2062,16 @@ def run_comparison(
                                     page_coverage=pages_read)
     _store_run_outcome(review_run_id, recommendation, coverage,
                        page_coverage=pages_read,
-                       missing_references=missing_references or [])
+                       missing_references=missing_references or [],
+                       table_values_not_compared=table_values_not_compared)
 
     return {
         "review_run_id": review_run_id,
         "submittal_document_id": submittal_id,
         "requirements_evaluated": len(requirements),
+        "requirements_in_scope": all_requirements,
+        "requirements_excluded": gated["excluded"],
+        "table_values_not_compared": table_values_not_compared,
         "facts_in_scope": len(facts),
         "matches_attempted": matches_attempted,
         "matches_made": matches_made,
@@ -3130,7 +3146,8 @@ def attach_crs_context(findings: list[dict]) -> list[dict]:
 
 def _store_run_outcome(review_run_id: str, recommendation: dict,
                        coverage: dict, *, page_coverage: dict | None = None,
-                       missing_references: list[str] | None = None) -> None:
+                       missing_references: list[str] | None = None,
+                       table_values_not_compared: list[dict] | None = None) -> None:
     """Persist the AI recommendation and the completeness it was gated on.
 
     B3: `page_coverage` is the page ledger's summary AT THE TIME OF THE RUN -
@@ -3158,6 +3175,8 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
                 "missing_references": [
                     {"identifier": ref, "status": MISSING_LOCALLY}
                     for ref in (missing_references or [])],
+                # #598: the table cells this run did not compare, grouped.
+                "table_values_not_compared": table_values_not_compared or [],
             # completed_at: the readiness strip's "since the last run" is
             # measured from here, not from updated_at (which the engineer's
             # code decision moves later).
