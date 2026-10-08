@@ -176,6 +176,12 @@ class Document(BaseModel):
     )
     uploaded_at: str
     indexed_at: str | None = None
+    classification: "DocumentClassification | None" = Field(
+        None, description="this document's classification, carried on the "
+                          "list so the Documents page makes ONE request, not "
+                          "one per document. Same shape as "
+                          "GET /documents/{id}/classification. Only on the "
+                          "list; null elsewhere")
     disciplines: list[str] = Field(
         description="The disciplines this document is granted to - its category "
         "as the access model defines it. Empty means no discipline holds it and "
