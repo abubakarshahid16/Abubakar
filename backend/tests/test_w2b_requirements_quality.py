@@ -4,7 +4,7 @@ Standards tables and junk text were turned into thousands of fake
 requirements. Every test here is written against a synthetic standard (invented
 text, no real document) and goes through the real extractors, and each one
 fails when its fix is removed: `scripts/mutations/w2b_requirements_quality.py`
-(M2401-M2412) proves it.
+(M2501-M2512) proves it.
 """
 from __future__ import annotations
 
