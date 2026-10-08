@@ -80,6 +80,7 @@ def _model(extra=None):
 
 # ============================================= hybrid through the real path
 
+@pytest.mark.slow
 def test_hybrid_reads_the_xlsx_through_the_real_extract_path(key):
     entry = key["files"]["ds12_pump.xlsx"]
     out = datasheet_offline.read_file(XLSX, office_input=True, ai_engine="ollama",
@@ -109,6 +110,7 @@ def test_hybrid_reads_the_xlsx_through_the_real_extract_path(key):
     assert rules["found"] < s["found"]
 
 
+@pytest.mark.slow
 def test_hybrid_reads_a_pdf_through_the_real_extract_path(key):
     entry = key["files"]["ds07_gate_valve_free_text.pdf"]
     reading = bench.read_file_with("hybrid:oracle", FREE_TEXT,
@@ -122,6 +124,7 @@ def test_hybrid_reads_a_pdf_through_the_real_extract_path(key):
     assert s["found"] >= 5 > alone["found"]
 
 
+@pytest.mark.slow
 def test_the_oracle_run_is_labelled_an_upper_bound_not_an_ai(key):
     report = bench.run_reader(bench.ORACLE, key, files=["ds02_psv_unruled.pdf"])
     assert report["label"] == bench.ORACLE_LABEL and "not an AI" in report["label"]
@@ -130,6 +133,7 @@ def test_the_oracle_run_is_labelled_an_upper_bound_not_an_ai(key):
 
 # ========================================================== the gate holds
 
+@pytest.mark.slow
 def test_an_ai_only_fact_whose_quote_is_not_on_the_page_is_not_stored():
     def invented(page):
         return [{"field": "Spring material", "value": "Inconel X-750", "unit": None,
@@ -145,6 +149,7 @@ def test_an_ai_only_fact_whose_quote_is_not_on_the_page_is_not_stored():
                    for f in out["facts"])
 
 
+@pytest.mark.slow
 def test_a_disagreement_is_stored_as_a_conflict_and_counted(key):
     """The AI reads field A with row B's value (a quote from A's label to B's
     value is on the page): both readings kept, both flagged for an engineer."""
@@ -202,6 +207,7 @@ def test_the_flags_and_paths_are_restored_after_a_run_even_on_an_exception(monke
     assert datasheet_ai._CALL_OVERRIDE.get() is None
 
 
+@pytest.mark.slow
 def test_a_normal_run_restores_the_flags_too():
     datasheet_offline.read_file(PSV, office_input=True, ai_engine="ollama", model_call=_model())
     assert settings.datasheet_office_input is False and settings.datasheet_ai_reader == "off"
@@ -225,6 +231,7 @@ def test_rules_mode_is_todays_production_for_office_files():
 
 # ==================================================== OCR is never a silent 0
 
+@pytest.mark.slow
 def test_a_scan_with_no_ocr_engine_is_reported_as_ocr_unavailable(monkeypatch, tmp_path, key):
     monkeypatch.setattr(settings, "ocr_model_dir", tmp_path / "no-models-here")
     ok, why = datasheet_offline.ocr_available()
@@ -239,6 +246,7 @@ def test_a_scan_with_no_ocr_engine_is_reported_as_ocr_unavailable(monkeypatch, t
 
 # ===================================================== which engines are built
 
+@pytest.mark.slow
 def test_all_local_never_builds_a_claude_call(monkeypatch, tmp_path):
     assert bench.readers_for("all-local") == (
         "rules", "rules+office", "hybrid:ollama", "ai-only:ollama")
@@ -263,6 +271,7 @@ def test_all_local_never_builds_a_claude_call(monkeypatch, tmp_path):
     assert [r["reader"] for r in report["summary"]] == list(bench.ALL_LOCAL)
 
 
+@pytest.mark.slow
 def test_hybrid_claude_is_productions_engine_metered_by_claude_spend(monkeypatch):
     """Against a FAKE transport: nothing leaves the machine."""
     from app import claude_budget, claude_spend, reader_transport

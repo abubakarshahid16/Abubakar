@@ -1,8 +1,8 @@
 # Pinned for reproducibility. Python 3.12.
-fastapi==0.141.1
+fastapi==0.142.2
 uvicorn[standard]==0.38.0
 pydantic==2.13.5
-pydantic-settings==2.13.0
+pydantic-settings==2.15.0
 python-multipart==0.0.32
 
 # Password hashing. A cffi package: it needs a matching wheel for the platform,
@@ -15,7 +15,7 @@ argon2-cffi==25.1.0
 PyMuPDF==1.28.2
 
 # Embeddings - local ONNX int8, no torch
-onnxruntime==1.29.0
+onnxruntime==1.30.0
 tokenizers==0.23.2
 numpy==2.5.3
 
@@ -52,7 +52,7 @@ openpyxl==3.1.5
 et-xmlfile==2.0.0
 
 # Tests
-pytest==8.4.2
+pytest==9.1.1
 pytest-asyncio==1.4.0
 pytest-xdist==3.8.0
 
@@ -73,6 +73,6 @@ omegaconf==2.3.1
 antlr4-python3-runtime==4.9.3
 colorlog==6.12.0
 PyYAML==6.0.3
-tqdm==4.70.0
+tqdm==4.70.1
 six==1.17.0
 requests==2.34.2

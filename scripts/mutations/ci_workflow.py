@@ -1,0 +1,75 @@
+"""Mutations of the Linux CI workflow (.github/workflows/tests.yml) after the
+speed-up (#584), and of scripts/test_changed.py and scripts/ci_test_ids.py.
+Targets: backend/tests/test_ci_workflow.py, test_windows_ci_workflow.py,
+test_test_changed_script.py, test_ci_test_ids_script.py.
+"""
+
+from __future__ import annotations
+
+from ._base import REPO, Mutation
+
+_W = REPO / ".github" / "workflows" / "tests.yml"
+_T = "tests/test_ci_workflow.py"
+
+MUTATIONS: tuple[Mutation, ...] = (
+    Mutation(id="M2047", phase=2047, description="the required aggregate is skipped when a shard fails",
+             path=_W, anchor="    needs: [backend-shard, backend-checks]\n    if: always()\n",
+             replacement="    needs: [backend-shard, backend-checks]\n",
+             target=_T, keyword="aggregate_that_needs_every_shard", tags=("ci",)),
+    Mutation(id="M2048", phase=2048, description="every shard runs the whole suite",
+             path=_W, anchor="--splits 3 --group ${{ matrix.group }} ",
+             replacement="",
+             target=_T, keyword="own_third", tags=("ci",)),
+    Mutation(id="M2049", phase=2049, description="npm ci runs even on a node_modules cache hit",
+             path=_W, anchor="        if: steps.nm.outputs.cache-hit != 'true'\n",
+             replacement="",
+             target=_T, keyword="node_modules_is_cached", tags=("ci",)),
+    Mutation(id="M2050", phase=2050, description="the slow tests run on every pull request",
+             path=_W,
+             anchor="    name: backend slow tests (nightly)\n    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'\n",
+             replacement="    name: backend slow tests (nightly)\n",
+             target=_T, keyword="slow_tests_run_nightly", tags=("ci",)),
+    Mutation(id="M2051", phase=2051, description="tests run on every push to every branch again",
+             path=_W, anchor="  push:\n    branches: [main]\n  pull_request:\n",
+             replacement='  push:\n    branches: ["**"]\n  pull_request:\n',
+             target="tests/test_windows_ci_workflow.py", keyword="pushes_to_main_only", tags=("ci",)),
+    Mutation(id="M2052", phase=2052, description="test_changed.py forgets tests named after a module",
+             path=REPO / "scripts" / "test_changed.py",
+             anchor='            hit |= {t for t in tests if t.name.startswith(f"test_{mod}")}\n',
+             replacement="",
+             target="tests/test_test_changed_script.py", keyword="named_after_it", tags=("ci",)),
+    Mutation(id="M2053", phase=2053, description="the required check stops auditing the shards' test ids",
+             path=_W,
+             anchor="run: python3 scripts/ci_test_ids.py compare --full test-ids/full.txt test-ids/shard-1.txt test-ids/shard-2.txt test-ids/shard-3.txt",
+             replacement="run: echo audit skipped",
+             target=_T, keyword="proves_every_test_ran_exactly_once", tags=("ci",)),
+    Mutation(id="M2054", phase=2054, description="a test skipped at setup is not counted as having run",
+             path=REPO / "scripts" / "ci_test_ids.py",
+             anchor='    return when == "call" or (when == "setup" and outcome != "passed")\n',
+             replacement='    return when == "call"\n',
+             target="tests/test_ci_test_ids_script.py", keyword="counted_exactly_once", tags=("ci",)),
+    Mutation(id="M2055", phase=2055, description="the audit ignores a test that ran in two shards",
+             path=REPO / "scripts" / "ci_test_ids.py",
+             anchor="    twice = sorted(i for i, n in ran.items() if n > 1)\n",
+             replacement="    twice = []\n",
+             target="tests/test_ci_test_ids_script.py", keyword="two_shards_ran", tags=("ci",)),
+    Mutation(id="M2056", phase=2056, description="a cancelled or skipped shard passes the required check",
+             path=_W,
+             anchor='          test "${{ needs.backend-shard.result }}" = "success"\n',
+             replacement='          test "${{ needs.backend-shard.result }}" != "failure"\n',
+             target=_T, keyword="failed_cancelled_or_skipped", tags=("ci",)),
+    Mutation(id="M2208", phase=2208, description="shards split by test count again, not by duration",
+             path=_W, anchor=" --splitting-algorithm duration_based_chunks",
+             replacement="",
+             target=_T, keyword="split_by_measured_duration", tags=("ci",)),
+    Mutation(id="M2209", phase=2209, description="every PR run stores durations too",
+             path=_W,
+             anchor="          STORE_DURATIONS: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '--store-durations' || '' }}\n",
+             replacement="          STORE_DURATIONS: --store-durations\n",
+             target=_T, keyword="stored_only_on_the_nightly", tags=("ci",)),
+    Mutation(id="M2210", phase=2210, description="a merged duration may come from a shard that did not run the test",
+             path=REPO / "scripts" / "ci_test_ids.py",
+             anchor="            if test in durations[shard]:\n                merged[test] = durations[shard][test]\n",
+             replacement="            if test in durations[1]:\n                merged[test] = durations[1][test]\n",
+             target="tests/test_ci_test_ids_script.py", keyword="comes_from_the_shard", tags=("ci",)),
+)
