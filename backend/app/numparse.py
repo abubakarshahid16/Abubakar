@@ -153,7 +153,7 @@ _TOKEN = re.compile(
     # "p.4" is page 4): ".5"
     + r"|(?<![\w.,])(?P<lead>\.[0-9]+)")
 
-_GROUPED = re.compile(r"[0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]+)?")
+_GROUPED = re.compile(r"(?!0,)[0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]+)?")
 _COMMA_DECIMAL = re.compile(r"[0-9]+,[0-9]+")
 _DOT_DECIMAL = re.compile(r"[0-9]+(?:\.[0-9]+)?")
 #: d.ddd with 1-3 leading digits (not 0): the decimal 3.175 or the EU thousands
@@ -356,6 +356,8 @@ def parse_value(value_str: str, *, decimal_comma_document: bool | None = None) -
 
     * Comma decimals ("9,0") are decimals - NORSOK writes them so. A comma
       followed by exactly three digits ("1,200") is a thousands separator.
+      A comma after a leading zero is never a thousands separator: "0,030" is
+      0.03 and "0,5" is 0.5 (#616).
     * Space may separate thousands ONLY as groups of exactly three digits after
       a first group of 1-3 digits ("1 200", "12 345 678"). "34 3", "5 10" and
       "1 2 3" are two or three numbers, not one: None.
@@ -403,7 +405,9 @@ def parse_value(value_str: str, *, decimal_comma_document: bool | None = None) -
         if sign:
             return None
         sign = "-"
-    if re.fullmatch(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?", num):
+    # A thousands group never starts with a zero: "0,030" is the decimal 0.03
+    # and "0,500" is 0.5, whatever the document's convention (#616).
+    if re.fullmatch(r"(?!0,)\d{1,3}(?:,\d{3})+(?:\.\d+)?", num):
         num = num.replace(",", "")
     elif re.fullmatch(r"\d+,\d+", num):
         num = num.replace(",", ".")
@@ -477,7 +481,7 @@ def value_in_text(value: object, text: object) -> bool:
     return contains_whole(_strip_thousands(fold(text)), _strip_thousands(fold(value)))
 
 
-_THOUSANDS = re.compile(r"(?<=\d),(?=\d{3}(?!\d))")
+_THOUSANDS = re.compile(r"(?<=\d)(?<!(?<![\d,.])0),(?=\d{3}(?!\d))")
 
 
 def _strip_thousands(text: str) -> str:
