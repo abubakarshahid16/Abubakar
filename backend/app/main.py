@@ -4383,7 +4383,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
             {"note": "Not checked", "standard": "", "count": None, "detail": part["line"]}
             for part in unchecked],
         "unchecked_parts": [part["line"] for part in unchecked],
-        "incomplete_notice": "",
+        "incomplete_notice": absence_mod.notice_for(unchecked),
         # Never printed: the keys of this run's rejected comments, for
         # `_mint_crs_numbers` to withdraw.
         "rejected_row_keys": meta_rejected_keys,
