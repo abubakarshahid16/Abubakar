@@ -47,8 +47,8 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T, keyword="budget_cap_refuses", tags=("budget", "honesty")),
     Mutation(id="M919", phase=80, description="chat: generated prose claims a verification it never did",
              path=APP / "chat_presentation.py",
-             anchor="        return {\"verified\": n, \"total\": n, \"method\": \"verbatim quotation\"} if n else None\n    return None\n",
-             replacement=("        return {\"verified\": n, \"total\": n, \"method\": \"verbatim quotation\"} if n else None\n"
+             anchor="        return {\"verified\": answering, \"total\": len(quoted), \"method\": \"verbatim quotation\"}\n    return None\n",
+             replacement=("        return {\"verified\": answering, \"total\": len(quoted), \"method\": \"verbatim quotation\"}\n"
                           "    n = len(result.get(\"cited\") or [])\n"
                           "    return {\"verified\": n, \"total\": n} if n else None\n"),
              target=_T, keyword="claims_no_verification", tags=("honesty", "critical")),

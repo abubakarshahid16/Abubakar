@@ -1,7 +1,7 @@
 {
- "version": 2,
- "corpus": "P1 invented corpus (eval/p1/corpus.py), 11 documents",
- "author": "Claude, invented, no client text: P1-01 to P1-30 by Cowork (version 1), P1-31 to P1-60 by Claude Code (version 2, 2026-10-08). An engineer extends this set to 100+ before it is called independent.",
+ "version": 3,
+ "corpus": "P1 invented corpus (eval/p1/corpus.py), 13 documents",
+ "author": "Claude, invented, no client text: P1-01 to P1-30 by Cowork (version 1), P1-31 to P1-60 by Claude Code (version 2, 2026-10-08). An engineer extends this set to 100+ before it is called independent. P1-61 to P1-64 by Claude Code (version 3, 2026-10-09, #602 and #610).",
  "questions": [
   {
    "id": "P1-01",
@@ -829,6 +829,62 @@
    "expected_answer_contains": [
     "-0,5 kPa",
     "+0,5 kPa"
+   ]
+  },
+  {
+   "id": "P1-61",
+   "category": "qualifier",
+   "question": "At what overpressure must Code-certified liquid service relief valves reach full rated capacity?",
+   "answerable": true,
+   "expected_document": "STD-L-011.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "5.1",
+   "expected_answer_contains": [
+    "10 percent"
+   ]
+  },
+  {
+   "id": "P1-62",
+   "category": "direct",
+   "question": "At what overpressure must liquid service relief valves reach full rated capacity?",
+   "answerable": true,
+   "expected_document": "STD-L-011.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "5.1",
+   "expected_answer_contains": [
+    "10 percent"
+   ]
+  },
+  {
+   "id": "P1-63",
+   "category": "front_matter",
+   "question": "What bolting material is required for pipe supports?",
+   "answerable": true,
+   "expected_document": "STD-M-012.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "4.1",
+   "expected_answer_contains": [
+    "grade B7"
+   ]
+  },
+  {
+   "id": "P1-64",
+   "category": "front_matter",
+   "question": "What bolting material does STD-M-012 require for pipe supports?",
+   "answerable": true,
+   "expected_document": "STD-M-012.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "4.1",
+   "expected_answer_contains": [
+    "grade B7"
    ]
   }
  ]
