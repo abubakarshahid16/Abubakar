@@ -40,9 +40,12 @@ keyword-only, so access filters before ranking rather than after.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from . import datasheets, keyword, standards, submittal_review
 from .db import connect
@@ -59,6 +62,27 @@ METHOD_SERVICE = "service"                # 4. service / operating conditions
 METHOD_SEMANTIC = "semantic"              # 5. dense retrieval
 METHOD_PROJECT = "project"                # 6. contract / project requirement
 METHOD_MANUAL = "manual"                  # an engineer's own decision
+#: B5: the standard's own SCOPE CLAUSE names the submittal's equipment
+#: (applicability_v2.decide on a stored, verified scope record).
+METHOD_SCOPE = "scope"
+
+#: B5 (live wiring, 2026-09-25): methods that are EVIDENCE a standard governs
+#: this submittal - it is cited, or it is classified for this equipment,
+#: service or project, or its scope clause names it. A discipline match alone
+#: ("mechanical" and "mechanical") and textual similarity are only reasons to
+#: LOOK: before this, both were included, so every mechanical standard in the
+#: library was compared against every mechanical datasheet. They are recorded
+#: as considered and not included, with the reason, and an engineer may add
+#: any of them (`override`).
+INCLUDING_METHODS = frozenset({
+    "manual", "referenced", "equipment_type", "scope", "service", "project"})
+CANDIDATE_ONLY_REASON = {
+    "discipline": ("a shared discipline alone is not evidence that this standard "
+                   "governs this equipment; considered, not included - an engineer "
+                   "may add it"),
+    "semantic": ("similar wording alone is not evidence of applicability; "
+                 "considered, not included - an engineer may add it"),
+}
 
 #: Priority order, lowest number wins when two rules pick the same standard.
 #: A standard both cited and semantically similar is recorded as CITED: the
@@ -67,6 +91,7 @@ _PRIORITY = {
     METHOD_MANUAL: 0,
     METHOD_REFERENCED: 1,
     METHOD_EQUIPMENT: 2,
+    METHOD_SCOPE: 2,
     METHOD_DISCIPLINE: 3,
     METHOD_SERVICE: 4,
     METHOD_SEMANTIC: 5,
@@ -81,6 +106,7 @@ _CONFIDENCE = {
     METHOD_MANUAL: 0.9,
     METHOD_REFERENCED: 0.9,
     METHOD_EQUIPMENT: 0.7,
+    METHOD_SCOPE: 0.7,
     METHOD_DISCIPLINE: 0.5,
     METHOD_SERVICE: 0.5,
     METHOD_SEMANTIC: 0.4,
@@ -109,7 +135,7 @@ def normalise_identifier(identifier: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", (identifier or "").upper())
 
 
-#: A Saudi Aramco standard number inside a LIBRARY FILENAME. Filenames are not
+#: A client standard number inside a LIBRARY FILENAME. Filenames are not
 #: citations - they carry revision notes, dates and draft markers - so this is
 #: anchored at the start and reads only the number.
 _FILENAME_NUMBER = re.compile(r"^\s*(SAES)[-\s]*([A-Z])[-\s]*(\d{1,4})", re.IGNORECASE)
@@ -119,7 +145,7 @@ def library_identifier(filename: str) -> str | None:
     """The standard number a library filename carries, zero-padded. Or None.
 
     `SAES-B-14 -Final Draft 01-29-23.pdf` is SAES-B-014. The series number is
-    written three digits wide everywhere Saudi Aramco prints it, and one file
+    written three digits wide everywhere the client prints it, and one file
     in this corpus was saved with the leading zero dropped - so the document
     was in the library, was cited as SAES-B-014, and could not be matched to
     itself.
@@ -186,6 +212,342 @@ def _referenced_in_submittal(document_id: str,
         [*args, document_id]).fetchall()
     return datasheets.referenced_standards(" ".join(r["text"] or "" for r in rows))
 
+
+def citation_evidence(document_id: str, identifier: str,
+                      allowed_document_ids: frozenset[str]) -> tuple[int | None, str | None]:
+    """WHERE the submittal cites `identifier`: (page, the printed line).
+
+    B5: "named in the submittal" is a reason; the page and the printed line
+    are the EVIDENCE an engineer checks it against. The chunks decide WHETHER
+    the caller may see a citation - read under the caller's grants, with the
+    same detector selection uses - and the PAGE's own text decides where it is.
+
+    THE DEFECT THIS REPLACED. It returned the chunk's `page_start` and the
+    chunk's first "line". A prose chunk joins its sentences with spaces, so
+    its first line is the whole chunk: on a real datasheet the citation of a
+    standard sat at character 735 of a 741-character chunk spanning pages 4
+    and 5, and the evidence published was "page 4" and 200 characters of the
+    page header - a quote that did not contain the standard it was evidence
+    for, on the wrong page. Now the page is the one whose text carries the
+    citation, and the quote is the printed line it is on (with the line above
+    when the line is only a label's value, as a datasheet cell usually is).
+
+    (None, None) when no chunk carries it. When the page text is unavailable
+    the chunk's own line is quoted, with its page only if the chunk lies on ONE
+    page - a chunk spanning pages gives (None, quote), never a guessed page.
+    """
+    key = normalise_identifier(identifier)
+    where, args = _scope_clause(allowed_document_ids, "document_id")
+    rows = connect().execute(
+        "SELECT page_start, page_end, text FROM chunks" + where + " AND document_id = ?"
+        " ORDER BY page_start, ordinal", [*args, document_id]).fetchall()
+    for row in rows:
+        quote = _printed_line(row["text"] or "", key)
+        if quote is None:
+            continue
+        first, last = row["page_start"], row["page_end"] or row["page_start"]
+        for page in range(first, last + 1):
+            on_page = _printed_line(_page_text(document_id, page), key)
+            if on_page is not None:
+                return page, on_page
+        return (first if first == last else None), quote
+    return None, None
+
+
+def _page_text(document_id: str, page: int) -> str:
+    found = connect().execute(
+        "SELECT text FROM pages WHERE document_id = ? AND page_no = ?",
+        (document_id, page)).fetchone()
+    return (found["text"] if found else "") or ""
+
+
+#: A printed line shorter than this many words is a value, not a statement -
+#: "API 610" alone in a datasheet cell - so its label on the line above is
+#: quoted with it.
+_SHORT_LINE_WORDS = 6
+
+
+#: The longest quote published as evidence.
+_QUOTE_CHARS = 200
+
+
+def _printed_line(text: str, key: str) -> str | None:
+    """The line of `text` citing the standard whose key is `key`, or None.
+
+    A line longer than a quote is cut to the words AROUND the citation, never
+    to its first characters - a quote that does not contain what it is
+    evidence of is not evidence.
+    """
+    lines = [" ".join(line.split()) for line in text.splitlines()]
+    lines = [line for line in lines if line]
+    for index, line in enumerate(lines):
+        for raw, start, stop in datasheets.referenced_standard_spans(line):
+            if normalise_identifier(raw) != key:
+                continue
+            if len(line.split()) < _SHORT_LINE_WORDS and index > 0:
+                shift = len(lines[index - 1]) + 1
+                line, start, stop = f"{lines[index - 1]} {line}", start + shift, stop + shift
+            return _around(line, start, stop)
+    return None
+
+
+def _around(line: str, start: int, stop: int) -> str:
+    """At most `_QUOTE_CHARS` of `line`, centred on `line[start:stop]`, on word edges."""
+    if len(line) <= _QUOTE_CHARS:
+        return line
+    lo = max(0, min(start - (_QUOTE_CHARS - (stop - start)) // 2, len(line) - _QUOTE_CHARS))
+    hi = lo + _QUOTE_CHARS
+    if lo > 0:
+        lo = line.find(" ", lo, start) + 1 or lo
+    if hi < len(line):
+        cut = line.rfind(" ", stop, hi)
+        hi = cut if cut != -1 else hi
+    return line[lo:hi].strip()
+
+
+# ------------------------------------------------ B5: the scope decision
+
+def load_taxonomy() -> dict | None:
+    """The owner-approved taxonomy (`settings.applicability_taxonomy_path`),
+    or None when none is approved or it cannot be read. Never a built-in
+    default: the taxonomy is a proposal until the owner approves one."""
+    from .config import settings
+    path = settings.applicability_taxonomy_path
+    # An empty APPLICABILITY_TAXONOMY_PATH= parses as Path("."), a directory:
+    # anything that is not a readable file is "no taxonomy approved".
+    if not path or not Path(path).is_file():
+        return None
+    try:
+        data = json.loads(open(path, encoding="utf-8").read())
+    except (OSError, ValueError):
+        return None
+    lexicon = {str(k).lower(): tuple(v) for k, v in (data.get("lexicon") or {}).items()
+               if isinstance(v, (list, tuple)) and len(v) == 2}
+    if not lexicon:
+        return None
+    return {"lexicon": lexicon, "types": dict(data.get("types") or {})}
+
+
+def store_scope_record(standard_document_id: str, record: dict, *,
+                       prompt_version: str | None = None,
+                       not_applicable_confirmed: bool = False) -> None:
+    """Keep a standard's VERIFIED scope record for the live review to read.
+
+    The caller has already dropped every item whose quote did not verify
+    (scope_records.verify). `not_applicable_confirmed` is True only when the
+    reader's three re-reads agreed on NOT_APPLICABLE."""
+    submittal_review.ensure_schema()
+    conn = connect()
+    with conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO standard_scope_records"
+            " (standard_document_id, record_json, prompt_version,"
+            "  not_applicable_confirmed, created_at) VALUES (?,?,?,?,?)",
+            (standard_document_id, json.dumps(record), prompt_version,
+             1 if not_applicable_confirmed else 0, _now()))
+
+
+def scope_record(standard_document_id: str) -> tuple[dict, bool] | None:
+    """(record, not_applicable_confirmed), or None when never read."""
+    row = connect().execute(
+        "SELECT record_json, not_applicable_confirmed FROM standard_scope_records"
+        " WHERE standard_document_id = ?", (standard_document_id,)).fetchone()
+    if row is None:
+        return None
+    try:
+        return json.loads(row["record_json"]), bool(row["not_applicable_confirmed"])
+    except ValueError:
+        return None
+
+
+def scope_profile(profile: dict, taxonomy: dict):
+    """The submittal as `applicability_v2.Profile`, from its classification's
+    equipment type named through the approved lexicon. Unknown stays None -
+    a profile with no type decides nothing but UNKNOWN."""
+    from . import applicability_v2
+    nodes = applicability_v2.nodes_for(profile.get("equipment_type"), taxonomy["lexicon"])
+    type_name = next((name for level, name in sorted(nodes) if level == applicability_v2.TYPE), None)
+    family = cls = None
+    if type_name is not None:
+        parents = taxonomy["types"].get(type_name) or {}
+        family, cls = parents.get("family"), parents.get("class")
+    return applicability_v2.Profile(type=type_name, family=family, cls=cls)
+
+
+def scope_decisions(library: list[dict], profile: dict) -> tuple[dict[str, dict], str | None]:
+    """{standard id: decision} for every library standard with a stored scope
+    record, and why the step did not run (None when it ran).
+
+    A NOT_APPLICABLE the reader did not confirm three times is reported as
+    UNKNOWN: the asymmetric rule of applicability_v2 - a wrong exclusion
+    hides a standard from the engineer, the worst error."""
+    from . import applicability_v2
+    taxonomy = load_taxonomy()
+    if taxonomy is None:
+        return {}, "scope clauses not checked: no equipment taxonomy is approved"
+    p = scope_profile(profile, taxonomy)
+    if p.type is None:
+        return {}, "scope clauses not checked: the submittal's equipment type is unknown"
+    out: dict[str, dict] = {}
+    for entry in library:
+        stored = scope_record(entry["id"])
+        if stored is None:
+            continue
+        record, confirmed = stored
+        decision = applicability_v2.decide(record, p, taxonomy["lexicon"])
+        if decision.get("decision") == applicability_v2.NOT_APPLICABLE and not confirmed:
+            decision = {**decision, "decision": applicability_v2.UNKNOWN,
+                        "basis": "NOT_APPLICABLE not confirmed by three re-reads; "
+                                 + str(decision.get("basis") or "")}
+        out[entry["id"]] = decision
+    return out, None
+
+
+#: Step name for the reasoning-based scope decision (owner request
+#: 2026-09-28), so its Claude-lane spend, if any, is attributed separately
+#: from every other step.
+SCOPE_REASONING_STEP = "scope-reasoning-decide"
+
+
+def _scope_decision_record_hash(record: dict) -> str:
+    """A content fingerprint of a scope record, for the cache below.
+
+    Not the record's `created_at` or any row id - the CONTENT. Two rows
+    written at different times with identical verified items must hash the
+    same, so a harmless re-run of `generate_scope_records.py` that produces
+    an unchanged record does not invalidate a cache that is still correct.
+    """
+    blob = json.dumps(record, sort_keys=True, default=str)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+
+
+def _cached_scope_decision(standard_document_id: str, equipment_type: str,
+                           record: dict, provider, step: str) -> dict:
+    """`applicability_reasoning.decide_with_confirmation_by_reasoning`,
+    memoised per (standard, equipment type, exact scope-record content,
+    prompt version) - B5 cost fix, owner request 2026-09-28.
+
+    WHY THIS EXISTS. Before it, `scope_decisions_by_reasoning` asked the
+    reasoning model "does this standard apply to equipment type X" fresh on
+    EVERY review, for every standard in the library that has a scope record -
+    hundreds of live API calls per review, most of them asking a question
+    already answered on a previous review with the same answer. That made
+    review cost and latency scale with library size, not with the submittal,
+    and blocked the server's other background work while it ran (see
+    `docs/code-review/` applicability-reasoning-cost finding, 2026-09-28).
+
+    The fix is a cache, not a shortcut: nothing here is skipped or guessed.
+    The full reasoning call (with its 3x NOT_APPLICABLE re-read confirmation,
+    unchanged) still runs, exactly once, the FIRST time a given
+    (standard, equipment type) pair is asked about with a given scope-record
+    content and prompt version. Every review after that reads the stored
+    answer instead of re-asking. A cache row can only ever be SKIPPED, never
+    served when stale: `record_hash` changes the moment the standard's scope
+    record changes (re-read via `generate_scope_records.py`), and
+    `prompt_version` changes the moment the reasoning prompt itself changes
+    (`applicability_reasoning.PROMPT_VERSION`) - either miss recomputes and
+    overwrites the row, so a stale answer is never returned, only re-asked.
+
+    THE EVIDENCE BACKFILL RUNS HERE, ON EVERY RETURN - cache hit or miss -
+    never inside what gets STORED. `applicability_reasoning.with_covered_
+    evidence` is applied to the decision right before it is handed back,
+    whichever path produced it. This is deliberate (bug fix 2026-09-28,
+    caught verifying the first version of this fix against real cached
+    data): baking the backfill into what `decide_with_confirmation_by_
+    reasoning` returns would freeze it into the cache row at write time, so
+    every row cached before that fix shipped would keep coming back with no
+    quote forever, since a cache hit never recomputes anything. Applying it
+    here instead - after the SELECT, after the INSERT - costs nothing extra
+    (`record` is already an argument) and fixes every already-cached row the
+    moment this ships, not only ones computed after it.
+    """
+    from . import applicability_reasoning
+    record_hash = _scope_decision_record_hash(record)
+    prompt_version = applicability_reasoning.PROMPT_VERSION
+    submittal_review.ensure_schema()
+    conn = connect()
+    row = conn.execute(
+        "SELECT decision_json FROM applicability_scope_decision_cache"
+        " WHERE standard_document_id = ? AND equipment_type = ?"
+        " AND record_hash = ? AND prompt_version = ?",
+        (standard_document_id, equipment_type, record_hash, prompt_version)).fetchone()
+    if row is not None:
+        try:
+            cached = json.loads(row["decision_json"])
+        except ValueError:
+            cached = None  # corrupt row - fall through and recompute rather than crash
+        if cached is not None:
+            return applicability_reasoning.with_covered_evidence(cached, record)
+    decision = applicability_reasoning.decide_with_confirmation_by_reasoning(
+        record, equipment_type, provider, step=step)
+    with conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO applicability_scope_decision_cache"
+            " (standard_document_id, equipment_type, record_hash, prompt_version,"
+            "  decision_json, created_at) VALUES (?,?,?,?,?,?)",
+            (standard_document_id, equipment_type, record_hash, prompt_version,
+             json.dumps(decision), _now()))
+    return applicability_reasoning.with_covered_evidence(decision, record)
+
+
+def scope_decisions_by_reasoning(library: list[dict], profile: dict,
+                                 provider=None, heartbeat=None) -> tuple[dict[str, dict], str | None]:
+    """`scope_decisions`, without a taxonomy: the AI reads a standard's
+    already-verified scope record directly against the submittal's own
+    classified equipment type (`applicability_reasoning.py`, owner request
+    2026-09-28 - no manual equipment lexicon).
+
+    Same shape and same safety rule as `scope_decisions`: {standard id:
+    decision}, and why the step did not run (None when it ran). A
+    NOT_APPLICABLE the reader did not confirm three times is reported as
+    UNKNOWN - a wrong exclusion hides a standard from the engineer, the
+    worst error.
+
+    A standard with no stored scope record is skipped exactly like the
+    taxonomy path skips one - `scripts/generate_scope_records.py` is the
+    explicit step that creates them; this function only reads.
+
+    `heartbeat`, optional: called after every standard THAT HAS A STORED
+    SCOPE RECORD, cache hit or miss (a standard with none is skipped above
+    this call and never ticks it - `scope_record()` is a fast indexed read,
+    not the cost this exists to cover) (`ingest.IngestionWorker` passes its
+    own `_beat`). Before the B5 cache,
+    this loop's own single-worker `_run` never got a turn between iterations
+    while it ran - the worker's heartbeat only ticks at its OUTER loop
+    boundary, and this ONE call could run for 15-20+ minutes making 200+
+    sequential reasoning calls. That read as "no heartbeat for Ns" / the
+    worker "not moving" on the Documents page, even though it was actively
+    working - and starved real ingestion of its turn for the same span. The
+    B5 cache fixes almost all of this by making repeat calls free; this
+    keeps the worker's OWN reported liveness honest for the case that
+    still remains - the first, uncached run for a new equipment type.
+    """
+    equipment_type = profile.get("equipment_type")
+    if not equipment_type:
+        return {}, "scope clauses not checked: the submittal's equipment type is unknown"
+    out: dict[str, dict] = {}
+    ran_any = False
+    for entry in library:
+        stored = scope_record(entry["id"])
+        if stored is None:
+            continue
+        record, _confirmed = stored
+        ran_any = True
+        try:
+            from . import reasoning_provider as rp
+            engine = provider or rp.get_provider("reasoning", step=SCOPE_REASONING_STEP)
+            decision = _cached_scope_decision(
+                entry["id"], equipment_type, record, engine, SCOPE_REASONING_STEP)
+        except Exception:  # noqa: BLE001 - budget cap, refusal or a down model:
+            # stays with an engineer as "not decided", never crashes the review.
+            continue
+        finally:
+            if heartbeat is not None:
+                heartbeat()
+        out[entry["id"]] = decision
+    if not ran_any:
+        return {}, "scope clauses not checked: no standard in the library has a verified scope record yet"
+    return out, None
 
 # --------------------------------------------------------------- selection
 
@@ -378,7 +740,7 @@ def _semantic_cannot_cover_a_missing_reference(
 def select(
     submittal_document_id: str, *, allowed_document_ids: frozenset[str],
     review_run_id: str | None = None, persist: bool = True,
-    actor: dict | None = None,
+    actor: dict | None = None, heartbeat=None,
 ) -> dict:
     """Which standards apply to this submittal, why, and what is missing.
 
@@ -424,8 +786,64 @@ def select(
     ]
     selected, missing = _semantic_cannot_cover_a_missing_reference(selected, missing)
 
+    # B5: THE EVIDENCE for every citation - the page and the line it is on.
+    for standard_id, row in selected.items():
+        if row["method"] == METHOD_REFERENCED and row.get("identifier"):
+            page, quote = citation_evidence(
+                submittal_document_id, row["identifier"], allowed_document_ids)
+            row["evidence_page"], row["evidence_quote"] = page, quote
+            if page is not None:
+                row["reason"] = f"{row['reason']} (page {page})"
+
+    # B5: THE SCOPE DECISION on every standard that has a stored, verified
+    # scope record. Owner request 2026-09-28: by AI reasoning
+    # (`applicability_reasoning_enabled`), no manual taxonomy - or, while
+    # that stays off, the older taxonomy-matched path (`applicability_v2`),
+    # which already reports "not run" when no taxonomy is approved.
+    from .config import settings as _settings
+    if _settings.applicability_reasoning_enabled:
+        decisions, scope_not_run = scope_decisions_by_reasoning(library, profile, heartbeat=heartbeat)
+    else:
+        decisions, scope_not_run = scope_decisions(library, profile)
+    from . import applicability_v2 as v2
+    for standard_id, decision in decisions.items():
+        verdict = decision.get("decision")
+        evidence = {"evidence_page": decision.get("page"),
+                    "evidence_quote": decision.get("quote"),
+                    "scope_decision": verdict}
+        # HONEST RENDERING (bug found reviewing EF1975-DAS-M-03, 2026-09-28):
+        # `decision.get('quote') or ''` used to print `""` as though an empty
+        # string were a citation - a claim with nothing behind it, on the
+        # honesty-invariant rule that no claim renders without a resolving
+        # citation. `applicability_reasoning.decide_by_reasoning` now backs
+        # every APPLICABLE/APPLICABLE_CANDIDATE with the record's own
+        # verified covered-item quote when the model gave none; a NULL that
+        # survives that (a `generic_scope` record naming no specific item)
+        # says so in plain words instead of showing an empty pair of quotes.
+        cited = (f"\"{decision.get('quote')}\" (page {decision.get('page')})"
+                 if decision.get("quote") else "no specific quoted clause")
+        row = selected.get(standard_id)
+        if verdict == v2.APPLICABLE and (row is None or row["method"] not in INCLUDING_METHODS):
+            selected[standard_id] = {
+                "method": METHOD_SCOPE, "identifier": None, **evidence,
+                "reason": f"its scope clause covers this equipment: {cited}"}
+        elif verdict == v2.NOT_APPLICABLE and row is not None:
+            if row["method"] == METHOD_REFERENCED:
+                # CITED STANDARDS ARE NEVER EXCLUDED BY A SCOPE READING: the
+                # datasheet says it governs. The disagreement is shown.
+                row["scope_decision"] = verdict
+                row["reason"] = (f"{row['reason']}; its scope clause reads as not "
+                                 f"covering this equipment ({cited}) - engineer to confirm")
+            else:
+                row.update(evidence)
+                row["excluded_by_scope"] = (
+                    f"its scope clause excludes this equipment: {cited}")
+        elif row is not None:
+            row["scope_decision"] = verdict
+
     if persist:
-        _persist(submittal_document_id, review_run_id, selected, allowed_document_ids)
+        _persist(submittal_document_id, review_run_id, selected, allowed_document_ids,
+                 scope_not_run=scope_not_run)
         _audit("review.applicability_selected", actor, submittal_document_id,
                detail=f"selected={len(selected)} missing={len(missing)} "
                       f"library={len(library)}")
@@ -433,10 +851,14 @@ def select(
     return {
         "submittal_document_id": submittal_document_id,
         "review_run_id": review_run_id,
+        # Every candidate with its method and reason; `included` says which
+        # ones the review applies (B5: evidence methods only).
         "selected": [
-            {"standard_document_id": sid, **row} for sid, row in sorted(
+            {"standard_document_id": sid, **row, "included": is_included(row)}
+            for sid, row in sorted(
                 selected.items(), key=lambda kv: _PRIORITY[kv[1]["method"]])
         ],
+        "scope_decision_not_run": scope_not_run,
         "missing_references": missing,
         "referenced_total": len(referenced),
         "library_size": len(library),
@@ -449,56 +871,31 @@ def completeness(selected: dict, missing: list, submittal_document_id: str, *,
                  allowed_document_ids: frozenset[str]) -> dict:
     """How much of this review could actually be performed.
 
-    TWO THINGS REDUCE IT AND THEY ARE REPORTED SEPARATELY BEFORE BEING
-    COMBINED, because they have different remedies:
+    ONE FORMULA (B10). This module computes only what it alone knows - the
+    share of cited standards held locally - and delegates the extraction half
+    and the combination to `comparison.completeness_for_run`, the formula that
+    decides the review code. It used to carry a second formula (pages with a
+    fact / page count, multiplied), which disagreed with the gate's and, with
+    the page count unknown, reported extraction 1.0 for any sheet with facts.
 
-      * a missing referenced standard - somebody must load the standard;
-      * the submittal's own extraction recall from phase 4 - the datasheet was
-        only partly readable, and on the real pump sheet that was 0.43.
-
-    Multiplied rather than averaged: a review with every standard present but
-    half the datasheet unread is half a review, and so is the reverse. An
-    average would let one good number hide the other.
-
-    None when there is nothing to judge - never 0, which would read as total
-    failure rather than "no basis to compute this". And None, too, when the
-    extraction half was never measured, rather than a score built from the
-    other half alone (B18) - except where that other half is already 0.
+    None when there is nothing to judge - never 0 - and None when the
+    extraction half was never measured (B18), except where the reference half
+    is already 0; both rules now live in that one function.
     """
+    from . import comparison  # local: comparison does not import this module
+
     referenced_total = len(missing) + sum(
         1 for row in selected.values() if row["method"] == METHOD_REFERENCED)
     reference_coverage = (
-        (referenced_total - len(missing)) / referenced_total
+        round((referenced_total - len(missing)) / referenced_total, 3)
         if referenced_total else None)
-
-    facts = datasheets.list_facts(
-        submittal_document_id, allowed_document_ids=allowed_document_ids)
-    pages = {f["page"] for f in facts if f["page"] is not None}
-    extraction = round(len(pages) / max(len(pages), 1), 3) if facts else None
-    row = connect().execute(
-        "SELECT page_count FROM documents WHERE id = ?",
-        (submittal_document_id,)).fetchone()
-    if row and row["page_count"] and facts:
-        extraction = round(len(pages) / row["page_count"], 3)
-
-    # B18: AN UNMEASURED FACTOR IS NOT A FACTOR OF ONE. The two Nones mean
-    # different things. `reference_coverage` is None when the submittal cites
-    # no standard: there is nothing to cover, and leaving it out is right.
-    # `extraction` is None when no fact was ever extracted: the other half of
-    # the review was never MEASURED. Dropping it made "every cited standard
-    # held, datasheet unread" report completeness 1.0. Now that is None -
-    # unless a measured factor is already 0, which no unknown can raise (M-03:
-    # 0 of 15 cited standards held, so 0.0 is determinate and stays).
-    if extraction is None:
-        overall = 0.0 if reference_coverage == 0 else None
-    else:
-        parts = [p for p in (reference_coverage, extraction) if p is not None]
-        overall = round(__import__("math").prod(parts), 3)
+    run = comparison.completeness_for_run(
+        submittal_document_id, allowed_document_ids=allowed_document_ids,
+        reference_coverage=reference_coverage)
     return {
-        "reference_coverage": (round(reference_coverage, 3)
-                               if reference_coverage is not None else None),
-        "extraction_coverage": extraction,
-        "completeness": overall,
+        "reference_coverage": reference_coverage,
+        "extraction_coverage": run["extraction_coverage"],
+        "completeness": run["completeness"],
     }
 
 
@@ -566,8 +963,13 @@ def applicability_with_reasons(submittal_document_id: str, *,
     """
     result = select(submittal_document_id,
                     allowed_document_ids=allowed_document_ids, persist=False)
+    # B5: only rows the review APPLIES are "selected"; a candidate the policy
+    # did not include (a discipline match alone, similar wording, a confirmed
+    # scope exclusion) is reported with that reason, never as applicable.
     selected_by_id = {row["standard_document_id"]: row
-                      for row in result["selected"]}
+                      for row in result["selected"] if row["included"]}
+    considered_by_id = {row["standard_document_id"]: row
+                        for row in result["selected"] if not row["included"]}
     profile = _submittal_profile(submittal_document_id)
     library = _library(allowed_document_ids)
     requirement_counts = {
@@ -596,6 +998,20 @@ def applicability_with_reasons(submittal_document_id: str, *,
                        "document_number": entry.get("document_number"),
                        "filename": entry.get("filename"),
                        "status": status, "reason": reason})
+            continue
+
+        considered = considered_by_id.get(std_id)
+        if considered is not None:
+            scoped_out = considered.get("excluded_by_scope")
+            out.append({
+                "standard_document_id": std_id,
+                "document_number": entry.get("document_number"),
+                "filename": entry.get("filename"),
+                "status": STATUS_NOT_APPLICABLE if scoped_out else STATUS_UNKNOWN,
+                "reason": scoped_out or (
+                    f"considered ({considered['method']}): {considered['reason']} - "
+                    + CANDIDATE_ONLY_REASON.get(considered["method"], "not included")),
+            })
             continue
 
         standard_has_profile = any(
@@ -641,29 +1057,44 @@ def applicability_with_reasons(submittal_document_id: str, *,
 
 
 def _audit(action: str, actor: dict | None, resource_id: str | None,
-           detail: str | None = None) -> None:
-    """Durable record of a selection decision. Ids and counts only."""
-    conn = connect()
-    try:
-        with conn:
-            conn.execute(
-                """INSERT INTO audit_events
-                       (at, actor_user_id, actor_username, action,
-                        resource_type, resource_id, outcome, detail)
-                   VALUES (?, ?, ?, ?, 'review', ?, 'ok', ?)""",
-                (_now(), (actor or {}).get("id"),
-                 ((actor or {}).get("email") or "unauthenticated")[:200],
-                 action, resource_id, detail))
-    except Exception:  # noqa: BLE001 - an unwritable audit must not block it
-        pass
+           detail: str | None = None, *, conn=None) -> None:
+    """Durable record of a selection decision. Ids and counts only.
+
+    Never swallowed (B10): it used to catch every error, so a decision could
+    stand with no audit row. Given `conn`, it is written inside the caller's
+    transaction and rolls back with it."""
+    if conn is not None:
+        conn.execute(_AUDIT_SQL, _audit_args(action, actor, resource_id, detail))
+        return
+    own = connect()
+    with own:
+        own.execute(_AUDIT_SQL, _audit_args(action, actor, resource_id, detail))
+
+
+_AUDIT_SQL = """INSERT INTO audit_events
+       (at, actor_user_id, actor_username, action,
+        resource_type, resource_id, outcome, detail)
+   VALUES (?, ?, ?, ?, 'review', ?, 'ok', ?)"""
+
+
+def _audit_args(action, actor, resource_id, detail) -> tuple:
+    return (_now(), (actor or {}).get("id"),
+            ((actor or {}).get("email") or "unauthenticated")[:200],
+            action, resource_id, detail)
 
 
 def record_selection(
     *, review_run_id: str, standard_document_id: str, method: str,
     reason: str, confidence: float | None = None, included: bool = True,
-    exclusion_reason: str | None = None,
+    exclusion_reason: str | None = None, evidence_page: int | None = None,
+    evidence_quote: str | None = None, scope_decision: str | None = None,
+    audit: tuple | None = None,
 ) -> dict:
     """Write one row of `review_applicable_standards`.
+
+    `audit` - (action, actor, resource_id, detail) - is written in the SAME
+    transaction as the row, so an engineer's override is never stored
+    unaudited (B10).
 
     NO STANDARD ON THE LIST WITHOUT A REASON AND A METHOD. Both are refused
     when empty rather than defaulted, because "it was retrieved" is not a
@@ -698,9 +1129,21 @@ def record_selection(
         "included": 1 if included else 0,
         "exclusion_reason": exclusion_reason,
         "created_at": _now(),
+        "evidence_page": evidence_page,
+        "evidence_quote": evidence_quote,
+        "scope_decision": scope_decision,
     }
     conn = connect()
     with conn:
+        # P2: AN ENGINEER'S OVERRIDE IS NEVER REPLACED BY THE MACHINE. A later
+        # automatic selection on the same run keeps the manual row as it is.
+        existing = conn.execute(
+            "SELECT selection_method FROM review_applicable_standards"
+            " WHERE review_run_id = ? AND standard_document_id = ?",
+            (review_run_id, standard_document_id)).fetchone()
+        if (existing is not None and existing["selection_method"] == METHOD_MANUAL
+                and method != METHOD_MANUAL):
+            return {**row, "kept_engineer_override": True}
         # The phase 1 relation carries UNIQUE(review_run_id,
         # standard_document_id), so a re-run replaces rather than duplicates.
         conn.execute(
@@ -711,16 +1154,27 @@ def record_selection(
             """INSERT INTO review_applicable_standards
                (id, review_run_id, standard_document_id, selection_reason,
                 selection_method, confidence, included, exclusion_reason,
-                created_at)
+                created_at, evidence_page, evidence_quote, scope_decision)
                VALUES (:id, :review_run_id, :standard_document_id,
                        :selection_reason, :selection_method, :confidence,
-                       :included, :exclusion_reason, :created_at)""", row)
+                       :included, :exclusion_reason, :created_at,
+                       :evidence_page, :evidence_quote, :scope_decision)""", row)
+        if audit is not None:
+            _audit(*audit, conn=conn)
     return row
+
+
+def is_included(row: dict) -> bool:
+    """B5: applied to the review only on EVIDENCE - a citation, an equipment,
+    service or project classification, a scope clause, or an engineer - and
+    never when a confirmed scope reading excludes it."""
+    return row["method"] in INCLUDING_METHODS and not row.get("excluded_by_scope")
 
 
 def _persist(submittal_document_id: str, review_run_id: str | None,
              selected: dict[str, dict],
-             allowed_document_ids: frozenset[str]) -> None:
+             allowed_document_ids: frozenset[str], *,
+             scope_not_run: str | None = None) -> None:
     """Write the selection, and the standards considered and RULED OUT.
 
     Every selectable standard the caller may read is accounted for: the ones
@@ -732,9 +1186,20 @@ def _persist(submittal_document_id: str, review_run_id: str | None,
     if not review_run_id:
         return
     for standard_id, row in selected.items():
+        included = is_included(row)
+        exclusion = None
+        if not included:
+            exclusion = row.get("excluded_by_scope") or CANDIDATE_ONLY_REASON.get(
+                row["method"], "not evidence that this standard governs the submittal")
+            if scope_not_run and not row.get("excluded_by_scope"):
+                exclusion = f"{exclusion}; {scope_not_run}"
         record_selection(
             review_run_id=review_run_id, standard_document_id=standard_id,
-            method=row["method"], reason=row["reason"], included=True)
+            method=row["method"], reason=row["reason"], included=included,
+            exclusion_reason=exclusion,
+            evidence_page=row.get("evidence_page"),
+            evidence_quote=row.get("evidence_quote"),
+            scope_decision=row.get("scope_decision"))
     for entry in _library(allowed_document_ids):
         if entry["id"] in selected:
             continue
@@ -744,7 +1209,8 @@ def _persist(submittal_document_id: str, review_run_id: str | None,
             reason="considered from the library and not selected",
             included=False,
             exclusion_reason="no citation, equipment, discipline, service or "
-                             "project match with this submittal",
+                             "project match with this submittal"
+                             + (f"; {scope_not_run}" if scope_not_run else ""),
         )
 
 
@@ -776,9 +1242,9 @@ def override(
     row = record_selection(
         review_run_id=review_run_id, standard_document_id=standard_document_id,
         method=METHOD_MANUAL, reason=reason.strip(), included=include,
-        exclusion_reason=None if include else reason.strip())
-    _audit("review.applicability_override", actor, review_run_id,
-           detail=f"standard={standard_document_id} included={include}")
+        exclusion_reason=None if include else reason.strip(),
+        audit=("review.applicability_override", actor, review_run_id,
+               f"standard={standard_document_id} included={include}"))
     return row
 
 

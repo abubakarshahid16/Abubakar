@@ -277,6 +277,15 @@ def set_user_resolver(fn) -> None:
     _resolve_user_id = fn
 
 
+def request_identity(request: Request) -> str | None:
+    """Who this request says it is, through the SAME resolver `current_scope`
+    uses - or None. Under `disabled` nobody has to identify, so this is only
+    meaningful where `settings.auth_mode != AUTH_DISABLED`."""
+    if _resolve_user_id is None:
+        return None
+    return _resolve_user_id(request) or None
+
+
 def current_scope(request: Request) -> AccessScope:
     """The scope for THIS request. The single place a scope is created.
 

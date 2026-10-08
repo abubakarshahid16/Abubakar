@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pymupdf
 
-from .db import add_column_if_missing, connect
+from .db import add_column_if_missing, connect, schema_once
 from .config import settings
 from . import notifications
 
@@ -17,7 +17,8 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def ensure_schema() -> None:
+@schema_once
+def _ensure_tables() -> None:
     with connect() as conn:
         conn.execute("""CREATE TABLE IF NOT EXISTS deliverables (
             id TEXT PRIMARY KEY,
@@ -42,6 +43,20 @@ def ensure_schema() -> None:
         add_column_if_missing(
             conn, "deliverables", "parent_id",
             "TEXT REFERENCES deliverables(id) ON DELETE SET NULL")
+        # NULL `document_id` USED TO MEAN "VISIBLE TO EVERYONE", AND IT ALSO
+        # MEANS "THE DOCUMENT WAS DELETED" (`ON DELETE SET NULL`). The two are
+        # different facts: a deliverable tied to a private document became
+        # public the moment that document was deleted. `org_wide` is the
+        # explicit fact, written only at creation. A deleted document's row
+        # keeps org_wide = 0, so it stays out of every scoped read.
+        # THE BACKFILL RUNS ONLY WHEN THIS CALL ADDED THE COLUMN. Run on every
+        # start it would re-label rows the delete nulled as public. Rows nulled
+        # before this fix cannot be told apart from true org-wide rows; they
+        # keep their old (visible) behaviour.
+        if add_column_if_missing(conn, "deliverables", "org_wide",
+                                 "INTEGER NOT NULL DEFAULT 0"):
+            conn.execute("UPDATE deliverables SET org_wide = 1 "
+                         "WHERE document_id IS NULL")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_deliverables_wbs ON deliverables(wbs_code)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_deliverables_parent ON deliverables(parent_id, wbs_code)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_deliverables_due ON deliverables(due_date, status)")
@@ -72,11 +87,6 @@ def ensure_schema() -> None:
             PRIMARY KEY (deliverable_id, user_id, role)
         )""")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_deliverable_stakeholders_role ON deliverable_stakeholders(deliverable_id, role)")
-        # Preserve the pre-stakeholder schema's single owner during migration.
-        conn.execute("""INSERT OR IGNORE INTO deliverable_stakeholders
-            (deliverable_id, user_id, role, created_at)
-            SELECT id, owner_user_id, 'owner', updated_at
-            FROM deliverables WHERE owner_user_id IS NOT NULL""")
         conn.execute("""CREATE TABLE IF NOT EXISTS reminder_events (
             id TEXT PRIMARY KEY,
             deliverable_id TEXT NOT NULL REFERENCES deliverables(id) ON DELETE CASCADE,
@@ -100,6 +110,25 @@ def ensure_schema() -> None:
         ]
         for level, days, role, action in defaults:
             conn.execute("INSERT OR IGNORE INTO escalation_rules(level, trigger_days, recipient_role, action) VALUES (?,?,?,?)", (level, days, role, action))
+
+
+def ensure_schema() -> None:
+    """The tables (memoised - see `db.schema_once`), then the owner sync.
+
+    THE OWNER SYNC RUNS ON EVERY CALL, AS IT ALWAYS DID. It reads like a
+    one-off migration ("preserve the pre-stakeholder schema's single owner")
+    but `create` writes `owner_user_id` without a stakeholder row, so it is
+    this statement, run by the next read, that makes a new item's owner a
+    stakeholder. Memoising it with the DDL would have silently stopped that.
+    One statement, not the ~40 the table checks cost.
+    """
+    _ensure_tables()
+    with connect() as conn:
+        # Preserve the pre-stakeholder schema's single owner during migration.
+        conn.execute("""INSERT OR IGNORE INTO deliverable_stakeholders
+            (deliverable_id, user_id, role, created_at)
+            SELECT id, owner_user_id, 'owner', updated_at
+            FROM deliverables WHERE owner_user_id IS NOT NULL""")
 
 
 def escalation_rules() -> list[dict]:
@@ -131,12 +160,13 @@ def create(payload: dict, *, created_by: str | None) -> dict:
         "submitted_at": payload.get("submitted_at"), "approved_at": payload.get("approved_at"),
         "created_by": created_by, "created_at": now, "updated_at": now,
     }
+    item["org_wide"] = 1 if item["document_id"] is None else 0
     with connect() as conn:
         conn.execute("""INSERT INTO deliverables
             (id,wbs_code,parent_id,title,deliverable_type,revision,status,document_id,owner_user_id,
-             planned_date,due_date,submitted_at,approved_at,created_by,created_at,updated_at)
+             planned_date,due_date,submitted_at,approved_at,created_by,created_at,updated_at,org_wide)
             VALUES (:id,:wbs_code,:parent_id,:title,:deliverable_type,:revision,:status,:document_id,:owner_user_id,
-                    :planned_date,:due_date,:submitted_at,:approved_at,:created_by,:created_at,:updated_at)""", item)
+                    :planned_date,:due_date,:submitted_at,:approved_at,:created_by,:created_at,:updated_at,:org_wide)""", item)
         conn.execute("INSERT INTO deliverable_events (id, deliverable_id, event_type, changes, actor_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
                      (str(uuid.uuid4()), item["id"], "created", json.dumps({"revision": item["revision"], "status": item["status"]}), created_by, now))
     return item
@@ -150,7 +180,7 @@ def list_items(*, allowed_document_ids: frozenset[str] | None = None) -> list[di
         if not allowed_document_ids:
             return []
         marks = ",".join("?" for _ in allowed_document_ids)
-        sql += f" WHERE document_id IS NULL OR document_id IN ({marks})"
+        sql += f" WHERE org_wide = 1 OR document_id IN ({marks})"
         args.extend(sorted(allowed_document_ids))
     sql += " ORDER BY wbs_code, due_date, revision"
     return [dict(row) for row in connect().execute(sql, args).fetchall()]
@@ -160,11 +190,27 @@ def expected_missing(*, wbs_code: str | None = None,
                      allowed_document_ids: frozenset[str] | None = None) -> list[dict]:
     """Return configured expected deliverables and their registered status."""
     ensure_schema()
-    sql = "SELECT e.*, d.id AS deliverable_id, d.status FROM deliverable_expectations e " \
-          "LEFT JOIN deliverables d ON d.wbs_code=e.wbs_code AND d.deliverable_type=e.deliverable_type"
+    # r2 S3: an expectation inferred from a document the caller may not read is
+    # not theirs to see, and neither is the status of a deliverable registered
+    # against such a document (the join would otherwise report it).
     args: list[str] = []
+    join_scope = ""
+    where: list[str] = []
+    if allowed_document_ids is not None:
+        if not allowed_document_ids:
+            return []
+        marks = ",".join("?" for _ in allowed_document_ids)
+        join_scope = f" AND (d.org_wide = 1 OR d.document_id IN ({marks}))"
+        args.extend(sorted(allowed_document_ids))
+        where.append(f"(e.source_document_id IS NULL OR e.source_document_id IN ({marks}))")
+    sql = "SELECT e.*, d.id AS deliverable_id, d.status FROM deliverable_expectations e " \
+          "LEFT JOIN deliverables d ON d.wbs_code=e.wbs_code AND d.deliverable_type=e.deliverable_type" + join_scope
+    if allowed_document_ids is not None:
+        args.extend(sorted(allowed_document_ids))
     if wbs_code:
-        sql += " WHERE e.wbs_code = ?"; args.append(wbs_code)
+        where.append("e.wbs_code = ?"); args.append(wbs_code)
+    if where:
+        sql += " WHERE " + " AND ".join(where)
     rows = connect().execute(sql, args).fetchall()
     return [dict(row) | {"state": "registered" if row["deliverable_id"] else "missing", "origin": "inferred" if row["inferred"] else "manual"}
             for row in rows]
@@ -229,8 +275,12 @@ def workspace(item_id: str, *, allowed_document_ids: frozenset[str] | None = Non
     item = get(item_id)
     if item is None:
         return None
-    if item.get("document_id") and allowed_document_ids is not None and item["document_id"] not in allowed_document_ids:
-        return None
+    if allowed_document_ids is not None:
+        if item.get("document_id"):
+            if item["document_id"] not in allowed_document_ids:
+                return None
+        elif not item.get("org_wide") or not allowed_document_ids:
+            return None
     children = [dict(row) for row in connect().execute(
         "SELECT * FROM deliverables WHERE parent_id = ? ORDER BY wbs_code", (item_id,)
     ).fetchall()]

@@ -130,7 +130,7 @@ export type Confidence = "low" | "medium";
 export interface ConfidenceCheck {
   label: string;
   /** true = this check would lower confidence and it fired */
-  fired: boolean;
+  fired: boolean | null;
 }
 
 export interface Recommendation {

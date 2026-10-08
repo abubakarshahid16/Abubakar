@@ -167,7 +167,7 @@ Answer all six. **Any failure stops the push.**
     git remote -v
 
 Then confirm the repository's visibility on GitHub. **If it is public, STOP and report.**
-This project holds work derived from Saudi Aramco standards and the client's contractor documents.
+This project holds work derived from the client's own standards and their contractor documents.
 
 ## 3.2 Does history contain anything that must never leave?
 

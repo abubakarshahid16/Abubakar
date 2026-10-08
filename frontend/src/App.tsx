@@ -12,6 +12,7 @@ import { DisconnectedState } from "./components/states";
 import { CommandPalette } from "./components/CommandPalette";
 import { AdminScreen } from "./views/AdminScreen";
 import { ChatView } from "./views/ChatView";
+import { RecentChats } from "./components/chat/RecentChats";
 import { DashboardView } from "./views/DashboardView";
 import { StandardsView } from "./views/StandardsView";
 import { DocumentsView } from "./views/DocumentsView";
@@ -22,6 +23,7 @@ import { ReportsScreen } from "./views/ReportsScreen";
 import { DeliverablesView } from "./views/DeliverablesView";
 import { ReviewRunsView } from "./views/ReviewRunsView";
 import type { AuthStatus, Me } from "./types/api";
+import { NavigationContext } from "./components/NavLink";
 import { parseRoute, pathForView, titleForView, type AppRoute } from "./routing";
 
 //: One key, named once. A typo in a second literal is a preference that
@@ -89,6 +91,12 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
     document.title = route.kind === "forbidden" ? "Access denied · RAG Intelligence System" : titleForView(route.view);
   }, [route]);
   const { connection, recheck } = useConnection();
+  // The conversation open on the Chat screen, held here because two places
+  // choose it: the chat itself (a new conversation) and the recent-chats list
+  // in the navigation.
+  const [chatId, setChatId] = useState<string | null>(null);
+  const [chatVersion, setChatVersion] = useState(0);
+  const bumpChats = useCallback(() => setChatVersion((v) => v + 1), []);
   const [session, setSession] = useState<Session>({ s: "checking" });
 
   // The bearer token, mirrored here ONLY so the admin screen can be handed one.
@@ -245,6 +253,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
   }
 
   return (
+    <NavigationContext.Provider value={onNavigate}>
     <Shell
       view={view}
       onNavigate={onNavigate}
@@ -252,6 +261,19 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
       auth={authStatus}
       theme={theme}
       onThemeChange={setTheme}
+      navExtra={
+        // Recent chats live in the navigation, on the Chat screen only: the
+        // conversation list used to take a column of the chat itself.
+        view === "chat" && route.kind !== "forbidden" && connection.state !== "offline" ? (
+          <RecentChats
+            currentId={chatId}
+            version={chatVersion}
+            onOpen={setChatId}
+            onNew={() => setChatId(null)}
+            onDeleted={(id) => setChatId((c) => (c === id ? null : c))}
+          />
+        ) : undefined
+      }
       identity={
         // Nothing is claimed while the backend is unreachable. "Authentication
         // disabled" is a statement about the deployment, and it must not be
@@ -269,6 +291,23 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
           card, so an amber "backend is not running" and a red "HTTP 502"
           appeared together. The shell owns this condition; the view is not
           rendered at all while it holds. */}
+      {/* The chat is the one view that holds state the server cannot hand
+          back on a reload: the transcript on screen and a request in flight.
+          Unmounting it for an outage threw both away and replayed its entrance
+          animation on recovery, so it stays mounted - HIDDEN, not shown beside
+          the banner, which keeps the one-error-at-a-time rule above. */}
+      {view === "chat" && route.kind !== "forbidden" && (
+        <div className="contents" hidden={connection.state === "offline"}>
+          <ChatView
+            connection={connection}
+            onRetryConnection={recheck}
+            onNavigate={onNavigate}
+            conversationId={chatId}
+            onConversationChange={setChatId}
+            onListChanged={bumpChats}
+          />
+        </div>
+      )}
       {connection.state === "offline" ? (
         <DisconnectedState onRetry={recheck} />
       ) : route.kind === "forbidden" ? (
@@ -285,9 +324,6 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
           {view === "documents" && (
             <DocumentsView connection={connection} onRetryConnection={recheck} isAdmin={canAdmin} />
           )}
-          {view === "chat" && (
-            <ChatView connection={connection} onRetryConnection={recheck} onNavigate={onNavigate} />
-          )}
           {view === "ingestion" && (
             <IngestionView connection={connection} onRetryConnection={recheck} />
           )}
@@ -296,13 +332,19 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
               connection={connection} onRetryConnection={recheck}
               onOpenReview={(runId) => onNavigate("review", runId)}
               onOpenDocuments={() => onNavigate("documents")}
+              onOpenDeliverables={() => onNavigate("deliverables")}
             />
           )}
           {view === "standards" && <StandardsView isAdmin={canAdmin} />}
           {view === "analysis" && <AnalysisModeScreen />}
           {view === "reports" && <ReportsScreen />}
           {view === "deliverables" && <DeliverablesView />}
-          {view === "review" && <ReviewRunsView openRunId={route.kind === "view" ? route.recordId : undefined} />}
+          {view === "review" && (
+            <ReviewRunsView
+              openRunId={route.kind === "view" ? route.recordId : undefined}
+              onOpenStandards={() => onNavigate("standards")}
+            />
+          )}
           {/* `canAdmin &&` is the gate, not the absence of a nav entry. Setting
               the view to "admin" by any other means - a stale state value, a
               devtools poke - renders nothing at all. The server is the real
@@ -312,5 +354,6 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
         </>
       )}
     </Shell>
+    </NavigationContext.Provider>
   );
 }

@@ -24,6 +24,8 @@ function run(over: Partial<ReviewRunSummary> = {}): ReviewRunSummary {
     findings_total: 1580, by_status: {},
     recommended_code: "Manual Review Required",
     recommended_reason:
+      "Checked 48 datasheet fields. That is not enough of the datasheet to suggest a review code yet.",
+    recommended_details:
       "the review examined 48 fields; the denominator is a NOMINAL ESTIMATE "
       + "of 385, and that is not enough of the submittal to recommend a code",
     completeness: null,
@@ -43,7 +45,10 @@ describe("both codes, never one", () => {
     // Scoped to the card: the code is also an <option> in the select below.
     const card = screen.getByText(/Recommended by the system/).parentElement!;
     expect(within(card).getByText("Manual Review Required")).toBeInTheDocument();
-    expect(within(card).getByText(/NOMINAL ESTIMATE/)).toBeInTheDocument();
+    expect(within(card).getByText(/Checked 48 datasheet fields/)).toBeInTheDocument();
+    // 2g: the engine's own sentence, verbatim, under Details - not in the headline.
+    const details = within(card).getByText("Details").closest("details")!;
+    expect(within(details).getByText(/NOMINAL ESTIMATE/)).toBeInTheDocument();
   });
 
   it("keeps the recommendation on screen after a decision is recorded", () => {
@@ -108,6 +113,31 @@ describe("both codes, never one", () => {
     render(<ReviewCodePanel run={run()} onDecided={vi.fn()} />);
 
     expect(screen.getByText("Not decided yet.")).toBeInTheDocument();
+  });
+});
+
+describe("the client's own code labels, when the run carries them", () => {
+  it("offers the run's review_codes instead of the built-in four", () => {
+    /* CRS quick wins (audit crs.md defect 14), THE MUTATION TARGET (M1310):
+     * a client whose CRS uses "Code 1".."Code 4" sees THOSE in the picker,
+     * not the English defaults every account used to be stuck with. */
+    render(
+      <ReviewCodePanel
+        run={run({ review_codes: ["Code 1", "Code 2", "Code 3", "Code 4"] })}
+        onDecided={vi.fn()}
+      />,
+    );
+
+    const select = screen.getByRole("combobox");
+    expect(within(select).getByText("Code 3")).toBeInTheDocument();
+    expect(within(select).queryByText("Manual Review Required")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the built-in four when the run carries none", () => {
+    render(<ReviewCodePanel run={run({ review_codes: undefined })} onDecided={vi.fn()} />);
+
+    const select = screen.getByRole("combobox");
+    expect(within(select).getByText("Manual Review Required")).toBeInTheDocument();
   });
 });
 

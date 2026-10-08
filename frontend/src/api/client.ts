@@ -7,18 +7,30 @@
  *    must say "the backend is not running" rather than spin or show stale
  *    numbers as if they were live
  */
+import { SseParser } from "./sse";
 import type {
+  BackgroundJob,
   DeletedConversation,
   DeletedDocument,
   ApiError,
+  MissingStandard,
   AskRequest,
   AskResult,
+  CancelledTurn,
+  ChatFeedback,
+  ChatModels,
+  ChatSource,
+  ChatStep,
+  ChatVerification,
   ChunkPage,
   Conversation,
   ConversationDetail,
   ConversationList,
   DocumentRecord,
   DocumentPage,
+  FiledComment,
+  Message,
+  WithdrawnComment,
   AuthStatus,
   ExclusionsResponse,
   AnalysisGapsResult,
@@ -40,8 +52,15 @@ import type {
   ReportRecord,
   ReportVerification,
   ReviewDashboard,
+  CrsComment,
+  CrsCommentHistory,
   CrsPreview,
+  CrsReplyImport,
+  CrsResponseCode,
+  ReviewReadiness,
+  VisionReaderStatus,
   ReviewRunStandard,
+  ReviewRunMissingReference,
   ReviewRunSummary,
   PagesResponse,
   ClassificationVocabulary,
@@ -213,6 +232,26 @@ export function onSignedOut(fn: (() => void) | null) {
   onUnauthenticated = fn;
 }
 
+/** THE ONE HOME FOR "the backend said the token is no good": drop the dead
+ *  token and tell the app once. Every transport calls this on its own 401 -
+ *  the JSON path, the answer stream, the report download, the page image and
+ *  the upload (audit 2026-09-30: the image/PDF fetch and the upload did not,
+ *  so a reader with an expired session saw "could not render" or "Upload
+ *  failed" and stayed on a screen that could no longer do anything).
+ *  No auto-retry and no refresh flow: there is no refresh token by design. */
+function signOutOn401(status: number): void {
+  if (status === 401) {
+    token = null;
+    onUnauthenticated?.();
+  }
+}
+
+/** For the one transport this module does not own (the XHR upload): report
+ *  the status it got, so a 401 there signs out exactly as one here does. */
+export function reportResponseStatus(status: number): void {
+  signOutOn401(status);
+}
+
 /** What to tell a reader, in words they can act on. */
 function humanMessage(status: number): string {
   if (status === 401) {
@@ -346,11 +385,30 @@ export const reviews = {
     ),
   /** Which standards a run compared against, and why each one is there. */
   reviewRunStandards: (runId: string) =>
-    request<{ standards: ReviewRunStandard[] }>(
+    request<{ standards: ReviewRunStandard[]; missing_references?: ReviewRunMissingReference[] }>(
       `/reviews/runs/${encodeURIComponent(runId)}/standards`,
       undefined,
       hasArrayField("standards"),
     ),
+  /** Which standards a run considered, INCLUDING the ones not applied - the
+   *  engineer's add-a-standard list. */
+  reviewRunStandardsAll: (runId: string) =>
+    request<{ standards: ReviewRunStandard[]; missing_references?: ReviewRunMissingReference[] }>(
+      `/reviews/runs/${encodeURIComponent(runId)}/standards?include_excluded=true`,
+      undefined,
+      hasArrayField("standards"),
+    ),
+  /** P2: an engineer adds or removes one standard, with a reason; the run's
+   *  findings are recomputed. Returns every standard the run considered. */
+  overrideRunStandard: (runId: string, body: { standard_document_id: string; include: boolean; reason: string }) =>
+    request<{ standards: ReviewRunStandard[]; missing_references?: ReviewRunMissingReference[] }>(
+      `/reviews/runs/${encodeURIComponent(runId)}/standards/override`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+      hasArrayField("standards"),
+    ),
+  /** P3: cancel a queued review now, or a running one at its next step. */
+  cancelJob: (jobId: string) =>
+    request<BackgroundJob>(`/jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" }),
   /** Start a review. Admin-gated, and refuses while one is already running. */
   startReviewRun: (submittalDocumentId: string) =>
     request<ReviewRunSummary>("/reviews/run", {
@@ -383,12 +441,72 @@ export const reviews = {
    *  have. Shape-checked like every other list on this screen: a body of the
    *  wrong shape reaching the table as `ok` is how one bad response takes a
    *  whole view down. */
+  /** Owner order section 3: the readiness strip - pages read, standards
+   *  held and missing, and whether anything changed since the last run. */
+  readiness: (submittalDocumentId: string) =>
+    request<ReviewReadiness>(
+      `/reviews/readiness/${encodeURIComponent(submittalDocumentId)}`,
+      undefined,
+      hasArrayField("standards_missing"),
+    ),
+  /** Owner order section 3: "Read unread pages" - re-extracts this ONE
+   *  submittal, then answers the readiness strip's own numbers again. */
+  rereadPages: (submittalDocumentId: string) =>
+    request<ReviewReadiness>(
+      `/reviews/readiness/${encodeURIComponent(submittalDocumentId)}/reread-pages`,
+      { method: "POST" },
+      hasArrayField("standards_missing"),
+    ),
+  /** Can "Read unread pages" use the vision reader right now, and if not,
+   *  what to change. About the service, not a document. */
+  visionReaderStatus: () =>
+    request<VisionReaderStatus>(
+      "/reviews/vision-reader-status",
+      undefined,
+      (b) => typeof b === "object" && b !== null
+        && typeof (b as Record<string, unknown>).state === "string",
+    ),
   previewCrs: (runId: string) =>
     request<CrsPreview>(
       `/reviews/runs/${encodeURIComponent(runId)}/crs/preview`,
       undefined,
       hasArrayField("rows"),
     ),
+  /** Close or re-open one numbered comment (its Final Resolution). Only a
+   *  signed-in reviewer can; the server records who from the session. */
+  setCrsCommentStatus: (runId: string, ref: string, status: "Open" | "Closed", note?: string) =>
+    request<CrsComment>(
+      `/reviews/runs/${encodeURIComponent(runId)}/crs/comments/${encodeURIComponent(ref)}/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status, note: note?.trim() || null }),
+      }),
+  /** Record the contractor's reply to one comment, when it came by email or
+   *  letter rather than the returned sheet. `code` null = they stated none. */
+  recordCrsResponse: (runId: string, ref: string, code: CrsResponseCode | null, text: string) =>
+    request<CrsComment>(
+      `/reviews/runs/${encodeURIComponent(runId)}/crs/comments/${encodeURIComponent(ref)}/response`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, text }),
+      }),
+  crsCommentHistory: (runId: string, ref: string) =>
+    request<CrsCommentHistory>(
+      `/reviews/runs/${encodeURIComponent(runId)}/crs/comments/${encodeURIComponent(ref)}/history`,
+      undefined,
+      hasArrayField("events"),
+    ),
+  /** Import the contractor's returned CRS (.xlsx). Rows are matched by their
+   *  permanent number only; statuses are not changed. */
+  importCrsReply: (runId: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<CrsReplyImport>(
+      `/reviews/runs/${encodeURIComponent(runId)}/crs/reply`,
+      { method: "POST", body: form },
+      hasArrayField("rows"),
+    );
+  },
   /** The run's findings as a Comment Resolution Sheet.
    *
    *  NOT `request()`, because the body is a spreadsheet rather than JSON -
@@ -397,8 +515,11 @@ export const reviews = {
    *  filename is the SERVER's: one definition of what the file is called. */
   exportCrs: async (
     runId: string,
+    copy: "internal" | "issue" = "internal",
   ): Promise<Result<{ blob: Blob; filename: string }>> => {
-    const path = `/reviews/runs/${encodeURIComponent(runId)}/crs`;
+    // Owner order 2f: "internal" keeps the AI Review Comments column;
+    // "issue" is the contractor's copy, with every unconfirmed AI item removed.
+    const path = `/reviews/runs/${encodeURIComponent(runId)}/crs?copy=${copy}`;
     let response: Response;
     try {
       const headers = new Headers();
@@ -409,6 +530,7 @@ export const reviews = {
         e instanceof Error ? e.message : "Network request failed.");
     }
     if (!response.ok) {
+      signOutOn401(response.status);
       let error: ApiError = {
         code: response.status === 404 ? "not_found" : "internal",
         message: humanMessage(response.status),
@@ -424,10 +546,19 @@ export const reviews = {
     }
     const disposition = response.headers.get("Content-Disposition") ?? "";
     const match = /filename="([^"]+)"/.exec(disposition);
+    let blob: Blob;
+    try {
+      blob = await response.blob();
+    } catch (e) {
+      // The status line arrives before the bytes: a dropped connection throws
+      // here, on a response that already said 200.
+      return disconnected(
+        e instanceof Error ? e.message : "The download was interrupted.");
+    }
     return {
       ok: true,
       data: {
-        blob: await response.blob(),
+        blob,
         filename: match?.[1] ?? `CRS_${runId}.xlsx`,
       },
     };
@@ -719,7 +850,10 @@ export async function fetchImageObjectUrl(url: string): Promise<ImageObjectResul
     const headers = new Headers();
     if (token) headers.set("Authorization", `Bearer ${token}`);
     const response = await fetch(url, { headers });
-    if (!response.ok) return { url: null, answerLocated: null };
+    if (!response.ok) {
+      signOutOn401(response.status);
+      return { url: null, answerLocated: null };
+    }
     const located = response.headers.get("X-Answer-Located");
     return {
       url: URL.createObjectURL(await response.blob()),
@@ -758,8 +892,7 @@ async function downloadReport(path: string, fallback: string): Promise<DownloadR
     if (response.status === 401) {
       // Same side effects as the JSON path: drop the dead token and tell the
       // app once. No retry - there is no refresh token by design.
-      token = null;
-      onUnauthenticated?.();
+      signOutOn401(response.status);
       return { ok: false, failure: { kind: "unauthenticated" } };
     }
     if (response.status === 403) return { ok: false, failure: { kind: "forbidden" } };
@@ -813,6 +946,41 @@ export const auth = {
     }),
 };
 
+/** A response that is not ok, as the Result every screen already renders.
+ *  Shared by `request()` and the answer stream, so a 401 on either clears
+ *  the token and tells the app exactly once, the same way. */
+async function failureOf(response: Response): Promise<Result<never>> {
+  // A gateway status means nothing served the request - the backend is not
+  // reachable, which is the same condition as a network failure and must
+  // read as one. Reported as an API error it produced an amber "backend is
+  // not running" banner and a red "HTTP 502" card on screen together.
+  if (GATEWAY_STATUSES.has(response.status)) {
+    return disconnected("Nothing answered on the API port.");
+  }
+
+  // The token is no good - expired, revoked, or the account deactivated.
+  // Clear it and tell the app once. No auto-retry and no refresh flow:
+  // there is no refresh token by design, and a silent retry against a
+  // revoked session is a loop that hides the reason from the reader.
+  signOutOn401(response.status);
+
+  let error: ApiError = {
+    code: "internal",
+    // Never a bare status code on a client-facing screen. A reader cannot
+    // act on "HTTP 500" and should not have to.
+    message: humanMessage(response.status),
+  };
+  try {
+    const body = await response.json();
+    // FastAPI wraps HTTPException detail; both shapes are handled
+    const raw = body?.detail ?? body;
+    if (raw && typeof raw === "object" && "code" in raw) error = raw as ApiError;
+  } catch {
+    /* keep the fallback */
+  }
+  return { ok: false, disconnected: false, error };
+}
+
 async function request<T>(
   path: string,
   init?: RequestInit,
@@ -830,42 +998,26 @@ async function request<T>(
     return disconnected(e instanceof Error ? e.message : "Network request failed.");
   }
 
-  if (!response.ok) {
-    // A gateway status means nothing served the request - the backend is not
-    // reachable, which is the same condition as a network failure and must
-    // read as one. Reported as an API error it produced an amber "backend is
-    // not running" banner and a red "HTTP 502" card on screen together.
-    if (GATEWAY_STATUSES.has(response.status)) {
-      return disconnected("Nothing answered on the API port.");
-    }
+  if (!response.ok) return failureOf(response);
 
-    // The token is no good - expired, revoked, or the account deactivated.
-    // Clear it and tell the app once. No auto-retry and no refresh flow:
-    // there is no refresh token by design, and a silent retry against a
-    // revoked session is a loop that hides the reason from the reader.
-    if (response.status === 401) {
-      token = null;
-      onUnauthenticated?.();
-    }
-
-    let error: ApiError = {
-      code: "internal",
-      // Never a bare status code on a client-facing screen. A reader cannot
-      // act on "HTTP 500" and should not have to.
-      message: humanMessage(response.status),
+  // A 200 whose body is not JSON (a proxy's HTML page, a truncated body) must
+  // become the same typed failure every caller already handles - never a
+  // rejected promise, which strands whatever flag the caller set before it.
+  let body: unknown;
+  try {
+    body = response.status === 204 ? null : await response.json();
+  } catch {
+    return {
+      ok: false,
+      disconnected: false,
+      error: {
+        code: "internal",
+        message:
+          "The server's reply could not be read. If you changed something, it may " +
+          "or may not have been saved - reload to check before trying again.",
+      },
     };
-    try {
-      const body = await response.json();
-      // FastAPI wraps HTTPException detail; both shapes are handled
-      const raw = body?.detail ?? body;
-      if (raw && typeof raw === "object" && "code" in raw) error = raw as ApiError;
-    } catch {
-      /* keep the fallback */
-    }
-    return { ok: false, disconnected: false, error };
   }
-
-  const body = await response.json();
   if (expect && !expect(body)) {
     // Never a white screen. The reader gets the same card any other API
     // failure produces, and the console keeps the detail for whoever is
@@ -997,6 +1149,20 @@ export const api = {
       `/standards/${encodeURIComponent(id)}/requirements/extract`,
       { method: "POST" }),
   /** Mark a standard as replaced, or clear the mark with null. ADMIN, audited. */
+  /** Standards cited but not in the library, with the publisher's catalogue
+   *  page and whether each has been requested. Nothing is fetched. */
+  missingStandards: () =>
+    request<MissingStandard[]>("/standards/missing", undefined, isArrayBody),
+  /** Record, under the signed-in engineer's name, that a missing standard
+   *  has been asked for. */
+  requestMissingStandard: (identifier: string, note: string | null) =>
+    request<{ identifier: string; status: string; requested_by: string; requested_at: string }>(
+      "/standards/missing/request",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identifier, note }),
+      }),
   supersedeStandard: (id: string, superseded_by: string | null) =>
     request<{ superseded_by: string | null }>(
       `/standards/${encodeURIComponent(id)}/supersede`,
@@ -1076,7 +1242,163 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ question: "", tier: "extract", ...body }),
     }),
+  /** Which engines can answer a chat question, and which one answers by
+   *  default. Says WHY one is unavailable; never carries a key. */
+  chatModels: () =>
+    request<ChatModels>("/chat/models", undefined, hasArrayField("models")),
+  /** Stop an answer being written. The server closes the provider call and
+   *  stores the turn as stopped, with what the reader had been shown. */
+  /** "Search once": run the one web search a consent turn offered. Sends
+   *  no text - the server sends exactly the phrase the consent turn showed
+   *  and stored, after re-checking it against the whitelist. */
+  webSearch: (conversationId: string, messageId: string) =>
+    request<Message>(
+      `/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/web-search`,
+      { method: "POST" },
+    ),
+  /** "Was this right?" on one answer. The reader's own; stored locally. */
+  chatFeedback: (conversationId: string, messageId: string, helpful: boolean) =>
+    request<ChatFeedback>(
+      `/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/feedback`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ helpful }) },
+    ),
+  /** "Add to comment sheet": file the text the engineer has in front of them. */
+  fileComment: (conversationId: string, messageId: string, text: string) =>
+    request<FiledComment>(
+      `/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/comment`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) },
+    ),
+  /** Undo a filing - the filer, within minutes, while nobody has changed it. */
+  withdrawComment: (conversationId: string, messageId: string, findingId: string) =>
+    request<WithdrawnComment>(
+      `/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/comment/${encodeURIComponent(findingId)}`,
+      { method: "DELETE" },
+    ),
+  cancelTurn: (conversationId: string, turnId: string) =>
+    request<CancelledTurn>(
+      `/conversations/${encodeURIComponent(conversationId)}/ask/${encodeURIComponent(turnId)}/cancel`,
+      { method: "POST" },
+    ),
 };
+
+/** One event of a streamed answer, as `askStream` hands it to the screen. */
+export type StreamEvent =
+  | { event: "turn"; data: { turn_id: string } }
+  | { event: "step"; data: ChatStep }
+  | { event: "delta"; data: { text: string } }
+  | { event: "sources"; data: { sources: ChatSource[] } }
+  | { event: "verification"; data: ChatVerification }
+  | { event: "notice"; data: { text: string } };
+
+export type StreamOutcome =
+  | { kind: "done"; result: AskResult }
+  | { kind: "failed"; disconnected: boolean; error: ApiError }
+  /** The reader aborted the request before the answer finished. */
+  | { kind: "aborted" }
+  /** The server answered without streaming (an older backend): the caller
+   *  asks through `api.ask` instead. Nothing was answered by this request. */
+  | { kind: "unsupported" };
+
+function offlineError(e: unknown, fallback: string): ApiError {
+  const r = disconnected(e instanceof Error ? e.message : fallback);
+  return r.ok ? { code: "internal", message: fallback } : r.error;
+}
+
+const STREAM_EVENTS = new Set(["turn", "step", "delta", "sources", "verification", "notice"]);
+
+/**
+ * `ask`, streamed: progress steps, the text as it is written, then the same
+ * complete answer the non-streaming route returns (the `done` event).
+ *
+ * A POST read with `fetch`, not an EventSource: the route needs the question
+ * in a body and the token in a header, and EventSource can send neither.
+ * Aborting `signal` closes the connection, which the server reads as Stop.
+ */
+export async function askStream(
+  conversationId: string,
+  body: Partial<AskRequest>,
+  { signal, onEvent }: { signal?: AbortSignal; onEvent: (e: StreamEvent) => void },
+): Promise<StreamOutcome> {
+  let response: Response;
+  try {
+    const headers = new Headers({ "Content-Type": "application/json", Accept: "text/event-stream" });
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    response = await fetch(`${BASE}/conversations/${encodeURIComponent(conversationId)}/ask/stream`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ question: "", tier: "generated", ...body }),
+      signal,
+    });
+  } catch (e) {
+    if (signal?.aborted) return { kind: "aborted" };
+    return { kind: "failed", disconnected: true, error: offlineError(e, "Network request failed.") };
+  }
+  if (!response.ok) {
+    // 404/405 from a backend that has no stream route at all. A 404 that
+    // names a missing CONVERSATION carries a code and is a real failure.
+    if (response.status === 405) return { kind: "unsupported" };
+    if (response.status === 404) {
+      const body = await response.clone().json().catch(() => null);
+      const raw = body?.detail ?? body;
+      if (!(raw && typeof raw === "object" && "code" in raw)) return { kind: "unsupported" };
+    }
+    const failed = await failureOf(response);
+    if (!failed.ok) return { kind: "failed", disconnected: failed.disconnected, error: failed.error };
+  }
+  if (!(response.headers.get("Content-Type") ?? "").includes("text/event-stream")) {
+    return { kind: "unsupported" };
+  }
+
+  const parser = new SseParser();
+  const handle = (events: ReturnType<SseParser["push"]>): StreamOutcome | null => {
+    for (const e of events) {
+      if (e.event === "done") return { kind: "done", result: e.data as AskResult };
+      if (e.event === "error") {
+        const raw = e.data as ApiError | null;
+        return {
+          kind: "failed",
+          disconnected: false,
+          error: raw && typeof raw === "object" && "code" in raw
+            ? raw
+            : { code: "internal", message: "The answer could not be completed." },
+        };
+      }
+      if (STREAM_EVENTS.has(e.event)) onEvent(e as StreamEvent);
+    }
+    return null;
+  };
+
+  try {
+    if (!response.body) {
+      const text = await response.text();
+      const whole = handle([...parser.push(text), ...parser.push("\n\n")]);
+      if (whole) return whole;
+    } else {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const outcome = handle(parser.push(decoder.decode(value, { stream: true })));
+        if (outcome) {
+          void reader.cancel().catch(() => undefined);
+          return outcome;
+        }
+      }
+      const tail = handle(parser.push(decoder.decode() + "\n\n"));
+      if (tail) return tail;
+    }
+  } catch (e) {
+    if (signal?.aborted) return { kind: "aborted" };
+    return { kind: "failed", disconnected: true, error: offlineError(e, "The connection closed.") };
+  }
+  if (signal?.aborted) return { kind: "aborted" };
+  return {
+    kind: "failed",
+    disconnected: false,
+    error: { code: "internal", message: "The answer stopped before it finished. Try again." },
+  };
+}
 
 export const management = {
   summary: () => request<ManagementSummary>("/management/summary"),

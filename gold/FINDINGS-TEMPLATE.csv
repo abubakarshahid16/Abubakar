@@ -1,0 +1,9 @@
+submittal,page,field,tag,expected,standard,clause,notes
+# Rows beginning with # are ignored. One row per comment you would raise, and one "none" row per field you checked and would NOT comment on.
+# expected = breach  -> the stated value breaks a requirement
+# expected = missing -> the value is blank, "TBA", "vendor to advise", or not on the sheet
+# expected = review  -> needs an engineer's judgement or a question to the contractor
+# expected = none    -> you checked this field and there is nothing to raise (this is how wrong comments are caught)
+# EXAMPLE-DS-001.pdf,4,Design corrosion allowance,V-2001,breach,SAES-A-133,7.1.2.1,0 mm stated; 1.6 mm min for carbon steel
+# EXAMPLE-DS-001.pdf,3,Noise level,,missing,SAES-A-105,5.3.3,left as TBA
+# EXAMPLE-DS-001.pdf,2,Design pressure,V-2001,none,,,checked - within the standard

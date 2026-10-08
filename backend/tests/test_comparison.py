@@ -18,7 +18,7 @@ import uuid
 
 import pytest
 
-from app import applicability, comparison, datasheets, db, standards, submittal_review
+from app import applicability, comparison, datasheets, db, review, standards, submittal_review
 from app.config import settings
 
 
@@ -143,6 +143,8 @@ def test_a_numeric_breach_is_caught_with_both_citations():
         requirement=requirement, fact=fact, verdict=verdict)
 
     assert finding["compliance_status"] == comparison.NON_COMPLIANT
+    # CONTROL for the severity fix below: a real breach still reads "major".
+    assert finding["severity"] == "major"
     # BOTH CITATIONS, and both resolve.
     assert finding["standard_clause"] == "5.3.3"
     assert finding["standard_page"] == 1
@@ -153,6 +155,25 @@ def test_a_numeric_breach_is_caught_with_both_citations():
     # The rationale is stored SEPARATELY from the comment.
     assert finding["ai_rationale"]
     assert "90" in finding["ai_rationale"] and "95" in finding["ai_rationale"]
+
+
+def test_a_machine_finding_starts_its_history_pending_and_unsigned():
+    """B10: the audit trail says the REVIEW wrote the finding - no person, and
+    pending. It used to start at the first human edit."""
+    std = _doc("std", "s.pdf", "COMPANY_STANDARD")
+    sub = _doc("sub", "d.pdf", "CONTRACTOR_SUBMITTAL")
+    sc = _chunk("sc", std); fc = _chunk("fc", sub)
+    run = _run(sub)
+    requirement = _requirement(std, sc)
+    fact = _fact(sub, fc)
+    finding = comparison.create_finding(
+        review_run_id=run, submittal_document_id=sub, requirement=requirement,
+        fact=fact, verdict=comparison.compare(requirement, fact))
+    events = review.history(finding["id"])
+    assert [e["event_type"] for e in events] == ["created_by_review"]
+    assert events[0]["actor_user_id"] is None
+    assert events[0]["changes"]["approval_status"] == "pending"
+    assert events[0]["changes"]["review_run_id"] == run
 
 
 def test_a_value_within_the_limit_is_compliant():
@@ -255,6 +276,10 @@ def test_a_blank_by_contractor_field_is_missing_information_never_non_compliant(
     assert "provide" in finding["required_action"].lower()
     # The sheet's own words survive so a reader can see what it said.
     assert "Contractor" in finding["contractor_evidence_text"]
+    # BUG FIX, 2026-09-28: a blank field is "a question, not a failure" (see
+    # BLOCKING's own comment above) and must not carry the same "major"
+    # severity as a real breach.
+    assert finding["severity"] == "minor"
 
 
 def test_a_requirement_with_no_matching_field_is_missing_information():
@@ -275,6 +300,55 @@ def test_missing_information_does_not_block_approval():
     result = comparison.recommend_code(findings, complete)
     assert result["code"] == comparison.CODE_APPROVED_WITH_COMMENTS
     assert result["code"] != comparison.CODE_REJECTED
+
+
+# ============================================= THE SEVERITY BUG, 2026-09-28
+#
+# Found reviewing a real review of EF1975-DAS-M-03: `_prepare_finding`'s
+# `severity` parameter defaulted to the literal string "major" and nothing
+# in this file ever passed anything else, so EVERY finding - including the
+# 1,223 NOT_IN_DOCUMENT_SCOPE rows on that run, a status this file's own
+# comment calls "NOT a failure" - was written and reported as "major",
+# identical to a real NON_COMPLIANT breach. `SEVERITY_BY_STATUS` /
+# `_default_severity` fix this by deriving severity from the finding's own
+# final status. Deleting the `if severity is None: severity =
+# _default_severity(status)` line in `_prepare_finding` makes every test in
+# this section fail back to "major".
+
+@pytest.mark.parametrize("status,expected", [
+    (comparison.NOT_IN_DOCUMENT_SCOPE, "observation"),
+    (comparison.MISSING_LOCALLY, "observation"),
+    (comparison.COMPLIANT, "observation"),
+    (comparison.MISSING_INFORMATION, "minor"),
+    (comparison.NEEDS_ENGINEER_REVIEW, "minor"),
+    (comparison.CONDITIONAL, "minor"),
+    (comparison.NON_COMPLIANT, "major"),
+])
+def test_default_severity_by_status(status, expected):
+    assert comparison._default_severity(status) == expected
+
+
+def test_an_unlisted_status_defaults_to_major_not_silently_to_something_softer():
+    """The safe side when this table has no opinion about a status - a future
+    status, or a typo - is "major", never a quieter value that could hide a
+    real problem from an engineer."""
+    assert comparison._default_severity("SOME_FUTURE_STATUS") == "major"
+    assert comparison._default_severity(None) == "major"
+
+
+def test_an_explicit_severity_override_is_still_respected():
+    """A caller that names a severity keeps it - the fix only supplies a
+    default when nobody said, it never overrides a stated choice."""
+    std = _doc("std", "s.pdf", "COMPANY_STANDARD")
+    sub = _doc("sub", "d.pdf", "CONTRACTOR_SUBMITTAL")
+    sc = _chunk("sc", std); fc = _chunk("fc", sub)
+    run = _run(sub)
+    requirement = _requirement(std, sc)
+    fact = _fact(sub, fc)
+    finding = comparison.create_finding(
+        review_run_id=run, submittal_document_id=sub, requirement=requirement,
+        fact=fact, verdict=comparison.compare(requirement, fact), severity="critical")
+    assert finding["severity"] == "critical"
 
 
 # ================================================= citations must both resolve
@@ -447,8 +521,12 @@ def test_low_completeness_forces_manual_review_even_with_zero_breaches():
     assert result["code"] == comparison.CODE_MANUAL
     assert result["code"] not in (comparison.CODE_APPROVED,
                                   comparison.CODE_APPROVED_WITH_COMMENTS)
-    # REPORTED WITH ITS DENOMINATOR.
-    assert "9" in result["reason"] and "250" in result["reason"]
+    # REPORTED WITH ITS DENOMINATOR - in Details, labelled nominal (2g): the
+    # plain sentence states only what was counted.
+    assert "9" in result["details"] and "250" in result["details"]
+    assert "NOMINAL ESTIMATE" in result["details"]
+    assert result["reason"] == ("Checked 9 datasheet fields. That is not enough of "
+                                "the datasheet to suggest a review code yet.")
 
 
 def test_completeness_is_the_weakest_link_not_the_average():
@@ -595,6 +673,13 @@ def test_a_requirement_naming_other_evidence_never_reaches_compliant_end_to_end(
     finding = result["findings"][0]
     assert finding["compliance_status"] == comparison.NOT_IN_DOCUMENT_SCOPE
     assert comparison.REQUIRES_OTHER_DOCUMENT in finding["ai_rationale"]
+    # BUG FIX, 2026-09-28 (found reviewing EF1975-DAS-M-03): this status is
+    # documented above (NOT_IN_DOCUMENT_SCOPE's own comment) as "NOT a
+    # contractor omission and NOT a failure", yet every finding used to be
+    # written with the hardcoded default severity "major" regardless of
+    # status - the same bucket as a real NON_COMPLIANT breach. It must not
+    # read "major" end to end.
+    assert finding["severity"] == "observation"
 
 
 def test_an_excluded_standards_requirements_produce_no_findings_at_all():
@@ -629,6 +714,16 @@ def test_an_excluded_standards_requirements_produce_no_findings_at_all():
     datasheets.create_fact(
         submittal_document_id=sub, chunk_id=fc, field_label="Noise level",
         raw_value="95 dB(A)", page=1)
+    # 2026-09-27 Fix 3: with no equipment_type, datasheet_checks' generic
+    # fallback now checks for these two universal fields (was silently
+    # skipped before) - present here so this test isolates the STANDARDS-
+    # comparison logic it is actually about, not that separate mechanism.
+    datasheets.create_fact(
+        submittal_document_id=sub, chunk_id=fc, field_label="Design pressure",
+        raw_value="23.5 barg", page=1)
+    datasheets.create_fact(
+        submittal_document_id=sub, chunk_id=fc, field_label="Design temperature",
+        raw_value="80 C", page=1)
 
     result = comparison.run_comparison(run, allowed_document_ids=_scope(std, sub))
 
@@ -692,12 +787,48 @@ def test_a_measured_zero_stays_zero_whatever_is_unknown():
 
 def test_applicability_completeness_is_none_when_extraction_was_never_measured():
     """The same defect in the other home (CLAUDE.md rule 8): the product of
-    the factors that exist, with the unmeasured one silently dropped."""
-    sub = _doc("sub", "d.pdf", "CONTRACTOR_SUBMITTAL", pages=3)
+    the factors that exist, with the unmeasured one silently dropped.
+
+    B10: "never measured" is an UNKNOWN PAGE COUNT, as in the gate's formula,
+    which applicability now delegates to. (No facts on known pages is a
+    measured 0, below.)"""
+    sub = _doc("sub", "d.pdf", "CONTRACTOR_SUBMITTAL", pages=0)
     held = {"std": {"method": applicability.METHOD_REFERENCED}}
     result = applicability.completeness(
         held, [], sub, allowed_document_ids=_scope(sub))
     assert result["reference_coverage"] == 1.0
+    assert result["extraction_coverage"] is None
+    assert result["completeness"] is None
+
+
+def test_applicability_and_the_gate_report_one_completeness(monkeypatch):
+    """B10: ONE FORMULA. The selection's completeness and the gate's were two
+    different calculations (pages-with-a-fact x references, against
+    fields-read / nominal fields, weakest link) and printed different numbers
+    for one review. Now the selection delegates; the numbers are identical."""
+    sub = _doc("sub", "d.pdf", "CONTRACTOR_SUBMITTAL", pages=2)
+    facts = [{"page": 1, "id": f"f{i}"} for i in range(7)]
+    monkeypatch.setattr(comparison.datasheets, "list_facts", lambda *a, **k: facts)
+    held = {"std": {"method": applicability.METHOD_REFERENCED}}
+    selection = applicability.completeness(
+        held, ["MISSING-1"], sub, allowed_document_ids=_scope(sub))
+    gate = comparison.completeness_for_run(
+        sub, allowed_document_ids=_scope(sub),
+        reference_coverage=selection["reference_coverage"])
+    assert selection["reference_coverage"] == 0.5
+    assert selection["extraction_coverage"] == gate["extraction_coverage"] == 0.1
+    assert selection["completeness"] == gate["completeness"] == 0.1
+
+
+def test_an_unknown_page_count_is_not_full_extraction(monkeypatch):
+    """The old selection formula divided pages-with-a-fact by itself when the
+    page count was unknown - 1.0, for any sheet with one fact."""
+    sub = _doc("sub", "d.pdf", "CONTRACTOR_SUBMITTAL", pages=0)
+    monkeypatch.setattr(comparison.datasheets, "list_facts",
+                        lambda *a, **k: [{"page": 1, "id": "f1"}])
+    result = applicability.completeness(
+        {"std": {"method": applicability.METHOD_REFERENCED}}, [], sub,
+        allowed_document_ids=_scope(sub))
     assert result["extraction_coverage"] is None
     assert result["completeness"] is None
 
@@ -711,6 +842,13 @@ def test_applicability_completeness_keeps_m03s_determinate_zero():
     result = applicability.completeness(
         {}, missing, sub, allowed_document_ids=_scope(sub))
     assert result["reference_coverage"] == 0.0
+    # B10: three known pages, no facts - a measured 0, the gate's own reading.
+    assert result["extraction_coverage"] == 0.0
+    assert result["completeness"] == 0.0
+    # and with the page count unknown, the determinate 0 still survives
+    unknown = _doc("sub2", "e.pdf", "CONTRACTOR_SUBMITTAL", pages=0)
+    result = applicability.completeness(
+        {}, missing, unknown, allowed_document_ids=_scope(unknown))
     assert result["extraction_coverage"] is None
     assert result["completeness"] == 0.0
 
@@ -879,6 +1017,15 @@ def test_a_full_run_writes_findings_into_the_phase_1_columns():
     datasheets.create_fact(
         submittal_document_id=sub, chunk_id=fc, field_label="Noise level",
         raw_value="95 dB(A)", page=1)
+    # 2026-09-27 Fix 3: present so the generic datasheet-check fallback (no
+    # equipment_type here) adds no extra finding - this test is about the
+    # standards-comparison finding alone, checked below by `.fetchone()`.
+    datasheets.create_fact(
+        submittal_document_id=sub, chunk_id=fc, field_label="Design pressure",
+        raw_value="23.5 barg", page=1)
+    datasheets.create_fact(
+        submittal_document_id=sub, chunk_id=fc, field_label="Design temperature",
+        raw_value="80 C", page=1)
     with db.connect() as conn:
         conn.execute("""INSERT INTO review_applicable_standards
             (id,review_run_id,standard_document_id,selection_reason,
@@ -898,8 +1045,14 @@ def test_a_full_run_writes_findings_into_the_phase_1_columns():
     assert row["standard_clause"] == "5.3.3"
     assert row["contractor_page"] == 1
     assert row["ai_rationale"]
-    # One page of facts against a 35-slot estimate gates the code.
-    assert result["recommended_code"]["code"] == comparison.CODE_MANUAL
+    # CRS quick wins: A PROVEN BREACH COMES FIRST. It once read Manual here
+    # (one page of facts against a nominal 35-slot estimate gated the code);
+    # a breach shown by arithmetic now sends the sheet back whatever else is
+    # unknown, and the completeness is measured against what the applicable
+    # standard asks for - 1 of 1 answered.
+    assert result["recommended_code"]["code"] == comparison.CODE_REJECTED
+    assert result["completeness"]["fields_required"] == 1
+    assert result["completeness"]["fields_answered"] == 1
 
 
 def test_re_running_a_comparison_does_not_double_the_findings():
@@ -915,6 +1068,15 @@ def test_re_running_a_comparison_does_not_double_the_findings():
     datasheets.create_fact(
         submittal_document_id=sub, chunk_id=fc, field_label="Noise level",
         raw_value="95 dB(A)", page=1)
+    # 2026-09-27 Fix 3: present so the generic fallback (no equipment_type
+    # here) adds no extra finding - this test is about RE-RUNNING, not
+    # about how many findings a run produces the first time.
+    datasheets.create_fact(
+        submittal_document_id=sub, chunk_id=fc, field_label="Design pressure",
+        raw_value="23.5 barg", page=1)
+    datasheets.create_fact(
+        submittal_document_id=sub, chunk_id=fc, field_label="Design temperature",
+        raw_value="80 C", page=1)
     with db.connect() as conn:
         conn.execute("""INSERT INTO review_applicable_standards
             (id,review_run_id,standard_document_id,selection_reason,

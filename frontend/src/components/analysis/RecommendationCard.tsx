@@ -29,7 +29,7 @@ export function RecommendationCard({
   }
 
   const r = recommendation;
-  const fired = r.checks.filter((c) => c.fired).length;
+  const fired = r.checks.filter((c) => c.fired === true).length;
 
   return (
     <details
@@ -90,13 +90,13 @@ export function RecommendationCard({
                 <li key={c.label} className="flex items-baseline gap-2 text-sm">
                   <span
                     className={[
-                      "w-16 shrink-0 font-mono text-xs",
-                      c.fired ? "text-warn-500" : "text-slateish-500",
+                      "w-28 shrink-0 font-mono text-xs",
+                      c.fired === true ? "text-warn-500" : "text-slateish-500",
                     ].join(" ")}
                   >
-                    {c.fired ? "▲ fired" : "— clear"}
+                    {c.fired === true ? "▲ fired" : c.fired === false ? "— clear" : "? not checked"}
                   </span>
-                  <span className={c.fired ? "text-slateish-200" : "text-slateish-400"}>
+                  <span className={c.fired === true ? "text-slateish-200" : "text-slateish-400"}>
                     {c.label}
                   </span>
                 </li>

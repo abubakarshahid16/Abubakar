@@ -46,6 +46,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 from collections.abc import Mapping
 
 import httpx
@@ -64,9 +65,30 @@ MAX_RESPONSE_BYTES = 1 * 1024 * 1024
 
 
 class TransportRefused(RuntimeError):
-    """A request this module will not make. Distinct from an HTTP error: an
-    HTTP error means the request happened and failed; this means it never
-    happened."""
+    """A request this module will not make, or an answer it will not read.
+    Distinct from an HTTP error. `sent` is False when the request never
+    happened, True when it did and the ANSWER was refused (too large) - the
+    API may have billed for that one."""
+
+    def __init__(self, message: str = "", *, sent: bool = False):
+        super().__init__(message)
+        self.sent = sent
+
+
+def unbilled(exc: BaseException) -> bool:
+    """True only when `exc` proves the API did no billable work: refused here
+    before sending, a connection never made, or a 4xx rejection. Anything
+    else - a read timeout, a 5xx, an oversized answer - may have been billed,
+    and `claude_spend.metered` charges its worst case."""
+    if isinstance(exc, ReaderRefused):
+        return True
+    if isinstance(exc, TransportRefused):
+        return not exc.sent
+    if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout)):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        return 400 <= exc.response.status_code < 500
+    return False
 
 
 def available() -> bool:
@@ -149,7 +171,7 @@ def transport():
         if len(response.content) > MAX_RESPONSE_BYTES:
             raise TransportRefused(
                 f"response from {host} is {len(response.content)} bytes, over "
-                f"the {MAX_RESPONSE_BYTES} limit")
+                f"the {MAX_RESPONSE_BYTES} limit", sent=True)
 
         decoded = response.json()
         counts = decoded.get("usage") if isinstance(decoded, dict) else None
@@ -169,10 +191,121 @@ def transport():
     return _send
 
 
-def list_models() -> list[str]:
+def stream(url: str, *, headers: Mapping[str, str], body: Mapping, timeout: float, cancel=None):
+    """The Messages API as a stream: yield each server-sent event's data.
+
+    THE SAME THREE GATES AS `transport()`'s callable, in the same order, and
+    the same audit line (sent once the stream ends, with `cancelled` when the
+    reader stopped it). No second path to the socket: this is the same file,
+    the same host check, the same client settings. `cancel` (a
+    threading.Event) closes the connection - the provider stops generating
+    and bills only what it produced.
+    """
+    import threading
+
+    if not available():
+        raise TransportRefused(
+            "standards reader egress is disabled; both "
+            "STANDARDS_READER_ENABLED and STANDARDS_READER_ALLOW_PUBLIC_EGRESS "
+            "must be true")
+    allowed = ReaderSettings.from_env().allowed_hosts
+    host = model_host_of(url)
+    if not url.startswith("https://") or host not in allowed:
+        raise ReaderRefused(f"reader transport refuses host {host!r}; allowed {allowed!r}")
+
+    sent_headers = {"User-Agent": USER_AGENT, "Accept": "text/event-stream"}
+    sent_headers.update(dict(headers or {}))
+    payload = json.dumps({**dict(body), "stream": True}, ensure_ascii=False).encode("utf-8")
+    counts = {"input_tokens": None, "output_tokens": None}
+    received = 0
+    cancelled = False
+    finished = threading.Event()
+    client = httpx.Client(timeout=httpx.Timeout(timeout), follow_redirects=False,
+                          cookies=None, trust_env=False)
+    opened: dict = {}
+
+    def _trace(name: str, info: dict) -> None:
+        # The TCP connection as it opens, so Stop can shut its socket down
+        # even while the request still waits for its first byte - closing the
+        # client from another thread does not interrupt a blocked read.
+        if name == "connection.connect_tcp.complete":
+            opened["stream"] = info.get("return_value")
+
+    def _watch() -> None:
+        import socket as _socket
+
+        while not finished.is_set():
+            if cancel.wait(0.1):
+                sock = opened["stream"].get_extra_info("socket") if opened.get("stream") else None
+                if sock is not None:
+                    try:
+                        sock.shutdown(_socket.SHUT_RDWR)
+                    except OSError:
+                        pass
+                client.close()
+                return
+
+    if cancel is not None:
+        threading.Thread(target=_watch, daemon=True).start()
+    status = 0
+    try:
+        with client.stream("POST", url, headers=sent_headers, content=payload,
+                           extensions={"trace": _trace}) as response:
+            status = response.status_code
+            if status >= 400:
+                kind = ""
+                try:
+                    err = json.loads(response.read()).get("error", {})
+                    kind = str(err.get("type") or "") if isinstance(err, dict) else ""
+                except ValueError:
+                    pass
+                raise httpx.HTTPStatusError(
+                    f"{status} from {host}" + (f" ({kind})" if kind else ""),
+                    request=response.request, response=response)
+            for line in response.iter_lines():
+                if cancel is not None and cancel.is_set():
+                    cancelled = True
+                    return
+                received += len(line)
+                if received > MAX_RESPONSE_BYTES:
+                    raise TransportRefused(
+                        f"stream from {host} passed the {MAX_RESPONSE_BYTES} byte limit", sent=True)
+                if not line.startswith("data:"):
+                    continue
+                try:
+                    event = json.loads(line[5:].strip())
+                except ValueError:
+                    continue
+                if event.get("type") == "message_start":
+                    usage = (event.get("message") or {}).get("usage") or {}
+                    counts["input_tokens"] = usage.get("input_tokens")
+                elif event.get("type") == "message_delta":
+                    counts["output_tokens"] = (event.get("usage") or {}).get("output_tokens")
+                yield event
+    except (httpx.TransportError, RuntimeError):
+        if cancel is not None and cancel.is_set():
+            cancelled = True
+            return
+        raise
+    finally:
+        finished.set()
+        client.close()
+        log.warning(
+            "standards reader: streamed %d bytes to %s model=%s status=%d "
+            "in=%s out=%s digest=%s%s",
+            len(payload), host, body.get("model"), status,
+            counts["input_tokens"], counts["output_tokens"], _digest(body),
+            " cancelled" if cancelled else "")
+
+
+def list_models(*, timeout: float | None = None) -> list[str]:
     """The model ids this key may use (GET /v1/models), through the same gates
     as `transport()`: both flags, https, allowed host. Ids only - nothing else
-    from the response is returned or logged."""
+    from the response is returned or logged.
+
+    `timeout` (seconds) overrides the reader's own for a quick reachability
+    check (`vision_reader.reader_status`): a status line must not hang for
+    the length of a page read. Costs no tokens either way."""
     from .reader_api import build_models_request  # the one request builder
 
     if not available():
@@ -182,7 +315,8 @@ def list_models() -> list[str]:
     if not request["url"].startswith("https://") or host not in ReaderSettings.from_env().allowed_hosts:
         raise ReaderRefused(f"reader transport refuses host {host!r}")
     sent_headers = {"User-Agent": USER_AGENT, "Accept": "application/json", **request["headers"]}
-    with httpx.Client(timeout=httpx.Timeout(request["timeout"]), follow_redirects=False,
+    with httpx.Client(timeout=httpx.Timeout(request["timeout"] if timeout is None else timeout),
+                      follow_redirects=False,
                       cookies=None, trust_env=False) as client:
         response = client.get(request["url"], headers=sent_headers)
     if response.status_code >= 400:
@@ -190,3 +324,99 @@ def list_models() -> list[str]:
                                     request=response.request, response=response)
     log.warning("standards reader: listed models at %s status=%d", host, response.status_code)
     return [str(m.get("id")) for m in response.json().get("data", []) if isinstance(m, dict)]
+
+
+# ------------------------------------------------------ Message Batches API
+#
+# The same lane, the same three gates, for many requests at once at half the
+# price (owner order 2026-09-25: the one-time scope records of every held
+# standard). Three calls - create, retrieve, results - each through `_gated`:
+# both flags, https, allowed host, no redirects / cookies / proxy. The body of
+# a create is the list of Messages bodies `reader_api.build_request` built;
+# nothing here adds text. Logged: counts, bytes and a digest - never a prompt,
+# never an answer, never the key.
+
+#: Bytes. The results file of a few hundred scope records is a few MB.
+MAX_BATCH_RESULTS_BYTES = 64 * 1024 * 1024
+BATCHES_SUFFIX = "/batches"
+
+
+def _gated(method: str, url: str, *, headers: Mapping[str, str], timeout: float,
+           content: bytes | None = None, limit: int = MAX_RESPONSE_BYTES):
+    """One request through the gates; returns the httpx response."""
+    if not available():
+        raise TransportRefused(
+            "standards reader egress is disabled; both "
+            "STANDARDS_READER_ENABLED and STANDARDS_READER_ALLOW_PUBLIC_EGRESS "
+            "must be true")
+    host = model_host_of(url)
+    if not url.startswith("https://") or host not in ReaderSettings.from_env().allowed_hosts:
+        raise ReaderRefused(f"reader transport refuses host {host!r}")
+    sent = {"User-Agent": USER_AGENT, "Accept": "application/json", **dict(headers or {})}
+    with httpx.Client(timeout=httpx.Timeout(timeout), follow_redirects=False,
+                      cookies=None, trust_env=False) as client:
+        response = (client.post(url, headers=sent, content=content) if method == "POST"
+                    else client.get(url, headers=sent))
+    if response.status_code >= 400:
+        kind = ""
+        try:
+            err = response.json().get("error", {})
+            kind = str(err.get("type") or "") if isinstance(err, dict) else ""
+        except ValueError:
+            pass
+        raise httpx.HTTPStatusError(f"{response.status_code} from {host}" + (f" ({kind})" if kind else ""),
+                                    request=response.request, response=response)
+    if len(response.content) > limit:
+        raise TransportRefused(f"response from {host} is {len(response.content)} bytes, over the {limit} limit",
+                               sent=True)
+    return response
+
+
+def batch_create(messages_url: str, *, headers: Mapping[str, str], requests: list[dict],
+                 timeout: float = 120.0) -> dict:
+    """POST `{"requests": [{"custom_id", "params"}]}` to the Message Batches
+    endpoint beside `messages_url` (the URL `reader_api.build_request` built).
+    Returns the batch object (id, processing_status, ...)."""
+    url = messages_url.rstrip("/") + BATCHES_SUFFIX
+    body = {"requests": list(requests)}
+    payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
+    response = _gated("POST", url, headers=headers, timeout=timeout, content=payload)
+    decoded = response.json()
+    log.warning("standards reader: batch create sent %d bytes (%d requests) to %s status=%d digest=%s",
+                len(payload), len(body["requests"]), model_host_of(url), response.status_code, _digest(body))
+    return decoded
+
+
+def batch_retrieve(messages_url: str, batch_id: str, *, headers: Mapping[str, str],
+                   timeout: float = 60.0) -> dict:
+    """GET one batch's status object."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", batch_id or ""):
+        raise TransportRefused("batch id is not a plain identifier")
+    url = messages_url.rstrip("/") + BATCHES_SUFFIX + "/" + batch_id
+    response = _gated("GET", url, headers=headers, timeout=timeout)
+    decoded = response.json()
+    counts = decoded.get("request_counts") if isinstance(decoded, dict) else None
+    log.warning("standards reader: batch status %s at %s status=%d counts=%s",
+                decoded.get("processing_status") if isinstance(decoded, dict) else None,
+                model_host_of(url), response.status_code, json.dumps(counts, sort_keys=True))
+    return decoded
+
+
+def batch_results(results_url: str, *, headers: Mapping[str, str], timeout: float = 300.0) -> list[dict]:
+    """GET the JSONL results file of an ended batch. `results_url` comes from
+    the API's own answer, so it is held to the same https + allowed-host gate
+    as every other URL here."""
+    response = _gated("GET", results_url, headers=headers, timeout=timeout, limit=MAX_BATCH_RESULTS_BYTES)
+    rows = [json.loads(line) for line in response.text.splitlines() if line.strip()]
+    kinds: dict[str, int] = {}
+    tokens_in = tokens_out = 0
+    for row in rows:
+        result = row.get("result") or {}
+        kinds[str(result.get("type"))] = kinds.get(str(result.get("type")), 0) + 1
+        usage = (result.get("message") or {}).get("usage") or {}
+        tokens_in += int(usage.get("input_tokens") or 0)
+        tokens_out += int(usage.get("output_tokens") or 0)
+    log.warning("standards reader: batch results %d rows from %s status=%d types=%s in=%d out=%d",
+                len(rows), model_host_of(results_url), response.status_code, json.dumps(kinds, sort_keys=True),
+                tokens_in, tokens_out)
+    return rows

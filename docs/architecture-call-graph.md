@@ -25,6 +25,7 @@ then starts **exactly two background threads**: `IngestionWorker` (`ingest.py:90
 | Stage | Implementation | Production caller | Gate / config default | Tests | State |
 |---|---|---|---|---|---|
 | Upload | `upload.ingest` (`upload.py:237`): stream, hash, `jobs` row, classification suggestion | `POST /api/documents` (`main.py:317`), watcher `_handle` (`watcher.py:702`) | `max_upload_mb=512` | test_upload* , test_xlsx_upload | LIVE |
+| Office/scanned datasheet input | `datasheet_inputs.page_texts` / `pairs_from_rows`; seams in `upload.ingest` (.docx), `extract.extract_document` (`_office_rows`), `datasheets.pdf_condition` / `_pairs_from_pdf_page` / `_pairs_from_ocr_fallback`, `tables.parse_page_tables` | the upload and ingest worker above | `DATASHEET_OFFICE_INPUT=false` | test_datasheet_inputs | OFF by default |
 | Watcher | `FolderWatcher.scan_once` → `_handle` → `upload.ingest` → `_apply_role` → `classification.set_role(only_if_unset)` | startup thread | `watch_folder=""` = off; `watch_interval_seconds=300`. **The three `watch_*` settings are declared twice in `config.py`** (:407-453 and :476-522) | test_watch_folder | LIVE when configured (configured on this PC) |
 | Worker loop | `IngestionWorker._run` → `process` (`ingest.py:360`), status-driven QUEUED → EXTRACTING → CHUNKING → INDEXING_KEYWORD → PARTIALLY_SEARCHABLE (OCR, embed) → READY | startup thread | `job_max_retries=3`, `job_retry_base_seconds=60` | test_stage_atomicity, test_job_queue_177, test_job_claiming_race | LIVE |
 | Text | `extract.extract_document` (`extract.py:138`), PyMuPDF in a process pool, writes `pages` | worker; `POST .../extract` (`main.py:588`) | `extract_processes=1` | test_extract | LIVE |
@@ -34,7 +35,7 @@ then starts **exactly two background threads**: `IngestionWorker` (`ingest.py:90
 | Embeddings | `IngestionWorker.embed_pending` (`ingest.py:578`) → `Embedder.embed_passages`; e5-small ONNX int8; float32 BLOBs in SQLite `chunk_vectors` | worker; `POST .../embed` (`main.py:618`) | `embed_model_dir`, `embed_batch_size=16` | test_embedder, test_vectorcache | LIVE |
 | READY hooks | `_finish_if_embedded` (`ingest.py:716`): queue requirement extraction (COMPANY_STANDARD); extract facts, classify equipment type, classify metadata (CONTRACTOR_SUBMITTAL) | worker | keyed on `document_role` | test_ingest_fact_extraction, test_submittal_metadata_classification | LIVE — **see gap G1** |
 | Requirement extraction | `standards.extract_requirements` (`standards.py:608`): deterministic sentence split + mandatory-verb regex, **no model**; queued via `enqueue_extraction`, claimed atomically by `next_extraction_job` (:1120), run by `run_extraction_job` (:1152), drained by the worker only when no document needs work (`ingest.py:300`) | READY hook, `set_role`, `POST .../requirements/extract-async` (`main.py:2693`), sync admin route (`main.py:2583`) | — | test_standards_3b, test_job_queue_177 | LIVE |
-| Datasheet facts | `datasheets.extract_facts` (`datasheets.py:1843`): deterministic grid + text-block parsing; `replace=True` supersedes (ADR-0024). Vision tier `_pairs_from_vision_fallback` is a hard-coded `return []` | READY hook; `create_review_run` → `_extract_facts_if_none` | — | test_datasheets, test_179_layouts, test_b40_fact_orphan_guard | LIVE (vision tier DEAD) |
+| Datasheet facts | `datasheets.extract_facts` (`datasheets.py:1843`): deterministic grid + text-block parsing; `replace=True` supersedes (ADR-0024). Vision tier `_pairs_from_vision_fallback` is a hard-coded `return []` (the B4 vision reader below is separate). B4: with `GEOMETRY_READER_ENABLED` (default off) `geometry_reader.read_page_rows` adds `extraction_method='geometry'` facts (rule reader wins; disagreement kept as `validation_state='conflict'`; geometry-only pages stay not-read in the page ledger), and `comparison.run_comparison` names numeric requirements and labels via `field_naming.ensure_names` (labelling provider, code-verified quotes) and pairs by field-name equality before containment; such a pairing never carries a verdict. B4 items 1-3 (same flag): `vision_reader.read_page` sends each page image through `reasoning_provider.ClaudeProvider` -> `reader_api.build_request(images=...)` -> `reader_transport` (Claude only, step `b4-vision`) and keeps a label/value only when code proves it on the text layer beside its label, or in a geometry cell (`extraction_method='vision'`; rule/geometry facts win; vision-only pages stay not-read in the ledger, with the model's page kind as a recorded reason); `row_noise.noise_reason` drops page furniture from every reader; field naming (step `b4-naming2`) now also names BLANK fields, and a field-name pairing is always NEEDS_ENGINEER_REVIEW. With `DATASHEET_AI_READER` (`off` default | `ollama` | `claude`; not yet measured) `datasheet_ai.read_pages` reads every page with text through `claude_datasheet.read_page` before the write transaction (ollama: `reasoning_provider.OllamaProvider` -> `model_transport`; claude: `reasoning_provider.claude_unavailable` gate, then `reader_transport` wrapped in `claude_spend.metered`, step `datasheet-ai-reader`) and `datasheet_ai.merge_readings` merges it with the rule facts per page and field: agreed = one fact at 0.7, disagreement = both kept as `validation_state='conflict'`, AI-only = `extraction_method='model'`; engine failure = rules only with a reason | READY hook; `create_review_run` → `_extract_facts_if_none` | — | test_datasheets, test_179_layouts, test_b40_fact_orphan_guard | LIVE (vision tier DEAD) |
 | Classification | `suggest` at upload; `classify_equipment_type_for_submittal`, `classify_metadata_for_submittal` from READY hooks only; `confirm` from `PUT /api/documents/{id}/classification` (`main.py:1119`) | as stated | — | test_classification_*, test_document_roles | LIVE — **see gap G1** |
 
 **Page ledger (B3, ADR-0025).** `page_ledger` table + `page_ledger.py`: one row per page of
@@ -99,18 +100,32 @@ ms-marco-MiniLM-L-6-v2 int8 ONNX; OCR PP-OCRv6 tiny ONNX.
 **The Claude lane (revived 2026-09-25, #222):** `claude_api.router` is registered in `main.py`; its routes answer
 409 `model_disabled` unless both standards-reader egress flags are on. `reasoning_provider.get_provider()` picks
 `ClaudeProvider` only when `REASONING_PROVIDER=claude` AND both flags AND a key; otherwise `OllamaProvider`, with
-the reason logged. Every Claude call leaves through `reader_transport` (the one socket), is priced and capped by
-`claude_spend` (USD per step and total, ledger without text), and is cached by (model, prompt version, input hash).
+the reason logged. Every Claude call leaves through `reader_transport` (the one socket) and is priced and capped by
+`claude_spend` (USD per step and total, ledger without text). Since 2026-09-30 the check is a RESERVATION:
+`claude_spend.reserve` checks the call's worst case and writes it to the ledger in one step under a lock (a
+process-local mutex plus an OS lock on `<ledger>.lock`), so threads and processes sharing one ledger cannot all
+pass on the same last dollars; `settle` replaces it with the reported cost, and `settle_failure` charges a call that
+failed after it may have been sent (timeout, dropped stream, 1 MB cap) its final usage or its worst case, releasing it
+only when `reader_transport.unbilled` proves no billable work. `ClaudeProvider` (`reason`, `stream`, and a batch
+via `reserve_all`) reserves itself and caches by (model, prompt version, input hash); the four `claude_api` review
+routes get the same reservation and ledger through `claude_spend.metered(transport, step)` inside `_model_call_or_409(step)`
+(one step per route, e.g. `claude-recheck`), plus `claude_budget`'s per-run call cap, and are NOT cached (fixed
+2026-09-27: before that they had only the call cap and their spend never reached the USD ledger). Page IMAGES (B4 vision reader, behind `GEOMETRY_READER_ENABLED`) ride in the same request: `Packet.images` -> `reader_api.build_request(images=...)` (PNG/JPEG only; same gates) -> `reader_transport`; the image digests are part of the prompt hash and cache key, and the worst-case cost counts image tokens.
 
 ## 4. Conversation
 
 - Routes: `GET /api/answer` (`main.py:710`) → `answer.answer` (`answer.py:475`);
   `POST /api/conversations/{id}/ask` (`main.py:2374`) → `chat.ask` → `answer.answer`.
 - History: `chat.resolve_followup` uses up to `FOLLOWUP_WINDOW` prior **user questions**;
-  prior answers never reach retrieval or the prompt. The rewritten query is not stored
-  (B9A work).
-- Retrieval: `search.search` (`search.py:797`) = FTS5 BM25 + brute-force cosine over the
-  `vectorcache` matrix, scope mask applied **before** top-k (:258-270), fused by RRF
+  prior answers never reach retrieval. The rewritten query is not stored
+  (B9A work). (Since 2026-09-26 the MODEL sees the permission-filtered conversation as
+  labelled context, `chat_model.history`; on the Claude-first lane it is sent in the first
+  USER message inside `<prior_conversation>` delimiters, never in the system prompt -
+  `chat_claude_first._first_message`, 2026-09-30.) Claude-first tools are scoped by
+  `chat.claude_scope` (the conversation's/selected document, intersection only).
+- Retrieval: `search.search` (`search.py:797`) = FTS5 BM25 + exact cosine through
+  `vector_store.search` (sqlite-vec `vec0`, numpy `vectorcache` fallback), scope applied
+  **before** top-k inside the KNN, fused by RRF
   (`RRF_K=60`), identifier boost, then the local cross-encoder reranker (falls back to RRF
   order if the model file is missing). `search_candidates=30`, `rerank_candidates=16`.
 - Tier 1 returns a verbatim passage without a model; Tier 2 calls Ollama; credibility floor
@@ -152,12 +167,12 @@ grant-table query). Applied as a mask before top-k in keyword and dense search, 
 | Native / OCR / table-layout / selective vision | Native + OCR + rule-based table parsing; vision DEAD | B4, B7 |
 | Cited facts, clauses, metadata | Yes, deterministic; metadata classifier from #176 | B4, B5 |
 | Structure-preserving chunks, embeddings, keyword index | Yes | B6 |
-| Classification → standards and edition applicability | Deterministic rules + FTS keyword; no edition model | B5 |
+| Classification → standards and edition applicability | Live since 2026-09-25: applied only on evidence (cited, equipment/service/project classification, or a verified scope clause via `applicability_v2` with an owner-approved taxonomy); discipline-only and similarity-only are considered, not applied; cited-but-not-held is `MISSING_LOCALLY` and blocks approval. No edition model | B5 |
 | Requirement inventory | Yes (all rows of applicable standards) | B5 |
 | Evidence retrieval for review | Containment on field names; no retrieval per requirement | B6, B8 |
 | Bounded AI reasoning + independent validation | OFF / DEAD (`match_enabled=False`, seam unused, `quotes.py` unused) | B8 |
 | Findings, coverage report, CRS, engineer approval | Findings + CRS + engineer code: yes; coverage report: no single definition | B10 |
-| Conversation: permitted history, cited answer | Yes, questions-only history, no query rewrite stored | B9, B9A |
+| Conversation: permitted history, cited answer | Yes, questions-only history, no query rewrite stored. Recorded requirements: `chat-requirements-b6c-b9.md` | B6C, B9, B9A |
 
 Primary-source research behind these choices is in ADR-0019 (layout/tables: Docling,
 DocLayNet), ADR-0020 (visually rich retrieval: ColPali), ADR-0021 (structured requirements:

@@ -26,6 +26,8 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api } from "../api/client";
 import { DocumentPreview } from "../components/DocumentPreview";
+import { MissingStandards } from "../components/standards/MissingStandards";
+import { StructuredReading } from "../components/standards/StructuredReading";
 import { EmptyState, ErrorState, Spinner } from "../components/states";
 import type {
   ApiError, DocumentRecord, StandardRequirement, StandardSummary,
@@ -63,6 +65,13 @@ export function StandardsView({ isAdmin = false }: { isAdmin?: boolean }) {
     return <ErrorState error={load.error} onRetry={() => void refresh()} />;
   }
 
+  // The row the reader opened is a snapshot; after a refresh the list holds
+  // the server's current copy (e.g. a changed superseded_by), so prefer it.
+  // Fall back to the snapshot when the row is filtered out of the list.
+  const current = selected
+    ? load.standards.find((s) => s.id === selected.id) ?? selected
+    : null;
+
   return (
     <div className="flex flex-col gap-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
@@ -95,9 +104,12 @@ export function StandardsView({ isAdmin = false }: { isAdmin?: boolean }) {
         </ul>
       )}
 
-      {selected && (
+      <MissingStandards />
+
+      {current && (
         <StandardDetail
-          standard={selected}
+          key={current.id}
+          standard={current}
           isAdmin={isAdmin}
           onClose={() => setSelected(null)}
           onChanged={() => void refresh()}
@@ -241,17 +253,34 @@ function asDocument(standard: StandardSummary): DocumentRecord {
   };
 }
 
+/** A tab whose list could not be loaded says so - to everyone who can see the
+ *  tab, not only to admins - instead of spinning forever (audit 2026-09-30).
+ *  A failed load is not an empty list. */
+function TabLoadError({ what, message }: { what: string; message: string }) {
+  return (
+    <p role="alert" className="rounded border border-danger-500/40 bg-danger-500/10 p-2 text-xs text-danger-500">
+      The {what} of this standard could not be loaded - {message}. This is not
+      an empty list.
+    </p>
+  );
+}
+
 function RequirementsTab({
   standard, isAdmin, onExtracted,
 }: { standard: StandardSummary; isAdmin: boolean; onExtracted: () => void }) {
   const [rows, setRows] = useState<StandardRequirement[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const result = await api.standardRequirements(standard.id);
-    if (result.ok) setRows(result.data);
-    else setError(result.error.message);
+    if (result.ok) {
+      setRows(result.data);
+      setLoadError(null);
+    } else {
+      setLoadError(result.error.message);
+    }
   }, [standard.id]);
 
   useEffect(() => { void load(); }, [load]);
@@ -265,10 +294,15 @@ function RequirementsTab({
     onExtracted();
   };
 
-  if (rows === null) return <Spinner />;
+  if (rows === null) {
+    return loadError !== null
+      ? <TabLoadError what="requirements" message={loadError} />
+      : <Spinner />;
+  }
 
   return (
     <div className="flex flex-col gap-3">
+      {loadError !== null && <TabLoadError what="requirements" message={loadError} />}
       {isAdmin && (
         <div className="flex items-center gap-3">
           <button
@@ -316,7 +350,10 @@ function RequirementsTab({
                   </span>
                 )}
               </div>
+              {/* The quoted clause stays the primary content; the structured
+                  reading below it is secondary and labelled a machine guess. */}
               <p className="mt-1">{row.requirement_text}</p>
+              <StructuredReading row={row} />
             </li>
           ))}
         </ul>
@@ -330,11 +367,16 @@ function RevisionsTab({
 }: { standard: StandardSummary; isAdmin: boolean; onChanged: () => void }) {
   const [rows, setRows] = useState<StandardSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const result = await api.standardRevisions(standard.id);
-    if (result.ok) setRows(result.data);
-    else setError(result.error.message);
+    if (result.ok) {
+      setRows(result.data);
+      setLoadError(null);
+    } else {
+      setLoadError(result.error.message);
+    }
   }, [standard.id]);
 
   useEffect(() => { void load(); }, [load]);
@@ -347,12 +389,17 @@ function RevisionsTab({
     onChanged();
   };
 
-  if (rows === null) return <Spinner />;
+  if (rows === null) {
+    return loadError !== null
+      ? <TabLoadError what="revisions" message={loadError} />
+      : <Spinner />;
+  }
 
   const others = rows.filter((r) => r.id !== standard.id);
 
   return (
     <div className="flex flex-col gap-3">
+      {loadError !== null && <TabLoadError what="revisions" message={loadError} />}
       {rows.length <= 1 && (
         <p className="text-xs opacity-70">
           No other revisions of this standard number are in the library.

@@ -705,7 +705,13 @@ class ReaderSettings:
         )
 
 
-def build_request(prompt: str, *, cfg: ReaderSettings | None = None, env=None) -> dict:
+#: The only image types a request may carry (B4 vision reader: rendered
+#: datasheet pages). Anything else is refused before a request exists.
+IMAGE_MEDIA_TYPES = ("image/png", "image/jpeg")
+
+
+def build_request(prompt: str, *, cfg: ReaderSettings | None = None, env=None,
+                  images=()) -> dict:
     """The whole outbound request, built and CHECKED, but not sent.
 
     Returns `{"url", "headers", "body", "timeout"}`. Raises `ReaderRefused`
@@ -748,11 +754,24 @@ def build_request(prompt: str, *, cfg: ReaderSettings | None = None, env=None) -
         "content-type": "application/json",
         **cfg.extra_headers,
     }
+    content: str | list = prompt
+    if images:
+        # B4 VISION: page images ride in the SAME request, through the same
+        # gates above - there is no second builder and no second socket. The
+        # images come first, then the instruction (Anthropic's guidance).
+        blocks = []
+        for media_type, data in images:
+            if media_type not in IMAGE_MEDIA_TYPES or not isinstance(data, str) or not data:
+                raise ReaderRefused(f"image refused: type {media_type!r} is not one of "
+                                    f"{IMAGE_MEDIA_TYPES!r} or it carries no data")
+            blocks.append({"type": "image", "source": {
+                "type": "base64", "media_type": media_type, "data": data}})
+        content = [*blocks, {"type": "text", "text": prompt}]
     body = {
         "model": cfg.model,
         "max_tokens": cfg.max_tokens,
         "temperature": 0,
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": [{"role": "user", "content": content}],
     }
     return {"url": cfg.base_url.rstrip("/") + MESSAGES_PATH,
             "headers": headers, "body": body, "timeout": cfg.timeout_seconds}

@@ -153,7 +153,10 @@ describe("previewing a document", () => {
     const calls: Array<{ url: string; headers: Headers }> = [];
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
       calls.push({ url: String(url), headers: new Headers(init?.headers) });
-      return new Response(new Blob([new Uint8Array([37, 80, 68, 70])]), { status: 200 });
+      // A byte array, not `new Blob([...])`: jsdom's Blob is not one Node's
+      // Response can stream, so `.blob()` rejected and the test failed on
+      // the mock rather than on the code under test.
+      return new Response(new Uint8Array([37, 80, 68, 70]), { status: 200 });
     }));
     const { setToken } = await import("../api/client");
     setToken("tok-1");

@@ -233,7 +233,13 @@ export function LoginView({
           Your session is held in memory only. Reloading or closing this page signs
           you out. This is deliberate: nothing about your login is written to disk.
         </p>
-        <p className="mt-2 text-xs text-slateish-500">Nothing you type leaves this machine.</p>
+        {/* Whether Claude is switched on is not knowable before sign-in (the
+            status route needs a session), so this states both halves, in the
+            words the sidebar uses once signed in (CLAUDE.md rule 1). */}
+        <p className="mt-2 text-xs text-slateish-500">
+          Your documents are stored on this machine. When Claude is switched on,
+          the passages an answer needs are sent to it.
+        </p>
       </div>
     </main>
   );

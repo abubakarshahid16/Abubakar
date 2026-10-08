@@ -8,9 +8,16 @@ Two rules govern this module, and the second one is the important one.
 
 2. A previous ANSWER is never evidence. Retrieval reads documents and nothing
    else. Prior assistant messages are stored for display and replay, and are
-   never fed into search, into the prompt, or into follow-up resolution. If
-   they were, a wrong answer would become the grounds for the next one and the
-   whole citation guarantee would quietly stop meaning anything.
+   never fed into search or into follow-up resolution. If they were, a wrong
+   answer would become the grounds for the next one and the whole citation
+   guarantee would quietly stop meaning anything.
+
+   CHANGED 2026-09-26 (owner order, chat redesign), and only this far: the
+   MODEL now sees the recent conversation, permission-filtered, so "that",
+   "in points" and "more detail" work (`chat_model.history`). It sees it as
+   context labelled "not a source", and a document claim still has to cite a
+   passage retrieved for THIS question - so an earlier answer can shape the
+   wording but never become the evidence. Retrieval is unchanged.
 
 Resolution is deliberately conservative and inspectable. It carries forward
 identifiers and designators - the terms whose absence produces a confidently
@@ -27,9 +34,17 @@ import uuid
 from datetime import datetime, timezone
 
 from . import answer as answer_mod
+from . import chat_answers
+from . import chat_comparison
+from . import family_search
+from . import chat_model
+from . import chat_presentation
+from . import corpus as corpus_mod
 from . import intent as intent_mod
 from . import keyword
 from . import search as search_mod
+from . import understanding as understanding_mod
+from .config import settings
 from .db import connect
 
 #: How many previous USER questions resolution may look at. Beyond about three
@@ -175,9 +190,43 @@ def is_followup(question: str) -> bool:
     return not is_complete_question(lowered)
 
 
+def soft_identifiers(carried: list[str]) -> list[str]:
+    """The carried terms that are IDENTIFIERS (`API 610`, `5.3.2`).
+
+    resolve_followup carries an identifier only when the new question does not
+    already name it, so every one of these came from an earlier turn - up to
+    FOLLOWUP_WINDOW turns back - and is made soft downstream: it steers
+    retrieval and is never a requirement. Designators ("system 1") are not
+    here: the conflict rule already governs which one a follow-up keeps.
+    """
+    return [c for c in carried if keyword.IDENTIFIER.findall(c) == [c]]
+
+
 def _designator_words(question: str) -> set[str]:
     """The designator NOUNS present, e.g. {"system"} for "system 4"."""
     return {d.partition(" ")[0] for d in keyword.find_designators(question)}
+
+
+#: A pressure-class rating written the way engineers type it: "150#", "600 lb".
+#: It names the same thing as the designator "class 150".
+_RATING = re.compile(r"\b\d+\s*(?:#|lbs?\b)", re.IGNORECASE)
+
+#: A bare number, as `_content_words` yields it ("600", "4.5").
+_NUMBER = re.compile(r"^\d+(?:\.\d+)*$")
+
+
+def identifier_family(ident: str) -> str:
+    """What KIND of identifier this is: "API 682" and "API 610" are both API
+    standards, "ASME B31.1" and "ASME B31.3" both ASME codes, "5.3.2" and
+    "5.3.4" both clause numbers.
+
+    THE CONFLICT RULE FOR IDENTIFIERS (FOUND 2026-09-30, audit): "and API
+    610?" after a question about API 682 used to resolve to "and API 610? API
+    682" - the old standard carried in beside the new one, the same wrong
+    answer the designator conflict rule below exists to prevent. A newly
+    named identifier of a family REPLACES the carried one of that family."""
+    lead = re.match(r"[A-Za-z]+", ident)
+    return lead.group(0).upper() if lead else "#number"
 
 
 def resolve_followup(
@@ -206,17 +255,33 @@ def resolve_followup(
         return question, []
 
     have_identifiers = set(keyword.IDENTIFIER.findall(question))
+    have_families = {identifier_family(i) for i in have_identifiers}
     have_designator_words = _designator_words(question)
+    # "150#" / "600 lb" is a class designator by another spelling, and a bare
+    # clause number ("5.3.4") is a clause/section designator: either one
+    # replaces the carried designator of that kind.
+    if _RATING.search(question):
+        have_designator_words.add("class")
+    if "#number" in have_families:
+        have_designator_words |= keyword.STRUCTURAL_DESIGNATORS
     have_words = set(_content_words(question))
+    # A question that names a value of its own ("150#") does not borrow the
+    # earlier value ("600") as a loose topic word: the new value replaces it.
+    has_own_number = any(_NUMBER.match(w) for w in have_words)
 
     carried: list[str] = []
 
     # Most recent first: the nearest question is the one being followed up.
     for prior in reversed(prior_questions[-FOLLOWUP_WINDOW:]):
         for ident in keyword.IDENTIFIER.findall(prior):
-            if ident not in have_identifiers and ident not in carried:
-                carried.append(ident)
-                have_identifiers.add(ident)
+            if ident in have_identifiers or ident in carried:
+                continue
+            family = identifier_family(ident)
+            if family in have_families:
+                continue      # the new question named its own of this family
+            carried.append(ident)
+            have_identifiers.add(ident)
+            have_families.add(family)
         for des in keyword.find_designators(prior):
             word = des.partition(" ")[0]
             # The conflict rule, and the reason this module exists in this
@@ -258,6 +323,8 @@ def resolve_followup(
         topics: list[str] = []
         for w in _content_words(borrowed_from):
             if w in skip or w in topics or w in designator_tokens:
+                continue
+            if has_own_number and _NUMBER.match(w):
                 continue
             topics.append(w)
             if len(topics) >= MAX_TOPIC_TERMS:
@@ -384,16 +451,94 @@ def _row_to_message(r) -> dict:
         "explains_id": r["explains_id"],
         "payload": json.loads(r["payload"]) if r["payload"] else None,
         "created_at": r["created_at"],
+    } | _lifted(r["payload"])
+
+
+def _lifted(raw: str | None) -> dict:
+    try:
+        payload = json.loads(raw) if raw else {}
+    except (TypeError, ValueError):
+        payload = {}
+    return {k: payload[k] for k in _LIFTED if isinstance(payload, dict) and k in payload}
+
+
+#: What a reopened assistant turn shows when it cites a document the caller
+#: can no longer read. Fixed text: the notice itself must not name the document.
+WITHHELD_TEXT = (
+    "This answer cited a document you no longer have access to, so it is not shown."
+)
+_ID_LIST_KEYS = frozenset({"scope_ids", "document_ids", "derived_document_ids"})
+
+
+def referenced_document_ids(value) -> set[str]:
+    """Every document id a stored payload refers to, at any depth.
+
+    Walks the whole structure rather than a list of known keys, so a field
+    added to the payload later is covered without anyone remembering this.
+    """
+    found: set[str] = set()
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key == "document_id" and isinstance(item, str):
+                found.add(item)
+            elif key in _ID_LIST_KEYS and isinstance(item, list):
+                found.update(x for x in item if isinstance(x, str))
+            else:
+                found |= referenced_document_ids(item)
+    elif isinstance(value, list):
+        for item in value:
+            found |= referenced_document_ids(item)
+    return found
+
+
+def _withhold(message: dict) -> dict:
+    return {
+        **{k: v for k, v in message.items() if k not in _LIFTED},
+        "text": WITHHELD_TEXT,
+        "payload": {"withheld": True},
+        "reason": "cited document no longer readable",
+        "answer_type": None,
     }
 
 
-def get_messages(conversation_id: str) -> list[dict]:
+def get_messages(conversation_id: str, *, allowed_document_ids: frozenset[str],
+                 user_key: str | None = None) -> list[dict]:
+    """Every turn, filtered by what the caller may read NOW.
+
+    A stored answer is a copy of document text taken when it was asked. A
+    grant revoked since then must still hide it, so an assistant turn citing
+    any document outside `allowed_document_ids` is withheld whole - text and
+    payload - not partially redacted: its prose quotes the passages too.
+    Required and keyword-only, like every other scope parameter.
+    """
     get_conversation(conversation_id)
     rows = connect().execute(
         "SELECT * FROM messages WHERE conversation_id = ? ORDER BY ordinal",
         (conversation_id,),
     ).fetchall()
-    return [_row_to_message(r) for r in rows]
+    messages = []
+    for r in rows:
+        message = _row_to_message(r)
+        if (message["role"] == "assistant"
+                and referenced_document_ids(message["payload"]) - allowed_document_ids):
+            message = _withhold(message)
+        messages.append(message)
+    # The caller's own "Was this right?" and any comment filed from an answer
+    # (chat redesign PR 5), so a reopened chat shows them as they were left.
+    # A filing is shown only while its document is readable, like the answer.
+    from . import chat_actions
+    ids = [m["id"] for m in messages if m["role"] == "assistant"]
+    if user_key is not None:
+        mine = chat_actions.feedback_for(ids, user_key=user_key)
+        for m in messages:
+            if m["id"] in mine:
+                m["feedback"] = mine[m["id"]]
+    filed = chat_actions.filed_for(ids)
+    for m in messages:
+        f = filed.get(m["id"])
+        if f and f["document_id"] in allowed_document_ids:
+            m["filed_comment"] = f
+    return messages
 
 
 def prior_user_questions(conversation_id: str, window: int = FOLLOWUP_WINDOW) -> list[str]:
@@ -430,19 +575,24 @@ def _insert_message(conn, conversation_id: str, **fields) -> dict:
     now = _now()
     mid = f"msg_{uuid.uuid4().hex[:12]}"
     with conn:
-        ordinal = conn.execute(
-            "SELECT COALESCE(MAX(ordinal), 0) + 1 FROM messages WHERE conversation_id = ?",
-            (conversation_id,),
-        ).fetchone()[0]
+        # THE NEXT ORDINAL IS CHOSEN INSIDE THE INSERT, NOT BEFORE IT. It used
+        # to be read by a SELECT that ran before the INSERT took the write
+        # lock, so two requests in one conversation could both read the same
+        # MAX(ordinal) and the second INSERT failed the (conversation_id,
+        # ordinal) unique index - HTTP 500 at 20 concurrent engineers, and
+        # when it hit the answer turn the question was left without its
+        # answer (scripts/load_test.py, 2026-09-29). One INSERT ... SELECT is
+        # one write statement: SQLite holds the write lock from the read of
+        # MAX to the insert, so no other writer can take the same number.
         conn.execute(
             """INSERT INTO messages
                  (id, conversation_id, ordinal, role, text, resolved_question,
                   carried_terms, answer_type, reason, explains_id, payload, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               SELECT ?, ?, COALESCE(MAX(ordinal), 0) + 1, ?, ?, ?, ?, ?, ?, ?, ?, ?
+               FROM messages WHERE conversation_id = ?""",
             (
                 mid,
                 conversation_id,
-                ordinal,
                 fields["role"],
                 fields.get("text"),
                 fields.get("resolved_question"),
@@ -452,6 +602,7 @@ def _insert_message(conn, conversation_id: str, **fields) -> dict:
                 fields.get("explains_id"),
                 json.dumps(fields["payload"]) if fields.get("payload") is not None else None,
                 now,
+                conversation_id,
             ),
         )
         conn.execute(
@@ -486,7 +637,38 @@ _PAYLOAD_KEYS = (
     # count would lose the note that says it was; without `truncated`, a cut-off
     # answer would reopen looking complete.
     "corpus", "counts_bounded", "truncated",
+    # Plan C3: a comparison's own side breakdown - reopened without it, a
+    # per-side answer would look like one undivided search.
+    "comparison",
+    # B6C: what the question was understood to be about, and any document
+    # ambiguity - reopened without them, a scoped answer would look unscoped.
+    "understanding", "scope_ambiguity",
+    # Plan step 4: which clause applies when clauses differ by condition -
+    # reopened without it, an options answer would look like one answer.
+    "condition_choice",
+    # B8: the answer-level verdict, reopened exactly as it was given.
+    "answerability",
+    # Chat redesign (2026-09-26): what the answer says about itself - see
+    # chat_presentation. Additive: a turn stored before these existed simply
+    # has none of them, and renders as it always did.
+    "answer_kind", "used_line", "sources", "verification", "steps",
+    "suggestions", "draft", "provider", "cost_usd", "history_turns",
+    # Audit 101: the reader asked for Claude and the local model answered.
+    "requested_provider", "provider_note",
+    "route", "notices", "claims", "claims_removed", "removed_points", "rewrite_of", "records", "cancelled",
+    # A rewrite/action of a DOCUMENT turn carries that turn's document ids
+    # (chat_answers.rewrite), so a revoked grant withholds the reworded copy
+    # exactly as it withholds the original.
+    "derived_document_ids",
+    # Chat redesign PR 6: the web lane's consent and what it sent.
+    "web_phrase", "web_available", "web_searched",
 )
+
+#: Payload keys lifted to the top of a message, so the Chat screen reads one
+#: shape for a fresh answer and a reopened one.
+_LIFTED = ("answer_kind", "used_line", "sources", "verification", "steps",
+           "suggestions", "draft", "notices", "model", "provider", "seconds", "cost_usd",
+           "requested_provider", "provider_note")
 
 
 def _payload(result: dict) -> dict:
@@ -498,11 +680,15 @@ def ask(
     question: str,
     tier: str = "extract",
     document_id: str | None = None,
-    limit: int = 3,
+    limit: int | None = None,
     explain_of: str | None = None,
     *,
     allowed_document_ids: frozenset[str],
     progress_id: str | None = None,
+    model: str | None = None,
+    include_unowned_records: bool = False,
+    document_ids: frozenset[str] | None = None,
+    web: bool = False,
 ) -> dict:
     """Answer a question inside a conversation and persist both turns.
 
@@ -510,10 +696,28 @@ def ask(
     rather than asking a new question, so the conversation does not grow a
     duplicate user turn every time the reader presses Explain, and the
     already-resolved question is reused rather than resolved a second time.
+
+    `limit` defaults to `settings.answer_top_k` (answer.gate_candidates): the
+    chat considers the same top-k the benchmark reports recall at.
     """
     conversation = get_conversation(conversation_id)
+    selected_document = document_id
     document_id = document_id or conversation["document_id"]
+    # "@ a document" (chat redesign 2h): the documents the reader picked.
+    # AN INTERSECTION, NEVER A UNION (CLAUDE.md rule 5) - a picked id the
+    # caller may not read is simply not searched. It narrows RETRIEVAL only;
+    # what the model may remember of the conversation is still the caller's
+    # whole permission, so picking a document does not blank the history.
+    retrieval_allowed = (allowed_document_ids & frozenset(document_ids)
+                         if document_ids else allowed_document_ids)
+    if document_ids and document_id not in retrieval_allowed:
+        # the picked documents win over the conversation's older single scope
+        document_id = None
     conn = connect()
+    understood: dict | None = None
+    documents_map: dict[str, str] = {}
+    route_kind = intent_mod.DOCUMENT
+    routed: dict = {"styles": [], "small_talk": None, "compliance": False, "text": question}
 
     if explain_of is not None:
         target = conn.execute(
@@ -533,11 +737,52 @@ def ask(
         user_message = _row_to_message(asked)
         resolved = asked["resolved_question"] or asked["text"]
         original = asked["text"]
+        # the scope the original answer was retrieved under, reused
+        try:
+            understood = (json.loads(target["payload"] or "{}") or {}).get("understanding")
+        except (TypeError, ValueError):
+            understood = None
     else:
         original = question
-        resolved, carried = resolve_followup(
-            question, prior_user_questions(conversation_id)
-        )
+        # OWNER ORDER 2026-09-26 (chat redesign, 2c): ROUTED BEFORE ANYTHING
+        # IS SEARCHED. Only a document-kind message reaches retrieval; small
+        # talk, general questions, rewrites, actions and record searches never
+        # do - so none of them can produce a passage, a citation or a finding.
+        previous = last_answer(conversation_id, allowed_document_ids=allowed_document_ids)
+        routed = intent_mod.route(
+            question, has_previous_answer=previous is not None,
+            document_in_scope=bool(selected_document or conversation["document_id"]
+                                   or document_ids),
+            web_enabled=web)
+        route_kind = routed["kind"]
+        tier = routed.get("tier") or tier
+        carried: list[str] = []
+        resolved = question
+        if route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER):
+            resolved, carried = resolve_followup(
+                routed["text"], prior_user_questions(conversation_id)
+            )
+            # Identifiers carried from earlier turns are SOFT: context that
+            # steers retrieval, never a requirement (search._keyword_candidates)
+            # and never a named document that narrows the scope. The reader
+            # makes one hard again by typing it (then it is not carried).
+            soft = soft_identifiers(carried)
+            # B6C: what the question is about - document scope, clause,
+            # ambiguity. Retrieval input only; never an answer. The resolved
+            # query is stored and shown, as the follow-up rewrite already was.
+            documents_map = understanding_mod.document_names(retrieval_allowed)
+            understanding = understanding_mod.understand(
+                search_mod.without_terms(resolved, soft) if soft else resolved,
+                allowed_document_ids=retrieval_allowed,
+                documents=documents_map,
+                conversation_document_id=conversation["document_id"],
+                context=understanding_mod.prior_context(conversation_id),
+            )
+            understood = understanding.to_dict()
+            understood["soft_identifiers"] = soft
+            resolved = understanding.retrieval_query
+            if soft:
+                resolved = f"{resolved} {' '.join(soft)}"
         user_message = _insert_message(
             conn,
             conversation_id,
@@ -553,11 +798,237 @@ def ask(
                     (_title_from(original), conversation_id),
                 )
 
-    result = answer_mod.answer(
-        resolved, tier=tier, document_id=document_id, limit=limit,
-        allowed_document_ids=allowed_document_ids,
-        progress_id=progress_id,
-    )
+    def memory(always: bool = False) -> str:
+        """The permission-filtered conversation for the model (chat_model)."""
+        if not always and tier != "generated":
+            return ""
+        local = (model == chat_model.LOCAL) or not chat_model.claude_ready()[0]
+        turns = chat_model.history(
+            conversation_id, allowed_document_ids=allowed_document_ids,
+            before_ordinal=user_message["ordinal"],
+            token_budget=(settings.chat_history_local_token_budget if local
+                          else settings.chat_history_token_budget))
+        memory.turns = len(turns)
+        return chat_model.transcript(turns)
+    memory.turns = 0
+
+    # PLAN N7: a count of the library comes from the database, in code,
+    # never from a model - on EITHER engine. Decided BEFORE Claude-first for
+    # the same reason the spec-shaped gate below is: on Model=Claude, "how
+    # many standards do we have and contractor submittals" reached Claude
+    # with tools and no counting tool to call, so it answered "I don't have
+    # a list everything tool"; on Model=Local it reached the same
+    # database-backed answer `answer.answer` already computes
+    # (`corpus.classify`/`statement`). Checked here so both engines give the
+    # identical, code-computed answer rather than one of them guessing at a
+    # capability it does not have. NOT when scoped to one document
+    # (`corpus.classify`'s own rule: a document's own standards are content
+    # for retrieval, not a library count) or mid Tier-2 upgrade.
+    inventory_result = None
+    if explain_of is None and document_id is None:
+        roles = corpus_mod.inventory_question(original)
+        if roles is not None:
+            inventory_result = corpus_mod.inventory_statement(
+                roles, allowed_document_ids=retrieval_allowed)
+
+    # OWNER ORDER 2026-09-27 (Claude-first chat): when Model=Claude and Claude
+    # is available, a DOCUMENT/EITHER/GENERAL turn goes to Claude WITH TOOLS
+    # instead of the router+gate+template pipeline below - Claude decides
+    # itself whether this needs a document search, a page image, or neither.
+    # `explain_of` (the Tier-2 upgrade) and every other route (web-consent,
+    # rewrite, action, records) are untouched. Returns None to mean "use the
+    # pipeline below exactly as it always has" (Model=Local, Claude
+    # unavailable, or the very first call of the loop could not run at all).
+    # FOUND 2026-09-28: a spec-shaped EITHER question ("what is the hafnium
+    # concentration limit") reached Claude-first below on the same footing as
+    # a plain definitional one ("what is ABAP") and was answered from the
+    # model's own memory - honestly labelled, but still a guess about a real
+    # engineering limit. NORTH-STAR forbids reconstructing a requirement from
+    # model memory (see intent.is_spec_shaped). Decided BEFORE Claude-first
+    # runs, so this closes that path AND the EITHER-to-general fallback
+    # further down in one place.
+    # FOUND 2026-09-29: the same guard only checked route_kind == EITHER, so a
+    # spec-shaped question that ALSO carries a document signal ("what is the
+    # hafnium limit in our spec", routed DOCUMENT per intent.route rule 6)
+    # skipped this gate entirely and reached Claude-first on its own judgement
+    # whether to search - the same guess this gate exists to stop, just
+    # reached through the route intent.py itself says must "never" be
+    # answered from general knowledge (see intent.py's ONE ASYMMETRY comment).
+    # DOCUMENT joins EITHER here for exactly that reason.
+    # PLAN C3 (docs/chat-requirements-b6c-b9.md): a comparison names its own
+    # sides ("compare SAES-W-010 and ASME Section VIII"), and each side is
+    # retrieved on its own top-k budget - never one shared search where one
+    # named standard can crowd another out of the ranking. Decided before
+    # spec-shaped and Claude-first for the same reason those are decided up
+    # here: a question this file can answer per side, with a real per-side
+    # citation or a real per-side "not found", must not reach a path that
+    # would answer it from one merged retrieval or from a model's own words.
+    comparison_result = None
+    if (inventory_result is None and explain_of is None
+            and route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER)
+            and chat_comparison.is_comparison_question(resolved)):
+        comparison_sides = chat_comparison.matched_sides(resolved, documents_map)
+        comparison_missing = (chat_comparison.missing_designations(
+            resolved, [n for n, _ in comparison_sides]) if comparison_sides else [])
+        if comparison_sides and len(comparison_sides) + len(comparison_missing) >= 2:
+            comparison_result = chat_comparison.compare(
+                resolved, comparison_sides, tier=tier,
+                allowed_document_ids=retrieval_allowed, progress_id=progress_id,
+                model=model, history=memory(), missing=comparison_missing)
+
+    # ISSUE #373: a question naming a FAMILY of standards in general words
+    # ("the welding standards") is searched per standard, never in one shared
+    # pass. Same slot and same reasons as the comparison above.
+    family_notice = None
+    if (comparison_result is None and inventory_result is None and explain_of is None
+            and document_id is None
+            and route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER)):
+        comparison_result, family_notice = family_search.run(
+            resolved, documents_map, tier=tier, allowed_document_ids=retrieval_allowed,
+            progress_id=progress_id, model=model, history=memory())
+
+    spec_shaped_result = None
+    if (inventory_result is None and comparison_result is None and explain_of is None
+            and route_kind in (intent_mod.EITHER, intent_mod.DOCUMENT)
+            and intent_mod.is_spec_shaped(original)):
+        spec_shaped_result, resolved = _document_answer(
+            conversation_id, resolved, understood, tier=tier, document_id=document_id,
+            selected_document=selected_document, limit=limit,
+            allowed_document_ids=retrieval_allowed, progress_id=progress_id,
+            model=model, history=memory())
+
+    claude_first_result = None
+    #: USD a failed first Claude call was charged before this turn fell back
+    #: to the existing pipeline - part of THIS answer's cost (audit leftover
+    #: 2026-09-30: the ledger counted it, the answer did not show it).
+    fallback_spent: list[float] = []
+    #: Why the first Claude call could not be used (plain words), when it
+    #: could not - the cause the downgrade notice reports.
+    fallback_why: list[str] = []
+    #: Points the claim checker removed when it removed ALL of Claude's points
+    #: and the turn was handed to the existing pipeline (audit 118).
+    claude_unverified: list[list[dict]] = []
+    if (inventory_result is None and comparison_result is None and spec_shaped_result is None
+            and explain_of is None
+            and route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER, intent_mod.GENERAL)):
+        from . import chat_claude_first
+        claude_first_result = chat_claude_first.answer(
+            original, history=memory(always=True),
+            allowed_document_ids=claude_scope(retrieval_allowed, document_id=document_id,
+                                              picked=bool(document_ids), understood=understood),
+            web_enabled=web, preference=model, on_fallback_cost=fallback_spent.append,
+            on_fallback_reason=fallback_why.append, on_unverified=claude_unverified.append)
+
+    if inventory_result is not None:
+        result = {
+            "question": original, "retrieval_mode": "metadata", "reranked": False,
+            "timings": {}, "candidates_considered": 0, "answer_type": "metadata",
+            "answer": inventory_result["text"],
+            "reason": "counted from the database, not from document text",
+            "input_kind": "corpus_question", "corpus": inventory_result,
+            "examples": [], "passages": [], "seconds": 0.0,
+        }
+        route_kind = intent_mod.GENERAL
+    elif comparison_result is not None:
+        result = comparison_result
+    elif spec_shaped_result is not None:
+        # Never falls to chat_answers.general below, even when this came back
+        # insufficient_evidence - that fallback is exactly the guess this
+        # gate exists to stop.
+        result = spec_shaped_result
+    elif claude_first_result is not None:
+        result = claude_first_result
+        if routed.get("small_talk") and result.get("answer_type") == "general" and not result.get("passages"):
+            result["examples"] = intent_mod.example_questions(allowed_document_ids=retrieval_allowed)
+    elif explain_of is not None or route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER):
+        result, resolved = _document_answer(
+            conversation_id, resolved, understood, tier=tier, document_id=document_id,
+            selected_document=selected_document, limit=limit,
+            allowed_document_ids=retrieval_allowed, progress_id=progress_id,
+            model=model, history=memory())
+        if (route_kind == intent_mod.EITHER
+                and result["answer_type"] == "insufficient_evidence"):
+            # NO DOCUMENT SIGNAL, AND THE DOCUMENTS DO NOT ANSWER IT: general
+            # knowledge, labelled, with a note that the documents were checked.
+            general = chat_answers.general(original, styles=routed["styles"],
+                                           history=memory(always=True), preference=model)
+            if general["answer_type"] == "general":
+                route_kind = intent_mod.GENERAL
+                result = {**general, "notices": [
+                    "Your documents don't cover this, so this answer is general knowledge."]}
+    elif route_kind == intent_mod.GENERAL and routed["small_talk"]:
+        result = chat_answers.small_talk(
+            routed["small_talk"],
+            examples=intent_mod.example_questions(allowed_document_ids=allowed_document_ids))
+        result["question"] = original
+    elif route_kind == intent_mod.GENERAL:
+        result = chat_answers.general(
+            original, styles=routed["styles"], history=memory(always=True), preference=model,
+            input_kind=intent_mod.classify(original))
+    elif route_kind == intent_mod.REWRITE and "check_documents" in routed["styles"]:
+        # "Check against my documents": the previous QUESTION, asked of the
+        # documents - a real retrieval, not a rewrite of an earlier answer.
+        asked = _previous_user_question(conversation_id, before=user_message["ordinal"])
+        route_kind = intent_mod.DOCUMENT
+        result, resolved = _document_answer(
+            conversation_id, asked or original, None, tier="generated", document_id=document_id,
+            selected_document=selected_document, limit=limit,
+            # the @-picked documents narrow this search too (intersection,
+            # CLAUDE.md rule 5) - it used to search every readable document
+            allowed_document_ids=retrieval_allowed, progress_id=progress_id,
+            model=model, history=memory(always=True))
+    elif route_kind == intent_mod.REWRITE:
+        result = chat_answers.rewrite(previous, styles=routed["styles"], history=memory(always=True),
+                                      preference=model, question=original)
+    elif route_kind == intent_mod.ACTION:
+        result = chat_answers.rewrite(
+            previous, styles=routed["styles"], history=memory(always=True), preference=model,
+            question=original, kind="action",
+            extra=("as a short, polite review comment to the contractor: what is missing or "
+                   "unclear, and what they should provide"))
+    elif route_kind == intent_mod.WEB:
+        # ASKS, SENDS NOTHING: the consent turn shows the one phrase that
+        # would leave. `chat_web.search` sends it only when the reader says so.
+        from . import chat_web
+        result = chat_web.consent(original, allowed_document_ids=allowed_document_ids)
+    else:  # records
+        result = chat_answers.records(routed["text"], allowed_document_ids=allowed_document_ids,
+                                      include_unowned=include_unowned_records)
+
+    if fallback_spent:
+        charged = round(sum(fallback_spent), 6)
+        result["cost_usd"] = round(float(result.get("cost_usd") or 0.0) + charged, 6)
+        if claude_unverified:
+            result["removed_points"] = claude_unverified[0]
+            result["notices"] = [*(result.get("notices") or []), (
+                "None of Claude's own points could be checked against the pages, so they were "
+                f"dropped (USD {charged:.4f}, included in the cost); this answer comes from the "
+                "passages found in the document.")]
+        else:
+            result["notices"] = [*(result.get("notices") or []), (
+                f"A Claude call for this turn failed and was charged USD {charged:.4f}; "
+                "the answer came from the local pipeline, and its cost includes that call.")]
+    elif claude_unverified:
+        result["removed_points"] = claude_unverified[0]
+    if family_notice:
+        result["notices"] = [*(result.get("notices") or []), family_notice]
+    result["route"] = route_kind
+    result["history_turns"] = memory.turns
+    # AUDIT 101: Model=Claude was asked for and the local model answered.
+    result.update(chat_model.downgrade_fields(model, result, fallback_why[0] if fallback_why else None))
+    if route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER) and routed.get("compliance"):
+        # THE CHAT NEVER RECORDS A VERDICT: a compliance question is answered
+        # from the evidence and ends with the engineer notice.
+        result["notices"] = [*(result.get("notices") or []), intent_mod.ENGINEER_NOTICE]
+    result.update(chat_presentation.present(result))
+    thought_seconds = result.pop("thought_seconds", None)
+    if thought_seconds is not None:
+        # Baked into the stored `used_line` string itself (never a new
+        # payload/schema field): a reopened turn shows it exactly as given,
+        # with no extra field to keep additive, and none to reject if the
+        # response schema does not know it.
+        shown = f"{thought_seconds:.0f} s" if thought_seconds >= 1 else "under 1 s"
+        result["used_line"] = (result.get("used_line") or "") + f" · Thought for {shown}"
 
     assistant_message = _insert_message(
         conn,
@@ -581,3 +1052,108 @@ def ask(
         "resolved_question": resolved,
         "carried_terms": user_message["carried_terms"],
     }
+
+
+def claude_scope(retrieval_allowed: frozenset[str], *, document_id: str | None,
+                 picked: bool, understood: dict | None = None) -> frozenset[str]:
+    """What the Claude-first tools may read this turn: ONLY EVER NARROWER than
+    `retrieval_allowed` (intersection, CLAUDE.md rule 5).
+
+    FOUND 2026-09-30 (audit): the Claude lane got `retrieval_allowed` alone,
+    so a conversation opened on one document - or a request that selected one
+    - let Claude's tools search every document the caller may read, while the
+    old pipeline answered from that one document. Now: documents the reader
+    @-picked are the scope (already intersected into `retrieval_allowed`);
+    otherwise the selected or conversation document narrows it to itself.
+
+    FOUND 2026-10-06 (real machine, real Claude): a question that NAMED a
+    standard ("What does STD-A-001 say about ...") narrowed the old pipeline
+    to that standard but not the Claude lane, so Claude searched every
+    document and answered from the wrong ones. A document the question names
+    (`understood`, "named in the question") now narrows this lane the same
+    way `_document_answer` narrows the old one. Still only ever narrower."""
+    if picked:
+        return retrieval_allowed
+    if not document_id and understood:
+        named = understood.get("document_id")
+        if named and named in retrieval_allowed:
+            return retrieval_allowed & frozenset({named})
+        if understood.get("scope_ids"):
+            return retrieval_allowed & frozenset(understood["scope_ids"])
+    if not document_id:
+        return retrieval_allowed
+    return retrieval_allowed & frozenset({document_id})
+
+
+def last_answer(conversation_id: str, *, allowed_document_ids: frozenset[str]) -> dict | None:
+    """The most recent assistant turn the caller may still read, with text."""
+    for message in reversed(get_messages(conversation_id, allowed_document_ids=allowed_document_ids)):
+        if message["role"] != "assistant":
+            continue
+        if (message.get("payload") or {}).get("withheld") or not (message.get("text") or "").strip():
+            return None
+        return message
+    return None
+
+
+def _previous_user_question(conversation_id: str, *, before: int) -> str | None:
+    row = connect().execute(
+        """SELECT text FROM messages WHERE conversation_id = ? AND role = 'user'
+           AND ordinal < ? ORDER BY ordinal DESC LIMIT 1""", (conversation_id, before)).fetchone()
+    return row["text"] if row else None
+
+
+def _document_answer(conversation_id: str, resolved: str, understood: dict | None, *, tier: str,
+                     document_id: str | None, selected_document: str | None, limit: int | None,
+                     allowed_document_ids: frozenset[str], progress_id: str | None,
+                     model: str | None, history: str) -> tuple[dict, str]:
+    """The document pipeline, as it was before the router: scope, retrieve,
+    answer, ambiguity, the B8 re-judgement. Returns (result, resolved)."""
+    # SCOPE ONLY NARROWS (CLAUDE.md rule 5). A document the reader selected
+    # wins over a name in the question; a named or referenced document narrows
+    # an unscoped question; several matching documents narrow to those, none
+    # of them chosen.
+    # The first step a streamed reader sees, and only for a real search:
+    # `progress.start` records it silently, so it is announced here.
+    from . import progress
+    progress.stage(progress_id, "retrieving")
+    scoped_allowed = allowed_document_ids
+    if understood and not selected_document:
+        if understood.get("document_id") in allowed_document_ids:
+            document_id = understood["document_id"]
+        elif understood.get("scope_ids"):
+            scoped_allowed = allowed_document_ids & frozenset(understood["scope_ids"])
+
+    result = answer_mod.answer(
+        resolved, tier=tier, document_id=document_id, limit=limit,
+        allowed_document_ids=scoped_allowed,
+        progress_id=progress_id,
+        history=history,
+        model=model,
+        # Carried with the understanding, so an Explain of this answer
+        # (which reuses the stored understanding) keeps them soft too.
+        soft_identifiers=tuple((understood or {}).get("soft_identifiers") or ()),
+    )
+    if understood is not None:
+        result["understanding"] = understood
+    # B6C: the same text in several documents makes "which document" an
+    # accident of ranking. Reported, never resolved silently - only for a
+    # question that was not scoped to one document.
+    if not document_id:
+        same = understanding_mod.ambiguous_source(result)
+        if same:
+            names = understanding_mod.document_names(frozenset(same))
+            result["scope_ambiguity"] = {
+                "reason": "the same text appears in more than one document; "
+                          "name the document to answer from one of them",
+                "documents": [{"document_id": d, "filename": names.get(d)} for d in same],
+            }
+    # B8: judged again now the scope and ambiguity are known. An accepted
+    # model judgement from answer() is kept while the structure still agrees.
+    from . import answerability
+    rejudged = answerability.assess(resolved, result, allowed_document_ids=scoped_allowed)
+    earlier = result.get("answerability") or {}
+    if not (rejudged["verdict"] == earlier.get("verdict") == answerability.SUPPORTED
+            and (earlier.get("judge") or {}).get("accepted")):
+        result["answerability"] = rejudged
+    return result, resolved

@@ -270,7 +270,7 @@ piece of evidence. `file:line` references are to the audited commit.
 
 | ID | Verdict | Evidence |
 |---|---|---|
-| R049–R061 — the build must not claim production readiness, Aramco approval, certified engineering/safety/legal compliance, 1,200-document or 1.2 M-page validation, CAD/P&ID/blueprint interpretation, SSO/AD/HA/DR/key management, many simultaneous users, autonomous retraining, unrestricted browsing, that every question uses every document, perfect recall, 7,200-page hybrid readiness in minutes, or guaranteed counting/table/drawing reasoning | **MET (13/13)** | Each is either absent from the code or explicitly disclaimed. `docs/limitations.md` (418 lines) states the CAD/vision boundary, the phrasing-sensitivity limit (6/10 facts), the three-passage answer cap, the equation-extraction loss and the single-user scope. `app/market.py` NOTICE forbids the word "live". `NOT_IMPLEMENTED` in `analysis.py` names three gaps on the API response itself. **These 13 are the strongest block in the audit and they are all negative requirements** — this build is markedly better at not claiming than at delivering. |
+| R049–R061 — the build must not claim production readiness, the client's approval, certified engineering/safety/legal compliance, 1,200-document or 1.2 M-page validation, CAD/P&ID/blueprint interpretation, SSO/AD/HA/DR/key management, many simultaneous users, autonomous retraining, unrestricted browsing, that every question uses every document, perfect recall, 7,200-page hybrid readiness in minutes, or guaranteed counting/table/drawing reasoning | **MET (13/13)** | Each is either absent from the code or explicitly disclaimed. `docs/limitations.md` (418 lines) states the CAD/vision boundary, the phrasing-sensitivity limit (6/10 facts), the three-passage answer cap, the equation-extraction loss and the single-user scope. `app/market.py` NOTICE forbids the word "live". `NOT_IMPLEMENTED` in `analysis.py` names three gaps on the API response itself. **These 13 are the strongest block in the audit and they are all negative requirements** — this build is markedly better at not claiming than at delivering. |
 
 **Sunday proof matrix (R062–R066)**
 
@@ -348,7 +348,7 @@ piece of evidence. `file:line` references are to the audited commit.
 | R117 | §3.3.18 Fetch only search results/snippets; do not build a crawler | MET | No fetch of any kind. |
 | R118 | §3.3.19 The adapter process receives no DB path, index handle, report path or conversation | MET | As R096. |
 | R119 | §3.3.20 Treat snippets as preliminary; record source URL, publisher, dates, freshness; state `source_not_verified` where the page was not read | MET | `SAMPLE_VERIFICATION = "source_not_verified"` is the **only** value a row may carry, enforced at load time; a fixture edited later to claim otherwise raises `SampleIntegrityError` rather than rendering. |
-| R120 | §3.3.21 Real Aramco data only on a client-approved device and storage location | NOT TESTABLE HERE | A deployment authorization, not a code property. |
+| R120 | §3.3.21 Real client data only on a client-approved device and storage location | NOT TESTABLE HERE | A deployment authorization, not a code property. |
 | R121 | §3.4 — demo privacy proof: run with search disabled and prove Q&A works; then capture the outbound query and find no private text | PARTIAL | The first half holds and is the permanent state of the build (`test_market.py`, and every other test runs with no network). The second half cannot be run: there is no outbound query to capture. |
 | R122 | §3.5 Bind API, frontend preview and Ollama to loopback; verify sockets in `doctor-windows.ps1` | PARTIAL | `config.py:30` `host: "127.0.0.1"`; Ollama URL is `http://127.0.0.1:11434`. **`scripts/doctor-windows.ps1` does not exist**, so the verification half is absent. |
 | R123 | §3.5 Keep repository, DB, temp and reports outside auto-synchronized folders | NOT TESTABLE HERE | A property of where the operator put the clone. |
@@ -825,7 +825,7 @@ exist" but "does an acceptance test exist, and did it pass".
 
 ## 5. The ten most important NOT MET items, ranked by what a client would notice
 
-Ranked by the order in which a Saudi Aramco reviewer sitting in front of the
+Ranked by the order in which a client reviewer sitting in front of the
 demonstration would hit them — not by implementation effort.
 
 | # | Requirement | Plan ref | What the client sees |
@@ -952,7 +952,7 @@ under-claim rather than over-claim, which is the safer direction and still the s
 
 Three reasons, each sufficient on its own.
 
-**The requirements are not commensurable.** R049 ("must not claim Saudi Aramco approval")
+**The requirements are not commensurable.** R049 ("must not claim the client's approval")
 and R159 ("return `202`, persist checkpoints, stream progress, support safe cancellation")
 each count as one. The first is satisfied by not writing a sentence; the second is several
 days of work touching the database, the worker, four routes and the entire analysis screen.

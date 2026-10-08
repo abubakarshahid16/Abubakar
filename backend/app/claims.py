@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from . import keyword, lexical
+from .sentence_guard import NOT_AN_ABBREVIATION
 
 NORMALIZER_VERSION = "1"
 
@@ -130,6 +131,20 @@ _UNIT_TABLE: dict[str, tuple[str, str, float]] = {
     # values in W/m2K compare and W/m2K against kg/m3 does not.
     "w/m2k": ("heat_transfer", "W/m2K", 1.0),
     "kj/kgk": ("specific_heat", "kJ/kgK", 1.0),
+    # COMPOUND ENGINEERING UNITS read WHOLE (audit N6: "mm/s" used to be cut at
+    # the slash and read as a LENGTH). Each factor is exact by definition:
+    # 1 in is 25.4 mm. L/min and L/s stay recognised-not-converted. A velocity is
+    # its own dimension, so 4.5 in/s can never compare with a 4.5 mm length.
+    "mm/s": ("velocity", "mm/s", 1.0),
+    "mm/sec": ("velocity", "mm/s", 1.0),
+    "in/s": ("velocity", "mm/s", 25.4),
+    "in/sec": ("velocity", "mm/s", 25.4),
+    "m/s": ("velocity", "mm/s", 1000.0),
+    "m/sec": ("velocity", "mm/s", 1000.0),
+    "m3/h": ("volumetric_flow", "m3/h", 1.0),
+    "m3/hr": ("volumetric_flow", "m3/h", 1.0),
+    "kg/h": ("mass_flow", "kg/h", 1.0),
+    "kg/hr": ("mass_flow", "kg/h", 1.0),
     # pressure -> MPa
     "mpa": ("pressure", "MPa", 1.0),
     "bar": ("pressure", "MPa", 0.1),
@@ -168,6 +183,7 @@ _DIMENSION_UNIT = {
     "concentration": "g/L", "areal_density": "g/m2", "heat_input": "KJ/mm",
     "hardness": "BHN", "speed": "kph", "temperature_rate": "C/hr",
     "density": "kg/m3", "heat_transfer": "W/m2K", "specific_heat": "kJ/kgK",
+    "velocity": "mm/s", "volumetric_flow": "m3/h", "mass_flow": "kg/h",
 }
 
 #: Units extraction recognises but the table does NOT convert, with the
@@ -200,12 +216,14 @@ _UNCONVERTED_UNITS: dict[str, str | None] = {
     # `datasheets.py` was fixed in phase 5B precisely so that "95 dB(A)" keeps
     # its A-weighting, and a gate that dropped it on the STANDARDS side would
     # have re-opened that defect from the other direction.
-    "db(a)": None, "dba": None,
     # Ordinary engineering units this corpus writes and the table did not know.
     # RECOGNISED, NOT CONVERTED: each is the only spelling of its quantity here,
     # and `NPS` in particular is a DESIGNATION rather than a measurement - NPS 2
     # is not two of anything - so it must never acquire a conversion.
-    "nps": None, "wt%": None, "ppmw": None, "m3/hr": None, "m3/h": None,
+    "nps": None, "wt%": None, "ppmw": None,
+    # dB(A) is recognised WHOLE (N6: it was cut to "dB") but stays unconverted
+    # on purpose - see test_the_units_deliberately_left_unconverted.
+    "db(a)": None, "dba": None,
     # Measured as printed beside a value on a real sheet and absent here, so
     # the row was read and its unit thrown away. `kg` and `kn` were already
     # present; these are the rest.
@@ -217,6 +235,16 @@ _UNCONVERTED_UNITS: dict[str, str | None] = {
     "year": None, "years": None, "tonne": None, "tonnes": None, "te": None,
     "m3": None, "m2": None,
     "psig": "pressure", "barg": "pressure", "mbar": "pressure",
+    # #193, measured on real standards: 20 of 93 matchable limits had their
+    # unit thrown away because these spellings were unknown. Recognised, NOT
+    # converted - an absolute (`psia`) and a gauge (`kPag`) pressure carry a
+    # reference, and converting either to MPa would let 13 psia compare with
+    # 13 psig. The unit guard compares raw spellings, so they never do.
+    "psia": "pressure", "kpag": "pressure", "kpaa": "pressure", "bara": "pressure",
+    # Volumetric flow and application rate (fire water): the only spellings
+    # of their quantities here, so no conversion to invent.
+    "l/s": None, "l/min": None, "l/m2s": None, "l/(m2s)": None, "l/m2/s": None,
+    "kn/m3": None, "lux": None,
     "s": "time", "sec": "time", "secs": "time", "second": "time", "seconds": "time",
     "d": "time", "day": "time", "days": "time",
     "mv": "voltage", "ka": "current",
@@ -224,8 +252,88 @@ _UNCONVERTED_UNITS: dict[str, str | None] = {
     "kn": None, "knm": None, "lb": None, "lbs": None, "rpm": None, "hz": None, "khz": None,
     "w": None, "kw": None, "mw": None, "ml": None, "l": None, "gpm": None, "mpy": None,
     "ohm": None, "kohm": None, "db": None, "wt": None, "vol": None,
+    # 2026-09-30, found by the datasheet benchmark: real datasheet units that
+    # every reader refused - the AI gate (`claude_datasheet._unit_recognised`)
+    # dropped "100 ms", "16 weeks" and "18 months", and the rules reader kept
+    # "8000" and threw the "Nm3/h" away. RECOGNISED, NOT CONVERTED.
+    #
+    # `ms` is a time like `s` and carries the same dimension. `week` and
+    # `month` are CALENDAR durations like `years` above, and for the same
+    # reason carry no dimension: a delivery of 16 weeks is not 2,688 h, and a
+    # month is not a fixed number of hours at all.
+    "ms": "time", "msec": "time",
+    "week": None, "weeks": None, "wk": None, "wks": None,
+    "month": None, "months": None, "yr": None, "yrs": None,
+    # Normal / standard gas volumes and other stand-alone quantities a
+    # datasheet prints. `nm3` is a NORMAL cubic metre (0 C), not a nanometre
+    # cubed, and differs from `sm3` (15 C) by about 5 % - so neither converts
+    # to `m3` or to the other.
+    "nm3": None, "sm3": None, "scf": None, "bbl": None,
+    "mm2": None, "cm2": None, "ft2": None, "cm3": None, "ft3": None,
+    "kwh": None, "kva": None, "hp": None, "atm": "pressure", "mmhg": "pressure",
+    "ppmv": None, "mol": None, "kmol": None, "kj": None, "mj": None,
 }
 _RECOGNISED_UNITS = set(_UNIT_TABLE) | set(_UNCONVERTED_UNITS)
+
+
+# ------------------------------------------------------- compound rates
+#: THE GRAMMAR FOR "<quantity>/<per>", so a rate is recognised by what it IS
+#: rather than by being listed: kg/h, t/h, Nm3/h, Sm3/d, m3/d, mm/y, W/cm2,
+#: kN/m, kJ/kg. Listing every spelling one at a time is how "kg/h" came to be
+#: refused while "m3/h" was known.
+#:
+#: STRICT BY CONSTRUCTION. Both sides must be units from these closed sets,
+#: and the PAIR of families must be one that names a physical quantity. That
+#: is what keeps "N/A" (a force over nothing - `a` is not a denominator),
+#: "N/S" (force per time is no engineering quantity), "T/C", "I/O" and
+#: "kg/banana" out. One slash only: "kg/m2/h" is not guessed at.
+_RATE_NUMERATOR: dict[str, frozenset[str]] = {
+    "mass": frozenset("mg g kg t te tonne tonnes ton tons lb lbs klb".split()),
+    "volume": frozenset("ml l m3 nm3 sm3 cm3 ft3 scf mscf mmscf bbl gal usgal igal".split()),
+    "energy": frozenset("j kj mj gj kwh mwh kcal btu mmbtu".split()),
+    "amount": frozenset("mol kmol".split()),
+    "length": frozenset("um mm cm m km in ft".split()),
+    "power": frozenset("w kw mw".split()),
+    "force": frozenset("n kn".split()),
+}
+_RATE_DENOMINATOR: dict[str, frozenset[str]] = {
+    "time": frozenset(
+        "s sec ms min h hr hrs hour d day y yr year week wk month".split()),
+    "area": frozenset("mm2 cm2 m2 ft2 in2".split()),
+    "length": frozenset("mm m".split()),
+    "volume": frozenset("l m3 ft3 nm3 sm3".split()),
+    "mass": frozenset("kg g t lb".split()),
+}
+#: (numerator family, denominator family) pairs that name a quantity.
+_RATE_QUANTITIES = frozenset({
+    ("mass", "time"), ("volume", "time"), ("energy", "time"), ("amount", "time"),
+    ("length", "time"),                                   # speed, corrosion rate
+    ("power", "area"), ("power", "length"),               # heat flux, heat per length
+    ("force", "area"), ("force", "length"),               # stress, line load
+    ("mass", "area"), ("volume", "area"), ("mass", "length"),
+    ("mass", "volume"), ("energy", "volume"), ("amount", "volume"),
+    ("energy", "mass"), ("volume", "mass"),
+})
+
+
+def _families(token: str, table: dict[str, frozenset[str]]) -> set[str]:
+    return {family for family, units in table.items() if token in units}
+
+
+def is_rate_unit(unit_str: str) -> bool:
+    """Is this spelling a compound rate the grammar above accepts?"""
+    folded = _fold_unit(unit_str or "")
+    if folded.count("/") != 1:
+        return False
+    top, bottom = folded.split("/")
+    return any((a, b) in _RATE_QUANTITIES
+               for a in _families(top, _RATE_NUMERATOR)
+               for b in _families(bottom, _RATE_DENOMINATOR))
+
+
+def _recognised_folded(folded: str) -> bool:
+    """A folded spelling is a unit: listed, or a rate by the grammar."""
+    return folded in _RECOGNISED_UNITS or is_rate_unit(folded)
 
 
 def _fold_unit(unit_str: str) -> str:
@@ -234,10 +342,14 @@ def _fold_unit(unit_str: str) -> str:
     # the spelling a form actually uses in a column header - fell through to
     # `deg c` and matched nothing.
     u = unit_str.strip().lower().replace("µ", "u").replace("μ", "u").replace("°", "")
+    # "m³/h" and "m3/h" are one unit; a superscript is printing, not identity.
+    u = u.replace("²", "2").replace("³", "3")
     u = u.replace("deg ", "deg").replace("degrees", "deg").replace("degree", "deg")
     # Internal spacing is not identity: "wt %" and "wt%" are one unit. Units
     # are short tokens and none in the table is distinguished by a space.
-    return re.sub(r"\s+", "", u)
+    u = re.sub(r"\s+", "", u)
+    # dB(A) and dBA are one unit (an A-weighted level); fold to one spelling.
+    return "dba" if u == "db(a)" else u
 
 
 #: Pressure spellings that carry a REFERENCE as a suffix, and what they mean.
@@ -318,7 +430,16 @@ def is_unit(unit_str: str) -> bool:
     number is a unit needs those to be different answers, and this is that
     question asked directly.
     """
-    return _fold_unit(unit_str) in _RECOGNISED_UNITS
+    folded = _fold_unit(unit_str or "")
+    if not folded:
+        return False
+    if _recognised_folded(folded) or folded in _REFERENCE_SUFFIX:
+        return True
+    # A known unit with its reference written as a parenthetical: "kPa(g)",
+    # "bar (a)", "kg/cm2 (g)". Recognised because its BASE is -
+    # `split_reference` separates the two where a value is stored.
+    bracket = _REFERENCE_BRACKET.match((unit_str or "").strip())
+    return bracket is not None and _recognised_folded(_fold_unit(bracket.group("base")))
 
 
 def unit_dimension(unit_str: str) -> str | None:
@@ -389,7 +510,11 @@ _NUMBER = r"\d+(?:[.,]\d+)?"
 #: A number followed by a unit token. Numbers glued to identifiers ("5.3.2",
 #: "8501-1", "P-101A") are filtered out afterwards by span overlap.
 _MEASUREMENT = re.compile(
-    r"(?<![\w.,/-])(?P<value>" + _NUMBER + r")(?![\d.,]*[.,]\d)\s?(?P<unit>[A-Za-zµμ°%][A-Za-z°]*)"
+    r"(?<![\w.,/-])(?P<value>" + _NUMBER + r")(?![\d.,]*[.,]\d)\s?(?P<unit>"
+    # base word, optional one-digit power ("m3"), then EITHER a one-letter
+    # bracket ("dB(A)") OR "/per" with its own optional power ("m3/h", "mm/s").
+    r"[A-Za-zµμ°%][A-Za-z°]*(?:[0-9²³](?![0-9]))?"
+    r"(?:\([A-Za-z]\)|/[A-Za-zµμ][A-Za-z]*(?:[0-9²³](?![0-9]))?)?)"
 )
 
 
@@ -429,21 +554,71 @@ def comparator_ending(text: str) -> str | None:
     return {"min": ">=", "max": "<="}.get(symbol, symbol)
 
 
+#: Characters a printed minus sign comes as. U+2212 is the typographic minus
+#: and is unambiguous. En/em dash are ALSO used as range separators, so they
+#: are a sign only when `parse_value` can see they are one (see there).
+_MINUS_SIGN = "\u2212"
+_DASH_CHARS = "\u2013\u2014"
+#: A space may group thousands only in the strict form "12 345 678".
+_SPACE_GROUPED = re.compile(r"\d{1,3}(?:[ \u00a0\u202f\u2009]\d{3})+(?:[.,]\d+)?")
+
+
 def parse_value(value_str: str) -> float | None:
-    """Parse a written number. Comma decimals ("9,0") are decimals - NORSOK
-    writes them so. A comma followed by exactly three digits ("1,200") is a
-    thousands separator. Anything unparseable is None, never a guess."""
-    s = value_str.strip()
+    """Parse a written number. Anything unparseable or ambiguous is None,
+    never a guess.
+
+    * Comma decimals ("9,0") are decimals - NORSOK writes them so. A comma
+      followed by exactly three digits ("1,200") is a thousands separator.
+    * Space may separate thousands ONLY as groups of exactly three digits after
+      a first group of 1-3 digits ("1 200", "12 345 678"). "34 3", "5 10" and
+      "1 2 3" are two or three numbers, not one: None.
+    * d.ddd with a leading integer part of 1-3 digits other than 0 and EXACTLY
+      three decimals ("4.000", "1.200", "12.345") is ambiguous between the
+      decimal 4.000 and the EU thousands 4,000: None. "0.125" (EU thousands
+      never start with 0), "6.89", "3.5" and "1234.567" are unambiguous. The
+      comparison then goes to NEEDS_ENGINEER_REVIEW rather than guessing.
+    * U+2212 is a minus. An en/em dash directly before the digits is a minus
+      only when it begins the value or follows whitespace or a comparator; a
+      dash separated from its digits ("- 29"), glued to a letter, or inside a
+      range ("29-343") is ambiguous: None.
+    """
+    s = (value_str or "").strip().replace(_MINUS_SIGN, "-")
     m = re.fullmatch(r"(?P<cmp>[^\d]*?)\s*(?P<num>[-+]?\d[\d.,\s]*)", s)
     if not m:
         return None
-    num = m.group("num").replace(" ", "")
-    if re.fullmatch(r"[-+]?\d{1,3}(?:,\d{3})+(?:\.\d+)?", num):
+    prefix = s[:m.start("num")]
+    stripped = prefix.rstrip()
+    negative_dash = False
+    if stripped and stripped[-1] in "-" + _DASH_CHARS:
+        if prefix != stripped:
+            return None          # "- 29": dash separated from its digits
+        before = stripped[:-1]
+        if stripped[-1] in _DASH_CHARS:
+            if before and not (before[-1].isspace() or not before[-1].isalnum()):
+                return None      # "T\u201329": glued to a letter
+            negative_dash = True
+        else:
+            return None          # "x-29" / "- 29" with an ASCII hyphen: not a sign
+    num = m.group("num")
+    if re.search(r"\s", num):
+        if not _SPACE_GROUPED.fullmatch(num.lstrip("+-")):
+            return None
+        num = re.sub(r"\s", "", num)
+    sign = ""
+    if num[:1] in "+-":
+        sign, num = num[0], num[1:]
+    if negative_dash:
+        if sign:
+            return None
+        sign = "-"
+    if re.fullmatch(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?", num):
         num = num.replace(",", "")
-    elif re.fullmatch(r"[-+]?\d+,\d+", num):
+    elif re.fullmatch(r"\d+,\d+", num):
         num = num.replace(",", ".")
+    elif re.fullmatch(r"[1-9]\d{0,2}\.\d{3}", num):
+        return None
     try:
-        return float(num)
+        return float(sign + num)
     except ValueError:
         return None
 
@@ -522,7 +697,8 @@ def normalise_strict(value_str: str, unit_str: str, comparator: str | None = Non
 
 # ------------------------------------------------------------------ extraction
 _ABBREVIATIONS = ("no", "nr", "min", "max", "approx", "fig", "rev", "e.g", "i.e", "cf", "ref", "para", "vs")
-_SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?;])\s+(?=[A-Z0-9\"“(\[])")
+_SENTENCE_BOUNDARY = re.compile(
+    r"(?<=[.!?;])" + NOT_AN_ABBREVIATION + r"\s+(?=[A-Z0-9\"“(\[])")
 
 
 def split_sentences(text: str) -> list[str]:
@@ -634,8 +810,16 @@ def extract_measurements(sentence: str) -> tuple[Measurement, ...]:
         if inside and not _is_measurement_not_code(sentence, inside, start, end, m.group("value")):
             continue
         unit = m.group("unit")
-        if _fold_unit(unit) not in _RECOGNISED_UNITS:
-            continue
+        if not _recognised_folded(_fold_unit(unit)):
+            if "/" in unit:
+                # An UNKNOWN compound unit is no measurement. Falling back to
+                # the base before the slash read "4.5 in/s" as a length and
+                # "5 widgets/s" as nothing - never a truncated unit.
+                continue
+            # "3 kPa(g)": the bracket is a reference, not part of the unit.
+            unit = unit.split("(")[0]
+            if _fold_unit(unit) not in _RECOGNISED_UNITS:
+                continue
         # A lone lowercase letter after a number ("3 a coat") is a word, not a unit.
         if len(unit) == 1 and unit.isalpha() and not unit.isupper():
             continue
@@ -1204,6 +1388,55 @@ def _designators_conflict(rows: tuple[Claim, ...]) -> tuple[str, str] | None:
     return None
 
 
+_UPPER = ("<=", "max", "<")
+_LOWER = (">=", "min", ">")
+
+
+def _distinct_same_direction_limits(a: Measurement, b: Measurement) -> bool:
+    """Both are upper limits, or both lower limits, in one dimension, and their
+    values differ beyond what the printed precision explains."""
+    same_direction = ((a.comparator in _UPPER and b.comparator in _UPPER)
+                      or (a.comparator in _LOWER and b.comparator in _LOWER))
+    if not same_direction or a.dimension != b.dimension:
+        return False
+    if a.normalized_value is None or b.normalized_value is None:
+        return False
+    return not _same_printed_quantity(a, b, ignore_comparator=True) and not math.isclose(
+        a.normalized_value, b.normalized_value, rel_tol=1e-9, abs_tol=1e-9)
+
+
+def _last_digit_half(m: Measurement) -> float | None:
+    """Half a unit of the last printed digit, in the canonical unit."""
+    entry = _UNIT_TABLE.get(_fold_unit(m.raw_unit or ""))
+    value = parse_value(m.raw_value)
+    if entry is None or value is None:
+        return None
+    text = m.raw_value.strip().replace(" ", "")
+    if re.fullmatch(r"[-+]?\d{1,3}(?:,\d{3})+(?:\.\d+)?", text):
+        text = text.replace(",", "")
+    decimals = len(re.split(r"[.,]", text)[1]) if re.search(r"[.,]\d", text) else 0
+    return 0.5 * 10 ** (-decimals) * entry[2]
+
+
+def _same_printed_quantity(a: Measurement, b: Measurement, *,
+                           ignore_comparator: bool = False) -> bool:
+    """The same quantity printed in two units: "1,000 psi" and "6.89 MPa".
+
+    Only for two values with the same comparator in DIFFERENT unit spellings
+    (identical spellings are compared exactly - 3.0 and 3.1 mm are two values).
+    Equal when they differ by no more than half a unit in the last printed digit
+    of either, or 0.5 % relative - a printed conversion is rounded."""
+    if a.comparator != b.comparator and not ignore_comparator:
+        return False
+    if (a.normalized_value is None or b.normalized_value is None
+            or a.dimension != b.dimension or same_unit(a, b)):
+        return False
+    gap = abs(a.normalized_value - b.normalized_value)
+    halves = [h for h in (_last_digit_half(a), _last_digit_half(b)) if h is not None]
+    tolerance = max([0.005 * max(abs(a.normalized_value), abs(b.normalized_value)), *halves])
+    return gap <= tolerance * (1 + 1e-9)
+
+
 def label_cluster(rows: tuple[Claim, ...] | list[Claim]) -> tuple[ClaimLabel, str | None]:
     rows = tuple(rows)
     mismatch = _designators_conflict(rows)
@@ -1217,19 +1450,27 @@ def label_cluster(rows: tuple[Claim, ...] | list[Claim]) -> tuple[ClaimLabel, st
     with_measurements = [r for r in rows if r.measurements]
     if len(with_measurements) >= 2:
         # Compare per dimension, only between rows that both speak to it.
-        by_dim: dict[str, list[Measurement]] = {}
+        by_dim: dict[str, list[tuple[int, Measurement]]] = {}
         unnormalised: list[Measurement] = []
-        for r in with_measurements:
+        for row_no, r in enumerate(with_measurements):
             for m in r.measurements:
                 if m.normalized_value is None:
                     unnormalised.append(m)
                 else:
-                    by_dim.setdefault(m.dimension or "", []).append(m)
+                    by_dim.setdefault(m.dimension or "", []).append((row_no, m))
         conflict = False
         for ms in by_dim.values():
-            for i, a in enumerate(ms):
-                for b in ms[i + 1:]:
-                    if _compatible(a, b) is False:
+            for i, (row_a, a) in enumerate(ms):
+                for row_b, b in ms[i + 1:]:
+                    if _same_printed_quantity(a, b):
+                        # "1,000 psi (6.89 MPa)": one value printed twice.
+                        continue
+                    if row_a != row_b and _distinct_same_direction_limits(a, b):
+                        # Two UPPER limits (or two lower) are not one claim: both
+                        # intervals reach infinity, so they always "overlap", yet
+                        # <= 3.0 and <= 4.5 are two different requirements.
+                        conflict = True
+                    elif _compatible(a, b) is False:
                         conflict = True
         if conflict:
             return ("possible_conflict", POSSIBLE_CONFLICT_NOTE)

@@ -81,17 +81,17 @@ MUTATIONS: tuple[Mutation, ...] = (
         # the wrong reason, and indistinguishable from a real detection. The
         # mutation has to reproduce the DEFECT: the action happens and no
         # record of it is written.
+        # Re-anchored in P5: the helper no longer swallows its own failure,
+        # so the try block it used to sit in is gone.
         anchor="    conn = connect()\n"
-               "    try:\n"
-               "        with conn:\n"
-               "            conn.execute(\n"
-               '                """INSERT INTO audit_events',
+               "    with conn:\n"
+               "        conn.execute(\n"
+               '            """INSERT INTO audit_events',
         replacement="    return\n"
                     "    conn = connect()\n"
-                    "    try:\n"
-                    "        with conn:\n"
-                    "            conn.execute(\n"
-                    '                """INSERT INTO audit_events',
+                    "    with conn:\n"
+                    "        conn.execute(\n"
+                    '            """INSERT INTO audit_events',
         target="tests/test_standards_library.py",
         keyword="supersession_is_audited",
         tags=("audit",),
@@ -155,9 +155,11 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M46", phase=4,
         description="make queuing extract synchronously, blocking the request",
         path=APP / "standards.py",
-        anchor="    if existing is not None:\n        return existing[\"id\"]",
-        replacement="    if existing is not None:\n        return existing[\"id\"]\n"
-                    "    run_extraction_job(document_id)",
+        # Re-anchored in B11: the check-then-insert now sits under one write
+        # lock, so the synchronous run goes after it, before the return.
+        anchor="    _audit(\"standard.extraction_queued\", actor, document_id, detail=f\"job={job_id}\")\n    return job_id",
+        replacement="    _audit(\"standard.extraction_queued\", actor, document_id, detail=f\"job={job_id}\")\n"
+                    "    run_extraction_job(document_id)\n    return job_id",
         target="tests/test_standards_3b.py",
         keyword="queued_and_drained_by_the_existing_worker",
         tags=("job",),
@@ -258,7 +260,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         anchor=r"(shall|must\s+not|must|is",
         replacement=r"(shall|should|must\s+not|must|is",
         target="tests/test_standards_library.py",
-        keyword="mandatory_vocabulary_is_saudi_aramcos_own",
+        keyword="mandatory_vocabulary_is_the_clients_own",
         tags=("honesty", "critical"),
     ),
     # ---- from EXTRACTION --------------------------------------------------

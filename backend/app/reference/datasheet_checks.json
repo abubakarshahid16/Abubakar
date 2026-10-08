@@ -1,0 +1,43 @@
+{
+  "_about": "Owner order 2c: datasheet self-checks (kind B). Rules as data, each with an id and plain-English text. Pure arithmetic on the datasheet's own values - no standard, no model. Edit here, not in code; datasheet_checks.py reads this file.",
+  "roles": {
+    "design_pressure": {"kind": "pressure", "names": ["^(internal |shell |tube )?(side )?design press(ure|\\.)?$", "^design press(ure|\\.)? \\(?internal\\)?$"]},
+    "operating_pressure": {"kind": "pressure", "names": ["^(max(imum|\\.)? )?(normal )?operating press(ure|\\.)?$"]},
+    "test_pressure": {"kind": "pressure", "names": ["^(hydro(static)? ?)?test press(ure|\\.)?$", "^hydrotest press(ure|\\.)?$"]},
+    "design_temperature": {"kind": "temperature", "names": ["^(max(imum|\\.)? )?design temp(erature|\\.)?$"]},
+    "operating_temperature": {"kind": "temperature", "names": ["^(max(imum|\\.)? )?(normal )?operating temp(erature|\\.)?$"]},
+    "rated_flow": {"kind": "flow", "names": ["^rated (flow|capacity)$"]},
+    "min_flow": {"kind": "flow", "names": ["^min(imum|\\.)? (continuous |stable )*flow$"]},
+    "max_flow": {"kind": "flow", "names": ["^max(imum|\\.)? (continuous |allowable )*flow$"]},
+    "corrosion_allowance": {"kind": "length", "names": ["^corrosion allowance$"]}
+  },
+  "units": {
+    "pressure": ["bar", "barg", "bara", "bar g", "bar a", "bar(g)", "bar(a)", "psi", "psig", "psia", "kpa", "kpag", "kpaa", "mpa", "mpag", "kg/cm2", "kg/cm2g", "kgf/cm2", "kgf/cm2g", "pa"],
+    "temperature": ["c", "°c", "degc", "deg c", "f", "°f", "degf", "deg f", "k"],
+    "flow": ["m3/h", "m3/hr", "m³/h", "gpm", "usgpm", "l/s", "l/min", "m3/s", "bpd"],
+    "length": ["mm", "in", "inch", "m", "cm"]
+  },
+  "_placeholders": "Moved 2026-09-27 to app/blank_markers.py - the ONE list of not-provided markers every datasheet reader and these checks read (CLAUDE.md rule 8).",
+  "consistency": [
+    {"id": "DS-C1", "left": "design_pressure", "op": ">=", "right": "operating_pressure",
+     "text": "The design pressure should be at least the operating pressure."},
+    {"id": "DS-C2", "left": "design_temperature", "op": ">=", "right": "operating_temperature",
+     "text": "The design temperature should be at least the operating temperature."},
+    {"id": "DS-C3", "left": "test_pressure", "op": ">", "right": "design_pressure",
+     "text": "The test pressure should be higher than the design pressure."},
+    {"id": "DS-C4", "left": "rated_flow", "op": ">=", "right": "min_flow",
+     "text": "The rated flow should not be below the minimum flow."},
+    {"id": "DS-C5", "left": "rated_flow", "op": "<=", "right": "max_flow",
+     "text": "The rated flow should not be above the maximum flow."}
+  ],
+  "mandatory": {
+    "Pressure Vessel": ["design_pressure", "design_temperature", "test_pressure", "corrosion_allowance", "operating_pressure", "operating_temperature"],
+    "Centrifugal Pump": ["rated_flow", "design_pressure", "design_temperature", "operating_temperature"],
+    "Pump": ["rated_flow", "design_pressure", "design_temperature", "operating_temperature"],
+    "Pressure Safety Valve": ["design_pressure", "design_temperature"],
+    "Compressor": ["rated_flow", "design_pressure", "design_temperature", "operating_temperature"],
+    "Heat Exchanger": ["design_pressure", "design_temperature", "test_pressure"],
+    "_generic": ["design_pressure", "design_temperature"]
+  },
+  "needs_unit": ["design_pressure", "operating_pressure", "test_pressure", "design_temperature", "operating_temperature", "rated_flow", "min_flow", "max_flow", "corrosion_allowance"]
+}

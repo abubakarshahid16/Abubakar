@@ -2,13 +2,14 @@
 from __future__ import annotations
 import uuid
 from datetime import datetime, timezone, timedelta
-from .db import connect
+from .db import connect, schema_once
 
 RISK_TYPES = frozenset({"schedule", "review", "dependency", "compliance"})
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
+@schema_once
 def ensure_schema() -> None:
     with connect() as conn:
         conn.execute("""CREATE TABLE IF NOT EXISTS risks (
@@ -35,8 +36,21 @@ def list_items(*, allowed_document_ids: frozenset[str] | None = None, risk_type:
     if allowed_document_ids is not None:
         if not allowed_document_ids: return []
         marks=",".join("?" for _ in allowed_document_ids); clauses.append(f"(document_id IS NULL OR document_id IN ({marks}))"); args.extend(sorted(allowed_document_ids))
+        # r2 S3: a risk raised about a deliverable follows that deliverable's
+        # document, so a row written before `document_id` was carried (NULL)
+        # still does not reach a caller who may not read the deliverable's
+        # document.
+        clauses.append(f"(deliverable_id IS NULL OR deliverable_id IN (SELECT id FROM deliverables WHERE org_wide = 1 OR document_id IN ({marks})))")
+        args.extend(sorted(allowed_document_ids))
     sql="SELECT * FROM risks" + (" WHERE " + " AND ".join(clauses) if clauses else "") + " ORDER BY updated_at DESC"
     return [dict(row) for row in connect().execute(sql,args).fetchall()]
+
+
+def _doc_of(deliverables: list[dict], deliverable_id: str) -> str | None:
+    for item in deliverables:
+        if item["id"] == deliverable_id:
+            return item.get("document_id")
+    return None
 
 
 def _open_exists(*, risk_type: str, deliverable_id: str | None = None,
@@ -63,7 +77,9 @@ def detect_automatic_risks(*, allowed_document_ids: frozenset[str] | None = None
         if not _open_exists(risk_type="schedule", deliverable_id=alert["deliverable_id"]):
             item = create({"risk_type": "schedule", "title": f"Overdue deliverable: {alert['title']}",
                            "description": f"{alert['days_overdue']} days overdue; escalation level {alert['escalation_level']}.",
-                           "severity": alert["severity"], "deliverable_id": alert["deliverable_id"], "due_date": alert["due_date"]})
+                           "severity": alert["severity"], "deliverable_id": alert["deliverable_id"], "due_date": alert["due_date"],
+                           # r2 S3: carry the SOURCE document so the scope filter can apply.
+                           "document_id": _doc_of(visible_deliverables, alert["deliverable_id"])})
             created.append(item)
             notifications.send_email(subject=f"EPC schedule risk: {alert['title']}", body=item["description"],
                                       trigger="automatic_risk", resource_type="risk", resource_id=item["id"])
@@ -108,7 +124,8 @@ def detect_automatic_risks(*, allowed_document_ids: frozenset[str] | None = None
         if overdue and not _open_exists(risk_type="dependency", deliverable_id=item["id"]):
             item_risk = create({"risk_type": "dependency", "title": f"Dependency overdue: {item['title']}",
                                 "description": f"Parent deliverable {parent['title']} is overdue.",
-                                "severity": "major", "deliverable_id": item["id"], "due_date": item.get("due_date")})
+                                "severity": "major", "deliverable_id": item["id"], "due_date": item.get("due_date"),
+                                "document_id": item.get("document_id")})
             created.append(item_risk)
             notifications.send_email(subject="EPC dependency risk", body=item_risk["description"], trigger="automatic_risk",
                                       resource_type="risk", resource_id=item_risk["id"])

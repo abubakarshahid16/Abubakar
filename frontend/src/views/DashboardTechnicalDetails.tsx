@@ -1,5 +1,5 @@
 import type { Metrics } from "../types/api";
-import { bytes, nf, Stat, Section, Throughput, Bar, loadTone } from "./DashboardPrimitives";
+import { bytes, nf, Stat, Section, Throughput, Bar, loadTone, NotMeasured } from "./DashboardPrimitives";
 import { humaniseReason } from "../components/WorkerPanel";
 
 type Props = {
@@ -250,6 +250,33 @@ export function DashboardTechnicalDetails({ metrics, corpus, throughput, retriev
             tone={models.answer_model_reachable ? "good" : "warn"}
             hint="Tier 2 only; quoted answers never need it"
           />
+          {/* Which dense-search backend answered, and why when it is the
+              fallback - never a silent downgrade. Both are exact, so the
+              fallback is a warn, not a danger: results are the same, only
+              latency differs. Stale counts reach admins only. */}
+          {metrics.vector_store && (
+            <Stat
+              label="Vector search"
+              value={
+                metrics.vector_store.active === "sqlite_vec"
+                  ? `sqlite-vec ${metrics.vector_store.sqlite_vec_version ?? ""}`.trim()
+                  : "numpy (fallback)"
+              }
+              tone={
+                metrics.vector_store.active === "sqlite_vec" && !metrics.vector_store.last_error
+                  && !metrics.vector_store.stale_vectors
+                  ? "good"
+                  : "warn"
+              }
+              hint={[
+                metrics.vector_store.fallback_reason ?? "exact search",
+                metrics.vector_store.last_error ? `index error: ${metrics.vector_store.last_error}` : null,
+                metrics.vector_store.stale_vectors
+                  ? `${nf.format(metrics.vector_store.stale_vectors)} stale vectors need re-embedding`
+                  : null,
+              ].filter(Boolean).join(" · ")}
+            />
+          )}
         </div>
       </Section>
 
@@ -258,7 +285,7 @@ export function DashboardTechnicalDetails({ metrics, corpus, throughput, retriev
           grant could scope them, and they were being served to every caller
           of a product whose stated boundary is "nothing leaves this machine".
           The whole card goes rather than its values, because `bytes(undefined)`
-          and `percent ?? 0` would render "0 B free of 0 B" and a zeroed bar -
+          and a defaulted percent would render "0 B free of 0 B" and a zeroed bar -
           a stated measurement that is false, which is a worse defect than the
           leak. An engineer sees no Machine card; the warnings below still
           reach them, figure-free. */}
@@ -268,9 +295,7 @@ export function DashboardTechnicalDetails({ metrics, corpus, throughput, retriev
           <div className="surface-card rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 px-3 py-2.5">
             <p className="text-xs uppercase tracking-wide text-slateish-500">CPU</p>
             {system.cpu_percent_since_last_call == null ? (
-              <p className="mt-1 text-sm italic leading-tight text-slateish-500">
-                not measured yet
-              </p>
+              <NotMeasured />
             ) : (
               <>
                 <p className="mt-1 font-mono text-lg leading-tight text-slateish-100">
@@ -311,14 +336,22 @@ export function DashboardTechnicalDetails({ metrics, corpus, throughput, retriev
 
           <div className="surface-card rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 px-3 py-2.5">
             <p className="text-xs uppercase tracking-wide text-slateish-500">Disk</p>
-            <p className="mt-1 font-mono text-lg leading-tight text-slateish-100">
-              {bytes(system.disk_free_bytes)}{" "}
-              <span className="text-sm text-slateish-500">free</span>
-            </p>
-            <Bar
-              percent={system.disk_percent ?? 0}
-              tone={loadTone(system.disk_percent ?? 0)}
-            />
+            {/* disk_percent is null when the OS reported a disk total of 0,
+                i.e. the disk was never measured. That reading's free figure
+                comes from the same call, so it goes too: no "0 B free", no
+                bar. `?? 0` here once drew a 0%-used progressbar in the healthy
+                tone (aria-valuenow 0) - a measurement nobody took. */}
+            {system.disk_percent == null ? (
+              <NotMeasured />
+            ) : (
+              <>
+                <p className="mt-1 font-mono text-lg leading-tight text-slateish-100">
+                  {bytes(system.disk_free_bytes)}{" "}
+                  <span className="text-sm text-slateish-500">free</span>
+                </p>
+                <Bar percent={system.disk_percent} tone={loadTone(system.disk_percent)} />
+              </>
+            )}
             <p className="mt-1 text-xs text-slateish-500">
               documents and index: {bytes(system.data_dir_bytes)}
             </p>

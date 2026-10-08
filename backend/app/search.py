@@ -16,16 +16,19 @@ Design constraints that shaped this:
 from __future__ import annotations
 
 import collections
+import itertools
 import re
 import sqlite3
 from dataclasses import dataclass, field
 
 import numpy as np
 
+from . import acronyms
+from . import glossary
 from . import keyword
 from . import progress
 from . import scores
-from . import vectorcache
+from . import vector_store
 from .db import connect
 from .config import settings
 from .embedder import Embedder, EmbedderConfig
@@ -38,6 +41,13 @@ RRF_K = 60
 #: How much an exact identifier match is worth, as a fraction of the top RRF
 #: score. Deliberately additive rather than multiplicative so it cannot
 #: dominate a result that matches nothing else.
+#:
+#: RRF SCALE ONLY. It orders the pool before reranking and is the ordering
+#: when the reranker is unavailable. After reranking it is NOT used: at most
+#: 0.5 x 2/61 = 0.016, it was added to cross-encoder scores spanning about
+#: -11..+10 and could never change an outcome (retrieval audit R6). On the
+#: rerank scale the identifier is carried by `apply_identifier_rerank_boost`
+#: and `keep_identifier_match` instead.
 IDENTIFIER_BOOST = 0.5
 
 # Decimal values in a table question are lookup keys, not conversational
@@ -145,6 +155,19 @@ class Candidate:
     #: designators this passage names that the question did NOT ask for
     conflicts: list[str] = field(default_factory=list)
     boost: float = 0.0
+    #: The decimal row-key part of `boost`, which is on the RERANK scale and
+    #: so is the only part of it carried onto the cross-encoder score.
+    numeric_boost: float = 0.0
+    #: Share of the question's identifiers, designators and phrases this
+    #: passage names (0..1). Scale-free, so each scale can express it.
+    identifier_share: float = 0.0
+    #: The identifier boost on the RERANK scale - see
+    #: apply_identifier_rerank_boost. Part of `score`, never of rerank_score,
+    #: so it can reorder but can never make a passage look credible.
+    rerank_boost: float = 0.0
+    #: Names EVERY identifier the question itself asked for (carried-forward
+    #: follow-up identifiers excluded). What keep_identifier_match protects.
+    names_identifiers: bool = False
     penalty: float = 0.0
     rerank_score: float | None = None
     #: this passage defines the term a definitional question asked about
@@ -156,18 +179,27 @@ class Candidate:
     #: Distance below the winner as a fraction of the whole field's spread.
     #: None when the field is too small for the fraction to mean anything.
     separation: float | None = None
+    #: The chunk's heading chain (`chunks.context`, CHUNKER_VERSION 8): where
+    #: it sits, e.g. "4 Piping > 4.2 Pipes larger than 2 inch > 4.2.1". Used
+    #: only for matching and reranking; never shown or quoted.
+    context: str | None = None
 
     @property
     def searchable_text(self) -> str:
         """Heading plus body. What the passage actually is, for matching and
-        reranking - the heading carries the clause number and designator."""
-        return self.section + "\n" + self.text if self.section else self.text
+        reranking - the heading carries the clause number and designator.
+
+        The heading is the chunk's heading CHAIN when it has one (it ends
+        with the section itself), so a clause filed only as "4.2.1" is read
+        with the "4.2 Pipes larger than 2 inch" above it."""
+        heading = self.context or self.section
+        return heading + "\n" + self.text if heading else self.text
 
     @property
     def score(self) -> float:
         """Final ordering score. Rerank wins when available."""
         if self.rerank_score is not None:
-            return self.rerank_score - self.penalty
+            return self.rerank_score + self.rerank_boost - self.penalty
         return self.rrf + self.boost - self.penalty
 
     def to_dict(self) -> dict:
@@ -182,6 +214,8 @@ class Candidate:
             "score": round(self.score, 6),
             "rrf": round(self.rrf, 6),
             "boost": round(self.boost, 6),
+            "rerank_boost": round(self.rerank_boost, 6),
+            "names_identifiers": self.names_identifiers,
             "penalty": round(self.penalty, 6),
             "conflicts": self.conflicts,
             "rerank_score": None if self.rerank_score is None else round(self.rerank_score, 6),
@@ -199,33 +233,12 @@ class Candidate:
             "defines_term": self.defines_term,
             "heading_declares": self.heading_declares,
             "separation": self.separation,
+            # index-only heading chain; read by answer._searchable_text
+            "context": self.context,
         }
 
 
 # --------------------------------------------------------------- dense side
-
-
-def _load_vectors(document_id: str | None = None) -> tuple[list[str], np.ndarray]:
-    """All stored vectors for retrievable chunks, as one matrix.
-
-    Served from a memory-mapped cache, rebuilt only when the corpus changes.
-    Re-reading every blob from SQLite per query was the only component of
-    retrieval measured to grow with the corpus (x2.11 across a doubling, while
-    the matmul grew x1.05).
-
-    The underlying read is joined against `chunks` so a vector orphaned by a
-    re-chunk can never be retrieved, and filtered on `retrievable` so an
-    excluded chunk cannot come back through the dense path even if it slipped
-    past the index.
-
-    Reranking is an enhancement, never a dependency, and the same rule applies
-    here: if the cache cannot be built or mapped for any reason, the direct
-    read still answers the query.
-    """
-    try:
-        return vectorcache.load(document_id)
-    except Exception:  # noqa: BLE001 - never let a cache fault break retrieval
-        return vectorcache._read_from_db(document_id)
 
 
 def dense_search(
@@ -235,52 +248,85 @@ def dense_search(
     *,
     allowed_document_ids: frozenset[str],
 ) -> list[dict]:
-    """Brute-force cosine. Returns [] when nothing is embedded yet.
+    """Exact cosine over the current vectors. Returns [] when nothing is
+    embedded yet, and never loads the model when nothing is in scope.
 
     `allowed_document_ids` is REQUIRED and keyword-only - see keyword.search
     for why it has no default.
 
-    The mask is applied to the score vector BEFORE top-k selection. Taking the
-    top k and then dropping unauthorised rows would silently shrink the result
-    set, and the size of that shrinkage would itself leak how much matching
-    material exists in documents the caller cannot see.
+    Storage, the backend (sqlite-vec or the exact numpy matrix), and the scope
+    filter live in `vector_store.search`. The scope is applied BEFORE top-k
+    there, on every backend: taking the top k and then dropping unauthorised
+    rows would silently shrink the result set, and the size of that shrinkage
+    would itself leak how much matching material exists in documents the
+    caller cannot see.
     """
-    ids, matrix = _load_vectors(document_id)
-    if not ids:
-        return []
-    if not allowed_document_ids:
-        return []
-
-    query_vec = Embedder.instance(EmbedderConfig()).embed_queries([question])[0]
-    # both sides are unit length, so the dot product IS the cosine
-    scores = matrix @ query_vec
-
-    # Which rows are in scope. The vector cache is keyed by chunk, so the
-    # document each chunk belongs to is resolved once here rather than per row.
-    owner = _chunk_owner_map()
-    mask = np.array(
-        [owner.get(cid) in allowed_document_ids for cid in ids], dtype=bool
+    return vector_store.search(
+        lambda: Embedder.instance(EmbedderConfig()).embed_queries([question])[0],
+        limit=limit, document_id=document_id,
+        allowed_document_ids=allowed_document_ids,
     )
-    if not mask.any():
-        return []
-    # -inf rather than deletion: the index positions stay aligned with `ids`,
-    # and an out-of-scope row can never be selected however high it scored.
-    scores = np.where(mask, scores, -np.inf)
-
-    top = np.argsort(-scores)[:limit]
-    return [
-        {"chunk_id": ids[i], "cosine": float(scores[i])}
-        for i in top
-        if np.isfinite(scores[i])
-    ]
 
 
-def _chunk_owner_map() -> dict[str, str]:
-    """chunk_id -> document_id, for masking the dense matrix by scope."""
-    return {
-        r["id"]: r["document_id"]
-        for r in connect().execute("SELECT id, document_id FROM chunks")
-    }
+def _keyword_candidates(
+    question: str,
+    limit: int,
+    document_id: str | None,
+    allowed_document_ids: frozenset[str],
+    corrections: dict[str, str],
+    soft_identifiers,
+) -> list[dict]:
+    """The keyword side, with carried-forward identifiers made SOFT.
+
+    keyword.search requires every identifier in its question (AND). For an
+    identifier the reader typed that is right; for one a follow-up carried
+    in from up to three turns back it is not - "what is the tolerance there?"
+    became `"6.9.3" AND "API 610" AND ...` and every passage not naming all
+    of them co-occurring was excluded (retrieval audit R4).
+
+    So with soft identifiers the side runs twice: as asked (identifiers
+    required) and without the soft ones, and the two ranked lists are
+    INTERLEAVED, strict first. The carried subject keeps first place at each
+    rank - a preference - and passages without it still enter the pool.
+    """
+    soft = tuple(s for s in soft_identifiers if s)
+    # An identifier that names the ONE document the search is already narrowed
+    # to is satisfied by the scope itself: a standard almost never prints its
+    # own designation, so requiring it in the passage returned nothing at all
+    # ("What does STD-A-001 say about PWHT" found 0 keyword candidates inside
+    # STD-A-001 although the passage was there). It becomes soft: tried as
+    # asked first, then without, interleaved. Narrowing only - the scope is
+    # still the caller's.
+    if document_id and allowed_document_ids and document_id in allowed_document_ids:
+        from . import lexical
+
+        soft = tuple(dict.fromkeys([
+            *soft,
+            *(i for i in keyword.IDENTIFIER.findall(question)
+              if lexical._scope_wholly_named(i, frozenset({document_id})))]))
+    strict = keyword.search(
+        question, limit=limit, document_id=document_id,
+        allowed_document_ids=allowed_document_ids,
+        corrections=corrections,
+    )
+    if not soft:
+        return strict
+    relaxed_question = without_terms(question, soft)
+    if not relaxed_question or relaxed_question == question:
+        return strict
+    relaxed = keyword.search(
+        relaxed_question, limit=limit, document_id=document_id,
+        allowed_document_ids=allowed_document_ids,
+        corrections=corrections,
+    )
+    merged: list[dict] = []
+    seen: set[str] = set()
+    for pair in itertools.zip_longest(strict, relaxed):
+        for hit in pair:
+            if hit is not None and hit["chunk_id"] not in seen:
+                seen.add(hit["chunk_id"])
+                merged.append(hit)
+    return merged[:limit]
 
 
 def every_document_id() -> frozenset[str]:
@@ -334,7 +380,25 @@ def find_designators(text: str) -> list[str]:
     return keyword.find_designators(text)
 
 
-def apply_identifier_boost(question: str, candidates: list[Candidate]) -> None:
+def without_terms(text: str, terms) -> str:
+    """`text` with every whole-word occurrence of `terms` removed.
+
+    How a carried-forward follow-up identifier is kept OUT of the parts of the
+    pipeline that would make it a requirement (the keyword AND, the lexical
+    gate's named-subject check, document naming) while the rest of the
+    question is left as typed.
+    """
+    for term in sorted({t for t in terms if t}, key=len, reverse=True):
+        text = re.sub(r"(?<![\w-])" + re.escape(term) + r"(?![\w-])", " ", text,
+                      flags=re.IGNORECASE)
+    return " ".join(text.split())
+
+
+def apply_identifier_boost(
+    question: str,
+    candidates: list[Candidate],
+    soft_identifiers: tuple[str, ...] | list[str] = (),
+) -> None:
     """Reward chunks that literally contain the question's identifiers.
 
     A question about `API 610` is about API 610. Semantic similarity will
@@ -345,7 +409,14 @@ def apply_identifier_boost(question: str, candidates: list[Candidate]) -> None:
     wrong is not a missing answer but a confidently wrong one: quoting coating
     system 4's film thickness in answer to a question about system 1 reads
     perfectly plausible and is simply false.
+
+    `soft_identifiers` are identifiers a follow-up CARRIED from an earlier
+    turn (chat.resolve_followup). They still count towards the boost - they
+    are context - but not towards `names_identifiers`, the guarantee
+    keep_identifier_match gives to identifiers the reader actually asked for.
     """
+    soft = {s.lower() for s in soft_identifiers}
+    required = [i.lower() for i in find_identifiers(question) if i.lower() not in soft]
     wanted: dict[str, list[str]] = {}
     for ident in find_identifiers(question):
         wanted[ident.lower()] = [ident.lower()]
@@ -373,6 +444,7 @@ def apply_identifier_boost(question: str, candidates: list[Candidate]) -> None:
         )
         if hits:
             c.identifier_hits = hits
+        c.names_identifiers = bool(required) and all(i in lowered for i in required)
         c.numeric_hits = [value for value in decimals if re.search(
             r"(?<![\w.])" + re.escape(value) + r"(?![\w.])", lowered
         )]
@@ -389,12 +461,14 @@ def apply_identifier_boost(question: str, candidates: list[Candidate]) -> None:
         matched = len(hits) + len(c.phrase_hits)
         wanted_count = len(wanted) + len(phrases)
         if matched:
-            c.boost = IDENTIFIER_BOOST * top_rrf * (matched / wanted_count)
+            c.identifier_share = matched / wanted_count
+            c.boost = IDENTIFIER_BOOST * top_rrf * c.identifier_share
         if c.numeric_hits:
             # A requested decimal is a row locator (for example, time 4.00),
             # so it must remain effective on the reranker score scale rather
             # than being diluted into the tiny RRF boost above.
-            c.boost += DECIMAL_TOKEN_BOOST * (len(c.numeric_hits) / len(decimals))
+            c.numeric_boost = DECIMAL_TOKEN_BOOST * (len(c.numeric_hits) / len(decimals))
+            c.boost += c.numeric_boost
 
         # Which member does the HEADING declare? In a specification the clause
         # heading is the authoritative scope of the passage; a mention in the
@@ -426,6 +500,57 @@ def apply_identifier_boost(question: str, candidates: list[Candidate]) -> None:
                 c.heading_declares = True
             else:
                 c.conflicts = sorted(f"{word} {v}" for v in declared)
+
+
+def apply_identifier_rerank_boost(candidates: list[Candidate]) -> None:
+    """The identifier boost, expressed on the RERANK scale.
+
+    IDENTIFIER_RERANK_SHARE of the field's own spread (scores.spread, the
+    denominator every relative rule here uses), times the share of the
+    question's identifiers the passage names. So a passage naming every
+    identifier beats one naming none whenever the cross-encoder put them
+    within the band this module already measured as indistinguishable
+    (INDISTINGUISHABLE) - and never overrides a decisive preference, the same
+    principle as apply_heading_precedence.
+
+    Stored in `rerank_boost`, which `score` adds and `rerank_score` does not:
+    the credibility floor (answer.MIN_RERANK_SCORE), the relevance floor and
+    `separation` keep reading the cross-encoder's own judgement.
+    """
+    field = [c.rerank_score for c in candidates
+             if c.rerank_score is not None and np.isfinite(c.rerank_score)]
+    if len(field) < 2:
+        return
+    width = scores.spread(field)
+    for c in candidates:
+        c.rerank_boost = (
+            IDENTIFIER_RERANK_SHARE * width * c.identifier_share
+            if c.rerank_score is not None else 0.0
+        )
+
+
+def keep_identifier_match(candidates: list[Candidate], k: int) -> str | None:
+    """Guarantee that an exact identifier match is inside the top `k`.
+
+    A question naming `API 610` is asking about API 610. If the final field
+    holds a passage naming every identifier the question asked for but none
+    of the first `k` does, the best such passage takes slot `k`. Only
+    candidates that already SURVIVED the relevance floor and the document cap
+    are eligible, so this can neither resurrect noise nor break the cap, and
+    a passage that contradicts the question (`conflicts`) is never promoted.
+    An ordering rule, reported, never a score.
+    """
+    if k < 1 or len(candidates) <= k:
+        return None
+    if any(c.names_identifiers for c in candidates[:k]):
+        return None
+    for c in candidates[k:]:
+        if c.names_identifiers and not c.conflicts:
+            candidates.remove(c)
+            candidates.insert(k - 1, c)
+            return (f"{c.section or c.chunk_id} names the identifier the question "
+                    f"asked for and was kept in the top {k}")
+    return None
 
 
 def _apply_conflict_penalty(candidates: list[Candidate], reranked: bool = False) -> None:
@@ -495,6 +620,7 @@ def deduplicate(
     """
     kept: list[Candidate] = []
     kept_tokens: list[set[str]] = []
+    kept_ids: list[str] = []
     for c in sorted(candidates, key=lambda x: -x.score):
         # two annex tables can share almost all their body text and differ
         # only by heading, so dedup must see the heading too
@@ -504,18 +630,23 @@ def deduplicate(
                 dropped.append(_eviction(c.chunk_id, c.document_id, c.rrf,
                                          "empty_after_tokenisation"))
             continue
-        duplicate = False
-        for existing in kept_tokens:
+        duplicate_of = None
+        for existing, existing_id in zip(kept_tokens, kept_ids, strict=True):
             shorter = min(len(tokens), len(existing)) or 1
             if len(tokens & existing) / shorter >= DUPLICATE_OVERLAP:
-                duplicate = True
+                duplicate_of = existing_id
                 break
-        if duplicate and dropped is not None:
-            dropped.append(_eviction(c.chunk_id, c.document_id, c.rrf,
-                                     "near_duplicate"))
-        if not duplicate:
+        if duplicate_of is not None and dropped is not None:
+            # B6C: WHICH kept chunk it repeats - report-only. The same text
+            # in another DOCUMENT means "which document" is ambiguous, and
+            # question understanding must be able to say so.
+            dropped.append({**_eviction(c.chunk_id, c.document_id, c.rrf,
+                                        "near_duplicate"),
+                            "duplicate_of": duplicate_of})
+        if duplicate_of is None:
             kept.append(c)
             kept_tokens.append(tokens)
+            kept_ids.append(c.chunk_id)
     return kept
 
 
@@ -619,7 +750,7 @@ def _hydrate(chunk_ids: list[str]) -> dict[str, sqlite3.Row]:
     rows = conn.execute(
         f"""SELECT id, document_id, filename, section, page_start, page_end,
                    text, retrievable, text_source, ocr_min_conf,
-                   ocr_alphabet_violations, ocr_alphabet_sample
+                   ocr_alphabet_violations, ocr_alphabet_sample, context
             FROM chunks WHERE id IN ({marks})""",
         chunk_ids,
     ).fetchall()
@@ -730,6 +861,11 @@ def normalise_question(question: str) -> str:
 #: somewhere else entirely, which the raw-point version would not.
 INDISTINGUISHABLE = 0.15
 
+#: The identifier boost on the rerank scale, as a fraction of the field's
+#: spread. DELIBERATELY the noise band above, not a new tuned number: an
+#: identifier match decides between passages the scores cannot tell apart.
+IDENTIFIER_RERANK_SHARE = INDISTINGUISHABLE
+
 #: Below this many scored candidates, "a fraction of the field's spread" is
 #: not a meaningful quantity - with three candidates the median is the second
 #: one, so every second-place separation computes to exactly 1.0. The relative
@@ -804,12 +940,18 @@ def search(
     *,
     allowed_document_ids: frozenset[str],
     progress_id: str | None = None,
+    soft_identifiers: tuple[str, ...] | list[str] = (),
 ) -> dict:
     """Hybrid retrieval end to end.
 
     Returns the ordered passages plus how they were found, so a result can
     always be explained: which side retrieved it, at what rank, and what the
     rerank thought.
+
+    `soft_identifiers`: identifiers present in `question` only because a
+    follow-up carried them from an earlier turn. They steer (dense, rerank,
+    boost, and first place in the keyword list) but are never REQUIRED - see
+    _keyword_candidates.
     """
     timer = Timer()
     timings: dict[str, float] = {}
@@ -825,10 +967,13 @@ def search(
     # retried against the spelling the index does have. Reported, never
     # hidden: the reader is told what was actually searched.
     corrections: dict[str, str] = {}
-    keyword_hits = keyword.search(
-        question, limit=candidates, document_id=document_id,
-        allowed_document_ids=allowed_document_ids,
-        corrections=corrections,
+    # The engineering synonyms keyword.search OR-s in for this question
+    # (app/glossary.py). Reported like the corrections, never hidden.
+    synonyms = {word: list(phrases)
+                for word, phrases in glossary.expansions(question).items()}
+    keyword_hits = _keyword_candidates(
+        question, candidates, document_id, allowed_document_ids,
+        corrections, soft_identifiers,
     )
     timings["keyword_ms"] = round(t.elapsed * 1000, 2)
 
@@ -884,6 +1029,9 @@ def search(
                 ocr_min_conf=row["ocr_min_conf"],
                 ocr_alphabet_violations=row["ocr_alphabet_violations"] or 0,
                 ocr_alphabet_sample=row["ocr_alphabet_sample"],
+                # rows from a caller that selects no context (older fakes,
+                # older databases) simply carry none
+                context=row["context"] if "context" in row.keys() else None,
                 keyword_rank=meta.get("keyword_rank"),
                 dense_rank=meta.get("dense_rank"),
                 bm25=meta.get("bm25"),
@@ -892,7 +1040,7 @@ def search(
             )
         )
 
-    apply_identifier_boost(question, pool)
+    apply_identifier_boost(question, pool, soft_identifiers)
     _apply_conflict_penalty(pool)
     pool = deduplicate(pool, evicted)
     # heading_declares is a TIEBREAK here, not a score.
@@ -930,15 +1078,38 @@ def search(
         scored = reranker.rerank(
             question, [(c.chunk_id, c.searchable_text) for c in shortlist]
         )
+        # ENGINEERING SYNONYMS, ON THE RERANK SCALE (app/glossary.py). The
+        # cross-encoder scores meaning against WORDING: "how humid" scored
+        # below the credibility floor against the relative-humidity clause it
+        # was about. The question is also scored as the document words it and
+        # each passage keeps the HIGHER of the two - a passage that fits
+        # neither wording still scores low, so an absent answer stays absent.
+        # Only when an entry fired; reported as `synonyms_searched`.
+        worded = glossary.rewrite(question) if synonyms else None
+        # The same for abbreviations: the question spelled out / abbreviated
+        # the way this library writes it (app/acronyms.py), highest score wins.
+        rewordings = ([worded] if worded else []) + acronyms.rewrites(
+            question, document_id, allowed_document_ids=allowed_document_ids)
+        for alt in rewordings:
+            if not scored:
+                break
+            also = dict(reranker.rerank(
+                alt, [(c.chunk_id, c.searchable_text) for c in shortlist]))
+            scored = [(cid, max(score, also.get(cid, score))) for cid, score in scored]
         timings["rerank_ms"] = round(t.elapsed * 1000, 2)
         if scored:
             reranked = True
             by_id = dict(scored)
             for c in shortlist:
-                # the identifier boost still applies on top of the rerank,
-                # so a semantically plausible passage that omits the
-                # identifier cannot displace the one that names it
-                c.rerank_score = by_id.get(c.chunk_id, float("-inf")) + c.boost
+                # Only the decimal row-key boost is on this scale. The RRF
+                # identifier boost used to be added here too, and at <= 0.016
+                # against a -11..+10 field it could not move anything - so
+                # the comment that stood here ("a plausible passage that
+                # omits the identifier cannot displace the one that names
+                # it") was false. The identifier now acts on the rerank
+                # scale in apply_identifier_rerank_boost, and the final top k
+                # is guaranteed a match by keep_identifier_match.
+                c.rerank_score = by_id.get(c.chunk_id, float("-inf")) + c.numeric_boost
 
             # Only the shortlist was reranked, and the two scales are not
             # comparable: an unrelated passage scores about -11 from the
@@ -950,6 +1121,7 @@ def search(
             pool = shortlist
             evicted.extend(cut)
             _apply_conflict_penalty(pool, reranked=True)
+            apply_identifier_rerank_boost(pool)
             pool.sort(key=lambda c: -c.score)
 
     # A definition outranks a usage, when one was asked for. Applied last and
@@ -990,6 +1162,9 @@ def search(
     if pool:
         pool, low_confidence = apply_relevance_floor(pool, dropped=evicted)
         pool = apply_document_cap(pool, dropped=evicted)
+    # Last of all, over survivors only: a passage naming the question's
+    # identifier is in what the caller receives.
+    identifier_note = keep_identifier_match(pool, limit)
 
     # A per-document census of what survived, for coverage reporting. Built
     # from the final pool, so `best_rerank_score` is None on the unreranked
@@ -1023,6 +1198,7 @@ def search(
         "timings": timings,
         # Stated so a reordering is auditable rather than mysterious.
         "heading_precedence": precedence_note,
+        "identifier_kept": identifier_note,
         # The field cleared nothing but the floor's own exemption: every
         # passage here scored below RELEVANCE_FLOOR and is shown anyway,
         # because refusing a question the corpus may answer is the worse
@@ -1033,6 +1209,7 @@ def search(
         # {word as typed: word as the corpus spells it}, when a keyword miss
         # was retried tolerantly. Empty for a query that needed no help.
         "spelling_corrections": corrections,
+        "synonyms_searched": synonyms,
         # A dropped candidate now has a reason attached. `total` still counts
         # what survived, so a candidate below `limit` is accounted for by the
         # difference between `total` and the number of hits, not by this list:

@@ -65,7 +65,7 @@ For `115 dB`, FTS rank 1 score was `0.722314`, hybrid rank 1 score `0.937076`; d
 
 ## 4. Contents/header/footer contamination
 
-Repeating `Saudi Aramco: Company General Use`, `Page n of 14`, and contents/addition text remain inside extracted chunks. The strongest concrete failure is `Category A night community limit`: dense rank 1 is `a835c3a15e04:p00003:c00004:f6572cbb` (p3–4), a contents/addition chunk mentioning “Table 4”, while the actual Table 4 data is on p13. The `7305-ENG` query also returns a references chunk on p4–5 at FTS rank 2. Thus repeating headers/contents cannot be considered safely suppressed from outranking or competing with real clauses.
+Repeating page-boilerplate text (a `Company General Use` footer), `Page n of 14`, and contents/addition text remain inside extracted chunks. The strongest concrete failure is `Category A night community limit`: dense rank 1 is `a835c3a15e04:p00003:c00004:f6572cbb` (p3–4), a contents/addition chunk mentioning “Table 4”, while the actual Table 4 data is on p13. The `7305-ENG` query also returns a references chunk on p4–5 at FTS rank 2. Thus repeating headers/contents cannot be considered safely suppressed from outranking or competing with real clauses.
 
 ## 5. Recommended fixes (no production changes made)
 

@@ -1,10 +1,16 @@
-import type { AnswerPassage, CorpusFact, EvidenceRemoved, AnswerType, Message } from "../../types/api";
+import type { AnswerPassage, Answerability, Comparison, ConditionChoice, CorpusFact, EvidenceRemoved, AnswerType, Message, ScopeAmbiguity, Understanding } from "../../types/api";
 import { PassageLocation } from "./EvidencePanel";
 /** The parts of an answer this card renders, from a live reply or a replay. */
 export interface AnswerView {
   answer_type: AnswerType;
   answer: string | null;
   reason: string | null;
+  /** Which engine answered or failed: "claude" or "ollama". Absent on turns stored before it was kept. */
+  provider?: string | null;
+  /** "claude" when the reader chose Claude; kept only when the local model answered. Absent on older turns. */
+  requested_provider?: string | null;
+  /** Why Claude was not used (written by the backend). Absent on older turns. */
+  provider_note?: string | null;
   passage: AnswerPassage | null;
   supporting: AnswerPassage[];
   passages: AnswerPassage[];
@@ -21,6 +27,18 @@ export interface AnswerView {
   corpus?: CorpusFact | null;
   /** Counts of documents in generated prose re-bounded to what was retrieved. */
   counts_bounded?: number;
+  /** B8: the answer-level verdict. */
+  answerability?: Answerability | null;
+  /** B6C: how the question was scoped. */
+  understanding?: Understanding | null;
+  scope_ambiguity?: ScopeAmbiguity | null;
+  /** Plan step 4: which clause applies when clauses differ by condition. */
+  condition_choice?: ConditionChoice | null;
+  /** B9: reopened turn citing a document the reader can no longer read. */
+  withheld?: boolean;
+  /** Plan C3: present on answer_type === "comparison" - each named side's
+   *  own document ids and its own answer_type. */
+  comparison?: Comparison | null;
 }
 
 /**
@@ -45,6 +63,8 @@ export interface UpgradeFailure {
   /** `insufficient_evidence` (refused) or `model_unavailable` (never ran). */
   answer_type: AnswerType;
   reason: string | null;
+  /** Which engine failed: "claude" or "ollama" (absent: unknown, treated as local). */
+  provider?: string | null;
   /** What the model was given, so the reader can still judge for themselves. */
   considered: AnswerPassage[];
   activeSource: number | null;
@@ -57,6 +77,9 @@ export function viewFromMessage(m: Message): AnswerView {
     answer_type: m.answer_type ?? "insufficient_evidence",
     answer: m.text,
     reason: m.reason,
+    provider: m.provider ?? p.provider ?? null,
+    requested_provider: m.requested_provider ?? p.requested_provider ?? null,
+    provider_note: m.provider_note ?? p.provider_note ?? null,
     passage: p.passage ?? null,
     supporting: p.supporting ?? [],
     passages: p.passages ?? [],
@@ -69,6 +92,12 @@ export function viewFromMessage(m: Message): AnswerView {
     examples: p.examples ?? [],
     corpus: p.corpus ?? null,
     counts_bounded: p.counts_bounded ?? 0,
+    answerability: p.answerability ?? null,
+    understanding: p.understanding ?? null,
+    scope_ambiguity: p.scope_ambiguity ?? null,
+    condition_choice: p.condition_choice ?? null,
+    withheld: p.withheld === true,
+    comparison: p.comparison ?? null,
   };
 }
 
@@ -324,6 +353,23 @@ export function ReportAction({
  * `PassageLocation`, which already carries the OCR mark and is checked there.
  */
 export function UpgradeFailureNotice({ failure }: { failure: UpgradeFailure }) {
+  if (failure.answer_type === "model_unavailable" && failure.provider === "claude") {
+    return (
+      <div
+        role="alert"
+        className="mt-2 rounded-[var(--radius-sm)] border border-warn-500/50 bg-warn-500/10 px-2.5 py-2"
+      >
+        <p className="text-xs font-semibold text-warn-500">
+          The plain-language version could not be produced — Claude did not answer
+        </p>
+        <p className="mt-1 text-xs text-slateish-300">
+          {asSentence(failure.reason ?? "The Claude call failed")} The quoted
+          answer above is unaffected — only the plain-language version needs
+          the model. Try again, or switch Model to Local.
+        </p>
+      </div>
+    );
+  }
   if (failure.answer_type === "model_unavailable") {
     return (
       <div

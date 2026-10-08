@@ -61,6 +61,54 @@ _PHRASES: dict[str, str] = {
     **{p: "about_the_assistant" for p in ABOUT_THE_ASSISTANT},
 }
 
+#: Closing words that are not a question: "that's all", "that's it".
+CLOSERS = {
+    "that's all", "thats all", "that is all", "that's it", "thats it", "that is it",
+    "nothing else", "all good", "no more questions", "that will be all", "that'll be all",
+    "for now", "much", "very much", "so much", "a lot", "again",
+}
+
+#: Which kind a string made only of small-talk phrases is, strongest first:
+#: "ok thanks" is thanks, "thanks, bye" is a farewell.
+_COMPOUND_ORDER = ("farewell", "thanks", "greeting", "acknowledgement")
+
+#: Every phrase a compound may be made of, longest first so "thank you" wins
+#: over "thank", with apostrophes kept ("that's all").
+_COMPOUND_PARTS: dict[str, str] = {
+    **{p: k for p, k in _PHRASES.items() if k != "about_the_assistant"},
+    **{p: "closer" for p in CLOSERS},
+}
+_COMPOUND = re.compile(
+    r"\s*(" + "|".join(re.escape(p) for p in sorted(_COMPOUND_PARTS, key=len, reverse=True))
+    + r")\b[\s,.!;:-]*")
+
+
+def _compound_small_talk(normalised: str) -> str | None:
+    """"thanks, that's all", "ok thanks", "great, thank you" - a message made
+    ENTIRELY of small-talk phrases is small talk.
+
+    FOUND 2026-09-30 (audit): these were classified as document questions, so
+    `intent.route` sent them to EITHER and they ran a search with terms carried
+    from the previous question. Matched whole, phrase by phrase: one word that
+    is not a known phrase ("ok thanks, and the flange rating?") and it is not
+    small talk."""
+    text = normalised.replace("\u2019", "'")
+    kinds: list[str] = []
+    pos = 0
+    while pos < len(text):
+        match = _COMPOUND.match(text, pos)
+        if match is None or match.end() == pos:
+            return None
+        kinds.append(_COMPOUND_PARTS[match.group(1)])
+        pos = match.end()
+    if not kinds:
+        return None
+    for kind in _COMPOUND_ORDER:
+        if kind in kinds:
+            return kind
+    return "acknowledgement"   # only closers: "that's all"
+
+
 DOCUMENT_QUESTION = "document_question"
 ADVICE_REQUEST = "advice_request"
 
@@ -175,6 +223,9 @@ def classify(question: str) -> str:
     kind = _PHRASES.get(normalised)
     if kind:
         return kind
+    kind = _compound_small_talk(normalised)
+    if kind:
+        return kind
 
     # A greeting with a tail - "hi there", "hello!" - is still a greeting.
     first = normalised.split()[0]
@@ -209,10 +260,35 @@ def _clean_title(section: str) -> str:
     return title
 
 
+#: A section heading so generic it names no real content - "Chapter 3",
+#: "Scope", "General", "Table of Contents". Excluded so an example question
+#: still means something once you read it, not just once you count its words.
+_GENERIC_HEADING = re.compile(
+    r"^\s*(chapter\s+\d+|part\s+\d+|section\s+\d+|scope|general|purpose|"
+    r"introduction|table\s+of\s+contents|contents|foreword|preface|"
+    r"revision\s+history|abbreviations?|definitions?|references?)\s*$",
+    re.IGNORECASE)
+
+#: The one example that names no document, appended after the document-drawn
+#: ones (never counted against `limit`) - a corpus of one obscure standard
+#: should not leave a first-time reader with nothing to click.
+GENERAL_EXAMPLE = "Explain what a hydrotest is"
+
+
+def _document_title(row) -> str:
+    """The document's recorded title, no extension - never the raw filename
+    with '.pdf' in front of a reader who never asked to see one."""
+    title = (row["title"] or "").strip() if "title" in row.keys() else ""
+    if title:
+        return title
+    return row["filename"].rsplit(".", 1)[0]
+
+
 def example_questions(
     limit: int = 3, *, allowed_document_ids: frozenset[str]
 ) -> list[str]:
-    """Questions drawn from the documents this caller may actually read.
+    """Questions drawn from the documents this caller may actually read, plus
+    one general-knowledge example that names no document.
 
     Suggesting "what is the NDFT for coating system no. 1" to someone whose
     corpus is two textbooks would be a worse first impression than suggesting
@@ -220,54 +296,66 @@ def example_questions(
     document that can currently answer, so every one of them works.
 
     `allowed_document_ids` is REQUIRED and keyword-only. Every example embeds
-    a real FILENAME and a real CLAUSE HEADING, and this ran unscoped: typing
-    "hi" - or "thanks" - returned the filenames and section titles of
+    a real document TITLE and a real CLAUSE HEADING, and this ran unscoped:
+    typing "hi" - or "thanks" - returned the filenames and section titles of
     documents the caller has no grant on, inside the answer text, and
     `answer()` persists that text to the conversation transcript. A greeting
     was the cheapest way to enumerate the corpus, and the disclosure outlived
     the request.
 
-    An empty scope offers no examples, which is the same answer an empty
-    corpus gets and the right one: there is nothing this caller can be shown.
-    """
-    if not allowed_document_ids:
-        return []
-    marks = ",".join("?" * len(allowed_document_ids))
-    try:
-        rows = connect().execute(
-            f"""SELECT c.filename, c.section, COUNT(*) AS n
-               FROM chunks c JOIN documents d ON d.id = c.document_id
-               WHERE c.retrievable = 1 AND c.section IS NOT NULL
-                 AND d.status IN ('ready', 'partially_searchable')
-                 AND c.document_id IN ({marks})
-               GROUP BY c.document_id, c.section
-               -- substantial sections first: a clause with more chunks makes a
-               -- better example than a one-line heading. No minimum, or a
-               -- small corpus would offer nothing at all.
-               ORDER BY c.document_id, n DESC""",
-            sorted(allowed_document_ids),
-        ).fetchall()
-    except Exception:  # noqa: BLE001 - a suggestion is never worth an error
-        return []
+    PREFERENCE ORDER (2026-09-27, Fix 1): a contractor submittal or a
+    recently uploaded document first - what the reader is most likely
+    working on right now - then the rest by upload recency. Within a
+    document, its most substantial clause (most chunks) wins.
 
-    seen_files: set[str] = set()
+    An empty scope offers no document examples (still the general one), which
+    is the same answer an empty corpus gets and the right one: there is
+    nothing else this caller can be shown.
+    """
     examples: list[str] = []
-    # One per document first, so the examples show the breadth of the corpus
-    # rather than three questions about the same clause.
-    for pass_no in (1, 2):
-        for r in rows:
+    if allowed_document_ids:
+        marks = ",".join("?" * len(allowed_document_ids))
+        try:
+            rows = connect().execute(
+                f"""SELECT c.document_id, d.filename, cl.title, cl.document_role,
+                          c.section, COUNT(*) AS n
+                   FROM chunks c
+                   JOIN documents d ON d.id = c.document_id
+                   LEFT JOIN document_classification cl ON cl.document_id = c.document_id
+                   WHERE c.retrievable = 1 AND c.section IS NOT NULL
+                     AND d.status IN ('ready', 'partially_searchable')
+                     AND c.document_id IN ({marks})
+                   GROUP BY c.document_id, c.section
+                   -- Submittals and recent uploads first (Fix 1: what the
+                   -- reader is likely working on); within a document, its
+                   -- most substantial clause (most chunks) wins.
+                   ORDER BY (cl.document_role = 'CONTRACTOR_SUBMITTAL') DESC,
+                            d.uploaded_at DESC, c.document_id, n DESC""",
+                sorted(allowed_document_ids),
+            ).fetchall()
+        except Exception:  # noqa: BLE001 - a suggestion is never worth an error
+            rows = []
+
+        seen_docs: set[str] = set()
+        # One per document first, so the examples show the breadth of the
+        # corpus rather than three questions about the same clause.
+        for pass_no in (1, 2):
+            for r in rows:
+                if len(examples) >= limit:
+                    break
+                if pass_no == 1 and r["document_id"] in seen_docs:
+                    continue
+                title = _clean_title(r["section"])
+                if len(title.split()) < 2 or len(title) > 60 or _GENERIC_HEADING.match(title):
+                    continue
+                question = f"What does {_document_title(r)} say about {title}?"
+                if question in examples:
+                    continue
+                examples.append(question)
+                seen_docs.add(r["document_id"])
             if len(examples) >= limit:
-                return examples
-            if pass_no == 1 and r["filename"] in seen_files:
-                continue
-            title = _clean_title(r["section"])
-            if len(title.split()) < 2 or len(title) > 60:
-                continue
-            question = f"What does {r['filename']} say about {title}?"
-            if question in examples:
-                continue
-            examples.append(question)
-            seen_files.add(r["filename"])
+                break
+    examples.append(GENERAL_EXAMPLE)
     return examples
 
 
@@ -303,3 +391,216 @@ def guidance(kind: str, examples: list[str] | None = None) -> str:
         return reply
     lines = "\n".join(f"  • {q}" for q in examples)
     return f"{reply}\n\nTry one of these:\n{lines}"
+
+
+# =============================================================== the router
+#
+# OWNER ORDER 2026-09-26 (chat redesign, 2c). Every chat message is routed to
+# one of seven answer kinds BEFORE anything is searched. The rules are words,
+# not a model, so a routing decision can be read, tested and argued with.
+#
+# THE ONE ASYMMETRY THAT MATTERS: a question that names a document, a clause,
+# an identifier or the reader's own material goes to the DOCUMENTS and is
+# never answered from general knowledge - if the documents cannot answer it,
+# the reader is told so. Answering "what is the design pressure of our drum"
+# from general knowledge would be a confident wrong answer about their plant.
+# Only a question with NO document signal may be answered as general
+# knowledge, and it is always labelled so.
+
+GENERAL = "general"
+DOCUMENT = "document"
+WEB = "web"
+MIXED = "mixed"
+REWRITE = "rewrite"
+ACTION = "action"
+RECORDS = "records"
+#: A question with neither signal: the documents are tried first, and only a
+#: question they cannot speak to at all is answered from general knowledge.
+EITHER = "either"
+
+#: FOUND 2026-09-28 (real machine, real Claude, 3 reproductions): an EITHER
+#: question that asks for a NUMBER, LIMIT or REQUIREMENT - "what is the
+#: hafnium concentration limit" - reached Claude-first and the EITHER-to-
+#: general fallback on equal footing with a plain definitional question
+#: ("what is ABAP"), and Claude answered it from its own training data,
+#: labelled "general knowledge" but still a GUESS about a real engineering
+#: limit. NORTH-STAR: "never reconstruct requirements from model memory".
+#:
+#: `is_spec_shaped` is what chat.py checks BEFORE either fallback: a
+#: spec-shaped EITHER question goes through the deterministic document
+#: pipeline first and MUST NOT fall back to general knowledge when the
+#: documents come up empty - insufficient_evidence, not a guess. A plain
+#: definitional EITHER question is unaffected (the client asked this chat to
+#: also handle general discussion, 2026-09-24).
+#:
+#: HEURISTIC, STATED PLAINLY: a keyword cue, not a certainty. A false
+#: positive only costs one extra documents-first check - it never on its own
+#: decides refuse-vs-answer; the document pipeline still does. A false
+#: negative is the failure to keep narrowing; this list is not claimed complete.
+_SPEC_SHAPED_CUES = re.compile(
+    r"\b(?:limit|maximum|minimum|allowable|allowed|permitted|requirement|"
+    r"specification|spec|threshold|tolerance|rating|rated|concentration|"
+    r"pressure|temperature|thickness|diameter|clearance|torque|capacity|"
+    r"voltage|current|frequency|grade|value|percentage|dimension|"
+    r"class(?:ification)?|shall\s+(?:be|not)|must\s+(?:be|not)|"
+    r"not\s+exceed|minimum\s+of|maximum\s+of)\b", re.IGNORECASE)
+
+
+def is_spec_shaped(text: str) -> bool:
+    """True when a question asks for a number, limit or requirement rather
+    than a definition. See the comment above `_SPEC_SHAPED_CUES`."""
+    return bool(_SPEC_SHAPED_CUES.search(text or ""))
+
+
+#: Small talk: answered naturally, never searched, never a model call.
+SMALL_TALK = ("greeting", "thanks", "acknowledgement", "farewell", "about_the_assistant",
+              "empty", "not_a_question")
+
+#: Rewrite styles, in the words the chips and the reader use.
+STYLES = {
+    "points": r"\b(?:in|as|into)\s+(?:bullet\s+)?points\b|\bbullet(?:ed)?\s*(?:points|list)?\b|\bas\s+a\s+list\b",
+    "paragraph": r"\b(?:in|as)\s+(?:one\s+|a\s+)?paragraph\b",
+    "more_detail": r"\bmore\s+detail(?:ed)?\b|\bin\s+(?:more\s+)?detail\b|\belaborate\b|\bexpand\s+on\b",
+    "shorter": r"\bshorter\b|\bbriefer\b|\bmore\s+concise\b|\bin\s+short\b|\btl;?dr\b|\bsummari[sz]e\s+(?:it|that|this)\b",
+    "simpler": r"\bsimpl(?:er|y|ify)\b|\bplain\s+(?:english|language|words)\b|\blike\s+i'?m\s+not\s+an?\s+engineer\b|\bfor\s+a\s+(?:beginner|non-?engineer|layman)\b",
+    "engineer": r"\bfor\s+an?\s+engineer\b|\bmore\s+technical\b|\btechnical(?:ly)?\s+precise\b",
+    "check_documents": r"\bcheck\s+(?:it\s+|this\s+|that\s+)?against\s+(?:my|our|the)\s+documents?\b",
+    "manager": r"\bfor\s+(?:my|the|a)\s+manager\b",
+}
+_STYLE_RES = {name: re.compile(p) for name, p in STYLES.items()}
+
+#: Words that carry no subject of their own in a rewrite request.
+_REWRITE_FILLER = {
+    "give", "me", "that", "this", "it", "now", "please", "can", "could", "you", "make",
+    "put", "write", "rewrite", "redo", "again", "with", "a", "an", "the", "bit", "little",
+    "and", "but", "in", "as", "into", "one", "more", "some", "too", "also", "then", "ok",
+    "okay", "so", "same", "answer", "version", "just", "do", "say", "explain", "tell",
+    "how", "about", "for", "of", "to", "i", "m", "im", "not", "is", "was", "be", "way",
+}
+
+_ACTION = re.compile(
+    r"\b(?:write|draft|turn|make|put)\s+(?:that|this|it|up)?\s*(?:up\s+)?(?:as|into)?\s*"
+    r"(?:a\s+|an\s+)?(?:review\s+)?comment\b"
+    r"|\bdraft\s+(?:a\s+)?comment\b"
+    r"|\badd\s+(?:that|this|it)\s+to\s+(?:the\s+)?(?:review|comment\s+sheet|crs)\b"
+    r"|\bsummari[sz]e\s+(?:that|this|it)\s+for\s+(?:my|the)\s+manager\b"
+)
+
+#: The reader's own material, or a place in a document.
+_DOCUMENT_WORDS = re.compile(
+    r"\b(?:my|our|this|the|that|these|those|your|uploaded)\s+"
+    r"(?:datasheets?|data\s+sheets?|submittals?|documents?|docs?|drawings?|specs?|specifications?|"
+    r"reports?|files?|pdfs?|vendor\s+documents?|library|standards?)\b"
+    r"|\b(?:clause|page|section|sheet|row|paragraph)\s+[\dA-Z]"
+    r"|\baccording\s+to\b|\bper\s+the\b|\bin\s+the\s+(?:document|spec|standard|datasheet|library)\b"
+    r"|\b(?:datasheet|submittal|standards?\s+library)\b"
+    r"|\bcompany\s+standards?\b"
+    r"|\b(?:compliant|complies|comply|compliance|conform(?:s|ance)?)\b"
+    r"|\bdoes\s+(?:it|this|that)\s+(?:meet|satisfy|pass)\b",
+    re.IGNORECASE,
+)
+
+#: Asked about the world, not the reader's documents.
+_GENERAL_WORDS = re.compile(
+    r"\bin\s+general\b|\bgenerally\b|\bexplain\s+(?:it\s+)?like\b|\blike\s+i'?m\b"
+    r"|\bwhat(?:'s|\s+is)\s+the\s+difference\s+between\b|\bhow\s+does\s+\w+(?:\s+\w+)?\s+work\b"
+    r"|\bwhy\s+(?:does|do|is|are)\b|\bwhat\s+(?:is|are)\s+(?:a|an)\s+\w+"
+    r"|\bexplain\b|\bin\s+simple\s+terms\b|\bhistory\s+of\b",
+    re.IGNORECASE,
+)
+
+#: A compliance question: answered from evidence, and ENDS with the engineer
+#: notice - the chat never records a verdict.
+COMPLIANCE = re.compile(
+    r"\b(?:compliant|complies|comply|compliance|conform(?:s|ance)?|acceptable|approve[ds]?|"
+    r"meet(?:s)?|satisf(?:y|ies)|pass(?:es)?)\b", re.IGNORECASE)
+ENGINEER_NOTICE = "This needs an engineer's judgement - the passages are evidence, not a verdict"
+
+
+def styles_in(text: str) -> list[str]:
+    """Every rewrite style the text asks for, in a stable order."""
+    lowered = (text or "").lower()
+    return [name for name, rx in _STYLE_RES.items() if rx.search(lowered)]
+
+
+def _subject_words(text: str) -> list[str]:
+    lowered = (text or "").lower()
+    for rx in _STYLE_RES.values():
+        lowered = rx.sub(" ", lowered)
+    return [w for w in re.findall(r"[a-z0-9][a-z0-9'\-]*", lowered) if w not in _REWRITE_FILLER]
+
+
+#: Words that ask about the public web rather than the reader's documents.
+_WEB_WORDS = re.compile(
+    r"\b(?:online|on\s+the\s+(?:web|internet)|search\s+the\s+(?:web|internet)|google|"
+    r"(?:latest|newest|newer|current)\s+(?:edition|revision|version|issue)|"
+    r"(?:any|recent)\s+news|web\s+search)\b")
+
+
+def route(message: str, *, has_previous_answer: bool = False,
+          document_in_scope: bool = False, web_enabled: bool = False) -> dict:
+    """{kind, styles, small_talk, compliance, command, text} for one message.
+
+    `text` is the message with any slash command removed. The order of the
+    checks is the order of precedence, and each one says why it is where it is.
+    """
+    raw = (message or "").strip()
+    command = None
+    if raw.startswith("/"):
+        head, _, rest = raw.partition(" ")
+        command = head[1:].lower()
+        raw = rest.strip()
+    base = {"styles": styles_in(raw), "small_talk": None, "command": command,
+            "compliance": bool(COMPLIANCE.search(raw)), "text": raw}
+    # 1. Explicit commands win: the reader said exactly what they want.
+    if command == "records":
+        return {**base, "kind": RECORDS}
+    if command == "quote":
+        return {**base, "kind": DOCUMENT, "tier": "extract"}
+    # 2. Small talk is answered naturally and never searched.
+    kind = classify(raw)
+    if kind in SMALL_TALK:
+        return {**base, "kind": GENERAL, "small_talk": kind}
+    # 2b. The public web, ONLY when the reader switched Web on for this
+    #     question - otherwise these words are answered as they always were.
+    #     A web question gets a consent turn first (chat_web); nothing leaves
+    #     until the reader approves the exact phrase.
+    if web_enabled and _WEB_WORDS.search(raw.lower()):
+        return {**base, "kind": WEB}
+    # 3. An action on the previous answer ("write that as a comment").
+    if has_previous_answer and _ACTION.search(raw.lower()):
+        return {**base, "kind": ACTION}
+    # 4. A rewrite: a style asked for, and no subject of its own - "now in
+    #    points with more detail". "Explain sulfidation simply" has a subject
+    #    and is a new question with a style, not a rewrite.
+    if has_previous_answer and base["styles"] and len(_subject_words(raw)) <= 1:
+        return {**base, "kind": REWRITE}
+    # 5. A request for help with a task is general knowledge, never searched.
+    if kind == ADVICE_REQUEST:
+        return {**base, "kind": GENERAL}
+    # 6. The reader's own material: documents, and never general knowledge.
+    from . import keyword
+    if (document_in_scope or _DOCUMENT_WORDS.search(raw) or keyword.IDENTIFIER.search(raw)
+            or keyword.find_designators(raw)):
+        return {**base, "kind": DOCUMENT}
+    # 7. The world, not the documents.
+    if _GENERAL_WORDS.search(raw):
+        return {**base, "kind": GENERAL}
+    return {**base, "kind": EITHER}
+
+
+def small_talk_reply(kind: str, *, provider_line: str) -> str:
+    """A natural reply to small talk. `provider_line` says honestly who answers."""
+    replies = {
+        "greeting": "Hi! Ask me anything - about your documents, a standard, or engineering in general.",
+        "thanks": "You're welcome. Anything else?",
+        "acknowledgement": "Okay. What would you like to look at next?",
+        "farewell": "Goodbye - your conversation is saved here if you want to pick it up later.",
+        "about_the_assistant": (
+            "I'm the chat in RAG Intelligence. I answer from your documents and show the page each "
+            "point came from, and I can answer general engineering questions too - those are "
+            f"labelled as general knowledge. {provider_line}"),
+        "empty": "Type a question to begin.",
+        "not_a_question": "Could you say a little more about what you'd like to know?",
+    }
+    return replies.get(kind, replies["not_a_question"])

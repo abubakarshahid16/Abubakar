@@ -65,8 +65,10 @@ from . import claims
 UNIT_DIMENSION = "unit_dimension"
 EQUIPMENT_DOMAIN = "equipment_domain"
 TABLE_LOOKUP_INPUT = "table_lookup_input"
+COMPOUND_TERM = "compound_term"
 
-REASONS: tuple[str, ...] = (UNIT_DIMENSION, EQUIPMENT_DOMAIN, TABLE_LOOKUP_INPUT)
+REASONS: tuple[str, ...] = (
+    UNIT_DIMENSION, EQUIPMENT_DOMAIN, TABLE_LOOKUP_INPUT, COMPOUND_TERM)
 
 # ------------------------------------------------------------------ domains
 #: Ten kinds of equipment a clause names when it applies to one kind only. The
@@ -180,7 +182,7 @@ def unit_dimension_conflict(requirement: dict, fact: dict) -> bool:
     # with no dimension (years, dB, kg - which `compare` will refuse itself)
     # or not a unit `claims` knows. Only the second is refused here.
     unknown = right if left_dim is not None else left
-    return claims._fold_unit(unknown) not in claims._RECOGNISED_UNITS
+    return not claims.is_unit(unknown)
 
 
 # ------------------------------------------------------------------ rule 2
@@ -288,6 +290,49 @@ def table_lookup_input_conflict(requirement: dict, field_name: str) -> bool:
     return header.startswith(name + " ")
 
 
+# ------------------------------------------------------------------ rule 4
+#: A word that IS a real datasheet field on this kind of equipment (a pump's
+#: "Bearing") but that the SAME word also names, as part of a different
+#: compound noun, something in an entirely different domain (a foundation's
+#: "soil bearing pressure"). Whole-word containment cannot tell these apart -
+#: the word is genuinely present either way - and rule 2 (equipment domain)
+#: does not catch it either, because the clause names no equipment at all, so
+#: there is no domain mismatch for it to see.
+#:
+#: FOUND reviewing a real review of EF1975-DAS-M-03 (2026-09-28): a civil
+#: clause on allowable SOIL bearing pressure was paired, whole-word, with a
+#: pump datasheet's blank "Bearing" field - a foundation-loading comment
+#: attached to a mechanical component that has nothing to do with it.
+#:
+#: Deliberately short and hand-picked, the same shape as DOMAIN_NOUNS above:
+#: each entry is a field word mapped to the SPECIFIC OTHER COMPOUND PHRASES
+#: that word forms when it does NOT mean the equipment field - not a general
+#: synonym or fuzzy-match table. This rule refuses ONLY when one of those
+#: exact phrases is present in the requirement's own sentence, never on the
+#: bare word alone - a legitimate mechanical sentence like "the pump bearing
+#: temperature shall be monitored" contains none of these phrases and is
+#: left alone.
+AMBIGUOUS_COMPOUND: dict[str, tuple[str, ...]] = {
+    "bearing": ("soil bearing", "foundation bearing", "bearing capacity",
+               "bearing pressure", "allowable bearing"),
+}
+
+
+def compound_term_conflict(field_name: str, requirement: dict) -> bool:
+    """True when `field_name` is one of `AMBIGUOUS_COMPOUND`'s words and the
+    requirement's own sentence contains one of that word's OTHER, non-
+    equipment compound phrases."""
+    name = _normalise(field_name)
+    others = AMBIGUOUS_COMPOUND.get(name)
+    if not others:
+        return False
+    text = _normalise(" ".join(str(requirement.get(key) or "") for key in
+                               ("requirement_text", "source_text", "subject")))
+    if not text:
+        return False
+    return any(_contains_words(text, phrase) for phrase in others)
+
+
 # ------------------------------------------------------------------ together
 def refusal(requirement: dict, fact: dict, *, sheet: str | None) -> str | None:
     """The first rule that refuses this pairing, by name, or None to allow it."""
@@ -297,4 +342,6 @@ def refusal(requirement: dict, fact: dict, *, sheet: str | None) -> str | None:
         return EQUIPMENT_DOMAIN
     if table_lookup_input_conflict(requirement, fact.get("field_name") or ""):
         return TABLE_LOOKUP_INPUT
+    if compound_term_conflict(fact.get("field_name") or "", requirement):
+        return COMPOUND_TERM
     return None

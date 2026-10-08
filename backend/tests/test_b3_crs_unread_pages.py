@@ -30,31 +30,38 @@ def _run() -> list[dict]:
             + [_f(200 + i, "MISSING_INFORMATION") for i in range(3)])
 
 
-def test_unread_page_findings_are_one_plain_summary_row_not_74():
+def test_unread_page_findings_are_one_review_note_not_74_contractor_rows():
+    """Owner order 2f: the one summary is an internal Review note now - not a
+    row of the contractor's sheet at all."""
     rows = crs_mapping.build_crs_rows(_run(), [], "vessel.pdf",
                                       unread_pages=[1, 2, 3, 6, 7, 8, 9, 10, 11])
 
     individual = [r for r in rows if r["row_kind"] == crs_mapping.ROW_KIND_NEEDS_ENGINEER_REVIEW]
     assert [r["finding_id"] for r in individual] == ["f100"], \
         "unread-page findings entered the CRS as contractor comments"
-    [summary] = [r for r in rows if r["row_kind"] == crs_mapping.ROW_KIND_PAGES_NOT_READABLE]
-    assert summary["comment"].startswith("Pages not yet readable - needs engineer review.")
-    assert "74 requirements" in summary["comment"]
-    assert "pages 1-3, 6-11" in summary["comment"]
-    assert "not a comment to the contractor" in summary["comment"]
-    assert summary["page_section"] == "Pages 1-3, 6-11"
+    assert not [r for r in rows if "not yet read" in r["comment"]]
+    [note] = [n for n in crs_mapping.build_review_notes(
+        _run(), [], unread_pages=[1, 2, 3, 6, 7, 8, 9, 10, 11])
+        if n["note"] == crs_mapping.NOTE_UNREAD_PAGES]
+    assert note["count"] == 74
+    assert "74 requirements" in note["detail"] and "pages 1-3, 6-11" in note["detail"]
 
 
-def test_no_unread_findings_means_no_summary_row():
-    rows = crs_mapping.build_crs_rows(
-        [_f(1, "NEEDS_ENGINEER_REVIEW", "UNIT_MISMATCH: x")], [], "s.pdf", unread_pages=[])
-    assert not [r for r in rows if r["row_kind"] == crs_mapping.ROW_KIND_PAGES_NOT_READABLE]
+def test_no_unread_findings_means_no_note():
+    notes = crs_mapping.build_review_notes(
+        [_f(1, "NEEDS_ENGINEER_REVIEW", "UNIT_MISMATCH: x")], [], unread_pages=[])
+    assert not [n for n in notes if n["note"] == crs_mapping.NOTE_UNREAD_PAGES]
 
 
 def test_the_missing_information_row_states_what_was_checked():
     """Honesty audit 50: 'have no value stated for them in it' claimed the
     document was silent; what is known is that no field read from it answered."""
     rows = crs_mapping.build_crs_rows(_run(), [], "vessel.pdf", unread_pages=[1])
-    [missing] = [r for r in rows if r["row_kind"] == crs_mapping.ROW_KIND_MISSING_INFORMATION]
-    assert "not answered by any field read from it" in missing["comment"]
-    assert "no value stated" not in missing["comment"]
+    # CRS quick wins: one row per requirement no field answered (three here),
+    # each still saying what was CHECKED, never that the sheet is silent.
+    missing = [r for r in rows if r["row_kind"] == crs_mapping.ROW_KIND_MISSING_INFORMATION]
+    assert len(missing) == 3
+    for row in missing:
+        assert "Not answered by any field read from the datasheet" in row["comment"]
+        assert "no value stated" not in row["comment"]
+        assert "does not state" not in row["comment"]

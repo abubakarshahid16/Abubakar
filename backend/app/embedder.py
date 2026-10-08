@@ -16,7 +16,7 @@ anywhere, so they are stated explicitly here and asserted by tests:
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -33,14 +33,80 @@ QUERY_PREFIX = "query: "
 MODEL_MAX_TOKENS = 512
 EMBEDDING_DIM = 384
 
+#: B6B E1: WHAT A PASSAGE VECTOR IS COMPUTED FROM - the chunk's clause heading,
+#: then its body. The keyword index and the reranker already read "heading +
+#: body" (search.Candidate.searchable_text); the embedder read the body alone,
+#: so the 28% of chunks that are one short line ("Loads from the extreme case
+#: shall also be established.") were embedded without the heading that says
+#: what they are about ("4.7 Anchor Line Loads").
+#: Recorded on every stored vector (chunk_vectors.model) so a vector computed
+#: from the body alone is identifiable. The STORED chunk text - what a
+#: citation quotes - is unchanged; only the model's input is.
+#:
+#: "context-v1" (2026-09-30, CHUNKER_VERSION 8): the heading is the chunk's
+#: heading CHAIN (`chunks.context`) when it has one - "4 Piping > 4.2 Pipes
+#: larger than 2 inch > 4.2.1" rather than "4.2.1" - else its section, as in
+#: heading-v1. See `LEGACY_PASSAGE_INPUT_VERSIONS` for why heading-v1 vectors
+#: stay searchable until they are re-embedded.
+PASSAGE_INPUT_VERSION = "context-v1"
+
+#: Input formats whose vectors are STILL SEARCHABLE. heading-v1 and
+#: context-v1 differ only in how much heading the SAME model read, so a
+#: heading-v1 vector's cosine against today's query is as meaningful as it
+#: was yesterday. Treating it as stale would switch dense search off for
+#: every document the moment this code is deployed, until each one is
+#: re-processed. So it is searched as before, and `embed_pending` upgrades it
+#: whenever its document is processed. A different MODEL is never legacy:
+#: its vectors live in another space and stay stale.
+LEGACY_PASSAGE_INPUT_VERSIONS: tuple[str, ...] = ("heading-v1",)
+
 
 @dataclass(frozen=True)
 class EmbedderConfig:
+    """How the embedder runs. The defaults are READ FROM SETTINGS.
+
+    They were literals - 12 threads, batch 32 - while `settings.embed_batch_size`
+    (16) sat in config.py unread, so neither could be set from `.env` and the
+    documented value was not the running one (perf audit item 5). Read at
+    construction, so `Embedder.instance(EmbedderConfig())` rebuilds the session
+    when a setting changes rather than keeping the old one.
+    """
+
     model_file: str = "model_qint8_avx512_vnni.onnx"
-    intra_op_threads: int = 12
-    batch_size: int = 32
+    intra_op_threads: int = field(default_factory=lambda: settings.embed_intra_op_threads())
+    batch_size: int = field(default_factory=lambda: settings.embed_batch_size)
     # Group similar-length texts into a batch so padding is not paid for.
     length_bucketed: bool = True
+    #: ONNX Runtime's CPU arena for THIS session (settings.onnx_cpu_arena_embed).
+    #: Part of the config so a changed setting is a changed config, and the
+    #: resident session is rebuilt rather than silently kept.
+    cpu_arena: bool = field(default_factory=lambda: settings.onnx_cpu_arena_embed)
+
+
+def embedding_tag(model_file: str | None = None) -> str:
+    """WHAT A STORED VECTOR WAS COMPUTED BY: the model file and the passage
+    input format, written to `chunk_vectors.model` on every vector.
+
+    THE ONE HOME of this string. Ingestion writes it and the vector store
+    reads it back: a vector whose tag differs from the current one was made by
+    another model or from another input format, so its cosine against a query
+    embedded today is meaningless. The store leaves such a vector out of dense
+    search, counts it as STALE in System Health, and `embed_pending` re-embeds
+    it. Before this function the tag was written and never read (P2-11).
+
+    The format is unchanged from what ingestion already wrote, so vectors made
+    by the current build stay current - no re-embed is forced by this change.
+    """
+    return f"{model_file or EmbedderConfig().model_file}+{PASSAGE_INPUT_VERSION}"
+
+
+def searchable_tags(model_file: str | None = None) -> tuple[str, ...]:
+    """Every `chunk_vectors.model` tag dense search may use: today's, then
+    the legacy input formats of the SAME model. `embedding_tag()` alone still
+    decides what is written and what `embed_pending` upgrades."""
+    model = model_file or EmbedderConfig().model_file
+    return (embedding_tag(model),
+            *(f"{model}+{v}" for v in LEGACY_PASSAGE_INPUT_VERSIONS))
 
 
 def mean_pool(last_hidden_state: np.ndarray, attention_mask: np.ndarray) -> np.ndarray:
@@ -82,7 +148,7 @@ class Embedder:
         opts.intra_op_num_threads = self.config.intra_op_threads
         opts.inter_op_num_threads = 1
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        opts.enable_cpu_mem_arena = settings.onnx_cpu_arena_embed
+        opts.enable_cpu_mem_arena = self.config.cpu_arena
         self.session = ort.InferenceSession(
             str(model_path), sess_options=opts, providers=["CPUExecutionProvider"]
         )
@@ -156,6 +222,25 @@ class Embedder:
             batch_vectors = self._forward([prefixed[i] for i in idx])
             vectors[idx] = batch_vectors
         return vectors
+
+    def passage_input(self, heading: str | None, body: str) -> str:
+        """The text a chunk is embedded from: its heading, a newline, its body.
+
+        THE BODY IS NEVER CUT FOR THE HEADING. The tokenizer truncates at
+        MODEL_MAX_TOKENS from the END, so a heading that pushed the input over
+        the limit would silently drop the body's last sentences - the evidence.
+        When heading + body would not fit, the body alone is embedded, exactly
+        as before E1. (Measured: 0 of 842 real chunks reach that case - bodies
+        are capped at chunk_max_tokens=480, headings run to about 30 tokens -
+        but the margin is a measurement, not a guarantee.)
+        """
+        heading = (heading or "").strip()
+        if not heading:
+            return body
+        candidate = heading + "\n" + body
+        if self.tokenizer.encode(PASSAGE_PREFIX + candidate).overflowing:
+            return body
+        return candidate
 
     def embed_passages(
         self, texts: list[str], batch_size: int | None = None, bucketed: bool | None = None

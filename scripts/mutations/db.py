@@ -26,7 +26,7 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "migrated the same database at once",
         path=APP / "db.py",
         anchor=DUPLICATE_GUARD,
-        replacement="        if True:\n            raise",
+        replacement="            if True:\n                raise",
         target="tests/test_migration_race.py",
         keyword="two_threads_can_migrate",
         tags=("critical",),

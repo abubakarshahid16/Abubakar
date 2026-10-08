@@ -17,6 +17,18 @@ FOUR PATHS DELETE REQUIREMENT ROWS, and each now asks this module first:
   4. `DELETE /api/documents/{id}` - `standard_requirements.standard_document_id
      ... ON DELETE CASCADE` takes every requirement of a deleted standard.
 
+A FIFTH PATH deletes findings directly, over a different column: deleting the
+SUBMITTAL itself - `DELETE /api/documents/{id}` where `id` is the contractor's
+document, not a standard - cascades over `review_findings.document_id ...
+ON DELETE CASCADE` (review.py) and takes every CRS finding ever recorded
+about that submittal with it. This was NOT covered by the guard above: that
+one only ever checked `standard_requirements` via `requirement_id`, so a
+submittal delete found nothing to refuse and went through silently. Same
+`delete_document` call site now also asks `check_submittal_delete`, which
+counts `review_findings.document_id` directly - there is no
+`standard_requirements` join for this column, so it is its own function
+rather than a `requirement_where` fragment for `check`.
+
 THE CHEAP GUARD, NOT THE REDESIGN - for REQUIREMENTS. Without a `superseded`
 column there is no way to keep an old row out of future reviews, so keeping
 referenced rows would trade orphans for duplicate findings. What is possible
@@ -49,6 +61,7 @@ from .db import connect
 _BLOCKED = {
     "re_extraction": "Re-extract is blocked",
     "document_delete": "Delete is blocked",
+    "submittal_delete": "Delete is blocked",
     "reject": "Rejecting this requirement is blocked",
     "re_chunk": "Re-chunking is blocked",
 }
@@ -58,12 +71,25 @@ _BLOCKED = {
 _WHAT_TO_DO = ("To update a standard, upload the new revision and set "
                "\"Superseded by\" on this standard in the Standards page.")
 
+#: The way forward for a SUBMITTAL: there isn't one that keeps the document -
+#: the findings ARE the evidence a CRS review produced about it, so the only
+#: honest options are to keep the document or lose that evidence knowingly.
+_WHAT_TO_DO_SUBMITTAL = (
+    "Deleting it destroys the review record of what was found. If that is "
+    "really intended, repeat the delete with acknowledgement.")
+
 #: What each kind of citation is called in the message, and what to do about
 #: it. `requirements` wording is B38's, unchanged. The `facts` kind B40 added
 #: is gone with the facts guard (#179 supersession) - facts are no longer
-#: deleted, so no message about deleting them is ever shown.
+#: deleted, so no message about deleting them is ever shown. `submittal` is
+#: this guard's addition: review_findings.document_id points straight at the
+#: contractor's submittal (not through a requirement row), and that column is
+#: `ON DELETE CASCADE` (review.py) - so deleting the submittal itself, not
+#: just a standard it was checked against, silently destroyed every CRS
+#: finding ever recorded about it until this guard.
 _KINDS = {
     "requirements": ("this standard's requirements", _WHAT_TO_DO),
+    "submittal": ("this submittal", _WHAT_TO_DO_SUBMITTAL),
 }
 
 
@@ -131,6 +157,26 @@ def findings_orphaned_by_facts(fact_where: str, params: tuple | list) -> int:
         raise
 
 
+def findings_citing_document(document_id: str) -> int:
+    """How many review findings are recorded against this submittal directly.
+
+    `review_findings.document_id` points straight at the contractor's
+    submittal - not through `standard_requirements` like `requirement_id`
+    does - and `review.py` declares it `ON DELETE CASCADE`. Deleting the
+    submittal itself (not a standard it was checked against) takes every
+    finding ever made about it with it, unless this count is checked first.
+    A database that has never run a review has no findings table: 0.
+    """
+    try:
+        return connect().execute(
+            "SELECT COUNT(*) FROM review_findings WHERE document_id = ?",
+            (document_id,)).fetchone()[0]
+    except sqlite3.OperationalError as exc:
+        if "no such table" in str(exc):
+            return 0
+        raise
+
+
 def check(action: str, *, requirement_where: str, params: tuple | list,
           document_id: str | None, acknowledge: bool,
           actor: dict | None = None) -> int:
@@ -141,6 +187,20 @@ def check(action: str, *, requirement_where: str, params: tuple | list,
     """
     return _decide(action, findings_orphaned_by(requirement_where, params),
                    document_id, acknowledge, actor, kind="requirements")
+
+
+def check_submittal_delete(action: str, *, document_id: str, acknowledge: bool,
+                           actor: dict | None = None) -> int:
+    """Same record-then-refuse contract as `check`, for a SUBMITTAL's own
+    findings (`review_findings.document_id`), not a standard's requirements.
+
+    Kept as a separate entry point rather than folded into `check` because
+    the count is a direct column match, not a join through
+    `standard_requirements` - there is no `requirement_where` fragment to
+    write for it.
+    """
+    return _decide(action, findings_citing_document(document_id),
+                   document_id, acknowledge, actor, kind="submittal")
 
 
 def record_facts_superseded(conn: sqlite3.Connection, action: str,

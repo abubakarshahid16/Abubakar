@@ -27,7 +27,7 @@ import json
 from functools import lru_cache
 from pathlib import Path
 
-from .db import add_column_if_missing, connect
+from .db import add_column_if_missing, connect, schema_once
 
 ALIASES_PATH = Path(__file__).parent / "reference" / "discipline_aliases.json"
 
@@ -61,6 +61,7 @@ def canonical(raw: str | None) -> str | None:
     return aliases().get(text, text)
 
 
+@schema_once
 def ensure_schema() -> None:
     """Add `discipline_canonical` beside `discipline`. Race-safe.
 

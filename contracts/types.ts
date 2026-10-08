@@ -38,6 +38,12 @@ export type DocumentRole =
  *  ANSWER and not a null: "has this been reviewed" has a definite answer for
  *  every document, and it is no.
  *
+ *  Mirrors `review_runs.status` on the backend - kept in sync with
+ *  `backend/app/schemas.py`'s `DocumentReviewStatus`. `queued` and
+ *  `cancelled` were missing here (2026-09-28): the backend sets both on a
+ *  real run, and the mismatch broke `GET /api/documents` for every document,
+ *  not just the one in that state, the moment any run reached either value.
+ *
  *  Named apart from `ReviewStatus` (line 181) deliberately: that one is where
  *  a single FINDING stands in the guided-review workflow (`open`,
  *  `resolved`...). Two different questions about two different things, and
@@ -46,7 +52,9 @@ export type DocumentRole =
 export type DocumentReviewStatus =
   | "not_reviewed"
   | "pending"
+  | "queued"
   | "running"
+  | "cancelled"
   | "completed"
   | "failed";
 
@@ -131,12 +139,33 @@ export interface StandardClause {
   chunk_id: string;
 }
 
+/** What kind of thing a requirement states (phase 3B). Mirrors the backend's
+ *  `schemas.RequirementType` exactly. Nothing is invented for text the parser
+ *  did not understand: an obligation with no recognisable limit is a
+ *  `statement`, never a `numeric_limit` carrying a null value. */
+export type RequirementType = "numeric_limit" | "statement" | "table_value"
+  | "applicability_trigger" | "relative_limit" | "table_row";
+
+/** One carve-out of a requirement, as `requirements_3b.parse_exceptions`
+ *  records it. `applies_to` is always written; the limit keys only when the
+ *  exception states a limit of its own. Stored as JSON, so every key is read
+ *  defensively - a malformed entry renders as nothing. */
+export interface RequirementException {
+  applies_to?: string | null;
+  operator?: string | null;
+  value?: number | null;
+  unit?: string | null;
+  raw_value?: string | null;
+  raw_unit?: string | null;
+}
+
 /** One atomic requirement, with its resolving citation.
  *
- *  Phase 3A carries no requirement_type, operator, value, unit, condition or
- *  exceptions. Those are 3B: half a numeric limit is worse than none, because
- *  a row carrying `value: 90` with no operator reads as a limit and is not
- *  one. */
+ *  The phase-3B structured fields below are MACHINE-EXTRACTED from the quoted
+ *  clause and stay a guess until `confirmed_by` is set. Half a numeric limit
+ *  is worse than none: a row carrying `value: 90` with no operator reads as a
+ *  limit and is not one - so every one of them is nullable and null renders
+ *  as nothing. */
 export interface StandardRequirement {
   id: string;
   standard_document_id: string;
@@ -159,6 +188,33 @@ export interface StandardRequirement {
   confirmed_by: string | null;
   confirmed_at: string | null;
   needs_verification: boolean;
+  // ------------------------------------------------------------ phase 3B
+  /** Always present in the response (the backend defaults every one), and
+   *  null on every row extracted before phase 3B. */
+  requirement_type: RequirementType | null;
+  /** What is being limited. From a table this is the column header the
+   *  document wrote; from a sentence it is null rather than guessed. */
+  field: string | null;
+  /** "<=", ">=", "<", ">" as the backend writes them. Null when none. */
+  operator: string | null;
+  /** The NORMALISED number, or null. NULL WHEN THE UNIT IS UNKNOWN - never 0,
+   *  which would read as a limit of zero. */
+  value: number | null;
+  /** The canonical unit, or null when the spelling is not recognised. */
+  unit: string | null;
+  /** Exactly as the document wrote it - still quotable when un-normalisable. */
+  raw_value: string | null;
+  raw_unit: string | null;
+  /** ON `table_value` ROWS THIS IS THE TABLE'S ROW LABEL, NOT A CONDITION
+   *  (see backend `conditions.py`). On every other type it is the
+   *  circumstance the requirement holds under, parsed conservatively and null
+   *  when unclear. */
+  condition: string | null;
+  /** Carve-outs with their own limits. Empty means none recorded. */
+  exceptions: RequirementException[];
+  discipline: string | null;
+  /** The table row a `table_value` came from. */
+  table_row: number | null;
   /** False when the cited chunk is gone - re-extract. Shown rather than the
    *  row being silently dropped. */
   citation_resolves: boolean;
@@ -331,6 +387,15 @@ export interface ReviewFinding {
   equipment_tag?: string | null;
   confirmed_by?: string | null;
   confirmed_at?: string | null;
+  /** Where the finding came from when not the comparison: "chat" or
+   *  "ai_engineering_check" (a kind C draft, never a verdict). */
+  origin?: string | null;
+  /** Owner order section 3: the engineer's own wording, when edited. The CRS
+   *  prints it in place of the review's text. */
+  engineer_comment?: string | null;
+  //  origin can also be "web_standard_check" (owner order 2d-2, kind D):
+  //  checked against a public web copy of a standard, never the contract
+  //  copy - shown only after an engineer confirms, never counted.
   standard_document_id?: string | null;
   standard_clause?: string | null;
   standard_page?: number | null;
@@ -369,20 +434,81 @@ export interface CrsHeaderField {
  * belong to the contractor, and they are carried rather than omitted because
  * the sheet has seven columns whether or not anyone has answered yet.
  */
+/** The contractor's per-comment response codes (industry CRS practice). */
+export type CrsResponseCode =
+  | "Accepted" | "Accepted with comment" | "Rejected" | "Clarification needed";
+
+/** One numbered CRS comment after a status change or a recorded reply. */
+export interface CrsComment {
+  ref: string;
+  seq: number;
+  status: string;
+  status_by?: string | null;
+  status_at?: string | null;
+  status_note?: string | null;
+  /** null when the contractor's reply stated no code - never guessed. */
+  response_code?: string | null;
+  response_text?: string | null;
+  response_by?: string | null;
+  response_at?: string | null;
+  response_source?: string | null;
+}
+
+export interface CrsCommentEvent {
+  at: string;
+  by?: string | null;
+  /** "numbered", "response", "open" or "closed". */
+  event: string;
+  detail?: string | null;
+}
+
+export interface CrsCommentHistory {
+  ref: string;
+  events: CrsCommentEvent[];
+}
+
+/** What importing a returned CRS did. Every row with an Item No is in
+ *  exactly one count. */
+export interface CrsReplyImport {
+  rows_read: number;
+  updated: number;
+  updated_without_code: number;
+  no_response: number;
+  not_a_crs_number: number;
+  other_submittal: number;
+  unknown_number: number;
+  rows: { row: number; item: string; outcome: string }[];
+}
+
 export interface CrsPreviewRow {
-  item_no: number;
-  /** The system-generated reference for this row, e.g. "RF-4A2C1B". Stable
-   *  across re-exports of the same review, so a contractor can quote it back -
-   *  unlike item_no, which is 1..N and renumbers on every export. It is also
-   *  printed as the first line of `comment`, because the client's template has
-   *  seven columns and this adds no eighth one. */
+  /** The permanent comment number "CRS-<submittal no>-001" once an engineer
+   *  has made the comment theirs (never reused, kept across re-exports, re-runs
+   *  and an unchanged resubmittal), else the row's position 1..N. */
+  item_no: number | string;
+  /** The permanent number alone; "" on an unnumbered row. */
+  crs_ref?: string;
+  /** What kind of row this is ("non_compliant", "needs_engineer_review",
+   *  "carried_forward", ...). Never printed; read so the screen can mark a
+   *  comment carried forward from an earlier review. */
+  row_kind?: string;
+  /** The digest reference, e.g. "RF-4A2C1B". Printed as the first line of
+   *  `comment` ONLY on an unnumbered row; a numbered row's item_no is the one
+   *  ID a contractor quotes back. */
   row_ref: string;
   document_name: string;
   page_section: string;
   comment: string;
   comment_by: string;
   contractor_response: string;
+  /** The COMPANY's column (only the reviewer closes a comment): "Open" or
+   *  "Closed" on a numbered comment, "" on an unnumbered draft. */
   final_resolution: string;
+  /** CRS quick wins: the standard and clause the comment rests on, in the
+   *  "Standard Reference" column after the client's seven. */
+  standard_reference?: string;
+  /** Owner order 2f: an unconfirmed AI engineering check item's text, shown
+   *  in the "AI Review Comments" column of the internal copy only. */
+  ai_review_comment?: string;
 }
 
 /**
@@ -393,6 +519,51 @@ export interface CrsPreviewRow {
  * engineer reads on screen is what the client receives - a preview that could
  * disagree with the delivered file would be worse than no preview at all.
  */
+/** Owner order 2f: one of the engineer's internal notes - never a contractor comment. */
+export interface CrsReviewNote {
+  note: string;
+  standard: string;
+  count: number | null;
+  detail: string;
+}
+
+/** Owner order section 3: what a review of a submittal can use, before it
+ *  is run. Every count is about this caller's documents. */
+export interface ReviewReadiness {
+  submittal_document_id: string;
+  pages_total: number | null;
+  pages_read: number;
+  unread_pages: number[];
+  /** Keyed by page number (a string - a JSON object key always is): why that
+   *  page did not read into fields. Present for every page in `unread_pages`;
+   *  absent only for a page the ledger never wrote a reason for. */
+  unread_page_reasons: Record<string, string>;
+  standards_cited: number;
+  standards_held: string[];
+  standards_missing: string[];
+  last_run_id: string | null;
+  /** True only when a completed run exists and nothing it used changed. */
+  nothing_changed: boolean;
+  changes: string[];
+}
+
+/** Whether the vision reader (Claude, page images) can be used right now.
+ *  A closed state and fixed plain words - never a key, a document or an
+ *  exception message. Mirrors schemas.VisionReaderStatus. */
+export type VisionReaderState =
+  | "READY" | "GEOMETRY_OFF" | "PROVIDER_OFF" | "EGRESS_OFF" | "KEY_MISSING"
+  | "BUDGET_REACHED" | "KEY_INVALID" | "RATE_LIMITED" | "NETWORK_BLOCKED"
+  | "HOST_REFUSED" | "UNEXPECTED";
+
+export interface VisionReaderStatus {
+  state: VisionReaderState;
+  ready: boolean;
+  reason: string;
+  fix: string;
+  detail: string | null;
+  checked_at: string;
+}
+
 export interface CrsPreview {
   title: string;
   subtitle: string;
@@ -403,7 +574,13 @@ export interface CrsPreview {
    *  as a placeholder code. */
   recommended_code: string;
   recommended_code_reason: string;
+  /** B10: "Decided by the reviewing engineer." or the not-yet-decided notice; "" when no code. */
+  recommended_code_status?: string;
   recommended_code_label: string;
+  /** "internal" (with "AI Review Comments") or "issue" (to the contractor). */
+  crs_copy?: "internal" | "issue";
+  /** 2f: the "Review notes" sheet; empty in the contractor's copy. */
+  review_notes?: CrsReviewNote[];
 }
 
 export interface ReviewRunStandard {
@@ -414,6 +591,18 @@ export interface ReviewRunStandard {
   confidence: number | null;
   included: boolean;
   exclusion_reason: string | null;
+  /** B5: where the submittal cites it, or the scope clause that decided it.
+   *  Null when there is no such evidence. */
+  evidence_page?: number | null;
+  evidence_quote?: string | null;
+  scope_decision?: string | null;
+}
+
+/** B5: a standard the submittal cites that the library does not hold. */
+export interface ReviewRunMissingReference {
+  identifier: string;
+  /** "MISSING_LOCALLY" */
+  status: string;
 }
 
 /**
@@ -422,7 +611,20 @@ export interface ReviewRunStandard {
  * `by_status` is a map of status to count and `findings_total` is what they
  * are out of. Both travel together so no screen has to invent a denominator.
  */
+/** P3: the background job running a review. Progress is named steps, never a
+ *  percentage; `cancel_requested` means it will stop at its next step. */
+export interface ReviewJobState {
+  id: string;
+  state: string;
+  progress_done: number | null;
+  progress_total: number | null;
+  progress_label: string | null;
+  cancel_requested: boolean;
+}
+
 export interface ReviewRunSummary {
+  /** P3: null for a run made before reviews were queued. */
+  job?: ReviewJobState | null;
   review_run_id: string;
   submittal_document_id: string;
   submittal_filename: string | null;
@@ -436,6 +638,16 @@ export interface ReviewRunSummary {
   recommended_code: string | null;
   /** The recommendation's own words, including the nominal-estimate note. */
   recommended_reason: string | null;
+  /** 2g: the technical sentence behind the plain reason, shown under
+   *  "Details" (the nominal field estimate, engine identifiers). */
+  recommended_details?: string | null;
+  /** The client's configured review-code labels (backend
+   *  reference/review_codes.json), in policy order. Absent or empty: the
+   *  default `REVIEW_CODES`. */
+  review_codes?: string[];
+  /** 2e: standards added to / removed from scope since the previous run of
+   *  the same submittal; null when there is no earlier run. */
+  standards_change?: { previous_run_id: string; added: string[]; removed: string[] } | null;
   /** Why a failed run failed, verbatim. Null on a run that did not fail. */
   failure_reason?: string | null;
   /** The engineer's final code, beside the AI's and never instead of it. */
@@ -458,6 +670,23 @@ export interface ReviewRunSummary {
   /** B3: the page ledger's summary AS OF THE RUN. Null on a run made before
    *  the ledger existed - null renders as nothing, never "every page read". */
   page_coverage?: PageCoverage | null;
+  /** 2026-09-27: the AI engineering check's own outcome for this run. Null
+   *  when it never ran (off, or the Claude lane is off). `complete` is
+   *  false whenever a reply was truncated, only partially recovered after
+   *  the one capped retry, or refused outright - `plain` is the sentence to
+   *  show, and it always states its boundary (how many of how many). */
+  ai_check_status?: {
+    ran: boolean;
+    complete: boolean;
+    calls_made: number;
+    requested_items: number;
+    proposed_items: number;
+    kept_items: number;
+    rejected: Record<string, number>;
+    reason: string | null;
+    cost_usd: number | null;
+    plain: string;
+  } | null;
 }
 
 /** Which pages of a submittal were read into fields, and why the rest were
@@ -471,8 +700,9 @@ export interface PageCoverage {
   facts_source?: string | null;
 }
 
-/** The four codes of master plan section 15. Configurable there, fixed here
- *  until the client asks for different ones. */
+/** The four DEFAULT codes of master plan section 15. The labels a run offers
+ *  come from `ReviewRunSummary.review_codes` (configured server-side); these
+ *  are the fallback when a response carries none. */
 export const REVIEW_CODES = [
   "Approved",
   "Approved with Comments",
@@ -545,15 +775,14 @@ export interface ReviewFindingCreate {
   governing_sources?: string[];
   unresolved_evidence?: string[];
   response_text?: string | null;
-  disposition?: ReviewDisposition | null;
+  /** B10: a finding is created unreviewed; disposition is an engineer's later act. */
+  disposition?: null;
   citation_ids?: string[];
   owner_user_id?: string | null;
   due_date?: string | null;
   status?: ReviewStatus;
-  approval_status?: ApprovalStatus;
+  approval_status?: "pending";
   escalation_level?: number;
-  approved_by?: string | null;
-  approved_at?: string | null;
 }
 
 export interface ReviewFindingUpdate {
@@ -566,8 +795,9 @@ export interface ReviewFindingUpdate {
   status?: ReviewStatus;
   approval_status?: ApprovalStatus;
   escalation_level?: number;
-  approved_by?: string | null;
-  approved_at?: string | null;
+  /** Owner order section 3: Edit. Saving it confirms the comment. */
+  engineer_comment?: string;
+  /** B10: no approved_by / approved_at - the server records the caller. */
 }
 
 export type DeliverableStatus = "planned" | "in_progress" | "submitted" | "under_review" | "approved" | "rejected" | "superseded";
@@ -777,8 +1007,6 @@ export interface Passage {
   section: string | null;
   text: string;              // exact source text, never paraphrased
   score: number;             // post-rerank
-  /** char offsets into `text` for the answer span, when Tier 1 can locate one */
-  highlight: [number, number] | null;
 }
 
 // ---------- answers (two-tier) ----------
@@ -805,7 +1033,98 @@ export type AnswerType =
  *  Nothing was searched, so there is nothing to show as considered. */
   | "guidance"
   /** a non-sensitive aggregate from application metadata, not document text */
-  | "metadata";
+  | "metadata"
+  /** chat redesign (2026-09-26): the model's GENERAL knowledge - never searched,
+   *  never cited, always labelled "not from your documents" */
+  | "general"
+  /** chat redesign: a workflow-records search ("/records") */
+  | "records"
+  /** chat redesign: the reader pressed Stop; `answer` is what they were shown */
+  | "cancelled"
+  /** chat redesign PR 6: a web question, asked first - nothing was sent */
+  | "web_consent"
+  /** chat redesign PR 6: the one web search the reader approved */
+  | "web"
+  /** plan C3: a comparison, retrieved and cited per named side */
+  | "comparison";
+
+/** Chat redesign (2026-09-26): what kind of answer this is on the Chat screen. */
+export type AnswerKind = "general" | "document" | "web" | "mixed" | "rewrite" | "action" | "records";
+
+/** One numbered source chip under a chat answer. */
+export interface ChatSource {
+  n: number;
+  kind: "document" | "web";
+  document_id: string | null;
+  display_name: string;
+  document_number: string | null;
+  page: number | null;
+  page_end: number | null;
+  clause: string | null;
+  text_source: string | null;
+  ocr_min_conf: number | null;
+  url: string | null;
+  /** false: supplied to the model but not cited by it */
+  cited: boolean;
+  /** the exact words each verified point stood on (Claude lane) */
+  quotes: string[];
+  rows: Record<string, unknown>[];
+}
+
+/** Points found on the page - PRESENT ONLY WHERE LITERALLY TRUE. */
+export interface ChatVerification {
+  verified: number;
+  total: number;
+  method: string | null;
+}
+
+export interface ChatStep {
+  label: string;
+  count: number | null;
+  done: boolean;
+}
+
+/** ADDITIVE: every field optional, so a turn stored before them still renders. */
+export interface ChatPresentation {
+  answer_kind?: AnswerKind | null;
+  /** the one grey line above the answer: what was used, how long it took */
+  used_line?: string | null;
+  sources?: ChatSource[];
+  verification?: ChatVerification | null;
+  steps?: ChatStep[];
+  suggestions?: string[];
+  draft?: Record<string, unknown> | null;
+  notices?: string[];
+  provider?: string | null;
+  /** audit 101: "claude" when the reader chose Claude and the local model answered */
+  requested_provider?: string | null;
+  /** plain words: Claude was not used, and why */
+  provider_note?: string | null;
+  cost_usd?: number | null;
+}
+
+export interface ChatModelOption {
+  id: "claude" | "local";
+  label: string;
+  model: string;
+  available: boolean;
+  /** why it is unavailable; never a key */
+  reason: string | null;
+}
+
+/** `POST /api/conversations/{id}/ask/{turn_id}/cancel`. */
+export interface CancelledTurn {
+  turn_id: string;
+  cancelled: boolean;
+}
+
+export interface ChatModels {
+  default: "claude" | "local";
+  models: ChatModelOption[];
+  /** chat redesign PR 6: whether "Web" may be offered, and why not */
+  web_available?: boolean;
+  web_reason?: string | null;
+}
 
 export interface AnswerPassage {
   chunk_id: string;
@@ -1139,7 +1458,7 @@ export interface AnalysisGapsResult {
 export interface ConfidenceCheckOut {
   label: string;
   /** true = this check lowered confidence */
-  fired: boolean;
+  fired: boolean | null;
 }
 
 export interface RecommendationOut {
@@ -1429,9 +1748,22 @@ export interface GenerateReport {
   message_id: string;
 }
 
+/** One named role's own count, within a multi-role CorpusFact. */
+export interface CorpusFactBreakdownEntry {
+  role: string | null;
+  loaded: number;
+  not_loaded: number;
+  /** a COMPANY_STANDARD count, further split by standard family
+   *  (SAES, ASME, API, ...), when more than one family is present */
+  families: Record<string, number> | null;
+}
+
 /** A count of the library, from the database, under the caller's grants.
  *  `text` carries its own boundary - "272 company standards are loaded and
- *  readable by you" - so it cannot be shown without it. */
+ *  readable by you" - so it cannot be shown without it. `role`/`loaded`/
+ *  `not_loaded` are the combined total (role is null when more than one
+ *  role was named together, or every role); `breakdown` names each role's
+ *  own count when the question named more than one in the same breath. */
 export interface CorpusFact {
   text: string;
   /** document_role counted; null means every role */
@@ -1443,9 +1775,134 @@ export interface CorpusFact {
   source: "database";
   /** the question also asked about content, answered separately by retrieval */
   qualified: boolean;
+  /** one entry per role, when the question named more than one */
+  breakdown?: CorpusFactBreakdownEntry[] | null;
 }
 
-export interface AnswerResult {
+/** Plan C3: one named side of a comparison and what its OWN, separately
+ *  retrieved search found - never what another side's search found. */
+export interface ComparisonSide {
+  /** the designation named in the question */
+  name: string;
+  document_ids: string[];
+  /** this side's own answer_type - insufficient_evidence means its targeted
+   *  search found nothing; not_in_library - the designation typed in the
+   *  question matches no document the caller can read */
+  answer_type: string | null;
+  /** this side's own text, kept apart from the other sides' */
+  text?: string | null;
+  /** index into the answer's passages of this side's first source */
+  source_start?: number;
+  /** how many passages belong to this side */
+  source_count?: number;
+  /** whether a search was really run for this side (false: not readable) */
+  searched?: boolean;
+}
+
+/** Plan C3: a comparison's side breakdown, alongside the combined `answer`
+ *  text. Present only on answer_type === "comparison". */
+export interface Comparison {
+  sides: ComparisonSide[];
+  /** issue #373: set when the app resolved a family phrase ("the welding
+   *  standards") to the sides; membership is a guess until a person confirms */
+  family?: ComparisonFamily | null;
+}
+
+/** Issue #373: the standards the app judged to belong to a family phrase. */
+export interface ComparisonFamily {
+  /** the reader's own descriptor words */
+  label: string;
+  /** the standards searched, one side each */
+  searched: string[];
+  /** how many readable standards matched; more than searched.length means
+   *  the rest were not searched */
+  judged: number;
+  /** always true */
+  membership_is_a_guess: boolean;
+  /** the sentence written in code saying what was searched */
+  note: string;
+}
+
+/** B8: whether the evidence answers the question. Decided by structure the
+ *  code can check - never by the reranker score, never "high" confidence. */
+export type AnswerabilityVerdict =
+  | "supported" | "insufficient_evidence" | "conflicting_evidence"
+  | "ambiguous_evidence" | "requires_another_document" | "requires_engineer_review"
+  /** the answer lists clauses (or lines) for different conditions and the
+   *  question named none: no single supported answer until the reader says */
+  | "depends_on_condition";
+
+export interface EvidenceRef {
+  document_id: string | null;
+  page_start: number | null;
+  page_end: number | null;
+  section: string | null;
+}
+
+export interface Answerability {
+  verdict: AnswerabilityVerdict;
+  reason: string;
+  evidence: EvidenceRef[];
+}
+
+/** B6C: what the question was understood to be about (retrieval input only). */
+export interface Understanding {
+  retrieval_query: string;
+  document_id: string | null;
+  scope_reason: string | null;
+  scope_ids: string[] | null;
+  clause: string | null;
+  clause_reason: string | null;
+  ambiguous_documents: string[];
+  notes: string[];
+}
+
+/** B6C: the answer's own text appears in more than one document. */
+export interface ScopeAmbiguity {
+  reason: string;
+  documents: { document_id: string; filename: string | null }[];
+}
+
+/** Plan step 4: one clause competing to answer, and the condition it is
+ *  written for (as the clause writes it, e.g. "larger than 2 inch"). */
+export interface ConditionOption {
+  chunk_id: string;
+  document_id: string;
+  filename: string | null;
+  section: string | null;
+  page_start: number | null;
+  page_end: number | null;
+  conditions: string[];
+  /** within_passage only: the line written for this condition, as written */
+  line?: string | null;
+  /** within_passage only: [start, end] of that line in the passage text */
+  highlight?: [number, number] | null;
+}
+
+/** Plan step 4: clauses near the top set different values for different
+ *  conditions. "options": the question named none, so every clause is shown
+ *  with its condition and the reader is asked which applies - none is picked
+ *  for them. "matched": the question named one, and the one clause that holds
+ *  under it answers instead of a higher-ranked clause. */
+export interface ConditionChoice {
+  mode: "options" | "matched";
+  reason: string;
+  /** the cases are lines (or table rows) of ONE passage: every option is the
+   *  same chunk, each with its own `line` */
+  within_passage?: boolean;
+  kinds: string[];
+  question_names: string[];
+  options: ConditionOption[];
+}
+
+export interface AnswerResult extends ChatPresentation {
+  /** chat redesign PR 6, web turns only: the whitelisted phrase that would
+   *  be (or was) sent; null means nothing was safe to send */
+  web_phrase?: string | null;
+  /** chat redesign PR 6: the web lane could send at the time of asking */
+  web_available?: boolean;
+  /** chat redesign PR 6: the offered search has run */
+  web_searched?: boolean;
   question: string;
   answer_type: AnswerType;
   /** null whenever answer_type is insufficient_evidence or model_unavailable */
@@ -1483,10 +1940,23 @@ export interface AnswerResult {
   coverage: Coverage | null;
   /** guidance only: real questions drawn from the loaded documents */
   examples: string[];
+  /** B6C */
+  understanding?: Understanding | null;
+  /** B6C */
+  scope_ambiguity?: ScopeAmbiguity | null;
+  /** Plan step 4: which clause applies when clauses differ by condition */
+  condition_choice?: ConditionChoice | null;
+  /** B8 */
+  answerability?: Answerability | null;
   /** The LIBRARY's answer, counted from the database. On a metadata answer it
    *  IS the answer; on any other answer_type the question also asked about
    *  content, and this is the separate database half of a two-part reply. */
   corpus?: CorpusFact | null;
+  /** Plan C3: present on answer_type === "comparison" - each named side's own
+   *  document ids and its own answer_type, so a side reported as "not found
+   *  in the pages read" is shown as its own targeted search, never bundled
+   *  into the other side's evidence. */
+  comparison?: Comparison | null;
   /** Sentences in a generated answer whose count of documents was re-bounded
    *  to the passages retrieved - the model sees a few passages, never the
    *  library, so any such count is a count of them. */
@@ -1526,7 +1996,7 @@ export interface ConversationList {
   conversations: ConversationSummary[];
 }
 
-export interface Message {
+export interface Message extends ChatPresentation {
   id: string;
   conversation_id: string;
   ordinal: number;
@@ -1544,8 +2014,38 @@ export interface Message {
   /** assistant rows: the extract answer this Tier 2 answer explains */
   explains_id: string | null;
   /** assistant rows: passages and citations, so reopening restores the panel */
-  payload: Partial<AnswerResult> | null;
+  /** `withheld`: B9 - the turn cited a document the caller can no longer read;
+   *  text and payload were replaced when the conversation was reopened. */
+  payload: (Partial<AnswerResult> & { withheld?: boolean }) | null;
   created_at: string;
+  /** chat redesign PR 5: the caller's own "Was this right?" (absent: not answered) */
+  feedback?: boolean | null;
+  /** chat redesign PR 5: the live comment filed from this answer, if any */
+  filed_comment?: { finding_id: string; document_id: string; filed_at: string } | null;
+}
+
+/** "Was this right?" as stored. */
+export interface ChatFeedback {
+  message_id: string;
+  helpful: boolean;
+  note: string | null;
+}
+
+/** "Add to comment sheet": where the engineer's comment went. */
+export interface FiledComment {
+  finding_id: string;
+  message_id: string;
+  document_id: string;
+  document_name: string;
+  /** null: the document has no review run yet, so it is on no sheet */
+  review_run_id: string | null;
+  chat_comments_on_sheet: number;
+  undo_until: string;
+}
+
+export interface WithdrawnComment {
+  finding_id: string;
+  withdrawn: boolean;
 }
 
 export interface ConversationDetail {
@@ -1564,6 +2064,12 @@ export interface AskRequest {
   /** upgrade this assistant message to Tier 2 instead of asking anew. The
    *  reader pressing Explain is not asking a new question. */
   explain_of?: string | null;
+  /** chat redesign: "local" narrows to the local engine; never widens */
+  model?: "auto" | "claude" | "local" | null;
+  /** chat redesign PR 5, "@ a document": answer from these only. Narrows. */
+  document_ids?: string[] | null;
+  /** chat redesign PR 6: the Web switch. Only ever OFFERS a search. */
+  web?: boolean;
 }
 
 export interface AskResult extends AnswerResult {
@@ -1656,6 +2162,27 @@ export interface ModelStatus {
   ollama_error: string | null;
 }
 
+/** The dense-search backend (backend/app/vector_store.py). Both backends are
+ *  EXACT: which one runs changes latency, never which passages rank. */
+export interface VectorStoreStatus {
+  /** VECTOR_BACKEND as configured: auto | sqlite_vec | numpy */
+  requested: string;
+  active: "sqlite_vec" | "numpy";
+  /** why the exact numpy fallback is active; null when sqlite-vec is */
+  fallback_reason: string | null;
+  sqlite_vec_version: string | null;
+  exact: boolean;
+  /** model file + passage input format a vector must carry to be searched */
+  embedding_tag: string;
+  /** the last run-time failure of the sqlite-vec index (answered from numpy) */
+  last_error: string | null;
+  /** corpus-wide counts: null (withheld) without the admin capability */
+  current_vectors: number | null;
+  /** vectors from another model or input format - not searched until
+   *  re-embedded */
+  stale_vectors: number | null;
+}
+
 export interface DocumentFailure {
   id: string;
   filename: string;
@@ -1716,6 +2243,9 @@ export interface Metrics {
    *  false. */
   system?: SystemMetrics | null;
   models: ModelStatus;
+  /** Which dense-search backend is active, and why when it is the fallback.
+   *  Absent from an older backend. */
+  vector_store?: VectorStoreStatus | null;
   worker: WorkerStatus;
   warnings: MetricWarning[];
 }
@@ -1974,4 +2504,58 @@ export interface AppliedScope {
   disciplines: string[];
   subject_ids: string[];
   documents_in_scope: number;
+}
+
+/** B11: one background job, visible only on documents the caller may read.
+ *  `pages_*` are null when the stage does not count pages - never 0. */
+export type BackgroundJobState = "queued" | "running" | "retrying" | "poisoned" | "done" | "failed" | "cancelled";
+export interface BackgroundJob {
+  id: string;
+  document_id: string;
+  stage: string;
+  state: BackgroundJobState;
+  priority: number;
+  retries: number;
+  error_code: string | null;
+  pages_total: number | null;
+  pages_done: number | null;
+  next_attempt_at: string | null;
+  started_at: string | null;
+  updated_at: string | null;
+  created_by: string | null;
+  code_version: string | null;
+  config_version: string | null;
+}
+export interface BackgroundJobList { jobs: BackgroundJob[] }
+
+/** Where a missing standard is obtained: the publisher's own catalogue page,
+ *  never a download. No url for a company standard or an unrecognised
+ *  publisher. `standards_acquisition.where_to_obtain`. */
+export interface StandardObtainPointer {
+  publisher: string | null;
+  url: string | null;
+  note: string;
+}
+
+/** One place a missing standard was cited. */
+export interface MissingStandardCitation {
+  source_type: string;
+  document_id: string;
+  filename: string;
+  clause?: string | null;
+  page?: number | null;
+}
+
+/** GET /api/standards/missing: cited but not held, with where to get it.
+ *  status: MISSING_LOCALLY (nothing recorded) | REQUESTED | OBTAINED. */
+export interface MissingStandard {
+  identifier: string;
+  standard_family: string;
+  licence_status: string;
+  cited_by: MissingStandardCitation[];
+  status: "MISSING_LOCALLY" | "REQUESTED" | "OBTAINED" | string;
+  note: string | null;
+  requested_by: string | null;
+  requested_at: string | null;
+  obtain: StandardObtainPointer;
 }

@@ -48,9 +48,11 @@ class Mutation:
 
 #: The guard `db.add_column_if_missing` puts round a concurrent
 #: migrator, quoted once so two mutations can share it.
+# Re-anchored 2026-09-26: the guard moved into a bounded retry loop that
+# also re-reads after "database schema has changed" (M1055).
 DUPLICATE_GUARD = (
-    '        if "duplicate column" not in str(exc).lower():\n'
-    "            raise")
+    '            if "duplicate column" not in message:\n'
+    "                raise")
 
 #: Anchors whose text carries double quotes, quoted once here.
 TAG_SCOPED = (

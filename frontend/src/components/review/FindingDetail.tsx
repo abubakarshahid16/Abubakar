@@ -34,11 +34,21 @@ type Action =
   | { kind: "error"; message: string }
   | { kind: "rejected" };
 
-export function FindingDetail(
+/** Keyed by finding: the edit draft, reason and pending action belong to ONE
+ *  finding. Without the key, saving finding B could PATCH finding A's edited
+ *  text onto B. */
+export function FindingDetail(props: FindingDetailProps) {
+  return <FindingDetailBody key={props.finding.id} {...props} />;
+}
+
+function FindingDetailBody(
   { finding, documents, standardNames, onChanged }: FindingDetailProps,
 ) {
   const [action, setAction] = useState<Action>({ kind: "idle" });
   const [reason, setReason] = useState("");
+  // Owner order section 3: Edit - the engineer's own wording of the comment.
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
   const [open, setOpen] = useState<{ doc: DocumentRecord; page: number | null } | null>(null);
 
   // THE CITED DOCUMENTS, FETCHED BY ID WHEN THEY ARE NOT ALREADY IN HAND.
@@ -86,6 +96,39 @@ export function FindingDetail(
     onChanged();
   }
 
+  /** Save the engineer's wording. The server confirms the comment under the
+   *  caller's name (an edit is a decision), and keeps the review's own text
+   *  on the finding - only the sheet prints the new words. */
+  async function saveEdit() {
+    const text = draft.trim();
+    if (!text) {
+      setAction({ kind: "error", message: "The comment cannot be empty." });
+      return;
+    }
+    setAction({ kind: "working" });
+    const result = await reviewsApi.update(finding.id, { engineer_comment: text });
+    if (!result.ok) {
+      setAction({ kind: "error", message: result.error.message });
+      return;
+    }
+    setEditing(false);
+    setAction({ kind: "idle" });
+    onChanged();
+  }
+
+  /** Leave this comment off the Comment Resolution Sheet. Recorded with the
+   *  caller's name; the finding itself is kept. */
+  async function rejectComment() {
+    setAction({ kind: "working" });
+    const result = await reviewsApi.update(finding.id, { approval_status: "rejected" });
+    if (!result.ok) {
+      setAction({ kind: "error", message: result.error.message });
+      return;
+    }
+    setAction({ kind: "idle" });
+    onChanged();
+  }
+
   async function reject() {
     if (!reason.trim()) {
       setAction({ kind: "error", message: "A reason is required to reject a pairing." });
@@ -120,7 +163,7 @@ export function FindingDetail(
       </header>
 
       {finding.confirmed_by && (
-        <p className="rounded-[var(--radius-sm)] border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
+        <p className="rounded-[var(--radius-sm)] border border-signal-500/40 bg-signal-500/10 px-3 py-2 text-sm text-signal-300">
           Confirmed by {finding.confirmed_by}
           {finding.confirmed_at ? ` on ${whenLabel(finding.confirmed_at)}` : ""}.
           A confirmed finding is not deleted when the review is re-run.
@@ -187,6 +230,23 @@ export function FindingDetail(
         </div>
       )}
 
+      {finding.engineer_comment && !editing && (
+        <div data-testid="engineer-comment">
+          <h4 className="text-xs uppercase tracking-wide text-slateish-400">
+            Comment on the sheet - your wording
+          </h4>
+          <p className="mt-1 whitespace-pre-wrap text-sm text-slateish-100">{finding.engineer_comment}</p>
+        </div>
+      )}
+
+      {finding.approval_status === "rejected" && (
+        <p className="rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-200"
+          data-testid="comment-rejected">
+          Comment rejected - it is left off the Comment Resolution Sheet. A
+          re-run of this review proposes it again.
+        </p>
+      )}
+
       <div className="space-y-3 border-t border-ink-700 pt-3">
         <h4 className="text-xs uppercase tracking-wide text-slateish-400">Engineer actions</h4>
         <div className="flex flex-wrap items-center gap-3">
@@ -197,7 +257,44 @@ export function FindingDetail(
           >
             {finding.confirmed_by ? "Confirmed" : "Confirm this finding"}
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              setDraft(finding.engineer_comment ?? finding.finding ?? "");
+              setEditing((value) => !value);
+            }}
+            disabled={action.kind === "working"}
+            className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-2 text-sm text-slateish-100 disabled:opacity-50"
+          >
+            {editing ? "Cancel edit" : "Edit comment"}
+          </button>
+          <button
+            type="button" onClick={() => void rejectComment()}
+            disabled={action.kind === "working" || finding.approval_status === "rejected"}
+            className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-2 text-sm text-slateish-100 disabled:opacity-50"
+          >
+            {finding.approval_status === "rejected" ? "Comment rejected" : "Reject comment"}
+          </button>
         </div>
+        {editing && (
+          <div className="space-y-2">
+            <label className="block text-xs text-slateish-400" htmlFor="edit-comment">
+              The comment as it will read on the sheet. Saving confirms it under your name.
+            </label>
+            <textarea
+              id="edit-comment" value={draft} rows={3}
+              onChange={(event) => setDraft(event.target.value)}
+              className="w-full rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-100"
+            />
+            <button
+              type="button" onClick={() => void saveEdit()}
+              disabled={action.kind === "working"}
+              className="rounded-[var(--radius-sm)] bg-signal-500 px-3 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50"
+            >
+              Save comment
+            </button>
+          </div>
+        )}
         {canReject ? (
           <div className="space-y-2">
             <label className="block text-xs text-slateish-400" htmlFor="reject-reason">
@@ -212,7 +309,7 @@ export function FindingDetail(
             <button
               type="button" onClick={() => void reject()}
               disabled={action.kind === "working" || action.kind === "rejected"}
-              className="rounded-[var(--radius-sm)] border border-rose-500/50 px-3 py-2 text-sm text-rose-200 disabled:opacity-50"
+              className="rounded-[var(--radius-sm)] border border-danger-500/50 px-3 py-2 text-sm text-danger-500 disabled:opacity-50"
             >
               Reject pairing
             </button>
@@ -223,12 +320,12 @@ export function FindingDetail(
           </p>
         )}
         {action.kind === "rejected" && (
-          <p className="rounded-[var(--radius-sm)] border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
+          <p className="rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-sm text-danger-500">
             Pairing rejected. This pairing will not be proposed again.
           </p>
         )}
         {action.kind === "error" && (
-          <p role="alert" className="rounded-[var(--radius-sm)] border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
+          <p role="alert" className="rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-sm text-danger-500">
             {action.message}
           </p>
         )}

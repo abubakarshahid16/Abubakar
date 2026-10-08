@@ -25,6 +25,14 @@ TWO CONTROLS, BOTH DUMB ON PURPOSE:
 WHAT THIS IS NOT. Not a rate limiter and not a lock: two routes running at
 once each get their own cap. It exists so that one route cannot spend more
 than one route's worth, and so the total is never a surprise.
+
+AND NOT THE DOLLAR CAP. The owner's USD 5 per step / USD 20 in total is
+enforced by `claude_spend`, whose JSONL ledger is the one the caps read. The
+routes in `claude_api` reach it through `claude_spend.metered`, which checks
+each call before it leaves and writes each call to that ledger. The
+`model_spend` row here is a token counter for the route responses
+(`spend_total`); its `estimated_usd` uses the older table below, is display
+only, and no cap reads it.
 """
 
 from __future__ import annotations
@@ -32,7 +40,8 @@ from __future__ import annotations
 import os
 from datetime import datetime, timezone
 
-from .db import connect
+from . import claude_spend
+from .db import connect, schema_once
 
 ENV_MAX_CALLS = "STANDARDS_READER_MAX_CALLS_PER_RUN"
 DEFAULT_MAX_CALLS = 200
@@ -48,8 +57,10 @@ PRICE_PER_MILLION = {
 }
 
 
-class BudgetExhausted(RuntimeError):
+class BudgetExhausted(claude_spend.StopRun):
     """The run's call cap was reached. The calls before it stand."""
+
+    count_key = BUDGET_EXHAUSTED
 
     def __init__(self, max_calls: int):
         super().__init__(f"model call cap of {max_calls} reached for this run")
@@ -88,6 +99,7 @@ class Budget:
 
 
 # ------------------------------------------------------------------ the total
+@schema_once
 def ensure_schema() -> None:
     conn = connect()
     with conn:

@@ -16,7 +16,7 @@ import { useState } from "react";
 import { reviews as reviewsApi } from "../../api/client";
 import type { ReviewRunSummary } from "../../types/api";
 import { REVIEW_CODES } from "../../types/api";
-import { whenLabel } from "./reviewFormat";
+import { estimateDetail, whenLabel } from "./reviewFormat";
 
 export interface ReviewCodePanelProps {
   run: ReviewRunSummary;
@@ -28,7 +28,14 @@ type State =
   | { kind: "saving" }
   | { kind: "error"; message: string };
 
-export function ReviewCodePanel({ run, onDecided }: ReviewCodePanelProps) {
+/** Keyed by run: the draft code and reason belong to ONE run. Without the key
+ *  opening run B showed run A's final code, and "Record final code" could
+ *  write A's value onto B. */
+export function ReviewCodePanel(props: ReviewCodePanelProps) {
+  return <ReviewCodePanelBody key={props.run.review_run_id} {...props} />;
+}
+
+function ReviewCodePanelBody({ run, onDecided }: ReviewCodePanelProps) {
   const [code, setCode] = useState<string>(
     run.engineer_final_code ?? run.recommended_code ?? "");
   const [reason, setReason] = useState(run.override_reason ?? "");
@@ -74,11 +81,20 @@ export function ReviewCodePanel({ run, onDecided }: ReviewCodePanelProps) {
           <p className="mt-1 font-semibold text-slateish-100">
             {run.recommended_code ?? "—"}
           </p>
-          {/* VERBATIM. The recommendation's own sentence, including the
-              nominal-estimate note, because that sentence is the evidence
-              for the code beside it. */}
+          {/* 2g: the reason in plain words; the engine's own sentence - the
+              nominal estimate, identifiers - kept verbatim under Details,
+              because it is the evidence for the code beside it. */}
           {run.recommended_reason && (
-            <p className="mt-1 text-xs text-slateish-400">{run.recommended_reason}</p>
+            <p className="mt-1 text-xs text-slateish-300">{run.recommended_reason}</p>
+          )}
+          {(run.recommended_details || estimateDetail(run)) && (
+            <details className="mt-2 text-xs text-slateish-400">
+              <summary className="cursor-pointer text-slateish-300">Details</summary>
+              {run.recommended_details && run.recommended_details !== run.recommended_reason && (
+                <p className="mt-1">{run.recommended_details}</p>
+              )}
+              {estimateDetail(run) && <p className="mt-1">{estimateDetail(run)}</p>}
+            </details>
           )}
         </div>
 
@@ -88,7 +104,7 @@ export function ReviewCodePanel({ run, onDecided }: ReviewCodePanelProps) {
           </p>
           {run.engineer_final_code ? (
             <>
-              <p className="mt-1 font-semibold text-emerald-200">
+              <p className="mt-1 font-semibold text-signal-300">
                 {run.engineer_final_code}
               </p>
               {/* THE NAME, NOT THE PRIMARY KEY. This printed `decided by
@@ -133,7 +149,7 @@ export function ReviewCodePanel({ run, onDecided }: ReviewCodePanelProps) {
           className="min-w-[18rem] rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-100"
         >
           <option value="">Choose a code…</option>
-          {REVIEW_CODES.map((value) => (
+          {(run.review_codes?.length ? run.review_codes : REVIEW_CODES).map((value) => (
             <option key={value} value={value}>{value}</option>
           ))}
         </select>
@@ -161,7 +177,7 @@ export function ReviewCodePanel({ run, onDecided }: ReviewCodePanelProps) {
         </button>
 
         {state.kind === "error" && (
-          <p role="alert" className="rounded-[var(--radius-sm)] border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
+          <p role="alert" className="rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-sm text-danger-500">
             {state.message}
           </p>
         )}

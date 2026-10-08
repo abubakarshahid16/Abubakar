@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ipaddress
+import os
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -21,6 +22,64 @@ class ModelHostRefused(RuntimeError):
 
 class NotificationConfigError(RuntimeError):
     """SMTP notifications were enabled without a complete configuration."""
+
+
+class UnsafeBindRefused(RuntimeError):
+    """The server was told to listen beyond this machine with nobody signing in."""
+
+
+#: Host header values that always name this machine. `testserver` (the
+#: TestClient's name) is deliberately NOT here: the tests add it through
+#: `tests/env_isolation.isolate`, so a production default never trusts it.
+LOOPBACK_HOST_HEADERS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+#: Bind addresses that mean "every interface" - not a name a browser uses.
+WILDCARD_BINDS = frozenset({"0.0.0.0", "::", ""})
+
+
+def is_loopback_bind(host: str) -> bool:
+    """Whether binding `host` keeps the port on this machine."""
+    h = (host or "").strip().strip("[]").lower()
+    if h in LOOPBACK_NAMES:
+        return True
+    try:
+        return ipaddress.ip_address(h).is_loopback
+    except ValueError:
+        return False
+
+
+def host_header_name(value: str) -> str:
+    """The host part of a Host header, lowercased, port removed.
+
+    `[::1]:8000` -> `::1`; `localhost:5173` -> `localhost`; a bare IPv6
+    literal with no brackets is taken whole.
+    """
+    v = (value or "").strip().lower()
+    if v.startswith("["):
+        end = v.find("]")
+        return v[1:end] if end > 0 else ""
+    if v.count(":") == 1:
+        return v.split(":", 1)[0]
+    return v
+
+
+def trusted_host_names(cfg: "Settings") -> frozenset[str]:
+    """Every Host header value this server answers. Read per request.
+
+    DNS REBINDING is why this exists. The server binds loopback, but a web
+    page on `attacker.example` can re-point its own name at 127.0.0.1 and
+    then read this API from the victim's browser as a same-origin request -
+    CORS never applies, and under `AUTH_MODE=disabled` every document is
+    served. The browser still sends `Host: attacker.example`, so refusing any
+    name this machine was not configured to be called closes it.
+    """
+    names = set(LOOPBACK_HOST_HEADERS)
+    bind = (cfg.host or "").strip().strip("[]").lower()
+    if bind not in WILDCARD_BINDS:
+        names.add(bind)
+    names.update(h.strip().lower() for h in (cfg.allowed_hosts or "").split(",")
+                 if h.strip())
+    return frozenset(names)
 
 
 #: Host names that mean "this machine" without being an IP literal.
@@ -175,8 +234,21 @@ class Settings(BaseSettings):
         env_file=BACKEND_DIR / ".env", extra="ignore")
 
     # Bind loopback only. Never 0.0.0.0 - document content must not be reachable.
+    # ENFORCED, not only advised: a non-loopback bind under AUTH_MODE=disabled
+    # is refused at startup unless `allow_unauthenticated_network_bind` is set.
     host: str = "127.0.0.1"
     port: int = 8000
+    #: Extra names the server may be addressed by, comma-separated (the Host
+    #: header check - see `trusted_host_names`). localhost, 127.0.0.1, ::1
+    #: and a named `host` are always trusted; empty is the right value for a
+    #: laptop. Add a name only when a browser really reaches this server by it.
+    allowed_hosts: str = ""
+    #: The deliberate override for serving the network with nobody signing
+    #: in. Every caller would see every document. Off, and should stay off.
+    allow_unauthenticated_network_bind: bool = False
+    #: /docs, /redoc and /openapi.json describe every route. Served only under
+    #: AUTH_MODE=disabled (a developer's machine) unless this is set.
+    api_docs_enabled: bool = False
 
     data_dir: Path = BACKEND_DIR / "data"
     upload_dir: Path = BACKEND_DIR / "data" / "uploads"
@@ -251,6 +323,33 @@ class Settings(BaseSettings):
     #: Characters outside this script in recognised text are a recognition
     #: failure, not a curiosity. Counted and flagged, never deleted.
     ocr_expected_script: str = "latin"
+    #: OCR ROUTING (audit F6), decided per page by `ocr.route_page`. A page is
+    #: recognised when its text layer is under `ocr_min_usable_chars`, OR when
+    #: raster images cover at least `ocr_image_coverage_min` of the page AND
+    #: the text layer is thin for it - under `ocr_max_text_density` characters
+    #: per square inch of page, or text blocks covering under
+    #: `ocr_max_text_to_image_area` of the image area. The second rule is the
+    #: scanned page carrying a digital header, footer or DCC stamp (238 chars,
+    #: never read under the old count-only rule). A normal text page has no
+    #: large image and never reaches it; a scan that already carries an
+    #: invisible OCR text layer is dense text over the image and is not
+    #: recognised again. Changing these changes which pages are read: bump
+    #: nothing, but run `scripts/reroute_ocr.py` so stored pages are re-decided.
+    ocr_min_usable_chars: int = 100
+    ocr_image_coverage_min: float = 0.5
+    ocr_max_text_density: float = 6.0
+    ocr_max_text_to_image_area: float = 0.10
+
+    #: A per-page mean/min confidence hides a SINGLE badly-read word inside an
+    #: otherwise good page: one wrong digit in a pressure rating can sit next
+    #: to 40 confidently-read words and the page average still looks fine.
+    #: RapidOCR already scores every individual word box (`res.scores`); this
+    #: is the threshold below which a box counts toward `page_ocr.low_conf_boxes`
+    #: instead of being discarded after the mean/min are taken. RapidOCR's
+    #: recognition score is 0-1; 0.70 is a starting point, not a measured
+    #: number - `ocr.recognise_batch` stores it as data (like mean/min already
+    #: are) so it can be tuned from real counts later, never hidden.
+    ocr_low_conf_threshold: float = 0.70
 
     #: THE ANSWER MODEL'S ADDRESS, AND THE ONE OUTBOUND URL ON THE QUERY PATH
     #: THAT CARRIES DOCUMENT TEXT. Validated by `check_model_url`, at startup
@@ -278,6 +377,12 @@ class Settings(BaseSettings):
     # Measured on the target CPU - see docs/benchmarks.md
     num_thread: int = 12
     num_batch: int = 2048
+    #: How long Ollama keeps the answer model resident after a call. SENT BY
+    #: EVERY CALL SITE through `model_transport.runner_options` - one path
+    #: (OllamaProvider) sent none, so Ollama's 5-minute default unloaded the
+    #: model during a demo pause and the next question paid the cold load
+    #: (23.6 s on the laptop, docs/benchmarks.md).
+    ollama_keep_alive: str = "30m"
     # 1536 -> 4096, and this is a DECISION, not a tuning pass. The execution
     # plan's change budget forbade touching model settings mid-sprint so the
     # evidence base would stay comparable; the project owner overrode that
@@ -321,6 +426,100 @@ class Settings(BaseSettings):
     #: rationale - a review that silently stopped asking would look identical
     #: to one where the model declined every time.
     match_enabled: bool = False
+    #: #193 plan B4 (order 5.5): the geometry reader (`geometry_reader.py`)
+    #: adds its form and table readings to `submittal_facts` during
+    #: `datasheets.extract_facts`, as `extraction_method='geometry'` rows with
+    #: their boxes. OFF by default - OFF is the pre-B4 extraction, byte for
+    #: byte. When ON, a rule-reader fact for the same page and label always
+    #: wins; a geometry reading that DISAGREES with it is kept with
+    #: `validation_state='conflict'`, never used to overwrite it.
+    #: B4 items 1-3 (same flag): the VISION READER (`vision_reader.py`, Claude
+    #: only - it also needs REASONING_PROVIDER=claude and both standards-reader
+    #: egress flags) adds page-image readings kept only where code proves them
+    #: against the text layer (`extraction_method='vision'`); a code-only noise
+    #: filter (`row_noise.py`) drops page furniture from every reader; and
+    #: field naming covers blank fields too.
+    #: Env: GEOMETRY_READER_ENABLED. The owner flips it.
+    geometry_reader_enabled: bool = False
+    #: B7: at most this many pages of one datasheet are sent to the vision
+    #: reader, and only pages no text-based reader could read (see
+    #: datasheets.vision_route). A ceiling on cost and time per document, on
+    #: top of claude_spend's USD caps. Env: VISION_MAX_PAGES_PER_DOCUMENT.
+    vision_max_pages_per_document: int = 10
+    #: "AI READS, CODE CHECKS" (`datasheet_ai.py`): during
+    #: `datasheets.extract_facts`, every page with text is also read by a model
+    #: (`claude_datasheet.read_page`: two runs must agree, and every fact must
+    #: quote the page) and the reading is MERGED with the rule readers' facts -
+    #: agreement raises confidence (never to "high"), disagreement keeps both
+    #: flagged `validation_state='conflict'`, an AI-only fact is kept only
+    #: because its quote was proved on the page. One of:
+    #:   "off"    - the default; extraction is exactly what it was before.
+    #:   "ollama" - the local engine, through `model_transport` (loopback, or
+    #:              a host `check_model_url` permits).
+    #:   "claude" - the Claude API, only when REASONING_PROVIDER=claude AND
+    #:              both STANDARDS_READER_* egress flags AND a key, and every
+    #:              call metered by `claude_spend` (USD caps) under the step
+    #:              `datasheet-ai-reader`.
+    #: An engine that is unavailable, fails or is refused by a cap leaves the
+    #: page to the rule readers, with the reason recorded; ingestion never
+    #: fails on it. NOT YET MEASURED on real datasheets. Any other value is
+    #: treated as off. Env: DATASHEET_AI_READER. The owner flips it.
+    datasheet_ai_reader: str = "off"
+    #: The local model the "ollama" engine uses; empty = `answer_model`.
+    #: Env: DATASHEET_AI_OLLAMA_MODEL.
+    datasheet_ai_ollama_model: str = ""
+    #: B8: after the structural answerability checks, a reasoning model
+    #: (local Ollama, or Claude through reader_transport under the USD caps)
+    #: judges whether the passages ANSWER the question. It may only downgrade
+    #: a "supported" verdict or point to a lower passage, and a "yes" is
+    #: accepted only with a quote verified verbatim in the passage it names.
+    #: OFF by default: it costs a model call per answer. Env:
+    #: ANSWER_JUDGE_ENABLED. The owner flips it.
+    answer_judge_enabled: bool = False
+    #: B5: the OWNER-APPROVED equipment taxonomy the scope decision
+    #: (`applicability_v2.decide`) matches scope terms against - a JSON file
+    #: `{"lexicon": {phrase: [level, name]}, "types": {type: {"family": ...,
+    #: "class": ...}}}`. None (the default) means no taxonomy is approved, and
+    #: the live review records that the scope decision was not run rather than
+    #: deciding with an unapproved one. Env: APPLICABILITY_TAXONOMY_PATH.
+    applicability_taxonomy_path: Path | None = None
+    #: Owner request 2026-09-28: the scope decision by AI reasoning instead
+    #: of `applicability_taxonomy_path` - no manual equipment lexicon. When
+    #: True, `applicability.select()` decides scope with
+    #: `applicability_reasoning.decide_with_confirmation_by_reasoning` against
+    #: each standard's stored, verified scope record (`standard_scope_records`,
+    #: written only by the explicit `scripts/generate_scope_records.py` step) and
+    #: the submittal's own classified equipment type - no taxonomy needed. Same
+    #: asymmetric safety rule as the taxonomy path: an unconfirmed
+    #: NOT_APPLICABLE is still reported as UNKNOWN. OFF by default. Env:
+    #: APPLICABILITY_REASONING_ENABLED.
+    applicability_reasoning_enabled: bool = False
+    #: B4 (nozzle schedules): ONLY the geometry reader's TABLE path - a ruled
+    #: grid read cell by cell under its column heading ("N1 Size 4", "N1
+    #: Flange Rating CL-150"). A schedule is one row per item across many
+    #: columns, which the label/value readers pair into nonsense ("raised face
+    #: -> <the nozzle's service>") that the value gate then rightly rejects, so a
+    #: whole nozzle schedule was lost. The FORM path and the vision reader stay
+    #: behind GEOMETRY_READER_ENABLED: on a pump sheet the form path paired
+    #: "IMPELLER DIA." with "RATED *". The same precedence as the full flag
+    #: applies - a rule-reader fact always wins, and a geometry reading never
+    #: makes a page "read into fields" in the ledger.
+    #: Env: GEOMETRY_TABLE_READER_ENABLED. ON by default - owner decision
+    #: 2026-09-25, after the measurement above; set it false to go back to the
+    #: rule readers alone.
+    geometry_table_reader_enabled: bool = True
+    #: Datasheets that are NOT a PDF text layer (`datasheet_inputs.py`): an
+    #: uploaded .docx is accepted, an .xlsx or .docx is INDEXED (its pages
+    #: are the rendered sheets / document, read by `datasheet_inputs` instead
+    #: of PyMuPDF) rather than stored as `stored_not_indexed`, the datasheet
+    #: reader pairs their rows and records `extraction_method` 'xlsx' /
+    #: 'docx', and a scanned page's OCR text also yields table-shaped lines
+    #: ("label  value  unit", "label | value | unit") beside "LABEL: VALUE",
+    #: still at the OCR fallback's low confidence and engineer-review state.
+    #: Trade-off to measure before switching on: a CRS template workbook is
+    #: then indexed too. OFF by default - merging changes nothing.
+    #: Env: DATASHEET_OFFICE_INPUT.
+    datasheet_office_input: bool = False
     #: Generous, because a refusal costs more than a wait: a timeout is
     #: `model_unavailable` and the requirement falls back to
     #: MISSING_INFORMATION, so a tight bound would quietly convert slow
@@ -368,9 +567,38 @@ class Settings(BaseSettings):
     #: 54x the largest real document and had never been measured against
     #: anything.
     max_upload_mb: int = 512
+    #: `PRAGMA synchronous` for every connection (db.connect). NORMAL under
+    #: WAL: safe against an application crash, cannot corrupt the file, but a
+    #: power cut or OS crash can lose the last few committed transactions.
+    #: FULL fsyncs every commit - measured 4.8 s of fsync for one 1,355-finding
+    #: review run written a finding at a time. Only FULL or NORMAL accepted.
+    sqlite_synchronous: str = "NORMAL"
+    #: How many per-document acronym maps `acronyms` keeps (LRU). A map is a
+    #: few KB; 4096 covers the 275-document corpus fifteen times over.
+    acronym_cache_documents: int = 4096
+    #: How many per-SCOPE merged acronym maps are kept (LRU): one per distinct
+    #: (document, caller scope) pair recently asked about.
+    acronym_cache_scopes: int = 64
+    #: Warm the embedder, reranker and acronym maps in a background thread at
+    #: startup, so the first question does not pay the model loads. Never
+    #: blocks the server start and never writes the database.
+    startup_warmup: bool = True
     page_batch_size: int = 32
     extract_processes: int = 1
+    #: Passages per embedder forward pass. READ by `embedder.EmbedderConfig`
+    #: (it used to be declared here and ignored: the embedder hard-coded 32).
+    #: Measured with `bench_embed2.py` (2 threads, arena on): bs 16 peaks at
+    #: 1,466 MB and bs 32 at 2,203 MB for the same passages/s; bs 64 peaks at
+    #: 4,580 MB. Vectors are identical across batch sizes (checked, max
+    #: difference 0.0), so this is a memory setting, not an accuracy one.
     embed_batch_size: int = 16
+    #: ONNX intra-op threads for the e5 embedder. 0 means "derive": half the
+    #: logical cores, at least 1 (`embed_intra_op_threads`). It was a
+    #: hard-coded 12, which is MORE threads than the demo box's 4C/8T has and
+    #: measured 4.2x slower than 1 thread on a 2-vCPU box (0.95 against 4.00
+    #: passages/s; single query 43.5 ms against 7.5 ms). Set EMBED_THREADS to
+    #: pin it per machine.
+    embed_threads: int = 0
 
     # ------------------------------------------------------- job retries (#177)
     #: How many times a failed stage is RE-TRIED before it is poisoned. Three
@@ -382,6 +610,10 @@ class Settings(BaseSettings):
     #: First retry delay in seconds; each later retry doubles it (60, 120,
     #: 240 s by default). See `job_queue.backoff_seconds`.
     job_retry_base_seconds: float = 60.0
+    #: B11: at most this many background jobs of one stage run at once. A claim
+    #: past the limit gets nothing. 1 matches the one worker thread today; the
+    #: limit is what keeps it true if a second worker is ever started.
+    job_max_running: int = 1
 
     # ------------------------------------------------------- watched folder
     #: The drop folder. EMPTY IS THE DEFAULT AND EMPTY MEANS OFF - there is no
@@ -539,6 +771,13 @@ class Settings(BaseSettings):
     # reranking 30 candidates at 320 tokens costs ~1025ms, 20 at 256 costs
     # ~500ms, which is what keeps the Tier 1 answer inside its 1-2s budget.
     search_candidates: int = 30       # retrieved from each side before fusion
+    #: Dense-search backend (`vector_store.py`), env VECTOR_BACKEND:
+    #:   auto        sqlite-vec when the extension loads, else exact numpy
+    #:   sqlite_vec  asked for explicitly; still falls back, and says so
+    #:   numpy       the memory-mapped exact matrix, never the extension
+    #: Both are EXACT: the choice changes latency, never which chunks rank.
+    #: Whichever is active, and why, is on System Health (`/api/metrics`).
+    vector_backend: str = "auto"
     #: How many candidates the cross-encoder sees. Reduced from 20 to claw
     #: back the latency that widening the rerank window cost, measured over
     #: the independent 15-question set:
@@ -575,6 +814,22 @@ class Settings(BaseSettings):
     #: +213 ms against 256, which keeps Tier 1 inside its 1-2 second target.
     rerank_max_tokens: int = 480
     rerank_batch: int = 16
+    #: ONNX intra-op threads for the RERANKER session only (the embedder has
+    #: its own setting). 0 = derive from the CPUs this process may run on
+    #: (`rerank_thread_count`). It used to be `num_thread` = 12, measured on
+    #: the 12-thread laptop - and on a 2-vCPU box the same 12 threads made a
+    #: 16-passage rerank 9.5x slower (8,979 ms vs 946 ms; retrieval audit L1).
+    #: Thread count changes scheduling, not arithmetic. Env: RERANK_THREADS.
+    rerank_threads: int = 0
+
+    #: THE ONE top-k. How many ranked passages an answer considers: the
+    #: lexical gate examines this many, the chat and /api/answer return this
+    #: many by default, and `scripts/eval_retrieval.py` reports recall at
+    #: exactly this k - so the benchmark's recall@k is the recall a chat user
+    #: actually gets. It was three places: the gate claimed 5, the chat asked
+    #: search for 3 (so the gate saw 3), and the benchmark reported r@5.
+    #: Retrieval still reranks `rerank_candidates` (16) before cutting to it.
+    answer_top_k: int = 5
 
     #: ONNX Runtime's CPU arena allocator reserves large per-thread blocks
     #: and never returns them. Measured on this machine (16 GB, 12 threads):
@@ -600,13 +855,43 @@ class Settings(BaseSettings):
     #: Left configurable because 503 MB against 3,247 MB is a real option on a
     #: machine that demos at 92% RAM - but it buys stability, not speed.
     onnx_cpu_arena_rerank: bool = True
-    onnx_cpu_arena_embed: bool = True
+    #: THE EMBEDDER'S ARENA IS NOW OFF BY DEFAULT (perf audit item 5). The
+    #: reasoning above is about the RERANKER, whose arena buys ~575 ms per
+    #: query and stays on. The embedder is different: queries need one 8 ms
+    #: single-text embed, and the arena it grows while INGESTING is held for
+    #: the life of the process. Measured (bench_embed2.py, bs 16, 1 thread):
+    #: arena on peaks at 1,466 MB and 4.00 passages/s, arena off at 958 MB and
+    #: 3.86 passages/s (within the noise of a shared box); vectors are
+    #: identical. The laptop table above measured 6.9 -> 5.7 c/s with BOTH
+    #: arenas off at 12 threads, so re-measure on the laptop; set
+    #: ONNX_CPU_ARENA_EMBED=true to restore the old behaviour.
+    onnx_cpu_arena_embed: bool = False
     # Small-to-big. Retrieval runs on the small chunk; the reader is shown
     # the surrounding parent block, expanded to neighbours up to this many
     # characters. The generated budget is smaller because three sources have
     # to fit inside num_ctx alongside the prompt.
     answer_context_chars: int = 2400
     generated_context_chars: int = 1200
+    #: How many sources a LOCAL-model Tier 2 prompt carries. Three, as before:
+    #: the 4B model's num_ctx has to hold them (`context_budget` still guards
+    #: the token count). Chosen per provider - see the claude_context_* pair.
+    generated_context_passages: int = 3
+    #: The CLAUDE lane's Tier 2 packing. It was packed exactly like the local
+    #: model (3 x 1,200 chars inside the 4,096-token local window) although
+    #: nothing about Claude needs that. COST, stated rather than hidden: the
+    #: evidence grows from at most ~3,850 tokens (the local guard) to at most
+    #: `claude_context_tokens`; at claude-sonnet-5's USD 2 per million input
+    #: tokens that is at most +USD 0.016 per Claude Tier 2 answer (typically
+    #: ~+USD 0.004: 5 x 2,400 chars of prose is ~3,000 tokens against ~900).
+    #: Every call is still checked against the USD 5 per step / 20 total caps
+    #: by `claude_spend` before it leaves. Set these equal to the local values
+    #: to pay nothing extra. Env: CLAUDE_CONTEXT_PASSAGES / _CHARS / _TOKENS.
+    claude_context_passages: int = 5
+    claude_context_chars: int = 2400
+    #: Token guard for the Claude lane's evidence (estimate, `context_budget`),
+    #: in place of the local `num_ctx - max_output_tokens`. A CEILING on what
+    #: one answer's evidence can cost, not a target.
+    claude_context_tokens: int = 12000
     running_line_threshold: float = 0.03   # fraction of pages; a running head repeats per chapter, not book-wide
     # Only the top/bottom N lines of a page are considered for running
     # header/footer removal. NORSOK stacks four lines of furniture -
@@ -718,6 +1003,87 @@ class Settings(BaseSettings):
     #: from here at USD 0. Local only; it holds model answers, so it sits with
     #: the database under the same access rules, never in git.
     claude_cache_dir: Path = BACKEND_DIR / "data" / "claude_cache"
+
+    # ------------------------------------------------------------- the chat
+    #
+    # OWNER ORDER 2026-09-26 (chat redesign). The chat answers through the
+    # reasoning provider above (Claude when configured, else the local engine)
+    # and every Claude call is charged to the step "chat" in the ledger.
+    #: The chat answer's output cap on the Claude lane. Was 250, which cut
+    #: a normal multi-point answer short; raised to 1500, then to 4000
+    #: (owner order 2026-09-27, Claude-first mode): a tool-use answer that
+    #: reads a document AND a standard needs more room than a single-passage
+    #: extract did. A CEILING, not a target. The local engine keeps
+    #: `max_output_tokens`: its 4096-token window has to hold the evidence
+    #: too (`context_budget` subtracts the output cap from it).
+    chat_max_output_tokens: int = 4000
+    #: Low for answers grounded in documents; a little warmer for general
+    #: knowledge, where a fixed phrasing helps nobody. Ignored by models that
+    #: reject `temperature` (claude_models_without_temperature).
+    chat_temperature_document: float = 0.2
+    chat_temperature_general: float = 0.5
+    #: How much of the conversation the model sees: at most this many recent
+    #: turns, within this many (estimated) tokens. Filtered by the caller's
+    #: permissions before either limit is applied.
+    chat_history_turns: int = 10
+    chat_history_token_budget: int = 3000
+    #: The local engine's history budget. Its 4096-token window must hold the
+    #: EVIDENCE first; memory never pushes a retrieved passage out.
+    chat_history_local_token_budget: int = 600
+    #: Chat redesign PR 6: the "Web" switch in the chat composer. OFF BY
+    #: DEFAULT, and on its own it sends nothing: a chat web search also needs
+    #: the market lane's two egress flags (`market_live_enabled`,
+    #: `market_allow_public_egress`) and goes through that lane's whitelist,
+    #: host allowlist, rate limit and audit. FROM `.env` ONLY.
+    chat_web_enabled: bool = False
+    #: Owner order 2026-09-26 (2d): the AI engineering check - Claude reads the
+    #: datasheet and drafts observations a reviewer would raise, each gated
+    #: (ai_engineering_check.accept) and stored as a pending, unconfirmed draft
+    #: that never counts in the review code. OFF BY DEFAULT; on its own it
+    #: sends nothing - it also needs the Claude lane (REASONING_PROVIDER=claude,
+    #: both STANDARDS_READER_* egress flags and a key), within the USD caps.
+    review_ai_check_enabled: bool = False
+    #: Output token cap per `review_ai_check` call. Raised from 4000 (2026-09-27):
+    #: every one of the 10 historical calls at that cap hit `finish_reason ==
+    #: "length"` and produced zero storable items - the check was truncating
+    #: silently on every single run. Still finite (a worst-case estimate feeds
+    #: `claude_spend.reserve` before the call leaves).
+    review_ai_check_max_output_tokens: int = 12000
+    #: Owner order 2d-2: for a standard the datasheet cites but the library
+    #: does not hold, an OPTIONAL check against a PUBLIC web copy. OFF BY
+    #: DEFAULT. Never for a company standard (SAES/SAMSS/KOC-* and the like) -
+    #: those always read "Company standard - upload required" and nothing is
+    #: searched for them. On its own this flag sends nothing either: it also
+    #: needs the market lane's own two egress flags (`market_live_enabled`,
+    #: `market_allow_public_egress`) and a configured search tier, and goes
+    #: through that lane's host allowlist, rate limit and audit.
+    review_web_standards_enabled: bool = False
+    #: Owner order 2a: let Claude turn a table/formula clause the code parser
+    #: cannot read into rule_eval's structured form. Accepted ONLY when every
+    #: number in the parse appears verbatim on the clause's page; the
+    #: arithmetic is always Python. OFF BY DEFAULT; also needs the Claude lane
+    #: and stays within the USD caps (step "rule_parse").
+    rule_parse_model_enabled: bool = False
+
+    # ------------------------------------------------- Claude-first chat (tools)
+    #
+    # OWNER ORDER 2026-09-27. When Model=Claude and Claude is available, the
+    # chat sends every message to Claude with tools (`chat_tools.py`) instead
+    # of the router+gate+template pipeline above, which stays exactly as-is
+    # as the fallback for Model=Local, Claude unavailable, over budget, or any
+    # error mid-loop (`chat_claude_first.py`).
+    #: A runaway tool loop is a runaway bill: refuse the NEXT tool call once
+    #: this many have run for one answer, and answer with what was learned so
+    #: far rather than looping forever.
+    chat_tool_max_calls: int = 6
+    #: Extended thinking (Claude's own reasoning channel, shown to the reader
+    #: as "Thought for N s"), used only for a question judged complex - a
+    #: comparison, a compliance question, one naming several documents, or an
+    #: overview. Off (0) disables it outright.
+    chat_thinking_budget_tokens: int = 2000
+    #: `look_at_page` (vision): at most this many pages sent as images for one
+    #: answer - a ceiling on cost and time, on top of claude_spend's USD caps.
+    chat_vision_max_pages_per_answer: int = 4
 
     #: THE ONE HOST ALLOWLIST. Every outbound URL any tier builds is checked
     #: against this and refused if its host is not here. One list, in one
@@ -836,6 +1202,20 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def _refuse_an_open_unauthenticated_bind(self) -> "Settings":
+        """HOST=0.0.0.0 (or any LAN address) with AUTH_MODE=disabled serves
+        every document to anyone who can reach the port. Refused at startup
+        unless `allow_unauthenticated_network_bind` says it is deliberate."""
+        if (self.auth_mode == "disabled" and not is_loopback_bind(self.host)
+                and not self.allow_unauthenticated_network_bind):
+            raise UnsafeBindRefused(
+                f"HOST={self.host!r} is not loopback and AUTH_MODE=disabled: "
+                "every caller on the network would see every document. Set "
+                "AUTH_MODE=demo_required, bind 127.0.0.1, or set "
+                "ALLOW_UNAUTHENTICATED_NETWORK_BIND=true deliberately.")
+        return self
+
+    @model_validator(mode="after")
     def _validate_smtp_notifications(self) -> "Settings":
         """Fail closed when outbound notifications are explicitly enabled."""
         if not self.smtp_enabled:
@@ -858,6 +1238,12 @@ class Settings(BaseSettings):
             raise NotificationConfigError("SMTP_TIMEOUT_SECONDS must be positive")
         return self
 
+    def embed_intra_op_threads(self) -> int:
+        """`embed_threads`, or half the logical cores (at least 1) when 0."""
+        if self.embed_threads and self.embed_threads > 0:
+            return int(self.embed_threads)
+        return max(1, (os.cpu_count() or 2) // 2)
+
     def ensure_dirs(self) -> None:
         for d in (self.data_dir, self.upload_dir):
             d.mkdir(parents=True, exist_ok=True)
@@ -871,9 +1257,14 @@ settings = Settings()
 #: different port is not a different answer.
 ANSWER_AFFECTING_SETTINGS = (
     "answer_model", "num_ctx", "max_output_tokens", "temperature",
+    "chat_max_output_tokens", "chat_temperature_document", "chat_temperature_general",
+    "chat_history_turns", "chat_history_token_budget", "chat_history_local_token_budget",
+    "chat_tool_max_calls", "chat_thinking_budget_tokens", "chat_vision_max_pages_per_answer",
     "chunk_target_tokens", "chunk_overlap_tokens", "chunk_max_tokens",
     "search_candidates", "rerank_candidates", "rerank_max_tokens",
     "generated_context_chars", "answer_context_chars",
+    "answer_top_k", "generated_context_passages",
+    "claude_context_passages", "claude_context_chars", "claude_context_tokens",
     "ocr_rec_model", "ocr_expected_script",
 )
 

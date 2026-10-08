@@ -217,7 +217,11 @@ def test_a_value_is_never_promoted_into_a_field_label(tmp_path):
     sheet that produced field labels like `0.01cP By Contractor` and
     `23.5 / 11.03 barg`, and 375 phantom blank fields with them.
     """
-    rows = [("Design pressure", "23.5 barg"), ("340 psig", "0.892")]
+    # "340 psig" alone is now ALSO refused by row_noise's number-keyed rule
+    # (it runs on the default path since 2026-09-25), which masked the label
+    # guard under mutation (M56). A decimal first cell - "0.01 cP" - has no
+    # such shape, so only `is_field_label` stops it becoming a field name.
+    rows = [("Design pressure", "23.5 barg"), ("340 psig", "0.892"), ("0.01 cP", "0.892")]
     doc = _ingest(_datasheet_pdf(tmp_path / "d.pdf", rows))
     datasheets.extract_facts(doc, allowed_document_ids=_scope(doc))
     found = datasheets.list_facts(doc, allowed_document_ids=_scope(doc))
@@ -305,6 +309,57 @@ def test_a_tag_number_is_not_mistaken_for_a_standard():
     found = datasheets.referenced_standards(
         "Tag No. PSV-4303 A/B, P&ID 10-05-498, per API 610.")
     assert found == ["API 610"]
+
+
+def test_two_tag_columns_carry_the_tag_and_the_unit_column_is_never_a_fact():
+    """CRS quick wins (audit crs.md defect 4), THE MUTATION TARGET (M1315).
+    "ITEM | UNIT | P-101A | P-101B" used to read every value column as
+    "<label> - <column header>" - the tag became part of the FIELD NAME
+    (`equipment_tag` NULL) and the UNIT column became a fact of its own.
+    Now a tag column's value carries its tag and the unit column joins the
+    unit onto a bare number instead of being emitted as a fact."""
+    shape = [
+        ["ITEM", "UNIT", "P-101A", "P-101B"],
+        ["NOISE LEVEL", "dB(A)", "88", "*"],
+        ["VIBRATION", "mm/s", "3.5", "3.5"],
+    ]
+    pairs = datasheets.pairs_from_table_shape(shape)
+    fields = {label: value for label, value in pairs}
+    # No fact was ever emitted FOR the unit column itself.
+    assert not any(datasheets.split_column_tag(label)[0].strip().upper() == "UNIT"
+                  for label, _ in pairs)
+    noise_a = next(v for k, v in pairs
+                   if datasheets.split_column_tag(k)[0].strip().upper() == "NOISE LEVEL"
+                   and datasheets.split_column_tag(k)[1] == "P-101A")
+    assert noise_a == "88 dB(A)"  # the bare number picked up its unit column
+    vib_b = next(v for k, v in pairs
+                 if datasheets.split_column_tag(k)[0].strip().upper() == "VIBRATION"
+                 and datasheets.split_column_tag(k)[1] == "P-101B")
+    assert vib_b == "3.5 mm/s"
+    noise_b_label = next(k for k, v in pairs
+                         if datasheets.split_column_tag(k)[0].strip().upper() == "NOISE LEVEL"
+                         and datasheets.split_column_tag(k)[1] == "P-101B")
+    # A blank ("*") is not given a unit - it is still the printed marker.
+    assert dict(pairs)[noise_b_label] == "*"
+
+
+def test_the_widened_citation_grammar_catches_common_spellings():
+    """CRS quick wins (audit crs.md defect 6), THE MUTATION TARGET (M1314):
+    the audit measured 14 of 34 common spellings missed, including the
+    repo's own synthetic vessel sheet's "ASME VIII DIV. 1" (no "SEC")."""
+    text = (
+        "Design code: ASME VIII DIV. 1. Also applicable: API 6D, API-610, "
+        "NFPA 20, ISO 15156, NACE MR0175, MSS SP-25, IEEE 841, UL 1709, "
+        "DIN 2501, TEMA CLASS R."
+    )
+    found = {s.upper().replace(" ", "").replace(".", "") for s in
+             datasheets.referenced_standards(text)}
+    for expected in ("ASMEVIIIDIV1", "API6D", "API-610", "NFPA20", "ISO15156",
+                     "NACEMR0175", "MSSSP-25", "IEEE841", "UL1709", "DIN2501",
+                     "TEMACLASSR"):
+        assert any(f.startswith(expected.replace("-", "")) or
+                  f.replace("-", "") == expected.replace("-", "") for f in found), \
+            f"{expected} was not detected; found {sorted(found)}"
 
 
 # ========================================== same-unit comparison (claims.py)
@@ -664,7 +719,7 @@ def test_175_wired_into_extract_facts_not_just_the_function():
     calls it. The CALL FORM, not the bare name - a comment naming the
     function would satisfy a bare-substring check without ever calling it."""
     import inspect
-    source = inspect.getsource(datasheets.extract_facts)
+    source = inspect.getsource(datasheets._extract_facts)  # B7: the body; extract_facts routes vision
     assert "pairs_from_table_shape(" in source, (
         "extract_facts's ruled-table loop still calls split_label_value "
         "directly - the fix exists but was never wired in")

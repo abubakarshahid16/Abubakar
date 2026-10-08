@@ -24,8 +24,14 @@ plausible and nobody discovers the leak by reading it.
 
 A whitelist inverts the default. A token reaches the output ONLY by
 affirmatively matching something we have decided is safe to say out loud: an
-ordinary English subject word, or a public standard designator. Anything
-unrecognised is dropped. So the failure mode of an input nobody thought of is
+ordinary English subject word - one in the bundled English vocabulary
+(`reference/english_words.txt.gz`, lower-case dictionary words only, so no
+proper noun is ever vouched for) or its short list of public engineering
+abbreviations (`reference/market_extra_words.txt`) - or a public standard
+designator. Anything unrecognised is dropped: "zqx", a project code, a
+facility's name. (Audit leftover 2026-09-30: until then any lower-case run
+of three letters counted as an "ordinary word", so this paragraph and the
+code disagreed.) So the failure mode of an input nobody thought of is
 a SHORTER phrase, or no phrase at all - the feature declines to search rather
 than over-sharing. That is the direction a privacy control has to fail in.
 
@@ -48,8 +54,11 @@ imports rather than trusting this paragraph.
 
 from __future__ import annotations
 
+import gzip
 import re
 from collections.abc import Iterable
+from functools import lru_cache
+from pathlib import Path
 
 #: Hard cap on what may leave, matching `market.preview_query`'s own cap. A
 #: phrase longer than this is not a search term, it is a paragraph.
@@ -136,6 +145,45 @@ _DESIGNATOR_WINDOW = 2
 #: tokens and both pass on their own merits.
 _SUBJECT_WORD = re.compile(r"^[a-z]{3,}$")
 
+_REFERENCE = Path(__file__).resolve().parent / "reference"
+
+#: British spellings mapped to the American ones the vocabulary is built
+#: from (SCOWL en_US), tried only when the word itself is not in it. Longest
+#: ending first. Each maps a real spelling variant, so nothing the
+#: vocabulary does not already vouch for gets through.
+_BRITISH = (
+    ("isations", "izations"), ("isation", "ization"), ("ising", "izing"),
+    ("ised", "ized"), ("ises", "izes"), ("ise", "ize"),
+    ("ysing", "yzing"), ("ysed", "yzed"), ("yses", "yzes"), ("yse", "yze"),
+    ("ours", "ors"), ("our", "or"), ("tres", "ters"), ("tre", "ter"),
+    ("lling", "ling"), ("lled", "led"), ("ogues", "ogs"), ("ogue", "og"),
+)
+
+
+@lru_cache(maxsize=1)
+def _vocabulary() -> frozenset[str]:
+    """Every word this module can vouch for. Read once, from the two
+    committed files - never from the corpus, the network or the database."""
+    words = gzip.decompress((_REFERENCE / "english_words.txt.gz").read_bytes()
+                            ).decode("ascii").split()
+    extra = [line.strip().lower() for line in
+             (_REFERENCE / "market_extra_words.txt").read_text(encoding="utf-8").splitlines()
+             if line.strip() and not line.lstrip().startswith("#")]
+    return frozenset(words) | frozenset(extra)
+
+
+def vouched_for(word: str) -> bool:
+    """Is this lower-case word one the vocabulary knows (or a British
+    spelling of one)? A word it does not know is dropped by `market_phrase`."""
+    vocabulary = _vocabulary()
+    if word in vocabulary:
+        return True
+    for british, american in _BRITISH:
+        if word.endswith(british) and word[:-len(british)] + american in vocabulary:
+            return True
+    return False
+
+
 #: Function and instruction words. Dropped because they carry no subject and
 #: make the phrase longer for a human to approve, NOT for privacy reasons -
 #: the whitelist is what provides privacy. Kept small on purpose: an
@@ -200,7 +248,57 @@ def _strip_filenames(text: str, corpus_filenames: Iterable[str]) -> str:
 
     for name in sorted(names, key=len, reverse=True):
         text = re.sub(re.escape(name), " ", text, flags=re.IGNORECASE)
+
+    # THE SAME NAME, TYPED ANY WAY A PERSON TYPES IT. A reader names
+    # `coating-inspection-plan.pdf` as "coating inspection plan", "Coating_
+    # Inspection.Plan" or "coatinginspectionplan": the parts in order, with
+    # spaces, hyphens, underscores or dots - in any mix, or none - between
+    # them, with or without the extension. The exact forms above miss every
+    # one of those, and each is still an inventory disclosure. (Found
+    # 2026-09-26 building chat web search; honesty audit entry 67.)
+    for raw in corpus_filenames or ():
+        pattern = _flexible_name(str(raw or ""))
+        if pattern is not None:
+            text = pattern.sub(" ", text)
     return text
+
+
+#: What may sit between two parts of a file name as a reader types it.
+_NAME_GAP = r"[\s._-]*"
+
+
+def _is_public_standard_name(parts: list[str]) -> bool:
+    """A standards body followed only by designator and series tokens -
+    `NORSOK M 501`, `ISO 12944 5` - and nothing else."""
+    if len(parts) < 2 or parts[0].lower() not in _STANDARD_BODIES:
+        return False
+    return all(p.lower() in _SERIES or re.fullmatch(r"[A-Za-z]{0,3}\d{1,6}[A-Za-z]?", p)
+               for p in parts[1:])
+
+
+def _flexible_name(filename: str) -> re.Pattern[str] | None:
+    """One pattern matching the file name's parts in order, with any mix of
+    separators between them and an optional extension. None for a name with
+    no letters or digits."""
+    name = filename.strip()
+    ext_match = re.search(r"\.([A-Za-z0-9]{1,8})$", name)
+    stem = name[:ext_match.start()] if ext_match else name
+    parts = re.findall(r"[A-Za-z0-9]+", stem)
+    if not parts:
+        return None
+    if _is_public_standard_name(parts):
+        # A FILE NAMED AFTER A PUBLISHED STANDARD - `NORSOK-M-501.pdf` - is
+        # the one exception, and it is the collision
+        # test_the_standard_named_file_leaks_only_the_public_designator
+        # asserts: the standard's name is public (it exists whether or not
+        # this client holds a copy), and removing it would make "is there a
+        # newer edition of NORSOK M-501?" impossible to ask for any standard
+        # in the library. Its exact filename forms are still removed above.
+        return None
+    body = _NAME_GAP.join(re.escape(p) for p in parts)
+    if ext_match:
+        body += f"(?:{_NAME_GAP}{re.escape(ext_match.group(1))})?"
+    return re.compile(body, re.IGNORECASE)
 
 
 def _tokenise(text: str) -> list[str]:
@@ -267,8 +365,9 @@ def market_phrase(question: str, corpus_filenames: Iterable[str]) -> str | None:
                 seen.add(low)
             continue
 
-        # (c) an ordinary subject word.
-        if _SUBJECT_WORD.match(low) and low not in _NOISE:
+        # (c) an ordinary subject word: word-shaped, not noise, AND one the
+        #     vocabulary vouches for.
+        if _SUBJECT_WORD.match(low) and low not in _NOISE and vouched_for(low):
             if low not in seen:
                 kept.append(low)
                 seen.add(low)

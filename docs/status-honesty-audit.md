@@ -85,6 +85,30 @@ privacy ADR depends on, and once the product's headline promise itself:
 | 51 | Issue #183 as filed: the title block is lost to the chunker's **front-matter rule** ("early page + few lines + short clauses -> frontmatter, not retrievable") | **Wrong cause.** Traced on the real pages (disposable copy, 2026-09-24): `classify_page` returns `prose` for every page of all three submittals and no front-matter exclusion exists on any of them - all 227 `page_classified_frontmatter` rows are on standards. The title block is lost to RUNNING-LINE STRIPPING (`chunker.detect_running_lines`): a short datasheet reprints its title on every page, so the book-header rule removes it from every page, page 1 included; on the PSV sheet the remnant then fails the quality gate (longest real-word run 5 < 6). A fix aimed at the stated cause would have changed standards' cover-page handling and fixed nothing. Also found: detection counts non-blank lines but stripping counts raw lines, so the two windows disagree (left open, recorded on the issue). **The rule: an issue's "likely cause" is a hypothesis; trace it on the real input before writing the fix it suggests.** |
 | 52 | ADR-0024 (PR #191): **"Every reader of *current* facts filters `superseded_at IS NULL`"** | **True of `backend/app`, false of the repository.** The grep behind the claim covered the application package; the two scoring scripts - `scripts/eval_extraction.py` and `scripts/gold_pairs_score.py` - read every `submittal_facts` row. Found while measuring #193 (2026-09-24): after the #179 re-extraction each vessel field existed twice (current + superseded), the pairing scorer's matcher saw a tie on every one and paired nothing, and the scorer reported **recall 0/3, 0 false pairings** while production actually made **1 correct pairing and 1 false one** (recall 1/3, precision 1/2). A measurement tool that disagrees with the product in the flattering direction hid a false pairing. No published extraction score was affected: the only sheet scored after supersession (the pump sheet, "28/161") had no superseded rows. Both scripts now read current facts, compatible with copies that predate the column; test + mutations M480-M481. **The rule: "every reader" is a claim about the whole repository - grep `scripts/` and the tests' helpers too, not only the package you changed.** |
 
+| 54 | B5 quality branch (`feat/b5-quality`, development run 2026-09-25): the new stage-limit rule read the welding standard **SAES-W-010** as limited to existing equipment and made it **NOT_APPLICABLE** to a new pressure vessel, and three independent re-reads agreed, so the three-agreeing-re-reads confirmation let it stand | **Wrong exclusion - the sentence says the opposite.** The quoted scope sentence NEGATES its reference to existing facilities (the standard is not applied retroactively to repair of existing facilities); the rule looked for the words "existing / in-service" and never for the negation. Three agreeing re-reads did not help, because all three were fed the same passage and the same rule decided each of them - agreement between reads of one sentence is not independent evidence about what that sentence means. Caught on the 3-sheet re-measure before any push; fixed by a negation guard (`_NEGATED`, mutation M674, DETECTED). Never reached `main` or a live review. **The rule: a cue word is not a claim until its sentence is checked for negation, and N agreeing re-reads of the same text by the same rule are one reading, not N.** |
+| 55 | The same branch's commit `a9b0e37` and its report (section 16.46): **"stage limit: an un-negated in-service/existing quote excludes a NEW item"** - an in-service repair scope (SAES-D-008) was reported EXCLUDED for the new vessel as a valid decision | **Retracted: activity / stage is not an allowed exclusion ground** (owner decision 4c, 2026-09-25). A scope that covers existing equipment says what the standard is FOR, not that a new item falls outside it - the engineer decides whether an in-service repair standard matters to a new submittal. The asymmetric rule allows NOT_APPLICABLE only on an explicit exclusion naming the submittal, or an equipment / facility / number limit it clearly falls outside of. **FIXED:** the stage limit is still read (with the negation guard of entry 54), but it can only hold an inclusion as `APPLICABLE_CANDIDATE` - "scope covers existing equipment - engineer to confirm" - never exclude. Mutations M680 (stage limit excludes again) and M681 (candidate hold dropped) DETECTED; explicit exclusion quotes of the SAES-L-108 shape still exclude. **The rule: a new NOT_APPLICABLE ground is an owner decision, not an implementation detail - propose it, do not ship it.** |
+| 56 | Document Q&A screen, `ChatView.tsx` (before 2026-09-25): the in-flight panel **"Working on this machine · 0s"** with its Searching › Ranking › Reading › Writing stages, and the shell's **"The backend is not running"** | **Two claims derived from something adjacent to the truth.** (a) The panel was shown when `askingIn === current` - true at rest, because both are null in a fresh chat - so the screen said work was running when nothing had been asked, and the empty-state hint beneath it never rendered. (b) The shell declared the backend "not running" on ANY failed health poll, including one that the server ANSWERED with an error, and on a single dropped request; the view was unmounted, so the transcript was lost and the screen rebuilt (and replayed its entrance animation) on the next good poll - the "blinking" reported before the demo. Reproduced in the running app: a 3 s backend drop removed the chat `<section>` (80 nodes) and rebuilt it 5 s later with the transcript gone. **FIXED:** the panel requires a request in flight for THIS transcript; offline needs a failed poll AND a failed re-check 1.5 s later, and only an unreachable backend counts; the chat stays mounted (hidden) through an outage. Tests in `ChatView.test.tsx` and `Shell.test.tsx` ("visual stability", "connection stability"); five mutations, five detected. **The rule: "waiting" is a request in flight, not two empty values being equal; "not running" is an unreachable server, not one missed reply.** |
+| 57 | The live review route (`POST /api/reviews/run`) and `comparison.recommend_code`, before 2026-09-25: the code **"Approved - every evaluated requirement is met"**, and `applicability.py`'s own module claim that a cited standard missing from the library **"stays on the missing list ... and lowers completeness"** | **Three claims derived from something adjacent to the truth.** (a) "Every evaluated requirement is met" was the fall-through of the policy, reached with ZERO findings - no requirement extracted, none applicable - so silence read as approval. (b) The route called `select()` and threw its result away, so `reference_coverage` never reached the completeness gate and the missing references never reached the code: a sheet citing only standards the library lacks could be Approved. (c) A shared discipline and textual similarity APPLIED a standard, so every mechanical standard was compared against every mechanical datasheet. Found by the plan audit, confirmed in code. **FIXED (master order B5, live wiring):** nothing evaluated, or only NOT_APPLICABLE, is Manual; a cited standard not held is `MISSING_LOCALLY` and blocks every approval; the route passes the selection's coverage and missing references; discipline-only and similarity-only standards are considered, not applied, with the reason. Tests `test_b5_live.py`; mutations M730-M747, 18/18 detected. **The rule: an approval is a claim about what was checked, so it needs something that was checked - and a standard nobody could read was not.** |
+| 58 | `chunker.classify_page` and the quality gate, before 2026-09-25: **"A page carrying a genuine clause is CONTENT however short it is"** | **False for the clauses densest in figures.** Both the front-matter guard and `quality.assess` measured a clause as the longest run of letter-words, and every number ended the run - so "a surface profile of 50 to 75 micrometres" or "the shaft AISI 4140 for all pumps" never reached six words and was dropped from retrieval as debris or front matter. No test caught it because every test page carried long plain sentences. Found by master order B6 (core retrieval verification): on the synthetic benchmark 12 of 15 clause pages were retrievable, and the three missing were the materials, surface-preparation and coating-thickness clauses. **FIXED:** a plain number followed by a lower-case word (its unit, or the rest of the sentence) no longer ends the run and does not count in it; a number followed by another number, by a capitalised label, or by nothing still breaks it, so a table's rows ("2 Set pressure") are not read as one sentence - the first version of the fix bridged row numbers too, and `test_b3_page_ledger` caught it in CI. The rule only ever lengthens a run, so nothing searchable before becomes unsearchable; the one class that becomes searchable beyond the figured clauses is a short labelled value with its unit ("Design pressure 23.5 barg"), which the gate had been discarding although it is exactly what an engineer searches for - `test_b3_page_ledger`'s "nothing searchable" fixture had relied on that and now uses bare tags and numbers. Tests `test_b6_measure_in_clause.py` and `test_every_clause_in_the_corpus_is_searchable`; mutations M765, M766, M768, 3/3 detected. Chunks already in the live database change only when a document is re-chunked. **The rule: a filter that decides what is searchable must be tested on the text engineers actually search - requirements full of numbers - not on prose.** |
+| 59 | `GET /api/conversations/{id}` docstring, before 2026-09-26: reopening a conversation **"restores the citations"** - and the access model's promise that `allowed_document_ids` "is the whole authorisation decision" | **Not at reopen time.** Ownership was checked, grants were not: `chat.get_messages` returned every stored payload as written when the question was asked, so a document grant revoked afterwards still returned the cited passage, its filename and the answer prose that quotes it to the same user. Found during B9. Fixed: `get_messages` now takes the caller's scope (required, keyword-only) and withholds, whole, any assistant turn whose payload references a document outside it (`tests/test_b9_reopen_permissions.py`, mutations M829-M835). |
+| 60 | The review workflow's governing rule (section 15, `record_engineer_code` docstring): **"The AI recommends and the engineer decides"** | **Not enforced on findings or the CRS.** `PATCH /api/reviews/findings/{id}` accepted `approved_by` / `approved_at` from the request body, so an approval could be recorded in anyone's name; `POST /api/reviews/findings` accepted `approval_status` / `disposition`, so a finding could be created already accepted; and the CRS printed the AI's recommended code with nothing saying no engineer had decided it. The code-decision audit write also swallowed its own failure, so a decision could stand unaudited. Found during B10. Fixed: approver is the authenticated caller; creation is always pending; the CRS states who decided the code; the audit row is written in the decision's transaction (`tests/test_b10_engineer_decisions.py`, mutations M844-M846, M848-M851). |
+| 61 | `applicability.completeness` docstring: **"How much of this review could actually be performed"** | **A second, disagreeing formula.** The gate that sets the review code used fields read / nominal fields, weakest link; the selection used pages-with-a-fact / page count, multiplied - two numbers for one review - and with the page count unknown it divided the pages by themselves and reported extraction 1.0 for any sheet with one fact. Found during B10. Fixed: the selection computes only reference coverage and delegates to `comparison.completeness_for_run`, the one formula (M847; M313/M315 retired with the code they mutated). |
+| 62 | Every stage report B4-B11 (`docs/FINISH-STATUS.md`, PRs #243-#254): each stage's mutations **"N/N detected"**, read as "the registry still guards everything" | **Each stage ran only its own new mutations.** The first full run of all 727 (final acceptance, 2026-09-26) found seven that no longer tested anything: M820 (B8's own - a later B8 fix changed its line), M46 (B11 rewrote `enqueue_extraction`), M62, M153 and M154 (B10 moved the override audit, dropped `approved_by` from the schema and added a second `if scope.user_id is None:`), M369 (B4/B7 renamed the geometry flag) - all reported ERROR, not applied - and M807 NOT DETECTED because B9's new context guard made the B6C line it mutates unobservable. Fixed: six re-anchored and detected again; M807 retired in favour of M843. The rule: a stage that edits a line any mutation anchors on must run the whole registry (or at least every mutation on the files it touched), not only its own. |
+| 63 | Final real review (`docs/FINISH-STATUS.md`, PR #260): **"standards applied automatically: 0"** on all three datasheets, read as the automatic applicability result on real documents | **The automatic selection was never exercised.** The acceptance script uploaded the documents but never set their role, which the app assigns on the Documents page; `applicability._library` reads only documents marked COMPANY_STANDARD, so the library was empty and every cited standard reported missing. Found 2026-09-26 when the owner supplied a standard one datasheet cites and it was still reported missing. Re-run with roles set through the real admin route: that standard is applied automatically with its page evidence; the other two datasheets cite none of the held standards, so their rows stand. |
+| 64 | Final acceptance item 12 (PR #255) and the final review table (PR #260): **"all 1355 standard citations ... against the cited page: 0 wrong pages"**, read as citations being correct | **Only the page was checked, never the clause.** An independent check (the nearest clause number printed above each requirement in the PDF) put the clause label right on 1,133 of 1,440 requirements (79%) across ten real standards. Two defects: every standard's revision-history table ("Summary of Changes" - paragraph, change type, description) was read as clause headings, so a table row's number (e.g. 14.1.5) labelled the Scope and history rows were stored as requirements; and a numbered "shall" sentence was taken as a titled heading, its line consumed into the section label and never read as a requirement. Fixed (`chunker.revision_history_regions`, `chunker._obliges`): 1,493 of 1,692 labels right (88%), wrong 209 -> 78, 254 more requirements read, 4 history rows no longer stored, no real requirement lost. The remaining 78 are partly the checker's limits (it takes the nearest printed decimal, e.g. a table value) and partly known residuals: a table's row number can still be carried as a clause. |
+| 65 | `applicability.citation_evidence` (B5): the evidence for a citation is **"the page and the printed line"** | **Neither, for a chunk spanning pages.** It returned the chunk's first page and the chunk's first 200 characters - a prose chunk is one line - so on a real datasheet the published quote was the page header, did not contain the standard it was evidence for, and named page 4 for a citation printed on page 5. Fixed: the page is the one whose stored text carries the citation, the quote is that printed line (with its label when the line is a bare cell value), and a spanning chunk without page text claims no page. |
+| 66 | P1 report (PR #256, `docs/FINISH-STATUS.md`): its mutations **"M865-M869 detected"**, with the registry otherwise as final acceptance left it | **P1 made M653 vacuous and did not see it.** P1 taught the unit grammar to join "bar a"; M653's test used exactly "bar a" as its example of a unit the quantity reader CANNOT join, so after P1 the test passed with the feature deleted. P1 ran the mutations on the files it edited (`claims.py`, `requirements_3b.py`), but M653 mutates `datasheets.py`, whose behaviour those edits changed - entry 62's rule, one step wider: a change to shared grammar must re-run the mutations of the modules that CALL it. Found 2026-09-26 running every mutation on the files the revision-history fix touched. Fixed: the test uses "mm H2O", still unjoinable, and asserts that it is; M653 detected again. |
+| 67 | `market_phrase._strip_filenames` (market screen, and chat web search from PR #269): **"Remove every corpus filename, with and without its extension"** | **Not a file name typed with spaces.** It removed the exact name, the stem and the stem with every separator deleted, but a reader names `coating-inspection-plan.pdf` as "coating inspection plan", and that form passed the whitelist word by word and reached the outbound phrase. Nothing had leaked - both web lanes are off by default and have never been switched on - but the guard's own description was false for the commonest way a person types a file name. Found 2026-09-26 while building chat web search. Fixed: each name also matches as its parts in order with any mix of spaces, hyphens, underscores or dots (or none) between them, with or without the extension, case-insensitive. Tests type each variant through both the market route and chat web search; a mutation removing the new pattern is detected. |
+| 68 | `page_ledger` / `datasheets._extract_facts` (B4): **a page's `facts_status` says whether it was read into fields** | **It said `no_facts` for pages that carried recorded, current facts.** B4 counted only the rule readers' facts toward the page outcome; a page filled only by the geometry or vision reader kept "no_facts" while its facts sat in `submittal_facts`. Found 2026-09-26 on an owner run of a real vessel datasheet (aggregate only: three pages with recorded facts read `no_facts`). Owner decision 2026-09-26, in two halves. (1) The ledger and the screen say a page with recorded current facts IS read, whichever reader wrote them: extraction counts every reader's facts for the page outcome (a page read only by the page reader carries a note saying so), and `refresh` promotes an older recorded `no_facts` while the page carries current facts (derived, so it drops back if they are superseded). (2) An ABSENCE on a page read only by the geometry/vision reader is still not the contractor's omission: `comparison.qualify_by_pages` keeps it NEEDS_ENGINEER_REVIEW with the reason "value not found by the page reader - engineer to check the page" (`PAGE_READER_ONLY`), because that reader is not known to find every field on a page; MISSING_INFORMATION from absence stays limited to pages the rule/text reader read (`page_ledger.TEXT_READER_METHODS`, an allow-list). Such findings are one summary row on the CRS, never a contractor comment each. M595's intent restored on the absence rule; M1021-M1025 added. |
+| 69 | `datasheets.states_a_value` (#179): **"A quantity, an explicit blank, or a closed categorical answer - anything else is a caption"** | **Not for a designation, and not for a value printed after its unit.** "Shell material: SA-516 GR.70", "Design code: ASME VIII DIV. 1" and "Radiography: FULL" are real fields and were refused as captions; a process-data row printed label / unit / value was paired as label -> unit, so the unit was refused and the number never paired. Found 2026-09-26 by the owner-ordered filter audit, after a real vessel sheet (aggregate only) recovered 10-44 pairs per page and kept none; reproduced on synthetic layouts (`tests/synthetic_vessel_sheet.py`). Fixed narrowly: designations (a family prefix and a number) and six closed engineering words are answers; a bare unit followed by a number is read as the value with its unit. Names, places and document numbers are still refused (tested); free text such as a service name remains unread and is named as a gap in `docs/extraction-filter-audit.md`. |
+| 70 | PR #285 (`93a78ae`): the page ledger carries a real, specific reason each page did or did not read into fields | **Computed, then thrown away before the readiness strip.** See the section "Readiness strip, 2026-09-27 (entry 70)" below. |
+| 71 | `crs_mapping.build_crs_rows`: every CRS row says who the comment is by | **Blank for an unconfirmed AI or web item.** See "CRS export, 2026-09-27 (entry 71)" below. |
+| 72 | `CLAUDE.md` rule 1: the Claude API lane runs only **"under the budget of USD 5 per step / USD 20 in total (enforced in `claude_spend`)"** | **Not for four of the five `claude_api` routes.** `claude_select_standards`, `claude_read_datasheet`, `claude_recheck_findings` and `claude_crs_draft` took their model call from `_model_call_or_409()`, capped only by `claude_budget`'s call count (200 per run). Their usage went to a separate `model_spend` table the USD total never read. Fixed on `fix/claude-dollar-cap-all-routes`: `claude_spend.metered` checks every call before it leaves and records it in the one ledger. |
+| 73 | Commit `419ef4c`: fixed "datasheet checks silently checking nothing" and added "Centrifugal Compressor" / "Reciprocating Compressor" to the classifier | **False for exactly those two labels.** The mandatory table's key was "Compressor" and the lookup was verbatim, so both fell to the 2-field generic list instead of the 4-field compressor list. No test tried the new labels. Fixed on `fix/compressor-mandatory-checks`: lookup by family (`match_rules.sheet_kind_from_equipment_type`) and a test over every label the classifier can emit. |
+| 74 | `rule_eval.judge`: **"<field> not stated on the datasheet"** means the datasheet does not state it | **Also said for a field stated twice with different values.** `_field` returned `None` for absence and for conflict alike, so a contradiction an engineer must reconcile was shown as a gap. Fixed on `fix/rule-eval-conflict-not-missing`: a conflict is `NEEDS_ENGINEER_REVIEW` with every value and its page. |
+| 75 | `web_standards` docstring: **"NEVER COMPARED ACROSS EDITIONS"** | **The guard was never called.** `edition_differs` was unit-tested only; `run_check` did not know the cited edition. Fixed on `fix/web-standards-edition-guard`: the cited edition is read locally from the submittal, and a differing or unconfirmed edition is never compared. |
+| 76 | `contracts/types.ts`: a null `disk_percent` renders as "not measured yet" | **It rendered as a green 0% bar and "0 B free".** The Disk card used `disk_percent ?? 0`; `WorkerPanel` likewise showed "pending 0" before worker data arrived. Fixed on `fix/disk-card-unmeasured`. |
+
 The pattern is always the same: **a field derived from something adjacent to
 the truth rather than from the truth itself.** Every entry below states what
 it is derived from, so the next instance is easy to spot.
@@ -1306,3 +1330,401 @@ written parser that could itself disagree.
    When a field name implies a specific representation (ISO date, a normalised key, a
    canonical unit), a test must assert the representation, not merely that something
    landed in the column.
+
+---
+
+## CRS export, 2026-09-27 (honesty audit entry 69): "issue to contractor" carried no gate at all
+
+Recorded by Claude Code in VS Code on ABUBAKAR, 2026-09-27.
+
+**The claim.** `docs/review-fixes-log.md` (2d, owner decision 2026-09-27) documents two
+CRS export copies: "internal review copy" (default) and "issue to contractor", the
+latter with the "AI Review Comments" column and every unconfirmed AI item removed. The
+document reads as though "issue to contractor" is the copy safe to send outside the
+building once an engineer has looked at the AI's unconfirmed items - but nothing in the
+code ever asked whether an engineer had recorded a final code (`review_runs.
+engineer_final_code`) on the run before allowing that copy out. `GET
+/api/reviews/runs/{id}/crs?copy=issue` and the frontend's "Export CRS - issue to
+contractor" button both worked identically whether or not `engineer_final_code` was
+NULL - a run the AI had only recommended a code for, never one an engineer had signed,
+could be exported and issued to a contractor exactly like a decided one, with the CRS's
+own `recommended_code_status` correctly printing "not yet decided" but nothing refusing
+the export itself. A search of the whole repository (backend, frontend, `docs/`,
+`scripts/mutations/`) turned up no other place this gate was even partially enforced -
+this was not a second, unfixed copy of an existing rule; the rule had never been written
+into the software at all, only into the description of what the two copies contain.
+
+**How it surfaced.** Owner order (2026-09-27): "Export CRS - issue to contractor" must
+be blocked until `engineer_final_code` is set on the review run - stated as a
+requirement to implement, not as something already believed broken, which is itself
+notable: the gap had not been noticed until asked for directly.
+
+**Fixed:** `export_review_crs` (`backend/app/main.py`) now refuses `copy=issue` with
+HTTP 409 (`errors.CODE_NOT_DECIDED`) when the run's `engineer_final_code` is NULL; the
+"internal" copy is unaffected. `ReviewRunsView.tsx` disables the "Export CRS - issue to
+contractor" button under the same condition and shows "An engineer must record the
+final code before issue." Both are proven by mutation (`M1130`, `M1131` in
+`scripts/mutations/review_decisions.py`): reverting either change is DETECTED by
+`test_the_issue_copy_is_refused_until_an_engineer_decides`
+(`backend/tests/test_crs_endpoint.py`) or the new "SAFETY GATE" test in
+`ReviewRunsView.crsPreview.test.tsx`, respectively.
+
+### The rule this produces
+
+22. **A rule documented as a copy's contents is not a rule enforced in the code that
+   produces the copy.** `docs/review-fixes-log.md` said what "issue to contractor"
+   leaves out; it never said what stops the export when the precondition for issuing it
+   at all - an engineer's decision - has not been met, and neither did any route. A
+   privacy- or safety-relevant distinction between two export modes needs its own
+   gate and its own test, not just its own paragraph in a fixes log.
+
+---
+
+## Readiness strip, 2026-09-27 (honesty audit entry 70): the page ledger's own reason for an unread page was computed and then thrown away
+
+Recorded by Claude Code in VS Code on ABUBAKAR, 2026-09-27.
+
+**The claim.** PR #285 (commit `93a78ae`, "fix: page ledger reports the real vision-routing
+decision, not a stale placeholder") fixed `page_ledger.py` so every page's ledger row
+carries a real, specific reason it did or did not read into fields - "no label-value
+pairs recovered from this page", "vision reader not run (page could not be rendered)",
+"read only by the page reader", and so on - and `page_ledger.coverage()` has always
+exposed these, keyed by page, as `not_read_reasons`. The reasonable reading of that fix
+is that an engineer looking at "Read unread pages" on the review screen would now see
+why each page was unread. They would not: `_readiness_payload` (`backend/app/main.py`)
+read `pages.get("pages_not_read_into_fields")` for the page numbers and never once read
+`pages.get("not_read_reasons")`, so the number reached `schemas.ReviewReadiness` and the
+frontend and the reason - computed, correct, sitting right next to it in the same dict -
+did not. The screen said a page was unread and nothing about why, the exact "not
+mentioned" silence CLAUDE.md rule 4 forbids, for every submittal that has ever had an
+unread page.
+
+**How it surfaced.** Owner order (2026-09-27): the readiness payload must show a reason
+per still-unread page, not a bare "unread" - traced from the PR #285 ledger fix through
+`_readiness_payload` to the frontend and found to stop midway, at the route that builds
+the API response.
+
+**Fixed:** `_readiness_payload` now carries `pages.get("not_read_reasons") or {}` as
+`unread_page_reasons`; `schemas.ReviewReadiness` and `contracts/types.ts` both gained the
+field (the single source of truth for the frontend type, per CLAUDE.md rule 8); and
+`ReviewRunsView.tsx`'s readiness strip prints one line per unread page naming its reason,
+falling back to "reason not recorded" only when the ledger genuinely has none. Proven by
+mutation (`M1133`, `M1134` in `scripts/mutations/review_screen.py`): reverting either
+change is DETECTED by `test_an_unread_page_carries_its_own_reason_not_a_bare_unread`
+(`backend/tests/test_review_screen.py`) or the new "HONESTY GROUP" test in
+`ReviewRunsView.screen.test.tsx`, respectively.
+
+### The rule this produces
+
+23. **A value computed for a purpose is not delivered until it reaches the screen that
+   purpose was for.** `page_ledger.coverage()` computing `not_read_reasons` correctly did
+   not make the reason visible to anyone; the field has to be threaded through every
+   layer between the computation and the pixel - the route's response dict, the response
+   schema, the frontend's own copy of that schema, and the component that renders it -
+   and a test should exist at the layer where the thread is likeliest to be dropped: the
+   boundary between "the code that computes it" and "the code that returns it."
+
+---
+
+## CRS export, 2026-09-27 (honesty audit entry 71): an unconfirmed AI/web item's "Comment By" was blank, not "unconfirmed"
+
+Recorded by Claude Code in VS Code on ABUBAKAR, 2026-09-27.
+
+**The claim.** `crs_mapping.build_crs_rows` gives a kind C (`ai_engineering_check`) or
+kind D (`web_standard_check`) item a `comment_by` of `"AI engineering check, confirmed by
+<name>"` or `"Web check, confirmed by <name>"` once an engineer confirms it - but before
+confirmation, `comment_by` was the empty string `""`. The row still existed, its text
+still sat in the "AI Review Comments" column (`ai_review_comment`), and the sheet's
+"Comment By" column for that row was simply blank. A blank cell in a byline column reads
+as a rendering fault or an oversight, not as "this is a draft, not yet confirmed" - the
+one thing that column exists to say. `backend/tests/test_review_ai_check.py`'s own
+`test_an_unconfirmed_item_is_only_in_the_ai_column_of_the_internal_copy` asserted
+`row["comment_by"] == ""` outright: the blank was not an oversight the tests missed, it
+was the documented, intended shape.
+
+**How it surfaced.** Owner order (2026-09-27): the "Comment By" column for an
+unconfirmed AI-originated row must read "AI - engineer to confirm", never blank -
+traced to `crs_mapping.build_crs_rows`'s AI/web engineering-check loop, the single place
+`comment_by` is decided for these two kinds.
+
+**Fixed:** `crs_mapping.py` gained `_AI_UNCONFIRMED_BY = "AI - engineer to confirm"` and
+`_WEB_UNCONFIRMED_BY = "Web check - engineer to confirm"`, and an unconfirmed kind C or D
+row's `comment_by` is now one of these rather than `""`. Proven by mutation (`M1132` in
+`scripts/mutations/review_ai_check.py`): reverting the change is DETECTED by the new
+`test_an_unconfirmed_items_comment_by_is_never_blank`
+(`backend/tests/test_review_ai_check.py`).
+
+**Found in the same code while fixing this, and left as found-but-not-fixed:** two
+mutation entries in `scripts/mutations/review_ai_check.py` (`M1034`, `M1038`) have had
+stale anchors since an earlier, unrelated refactor merged the kind C and kind D origin
+checks - they currently report a harness ERROR, not a verdict. Re-anchoring `M1038` to
+the current text additionally reveals its own test does not detect it:
+`build_crs_rows` already drops every rejected finding at its own top (`findings = [f for
+f in findings if not _rejected(f)]`, before any per-origin loop runs), so the inner
+`f.get("approval_status") == "rejected"` check the mutation targets is dead code -
+removing it changes nothing a test can observe. Fixing this needs a design decision
+(delete the dead inner check, or find what the outer filter does not already cover)
+outside this task's scope; `M1034` was re-anchored (it is not dead code - it still
+decides which prefix a CONFIRMED row gets) and confirmed DETECTED.
+
+### The rule this produces
+
+24. **"Not yet confirmed" is a state, and a state is not the same as nothing.** A field
+   that identifies WHO said something is never correct left blank for a row that exists
+   and has content - the fix is not "leave it empty until an engineer acts," it is "say
+   whose draft it is now, and say whose confirmation it carries once someone gives one."
+   A test that asserts the blank as the intended shape (as this project's own test did)
+   turns the defect into a specification; read what a test proves as carefully as what
+   it merely permits to pass.
+
+## Follow-up audit, 2026-09-27 (honesty audit entries 72-76): five claims the code did not keep
+
+Recorded by Claude (Cowork) on 2026-09-27, from a static audit of `main` at `9ac07cf`
+whose five findings were each re-verified against the code before fixing. Each fix is
+on its own branch, with a test proven by mutation (the test fails with the fix
+reverted). Nothing here was run against the live database.
+
+- **72 - the USD cap.** The most serious: real money. Four Claude routes could spend
+  past the owner's USD 5 per step / USD 20 total limits, and their spend was booked in a
+  ledger the limit never read. Two ledgers for one budget is the defect; one wrapper
+  (`claude_spend.metered`) inside `_model_call_or_409(step)` now serves every route.
+  Still open and recorded in `CLAUDE.md`: these routes do not check
+  `REASONING_PROVIDER=claude` (audit of 2026-09-25, finding 1).
+- **73 - compressor checklists.** A fix for "a label the table does not know gets
+  nothing" introduced two labels the table did not know. The new test enumerates the
+  classifier's own vocabulary, so the two lists cannot drift apart without a failure.
+- **74 - conflict reported as absence.** Rule 4 ("not mentioned is never compliant")
+  has a mirror image: "contradicted is never not-mentioned".
+- **75 - the edition guard.** A safety guarantee written in a docstring and tested as a
+  helper, but not in the path. `edition_differs(None, ...)` returns False, meaning "not
+  proven different", which is not "same"; `edition_confirmed_same()` is now the only
+  way into `compare()`.
+- **76 - null as 0.** The CPU card beside it already had the guard; the Disk card did
+  not. The same `?? 0` sweep found `WorkerPanel`.
+
+### The rule this produces
+
+25. **A helper that exists and is tested is not a guarantee until the path calls it,
+   and a limit is not a limit until every caller meets it.** Three of these five
+   (72, 73, 75) are the same shape: the protective code was written, tested in
+   isolation, and not reached by the route that needed it. When recording a guarantee,
+   name the route that enforces it and test through that route.
+
+## Entry 77, 2026-09-29: the CRS said two things about its own columns that practice contradicts
+
+- **77 - "Final Resolution belongs to the contractor", and "Item No" as a reference.**
+  `crs_export.CONTRACTOR_COLUMNS`, both `build_crs` docstrings, the preview route and
+  `schemas.CrsPreviewRow` all stated that Contractor's Response AND Final Resolution
+  "belong to the contractor" and are "ALWAYS empty". Checked against CRS guides and
+  document-control systems: only the reviewer closes a comment, so Final Resolution is
+  the company's column. Separately, Item No was 1..N and renumbered on every export,
+  and the digest reference changed with every review run, so neither was the
+  "permanent and never reused" comment ID the practice requires. Fixed together:
+  `crs_numbers` gives an engineer's comment `CRS-<submittal no>-001` in Item No (minted
+  by the write routes, never the export, which still writes nothing), and Final
+  Resolution prints its Open/Closed status, closed only by a signed-in reviewer. Every
+  home of the old claim was corrected (rule 8). The on-screen preview repeated the
+  claim in markup: it hard-coded both reply columns as empty cells, so a reply or a
+  closure would never have shown on screen even once the data existed. It now
+  renders what the server's sheet says, like every other column.
+
+### The rule this produces
+
+26. **A claim about what a column MEANS is a claim about the domain, and needs a
+   source.** "Belongs to the contractor" was written as fact and repeated in five
+   places without anyone checking how the industry uses the column.
+
+## Entry 78, 2026-09-29: "tsc clean" was reported from a check that checks nothing
+
+- **78 - the wrong typecheck, reported as passing.** The CRS reply-loop commit
+  (`7ba3da5`) and its VS Code prompt reported "`tsc --noEmit -p .` clean". That command
+  checks ZERO files here - `frontend/tsconfig.json` is a solution file with `"files": []`
+  - which `.github/workflows/tests.yml` already says in a comment. CI's `npx tsc -b`
+  failed PR #327 at once on a real error: `CrsCommentControls.tsx` read `row_kind`, a
+  field `contracts/types.ts` never declared. Fixed in the next commit, with `tsc -b`, the
+  lint, the production build and the bundle budget all run locally first - the CI job's
+  own steps, not a remembered shortcut.
+
+### The rule this produces
+
+27. **Run the CI job's own commands, copied from the workflow file, before calling a
+   change clean.** A check from memory can pass because it checks nothing.
+
+## Entry 79, 2026-09-29: "the submittal number, captured at upload" - nothing captured it
+
+- **79 - the CRS's "Submittal No." read a field no upload fills.** `_crs_content`'s
+  docstring, `crs_export.HEADER_FIELDS`' comment and a test helper all said the number
+  came from `transmittal_number` "captured at upload". No upload captures it: the only
+  place it is set is an optional field in the metadata editor. Measured on the owner's
+  real database (counts only): 0 of 3 submittals had it, while 3 of 3 had a
+  `document_number` the classifier had read from the datasheet's own page (matching the
+  filename every time). The sheet printed a blank beside a number it already held, and
+  the permanent comment numbers of PR #327 were keyed on the same empty field. Worse,
+  a transmittal number changes with every submission, so even when filled it would have
+  started a new comment sequence on every resubmittal and broken carry-forward.
+  Fixed: comments are numbered by the DOCUMENT number (fixed per document once its
+  first comment is numbered, so a later edit cannot renumber an issued comment); the
+  header prints a number an engineer recorded, else the document number and revision.
+
+### The rule this produces
+
+28. **Before building on a field, count how often it is actually filled on real data.**
+   A field that exists in the schema is not a field anything populates.
+
+## Entry 80, 2026-09-29: "only one thread migrates, so no statement can be told the schema changed" - a reader was
+
+- **80 - PR #332 said its lock closed the migration race (#325).** Its commit message
+  and the comment on `db._migration_lock` said that with one migrator at a time "no
+  statement can be told the schema changed by a sibling thread". It was measured only
+  against migrators racing migrators (`test_migration_race`, 1,500 calls, 0 failures).
+  An hour after merge, `main` 35e4c2c failed on `test_access_routes.py::
+  test_two_concurrent_requests_never_share_scope`: a plain `SELECT` in
+  `access.scope_for_user` (access.py:147) told "database schema has changed" while the
+  other request thread ran a first-time migration (traced: about 40 CREATE/ALTER
+  statements on a fresh database). A reader takes no migration lock, and must not.
+  Fixed: every connection the app opens is a `SchemaRetryConnection`, whose `execute`
+  re-runs a statement SQLite rejected with SQLITE_SCHEMA - safe because the statement
+  had not run - bounded, and raising past the limit. The lock stays: it keeps two
+  migrators apart, which it does.
+
+### The rule this produces
+
+29. **A concurrency fix is tested against every kind of party to the race, not only the
+   kind that was seen failing.** "Migrators cannot overlap" is not "no statement can be
+   told the schema changed".
+
+## Entry 81, 2026-09-29: "a confirmed comment always keeps its number and its name over a re-run's draft" - a test that passed by landing in the same second
+
+- **81 - after a re-run, a confirmed CRS comment was printed as the machine's draft.**
+  PR #327's `test_the_number_survives_a_re_export_and_a_re_run` confirmed a comment and
+  re-ran the review inside one second. Finding timestamps have one-second resolution and
+  the CRS reads findings `ORDER BY updated_at DESC`, so the confirmed finding and the
+  re-run's fresh draft about the same field TIED, and the row that merges them took its
+  "Comment By" from whichever SQLite returned first. The test passed about 19 times in 20
+  (it failed once on CI, 2026-09-29, and 1 in 20 locally). Every REAL re-run happens a
+  second or more later, where the order is not a tie: the newer draft always led, and
+  the engineer's permanent number was printed beside "AI Review" instead of "AI Review,
+  confirmed by <name>" - reproduced deterministically by making the confirmation older.
+  Fixed: a confirmed finding leads its group whatever the order; the test now makes the
+  confirmation older than the re-run, as in real use, and fails every time without the
+  fix (M1370). An edited comment was never affected: its own wording is never grouped.
+
+### The rule this produces
+
+30. **A test that orders by a timestamp must control the timestamps.** Two steps inside
+   one second are a tie, and a tie is a coin toss that usually lands the easy way.
+
+## Entry 82, 2026-09-29: the client's company name was in shipped code and docs - the naming rule was not checked before merge
+
+- **82 - CLAUDE.md's standing rule ("the client's name must not appear in code, docs or
+  UI") was violated by a feature that merged the same day it was written.** Commit
+  `474926c` (Cowork, `feat/standards-acquisition`, 2026-09-29) introduced
+  `backend/app/standards_acquisition.py` and its test with the client's company name
+  in their module docstrings, and the commit's own message and the PR title repeated
+  it. Neither the PR's own CI (gitleaks scans for secrets, not names) nor the reviewing
+  session's read of the diff caught it before merge; it was found afterward, by grep,
+  while investigating an unrelated gitleaks false positive on the same branch. A wider
+  sweep of the whole repository (`git grep -i`) found the name already present, as prose,
+  in 38 more files predating this commit - a standing, unenforced gap, not a one-off.
+  Fixed in `fix/remove-client-name`: every prose/docstring occurrence found by the sweep
+  replaced with neutral wording ("the client", "the client's own"); the small set that
+  must keep the literal string to function - the GitHub repository slug (owner-only to
+  rename, per this same rule), a weak-password blocklist entry, a market-search
+  allow-list token, a privacy leak-check test, and the page-footer regex that matches
+  the client's own real, literally-printed document boilerplate - kept and named, with
+  its reason, in that PR's description. History was NOT rewritten: `474926c` and every
+  commit built on it (through the four-pieces and last-lines merges) still carry the
+  name in git history; no force-push. `.githooks/pre-commit`'s client-identifier scan
+  (section 2b) could have caught this in NEW lines at commit time, but ships disabled
+  by default (no `.githooks/client-identifiers.local` on this machine) and was silent
+  throughout.
+
+### The rule this produces
+
+31. **A naming or privacy rule stated in CLAUDE.md is not enforced by being stated.**
+   Either a CI gate checks it on every PR, or it is found later by someone reading for
+   something else - as this one was. `.githooks/client-identifiers.local` existing and
+   being populated is the difference between those two, and it does not exist yet.
+
+## Entry 83, 2026-09-30: "old chunks are detected stale" - the mutation meant to prove it never could
+
+- **83 - M1240 ("CHUNKER_VERSION not bumped: old chunks are not detected stale") was
+  NOT DETECTED, and could not be.** Its target,
+  `test_chunking_quality.py::test_chunks_from_the_previous_chunker_are_stale`,
+  computes a signature with `CHUNKER_VERSION - 1` and asserts it differs from the
+  stored one. Whatever number the file holds, that number minus one differs from it,
+  so the test passes when the version is NOT bumped - exactly the defect M1240
+  describes. Measured 2026-09-30 by running the harness on `main` (`fa4bd28`):
+  `M1240 [NOT DETECTED] ... 1 passed`. The entry was re-anchored from "6" to "7" in
+  `fix/chunking-last-lines` (Cowork, 2026-09-29) without the record showing it was
+  re-run and detected. Found while bumping the version to 8 for context notes.
+  Fixed in `feat/context-notes-and-tables`: a new test pins the floor the feature
+  needs (`int(CHUNKER_VERSION) >= 8` - a chunk made before the chain existed must
+  read as stale), M1240 re-targeted to it and re-run: DETECTED. The old test is kept:
+  it still proves the signature carries the version.
+
+### The rule this produces
+
+32. **A mutation re-anchored is a mutation not yet proven.** Changing an anchor or a
+   replacement is a new claim; run `scripts/mutation_check.py --only <id>` and record
+   DETECTED before saying it holds.
+
+## Entries 84-90, 2026-09-30: a whole-system audit (seven parallel reviews and an end-to-end run on synthetic documents)
+
+Each finding below was reproduced by running code before it was fixed on `fix/audit-2026-09-30`; each fix has a test that fails without it and a mutation that proves the test (M1430-M1553, 172/172 DETECTED at integration, with every re-anchored older mutation re-run).
+
+- **84 - "verified" did not mean the number was on the page.** A one-word quote ("the") passed the citation check (`model_evidence`); `verify_claims` never checked a sentence's figures, and a comment in `answer.py` said the Claude-lane quote check "already covers" the figure check - false; the passage side was never stripped of clause/table numbers, so "clause 6" supported "6 mm"; a 1% "rounding" tolerance accepted 17.4 for 17.24; the image-page notice announced points that had been removed.
+- **85 - the CRS could state false breaches.** Equipment-specific exceptions were documented and never applied (no production caller passed the equipment); "shall not", "or", ceilings and "not required" were misread; untagged datasheet fields counted as missing per tag; the one-field-per-line "Label : value" layout was misread; engineer rejections and acceptances were lost on re-run (only `confirmed_by` was kept); a test (`test_an_open_comment_is_carried_forward...`) certified the defect of issuing a rejected, never-issued comment; the rationale "unit 'mm' and 'mm' cannot be compared" was false; Excel cells could become live formulas and one control character failed the whole export.
+- **86 - re-processing claims.** The chunker said it deleted only orphaned vectors and deleted all of them; `embed_pending` claimed legacy vectors were upgraded whenever processed; `ocr.py` said "one page failing is one page failing" while an engine failure failed the document; `ocr.py` and `docs/code-review/ingestion.md` claimed a `jobs.last_completed_batch` checkpoint nothing wrote; `reindex_chunking.py` said "every chunk is re-embedded", true only because of the vector bug; finishing a document marked every job of it done.
+- **87 - the USD caps.** "Enforced before a call leaves" was false under concurrency (10 threads took a USD 5 step to 5.80); failed and cut-off calls wrote no ledger line; Claude-first chat's `cost_usd` showed the last call only; "spending cap would be exceeded" was shown for network and HTTP errors.
+- **88 - security and privacy.** `docs/limitations.md` called the CI client-document guard "verified by deliberate failure tests" while it only checked extensions and its exclusion path matched nothing - PNG, CSV and JSON with real document names, a tag and quoted clause text reached the PUBLIC repository (owner action: repository visibility and history); `.gitleaks.toml` allow-listed all of `.env.example`; `config.py` said "never 0.0.0.0" with nothing enforcing it; a deliverable PATCH wrote before returning 404; a password reset did not end existing sessions; DNS rebinding reached the whole corpus in the default mode.
+- **89 - chat.** The redesign log said the web phrase is "built from your one question only" while consent showed Claude's phrase and sent another; the withhold-on-revoke claim was false for rewrites of stopped answers, which were also labelled "General knowledge"; Claude-first put prior turns (with quoted document text) in the system prompt; Claude-first ignored the conversation's document scope.
+- **90 - mutations that proved nothing.** Found while re-running the registry: M474, M1038, M450, M589, M566, M573, M797, M910, M1269, M1279 have anchors that no longer match (harness error - never applied), and M476, M803, M911 are NOT DETECTED. Each reported a feature as protected that it no longer protected. Not fixed in this change; listed so they are not counted as coverage. Fixed (2026-10-01): all 13 re-run first and found exactly as listed, then repaired. Ten stale anchors or targets re-pointed at the current code (M474 keyword, M450, M476, M589, M566, M573, M797, M910, M1269, M1279) and M1038 re-anchored on the real rejection filter (the old anchor was a redundant inner check; the new one removes the rejection before both guards). M476 was also guarding a dead argument (`build_crs_rows` ignores `unread_pages`; the Review notes carry the pages). The three NOT DETECTED were vacuous tests: M803 (dotted numbers with no letter are never furniture since audit F2, so the guard was only reachable by a lettered clause number - new test), M911 (the gap tolerance of audit F4 closed the test's one-number gap by itself - gap widened), M476 (re-anchored, existing test then detects). All 13 are now DETECTED. A sample run of the registry then found three more stale anchors of the same kind (M587, M1022, M1270), re-anchored and DETECTED; the other ~1350 mutations were not re-run, so more may exist. Remains: the redundant inner `rejected` check in `crs_mapping.py` is still in the code, and `build_crs_rows` still takes an unused `unread_pages` argument.
+
+### The rule this produces
+
+33. **An audit of the whole system finds what feature-by-feature tests do not.** Every entry above had passing tests. Run the end-to-end synthetic run and the full mutation registry before a release, not only the tests of the feature being changed.
+
+- **91 - the requirements API could not return what the extractor stores.** `schemas.RequirementType` (and `contracts/types.ts`) listed three requirement types while `requirements_3b` also stores `applicability_trigger`, `relative_limit` and `table_row`; `requirements_3b`'s own comment pointed at the schema as its vocabulary. A standard holding any such row would fail its requirements list with a 500 (found 2026-09-30 by the frontend contract-drift test; not reproduced against the live database). Fixed: the schema, the TypeScript type and a new `STORED_REQUIREMENT_TYPES` agree, pinned by `tests/test_requirement_types_contract.py` (M1615) and the frontend contract test. M1638 (which mutated the old one-line TypeScript type) was re-anchored to the new last line and re-run: DETECTED.
+- **92 - "reads datasheets" was true for about half the values, and nobody had measured it.** A made-up benchmark of 14 datasheets (`scripts/datasheet_bench.py`, answer key in `backend/tests/fixtures/synthetic/datasheets/`) measured today's production reader at 80 of 137 values (58%): 0 on an unruled "Label : value" sheet, free-text answers, a scanned page, Excel and Word. The AI readers that could read these existed but were off (vision) or unreachable from any screen (Claude text reader). The Claude reader's unit gate, described as accepting "a unit the code knows", rejected real units (kg/h, Nm3/h, ms, weeks, months), so a correct reading would have been thrown away; a PDF grid value that lost its unit ("75" for "75 kW") would have been confirmed by an AI reading that proved the unit. Fixed on `feat/datasheet-any`: shared unit grammar, unit columns in Excel/Word rows, the merge keeps the proven unit, and the AI reader and Office input sit behind `DATASHEET_AI_READER` / `DATASHEET_OFFICE_INPUT` (off). Not yet measured with a real model: an "oracle" run (a fake model proposing the answer key) reached 136 of 137, which proves the pipes, not any AI. Also found: M450, M780 and M785 error at HEAD (anchors), adding to entry 90's list; not fixed here. ADDENDUM (2026-09-30, `feat/datasheet-fix1`): the unit-loss sentence above undersold it. The rules reader ITSELF reported those grid values without their unit in production (no flag): all 13 wrong values the rules reader produced (7 on the motor grid sheet, 6 on the transmitter sheet) came from `datasheets.pairs_from_table_shape`, which used a Units column only in the two-tag layout, so "75" was stored for a 75 kW motor; it was not something only an AI reading could have caused. Also, the AI reader's "do not report a blank" was a sentence in the prompt only: the gate (`claude_datasheet.accept`) did not refuse a "By Vendor" value, and the `ai-only` benchmark reader showed 7 such cells as values; hybrid looked clean only because `create_fact` happens to blank them on storage. Both are fixed in code now; measured numbers are in the commit message.
+- **93 - "CI green on main" was not stable: the chat could send a question before it knew which engine to use.** `ChatView` started with no engine chosen (`model` = null) and only filled it when `/chat/models` answered; `send` read that render-time value. A question asked in that gap went out as a local quotation (`tier: extract`, no engine named) instead of the Claude default, so the same click could produce a different kind of answer depending on how fast the server replied. The chat end-to-end test pressed Enter right after the screen opened and therefore raced the engine list; it passed on a calm machine (12 of 12 here) and failed on GitHub's runner after the datasheet merge, turning `tests` red on `main`. It was not caused by that merge (no frontend file changed in it); reproduced here by delaying the mocked engine list by 1.5 s. Fixed in `fix/chat-engine-race`: `send` waits for the engine list (at most 3 s; a failed or missing list falls back to the old behaviour), and reads the engine from a ref so a hand-picked engine also reaches it. Pinned by three vitest cases and M1790-M1794; the e2e scenario with the delayed list now passes. The earlier note in PR #356 that a chat timing flake "passes alone" should have been treated as this defect, not as noise.
+- **94 - Datasheet AI, "one value per fact" (2026-09-30).** The local AI returned whole sentences as values ("16 weeks from purchase order, ex works"), which the benchmark scored wrong. A first fix that changed the AI's prompt and made the second reading read the page bottom-up was measured on the owner's PC and was WORSE (ds07 hybrid 4/9, 11 facts dropped as model_unstable, 7 field_not_in_quote); it was written without a real model to test on and was removed. What stayed is code only: after the AI answers, a value is trimmed to one quantity with its conditions kept as a qualifier, and two conditions become two facts. The full local benchmark then caught a bug in that trimming (a steel grade "316L SS" was split into 316 litres plus a note; ds06 gained a wrong value); fixed and pinned by a test and a mutation. Also recorded: two identical temperature-0 readings of a page agree with themselves, so "two runs must agree" adds almost no safety for the local engine; unchanged, decision pending. The valve sheet's warranty states two values, so the key now expects both (137 to 138). "ASME Class 600" was reported where the key wants "Class 600" (a prefix word). Fixed (2026-10-01): `atomise` now moves a bare standards-body acronym (two to six capitals) that sits directly before "Class N" or "Cl. N" into the qualifier, so the value reads "Class 600"; nothing else about a value changes (a standard number, a suffix, a lower-case word or a steel grade is left as printed), pinned by tests with invented acronyms and mutation M1809. Not re-measured on the local model or the owner's benchmark: the fix is code only and its effect on the ds07 score is unverified.
+- **95 - Claude chat 400 (2026-10-01).** Questions that made Claude search several times failed with a 400 on the owner's PC. The fake Claude transport in the tests never checked what it was sent, so the loop passed every test while sending three request shapes the API refuses: no tools defined after the tool cap (history still held tool blocks), a thinking block sent back without its signature, and thinking switched off after round 1. Fixed and pinned by shape tests and mutations M1820-M1824. Not proven against the live API until one real call on a synthetic question succeeds. Cost note: thinking now stays on for every round of a thinking turn.
+- **96 - Compare view mixed two standards' text (2026-10-01).** The screen split one answer by paragraph position, so a side with a multi-paragraph answer showed under the wrong standard and the second side's citation numbers pointed at the first side's passages. Fixed: per-side text and numbering, tests added.
+- **97 - Counts missed misspelt nouns (2026-10-01).** The count router matched exact words only, so a typo sent a library count to retrieval. Fixed with a conservative repair.
+- **98 - Claude failure shown as a local-model failure (2026-10-01).** A failed Claude answer was shown as "The local answer model is not running" with an `ollama serve` tip, because a failed answer did not record which engine failed and the screen hardcoded the local wording. Fixed: failed answers store the engine, the screen names it, and tests cover both directions. Turns stored before this change have no engine and keep the old wording.
+
+- **99 - Compare header and 'against' (2026-10-01).** (a) "Compare A against B" with no topic searched for the word "against" and showed both sides as not found: the connecting-word list had no "against", "from" or "than", so the word became the topic. Fixed; a compare with no real topic now asks for one. (b) The header said "Checked 1 standard" for a two-sided compare, because it counted only documents that produced passages, not the sides searched. It now reads, from the real per-side results, "Searched 2 standards, found text in 1" ("none" when nothing was found), and names a typed document the reader cannot read; single-document and ordinary headers are unchanged and pinned by a test. A side the reader may not read is no longer reported as "not found in the pages read" (it is "not among the documents you can read"; each side now carries a `searched` flag). (c) Citation-numbering investigation: no backend bug existed. `_renumber`, `source_start`/`source_count` and the API source list agreed in every case tested (one side empty in either order, both sides found, repeated citations, multi-digit numbers); those cases are kept as regression tests. One real screen bug was found and fixed: the comparison card drew each side's text as plain text, so bullets and bold showed as raw asterisks; it now uses the same markdown renderer as the ordinary answer. The exact cause of the "1 ... 1, and 1 ... 5" markers on the owner's screen was not reproduced from code and is unverified. Tests: backend/tests/test_compare_honesty.py, frontend AnswerComparison.test.tsx, mutations M1846-M1849 and M1851-M1880 (M1850 was already taken).
+
+- **100 - Family questions skipped per-standard search (2026-10-01).** A question that named a family of standards in general words, such as "the welding standards", was searched in one pass over everything the reader may read, so one standard's passages could crowd another's out of the shared top-k and a standard that was never searched on its own could be reported silent on a topic it does cover. Per-standard search existed only for standards the reader named by designation. Fixed: the family phrase is resolved by code from the AI-read scope records and the app's own search over the standards the reader may read (no taxonomy, no model call, at most 8 standards), each is searched on its own budget through the same per-side path as a named comparison, and the answer says which standards were searched and that membership is a guess until a person confirms it. Fewer than two standards found says so and falls back to the ordinary search.
+
+- **101 - Silent Claude-to-Local downgrade (2026-10-01).** With Model = Claude selected, an answer written by the local model looked identical to a Claude answer: `reasoning_provider.get_provider` gives the local engine whenever Claude cannot be used (provider switch, egress flags, key, a failed first call in `chat_claude_first`) and only logged it. The code even said "the answer says which engine wrote it", and it did not. Fixed: `chat.ask` records `requested_provider` and a code-written `provider_note` (the real cause, or "Claude was not used" when it is unknown) whenever the reader chose Claude and the local model produced the answer, both are stored and lifted like `provider`, and the answer card shows a calm note. Which engine answers is unchanged. Turns stored earlier have no record of what was asked for and render as before.
+
+- **102 - A standard that covers the topic was reported silent, and quotes were cut at "P-No." (2026-10-02).** Found on the owner's library in a family question about post weld heat treatment. (1) A side was shown as "Not found in the pages read" although its search found the right page at rank 2: the lexical gate judged a word "common" when it sat in more than a quarter of the chunks it was looking at, and `chat_comparison` looks at ONE standard, so a standard that discusses the topic on 10 of its pages had its topic words ruled out as "common to the whole document", the gate saw 1 of 2 distinctive terms, and the side was refused. The more a standard covered the topic, the likelier it was called silent. Fixed for comparison sides: commonness is now judged across what the caller may read (never wider than their grants), through `lexical.commonness_against`. The ordinary single-document path is unchanged and still judges inside the document; whether it has the same flaw is not measured. (2) Four places cut text at every full stop followed by a digit, so a quote ended at "P-No." and the next began "1 materials is not permitted". `sentence_guard.NOT_AN_ABBREVIATION` now keeps "No.", "para.", "Fig.", "approx." and a few others from ending a sentence in `answer.py` (two splitters), `claims.py` and `chat_stream.py`. `chunker._SENTENCE_SPLIT` has the same flaw and is NOT changed: it decides where stored chunks begin, so it needs the library re-process (owner's chunker v9 decision). (3) The eight standards searched for a family question were ranked by scope-record hits then name, so two standards that only mention welding in their scope took slots from a standard that has the topic on its page; each candidate is now probed for the topic on its own and ranked by that first. Tests: backend/tests/test_compare_commonness.py, test_sentence_abbreviations.py, test_family_search.py; mutations M1930-M1938.
+
+- **103 - OCR text was called verbatim, a check that never ran was shown as clear, and 'this machine is offline' was shown when it was not (2026-10-02).** Found by a code review of the batch. (1) The PDF report labelled a passage 'verbatim' unless it was recorded as OCR; text with no recorded provenance got the claim. The label now says verbatim only for text explicitly recorded as extracted (`reports._extract_label`), matching the screen. (2) A confidence check that was never computed (coverage when completeness was unknown) was stored as fired=False and drawn as 'clear'. `ConfidenceCheck.fired` is now three-state: True fired, False checked and clear, None not checked; the screen shows 'not checked', merging lets a real fire beat a clear beat a not-checked, and the API/contract types allow null. (3) The market line 'this machine is offline' was a literal copied into four responses; it is now one `analysis.market_line()` and shows only when the market lane state is known. Tests: test_reports.py, test_synthesis.py, test_not_implemented_market_line.py, RecommendationCard.test.tsx, AnalysisModeScreen.test.tsx; mutations M1940-M1946. Not fixed in this batch: review findings 32, 30, 20, 21, 27, 16 and three that could not be classified.
+
+- **104 - A standard was reported silent on a topic because it did not print its own number (2026-10-02).** Found on the owner's library after batch C: the comparison side for one standard still said 'Not found in the pages read' although its search ranked the right page 2nd of 14. A read-only diagnosis (counts only) showed the question 'What does <designation> say about <topic>' made the standard's own designation a third distinctive term; three terms cross `LONG_QUESTION_TERM_COUNT`, so the gate demanded two shared terms, and the answering page can only supply the topic (a standard prints its number on its cover, not on the page that answers). The page shared 1 of 2 and was refused. This is a second gate from the commonness one fixed in entry 102; entry 102 was incomplete for this case and I had said so too early. Fixed in `lexical.assess`: in a ONE-document scope (document_id set, or exactly one allowed document) the document's own designation, matched by file name, counts as shared for every passage of that document; in any wider scope there is no credit. Not measured: whether the ordinary single-document path with a named standard is affected the same way outside comparison (the credit applies there too when the scope is one document). Tests: backend/tests/test_lexical_own_designation.py; mutations M1950, M1951.
+
+- **105 - Entry 104's fix was too narrow and did not clear the owner's retest (2026-10-02).** After entry 104 was merged, the owner's retest on the real library still showed the standard as 'Not found in the pages read'. Entry 104 credited a document's own designation only when exactly one document was in scope; a comparison side holds every document of a standard (a re-issue or duplicate upload can make it more than one), so the credit may never have applied. The credit now applies when EVERY document in scope is named by that designation (`lexical._scope_wholly_named`), and not when any other document is in scope. A new end-to-end test through `chat_comparison.compare` (a standard that prints its number on its cover only) fails without the credit and passes with it; the earlier tests called `lexical.assess` directly and so could not show the difference. Retest after merge (owner, 2026-10-02): SAES-W-017 now shows its text. Not isolated: whether entry 104's version or this one made the difference (the earlier retest may not have run restarted code). A read-only count showed each of four standards maps to ONE document, so the 'two files' case was not the owner's cause. Tests: backend/tests/test_lexical_own_designation.py; mutations M1950-M1952 (M1950 and M1951 re-anchored).
+
+- **106 - Two more wrong 'Not found' / empty-bullet cases from the owner's retest (2026-10-02).** (1) A side for a standard whose file name is `<BODY>-<TAIL>` was refused 'does not appear anywhere in the indexed documents' with five strong hits: `distinctive_terms` finds the designation twice, whole (word scan) and as the tail the identifier pattern matches, and only the whole one equalled the file name, so the tail counted as a missing named subject. An identifier-shaped fragment of the designation (at least `MIN_FRAGMENT_LENGTH` normalised characters) now counts as naming the document, only when every document in scope carries that designation. (2) In Claude-written comparison bullets a citation written AFTER the full stop (`<claim>. [S1 "quote"]`) was split from its sentence by `answer.verify_claims`; the claim, uncited and carrying a figure or acronym, was dropped and the lone marker kept, so the reader saw only a number. `_join_stranded_citations` puts a citation-only fragment back on the sentence before it; an unsupported figure or an unverified quote still removes the claim (tests). Found by the owner's screenshots and a read-only diagnosis by counts (no document text). NOT fixed or measured: the side for a second standard (SAES-A-206) still says 'Not found'; the read-only run could not load the vector index, so retrieval ran keyword-only and the result is inconclusive (the document has the acronym but not the spelled-out phrase). Tests: backend/tests/test_lexical_own_designation.py, backend/tests/test_verify_claims_stranded_citation.py; mutations M1953-M1955.
+
+- **107 - The word gate counted filler words and plain decimals as subjects the passage must contain (2026-10-02).** `lexical.distinctive_terms` treated words such as "say", "says", "mention", "according", "describe" and "provide" as distinctive terms, and a plain decimal such as 2.5 matched the identifier pattern. A good passage could be refused because it did not repeat a filler word or a number from the question. Found by the whole-system audit; the filler list and the decimal case were reproduced with tests that fail before the fix. Fixed: the missing filler words are in `STOPWORDS`, and plain two-part decimals are neither terms nor named subjects (designations and three-part clause numbers still count). Not measured on the owner's library. Mutations M1960 to M1966.
+
+- **108 - A requirement lost its condition when the sentence used "where" or "if", or had a comma in the condition (2026-10-02).** `requirements_3b.parse_condition` cut the condition at the first comma, capped it at 80 characters, and returned nothing for a sentence with no "shall" or "must" and for the word "if". A conditional requirement could therefore be stored as unconditional. Found by the whole-system audit. Fixed: where, if, when and unless open a condition, commas inside it are kept, and a sentence that cannot be parsed still returns nothing (never an invented condition). Not run against a real standards corpus. Mutations M1970 to M1977.
+
+- **109 - 17 mutations tested nothing, and nothing could notice (2026-10-02).** Seventeen mutation anchors no longer matched the code (M1109 among them), so those checks never ran. Found by the whole-system audit. All 17 were re-anchored and detect their bug; `scripts/check_mutation_anchors.py` now fails if any anchor matches zero or more than once, with a unit test and a CI step. Open: M1002 reports NOT DETECTED and is probably an equivalent mutant (the later atomic claim still refuses the second search); it needs a test or retirement. The same pass fixed two frontend defects (the Documents background refresh dropped loaded pages; the side panel stole focus on every refresh, did not restore it on close and did not trap Tab).
+
+- **110 - Any reader could delete a document, and several routes ignored the grant rules (2026-10-05).** The whole-system audit found that `DELETE /api/documents/{id}` and the extract, chunk, embed and index-keyword routes needed only a read grant; that review findings, the CRS preview and the CRS export showed a standard's text, clause, page and filename to a user who held only the submittal; that deliverables and risks with no document id were open to every identified user, and an inferred expectation or overdue risk from an admin-only document was returned to others; that `POST /api/reports` skipped the conversation-owner check; that the four Claude review routes ignored `REASONING_PROVIDER`; that a torn spend-ledger line was skipped and could lift the USD cap; and that several routes exposing corpus-derived content answered without a sign-in. Each was reproduced with a failing test first. Fixed: admin-only for the destructive and pipeline routes, standard-derived fields withheld when the standard is not readable, a document-less deliverable needs admin or a grant, source-document scope on expectations and risks, an owner check on reports, the provider check on the Claude routes, a torn ledger line counts at the cap, and identity required on the listed routes (`/api/health` and the login calls stay open). `python-multipart` bumped to 0.0.32 (advisory not confirmed; the venv needs a reinstall). Not covered: a finding whose standard document was deleted still shows its text; other surfaces that can show a finding (structured search, chat actions) were not checked. Mutations M1980 to M1989.
+
+- **111 - Numbers were read wrongly, so a false 'compliant' was possible (2026-10-05).** `claims.parse_value` read a Unicode minus as positive (-29 became 29), joined separate digit groups ('34 3' became 343), and read '4.000' as 4.0; the figure checker accepted a number from anywhere on the page whatever its unit or sign, and accepted 'shall exceed' against 'shall not exceed'; a requirement 'Noise' did not match a field 'Noise level', so the contractor was told a value was missing; compound units such as mm/s were cut to mm (a length); two different upper limits were labelled 'agreement'. Each was reproduced with a failing test first. Fixed: signs and dashes normalised, space groups only as thousands, an ambiguous three-decimal value goes to engineer review, figures with a unit must match a number bound to the same quantity, polarity is checked against the quote, field names match tolerantly with a unit check, compound units parse whole, and different limits are 'possible conflict'. Behaviour change to expect on real sheets: more values with exactly three decimals go to engineer review, and gap analyses show more conflicts. Other number parsers (`rule_eval`, `condition_choice`, one in `datasheets.py`) were not changed. Mutations M1990 to M1999.
+
+- **112 - Review and standards screens kept the previous item's state, and a bad reply locked the chat (2026-10-05).** Opening review run B showed run A's final code; saving finding B could send finding A's edited text; the 'Superseded by' select snapped back; a non-JSON reply left the chat unable to send and the analysis unable to start; there was no error boundary; Documents search and filters applied only on the next poll; lists were cut at 20 rows with no stated boundary; dashboard warning links reloaded the page and signed the reader out; the login footer said nothing leaves the machine; the vision reader did not say it sends page images to Claude; and a failed Reports load showed 'No reports yet'. Each was reproduced with a component test first. Fixed, with pale review colours replaced by theme tokens. Not run in a real browser. Two chat mutations (M1790, M1792) were re-anchored after the change moved their code.
+
+- **113 - A standard that does mention a term was reported as silent, because abbreviations were not matched to their spelled-out form (2026-10-06).** Found by testing the running app against the real library: a question using an abbreviation about one named standard was refused with "none of the indexed documents mention this topic", while that standard defines the abbreviation and has a clause about the spelled-out term. Three causes, reproduced on invented data: the acronym harvest skipped any expansion with a hyphenated capitalised word; the keyword side required the standard's own designation to be printed inside a passage, which standards do not do; and the reranker scored a short definition passage below the fixed floor. Fixed at class level: hyphenated expansions are harvested, a small built-in list of single-meaning abbreviations adds expansions only for a term typed in capitals, expansions only ever ADD match terms, the designation of the one scoped document is soft, and a scoped refusal now names the document and its passage count instead of claiming a library-wide search. Not yet confirmed on the real library after merge.
+- **114 - The chunker made a clause sentence into a section title, indexed a revision-history table as requirements, and left the title page unsearchable (2026-10-06).** Found on the same real standard. (1) A numbered clause whose first words sat on the line after its number became the section label and the chunk body kept only the tail. (2) The "Summary of Changes" table became chunks labelled with a paragraph number plus a change-type word (a fake section). (3) The title block was classified as front matter, so the document's own title was not searchable inside it. Fixed with a sentence-likeness rule for headings, a new excluded page kind with a recorded reason for change tables, and a single bounded title-page chunk. `CHUNKER_VERSION` is now 10. Nothing re-chunks on startup; existing documents keep their stored chunks until an admin re-chunks them or `reindex_chunking.py --apply` is run. Not yet confirmed on the real library.
+- **115 - A checked answer kept hollow leftovers (2026-10-06).** After the claim checker removed unverifiable points, the answer kept a lead-in ending in a colon or "e.g." with nothing after it, bare citation numbers, and filler such as "Let me confirm directly." Found on screen in the running app, so it was a real defect, not a paste artifact. Fixed deterministically in `answer.verify_claims`: marker-only lines, narration that promises an action, and lead-ins whose content is gone are dropped; the "N of M points" count reflects what remains; an answer left with nothing becomes the honest insufficient-evidence answer. The streaming call applies only the sentence-level rules. An unscoped refusal now states how many documents the reader could search. CI on the first r3 branch found two pre-existing tests broken by this batch, which the related-tests list had missed: filler narration was being dropped from text written before a tool call (audit 2026-09-30 requires that text to stay), now fixed so narration is dropped only from the last round and never in the streaming call; and a scope-leak test that used a built-in abbreviation as its probe, now probing with an invented abbreviation defined in one document only, so the leak check is meaningful again. The built-in list is not document data and expands the same for every caller.
+- **116 - In Claude mode a question that named a standard still searched every standard (2026-10-06).** Found by testing the running app after the R3 merge: the same question about one named standard was answered correctly in Local model mode (scoped to that standard, quoted its definition) but in Claude mode the scope shown was a different standard, the named standard was not among the sources, and the answer said it was not the standard for the topic. Cause: `chat.claude_scope` narrowed Claude's tools only by a selected or conversation document, never by the document the question names, which the old pipeline already honoured (`_document_answer`). Fixed: a document or set of documents the question names (`understood`) now narrows the Claude lane, only ever narrower, an @-picked set and a selected document still win, and a named document the reader cannot read adds nothing. Not yet confirmed on the real library after merge; whether Claude then finds the clause on the spelled-out term depends on its own search words (the abbreviation expansion from entry 113 applies inside the narrowed scope). Tests: backend/tests/test_claude_scope_named_document.py; mutation M2041; M1527 re-anchored.
+- **117 - A refused Claude answer did not say what was removed or why (2026-10-06).** After the scope fix (entry 116) the same real question was refused in Claude mode as "0 of 1 points found on the page" (then "0 of 0"), with the right standard searched and its pages 5 and 15 read. The reader, and I, could not tell whether the model wrote uncited points, quotes that were not on the page, or something the filler rules removed, so the cause is NOT yet known. Fixed only the visibility: `answer.verify_claims` takes an optional `dropped` list and records each removed point with its reason, and the Claude lane stores it with the answer as `removed_points` (not shown as an answer). Probes on invented data showed a quoted point passes, a point with an acronym or figure and no quote is removed by design, and a standard's own designation in the sentence is not read as a figure. Not a fix for the refusal. Tests: backend/tests/test_removed_points_recorded.py; M1454, M1458 and M1108 re-anchored.
+- **118 - When every point Claude wrote failed the checker, the reader got a bare refusal although the document answered (2026-10-06).** Same real question as entries 116 and 117: after the scope fix Claude searched only the named standard and read the pages that hold the answer, yet every point it wrote was removed by the claim checker, so the reader saw "I cannot determine this" while Local model mode, asked the same question, quoted the standard word for word. The reason Claude's points failed is still unknown (entry 117 now records it on every such answer). Class fix, independent of the cause: `chat_claude_first._finish` no longer builds a refusal when nothing verified; it hands the turn to the existing pipeline (scoped, gated, quoting the document), the same hand-off a failed Claude call already used, and the answer carries a notice and the removed points. A genuine absence still ends in the pipeline's own honest refusal. Nothing unverified is shown in either case. Tests: backend/tests/test_removed_points_recorded.py; mutation M2042; the two older tests that expected the bare refusal were updated to the new contract. Not yet confirmed on the real library.

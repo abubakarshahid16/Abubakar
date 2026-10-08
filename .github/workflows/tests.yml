@@ -21,6 +21,13 @@ on:
   push:
     branches: ["**"]
   pull_request:
+  # Safety net for docs/adr/ADR-0004-github-free-tier-gaps.md's recorded gap:
+  # a push-triggered run on main did not dispatch at all, twice, for reasons
+  # unconfirmed. workflow_dispatch lets a run be started by hand when that
+  # happens again; the nightly schedule below catches it even unattended.
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * *" # once a day, off the hour, on main by default
 
 permissions:
   contents: read
@@ -52,6 +59,12 @@ jobs:
       - name: Lint backend for correctness errors
         run: python -m ruff check backend/app backend/tests --select E9,F63,F7,F82
 
+      # No tests run: reads each mutation's target file and fails when an
+      # anchor in scripts/mutations/ no longer matches exactly once, so a
+      # refactor cannot silently turn a mutation into a no-op.
+      - name: Check mutation anchors
+        run: python scripts/check_mutation_anchors.py
+
       # ~400 MB. Cached on the requirements hash rather than on a date, so a
       # dependency bump re-fetches and an unchanged tree does not.
       - name: Cache models
@@ -71,7 +84,15 @@ jobs:
 
       - name: Run the suite
         working-directory: backend
-        run: python -m pytest -q --durations=10
+        run: python -m pytest -q -n auto --durations=10
+
+      # THE BENCHMARKS, WHICH THE STEP ABOVE DESELECTS (pytest.ini's
+      # `-m "not slow and not benchmark"`). Split out so a local run is not
+      # held up by a 105 s latency benchmark - NOT dropped: its recall, MRR
+      # and p95 floors still fail this job. `-m` here replaces the default.
+      - name: Run the benchmarks
+        working-directory: backend
+        run: python -m pytest -q -m benchmark --durations=10
 
   frontend:
     name: frontend (vitest + tsc)
@@ -176,3 +197,7 @@ jobs:
         env:
           CONTRAST_OUTPUT: contrast-ci.json
         run: npx playwright test tests/e2e/contrast-root-cause.spec.ts --config=playwright.phase0.config.ts
+
+      - name: Chat end to end in a real browser (mocked API, sample data)
+        working-directory: frontend
+        run: npx playwright test --config=playwright.chat.config.ts

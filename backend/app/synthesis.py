@@ -79,13 +79,12 @@ from typing import Literal, Protocol
 
 from . import assertions, context_budget
 
-#: Sources are numbered for the model and cited back by number. Same marker
-#: syntax as answer.py, deliberately re-stated rather than imported: this
-#: module must stay free of the retrieval stack (httpx, search, db) to be a
-#: pure engine, and answer.py may want to import this one later.
-_CITATION = re.compile(r"\[S(\d+)\]")
-#: A marker the output-token cap cut in half at the very end of the text.
-_HALF_CITATION = re.compile(r"\s*\[S?\d*$")
+#: Sources are numbered for the model and cited back by number. Shared with
+#: answer.py via citations.py (zero dependencies beyond re), so this module
+#: stays free of the retrieval stack (httpx, search, db) and remains a pure
+#: engine, without re-stating the same regex twice.
+from .citations import _CITATION, _HALF_CITATION, strip_half_citation, validate_citations
+
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 #: A fragment that is nothing but citation markers belongs to the sentence in
 #: front of it: "...280 um. [S1]" is one cited sentence, not one uncited
@@ -121,9 +120,13 @@ _UNIT_AHEAD = (
 #: measurement 17.0, found no span containing it, and deleted a true, cited
 #: sentence - observed live: a Focused summary over two passages reduced to a
 #: single fragment beginning "It also mandates...". The pattern is applied to
-#: the SENTENCE only, never to the spans, so it can only ever remove a claimed
-#: number, and a measurement written next to a reference ("Section 4 requires
-#: 50 mm") is still checked.
+#: BOTH sides - the sentence (`claimed_numbers`) and the cited spans
+#: (`span_numbers`) - so a reference numeral can neither be demanded of a span
+#: nor SUPPLY a figure: "wall is 6 mm [S1]" over a span saying "in accordance
+#: with clause 6" is unsupported (audit 2026-09-30; spans used to be left
+#: whole, and the clause number vouched for the invented 6 mm). A measurement
+#: written next to a reference ("Section 4 requires 50 mm") is still a
+#: measurement on either side.
 _REFERENCE_NUMERAL = re.compile(
     r"""
     (?:
@@ -150,7 +153,7 @@ _REFERENCE_NUMERAL = re.compile(
 #: B34: STANDARD NUMBERS ARE NAMES, NOT MEASUREMENTS - AND ONLY THESE SHAPES
 #: ARE. "SAES-H-004 requires 150 micrometers [S4]" was deleted because "004"
 #: was read as the quantity 4.0, no cited span contains 4, and the check
-#: removed a true sentence. This corpus is Saudi Aramco standards, so the
+#: removed a true sentence. This corpus is the client's own standards, so the
 #: model names one in almost every sentence and almost every good answer was
 #: emptied - while "doc17.pdf" had been exempt all along.
 #:
@@ -352,10 +355,14 @@ class CitedSentence:
 
 @dataclass(frozen=True)
 class ConfidenceCheck:
-    """One countable fact that would undermine the result. `fired` means it did."""
+    """One countable fact that would undermine the result. `fired` True means it
+    did, False means it was checked and did not, and None means NOT CHECKED:
+    nothing in this run computed it. None is shown as "not checked", never as
+    "clear" (review finding 2026-10-02: the "credible passage not used" check
+    was never computed anywhere yet every screen listed it as clear)."""
 
     label: str
-    fired: bool
+    fired: bool | None
 
 
 @dataclass(frozen=True)
@@ -434,23 +441,6 @@ class Recommendation:
 # ------------------------------------------------------------------ citations
 
 
-def strip_half_citation(text: str) -> str:
-    """Remove a citation marker the output cap cut in half.
-
-    Text that stops inside `[S2` reads as a malformed citation system rather
-    than as a length limit. Same rule and same machinery as answer.py.
-    """
-    return _HALF_CITATION.sub("", text).rstrip()
-
-
-def validate_citations(text: str, source_count: int) -> tuple[list[int], list[int]]:
-    """Split cited source numbers into those that exist and those invented."""
-    cited = [int(n) for n in _CITATION.findall(text)]
-    valid = sorted({n for n in cited if 1 <= n <= source_count})
-    invented = sorted({n for n in cited if not 1 <= n <= source_count})
-    return valid, invented
-
-
 def _strip_invented(text: str, invented: Iterable[int]) -> str:
     """A citation the model invented is removed rather than displayed.
 
@@ -525,16 +515,24 @@ def strip_reference_numerals(sentence: str) -> str:
     table and figure numbers, revisions, pages, source numbers.
 
     Applied to generated prose BEFORE its numbers are compared with the cited
-    spans, and never to the spans themselves. So it can only ever shrink the set
-    of numbers a sentence is held to; a measurement standing next to a
-    reference - "Section 4 requires 50 mm" - is still checked, and still
-    dropped when no cited span contains 50.
+    spans, AND to the spans (`span_numbers`): a clause, table or page number
+    in a span is not a measurement the span states, so it must not support
+    one in the sentence. A measurement standing next to a reference -
+    "Section 4 requires 50 mm" - is still checked, and still dropped when no
+    cited span contains 50.
 
     Standard numbers (B34) are removed by `_STANDARD_IDENTIFIER`, a closed
     grammar, AFTER the reference patterns - so "SAES-H-001.pdf" is taken whole
     as a filename and "SAES-H-001" alone as a standard name.
     """
     return _STANDARD_IDENTIFIER.sub(" ", _REFERENCE_NUMERAL.sub(" ", sentence))
+
+
+def span_numbers(text: str) -> set[str]:
+    """The numbers a cited span can SUPPORT: its measurements, with reference
+    numerals removed exactly as they are from the sentence (`claimed_numbers`),
+    so both sides of the comparison mean the same thing by "a figure"."""
+    return _numbers(strip_reference_numerals(text))
 
 
 def claimed_numbers(sentence: str) -> set[str]:
@@ -655,12 +653,13 @@ def _cite(
         spans = " ".join(str(s.get("text") or "") for s in cited)
         # Reference numerals - "Document 17", "clause 6.1", "Table 1", "page
         # 183", "doc17.pdf" - name a place, not a quantity, and are taken out
-        # of the SENTENCE before the comparison. The spans are left whole.
-        span_numbers = _numbers(spans)
-        unsupported = claimed_numbers(sentence) - span_numbers
+        # of BOTH sides before the comparison: a span's "clause 6" must not
+        # vouch for a sentence's "6 mm".
+        supported = span_numbers(spans)
+        unsupported = claimed_numbers(sentence) - supported
         if unsupported:
             # Named as the reader sees it: "value 300 not in cited passage".
-            value = first_unsupported_value(sentence, span_numbers) or sorted(unsupported)[0]
+            value = first_unsupported_value(sentence, supported) or sorted(unsupported)[0]
             dropped.append((sentence, f"value {value} not in cited passage"))
             continue
         # The third form, and the one an engineering reader is least able to
@@ -1306,8 +1305,11 @@ def confidence_checks(
             bool(labels & {"possible_conflict", "unresolved"}),
         ),
         ConfidenceCheck("evidence came from recognised (OCR) text", "recognised" in sources),
+        # coverage_complete is False or None, never True. None means nobody
+        # computed it, which is NOT the same as "checked and clear".
         ConfidenceCheck(
-            "a credible passage was retrieved and not used", coverage_complete is False
+            "a credible passage was retrieved and not used",
+            True if coverage_complete is False else None,
         ),
         ConfidenceCheck("a generation stopped at its length limit", bool(summary_truncated)),
         ConfidenceCheck(
@@ -1323,7 +1325,7 @@ def confidence_from(checks: Iterable[ConfidenceCheck]) -> Confidence:
     undermine this were detected", which is a checklist result rather than a
     calibration, and is displayable as the checklist.
     """
-    return "low" if any(c.fired for c in checks) else "medium"
+    return "low" if any(c.fired is True for c in checks) else "medium"
 
 
 def _merge_checks(
@@ -1332,9 +1334,17 @@ def _merge_checks(
     """One row per label, fired if it fired anywhere. A check the caller
     supplied and one this module observed are the same fact, and showing it
     twice would read as two problems."""
-    merged: dict[str, bool] = {}
+    merged: dict[str, bool | None] = {}
     for check in (*outer, *inner):
-        merged[check.label] = merged.get(check.label, False) or check.fired
+        before = merged.get(check.label)
+        if before is True or check.fired is True:
+            merged[check.label] = True
+        elif before is False or check.fired is False:
+            # Computed somewhere and clear: a caller that checked outranks one
+            # that did not look.
+            merged[check.label] = False
+        else:
+            merged[check.label] = None
     return tuple(ConfidenceCheck(label, fired) for label, fired in merged.items())
 
 

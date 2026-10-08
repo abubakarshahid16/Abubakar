@@ -51,6 +51,96 @@ def quote_verified(quote: str | None, source_text: str | None) -> bool:
     return needle in _collapse(source_text)
 
 
+# ------------------------------------------- a quote offered as a CLAIM's proof
+#
+# `quote_verified` answers "are these characters on the page?" and is right
+# for a VALUE the model read off a page (a tag, "10", a unit), where a short
+# needle is the whole point. A generated SENTENCE that cites
+# [S1 "the"] is a different question: is this quote evidence for the
+# sentence? A bare substring test said yes - "the" is inside every page, and
+# inside "theory" too - so "The design pressure is 999 barg [S1 "the"]" was
+# shown as verified (audit 2026-09-30). The rule below is what a quote must
+# be before it can stand behind a claim.
+
+#: The fewest words a claim's quote may have. Three is the shortest span that
+#: can carry a relation ("design pressure 10", "shall be galvanised"); one
+#: and two-word spans ("the", "shall be", "10 barg") occur on nearly every
+#: engineering page, so finding one there proves nothing about the sentence.
+#: A "word" is a whitespace-separated token holding a letter or digit, so
+#: "3.0 mm/s RMS" is three words and a stray "-" is none.
+MIN_CLAIM_QUOTE_WORDS = 3
+
+_TOKEN_WITH_SUBSTANCE = re.compile(r"[^\W_]")
+#: A word broken across a line by a hyphen in the PDF text layer ("thick-\n
+#: ness"). Letters on both sides only, so "10-\n20" and "P-\n1001" are never
+#: joined.
+_LINE_BREAK_HYPHEN = re.compile(r"(?<=[^\W\d_])-[ \t]*\r?\n[ \t]*(?=[^\W\d_])")
+
+
+def _source_variants(source_text: str | None) -> tuple[str, ...]:
+    """The page as stored, plus the two ways a line-break hyphen can be read
+    back (a split word joined; a real compound kept with its hyphen). Layout
+    only: no character the page printed on one line is ever changed."""
+    text = source_text or ""
+    if not _LINE_BREAK_HYPHEN.search(text):
+        return (_collapse(text),)
+    return (_collapse(text), _collapse(_LINE_BREAK_HYPHEN.sub("", text)),
+            _collapse(_LINE_BREAK_HYPHEN.sub("-", text)))
+
+
+def claim_quote_verified(quote: str | None, source_text: str | None) -> bool:
+    """True when `quote` is MEANINGFUL evidence found on the page:
+
+    - at least MIN_CLAIM_QUOTE_WORDS words (see there for why three);
+    - found in the page after the owner's closed normalisation list
+      (`_collapse`), on WORD BOUNDARIES: a quote that starts or ends with a
+      letter or digit must not start or end inside a longer word or number
+      on the page ("design pressure 10" is not found in "design pressure
+      100");
+    - a word the PDF text layer hyphenated across a line break matches the
+      unbroken word, and a compound broken at its hyphen matches with the
+      hyphen (`_source_variants`) - the model re-types the word as printed.
+
+    Case, digits and every other character still compare exactly, as in
+    `quote_verified`. This proves the words are on the page; whether the
+    sentence's FIGURES are is checked separately (`answer.verify_claims`)."""
+    needle = _collapse(quote)
+    fragments = [f.strip() for f in _ELLIPSIS.split(needle)]
+    fragments = [f for f in fragments if f]
+    if not fragments:
+        return False
+    counts = [len([w for w in f.split(" ") if _TOKEN_WITH_SUBSTANCE.search(w)])
+              for f in fragments]
+    if sum(counts) < MIN_CLAIM_QUOTE_WORDS:
+        return False
+    if len(fragments) > 1 and min(counts) < MIN_ELLIPSIS_FRAGMENT_WORDS:
+        return False
+    return any(_fragments_in_order(fragments, page)
+               for page in _source_variants(source_text))
+
+
+#: A quote the model shortened with "..." or the one-character ellipsis. The
+#: page shows the words either side; the dots themselves are not on it.
+_ELLIPSIS = re.compile(r"\s*(?:\.{3,}|\u2026)\s*")
+#: Each piece of a quote cut by an ellipsis must itself carry a relation.
+MIN_ELLIPSIS_FRAGMENT_WORDS = 2
+
+
+def _fragments_in_order(fragments: list[str], page: str) -> bool:
+    """Every fragment found on the page, whole-word, each AFTER the one before.
+    A quote with no ellipsis is one fragment: the exact rule above."""
+    pos = 0
+    for frag in fragments:
+        pattern = re.compile(
+            (r"(?<!\w)" if re.match(r"\w", frag) else "") + re.escape(frag)
+            + (r"(?!\w)" if re.search(r"\w$", frag) else ""))
+        m = pattern.search(page, pos)
+        if not m:
+            return False
+        pos = m.end()
+    return True
+
+
 # ------------------------------------------ STATED via approved vocabulary
 #
 # Owner decision 2026-09-25 (the wrong-field gap: "SOUR WATER DRUMS" was put
@@ -102,6 +192,75 @@ def stated_via_vocabulary(value: str | None, quote: str | None, *,
             return {"class": STATED_VIA_VOCABULARY, "value": value,
                     "synonym": synonym, "quote": quote, "evidence_line": line}
     return None
+
+
+# ------------------------------ which vocabulary value a quote names (addendum 4)
+#
+# Owner addendum 2026-09-25, section 4.5-4.7: a keyword in the quote is NOT
+# proof of the type. Several equipment words in one title ("PUMP MOTOR",
+# "TANK HEATER"), a word with a non-equipment meaning ("SUPPLY VESSEL" is a
+# ship, "battery limit" a plant boundary) or a table header ("COLUMN A") must
+# never become a confident type - they are UNKNOWN or NEEDS_ENGINEER_REVIEW,
+# because a wrong type can hide an applicable standard.
+
+UNKNOWN_TYPE = "UNKNOWN"
+NEEDS_ENGINEER_REVIEW = "NEEDS_ENGINEER_REVIEW"
+
+
+def _vocabulary_hits(text: str, vocabulary: dict[str, tuple[str, ...]]) -> list[tuple[str, str]]:
+    """(value, synonym) for every synonym in `text`, whole word, optional
+    plural; longest synonyms first, and a synonym inside an already-matched
+    longer one does not count again ("PRESSURE SAFETY VALVE" is not also
+    "valve", "CENTRIFUGAL PUMP" is not also "pump")."""
+    pairs = sorted(((s.lower(), v) for v, syns in vocabulary.items() for s in syns),
+                   key=lambda p: len(p[0]), reverse=True)
+    hits, taken = [], []
+    for synonym, value in pairs:
+        for m in re.finditer(rf"\b{re.escape(synonym)}(?:s|es)?\b", text):
+            if any(m.start() >= a and m.end() <= b for a, b in taken):
+                continue
+            taken.append((m.start(), m.end()))
+            hits.append((value, synonym))
+    return hits
+
+
+def classify_via_vocabulary(quote: str | None, *, vocabulary: dict[str, tuple[str, ...]],
+                            evidence_lines: list[str], ambiguous: frozenset[str] = frozenset(),
+                            not_equipment: tuple[str, ...] = ()) -> dict:
+    """The equipment type a verified evidence-line quote names, or why not.
+
+    - the quote must verify against ONE evidence line, else UNKNOWN;
+    - `not_equipment` phrases ("battery limit", "instrument air") are removed
+      first - they name no equipment;
+    - no synonym left: UNKNOWN;
+    - synonyms of TWO OR MORE values: NEEDS_ENGINEER_REVIEW, all candidates
+      listed (the model may propose one; code never picks);
+    - one value, but only through an `ambiguous` synonym ("vessel" may be a
+      ship, "column" a table column): NEEDS_ENGINEER_REVIEW with that value
+      as a proposal;
+    - otherwise STATED via approved vocabulary (still a proposal until the
+      vocabulary itself is approved).
+    `vocabulary`, `ambiguous` and `not_equipment` are PARAMETERS: all three
+    lists await owner approval."""
+    out = {"status": UNKNOWN_TYPE, "value": None, "candidates": [], "synonyms": [], "evidence_line": None}
+    text = _collapse(quote).lower()
+    line = next((l for l in evidence_lines if quote_verified(quote, l)), None) if text else None
+    if line is None:
+        return {**out, "reason": "quote is not an equipment evidence line"}
+    for phrase in not_equipment:
+        text = re.sub(rf"\b{re.escape(phrase.lower())}\b", " ", text)
+    hits = _vocabulary_hits(text, vocabulary)
+    values = sorted({v for v, _ in hits})
+    out.update({"candidates": values, "synonyms": [s for _, s in hits], "evidence_line": line})
+    if not values:
+        return {**out, "reason": "no vocabulary word names equipment here"}
+    if len(values) > 1:
+        return {**out, "status": NEEDS_ENGINEER_REVIEW,
+                "reason": f"names {len(values)} vocabulary values - engineer to choose"}
+    if all(s in ambiguous for _, s in hits):
+        return {**out, "status": NEEDS_ENGINEER_REVIEW, "value": values[0],
+                "reason": "only an ambiguous word names it - engineer to confirm"}
+    return {**out, "status": STATED_VIA_VOCABULARY, "value": values[0], "reason": "one value, unambiguous word"}
 
 
 # ------------------------------------------------ discipline: STATED or INFERRED

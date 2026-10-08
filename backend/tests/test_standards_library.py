@@ -455,7 +455,7 @@ def test_a_requirement_points_at_a_chunk_retrieval_can_also_see():
 
 # ------------------------------------------------- the mandatory vocabulary
 
-def test_the_mandatory_vocabulary_is_saudi_aramcos_own():
+def test_the_mandatory_vocabulary_is_the_clients_own():
     """SAES-Z-008 section 4.2 states the client's rule, and this is it.
 
         must / shall = MANDATORY

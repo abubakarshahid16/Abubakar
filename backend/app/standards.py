@@ -46,7 +46,7 @@ import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from . import claims, classification, orphan_guard, provenance, requirements_3b
+from . import chunker, claims, classification, orphan_guard, provenance, requirements_3b
 from . import submittal_review
 from . import tables as tables_mod
 from .db import connect
@@ -335,23 +335,22 @@ def _audit(action: str, actor: dict | None, resource_id: str | None,
     `detail` carries IDS AND CLAUSE NUMBERS ONLY. Never requirement text, never
     a document title - the audit table is the one most likely to be exported.
 
-    An unwritable audit must not block the change it describes, so the failure
-    is swallowed, exactly as the admin helper does.
+    P5: NO LONGER SWALLOWED. It used to be "an unwritable audit must not block
+    the change it describes", which let a supersession or an engineer's
+    requirement decision stand with no record of who made it. A failure now
+    raises; the caller's request fails loudly instead of succeeding silently.
     """
     conn = connect()
-    try:
-        with conn:
-            conn.execute(
-                """INSERT INTO audit_events
-                       (at, actor_user_id, actor_username, action,
-                        resource_type, resource_id, outcome, detail)
-                   VALUES (?, ?, ?, ?, 'standard', ?, ?, ?)""",
-                (_now(), (actor or {}).get("id"),
-                 ((actor or {}).get("email") or "unauthenticated")[:200],
-                 action, resource_id, outcome, detail),
-            )
-    except Exception:  # noqa: BLE001 - an unwritable audit must not block the change
-        pass
+    with conn:
+        conn.execute(
+            """INSERT INTO audit_events
+                   (at, actor_user_id, actor_username, action,
+                    resource_type, resource_id, outcome, detail)
+               VALUES (?, ?, ?, ?, 'standard', ?, ?, ?)""",
+            (_now(), (actor or {}).get("id"),
+             ((actor or {}).get("email") or "unauthenticated")[:200],
+             action, resource_id, outcome, detail),
+        )
 
 
 def _scope_clause(allowed_document_ids: frozenset[str], column: str) -> tuple[str, list[str]]:
@@ -696,6 +695,12 @@ def extract_requirements(
             "SELECT clause, requirement_text FROM standard_requirements"
             " WHERE standard_document_id = ?", (document_id,)))
     for chunk in chunks:
+        if chunker.is_revision_history(chunk["section"]):
+            # A record of what changed between revisions states no obligation:
+            # "No CSD recommendation is required to conduct retroactive PMI
+            # testing" in a Summary of Changes describes a deleted paragraph,
+            # and read as a requirement it said the opposite of the standard.
+            continue
         clause = clause_number(chunk["section"])
         # The running footer is removed BEFORE splitting. After the split it is
         # already inside a sentence, having joined the tail of one page to the
@@ -1043,22 +1048,34 @@ def enqueue_extraction(document_id: str, *, actor: dict | None = None,
     from . import job_queue
     if priority is None:
         priority = job_queue.PRIORITY_BACKFILL
+    from .config import config_version
     submittal_review.ensure_schema()
     conn = connect()
-    existing = conn.execute(
-        "SELECT id FROM jobs WHERE document_id = ? AND stage = ?"
-        " AND state IN ('queued','running','retrying')", (document_id, EXTRACTION_STAGE)
-    ).fetchone()
-    if existing is not None:
-        return existing["id"]
     job_id = f"job_{_uuid.uuid4().hex[:12]}"
     now = _now()
-    with conn:
+    # B11: THE CHECK AND THE INSERT UNDER ONE WRITE LOCK. They were two steps,
+    # so two concurrent requests both saw nothing pending and queued two jobs.
+    with job_queue.immediate(conn):
+        existing = conn.execute(
+            "SELECT id FROM jobs WHERE document_id = ? AND stage = ?"
+            " AND state IN ('queued','running','retrying')", (document_id, EXTRACTION_STAGE)
+        ).fetchone()
+        if existing is not None:
+            return existing["id"]
+        # PROVENANCE AT ENQUEUE: which extractor code and which settings this
+        # job's output will come from, on the job row itself.
         conn.execute(
             """INSERT INTO jobs (id, document_id, stage, state, started_at,
-                                 updated_at, priority)
-               VALUES (?, ?, ?, 'queued', ?, ?, ?)""",
-            (job_id, document_id, EXTRACTION_STAGE, now, now, priority))
+                                 updated_at, priority, created_by, code_version,
+                                 config_version)
+               VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)""",
+            (job_id, document_id, EXTRACTION_STAGE, now, now, priority,
+             (actor or {}).get("id"),
+             provenance.code_version("standards", "tables", "requirements_3b"),
+             config_version()))
+        job_queue.audit(conn, "job.queued", job_id,
+                        actor_user_id=(actor or {}).get("id"),
+                        detail=f"stage={EXTRACTION_STAGE}")
     _audit("standard.extraction_queued", actor, document_id, detail=f"job={job_id}")
     return job_id
 
@@ -1133,6 +1150,7 @@ def next_extraction_job(worker_id: str | None = None) -> str | None:
     asked for runs ahead of the backfill the ingestion hook queued.
     """
     from . import job_queue
+    from .config import settings
     me = worker_id or job_queue.worker_id()
     now = _now()
     conn = connect()
@@ -1144,8 +1162,11 @@ def next_extraction_job(worker_id: str | None = None) -> str | None:
                               AND {_CLAIMABLE}
                             ORDER BY priority DESC, started_at LIMIT 1)
                   AND {_CLAIMABLE}
+                  AND {job_queue.under_limit_sql()}
                 RETURNING document_id""",
-            {"me": me, "now": now, "stage": EXTRACTION_STAGE}).fetchone()
+            {"me": me, "now": now, "stage": EXTRACTION_STAGE,
+             "stale": job_queue.stale_cutoff(),
+             "limit": settings.job_max_running}).fetchone()
     return row["document_id"] if row else None
 
 
@@ -1171,6 +1192,7 @@ def run_extraction_job(document_id: str, worker_id: str | None = None) -> dict:
     parameter; nothing here relaxes them.
     """
     from . import errors, job_queue
+    from .config import settings
     me = worker_id or job_queue.worker_id()
     conn = connect()
     now = _now()
@@ -1188,9 +1210,11 @@ def run_extraction_job(document_id: str, worker_id: str | None = None) -> dict:
                                   AND stage = :stage AND {_CLAIMABLE}
                                 ORDER BY started_at DESC LIMIT 1)
                       AND {_CLAIMABLE}
+                      AND {job_queue.under_limit_sql()}
                     RETURNING id""",
                 {"me": me, "now": now, "doc": document_id,
-                 "stage": EXTRACTION_STAGE}).fetchone()
+                 "stage": EXTRACTION_STAGE, "stale": job_queue.stale_cutoff(),
+                 "limit": settings.job_max_running}).fetchone()
     if job is None:
         return {"document_id": document_id, "state": "not_claimed",
                 "requirements": 0, "table_values": 0}
@@ -1219,6 +1243,7 @@ def run_extraction_job(document_id: str, worker_id: str | None = None) -> dict:
             "UPDATE jobs SET state = 'done', error_code = NULL,"
             " error_message = NULL, next_attempt_at = NULL, updated_at = ?"
             " WHERE id = ?", (_now(), job_id))
+        job_queue.audit(conn, "job.done", job_id, detail=f"stage={EXTRACTION_STAGE}")
     return {"document_id": document_id, "state": "done",
             "requirements": sentences.get("requirements", 0),
             "table_values": tabular.get("values", 0)}

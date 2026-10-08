@@ -36,8 +36,7 @@ from pathlib import Path
 BACKEND = Path(__file__).resolve().parent.parent / "backend"
 sys.path.insert(0, str(BACKEND))
 
-import httpx  # noqa: E402
-
+from app import model_transport  # noqa: E402
 from app.config import settings  # noqa: E402
 
 #: The four disciplines seeded by seed_access.py, plus the escape hatch.
@@ -130,9 +129,14 @@ def classify(filename: str, ev: dict, model: str | None = None,
              num_ctx: int = 4096) -> dict:
     prompt = PROMPT.format(filename=filename, sections=ev["sections"],
                            opening=ev["opening"], excerpts=ev["excerpts"])
-    r = httpx.post(
-        f"{settings.ollama_url}/api/chat",
-        json={
+    # THROUGH `model_transport`, the one module allowed to send document text
+    # to the model (CLAUDE.md rule 1). This prompt carries chunk text and the
+    # filename. It was a bare `httpx.post`, which honoured HTTP(S)_PROXY - on a
+    # corporate machine that routed the text through the proxy - followed
+    # redirects, and never re-checked `ollama_url` (audit 2026-09-30).
+    data = model_transport.post_json(
+        "/api/chat",
+        {
             "model": model or settings.answer_model,
             "messages": [{"role": "system", "content": SYSTEM},
                          {"role": "user", "content": prompt}],
@@ -149,8 +153,7 @@ def classify(filename: str, ev: dict, model: str | None = None,
         },
         timeout=1800.0,
     )
-    r.raise_for_status()
-    text = r.json()["message"]["content"].strip()
+    text = data["message"]["content"].strip()
     # The model is asked for bare JSON; a fenced block is the common deviation.
     if text.startswith("```"):
         text = text.split("```")[1].lstrip("json").strip()

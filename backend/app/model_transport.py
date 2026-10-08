@@ -118,14 +118,64 @@ def endpoint(path: str) -> str:
     return f"{base}{path}"
 
 
+#: The Ollama paths that run - and therefore LOAD - the answer model.
+RUNNER_PATHS = frozenset({"/api/generate", "/api/chat"})
+
+
+def runner_options(num_ctx: int | None = None) -> dict[str, object]:
+    """The options that decide WHICH RUNNER Ollama keeps loaded. One home.
+
+    Ollama restarts the model runner whenever `num_ctx`, `num_batch` or
+    `num_thread` differ from the loaded one, and each restart is a cold load
+    (23.6 s on the laptop, docs/benchmarks.md). The call sites disagreed -
+    comparison sent no `num_batch`, `OllamaProvider` sent neither thread nor
+    batch, answerability asked for 4096 and field naming 16384 - so the
+    features took turns evicting each other's runner (perf audit item 7).
+
+    `num_ctx` is RAISED to `settings.num_ctx`, never lowered. A larger window
+    changes nothing for a prompt that fits the smaller one - the output is the
+    same - and it means every caller that needs no more than the default
+    shares one runner. A caller that genuinely needs more (field naming at
+    16384, vision at 32768) still gets it, and still pays a reload: that is a
+    real trade, stated here rather than hidden by truncating its prompt.
+    """
+    return {
+        "num_ctx": max(int(num_ctx or 0), int(settings.num_ctx)),
+        "num_thread": settings.num_thread,
+        "num_batch": settings.num_batch,
+    }
+
+
+def with_runner_options(body: dict) -> dict:
+    """`body` with the shared runner options and `keep_alive`. A new dict.
+
+    Applied by `post_json` and `stream_json` to every runner path, so no call
+    site - present or future - can send different ones. Only these four keys
+    are touched; the prompt is not inspected (see the module docstring).
+    """
+    options = dict(body.get("options") or {})
+    options.update(runner_options(options.get("num_ctx")))
+    return {**body, "options": options, "keep_alive": settings.ollama_keep_alive}
+
+
+def _normalised(path: str, body: dict) -> dict:
+    return with_runner_options(body) if _path_of(path) in RUNNER_PATHS else body
+
+
+def _path_of(path: str) -> str:
+    return path if path.startswith("/") else "/" + path
+
+
 def post_json(path: str, body: dict, *, timeout: float) -> Any:
     """POST a JSON body to the answer model and return the decoded response.
 
     The one function that sends anything derived from a document. `body` is
     built by the caller and not inspected here - see the module docstring on
-    why sanitising a prompt is not the control.
+    why sanitising a prompt is not the control. Its runner OPTIONS are made
+    uniform (`with_runner_options`), which is not an inspection of content.
     """
     url = endpoint(path)
+    body = _normalised(path, body)
     with httpx.Client(
         timeout=timeout,
         # A 302 is a host no check ever saw; following one would move the
@@ -141,6 +191,78 @@ def post_json(path: str, body: dict, *, timeout: float) -> Any:
         response = client.post(url, json=body)
         response.raise_for_status()
         return response.json()
+
+
+class _Abort:
+    """Stop a request in flight - including one still waiting for its first byte.
+
+    STOP MUST STOP WITHIN SECONDS, EVEN BEFORE THE FIRST TOKEN. A local model
+    can spend tens of seconds evaluating the prompt before it sends a byte, a
+    check between chunks never runs in that time, and closing the client from
+    another thread does NOT interrupt a read that is already blocked (measured:
+    the call ran on). What does is shutting the socket itself down, so the
+    connection is captured as it opens (httpx's documented `trace` extension)
+    and a watcher shuts it down when `cancel` is set. The engine sees the
+    connection drop and stops.
+    """
+
+    def __init__(self, client: httpx.Client, cancel) -> None:
+        import threading as _threading
+
+        self.client, self.cancel = client, cancel
+        self.stream = None
+        self.finished = _threading.Event()
+        if cancel is not None:
+            _threading.Thread(target=self._watch, daemon=True).start()
+
+    def trace(self, name: str, info: dict) -> None:
+        if name == "connection.connect_tcp.complete":
+            self.stream = info.get("return_value")
+
+    def _watch(self) -> None:
+        import socket as _socket
+
+        while not self.finished.is_set():
+            if self.cancel.wait(0.1):
+                sock = self.stream.get_extra_info("socket") if self.stream is not None else None
+                if sock is not None:
+                    try:
+                        sock.shutdown(_socket.SHUT_RDWR)
+                    except OSError:
+                        pass
+                self.client.close()
+                return
+
+
+def stream_json(path: str, body: dict, *, timeout: float, cancel=None):
+    """POST with `stream: true` and yield each decoded NDJSON line.
+
+    The same gates as `post_json` - `endpoint()` re-validates the host - and
+    the same client settings. `cancel` (a threading.Event) closes the
+    connection mid-stream; the generator then simply ends.
+    """
+    import json as _json
+
+    url = endpoint(path)
+    body = _normalised(path, body)
+    client = httpx.Client(timeout=timeout, follow_redirects=False, trust_env=False)
+    abort = _Abort(client, cancel)
+    try:
+        with client.stream("POST", url, json={**body, "stream": True},
+                           extensions={"trace": abort.trace}) as response:
+            response.raise_for_status()
+            for line in response.iter_lines():
+                if cancel is not None and cancel.is_set():
+                    return
+                if line.strip():
+                    yield _json.loads(line)
+    except (httpx.TransportError, RuntimeError):
+        if cancel is not None and cancel.is_set():
+            return        # the abort above, not a failure
+        raise
+    finally:
+        abort.finished.set()
+        client.close()
 
 
 def get_json(path: str, *, timeout: float, required: bool = True) -> Any | None:

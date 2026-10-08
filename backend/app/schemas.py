@@ -27,7 +27,8 @@ DocStatus = Literal[
     "failed",
 ]
 
-ChunkKind = Literal["prose", "table", "toc", "frontmatter", "index", "references"]
+ChunkKind = Literal["prose", "table", "toc", "frontmatter", "index", "references",
+                  "revision_history"]
 
 #: What part a document plays in a submittal review.
 #:
@@ -63,7 +64,17 @@ DocumentRole = Literal[
 #: `not_reviewed` is a real answer and NOT null: the question "has this been
 #: reviewed" has a definite answer for every document, and it is "no".
 #: The remaining values mirror `review_runs.status` exactly, so the two cannot
-#: drift into two vocabularies.
+#: drift into two vocabularies. That mirror had gone stale: `review_jobs.py`
+#: sets `review_runs.status` to `queued` on insert and again when a job is
+#: restored to the queue after a retry, and to `cancelled` on cancellation,
+#: but neither value was listed here - `review_status_for()` passes the raw
+#: `review_runs.status` straight through with no translation, so either value
+#: made `GET /api/documents` fail its own response validation for every
+#: caller, not just the one document in that state (2026-09-28, found live
+#: while uploading standards: a review run had gone back to `queued`).
+#: `pending` is the column's DEFAULT and is kept even though nothing sets it
+#: explicitly today (`review_jobs.py` inserts a row with status already
+#: `queued`) - it is a real state, not the same as an empty documents list.
 #: Named apart from the guided-review finding status on purpose - that one is
 #: where a single FINDING stands (`open`, `resolved`...). Two different
 #: questions about two different things; one name for both is how a finding's
@@ -72,7 +83,9 @@ DocumentRole = Literal[
 DocumentReviewStatus = Literal[
     "not_reviewed",
     "pending",
+    "queued",
     "running",
+    "cancelled",
     "completed",
     "failed",
 ]
@@ -137,8 +150,11 @@ class Document(BaseModel):
     embedded_count: int
     status: DocStatus
     needs_ocr_pages: int = Field(
-        description="pages with no usable extractable text - candidates for "
-        "recognition. Not the same as recognised_pages: some are simply blank"
+        description="pages routed to recognition (`ocr.route_page`): no usable "
+        "text layer, or mostly scanned image with only a thin text layer (a "
+        "digital header or stamp over a scan). Not the same as recognised_pages: "
+        "some are blank, some failed, and on a page that also has a text layer "
+        "recognition may add nothing new"
     )
     recognised_pages: int = Field(
         0,
@@ -277,7 +293,15 @@ class StandardRequirement(BaseModel):
 #: with no recognisable limit is a `statement`, which is a true description of
 #: it - not a `numeric_limit` carrying a null value, a shape that reads as a
 #: limit nobody bothered to record.
-RequirementType = Literal["numeric_limit", "statement", "table_value"]
+#: Every type `requirements_3b` can STORE - the three core types plus the
+#: three it writes for shapes it will not force into a limit
+#: (`APPLICABILITY_TRIGGER`, `RELATIVE_LIMIT`, `TABLE_ROW`). The response model
+#: listed only three, so a standard holding any of the others failed its
+#: requirements list with a 500 (found 2026-09-30 by the frontend contract
+#: check). `requirements_3b.STORED_REQUIREMENT_TYPES` is the other home;
+#: tests/test_requirement_types_contract.py keeps them equal.
+RequirementType = Literal["numeric_limit", "statement", "table_value",
+                          "applicability_trigger", "relative_limit", "table_row"]
 
 #: An engineer's decision on an extracted requirement.
 RequirementDecision = Literal["confirm", "edit", "reject"]
@@ -316,6 +340,39 @@ class RequirementDecisionRequest(BaseModel):
         None, description="field -> new value, for `edit`. A correction sets "
                           "extraction_method to 'human': after it the row is a "
                           "person's statement, not a machine's guess")
+
+
+class Job(BaseModel):
+    """B11: one background job, as its caller may see it.
+
+    Only jobs on documents the caller may read are ever returned. `pages_*` are
+    null when the stage does not count pages - never 0."""
+
+    id: str
+    document_id: str
+    stage: str
+    state: str
+    priority: int
+    retries: int
+    error_code: str | None = None
+    pages_total: int | None = None
+    pages_done: int | None = None
+    next_attempt_at: str | None = None
+    started_at: str | None = None
+    updated_at: str | None = None
+    created_by: str | None = None
+    code_version: str | None = Field(None, description="the extractor code the output came from")
+    config_version: str | None = Field(None, description="config.config_version() at enqueue")
+    #: P3: set on review jobs.
+    review_run_id: str | None = None
+    progress_done: int | None = None
+    progress_total: int | None = None
+    progress_label: str | None = None
+    cancel_requested: bool = False
+
+
+class JobList(BaseModel):
+    jobs: list[Job]
 
 
 class ExtractionJob(BaseModel):
@@ -443,6 +500,67 @@ class CitedButNotHeld(BaseModel):
         description="never 'held' here by construction - this list is only "
                     "standards NOT in the library")
     cited_by: list[StandardCitation]
+
+
+class StandardObtainPointer(BaseModel):
+    """Where a missing standard is obtained. A fixed publisher catalogue page,
+    never a search URL carrying the identifier; no url for a company standard
+    or an unrecognised publisher - never a guessed site."""
+
+    publisher: str | None = None
+    url: str | None = None
+    note: str
+
+
+class MissingStandard(CitedButNotHeld):
+    """A cited-but-not-held standard, with where to get it and what has been
+    done about it: MISSING_LOCALLY (nothing recorded), REQUESTED, OBTAINED."""
+
+    status: str
+    note: str | None = None
+    requested_by: str | None = None
+    requested_at: str | None = None
+    obtain: StandardObtainPointer
+
+
+class StandardRequestBody(BaseModel):
+    identifier: str = Field(min_length=1, max_length=200)
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class StandardRequestResult(BaseModel):
+    identifier: str
+    status: str
+    requested_by: str
+    requested_at: str
+
+
+class ExternalCopyBody(BaseModel):
+    identifier: str = Field(min_length=1, max_length=200,
+                            description="the standard's number, as cited")
+    obtained_from: str = Field(min_length=1, max_length=500,
+                               description="publisher, order or licence reference")
+
+
+class StandardProvenance(BaseModel):
+    """A held standard recorded as obtained externally. `current` is false
+    when the file was replaced after the record was made."""
+
+    document_id: str
+    source_type: str
+    identifier: str
+    obtained_from: str
+    sha256: str
+    recorded_by: str
+    recorded_at: str
+    current: bool
+
+
+class StandardProvenanceRead(BaseModel):
+    """GET provenance: `provenance` is null when nothing was recorded - not
+    claimed either way, never read as "company"."""
+
+    provenance: StandardProvenance | None = None
 
 
 class ApplicabilityStatus(BaseModel):
@@ -1095,6 +1213,18 @@ AnswerType = Literal[
     # the input was never a document question - a greeting, thanks, chitchat
     "guidance",
     "metadata",
+    # chat redesign 2026-09-26: model general knowledge (never cited) and a
+    # workflow-records search
+    "general",
+    "records",
+    # chat redesign PR 3: the reader pressed Stop; `answer` is what they were shown
+    "cancelled",
+    # chat redesign PR 6: a web question, asked first (nothing sent), and
+    # the result of the one search the reader approved
+    "web_consent",
+    "web",
+    # plan C3: a comparison, retrieved and cited per named side
+    "comparison",
 ]
 
 
@@ -1401,7 +1531,9 @@ class AnalysisGaps(BaseModel):
 
 class ConfidenceCheckOut(BaseModel):
     label: str
-    fired: bool = Field(description="true = this check lowered confidence")
+    fired: bool | None = Field(
+        description="true = this check lowered confidence, false = it was checked "
+        "and did not, null = it was not checked in this run")
 
 
 class RecommendationOut(BaseModel):
@@ -1754,16 +1886,18 @@ RiskType = Literal["schedule", "review", "dependency", "compliance"]
 
 
 class RiskCreate(BaseModel):
+    # BOUNDED (audit 2026-09-30): this was an unauthenticated writer that
+    # accepted a 100 kB description into SQLite. Same limits as a deliverable.
     risk_type: RiskType
-    title: str
-    description: str
-    severity: str = "medium"
-    status: str = "open"
-    deliverable_id: str | None = None
-    document_id: str | None = None
-    owner_user_id: str | None = None
-    due_date: str | None = None
-    source_finding_id: str | None = None
+    title: str = Field(min_length=1, max_length=500)
+    description: str = Field(max_length=5000)
+    severity: str = Field(default="medium", max_length=50)
+    status: str = Field(default="open", max_length=50)
+    deliverable_id: str | None = Field(default=None, max_length=200)
+    document_id: str | None = Field(default=None, max_length=200)
+    owner_user_id: str | None = Field(default=None, max_length=200)
+    due_date: str | None = Field(default=None, max_length=50)
+    source_finding_id: str | None = Field(default=None, max_length=200)
 
 
 class Risk(BaseModel):
@@ -1836,16 +1970,22 @@ class ReviewFindingCreate(BaseModel):
     governing_sources: list[str] = Field(default_factory=list, max_length=100)
     unresolved_evidence: list[str] = Field(default_factory=list, max_length=50)
     response_text: str | None = Field(default=None, max_length=8000)
-    disposition: ReviewDisposition | None = None
+    #: B10: a finding is CREATED unreviewed. Disposition and approval are an
+    #: engineer's later act on the stored finding, recorded against their name
+    #: by the update route - never a value the creator can pre-fill.
+    disposition: None = None
     citation_ids: list[str] = Field(default_factory=list, max_length=50)
     owner_user_id: str | None = None
     due_date: str | None = None
     status: ReviewStatus = "open"
-    approval_status: ApprovalStatus = "pending"
+    approval_status: Literal["pending"] = "pending"
     escalation_level: int = Field(default=0, ge=0, le=5)
 
 
 class ReviewFindingUpdate(BaseModel):
+    #: Owner order section 3: the engineer's own wording of the comment.
+    #: Saving it also confirms the comment under the caller's name.
+    engineer_comment: str | None = Field(default=None, min_length=1, max_length=4000)
     owner_user_id: str | None = None
     due_date: str | None = None
     severity: ReviewSeverity | None = None
@@ -1855,8 +1995,8 @@ class ReviewFindingUpdate(BaseModel):
     escalation_level: int | None = Field(default=None, ge=0, le=5)
     response_text: str | None = Field(default=None, max_length=8000)
     disposition: ReviewDisposition | None = None
-    approved_by: str | None = None
-    approved_at: str | None = None
+    # B10: no `approved_by` / `approved_at` here. Who approved is the
+    # authenticated caller, set by the route - the same rule as `confirmed_by`.
     #: CONFIRM THE PAIRING. A flag, not a name: `confirmed_by` is the CALLER,
     #: taken from the authenticated scope and never from this body, because a
     #: confirmation that can name someone else is not a confirmation. There is
@@ -1931,6 +2071,9 @@ class ReviewFinding(BaseModel):
     standard_clause: str | None = None
     standard_page: int | None = None
     requirement_source_text: str | None = None
+    #: True when the standard this finding was decided against is one the
+    #: caller may not read: the fields above and `requirement` are withheld.
+    standard_withheld: bool = False
     contractor_page: int | None = None
     contractor_section: str | None = None
     contractor_evidence_text: str | None = None
@@ -1940,6 +2083,14 @@ class ReviewFinding(BaseModel):
     #: from an unexamined one.
     confirmed_by: str | None = None
     confirmed_at: str | None = None
+    #: Where the finding came from when not the comparison: "chat" (an
+    #: engineer's comment filed from Chat) or "ai_engineering_check" (a kind C
+    #: draft - never a verdict, never counted in the review code). NULL for
+    #: every comparison finding.
+    origin: str | None = None
+    #: Owner order section 3: the engineer's own wording, when edited. The CRS
+    #: prints it in place of the review's text. Null renders as nothing.
+    engineer_comment: str | None = None
 
 
 class PairRejectionCreate(BaseModel):
@@ -1977,18 +2128,21 @@ class CrsHeaderField(BaseModel):
 class CrsPreviewRow(BaseModel):
     """One comment row of the CRS, exactly as the workbook writes it.
 
-    `contractor_response` and `final_resolution` are ALWAYS empty. They belong
-    to the contractor, and they are carried rather than omitted because the
-    sheet has seven columns whether or not anyone has answered yet - a reader
-    has to see the space the contractor will fill.
+    `contractor_response` is empty until the contractor answers.
+    `final_resolution` is the COMPANY's column (only the reviewer closes a
+    comment): "Open" or "Closed" on a row with a permanent number, empty on an
+    unnumbered draft. Both are carried rather than omitted because the sheet
+    has seven columns whether or not anyone has answered yet.
     """
 
-    item_no: int
-    #: The system-generated reference for this row, e.g. "RF-4A2C1B". Stable
-    #: across re-exports of the same review, so a contractor can quote it
-    #: back. It is carried here as its own field AND printed as the comment's
-    #: first line - the client's template has seven columns and this adds no
-    #: eighth one.
+    #: The permanent comment number "CRS-<submittal no>-001" once an engineer
+    #: has made the comment theirs (`crs_numbers`), else the row's position.
+    item_no: int | str
+    #: The permanent number alone, "" on an unnumbered row.
+    crs_ref: str = ""
+    #: The digest reference, e.g. "RF-4A2C1B", stable across re-exports of one
+    #: review. Printed as the comment's first line ONLY on an unnumbered row;
+    #: a numbered row's Item No is the one ID a contractor quotes back.
     row_ref: str = ""
     document_name: str
     page_section: str
@@ -2002,6 +2156,81 @@ class CrsPreviewRow(BaseModel):
     #: caller (this JSON preview, or the .xlsx's own fill colour) can tell the
     #: four kinds of row apart without parsing the comment text.
     row_kind: str = ""
+    #: CRS quick wins (2026-09-27): the standard and clause the comment rests
+    #: on ("SAES-D-901 cl. 4.3 (p.1)", "Datasheet check DS-M1"), printed in
+    #: its own "Standard Reference" column after the client's seven. Empty
+    #: for an engineer's own chat comment.
+    standard_reference: str = ""
+    #: Owner decision 2026-09-27 (order 2f): an UNCONFIRMED AI engineering
+    #: check item's text, printed in the last column "AI Review Comments" of
+    #: the internal review copy, with `comment` left empty. Empty on every
+    #: other row, and the column is absent from the "Issue to contractor" copy.
+    ai_review_comment: str = ""
+
+
+class CrsStandardRow(BaseModel):
+    standard: str
+    status: str
+    method: str = ""
+    reason: str = ""
+    evidence: str = ""
+
+
+class ReviewReadiness(BaseModel):
+    """Owner order section 3: what a review of this submittal can use, BEFORE
+    it is run - so the engineer uploads a missing standard or re-reads a page
+    first, instead of re-running and expecting a different result."""
+
+    submittal_document_id: str
+    pages_total: int | None = None
+    pages_read: int = 0
+    unread_pages: list[int] = []
+    #: HONESTY GROUP (2026-09-27): keyed by page number (as a string, since
+    #: that is what a JSON object key is), the reason `page_ledger.refresh`
+    #: recorded for why the page did not read into fields - "no text on this
+    #: page", "read but only by the page reader", a vision-routing decision,
+    #: etc. `page_ledger.coverage()` has always computed this
+    #: (`not_read_reasons`); it was simply never carried past `unread_pages`.
+    unread_page_reasons: dict[str, str] = {}
+    standards_cited: int = 0
+    standards_held: list[str] = []
+    standards_missing: list[str] = []
+    last_run_id: str | None = None
+    #: True only when a previous run exists and nothing it depended on changed
+    #: since: no datasheet value was read or re-read after it, and no standard
+    #: was added to the library after it.
+    nothing_changed: bool = False
+    changes: list[str] = []
+
+
+class VisionReaderStatus(BaseModel):
+    """Whether the vision reader (Claude, page images) can be used right now,
+    and if not, what to change - shown beside "Read unread pages".
+
+    No document, no key, no exception message: a closed state, fixed plain
+    words, and at most an HTTP status or an error class name in `detail`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    state: Literal["READY", "GEOMETRY_OFF", "PROVIDER_OFF", "EGRESS_OFF",
+                   "KEY_MISSING", "BUDGET_REACHED", "KEY_INVALID",
+                   "RATE_LIMITED", "NETWORK_BLOCKED", "HOST_REFUSED",
+                   "UNEXPECTED"]
+    ready: bool
+    reason: str
+    fix: str
+    detail: str | None = None
+    checked_at: str
+
+
+class CrsReviewNote(BaseModel):
+    """Owner order 2f: one of the engineer's internal notes (the "Review
+    notes" sheet) - never a contractor comment."""
+
+    note: str
+    standard: str = ""
+    count: int | None = None
+    detail: str = ""
 
 
 class CrsPreview(BaseModel):
@@ -2020,11 +2249,21 @@ class CrsPreview(BaseModel):
     header: list[CrsHeaderField]
     columns: list[str]
     rows: list[CrsPreviewRow]
+    #: "internal" (default: includes "AI Review Comments") or "issue" (to the
+    #: contractor: that column and every unconfirmed row removed).
+    crs_copy: str = "internal"
+    #: 2f: the engineer's internal notes; empty in the contractor's copy.
+    review_notes: list[CrsReviewNote] = []
     #: Empty when the run has no recommendation, and rendered as nothing
     #: rather than as a placeholder code.
     recommended_code: str = ""
     recommended_code_reason: str = ""
+    recommended_code_status: str = ""
     recommended_code_label: str
+    #: B5: the standards the review applied and why, the ones considered and
+    #: not applied, and cited ones not held (MISSING_LOCALLY) - the workbook's
+    #: "Applicable standards" sheet.
+    applicable_standards: list[CrsStandardRow] = []
 
 
 class ReviewRunStandard(BaseModel):
@@ -2043,10 +2282,46 @@ class ReviewRunStandard(BaseModel):
     confidence: float | None = None
     included: bool = True
     exclusion_reason: str | None = None
+    #: B5: the evidence behind the selection - where the submittal cites the
+    #: standard, or the scope clause that decided it. None when there is none.
+    evidence_page: int | None = None
+    evidence_quote: str | None = None
+    #: applicability_v2's decision on a stored scope record, or None.
+    scope_decision: str | None = None
+
+
+class ReviewRunMissingReference(BaseModel):
+    identifier: str
+    status: str
+
+
+class StandardOverrideRequest(BaseModel):
+    """P2: an engineer adds or removes one standard on a review run.
+
+    The REASON is required and kept: an override with no reason is
+    indistinguishable from a mistake six months later."""
+
+    model_config = ConfigDict(extra="forbid")
+    standard_document_id: str
+    include: bool
+    reason: str = Field(min_length=3, max_length=2000)
 
 
 class ReviewRunStandardList(BaseModel):
     standards: list[ReviewRunStandard]
+    #: B5: standards the submittal CITES that the library does not hold, each
+    #: `MISSING_LOCALLY`, as stored on the run. Empty when none, or when the
+    #: run predates this field.
+    missing_references: list[ReviewRunMissingReference] = []
+
+
+class ReviewJobState(BaseModel):
+    id: str
+    state: str
+    progress_done: int | None = None
+    progress_total: int | None = None
+    progress_label: str | None = None
+    cancel_requested: bool = False
 
 
 class ReviewRunSummary(BaseModel):
@@ -2073,6 +2348,17 @@ class ReviewRunSummary(BaseModel):
     recommended_code: str | None = None
     #: The recommendation's own words. Never re-worded by a screen.
     recommended_reason: str | None = None
+    #: 2g: the technical sentence behind `recommended_reason` (the nominal
+    #: field estimate, identifiers), shown under "Details". Null when none.
+    recommended_details: str | None = None
+    #: The four review-code labels the client configured
+    #: (`reference/review_codes.json`), in policy order: approved, approved
+    #: with comments, revise and resubmit, manual review. Empty on a caller
+    #: that predates it; the screen then falls back to the default labels.
+    review_codes: list[str] = []
+    #: 2e: {previous_run_id, added: [names], removed: [names]} against the
+    #: previous run of the same submittal; null when there is none.
+    standards_change: dict | None = None
     #: Why a failed run failed, verbatim. None on a run that did not fail.
     failure_reason: str | None = None
     #: THE ENGINEER'S DECISION, BESIDE THE MACHINE'S AND NEVER INSTEAD OF IT.
@@ -2092,6 +2378,16 @@ class ReviewRunSummary(BaseModel):
     # fields, which were not and why. Null for a run made before the ledger
     # existed; null renders as nothing, never as "every page read".
     page_coverage: dict | None = None
+    #: P3: the job running this review: its state, named progress (step N of
+    #: 3) and whether cancellation was requested. Null for a run made before
+    #: reviews were queued.
+    job: ReviewJobState | None = None
+    #: 2026-09-27: the AI engineering check's own outcome for this run - null
+    #: when it never ran (off, or the Claude lane is off). NEVER silent when
+    #: it did: `complete` is false and `plain` states the boundary (how many
+    #: of how many, cut off by what) whenever a reply was truncated, only
+    #: partially recovered after the one capped retry, or refused outright.
+    ai_check_status: dict | None = None
 
 
 class PageLedgerRow(BaseModel):
@@ -2100,8 +2396,15 @@ class PageLedgerRow(BaseModel):
     native_status: str
     native_chars: int | None = None
     ocr_status: str
+    #: why the page was / was not routed to recognition, or why it failed
+    ocr_reason: str | None = None
     ocr_engine: str | None = None
     ocr_mean_conf: float | None = None
+    #: Individual word boxes on this page scored below
+    #: `settings.ocr_low_conf_threshold`. mean/min are one number for the
+    #: whole page; this is the count neither can give - a page with one bad
+    #: word among 200 and a page with fifty bad words can share the same min.
+    ocr_low_conf_boxes: int | None = None
     index_status: str
     index_reason: str | None = None
     layout_status: str
@@ -2119,6 +2422,89 @@ class PageLedger(BaseModel):
     document_id: str
     pages: list[PageLedgerRow]
     coverage: dict
+
+
+class CrsCommentStatusUpdate(BaseModel):
+    """Open or close one numbered CRS comment. Only the reviewer closes a
+    comment (industry practice); the name recorded is always the signed-in
+    caller's and is never read from the body. `note` is the reviewer's
+    closing remark ("verified on Rev 1, p.4"), printed after the status."""
+
+    model_config = ConfigDict(extra="forbid")
+    status: Literal["Open", "Closed"]
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class CrsCommentResponseUpdate(BaseModel):
+    """The contractor's reply to one comment, recorded by an engineer when it
+    arrived some other way than the returned sheet (an email, a letter).
+    `code` is null when the contractor's reply stated none - it is never
+    guessed. The engineer who recorded it is taken from the session."""
+
+    model_config = ConfigDict(extra="forbid")
+    code: Literal["Accepted", "Accepted with comment", "Rejected",
+                  "Clarification needed"] | None = None
+    text: str = Field(default="", max_length=4000)
+
+
+class CrsComment(BaseModel):
+    """One numbered CRS comment: its number, the reviewer's status, and the
+    contractor's reply as recorded - who and when for both."""
+
+    ref: str
+    seq: int
+    status: str
+    status_by: str | None = None
+    status_at: str | None = None
+    status_note: str | None = None
+    response_code: str | None = None
+    response_text: str | None = None
+    response_by: str | None = None
+    response_at: str | None = None
+    response_source: str | None = None
+
+
+#: Kept as the name the status route answered with before replies existed.
+CrsCommentStatus = CrsComment
+
+
+class CrsCommentEvent(BaseModel):
+    at: str
+    by: str | None = None
+    #: "numbered", "response", "open" or "closed".
+    event: str
+    detail: str | None = None
+
+
+class CrsCommentHistory(BaseModel):
+    """Everything that happened to one numbered comment, oldest first."""
+
+    ref: str
+    events: list[CrsCommentEvent]
+
+
+class CrsReplyRow(BaseModel):
+    #: The row number in the returned workbook, so an engineer can find it.
+    row: int
+    #: The Item No as the contractor's copy has it.
+    item: str
+    #: "updated", "updated, no response code stated", "no response",
+    #: "not a CRS number", "another submittal's number" or "no such number".
+    outcome: str
+
+
+class CrsReplyImport(BaseModel):
+    """What importing a returned CRS did, row by row, WITH ITS DENOMINATOR:
+    every row that carried an Item No is accounted for in exactly one count."""
+
+    rows_read: int
+    updated: int
+    updated_without_code: int
+    no_response: int
+    not_a_crs_number: int
+    other_submittal: int
+    unknown_number: int
+    rows: list[CrsReplyRow]
 
 
 class ReviewCodeDecision(BaseModel):
@@ -2380,11 +2766,25 @@ class EvidenceRemoved(BaseModel):
     characters_dropped: int
 
 
+class CorpusFactBreakdownEntry(BaseModel):
+    """One named role's own count, within a multi-role `CorpusFact`."""
+
+    role: str | None
+    loaded: int
+    not_loaded: int = 0
+    families: dict[str, int] | None = Field(
+        None, description="a COMPANY_STANDARD count, further split by standard "
+        "family (SAES, ASME, API, ...), when more than one family is present")
+
+
 class CorpusFact(BaseModel):
     """A count of the library, from the database, under the caller's grants.
 
     `text` carries its own boundary - "272 company standards are loaded and
-    readable by you" - so it cannot be quoted without it.
+    readable by you" - so it cannot be quoted without it. `role`/`loaded`/
+    `not_loaded` are the combined total (role is null when more than one
+    role was named together, or every role); `breakdown` names each role's
+    own count when the question named more than one in the same breath.
     """
 
     text: str
@@ -2396,9 +2796,186 @@ class CorpusFact(BaseModel):
     qualified: bool = Field(
         False, description="the question also asked about content, so retrieval "
         "answered that part separately")
+    breakdown: list[CorpusFactBreakdownEntry] | None = Field(
+        None, description="one entry per role, when the question named more than one")
 
 
-class AnswerResult(BaseModel):
+class ComparisonSide(BaseModel):
+    """One named side of a comparison and what its OWN, separately retrieved
+    search found - never what another side's search found."""
+
+    name: str = Field(description="the designation named in the question")
+    document_ids: list[str]
+    answer_type: str | None = Field(
+        None, description="this side's own answer_type - insufficient_evidence "
+        "means its targeted search found nothing; not_in_library means the "
+        "designation typed in the question matches no document the caller can read")
+    text: str | None = Field(
+        None, description="this side's own text, kept apart from the other sides'")
+    source_start: int = Field(
+        0, description="index into `passages` of this side's first source")
+    source_count: int = Field(0, description="how many `passages` belong to this side")
+    searched: bool = Field(
+        True, description="whether a search was really run for this side; false for a "
+        "named document the caller cannot read (never reported as a search that found nothing)")
+
+
+class ComparisonFamily(BaseModel):
+    """Issue #373: present when the sides were not NAMED by the reader but
+    found by the app from a family phrase ("the welding standards"). Which
+    standards belong to the family is the app's guess until a person confirms
+    it."""
+
+    label: str = Field(description="the reader's own descriptor words")
+    searched: list[str] = Field(description="the standards searched, one side each")
+    judged: int = Field(
+        description="how many readable standards matched; more than len(searched) "
+        "means the rest were not searched")
+    membership_is_a_guess: bool = Field(True, description="always true")
+    note: str = Field(description="the sentence written in code saying what was searched")
+
+
+class Comparison(BaseModel):
+    """Plan C3: a comparison's side breakdown, alongside the combined `answer`
+    text. Present only on `answer_type == \"comparison\"`."""
+
+    sides: list[ComparisonSide]
+    family: ComparisonFamily | None = Field(
+        None, description="issue #373: set when the app resolved a family phrase to the sides")
+
+
+class EvidenceRef(BaseModel):
+    document_id: str | None = None
+    page_start: int | None = None
+    page_end: int | None = None
+    section: str | None = None
+
+
+class Answerability(BaseModel):
+    """B8: does the evidence answer the question - decided by structure the
+    code can check, never by the reranker score; never "high" confidence."""
+    verdict: Literal["supported", "insufficient_evidence", "conflicting_evidence",
+                     "ambiguous_evidence", "requires_another_document",
+                     "requires_engineer_review", "depends_on_condition"]
+    reason: str
+    evidence: list[EvidenceRef] = []
+
+
+class Understanding(BaseModel):
+    """B6C: what the question was understood to be about - retrieval input."""
+    retrieval_query: str
+    document_id: str | None = None
+    scope_reason: str | None = None
+    scope_ids: list[str] | None = None
+    clause: str | None = None
+    clause_reason: str | None = None
+    ambiguous_documents: list[str] = []
+    notes: list[str] = []
+    soft_identifiers: list[str] = Field(
+        [], description="identifiers a follow-up carried from an earlier question. "
+        "They steer retrieval but are not required; typing one again makes it required")
+
+
+class ScopeDocument(BaseModel):
+    document_id: str
+    filename: str | None = None
+
+
+class ScopeAmbiguity(BaseModel):
+    """B6C: the answer's text is in more than one document."""
+    reason: str
+    documents: list[ScopeDocument]
+
+
+class ConditionOption(BaseModel):
+    """One clause competing to answer, and the condition it is written for."""
+    chunk_id: str
+    document_id: str
+    filename: str | None = None
+    section: str | None = None
+    page_start: int | None = None
+    page_end: int | None = None
+    conditions: list[str] = Field(
+        [], description="the conditions as the clause writes them, e.g. 'larger than 2 inch'")
+    line: str | None = Field(
+        None, description="within_passage only: the line of the passage written for this "
+        "condition, exactly as the passage writes it")
+    highlight: list[int] | None = Field(
+        None, description="within_passage only: [start, end] of that line in the passage text")
+
+
+class ConditionChoice(BaseModel):
+    """Plan step 4: clauses near the top set different values for different
+    conditions. `options`: the question named none of them, so every clause is
+    shown with its condition and the reader is asked which applies - none is
+    picked for them. `matched`: the question named one, and the one clause
+    that holds under it answers instead of a higher-ranked clause.
+    `within_passage`: the cases are lines (or table rows) of ONE passage -
+    every option points at the same chunk, each with its own line."""
+    mode: Literal["options", "matched"]
+    reason: str
+    within_passage: bool = False
+    kinds: list[str] = Field([], description="size, class, temperature, pressure, service, material, location")
+    question_names: list[str] = Field([], description="conditions the question itself named")
+    options: list[ConditionOption] = []
+
+
+AnswerKind = Literal["general", "document", "web", "mixed", "rewrite", "action", "records"]
+
+
+class ChatSource(BaseModel):
+    """One numbered source chip under a chat answer (chat redesign, 2f)."""
+    n: int
+    kind: Literal["document", "web"]
+    document_id: str | None = None
+    display_name: str
+    document_number: str | None = None
+    page: int | None = None
+    page_end: int | None = None
+    clause: str | None = None
+    text_source: str | None = None
+    ocr_min_conf: float | None = None
+    url: str | None = None
+    cited: bool = True
+    quotes: list[str] = Field([], description="the exact words each verified point stood on")
+    rows: list[dict] = Field([], description="extracted rows for the preview; the cited one flagged")
+
+
+class ChatVerification(BaseModel):
+    verified: int
+    total: int
+    method: str | None = None
+
+
+class ChatStep(BaseModel):
+    label: str
+    count: int | None = None
+    done: bool = True
+
+
+class ChatPresentation(BaseModel):
+    """What an answer says about itself on the Chat screen. ADDITIVE: every
+    field optional, so a turn stored before these existed still loads."""
+    answer_kind: AnswerKind | None = None
+    used_line: str | None = Field(None, description="the grey line: what was used, how long it took")
+    sources: list[ChatSource] = []
+    verification: ChatVerification | None = Field(
+        None, description="points found on the page - present only where literally true")
+    steps: list[ChatStep] = []
+    suggestions: list[str] = []
+    draft: dict | None = None
+    notices: list[str] = Field([], description="plain notices above the answer, e.g. the engineer notice")
+    model: str | None = None
+    provider: str | None = None
+    requested_provider: str | None = Field(
+        None, description="'claude' when the reader chose Claude; kept only when the local model answered")
+    provider_note: str | None = Field(
+        None, description="plain words: Claude was not used, and why (audit 101)")
+    seconds: float | None = None
+    cost_usd: float | None = None
+
+
+class AnswerResult(ChatPresentation):
     question: str
     answer_type: AnswerType = Field(
         description="extract is a verbatim quotation; generated is model prose. "
@@ -2453,6 +3030,13 @@ class AnswerResult(BaseModel):
         "the answer; on any other answer_type the question also asked about "
         "content, and this is the separate, database half of a two-part reply",
     )
+    comparison: Comparison | None = Field(
+        None,
+        description="plan C3: present on answer_type=='comparison' - each named "
+        "side's own document ids and its own answer_type, so a side reported as "
+        "'not found in the pages read' is shown as its own targeted search, "
+        "never bundled into the other side's evidence",
+    )
     counts_bounded: int = Field(
         0,
         description="sentences in a generated answer whose count of documents "
@@ -2467,12 +3051,19 @@ class AnswerResult(BaseModel):
     output_tokens: int | None = None
     seconds: float
     timings: dict[str, float]
+    understanding: Understanding | None = Field(
+        None, description="B6C: document scope, clause and notes the question was understood with")
+    scope_ambiguity: ScopeAmbiguity | None = Field(
+        None, description="B6C: the answer's own text is in more than one document")
+    condition_choice: ConditionChoice | None = Field(
+        None, description="which clause applies when near-equal clauses differ by condition")
+    answerability: Answerability | None = Field(
+        None, description="B8: whether the evidence answers the question, and why")
 
 
 MessageRole = Literal["user", "assistant"]
 
-
-class Message(BaseModel):
+class Message(ChatPresentation):
     id: str
     conversation_id: str
     ordinal: int
@@ -2493,6 +3084,10 @@ class Message(BaseModel):
     )
     payload: dict | None = Field(None, description="passages and citations, for replay")
     created_at: str
+    #: Chat redesign PR 5. The CALLER'S OWN "Was this right?" on this answer
+    #: (null: not answered), and the live comment filed from it, if any.
+    feedback: bool | None = None
+    filed_comment: dict | None = None
 
 
 class Conversation(BaseModel):
@@ -2531,7 +3126,11 @@ class AskRequest(BaseModel):
     question: str = Field("", max_length=500)
     tier: Literal["extract", "generated"] = "extract"
     document_id: str | None = None
-    limit: int = Field(3, ge=1, le=5)
+    limit: int | None = Field(
+        None, ge=1, le=5,
+        description="how many ranked passages to consider; default is the "
+        "configured answer top-k (ANSWER_TOP_K, 5), the same k the retrieval "
+        "benchmark reports recall at")
     explain_of: str | None = Field(
         None,
         description="upgrade this assistant message to Tier 2 instead of asking anew; "
@@ -2543,6 +3142,72 @@ class AskRequest(BaseModel):
         "this runs. Optional: without one the work reports nothing and "
         "behaves exactly as before",
     )
+    model: Literal["auto", "claude", "local"] | None = Field(
+        None, description="the engine to answer with. 'local' narrows to the "
+        "local engine; 'claude' is honoured only when Claude is configured")
+    web: bool = Field(
+        False, description="the composer's Web switch for this question. It can only "
+        "offer a web search, never send one: a web question gets a consent turn first")
+    document_ids: list[str] | None = Field(
+        None, max_length=20,
+        description="'@ a document': answer from these documents only. Narrows "
+        "what the caller may read - never widens it - and each must be readable")
+
+
+class ChatFeedbackRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    helpful: bool
+    note: str | None = Field(None, max_length=500)
+
+
+class ChatFeedback(BaseModel):
+    message_id: str
+    helpful: bool
+    note: str | None = None
+
+
+class FileCommentRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    #: the text the engineer had in front of them, edited or not
+    text: str = Field(min_length=1, max_length=8000)
+
+
+class FiledComment(BaseModel):
+    finding_id: str
+    message_id: str
+    document_id: str
+    document_name: str
+    review_run_id: str | None = Field(
+        None, description="the run whose comment sheet carries it; null when the "
+        "document has no review run yet, and then it is on no sheet")
+    chat_comments_on_sheet: int
+    undo_until: str
+
+
+class WithdrawnComment(BaseModel):
+    finding_id: str
+    withdrawn: bool
+
+
+class CancelledTurn(BaseModel):
+    turn_id: str
+    cancelled: bool
+
+
+class ChatModelOption(BaseModel):
+    id: Literal["claude", "local"]
+    label: str
+    model: str
+    available: bool
+    reason: str | None = Field(None, description="why it is unavailable; never a key")
+
+
+class ChatModels(BaseModel):
+    default: Literal["claude", "local"]
+    models: list[ChatModelOption]
+    #: Chat redesign PR 6: whether the composer may offer "Web", and why not.
+    web_available: bool = False
+    web_reason: str | None = None
 
 
 class AskResult(AnswerResult):
@@ -2626,6 +3291,31 @@ class ModelStatus(BaseModel):
     ollama_error: str | None = None
 
 
+class VectorStoreStatus(BaseModel):
+    """The dense-search backend (`vector_store.py`). Both backends are exact;
+    which one runs changes latency, never which chunks rank."""
+
+    requested: str = Field(description="VECTOR_BACKEND as configured")
+    active: Literal["sqlite_vec", "numpy"]
+    fallback_reason: str | None = Field(
+        None, description="why the exact numpy fallback is active; null when "
+                          "sqlite-vec is")
+    sqlite_vec_version: str | None = None
+    exact: bool = True
+    embedding_tag: str = Field(
+        description="model file + passage input format a vector must carry "
+                    "to be searched")
+    last_error: str | None = Field(
+        None, description="the last run-time failure of the sqlite-vec index, "
+                          "answered from the numpy path instead")
+    current_vectors: int | None = Field(
+        None, description="corpus-wide; null (absent) without the admin capability")
+    stale_vectors: int | None = Field(
+        None, description="vectors made by another model or input format: not "
+                          "searched until re-embedded. Corpus-wide; null "
+                          "without the admin capability")
+
+
 class DocumentFailure(BaseModel):
     id: str
     filename: str
@@ -2701,6 +3391,7 @@ class Metrics(BaseModel):
                     "any caller without the admin capability, like `system`.",
     )
     models: ModelStatus
+    vector_store: VectorStoreStatus | None = None
     worker: WorkerStatus
     warnings: list[MetricWarning]
 

@@ -38,10 +38,15 @@ the owner asked for to take to the standards body - the CRS's own
 per-submittal rows are unchanged and remain accurate to what that one
 submittal actually cites.
 
-NOT YET BUILT (tracked, not silently skipped):
-  - the licensed-lookup transport (never fetches copyrighted text; records
-    provenance only for freely published, authorized sources).
-  - the Standards Library page addition.
+BUILT SINCE (2026-09-29, `standards_acquisition.py`): the lookup, as the
+publisher's own catalogue page for each missing standard (every family here
+is sold under licence, NORSOK included, so nothing is fetched), a request
+recorded under an engineer's name, and an uploaded copy marked as obtained
+externally with its hash; shown on the Standards Library page.
+
+NOT BUILT (the client's open decision 3, "Is online lookup permitted, and who
+approves retrieved documents?"): automatically fetching a FREELY published
+source. Nothing in this system downloads a standard.
 """
 from __future__ import annotations
 
@@ -50,7 +55,7 @@ from dataclasses import dataclass
 from typing import Sequence
 
 from . import datasheets, db, standards
-from .db import connect
+from .db import connect, schema_once
 
 # --------------------------------------------------------------- vocabulary
 
@@ -71,7 +76,7 @@ FAMILIES = (FAMILY_SAES, FAMILY_SAMSS, FAMILY_API, FAMILY_ASME, FAMILY_ASTM,
             FAMILY_OTHER)
 
 #: Families this project's own client issues - present in the library
-#: because Saudi Aramco (or KOC) wrote them, not because a third party's
+#: because the client (or KOC) wrote them, not because a third party's
 #: copyrighted text was licensed.
 _OWN_STANDARD_FAMILIES = frozenset({FAMILY_SAES, FAMILY_SAMSS, FAMILY_KOC})
 
@@ -135,6 +140,7 @@ def default_licence_status(family: str, *, held: bool) -> str:
 
 # ------------------------------------------------------------------ schema
 
+@schema_once
 def ensure_schema() -> None:
     """Additive columns on `document_classification`. Safe to call every
     request; `add_column_if_missing` is the project's own race-safe helper.
@@ -176,7 +182,7 @@ class CoverMetadata:
     effective_date: CoverField | None
 
 
-#: A Saudi Aramco standard's own number, as its cover page prints it. NOT
+#: A client standard's own number, as its cover page prints it. NOT
 #: zero-padded here - `applicability.library_identifier` reads FILENAMES and
 #: normalises for matching; this reads the document's own printed text and
 #: keeps it as printed, because a backfilled field is a transcription, not a
@@ -218,7 +224,7 @@ _COVER_REVISION = re.compile(
 #: older-format "Effective Date: ...". Deliberately NOT "Previous Issue"
 #: (the date the PRIOR revision took effect - a real date, but the wrong
 #: one) and NOT "Next Planned Update" (a future date that has not happened
-#: yet). A newer Aramco cover format states Issue Date/Previous Issue/Next
+#: yet). A newer client cover format states Issue Date/Previous Issue/Next
 #: Planned Update instead of a bare "Revision: N" (found while sampling the
 #: real corpus's UNKNOWN revisions - these covers are not missing wording a
 #: reader failed to catch; they are a genuinely different, date-based

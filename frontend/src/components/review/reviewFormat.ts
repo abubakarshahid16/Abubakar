@@ -64,16 +64,37 @@ export const STATUS_LABEL: Record<ComplianceStatus, string> = {
  * scanning a table reads red as "this failed" long before they read the word.
  */
 export const STATUS_TONE: Record<ComplianceStatus, string> = {
-  NON_COMPLIANT: "border-rose-500/40 bg-rose-500/10 text-rose-200",
-  NEEDS_ENGINEER_REVIEW: "border-amber-500/40 bg-amber-500/10 text-amber-200",
-  CONDITIONAL: "border-sky-500/40 bg-sky-500/10 text-sky-200",
-  COMPLIANT: "border-emerald-500/40 bg-emerald-500/10 text-emerald-200",
+  // 2g: theme tokens (index.css), AA in BOTH themes. The pale "-200" text
+  // they replace was unreadable on the light theme's white card.
+  NON_COMPLIANT: "border-pill-fail-border bg-pill-fail-bg text-pill-fail-fg",
+  NEEDS_ENGINEER_REVIEW: "border-pill-review-border bg-pill-review-bg text-pill-review-fg",
+  CONDITIONAL: "border-pill-cond-border bg-pill-cond-bg text-pill-cond-fg",
+  COMPLIANT: "border-pill-pass-border bg-pill-pass-bg text-pill-pass-fg",
   NOT_APPLICABLE: "border-ink-600 bg-ink-800 text-slateish-300",
   MISSING_INFORMATION: "border-ink-600 bg-ink-800 text-slateish-300",
   // Neutral like missing, but DASHED and dimmer so the two never read alike:
   // one is a question for the contractor, the other is not about them.
   NOT_IN_DOCUMENT_SCOPE: "border-dashed border-ink-600 bg-ink-900 text-slateish-400",
 };
+
+/** A review RUN's lifecycle status in plain words (audit 2026-09-30: the raw
+ *  database value was printed). The five values the backend writes are
+ *  `queued`, `running`, `completed`, `failed` and `cancelled`
+ *  (review_jobs.py, comparison.py). Null renders as nothing; a value this
+ *  list does not know is shown as itself rather than guessed at. */
+export const RUN_STATUS_LABEL: Record<string, string> = {
+  queued: "Waiting to start",
+  running: "Running",
+  completed: "Finished",
+  failed: "Failed",
+  cancelled: "Cancelled",
+};
+
+export function runStatusLabel(status: string | null | undefined): string {
+  if (!status) return "";
+  return Object.prototype.hasOwnProperty.call(RUN_STATUS_LABEL, status)
+    ? RUN_STATUS_LABEL[status] : status;
+}
 
 export function statusLabel(status: string | null | undefined): string {
   if (!status) return "";
@@ -88,17 +109,36 @@ export const UNREAD_PAGES = "UNREAD_PAGES";
  *  "missing information" reads as honesty, not as a regression. */
 export const PAGES_NOT_READABLE_LABEL = "Pages not yet readable - needs engineer review";
 
+/** Honesty audit entry 68: the value was not found on a page read only by the
+ *  geometry/vision (page) reader - an engineer checks the page; it is never
+ *  the contractor's missing information. */
+export const PAGE_READER_ONLY = "PAGE_READER_ONLY";
+export const PAGE_READER_ONLY_LABEL = "Value not found by the page reader - engineer to check the page";
+
 /**
  * A FINDING's label, not just its status's: one status can carry different
  * truths. A NEEDS_ENGINEER_REVIEW finding whose reason is UNREAD_PAGES says
  * so in plain words; every other finding reads as its status does.
  */
+/** Owner order 2d: an AI engineering check item (kind C). A draft - never a
+ *  verdict, never from the standard's text. */
+export const AI_ENGINEERING_CHECK = "ai_engineering_check";
+//: Owner order 2d-2: kind D, a public web standards check.
+export const WEB_STANDARD_CHECK = "web_standard_check";
+export const AI_ENGINEERING_CHECK_LABEL =
+  "AI engineering check - not from the standard text - engineer to confirm";
+
 export function findingLabel(finding: {
-  compliance_status?: string | null; ai_rationale?: string | null;
+  compliance_status?: string | null; ai_rationale?: string | null; origin?: string | null;
 }): string {
+  if (finding.origin === AI_ENGINEERING_CHECK) return AI_ENGINEERING_CHECK_LABEL;
   if (finding.compliance_status === "NEEDS_ENGINEER_REVIEW"
       && (finding.ai_rationale ?? "").startsWith(UNREAD_PAGES)) {
     return PAGES_NOT_READABLE_LABEL;
+  }
+  if (finding.compliance_status === "NEEDS_ENGINEER_REVIEW"
+      && (finding.ai_rationale ?? "").startsWith(PAGE_READER_ONLY)) {
+    return PAGE_READER_ONLY_LABEL;
   }
   return statusLabel(finding.compliance_status);
 }
@@ -159,24 +199,24 @@ export function matchMethodTone(method: string | null | undefined): string {
 }
 
 /**
- * The completeness line, WITH the word "nominal" when the denominator is one.
- *
- * `comparison._insufficient_reason` spells this out and the screen must not
- * quietly drop it: "42 of 385" reads like somebody counted the sheet, and
- * nobody did - 385 is pages times a nominal 35 fields per page.
+ * The completeness line in plain words (owner order 2g): what was COUNTED -
+ * the fields read. The estimate of how many a sheet holds is not a count of
+ * this document, so it is never in this line; `estimateDetail` states it,
+ * labelled nominal, under "Details".
  */
 export function completenessLine(run: ReviewRunSummary): string {
-  const block = run.completeness;
-  if (!block) return "";
-  const read = block.fields_read;
-  const estimated = block.fields_estimated;
+  const read = run.completeness?.fields_read;
   if (read === undefined || read === null) return "";
-  if (estimated === undefined || estimated === null) {
-    return `${read.toLocaleString()} fields read`;
-  }
-  return `${read.toLocaleString()} of approximately ${estimated.toLocaleString()} fields`
-    + ` (a NOMINAL estimate: ${block.pages ?? "?"} pages x 35 fields per page,`
-    + ` not a count of this document)`;
+  return `Checked ${read.toLocaleString()} datasheet field${read === 1 ? "" : "s"}.`;
+}
+
+/** The nominal estimate behind the completeness gate, for "Details" only. */
+export function estimateDetail(run: ReviewRunSummary): string {
+  const block = run.completeness;
+  if (!block || block.fields_estimated === undefined || block.fields_estimated === null) return "";
+  return `${(block.fields_read ?? 0).toLocaleString()} of approximately `
+    + `${block.fields_estimated.toLocaleString()} fields (a NOMINAL estimate: `
+    + `${block.pages ?? "?"} pages x 35 fields per page, not a count of this document).`;
 }
 
 /** `[1, 2, 3, 7]` -> `1-3, 7`, the same shape the backend writes in findings. */
@@ -219,4 +259,191 @@ export function whenLabel(value: string | null | undefined): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
   return parsed.toLocaleString();
+}
+
+/** 2e: why the in-scope count moved - "Since the previous run: 4 standards
+ *  removed (A, B, ...); 1 added (C)". Nothing when there is no earlier run
+ *  or nothing changed. */
+export function standardsChangeLine(run: ReviewRunSummary): string {
+  const change = run.standards_change;
+  if (!change) return "";
+  const part = (names: string[], verb: string) => names.length
+    ? `${names.length} standard${names.length === 1 ? "" : "s"} ${verb} (${names.join(", ")})`
+    : "";
+  const parts = [part(change.removed, "removed"), part(change.added, "added")].filter(Boolean);
+  return parts.length
+    ? `Since the previous run: ${parts.join("; ")}.`
+    : "Same standards in scope as the previous run.";
+}
+
+/** Owner order section 1: which KIND of comment a finding is. "" for a
+ *  comparison against a standard (kind A), which carries its own citation. */
+export function kindLabel(finding: { origin?: string | null }): string {
+  if (finding.origin === "datasheet_check") return "Datasheet check";
+  if (finding.origin === AI_ENGINEERING_CHECK) return "AI engineering check";
+  // Owner order 2d-2: kind D - checked against a public web copy of a
+  // standard, never the contract copy.
+  if (finding.origin === "web_standard_check") return "Public web check";
+  return "";
+}
+
+/** Owner order section 3: the four totals, in plain words.
+ *
+ *  THE BOUNDARY IS STATED: `counted` is the run's comparison and datasheet
+ *  findings. AI engineering check items (kind C) are drafts with no
+ *  compliance status and are never counted; engineer comments filed from
+ *  chat are comments, not verdicts. "Not applicable" is its own number so
+ *  the four plus it add up to `counted`. A requirement with no value found
+ *  is "could not be checked" - never "meets" (rule 4). */
+export interface SummaryTotals {
+  meets: number;
+  doesNotMeet: number;
+  needsDecision: number;
+  couldNotCheck: number;
+  notApplicable: number;
+  counted: number;
+}
+
+export function summaryTotals(
+  findings: { compliance_status?: string | null; origin?: string | null; approval_status?: string | null }[],
+): SummaryTotals {
+  const totals: SummaryTotals = {
+    meets: 0, doesNotMeet: 0, needsDecision: 0, couldNotCheck: 0, notApplicable: 0, counted: 0,
+  };
+  for (const f of findings) {
+    // Owner order 2d/2d-2: kind C and kind D are drafts, never counted.
+    if (f.origin === AI_ENGINEERING_CHECK || f.origin === WEB_STANDARD_CHECK || f.origin === "chat") continue;
+    if (f.approval_status === "rejected") continue;
+    const status = f.compliance_status;
+    if (!status) continue;
+    totals.counted += 1;
+    if (status === "COMPLIANT") totals.meets += 1;
+    else if (status === "NON_COMPLIANT") totals.doesNotMeet += 1;
+    else if (status === "NEEDS_ENGINEER_REVIEW" || status === "CONDITIONAL") totals.needsDecision += 1;
+    else if (status === "NOT_APPLICABLE") totals.notApplicable += 1;
+    else totals.couldNotCheck += 1;
+  }
+  return totals;
+}
+
+/** Owner order section 3: comments by kind. A - checked against the text
+ *  of a held standard; B - the datasheet against itself; C - AI engineering
+ *  check; D - a public web copy of a standard (owner order 2d-2). C and D
+ *  each split confirmed / unconfirmed because only a confirmed one goes to
+ *  the contractor. Rejected comments are not counted. */
+export interface KindCounts {
+  a: number; b: number; cConfirmed: number; cUnconfirmed: number;
+  dConfirmed: number; dUnconfirmed: number;
+}
+
+export function kindCounts(
+  findings: { origin?: string | null; confirmed_by?: string | null; approval_status?: string | null }[],
+): KindCounts {
+  const counts: KindCounts = {
+    a: 0, b: 0, cConfirmed: 0, cUnconfirmed: 0, dConfirmed: 0, dUnconfirmed: 0,
+  };
+  for (const f of findings) {
+    if (f.approval_status === "rejected" || f.origin === "chat") continue;
+    if (f.origin === "datasheet_check") counts.b += 1;
+    else if (f.origin === AI_ENGINEERING_CHECK) {
+      if (f.confirmed_by) counts.cConfirmed += 1;
+      else counts.cUnconfirmed += 1;
+    } else if (f.origin === WEB_STANDARD_CHECK) {
+      if (f.confirmed_by) counts.dConfirmed += 1;
+      else counts.dUnconfirmed += 1;
+    } else counts.a += 1;
+  }
+  return counts;
+}
+
+/** Owner order section 3: runs grouped per document, latest first. The
+ *  first run of each group is the one shown; the rest are "earlier runs". */
+export function groupRunsByDocument<T extends { submittal_document_id: string; created_at?: string | null; review_run_id: string }>(
+  runs: T[],
+): { documentId: string; latest: T; earlier: T[] }[] {
+  const groups = new Map<string, T[]>();
+  for (const run of runs) {
+    const list = groups.get(run.submittal_document_id) ?? [];
+    list.push(run);
+    groups.set(run.submittal_document_id, list);
+  }
+  const newestFirst = (a: T, b: T) =>
+    (b.created_at ?? "").localeCompare(a.created_at ?? "") || b.review_run_id.localeCompare(a.review_run_id);
+  return [...groups.entries()]
+    .map(([documentId, list]) => {
+      const [latest, ...earlier] = [...list].sort(newestFirst);
+      return { documentId, latest, earlier };
+    })
+    .sort((x, y) => newestFirst(x.latest, y.latest));
+}
+
+/** Owner order section 3: the readiness strip's page line, with its
+ *  denominator. Nothing when the page count is unknown (null renders as
+ *  nothing). */
+export function pagesReadLine(r: { pages_total: number | null; pages_read: number }): string {
+  if (r.pages_total == null) return "";
+  return `Pages read: ${r.pages_read} of ${r.pages_total}`;
+}
+
+/** Owner order section 3: comments grouped by topic, so ten findings about
+ *  one field read as one group instead of ten unrelated rows. The topic is
+ *  the field the comment is about - the matched datasheet field name for a
+ *  kind A/C comment, or the equipment tag when there is no field - falling
+ *  back to "Other" rather than dropping a finding that names neither. */
+export function groupFindingsByTopic<
+  T extends { matched_phrase?: string | null; equipment_tag?: string | null },
+>(findings: T[]): { topic: string; findings: T[] }[] {
+  const groups = new Map<string, T[]>();
+  for (const finding of findings) {
+    const topic = finding.matched_phrase || finding.equipment_tag || "Other";
+    const list = groups.get(topic) ?? [];
+    list.push(finding);
+    groups.set(topic, list);
+  }
+  return [...groups.entries()]
+    .sort(([a], [b]) => (a === "Other" ? 1 : b === "Other" ? -1 : a.localeCompare(b)))
+    .map(([topic, list]) => ({ topic, findings: list }));
+}
+
+/** The backend's page size for a document list, and its hard maximum. A list
+ *  asked without `limit` silently stops at 20; every picker asks for this. */
+export const LIST_MAX = 200;
+
+/** X-Total-Count from a list response, or null when the header is absent or
+ *  unreadable. Null is "not known", never 0. */
+export function totalFromResponse(
+  response: { headers?: { get?: (name: string) => string | null } } | null | undefined,
+): number | null {
+  const raw = response?.headers?.get?.("X-Total-Count");
+  if (raw == null || raw === "") return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+/** Say where a list was cut, or nothing when it was not. States the boundary
+ *  (newest N) and, when the server told us, the total; never invents one. */
+export function truncationNote(
+  shown: number, total: number | null, noun: string,
+): string | null {
+  if (total !== null) {
+    return total > shown
+      ? `Showing the newest ${shown} of ${total} ${noun}. Older ones are not listed here.`
+      : null;
+  }
+  return shown >= LIST_MAX
+    ? `Showing the newest ${LIST_MAX} ${noun}; there may be more that are not listed here.`
+    : null;
+}
+
+/** The step line of a running review. A total is shown only when the server
+ *  reported one: an invented denominator ("of 3") reads as a measurement. */
+export function progressLine(
+  done: number | null | undefined, total: number | null | undefined,
+  label: string | null | undefined,
+): string {
+  const step = (done ?? 0) + 1;
+  const text = label ?? "working";
+  return typeof total === "number" && total > 0
+    ? `Step ${Math.min(step, total)} of ${total}: ${text}`
+    : `Step ${step}: ${text}`;
 }

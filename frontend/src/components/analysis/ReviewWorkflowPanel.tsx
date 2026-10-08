@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 
 import type { ReviewDisposition, ReviewFinding, ReviewFindingEvent, ReviewFindingUpdate, ReviewStatus } from "../../types/api";
 import { reviews as reviewsApi } from "../../api/client";
+import type { ViewId } from "../Shell";
+import { NavLink } from "../NavLink";
 
 type Props = {
   findings: ReviewFinding[];
@@ -163,14 +165,15 @@ function FindingRow({ finding, onUpdate, documents }: { finding: ReviewFinding; 
 }
 
 function TraceabilityTimeline({ traceability, finding }: { traceability: import("../../types/api").ReviewTraceability; finding: ReviewFinding }) {
-  const nodes = [
-    { label: "Finding", value: finding.finding, href: `#finding-${finding.id}` },
-    { label: "Document", value: traceability.document.filename, href: "/documents" },
-    { label: "Baseline", value: traceability.baseline?.filename ?? "No baseline returned", href: null },
-    { label: "Citations", value: `${traceability.citations.length} citation${traceability.citations.length === 1 ? "" : "s"}`, href: null },
-    { label: "Deliverable", value: traceability.deliverables[0]?.title ?? "No deliverable linked", href: traceability.deliverables[0] ? `/deliverables/${traceability.deliverables[0].id}` : null },
-    { label: "Owner", value: traceability.owner?.display_name || traceability.owner?.email || "No owner assigned", href: null },
-    { label: "Action", value: traceability.action || finding.required_action, href: null },
+  type Link = { view: ViewId; recordId?: string } | null;
+  const nodes: { label: string; value: string; link: Link }[] = [
+    { label: "Finding", value: finding.finding, link: null },
+    { label: "Document", value: traceability.document.filename, link: { view: "documents" } },
+    { label: "Baseline", value: traceability.baseline?.filename ?? "No baseline returned", link: null },
+    { label: "Citations", value: `${traceability.citations.length} citation${traceability.citations.length === 1 ? "" : "s"}`, link: null },
+    { label: "Deliverable", value: traceability.deliverables[0]?.title ?? "No deliverable linked", link: traceability.deliverables[0] ? { view: "deliverables", recordId: traceability.deliverables[0].id } : null },
+    { label: "Owner", value: traceability.owner?.display_name || traceability.owner?.email || "No owner assigned", link: null },
+    { label: "Action", value: traceability.action || finding.required_action, link: null },
   ];
   return <section aria-label="Finding traceability" className="mt-3 rounded-[var(--radius-xs)] border border-signal-500/30 bg-signal-500/[0.04] p-3 text-xs text-slateish-300">
     <p className="font-semibold uppercase tracking-wide text-signal-400">Full traceability chain</p>
@@ -178,7 +181,7 @@ function TraceabilityTimeline({ traceability, finding }: { traceability: import(
       {nodes.map((node) => <li key={node.label} className="relative pb-3 last:pb-0">
         <span aria-hidden className="absolute -start-[1.2rem] top-0.5 h-2 w-2 rounded-full bg-signal-400 ring-4 ring-ink-850" />
         <span className="font-semibold text-slateish-200">{node.label}</span>
-        {node.href ? <a className="ms-2 text-signal-300 underline underline-offset-2" href={node.href}>{node.value}</a> : <span className="ms-2">{node.value}</span>}
+        {node.link ? <NavLink className="ms-2 text-signal-300 underline underline-offset-2" view={node.link.view} recordId={node.link.recordId}>{node.value}</NavLink> : <span className="ms-2">{node.value}</span>}
       </li>)}
     </ol>
     {traceability.events.length > 0 && <ul className="mt-3 border-t border-ink-700 pt-2 text-slateish-500">

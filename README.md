@@ -32,7 +32,7 @@ This is **not** an air-gapped system. It is a **locally-inferencing** system on 
 ```text
 PDF ──▶ stream + SHA-256 ──▶ page batches ──▶ PyMuPDF text ──▶ structure-aware chunks
                                      │                                    │
-                                     │                                    ├──▶ ONNX int8 E5 ──▶ SQLite BLOBs (brute-force)
+                                     │                                    ├──▶ ONNX int8 E5 ──▶ SQLite BLOBs ──▶ sqlite-vec (exact)
                                      │                                    └──▶ SQLite FTS5
                                      ▼
                               resumable checkpoint
@@ -56,7 +56,7 @@ question ──▶ dense + FTS candidates ──▶ RRF fusion ──▶ cross-e
 | PDF extraction | PyMuPDF (processes, never threads) |
 | Chunking | Custom structure-aware, 400-token target / 60-token overlap |
 | Embeddings | `intfloat/multilingual-e5-small`, local ONNX int8, 384-D normalized |
-| Vector search | Vectors as BLOBs in SQLite (`chunk_vectors`), memory-mapped into one numpy matrix (`vectorcache.py`), brute-force cosine |
+| Vector search | Vectors as BLOBs in SQLite (`chunk_vectors`, the source of truth), searched through `vector_store.py`: the sqlite-vec `vec0` extension (exact KNN, cosine, in-process, no server) in a derived index file `data/vector_index.sqlite`, with the memory-mapped numpy matrix (`vectorcache.py`) as the automatic exact fallback. The active backend is on System Health |
 | Keyword search | SQLite FTS5 |
 | Fusion | Reciprocal Rank Fusion |
 | Reranking | Small local CPU cross-encoder — **mandatory**, not optional |
@@ -72,6 +72,7 @@ question ──▶ dense + FTS candidates ──▶ RRF fusion ──▶ cross-e
 - Retrieved PDF text is **untrusted data**, never instructions to the model.
 - Previous assistant answers are **never** treated as evidence.
 - Uploads **stream** to disk; a large PDF is never loaded whole into RAM.
+- Accepted uploads: PDF, and `.xlsx` (stored, not indexed). With `DATASHEET_OFFICE_INPUT=true` (off by default) `.xlsx` and `.docx` datasheets are also indexed and read into facts, and table-shaped OCR lines on scanned pages are read at low confidence for engineer review (`backend/app/datasheet_inputs.py`).
 - Killing the process mid-ingestion **resumes from the last completed page batch**.
 - A partially-processed document is labelled `partially searchable`, never `ready`.
 
@@ -80,7 +81,7 @@ question ──▶ dense + FTS candidates ──▶ RRF fusion ──▶ cross-e
 Deliberately excluded from the prototype to protect the deadline:
 
 - ~~**OCR**~~ — **no longer cut.** Scanned pages are recognised offline (RapidOCR / PP-OCRv6, in a subprocess), and recognised text is labelled as such rather than presented as a quotation. Coverage across the corpus rose 94.0% → 96.3%. See `docs/adr/ADR-0005` and `ADR-0006`.
-- **ANN index** — brute-force vector search is faster *and* exact at prototype scale
+- **ANN index** — search is exact (sqlite-vec `vec0` or numpy, both brute force); an approximate index loses recall under per-user document scopes and is not needed below ~0.5-1 M vectors (retrieval audit 2026-09-27)
 - **Retrieval profiles** — one profile (Balanced)
 - ~~**System view**~~ — **no longer four.** Six built views (Dashboard, Documents, Chat, Analysis, Reports, Ingestion) plus an Administration section, per the navigation in `frontend/src/components/Shell.tsx`. History is still folded into Chat.
 - **Playwright** — acceptance testing is manual and evidenced
@@ -261,7 +262,7 @@ working one. No key in `.env.example` is a real credential.
 
 ```bash
 cd backend
-python -m pytest -q      # expected counts: SETUP.md section 5 (two figures, with and without .env)
+python -m pytest -q      # expected counts: SETUP.md section 5; the result does not depend on backend/.env
 ```
 
 **The count is stable; the duration is not.** The expected count lives in
@@ -273,14 +274,25 @@ the same work, three times the wall clock, on the same runner type. Locally it t
 run competing. So treat the count as the thing to check and the duration as
 weather. If your run matches SETUP.md's count in twelve minutes, nothing is wrong.
 
-Run it from `backend/`, not from the repository root. `pytest.ini` lives there,
-and so does `.env` - which the application reads for `AUTH_MODE`. The suite pins
-the authentication mode itself (`tests/conftest.py`) so its result does not
-depend on whether you have a local `.env`, but the same is not true of the
-server: see step 6.
+Run it from `backend/`, not from the repository root. `pytest.ini` lives there.
+**The suite never reads `backend/.env` or your shell's settings**
+(`tests/env_isolation.py`, called from `tests/conftest.py` at import): every
+setting is the code's default, egress/key/proxy variables are removed, the
+spend ledger and cache are temp files, and a network guard refuses anything but
+loopback. Until 2026-09-27 only `AUTH_MODE` was pinned, and a `.env` with the
+Claude lane on made real, paid API calls from the suite (honesty audit 77). A
+test that needs a lane on sets it itself, with a fake transport. The server
+DOES read `backend/.env`: see step 6.
 
 Slow tests that build a real ONNX session are marked `slow` and deselected by
 default. Run them with `python -m pytest -m slow`.
+
+The retrieval latency benchmark (about 105 s on its own) is marked `benchmark`
+and is also deselected by default. CI runs it in a separate step, so it still
+gates every push; run it locally with `python -m pytest -m benchmark`.
+
+A plain run is serial. `pytest-xdist` is installed with the requirements, so on
+a 4-core machine run `python -m pytest -q -n 4` (CI uses `-n auto`).
 
 If the models are not staged, the suite **stops immediately** with the command
 that fixes it, rather than producing ninety failures with one cause.

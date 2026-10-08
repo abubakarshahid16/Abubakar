@@ -36,7 +36,7 @@ import uuid
 from datetime import datetime, timezone
 
 from . import review
-from .db import add_column_if_missing, connect
+from .db import add_column_if_missing, connect, schema_once
 
 
 def _now() -> str:
@@ -74,6 +74,7 @@ def _scope_clause(
     return f" WHERE {column} IN ({marks})", sorted(allowed_document_ids)
 
 
+@schema_once
 def ensure_schema() -> None:
     """Create this module's tables. Idempotent, and safe to call repeatedly.
 
@@ -214,6 +215,14 @@ def ensure_schema() -> None:
             # it then, and nothing here back-fills a guess.
             ("extractor_version", "TEXT"),
             ("input_hash", "TEXT"),
+            # OWNER ORDER 2a: a table or formula rule, parsed ONCE into the
+            # structured form `rule_eval` evaluates, and HOW it was parsed:
+            # 'code' (rule_eval.parse_rule) or 'model_parsed_verified' (the
+            # model's parse, accepted only because every number in it is on
+            # the clause's page). NULL: not a rule, or not parseable - it
+            # stays with an engineer. Additive; NULL on every existing row.
+            ("rule_json", "TEXT"),
+            ("rule_source", "TEXT"),
         ):
             # RACE-SAFE, because this runs on read paths. See
             # `db.add_column_if_missing`.
@@ -276,6 +285,14 @@ def ensure_schema() -> None:
             ("override_reason", "TEXT"),
             ("decided_by", "TEXT REFERENCES users(id) ON DELETE SET NULL"),
             ("decided_at", "TEXT"),
+            # 2026-09-27, AI-check truncation fix: the AI engineering check's
+            # own outcome for this run - JSON, same style as `refusal_reason`
+            # above. NULL when the check never ran (off, or the Claude lane is
+            # off). Set whether the check finished cleanly, was completed
+            # after a capped retry, or is still incomplete - so a truncated
+            # reply is a fact on the run a reviewer can see, never a run that
+            # silently looks like it raised nothing to say.
+            ("ai_check_status", "TEXT"),
         ):
             add_column_if_missing(conn, "review_runs", _column, _type)
         conn.execute(
@@ -486,6 +503,62 @@ def ensure_schema() -> None:
                 UNIQUE(review_run_id, standard_document_id)
             )"""
         )
+        # B5 (live wiring, 2026-09-25): THE EVIDENCE FOR A SELECTION, not
+        # only its reason. Where the submittal cites the standard (page and
+        # the line it is cited on), or the scope clause that decided it; and
+        # the scope decision itself (applicability_v2) when one was made.
+        # NULL when there is no such evidence - never a placeholder.
+        for _column, _type in (("evidence_page", "INTEGER"),
+                               ("evidence_quote", "TEXT"),
+                               ("scope_decision", "TEXT")):
+            add_column_if_missing(conn, "review_applicable_standards", _column, _type)
+        # B5: a standard's SCOPE RECORD (scope_records.py), stored once so the
+        # live review can use it without calling a model. Written only by an
+        # explicit reading step; the review route only reads it.
+        # `not_applicable_confirmed` is 1 only when the reader's three
+        # re-reads agreed (scope_records.decide_with_confirmation) - without
+        # it a NOT_APPLICABLE is treated as UNKNOWN and excludes nothing.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS standard_scope_records (
+                standard_document_id TEXT PRIMARY KEY
+                    REFERENCES documents(id) ON DELETE CASCADE,
+                record_json TEXT NOT NULL,
+                prompt_version TEXT,
+                not_applicable_confirmed INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            )""")
+        # B5 cost fix (owner request 2026-09-28, `docs/code-review/`
+        # applicability-reasoning-cost finding). Before this table,
+        # `applicability.scope_decisions_by_reasoning` asked the reasoning
+        # model "does this standard apply to a Pump" FRESH on every single
+        # review - once per standard in the WHOLE library that has a scope
+        # record (hundreds), even though the same standard/equipment-type
+        # pair had already been answered on a previous review. That made a
+        # review's cost and latency scale with library size, not with how
+        # many standards the submittal actually cites, and blocked the
+        # server's other background work (ingestion) while it ran.
+        #
+        # This is the answer, memoised. `record_hash` ties a cached answer to
+        # the EXACT scope-record content it was computed from - if a standard
+        # is re-read (`generate_scope_records.py` run again) and its record
+        # changes, the hash changes, the old row simply never matches, and a
+        # fresh decision is computed and stored. Likewise `prompt_version`:
+        # ship a new reasoning prompt and every old row stops matching. A row
+        # is never edited to "fix" a stale answer - it is only ever replaced
+        # by a fresh (hash, prompt_version) pair that matches what is asked
+        # now. So this can never serve a stale answer silently; it can only
+        # ever skip asking again when nothing has changed.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS applicability_scope_decision_cache (
+                standard_document_id TEXT NOT NULL
+                    REFERENCES documents(id) ON DELETE CASCADE,
+                equipment_type TEXT NOT NULL,
+                record_hash TEXT NOT NULL,
+                prompt_version TEXT NOT NULL,
+                decision_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (standard_document_id, equipment_type)
+            )""")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_review_applicable_standards_run "
             "ON review_applicable_standards(review_run_id, included, created_at DESC)")
@@ -517,10 +590,19 @@ def create_review_run(
         [*args, submittal_document_id]).fetchone()
     if readable is None:
         raise ValueError("no submittal with that id")
+    from . import job_queue
     run_id = str(uuid.uuid4())
     now = _now()
     conn = connect()
-    with conn:
+    # B11: ONE RUNNING REVIEW PER SUBMITTAL, decided under the write lock. The
+    # route's own check ran before this insert in a separate read, so two
+    # clicks together could both pass it and start two reviews.
+    with job_queue.immediate(conn):
+        running = conn.execute(
+            "SELECT id FROM review_runs WHERE submittal_document_id = ?"
+            " AND status IN ('queued', 'running') LIMIT 1", (submittal_document_id,)).fetchone()
+        if running is not None:
+            raise ReviewAlreadyRunning(running["id"])
         conn.execute(
             "INSERT INTO review_runs (id, submittal_document_id, template_id,"
             " status, started_by, started_at, created_at, updated_at)"
@@ -529,6 +611,10 @@ def create_review_run(
              now, now))
     _extract_facts_if_none(run_id, submittal_document_id, allowed_document_ids)
     return run_id
+
+
+class ReviewAlreadyRunning(RuntimeError):
+    """A review of this submittal is already running; `args[0]` is its id."""
 
 
 class FactExtractionFailed(RuntimeError):
@@ -638,7 +724,11 @@ def fail_orphaned_review_runs() -> int:
     with conn:
         cur = conn.execute(
             "UPDATE review_runs SET status = 'failed', refusal_reason = ?,"
-            " updated_at = ? WHERE status = 'running'",
+            " updated_at = ? WHERE status = 'running'"
+            # P3: a run whose review job is still active belongs to the queue,
+            # which re-queues it (`review_jobs.recover_stale`) - not to this.
+            " AND id NOT IN (SELECT review_run_id FROM jobs WHERE review_run_id IS NOT NULL"
+            " AND state IN ('queued', 'running', 'retrying'))",
             (json.dumps({"error": ORPHANED_RUN_REASON}), _now()))
         return cur.rowcount
 
@@ -844,7 +934,8 @@ def list_run_findings(
             except (TypeError, ValueError):
                 item[field] = []
         out.append(item)
-    return out
+    # r2 S2: a submittal grant is not a grant on the standard it was compared with.
+    return review.withhold_unreadable_standards(out, allowed_document_ids)
 
 
 def migrate_pair_rejections_to_stable_keys() -> None:

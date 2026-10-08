@@ -2,12 +2,17 @@
 
     backend/app/chat.py
     backend/app/chunker.py
+    backend/app/claude_api.py
+    backend/app/claude_crs_comments.py
+    backend/app/claude_datasheet.py
+    backend/app/claude_recheck.py
     backend/app/claude_spend.py
     backend/app/config.py
     backend/app/crs_export.py
     backend/app/disciplines.py
     backend/app/hooks_check.py
     backend/app/job_queue.py
+    backend/app/lexical.py
     backend/app/metrics.py
     backend/app/quotes.py
     backend/run.py
@@ -271,8 +276,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M569", phase=61,
         description="the total cap only counts the current step",
         path=APP / "claude_spend.py",
-        anchor="    step_spent, total_spent = spent(step), spent()\n",
-        replacement="    step_spent, total_spent = spent(step), spent(step)\n",
+        # Re-anchored 2026-09-30: the caps are checked in `reserve_all` (audit_spend).
+        anchor="        total = sum(float(e.get(\"cost_usd\") or 0) for e in current)\n",
+        replacement="        total = sum(float(e.get(\"cost_usd\") or 0) for e in current if e.get(\"step\") == items[0][0])\n",
         target="tests/test_claude_provider.py",
         keyword="total_cap_counts",
         tags=("safety", "budget"),
@@ -290,5 +296,284 @@ MUTATIONS: tuple[Mutation, ...] = (
         target="tests/test_mutation_registry.py",
         keyword="duplicate_id_across_two_modules",
         tags=("harness",),
+    ),
+    Mutation(
+        id="M640", phase=64,
+        description="B4 vision: page images are dropped from the request (text only)",
+        path=APP / "reader_api.py",
+        anchor='        content = [*blocks, {"type": "text", "text": prompt}]\n',
+        replacement="        content = prompt\n",
+        target="tests/test_b4_quality.py", keyword="images_ride_in_the_one_request_builder",
+        tags=("egress",),
+    ),
+    Mutation(
+        id="M641", phase=64,
+        description="B4 vision: any media type, or an empty image, is sent",
+        path=APP / "reader_api.py",
+        anchor="            if media_type not in IMAGE_MEDIA_TYPES or not isinstance(data, str) or not data:\n",
+        replacement="            if False:\n",
+        target="tests/test_b4_quality.py", keyword="image_request_keeps_every_gate",
+        tags=("egress", "critical"),
+    ),
+    Mutation(
+        id="M644", phase=64,
+        description="B4 vision: the budget check ignores image tokens",
+        path=APP / "claude_spend.py",
+        anchor="    tokens_in = prompt_chars // 3 + 1 + max(0, int(image_tokens))\n",
+        replacement="    tokens_in = prompt_chars // 3 + 1\n",
+        target="tests/test_b4_quality.py", keyword="worst_case_counts_the_image",
+        tags=("budget", "critical"),
+    ),
+    # ---- b5-quality 2026-09-25: Message Batches (claude_spend, reader_transport)
+    Mutation(
+        id="M670", phase=62,
+        description="a batch result is charged at the full price (the batch discount is dropped)",
+        path=APP / "claude_spend.py",
+        anchor="            + int(usage.get(\"cache_read_input_tokens\") or 0) * p_read) / 1_000_000\n"
+               "    return full * BATCH_DISCOUNT if batch else full\n",
+        replacement="            + int(usage.get(\"cache_read_input_tokens\") or 0) * p_read) / 1_000_000\n"
+                    "    return full\n",
+        target="tests/test_claude_provider.py",
+        keyword="priced_at_half",
+        tags=("budget",),
+    ),
+    Mutation(
+        id="M671", phase=62,
+        description="a batch is created without checking its worst case against the caps",
+        path=APP / "reasoning_provider.py",
+        # Re-anchored 2026-09-30: the batch is now reserved as a whole (audit_spend).
+        anchor="            held = dict(zip(todo, claude_spend.reserve_all(\n                worsts, model=self.requested_model, batch=True)))\n",
+        replacement="            held = {c: claude_spend.Reservation(c, s, \"\", 0.0, \"\", 0.0, True)\n                    for c, (s, _w) in zip(todo, worsts)}\n",
+        target="tests/test_claude_provider.py",
+        keyword="refused_before_it_is_created",
+        tags=("safety", "budget"),
+    ),
+    Mutation(
+        id="M672", phase=62,
+        description="the batch calls skip gate 1 (both egress flags)",
+        path=APP / "reader_transport.py",
+        anchor="    \"\"\"One request through the gates; returns the httpx response.\"\"\"\n    if not available():\n",
+        replacement="    \"\"\"One request through the gates; returns the httpx response.\"\"\"\n    if False:\n",
+        target="tests/test_reader_transport.py",
+        keyword="flags_off_no_batch",
+        tags=("privacy", "egress"),
+    ),
+    Mutation(
+        id="M673", phase=62,
+        description="a results_url from the provider's answer is fetched without the https/host gate",
+        path=APP / "reader_transport.py",
+        anchor="    if not url.startswith(\"https://\") or host not in ReaderSettings.from_env().allowed_hosts:\n"
+               "        raise ReaderRefused(f\"reader transport refuses host {host!r}\")\n    sent = ",
+        replacement="    if False:\n"
+                    "        raise ReaderRefused(f\"reader transport refuses host {host!r}\")\n    sent = ",
+        target="tests/test_reader_transport.py",
+        keyword="results_url_from_the_answer",
+        tags=("privacy", "egress"),
+    ),
+    Mutation(
+        id="M765", phase=67,
+        description="B6: a number inside a sentence ends the clause again (figured clauses unsearchable)",
+        path=APP / "quality.py",
+        anchor="            # non-word the run is already 0, so the left side needs no check).\n            continue\n",
+        replacement="            # non-word the run is already 0, so the left side needs no check).\n            run = 0\n",
+        target="tests/test_b6_measure_in_clause.py",
+        keyword="measurement_inside_a_sentence or figured",
+    ),
+    Mutation(
+        id="M766", phase=67,
+        description="B6: any number keeps a clause going, so contents columns and table rows read as prose",
+        path=APP / "quality.py",
+        anchor="            and is_word(tokens[i + 1])\n            and tokens[i + 1][0].islower()\n",
+        replacement="            and True\n            and True\n",
+        target="tests/test_b6_measure_in_clause.py",
+        keyword="not_inside_a_sentence_still_break",
+    ),
+    Mutation(
+        id="M768", phase=67,
+        description="B6: a number before a capitalised label bridges, so a joined table's rows read as a sentence",
+        path=APP / "quality.py",
+        anchor="            and tokens[i + 1][0].islower()\n",
+        replacement="            and True\n",
+        target="tests/test_b6_measure_in_clause.py",
+        keyword="joined_onto_one_line",
+    ),
+    Mutation(
+        id="M798", phase=68, description="B6B E1: passage_input ignores the heading",
+        path=APP / "embedder.py",
+        anchor="        candidate = heading + \"\\n\" + body\n",
+        replacement="        candidate = body\n",
+        target="tests/test_b6b_e1_heading_embedding.py", keyword="heading_comes_first or heading_aware_vector",
+    ),
+    Mutation(
+        id="M799", phase=68, description="B6B E1: a heading may push the body past the model limit (body tail truncated)",
+        path=APP / "embedder.py",
+        anchor="        if self.tokenizer.encode(PASSAGE_PREFIX + candidate).overflowing:\n            return body\n",
+        replacement="",
+        target="tests/test_b6b_e1_heading_embedding.py", keyword="never_cut", tags=("honesty",),
+    ),
+    Mutation(
+        id="M800", phase=68, description="B6B E4: numbered-paragraph anchors on for EVERY document (titled standards re-chunked)",
+        path=APP / "chunker.py",
+        anchor="    numbered_paragraphs = len(candidates) < max(1, prose_pages // 2)\n",
+        replacement="    numbered_paragraphs = True\n",
+        target="tests/test_b6b_e4_numbered_paragraphs.py", keyword="titled_headings",
+    ),
+    Mutation(
+        id="M801", phase=68, description="B6B E4: numbered-paragraph anchors never on (clause tracking lost again)",
+        path=APP / "chunker.py",
+        anchor="    numbered_paragraphs = len(candidates) < max(1, prose_pages // 2)\n",
+        replacement="    numbered_paragraphs = False\n",
+        target="tests/test_b6b_e4_numbered_paragraphs.py", keyword="one_clause_per_paragraph",
+    ),
+    Mutation(
+        id="M802", phase=68, description="B6B E4: a bare integer (a page number) becomes a clause anchor",
+        path=APP / "chunker.py",
+        anchor='_DOTTED_CLAUSE_ONLY = re.compile(r"^\\s*((?:[A-Z]\\.)?\\d+(?:\\.\\d+){1,4})\\.?\\s*$")\n',
+        replacement='_DOTTED_CLAUSE_ONLY = re.compile(r"^\\s*((?:[A-Z]\\.)?\\d+(?:\\.\\d+){0,4})\\.?\\s*$")\n',
+        target="tests/test_b6b_e4_numbered_paragraphs.py", keyword="bare_integer",
+    ),
+    Mutation(
+        id="M803", phase=68, description="B6B E4: a top-of-page clause number is stripped as a running header",
+        path=APP / "chunker.py",
+        anchor="            if _numbered_paragraph([ln.strip() for ln in lines], i):\n                keep.append(line)\n                continue\n",
+        replacement="",
+        # Re-targeted 2026-10-01 (audit entry 90): the old test used dotted
+        # numbers with no letter, which `_is_running` never treats as furniture
+        # (audit F2), so it passed with this guard deleted. The new test uses
+        # a lettered clause number that repeats at every page top.
+        target="tests/test_b6b_e4_numbered_paragraphs.py", keyword="top_of_page_prefixed_number",
+    ),
+    # ---- the four claude_api review routes under the USD caps (2026-09-27)
+    Mutation(
+        id="M1160", phase=96,
+        description="the claude_api routes reach the transport without the USD meter",
+        path=APP / "claude_api.py",
+        anchor=("        reader_api.model_call_via(claude_spend.metered(\n"
+                "            transport, step, unbilled=reader_transport_mod.unbilled)))"),
+        replacement="        reader_api.model_call_via(transport))",
+        target="tests/test_claude_spend_routes.py",
+        keyword=("refuses_before or total_cap_counts or written_to_the_ledger or "
+                 "stops_the_next_call or over_the_cap or under_the_cap or 409_helper or "
+                 "may_have_been_billed or mid_run_returns"),
+        tags=("safety", "budget"),
+    ),
+    Mutation(
+        id="M1161", phase=96,
+        description="the USD meter sends a call without checking its worst case against the caps",
+        path=APP / "claude_spend.py",
+        # Re-anchored 2026-09-30: `metered` reserves instead of checking (audit_spend).
+        anchor="        held = reserve(step, worst, model=model, prompt_sha256=digest)\n",
+        replacement="        held = Reservation(\"m\", step, model, 0.0, digest, time.time())\n",
+        target="tests/test_claude_spend_routes.py",
+        keyword="refuses_before or total_cap_counts or stops_the_next_call or over_the_cap or 409_helper",
+        tags=("safety", "budget"),
+    ),
+    Mutation(
+        id="M1162", phase=96,
+        description="a failed call that may have been billed is left off the USD ledger",
+        path=APP / "claude_spend.py",
+        # Re-anchored 2026-09-30: the rule now lives in `settle_failure` (audit_spend).
+        anchor="    if isinstance(exc, StopRun) or (unbilled is not None and unbilled(exc)):\n",
+        replacement="    if True:\n",
+        target="tests/test_claude_spend_routes.py",
+        keyword="may_have_been_billed or every_failure_is_charged",
+        tags=("budget", "honesty"),
+    ),
+    Mutation(
+        id="M1163", phase=96,
+        description="a limit mid-recheck throws away the findings already paid for",
+        path=APP / "claude_recheck.py",
+        anchor="            result = recheck_finding(finding, model_call, second_call)\n        except StopRun as exc:",
+        replacement="            result = recheck_finding(finding, model_call, second_call)\n        except ZeroDivisionError as exc:",
+        target="tests/test_claude_recheck.py",
+        keyword="finished_before_a_usd_limit",
+        tags=("budget",),
+    ),
+    Mutation(
+        id="M1164", phase=96,
+        description="a limit mid-draft throws away the CRS drafts already paid for",
+        path=APP / "claude_crs_comments.py",
+        anchor="            draft = draft_comment(finding, row, model_call, second_call)\n        except StopRun as exc:",
+        replacement="            draft = draft_comment(finding, row, model_call, second_call)\n        except ZeroDivisionError as exc:",
+        target="tests/test_claude_crs_comments.py",
+        keyword="finished_before_a_limit",
+        tags=("budget",),
+    ),
+    Mutation(
+        id="M1165", phase=96,
+        description="a limit mid-datasheet throws away the pages already paid for",
+        path=APP / "claude_datasheet.py",
+        anchor="                            model_call, second_call)\n        except StopRun as exc:",
+        replacement="                            model_call, second_call)\n        except ZeroDivisionError as exc:",
+        target="tests/test_claude_datasheet.py",
+        keyword="read_before_a_usd_limit",
+        tags=("budget",),
+    ),
+    Mutation(
+        id="M1166", phase=96,
+        description="a USD refusal of a run's first call answers 200 instead of 409",
+        path=APP / "claude_api.py",
+        anchor="    if stop == claude_spend.BudgetExceeded.count_key and _calls_before_refusal(model_call) == 0:",
+        replacement="    if False:",
+        target="tests/test_claude_spend_routes.py",
+        keyword="first_call_of_a_real_loop or over_the_cap or 409_helper",
+        tags=("budget",),
+    ),
+    Mutation(
+        id="M1167", phase=96,
+        description="an oversized answer is treated as never sent, so it escapes the USD ledger",
+        path=APP / "reader_transport.py",
+        anchor='                f"the {MAX_RESPONSE_BYTES} limit", sent=True)',
+        replacement='                f"the {MAX_RESPONSE_BYTES} limit")',
+        target="tests/test_reader_transport.py",
+        keyword="oversized_answer_is_marked_as_sent",
+        tags=("budget",),
+    ),
+    # ---- from REFUSAL_CALIBRATION_2026_09_29 ------------------------------
+    #: Refusal calibration on the real corpus found four absent-topic
+    #: questions answered confidently, each sharing exactly one distinctive
+    #: term with an unrelated passage - one match was enough for any question
+    #: length. This mutation restores that behaviour for long questions too.
+    Mutation(
+        id="M1390", phase=1390,
+        description="a long question needs only one shared distinctive term "
+                    "again, not two - the false-answer shape calibration found",
+        path=APP / "lexical.py",
+        anchor="    required = (SHARED_TERMS_REQUIRED_LONG if len(terms) >= LONG_QUESTION_TERM_COUNT\n"
+               "               else SHARED_TERMS_REQUIRED_SHORT)",
+        replacement="    required = SHARED_TERMS_REQUIRED_SHORT",
+        target="tests/test_lexical_shared_terms.py",
+        keyword="sharing_only_one_term_is_now_refused",
+    ),
+    # ---- from NAMED_STANDARD_REFUSAL_2026_10_01 ----------------------------
+    #: A standard's own pages almost never print its own file name, so the
+    #: content-only absence check refused a question naming an indexed,
+    #: permitted standard. Fixed by checking the FILE NAME too.
+    Mutation(
+        id="M1825", phase=1825,
+        description="a named standard already indexed and permitted is still "
+                    "reported absent - the file-name check never runs",
+        path=APP / "lexical.py",
+        anchor="            if _names_an_indexed_document(\n"
+               "                    term, document_id, allowed_document_ids=allowed_document_ids):\n",
+        replacement="            if False:\n",
+        target="tests/test_lexical_named_standard.py",
+        keyword="not_refused",
+        tags=("honesty",),
+    ),
+    # ---- from COMPARISON_BOTH_SIDES_2026_10_01 -----------------------------
+    #: Plan C3: a side whose own targeted search found nothing gets the ONE
+    #: sentence this file writes for that - never a model's own words for an
+    #: absence, which is indistinguishable from a genuine "does not mention".
+    Mutation(
+        id="M1827", phase=1827,
+        description="a comparison side with nothing found stops saying "
+                    "'not found in the pages read'",
+        path=APP / "chat_comparison.py",
+        anchor='    return f"{name}: not found in the pages read."\n',
+        replacement='    return f"{name}: does not mention this"\n',
+        target="tests/test_chat_comparison.py",
+        keyword="not_found_never_does_not_mention",
+        tags=("honesty",),
     ),
 )

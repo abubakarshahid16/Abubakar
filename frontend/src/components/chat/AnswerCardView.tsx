@@ -5,7 +5,11 @@ import { ComparisonScopeNotice as ComparisonScopeNoticeView } from "./Comparison
 import { type AnswerView, type UpgradeFailure, asksForComparison, documentsAnsweredFrom, sourcesOf, asSentence, formatDuration, Chip, ChipMark, CitedProse, Label, ReportAction, UpgradeFailureNotice } from "./AnswerCardContent";
 import { CorpusPart, CountsBoundedNote, GuidanceAnswer, MetadataAnswer } from "./AnswerNonDocument";
 import { InsufficientAnswer } from "./AnswerInsufficient";
-import type { AnswerPassage } from "../../types/api";
+import { ComparisonAnswer } from "./AnswerComparison";
+import { ConditionNotice, ScopeNotice, VerdictNotice, WithheldNotice } from "./AnswerVerdict";
+import type { AnswerPassage, ChatSource } from "../../types/api";
+import { GeneratedAnswer } from "./GeneratedAnswer";
+import { ProviderNotice, providerNoteFor } from "./ProviderNotice";
 
 function RetrievalDetails({ passage }: { passage: AnswerPassage }) {
   return passage.score == null ? null : (
@@ -32,11 +36,30 @@ function RetrievalDetails({ passage }: { passage: AnswerPassage }) {
  */
 export function AnswerCard(props: Parameters<typeof AnswerCardBody>[0]) {
   const { view } = props;
+  if (view.withheld) return <WithheldNotice text={view.answer} />;
   const twoPart = view.corpus != null && view.answer_type !== "metadata";
   const bounded = (view.counts_bounded ?? 0) > 0;
-  if (!twoPart && !bounded) return <AnswerCardBody {...props} />;
+  const verdict = view.answerability;
+  const notices = (
+    <>
+      {/* A refusal card already says it cannot determine this; saying it twice is noise. */}
+      {verdict && view.answer_type !== "insufficient_evidence" && <VerdictNotice verdict={verdict.verdict} reason={verdict.reason} evidence={verdict.evidence} />}
+      <ScopeNotice understanding={view.understanding} ambiguity={view.scope_ambiguity} />
+      <ConditionNotice choice={view.condition_choice} />
+      <ProviderNotice note={providerNoteFor(view)} />
+    </>
+  );
+  if (!twoPart && !bounded) {
+    return (
+      <div className="space-y-3">
+        {notices}
+        <AnswerCardBody {...props} />
+      </div>
+    );
+  }
   return (
     <div className="space-y-3">
+      {notices}
       {twoPart && view.corpus && <CorpusPart fact={view.corpus} />}
       {twoPart && (
         <p className="text-xs uppercase tracking-wide text-slateish-500">
@@ -62,6 +85,11 @@ function AnswerCardBody({
   explainsEarlier,
   upgradeFailure,
   question,
+  plain,
+  reportable,
+  presentationSources,
+  explainNote,
+  explainingNote,
 }: {
   view: AnswerView;
   onSelectSource: (i: number) => void;
@@ -83,6 +111,16 @@ function AnswerCardBody({
   /** The reader's question, as they typed it. Used for one thing only: to say
    *  so when a question that asks across documents is answered from one. */
   question?: string | null;
+  /** The Chat screen's layout (2026-09 redesign): a written answer as plain
+   *  text with superscript sources, and saving moved to the action row. */
+  plain?: boolean;
+  /** Saving is offered elsewhere (the action row), so the warning about what
+   *  an extract report freezes still belongs on the card. */
+  reportable?: boolean;
+  presentationSources?: ChatSource[];
+  /** What pressing Explain costs, for the engine that will answer it. */
+  explainNote?: string;
+  explainingNote?: string;
 }) {
   const sources = sourcesOf(view);
   // Counted from this answer's own evidence. The notice renders only at
@@ -124,6 +162,26 @@ function AnswerCardBody({
   // ---------------------------------------------------------- no answer
   if (view.answer_type === "insufficient_evidence") {
     return <InsufficientAnswer view={view} onSelectSource={onSelectSource} />;
+  }
+
+  if (view.answer_type === "model_unavailable" && view.provider === "claude") {
+    return (
+      <div role="alert" className="surface-card rounded-[var(--radius-md)] border border-warn-500/50 bg-warn-500/10 p-4">
+        <p className="text-sm font-semibold text-warn-500">
+          Claude could not answer
+        </p>
+        <p className="mt-1 text-sm text-slateish-300">
+          {asSentence(view.reason ?? "The Claude call failed")} The quoted
+          answer above is unaffected — only the explanation needs the model.
+          Try again, or switch Model to Local.
+        </p>
+      </div>
+    );
+  }
+
+  // ---------------------------------------------------- plan C3: comparison
+  if (view.answer_type === "comparison") {
+    return <ComparisonAnswer view={view} onSelectSource={onSelectSource} activeSource={activeSource} />;
   }
 
   if (view.answer_type === "model_unavailable") {
@@ -266,7 +324,7 @@ ollama serve
           </div>
         )}
 
-        {onSaveReport && view.supporting.length > 0 && (
+        {(onSaveReport || reportable) && view.supporting.length > 0 && (
           <p className="mt-2 rounded-[var(--radius-sm)] border border-warn-500/40 bg-warn-500/[0.08] px-2.5 py-1.5 text-xs text-warn-500">
             This report will freeze the quoted passage above as the answer.
             Other matched passages stay in the evidence section, but they are
@@ -292,8 +350,8 @@ ollama serve
                 </button>
                 <p className="mt-1.5 text-xs text-slateish-500">
                   {explaining
-                    ? "Generation is not streamed. It typically finishes around 50 seconds on this machine."
-                    : "Runs the local model over these passages. Takes about 50 seconds on this hardware — the quotation above is already the answer."}
+                    ? (explainingNote ?? "Generation is not streamed. It typically finishes around 50 seconds on this machine.")
+                    : (explainNote ?? "Runs the local model over these passages. Takes about 50 seconds on this hardware — the quotation above is already the answer.")}
                 </p>
               </>
             )}
@@ -310,6 +368,17 @@ ollama serve
   }
 
   // ------------------------------------------------------ tier 2: generated
+  if (plain) {
+    return (
+      <GeneratedAnswer
+        view={view}
+        sources={presentationSources}
+        onOpenPage={onSelectSource}
+        explainsEarlier={explainsEarlier}
+        question={question}
+      />
+    );
+  }
   return (
     <div className="surface-card accent-edge rounded-[var(--radius-md)] border border-info-500/30 bg-info-500/[0.05] p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">

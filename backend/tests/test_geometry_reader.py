@@ -427,3 +427,292 @@ def test_real_pump_form_counts():
     assert len(blanks) > 10, len(blanks)
     assert sum(1 for p in blanks if p["value"] is not None) == 0
     assert _numeric_with(pairs, "degC") >= 1
+
+
+# --------------------------------------------------------------------------
+# B4 (#193 5.5): the remaining wrong-value shapes, each with its negative.
+# Mutation proofs M580-M585, M592-M594 in scripts/mutations/geometry_reader.py.
+# --------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def b4_form():
+    doc, page = _form_page([
+        # 1a. a value cut after "&": the next line continues it, starting
+        #     LEFT of the value (so only the open ending can join it).
+        (50, 100, "ITEM NO.:"), (130, 100, "P-101 A/B, P-102 A/B &"), (70, 114, "P-103 A/B"),
+        # 1b. a value continued on a line INDENTED wholly under it.
+        (50, 150, "REMARK:"), (130, 150, "PROVIDE TWO EARTH BOSSES"), (140, 164, "DIAGONALLY"),
+        # 1c. NEGATIVE: finished value, next line starts left of it -> separate.
+        (50, 200, "SERVICE:"), (130, 200, "SEA WATER"), (70, 214, "COOLING DUTY"),
+        # 1d. NEGATIVE: open ending, but the next line is its own label+value.
+        (50, 250, "TAGS:"), (130, 250, "V-1 &"), (50, 264, "NOTE"), (130, 264, "SEE SHEET 2"),
+        # 2. answer inside its drawn field, a note printed after the field.
+        (50, 310, "HARDNESS REQD"), (200, 310, "_ YES_ <HRC 22"),
+        (50, 340, "MIN METAL TEMP"), (200, 340, "_ -3__ OC"),
+        # 3. a value that is only a condition, inside a run.
+        (50, 370, "INSPECTION AT"), (200, 370, "___@ SHOP__"),
+        # 4a. a far drawn run and PLAIN text below: the text is the next row's
+        #     label or a heading, never this field's value.
+        (50, 420, "N2 PURGE"), (230, 420, "____________"), (50, 434, "SPARE PARTS"),
+        # 4b. text below that has its own drawn field under it is a label.
+        (50, 490, "COUNT:"), (50, 504, "LOCATION"), (50, 518, "______ROOF______"),
+    ])
+    yield gr.read_form(page)
+    doc.close()
+
+
+def test_a_value_ending_open_continues_on_the_next_line(b4_form):
+    """THE MUTATION TARGET (M580): the '&' ending joins the wrapped line."""
+    p = _pair(b4_form, "ITEM NO.")
+    assert p["value"] == "P-101 A/B, P-102 A/B & P-103 A/B"
+    assert p["value_text"] == "P-101 A/B, P-102 A/B & P-103 A/B"
+    assert p["value_bbox"][3] > 110  # the box grew to cover the second line
+
+
+def test_a_line_indented_under_the_value_continues_it(b4_form):
+    """THE MUTATION TARGET (M581)."""
+    assert _pair(b4_form, "REMARK")["value"] == "PROVIDE TWO EARTH BOSSES DIAGONALLY"
+
+
+def test_a_finished_value_does_not_swallow_the_next_line(b4_form):
+    assert _pair(b4_form, "SERVICE")["value"] == "SEA WATER"
+
+
+def test_a_next_line_with_its_own_label_is_not_a_continuation(b4_form):
+    """THE MUTATION TARGET (M582): the band must be empty but for the
+    continuation - a line holding a label and its value is another field."""
+    assert _pair(b4_form, "TAGS")["value"] == "V-1 &"
+
+
+def test_the_answer_is_what_the_drawn_field_encloses(b4_form):
+    """THE MUTATION TARGET (M583): the note after the closing run is not the
+    value; it is kept apart as a note."""
+    p = _pair(b4_form, "HARDNESS REQD")
+    assert (p["value"], p["note"], p["is_blank"]) == ("YES", "<HRC 22", False)
+
+
+def test_a_unit_after_the_closing_run_is_still_the_unit(b4_form):
+    p = _pair(b4_form, "MIN METAL TEMP")
+    assert (p["value"], p["unit"], p["note"]) == ("-3", "degC", None)
+
+
+def test_a_condition_only_value_loses_its_runs(b4_form, evidence_form):
+    """THE MUTATION TARGET (M584)."""
+    p = _pair(b4_form, "INSPECTION AT")
+    assert (p["value"], p["is_blank"]) == ("@ SHOP", False)
+    # negative: a number with a condition keeps the number as the value
+    sg = _pair(evidence_form, "SPECIFIC GRAVITY")
+    assert (sg["value"], sg["condition"]) == ("0.974", "@ 170 OF")
+
+
+def test_plain_text_under_a_run_form_label_is_not_its_value(b4_form):
+    """THE MUTATION TARGET (M585): the heading below is not taken; the field
+    is the blank its drawn run says."""
+    p = _pair(b4_form, "N2 PURGE")
+    assert (p["is_blank"], p["value"], p["position"]) == (True, None, "right")
+    assert not any(q["value_text"] == "SPARE PARTS" for q in b4_form["pairs"])
+
+
+def test_a_label_heading_its_own_field_is_not_a_value(b4_form):
+    """THE MUTATION TARGET (M592): LOCATION has its drawn field under it, so
+    it is a label - COUNT is left unpaired rather than given it."""
+    assert not [p for p in b4_form["pairs"] if p["label"] == "COUNT"]
+    assert any(u["label"] == "COUNT:" for u in b4_form["unpaired_labels"])
+
+
+def _cell_table_page():
+    """Mark | Inspection | Rating, ruled; data rows N1 and N2."""
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    xs, ys = [50, 110, 250, 330], [60, 80, 100, 120]
+    for y in ys:
+        _hline(page, y, xs[0], xs[-1])
+    for x in xs:
+        _vline(page, x, ys[0], ys[-1])
+    for j, text in enumerate(["Mark", "Inspection", "Rating"]):
+        _text(page, xs[j], ys[0], text)
+    for j, text in enumerate(["N1", "___@ SHOP__", "*"]):
+        _text(page, xs[j], ys[1], text)
+    for j, text in enumerate(["N2", "WITNESS", "150"]):
+        _text(page, xs[j], ys[2], text)
+    return doc, page
+
+
+def test_table_cells_are_cleaned_like_form_values():
+    """THE MUTATION TARGET (M593): runs and blank markers in a table cell
+    get the form rules; plain cells are untouched (the negative)."""
+    doc, page = _cell_table_page()
+    try:
+        table = gr.read_tables(page)["tables"][0]
+    finally:
+        doc.close()
+    cells = {(r["cells"][0]["text"], c["label"]): c for r in table["rows"] for c in r["cells"]}
+    shop = cells[("N1", "Inspection")]
+    assert (shop["value"], shop["is_blank"]) == ("@ SHOP", False)
+    star = cells[("N1", "Rating")]
+    assert (star["value"], star["is_blank"], star["blank_marker"]) == (None, True, "*")
+    assert cells[("N2", "Inspection")]["value"] == "WITNESS"
+    assert (cells[("N2", "Rating")]["value"], cells[("N2", "Rating")]["is_blank"]) == ("150", False)
+
+
+def test_page_rows_drop_a_reading_seen_twice_but_keep_different_answers():
+    """THE MUTATION TARGET (M594): same page + label + answer twice is one
+    row; the same label with a different answer is kept (the negative)."""
+    first = {"page": 1, "label": "SPEED", "label_text": "SPEED:", "value_text": "2950",
+             "value": "2950", "unit": None, "is_blank": False, "blank_marker": None,
+             "condition": None, "value_bbox": [1, 2, 3, 4], "label_bbox": [0, 2, 1, 4],
+             "position": "right"}
+    twice = {**first, "label": "Speed", "value_bbox": [5, 6, 7, 8]}
+    other = {**first, "value": "3000", "value_text": "3000"}
+    rows = gr.read_page_rows(None, form={"pairs": [first, twice, other]},
+                             tables={"tables": []})
+    assert [(r["label"], r["value"]) for r in rows] == [("SPEED", "2950"), ("SPEED", "3000")]
+    assert rows[0]["bbox"] == [1, 2, 3, 4]  # the first reading keeps its box
+
+
+def test_page_rows_label_table_cells_by_row_key_and_skip_empty_cells(synthetic_table):
+    _result, table = synthetic_table
+    # one empty cell in a data row: it must not become a row (not found is not blank)
+    table = {**table, "rows": [{**table["rows"][0], "cells": [
+        {**c, "text": "", "value": None, "is_blank": True} if c["label"] == "Service" else c
+        for c in table["rows"][0]["cells"]]}]}
+    rows = gr.read_page_rows(None, form={"pairs": []}, tables={"tables": [table]})
+    labels = [r["label"] for r in rows]
+    assert "P1 Parent Alpha" in labels and "P1 Service" not in labels
+    assert not any(r["label"] == "P1 Mark" for r in rows)  # the key cell itself
+    cell = next(r for r in rows if r["label"] == "P1 Parent Alpha")
+    assert (cell["source"], cell["column_label"], cell["table_id"]) == (
+        "table", "Parent Alpha", table["table_id"])
+
+
+def test_page_rows_skip_a_row_whose_key_is_only_a_mark(synthetic_table):
+    """A row keyed by "*" cannot be told from any other row: its cells are
+    not emitted (they read "* Rating" and paired with an unrelated rating)."""
+    _result, table = synthetic_table
+    starred = {**table, "rows": [{**table["rows"][0], "cells": [
+        {**c, "text": "*"} if c["label"] == "Mark" else c
+        for c in table["rows"][0]["cells"]]}]}
+    assert gr.read_page_rows(None, form={"pairs": []}, tables={"tables": [starred]}) == []
+    assert gr.read_page_rows(None, form={"pairs": []}, tables={"tables": [table]})  # negative
+
+
+# --------------------------------------------------------------------------
+# Row-key confidence: a blank/unreadable key cell must never be silently
+# replaced by a neighbouring data column (the real "Fittings" mispairing
+# defect - garbled/blank OCR on the tag column let a data column's text
+# become the row's key).
+# --------------------------------------------------------------------------
+
+def _blank_key_table_page():
+    """Mark | Inspection | Rating, ruled. Row N1 has a normal key. Row 2's
+    Mark cell is left BLANK (as garbled/dropped OCR would produce) while its
+    Inspection cell still reads "FITTINGS" - the exact real-world shape that
+    mispaired a value under the wrong field."""
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    xs, ys = [50, 110, 250, 330], [60, 80, 100, 120]
+    for y in ys:
+        _hline(page, y, xs[0], xs[-1])
+    for x in xs:
+        _vline(page, x, ys[0], ys[-1])
+    for j, text in enumerate(["Mark", "Inspection", "Rating"]):
+        _text(page, xs[j], ys[0], text)
+    for j, text in enumerate(["N1", "WITNESS", "150"]):
+        _text(page, xs[j], ys[1], text)
+    for j, text in enumerate(["", "FITTINGS", "300"]):  # Mark left blank
+        if text:
+            _text(page, xs[j], ys[2], text)
+    return doc, page
+
+
+def test_a_blank_key_cell_never_lets_a_neighbor_column_become_the_key():
+    """THE MUTATION TARGET (root-cause fix): reverting the key-cell selection
+    back to "first non-empty cell in column order" makes this fail - the
+    blank-Mark row would then be keyed "FITTINGS" and emit a "FITTINGS
+    Rating" = "300" reading instead of being dropped as unreliable."""
+    doc, page = _blank_key_table_page()
+    try:
+        # Read the ruled grid directly (bypassing the lines/text strategy
+        # contest, which is not what this test is about: a sparse column
+        # with only one data word can make PyMuPDF's "text" strategy drop it
+        # entirely, an unrelated artifact of that heuristic).
+        raw = page.find_tables(strategy="lines").tables[0]
+        texts, rects = gr._grid(raw)
+        table = gr._structure(raw, page_no=1, table_id="p1-t1", strategy="lines",
+                              grid=(texts, rects))
+    finally:
+        doc.close()
+    assert len(table["rows"]) == 2
+    assert table["rows"][0]["cells"][0]["text"] == "N1"
+    assert table["rows"][1]["cells"][0]["text"] == ""  # the key cell IS blank
+    rows = gr.read_page_rows(None, form={"pairs": []}, tables={"tables": [table]})
+    assert not any(r["label"].startswith("FITTINGS") for r in rows)
+    assert not any(r["column_label"] == "Rating" and r["value"] == "300" for r in rows)
+    assert {r["label"] for r in rows} == {"N1 Inspection", "N1 Rating"}  # only the good row
+
+
+def test_page_rows_skip_a_row_whose_key_cell_is_a_cut_word(synthetic_table):
+    """A key cell built from a word ambiguously split across two cells
+    (`cut_word`) is not reliable evidence of the row's tag either - it must
+    be treated the same as a blank/mark-only key, not trusted."""
+    _result, table = synthetic_table
+    cut = {**table, "rows": [{**table["rows"][0], "cells": [
+        {**c, "cut_word": True} if c["label"] == "Mark" else c
+        for c in table["rows"][0]["cells"]]}]}
+    assert gr.read_page_rows(None, form={"pairs": []}, tables={"tables": [cut]}) == []
+    assert gr.read_page_rows(None, form={"pairs": []}, tables={"tables": [table]})  # negative
+
+
+def test_a_cell_built_from_a_cut_word_is_flagged_not_silently_trusted():
+    """THE MUTATION TARGET: `_split_words` already penalises a whole page's
+    `table_score` for a word whose box straddles two cells, but that signal
+    used to stop there - the actual per-cell text built from the cut word
+    was kept, unflagged, in whichever cell PyMuPDF happened to assign it.
+    Now the signal reaches the cell itself as `cut_word`."""
+    doc, page = _table_page()
+    try:
+        table = page.find_tables(strategy="lines").tables[0]
+        texts, rects = gr._grid(table)
+        # A fabricated word straddling the Mark/Size column boundary (x=110)
+        # on the P1 data row (row index 3): x=[80,130] overlaps col0 [50,110]
+        # by 30pt and col1 [110,170] by 20pt, both well over the 1pt
+        # threshold, fully inside the row's height.
+        fake_word = (80.0, 122.0, 130.0, 138.0)
+        structured = gr._structure(table, page_no=1, table_id="p1-t1",
+                                   strategy="lines", grid=(texts, rects),
+                                   words=[fake_word])
+    finally:
+        doc.close()
+    row = next(r for r in structured["rows"] if r["cells"][0]["text"] == "P1")
+    flagged = {c["label"]: c["cut_word"] for c in row["cells"]}
+    assert flagged["Mark"] is True
+    assert flagged["Size"] is True
+
+
+# --------------------------------------------------------------------------
+# Row-key plausibility: a key cell that is present, fully inside one cell,
+# and not blank/cut can still be garbled - a CJK-lookalike character swapped
+# for a Latin one, the exact failure mode `ocr.alphabet_violations` exists to
+# catch. That check is reused here (never duplicated) on the key cell's text.
+# --------------------------------------------------------------------------
+
+def test_page_rows_skip_a_row_whose_key_cell_has_implausible_characters(synthetic_table):
+    """THE MUTATION TARGET: a key cell that reads "P汉1" (a CJK character
+    substituted for part of a real tag by a garbled/dropped text layer) is
+    present, non-blank and not a cut word - none of the existing checks catch
+    it - but it is not a trustworthy tag either, so the row must still be
+    skipped, exactly like a blank or cut-word key."""
+    _result, table = synthetic_table
+    garbled = {**table, "rows": [{**table["rows"][0], "cells": [
+        {**c, "text": "P汉1"} if c["label"] == "Mark" else c
+        for c in table["rows"][0]["cells"]]}]}
+    assert gr.read_page_rows(None, form={"pairs": []}, tables={"tables": [garbled]}) == []
+    assert gr.read_page_rows(None, form={"pairs": []}, tables={"tables": [table]})  # negative
+
+
+def test_a_plausible_key_cell_is_unaffected_by_the_alphabet_check(synthetic_table):
+    """Negative: an ordinary Latin-script key cell is not flagged just because
+    the check now runs - only text with an actual script violation is."""
+    _result, table = synthetic_table
+    rows = gr.read_page_rows(None, form={"pairs": []}, tables={"tables": [table]})
+    assert any(r["label"].startswith("P1 ") for r in rows)

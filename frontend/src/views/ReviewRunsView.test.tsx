@@ -1,6 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ReviewRunSummary } from "../types/api";
 import { ReviewRunsView } from "./ReviewRunsView";
@@ -10,12 +10,20 @@ const reviewRuns = vi.fn();
 const list = vi.fn();
 const reviewRunStandards = vi.fn();
 
+const documentApi = vi.fn();
 vi.mock("../api/client", () => ({
-  api: { documents: (...args: unknown[]) => documents(...args) },
+  api: {
+    documents: (...args: unknown[]) => documents(...args),
+    document: (...args: unknown[]) => documentApi(...args),
+  },
   reviews: {
+    // Section 3's readiness strip; not what these tests are about.
+    readiness: async () => ({ ok: false, error: { message: "not in this test" } }),
     reviewRuns: (...args: unknown[]) => reviewRuns(...args),
     list: (...args: unknown[]) => list(...args),
     reviewRunStandards: (...args: unknown[]) => reviewRunStandards(...args),
+    reviewRunStandardsAll: (...args: unknown[]) => reviewRunStandards(...args),
+    overrideRunStandard: vi.fn(),
     startReviewRun: vi.fn(),
     exportCrs: vi.fn(),
     decideCode: vi.fn(),
@@ -54,6 +62,8 @@ beforeEach(() => {
   reviewRuns.mockReset();
   list.mockReset();
   reviewRunStandards.mockReset();
+  documentApi.mockReset();
+  documentApi.mockResolvedValue({ ok: false, error: { message: "not in this test" } });
   documents.mockResolvedValue({ ok: true, data: [] });
   reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run()] } });
   list.mockResolvedValue({ ok: true, data: { findings: [] } });
@@ -82,45 +92,32 @@ describe("selected review run placement", () => {
   });
 });
 
-describe("nominal-estimate reason on a run card", () => {
-  it("renders the existing NOMINAL ESTIMATE sentence exactly once", async () => {
+describe("2g: a run card speaks plain words", () => {
+  it("shows the plain reason and no developer word", async () => {
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({
+      recommended_reason: "Checked 4 datasheet fields. That is not enough of the datasheet to suggest a review code yet.",
+      recommended_details: NOMINAL_REASON,
+    })] } });
     render(<ReviewRunsView />);
 
     const runButton = await screen.findByRole("button", { name: /drum\.pdf/i });
     const card = within(runButton);
-    // Positive branch proofs: the card and its recommendation rendered, so
-    // the absence below is an absence FROM something that exists.
     expect(card.getByText("Manual Review Required")).toBeInTheDocument();
-    expect(card.getByText(/The review used a NOMINAL ESTIMATE denominator/))
-      .toBeInTheDocument();
-    expect(card.getAllByText(/NOMINAL ESTIMATE/i)).toHaveLength(1);
-    // THE COMPLETENESS LINE'S OWN WORDS, which `completenessLine` emits as
-    // "4 of approximately 35 fields (a NOMINAL estimate: ...)".
-    //
-    // This asserted `queryByText(/fields read/i)` and was VACUOUS: with
-    // `fields_estimated` set, that line never says "fields read" - it says
-    // "of approximately" - so the assertion held whether or not the branch
-    // rendered. The test below renders the branch, which is what makes this
-    // absence mean something.
-    expect(card.queryByText(/of approximately/i)).toBeNull();
+    expect(card.getByText(/Checked 4 datasheet fields/)).toBeInTheDocument();
+    expect(card.getAllByText(/Checked 4 datasheet fields/)).toHaveLength(1);
+    expect(card.queryByText(/NOMINAL|denominator|MISSING_LOCALLY/i)).toBeNull();
   });
 
-  it("still shows the completeness line when the reason does NOT state the denominator", async () => {
-    // THE POSITIVE CONTROL FOR THE ABSENCE ABOVE. Same component, same
-    // completeness input, one field changed: the denominator is never
-    // dropped, only never repeated. Without this, "the line is absent" could
-    // mean the line does not exist at all.
+  it("still states the fields checked when the reason does not", async () => {
     reviewRuns.mockResolvedValue({
       ok: true,
       data: { runs: [run({ recommended_reason: "Not enough was read to recommend a code." })] },
     });
     render(<ReviewRunsView />);
 
-    const runButton = await screen.findByRole("button", { name: /drum\.pdf/i });
-    const card = within(runButton);
-
-    expect(card.getByText(/of approximately 35 fields/i)).toBeInTheDocument();
-    expect(card.getAllByText(/NOMINAL/i)).toHaveLength(1);
+    const card = within(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    expect(card.getByText("Checked 4 datasheet fields.")).toBeInTheDocument();
+    expect(card.queryByText(/NOMINAL/i)).toBeNull();
   });
 });
 
@@ -147,5 +144,166 @@ describe("B3: the pages a run read into fields", () => {
 
     const runButton = await screen.findByRole("button", { name: /drum\.pdf/i });
     expect(within(runButton).queryByTestId("page-coverage")).toBeNull();
+  });
+});
+
+describe("B5: the standards in scope carry their evidence and the missing ones", () => {
+  it("shows the citation line and the cited standards not held", async () => {
+    reviewRunStandards.mockResolvedValue({
+      ok: true,
+      data: {
+        standards: [{
+          standard_document_id: "std-610", filename: "API-610.pdf",
+          selection_method: "referenced",
+          selection_reason: "named in the submittal as API 610 (page 1)",
+          confidence: 0.9, included: true, exclusion_reason: null,
+          evidence_page: 1, evidence_quote: "Pump shall comply with API 610 and API 682.",
+          scope_decision: null,
+        }],
+        missing_references: [{ identifier: "API 682", status: "MISSING_LOCALLY" }],
+      },
+    });
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /standards in scope — why\?/i }));
+
+    // Positive first: the applied standard and its reason rendered.
+    expect(await screen.findByText("API-610.pdf")).toBeInTheDocument();
+    expect(screen.getByText(/Evidence, page 1: “Pump shall comply with API 610 and API 682\.”/))
+      .toBeInTheDocument();
+    const note = screen.getByRole("note");
+    expect(within(note).getByText(/not held locally - not checked \(1\)/)).toBeInTheDocument();
+    expect(within(note).getByText("API 682")).toBeInTheDocument();
+  });
+
+  it("names the missing standards even when nothing was selected", async () => {
+    reviewRunStandards.mockResolvedValue({
+      ok: true,
+      data: { standards: [], missing_references: [{ identifier: "API 682", status: "MISSING_LOCALLY" }] },
+    });
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /standards in scope — why\?/i }));
+
+    expect(await screen.findByText("No standards were selected for this run.")).toBeInTheDocument();
+    expect(within(screen.getByRole("note")).getByText("API 682")).toBeInTheDocument();
+  });
+});
+
+describe("2g: the picker and the panel always name the same document", () => {
+  const docs = [
+    { id: "doc-sub", filename: "drum.pdf", document_role: "CONTRACTOR_SUBMITTAL" },
+    { id: "doc-pump", filename: "pump.pdf", document_role: "CONTRACTOR_SUBMITTAL" },
+    { id: "doc-new", filename: "new.pdf", document_role: "CONTRACTOR_SUBMITTAL" },
+  ];
+
+  beforeEach(() => {
+    documents.mockImplementation(async (params: { document_role?: string[] }) => ({
+      ok: true,
+      data: params?.document_role?.includes("CONTRACTOR_SUBMITTAL") ? docs : [],
+    }));
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [
+      run(),
+      run({ review_run_id: "run-2", submittal_document_id: "doc-pump",
+            submittal_filename: "pump.pdf", created_at: "2026-09-21T00:00:00Z" }),
+    ] } });
+  });
+
+  it("opening a run sets the picker to its submittal", async () => {
+    render(<ReviewRunsView />);
+    await screen.findByRole("option", { name: "pump.pdf" });
+    await userEvent.click(await screen.findByRole("button", { name: /pump\.pdf/i }));
+    expect(await screen.findByRole("heading", { name: "pump.pdf", level: 2 })).toBeInTheDocument();
+    expect(screen.getByLabelText("Submittal")).toHaveValue("doc-pump");
+  });
+
+  it("choosing a submittal opens its latest run, and one with no run closes the panel", async () => {
+    render(<ReviewRunsView />);
+    await screen.findByRole("option", { name: "drum.pdf" });
+    await userEvent.click(await screen.findByRole("button", { name: /pump\.pdf/i }));
+    await screen.findByRole("heading", { name: "pump.pdf", level: 2 });
+
+    await userEvent.selectOptions(screen.getByLabelText("Submittal"), "doc-sub");
+    expect(await screen.findByRole("heading", { name: "drum.pdf", level: 2 })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "pump.pdf", level: 2 })).toBeNull();
+
+    await userEvent.selectOptions(screen.getByLabelText("Submittal"), "doc-new");
+    expect(screen.queryByRole("heading", { name: "drum.pdf", level: 2 })).toBeNull();
+    expect(screen.getByLabelText("Submittal")).toHaveValue("doc-new");
+  });
+});
+
+describe("UX GROUP (2026-09-27): the finding detail panel", () => {
+  // jsdom implements no scrollIntoView; installed per-test so this test
+  // cannot pass on some other test's leftover spy, and removed after so it
+  // cannot leave one behind either.
+  afterEach(() => {
+    delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView;
+  });
+
+  it("scrolls into view when a finding is selected, wherever the table put it", async () => {
+    list.mockResolvedValue({
+      ok: true,
+      data: { findings: [{ id: "f1", document_id: "doc-sub", finding: "x",
+        compliance_status: "NON_COMPLIANT", requirement: "A requirement." }] },
+    });
+    const spy = vi.fn();
+    Object.defineProperty(Element.prototype, "scrollIntoView", {
+      value: spy, writable: true, configurable: true,
+    });
+
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    await userEvent.click(await screen.findByText("A requirement."));
+
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ block: "nearest" }));
+  });
+});
+
+describe("audit 2026-09-30: the review screen does not turn a failure into an empty answer", () => {
+  it("says the standards could not be loaded, not that none were selected", async () => {
+    reviewRunStandards.mockResolvedValue({
+      ok: false, disconnected: false,
+      error: { code: "internal_error", message: "the standards list failed" },
+    });
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /standards in scope — why\?/i }));
+
+    const alert = await screen.findByText(/The standards for this run could not be loaded/);
+    expect(alert).toHaveTextContent("the standards list failed");
+    expect(screen.queryByText("No standards were selected for this run.")).toBeNull();
+    expect(screen.queryByText(/Loading standards/)).toBeNull();
+  });
+
+  it("labels the run card's code as the AI's and unconfirmed", async () => {
+    render(<ReviewRunsView />);
+    const card = await screen.findByRole("button", { name: /drum\.pdf/i });
+    const line = within(card).getByTestId("run-card-recommended");
+    expect(line).toHaveTextContent(/AI recommended: Manual Review Required/);
+    expect(line).toHaveTextContent("Not confirmed by an engineer yet.");
+    expect(within(card).queryByTestId("run-card-final")).toBeNull();
+  });
+
+  it("shows the engineer's final code beside the AI's, never instead", async () => {
+    reviewRuns.mockResolvedValue({
+      ok: true, data: { runs: [run({ engineer_final_code: "Approved with Comments" })] },
+    });
+    render(<ReviewRunsView />);
+    const card = await screen.findByRole("button", { name: /drum\.pdf/i });
+    expect(within(card).getByTestId("run-card-recommended"))
+      .toHaveTextContent(/AI recommended: Manual Review Required/);
+    expect(within(card).getByTestId("run-card-recommended"))
+      .not.toHaveTextContent("Not confirmed");
+    expect(within(card).getByTestId("run-card-final"))
+      .toHaveTextContent("Engineer's final code: Approved with Comments");
+  });
+
+  it("shows the run's status in plain words, not the database value", async () => {
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({ status: "cancelled" })] } });
+    render(<ReviewRunsView />);
+    const card = await screen.findByRole("button", { name: /drum\.pdf/i });
+    expect(card).toHaveTextContent("standards in scope · Cancelled");
+    expect(card).not.toHaveTextContent(/status cancelled/);
   });
 });

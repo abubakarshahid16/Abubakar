@@ -140,8 +140,8 @@ document content must never silently enter that lane.
 These requirements were reported by Muhammad Usman after the 2026-09-20 demonstration.
 They remain user-reported until the client confirms them in writing.
 
-- Review contractor equipment datasheets from any company against applicable Saudi
-  Aramco requirements available to the system.
+- Review contractor equipment datasheets from any company against applicable
+  client requirements available to the system.
 - Do not rely only on standards named by the contractor; identify possible omissions.
 - When a cited or independently identified standard is unavailable locally, the client
   expects the system to obtain it and compare. This remains subject to section 2.7 and

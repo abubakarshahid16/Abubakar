@@ -32,6 +32,8 @@ const exportCrs = vi.fn();
 vi.mock("../api/client", () => ({
   api: { documents: (...args: unknown[]) => documents(...args) },
   reviews: {
+    // Section 3's readiness strip; not what these tests are about.
+    readiness: async () => ({ ok: false, error: { message: "not in this test" } }),
     reviewRuns: (...args: unknown[]) => reviewRuns(...args),
     list: (...args: unknown[]) => list(...args),
     reviewRunStandards: (...args: unknown[]) => reviewRunStandards(...args),
@@ -205,6 +207,15 @@ describe("the CRS preview", () => {
     expect(panel.getByText(/42 of approximately 385 fields/)).toBeInTheDocument();
   });
 
+  it("says when the code is still only the AI's recommendation (B10)", async () => {
+    previewCrs.mockResolvedValue({
+      ok: true,
+      data: sheet({ recommended_code_status: "AI recommendation - NOT yet decided by an engineer." }),
+    });
+    const panel = within(await openThePreview());
+    expect(panel.getByTestId("crs-code-status")).toHaveTextContent(/NOT yet decided by an engineer/);
+  });
+
   it("shows no code line at all when the run has no recommendation", async () => {
     // NULL RENDERS AS NOTHING (CLAUDE.md rule 4), never a placeholder code.
     previewCrs.mockResolvedValue({
@@ -271,9 +282,60 @@ describe("the download the preview sits beside", () => {
     render(<ReviewRunsView />);
     await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
 
-    await userEvent.click(screen.getByRole("button", { name: "Export CRS (.xlsx)" }));
+    await userEvent.click(screen.getByRole("button", { name: "Export CRS - internal review copy" }));
 
-    expect(exportCrs).toHaveBeenCalledWith("run-1");
+    expect(exportCrs).toHaveBeenCalledWith("run-1", "internal");
     expect(previewCrs).not.toHaveBeenCalled();
+  });
+
+  it("offers the contractor's copy as its own export (order 2f), once an engineer has decided", async () => {
+    exportCrs.mockResolvedValue({
+      ok: true,
+      data: { blob: new Blob(["x"]), filename: "CRS_drum_2026-09-20_issue-to-contractor.xlsx" },
+    });
+    // The safety gate below only lets this button fire once the run carries
+    // the engineer's own decision - not just the machine's recommendation.
+    reviewRuns.mockResolvedValue({
+      ok: true, data: { runs: [run({ engineer_final_code: "Approved" })] },
+    });
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+
+    await userEvent.click(screen.getByRole("button", { name: "Export CRS - issue to contractor" }));
+
+    expect(exportCrs).toHaveBeenCalledWith("run-1", "issue");
+  });
+
+  it("SAFETY GATE: refuses to issue the contractor's copy before an engineer records the final code", async () => {
+    // No `engineer_final_code` on this run (the default fixture carries
+    // none) - the button must be disabled and say why, and clicking it (were
+    // it not disabled) must never reach `exportCrs`. The server enforces the
+    // same rule independently (`export_review_crs`, 409 `code_not_decided`);
+    // this holds the client's half.
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+
+    const button = screen.getByRole("button", { name: "Export CRS - issue to contractor" });
+    expect(button).toBeDisabled();
+    expect(screen.getByText(
+      "An engineer must record the final code before issue.")).toBeInTheDocument();
+
+    await userEvent.click(button);
+    expect(exportCrs).not.toHaveBeenCalled();
+  });
+});
+
+describe("2f: the engineer's internal notes are their own table, not comments", () => {
+  it("shows the Review notes collapsed under the sheet, never in a comment row", async () => {
+    previewCrs.mockResolvedValue({ ok: true, data: sheet({ review_notes: [
+      { note: "Requires another document", standard: "STD-A.pdf", count: 12,
+        detail: "12 of this run's requirements from STD-A.pdf name their own evidence." },
+    ] }) });
+    const panel = within(await openThePreview());
+    const notes = panel.getByText(/Review notes - internal \(1\)/).closest("details")!;
+    expect(within(notes).getByText("Requires another document")).toBeInTheDocument();
+    expect(within(notes).getByText("12")).toBeInTheDocument();
+    const table = panel.getAllByRole("table")[0];
+    expect(within(table).queryByText(/name their own evidence/)).toBeNull();
   });
 });

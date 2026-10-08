@@ -37,7 +37,7 @@ export const NAV: NavItem[] = [
   { id: "documents", label: "Documents", hint: "Upload, inspect, verify", built: true },
   { id: "standards", label: "Standards Library", hint: "Clauses, requirements, revisions", built: true },
   { id: "analysis", label: "Analysis Hub", hint: "Summary, gaps, advice", built: true },
-  { id: "chat", label: "Document Q&A", hint: "Ask questions with citations", built: true },
+  { id: "chat", label: "Chat", hint: "Ask anything, with sources", built: true },
   { id: "reports", label: "CRS & Reports", hint: "Frozen evidence, as PDF", built: true },
   { id: "deliverables", label: "Deliverables", hint: "WBS, revisions, due dates", built: true },
   { id: "ingestion", label: "Ingestion", hint: "Queue and throughput", built: true },
@@ -96,23 +96,73 @@ export type Connection =
   | { state: "online"; health: Health; at: number }
   | { state: "offline"; since: number; lastHealth: Health | null };
 
-/** Polls health. Exposed so screens can react to the backend going away. */
+/** How soon a single failed poll is re-checked before anything is declared. */
+export const CONFIRM_OFFLINE_MS = 1500;
+
+/** Polls health. Exposed so screens can react to the backend going away.
+ *
+ * ONE FAILED POLL IS NOT AN OUTAGE. Going offline hands the whole screen to
+ * the disconnected banner (App.tsx), which unmounts the view - a chat lost its
+ * transcript and every card replayed its entrance animation when the next poll
+ * succeeded. A single dropped request (a proxy hiccup, a request that lost a
+ * race with a busy server) therefore blinked the entire app. From online, a
+ * failure is now re-checked after CONFIRM_OFFLINE_MS and the screen is handed
+ * over only if that check fails too. From "connecting" nothing is on screen to
+ * lose, so the first failure still reports offline at once.
+ *
+ * Only an unreachable backend (`disconnected`) counts. A health route that
+ * ANSWERED with an error proves the server is running, and "The backend is not
+ * running" would be false; the last good health is kept instead.
+ *
+ * Responses are applied in order of REQUEST: a slow poll that resolves after a
+ * newer one must not overwrite it.
+ */
 export function useConnection(intervalMs = 5000) {
   const [connection, setConnection] = useState<Connection>({ state: "connecting" });
   const lastHealth = useRef<Health | null>(null);
+  const state = useRef<Connection["state"]>("connecting");
+  const issued = useRef(0);
+  const applied = useRef(0);
+  const confirmTimer = useRef<number | null>(null);
 
-  const check = useCallback(async () => {
+  // Consecutive polls that could not reach the backend.
+  const strikes = useRef(0);
+
+  const check = useCallback(async (): Promise<void> => {
+    const seq = ++issued.current;
     const result = await api.health();
+    if (seq < applied.current) return; // a newer poll already answered
+    applied.current = seq;
     if (result.ok) {
+      strikes.current = 0;
+      if (confirmTimer.current !== null) {
+        window.clearTimeout(confirmTimer.current);
+        confirmTimer.current = null;
+      }
       lastHealth.current = result.data;
+      state.current = "online";
       setConnection({ state: "online", health: result.data, at: Date.now() });
-    } else {
-      setConnection((prev) => ({
-        state: "offline",
-        since: prev.state === "offline" ? prev.since : Date.now(),
-        lastHealth: lastHealth.current,
-      }));
+      return;
     }
+    if (state.current === "online") {
+      if (!result.disconnected) return; // it answered: it is running
+      strikes.current += 1;
+      if (strikes.current < 2) {
+        if (confirmTimer.current === null) {
+          confirmTimer.current = window.setTimeout(() => {
+            confirmTimer.current = null;
+            void check();
+          }, CONFIRM_OFFLINE_MS);
+        }
+        return;
+      }
+    }
+    state.current = "offline";
+    setConnection((prev) => ({
+      state: "offline",
+      since: prev.state === "offline" ? prev.since : Date.now(),
+      lastHealth: lastHealth.current,
+    }));
   }, []);
 
   useEffect(() => {
@@ -125,6 +175,7 @@ export function useConnection(intervalMs = 5000) {
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+      if (confirmTimer.current !== null) window.clearTimeout(confirmTimer.current);
     };
   }, [check, intervalMs]);
 
@@ -187,6 +238,7 @@ export function Shell({
   auth,
   theme,
   onThemeChange,
+  navExtra,
   children,
 }: {
   view: ViewId;
@@ -202,6 +254,9 @@ export function Shell({
   auth?: AuthStatus | null;
   theme: ThemeMode;
   onThemeChange: (theme: ThemeMode) => void;
+  /** Screen-specific navigation under the main list - the Chat screen's
+   *  recent chats. Optional: every other screen has none. */
+  navExtra?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -266,8 +321,9 @@ export function Shell({
           </span>
           <p className="mt-3 border-l-2 border-signal-500/40 ps-2.5 text-xs leading-relaxed text-slateish-400">
             <span className="font-medium text-slateish-300">Private by design.</span>{" "}
-            Your documents stay on this machine, and every answer cites its
-            document and page.
+            Your documents are stored on this machine, and every answer cites
+            its document and page. When Claude is switched on, the passages an
+            answer needs are sent to it.
           </p>
         </div>
 
@@ -324,6 +380,8 @@ export function Shell({
             );
           })}
         </ul>
+
+        {navExtra}
 
         <div className="mt-auto border-t border-ink-700 px-4 py-4">
           {/* Identity sits ABOVE the connection badge on purpose: "who am I"

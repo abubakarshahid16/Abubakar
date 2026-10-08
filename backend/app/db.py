@@ -1,5 +1,6 @@
 """SQLite storage. WAL mode, foreign keys on, one connection per thread."""
 
+import functools
 import sqlite3
 import threading
 from pathlib import Path
@@ -65,6 +66,17 @@ CREATE TABLE IF NOT EXISTS pages (
     needs_ocr     INTEGER NOT NULL DEFAULT 0,
     equation_heavy INTEGER NOT NULL DEFAULT 0,
     batch_no      INTEGER NOT NULL,
+    -- Ruled tables read by geometry at extraction (extract.page_tables):
+    -- rows plus the indices of the `text` lines they cover. NULL = none found
+    -- or extracted before the table reader existed.
+    tables_json   TEXT,
+    -- Why this page was or was not routed to recognition (`ocr.route_page`,
+    -- audit F6): a code and the measurements, never page text. NULL on a page
+    -- decided before routing was recorded - `ocr_route_version` NULL or older
+    -- than `ocr.OCR_ROUTE_VERSION` marks the decision stale, and
+    -- `scripts/reroute_ocr.py` re-decides it without re-extracting.
+    ocr_route     TEXT,
+    ocr_route_version TEXT,
     PRIMARY KEY (document_id, page_no)
 );
 
@@ -91,6 +103,12 @@ CREATE TABLE IF NOT EXISTS page_ocr (
     mean_conf     REAL,
     min_conf      REAL,
     box_count     INTEGER NOT NULL,
+    -- How many of THIS page's individual word boxes scored below
+    -- `settings.ocr_low_conf_threshold`. mean_conf/min_conf are one number
+    -- for the whole page; a page with one bad word among 200 and a page with
+    -- fifty bad words can show the same min_conf. This is the count the
+    -- other two cannot give (`ocr.recognise_batch`).
+    low_conf_boxes INTEGER NOT NULL DEFAULT 0,
     -- Characters outside the document's expected script. Non-zero means the
     -- recogniser emitted something it should not be able to - under a
     -- Latin-only recogniser this should never fire, which makes it a guard on
@@ -100,6 +118,10 @@ CREATE TABLE IF NOT EXISTS page_ocr (
     seconds       REAL    NOT NULL,
     recognised_at TEXT    NOT NULL,
     batch_no      INTEGER NOT NULL,
+    -- Set when recognition FAILED on this page (audit F7): the row still
+    -- exists, with empty text, so the page counts as consumed and one bad
+    -- page cannot hold the whole document out of search. NULL on success.
+    error         TEXT,
     PRIMARY KEY (document_id, page_no)
 );
 
@@ -136,7 +158,12 @@ CREATE TABLE IF NOT EXISTS chunks (
     -- a substitution rather than an opinion about one: two chunks can both sit
     -- at 0.95 confidence and one of them contains a CJK ideograph.
     ocr_alphabet_violations INTEGER NOT NULL DEFAULT 0,
-    ocr_alphabet_sample     TEXT
+    ocr_alphabet_sample     TEXT,
+    -- Where the chunk sits: its heading chain ("4 Piping > 4.2 Pipes larger
+    -- than 2 inch > 4.2.1"). INDEX-ONLY - keyword and embedding input, never
+    -- quoted. NULL for chunks made before CHUNKER_VERSION 8, and for a
+    -- section two different chains set (chunker.segment_document).
+    context                 TEXT
 );
 
 CREATE TABLE IF NOT EXISTS chunk_vectors (
@@ -171,6 +198,85 @@ CREATE TABLE IF NOT EXISTS exclusions (
     created_at    TEXT NOT NULL
 );
 
+-- PERMANENT CRS COMMENT NUMBERS (2026-09-29). Industry practice for a
+-- Comment Resolution Sheet: every comment carries an ID that is "permanent and
+-- never reused" and follows the comment to the next revision. The sheet used
+-- to print Item No 1..N (renumbered on every export) plus a digest reference
+-- that changed with every review run - neither survives a resubmittal.
+--
+-- `scope_key` is the submittal's own number (so a revision uploaded as a new
+-- document but carrying the same submittal number continues ONE sequence and
+-- never reuses a number), or the document id when the submittal carried none.
+-- `row_key` is what the comment is ABOUT (`crs_mapping.comment_key`), not
+-- where it landed or which run produced it, so the same comment keeps its
+-- number across re-exports, re-runs and an unchanged resubmittal.
+--
+-- DELIBERATELY NO FOREIGN KEY AND NO CASCADE: deleting a document must not
+-- free its numbers for reuse. Numbers are minted only by write routes
+-- (`main._mint_crs_numbers`), never by the export or preview, which stay
+-- read-only. `status` is the Final Resolution column: 'Open' when minted,
+-- 'Closed' only by an authenticated reviewer, who is recorded.
+CREATE TABLE IF NOT EXISTS crs_comment_numbers (
+    scope_key       TEXT    NOT NULL,
+    row_key         TEXT    NOT NULL,
+    seq             INTEGER NOT NULL,
+    label           TEXT    NOT NULL,
+    first_document_id TEXT,
+    first_review_run_id TEXT,
+    assigned_at     TEXT    NOT NULL,
+    status          TEXT    NOT NULL DEFAULT 'Open',
+    status_by       TEXT,
+    status_at       TEXT,
+    -- The reviewer's closing note ("verified on Rev 1 p.4"), optional.
+    status_note     TEXT,
+    -- THE CONTRACTOR'S REPLY: one of `crs_numbers.RESPONSE_CODES`, or NULL when
+    -- their reply stated none (never guessed), plus their words. Who entered
+    -- it and how: an imported returned sheet, or recorded by an engineer.
+    response_code   TEXT,
+    response_text   TEXT,
+    response_by     TEXT,
+    response_at     TEXT,
+    response_source TEXT,
+    -- WHAT THE COMMENT SAID when last seen on a sheet, so an Open comment can
+    -- be carried forward onto a later run or revision that no longer produces
+    -- it, until a reviewer closes it. Local, like the findings it came from.
+    document_name   TEXT,
+    page_section    TEXT,
+    comment         TEXT,
+    comment_by      TEXT,
+    standard_reference TEXT,
+    last_review_run_id TEXT,
+    PRIMARY KEY (scope_key, row_key),
+    UNIQUE (scope_key, seq)
+);
+
+-- WHICH SEQUENCE A DOCUMENT'S COMMENTS ARE NUMBERED IN, fixed the first time
+-- one of its comments is numbered (`crs_numbers.assign`). The sequence is the
+-- document NUMBER's (stable across revisions), but a document number can be
+-- edited later; without this, an edit would silently move every existing
+-- comment of the document to a new sequence and a contractor quoting
+-- CRS-X-004 would find nothing. No foreign key, deliberately, like the
+-- numbers themselves.
+CREATE TABLE IF NOT EXISTS crs_document_scope (
+    document_id     TEXT    PRIMARY KEY,
+    scope_key       TEXT    NOT NULL,
+    label           TEXT    NOT NULL,
+    fixed_at        TEXT    NOT NULL
+);
+
+-- One line per thing that happened to a numbered comment: numbered, a reply
+-- recorded or imported, opened or closed. Who and when, never inferred.
+CREATE TABLE IF NOT EXISTS crs_comment_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    scope_key       TEXT    NOT NULL,
+    seq             INTEGER NOT NULL,
+    at              TEXT    NOT NULL,
+    by              TEXT,
+    event           TEXT    NOT NULL,
+    detail          TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_crs_comment_events ON crs_comment_events(scope_key, seq);
+
 -- THE PAGE LEDGER (master order B3). One row per page of every document, so a
 -- page never disappears silently: what its native text was, whether OCR was
 -- needed and ran, whether any retrievable chunk covers it (and if not, which
@@ -194,17 +300,26 @@ CREATE TABLE IF NOT EXISTS page_ledger (
     native_chars    INTEGER,
     -- 'not_required' | 'pending' | 'done'
     ocr_status      TEXT    NOT NULL DEFAULT 'unknown',
+    -- the routing reason (pages.ocr_route) or, when recognition failed, why
+    ocr_reason      TEXT,
     ocr_engine      TEXT,
     ocr_mean_conf   REAL,
+    ocr_low_conf_boxes INTEGER,
     ocr_seconds     REAL,
     -- 'retrievable' | 'excluded' | 'not_retrievable' | 'no_chunk' | 'not_chunked'
     index_status    TEXT    NOT NULL DEFAULT 'unknown',
     index_reason    TEXT,
-    -- No layout/table-reconstruction stage and no vision tier exist yet; the
-    -- columns say so rather than being left out (B4, #180).
+    -- No layout/table-reconstruction stage exists yet (B4, #180). The vision
+    -- tier DOES now exist (B7, `datasheets.vision_route`) - `vision_status`/
+    -- `vision_reason` hold its REAL per-page decision when `vision_recorded_by
+    -- = 'extraction'` (2026-09-27); otherwise `page_ledger.refresh` fills an
+    -- honest fallback (the reader is off, or this page has not been read
+    -- since the fix that started recording it) rather than the placeholder
+    -- every page used to get regardless of what actually happened.
     layout_status   TEXT    NOT NULL DEFAULT 'no_layout_stage',
     vision_status   TEXT    NOT NULL DEFAULT 'not_attempted',
     vision_reason   TEXT,
+    vision_recorded_by TEXT,
     -- 'not_applicable' | 'facts' | 'no_facts' | 'unreadable' | 'not_reached' | 'not_run'
     facts_status    TEXT    NOT NULL DEFAULT 'unknown',
     facts_count     INTEGER,
@@ -469,6 +584,33 @@ CREATE TABLE IF NOT EXISTS messages (
     UNIQUE (conversation_id, ordinal)
 );
 
+-- Chat redesign PR 5 (owner order 2026-09-26). Both additive; neither holds
+-- document text.
+--
+-- "Was this right?" - one answer per reader per assistant turn, replaced when
+-- they change their mind. Local only: it is never sent anywhere.
+CREATE TABLE IF NOT EXISTS chat_feedback (
+    message_id  TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    user_key    TEXT NOT NULL,          -- the reader's id, or '' with auth off
+    helpful     INTEGER NOT NULL CHECK(helpful IN (0, 1)),
+    note        TEXT,
+    created_at  TEXT NOT NULL,
+    PRIMARY KEY (message_id, user_key)
+);
+
+-- "Add to comment sheet": which review finding a drafted comment became. NO
+-- foreign key to review_findings, the report_documents precedent: the link is
+-- the record that the engineer filed it, even if an Undo later withdraws it.
+CREATE TABLE IF NOT EXISTS chat_filed_comments (
+    message_id   TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    finding_id   TEXT NOT NULL,
+    document_id  TEXT NOT NULL,
+    filed_by     TEXT,
+    filed_at     TEXT NOT NULL,
+    withdrawn_at TEXT,
+    PRIMARY KEY (message_id, finding_id)
+);
+
 -- ==================================================== classification
 --
 -- WHAT A DOCUMENT IS. Not who may read it.
@@ -680,6 +822,37 @@ CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status);
 """
 
 
+class SchemaRetryConnection(sqlite3.Connection):
+    """A connection whose `execute` survives a concurrent schema change.
+
+    WHY AT THE CONNECTION, AND NOT PER STATEMENT (issue #325, 2026-09-29).
+    Every earlier fix wrapped the one statement a failure had been seen on -
+    the ALTER, `PRAGMA schema_version`, `PRAGMA table_info`, then (PR #332) the
+    migrators themselves, serialised by a lock. The next failure was a READER:
+    a plain `SELECT` in `access.scope_for_user` (access.py:147), told
+    "database schema has changed" while another request thread ran a
+    first-time migration (about 40 CREATE/ALTER statements on a fresh
+    database). The lock cannot help there - a reader takes no migration lock,
+    and must not. So the answer SQLite asks for is given once, for every
+    statement: re-prepare and run it again.
+
+    SAFE TO RETRY because SQLITE_SCHEMA is returned before the statement
+    executes: nothing was read or written, and an enclosing transaction is
+    untouched. Only `execute` is retried - an `executemany` can fail after
+    some rows are in, so re-running it could write them twice. Bounded: past
+    the limit the error is raised, never swallowed.
+    """
+
+    def execute(self, sql, parameters=(), /):
+        for _attempt in range(_SCHEMA_CHANGED_RETRIES - 1):
+            try:
+                return super().execute(sql, parameters)
+            except sqlite3.OperationalError as exc:
+                if "schema has changed" not in str(exc).lower():
+                    raise
+        return super().execute(sql, parameters)
+
+
 def connect() -> sqlite3.Connection:
     """Thread-local connection. WAL lets one writer and many readers coexist."""
     conn = getattr(_local, "conn", None)
@@ -689,18 +862,181 @@ def connect() -> sqlite3.Connection:
         # live_guard.prepare_live_write (verified backup + restore drill).
         live_guard.check_connect(settings.db_path)
         settings.ensure_dirs()
-        conn = sqlite3.connect(settings.db_path, timeout=30.0)
+        conn = sqlite3.connect(settings.db_path, timeout=30.0,
+                               factory=SchemaRetryConnection)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA busy_timeout = 30000")
+        # DURABILITY, STATED HONESTLY. SQLite's default `synchronous=FULL`
+        # fsyncs the WAL on EVERY commit; measured 4.8 s of fsync for the
+        # 1,355 per-finding commits of one review run (perf audit item 1).
+        # Under WAL, NORMAL fsyncs only at checkpoints. It is still safe
+        # against an APPLICATION crash (a killed server loses nothing
+        # committed) and the file cannot corrupt, but a POWER CUT or OS crash
+        # can roll back the last few transactions committed before it.
+        # `SQLITE_SYNCHRONOUS=FULL` in backend/.env restores the old behaviour.
+        conn.execute(f"PRAGMA synchronous = {sqlite_synchronous()}")
         _local.conn = conn
     return conn
 
 
+#: The two values `settings.sqlite_synchronous` may take. Anything else would
+#: be interpolated into a PRAGMA, so it is refused rather than passed through.
+SYNCHRONOUS_MODES = ("FULL", "NORMAL")
+
+
+def sqlite_synchronous() -> str:
+    """The configured `PRAGMA synchronous` level, validated."""
+    mode = str(settings.sqlite_synchronous).strip().upper()
+    if mode not in SYNCHRONOUS_MODES:
+        raise ValueError(
+            f"SQLITE_SYNCHRONOUS must be one of {', '.join(SYNCHRONOUS_MODES)}, "
+            f"not {settings.sqlite_synchronous!r}")
+    return mode
+
+
+# --------------------------------------------------------- schema memo
+#
+# EVERY `ensure_schema` RAN ON EVERY CALL. They are called from read paths -
+# deliberately, so a module's tables exist before its first query - and each
+# one is ~150 `PRAGMA table_info` / `CREATE ... IF NOT EXISTS` statements.
+# Measured (perf audit items 1 and 9): 3.6 ms per call, 392 of the 397 SQL
+# statements behind `/api/reviews/runs/{id}/standards`, and one call per
+# finding written by a review run.
+#
+# KEYED ON `PRAGMA schema_version`, NOT ON "already ran once". The schema
+# version is SQLite's own counter, bumped by every CREATE, ALTER and DROP from
+# ANY connection or process. So the memo is exact rather than hopeful: after a
+# test drops a table, a migration adds a column, or `settings.db_path` points
+# at a new file, the version differs and the full check runs again. What the
+# memo saves is re-proving, 150 statements at a time, a schema nothing has
+# touched since the last proof. One PRAGMA per call remains.
+_schema_memo: dict[tuple[str, str], int] = {}
+
+#: ONE MIGRATOR AT A TIME IN THIS PROCESS (issue #325). Each retry above
+#: (`add_column_if_missing`, `_schema_version`, `columns_of`) patched the ONE
+#: statement a failure had been seen on, and the race moved to the next
+#: statement: on 2026-09-29 it was a plain `CREATE TABLE IF NOT EXISTS` in
+#: `review.ensure_schema`, 1-2 calls in 24 in CI. Any statement in any
+#: `ensure_schema` can be told "database schema has changed" while another
+#: connection's DDL lands. This lock stops two MIGRATORS overlapping: inside
+#: the one server process only one thread migrates. It does NOT protect a
+#: READER from a migration landing mid-statement - that is what
+#: `SchemaRetryConnection` is for (honesty audit entry 80: PR #332 claimed
+#: the lock closed the race; a plain SELECT failed on main an hour later).
+#: Reentrant because `ensure_schema`s call each other (`submittal_review` ->
+#: `review`). The unlocked fast path - memo hit, one PRAGMA - is unchanged,
+#: so reads never wait on this.
+_migration_lock = threading.RLock()
+
+
+def _schema_version(conn: sqlite3.Connection) -> int:
+    """`PRAGMA schema_version`, safe against a concurrent migrator.
+
+    THE SAME RACE `add_column_if_missing` ALREADY HANDLES, at a call site
+    that one's retry does not cover (found 2026-09-28,
+    test_migration_race + test_access_routes both failing on
+    'database schema has changed' after `schema_once` started reading this
+    around every migration). A plain read of this PRAGMA can itself be told
+    the schema changed while another connection's ALTER is mid-flight - the
+    fix is the one this codebase already uses for that exact SQLite answer:
+    re-read, bounded, never swallowed past the limit.
+    """
+    for _attempt in range(_SCHEMA_CHANGED_RETRIES):
+        try:
+            return conn.execute("PRAGMA schema_version").fetchone()[0]
+        except sqlite3.OperationalError as exc:
+            if "schema has changed" not in str(exc).lower():
+                raise
+    raise sqlite3.OperationalError(
+        "database schema kept changing while reading schema_version")
+
+
+def _run_migration(fn, name: str, args, kwargs):
+    """Run one `ensure_schema`, re-running the WHOLE function when SQLite
+    says another connection changed the schema under it.
+
+    The lock serialises migrators inside this process; a second PROCESS (a
+    script beside the server) can still land DDL mid-migration. Every
+    `ensure_schema` is idempotent by construction - `IF NOT EXISTS`,
+    `add_column_if_missing`, backfills written to be re-run, because they
+    ran on every read path before `schema_once` existed - so the answer to
+    "schema has changed" from ANY of its statements is to run it again, not
+    to find and wrap each statement. Bounded, and never swallowed: past the
+    limit it raises, naming the migration."""
+    for _attempt in range(_SCHEMA_CHANGED_RETRIES):
+        try:
+            return fn(*args, **kwargs)
+        except sqlite3.OperationalError as exc:
+            if "schema has changed" not in str(exc).lower():
+                raise
+            last = exc
+    raise sqlite3.OperationalError(
+        f"database schema kept changing while running {name}") from last
+
+
+def schema_once(fn):
+    """Decorate an `ensure_schema`: skip it while the schema is unchanged.
+
+    `keyword.ensure_schema` takes an optional connection. Passed THIS thread's
+    own connection (what every caller in the app passes) it is memoised like
+    the rest; passed any other connection it simply runs, because the memo
+    describes the database behind `connect()` and nothing else.
+    """
+    name = f"{fn.__module__}.{fn.__qualname__}"
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        given = args[0] if args else kwargs.get("conn")
+        if len(args) > 1 or set(kwargs) - {"conn"} or (
+                given is not None and given is not getattr(_local, "conn", None)):
+            return fn(*args, **kwargs)
+        conn = connect()
+        key = (name, str(settings.db_path))
+        if _schema_memo.get(key) == _schema_version(conn):
+            return None
+        with _migration_lock:
+            # Re-checked under the lock: the thread that held it may have
+            # just done this exact migration.
+            if _schema_memo.get(key) == _schema_version(conn):
+                return None
+            result = _run_migration(fn, name, args, kwargs)
+            # Recorded AFTER the function, so its own DDL is part of the
+            # proven state. A function that raised records nothing and runs
+            # again.
+            _schema_memo[key] = _schema_version(conn)
+            return result
+
+    wrapper.uncached = fn
+    return wrapper
+
+
+def reset_schema_memo() -> None:
+    """Forget every proven schema, so the next `ensure_schema` runs in full."""
+    _schema_memo.clear()
+
+
 def columns_of(conn: sqlite3.Connection, table: str) -> set[str]:
-    """The column names of `table`, empty when there is no such table."""
-    return {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    """The column names of `table`, empty when there is no such table.
+
+    Retried the same way `_schema_version` is: this is `add_column_if_
+    missing`'s OWN loop-top check, called again on every retry attempt, and
+    it is a raw `PRAGMA table_info` read - unprotected until 2026-09-28,
+    when `schema_once` widened the concurrent-migration race window enough
+    for SQLite to answer 'database schema has changed' here specifically,
+    not just on the ALTER the loop below already retries (confirmed with a
+    real two-thread race, not guessed: `test_two_threads_can_migrate_the_
+    same_database[submittal_review-ensure_schema]`, 1 failure in 24 calls,
+    traceback rooted exactly at this line)."""
+    for _attempt in range(_SCHEMA_CHANGED_RETRIES):
+        try:
+            return {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        except sqlite3.OperationalError as exc:
+            if "schema has changed" not in str(exc).lower():
+                raise
+    raise sqlite3.OperationalError(
+        f"database schema kept changing while reading columns of {table}")
 
 
 def add_column_if_missing(conn: sqlite3.Connection, table: str, column: str,
@@ -731,20 +1067,37 @@ def add_column_if_missing(conn: sqlite3.Connection, table: str, column: str,
     every caller believed it present - a worse failure than the crash, because
     it is silent.
     """
-    existing = columns_of(conn, table)
-    if not existing or column in existing:
-        # No such table - whoever creates it owns its shape - or the column is
-        # already there and there is nothing to do.
-        return False
-    try:
-        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
-    except sqlite3.OperationalError as exc:
-        if "duplicate column" not in str(exc).lower():
-            raise
-        if column not in columns_of(conn, table):
-            raise
-        return False
-    return True
+    # THE SAME RACE, ARRIVING A MOMENT EARLIER. When the other connection's
+    # ALTER lands between this statement's prepare and its step, SQLite
+    # answers "database schema has changed" instead of "duplicate column"
+    # (seen once in CI, 2026-09-26, test_migration_race). The answer is the
+    # same: re-read the columns and, if ours is still missing, try again - a
+    # bounded number of times, and never swallowed without the re-read.
+    for _attempt in range(_SCHEMA_CHANGED_RETRIES):
+        existing = columns_of(conn, table)
+        if not existing or column in existing:
+            # No such table - whoever creates it owns its shape - or the
+            # column is already there and there is nothing to do.
+            return False
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        except sqlite3.OperationalError as exc:
+            message = str(exc).lower()
+            if "schema has changed" in message:
+                continue
+            if "duplicate column" not in message:
+                raise
+            if column not in columns_of(conn, table):
+                raise
+            return False
+        return True
+    raise sqlite3.OperationalError(
+        f"database schema kept changing while adding {table}.{column}")
+
+
+#: How many times a migration re-reads and retries after SQLite reports that
+#: another connection changed the schema underneath it.
+_SCHEMA_CHANGED_RETRIES = 5
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
@@ -771,6 +1124,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
     pg = {r["name"] for r in conn.execute("PRAGMA table_info(pages)")}
     if pg and "equation_heavy" not in pg:
         conn.execute("ALTER TABLE pages ADD COLUMN equation_heavy INTEGER NOT NULL DEFAULT 0")
+    if pg and "tables_json" not in pg:
+        add_column_if_missing(conn, "pages", "tables_json", "TEXT")
     docs = {r["name"] for r in conn.execute("PRAGMA table_info(documents)")}
     if docs and "chunk_count_total" not in docs:
         conn.execute(
@@ -797,6 +1152,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
                      " INTEGER NOT NULL DEFAULT 0")
     if have and "ocr_alphabet_sample" not in have:
         conn.execute("ALTER TABLE chunks ADD COLUMN ocr_alphabet_sample TEXT")
+    if have and "context" not in have:
+        add_column_if_missing(conn, "chunks", "context", "TEXT")
     if docs and "recognised_pages" not in docs:
         # A count, not a boolean, matching needs_ocr_pages and equation_pages.
         # A 546-page document with 12 recognised pages must never read as
@@ -817,6 +1174,21 @@ def _migrate(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_page_ocr_document ON page_ocr(document_id)"
     )
+    # OCR routing reason and per-page recognition failure (audit F6/F7).
+    # Nullable, no back-fill: a page routed before this build has no recorded
+    # reason, and NULL `ocr_route_version` is exactly what marks it stale.
+    if pg and "ocr_route" not in pg:
+        add_column_if_missing(conn, "pages", "ocr_route", "TEXT")
+    if pg and "ocr_route_version" not in pg:
+        add_column_if_missing(conn, "pages", "ocr_route_version", "TEXT")
+    add_column_if_missing(conn, "page_ocr", "error", "TEXT")
+    add_column_if_missing(conn, "page_ledger", "ocr_reason", "TEXT")
+    # Per-box low-confidence count (2026-09-29): an existing row was recognised
+    # before this counter existed, so it defaults to 0 rather than an unknown
+    # NULL - the same choice already made for box_count/alphabet_violations on
+    # this table, not a claim that the page truly had zero low-confidence boxes.
+    add_column_if_missing(conn, "page_ocr", "low_conf_boxes", "INTEGER NOT NULL DEFAULT 0")
+    add_column_if_missing(conn, "page_ledger", "ocr_low_conf_boxes", "INTEGER")
     # --------------------------------------------- AI submittal review, phase 1
     # The submittal-review vocabulary on an existing classification row. Every
     # column is nullable with no default, so an existing row keeps every value
@@ -901,6 +1273,23 @@ def _migrate(conn: sqlite3.Connection) -> None:
         ("jobs", "claimed_by", "TEXT"),
         ("jobs", "claimed_at", "TEXT"),
         ("jobs", "next_attempt_at", "TEXT"),
+        # B11: who asked, which code and settings produced the output, and
+        # a cancellation the worker honours.
+        ("jobs", "created_by", "TEXT"),
+        ("jobs", "code_version", "TEXT"),
+        ("jobs", "config_version", "TEXT"),
+        # P3: a review run as a job - its run, named progress, cooperative cancel.
+        ("jobs", "review_run_id", "TEXT"),
+        ("jobs", "progress_done", "INTEGER"),
+        ("jobs", "progress_total", "INTEGER"),
+        ("jobs", "progress_label", "TEXT"),
+        ("jobs", "cancel_requested", "INTEGER NOT NULL DEFAULT 0"),
+        # 2026-09-27, page-reading fix: which pages' vision_status/vision_reason
+        # are a REAL `vision_route` decision (`= 'extraction'`) rather than
+        # `page_ledger.refresh`'s honest fallback. A database from before this
+        # column lacks it, so every existing row reads as "not recorded" -
+        # correct, since none of them ever held a real decision either.
+        ("page_ledger", "vision_recorded_by", "TEXT"),
     ):
         add_column_if_missing(conn, _table, _column, _definition)
     conn.execute(
@@ -912,7 +1301,62 @@ def _migrate(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_chunks_parent ON chunks(parent_id, ordinal)"
     )
+    for statement in VECTOR_GENERATION_SQL:
+        conn.execute(statement)
     conn.commit()
+
+
+def _vector_generation_triggers() -> tuple[str, ...]:
+    """One trigger per write that can change what dense search may return."""
+    bump = ("INSERT INTO vector_generation (document_id, token) VALUES ({doc}, random())"
+            " ON CONFLICT(document_id) DO UPDATE SET token = excluded.token;")
+    corpus = bump.format(doc="''")
+    out = []
+    for table, event, rows in (
+        ("chunk_vectors", "INSERT", ("NEW",)),
+        ("chunk_vectors", "DELETE", ("OLD",)),
+        ("chunk_vectors", "UPDATE", ("OLD", "NEW")),
+        ("chunks", "INSERT", ("NEW",)),
+        ("chunks", "DELETE", ("OLD",)),
+        ("chunks", "UPDATE OF retrievable, id, document_id", ("OLD", "NEW")),
+    ):
+        name = f"vecgen_{table}_{event.split()[0].lower()}"
+        body = " ".join(bump.format(doc=f"{r}.document_id") for r in rows)
+        out.append(f"CREATE TRIGGER IF NOT EXISTS {name} AFTER {event} ON {table}"
+                   f" BEGIN {body} {corpus} END")
+    return tuple(out)
+
+
+#: VECTOR GENERATION TOKENS, read by `vector_store` (the dense-search index).
+#:
+#: A RANDOM token per document, and one for the whole corpus under the id '',
+#: replaced by a trigger on every write that can change what dense search may
+#: return: a vector added, replaced or deleted, a chunk added or deleted (a
+#: vector whose chunk is gone is an orphan), a chunk's `retrievable` flipped.
+#: The vector index compares tokens instead of recomputing a signature, so a
+#: query costs one indexed read instead of the aggregate scans of `chunks` the
+#: retrieval audit measured at 98% of the dense stage (2.3, finding L3).
+#:
+#: TRIGGERS, NOT CALLS, because every writer is covered - ingestion, the
+#: chunker, exclusion edits, a cascade from deleting a document, a script, a
+#: test's raw SQL - and a writer that forgets cannot exist.
+#:
+#: RANDOM, NOT A COUNTER, because a counter repeats: restore an older backup
+#: and write once, and the counter reaches a value the index has already seen
+#: for different content. A random 64-bit token never matches by accident.
+#: The seed rows give a database that predates the triggers a token for every
+#: document it already holds, so the first index build covers all of them.
+VECTOR_GENERATION_SQL: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS vector_generation (
+        document_id TEXT PRIMARY KEY,   -- '' is the whole corpus
+        token       INTEGER NOT NULL
+    )""",
+    "INSERT OR IGNORE INTO vector_generation (document_id, token) VALUES ('', random())",
+    "INSERT OR IGNORE INTO vector_generation (document_id, token)"
+    " SELECT document_id, random() FROM"
+    " (SELECT DISTINCT document_id FROM chunk_vectors)",
+    *_vector_generation_triggers(),
+)
 
 
 def init_db(path: Path | None = None) -> None:
@@ -924,8 +1368,18 @@ def init_db(path: Path | None = None) -> None:
     conn.commit()
 
 
+def close_thread_connection() -> None:
+    """Close THIS thread's connection, if it has one. The schema memo is kept:
+    closing a connection changes nothing about the database's shape."""
+    conn = getattr(_local, "conn", None)
+    if conn is not None:
+        conn.close()
+        _local.conn = None
+
+
 def reset_connection() -> None:
     """Test helper - drop the thread-local connection."""
+    reset_schema_memo()
     conn = getattr(_local, "conn", None)
     if conn is not None:
         conn.close()

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseRoute, pathForView, titleForView } from "./routing";
+import { ADMIN_NAV, NAV } from "./components/Shell";
 
 describe("application routes", () => {
   it("parses views and record deep links", () => {
@@ -16,5 +17,17 @@ describe("application routes", () => {
     expect(pathForView("reports")).toBe("/reports");
     expect(pathForView("chat", "review/42")).toBe("/chat/review%2F42");
     expect(titleForView("dashboard")).not.toBe(titleForView("documents"));
+  });
+});
+
+describe("every navigation entry survives a refresh", () => {
+  it("parses every NAV entry and the admin entry back to its own view", () => {
+    for (const item of [...NAV, ADMIN_NAV]) {
+      expect(parseRoute(pathForView(item.id))).toEqual({ kind: "view", view: item.id, recordId: undefined });
+    }
+  });
+
+  it("opens /standards directly (refresh or back button)", () => {
+    expect(parseRoute("/standards")).toEqual({ kind: "view", view: "standards", recordId: undefined });
   });
 });

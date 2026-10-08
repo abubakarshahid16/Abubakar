@@ -13,6 +13,7 @@ because a running title repeated in every chunk poisons every search result.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from datetime import datetime, timezone
 from collections import Counter
@@ -27,7 +28,9 @@ from .rates import Timer, rate
 from . import states
 from . import keyword
 from . import orphan_guard
+from .ocr import failed_page_reason
 from .quality import MIN_CLAUSE_WORDS, assess, longest_clause
+from . import tables as tables_mod
 
 # ---------------------------------------------------------------- tokenizer
 
@@ -55,17 +58,46 @@ def normalise_line(line: str) -> str:
     return _WS.sub(" ", _DIGITS.sub("#", line)).strip().lower()
 
 
+#: Markers carried INSIDE the running-line set (strings no real line can
+#: normalise to, because extraction replaces control characters). The set is
+#: also read by `classification.title_block_lines`, which only ever asks
+#: `norm in running`, so extra members are invisible to it.
+_PAGENO_MARK = "\x00pageno:"
+_EXACT_MARK = "\x00exact:"
+_HAS_LETTER = re.compile(r"[^\W\d_]")
+_ONE_NUMBER = re.compile(r"^\D*(\d{1,4})\D*$")
+
+
+def _exact_line(line: str) -> str:
+    return _WS.sub(" ", line).strip().lower()
+
+
 def detect_running_lines(pages: list[tuple[int, str]]) -> set[str]:
     """Normalised lines that repeat at the top or bottom of most pages.
 
     Only the first and last few lines of each page are considered, so a
     sentence that legitimately recurs in body text is never removed.
+
+    The window is twice the strip window: a PDF often emits its whole header
+    AND footer before the body ("Document Responsibility" / "SAES-H-101V" /
+    "Issue Date" / title / "Company General Use" / "Page 3 of 9" is six lines
+    at the TOP of the extracted text), and a footer counted only when it sits
+    in the first five lines was never detected. Stripping still happens only
+    inside the edge window or in a run of furniture contiguous with the page
+    edge (see strip_running_lines), so the wider count cannot reach the body.
+
+    Two kinds of marker are added (see _PAGENO_MARK): the page-number offsets
+    the document actually uses, so a bare number is stripped only when it IS
+    the page number, and the exact (unmasked) lines that repeat, so a heading
+    that merely shares a digit-masked shape is not taken for furniture.
     """
     if len(pages) < 5:
-        return set()
-    n = settings.running_line_scan_lines
+        return _short_document_running_lines(pages)
+    n = settings.running_line_scan_lines * 2
     counts: Counter[str] = Counter()
-    for _, text in pages:
+    exact: Counter[str] = Counter()
+    offsets: Counter[int] = Counter()
+    for page_no, text in pages:
         lines = [line for line in text.splitlines() if line.strip()]
         if not lines:
             continue
@@ -73,29 +105,149 @@ def detect_running_lines(pages: list[tuple[int, str]]) -> set[str]:
         for norm in {normalise_line(line) for line in edge if line.strip()}:
             if norm and len(norm) <= 120:
                 counts[norm] += 1
+        for form in {_exact_line(line) for line in edge if line.strip()}:
+            if form and len(form) <= 120:
+                exact[form] += 1
+        page_offsets = set()
+        for line in edge:
+            m = _ONE_NUMBER.match(line.strip())
+            if m and not _HAS_LETTER.search(line):
+                page_offsets.add(int(m.group(1)) - page_no)
+        for off in page_offsets:
+            offsets[off] += 1
     # A running head repeats within a CHAPTER, not across the whole book, so a
     # "most pages" threshold misses it entirely. Use an absolute floor instead:
     # appearing at the edge of many pages is already strong evidence.
     floor = max(5, int(len(pages) * settings.running_line_threshold))
-    return {line for line, c in counts.items() if c >= floor}
+    found = {line for line, c in counts.items() if c >= floor}
+    found |= {_EXACT_MARK + form for form, c in exact.items() if c >= floor}
+    found |= {f"{_PAGENO_MARK}{off}" for off, c in offsets.items() if c >= floor}
+    return found
 
 
-def strip_running_lines(text: str, running: set[str]) -> tuple[str, int]:
-    """Remove running lines from the page edges only. Returns (text, removed)."""
+#: On a short document only this many lines at each page edge are looked at.
+_SHORT_DOC_EDGE_LINES = 3
+
+
+def _short_document_running_lines(pages: list[tuple[int, str]]) -> set[str]:
+    """Running lines of a document too short for the repeat count (2-4 pages).
+
+    AUDIT 2026-09-30 (reading finding 4): below five pages nothing was ever
+    furniture, so a two-page standard's header - "SAES-X-901 Process Piping
+    Design Issue 2 Page 2 of 2" - was read as text: the last chunk of page 1
+    swallowed it with the clauses of page 2, and two issues of the same
+    standard then "conflicted" on "Issue 2 Page" against "Issue 3 Page".
+
+    Two pages that merely repeat a line prove nothing (a title and a real
+    clause both repeat), so the evidence here is stricter than on a long
+    document. A line counts only when ALL of these hold:
+      - it sits within the first or last `_SHORT_DOC_EDGE_LINES` lines of
+        EVERY page, with the same digit-masked shape;
+      - its exact text DIFFERS between pages, and one of its numbers moves in
+        step with the page number (Page 1 / Page 2) - a page header, not a
+        sentence that happens to recur.
+    Real clause text repeated on two pages has no page-tracking number and is
+    kept.
+    """
+    if len(pages) < 2:
+        return set()
+    shapes: list[dict[str, str]] = []
+    for _page_no, text in pages:
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        edge = lines[:_SHORT_DOC_EDGE_LINES] + lines[-_SHORT_DOC_EDGE_LINES:]
+        by_shape: dict[str, str] = {}
+        for line in edge:
+            norm = normalise_line(line)
+            if norm and len(norm) <= 120 and _HAS_LETTER.search(line):
+                by_shape.setdefault(norm, line)
+        shapes.append(by_shape)
+    found: set[str] = set()
+    for norm in set.intersection(*(set(s) for s in shapes)):
+        exact = [s[norm] for s in shapes]
+        if len({_exact_line(e) for e in exact}) < 2:
+            continue
+        numbers = [[int(d) for d in _DIGITS.findall(e)] for e in exact]
+        width = len(numbers[0])
+        if width == 0 or any(len(ns) != width for ns in numbers):
+            continue
+        tracks_page = any(
+            len({ns[k] - page_no for ns, (page_no, _t) in zip(numbers, pages)}) == 1
+            for k in range(width))
+        if tracks_page:
+            found.add(norm)
+    return found
+
+
+def _is_running(line: str, running: set[str], page_no: int | None) -> bool:
+    """Whether one line is page furniture under the document's running set.
+
+    A line with NO LETTERS normalises to '#' - which is a page number, and
+    also every numeric table cell in the document (audit F2: a table's last
+    row, CS-23's "69 / 222 / 200", vanished from the foot of page 9, and
+    nothing recorded it). Such a line is furniture only when its number is
+    this page's number under an offset the document repeatedly uses. Without
+    a page number there is no evidence, and the line is kept.
+    """
+    stripped = line.strip()
+    if not stripped:
+        return False
+    norm = normalise_line(stripped)
+    if norm not in running:
+        return False
+    if not _HAS_LETTER.search(stripped):
+        m = _ONE_NUMBER.match(stripped)
+        return bool(m and page_no is not None
+                    and f"{_PAGENO_MARK}{int(m.group(1)) - page_no}" in running)
+    # Matched only after masking its digits. "Page 3 of 9" is furniture that
+    # way; "A.4 Coating system no. 4" at the top of four annex pages is a
+    # HEADING that shares a shape with its siblings. A heading is kept unless
+    # its exact text repeats.
+    if (_DIGITS.search(stripped)
+            and (_EXACT_MARK + _exact_line(stripped)) not in running
+            and (looks_like_heading(stripped) or _CLAUSE_NUMBER_LEAD.match(stripped))):
+        return False
+    return True
+
+
+def strip_running_lines(text: str, running: set[str],
+                        page_no: int | None = None) -> tuple[str, int]:
+    """Remove running lines from the page edges only. Returns (text, removed).
+
+    The edge is the first/last `running_line_scan_lines` lines, EXTENDED by
+    any run of furniture contiguous with the page edge: a six-line header
+    block is removed whole, while a recurring line in the body is never
+    reached because a body line breaks the run.
+    """
     if not running:
         return text, 0
     lines = text.splitlines()
     # On a short page every line would fall inside the edge window, which would
     # strip body text. Shrink the window so the middle of a page is always safe.
     n = settings.running_line_scan_lines
-    if len(lines) < 2 * n + 2:
+    # The contiguous-furniture extension is for FULL pages only; a short page
+    # keeps the one-line window, where everything is near an edge. A masked
+    # table counts as the lines it stands for: a page that is one long table
+    # is not a short page.
+    size = sum(len((_sentinel_table(line) or {}).get("raw") or [line]) for line in lines)
+    limit = 3 * n
+    if size < 2 * n + 2:
         n = 1
+        limit = 1
+    top = 0
+    while top < min(len(lines), limit) and (
+            not lines[top].strip() or _is_running(lines[top], running, page_no)):
+        top += 1
+    bottom = 0
+    while bottom < min(len(lines) - top, limit) and (
+            not lines[-1 - bottom].strip()
+            or _is_running(lines[-1 - bottom], running, page_no)):
+        bottom += 1
     keep: list[str] = []
     removed = 0
     last = len(lines) - 1
     for i, line in enumerate(lines):
-        at_edge = i < n or i > last - n
-        if at_edge and line.strip() and normalise_line(line) in running:
+        at_edge = i < max(n, top) or i > last - max(n, bottom)
+        if at_edge and line.strip() and _is_running(line, running, page_no):
             # A bare number normalises to "#", which is a page number in a
             # book and a CLAUSE NUMBER in a specification - and in a spec the
             # number sits on its own line with the title beneath it. Both
@@ -107,6 +259,11 @@ def strip_running_lines(text: str, running: set[str]) -> tuple[str, int]:
             if _CLAUSE_NUMBER_ONLY.match(line) and _split_line_heading(
                 [ln.strip() for ln in lines], i
             )[0]:
+                keep.append(line)
+                continue
+            # B6B E4: the same for a numbered paragraph's clause number
+            # ('6.2.1' above its requirement) - dotted, so never a page number.
+            if _numbered_paragraph([ln.strip() for ln in lines], i):
                 keep.append(line)
                 continue
             removed += 1
@@ -123,8 +280,18 @@ _HEADING = re.compile(
     r"((?:[A-Z]\.)?\d+(?:\.\d+){0,3})\s+([A-Z][^\n]{2,70})\s*$"
 )
 _CHAPTER_PREFIX = re.compile(r"^\s*(?:CHAPTER|Chapter|SECTION|Section)\s+")
+#: The obligation word of a specification. "shall" only: "must" and "should"
+#: head real sections in the textbooks this chunker also reads.
+_OBLIGATION = re.compile(r"\bshall\b", re.IGNORECASE)
+_PARENTHETICAL = re.compile(r"\([^()]*\)")
 _ALLCAPS_HEADING = re.compile(r"^\s*([A-Z][A-Z \-&/]{6,60})\s*$")
 _TABLE_CAPTION = re.compile(r"^\s*(?:TABLE|Table|FIGURE|Figure)\s+\d+")
+#: Stands in the page text for a ruled table read by geometry (see
+#: mask_tables). \x02 cannot occur in extracted text - normalise_text turns
+#: control characters into spaces - and, unlike \x1e, it is not a line
+#: boundary for str.splitlines. The table itself follows as JSON on the same
+#: line, so every pass that walks the lines can decode it without a registry.
+_TABLE_SENTINEL = "\x02TABLE:"
 _SENTENCE_END = re.compile(r"(?<=[.!?;:])\s+")
 _TRAILING_PAGE_NO = re.compile(r"\s\d{1,4}$")
 #: A trailing number that belongs to the TITLE rather than being a page
@@ -137,8 +304,11 @@ _NUMERIC_TOKEN = re.compile(r"[-+]?\d[\d.,%/:-]*")
 _MIN_TABLE_LINES = 4
 # A table smaller than this is not worth isolating; it reads better as prose.
 _MIN_TABLE_TOKENS = 40
-# Chunks below this are merged into their neighbour rather than published.
-_MIN_CHUNK_TOKENS = 25
+# Chunks below this are merged into a neighbour IN THE SAME SECTION rather than
+# published on their own (22% of the owner's retrievable chunks were under 30
+# tokens). Never across sections: a chunk's section is the clause every
+# requirement read from it is filed under.
+_MIN_CHUNK_TOKENS = 40
 # More heading-like lines than this on one page means it is a contents page.
 _CONTENTS_PAGE_HEADINGS = 4
 # Section numbers are small; anything larger is an address or a measurement.
@@ -158,6 +328,8 @@ _MATH_PUNCT_STRICT = re.compile(r"[\[\]{}=+*/\<>|^_~]")
 _CLAUSE_NUMBER_ONLY = re.compile(r"^\s*((?:[A-Z]\.)?\d+(?:\.\d+)*)\.?\s*$")
 #: The clause number part of a heading, body or annex.
 _CLAUSE_NUMBER = r"(?:[A-Z]\.)?\d+(?:\.\d+){0,3}"
+#: A line that opens with a dotted clause number and words: "4.3.1 Abrasive".
+_CLAUSE_NUMBER_LEAD = re.compile(r"^\s*(?:[A-Z]\.)?\d+(?:\.\d+){1,4}\s+[A-Z]")
 
 # ------------------------------------------------------ page classification
 
@@ -218,6 +390,43 @@ def _is_page_number_column(lines: list[str], total_pages: int) -> bool:
 
     if len(in_range) < 2:
         return False
+    ascending = sum(1 for a, b in zip(in_range, in_range[1:]) if b >= a)
+    return ascending >= (len(in_range) - 1) * 0.75
+
+
+#: Dot leaders between a contents title and its page number:
+#: "5.3.1 Identity Theft ........ 257" or ". . . . 257".
+_DOT_LEADER = re.compile(r"(?:\.\s*){4,}\d{1,4}\s*$|\u2026\s*\d{1,4}\s*$")
+_TRAILING_NUMBER = re.compile(r"(\d{1,4})\s*$")
+
+
+def _contents_evidence(toc: list[str], page_no: int, total_pages: int) -> bool:
+    """Is a page of "text ... number" lines a contents or index page?
+
+    AUDIT 2026-09-30 (reading finding 3): the shape alone was the test, so a
+    tab-aligned data sheet - "Rated flow (m3/h) 250", "Speed (rpm) 2980" -
+    was a contents page wherever it sat and every row was excluded from
+    search. A contents or index page gives itself away by what its numbers
+    ARE, so one of these is now required:
+      - dot leaders on at least half of the lines (a typeset contents page);
+      - the numbers are page numbers: nearly all fit the document, and on a
+        contents page (not at the back) they run in ascending order. An index
+        at the back is alphabetical by term, so its numbers need only fit.
+    A data sheet's values - flows, speeds, diameters - neither fit a short
+    document nor ascend. The bound is the same one `_is_page_number_column`
+    uses for a two-column contents page.
+    """
+    if sum(1 for line in toc if _DOT_LEADER.search(line)) >= len(toc) * 0.5:
+        return True
+    numbers = [int(m.group(1)) for line in toc if (m := _TRAILING_NUMBER.search(line))]
+    if len(numbers) < 2:
+        return False
+    ceiling = max(total_pages, 1) * 1.2
+    in_range = [n for n in numbers if 1 <= n <= ceiling]
+    if len(in_range) < len(numbers) * 0.9:
+        return False
+    if page_no > total_pages * 0.85:
+        return True
     ascending = sum(1 for a, b in zip(in_range, in_range[1:]) if b >= a)
     return ascending >= (len(in_range) - 1) * 0.75
 
@@ -332,8 +541,10 @@ def classify_page(text: str, page_no: int, total_pages: int) -> str:
     if _TABLE_CAPTION.search(text):
         return "prose"
 
-    toc_lines = sum(1 for line in lines if _TOC_LINE.match(line))
-    if len(lines) >= 6 and toc_lines >= len(lines) * 0.4 and toc_lines >= 5:
+    toc = [line for line in lines if _TOC_LINE.match(line)]
+    toc_lines = len(toc)
+    if (len(lines) >= 6 and toc_lines >= len(lines) * 0.4 and toc_lines >= 5
+            and _contents_evidence(toc, page_no, total_pages)):
         # An index has the same shape but sits at the back of the book.
         if page_no > total_pages * 0.85:
             return "index"
@@ -377,6 +588,119 @@ def classify_page(text: str, page_no: int, total_pages: int) -> str:
 
 # Only these kinds are searchable. The rest are kept for inspection.
 RETRIEVABLE_KINDS = frozenset({"prose", "table"})
+
+# ------------------------------------------- change tables and title pages
+
+#: One row of a "Summary of Changes" table written on a single line: an optional
+#: row number, the paragraph, the type of change, then what changed.
+#:     "6.5 Addition PMI application responsibilities."
+_CHANGE_ROW = re.compile(
+    r"^\s*(?:\d{1,3}\s+)?(?:[A-Z]\.)?\d+(?:\.\d+){0,4}\s+"
+    r"(?:Addition|Deletion|Modification|Editorial|Exceptions?)\b")
+_NUMBER_LEAD = re.compile(r"^\s*(?:[A-Z]\.)?\d+(?:\.\d+){0,4}\b")
+_PARAGRAPH_COLUMN = re.compile(r"\bparagraph\b", re.IGNORECASE)
+_CHANGE_TYPE_COLUMN = re.compile(r"\bchange\s+type\b", re.IGNORECASE)
+#: How many rows make a table, and how much of the page's numbered lines they
+#: must be. A body page has numbered clauses that are not change rows; a
+#: change table has little else.
+_MIN_CHANGE_ROWS = 3
+_MIN_CHANGE_ROW_SHARE = 0.6
+
+#: Page kind for a page that records what changed between revisions.
+HISTORY_KIND = "revision_history"
+#: Page kind for the title block of a document, kept searchable.
+TITLE_KIND = "title_page"
+#: What a title page's chunk is filed under.
+TITLE_SECTION = "title page"
+_TITLE_PAGE_MAX_WORDS = 80
+_TITLE_PAGE_MAX_LINES = 20
+_COVER_RIGHTS_MARKERS = ("all rights reserved", "copyright \u00a9")
+_CONTENTS_WORD = re.compile(r"^\s*(?:table\s+of\s+)?contents\s*$", re.IGNORECASE)
+
+#: The wording recorded for an excluded change table.
+HISTORY_REASON = (
+    "summary of changes / revision history table: it records what changed "
+    "between revisions and is not a requirement; excluded from search on purpose")
+
+
+def _change_table_evidence(lines: list[str]) -> bool:
+    """Do most of this page's numbered lines read "number + change type"?"""
+    starters = [ln for ln in lines if _NUMBER_LEAD.match(ln)]
+    rows = [ln for ln in starters if _CHANGE_ROW.match(ln)]
+    return (len(rows) >= _MIN_CHANGE_ROWS
+            and len(rows) >= len(starters) * _MIN_CHANGE_ROW_SHARE)
+
+
+def is_change_table_page(text: str, continues_history: bool = False) -> bool:
+    """Whether a page is a Summary of Changes / Revision History table.
+
+    Needs the rows ("6.5 Addition ...": most numbered lines) AND a cue: a
+    history title, the columns "Paragraph" and "Change Type", or - on the page
+    after one - nothing more, since a long change table does not always reprint
+    its header. Rows alone, on a page with no cue and no history before it, are
+    not enough: a clause called "Addition of ..." is body text.
+    """
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if not _change_table_evidence(lines):
+        return False
+    if continues_history:
+        return True
+    if any(_REVISION_HISTORY_TITLE.match(ln) for ln in lines):
+        return True
+    return bool(_PARAGRAPH_COLUMN.search(text) and _CHANGE_TYPE_COLUMN.search(text))
+
+
+def _is_title_page(text: str, page_no: int) -> bool:
+    """A document's first page when it is a short title block - not a contents
+    page, not a copyright page. Called only for a page `classify_page` called
+    front matter. Bounded: page 1, at most 80 words and 20 lines, none of the
+    publishing markers that mean a credits page (a plain rights line is
+    allowed), no contents word
+    and no dot-leader line."""
+    if page_no != 1:
+        return False
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if not lines or len(lines) > _TITLE_PAGE_MAX_LINES or len(text.split()) > _TITLE_PAGE_MAX_WORDS:
+        return False
+    low = text.lower()
+    # A rights line is normal on a standard's cover; the publishing markers
+    # (ISBN, editors, library catalogue) mean a book's credits page.
+    markers = [m for m in (*_FRONTMATTER_MARKERS, *_AMBIGUOUS_FRONTMATTER_MARKERS)
+               if m not in _COVER_RIGHTS_MARKERS]
+    if any(m in low for m in markers):
+        return False
+    if any(_CONTENTS_WORD.match(ln) or _DOT_LEADER.search(ln) for ln in lines):
+        return False
+    return True
+
+
+def classify_document_pages(pages: list[tuple[int, str]], total_pages: int) -> dict[int, str]:
+    """`classify_page` for every page, then the two judgements that need the
+    document: a change table continuing over several pages, and the title page.
+
+    * a page that is a change table (see is_change_table_page) becomes
+      `revision_history` - excluded from search with its reason recorded;
+    * page 1, when `classify_page` called it front matter and it is a short
+      title block, becomes `title_page` - one searchable chunk, so a
+      document's own title and number can be found inside the document.
+    """
+    kinds = {pno: classify_page(text, pno, total_pages) for pno, text in pages}
+    previous_history = False
+    previous_no: int | None = None
+    for pno, text in pages:
+        if kinds[pno] == "prose" and is_change_table_page(
+                text, continues_history=previous_history and previous_no == pno - 1):
+            kinds[pno] = HISTORY_KIND
+        elif kinds[pno] == "frontmatter" and _is_title_page(text, pno):
+            kinds[pno] = TITLE_KIND
+        previous_history = kinds[pno] == HISTORY_KIND
+        previous_no = pno
+    return kinds
+
+
+#: Page kinds whose text is searched: the two chunk kinds, and a title page
+#: (published as prose under its own section label).
+SEARCHED_PAGE_KINDS = RETRIEVABLE_KINDS | {TITLE_KIND}
 
 # ------------------------------------------------------- content quality gate
 
@@ -480,6 +804,30 @@ def looks_like_heading(line: str) -> str | None:
     return _validate_heading(number, title)
 
 
+#: The change-type words of a "Summary of Changes" table. A row there reads
+#: "6.5 Addition PMI application responsibilities." - a paragraph number, the
+#: type of change, then what changed - and is not a clause titled "Addition".
+#: "Exception(s)" is left out of the LABEL rule on purpose: "5.4 Exceptions" is
+#: a genuine clause title in many standards. The table detector (below) still
+#: reads it, because there it needs a column of such rows to count.
+_CHANGE_TYPE_LABELS = frozenset({"addition", "deletion", "modification", "editorial"})
+#: A change-type word followed by one of these opens a real title ("Addition of
+#: new materials", "Modification to existing piping"), not a table row.
+_TITLE_CONNECTIVES = frozenset({
+    "of", "to", "and", "for", "in", "on", "or", "the", "from", "by", "with", "at",
+    "when", "where", "after", "before"})
+
+
+def _is_change_type_title(title: str) -> bool:
+    """A "title" that is a change-type word on its own, or one followed by
+    something other than a connective: the row of a change table, never a
+    clause heading. No section label is ever built from it."""
+    words = title.split()
+    if not words or words[0].strip(".,;:").casefold() not in _CHANGE_TYPE_LABELS:
+        return False
+    return len(words) == 1 or words[1].strip(".,;:").casefold() not in _TITLE_CONNECTIVES
+
+
 def _validate_heading(
     number: str, title: str, allow_bare_integer: bool = False
 ) -> str | None:
@@ -491,6 +839,8 @@ def _validate_heading(
     raw_title = title.strip()
     title = raw_title.rstrip(".")
     if not title or len(title) > 90:
+        return None
+    if _is_change_type_title(title):
         return None
 
     # An annex clause (A.4) carries a letter prefix; body clauses do not.
@@ -590,15 +940,30 @@ class Block:
     page_end: int
     section: str | None = None
     tokens: int = 0
+    #: A STRUCTURED block - a ruled table read by geometry, or a run of
+    #: data-sheet rows - keeps its lines apart: `lead` (caption and header
+    #: row, repeated at the top of every piece it is split into) and `rows`,
+    #: with the page each row came from. None for ordinary prose/table text.
+    lead: list[str] | None = None
+    rows: list[str] | None = None
+    row_pages: list[int] | None = None
+    #: The header row as a tuple, so a table continued on the next page (its
+    #: header reprinted) is recognised and joined to its first part.
+    header: tuple[str, ...] | None = None
 
 
-def _table_run_length(lines: list[str], i: int) -> int:
+def _table_run_length(lines: list[str], i: int, stop=None) -> int:
     """How many lines from i form a table-like run. 0 if it is not one.
 
     Deliberately conservative. An earlier version treated any short line as
     tabular, which turned every equation in a maths textbook into its own
     tiny "table" chunk. A run must now be either introduced by an explicit
     TABLE/FIGURE caption, or be strongly numeric throughout.
+
+    `stop(lines, j)` ends the run at a line the caller knows is a heading.
+    AUDIT F5: a short non-numeric line may continue a run as a column header,
+    and that rule consumed "6 Coating" and "6.1 Surface Preparation" after a
+    table - clause 6.1 was then published under "5.2 Heat Treatment".
     """
     is_caption = bool(_TABLE_CAPTION.match(lines[i]))
     if not is_caption and numericness(lines[i]) < 0.6:
@@ -615,6 +980,8 @@ def _table_run_length(lines: list[str], i: int) -> int:
             j += 1
             continue
         if len(line.strip()) >= 60:
+            break
+        if j > i and stop is not None and stop(lines, j):
             break
         if _TABLE_CAPTION.match(line):
             counted += 1
@@ -641,6 +1008,10 @@ def _table_run_length(lines: list[str], i: int) -> int:
     return j - i
 
 
+#: A bare top-level number, then its title, on one line: '4 Vibration'.
+_BARE_NUMBER_TITLE = re.compile(r"^\s*(\d{1,2})\s+(\S.{1,89})$")
+
+
 def _split_line_heading(lines: list[str], i: int) -> tuple[str | None, int]:
     """A clause number alone on its line, with the title on the next.
 
@@ -653,6 +1024,22 @@ def _split_line_heading(lines: list[str], i: int) -> tuple[str | None, int]:
     """
     m = _CLAUSE_NUMBER_ONLY.match(lines[i])
     if not m:
+        # THE SAME HEADING ON ONE LINE: '4 Vibration', a bare top-level number
+        # and its title together (CHUNKER_VERSION 11). It used to be refused
+        # outright, so the heading stayed on the END of the previous clause
+        # ('3.2 ... returned to service. 4 Vibration') and a question about
+        # vibration found that clause, not the one under the heading
+        # (P1-01, P1-15, P1-23, P1-24). The title gets the split-line form's
+        # strict tests, plus: it must not read as the opening of a sentence.
+        # Whether the number is REAL is still decided for the whole document
+        # (plausible_heading_numbers) and, in segment_document, at this
+        # position (monotonic) - exactly as for the split-line form.
+        one = _BARE_NUMBER_TITLE.match(lines[i])
+        if one:
+            title = one.group(2).strip()
+            head = _validate_heading(one.group(1), title, allow_bare_integer=True)
+            if head and not _obliges(head):
+                return head, 1
         return None, 1
 
     for j in range(i + 1, min(i + 3, len(lines))):
@@ -669,9 +1056,337 @@ def _split_line_heading(lines: list[str], i: int) -> tuple[str | None, int]:
     return None, 1
 
 
+#: A DOTTED clause number (never a bare integer - that is a page number).
+_DOTTED_CLAUSE_ONLY = re.compile(r"^\s*((?:[A-Z]\.)?\d+(?:\.\d+){1,4})\.?\s*$")
+
+
+def _numbered_paragraph(lines: list[str], i: int) -> str | None:
+    """B6B E4: a clause number alone on its line, its REQUIREMENT on the next.
+
+        '6.2.1 '
+        'The unit shall be located so that ... '
+
+    _split_line_heading rejects this on purpose - the next line is a sentence,
+    not a title - so a standard laid out as numbered paragraphs had no clause
+    state at all and every chunk inherited one early heading (measured: one
+    real standard, 25 chunks, 2 clause labels). The number IS the clause a
+    citation must name, so it becomes the section, as the number alone - no
+    title is invented. Dotted numbers only; the document's own plausibility
+    filter still decides whether the number belongs to its hierarchy.
+    """
+    m = _DOTTED_CLAUSE_ONLY.match(lines[i])
+    if not m:
+        return None
+    for j in range(i + 1, min(i + 3, len(lines))):
+        nxt = lines[j].strip()
+        if not nxt:
+            continue
+        # the requirement starts as a sentence: a capital letter and words
+        return m.group(1) if nxt[:1].isupper() and len(nxt.split()) >= 4 else None
+    return None
+
+
+# ------------------------------------------------ data-sheet rows (F1/P0)
+#
+# A paint-system data sheet is a column of "Label : value" rows:
+#     4.1 Mixing Ratio
+#     : 4:1 by Volume
+#     4.5 Approved Color/s : Yellow (RAL 1023)
+# Its numbered labels are heading-shaped, so "4.1 Mixing Ratio" became a
+# clause, ": 4:1 by Volume" became that clause's whole text, and the quality
+# gate dropped it as debris - measured on the owner's corpus: 3,761 chunks,
+# 65% of one data-sheet standard. The rows are read here as DATA: one block of
+# rows under the sheet's own title, never as headings.
+
+#: "Approved Color/s : Yellow (RAL 1023)" - a SPACED colon. Prose writes
+#: "Note: the ...", a data sheet puts the colon in a column of its own.
+_FIELD_INLINE = re.compile(r"^\s*(?P<label>[^:]{1,60}?\S)\s+:\s+\S")
+#: The value on a line of its own: ": 4:1 by Volume".
+_FIELD_VALUE = re.compile(r"^\s*:\s*\S")
+_SENTENCE_ENDINGS = (".", ";", ":", "!", "?")
+#: A body line wraps at the text width; one this long that does not end a
+#: sentence is continued by the next line, which is therefore not a new row.
+_WRAPPED_LINE_CHARS = 70
+
+
+def _prev_nonblank(lines: list[str], i: int) -> str | None:
+    j = i - 1
+    while j >= 0 and not lines[j].strip():
+        j -= 1
+    return lines[j].strip() if j >= 0 else None
+
+
+def _next_nonblank(lines: list[str], i: int) -> int | None:
+    j = i
+    while j < len(lines) and not lines[j].strip():
+        j += 1
+    return j if j < len(lines) else None
+
+
+def _wrapped_from_previous(lines: list[str], i: int) -> bool:
+    prev = _prev_nonblank(lines, i)
+    return bool(prev) and len(prev) >= _WRAPPED_LINE_CHARS and not prev.endswith(
+        _SENTENCE_ENDINGS)
+
+
+def _label_like(line: str) -> bool:
+    """A field label or group label on its own line: short, not a sentence."""
+    t = line.strip()
+    return (
+        0 < len(t) <= 60 and len(t.split()) <= 8
+        and bool(_HAS_LETTER.search(t))
+        and not t.endswith((".", ",", ";", ":"))
+        and not t.startswith(":")
+        and not t.startswith(_TABLE_SENTINEL)
+    )
+
+
+def _field_row(lines: list[str], i: int) -> tuple[str | None, int]:
+    """One data-sheet row starting at line i: (row text, lines consumed)."""
+    t = lines[i].strip()
+    if not t or t.startswith(_TABLE_SENTINEL) or _wrapped_from_previous(lines, i):
+        return None, 1
+    inline = _FIELD_INLINE.match(t)
+    if (inline and _HAS_LETTER.search(inline.group("label")) and len(t) <= 75) or \
+            _FIELD_VALUE.match(t):
+        j = i + 1
+    elif _label_like(t):
+        k = _next_nonblank(lines, i + 1)
+        if k is None or k > i + 2 or not _FIELD_VALUE.match(lines[k]):
+            return None, 1
+        j = k
+    else:
+        return None, 1
+    parts = [t]
+    while j < len(lines) and _FIELD_VALUE.match(lines[j]):
+        parts.append(lines[j].strip())
+        j += 1
+    return " ".join(parts), j - i
+
+
+# UNRULED DATA SHEETS (audit 2026-09-30, reading finding 2). A data sheet
+# printed without ruling extracts one CELL per line and no colon at all:
+#     Speed (rpm)
+#     2980
+#     Number of stages
+#     2
+#     Impeller diameter (mm)
+#     310
+# "2" above "Impeller diameter (mm)" is exactly the split-line clause-heading
+# shape, so the value became clause 2, "Number of stages" lost its value to a
+# heading, and the rows after it were filed under a fake clause and dropped by
+# the quality gate as a 'no_clause' fragment. The same class as audit F1 for
+# ruled tables. A run of at least `_MIN_PAIRED_ROWS` strictly alternating
+# label / value lines is read as data-sheet rows instead, before any heading
+# detector sees it.
+
+#: Fewer pairs than this is not evidence of a data sheet: two headings with
+#: one-line bodies alternate too.
+_MIN_PAIRED_ROWS = 4
+#: A value cell is short: "2980", "A216 WCB", "15 barg", "Carbon steel".
+_MAX_VALUE_CHARS = 40
+_MAX_VALUE_WORDS = 5
+
+
+def _value_like(line: str) -> bool:
+    t = line.strip()
+    return (
+        0 < len(t) <= _MAX_VALUE_CHARS and len(t.split()) <= _MAX_VALUE_WORDS
+        and not t.endswith((".", ",", ";", ":"))
+        and not t.startswith(_TABLE_SENTINEL)
+    )
+
+
+def _pair_label(line: str) -> bool:
+    """The label column: a label that does not open with a number, so a value
+    ("2", "310") is never taken for the next label and the pairing cannot
+    slip by one line."""
+    t = line.strip()
+    return _label_like(t) and not t[:1].isdigit() and t[:1] not in "+-"
+
+
+def _paired_run(lines: list[str], i: int) -> tuple[list[str], int]:
+    """An unruled data sheet from line i: (rows, lines consumed), or ([], 0).
+
+    Pairs are read while the lines strictly alternate label, value. The run is
+    kept only when (a) it has `_MIN_PAIRED_ROWS` pairs, (b) most values carry
+    a digit - a data sheet states quantities - and (c) the values are NOT an
+    increasing column of clause numbers, which is what a stack of split-line
+    headings with nothing under them ("Scope" / "2" / "References" / "3")
+    would look like read from the title side.
+    """
+    pairs: list[tuple[str, str]] = []
+    j = i
+    while j + 1 < len(lines):
+        label, value = lines[j].strip(), lines[j + 1].strip()
+        if not (_pair_label(label) and _value_like(value)):
+            break
+        pairs.append((label, value))
+        j += 2
+    if len(pairs) < _MIN_PAIRED_ROWS:
+        return [], 0
+    values = [v for _, v in pairs]
+    if sum(1 for v in values if _DIGITS.search(v)) < len(values) * 0.6:
+        return [], 0
+    numbers = [v for v in values if _CLAUSE_NUMBER_ONLY.match(v)]
+    if len(numbers) >= len(values) * 0.8:
+        keys = [tuple(int(p) for p in n.rstrip(".").split(".") if p.isdigit())
+                for n in numbers]
+        if all(a < b for a, b in zip(keys, keys[1:])):
+            return [], 0
+    return [_md_row([label, value], 2) for label, value in pairs], j - i
+
+
+def _field_run(lines: list[str], i: int) -> tuple[list[str], int]:
+    """A run of data-sheet rows from line i: (rows, lines consumed).
+
+    A short label between rows ("4 Mixing and Curing") is a GROUP label and
+    stays in the run as a row of its own, so one sheet stays one block. Empty
+    when line i does not start a run. An UNRULED sheet - label and value on
+    alternate lines, no colon - is read by `_paired_run`.
+    """
+    paired = _paired_run(lines, i)
+    if paired[0]:
+        return paired
+    rows: list[str] = []
+    j = i
+    while j < len(lines):
+        if not lines[j].strip():
+            k = _next_nonblank(lines, j)
+            if k is None or not rows or _field_row(lines, k)[0] is None:
+                break
+            j = k
+            continue
+        row, used = _field_row(lines, j)
+        if row:
+            rows.append(row)
+            j += used
+            continue
+        k = _next_nonblank(lines, j + 1)
+        if _label_like(lines[j]) and k is not None and _field_row(lines, k)[0]:
+            rows.append(lines[j].strip())
+            j += 1
+            continue
+        break
+    if not any(":" in r for r in rows):
+        return [], 0
+    return rows, j - i
+
+
+#: A numbered requirement written as running text on a line too long to be a
+#: heading: "4.2.1 Stud bolts for flanges in hydrocarbon service shall be ...".
+_NUMBERED_SENTENCE = re.compile(r"^\s*((?:[A-Z]\.)?\d+(?:\.\d+){1,4})\s+[A-Z(]")
+
+
+def _numbered_requirement(lines: list[str], i: int) -> str | None:
+    """AUDIT F8: the clause number of a numbered requirement paragraph.
+
+    `looks_like_heading` refuses lines over 90 characters, so a requirement
+    that opens its own paragraph with its number stayed under the PARENT
+    clause - "4.2.1 Stud bolts ... 725 MPa" was cited as 4.2. The number is
+    taken only when (a) the line opens a paragraph - the line before it ends
+    a sentence or there is none - and (b) the sentence it starts contains
+    "shall" within four lines. The document's plausibility filter still
+    decides whether the number belongs to its hierarchy.
+    """
+    t = lines[i].strip()
+    m = _NUMBERED_SENTENCE.match(t)
+    if not m:
+        return None
+    prev = _prev_nonblank(lines, i)
+    if prev is not None and not prev.endswith(_SENTENCE_ENDINGS) and not (
+            looks_like_heading(prev) or prev.startswith(_TABLE_SENTINEL)):
+        return None
+    sentence = t
+    k = i + 1
+    while not sentence.rstrip().endswith((".", ";")) and k < len(lines) and k <= i + 3:
+        sentence += " " + lines[k].strip()
+        k += 1
+    return m.group(1) if _OBLIGATION.search(sentence) else None
+
+
+def _continues_as_sentence(lines: list[str], i: int) -> bool:
+    """Does the text resume in lower case at line i? Then the "heading" above
+    it was the first line of a wrapped numbered requirement, not a title."""
+    k = _next_nonblank(lines, i)
+    return k is not None and lines[k].strip()[:1].islower()
+
+
 def _heading_number(heading: str) -> str:
     """The numbering off the front of a validated heading string."""
     return heading.split(" ", 1)[0]
+
+
+#: A title is a short noun phrase. These limits decide when a numbered line is
+#: the FIRST LINE OF A CLAUSE instead (see _reads_as_sentence). Every one is a
+#: limit on how much a title may look like a sentence, not a list of titles.
+_TITLE_MAX_WORDS = 12
+_MODAL_MIN_WORDS = 5
+_LINKING_MIN_WORDS = 8
+_SUBORDINATE_MIN_WORDS = 6
+_MODALS = frozenset({"must", "should", "may", "will", "can", "cannot", "shall"})
+_LINKING = frozenset({"is", "are", "was", "were", "be", "been", "being", "has", "have"})
+_SUBORDINATORS = frozenset({
+    "when", "if", "unless", "where", "whenever", "while", "once", "until",
+    "because", "although"})
+
+
+def _reads_as_sentence(title: str) -> bool:
+    """Whether a heading's "title" is really the opening of a clause sentence.
+
+    "12.1.4 When heat treating is performed after PMI, the identification
+    marking must be" / "recognizable after heat treatment." became the section
+    label, and the chunk kept only the tail: the page break (or a capital on
+    the next line) hid that the sentence carries on, so the lower-case
+    continuation test could not see it. The line itself says it, and this is
+    the one place that reads it. Limits, all on the title's own words, a
+    parenthetical being a note on a title and not part of it:
+
+    * more than 12 words is not a title;
+    * a modal verb (must, should, may, will, can) in 5 words or more. A short
+      title keeps it: "What you must know";
+    * a linking verb (is, are, be, has ...) in 8 words or more;
+    * a sentence opener (When, If, Unless, Where ...) with a comma, in 6 words
+      or more.
+
+    A title that trips one is not lost: its NUMBER stays the section and its
+    full text stays in the chunk, exactly as for a requirement with "shall".
+    """
+    core = _PARENTHETICAL.sub(" ", title)
+    words = [w.strip(".,;:!?\"'").casefold() for w in core.split()]
+    words = [w for w in words if w]
+    n = len(words)
+    if n > _TITLE_MAX_WORDS:
+        return True
+    if n >= _MODAL_MIN_WORDS and any(w in _MODALS for w in words):
+        return True
+    if n >= _LINKING_MIN_WORDS and any(w in _LINKING for w in words):
+        return True
+    return (n >= _SUBORDINATE_MIN_WORDS and words[0] in _SUBORDINATORS
+            and "," in core)
+
+
+def _obliges(heading: str) -> bool:
+    """Whether a heading's "title" is really the first line of a requirement.
+
+    "4.4 Design loads shall be as per the building code" passes every heading
+    test - a dotted number, a capital, under 90 characters - and it is a
+    numbered PARAGRAPH, not a titled clause. As a heading its line was consumed
+    into the section label and never reached the chunk's text, so the
+    requirement it states was never read: measured on one real standard, seven
+    requirements disappeared this way once a change table stopped masking it
+    (see revision_history_regions).
+
+    It is still a clause NUMBER - page classification and the contents test
+    count it as one, and must - so it is decided here, where a heading becomes
+    the section, and nowhere earlier. A parenthetical is a note on a title, not
+    the title: NORSOK heads a clause "A.1 Coating system no. 1 (shall be
+    pre-qualified)", and that is a heading.
+    """
+    title = heading.split(" ", 1)[1] if " " in heading else ""
+    if _reads_as_sentence(title):
+        return True
+    return _OBLIGATION.search(_PARENTHETICAL.sub(" ", title)) is not None
 
 
 def _bare_integer_clauses(numbers: list[str]) -> set[str]:
@@ -744,6 +1459,9 @@ def plausible_heading_numbers(numbers: list[str]) -> set[str]:
         parent, _, last = number.rpartition(".")
         if last.isdigit():
             by_parent.setdefault(parent, set()).add(int(last))
+    #: A number is VOUCHED FOR by its own children: if 4.5.1 is a heading
+    #: candidate, 4.5 exists whatever came before it.
+    parents_with_children = set(by_parent)
 
     allowed: set[str] = set()
     for parent, seen in by_parent.items():
@@ -761,10 +1479,19 @@ def plausible_heading_numbers(numbers: list[str]) -> set[str]:
         if min(seen) > 1:
             allowed |= {name(n) for n in seen}
             continue
-        limit = min(seen)
-        while limit + 1 in seen:
-            limit += 1
-        allowed |= {name(n) for n in seen if n <= limit}
+        # AUDIT F4 (2026-09-27): the walk used to stop at the FIRST GAP, so
+        # one missing sibling - a deleted "Not used" clause, a heading on a
+        # scanned page - refused every later sibling, and a unit run with
+        # 4.1, 4.3 ... 4.7 filed all six blocks under "4.1 Scope". A gap of
+        # up to two missing numbers is accepted (the step `_bare_integer_
+        # clauses` already allows), and so is any sibling its own children
+        # vouch for. An exercise list that starts far beyond the hierarchy
+        # (9.1 ... 9.5, then 9.33) still fails both tests.
+        accepted: list[int] = []
+        for n in sorted(seen):
+            if not accepted or n <= accepted[-1] + 3 or name(n) in parents_with_children:
+                accepted.append(n)
+        allowed |= {name(n) for n in accepted}
 
     allowed |= _bare_integer_clauses(ordered)
     return allowed
@@ -801,10 +1528,261 @@ def is_contents_page(lines: list[str]) -> bool:
     return longest_clause(rest) < MIN_CLAUSE_WORDS
 
 
+#: THE TITLE OF A REVISION-HISTORY SECTION. Standards bodies print one of a
+#: handful of names above the record of what changed between revisions - a
+#: "Summary of Changes" table at the front, a dated "Document History" or
+#: "Revision Summary" at the back. The vocabulary is that of document control,
+#: not of any one standard, and the title must be the WHOLE line: "refer to
+#: summary of changes" in a sentence is prose, not a section.
+_REVISION_HISTORY_TITLE = re.compile(
+    r"^\s*(?:summary\s+of\s+changes|revision\s+summary|revision\s+history"
+    r"|document\s+history|record\s+of\s+revisions?|history\s+of\s+revisions?"
+    r"|change\s+history|amendment\s+record)\s*:?\s*$",
+    re.IGNORECASE,
+)
+
+#: How many lines under the title form the table's header row, and how far
+#: into a following page that header has to reappear for the table to be
+#: read as continuing there.
+_HISTORY_HEADER_LINES = 2
+_HISTORY_HEADER_WINDOW = 6
+
+
+def is_revision_history(section: str | None) -> bool:
+    """Whether a chunk's section is a revision-history record, not a clause.
+
+    ONE HOME FOR THE QUESTION: the chunker files a history under its own title,
+    and every consumer that must not treat that text as normative - the
+    requirement extractor first - asks here rather than matching titles again.
+    """
+    return bool(section) and _REVISION_HISTORY_TITLE.match(section) is not None
+
+
+def _history_key(line: str) -> str:
+    return _WS.sub(" ", line).strip().casefold()
+
+
+# ----------------------------------------------------- ruled tables (F1)
+
+
+def _sentinel_table(line: str) -> dict | None:
+    if not line.startswith(_TABLE_SENTINEL):
+        return None
+    try:
+        return json.loads(line[len(_TABLE_SENTINEL):])
+    except ValueError:
+        return None
+
+
+def _raw_table_lines(lines: list[str]) -> list[str]:
+    """Lines with every table put back as the text lines it covered - for the
+    passes (revision history) that read a table the way extraction wrote it."""
+    out: list[str] = []
+    for line in lines:
+        table = _sentinel_table(line)
+        out.extend(table["raw"] if table else [line])
+    return out
+
+
+_CELL_WORD = re.compile(r"[a-z0-9]+")
+
+
+def _raw_lines_in_no_cell(table: dict) -> list[str]:
+    """The table area's text lines whose words are mostly in no cell - a note
+    printed inside the border, which the geometry reader assigned to no cell.
+    Half the words is the bar: a cell split across two lines still counts as
+    covered, a sentence the cells never hold does not."""
+    cells = set()
+    for row in table.get("rows") or []:
+        for cell in row:
+            cells.update(_CELL_WORD.findall((cell or "").lower()))
+    kept = []
+    for raw in table.get("raw") or []:
+        words = _CELL_WORD.findall(raw.lower())
+        if len(words) >= 2 and sum(w in cells for w in words) / len(words) < 0.5:
+            kept.append(raw.strip())
+    return kept
+
+
+def mask_tables(pages: list[tuple[int, str]],
+                page_tables: dict[int, list[dict]] | None,
+                running: set[str]) -> list[tuple[int, str]]:
+    """Replace each ruled table's lines by ONE sentinel line carrying the table.
+
+    Its cells then never reach the heading detector (AUDIT F1: "3.0" above
+    "Hydrocarbon" was read as clause "3.0 Hydrocarbon"), the running-line
+    stripper (F2) or the prose - a table's text appears once, as the table.
+
+    A "table" whose every line is page furniture - the ruled header box a
+    standard prints on every page - is left as text for the stripper to
+    remove; emitting it would put the header on every page into search.
+    """
+    if not page_tables:
+        return pages
+    out: list[tuple[int, str]] = []
+    for page_no, text in pages:
+        found = page_tables.get(page_no)
+        if not found:
+            out.append((page_no, text))
+            continue
+        lines = text.split("\n")
+        replace: dict[int, str | None] = {}
+        for table in found:
+            idx = sorted(i for i in table.get("lines", []) if 0 <= i < len(lines)
+                         and i not in replace)
+            if not idx or not table.get("rows"):
+                continue
+            raw = [lines[i] for i in idx]
+            body = [r for r in raw if r.strip()]
+            if body and all(_is_running(r, running, page_no) for r in body):
+                continue
+            payload = json.dumps({"rows": table["rows"], "raw": raw},
+                                 ensure_ascii=False, separators=(",", ":"))
+            replace[idx[0]] = _TABLE_SENTINEL + payload
+            for i in idx[1:]:
+                replace[i] = None
+        kept = [replace.get(i, line) for i, line in enumerate(lines)
+                if not (i in replace and replace[i] is None)]
+        out.append((page_no, "\n".join(kept)))
+    return out
+
+
+def _table_header(rows: list[list[str]]) -> tuple[list[str] | None, list[list[str]]]:
+    """(header, data rows). Row 0 is a header when every cell in it carries a
+    letter - "Service | Material | CA (mm)" - and it is not a label/value pair
+    ("Mixing Ratio | 4:1"). Multi-row headers fold as `tables._compose_header`
+    folds them, so a spanning parent names each child column."""
+    first = rows[0]
+    cells = [c for c in first if c]
+    if not cells or not all(_HAS_LETTER.search(c) for c in cells):
+        return None, rows
+    if len(first) == 2 and _DIGITS.search(first[1] or ""):
+        return None, rows
+    header, data = tables_mod._compose_header(rows)
+    return header, data
+
+
+def _md_row(cells: list[str], width: int) -> str:
+    padded = [(c or "").strip() for c in cells] + [""] * (width - len(cells))
+    return "| " + " | ".join(padded) + " |"
+
+
+def table_block_parts(table: dict) -> tuple[list[str], list[str], tuple[str, ...] | None]:
+    """(header lines, row lines, header key) for one recovered table: rows as
+    markdown-like lines so a value is never separated from its row, and the
+    header kept apart so it can be repeated on every piece of a split."""
+    rows = table["rows"]
+    width = max(len(r) for r in rows)
+    header, data = _table_header(rows)
+    lead = [_md_row(header, width)] if header else []
+    return lead, [_md_row(r, width) for r in data], (tuple(header) if header else None)
+
+
+def revision_history_regions(
+    pages: list[tuple[int, str]],
+    running: set[str],
+    page_kinds: dict[int, str] | None = None,
+) -> dict[int, tuple[int, str]]:
+    """Where each page's revision-history record starts: {page: (line, title)}.
+
+    THE DEFECT THIS FIXES. A standard's "Summary of Changes" is a table of
+    (row, paragraph, change type, description): "14 / 5.1.4 / Deletion / No CSD
+    recommendation is required ...". Its paragraph column is a column of clause
+    NUMBERS, so the heading detector read every row as a clause heading. The
+    rows ran the top-level numbering into the teens, the body's real "1 Scope",
+    "2 Conflicts and Deviations", "3 References" then looked like a numbering
+    restart and were refused, and the last row's "14.1.5 Editorial" stayed in
+    force: requirements from the Scope were published as clause 14.1.5 - a
+    citation to a clause the standard does not have. Its descriptions became
+    requirements too ("is required" reads as an obligation), stating as a rule
+    what is only a note about the previous revision.
+
+    A REGION, BOUNDED BY PAGE LAYOUT, NOT BY NUMBERING. It opens at a line that
+    is exactly a revision-history title and runs to the end of that page. It
+    continues onto the next page only while that page REPEATS THE TABLE'S HEADER
+    ROW (the first lines under the title) near its top - a multi-page change
+    table reprints its column heads; a body page and a dated history do not.
+    Numbering cannot bound it: some standards print no clause numbers in the
+    text at all, and the change table itself starts at "1".
+
+    Known limit, deliberately accepted: body text on the SAME page, after a
+    history, is read as history. Ending mid-page would need the numbering this
+    region exists to distrust; every standard measured starts its body on a new
+    page, and a history at the back is followed by a page break or nothing.
+    """
+    kinds = page_kinds or {}
+    regions: dict[int, tuple[int, str]] = {}
+    active: tuple[str, list[str]] | None = None
+    for page_no, raw in pages:
+        if kinds.get(page_no, "prose") != "prose":
+            active = None
+            continue
+        cleaned, _ = strip_running_lines(raw, running, page_no)
+        lines = cleaned.splitlines()
+        # Keys are read from the table AS EXTRACTED (one cell per line), so
+        # a masked change table repeats its header exactly as it used to.
+        keys = [_history_key(line) for line in _raw_table_lines(lines)]
+        if active is not None:
+            title, header = active
+            top = [k for k in keys if k][:_HISTORY_HEADER_WINDOW]
+            if len(header) == _HISTORY_HEADER_LINES and all(h in top for h in header):
+                regions[page_no] = (0, title)
+                continue
+        active = None
+        for index, line in enumerate(lines):
+            if _REVISION_HISTORY_TITLE.match(line):
+                title = _WS.sub(" ", line).strip().rstrip(":").strip()
+                header = [k for k in (_history_key(x) for x in
+                                      _raw_table_lines(lines[index + 1:])) if k
+                          ][:_HISTORY_HEADER_LINES]
+                regions[page_no] = (index, title)
+                active = (title, header)
+                break
+    return regions
+
+
+#: A dotted paragraph number at the start of a line.
+_LEADING_DOTTED_NUMBER = re.compile(r"^\s*((?:[A-Z]\.)?\d+(?:\.\d+){1,4})(?![\d.]*\d)")
+
+
+def _history_paragraph_numbers(
+    pages: list[tuple[int, str]],
+    running: set[str],
+    history: dict[int, tuple[int, str]],
+) -> list[str]:
+    """The DOTTED paragraph numbers a revision history names - as evidence only.
+
+    A change table's paragraph column lists paragraphs of THIS revision, so it
+    is the document's own statement of which clause numbers exist. The body
+    does not always print a number in a form the heading detector collects:
+    one real standard prints "6.2.2" alone on its line with the requirement
+    beneath, so without this the 6.2 group read 1, 3, 4 ... and the gap
+    refused 6.2.3 to 6.2.7 as headings. The history's numbers may therefore
+    vouch for the hierarchy (`plausible_heading_numbers`), and still never set
+    a section - see revision_history_regions.
+
+    Dotted only. Bare integers are what ran the top-level walk into the teens;
+    they are left out, so the body's own 1, 2, 3 decide its top level.
+    """
+    found: list[str] = []
+    for page_no, raw in pages:
+        if page_no not in history:
+            continue
+        cleaned, _ = strip_running_lines(raw, running, page_no)
+        start = history[page_no][0]
+        for line in _raw_table_lines(cleaned.splitlines()[start:]):
+            match = _LEADING_DOTTED_NUMBER.match(line)
+            if match:
+                found.append(match.group(1))
+    return found
+
+
 def _candidate_headings(
     pages: list[tuple[int, str]],
     running: set[str],
     page_kinds: dict[int, str] | None,
+    numbered_paragraphs: bool = False,
+    history: dict[int, tuple[int, str]] | None = None,
 ) -> list[str]:
     """Every heading the detector would accept, before plausibility filtering.
 
@@ -816,30 +1794,101 @@ def _candidate_headings(
     for page_no, raw in pages:
         if kinds.get(page_no, "prose") != "prose":
             continue
-        cleaned, _ = strip_running_lines(raw, running)
+        cleaned, _ = strip_running_lines(raw, running, page_no)
         lines = cleaned.splitlines()
         if is_contents_page(lines):
             continue  # a contents page never sets heading state
+        # A revision history's paragraph column is not the document's
+        # numbering - see revision_history_regions.
+        end = (history or {}).get(page_no, (len(lines), None))[0]
         i = 0
-        while i < len(lines):
+        while i < end:
+            # data-sheet rows are data, never headings - see _field_run
+            rows, used = _field_run(lines, i)
+            if rows:
+                i += used
+                continue
             head = looks_like_heading(lines[i])
             consumed = 1
             if head is None:
                 head, consumed = _split_line_heading(lines, i)
+            if head is None and numbered_paragraphs:
+                head = _numbered_paragraph(lines, i)
+            if head is None:
+                head = _numbered_requirement(lines, i)
             if head:
                 found.append(head)
             i += consumed
     return found
 
 
+def _pop_caption(buf: list[str], accept, most: int) -> list[str]:
+    """Take up to `most` trailing lines of `buf` that `accept` - the caption
+    above a table, the title lines above a data sheet. Mutates `buf`."""
+    taken: list[str] = []
+    while buf and len(taken) < most:
+        if not buf[-1].strip():
+            buf.pop()
+            continue
+        if not accept(buf[-1].strip()):
+            break
+        taken.insert(0, buf.pop().strip())
+    return taken
+
+
+#: A heading number whose depth can be read: "4", "4.2", "4.2.1", "A.1".
+_CHAIN_NUMBER = re.compile(r"^(?:[A-Z]\.)?\d+(?:\.\d+)*\.?$")
+
+
 def segment_document(
     pages: list[tuple[int, str]],
     running: set[str],
     page_kinds: dict[int, str] | None = None,
+    paths_out: dict[str, str | None] | None = None,
 ) -> tuple[list[Block], int]:
-    """Flatten pages into blocks, carrying heading state across page boundaries."""
+    """Flatten pages into blocks, carrying heading state across page boundaries.
+
+    `paths_out`, when given, receives the HEADING CHAIN of every section this
+    document sets: "4 Piping > 4.2 Pipes larger than 2 inch > 4.2.1". A
+    chunk's `section` is only the nearest heading - for a numbered
+    requirement only its number - so "4.2.1" alone never said that the clause
+    is about pipes larger than 2 inch, and a question about a 6 inch pipe had
+    nothing to match it on. The chain is written to `chunks.context` and used
+    ONLY to index the chunk (keyword and embedding); the chunk's text, which
+    every answer and CRS row quotes, is never changed. A section string that
+    two different chains set (a clause number reused in an annex) maps to
+    None: no context is better than the wrong one.
+    """
     blocks: list[Block] = []
     section: str | None = None
+    #: (heading number, label) from the outermost heading in force inwards.
+    chain: list[tuple[str, str]] = []
+    paths: dict[str, str | None] = paths_out if paths_out is not None else {}
+
+    def enter(label: str, number: str, key: str) -> None:
+        """Record where `key` (the section just set) sits in the document.
+
+        A numbered heading keeps only the headings whose number is a dotted
+        PREFIX of its own: "4.2.2" sits under "4.2" and "4", never under an
+        "8.2" that happened to come before it on an earlier page. Depth alone
+        was not enough - measured on a synthetic page, "4.4 Ambient
+        conditions" was filed under "8 Thermally sprayed metallic coatings".
+        An unnumbered heading ("GENERAL REQUIREMENTS") starts a new chain,
+        and a numbered one drops it: nothing can be assumed to still apply.
+        """
+        label = " ".join(label.split())
+        if _CHAIN_NUMBER.match(number):
+            own = number.rstrip(".")
+            chain[:] = [(n, text) for n, text in chain
+                        if n and own != n and own.startswith(n + ".")]
+            chain.append((own, label))
+        else:
+            chain[:] = [("", label)]
+        path = " > ".join(text for _, text in chain)
+        if key in paths and paths[key] != path:
+            paths[key] = None
+        else:
+            paths[key] = path
     removed_total = 0
     #: The highest top-level clause number accepted so far. Clause numbering
     #: only increases through a document, so anything at or below this is a
@@ -848,16 +1897,80 @@ def segment_document(
 
     # Decided across the whole document, not line by line - see
     # plausible_heading_numbers.
-    allowed_numbers = plausible_heading_numbers(
-        _heading_number(h) for h in _candidate_headings(pages, running, page_kinds)
-    )
+    history = revision_history_regions(pages, running, page_kinds)
+    candidates = _candidate_headings(pages, running, page_kinds, history=history)
+    # B6B E4: NUMBERED-PARAGRAPH ANCHORS ONLY WHERE THE DOCUMENT HAS NO OTHER
+    # STRUCTURE. A standard whose titled headings the detector reads keeps
+    # exactly the chunking it had - measured: switching the anchors on
+    # everywhere split well-structured standards finer and lost recall on
+    # reworded questions. Only a document with fewer detected headings than
+    # half its prose pages is read as numbered paragraphs.
+    prose_pages = sum(1 for p, _ in pages if (page_kinds or {}).get(p, "prose") == "prose")
+    numbered_paragraphs = len(candidates) < max(1, prose_pages // 2)
+    if numbered_paragraphs:
+        candidates = _candidate_headings(pages, running, page_kinds,
+                                         numbered_paragraphs=True, history=history)
+    allowed_numbers = plausible_heading_numbers([
+        *(_heading_number(h) for h in candidates),
+        *_history_paragraph_numbers(pages, running, history),
+    ])
 
     kinds = page_kinds or {}
+
+    def heading_stops_table(lines: list[str], j: int) -> bool:
+        """A table-like run ends at a line that is a real heading here."""
+        head = looks_like_heading(lines[j]) or _split_line_heading(lines, j)[0]
+        if not head:
+            return False
+        number = _heading_number(head)
+        if number not in allowed_numbers:
+            return False
+        return "." in number or not number.isdigit() or int(number) > last_bare_integer
+
+    # A HEADING WITH NOTHING UNDER IT WAS KEPT NOWHERE. A heading's words live
+    # in its chunks' `section`, not their text - so a heading followed straight
+    # by the next heading ("5 GENERAL" / "5.1 Scope") produced no chunk at all
+    # and its words reached neither search nor the exclusion ledger. Measured
+    # on the owner's corpus (2026-09-29, counts only): 282 documents, about
+    # 224,000 lines, ~200 heading lines in no chunk and no exclusion, in 150
+    # documents. Such a heading is now CARRIED into the text of the next block
+    # (a chapter title above its first subclause: "8 Thermally sprayed metallic
+    # coatings" then "8.1 General" - the title reads with 8.1's text), never
+    # made a passage of its own: a title alone answers nothing and, measured,
+    # a title-only chunk took a retrieval slot from a real passage. Only at
+    # the very end, with no block left to carry it, is it a block by itself.
+    pending_heading: tuple[list[str], int, str] | None = None
+    pending_mark = 0
+    carry: list[str] = []
+    carry_at: tuple[int, str | None] = (0, None)
+
+    def settle_heading() -> None:
+        nonlocal pending_heading, carry_at
+        if pending_heading is not None and len(blocks) == pending_mark:
+            head_lines, head_page, head_section = pending_heading
+            if not carry:
+                carry_at = (head_page, head_section)
+            carry.extend(line.strip() for line in head_lines if line.strip())
+        pending_heading = None
+
+    def take_carry() -> list[str]:
+        taken = list(carry)
+        carry.clear()
+        return taken
+
     for page_no, raw in pages:
         page_kind = kinds.get(page_no, "prose")
-        cleaned, removed = strip_running_lines(raw, running)
+        cleaned, removed = strip_running_lines(raw, running, page_no)
         removed_total += removed
         lines = cleaned.splitlines()
+
+        if page_kind == TITLE_KIND:
+            # The title block is ONE short searchable chunk, filed under its
+            # own label and setting no heading state.
+            body = cleaned.strip()
+            if body:
+                blocks.append(Block("prose", body, page_no, page_no, TITLE_SECTION))
+            continue
 
         if page_kind != "prose":
             # Front matter, contents and index are kept whole for inspection
@@ -876,6 +1989,10 @@ def segment_document(
 
         buf: list[str] = []
         i = 0
+        # Where this page's revision history starts, if it has one. Its lines
+        # are filed under the history's own title, set no heading state and
+        # move no numbering - the section in force before it resumes after it.
+        history_start, history_title = history.get(page_no, (len(lines), None))
 
         # `page_no` is a default argument ON PURPOSE, and it is not redundant:
         # it makes the closure capture this page's VALUE instead of the loop
@@ -894,11 +2011,94 @@ def segment_document(
             nonlocal buf
             body = "\n".join(buf).strip()
             if body:
+                body = "\n".join([*take_carry(), body])
                 blocks.append(Block("prose", body, page_no, page_no, current_section))
             buf = []
 
+        def emit_structured(lead: list[str], rows: list[str],
+                            header: tuple[str, ...] | None,
+                            current_section: str | None,
+                            page_no: int = page_no) -> None:
+            """Append a structured block - or extend the table it continues.
+            `current_section` is passed at each call for the reason
+            flush_prose documents above."""
+            prev = blocks[-1] if blocks else None
+            if (header and prev is not None and prev.rows is not None
+                    and prev.header == header and prev.section == current_section
+                    and page_no - 1 <= prev.page_end <= page_no):
+                # The same table continued: its header reprinted on the next
+                # page. One table, one block - split later on row boundaries.
+                prev.rows.extend(rows)
+                prev.row_pages.extend([page_no] * len(rows))
+                prev.page_end = page_no
+                prev.text = "\n".join(prev.lead + prev.rows)
+                return
+            lead = [*take_carry(), *lead]
+            blocks.append(Block(
+                "table", "\n".join(lead + rows), page_no, page_no, current_section,
+                lead=list(lead), rows=list(rows), row_pages=[page_no] * len(rows),
+                header=header))
+
         while i < len(lines):
             line = lines[i]
+
+            if i >= history_start:
+                flush_prose(section)
+                rest: list[str] = []
+                for rest_line in lines[i:]:
+                    table = _sentinel_table(rest_line)
+                    if table:
+                        lead, rows, _ = table_block_parts(table)
+                        rest.extend(lead + rows)
+                    else:
+                        rest.append(rest_line)
+                body = "\n".join(rest).strip()
+                if body:
+                    body = "\n".join([*take_carry(), body])
+                    blocks.append(Block("prose", body, page_no, page_no, history_title))
+                break
+
+            table = _sentinel_table(line)
+            if table is not None:
+                # A ruled table read by geometry: one structured block under
+                # the section in force, its caption taken from the line above.
+                caption = _pop_caption(buf, lambda t: bool(_TABLE_CAPTION.match(t)), 1)
+                flush_prose(section)
+                lead, rows, header = table_block_parts(table)
+                if caption and not (blocks and blocks[-1].header == header and header
+                                    and "continued" in caption[0].lower()):
+                    lead = caption + lead
+                if rows:
+                    emit_structured(lead, rows, header, section)
+                elif lead:
+                    # A TABLE READ AS ALL HEADER WAS KEPT NOWHERE. When the
+                    # header fold takes every row, `rows` is empty and the
+                    # table - caption included - used to be dropped without a
+                    # trace: measured on the owner's corpus (2026-09-29), 35
+                    # of one standard's 132 tables, about 285 lines. Its text
+                    # is kept as a table block of its own.
+                    blocks.append(Block("table", "\n".join([*take_carry(), *lead]),
+                                        page_no, page_no, section))
+                # Lines inside the table's area that are in no cell (a note
+                # printed inside the border) were replaced by the table and
+                # lost with it; they are kept as text under the same section.
+                notes = _raw_lines_in_no_cell(table)
+                if notes:
+                    blocks.append(Block("prose", "\n".join(notes), page_no, page_no, section))
+                i += 1
+                continue
+
+            rows, used = _field_run(lines, i)
+            if rows:
+                # Data-sheet rows: data, not headings. The sheet's title lines
+                # above them go with them, so "Mixing Ratio : 4:1 by Volume"
+                # still says WHICH system it belongs to.
+                caption = _pop_caption(
+                    buf, lambda t: len(t) <= 80 and not t.endswith(_SENTENCE_ENDINGS), 3)
+                flush_prose(section)
+                emit_structured(caption, rows, None, section)
+                i += used
+                continue
 
             head = looks_like_heading(line)
             consumed = 1
@@ -908,6 +2108,15 @@ def segment_document(
                 # specifications lay headings out, and it is why every chunk
                 # in such a document had section: null.
                 head, consumed = _split_line_heading(lines, i)
+            if head is None and numbered_paragraphs:
+                # B6B E4: a numbered paragraph - the clause number alone, the
+                # requirement sentence (not a title) beneath it.
+                head = _numbered_paragraph(lines, i)
+            numbered_requirement = False
+            if head is None:
+                # AUDIT F8: a numbered requirement too long to be a heading.
+                head = _numbered_requirement(lines, i)
+                numbered_requirement = head is not None
 
             if head is not None:
                 number = _heading_number(head)
@@ -932,19 +2141,47 @@ def segment_document(
                     else:
                         last_bare_integer = int(number)
 
-            if head:
+            if head and (_obliges(head) or numbered_requirement or (
+                    "." in _heading_number(head)
+                    and _continues_as_sentence(lines, i + consumed))):
+                # A numbered requirement: its number is the clause, as
+                # `_numbered_paragraph` makes it, and its sentence stays in the
+                # text to be read as the requirement it is. A "title" whose
+                # text carries on in lower case on the next line is the first
+                # line of such a requirement too ("4.2.1 Stud bolts for
+                # flanges" / "shall be ASTM A193 ...").
                 flush_prose(section)
+                settle_heading()
                 if not contents_page:
-                    # heading state persists across pages until the next heading
-                    section = head
+                    section = _heading_number(head)
+                    enter(section, section, section)
+                buf.extend(lines[i:i + consumed])
                 i += consumed
                 continue
 
-            run = _table_run_length(lines, i)
+            if head:
+                flush_prose(section)
+                settle_heading()
+                if contents_page:
+                    # A contents page sets no heading state, but its lines are
+                    # still text: they used to be consumed here and kept
+                    # nowhere (backlog item 3, the chapter-opener list).
+                    buf.extend(lines[i:i + consumed])
+                else:
+                    # heading state persists across pages until the next heading
+                    section = head
+                    enter(head, _heading_number(head), head)
+                    pending_heading = (lines[i:i + consumed], page_no, head)
+                    pending_mark = len(blocks)
+                i += consumed
+                continue
+
+            run = _table_run_length(lines, i, stop=heading_stops_table)
             if run:
                 flush_prose(section)
                 body = "\n".join(lines[i:i + run]).strip()
                 if body:
+                    body = "\n".join([*take_carry(), body])
                     blocks.append(Block("table", body, page_no, page_no, section))
                 i += run
                 continue
@@ -954,6 +2191,10 @@ def segment_document(
 
         flush_prose(section)
 
+    settle_heading()
+    if carry:
+        blocks.append(Block("prose", "\n".join(take_carry()), carry_at[0], carry_at[0],
+                            carry_at[1]))
     return blocks, removed_total
 
 
@@ -984,15 +2225,78 @@ def split_oversized(
     return out
 
 
-def sentences(text: str) -> list[str]:
+#: A sentence ends at . ! or ? followed by space and a character that can
+#: START a sentence. A lower-case letter after the stop means an abbreviation
+#: ("e.g. the", "approx. twice") - splitting there started a chunk mid-sentence.
+#: ";" and ":" no longer end a unit: a chunk that opened after "as follows:"
+#: began in lower case (35% of the owner's chunks started that way). They are
+#: still used to break a single sentence too long to fit - see _clause_units.
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])[\"'\u201d\u2019)\]]*\s+(?=[^a-z\s])")
+_CLAUSE_SPLIT = re.compile(r"(?<=[;:,])\s+")
+_ENDS_SENTENCE = re.compile(r"[.!?;:][\"'\u201d\u2019)\]]*\s*$")
+
+#: A word broken at a line end: "galvan-" / "ized". Lower case on both sides
+#: only: "Carbon-" / "Steel" or "API-" / "5L" are left exactly as written.
+_LINE_HYPHEN = re.compile(r"([A-Za-z]*[a-z])-[ \t]*\n[ \t]*([a-z][a-z]*)")
+#: Endings that are never words on their own, so "tempera-" + "ture" is one
+#: word. Deliberately short: anything else keeps its hyphen (only the line
+#: break is removed), because "carbon-" + "steel" is a real compound and
+#: guessing wrong would change a term an engineer searches for.
+_WORD_ENDINGS = frozenset("""
+    tion tions sion sions ment ments ture tures ized ised izing ising ization
+    isation ing ings ed ly ness ance ances ence ences ity ities ous ious able
+    ible ical ically ive ives ative ation ations ure ures ist ists ism ant ants
+    ent ents ary ory ery ages ful less ward wards ium ic ics ule ules ial ially
+    tive tively ular ularly ural ated ating ator ators ately ment ely ery
+""".split())
+
+
+def _join_hyphenated(left: str, right: str, vocab: frozenset[str] | None) -> str:
+    """"galvan" + "ized" -> "galvanized"; "carbon" + "steel" -> "carbon-steel".
+
+    Evidence first: the document's own spelling, when it prints either form
+    unbroken elsewhere. Otherwise only a fragment that cannot stand alone as
+    a word (a suffix) is joined; everything else keeps the hyphen.
+    """
+    joined = left + right
+    if vocab:
+        if f"{left}-{right}".lower() in vocab:
+            return f"{left}-{right}"
+        if joined.lower() in vocab:
+            return joined
+    if right.lower() in _WORD_ENDINGS:
+        return joined
+    return f"{left}-{right}"
+
+
+def dehyphenate(text: str, vocab: frozenset[str] | None = None) -> str:
+    """Repair words hyphenated at a line break (AUDIT F10). Conservative: see
+    _join_hyphenated. Only line-break hyphens are touched."""
+    return _LINE_HYPHEN.sub(lambda m: _join_hyphenated(m.group(1), m.group(2), vocab), text)
+
+
+def document_vocabulary(pages: list[tuple[int, str]]) -> frozenset[str]:
+    """Every word (and hyphenated compound) a document prints unbroken - the
+    evidence dehyphenate consults before guessing."""
+    words: set[str] = set()
+    for _, text in pages:
+        for token in re.findall(r"[A-Za-z]+(?:-[A-Za-z]+)*", text):
+            if len(token) >= 4:
+                words.add(token.lower())
+    return frozenset(words)
+
+
+def sentences(text: str, vocab: frozenset[str] | None = None) -> list[str]:
     """Split prose into sentences, collapsing PDF line-wrap newlines.
 
     A PDF wraps mid-sentence, so the raw text is full of newlines that are
     layout, not meaning. Collapsing them makes a retrieved passage readable
     when it is quoted back to the user verbatim. Table blocks are handled
-    separately and keep their line structure.
+    separately and keep their line structure. Words hyphenated at a line
+    break are rejoined first (see dehyphenate).
     """
-    parts = [_WS.sub(" ", p).strip() for p in _SENTENCE_END.split(text)]
+    text = dehyphenate(text, vocab)
+    parts = [_WS.sub(" ", p).strip() for p in _SENTENCE_SPLIT.split(text)]
     parts = [p for p in parts if p]
     if parts:
         return parts
@@ -1000,7 +2304,89 @@ def sentences(text: str) -> list[str]:
     return [collapsed] if collapsed else []
 
 
-def build_chunks(blocks: list[Block]) -> list[Block]:
+def _ends_sentence(text: str) -> bool:
+    return bool(_ENDS_SENTENCE.search(text))
+
+
+def _join_across(left: str, right: str, vocab: frozenset[str] | None) -> str:
+    """Join the end of one block to the start of the next (a page break)."""
+    m = re.search(r"([A-Za-z]*[a-z])-$", left)
+    n = re.match(r"([a-z]+)", right)
+    if m and n:
+        return (left[:m.start()] + _join_hyphenated(m.group(1), n.group(1), vocab)
+                + right[n.end():])
+    return f"{left} {right}"
+
+
+def _clause_units(sentence: str, limit: int) -> list[str]:
+    """A sentence longer than `limit` tokens, broken at ; : or , into pieces
+    that fit - before the token-window fallback, which cuts mid-word."""
+    pieces = [p for p in _CLAUSE_SPLIT.split(sentence) if p]
+    out: list[str] = []
+    cur = ""
+    for piece in pieces:
+        candidate = f"{cur} {piece}".strip()
+        if cur and count_tokens(candidate) > limit:
+            out.append(cur)
+            cur = piece
+        else:
+            cur = candidate
+    if cur:
+        out.append(cur)
+    return out
+
+
+def _split_structured(b: Block, target: int, ceiling: int) -> list[Block]:
+    """A table or data-sheet block, split ON ROW BOUNDARIES with its caption
+    and header repeated at the top of every piece. Pieces are balanced so the
+    last is not a runt, and each carries the pages ITS rows came from."""
+    lead = list(b.lead or [])
+    rows = list(b.rows or [])
+    pages = list(b.row_pages or [b.page_start] * len(rows))
+    lead_tokens = count_tokens("\n".join(lead)) if lead else 0
+    row_tokens = [count_tokens(r) + 1 for r in rows]
+    budget = max(1, target - lead_tokens)
+    total = sum(row_tokens)
+    pieces = max(1, -(-total // budget))
+    out: list[Block] = []
+
+    def emit(idx: list[int]) -> None:
+        text = "\n".join(lead + [rows[k] for k in idx])
+        tokens = count_tokens(text)
+        ps = min(pages[k] for k in idx)
+        pe = max(pages[k] for k in idx)
+        if tokens <= ceiling:
+            out.append(Block(b.kind, text, ps, pe, b.section, tokens, lead=lead,
+                             rows=[rows[k] for k in idx],
+                             row_pages=[pages[k] for k in idx], header=b.header))
+        else:
+            # a single row longer than the ceiling: windowed, never dropped
+            out.extend(split_oversized(text, ps, pe, b.section, b.kind))
+
+    # Each row goes to the piece its token midpoint falls in, so there are
+    # exactly `pieces` pieces of near-equal size - no runt left at the end.
+    groups: list[list[int]] = [[] for _ in range(pieces)]
+    before = 0
+    for k, t in enumerate(row_tokens):
+        groups[min(pieces - 1, int((before + t / 2) * pieces / max(total, 1)))].append(k)
+        before += t
+    for group in groups:
+        # a piece can only overflow the ceiling through one enormous row;
+        # re-cut greedily by the ceiling in that case
+        cur: list[int] = []
+        acc = 0
+        for k in group:
+            if cur and lead_tokens + acc + row_tokens[k] > ceiling:
+                emit(cur)
+                cur, acc = [], 0
+            cur.append(k)
+            acc += row_tokens[k]
+        if cur:
+            emit(cur)
+    return out
+
+
+def build_chunks(blocks: list[Block], vocab: frozenset[str] | None = None) -> list[Block]:
     """Accumulate blocks into ~target-token chunks on sentence boundaries."""
     target = settings.chunk_target_tokens
     ceiling = settings.chunk_max_tokens
@@ -1010,6 +2396,11 @@ def build_chunks(blocks: list[Block]) -> list[Block]:
     cur: list[tuple[str, int, int, int]] = []  # (text, tokens, page_start, page_end)
     cur_tokens = 0
     cur_section: str | None = None
+    #: The unfinished last sentence of the previous prose block, held back
+    #: because the next block continues it: a sentence running over a page
+    #: break used to become two chunks' worth of fragments - the second half
+    #: starting a chunk in lower case.
+    pending: tuple[str, int, int] | None = None
 
     def flush() -> None:
         nonlocal cur, cur_tokens
@@ -1032,8 +2423,57 @@ def build_chunks(blocks: list[Block]) -> list[Block]:
         cur = []
         cur_tokens = 0
 
-    for b in blocks:
+    def add_unit(sent: str, page_start: int, page_end: int, section: str | None) -> None:
+        nonlocal cur, cur_tokens
+        st = count_tokens(sent)
+        if st > ceiling:
+            pieces = _clause_units(sent, target)
+            if len(pieces) > 1:
+                for piece in pieces:
+                    add_unit(piece, page_start, page_end, section)
+                return
+            flush()
+            chunks.extend(split_oversized(sent, page_start, page_end, section, "prose"))
+            return
+        if cur_tokens + st > target and cur:
+            # Carry the trailing sentences forward as overlap, but never
+            # more than the overlap budget allows. Text without sentence
+            # terminators (a symbol-font table extracts as one enormous
+            # "sentence") would otherwise carry the ENTIRE previous chunk
+            # forward, making it a strict substring of the next one -
+            # duplication, not overlap.
+            tail: list[tuple[str, int, int, int]] = []
+            acc = 0
+            for item in reversed(cur):
+                if acc >= overlap:
+                    break
+                if acc + item[1] > overlap * _MAX_OVERLAP_FACTOR:
+                    break
+                tail.insert(0, item)
+                acc += item[1]
+            flush()
+            cur = list(tail)
+            cur_tokens = sum(t for _, t, _, _ in cur)
+        cur.append((sent, st, page_start, page_end))
+        cur_tokens += st
+
+    def release_pending() -> None:
+        nonlocal pending
+        if pending is not None:
+            add_unit(pending[0], pending[1], pending[2], cur_section)
+            pending = None
+
+    for index, b in enumerate(blocks):
         b.tokens = count_tokens(b.text)
+
+        if b.rows is not None:
+            # A STRUCTURED table or data sheet: always a table, however
+            # small, split on row boundaries with its header repeated.
+            release_pending()
+            flush()
+            chunks.extend(_split_structured(b, target, ceiling))
+            cur_section = b.section
+            continue
 
         # a table stays whole when it fits; otherwise it is windowed, not dropped
         if b.kind == "table" and b.tokens < _MIN_TABLE_TOKENS:
@@ -1043,6 +2483,7 @@ def build_chunks(blocks: list[Block]) -> list[Block]:
         if b.kind not in ("prose", "table"):
             # toc / frontmatter / index / references: keep as its own chunk so
             # it can be inspected, but never blend it into retrievable prose.
+            release_pending()
             flush()
             if b.tokens <= ceiling:
                 chunks.append(Block(b.kind, b.text, b.page_start, b.page_end, None, b.tokens))
@@ -1051,6 +2492,7 @@ def build_chunks(blocks: list[Block]) -> list[Block]:
             continue
 
         if b.kind == "table":
+            release_pending()
             flush()
             if b.tokens <= ceiling:
                 chunks.append(
@@ -1064,46 +2506,36 @@ def build_chunks(blocks: list[Block]) -> list[Block]:
             continue
 
         if b.section != cur_section:
+            release_pending()
             flush()
             cur_section = b.section
 
-        if b.tokens > ceiling:
+        if b.tokens > ceiling and not _SENTENCE_SPLIT.search(b.text) \
+                and not _CLAUSE_SPLIT.search(b.text):
+            release_pending()
             flush()
             chunks.extend(
                 split_oversized(b.text, b.page_start, b.page_end, b.section, "prose")
             )
             continue
 
-        for sent in sentences(b.text):
-            st = count_tokens(sent)
-            if st > ceiling:
-                flush()
-                chunks.extend(
-                    split_oversized(sent, b.page_start, b.page_end, b.section, "prose")
-                )
-                continue
-            if cur_tokens + st > target and cur:
-                # Carry the trailing sentences forward as overlap, but never
-                # more than the overlap budget allows. Text without sentence
-                # terminators (a symbol-font table extracts as one enormous
-                # "sentence") would otherwise carry the ENTIRE previous chunk
-                # forward, making it a strict substring of the next one -
-                # duplication, not overlap.
-                tail: list[tuple[str, int, int, int]] = []
-                acc = 0
-                for item in reversed(cur):
-                    if acc >= overlap:
-                        break
-                    if acc + item[1] > overlap * _MAX_OVERLAP_FACTOR:
-                        break
-                    tail.insert(0, item)
-                    acc += item[1]
-                flush()
-                cur = list(tail)
-                cur_tokens = sum(t for _, t, _, _ in cur)
-            cur.append((sent, st, b.page_start, b.page_end))
-            cur_tokens += st
+        units = [(sent, b.page_start, b.page_end) for sent in sentences(b.text, vocab)]
+        if pending is not None:
+            if units:
+                first = units[0]
+                units[0] = (_join_across(pending[0], first[0], vocab), pending[1], first[2])
+            else:
+                units = [pending]
+            pending = None
+        nxt = blocks[index + 1] if index + 1 < len(blocks) else None
+        if (units and not _ends_sentence(units[-1][0]) and nxt is not None
+                and nxt.kind == "prose" and nxt.rows is None
+                and nxt.section == b.section):
+            pending = units.pop()
+        for sent, page_start, page_end in units:
+            add_unit(sent, page_start, page_end, b.section)
 
+    release_pending()
     flush()
     # Ceiling enforcement first: splitting an oversized chunk can itself emit a
     # tiny trailing piece, so runt-merging has to run after it, not before.
@@ -1188,6 +2620,8 @@ def _merge_runts(chunks: list[Block]) -> list[Block]:
         if (
             c.tokens < _MIN_CHUNK_TOKENS
             and out
+            and c.rows is None
+            and out[-1].rows is None
             and out[-1].section == c.section
             and out[-1].kind == c.kind
             and out[-1].tokens + c.tokens <= ceiling
@@ -1203,6 +2637,7 @@ def _merge_runts(chunks: list[Block]) -> list[Block]:
                 continue
         if (
             c.kind in RETRIEVABLE_KINDS
+            and c.rows is None
             and c.tokens < 5
             and not re.search(r"[A-Za-z]{3}", c.text)
         ):
@@ -1220,6 +2655,8 @@ def _merge_runts(chunks: list[Block]) -> list[Block]:
         if (
             c.tokens < _MIN_CHUNK_TOKENS
             and nxt is not None
+            and c.rows is None
+            and nxt.rows is None
             and nxt.section == c.section
             and nxt.kind == c.kind
         ):
@@ -1260,21 +2697,131 @@ def chunk_id(doc_sha: str, page_start: int, ordinal: int, chash: str) -> str:
 
 #: Bump when chunking behaviour changes, so a re-run rebuilds rather than
 #: short-circuiting on stale output.
-CHUNKER_VERSION = "4"
+#:
+#: 5 (2026-09-27, chunking-quality): ruled tables from `pages.tables_json`
+#: as structured table chunks; data-sheet "Label : value" rows as data;
+#: running lines by page-number evidence; numbering gaps accepted; long
+#: numbered requirements keep their clause; sentences joined across page
+#: breaks; line-break hyphens repaired; runts merged below 40 tokens;
+#: duplicate chunks in one section kept once for search.
+#:
+#: 8 (2026-09-30, context notes): every chunk records its heading chain in
+#: `chunks.context` ("4 Piping > 4.2 Pipes larger than 2 inch > 4.2.1"),
+#: used only to index it. Chunk text and chunk ids are unchanged.
+#:
+#: 9 (2026-09-30, reading audit): an unruled data sheet (label and value on
+#: alternate lines) is read as data-sheet rows, not as "2 Impeller diameter"
+#: clauses; a page of "text  number" lines is a contents page only with
+#: contents evidence (dot leaders or page numbers), not a tab-aligned data
+#: sheet; a 2-4 page document's page header is stripped as a running line.
+#:
+#: 10 (2026-10-06, heading and front-matter audit): a numbered line that reads
+#: as the opening of a sentence is a clause, not a heading, so its sentence
+#: stays in the chunk; a Summary of Changes table is a `revision_history` page,
+#: excluded from search with its reason recorded; the title block on page 1 is
+#: one searchable chunk labelled "title page". Nothing re-chunks by itself:
+#: only `chunk_document` (a new upload, or a re-run on one document) and
+#: `scripts/reindex_chunking.py --apply` apply it to a stored document.
+#:
+#: 11 (2026-10-07, P1 question set): a top-level heading written on one line
+#: ("4 Vibration") is a heading. It used to be refused, so it stayed on the
+#: end of the PREVIOUS clause and a question about it found the wrong clause.
+CHUNKER_VERSION = "11"
 
 
-def _chunk_signature(doc_sha: str, pages: list[tuple[int, str]]) -> str:
-    """Identifies the input to chunking: the document, its extracted text, and
-    the chunker version. Unchanged signature means the output would be
-    identical, so the work can be skipped."""
+def _chunk_signature(doc_sha: str, pages: list[tuple[int, str]],
+                     page_tables: dict[int, str] | None = None) -> str:
+    """Identifies the input to chunking: the document, its extracted text, its
+    extracted tables, and the chunker version. Unchanged signature means the
+    output would be identical, so the work can be skipped."""
     h = hashlib.sha256()
     h.update(doc_sha.encode())
     h.update(CHUNKER_VERSION.encode())
     h.update(str(len(pages)).encode())
+    tables = page_tables or {}
     for pno, text in pages:
         h.update(str(pno).encode())
         h.update(hashlib.sha256(text.encode("utf-8")).digest())
+        if tables.get(pno):
+            h.update(b"tables")
+            h.update(hashlib.sha256(tables[pno].encode("utf-8")).digest())
     return h.hexdigest()
+
+
+def is_stale(conn, doc_id: str) -> bool:
+    """Whether a document's chunks were built by an older chunker or from
+    older extracted input - the question a re-index asks per document."""
+    doc = conn.execute("SELECT sha256, chunk_signature FROM documents WHERE id = ?",
+                       (doc_id,)).fetchone()
+    if doc is None:
+        return False
+    pages, raw_tables, _ = _load_pages(conn, doc_id)
+    if not pages:
+        return False
+    return doc["chunk_signature"] != _chunk_signature(doc["sha256"], pages, raw_tables)
+
+
+def _load_pages(conn, doc_id: str):
+    """(pages, raw tables json by page, rows) - the one place pages are read.
+
+    Recognised text overrides the empty extraction that triggered it, and a
+    recognised page has no extracted tables: the geometry belongs to the
+    extracted text, whose line numbers it addresses."""
+    has_tables = "tables_json" in {r["name"] for r in conn.execute(
+        "PRAGMA table_info(pages)")}
+    page_rows = conn.execute(
+        f"""SELECT p.page_no,
+                  COALESCE(NULLIF(o.text, ''), p.text) AS text,
+                  CASE WHEN o.page_no IS NULL OR o.text = '' THEN 0 ELSE 1 END
+                      AS recognised,
+                  o.min_conf AS min_conf,
+                  o.alphabet_violations AS viol,
+                  o.alphabet_sample AS viol_sample,
+                  {"p.tables_json" if has_tables else "NULL"} AS tables_json
+           FROM pages p
+           LEFT JOIN page_ocr o
+             ON o.document_id = p.document_id AND o.page_no = p.page_no
+           WHERE p.document_id = ? ORDER BY p.page_no""",
+        (doc_id,),
+    ).fetchall()
+    pages = [(r["page_no"], r["text"]) for r in page_rows]
+    raw_tables = {r["page_no"]: r["tables_json"] for r in page_rows
+                  if r["tables_json"] and not r["recognised"]}
+    return pages, raw_tables, page_rows
+
+
+def _decode_tables(raw_tables: dict[int, str]) -> dict[int, list[dict]]:
+    out: dict[int, list[dict]] = {}
+    for pno, raw in raw_tables.items():
+        try:
+            out[pno] = list(json.loads(raw).get("tables") or [])
+        except (ValueError, AttributeError):
+            continue  # an unreadable record is no tables, never a failure
+    return out
+
+
+def duplicate_of(chunks: list[Block]) -> dict[int, int]:
+    """{ordinal: ordinal of the first identical chunk} within one document.
+
+    Identical means same kind, same section AND same text. Two clauses that
+    say the same thing are two citations and both stay searchable; the same
+    text under the same clause twice (a repeated note, a reprinted table
+    piece) is one passage, and a second copy only takes a search slot from a
+    different answer. The copy is KEPT - not retrievable, recorded in the
+    exclusion ledger with the ordinal it duplicates - so its page is still a
+    page that produced a chunk and still citable.
+    """
+    first: dict[tuple, int] = {}
+    dups: dict[int, int] = {}
+    for ordinal, c in enumerate(chunks):
+        if c.kind not in RETRIEVABLE_KINDS:
+            continue
+        key = (c.kind, c.section, c.text)
+        if key in first:
+            dups[ordinal] = first[key]
+        else:
+            first[key] = ordinal
+    return dups
 
 
 def chunk_provenance(page_start: int, page_end: int, recognised: set[int],
@@ -1323,21 +2870,7 @@ def chunk_document(doc_id: str, force: bool = False,
     # separate table precisely so extraction cannot destroy it - see ADR-0006.
     # Anything reading pages.text directly will silently ignore recognised
     # text, which is why this is the one place pages are loaded.
-    page_rows = conn.execute(
-        """SELECT p.page_no,
-                  COALESCE(NULLIF(o.text, ''), p.text) AS text,
-                  CASE WHEN o.page_no IS NULL OR o.text = '' THEN 0 ELSE 1 END
-                      AS recognised,
-                  o.min_conf AS min_conf,
-                  o.alphabet_violations AS viol,
-                  o.alphabet_sample AS viol_sample
-           FROM pages p
-           LEFT JOIN page_ocr o
-             ON o.document_id = p.document_id AND o.page_no = p.page_no
-           WHERE p.document_id = ? ORDER BY p.page_no""",
-        (doc_id,),
-    ).fetchall()
-    pages = [(r["page_no"], r["text"]) for r in page_rows]
+    pages, raw_tables, page_rows = _load_pages(conn, doc_id)
     recognised_pages = {r["page_no"] for r in page_rows if r["recognised"]}
     page_conf = {r["page_no"]: r["min_conf"] for r in page_rows if r["recognised"]}
     page_viol = {r["page_no"]: (r["viol"] or 0, r["viol_sample"] or "")
@@ -1346,8 +2879,8 @@ def chunk_document(doc_id: str, force: bool = False,
         raise ValueError(f"{doc_id} has no extracted pages - run extraction first")
 
     total_pages = doc["page_count"] or len(pages)
-    page_kinds = {pno: classify_page(text, pno, total_pages) for pno, text in pages}
-    signature = _chunk_signature(doc["sha256"], pages)
+    page_kinds = classify_document_pages(pages, total_pages)
+    signature = _chunk_signature(doc["sha256"], pages, raw_tables)
     existing = conn.execute(
         "SELECT COUNT(*) FROM chunks WHERE document_id = ?", (doc_id,)
     ).fetchone()[0]
@@ -1378,8 +2911,13 @@ def chunk_document(doc_id: str, force: bool = False,
         }
 
     running = detect_running_lines(pages)
-    blocks, removed = segment_document(pages, running, page_kinds)
-    chunks = build_chunks(blocks)
+    # Ruled tables replace their own lines with one structured stand-in
+    # BEFORE segmentation, so no cell is read as a heading, stripped as a
+    # running line, or published twice (as the table and as shredded prose).
+    masked = mask_tables(pages, _decode_tables(raw_tables), running)
+    paths: dict[str, str | None] = {}
+    blocks, removed = segment_document(masked, running, page_kinds, paths_out=paths)
+    chunks = build_chunks(blocks, document_vocabulary(pages))
 
     ceiling = settings.chunk_max_tokens
     over = [c for c in chunks if c.tokens > ceiling]
@@ -1397,9 +2935,11 @@ def chunk_document(doc_id: str, force: bool = False,
         c for c in chunks
         if c.kind in RETRIEVABLE_KINDS and not quality[id(c)]["ok"]
     ]
+    duplicates = duplicate_of(chunks)
     retrievable = [
-        c for c in chunks
+        c for ordinal, c in enumerate(chunks)
         if c.kind in RETRIEVABLE_KINDS and quality[id(c)]["ok"]
+        and ordinal not in duplicates
     ]
 
     # A parent id per contiguous run of chunks sharing a section and kind.
@@ -1434,10 +2974,13 @@ def chunk_document(doc_id: str, force: bool = False,
                 c.text,
                 c.tokens,
                 chash,
-                int(c.kind in RETRIEVABLE_KINDS and q["ok"]),
-                ",".join(q["reasons"]) or None,
+                int(c.kind in RETRIEVABLE_KINDS and q["ok"] and ordinal not in duplicates),
+                (",".join(q["reasons"])
+                 or (f"duplicate_of={duplicates[ordinal]}" if ordinal in duplicates
+                     else None)),
                 *chunk_provenance(c.page_start, c.page_end, recognised_pages,
                                   page_conf, page_viol),
+                paths.get(c.section) if c.section else None,
             )
         )
 
@@ -1471,9 +3014,9 @@ def chunk_document(doc_id: str, force: bool = False,
     # "ran and failed". Conflating those is the defect the old single rule had.
     ocr_results = {
         r["page_no"]: {"box_count": r["box_count"], "char_count": r["char_count"],
-                       "error": None}
+                       "error": r["error"]}
         for r in conn.execute(
-            "SELECT page_no, box_count, char_count FROM page_ocr WHERE document_id = ?",
+            "SELECT page_no, box_count, char_count, error FROM page_ocr WHERE document_id = ?",
             (doc_id,),
         )
     }
@@ -1491,6 +3034,10 @@ def chunk_document(doc_id: str, force: bool = False,
         """
         if rule.endswith(("_toc", "_index")):
             return 0
+        if rule.endswith("_" + HISTORY_KIND):
+            # A change table's rows are numbered lines by nature. Only what is
+            # LEFT when the rows are taken out can be real content.
+            text = "\n".join(ln for ln in text.splitlines() if not _CHANGE_ROW.match(ln))
         # A references page legitimately carries its own numbered heading -
         # "9.15 References" - followed by bibliography entries long enough to
         # read as prose. The alert fired on exactly that in book4, which is a
@@ -1509,11 +3056,12 @@ def chunk_document(doc_id: str, force: bool = False,
         # endpoints cannot disagree by a trailing newline.
         length = len(ptext.strip())
 
-        if kind not in RETRIEVABLE_KINDS:
+        if kind not in SEARCHED_PAGE_KINDS:
             rule = f"page_classified_{kind}"
             exclusion_rows.append(
                 (doc_id, "page", pno, pno, None, rule,
-                 f"page classified as {kind}", ptext[:2000], length, now,
+                 HISTORY_REASON if kind == HISTORY_KIND else f"page classified as {kind}",
+                 ptext[:2000], length, now,
                  dropped_real_content(ptext, rule))
             )
             continue
@@ -1533,7 +3081,7 @@ def chunk_document(doc_id: str, force: bool = False,
                           "has not run")
             elif rec["error"]:
                 rule = "ocr_failed"
-                reason = f"recognition failed on this page: {rec['error']}"
+                reason = failed_page_reason(rec["error"])
             elif rec["box_count"] == 0:
                 # Measured: 5 of 12 flagged pages return zero boxes at both 150
                 # and 300 dpi. Those pages are BLANK, not unreadable, and
@@ -1569,6 +3117,16 @@ def chunk_document(doc_id: str, force: bool = False,
                  "content_quality_gate", ",".join(q["reasons"]),
                  c.text[:2000], len(c.text.strip()), now, 0)
             )
+        elif ordinal in duplicates:
+            first = chunks[duplicates[ordinal]]
+            exclusion_rows.append(
+                (doc_id, "chunk", c.page_start, c.page_end,
+                 chunk_id(doc["sha256"], c.page_start, ordinal, content_hash(c.text)),
+                 "duplicate_chunk",
+                 f"identical to chunk {duplicates[ordinal]} (pages "
+                 f"{first.page_start}-{first.page_end}) in the same section",
+                 c.text[:2000], len(c.text.strip()), now, 0)
+            )
 
     orphan_guard.check(
         "re_chunk",
@@ -1587,25 +3145,47 @@ def chunk_document(doc_id: str, force: bool = False,
         # The keyword index is keyed on chunk ids, so a rebuild invalidates
         # it. Dropped here and rebuilt by the indexing stage.
         conn.execute("DELETE FROM chunks_fts WHERE document_id = ?", (doc_id,))
+        # What each OLD chunk's vector was computed from besides its text (the
+        # text is in the id, through content_hash): read before the delete so
+        # a kept id whose heading changed is not mistaken for an unchanged one.
+        old_inputs = {
+            r["id"]: (r["section"], r["context"])
+            for r in conn.execute(
+                "SELECT id, section, context FROM chunks WHERE document_id = ?",
+                (doc_id,))
+        }
         conn.execute("DELETE FROM chunks WHERE document_id = ?", (doc_id,))
-        # Vectors are keyed on chunk id. Re-chunking changes those ids, so any
-        # vector whose chunk no longer exists is an orphan - and embedded_count
-        # counts vector ROWS, so leaving them made progress read above 100%
-        # (1448 embedded against 1356 chunks). Same failure as every other
-        # count derived from something adjacent to the thing it claims.
-        conn.execute(
-            """DELETE FROM chunk_vectors WHERE document_id = ?
-               AND chunk_id NOT IN (SELECT id FROM chunks WHERE document_id = ?)""",
-            (doc_id, doc_id),
-        )
         conn.executemany(
             """INSERT OR REPLACE INTO chunks
                (id, document_id, filename, ordinal, page_start, page_end,
                 section, parent_id, kind, text, token_count, content_hash,
                 retrievable, quality_flags, text_source, ocr_min_conf,
-                ocr_alphabet_violations, ocr_alphabet_sample)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                ocr_alphabet_violations, ocr_alphabet_sample, context)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             rows,
+        )
+        # ORPHANED VECTORS ONLY, and only AFTER the new chunks exist. Vectors
+        # are keyed on chunk id; a vector whose chunk is gone is an orphan and
+        # must go (embedded_count once read 1448 against 1356 chunks). This
+        # delete used to run BEFORE the insert above, when the document had no
+        # chunks at all, so it deleted EVERY vector on every re-chunk - an OCR
+        # round that changed one chunk of 45 re-embedded all 45 (audit
+        # 2026-09-30). A vector is kept when its chunk id survives, the chunk
+        # is still retrievable, and its heading inputs (section, chain) are
+        # unchanged - i.e. when it was computed from exactly what the new
+        # chunk would be embedded from.
+        stale = [
+            r[0] for r in rows
+            if r[0] in old_inputs and (not r[12] or old_inputs[r[0]] != (r[6], r[18]))
+        ]
+        conn.executemany(
+            "DELETE FROM chunk_vectors WHERE chunk_id = ? AND document_id = ?",
+            [(cid, doc_id) for cid in stale],
+        )
+        conn.execute(
+            """DELETE FROM chunk_vectors WHERE document_id = ?
+               AND chunk_id NOT IN (SELECT id FROM chunks WHERE document_id = ?)""",
+            (doc_id, doc_id),
         )
         # chunk_count is the RETRIEVABLE count - what search can actually see.
         # chunk_count_total is every row, including the ones kept only for
@@ -1628,6 +3208,7 @@ def chunk_document(doc_id: str, force: bool = False,
         "chunks_non_retrievable": len(chunks) - len(retrievable),
         "chunks_by_kind": dict(kind_counts),
         "chunks_rejected_by_quality_gate": len(quality_rejected),
+        "chunks_duplicate": len(duplicates),
         "pages_excluded": sum(1 for r in exclusion_rows if r[1] == "page"),
         "exclusions_recorded": len(exclusion_rows),
         "chunks_this_run": len(chunks),

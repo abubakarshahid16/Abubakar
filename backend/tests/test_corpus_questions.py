@@ -31,6 +31,7 @@ from app import access, answer, corpus, db, keyword, search
 from app.config import settings
 from app.ingest import IngestionWorker
 from app.main import app
+from tests.test_chat_pr1_model_lane import _claude_on
 
 NOW = "2026-09-20T00:00:00Z"
 
@@ -428,3 +429,174 @@ def test_the_route_returns_the_database_answer_and_keeps_it_on_replay():
     assistant = [m for m in replay["messages"] if m["role"] == "assistant"][-1]
     assert assistant["payload"]["corpus"]["loaded"] == 2, \
         "reopening the conversation lost the database answer"
+
+
+# ============================ part 3: counts on EITHER model (plan rule N7)
+#
+# THE DEFECT. On Model=Claude, "how many standards do we have and contractor
+# submittals" reached Claude with tools and no counting tool to call, and it
+# answered "I don't have a list everything tool". On Model=Local the same
+# question reached the database-backed answer `answer.answer` already
+# computes. Both engines must give the identical, code-computed answer - a
+# count is never something either model is asked to produce.
+
+
+def _doc_named(doc_id: str, role: str | None, filename: str, status: str = "ready") -> str:
+    """A document row with a role AND a real file name - the family
+    breakdown reads the name, not the id."""
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO documents (id,filename,sha256,size_bytes,stored_path,"
+            "status,page_count,uploaded_at) VALUES (?,?,?,1,?,?,1,?)",
+            (doc_id, filename, f"sha-{doc_id}", filename, status, NOW))
+        conn.execute(
+            "INSERT INTO document_classification (document_id,document_role,"
+            "suggested_by) VALUES (?,?,'test')", (doc_id, role))
+    return doc_id
+
+
+@pytest.mark.parametrize("question, roles", [
+    ("how many standards do we have and contractor submittals",
+     ["COMPANY_STANDARD", "CONTRACTOR_SUBMITTAL"]),
+    ("how many standards do we have", ["COMPANY_STANDARD"]),
+    ("what is loaded", [None]),
+])
+def test_inventory_question_names_every_role_asked_about(question, roles):
+    assert corpus.inventory_question(question) == roles
+
+
+@pytest.mark.parametrize("question", [
+    "which standards cover hydrotesting",
+    "how many standards cover hydrotesting and corrosion",
+    "what does SAES-L-132 say about hydrotest",
+])
+def test_a_real_content_question_is_still_not_a_pure_inventory_question(question):
+    """THE GUARD: a real topic word survives being joined by "and" - only
+    the collection itself, plus connectors, ever counts as pure inventory."""
+    assert corpus.inventory_question(question) is None
+
+
+def test_inventory_statement_counts_every_named_role_from_the_database():
+    _doc("std0", "COMPANY_STANDARD")
+    _doc("std1", "COMPANY_STANDARD")
+    _doc("sub0", "CONTRACTOR_SUBMITTAL")
+    scope = frozenset({"std0", "std1", "sub0"})
+
+    fact = corpus.inventory_statement(
+        ["COMPANY_STANDARD", "CONTRACTOR_SUBMITTAL"], allowed_document_ids=scope)
+
+    assert fact["source"] == "database" and fact["kind"] == "count"
+    by_role = {b["role"]: b["loaded"] for b in fact["breakdown"]}
+    assert by_role == {"COMPANY_STANDARD": 2, "CONTRACTOR_SUBMITTAL": 1}
+
+
+def test_inventory_statement_breaks_a_standard_count_down_by_family():
+    _doc_named("saes1", "COMPANY_STANDARD", "SAES-A-001.pdf")
+    _doc_named("saes2", "COMPANY_STANDARD", "SAES-B-002.pdf")
+    _doc_named("asme1", "COMPANY_STANDARD", "ASME-B31-3.pdf")
+    scope = frozenset({"saes1", "saes2", "asme1"})
+
+    fact = corpus.inventory_statement(["COMPANY_STANDARD"], allowed_document_ids=scope)
+
+    standards = fact["breakdown"][0]
+    assert standards["loaded"] == 3
+    assert standards["families"] == {"SAES": 2, "ASME": 1}
+
+
+def test_inventory_statement_respects_the_callers_permissions():
+    """CLAUDE.md rule 5: scoped in the query, never in Python. A caller
+    granted nothing of a named role sees a real "no X", not a total that
+    counts documents they may not read."""
+    _doc("std0", "COMPANY_STANDARD")
+    _doc("sub0", "CONTRACTOR_SUBMITTAL")
+
+    fact = corpus.inventory_statement(
+        ["COMPANY_STANDARD", "CONTRACTOR_SUBMITTAL"], allowed_document_ids=frozenset({"std0"}))
+
+    by_role = {b["role"]: b["loaded"] for b in fact["breakdown"]}
+    assert by_role == {"COMPANY_STANDARD": 1, "CONTRACTOR_SUBMITTAL": 0}
+
+
+def _ask_inventory(client, conversation_id: str, model: str | None) -> dict:
+    return client.post(
+        f"/api/conversations/{conversation_id}/ask",
+        json={"question": "how many standards do we have and contractor submittals",
+             "model": model},
+    ).json()
+
+
+def test_local_model_answers_the_compound_count_from_the_database():
+    _doc("std0", "COMPANY_STANDARD")
+    _doc("std1", "COMPANY_STANDARD")
+    _doc("sub0", "CONTRACTOR_SUBMITTAL")
+    app.dependency_overrides[access.current_scope] = lambda: access.AccessScope(
+        user_id=None, allowed_document_ids=frozenset({"std0", "std1", "sub0"}),
+        unrestricted=True)
+    client = TestClient(app)
+    conversation = client.post("/api/conversations", json={}).json()["id"]
+
+    body = _ask_inventory(client, conversation, "local")
+
+    assert body["answer_type"] == "metadata"
+    by_role = {b["role"]: b["loaded"] for b in body["corpus"]["breakdown"]}
+    assert by_role == {"COMPANY_STANDARD": 2, "CONTRACTOR_SUBMITTAL": 1}
+
+
+def test_claude_model_gives_the_identical_database_answer_never_asking_claude(monkeypatch, tmp_path):
+    """THE MUTATION TARGET: on Model=Claude this must be the SAME
+    code-computed answer as Model=Local - never a tool call, never a guess
+    at a capability Claude does not have ("I don't have a list everything
+    tool")."""
+    seen: list[dict] = []
+    _claude_on(monkeypatch, tmp_path, seen)
+    _doc("std0", "COMPANY_STANDARD")
+    _doc("std1", "COMPANY_STANDARD")
+    _doc("sub0", "CONTRACTOR_SUBMITTAL")
+    app.dependency_overrides[access.current_scope] = lambda: access.AccessScope(
+        user_id=None, allowed_document_ids=frozenset({"std0", "std1", "sub0"}),
+        unrestricted=True)
+    client = TestClient(app)
+    conversation = client.post("/api/conversations", json={}).json()["id"]
+
+    body = _ask_inventory(client, conversation, "claude")
+
+    assert body["answer_type"] == "metadata"
+    by_role = {b["role"]: b["loaded"] for b in body["corpus"]["breakdown"]}
+    assert by_role == {"COMPANY_STANDARD": 2, "CONTRACTOR_SUBMITTAL": 1}
+    assert seen == [], "Claude was called for a count the database already answers"
+
+
+# ---------------------------------------------------------------- typo repair
+
+
+@pytest.mark.parametrize("question", [
+    "how many standrds do we have",
+    "HOW MANY STANDRDS DO WE HAVE IN SYSTEM",
+    "how many submitals are there",
+    "list all datasheet",
+    "how many documnts are loaded",
+])
+def test_typo_in_the_noun_still_routes_to_the_inventory(question):
+    assert corpus.classify(question) is not None, question
+    assert corpus.inventory_question(question) is not None, question
+
+
+@pytest.mark.parametrize("word", [
+    "documented", "standardize", "specified", "standing", "filed", "datasets",
+])
+def test_real_words_near_a_noun_are_not_rewritten(word):
+    assert corpus._normalise(word) == word
+
+
+def test_typo_count_route_returns_the_database_answer():
+    _doc("std0", "COMPANY_STANDARD")
+    _doc("std1", "COMPANY_STANDARD")
+    app.dependency_overrides[access.current_scope] = lambda: access.AccessScope(
+        user_id=None, allowed_document_ids=frozenset({"std0", "std1"}), unrestricted=True)
+    client = TestClient(app)
+    conversation = client.post("/api/conversations", json={}).json()["id"]
+    body = client.post(f"/api/conversations/{conversation}/ask",
+                       json={"question": "HOW MANY STANDRDS DO WE HAVE IN SYSTEM",
+                             "model": "local"}).json()
+    assert body["answer_type"] == "metadata"
+    assert {b["role"]: b["loaded"] for b in body["corpus"]["breakdown"]} == {"COMPANY_STANDARD": 2}

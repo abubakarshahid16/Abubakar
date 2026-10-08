@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ._base import APP, _B18_GUARD, Mutation
+from ._base import APP, Mutation
 
 
 MUTATIONS: tuple[Mutation, ...] = (
@@ -70,11 +70,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         # honesty-audit entries 10 and 12, and this is the third time the
         # same shortcut has been reached for, so the reasoning lives here at
         # the mutation rather than only in the audit file.
-        anchor='    """Durable record of a selection decision. Ids and counts only."""\n'
-               '    conn = connect()',
-        replacement='    """Durable record of a selection decision. Ids and counts only."""\n'
-                    '    return\n'
-                    '    conn = connect()',
+        # Re-anchored in B10: the override's audit row is now written inside
+        # `record_selection`'s transaction.
+        anchor="        if audit is not None:\n            _audit(*audit, conn=conn)\n",
+        replacement="        if audit is not None:\n            pass\n",
         target="tests/test_applicability.py",
         keyword="override_writes_an_audit_row",
         tags=("audit",),
@@ -158,29 +157,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         target="tests/test_applicability.py",
         keyword="two_spellings_of_one_held_standard",
     ),
-    # ---- from B18_UNMEASURED_FACTOR ---------------------------------------
-    #: B18: completeness dropped an UNMEASURED extraction factor and reported the
-    #: other half alone - 1.0 and "sufficient" with the datasheet never measured.
-    Mutation(
-        id="M313", phase=35,
-        description="applicability: the same, in the other home",
-        path=APP / "applicability.py",
-        anchor=_B18_GUARD,
-        replacement="    if False:\n        overall = None",
-        target="tests/test_comparison.py",
-        keyword="extraction_was_never_measured",
-        tags=("honesty", "critical"),
-    ),
-    Mutation(
-        id="M315", phase=35,
-        description="applicability: hide M-03's determinate 0.0 behind None",
-        path=APP / "applicability.py",
-        anchor=_B18_GUARD,
-        replacement="    if extraction is None:\n        overall = None",
-        target="tests/test_comparison.py",
-        keyword="keeps_m03",
-        tags=("honesty",),
-    ),
+    # ---- B18_UNMEASURED_FACTOR: M313 and M315 RETIRED in B10 ----------------
+    #: `applicability.completeness` no longer carries its own formula - it
+    #: delegates to `comparison.completeness_for_run`, whose B18 guard is
+    #: mutated by that module's entries. The delegation itself is M847.
     # ---- from B5_STANDARDS_INVENTORY --------------------------------------
     #: B5 part 2: standard family, licence status, cover-page backfill, and the
     #: "cited by a submittal" flag on the inventory.

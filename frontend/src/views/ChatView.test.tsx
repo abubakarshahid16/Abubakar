@@ -158,6 +158,7 @@ interface Routes {
   report?: unknown;
   structured?: unknown;
   structuredFailure?: boolean;
+  models?: unknown;
 }
 
 function mockApi(routes: Routes = {}) {
@@ -170,6 +171,11 @@ function mockApi(routes: Routes = {}) {
     }
     const body = (() => {
       if (url.includes("/health")) return health;
+      if (url.includes("/chat/models") && routes.models) return routes.models;
+      // the CRS & Reports screen's own list, when "Open" takes the reader there
+      if (url.includes("/reports?") || (url.endsWith("/reports") && init?.method !== "POST")) {
+        return { reports: [], suppressed_count: 0, total_matching: 0 };
+      }
       if (url.endsWith("/reports")) {
         return routes.report ?? {
           id: "report_abc",
@@ -212,7 +218,7 @@ function mockApi(routes: Routes = {}) {
 
 async function openChat() {
   render(<App />);
-  await userEvent.click(await screen.findByRole("button", { name: /Document Q&A/ }));
+  await userEvent.click(await screen.findByRole("button", { name: /^Chat/ }));
 }
 
 afterEach(() => vi.unstubAllGlobals());
@@ -222,7 +228,8 @@ describe("structured workflow search", () => {
     const calls = mockApi({ structured: { results: [{ id: "d1", kind: "deliverable", label: "IFC drawing", wbs_code: "1.2", document_id: null }] } });
     await openChat();
     await userEvent.type(screen.getByLabelText("Your question"), "IFC drawing");
-    await userEvent.click(screen.getByRole("checkbox", { name: "Search workflow records" }));
+    await userEvent.click(screen.getByRole("button", { name: "More options" }));
+    await userEvent.click(screen.getByRole("button", { name: /Search workflow records/ }));
     await userEvent.click(screen.getByRole("button", { name: "Search records" }));
     expect(await screen.findByText("Workflow records — not page-cited evidence")).toBeInTheDocument();
     expect(screen.getByText("IFC drawing")).toBeInTheDocument();
@@ -233,7 +240,8 @@ describe("structured workflow search", () => {
     mockApi({ structuredFailure: true });
     await openChat();
     await userEvent.type(screen.getByLabelText("Your question"), "schedule");
-    await userEvent.click(screen.getByRole("checkbox", { name: "Search workflow records" }));
+    await userEvent.click(screen.getByRole("button", { name: "More options" }));
+    await userEvent.click(screen.getByRole("button", { name: /Search workflow records/ }));
     await userEvent.click(screen.getByRole("button", { name: "Search records" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Structured search is unavailable.");
   });
@@ -242,7 +250,8 @@ describe("structured workflow search", () => {
     mockApi({ structured: { results: [] } });
     await openChat();
     await userEvent.type(screen.getByLabelText("Your question"), "missing");
-    await userEvent.click(screen.getByRole("checkbox", { name: "Search workflow records" }));
+    await userEvent.click(screen.getByRole("button", { name: "More options" }));
+    await userEvent.click(screen.getByRole("button", { name: /Search workflow records/ }));
     await userEvent.click(screen.getByRole("button", { name: "Search records" }));
     expect(await screen.findByText("No matching deliverable found for 'missing'.")).toBeInTheDocument();
   });
@@ -251,15 +260,50 @@ describe("structured workflow search", () => {
 // --------------------------------------------------------------- navigation
 
 describe("chat navigation", () => {
-  it("sends the selected response style to the existing answer pipeline", async () => {
-    const calls = mockApi();
+  it("asks for a written answer when Claude answers, and sends the engine chosen", async () => {
+    // The response-style radios are gone (owner order 2026-09-26): Claude
+    // writes the answer by default, and "Exact wording" asks for a quotation.
+    const calls = mockApi({
+      models: {
+        default: "claude",
+        models: [
+          { id: "claude", label: "Claude", model: "m", available: true, reason: null },
+          { id: "local", label: "Local model", model: "l", available: true, reason: null },
+        ],
+      },
+    });
     await openChat();
-    await userEvent.click(screen.getByRole("radio", { name: "Written explanation" }));
+    await screen.findByRole("combobox", { name: "Model" });
     await userEvent.type(screen.getByLabelText("Your question"), "Explain the coating requirement");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
-    await waitFor(() => expect(calls.find((c) => c.url.endsWith("/ask"))?.body).toMatchObject({
-      question: "Explain the coating requirement", tier: "generated",
+    await waitFor(() => expect(calls.find((c) => c.url.includes("/ask"))?.body).toMatchObject({
+      question: "Explain the coating requirement", tier: "generated", model: "claude",
     }));
+  });
+
+  it("quotes by default on the local engine, where a written answer takes a minute", async () => {
+    const calls = mockApi({
+      models: {
+        default: "local",
+        models: [
+          { id: "claude", label: "Claude", model: "m", available: false, reason: "no API key" },
+          { id: "local", label: "Local model", model: "l", available: true, reason: null },
+        ],
+      },
+    });
+    await openChat();
+    await screen.findByRole("combobox", { name: "Model" });
+    // Claude is listed, but cannot be chosen, and says why not
+    const option = screen.getByRole("option", { name: /Claude/ }) as HTMLOptionElement;
+    expect(option.disabled).toBe(true);
+    expect(option.title).toBe("no API key");
+    await userEvent.type(screen.getByLabelText("Your question"), "what is the NDFT");
+    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await waitFor(() => expect(calls.find((c) => c.url.includes("/ask"))?.body).toMatchObject({
+      tier: "extract", model: "local",
+    }));
+    // and the footer says honestly where the question goes
+    expect(screen.getByText(/nothing you type leaves this machine/i)).toBeInTheDocument();
   });
 
   it("routes a critique through written explanation even when quotation mode is selected", async () => {
@@ -276,7 +320,7 @@ describe("chat navigation", () => {
     mockApi();
     render(<App />);
     const nav = await screen.findByRole("navigation", { name: "Main" });
-    const chat = within(nav).getByRole("button", { name: /Document Q&A/ });
+    const chat = within(nav).getByRole("button", { name: /^Chat/ });
     expect(within(chat).queryByText("not built")).toBeNull();
   });
 });
@@ -616,7 +660,12 @@ describe("citations", () => {
     await waitFor(() => {
       expect(calls.some((c) => c.url.endsWith("/reports") && c.body && (c.body as { message_id?: string }).message_id === "msg_a2")).toBe(true);
     });
-    expect(await screen.findByText(/Saved as report_abc/i)).toBeInTheDocument();
+    // the screen the reader knows it by, and a way there
+    expect(await screen.findByText(/Saved to CRS & Reports/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Open" }));
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    await waitFor(() =>
+      expect(within(nav).getByRole("button", { name: /^CRS & Reports/ })).toHaveAttribute("aria-current", "page"));
   });
 
   it("warns that an extract report does not merge other matched passages into the answer", async () => {
@@ -709,7 +758,7 @@ describe("explain", () => {
     await userEvent.type(screen.getByLabelText("Your question"), "q");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
-    await screen.findByText(/The documents do not answer this/i);
+    await screen.findByText(/I cannot determine this from the available evidence/i);
     expect(screen.queryByRole("button", { name: /Explain in plain/i })).toBeNull();
   });
 });
@@ -738,7 +787,7 @@ describe("insufficient evidence", () => {
     await userEvent.type(screen.getByLabelText("Your question"), "q");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
-    expect(await screen.findByText(/The documents do not answer this/i)).toBeInTheDocument();
+    expect(await screen.findByText(/I cannot determine this from the available evidence/i)).toBeInTheDocument();
     expect(screen.getByText(/Nothing was made up to fill the gap/i)).toBeInTheDocument();
     // what was considered is still offered, so the reader can judge
     expect(screen.getByText(/What was considered/i)).toBeInTheDocument();
@@ -777,7 +826,73 @@ describe("insufficient evidence", () => {
     expect(
       await screen.findByText(/The local answer model is not running/i),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/The documents do not answer this/i)).toBeNull();
+    expect(screen.queryByText(/I cannot determine this from the available evidence/i)).toBeNull();
+  });
+
+  it("a Claude failure is named as Claude's, not the local model's", async () => {
+    mockApi({
+      conversation: {
+        conversation,
+        messages: [
+          userMessage(),
+          extractMessage({
+            text: null,
+            answer_type: "model_unavailable",
+            provider: "claude",
+            reason: "the Claude call failed partway through this answer: HTTPStatusError: 400",
+            payload: { passages: [A1], seconds: 0.1 },
+          }),
+        ],
+      },
+      conversations: {
+        total: 1,
+        limit: 20,
+        offset: 0,
+        conversations: [{ ...conversation, first_question: "q" }],
+      },
+    });
+    await openChat();
+    await userEvent.click(await screen.findByRole("button", { name: /^what is the NDFT/ }));
+
+    expect(await screen.findByText(/Claude could not answer/i)).toBeInTheDocument();
+    expect(screen.queryByText(/The local answer model is not running/i)).toBeNull();
+    expect(screen.queryByText("ollama serve")).toBeNull();
+  });
+
+  // Audit 101: a reopened general-knowledge answer that Claude was asked for
+  // and the local model wrote carries the reason; one stored without the keys
+  // renders as it always did.
+  it.each([
+    ["with the keys", { requested_provider: "claude", provider: "ollama", provider_note: "Claude was not used; this answer was written by the local model." }, true],
+    ["without the keys (stored earlier)", { provider: "ollama" }, false],
+  ] as const)("a reopened general answer %s", async (_label, keys, shown) => {
+    mockApi({
+      conversation: {
+        conversation,
+        messages: [
+          userMessage(),
+          extractMessage({
+            text: "Entropy measures disorder.",
+            answer_type: "general",
+            payload: { seconds: 0.1 },
+            ...keys,
+          }),
+        ],
+      },
+      conversations: {
+        total: 1,
+        limit: 20,
+        offset: 0,
+        conversations: [{ ...conversation, first_question: "q" }],
+      },
+    });
+    await openChat();
+    await userEvent.click(await screen.findByRole("button", { name: /^what is the NDFT/ }));
+
+    expect(await screen.findByText(/Entropy measures disorder/)).toBeInTheDocument();
+    const note = screen.queryByRole("note", { name: /which model answered/i });
+    if (shown) expect(note).toHaveTextContent(/written by the local model/);
+    else expect(note).toBeNull();
   });
 });
 
@@ -896,14 +1011,29 @@ describe("inputs that are not document questions", () => {
       text: "Hello. I answer questions about your documents, quoting the source with its page and clause.",
       answer_type: "guidance",
       reason: null,
+      // Fix 1 (2026-09-27): `suggestions` is a TOP-LEVEL, lifted field (the
+      // real backend's `_LIFTED`) - the component reads it directly, not
+      // `payload.suggestions`.
+      suggestions: [
+        "What does NORSOK M-501 say about Coating system no. 1?",
+        "Explain what a hydrotest is",
+      ],
       payload: {
         passages: [],
         cited: [],
         rejected_citations: [],
         input_kind: "greeting",
+        // Fix 1 (2026-09-27): the document's TITLE (never its filename with
+        // ".pdf" in front of a reader), plus one general example - both
+        // rendered as clickable chips from `suggestions`, not `examples`
+        // (an AnswerResult-only field a reopened Message never carries).
         examples: [
-          "What does NORSOKM501Rev5.pdf say about Coating system no. 1?",
-          "What does book1-professionalpractices.pdf say about Self-Driving Vehicles?",
+          "What does NORSOK M-501 say about Coating system no. 1?",
+          "Explain what a hydrotest is",
+        ],
+        suggestions: [
+          "What does NORSOK M-501 say about Coating system no. 1?",
+          "Explain what a hydrotest is",
         ],
         seconds: 0.002,
       },
@@ -928,7 +1058,7 @@ describe("inputs that are not document questions", () => {
 
     expect(await screen.findByText(/I answer questions about your documents/i)).toBeInTheDocument();
     // never a refusal, and never evidence for a search that did not happen
-    expect(screen.queryByText(/The documents do not answer this/i)).toBeNull();
+    expect(screen.queryByText(/I cannot determine this from the available evidence/i)).toBeNull();
     expect(screen.queryByText(/What was considered/i)).toBeNull();
     expect(screen.queryByRole("button", { name: /Show source/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Explain in plain/i })).toBeNull();
@@ -949,10 +1079,12 @@ describe("inputs that are not document questions", () => {
     await userEvent.type(screen.getByLabelText("Your question"), "hi");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
-    expect(await screen.findByText(/Questions your documents can answer/i)).toBeInTheDocument();
+    // Fix 1 (2026-09-27): clickable chips (SuggestionChips), the document's
+    // title (never its filename), plus one general example.
     expect(
-      screen.getByText("What does NORSOKM501Rev5.pdf say about Coating system no. 1?"),
+      await screen.findByRole("button", { name: "What does NORSOK M-501 say about Coating system no. 1?" }),
     ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Explain what a hydrotest is" })).toBeInTheDocument();
   });
 });
 
@@ -1152,33 +1284,15 @@ describe("a response belongs to the request that asked for it", () => {
     conversations: cs.map((c) => ({ ...c, message_count: 2 })),
   });
 
-  it("drops an explanation whose transcript has moved on", async () => {
-    // Reproduced by hand in the UI: press Explain, get impatient, ask
-    // something else. The explanation lands under the new question's refusal,
-    // and AnswerCard labels it "An explanation of the quoted answer above" -
-    // which is then a false statement about the answer directly above it.
+  it("writes one answer at a time: a new question waits while an explanation is written", async () => {
+    // The old screen let the reader ask something else while Explain ran,
+    // and then had to drop the late explanation so it could not land under
+    // the wrong question. The new screen writes one answer at a time and
+    // offers Stop instead, so the explanation lands where it was asked for.
     const q1 = userMessage({ id: "u1", text: "what is the NDFT for coating system no. 1" });
     const a1 = extractMessage({ id: "a1" });
     const api = holdableApi((url, body) => {
-      if (url.endsWith("/ask")) {
-        if (body?.explain_of) return "HOLD";
-        return askResult({
-          answer_type: "insufficient_evidence",
-          answer: null,
-          reason: "The documents do not cover welding preheat.",
-          passage: null,
-          supporting: [],
-          passages: [],
-          user_message: userMessage({ id: "u2", text: "what preheat is required" }),
-          assistant_message: extractMessage({
-            id: "a2",
-            text: null,
-            answer_type: "insufficient_evidence",
-            reason: "The documents do not cover welding preheat.",
-            payload: { passages: [], seconds: 1.2 },
-          }),
-        });
-      }
+      if (url.endsWith("/ask") && body?.explain_of) return "HOLD";
       if (url.includes("/conversations/")) return { conversation: convA, messages: [q1, a1] };
       return listOf(convA);
     });
@@ -1187,12 +1301,11 @@ describe("a response belongs to the request that asked for it", () => {
     await userEvent.click(await screen.findByRole("button", { name: /^Coating systems/ }));
     await userEvent.click(await screen.findByRole("button", { name: /Explain in plain/i }));
 
-    // the reader gets impatient and asks something else
     await userEvent.type(screen.getByLabelText("Your question"), "what preheat is required");
-    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
-    await screen.findByText(/do not cover welding preheat/);
+    expect(screen.getByRole("button", { name: "Ask" })).toBeDisabled();
+    // the typed question is kept, not lost, while it waits
+    expect((screen.getByLabelText("Your question") as HTMLTextAreaElement).value).toBe("what preheat is required");
 
-    // ...and only now does the explanation come back
     await api.release(
       0,
       askResult({
@@ -1206,7 +1319,40 @@ describe("a response belongs to the request that asked for it", () => {
         }),
       }),
     );
+    expect(await screen.findByText(/In plain terms/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Ask" })).toBeEnabled();
+  });
 
+  it("drops an explanation whose conversation the reader has left", async () => {
+    const q1 = userMessage({ id: "u1", text: "what is the NDFT for coating system no. 1" });
+    const a1 = extractMessage({ id: "a1" });
+    const api = holdableApi((url, body) => {
+      if (url.endsWith("/ask") && body?.explain_of) return "HOLD";
+      if (url.includes("/conversations/conv_b"))
+        return { conversation: convB, messages: [userMessage({ id: "u9", text: "which welding procedure applies" })] };
+      if (url.includes("/conversations/")) return { conversation: convA, messages: [q1, a1] };
+      return listOf(convA, convB);
+    });
+
+    await openChat();
+    await userEvent.click(await screen.findByRole("button", { name: /^Coating systems/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /Explain in plain/i }));
+    await userEvent.click(screen.getByRole("button", { name: /^Welding procedures/ }));
+    await screen.findByText(/which welding procedure applies/);
+
+    await api.release(
+      0,
+      askResult({
+        answer_type: "generated",
+        answer: "In plain terms, the coating must be 280 micrometres thick.",
+        assistant_message: extractMessage({
+          id: "a3",
+          answer_type: "generated",
+          text: "In plain terms, the coating must be 280 micrometres thick.",
+          explains_id: "a1",
+        }),
+      }),
+    );
     expect(screen.queryByText(/In plain terms/)).toBeNull();
   });
 
@@ -1238,7 +1384,9 @@ describe("a response belongs to the request that asked for it", () => {
 
     await api.release(0, askResult({ user_message: q1, assistant_message: extractMessage({ id: "a1" }) }));
 
-    expect(screen.getAllByText(q1.text!)).toHaveLength(1);
+    // Once as a question bubble. (The conversation's title in the header may
+    // read the same; it is a title, not a turn.)
+    expect(screen.getAllByText(q1.text!, { selector: "p" })).toHaveLength(1);
   });
 
   it("keeps the transcript of the conversation the reader ended on", async () => {
@@ -1416,7 +1564,7 @@ describe("a refused plain-language upgrade", () => {
   it("still reads as a page-level refusal when it is not an upgrade of anything", async () => {
     await openTranscript(userMessage(), refusedUpgrade({ explains_id: null }));
 
-    expect(await screen.findByText(/The documents do not answer this/i)).toBeInTheDocument();
+    expect(await screen.findByText(/I cannot determine this from the available evidence/i)).toBeInTheDocument();
     expect(screen.getByText(/Nothing was made up to fill the gap/i)).toBeInTheDocument();
   });
 
@@ -1429,7 +1577,7 @@ describe("a refused plain-language upgrade", () => {
 
     // THE ASSERTION THAT WOULD HAVE CAUGHT IT. Both of these were on screen
     // together, stacked, each contradicting the other.
-    expect(screen.queryByText(/The documents do not answer this/i)).toBeNull();
+    expect(screen.queryByText(/I cannot determine this from the available evidence/i)).toBeNull();
     expect(screen.queryByText(/Nothing was made up to fill the gap/i)).toBeNull();
     expect(screen.queryByText(/What was considered, so you can judge/i)).toBeNull();
   });
@@ -1517,7 +1665,7 @@ describe("a refused plain-language upgrade", () => {
     // of this defect: an attempt that silently looks like it never ran.
     await openTranscript(userMessage(), refusedUpgrade({ explains_id: "msg_gone" }));
 
-    expect(await screen.findByText(/The documents do not answer this/i)).toBeInTheDocument();
+    expect(await screen.findByText(/I cannot determine this from the available evidence/i)).toBeInTheDocument();
   });
 
   it("scopes the failure when it arrives live, from pressing the button", async () => {
@@ -1548,7 +1696,7 @@ describe("a refused plain-language upgrade", () => {
       await screen.findByText(/The plain-language version could not be produced/i),
     ).toBeInTheDocument();
     expect(screen.getByText(A1.text)).toBeInTheDocument();
-    expect(screen.queryByText(/The documents do not answer this/i)).toBeNull();
+    expect(screen.queryByText(/I cannot determine this from the available evidence/i)).toBeNull();
   });
 
   // Rule: "backend offline" and "that request failed" must never look the
@@ -1572,7 +1720,66 @@ describe("a refused plain-language upgrade", () => {
 
     // not the refusal wording, and not the page-level one either
     expect(screen.queryByText(/cited no supplied source/i)).toBeNull();
-    expect(screen.queryByText(/The documents do not answer this/i)).toBeNull();
+    expect(screen.queryByText(/I cannot determine this from the available evidence/i)).toBeNull();
     expect(screen.getByText(A1.text)).toBeInTheDocument();
   });
+});
+
+describe("visual stability", () => {
+  it("shows no work-in-progress panel before anything is asked", async () => {
+    mockApi();
+    await openChat();
+    // At rest `askingIn` and `current` are both null; comparing them alone
+    // rendered "Working on this machine · 0s" with nothing asked and hid the
+    // empty-state hint.
+    expect(await screen.findByText("What can I help with?")).toBeInTheDocument();
+    expect(screen.queryByText("Working on this machine")).toBeNull();
+    expect(screen.queryByText("Searching")).toBeNull();
+  });
+
+  it("keeps the previous answer on screen while the next question is answered", async () => {
+    mockApi();
+    await openChat();
+    await userEvent.type(screen.getByLabelText("Your question"), "what is the NDFT for coating system no. 1");
+    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+    expect((await screen.findAllByText(/280 um/)).length).toBeGreaterThan(0);
+
+    // The second answer never arrives within the test: the screen is observed
+    // mid-request, which is when a reset would show.
+    const base = globalThis.fetch;
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      return url.endsWith("/ask") ? new Promise<Response>(() => {}) : base(input, init);
+    });
+    await userEvent.type(screen.getByLabelText("Your question"), "and coating system no. 4?");
+    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+    // The stage list is the in-flight panel; its heading depends on progress.
+    expect(await screen.findByText("Searching")).toBeInTheDocument();
+    expect(screen.getAllByText(/280 um/).length).toBeGreaterThan(0);
+  });
+
+  it("keeps the transcript through a backend outage instead of rebuilding the screen", async () => {
+    mockApi();
+    await openChat();
+    await userEvent.type(screen.getByLabelText("Your question"), "what is the NDFT for coating system no. 1");
+    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+    expect((await screen.findAllByText(/280 um/)).length).toBeGreaterThan(0);
+
+    const base = globalThis.fetch;
+    let down = true;
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) =>
+      down ? Promise.reject(new TypeError("Failed to fetch")) : base(input, init));
+    // A real outage: the poll fails AND its confirming re-check fails.
+    expect(await screen.findByText(/The backend is not running/i, undefined, { timeout: 9000 })).toBeInTheDocument();
+    // Hidden, not shown beside the banner: one connection error at a time.
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    for (const el of screen.getAllByText(/280 um/)) expect(el).not.toBeVisible();
+
+    down = false;
+    await userEvent.click(screen.getByRole("button", { name: /Retry connection/i }));
+    await waitFor(() => expect(screen.queryByText(/The backend is not running/i)).toBeNull());
+    // Unmounting the chat for the outage threw the transcript away; the
+    // conversation had to be found and reopened by hand.
+    expect(screen.getAllByText(/280 um/).length).toBeGreaterThan(0);
+  }, 15000);
 });
