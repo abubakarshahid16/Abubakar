@@ -295,11 +295,21 @@ def test_a_requirement_with_no_matching_field_is_missing_information():
 def test_missing_information_does_not_block_approval():
     """It is not a failure, so it does not reject - and not nothing, so it
     does not approve silently."""
-    findings = [{"compliance_status": comparison.MISSING_INFORMATION}]
     complete = {"sufficient": True, "fields_read": 100, "fields_estimated": 100}
+    # With something confirmed as met beside it: with comments, as before.
+    findings = [{"compliance_status": comparison.COMPLIANT},
+                {"compliance_status": comparison.MISSING_INFORMATION}]
     result = comparison.recommend_code(findings, complete)
     assert result["code"] == comparison.CODE_APPROVED_WITH_COMMENTS
     assert result["code"] != comparison.CODE_REJECTED
+    # #450: ALONE it is Manual Review, not "with comments". It used to be
+    # "Approved with Comments", a better code than the same run with no
+    # findings at all (Manual), although no requirement was confirmed as met.
+    # It still does not reject.
+    alone = comparison.recommend_code(
+        [{"compliance_status": comparison.MISSING_INFORMATION}], complete)
+    assert alone["code"] == comparison.CODE_MANUAL
+    assert "no requirement could be confirmed as met" in alone["reason"]
 
 
 # ============================================= THE SEVERITY BUG, 2026-09-28
@@ -755,10 +765,15 @@ def test_out_of_scope_is_never_counted_as_the_contractors_omission():
         {"compliance_status": comparison.MISSING_INFORMATION}]
     complete = {"sufficient": True, "fields_read": 100, "fields_estimated": 100}
     result = comparison.recommend_code(findings, complete)
-    assert result["code"] == comparison.CODE_APPROVED_WITH_COMMENTS
+    # #450: requirements nobody could check come BEFORE the contractor's blanks.
+    # This used to be "Approved with Comments" (a BETTER code than the same run
+    # without the blank field, which is Manual Review), i.e. the code improved
+    # because a value was missing. The wording rule is unchanged: the blank is
+    # counted apart, and the 'left for the contractor' sentence counts only it.
+    assert result["code"] == comparison.CODE_MANUAL
     assert result["missing_information"] == 1
     assert result["not_in_document_scope"] == 5
-    assert result["reason"].startswith("1 field(s)")
+    assert "1 field(s) are also left for the contractor to provide" in result["reason"]
 
 
 # ------------------------------------------------ B18: an unmeasured factor

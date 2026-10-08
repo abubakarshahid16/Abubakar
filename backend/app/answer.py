@@ -1639,6 +1639,8 @@ def _answer_from_documents(
         return {
             **base,
             "answer_type": "insufficient_evidence",
+            # A REAL ABSENCE (absence.py): the search ran and nothing fit.
+            "absence_kind": "not_found",
             "answer": None,
             "reason": reason,
             "passages": [_passage_payload(h, question) for h in hits[:limit]],
@@ -1869,8 +1871,12 @@ def _answer_from_documents(
         return {
             **base,
             "answer_type": "insufficient_evidence",
+            # An EMPTY reply is a model that did not answer, not a report that
+            # the sources lack it (absence.py): only the second is an absence.
+            "absence_kind": "not_found" if text else None,
             "answer": None,
-            "reason": "the model reported the sources do not contain the answer",
+            "reason": ("the model reported the sources do not contain the answer"
+                       if text else "the answer model returned no text"),
             "passages": passages,
             "evidence_removed": evidence_removed,
             "seconds": timer.seconds(),

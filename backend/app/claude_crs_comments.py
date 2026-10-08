@@ -93,6 +93,17 @@ MAX_DRAFT_CHARS = 600
 NON_COMPLIANT_MAY_NOT_SAY = ("complies", "acceptable", "no comment")
 COMPLIANT_MAY_NOT_SAY = ("does not comply", "shall revise")
 _NEGATED_ACCEPTABLE = ("not acceptable", "is not acceptable")
+#: #450: a row whose status says the requirement was NOT established (a value
+#: missing, or an engineer's question) may never be worded as conformance. The
+#: draft is thrown away, not softened.
+UNESTABLISHED_MAY_NOT_SAY = (
+    "complies", "comply with", "is compliant", "are compliant", "conforms",
+    "meets the requirement", "meets requirement", "satisfies", "acceptable",
+    "no comment", "no further action", "is adequate", "in accordance with")
+_NEGATED_CONFORMANCE = ("not acceptable", "is not acceptable", "does not comply",
+                        "not compliant", "non compliant", "non-compliant",
+                        "not in accordance", "does not conform", "not adequate",
+                        "does not meet", "not satisfy")
 
 
 class Reason(Enum):
@@ -322,6 +333,11 @@ def _status_contradicted(status: str, prose: str) -> bool:
     if status == comparison.COMPLIANT:
         return any(_contains(folded, phrase)
                    for phrase in COMPLIANT_MAY_NOT_SAY)
+    if status in (comparison.MISSING_INFORMATION, comparison.NEEDS_ENGINEER_REVIEW):
+        for negated in _NEGATED_CONFORMANCE:
+            folded = folded.replace(negated, " ")
+        return any(_contains(folded, phrase)
+                   for phrase in UNESTABLISHED_MAY_NOT_SAY)
     return False
 
 

@@ -39,8 +39,11 @@ from __future__ import annotations
 
 import re
 
+from . import absence
 from . import answer as answer_mod
 from . import chat_presentation, lexical, standard_ids
+from .config import ModelHostRefused
+from .reasoning_provider import ProviderRefused
 from . import understanding as understanding_mod
 from .citations import _CITATION
 
@@ -217,6 +220,8 @@ def compare(
     topic = topic or topic_of(question, all_names + missing)
     if topic is None:
         return _clarify(question, all_names + missing)
+    stopped = False
+    unchecked: list[str] = []
     for name, ids in sides:
         # EVERY OTHER SIDE'S NAME IS STRIPPED from the question this side is
         # asked. Without this, "compare SAES-W-010 and ASME-B31-3..." reaches
@@ -236,10 +241,27 @@ def compare(
         # judged across what the caller may read, not inside that one standard:
         # a standard that covers the topic in many places was being refused as
         # "common to the whole document" (found 2026-10-02).
-        with lexical.commonness_against(allowed_document_ids):
-            side = _side_answer(
-                side_question, ids, tier=tier, allowed_document_ids=allowed_document_ids,
-                progress_id=progress_id, model=model, history=history)
+        if stopped:
+            # The reader pressed Stop on an earlier side: this one was never
+            # searched, and it must not read as a search that found nothing.
+            side = {"answer_type": "cancelled", "reason": absence.STOPPED_REASON}
+        else:
+            try:
+                with lexical.commonness_against(allowed_document_ids):
+                    side = _side_answer(
+                        side_question, ids, tier=tier,
+                        allowed_document_ids=allowed_document_ids,
+                        progress_id=progress_id, model=model, history=history)
+            except (ModelHostRefused, ProviderRefused):
+                raise      # a refused host or lane is the operator's to see
+            except Exception as exc:  # noqa: BLE001 - one side failing is a state
+                # THIS SIDE ONLY (B01): the other sides keep their answers and
+                # this one says it could not be checked. The type name is the
+                # reason; no text from the failure is shown.
+                side = {"answer_type": "model_unavailable",
+                        "reason": f"this side failed ({type(exc).__name__})"}
+        if side.get("answer_type") == "cancelled":
+            stopped = True
         # WHAT THIS SIDE'S OWN ANSWER ACTUALLY USED - never `side["passages"]`
         # directly: an extract answer carries its used passage(s) in
         # `passage`/`answer_passages`, not `passages` (that key, when
@@ -247,6 +269,7 @@ def compare(
         # rejected). `chat_presentation.used_passages` is the one place that
         # already knows the difference.
         side_passages = chat_presentation.used_passages(side)
+        state, state_reason = absence.side_state(side, side_passages)
         candidates_considered += side.get("candidates_considered") or 0
         seconds += side.get("seconds") or 0.0
         any_reranked = any_reranked or bool(side.get("reranked"))
@@ -265,7 +288,16 @@ def compare(
             entry["answer_type"] = "not_in_library"
             entry["text"] = _not_in_library(name)
             parts.append(_not_in_library(name))
-        elif side.get("answer_type") == "insufficient_evidence" or not side_passages:
+        elif state == absence.COULD_NOT_BE_CHECKED:
+            # B01: a side that failed, was stopped, was refused or could not be
+            # supported is NOT an absence. It says so, with the reason, and no
+            # verdict is drawn from it.
+            entry["answer_type"] = absence.COULD_NOT_BE_CHECKED
+            entry["reason"] = state_reason
+            entry["text"] = absence.could_not_be_checked_sentence(state_reason)
+            parts.append(absence.could_not_be_checked_text(name, state_reason))
+            unchecked.append(name)
+        elif state == absence.NOT_FOUND:
             # THE ONLY CONDITION PLAN C3 ALLOWS AN ABSENCE TO BE STATED
             # UNDER: this side's own targeted search found nothing. Its
             # rejected candidates (if any) are not carried into `passages`:
@@ -288,6 +320,11 @@ def compare(
         parts.append(_not_in_library(name))
 
     comparison: dict = {"sides": breakdown}
+    if unchecked:
+        # Said once on the whole comparison too, so a reader who skims the
+        # combined text still learns that it is not a complete comparison.
+        comparison["incomplete"] = True
+        comparison["could_not_be_checked"] = unchecked
     if family is not None:
         # A FAMILY question (family_search.py): the standards were found by
         # the app from a phrase, so the answer says which were searched and
@@ -302,7 +339,8 @@ def compare(
         "candidates_considered": candidates_considered,
         "answer_type": "comparison",
         "answer": "\n\n".join(parts),
-        "reason": None,
+        "reason": (f"{len(unchecked)} of {len(breakdown)} sides could not be checked: "
+                   + ", ".join(unchecked)) if unchecked else None,
         "input_kind": "comparison_question",
         "comparison": comparison,
         "examples": [],
