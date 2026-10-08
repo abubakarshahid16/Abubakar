@@ -1,4 +1,4 @@
-"""The P1 invented corpus: eleven made-up standards, no client text.
+"""The P1 invented corpus: thirteen made-up standards, no client text.
 
 Every name, number and sentence here is invented. The set is small on purpose
 and built to hit the failure classes found in this project: a reworded
@@ -14,6 +14,12 @@ beside a vessel's) and carries values written the way real standards write
 them: a negative temperature, a signed range, a decimal comma and a power of
 ten. None of them mentions a crane, a warranty, a colour or a flange, so the
 version 1 unanswerable questions stay unanswerable.
+
+Version 3 (2026-10-09) added STD-L-011 and STD-M-012 for #602 and #610: a
+question carrying a describing word no document prints, and a standard whose
+first page is a foreword and revision history. They too avoid a crane, a
+warranty, a colour and a flange (P1-27 depends on that), and the bolting
+standard is about pipe supports, not flanged joints, for that reason.
 
 `build(folder)` writes the PDFs deterministically. Page numbers below are the
 ground truth the question set points at; `questions.json` is checked against
@@ -227,6 +233,39 @@ DOCS: dict[str, list[list[str]]] = {
             "3.1 Vibration measured at the fan bearing shall not exceed 6.0 mm/s",
             "RMS.",
             "3.2 Readings shall be taken weekly.",
+        ],
+    ],
+    # Version 3 (#602, #610). A clause answerable with or without a describing
+    # word the corpus never prints ("Code-certified"), and a standard whose
+    # first page is front matter - a foreword and a revision history that
+    # repeat a bolting question's every word and state none of its values.
+    "STD-L-011.pdf": [
+        [
+            "STD-L-011 Relief Valve Capacity, Revision 0",
+            "1 Scope",
+            "1.1 This standard covers the rated capacity of relief valves in liquid service.",
+        ],
+        [
+            "5 Liquid Service",
+            "5.1 Relief valves in liquid service shall reach full rated capacity",
+            "at an overpressure of 10 percent of the set pressure.",
+            "5.2 Each relief valve shall carry a nameplate stating its set pressure.",
+        ],
+    ],
+    "STD-M-012.pdf": [
+        [
+            "STD-M-012 Pipe Support Bolting, Revision 3",
+            "Foreword",
+            "This revision replaces Revision 2.",
+            "Revision history",
+            "Revision 2 changed the bolting material requirements for pipe supports.",
+            "Revision 3 corrected the bolting material required for pipe supports in Table 2.",
+        ],
+        [
+            "4 Bolting",
+            "4.1 Bolting material for pipe supports shall be alloy steel stud bolts",
+            "to grade B7 with grade 2H heavy hex nuts.",
+            "4.2 Bolts shall extend at least two threads beyond the nut.",
         ],
     ],
 }

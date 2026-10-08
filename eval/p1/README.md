@@ -1,15 +1,16 @@
 # P1: the labelled question set
 
 A fixed list of questions with known right answers, run through the real chat
-on every change. A change is blocked when fewer than 37 of the 60 questions
-pass, or when any of the 23 original passes stops passing (see "The gate").
+on every change. A change is blocked when fewer than 37 questions pass (the
+gate was set on the 60 of version 2; the set is 64 since version 3), or when
+any of the 23 original passes stops passing (see "The gate").
 
 ## What is in this folder
 
 | file | what it is |
 |---|---|
-| `corpus.py` | eleven invented standards (STD-A-001 to STD-K-010, one of them an old revision) and the code that writes them as PDFs |
-| `questions.json` | 60 invented-name questions, version 2. P1-01 to P1-30: direct, reworded, abbreviation, document named in the question, table, condition, old revision, and six that the corpus cannot answer. P1-31 to P1-60: ten hard paraphrases, five distractors, five more unanswerable, five multi-document, five number/unit/sign |
+| `corpus.py` | thirteen invented standards (STD-A-001 to STD-M-012, one of them an old revision) and the code that writes them as PDFs |
+| `questions.json` | 60 invented-name questions, version 2. P1-01 to P1-30: direct, reworded, abbreviation, document named in the question, table, condition, old revision, and six that the corpus cannot answer. P1-31 to P1-60: ten hard paraphrases, five distractors, five more unanswerable, five multi-document, five number/unit/sign. P1-61 to P1-64 (version 3): a describing word no document prints, and a standard whose first page is front matter |
 | `baseline.json` | which questions pass today, and the `gate` the run is held to |
 | `harness.py`, `run_p1.py` | build the corpus in a throwaway database, ask every question, score, compare |
 | `../../backend/tests/test_p1_question_set.py` | the gate. GitHub CI runs it with the rest of the suite |
@@ -134,3 +135,26 @@ What the 5 of 5 on numbers does NOT show: the extract tier quotes the PDF
 text verbatim, so a sign, comma or exponent cannot be lost on the way out.
 Those questions test that the right clause is found. They would test number
 handling only when run on a tier that rewrites the value (generated answers).
+
+## Version 3 (2026-10-09): 64 questions
+
+Four questions and two invented standards for #602 and #610, both chat
+answer honesty defects. STD-L-011 holds a relief valve clause; STD-M-012
+opens with a foreword and a revision history that repeat a bolting
+question's words and state none of its values. The bolting standard is about
+pipe supports, not flanged joints, so P1-27 (no document mentions a flange)
+stays unanswerable.
+
+| id | category | what it tests | old code | now |
+|---|---|---|---|---|
+| P1-61 | qualifier | "Code-certified", printed nowhere, describes words that are | refused | answered, with a notice naming the word |
+| P1-62 | direct | the same question without the word (the control) | answered | answered |
+| P1-63 | front_matter | a bolting question whose words the revision history repeats | answered | answered |
+| P1-64 | front_matter | the same, naming the standard | quoted the foreword | answered from clause 4.1 |
+
+Whole set: **41 of 64**, clause label right 29 of 45, unanswerable 6 of 11.
+All 37 version 2 passes still pass and no unanswerable question flipped.
+The "old code" column was measured on these four questions only, with the
+version 3 corpus; P1-63 passed before the fix too, so it guards the fix
+rather than proving it. The baseline was not rewritten: adding P1-61 to
+P1-64 to it raises the bar, which is the owner's call.
