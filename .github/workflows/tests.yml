@@ -110,9 +110,34 @@ jobs:
 
       # pytest-split gives every collected test to exactly one of the three
       # groups; pytest.ini's default `-m "not slow and not benchmark"` applies.
+      # scripts/ci_test_ids.py records the node id of every test that RAN, so
+      # the aggregate job can prove none was dropped or run twice.
       - name: Run this shard of the suite
         working-directory: backend
-        run: python -m pytest -q -n auto --splits 3 --group ${{ matrix.group }} --durations=10
+        env:
+          PYTHONPATH: ../scripts
+          CI_TEST_IDS_OUT: ${{ github.workspace }}/test-ids/shard-${{ matrix.group }}.txt
+        run: |
+          mkdir -p ../test-ids
+          python -m pytest -q -n auto -p ci_test_ids --splits 3 --group ${{ matrix.group }} --durations=10
+
+      # One full collection, same selection as the shards, for that audit.
+      - name: Collect the whole suite once
+        if: matrix.group == 1
+        working-directory: backend
+        env:
+          PYTHONPATH: ../scripts
+          CI_COLLECT_OUT: ${{ github.workspace }}/test-ids/full.txt
+        run: python -m pytest --collect-only -q -p ci_test_ids > /dev/null
+
+      - name: Upload this shard's test ids
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-ids-${{ matrix.group }}
+          path: test-ids/
+          if-no-files-found: error
+          retention-days: 7
 
   backend-checks:
     name: backend lint, anchors and benchmarks
@@ -187,13 +212,28 @@ jobs:
     needs: [backend-shard, backend-checks]
     if: always()
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
+      # "= success", not "!= failure": a cancelled or skipped shard fails it too.
       - name: Every shard and the checks job passed
         run: |
           echo "shards: ${{ needs.backend-shard.result }}, checks: ${{ needs.backend-checks.result }}"
           test "${{ needs.backend-shard.result }}" = "success"
           test "${{ needs.backend-checks.result }}" = "success"
+
+      - uses: actions/checkout@v7
+
+      - name: Download the shards' test ids
+        uses: actions/download-artifact@v8
+        with:
+          pattern: test-ids-*
+          path: test-ids
+          merge-multiple: true
+
+      # Fails if any collected test ran in no shard, in two shards, or ran
+      # without being collected (#589).
+      - name: Every collected test ran in exactly one shard
+        run: python3 scripts/ci_test_ids.py compare --full test-ids/full.txt test-ids/shard-1.txt test-ids/shard-2.txt test-ids/shard-3.txt
 
   backend-slow:
     name: backend slow tests (nightly)
@@ -244,7 +284,20 @@ jobs:
       # `-m slow` replaces pytest.ini's default, which deselects these.
       - name: Run the slow tests
         working-directory: backend
-        run: python -m pytest -q -m slow --durations=20
+        env:
+          PYTHONPATH: ../scripts
+          CI_TEST_IDS_OUT: ${{ github.workspace }}/slow-ran.txt
+        run: python -m pytest -q -m slow -p ci_test_ids --durations=20
+
+      # Proves the job ran every test marked slow, not some or none.
+      - name: Every slow test ran
+        working-directory: backend
+        env:
+          PYTHONPATH: ../scripts
+          CI_COLLECT_OUT: ${{ github.workspace }}/slow-full.txt
+        run: |
+          python -m pytest --collect-only -q -m slow -p ci_test_ids > /dev/null
+          python ../scripts/ci_test_ids.py compare --full ../slow-full.txt ../slow-ran.txt
 
   frontend:
     name: frontend (vitest + tsc)

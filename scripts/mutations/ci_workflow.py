@@ -1,7 +1,7 @@
 """Mutations of the Linux CI workflow (.github/workflows/tests.yml) after the
-speed-up (#584), and of scripts/test_changed.py.
+speed-up (#584), and of scripts/test_changed.py and scripts/ci_test_ids.py.
 Targets: backend/tests/test_ci_workflow.py, test_windows_ci_workflow.py,
-test_test_changed_script.py.
+test_test_changed_script.py, test_ci_test_ids_script.py.
 """
 
 from __future__ import annotations
@@ -37,4 +37,24 @@ MUTATIONS: tuple[Mutation, ...] = (
              anchor='            hit |= {t for t in tests if t.name.startswith(f"test_{mod}")}\n',
              replacement="",
              target="tests/test_test_changed_script.py", keyword="named_after_it", tags=("ci",)),
+    Mutation(id="M2053", phase=2053, description="the required check stops auditing the shards' test ids",
+             path=_W,
+             anchor="run: python3 scripts/ci_test_ids.py compare --full test-ids/full.txt test-ids/shard-1.txt test-ids/shard-2.txt test-ids/shard-3.txt",
+             replacement="run: echo audit skipped",
+             target=_T, keyword="proves_every_test_ran_exactly_once", tags=("ci",)),
+    Mutation(id="M2054", phase=2054, description="a test skipped at setup is not counted as having run",
+             path=REPO / "scripts" / "ci_test_ids.py",
+             anchor='    return when == "call" or (when == "setup" and outcome != "passed")\n',
+             replacement='    return when == "call"\n',
+             target="tests/test_ci_test_ids_script.py", keyword="counted_exactly_once", tags=("ci",)),
+    Mutation(id="M2055", phase=2055, description="the audit ignores a test that ran in two shards",
+             path=REPO / "scripts" / "ci_test_ids.py",
+             anchor="    twice = sorted(i for i, n in ran.items() if n > 1)\n",
+             replacement="    twice = []\n",
+             target="tests/test_ci_test_ids_script.py", keyword="two_shards_ran", tags=("ci",)),
+    Mutation(id="M2056", phase=2056, description="a cancelled or skipped shard passes the required check",
+             path=_W,
+             anchor='          test "${{ needs.backend-shard.result }}" = "success"\n',
+             replacement='          test "${{ needs.backend-shard.result }}" != "failure"\n',
+             target=_T, keyword="failed_cancelled_or_skipped", tags=("ci",)),
 )

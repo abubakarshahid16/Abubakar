@@ -88,3 +88,47 @@ def test_slow_tests_run_nightly_and_on_demand_only(jobs):
     slow = jobs["backend-slow"]
     assert slow.get("if") == "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'"
     assert any("-m slow" in r for r in _runs(slow))
+
+
+def test_each_shard_records_and_uploads_the_tests_it_ran(jobs):
+    shard = jobs["backend-shard"]
+    run_step = next(s for s in shard["steps"] if "python -m pytest -q -n auto" in s.get("run", ""))
+    assert "-p ci_test_ids" in run_step["run"]
+    assert run_step["env"]["CI_TEST_IDS_OUT"].endswith("shard-${{ matrix.group }}.txt")
+    upload = next(s for s in shard["steps"] if str(s.get("uses", "")).startswith("actions/upload-artifact"))
+    assert upload.get("if") == "always()"
+    assert upload["with"]["if-no-files-found"] == "error"
+    collect = next(s for s in shard["steps"] if "--collect-only" in s.get("run", ""))
+    assert collect["env"]["CI_COLLECT_OUT"].endswith("test-ids/full.txt")
+
+
+def test_the_required_check_proves_every_test_ran_exactly_once(jobs):
+    agg = jobs["backend"]
+    audit = next(s for s in agg["steps"] if "ci_test_ids.py compare" in s.get("run", ""))
+    for f in ("test-ids/full.txt", "test-ids/shard-1.txt", "test-ids/shard-2.txt", "test-ids/shard-3.txt"):
+        assert f in audit["run"]
+
+
+@pytest.mark.parametrize("bad", ["failure", "cancelled", "skipped"])
+def test_the_aggregate_fails_on_a_failed_cancelled_or_skipped_shard(jobs, bad):
+    import shutil
+    import subprocess
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("bash not available")
+    step = next(s for s in jobs["backend"]["steps"] if s.get("name") == "Every shard and the checks job passed")
+
+    def run(shard, checks):
+        script = (step["run"].replace("${{ needs.backend-shard.result }}", shard)
+                  .replace("${{ needs.backend-checks.result }}", checks))
+        return subprocess.run([bash, "-e", "-c", script], capture_output=True).returncode
+
+    assert run("success", "success") == 0
+    assert run(bad, "success") != 0
+    assert run("success", bad) != 0
+
+
+def test_the_nightly_job_proves_every_slow_test_ran(jobs):
+    runs = "\n".join(_runs(jobs["backend-slow"]))
+    assert "--collect-only -q -m slow -p ci_test_ids" in runs
+    assert "ci_test_ids.py compare --full ../slow-full.txt ../slow-ran.txt" in runs
