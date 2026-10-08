@@ -1538,6 +1538,18 @@ class AnalysisGaps(BaseModel):
     #: absence and a report can print the same line: "no gap" and "no
     #: gap among the documents you filtered to" are different findings.
     applied_scope: AppliedScope | None = None
+    #: THE RUN STOPPED AT ITS WORK BUDGET (#606). True means the evidence,
+    #: claims or clusters are a PARTIAL result, and `truncation_reason` says
+    #: which limit was reached. A partial result is never presented as whole.
+    truncated: bool = False
+    truncation_reason: str | None = None
+    #: How complete the acronym expansion was. `documents_not_ready` > 0 means
+    #: some documents' acronym maps were still being built in the background
+    #: and their expansions were not used in this run.
+    acronym_map: dict | None = None
+    #: True when an identical run was already in progress and this response
+    #: shares its result instead of repeating the work.
+    coalesced: bool = False
 
 
 class ConfidenceCheckOut(BaseModel):
@@ -1929,6 +1941,14 @@ class Risk(BaseModel):
 
 class RiskList(BaseModel):
     risks: list[Risk]
+
+
+class RiskDetectionResult(BaseModel):
+    status: Literal["ok", "already_running"]
+    created: int
+    by_type: dict[str, int]
+    digest: Literal["sent", "disabled", "rate_limited", "none", "failed"]
+    reminders_created: int = 0
 
 
 class StructuredSearchResult(BaseModel):

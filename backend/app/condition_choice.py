@@ -30,6 +30,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from . import numparse
+
 #: A number as specifications print it: 6, 0.5, -29, 1/2, 1 1/2, 1-1/2, 150.
 #: Never preceded by a letter, digit or point, so "SAES-L-310" yields no -310.
 #: A hyphen followed by a fraction is a mixed number ("1-1/2"), never a range.
@@ -174,7 +176,7 @@ class Condition:
 
 
 def _number(raw: str) -> float | None:
-    raw = raw.strip().replace(",", ".")
+    raw = raw.strip()
     negative = raw.startswith("-")
     raw = raw.lstrip("-")
     parts = re.split(r"\s+|-(?=\d+/\d)", raw)
@@ -185,7 +187,12 @@ def _number(raw: str) -> float | None:
                 num, den = part.split("/", 1)
                 total += float(num) / float(den)
             elif part:
-                total += float(part)
+                # numparse reads "1,500" as 1500 and "9,0" as 9.0; the old
+                # blanket comma-to-point made "1,500 mm" 1.5 (audit A16).
+                value = numparse.as_number(part)
+                if value is None:
+                    return None
+                total += value
     except (ValueError, ZeroDivisionError):
         return None
     return -total if negative else total

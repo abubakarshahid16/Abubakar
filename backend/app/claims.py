@@ -22,10 +22,11 @@ from __future__ import annotations
 
 import math
 import re
+import time
 from dataclasses import dataclass
 from typing import Literal
 
-from . import keyword, lexical
+from . import acronyms, keyword, lexical, numparse
 from .sentence_guard import NOT_AN_ABBREVIATION
 
 NORMALIZER_VERSION = "1"
@@ -148,6 +149,7 @@ _UNIT_TABLE: dict[str, tuple[str, str, float]] = {
     # pressure -> MPa
     "mpa": ("pressure", "MPa", 1.0),
     "bar": ("pressure", "MPa", 0.1),
+    "pa": ("pressure", "MPa", 0.000001),
     "kpa": ("pressure", "MPa", 0.001),
     "psi": ("pressure", "MPa", 0.00689476),
     # temperature -> C (Celsius only)
@@ -510,7 +512,7 @@ _NUMBER = r"\d+(?:[.,]\d+)?"
 #: A number followed by a unit token. Numbers glued to identifiers ("5.3.2",
 #: "8501-1", "P-101A") are filtered out afterwards by span overlap.
 _MEASUREMENT = re.compile(
-    r"(?<![\w.,/-])(?P<value>" + _NUMBER + r")(?![\d.,]*[.,]\d)\s?(?P<unit>"
+    r"(?<![\w.,/])(?P<value>" + _NUMBER + r")(?![\d.,]*[.,]\d)\s?(?P<unit>"
     # base word, optional one-digit power ("m3"), then EITHER a one-letter
     # bracket ("dB(A)") OR "/per" with its own optional power ("m3/h", "mm/s").
     r"[A-Za-zµμ°%][A-Za-z°]*(?:[0-9²³](?![0-9]))?"
@@ -554,73 +556,9 @@ def comparator_ending(text: str) -> str | None:
     return {"min": ">=", "max": "<="}.get(symbol, symbol)
 
 
-#: Characters a printed minus sign comes as. U+2212 is the typographic minus
-#: and is unambiguous. En/em dash are ALSO used as range separators, so they
-#: are a sign only when `parse_value` can see they are one (see there).
-_MINUS_SIGN = "\u2212"
-_DASH_CHARS = "\u2013\u2014"
-#: A space may group thousands only in the strict form "12 345 678".
-_SPACE_GROUPED = re.compile(r"\d{1,3}(?:[ \u00a0\u202f\u2009]\d{3})+(?:[.,]\d+)?")
-
-
-def parse_value(value_str: str) -> float | None:
-    """Parse a written number. Anything unparseable or ambiguous is None,
-    never a guess.
-
-    * Comma decimals ("9,0") are decimals - NORSOK writes them so. A comma
-      followed by exactly three digits ("1,200") is a thousands separator.
-    * Space may separate thousands ONLY as groups of exactly three digits after
-      a first group of 1-3 digits ("1 200", "12 345 678"). "34 3", "5 10" and
-      "1 2 3" are two or three numbers, not one: None.
-    * d.ddd with a leading integer part of 1-3 digits other than 0 and EXACTLY
-      three decimals ("4.000", "1.200", "12.345") is ambiguous between the
-      decimal 4.000 and the EU thousands 4,000: None. "0.125" (EU thousands
-      never start with 0), "6.89", "3.5" and "1234.567" are unambiguous. The
-      comparison then goes to NEEDS_ENGINEER_REVIEW rather than guessing.
-    * U+2212 is a minus. An en/em dash directly before the digits is a minus
-      only when it begins the value or follows whitespace or a comparator; a
-      dash separated from its digits ("- 29"), glued to a letter, or inside a
-      range ("29-343") is ambiguous: None.
-    """
-    s = (value_str or "").strip().replace(_MINUS_SIGN, "-")
-    m = re.fullmatch(r"(?P<cmp>[^\d]*?)\s*(?P<num>[-+]?\d[\d.,\s]*)", s)
-    if not m:
-        return None
-    prefix = s[:m.start("num")]
-    stripped = prefix.rstrip()
-    negative_dash = False
-    if stripped and stripped[-1] in "-" + _DASH_CHARS:
-        if prefix != stripped:
-            return None          # "- 29": dash separated from its digits
-        before = stripped[:-1]
-        if stripped[-1] in _DASH_CHARS:
-            if before and not (before[-1].isspace() or not before[-1].isalnum()):
-                return None      # "T\u201329": glued to a letter
-            negative_dash = True
-        else:
-            return None          # "x-29" / "- 29" with an ASCII hyphen: not a sign
-    num = m.group("num")
-    if re.search(r"\s", num):
-        if not _SPACE_GROUPED.fullmatch(num.lstrip("+-")):
-            return None
-        num = re.sub(r"\s", "", num)
-    sign = ""
-    if num[:1] in "+-":
-        sign, num = num[0], num[1:]
-    if negative_dash:
-        if sign:
-            return None
-        sign = "-"
-    if re.fullmatch(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?", num):
-        num = num.replace(",", "")
-    elif re.fullmatch(r"\d+,\d+", num):
-        num = num.replace(",", ".")
-    elif re.fullmatch(r"[1-9]\d{0,2}\.\d{3}", num):
-        return None
-    try:
-        return float(sign + num)
-    except ValueError:
-        return None
+#: The one number parser lives in `numparse` (W2, issue #445); this name stays
+#: because `comparison`, `datasheets`, `conditions` and `rule_eval` call it.
+parse_value = numparse.parse_value
 
 
 # ------------------------------------------------------------------ dataclasses
@@ -797,6 +735,15 @@ def _identifiers_for(sentence: str, measurements: tuple[Measurement, ...]) -> tu
     return tuple(out)
 
 
+#: The number in front of a range dash: "10" in "10-40 C".
+_RANGE_START = re.compile(r"(?<![\w.,/-])(\d+(?:[.,]\d+)?)\s?[-\u2013\u2014]\s?$")
+#: The number in front of "5 -10": space before the dash, none after it.
+_SPACE_DASH_START = re.compile(r"(?<![\w.,/-])(\d+(?:[.,]\d+)?)\s$")
+#: What follows the unit "in" when it is the English word: a space and a
+#: lower-case word that is not the multiplication "x".
+_ENGLISH_IN = re.compile(r"\s+(?!x\b)[a-z]")
+
+
 def extract_measurements(sentence: str) -> tuple[Measurement, ...]:
     """Numbers with a recognised unit. keyword.IDENTIFIER also matches "9.0"
     (its clause-number alternative), so a plain decimal that is itself an
@@ -806,10 +753,39 @@ def extract_measurements(sentence: str) -> tuple[Measurement, ...]:
     found: list[Measurement] = []
     for m in _MEASUREMENT.finditer(sentence):
         start, end = m.span("value")
+        # The sign is numparse's. A dash that is a joiner or a range separator
+        # ("8501-1", "5-10 mm", "5 -10 mm") makes this no measurement, as it
+        # always did; a minus - ASCII, U+2212 or a Word en dash - is part of
+        # the value (it used to be dropped: "\u221229 mm" was read as +29 mm).
+        sign, begin = numparse.sign_before(sentence, start)
+        joiner = (start > 0 and sentence[start - 1] in numparse.DASH_LIKE
+                  and sign != "-")
+        range_start = None
+        ambiguous_from = None
+        if sign == "?":
+            # "5 -10 mm": a space before the dash only. A range or a negative
+            # number; the text cannot say, so it is kept as ONE unreadable
+            # quantity and goes to engineer review (owner decision 2026-10-08).
+            lead = _SPACE_DASH_START.search(sentence[:start - 1])
+            if lead is not None:
+                ambiguous_from = lead.start(1)
+        elif sign != "-" and (joiner or sentence[start - 1:start].isspace()):
+            # "10-40 C", "10 - 40 C": a range. The number before the dash
+            # shares the unit. Anything else a dash joins ("T-29 mm",
+            # "5 -10 mm") is no measurement, as it always was.
+            lead = _RANGE_START.search(sentence[:start])
+            if lead is not None:
+                range_start = lead.group(1)
+            elif joiner:
+                continue
         inside = [(a, b) for a, b in spans if a <= start < b]
         if inside and not _is_measurement_not_code(sentence, inside, start, end, m.group("value")):
             continue
         unit = m.group("unit")
+        # "5 in the vessel" is the English word, not 5 inches. Inches are
+        # written "5 in.", "5 in)", "5 in x 3 in", "5 in" at the end.
+        if unit.lower() == "in" and _ENGLISH_IN.match(sentence, m.end("unit")):
+            continue
         if not _recognised_folded(_fold_unit(unit)):
             if "/" in unit:
                 # An UNKNOWN compound unit is no measurement. Falling back to
@@ -834,23 +810,30 @@ def extract_measurements(sentence: str) -> tuple[Measurement, ...]:
         if not sentence[m.end("value"):m.start("unit")] and len(unit) == 1                 and unit.isalpha():
             continue
         # A number introduced as a designator is a name, not a quantity.
-        if _DESIGNATOR_LEAD.search(sentence[:start]):
+        if _DESIGNATOR_LEAD.search(sentence[:begin]):
             continue
         # Nor is a percentage that names a submittal phase - see _PHASE_PERCENT.
         if unit == "%" and _PHASE_PERCENT.match(sentence[m.end("unit"):]):
             continue
-        prefix = sentence[:start].rstrip()
+        prefix = sentence[:begin].rstrip()
         cmp_match = re.search(r"(?:" + _COMPARATOR_RE + r")\s*$", prefix, re.IGNORECASE)
         comparator = parse_comparator(cmp_match.group(0)) if cmp_match else None
-        found.append(normalise(m.group("value"), unit, comparator))
+        if ambiguous_from is not None:
+            found.append(normalise(sentence[ambiguous_from:end].strip(), unit, None))
+            continue
+        if range_start is not None:
+            found.append(normalise(range_start, unit, None))
+        found.append(normalise(("-" if sign == "-" else "") + m.group("value"),
+                               unit, comparator))
     return tuple(found)
 
 
 def claim_terms(
-    sentence: str, *, allowed_document_ids: frozenset[str]
+    sentence: str, *, allowed_document_ids: frozenset[str],
+    expansions: list[str] | None = None,
 ) -> frozenset[str]:
     return frozenset(t.lower() for t in lexical.distinctive_terms(
-        sentence, allowed_document_ids=allowed_document_ids))
+        sentence, allowed_document_ids=allowed_document_ids, expansions=expansions))
 
 
 def question_terms(
@@ -868,15 +851,43 @@ def question_terms(
 
 
 def extract_claims(
-    evidence: list[dict], *, allowed_document_ids: frozenset[str]
+    evidence: list[dict], *, allowed_document_ids: frozenset[str],
+    budget=None,
 ) -> list[Claim]:
     """One Claim per sentence carrying a measurement, identifier or designator.
-    Sentences with none are not claims. The sentence is carried verbatim."""
+    Sentences with none are not claims. The sentence is carried verbatim.
+
+    ONE CORPUS READ FOR THE WHOLE CALL (#606). The corpus's multi-word
+    expansions are read once and shared by every sentence; reading them per
+    sentence ran one corpus-wide database query for each (44 claims = 44
+    queries). `budget` (`work_budget.WorkBudget`) stops the loop at its
+    deadline or claim cap and records why; the claims found so far are
+    returned, never a silent short list."""
+    expansions = acronyms.known_expansions(None, allowed_document_ids=allowed_document_ids)
     claims: list[Claim] = []
+    # Per DOCUMENT (by filename): one that writes a decimal comma anywhere in
+    # the text handed to this call reads "3.175" as possibly 3,175.
+    by_file: dict[str, list[str]] = {}
+    for item in evidence:
+        by_file.setdefault(str(item.get("filename", "")), []).append(
+            item.get("exact_span") or item.get("text") or "")
+    comma_files = {fn for fn, texts in by_file.items()
+                   if numparse.uses_decimal_comma(" ".join(texts))}
+    seen_sentences = 0
     for item in evidence:
         text = item.get("exact_span") or item.get("text") or ""
         for sentence in split_sentences(text):
-            measurements = extract_measurements(sentence)
+            seen_sentences += 1
+            if seen_sentences % 25 == 0:
+                time.sleep(0)       # let other requests' threads run
+            if budget is not None:
+                if budget.exceeded():
+                    return claims
+                if budget.max_claims is not None and len(claims) >= budget.max_claims:
+                    budget.note(f"claim cap of {budget.max_claims} reached")
+                    return claims
+            with numparse.document_context(str(item.get("filename", "")) in comma_files):
+                measurements = extract_measurements(sentence)
             identifiers = _identifiers_for(sentence, measurements)
             dropped = {i.lower() for i in keyword.IDENTIFIER.findall(sentence)} - {i.lower() for i in identifiers}
             designators = tuple(dict.fromkeys(keyword.find_designators(sentence)))
@@ -895,6 +906,7 @@ def extract_claims(
                     terms=claim_terms(
                         sentence,
                         allowed_document_ids=allowed_document_ids,
+                        expansions=expansions,
                     ) - frozenset(dropped),
                 )
             )
@@ -1437,6 +1449,20 @@ def _same_printed_quantity(a: Measurement, b: Measurement, *,
     return gap <= tolerance * (1 + 1e-9)
 
 
+def _agrees_with_any(a: Measurement, others: list[Measurement]) -> bool:
+    """True when `a` is not in conflict with at least one of `others` (the
+    same dimension, in another row). One value printed twice, or compatible
+    ranges, count as agreement."""
+    for b in others:
+        if _same_printed_quantity(a, b):
+            return True
+        if _distinct_same_direction_limits(a, b):
+            continue
+        if _compatible(a, b) is not False:
+            return True
+    return False
+
+
 def label_cluster(rows: tuple[Claim, ...] | list[Claim]) -> tuple[ClaimLabel, str | None]:
     rows = tuple(rows)
     mismatch = _designators_conflict(rows)
@@ -1458,19 +1484,21 @@ def label_cluster(rows: tuple[Claim, ...] | list[Claim]) -> tuple[ClaimLabel, st
                     unnormalised.append(m)
                 else:
                     by_dim.setdefault(m.dimension or "", []).append((row_no, m))
+        # A conflict is a quantity in one row that NO quantity of the same
+        # dimension in another row agrees with. Two measurements printed in
+        # the SAME sentence are never compared with each other, and two rows
+        # that print the same set of quantities agree: "design 10 bar, test
+        # 15 bar" in two documents is not a conflict because 10 differs from
+        # 15 (audit B03).
         conflict = False
         for ms in by_dim.values():
-            for i, (row_a, a) in enumerate(ms):
-                for row_b, b in ms[i + 1:]:
-                    if _same_printed_quantity(a, b):
-                        # "1,000 psi (6.89 MPa)": one value printed twice.
-                        continue
-                    if row_a != row_b and _distinct_same_direction_limits(a, b):
-                        # Two UPPER limits (or two lower) are not one claim: both
-                        # intervals reach infinity, so they always "overlap", yet
-                        # <= 3.0 and <= 4.5 are two different requirements.
-                        conflict = True
-                    elif _compatible(a, b) is False:
+            rows_of = sorted({row for row, _ in ms})
+            for i, row_a in enumerate(rows_of):
+                for row_b in rows_of[i + 1:]:
+                    side_a = [m for r, m in ms if r == row_a]
+                    side_b = [m for r, m in ms if r == row_b]
+                    if (any(not _agrees_with_any(a, side_b) for a in side_a)
+                            or any(not _agrees_with_any(b, side_a) for b in side_b)):
                         conflict = True
         if conflict:
             return ("possible_conflict", POSSIBLE_CONFLICT_NOTE)
@@ -1556,12 +1584,17 @@ def _can_merge(small_key: frozenset[str], small_rows: list[Claim],
     return True
 
 
-def _merge_facets(groups: dict[frozenset[str], list[Claim]]
+def _merge_facets(groups: dict[frozenset[str], list[Claim]], *, budget=None
                   ) -> list[tuple[frozenset[str], list[Claim]]]:
     """Fold narrower facets into the broader facet they are a detail of.
 
     Applied to a fixpoint and in a deterministic order - fewest terms first,
     then the sorted key - so the same corpus always produces the same facets.
+
+    Pairwise in the number of facets (each merge restarts the scan), so it is
+    BOUNDED by `budget` (#606): past the deadline merging stops, the facets
+    found so far are returned UNMERGED-FURTHER (still true, only less
+    consolidated) and the budget records why.
     """
     items: list[list] = [[key, list(rows)] for key, rows in groups.items()]
     items.sort(key=lambda it: (len(subject_terms(it[0])), sorted(it[0])))
@@ -1570,6 +1603,9 @@ def _merge_facets(groups: dict[frozenset[str], list[Claim]]
         changed = False
         for i, small in enumerate(items):
             target = None
+            if budget is not None and budget.exceeded():
+                budget.note("facet merging stopped early")
+                return [(key, rows) for key, rows in items]
             for j, big in enumerate(items):
                 if i == j:
                     continue
@@ -1591,7 +1627,8 @@ def _merge_facets(groups: dict[frozenset[str], list[Claim]]
     return [(key, rows) for key, rows in items]
 
 
-def cluster(claims: list[Claim], question_terms: frozenset[str]) -> list[Cluster]:
+def cluster(claims: list[Claim], question_terms: frozenset[str], *,
+            budget=None) -> list[Cluster]:
     """Cluster iff same facet_key, then merge facets that are the same subject
     at two levels of detail (`_can_merge`). Never by text similarity. Claims
     whose facet_key is None are dropped: they cannot be compared to anything,
@@ -1605,9 +1642,11 @@ def cluster(claims: list[Claim], question_terms: frozenset[str]) -> list[Cluster
             continue
         groups.setdefault(key, []).append(c)
     out: list[Cluster] = []
-    for key, rows in _merge_facets(groups):
+    for key, rows in _merge_facets(groups, budget=budget):
         if not rows:
             continue
+        if budget is not None and budget.exceeded():
+            return sorted(out, key=lambda c: c.facet)
         label, note = label_cluster(rows)
         out.append(Cluster(facet=_facet_string(key, rows), label=label,
                            rows=tuple(rows), note=note, key=key))

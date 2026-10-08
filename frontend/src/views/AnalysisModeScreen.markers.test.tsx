@@ -377,10 +377,10 @@ async function selectQuote(user: ReturnType<typeof userEvent.setup>) {
  * than being contained by one. Resolving it structurally keeps these tests
  * working while GapAnalysisCard's own markup is edited elsewhere.
  */
-async function gapSection(): Promise<HTMLElement> {
-  const all = await screen.findAllByRole("region", { name: "Gap analysis" });
+async function gapSection(name = "Gap analysis"): Promise<HTMLElement> {
+  const all = await screen.findAllByRole("region", { name });
   const outer = all.find((a) => all.every((b) => a === b || a.contains(b)));
-  if (outer === undefined) throw new Error("no outermost Gap analysis section");
+  if (outer === undefined) throw new Error(`no outermost ${name} section`);
   return outer;
 }
 
@@ -429,7 +429,7 @@ describe("Quote mode: no section heading is rendered above empty content", () =>
     await user.type(screen.getByLabelText("Question"), "what is the pressure floor");
     await user.click(screen.getByRole("button", { name: "Run analysis" }));
 
-    const section = await gapSection();
+    const section = await gapSection("Quoted evidence");
     expect(bodyTextOf(section)).not.toBe("");
     expect(within(section).getByText(EV.exact_span)).toBeInTheDocument();
   });
@@ -448,7 +448,7 @@ describe("Quote mode: no section heading is rendered above empty content", () =>
     await user.type(screen.getByLabelText("Question"), "nothing matches this");
     await user.click(screen.getByRole("button", { name: "Run analysis" }));
 
-    const section = await gapSection();
+    const section = await gapSection("Quoted evidence");
     // The empty state is CONTENT: it tells the reader the run happened and
     // found nothing, which is the opposite of a heading over blank space.
     expect(within(section).getByText(/No comparable claims were found/)).toBeInTheDocument();
@@ -472,7 +472,7 @@ describe("Quote mode: the reader can tell that Quote ran and what it produced", 
     await selectQuote(user);
     await user.type(screen.getByLabelText("Question"), "what is the pressure floor");
     await user.click(screen.getByRole("button", { name: "Run analysis" }));
-    await gapSection();
+    await gapSection("Quoted evidence");
 
     expect(calls.filter((c) => c === "POST /api/analysis/gaps")).toHaveLength(1);
     expect(calls.some((c) => c.includes("/analysis/summary"))).toBe(false);
@@ -487,13 +487,15 @@ describe("Quote mode: the reader can tell that Quote ran and what it produced", 
     await user.type(screen.getByLabelText("Question"), "what is the pressure floor");
     await user.click(screen.getByRole("button", { name: "Run analysis" }));
 
-    const section = await gapSection();
+    const section = await gapSection("Quoted evidence");
     // Two separate statements, both required: the eyebrow names the mode on the
     // heading, and the note under it says what that mode actually produced.
     expect(
-      within(section).getByText("quote mode — cited document evidence, no model"),
+      within(section).getByText("the documents' own words — no model"),
     ).toBeInTheDocument();
-    expect(within(section).getByText(/Quote mode ran the mechanical comparison/)).toBeInTheDocument();
+    expect(within(section).getByText(/Quote mode shows the cited document evidence/)).toBeInTheDocument();
+    // #607: the Gap analysis section is NOT part of a Quote run.
+    expect(screen.queryByRole("region", { name: "Gap analysis" })).toBeNull();
     expect(within(section).getByText(/no model wrote any of it/i)).toBeInTheDocument();
   });
 

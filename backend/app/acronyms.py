@@ -32,9 +32,13 @@ CPS, and "show that" is not AB.
 
 from __future__ import annotations
 
+import contextvars
+import logging
 import re
 import threading
 from collections import OrderedDict
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 from .config import settings
 from .db import connect
@@ -109,6 +113,31 @@ _doc_cache: OrderedDict[tuple, dict[str, frozenset[str]]] = OrderedDict()
 _scope_cache: OrderedDict[tuple, dict[str, set[str]]] = OrderedDict()
 
 _cache_lock = threading.Lock()
+
+#: ONE BUILD AT A TIME (#606). Two requests that both find a document's map
+#: cold used to both read and scan the document's text. The second now waits
+#: for the first and finds the map in the cache.
+_build_lock = threading.Lock()
+
+#: Set (to a list) inside a USER REQUEST by `request_scope`. While it is set,
+#: a document map that is not already cached is NOT built: the document is
+#: skipped, recorded in the list, and the caller says so in its result. The
+#: build belongs to the startup warm-up and to `warm_in_background`, never to
+#: a request (cold build measured at about 21 s on 40,293 chunks).
+_NO_BUILD: contextvars.ContextVar[list[str] | None] = contextvars.ContextVar(
+    "acronyms_no_build", default=None)
+
+
+@contextmanager
+def request_scope() -> Iterator[list[str]]:
+    """Inside, `harvest` never builds a missing document map. Yields the list
+    of document ids that were skipped because their map was not built yet."""
+    skipped: list[str] = []
+    token = _NO_BUILD.set(skipped)
+    try:
+        yield skipped
+    finally:
+        _NO_BUILD.reset(token)
 
 
 def looks_like_acronym(term: str) -> bool:
@@ -240,13 +269,34 @@ def _signatures(document_id: str | None,
     return {r[0]: (r[1], r[2], r[3], r[4]) for r in rows}
 
 
-def _document_map(document_id: str, signature: tuple) -> dict[str, frozenset[str]]:
-    key = (str(settings.db_path), document_id, signature)
+def _cached_document_map(key: tuple) -> dict[str, frozenset[str]] | None:
     with _cache_lock:
         cached = _doc_cache.get(key)
         if cached is not None:
             _doc_cache.move_to_end(key)
+        return cached
+
+
+def _document_map(document_id: str, signature: tuple) -> dict[str, frozenset[str]] | None:
+    """The document's acronym map. None only inside `request_scope`, when it is
+    not built yet (the caller reports that; it is never read as "no acronyms")."""
+    key = (str(settings.db_path), document_id, signature)
+    cached = _cached_document_map(key)
+    if cached is not None:
+        return cached
+    skipped = _NO_BUILD.get()
+    if skipped is not None:
+        skipped.append(document_id)
+        return None
+    with _build_lock:
+        # Another thread may have built it while this one waited.
+        cached = _cached_document_map(key)
+        if cached is not None:
             return cached
+        return _build_document_map(document_id, key)
+
+
+def _build_document_map(document_id: str, key: tuple) -> dict[str, frozenset[str]]:
     found: dict[str, set[str]] = {}
     for row in connect().execute(
             "SELECT text FROM chunks WHERE retrievable = 1 AND document_id = ?",
@@ -291,16 +341,74 @@ def harvest(
             return cached
 
     found: dict[str, set[str]] = {}
+    complete = True
     for doc_id in sorted(signatures):
-        for acronym, expansions in _document_map(doc_id, signatures[doc_id]).items():
+        doc_map = _document_map(doc_id, signatures[doc_id])
+        if doc_map is None:
+            complete = False      # not built yet; reported by request_scope
+            continue
+        for acronym, expansions in doc_map.items():
             found.setdefault(acronym, set()).update(expansions)
 
-    with _cache_lock:
-        _scope_cache[key] = found
-        _scope_cache.move_to_end(key)
-        while len(_scope_cache) > max(1, settings.acronym_cache_scopes):
-            _scope_cache.popitem(last=False)
+    if complete:
+        # An incomplete merge is never cached as the scope's map.
+        with _cache_lock:
+            _scope_cache[key] = found
+            _scope_cache.move_to_end(key)
+            while len(_scope_cache) > max(1, settings.acronym_cache_scopes):
+                _scope_cache.popitem(last=False)
     return found
+
+
+# ------------------------------------------------------------- background warm
+
+_warm_lock = threading.Lock()
+_warm_thread: threading.Thread | None = None
+
+
+def warm_all() -> int:
+    """Build every missing document map for the whole corpus, under the build
+    lock. Returns how many documents were built. Reads only."""
+    from .search import every_document_id
+
+    allowed = every_document_id()
+    if not allowed:
+        return 0
+    built = 0
+    for doc_id, signature in sorted(_signatures(None, allowed).items()):
+        key = (str(settings.db_path), doc_id, signature)
+        if _cached_document_map(key) is not None:
+            continue
+        with _build_lock:
+            if _cached_document_map(key) is None:
+                _build_document_map(doc_id, key)
+                built += 1
+    return built
+
+
+def warm_in_background() -> bool:
+    """Start `warm_all` in a daemon thread unless one is already running.
+    Returns True when a thread was started. Called after a document finishes
+    indexing (its map changed) and when a request found maps not built."""
+    global _warm_thread
+    if not settings.startup_warmup:      # off in the test suite, as the startup warm-up is
+        return False
+    with _warm_lock:
+        if _warm_thread is not None and _warm_thread.is_alive():
+            return False
+
+        def run() -> None:
+            from . import db
+            try:
+                warm_all()
+            except Exception:  # logged; the next trigger retries
+                logging.getLogger("uvicorn.error").exception("acronym warm-up failed")
+            finally:
+                db.close_thread_connection()
+
+        _warm_thread = threading.Thread(target=run, name="acronym-warm", daemon=True)
+        _warm_thread.start()
+        return True
 
 
 def reverse_map(

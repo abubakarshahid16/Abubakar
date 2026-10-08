@@ -428,6 +428,48 @@ def is_relative_limit(sentence: str) -> bool:
     return bool(_RELATIVE_TAIL.match(text[match.start("value"):]))
 
 
+#: What follows the verb in a selection sentence: "be used", "be specified",
+#: "be installed" and nothing else - no digit, so no quantity of its own.
+_SELECTION_TAIL = re.compile(
+    r"\s*(?:be\s+)?(?:used|specified|installed|selected|applied|provided|supplied)"
+    r"\b[^\d]*", re.IGNORECASE)
+
+
+def _material_selection_subject(text: str, verb: re.Match) -> str | None:
+    """The text before the verb when the sentence is a MATERIAL-SELECTION
+    threshold, else None (issue #203).
+
+    "For studs greater than 25 mm, ASTM A320 L7 material shall be used" names
+    the other document as the SUBJECT of "shall be used" instead of after a
+    deferral verb, so the `_DEFERRAL` search never fired and the 25 mm was
+    stored as a size limit on the stud. It is a threshold: above 25 mm the
+    material changes. Three things must all hold:
+
+      * after the verb comes only a selection verb ("be used", "be specified")
+        and no digit - a number after the verb is the sentence's own quantity
+        and keeps it a limit, however the sentence opens;
+      * the text before the verb names a DESIGNATION THAT CARRIES A DIGIT
+        (ASTM A320, SAES-D-001, UNS S31803). A capitalised word alone (ESD,
+        PSV) is not a document, so "ESD valves shall be used above 50 bar"
+        is not a trigger;
+      * the text before the verb still has a digit of its own once the
+        designations are removed: that is the threshold. Without one the
+        sentence is a plain "use this", not a condition.
+
+    "shall not exceed 25 mm" has none of these and stays `numeric_limit`.
+    """
+    if not _SELECTION_TAIL.fullmatch(text[verb.end():]):
+        return None
+    subject = text[:verb.start()]
+    designations = [m for m in _DOCUMENT_DESIGNATION.finditer(subject)
+                    if _BARE_NUMBER.search(m.group(0))]
+    if not designations:
+        return None
+    if not _BARE_NUMBER.search(_DOCUMENT_REF.sub(" ", subject)):
+        return None
+    return subject
+
+
 def _applicability_remainder(sentence: str) -> str | None:
     """The deferral remainder when `sentence` passes every applicability-
     trigger gate, else None. THE ONE PLACE THE THREE GATES ARE CHECKED -
@@ -458,7 +500,7 @@ def _applicability_remainder(sentence: str) -> str | None:
         return None
     remainder = text[verb.end():]
     if not _DEFERRAL.search(remainder):
-        return None
+        return _material_selection_subject(text, verb)
     if _TABLE_REFERENCE.search(remainder):
         # A table is not another document. `table_row` is that case and is
         # decided before this one.

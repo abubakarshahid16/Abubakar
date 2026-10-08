@@ -28,6 +28,7 @@ from . import condition_choice as cc
 from . import context_budget
 from . import claims as claims_mod
 from . import coverage
+from . import numparse
 from . import progress
 from . import lexical
 from . import model_transport
@@ -1004,8 +1005,6 @@ def _is_rounding_of(value: str, spans: set[str]) -> bool:
 # that -29 on the page lost its minus in the sentence, or that "shall not
 # exceed" became "shall exceed". The checks below close those three gaps, and
 # ONLY those: a figure with no unit and no sign keeps the old behaviour.
-_DASHES_AS_SIGN = "-\u2212\u2013\u2014"
-_SIGN_LEAD = set(" \t([=:<>\u2264\u2265~,;")
 
 
 def _figure_occurrences(text: str) -> list[dict]:
@@ -1017,8 +1016,6 @@ def _figure_occurrences(text: str) -> list[dict]:
     mm/s whole, or not at all), else None - an unrecognised word after a number
     binds nothing, so it can only make the check more lenient, never stricter.
     """
-    from . import synthesis
-
     bound: dict[int, str] = {}
     for m in claims_mod._MEASUREMENT.finditer(text):
         unit = m.group("unit")
@@ -1036,18 +1033,12 @@ def _figure_occurrences(text: str) -> list[dict]:
             continue
         bound[m.start("value")] = folded
     out: list[dict] = []
-    for m in synthesis._NUMBER_TOKEN.finditer(text):
-        start = m.start()
-        sign = "+"
-        if start > 0 and text[start - 1] in _DASHES_AS_SIGN:
-            lead = text[start - 2] if start >= 2 else ""
-            if lead == "" or lead in _SIGN_LEAD:
-                before = text[:start - 1].rstrip()
-                # "5 -10" is a range as likely as a negative: not decidable.
-                sign = "?" if lead.isspace() and before[-1:].isdigit() else "-"
-        out.append({"start": start, "end": m.end(), "sign": sign,
-                    "value": synthesis._normalise_number(m.group(0)),
-                    "unit": bound.get(start)})
+    for n in numparse.find_numbers(text):
+        # The sign is `numparse`'s: "-" a minus (U+2212 included), "?" a dash
+        # that is as likely a range separator ("5 -10"), "+" none.
+        out.append({"start": n.digits_at, "end": n.end, "sign": n.sign,
+                    "value": numparse.canonical(n),
+                    "unit": bound.get(n.digits_at)})
     return out
 
 
@@ -1175,10 +1166,10 @@ def _first_unsupported_value(segment: str, spans: set[str]) -> str | None:
     from . import synthesis
 
     held = synthesis.strip_reference_numerals(_CITATION.sub("", segment))
-    for token in synthesis._NUMBER_TOKEN.findall(held):
-        normalised = synthesis._normalise_number(token)
+    for n in numparse.find_numbers(held):
+        normalised = numparse.canonical(n)
         if normalised not in spans and not _is_rounding_of(normalised, spans):
-            return token
+            return n.raw
     return None
 
 

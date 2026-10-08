@@ -45,7 +45,7 @@ from datetime import datetime, timezone
 import json
 from contextvars import ContextVar
 
-from . import (blank_markers, claims, datasheet_inputs, orphan_guard, page_ledger,
+from . import (blank_markers, claims, datasheet_inputs, numparse, orphan_guard, page_ledger,
                provenance, row_noise, submittal_review, tables)
 from .config import settings
 from .db import connect
@@ -2688,10 +2688,10 @@ def _geometry_agrees(raw_value: str, is_blank: bool, fact: dict) -> bool:
                 and measurement.normalized_unit == fact["normalized_unit"]):
             return abs(measurement.normalized_value - fact["normalized_value"]) <= 1e-9 * max(
                 1.0, abs(fact["normalized_value"]))
-        try:
-            return float(number.replace(",", ".")) == float(str(fact["raw_value"]).replace(",", "."))
-        except ValueError:
-            return _fold(number) == _fold(fact["raw_value"])
+        left, right = numparse.as_number(number), numparse.as_number(str(fact["raw_value"]))
+        if left is not None and right is not None:
+            return left == right
+        return _fold(number) == _fold(fact["raw_value"])
     return _fold(raw_value) == _fold(fact["field_value"])
 
 
@@ -3086,9 +3086,14 @@ def extract_facts(
             method = datasheet_inputs.extraction_method(row["stored_path"])
     token = _OFFICE_METHOD.set(method)
     try:
-        return _extract_facts_by_plan(
-            document_id, allowed_document_ids=allowed_document_ids,
-            review_run_id=review_run_id, replace=replace)
+        # The sheet's own spelling decides how "3.175" is read: a decimal, or
+        # (when the sheet writes a decimal comma anywhere) possibly 3,175.
+        rows = connect().execute(
+            "SELECT text FROM chunks WHERE document_id = ?", (document_id,)).fetchall()
+        with numparse.document_context(" ".join(str(r["text"] or "") for r in rows)):
+            return _extract_facts_by_plan(
+                document_id, allowed_document_ids=allowed_document_ids,
+                review_run_id=review_run_id, replace=replace)
     finally:
         _OFFICE_METHOD.reset(token)
 

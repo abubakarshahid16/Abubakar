@@ -46,7 +46,7 @@ import json
 import re
 from enum import Enum
 
-from . import blank_markers, claims, datasheets, submittal_review
+from . import blank_markers, claims, datasheets, numparse, submittal_review
 from .claude_spend import StopRun
 from .db import connect
 
@@ -76,6 +76,12 @@ class Reason(Enum):
     #: Rule 1. The quote does not appear on the page, whitespace-folded. The
     #: fabrication catch: an imagined row has no true quote.
     QUOTE_NOT_ON_PAGE = "quote_not_on_page"
+    #: Audit M2. The quote is on the page but is not a ROW: it is most of the
+    #: page, or several lines. A whole-page quote contains every value, so
+    #: rules 2 and 3 prove nothing against it.
+    QUOTE_TOO_BROAD = "quote_too_broad"
+    #: Audit M2. The unit the model reports is not in its own quote.
+    UNIT_NOT_IN_QUOTE = "unit_not_in_quote"
     #: Rule 2. The value is not inside the words the model says it read it
     #: from.
     VALUE_NOT_IN_QUOTE = "value_not_in_quote"
@@ -169,14 +175,6 @@ def _fold(text: str) -> str:
     return re.sub(r"\s+", " ", str(text)).strip().lower()
 
 
-_THOUSANDS = re.compile(r"(?<=\d),(?=\d{3}(?!\d))")
-_NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
-
-
-def _fold_numbers(text: str) -> str:
-    return _THOUSANDS.sub("", _fold(text))
-
-
 def _contains(haystack: str, needle: str) -> bool:
     """Whole-word containment on already-folded text. `reader_api._contains`,
     with the same lookarounds, for the same reason: "design pressure" must
@@ -189,16 +187,9 @@ def _contains(haystack: str, needle: str) -> bool:
 
 def _value_in_quote(value, quote: str) -> bool:
     """Rule 2, tolerant of printing and of nothing else. "8,300" and "8300"
-    are the same number; "23.55" and "99.9" are not."""
-    quote_folded = _fold_numbers(quote)
-    value_folded = _fold_numbers(value)
-    if _contains(quote_folded, value_folded):
-        return True
-    try:
-        wanted = float(value_folded)
-    except ValueError:
-        return False
-    return any(float(found) == wanted for found in _NUMBER.findall(quote_folded))
+    are the same number; "23.55" and "99.9" are not; 5 is not "-5" and not
+    the 5 of "2.5" (audit F01-F03). `numparse.value_in_text`."""
+    return numparse.value_in_text(value, quote)
 
 
 #: Words in a field label that carry its meaning. Four letters or more, so
@@ -218,10 +209,70 @@ def _field_in_quote(field: str, quote: str) -> bool:
     """
     quote_folded = _fold(quote)
     field_folded = _fold(field)
-    words = _FIELD_WORD.findall(field_folded)
+    words = list(dict.fromkeys(_FIELD_WORD.findall(field_folded)))
     if not words:
         return _contains(quote_folded, field_folded)
-    return any(_contains(quote_folded, w) for w in words)
+    # Audit M2: ONE four-letter word was enough, so "Casing material" was
+    # satisfied by a quote that held only "material". Half of the label's
+    # words are needed, and at least two when it has two or more.
+    needed = min(len(words), max(2, (len(words) + 1) // 2)) if len(words) > 1 else 1
+    return sum(1 for w in words if _contains(quote_folded, w)) >= needed
+
+
+#: A quote is a few cells, not the page: at most this many characters and not
+#: most of the page. NOT a line limit - a sheet that prints each label and
+#: value on its own line has a two-line row, and a quote that reaches across
+#: two rows is a reading the gate must see (and flag), not refuse.
+MAX_QUOTE_CHARS = 240
+MAX_QUOTE_SHARE_OF_PAGE = 0.5
+
+
+def _quote_too_broad(raw_quote: str, folded_page: str) -> bool:
+    text = str(raw_quote or "")
+    if len(text.strip()) > MAX_QUOTE_CHARS:
+        return True
+    return len(folded_page) > 80 and len(_fold(text)) > MAX_QUOTE_SHARE_OF_PAGE * len(folded_page)
+
+
+#: How far above a value to look for the header that names its column.
+HEADER_LOOKBACK_LINES = 30
+
+
+def _header_like(line: str, unit: str) -> bool:
+    """A line that names columns: it holds the unit and no number of its own
+    once the unit's own digits ("m3/h") are taken out."""
+    rest = re.sub(re.escape(unit), " ", line, flags=re.IGNORECASE)
+    return not re.search(r"\d", rest)
+
+
+def _unit_in_column_header(unit: str, raw_quote: str, value: str, page_text: str) -> bool:
+    """True when `unit` is printed only in the header of the column the value
+    sits in. Pipe-delimited rows: the header line above must carry the unit in
+    the SAME column as the value. Any other layout: a header-like line within
+    `HEADER_LOOKBACK_LINES` lines above the quote carries it (a guess about
+    layout, so the fact says `unit_from: column_header`)."""
+    lines = str(page_text or "").splitlines()
+    first = next((_fold(ln) for ln in str(raw_quote or "").splitlines() if ln.strip()), "")
+    at = next((i for i, ln in enumerate(lines) if first and first in _fold(ln)), None)
+    if at is None:
+        return False
+    cells = [c.strip() for c in lines[at].split("|")]
+    column = None
+    if len(cells) > 1:
+        column = next((i for i, c in enumerate(cells) if numparse.value_in_text(value, c)), None)
+        if column is None:
+            return False
+    for line in reversed(lines[max(0, at - HEADER_LOOKBACK_LINES):at]):
+        if not line.strip() or not _header_like(line, unit):
+            continue
+        if column is None:
+            if "|" not in line and _contains(_fold(line), _fold(unit)):
+                return True
+        else:
+            head = [c.strip() for c in line.split("|")]
+            if column < len(head) and _contains(_fold(head[column]), _fold(unit)):
+                return True
+    return False
 
 
 def _unit_recognised(unit: str) -> bool:
@@ -423,6 +474,9 @@ def accept(proposals: list[dict], page_text: str, known_fields: list[str] | None
         if not quote or not _contains(folded_page, quote):
             drop(p, Reason.QUOTE_NOT_ON_PAGE)
             continue
+        if _quote_too_broad(p["quote"], folded_page):
+            drop(p, Reason.QUOTE_TOO_BROAD)
+            continue
         if not _value_in_quote(p["value"], quote):
             drop(p, Reason.VALUE_NOT_IN_QUOTE)
             continue
@@ -432,11 +486,21 @@ def accept(proposals: list[dict], page_text: str, known_fields: list[str] | None
         if p.get("unit") and not _unit_recognised(p["unit"]):
             drop(p, Reason.UNIT_UNRECOGNISED)
             continue
+        unit_from = None
+        if p.get("unit"):
+            if _contains(quote, _fold(p["unit"])):
+                unit_from = "quote"
+            elif _unit_in_column_header(p["unit"], p["quote"], p["value"], page_text):
+                unit_from = "column_header"
+            else:
+                drop(p, Reason.UNIT_NOT_IN_QUOTE)
+                continue
         field_name = datasheets.normalise_field_name(p["field"])
         if field_name in known:
             drop(p, Reason.ALREADY_EXTRACTED)
             continue
-        accepted.append({**p, "field_name": field_name})
+        accepted.append({**p, "field_name": field_name,
+                         **({"unit_from": unit_from} if unit_from else {})})
     return {"accepted": accepted, "rejected": rejected,
             "counts": rejection_counts(rejected)}
 
@@ -461,7 +525,7 @@ def _identity(p: dict) -> tuple:
     the row is imagined."""
     return (
         datasheets.normalise_field_name(p.get("field") or ""),
-        _fold_numbers(p.get("value") or ""),
+        numparse.fold_numbers(p.get("value") or ""),
         _fold(p.get("unit") or ""),
     )
 

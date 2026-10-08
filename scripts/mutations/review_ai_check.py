@@ -8,7 +8,7 @@ _T = "tests/test_review_ai_check.py"
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1026", phase=86, description="a datasheet value not on the cited page is kept",
              path=APP / "ai_engineering_check.py",
-             anchor="    if value and _fold_numbers(value) not in page_text:\n",
+             anchor="    if value and not numparse.value_in_text(value, page_text):\n",
              replacement="    if False:\n",
              target=_T, keyword="refuses_with_a_named_reason and value_not_on_page",
              tags=("honesty", "critical")),

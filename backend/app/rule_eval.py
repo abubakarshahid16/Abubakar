@@ -42,7 +42,7 @@ from __future__ import annotations
 import json
 import re
 
-from . import claims
+from . import claims, numparse
 
 COMPLIANT = "COMPLIANT"
 NON_COMPLIANT = "NON_COMPLIANT"
@@ -187,7 +187,13 @@ _TERM = re.compile(r"(?:" + _NUM + r"\s*(?:x|×|\*|times)\s*)?(?P<sym>[A-Za-z][A
 
 
 def _n(text: str) -> float:
-    return float(text.replace(",", ""))
+    """A number the bound/term patterns matched, read by the shared parser
+    (`numparse`): "3,300" is 3300 and "9,0" is 9.0. A token that is not one
+    number ("1,2,3") raises, and `parse_rule` turns that into "no rule"."""
+    value = numparse.as_number(text)
+    if value is None:
+        raise ValueError(f"not one number: {text!r}")
+    return value
 
 
 def _parse_expr(expr: str, symbols: list[str]) -> dict | None:
@@ -217,6 +223,13 @@ def _parse_expr(expr: str, symbols: list[str]) -> dict | None:
 
 
 def parse_rule(text: str, *, output: str, input_names: list[str]) -> dict | None:
+    try:
+        return _parse_rule(text, output=output, input_names=input_names)
+    except ValueError:
+        return None      # a number that is not one number: not a rule
+
+
+def _parse_rule(text: str, *, output: str, input_names: list[str]) -> dict | None:
     """A range-table rule from the clause/table text, or None if it does not parse.
 
     Reads rows written `<bound> | <expression>` or `<bound>: <expression>`,
@@ -254,9 +267,6 @@ def parse_rule(text: str, *, output: str, input_names: list[str]) -> dict | None
             "unit": unit, "comparator": ">=", "rows": rows}
 
 
-_ANY_NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
-
-
 def rule_numbers(rule: dict) -> set[float]:
     out: set[float] = set()
     for row in rule.get("rows", []):
@@ -273,7 +283,7 @@ def rule_numbers(rule: dict) -> set[float]:
 
 def verify_numbers(rule: dict, text: str) -> bool:
     """Every number the rule uses appears verbatim in the page's text."""
-    present = {float(n.replace(",", "")) for n in _ANY_NUMBER.findall(text or "")}
+    present = {n for n in numparse.number_keys(text or "") if isinstance(n, float)}
     return rule_numbers(rule) <= present
 
 

@@ -74,10 +74,10 @@ from __future__ import annotations
 import json
 from enum import Enum
 
-from . import comparison
+from . import comparison, numparse
 from .claude_spend import StopRun
 from .db import connect
-from .reader_api import _NUMBER, _contains, _fold, _fold_numbers
+from .reader_api import _contains, _fold
 
 # --------------------------------------------------------------- vocabulary
 
@@ -270,13 +270,13 @@ def parse_response(raw: str) -> tuple[dict | None, str | None]:
 
 # --------------------------------------------------------------- the gate
 
-def _numbers(text) -> set[float]:
-    return {float(n) for n in _NUMBER.findall(_fold_numbers(text or ""))}
+def _numbers(text) -> set[float | str]:
+    return numparse.number_keys(str(text or ""))
 
 
 def _input_numbers(finding: dict) -> set[float]:
     """Every number the inputs carry (hard rule 3's allowed set)."""
-    out: set[float] = set()
+    out: set[float | str] = set()
     for text in (
         _sentence(finding), finding.get("requirement"),
         _value(finding), _unit(finding), finding.get("standard_clause"),

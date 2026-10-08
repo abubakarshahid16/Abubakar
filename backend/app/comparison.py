@@ -46,11 +46,12 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import sqlite3
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import (claims, conditions, datasheets, field_links, match_rules, page_ledger,
+from . import (claims, conditions, datasheets, field_links, match_rules, numparse, page_ledger,
                 requirements_3b, review, schemas, submittal_review)
 from .config import settings
 from .db import connect
@@ -272,9 +273,43 @@ def _measurement_from_requirement(requirement: dict) -> claims.Measurement | Non
     raw_value = requirement.get("raw_value")
     if raw_value is None:
         return None
-    return claims.normalise(
+    return _normalise_in_document(
         str(raw_value), requirement.get("raw_unit") or "",
-        requirement.get("operator"))
+        requirement.get("standard_document_id"), requirement.get("operator"))
+
+
+def _document_uses_decimal_comma(document_id: str | None) -> bool:
+    """Does this stored document write a comma as a decimal mark anywhere?
+    False when it cannot be told (no id, no database): the plain reading."""
+    if not document_id:
+        return False
+    try:
+        rows = connect().execute(
+            "SELECT text FROM chunks WHERE document_id = ?", (document_id,)).fetchall()
+    except (sqlite3.Error, OSError, RuntimeError):   # no database (a unit test, a dry run)
+        return False
+    return numparse.uses_decimal_comma(" ".join(str(r["text"] or "") for r in rows))
+
+
+def _normalise_in_document(raw: str, unit: str, document_id: str | None,
+                           operator: str | None = None) -> claims.Measurement:
+    """`claims.normalise`, reading a three-decimal dot value ("3.175") as
+    AMBIGUOUS when its own document writes a decimal comma anywhere, and as a
+    decimal otherwise (owner decision 2026-10-08). The database is asked only
+    for that one shape."""
+    if numparse.is_three_decimal_dot(raw) and _document_uses_decimal_comma(document_id):
+        with numparse.document_context(True):
+            return claims.normalise(raw, unit, operator)
+    return claims.normalise(raw, unit, operator)
+
+
+def _ambiguous_decimal(m: claims.Measurement | None, document_id: str | None) -> bool:
+    """A value printed d.ddd ("3.175") in a document that writes a decimal
+    comma elsewhere: a decimal or a thousands group, and the text cannot say.
+    Decided by the shape and the document, not by the unit table, so it holds
+    for units this engine cannot convert as well."""
+    return (m is not None and numparse.is_three_decimal_dot(m.raw_value)
+            and _document_uses_decimal_comma(document_id))
 
 
 def _measurement_from_fact(fact: dict) -> claims.Measurement | None:
@@ -289,7 +324,8 @@ def _measurement_from_fact(fact: dict) -> claims.Measurement | None:
     raw_value = fact.get("raw_value")
     if raw_value is None:
         return None
-    return claims.normalise(str(raw_value), fact.get("raw_unit") or "")
+    return _normalise_in_document(
+        str(raw_value), fact.get("raw_unit") or "", fact.get("document_id"))
 
 
 def fact_has_number(fact: dict) -> bool:
@@ -782,6 +818,18 @@ def _compare(requirement: dict, fact: dict | None, *,
     # owns this: it converts within a dimension, compares directly when both
     # sides carry the identical spelling, and returns None when it cannot do
     # either. None means NO COMPARISON WAS MADE, which is a result.
+    for which, m, doc in (("submitted", observed, fact.get("document_id")),
+                          ("required", limit, governing.get("standard_document_id"))):
+        if _ambiguous_decimal(m, doc):
+            return {
+                "status": NEEDS_ENGINEER_REVIEW,
+                "rationale": (f"the {which} value {m.raw_value!r} has three decimals and "
+                              "its document writes a decimal comma elsewhere, so it may "
+                              "be a decimal or a thousands group; no comparison was made"),
+                "limit": _describe(limit, governing),
+                "observed": _describe(observed, fact),
+                "exception_applied": exception, **_cond,
+            }
     verdict = claims._compatible(observed, limit)
     if verdict is None and (claims.parse_value(str(observed.raw_value or "")) is None
                             or claims.parse_value(str(limit.raw_value or "")) is None):
