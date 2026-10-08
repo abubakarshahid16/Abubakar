@@ -6,10 +6,14 @@ whose `standard_requirements` row is gone. `review_findings.requirement_id`
 has no foreign key, so nothing ever refused or recorded the deletion.
 NORTH-STAR section 4: "Re-extraction must not destroy historical evidence."
 
-FOUR PATHS DELETE REQUIREMENT ROWS, and each now asks this module first:
+FOUR PATHS DELETED REQUIREMENT ROWS; THREE STILL DO, and each asks this
+module first:
 
-  1. `standards.extract_requirements(replace=True)` - re-extraction deletes
-     every unconfirmed row of the standard and writes new ones, new ids;
+  1. `standards.extract_requirements(replace=True)` - re-extraction deleted
+     every unconfirmed row of the standard and wrote new ones, new ids. NO
+     LONGER (#640): it keeps a row it produces again and marks the rest
+     `superseded_at`, as facts do since #179 - see
+     `record_requirements_superseded`. Nothing to refuse, so not guarded;
   2. `standards.decide_requirement(decision="reject")` - one row;
   3. `chunker.chunk_document` - re-chunking deletes the document's chunks,
      and `standard_requirements.chunk_id ... ON DELETE CASCADE` takes their
@@ -227,6 +231,31 @@ def record_facts_superseded(conn: sqlite3.Connection, action: str,
          ((actor or {}).get("email") or "unauthenticated")[:200],
          f"facts.superseded.{action}", document_id,
          f"facts_superseded={superseded} findings_citing={findings_citing}"))
+
+
+def record_requirements_superseded(conn: sqlite3.Connection, action: str,
+                                   document_id: str, *, superseded: int,
+                                   findings_citing: int, run_id: str,
+                                   actor: dict | None = None) -> None:
+    """#640: the record of a re-extraction that superseded requirements.
+
+    The requirements twin of `record_facts_superseded`: on the caller's
+    connection, inside the caller's transaction, so the mark and its record
+    commit together or not at all. Nothing is refused because nothing is
+    destroyed - the rows stay and every finding citing one still resolves
+    it. Ids and counts only, never a requirement's text.
+    """
+    conn.execute(
+        """INSERT INTO audit_events
+               (at, actor_user_id, actor_username, action,
+                resource_type, resource_id, outcome, detail)
+           VALUES (?, ?, ?, ?, 'document', ?, 'ok', ?)""",
+        (datetime.now(UTC).isoformat(timespec="seconds"),
+         (actor or {}).get("id"),
+         ((actor or {}).get("email") or "unauthenticated")[:200],
+         f"requirements.superseded.{action}", document_id,
+         f"run={run_id} requirements_superseded={superseded} "
+         f"findings_citing={findings_citing}"))
 
 
 def _decide(action: str, orphaned: int, document_id: str | None,
