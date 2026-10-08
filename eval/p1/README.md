@@ -1,15 +1,16 @@
 # P1: the labelled question set
 
 A fixed list of questions with known right answers, run through the real chat
-on every change. A change is blocked when fewer than 37 of the 60 questions
-pass, or when any of the 23 original passes stops passing (see "The gate").
+on every change. A change is blocked when fewer than 41 of the 64 questions
+pass (raised from 37 of 60 on 2026-10-09, when version 3 entered the
+baseline), or when any of the 23 original passes stops passing (see "The gate").
 
 ## What is in this folder
 
 | file | what it is |
 |---|---|
-| `corpus.py` | eleven invented standards (STD-A-001 to STD-K-010, one of them an old revision) and the code that writes them as PDFs |
-| `questions.json` | 60 invented-name questions, version 2. P1-01 to P1-30: direct, reworded, abbreviation, document named in the question, table, condition, old revision, and six that the corpus cannot answer. P1-31 to P1-60: ten hard paraphrases, five distractors, five more unanswerable, five multi-document, five number/unit/sign |
+| `corpus.py` | thirteen invented standards (STD-A-001 to STD-M-012, one of them an old revision) and the code that writes them as PDFs |
+| `questions.json` | 60 invented-name questions, version 2. P1-01 to P1-30: direct, reworded, abbreviation, document named in the question, table, condition, old revision, and six that the corpus cannot answer. P1-31 to P1-60: ten hard paraphrases, five distractors, five more unanswerable, five multi-document, five number/unit/sign. P1-61 to P1-64 (version 3): a describing word no document prints, and a standard whose first page is front matter |
 | `baseline.json` | which questions pass today, and the `gate` the run is held to |
 | `harness.py`, `run_p1.py` | build the corpus in a throwaway database, ask every question, score, compare |
 | `../../backend/tests/test_p1_question_set.py` | the gate. GitHub CI runs it with the rest of the suite |
@@ -47,17 +48,18 @@ After a real improvement, raise the bar and commit the new `baseline.json`:
 
 ## The gate
 
-Owner decision, 2026-10-08. A change is blocked when ANY of these is true:
+Owner decision, 2026-10-08; the bar raised to 41 of 64 on 2026-10-09. A change
+is blocked when ANY of these is true:
 
 | rule | where it lives |
 |---|---|
-| fewer than **37 of 60** questions pass | `gate.min_passing` in `baseline.json` |
+| fewer than **41 of 64** questions pass | `gate.min_passing` in `baseline.json` |
 | any of the **23 original passes** (P1-02 to P1-30 that passed in version 1) fails | `gate.protected` |
 | one of those 23 loses its right clause label | `clause_passing`, limited to `gate.protected` |
 | an unanswerable question that was refused is now answered | `failing_known` |
 
 Outside the 23, a question may trade places: P1-34 failing is fine if
-another new question starts passing and the total stays at 37 or more.
+another new question starts passing and the total stays at 41 or more.
 
 The last two rows come from the version 1 rule. The owner confirmed
 on 2026-10-08 that both stay: an unanswerable question must never flip
@@ -66,7 +68,7 @@ clause labels. The clause row covers only those 23, so the other
 questions can still trade places.
 
 `--write-baseline` keeps the `gate` as it is. Only a person edits it, and
-`test_the_committed_gate_is_37_of_60_with_the_23_original_passes` checks
+`test_the_committed_gate_is_41_of_64_with_the_23_original_passes` checks
 that the file still says 37 and 23.
 
 ## What this does not prove
@@ -134,3 +136,27 @@ What the 5 of 5 on numbers does NOT show: the extract tier quotes the PDF
 text verbatim, so a sign, comma or exponent cannot be lost on the way out.
 Those questions test that the right clause is found. They would test number
 handling only when run on a tier that rewrites the value (generated answers).
+
+## Version 3 (2026-10-09): 64 questions
+
+Four questions and two invented standards for #602 and #610, both chat
+answer honesty defects. STD-L-011 holds a relief valve clause; STD-M-012
+opens with a foreword and a revision history that repeat a bolting
+question's words and state none of its values. The bolting standard is about
+pipe supports, not flanged joints, so P1-27 (no document mentions a flange)
+stays unanswerable.
+
+| id | category | what it tests | old code | now |
+|---|---|---|---|---|
+| P1-61 | qualifier | "Code-certified", printed nowhere, describes words that are | refused | answered, with a notice naming the word |
+| P1-62 | direct | the same question without the word (the control) | answered | answered |
+| P1-63 | front_matter | a bolting question whose words the revision history repeats | answered | answered |
+| P1-64 | front_matter | the same, naming the standard | quoted the foreword | answered from clause 4.1 |
+
+Whole set: **41 of 64**, clause label right 29 of 45, unanswerable 6 of 11.
+All 37 version 2 passes still pass and no unanswerable question flipped.
+The "old code" column was measured on these four questions only, with the
+version 3 corpus; P1-63 passed before the fix too, so it guards the fix
+rather than proving it. On 2026-10-09 the owner raised the bar: the
+baseline now holds P1-61 to P1-64 and `gate.min_passing` is 41 (the 23
+protected questions are unchanged).

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from pathlib import PurePath
 
+from . import front_matter
 from .db import connect
 
 DOCUMENT = "document"
@@ -144,8 +145,17 @@ def verification(result: dict) -> dict | None:
     if result.get("verification") is not None:
         return result["verification"]
     if result.get("answer_type") == "extract":
-        n = len(_answer_passages(result))
-        return {"verified": n, "total": n, "method": "verbatim quotation"} if n else None
+        quoted = _answer_passages(result)
+        if not quoted:
+            return None
+        # Every quoted passage is on its page by definition; it is a point
+        # FOUND only when it answers the question. Front matter the question
+        # did not ask about (a foreword, a revision history) is quoted
+        # accurately and answers nothing, and was shown with a green tick
+        # (#610) - it is counted in the total, never as verified.
+        question = result.get("question") or ""
+        answering = sum(1 for p in quoted if not front_matter.demoted(p, question))
+        return {"verified": answering, "total": len(quoted), "method": "verbatim quotation"}
     return None
 
 
