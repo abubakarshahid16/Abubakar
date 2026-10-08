@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef, useMemo } from "react";
 
 import { usePoll } from "../hooks/usePoll";
 
@@ -305,13 +305,18 @@ export function DocumentsView({
 
   usePoll(refresh, working, polling);
 
-  const documentIds = load.state === "ready" ? load.documents.map((d) => d.id) : [];
+  // The classifications come WITH the list (one request per page load), so the
+  // hook reads them from the documents instead of fetching one by one.
+  const listedDocuments = useMemo(
+    () => (load.state === "ready" ? load.documents : []),
+    [load],
+  );
   const {
     byId: classifications,
     setOne: setOneClassification,
     settled: classificationsSettled,
   } =
-    useDocumentClassifications(documentIds);
+    useDocumentClassifications(listedDocuments);
   const classificationsReady = vocabularySettled && classificationsSettled;
   // READ THROUGH A REF in `confirmType`. Depending on `classifications`
   // directly would rebuild the callback on every confirm - the same reason the

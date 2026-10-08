@@ -233,7 +233,13 @@ function mockApi(docs: DocumentRecord[], over: Record<string, unknown> = {}) {
       return jsonResponse(byId?.[id] ?? defaultClassification(id));
     }
 
-    return jsonResponse(docs);
+    // The list carries each document's classification (one request per page
+    // load), exactly as the server now answers it.
+    const classifications = over.classificationById as Record<string, DocumentClassification> | undefined;
+    if (!Array.isArray(docs)) return jsonResponse(docs);
+    return jsonResponse(docs.map((d) => ({
+      ...d, classification: d.classification ?? classifications?.[d.id] ?? defaultClassification(d.id),
+    })));
   });
   return spy;
 }
@@ -241,6 +247,25 @@ function mockApi(docs: DocumentRecord[], over: Record<string, unknown> = {}) {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+});
+
+describe("#W7 one request for the documents page", () => {
+  it("loads the list once and never asks for a classification per document", async () => {
+    const spy = mockApi([
+      makeDoc({ id: "d1", filename: "a.pdf" }),
+      makeDoc({ id: "d2", filename: "b.pdf" }),
+      makeDoc({ id: "d3", filename: "c.pdf" }),
+    ]);
+    renderDocuments();
+    await screen.findByText("a.pdf");
+
+    const urls = spy.mock.calls.map(([input]) =>
+      typeof input === "string" ? input : input.toString());
+    expect(urls.filter((u) => /\/documents\/[^/?]+\/classification/.test(u))).toEqual([]);
+    expect(urls.filter((u) => /\/documents(\?|$)/.test(u)).length).toBeGreaterThan(0);
+    // The chip still renders, from the classification the list carried.
+    expect(screen.getAllByText("Document").length).toBeGreaterThan(0);
+  });
 });
 
 describe("B2 documents list", () => {
