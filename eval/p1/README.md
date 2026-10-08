@@ -2,15 +2,15 @@
 
 A fixed list of questions with known right answers, run through the real chat
 on every change. A change is blocked when fewer than 37 questions pass (the
-gate was set on the 60 of version 2; the set is 64 since version 3), or when
+gate was set on the 60 of version 2; the set is 66 since version 4), or when
 any of the 23 original passes stops passing (see "The gate").
 
 ## What is in this folder
 
 | file | what it is |
 |---|---|
-| `corpus.py` | thirteen invented standards (STD-A-001 to STD-M-012, one of them an old revision) and the code that writes them as PDFs |
-| `questions.json` | 60 invented-name questions, version 2. P1-01 to P1-30: direct, reworded, abbreviation, document named in the question, table, condition, old revision, and six that the corpus cannot answer. P1-31 to P1-60: ten hard paraphrases, five distractors, five more unanswerable, five multi-document, five number/unit/sign. P1-61 to P1-64 (version 3): a describing word no document prints, and a standard whose first page is front matter |
+| `corpus.py` | fourteen invented standards (STD-A-001 to STD-N-013, one of them an old revision) and the code that writes them as PDFs |
+| `questions.json` | 60 invented-name questions, version 2. P1-01 to P1-30: direct, reworded, abbreviation, document named in the question, table, condition, old revision, and six that the corpus cannot answer. P1-31 to P1-60: ten hard paraphrases, five distractors, five more unanswerable, five multi-document, five number/unit/sign. P1-61 to P1-64 (version 3): a describing word no document prints, and a standard whose first page is front matter. P1-65 and P1-66 (version 4): an identifier asked with a prefix ("UNS N06625") that a table prints bare |
 | `baseline.json` | which questions pass today, and the `gate` the run is held to |
 | `harness.py`, `run_p1.py` | build the corpus in a throwaway database, ask every question, score, compare |
 | `../../backend/tests/test_p1_question_set.py` | the gate. GitHub CI runs it with the rest of the suite |
@@ -158,3 +158,14 @@ The "old code" column was measured on these four questions only, with the
 version 3 corpus; P1-63 passed before the fix too, so it guards the fix
 rather than proving it. The baseline was not rewritten: adding P1-61 to
 P1-64 to it raises the bar, which is the owner's call.
+
+## Version 4 (2026-10-09): 66 questions
+
+STD-N-013 (invented) holds a composition table that prints the bare alloy
+code under its UNS column. P1-65 asks for the alloy as "UNS N06625"; P1-66
+asks the same naming the standard. Both were refused before the fix ("UNS
+N06625 does not appear ..."), measured on an equivalent invented document.
+
+Whole set: **43 of 66**, clause label right 29 of 45, unanswerable 6 of 11.
+All earlier passes still pass and no unanswerable question flipped. The
+baseline was not rewritten (raising the bar is the owner's call).

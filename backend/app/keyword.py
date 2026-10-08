@@ -26,8 +26,11 @@ written by an older version, at startup.
 from __future__ import annotations
 
 import difflib
+import json
 import re
 import sqlite3
+from functools import lru_cache
+from pathlib import Path
 
 from .db import connect, schema_once
 from .rates import Timer, rate
@@ -184,6 +187,41 @@ def _joined(identifier: str) -> str:
     return re.sub(r"[\s\-]+", "", identifier).lower()
 
 
+#: Prefixes an identifier may be written with or without - see the file.
+PREFIX_PATH = Path(__file__).parent / "reference" / "identifier_prefixes.json"
+
+#: What may remain once a prefix is dropped: a code holding a letter AND a
+#: digit, at least four characters. "N06625", "A216", "MR0175" - never "610".
+_UNPREFIXED_CODE = re.compile(r"(?=[\w.\-]*[A-Za-z])(?=[\w.\-]*\d)[A-Za-z0-9][\w.\-]{3,}")
+
+
+@lru_cache(maxsize=1)
+def optional_prefixes() -> frozenset[str]:
+    """The editable list, upper-cased, read once."""
+    data = json.loads(PREFIX_PATH.read_text(encoding="utf-8"))
+    return frozenset(p.strip().upper() for p in data.get("prefixes") or [] if p.strip())
+
+
+def reload_prefixes() -> None:
+    optional_prefixes.cache_clear()
+
+
+def unprefixed_forms(identifier: str) -> list[str]:
+    """The identifier without an optional prefix, when that is still a code.
+
+    "UNS N06625" -> ["N06625"]: a materials table prints the bare code under
+    its "UNS" column, and the question that writes the prefix refused
+    "UNS N06625 does not appear" against the very table that answers it.
+    "API 610" -> []: API is not an optional prefix, and "610" alone is not a
+    code. Empty when nothing can be dropped.
+    """
+    m = re.fullmatch(r"([A-Za-z]{2,})[\s\-]+(.+)", identifier.strip())
+    if not m or m.group(1).upper() not in optional_prefixes():
+        return []
+    rest = m.group(2).strip()
+    return [rest] if _UNPREFIXED_CODE.fullmatch(rest) else []
+
+
 def identifier_forms(identifier: str) -> list[str]:
     """Every spelling of one identifier worth asking the index for.
 
@@ -191,7 +229,9 @@ def identifier_forms(identifier: str) -> list[str]:
     three. The joined form is what `index_text` appends for every identifier
     it sees, so it matches whichever spelling the document used. The spaced
     and hyphenated forms still match an index built before that alias existed.
-    Only the identifier AS A WHOLE is ever asked for - never "610" alone.
+    Only the identifier AS A WHOLE is ever asked for - never "610" alone -
+    or, for an optional prefix in `reference/identifier_prefixes.json`, the
+    code that remains without it ("UNS N06625" also asks for "N06625").
     """
     ident = identifier.strip()
     parts = [p for p in re.split(r"[\s\-]+", ident) if p]
@@ -204,6 +244,9 @@ def identifier_forms(identifier: str) -> list[str]:
     if len(parts) > 1:
         forms += [" ".join(parts), "-".join(parts)]
     forms.append(_joined(ident))
+    # ...and without an optional prefix (#610 follow-up): "UNS N06625" is the
+    # same alloy as the "N06625" a table prints. Still never a bare number.
+    forms.extend(unprefixed_forms(ident))
     out: list[str] = []
     seen: set[str] = set()
     for form in forms:
