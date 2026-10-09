@@ -17,6 +17,12 @@ exports call it instead of each deciding for itself.
 """
 from __future__ import annotations
 
+import json
+import logging
+from pathlib import Path
+
+_log = logging.getLogger(__name__)
+
 ANSWERED = "answered"
 NOT_FOUND = "not_found"
 COULD_NOT_BE_CHECKED = "could_not_be_checked"
@@ -115,12 +121,40 @@ def pairing_not_checked(match_reason: str | None, model_reason: str | None,
 
 # ------------------------------------------------- a run that is not complete
 
-#: Past this share of a run's in-scope requirements NOT compared (standards
-#: table values with no matching field, and requirements about other
-#: equipment), the run can not be approved: most of what the standards ask was
-#: not checked against this submittal, and an approval would be a claim about
-#: the rest. A policy choice, not a measurement: the owner can change it here.
-UNCHECKED_SHARE_LIMIT = 0.5
+THRESHOLDS_PATH = Path(__file__).parent / "reference" / "review_thresholds.json"
+DEFAULT_UNCHECKED_SHARE_LIMIT = 0.5
+
+
+def unchecked_share_limit() -> float:
+    """Past this share of a run's in-scope requirements NOT compared (standards
+    table values with no matching field, and requirements about other
+    equipment), the run can not be approved: most of what the standards ask was
+    not checked against this submittal, and an approval would be a claim about
+    the rest. A policy choice, not a measurement: it lives in
+    `reference/review_thresholds.json` so the owner can change it without a
+    code change. An unreadable or out-of-range value falls back to 0.5 and is
+    logged, never to "no limit"."""
+    try:
+        value = float(json.loads(THRESHOLDS_PATH.read_text(encoding="utf-8"))["unchecked_share_limit"])
+        if 0 < value <= 1:
+            return value
+        raise ValueError("outside (0, 1]")
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        _log.warning("review_thresholds.json unchecked_share_limit unusable (%s); using %s",
+                     type(exc).__name__, DEFAULT_UNCHECKED_SHARE_LIMIT)
+        return DEFAULT_UNCHECKED_SHARE_LIMIT
+
+
+def share_sentence(not_compared: int, not_applied: int, checked: int) -> str | None:
+    """"N of M (P%) requirements in scope were not compared", with its
+    denominator, or None when there is nothing to take a share of."""
+    share = unchecked_share(not_compared, not_applied, checked)
+    if share is None:
+        return None
+    n = (not_compared or 0) + (not_applied or 0)
+    total = n + (checked or 0)
+    return (f"{n} of {total} requirements in scope ({round(share * 100)}%) were not compared "
+            "with this submittal.")
 
 
 def unchecked_share(not_compared: int, not_applied: int, checked: int) -> float | None:
@@ -199,6 +233,15 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
     for key, status in (("ai_check", ai_status), ("web_check", web_status)):
         if status and status.get("complete") is False:
             add(key, str(status.get("plain") or f"{key} did not complete").strip())
+    # THE SHARE, WITH ITS DENOMINATOR, on every incomplete export.
+    counts = outcome.get("unchecked_counts") or {}
+    sentence = share_sentence(counts.get("not_compared", 0), counts.get("not_applied", 0),
+                              counts.get("checked", 0)) if counts else None
+    if sentence and (counts.get("not_compared", 0) or counts.get("not_applied", 0)):
+        add("unchecked_share", sentence)
+    elif parts and not counts:
+        add("unchecked_share", "The share of requirements not compared is not known: "
+                               "this review did not reach the comparison.")
     return parts
 
 
@@ -206,5 +249,9 @@ def notice_for(parts: list[dict]) -> str:
     """The one line a sheet prints when something could not be checked."""
     if not parts:
         return ""
-    return (f"REVIEW INCOMPLETE: {len(parts)} part(s) could not be checked "
-            "- this sheet is not a complete review.")
+    notice = (f"REVIEW INCOMPLETE: {len(parts)} part(s) could not be checked "
+              "- this sheet is not a complete review.")
+    # The unchecked share, with its denominator, is part of the notice on every
+    # copy (#633, owner decision 2026-10-09).
+    share = next((p["line"] for p in parts if p["part"] == "unchecked_share"), "")
+    return f"{notice} {share}" if share else notice

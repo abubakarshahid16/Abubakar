@@ -1,0 +1,4 @@
+{
+  "_about": "Review-code thresholds that are POLICY choices, not measurements (#633). Edit here, not in code; a change takes effect on the next review run. unchecked_share_limit: from this share of a run's in-scope requirements NOT compared (standards-table values with no matching field, plus requirements about other equipment), the run cannot be recommended Approved or Approved with Comments. Owner decision 2026-10-09: keep 0.5 for now; it is tuned in W8 with real numbers from the contractor submittals.",
+  "unchecked_share_limit": 0.5
+}

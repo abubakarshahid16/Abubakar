@@ -153,7 +153,7 @@ def test_unchecked_parts_names_every_part_and_a_clean_run_has_none():
     assert {p["part"] for p in parts} == {
         "run_not_completed", "partial_findings", "standards_not_checked",
         "table_values_not_compared", "requirements_not_applied", "text_quality_held_back",
-        "unread_pages", "ai_check", "web_check"}
+        "unread_pages", "ai_check", "web_check", "unchecked_share"}
     assert "did not complete (status: failed): the model host went away" in lines
     assert "42 standards-table value(s) were not compared" in lines
     assert "7 requirement(s) were not applied" in lines
@@ -161,7 +161,7 @@ def test_unchecked_parts_names_every_part_and_a_clean_run_has_none():
     # The control: a completed run that left nothing unchecked has no parts.
     assert absence.unchecked_parts(run_status="completed", outcome={}) == []
     assert absence.notice_for([]) == ""
-    assert absence.notice_for(parts).startswith("REVIEW INCOMPLETE: 9 part(s)")
+    assert absence.notice_for(parts).startswith("REVIEW INCOMPLETE: 10 part(s)")
 
 
 def test_the_workbook_prints_the_incomplete_notice_above_the_code():
@@ -321,7 +321,7 @@ def test_a_revision_block_check_that_could_not_run_says_so_instead_of_vanishing(
     parts = absence.unchecked_parts(
         run_status="completed",
         outcome={"datasheet_check_not_run": "the equipment type is unknown"})
-    assert [p["part"] for p in parts] == ["datasheet_check_not_run"]
+    assert [p["part"] for p in parts] == ["datasheet_check_not_run", "unchecked_share"]
     assert "could not be checked: the equipment type is unknown" in parts[0]["line"]
 
 
@@ -367,3 +367,55 @@ def test_a_named_document_that_cannot_be_read_is_listed_and_a_readable_one_is_no
     scope = _scope_of(world)
     assert analysis.unresolved_names(scope, ["sub_pump.pdf", "doc16.pdf"]) == ["doc16.pdf"]
     assert analysis.unresolved_names(scope, []) == []
+
+
+# ----------------------------------------------- the unchecked share, as a percentage
+
+def test_every_incomplete_sheet_shows_the_unchecked_share_with_its_denominator():
+    outcome = {"unchecked_counts": {"not_compared": 30, "not_applied": 10, "checked": 40}}
+    parts = absence.unchecked_parts(run_status="completed", outcome=outcome)
+    assert [p["part"] for p in parts] == ["unchecked_share"]
+    assert "40 of 80 requirements in scope (50%) were not compared" in parts[0]["line"]
+    assert "40 of 80 requirements in scope (50%)" in absence.notice_for(parts)
+    # A run that never reached the comparison says the share is not known, never 0%.
+    failed = absence.unchecked_parts(run_status="failed", outcome={})
+    assert failed[-1]["part"] == "unchecked_share" and "not known" in failed[-1]["line"]
+    assert "0%" not in failed[-1]["line"]
+    # Nothing unchecked, nothing to show.
+    assert absence.unchecked_parts(run_status="completed", outcome={
+        "unchecked_counts": {"not_compared": 0, "not_applied": 0, "checked": 9}}) == []
+
+
+def test_the_run_stores_the_counts_the_share_is_taken_from(world):
+    run_id, _job = _enqueue(world)
+    comparison._store_run_outcome(
+        run_id, {"code": comparison.CODE_MANUAL, "reason": "r"}, {},
+        unchecked_counts={"not_compared": 3, "not_applied": 1, "checked": 4})
+    row = db.connect().execute("SELECT refusal_reason FROM review_runs WHERE id = ?", (run_id,)).fetchone()
+    assert json.loads(row["refusal_reason"])["unchecked_counts"] == {
+        "not_compared": 3, "not_applied": 1, "checked": 4}
+
+
+def test_the_limit_is_read_from_the_data_file_and_a_bad_value_never_means_no_limit(
+        tmp_path, monkeypatch):
+    path = tmp_path / "thresholds.json"
+    monkeypatch.setattr(absence, "THRESHOLDS_PATH", path)
+    path.write_text('{"unchecked_share_limit": 0.8}', encoding="utf-8")
+    assert absence.unchecked_share_limit() == 0.8
+    # The shipped file says 0.5 (owner decision 2026-10-09).
+    monkeypatch.undo()
+    assert absence.unchecked_share_limit() == 0.5
+    monkeypatch.setattr(absence, "THRESHOLDS_PATH", path)
+    for bad in ('{"unchecked_share_limit": 0}', '{"unchecked_share_limit": "x"}', "not json", "{}"):
+        path.write_text(bad, encoding="utf-8")
+        assert absence.unchecked_share_limit() == 0.5
+    # And the review code obeys the file: at 0.9 a 60% unchecked run is not forced to manual review.
+    path.write_text('{"unchecked_share_limit": 0.9}', encoding="utf-8")
+    met = [{"compliance_status": comparison.COMPLIANT}] * 4
+    code = comparison.recommend_code(
+        met, SUFFICIENT, unchecked_counts={"not_compared": 6, "not_applied": 0, "checked": 4})["code"]
+    assert code != comparison.CODE_MANUAL
+    path.write_text('{"unchecked_share_limit": 0.5}', encoding="utf-8")
+    assert comparison.recommend_code(
+        met, SUFFICIENT, unchecked_counts={"not_compared": 6, "not_applied": 0, "checked": 4}
+    )["code"] == comparison.CODE_MANUAL

@@ -1399,7 +1399,7 @@ def recommend_code(findings: list[dict], completeness: dict, *,
     counts = unchecked_counts or {}
     share = absence.unchecked_share(
         counts.get("not_compared", 0), counts.get("not_applied", 0), counts.get("checked", 0))
-    if (share is not None and share >= absence.UNCHECKED_SHARE_LIMIT
+    if (share is not None and share >= absence.unchecked_share_limit()
             and result["code"] in (codes[0], codes[1])):
         unchecked_n = counts.get("not_compared", 0) + counts.get("not_applied", 0)
         total_n = unchecked_n + counts.get("checked", 0)
@@ -2183,15 +2183,15 @@ def run_comparison(
     coverage = completeness_for_run(
         submittal_id, allowed_document_ids=allowed_document_ids,
         reference_coverage=reference_coverage, findings=findings)
+    unchecked_counts = {
+        "not_compared": sum(int(l.get("count") or 0) for l in table_values_not_compared),
+        "not_applied": applicability_summary.get("not_applied", 0),
+        "checked": len(requirements)}
     recommendation = recommend_code(findings, coverage,
                                     missing_references=missing_references or (),
                                     page_coverage=pages_read,
                                     unchecked_standards=unchecked_standards,
-                                    unchecked_counts={
-                                        "not_compared": sum(int(l.get("count") or 0)
-                                                            for l in table_values_not_compared),
-                                        "not_applied": applicability_summary.get("not_applied", 0),
-                                        "checked": len(requirements)})
+                                    unchecked_counts=unchecked_counts)
     _store_run_outcome(review_run_id, recommendation, coverage,
                        page_coverage=pages_read,
                        missing_references=missing_references or [],
@@ -2200,7 +2200,8 @@ def run_comparison(
                        unchecked_standards=unchecked_standards,
                        requirements_not_applied=requirements_not_applied,
                        applicability=applicability_summary,
-                       datasheet_check_not_run=datasheet_check_not_run)
+                       datasheet_check_not_run=datasheet_check_not_run,
+                       unchecked_counts=unchecked_counts)
 
     return {
         "review_run_id": review_run_id,
@@ -3296,7 +3297,8 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
                        unchecked_standards: list[str] | None = None,
                        requirements_not_applied: list[dict] | None = None,
                        applicability: dict | None = None,
-                       datasheet_check_not_run: str | None = None) -> None:
+                       datasheet_check_not_run: str | None = None,
+                       unchecked_counts: dict | None = None) -> None:
     """Persist the AI recommendation and the completeness it was gated on.
 
     B3: `page_coverage` is the page ledger's summary AT THE TIME OF THE RUN -
@@ -3336,6 +3338,8 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
                 "applicability": applicability,
                 # #633: why the datasheet revision-block check did not run.
                 "datasheet_check_not_run": datasheet_check_not_run,
+                # #633: the counts the unchecked share is taken from.
+                "unchecked_counts": unchecked_counts,
             # completed_at: the readiness strip's "since the last run" is
             # measured from here, not from updated_at (which the engineer's
             # code decision moves later).

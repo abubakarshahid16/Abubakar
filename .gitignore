@@ -137,3 +137,6 @@ gold/*.jsonl
 
 # Eval output lists corpus file names and passage text. Local only (privacy rule 3).
 eval/results/
+
+# Mutation harness backups (never commit a half-mutated source file).
+*.mutbak
