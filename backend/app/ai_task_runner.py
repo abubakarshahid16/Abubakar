@@ -45,7 +45,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Callable
 
-from . import model_transport, progress
+from . import heavy_lock, model_transport, progress
 from .config import settings
 from .db import connect
 from .reasoning_provider import OllamaProvider, Packet, ProviderRefused, schema_errors
@@ -340,6 +340,11 @@ def pause_reason(*, chat_active: int | None = None, heavy: str | None = "probe",
     heavy_name = heavy_work_running() if heavy == "probe" else heavy
     if heavy_name:
         return f"{heavy_name} is running"
+    queued = heavy_lock.waiters()
+    if queued:
+        # Another heavy job (P1, a test run) is queued for the machine; a batch
+        # that can pause steps aside rather than make it wait (#680).
+        return f"{queued[0].get('kind', 'a heavy job')} is waiting for the machine"
     free = free_ram_bytes() if free_ram is None else free_ram
     floor = settings.ai_task_min_free_ram_gb * 1_000_000_000
     if free < floor:
@@ -379,6 +384,13 @@ def run_batch(*, provider=None, limit: int | None = None, pause=None, unload=Non
                 "paused": "another batch is already running", "remaining": counts().get(Q_QUEUED, 0)}
     summary = {"ran": 0, "ok": 0, "could_not_read": 0, "cached": 0, "paused": None}
     provider = provider or make_provider()
+    # The shared heavy-job lock (#680): a batch is a heavy job like P1 and the
+    # test run, so it takes the same lock, and does not start while one is held.
+    lock = heavy_lock.try_acquire("ai_batch", owner="ai task batch")
+    if lock is None:
+        _batch_lock.release()
+        return {**summary, "paused": f"{heavy_lock.describe(heavy_lock.read())}",
+                "remaining": counts().get(Q_QUEUED, 0)}
     called_model = False
     try:
         _recover_stale()
@@ -404,6 +416,7 @@ def run_batch(*, provider=None, limit: int | None = None, pause=None, unload=Non
                 called_model = called_model or (not result.cached and result.attempts > 0)
                 summary["ok" if result.state == STATE_OK else "could_not_read"] += 1
     finally:
+        lock.release()
         _batch_lock.release()
         if called_model:
             (unload or _unload)(provider)
