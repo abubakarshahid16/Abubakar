@@ -401,12 +401,18 @@ class Settings(BaseSettings):
     # Measured on the target CPU - see docs/benchmarks.md
     num_thread: int = 12
     num_batch: int = 2048
-    #: How long Ollama keeps the answer model resident after a call. SENT BY
-    #: EVERY CALL SITE through `model_transport.runner_options` - one path
-    #: (OllamaProvider) sent none, so Ollama's 5-minute default unloaded the
-    #: model during a demo pause and the next question paid the cold load
-    #: (23.6 s on the laptop, docs/benchmarks.md).
-    ollama_keep_alive: str = "30m"
+    #: How long Ollama keeps the answer model resident after an INTERACTIVE
+    #: call. SENT BY EVERY CALL SITE through `model_transport.runner_options`
+    #: - one path (OllamaProvider) sent none, so Ollama's own default applied
+    #: and a call site that did not say could unload the model during a demo
+    #: pause (a 23.6 s cold load on the laptop, docs/benchmarks.md).
+    #: "5m" since #666. It was "30m", and a model left resident for 30 minutes
+    #: after every call blocked both owner PC sessions for about two hours:
+    #: the memory was not free for the next job. A batch is separate: the AI
+    #: task runner keeps its model for `ai_task_batch_keep_alive` during one
+    #: batch and unloads it at the end. Still a setting (env OLLAMA_KEEP_ALIVE)
+    #: for a machine that wants the longer warm window.
+    ollama_keep_alive: str = "5m"
     # 1536 -> 4096, and this is a DECISION, not a tuning pass. The execution
     # plan's change budget forbade touching model settings mid-sprint so the
     # evidence base would stay comparable; the project owner overrode that
