@@ -66,6 +66,7 @@ from . import notifications as notifications_mod
 from . import structured_search as structured_search_mod
 from . import risks as risks_mod
 from . import standards as standards_mod
+from . import claim_units as claim_units_mod
 from . import standards_inventory as standards_inventory_mod
 from . import standards_acquisition as standards_acquisition_mod
 from . import submittal_review as submittal_review_mod
@@ -3546,6 +3547,24 @@ def standard_tables(
     reject_unknown_params(request, set())
     require_document(document_id, scope)
     return standards_mod.table_report(
+        document_id, allowed_document_ids=scope.allowed_document_ids)
+
+
+@app.get("/api/documents/{document_id}/claim-units",
+         response_model=schemas.ClaimUnits,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def document_claim_units(
+    document_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Every checkable unit of a written document (#529): each obligation
+    sentence, each table row, each standard it names, every one with the page
+    it was read from. A document with no unit is `no_units`, never clean; pages
+    with no text are counted. Scope: the caller's grants (404 otherwise)."""
+    reject_unknown_params(request, set())
+    require_document(document_id, scope)
+    return claim_units_mod.units_for_document(
         document_id, allowed_document_ids=scope.allowed_document_ids)
 
 

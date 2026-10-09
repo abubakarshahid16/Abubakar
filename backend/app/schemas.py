@@ -546,6 +546,35 @@ class MissingStandard(CitedButNotHeld):
     obtain: StandardObtainPointer
 
 
+class ClaimUnitCitation(BaseModel):
+    document_id: str
+    page: int
+
+
+class ClaimUnit(BaseModel):
+    id: str = Field(description="stable for the same document, kind, page, position and text")
+    kind: str = Field(description="obligation, table_row or reference")
+    page: int
+    text: str = Field(description="the sentence, row or standard as the page printed it")
+    citation: ClaimUnitCitation
+    row: int | None = None
+    label: str | None = None
+    cells: list[str] | None = None
+    columns: list[str] | None = None
+
+
+class ClaimUnits(BaseModel):
+    document_id: str
+    state: str = Field(description="'ok', 'no_units', 'no_text' or 'not_readable'; a document "
+                                   "with no unit is never 'clean'")
+    units: list[ClaimUnit]
+    counts: dict[str, int]
+    pages_read: int
+    pages_unread: int = Field(description="pages with no text (not read), counted not skipped")
+    table_rows_unavailable: bool = Field(
+        description="true for a Word file: its tables have no ruling geometry for the row parser")
+
+
 class StandardRequestBody(BaseModel):
     identifier: str = Field(min_length=1, max_length=200)
     note: str | None = Field(default=None, max_length=1000)
