@@ -335,7 +335,9 @@ def test_a_loopback_caller_still_posts_exactly_what_it_used_to(monkeypatch):
     assert seen["body"]["model"] == settings.answer_model
     assert seen["body"]["prompt"] == "what is the coating thickness"
     assert seen["body"]["stream"] is False
-    assert seen["body"]["keep_alive"] == "30m"
+    # The setting, not a literal: the default itself is pinned in
+    # test_w7_666_model_memory.py (5m since #666).
+    assert seen["body"]["keep_alive"] == settings.ollama_keep_alive
     # A 302 is a host no check saw, and ambient proxy variables would route a
     # "loopback" request through somebody else's server.
     assert seen["client_kwargs"]["follow_redirects"] is False

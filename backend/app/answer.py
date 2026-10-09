@@ -963,7 +963,9 @@ def verify_claims(text: str, passages: list[dict], *,
             _figures_ok, figures_removed = ground_numbers(plain, passages)
             if figures_removed:
                 lost_tail = True
-                note(segment, "a figure in it is not on the cited page")
+                note(segment, UNIT_MISMATCH_REASON
+                     if figures_removed[0].get("reason") == UNIT_MISMATCH
+                     else "a figure in it is not on the cited page")
                 continue
             # The sentence must not say the opposite of what it quotes
             # ("shall exceed" over a quote that says "shall not exceed").
@@ -1043,6 +1045,10 @@ _LIST_MARKER = re.compile(r"^\s*(?:[-*+>#]+|\d{1,2}[.)])(?:\s+|$)")
 #: Shown above an answer that lost sentences to the figure check.
 NUMBERS_NOTICE = ("{n} sentence{s} removed: a figure in {it} was not in the passage "
                   "{it2} cited.")
+#: #653: the number is in the passage, its unit is not ("11%" over "11.0 psi").
+UNIT_NOTICE = "{n} sentence{s} removed: the unit does not match the source."
+#: The reason recorded for one such point (removed_points, Claude lane).
+UNIT_MISMATCH_REASON = "unit does not match the source"
 
 # An ordinary rounding is not a wrong figure: "17.2 barg" for a passage
 # stating "17.24 barg" is accurate, and dropping it lost a true sentence. But
@@ -1120,18 +1126,95 @@ def _figure_occurrences(text: str) -> list[dict]:
             continue
         bound[m.start("value")] = folded
     out: list[dict] = []
+    #: (end of the previous number, the bracketed alternative unit its label
+    #: gave) - "psi (kPa) 11.0 (76)" binds 76 to kPa.
+    pending_alt: tuple[int, str] | None = None
     for n in numparse.find_numbers(text):
+        unit = bound.get(n.digits_at)
+        alt = None
+        if unit is None:
+            # #653 A LABEL'S UNIT, WRITTEN BEFORE THE NUMBER. Tables and worked
+            # examples print "Allowable overpressure, psi (kPa) 11.0 (76)": the
+            # unit is the row label's, so nothing follows the number and the
+            # page figure looked bare - and a bare page figure grounds any
+            # claim, so "11%" passed over "11.0 psi" (live, 2026-10-09).
+            if (pending_alt is not None
+                    and re.fullmatch(r"\s*\(\s*", text[pending_alt[0]:n.digits_at])):
+                unit = pending_alt[1]
+            else:
+                unit, alt = _leading_unit(text, n.digits_at)
+        pending_alt = (n.end, alt) if alt else None
         # The sign is `numparse`'s: "-" a minus (U+2212 included), "?" a dash
         # that is as likely a range separator ("5 -10"), "+" none.
         out.append({"start": n.digits_at, "end": n.end, "sign": n.sign,
-                    "value": numparse.canonical(n),
-                    "unit": bound.get(n.digits_at)})
+                    "value": numparse.canonical(n), "unit": unit,
+                    # the decimals as PRINTED: "0.30" is two, where the
+                    # canonical value "0.3" says one (#653 tolerance)
+                    "places": _printed_places(n.raw, numparse.canonical(n))})
     return out
+
+
+#: A unit that closes a row label just before its number: after a comma,
+#: semicolon, colon or line start, optionally with its alternative in
+#: brackets - ", psi (kPa) 11.0", "; bar 4.5", "kPa 76".
+_LEADING_UNIT = re.compile(
+    r"(?:^|[,;:\n])\s*(?P<unit>[A-Za-z%\u00b0\u00b5][\w%\u00b0\u00b5/.\u00b2\u00b3-]*)"
+    r"(?:\s*\(\s*(?P<alt>[A-Za-z%\u00b0\u00b5][\w%\u00b0\u00b5/.\u00b2\u00b3-]*)\s*\))?\s*$")
+
+
+def _known_unit(raw: str | None) -> str | None:
+    """The folded unit when `claims` recognises it, else None. A short
+    lower-case word ("in", "at", "m") is never read as a label's unit: as a
+    word before a number it is far more often English than a unit."""
+    if not raw:
+        return None
+    if len(raw) <= 2 and raw.isalpha() and raw.islower():
+        return None
+    folded = claims_mod._fold_unit(raw)
+    if claims_mod._recognised_folded(folded) or folded in claims_mod._REFERENCE_SUFFIX:
+        return folded
+    return None
+
+
+def _leading_unit(text: str, at: int) -> tuple[str | None, str | None]:
+    """(unit, bracketed alternative) of a row label ending right before `at`."""
+    m = _LEADING_UNIT.search(text[max(0, at - 40):at])
+    if not m:
+        return None, None
+    unit = _known_unit(m.group("unit"))
+    if unit is None:
+        return None, None
+    return unit, _known_unit(m.group("alt"))
 
 
 def _unit_base(folded: str) -> str:
     """A pressure unit without its gauge/absolute suffix: barg -> bar."""
     return claims_mod._REFERENCE_SUFFIX.get(folded, (folded,))[0]
+
+
+def _printed_places(raw: str, canonical: str) -> int | None:
+    """Decimal places as written: "0.30" -> 2, "1,5" -> 1, "16" -> 0. A
+    trailing group numparse read as THOUSANDS ("3,300" = 3300) is not
+    decimals: when the digits without separators are the canonical integer,
+    the printed number had none."""
+    raw = (raw or "").strip()
+    m = re.search(r"[.,](\d+)$", raw)
+    if not m:
+        return 0 if raw[-1:].isdigit() else None
+    try:
+        whole = Decimal(canonical)
+    except InvalidOperation:
+        return None
+    digits = re.sub(r"\D", "", raw)
+    if whole == whole.to_integral_value() and digits and Decimal(digits) == abs(whole):
+        return 0
+    return len(m.group(1))
+
+
+def _unit_reference(folded: str) -> str | None:
+    """'gauge', 'absolute', or None when the unit does not say."""
+    entry = claims_mod._REFERENCE_SUFFIX.get(folded)
+    return entry[1] if entry else None
 
 
 def _value_matches(claimed: str, found: str) -> bool:
@@ -1143,6 +1226,11 @@ def _unit_value_matches(claim: dict, found: dict) -> bool:
     or two table units of one dimension equal after conversion to within half a
     unit of the claim's last printed digit. Anything else (another dimension, an
     unconverted unit with another spelling) does not match."""
+    # #653 GAUGE IS NEVER ABSOLUTE: 100 psig and 100 psia differ by an
+    # atmosphere. A unit with no reference ("psi") is left to match either.
+    ra, rb = _unit_reference(claim["unit"]), _unit_reference(found["unit"])
+    if ra and rb and ra != rb:
+        return False
     a, b = _unit_base(claim["unit"]), _unit_base(found["unit"])
     if a == b:
         return _value_matches(claim["value"], found["value"])
@@ -1155,14 +1243,65 @@ def _unit_value_matches(claim: dict, found: dict) -> bool:
         return False
     if not cv.is_finite() or not fv.is_finite():
         return False
-    half = Decimal(1).scaleb(-_decimals(cv)) / 2 * Decimal(repr(ea[2]))
+    places = claim.get("places")
+    half = Decimal(1).scaleb(-(_decimals(cv) if places is None else places)) / 2 \
+        * Decimal(repr(ea[2]))
     return abs(cv * Decimal(repr(ea[2])) - fv * Decimal(repr(eb[2]))) <= half * Decimal("1.000001")
 
 
+#: Why a sentence's figure was not grounded (`figure_check`).
+UNIT_MISMATCH = "unit_mismatch"
+FIGURE_MISSING = "figure_missing"
+
+
 def figure_conflict(segment: str, claimed: set[str], passage_text: str) -> str | None:
-    """The first figure in `segment` (one of `claimed`) that the passage does
-    not state with the same SIGN and, when the sentence gives it a unit, in a
-    compatible unit - or None when every figure is grounded.
+    """`figure_check`'s figure only - the unchanged interface."""
+    found = figure_check(segment, claimed, passage_text)
+    return found[0] if found else None
+
+
+def first_unit_conflict(sentence: str, passage_text: str) -> str | None:
+    """The first figure the passage states with the same number but only in a
+    unit that does not match - THE shared unit check (#653): the summary lane
+    (`synthesis`) asks this instead of keeping a second copy."""
+    from . import synthesis
+
+    claimed = synthesis.claimed_numbers(sentence)
+    found = figure_check(sentence, claimed, passage_text)
+    if not found or found[1] != UNIT_MISMATCH:
+        return None
+    # As the reader sees it: the number WITH the unit it was written in.
+    at = sentence.find(found[0])
+    after = re.match(r"\s*[A-Za-z%\u00b0\u00b5][\w%\u00b0\u00b5/.\u00b2\u00b3-]*",
+                     sentence[at + len(found[0]):]) if at >= 0 else None
+    return found[0] + after.group(0).rstrip(".") if after else found[0]
+
+
+def _converted_on_page(segment: str, value: str, passage_text: str) -> bool:
+    """True when every occurrence of `value` in `segment` carries a unit and
+    the passage states the same quantity in ANOTHER unit of the same
+    dimension, equal after conversion (`_unit_value_matches`): "16 psi" over
+    a page that prints only "110 kPa". A bare figure never converts."""
+    from . import synthesis
+
+    held = synthesis.strip_reference_numerals(_CITATION.sub("", segment))
+    claims = [c for c in _figure_occurrences(held) if c["value"] == value
+              or _value_matches(value, c["value"])]
+    if not claims or any(c["unit"] is None for c in claims):
+        return False
+    page = [f for f in _figure_occurrences(synthesis.strip_reference_numerals(passage_text))
+            if f["unit"] is not None]
+    return all(any(f["sign"] in (c["sign"], "?") and _unit_base(f["unit"]) != _unit_base(c["unit"])
+                   and _unit_value_matches(c, f) for f in page) for c in claims)
+
+
+def figure_check(segment: str, claimed: set[str], passage_text: str) -> tuple[str, str] | None:
+    """(figure, reason) for the first figure in `segment` (one of `claimed`)
+    that the passage does not state with the same SIGN and, when the sentence
+    gives it a unit, in a compatible unit - or None when every figure is
+    grounded. `reason` is UNIT_MISMATCH when the passage states the same
+    number only in units that do not match (11 psi read as 11 %, psig as
+    psia), else FIGURE_MISSING.
 
     A claimed figure is grounded by a passage figure of the same value, whose
     sign is the same (or could be a range dash), and which is either bare (a
@@ -1195,7 +1334,11 @@ def figure_conflict(segment: str, claimed: set[str], passage_text: str) -> str |
                 grounded = True
                 break
         if not grounded:
-            return held[claim["start"]:claim["end"]]
+            other_unit = claim["unit"] is not None and any(
+                found["unit"] is not None and found["sign"] in (claim["sign"], "?")
+                and _value_matches(claim["value"], found["value"]) for found in page)
+            return (held[claim["start"]:claim["end"]],
+                    UNIT_MISMATCH if other_unit else FIGURE_MISSING)
     return None
 
 
@@ -1269,8 +1412,9 @@ def ground_numbers(text: str, passages: list[dict]) -> tuple[str, list[dict]]:
     the synthesis lane's number guard unchanged - `synthesis.claimed_numbers`
     (reference numerals such as clause, table, page and standard numbers are
     names, not measurements, B34) against `synthesis._numbers` of the cited
-    spans - so "0.28 mm [S1]" over a page saying "280 um" is caught the same
-    way here as in a summary. An exact miss is then given one more chance:
+    spans - so "0.30 mm [S1]" over a page saying "280 um" is caught the same
+    way here as in a summary, while "0.28 mm" (the same figure, converted
+    exactly) is grounded by `_converted_on_page` in both lanes (#653). An exact miss is then given one more chance:
     `_is_rounding_of` lets it through when it is an ordinary rounding of a
     number that IS in the spans (a genuine rounding: fewer decimals, equal
     after rounding), so "17.2" is not stripped from a page that says "17.24"
@@ -1323,18 +1467,24 @@ def ground_numbers(text: str, passages: list[dict]) -> tuple[str, list[dict]]:
                 # one that is there (_is_rounding_of) - "17.2" for a passage
                 # saying "17.24" is accurate, not invented.
                 unsupported = {v for v in claimed - spans if not _is_rounding_of(v, spans)}
+                page_text = " ".join(passages[n - 1].get("text") or "" for n in cited) \
+                    if cited else " ".join(p.get("text") or "" for p in passages)
+                # #653 THE SAME QUANTITY IN ANOTHER UNIT is the same figure:
+                # "16 psi" over a page printing only "110 kPa" is grounded
+                # when the conversion agrees (the unit-aware check decides).
+                unsupported = {v for v in unsupported
+                               if not _converted_on_page(segment, v, page_text)}
                 if unsupported:
                     value = (_first_unsupported_value(segment, spans)
                              or sorted(unsupported)[0])
-                    removed.append({"value": value, "cited": cited})
+                    removed.append({"value": value, "cited": cited,
+                                    "reason": FIGURE_MISSING})
                     continue
                 # The number is on the page. Is it the SAME figure: same sign,
                 # and the same quantity when the sentence gives it a unit?
-                page_text = " ".join(passages[n - 1].get("text") or "" for n in cited) \
-                    if cited else " ".join(p.get("text") or "" for p in passages)
-                wrong = figure_conflict(segment, claimed, page_text)
+                wrong = figure_check(segment, claimed, page_text)
                 if wrong is not None:
-                    removed.append({"value": wrong, "cited": cited})
+                    removed.append({"value": wrong[0], "cited": cited, "reason": wrong[1]})
                     continue
             kept.append(segment)
         if kept:
@@ -1346,12 +1496,20 @@ def ground_numbers(text: str, passages: list[dict]) -> tuple[str, list[dict]]:
 
 
 def _numbers_notice(removed: list[dict]) -> list[str]:
-    if not removed:
-        return []
-    n = len(removed)
-    return [NUMBERS_NOTICE.format(n=n, s="" if n == 1 else "s",
-                                  it="it" if n == 1 else "them",
-                                  it2="it" if n == 1 else "they")]
+    """One notice per reason: a figure missing from its passage, and (#653) a
+    figure whose number is there but whose unit does not match."""
+    out: list[str] = []
+    missing = [r for r in removed if r.get("reason") != UNIT_MISMATCH]
+    units = [r for r in removed if r.get("reason") == UNIT_MISMATCH]
+    if missing:
+        n = len(missing)
+        out.append(NUMBERS_NOTICE.format(n=n, s="" if n == 1 else "s",
+                                         it="it" if n == 1 else "them",
+                                         it2="it" if n == 1 else "they"))
+    if units:
+        n = len(units)
+        out.append(UNIT_NOTICE.format(n=n, s="" if n == 1 else "s"))
+    return out
 
 
 #: Shown above an answer whose question carried a qualifier word found nowhere

@@ -9,6 +9,7 @@
  */
 import { SseParser } from "./sse";
 import type {
+  ModelsFreed,
   BackgroundJob,
   DeletedConversation,
   DeletedDocument,
@@ -1063,6 +1064,10 @@ async function request<T>(
 
 export const api = {
   health: () => request<Health>("/health"),
+  /** Administrator only (a 404 for anyone else): ask Ollama to unload every
+   *  resident model. The next question pays a cold load. */
+  freeModelMemory: () =>
+    request<ModelsFreed>("/admin/models/unload", { method: "POST" }, hasArrayField("freed")),
   metrics: () => request<Metrics>("/metrics"),
   /** Who a new upload may be made visible to, and the default (#609). */
   uploadDisciplines: () =>

@@ -333,6 +333,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
               onOpenReview={(runId) => onNavigate("review", runId)}
               onOpenDocuments={() => onNavigate("documents")}
               onOpenDeliverables={() => onNavigate("deliverables")}
+              isAdmin={canAdmin}
             />
           )}
           {view === "standards" && <StandardsView isAdmin={canAdmin} />}
