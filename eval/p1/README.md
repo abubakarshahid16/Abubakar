@@ -10,8 +10,8 @@ passing (see "The gate").
 
 | file | what it is |
 |---|---|
-| `corpus.py` | fourteen invented standards (STD-A-001 to STD-N-013, one of them an old revision) and the code that writes them as PDFs |
-| `questions.json` | 60 invented-name questions, version 2. P1-01 to P1-30: direct, reworded, abbreviation, document named in the question, table, condition, old revision, and six that the corpus cannot answer. P1-31 to P1-60: ten hard paraphrases, five distractors, five more unanswerable, five multi-document, five number/unit/sign. P1-61 to P1-64 (version 3): a describing word no document prints, and a standard whose first page is front matter. P1-65 and P1-66 (version 4): an identifier asked with a prefix ("UNS N06625") that a table prints bare |
+| `corpus.py` | fifteen invented standards (STD-A-001 to STD-P-014, one of them an old revision) and the code that writes them as PDFs |
+| `questions.json` | 60 invented-name questions, version 2. P1-01 to P1-30: direct, reworded, abbreviation, document named in the question, table, condition, old revision, and six that the corpus cannot answer. P1-31 to P1-60: ten hard paraphrases, five distractors, five more unanswerable, five multi-document, five number/unit/sign. P1-61 to P1-64 (version 3): a describing word no document prints, and a standard whose first page is front matter. P1-65 and P1-66 (version 4): an identifier asked with a prefix ("UNS N06625") that a table prints bare. P1-67 (version 5): a percent limit beside a worked example printing the same number as psi |
 | `baseline.json` | which questions pass today, and the `gate` the run is held to |
 | `harness.py`, `run_p1.py` | build the corpus in a throwaway database, ask every question, score, compare |
 | `../../backend/tests/test_p1_question_set.py` | the gate. GitHub CI runs it with the rest of the suite |

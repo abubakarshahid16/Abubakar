@@ -54,7 +54,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1996", phase=1996,
              description="the figure checker no longer holds a figure to its unit and sign",
              path=APP / "answer.py",
-             anchor="                wrong = figure_conflict(segment, claimed, page_text)",
+             anchor="                wrong = figure_check(segment, claimed, page_text)",  # #653
              replacement="                wrong = None",
              target=_F, keyword="unit or minus or dual_unit or hyphenated or rounding", tags=_TAG),
     Mutation(id="M1997", phase=1997,

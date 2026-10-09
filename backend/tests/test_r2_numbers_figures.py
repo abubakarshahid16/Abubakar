@@ -43,9 +43,13 @@ def test_a_dual_unit_page_grounds_each_figure_only_to_its_own_unit():
     assert not _grounded("The velocity is 4.5 mm/s [S1].", page)
 
 
-def test_conversion_alone_is_not_grounding_unchanged_rule():
-    # unchanged from synthesis: 0.28 mm over a page saying 280 um is caught
-    assert not _grounded("The thickness is 0.28 mm [S1].", "The coat is 280 um thick.")
+def test_only_a_correct_conversion_grounds():
+    """#653 (owner order: "16 psi matches 110 kPa"): the same quantity in
+    another unit of the same kind is the same figure - so 0.28 mm over a
+    page saying 280 um is grounded. A WRONG conversion is still caught, at
+    the sentence's own printed precision: 0.30 mm is 300 um, not 280."""
+    assert _grounded("The thickness is 0.28 mm [S1].", "The coat is 280 um thick.")
+    assert not _grounded("The thickness is 0.30 mm [S1].", "The coat is 280 um thick.")
 
 
 def test_a_table_cell_with_the_unit_in_another_column_still_grounds():
