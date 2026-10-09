@@ -190,6 +190,8 @@ def _passage_payload(hit: dict, question: str, budget: int | None = None) -> dic
         "page_start": expanded.get("page_start", hit["page_start"]),
         "page_end": expanded.get("page_end", hit["page_end"]),
         "section": expanded.get("section", hit["section"]),
+        # a Word chunk is cited by where it sits, not by a page number
+        "locator": hit.get("locator"),
         "text": text,
         "highlight": list(span) if span else None,
         # where the chunk that actually matched sits inside the expanded text
@@ -738,7 +740,8 @@ def _build_prompt(question: str, passages: list[dict], history: str = "") -> str
     blocks = []
     for i, p in enumerate(passages, start=1):
         where = (
-            f"{p['filename']}, page {p['page_start']}"
+            f"{p['filename']}, {p['locator']}" if p.get("locator")
+            else f"{p['filename']}, page {p['page_start']}"
             if p["page_start"] == p["page_end"]
             else f"{p['filename']}, pages {p['page_start']}-{p['page_end']}"
         )

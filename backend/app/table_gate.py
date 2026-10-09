@@ -152,6 +152,7 @@ def gate(requirements: list[dict], facts: list[dict], *,
             table_selectable[_table_of(requirement)] = True
 
     not_compared: dict[str, dict] = {}
+    items: list[dict] = []
     for index, requirement in enumerate(requirements):
         reason = excluded_reason(requirement)
         if reason:
@@ -169,9 +170,12 @@ def gate(requirements: list[dict], facts: list[dict], *,
             kept_flags[index] = True
             continue
         standard_id = requirement.get("standard_document_id") or ""
+        code = _skip_reason(requirement, table_selectable[table])
+        items.append({"requirement": requirement, "code": code})
         entry = not_compared.setdefault(standard_id, {
-            "standard_document_id": standard_id, "count": 0, "tables": {}})
+            "standard_document_id": standard_id, "count": 0, "tables": {}, "reasons": {}})
         entry["count"] += 1
+        entry["reasons"][code] = entry["reasons"].get(code, 0) + 1
         page = requirement.get("page")
         table_entry = entry["tables"].setdefault(
             table[1], {"page": page, "count": 0, "examples": []})
@@ -189,6 +193,7 @@ def gate(requirements: list[dict], facts: list[dict], *,
             "standard_name": name,
             "count": entry["count"],
             "table_count": len(tables),
+            "reasons": dict(sorted(entry["reasons"].items())),
             "line": (f"{entry['count']} table values in {len(tables)} "
                      f"table{'s' if len(tables) != 1 else ''} of {name} not compared: "
                      "no matching field on this submittal"),
@@ -199,7 +204,20 @@ def gate(requirements: list[dict], facts: list[dict], *,
         "kept": [r for i, r in enumerate(requirements) if kept_flags.get(i)],
         "excluded": dict(excluded),
         "not_compared": lines,
+        # One item per skipped cell, with the reason it was skipped (#678).
+        "not_compared_items": items,
     }
+
+
+def _skip_reason(requirement: dict, other_row_matched: bool) -> str:
+    """Why a table cell was NOT checked, as a stored code (#669, #678)."""
+    if other_row_matched:
+        return "other_row_matched"
+    if _row_key(requirement):
+        return "row_label_not_on_sheet"
+    if _column_words(requirement):
+        return "column_not_on_sheet"
+    return "no_label"
 
 
 def _table_of(requirement: dict) -> tuple[str, str]:

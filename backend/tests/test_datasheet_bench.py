@@ -383,7 +383,8 @@ def test_the_rules_reader_runs_on_a_pdf_without_the_project_database(key):
     assert (s["found"], s["expected"]) == (10, 10)
     # "Coupling type: By Vendor" is recorded as a blank, never as a value.
     assert s["forbidden"] == 0 and s["blanks_recorded"] >= 1
-    # Today's production refuses a Word file at upload; with office input on
-    # the same file is read.
-    assert bench.read_file_with("rules", BENCH / "ds13_heater.docx")["status"] == "refused_at_upload"
+    # W5b-01 (#525): production no longer refuses a Word file at upload (it is
+    # indexed); with office input off its datasheet fields are not read. With
+    # office input on the same file is read into facts.
+    assert bench.read_file_with("rules", BENCH / "ds13_heater.docx")["facts"] == []
     assert bench.read_file_with("rules+office", BENCH / "ds13_heater.docx")["status"] == "read"

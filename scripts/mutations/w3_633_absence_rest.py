@@ -19,8 +19,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(3402, "standards-table values not compared are no longer listed as unchecked",
        "absence.py", "    if cells:\n", "    if False:\n", "unchecked_parts_names"),
     _m(3403, "the incomplete-review notice is always empty",
-       "absence.py", '    if not parts:\n        return ""\n    notice = (f"REVIEW INCOMPLETE',
-       '    if True:\n        return ""\n    notice = (f"REVIEW INCOMPLETE', "unchecked_parts_names"),
+       "absence.py", '    if not parts:\n        return ""\n    parts = [p for p in parts',
+       '    if True:\n        return ""\n    parts = [p for p in parts', "unchecked_parts_names"),
     _m(3404, "the workbook does not print the incomplete notice",
        "crs_export.py", '    if view["incomplete_notice"]:\n', "    if False:\n", "workbook_prints"),
     _m(3405, "the CRS meta carries no incomplete notice",
@@ -108,7 +108,7 @@ MUTATIONS = MUTATIONS + tuple(
 
 MUTATIONS = MUTATIONS + (
     _m(3432, "an incomplete sheet shows no unchecked share",
-       "absence.py", "    if sentence and (counts.get(\"not_compared\", 0) or counts.get(\"not_applied\", 0)):\n",
+       "absence.py", "    if sentence and counts.get(\"not_compared\", 0):\n",
        "    if False:\n", "unchecked_share_with_its_denominator"),
     _m(3433, "the notice does not carry the unchecked share",
        "absence.py", '    return f"{notice} {share}" if share else notice', "    return notice",
