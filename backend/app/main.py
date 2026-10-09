@@ -67,6 +67,7 @@ from . import structured_search as structured_search_mod
 from . import risks as risks_mod
 from . import standards as standards_mod
 from . import claim_units as claim_units_mod
+from . import claim_verdicts as claim_verdicts_mod
 from . import standards_inventory as standards_inventory_mod
 from . import standards_acquisition as standards_acquisition_mod
 from . import submittal_review as submittal_review_mod
@@ -3547,6 +3548,26 @@ def standard_tables(
     reject_unknown_params(request, set())
     require_document(document_id, scope)
     return standards_mod.table_report(
+        document_id, allowed_document_ids=scope.allowed_document_ids)
+
+
+@app.get("/api/documents/{document_id}/claim-verdicts",
+         response_model=schemas.ClaimVerdicts,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def document_claim_verdicts(
+    document_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """A verdict per claim unit of a written document (#530): pass, fail or
+    query, each with its cited evidence and reason. A query is never read as
+    compliant, evidence without a citation counts for nothing, and every figure
+    is "engineer review required". Today's only evidence source is the library
+    (a named standard the library holds); obligations and table rows stay query
+    until a baseline is compared. Scope: the caller's grants (404 otherwise)."""
+    reject_unknown_params(request, set())
+    require_document(document_id, scope)
+    return claim_verdicts_mod.verdicts_for_document(
         document_id, allowed_document_ids=scope.allowed_document_ids)
 
 

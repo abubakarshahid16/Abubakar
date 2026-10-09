@@ -13,7 +13,7 @@ page of a chunk that happens to span two (#660). The text is the sentence as the
 page printed it, running header and footer removed first (a footer inside a
 sentence is not part of the sentence).
 
-THREE KINDS, NOTHING ELSE:
+FOUR KINDS, NOTHING ELSE:
   * `obligation`  - a sentence with an obligation word (shall, must, is to be,
     ...), split the way `standards.extract_requirements` splits it, so the
     two readers cannot disagree about what one obligation is;
@@ -21,7 +21,9 @@ THREE KINDS, NOTHING ELSE:
     (`tables.parse_page_tables`), the row's label and every cell, not one per
     number;
   * `reference`   - one unit per standard named on a page, in the shared
-    matcher's own grammar (`standard_ids.find_citations`).
+    matcher's own grammar (`standard_ids.find_citations`);
+  * `figure`      - one unit per picture placed on a PDF page (#530): there is
+    no vision reader yet, so each is counted and left for an engineer.
 
 NAMED STATES, NEVER A SILENT PASS. A page with no text is counted
 (`pages_unread`); a document with no readable page is `no_text`; a Word file's
@@ -41,7 +43,8 @@ from .db import connect
 KIND_OBLIGATION = "obligation"
 KIND_TABLE_ROW = "table_row"
 KIND_REFERENCE = "reference"
-KINDS = (KIND_OBLIGATION, KIND_TABLE_ROW, KIND_REFERENCE)
+KIND_FIGURE = "figure"
+KINDS = (KIND_OBLIGATION, KIND_TABLE_ROW, KIND_REFERENCE, KIND_FIGURE)
 
 
 def _unit(document_id: str, kind: str, page: int, ordinal: int, text: str, **extra) -> dict:
@@ -89,6 +92,27 @@ def references_on_page(document_id: str, page: int, text: str) -> list[dict]:
     return out
 
 
+def figures_on_page(document_id: str, page: int, stored_path: str) -> list[dict]:
+    """One unit per picture or drawing placed on a PDF page (#530).
+
+    A figure is evidence this system cannot read yet (there is no vision
+    reader): each becomes a unit so it is COUNTED and cited to its page, and
+    `claim_verdicts` marks it "engineer review required". Pictures are
+    PyMuPDF's page images; vector drawings with no raster image are not seen
+    (stated on the PR, not hidden). A file that cannot be opened yields none.
+    """
+    try:
+        import pymupdf
+        with pymupdf.open(stored_path) as doc:
+            if not (1 <= page <= doc.page_count):
+                return []
+            images = doc[page - 1].get_images(full=True)
+    except Exception:  # noqa: BLE001 - an unreadable file has no countable figures
+        return []
+    return [_unit(document_id, KIND_FIGURE, page, n, f"figure {n + 1} on page {page}")
+            for n in range(len(images))]
+
+
 def units_for_document(document_id: str, *, allowed_document_ids: frozenset[str]) -> dict:
     """Every claim unit of one document, or a named state saying why none."""
     if document_id not in allowed_document_ids:
@@ -111,9 +135,10 @@ def units_for_document(document_id: str, *, allowed_document_ids: frozenset[str]
             continue
         read += 1
         units += obligations_on_page(document_id, page["page_no"], text)
+        units += references_on_page(document_id, page["page_no"], text)
         if stored and not office:
             units += table_rows_on_page(document_id, page["page_no"], stored)
-        units += references_on_page(document_id, page["page_no"], text)
+            units += figures_on_page(document_id, page["page_no"], stored)
     counts = {k: sum(1 for u in units if u["kind"] == k) for k in KINDS}
     if read == 0:
         state = "no_text"

@@ -575,6 +575,39 @@ class ClaimUnits(BaseModel):
         description="true for a Word file: its tables have no ruling geometry for the row parser")
 
 
+class ClaimEvidence(BaseModel):
+    stance: str
+    quote: str | None = None
+    page: int | None = None
+    document_id: str | None = None
+    note: str | None = None
+    confidence: float | None = None
+
+
+class ClaimVerdict(BaseModel):
+    unit_id: str
+    kind: str
+    page: int
+    verdict: str = Field(description="'pass', 'fail' or 'query'. Query never becomes compliant.")
+    confidence: float | None = Field(
+        default=None, description="None for a query (an unjudged unit has no confidence, never 0); "
+                                  "never above 0.7")
+    reason: str
+    evidence: list[ClaimEvidence] = Field(default_factory=list)
+    engineer_review_required: bool = Field(description="true for every figure until a vision reader exists")
+    citation: ClaimUnitCitation | None = None
+
+
+class ClaimVerdicts(BaseModel):
+    document_id: str
+    state: str
+    units_total: int
+    counts: dict[str, int]
+    engineer_review_required: int
+    pages_unread: int
+    verdicts: list[ClaimVerdict]
+
+
 class StandardRequestBody(BaseModel):
     identifier: str = Field(min_length=1, max_length=200)
     note: str | None = Field(default=None, max_length=1000)
