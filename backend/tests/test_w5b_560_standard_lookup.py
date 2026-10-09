@@ -68,7 +68,7 @@ def test_an_identifier_query_is_sent_whole(query, identifiers):
     ("API 610 650", sl.BLOCKED_VALUE),
     ("latest edition of API 610 by John Smith", sl.BLOCKED_NAME),
     ("SAES-B-014 latest edition", sl.BLOCKED_DOCUMENT_NUMBER),
-    ("EF1975-DAS-M-03 edition", sl.BLOCKED_DOCUMENT_NUMBER),
+    ("ABC-DAS-M-03 edition", sl.BLOCKED_DOCUMENT_NUMBER),
     ('API 610 "the casing shall be hydrotested"', sl.BLOCKED_QUOTED),
     ("API 610 “witnessed by the purchaser”", sl.BLOCKED_QUOTED),
     ("latest edition", sl.BLOCKED_NO_IDENTIFIER),
