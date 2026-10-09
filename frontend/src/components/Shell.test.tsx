@@ -50,8 +50,15 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-beforeEach(() => vi.useRealTimers());
-afterEach(() => vi.unstubAllGlobals());
+beforeEach(() => {
+  vi.useRealTimers();
+  // the production poll is 15 s; these tests wait for several polls
+  vi.stubEnv("VITE_HEALTH_POLL_MS", "400");
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
 
 describe("shell navigation", () => {
   it("lists all four views and marks the unbuilt ones", async () => {
