@@ -1,6 +1,7 @@
 import type { Metrics } from "../types/api";
 import { bytes, nf, Stat, Section, Throughput, Bar, loadTone, NotMeasured } from "./DashboardPrimitives";
 import { humaniseReason } from "../components/WorkerPanel";
+import { FreeModelMemory } from "../components/FreeModelMemory";
 
 type Props = {
   metrics: Metrics;
@@ -12,9 +13,10 @@ type Props = {
   models: Metrics["models"];
   system: Metrics["system"];
   noSearchable: number;
+  isAdmin?: boolean;
 };
 
-export function DashboardTechnicalDetails({ metrics, corpus, throughput, retrieval, jobs, worker, models, system, noSearchable }: Props) {
+export function DashboardTechnicalDetails({ metrics, corpus, throughput, retrieval, jobs, worker, models, system, noSearchable, isAdmin = false }: Props) {
   return (
       <details className="mt-8 group">
         <summary className="cursor-pointer select-none rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 px-4 py-3 text-sm text-slateish-300 hover:text-slateish-100 [&::-webkit-details-marker]:hidden">
@@ -278,6 +280,7 @@ export function DashboardTechnicalDetails({ metrics, corpus, throughput, retriev
             />
           )}
         </div>
+        {isAdmin && <FreeModelMemory />}
       </Section>
 
       {/* ABSENT for any reader without the admin capability (#77): the

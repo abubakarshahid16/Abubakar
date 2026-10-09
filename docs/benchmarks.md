@@ -64,7 +64,7 @@ Answer was correct and cited a source. **The problem is throughput, not quality.
 | Model load (cold) | 23.6 s |
 | Model load (warm) | 0.01 s |
 
-Implication: `keep_alive` must hold the model resident for the demo.
+Implication: `keep_alive` must hold the model resident for the demo. The default is "5m" since #666 (it was "30m" and held the memory after every call); for a demo, set `OLLAMA_KEEP_ALIVE` longer for that session and set it back after.
 
 ### Thinking mode
 

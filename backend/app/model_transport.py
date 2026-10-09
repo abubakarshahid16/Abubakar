@@ -173,6 +173,23 @@ def _keep_alive():
     return settings.ollama_keep_alive if override is None else override
 
 
+_USED_MODELS: set[str] = set()
+_USED_LOCK = threading.Lock()
+
+
+def models_used() -> list[str]:
+    """Every model name sent to a runner path (generate or chat) by THIS
+    process since start (or `forget_used_models`). The P1 runner reads it to
+    unload exactly what it loaded, and nothing a person has open elsewhere."""
+    with _USED_LOCK:
+        return sorted(_USED_MODELS)
+
+
+def forget_used_models() -> None:
+    with _USED_LOCK:
+        _USED_MODELS.clear()
+
+
 def with_runner_options(body: dict) -> dict:
     """`body` with the shared runner options and `keep_alive`. A new dict.
 
@@ -180,6 +197,10 @@ def with_runner_options(body: dict) -> dict:
     site - present or future - can send different ones. Only these four keys
     are touched; the prompt is not inspected (see the module docstring).
     """
+    model = body.get("model")
+    if model:
+        with _USED_LOCK:
+            _USED_MODELS.add(str(model))
     options = dict(body.get("options") or {})
     options.update(runner_options(options.get("num_ctx")))
     return {**body, "options": options, "keep_alive": _keep_alive()}
