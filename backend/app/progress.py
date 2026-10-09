@@ -155,6 +155,17 @@ def read(request_id: str, *, reader: str | None = None,
         }
 
 
+def active_count() -> int:
+    """Requests still being answered right now (any stage but `done`, and
+    updated within the TTL). The AI task runner (#644) reads it so background
+    work yields to a person waiting for a chat answer. A number only: no
+    request id, owner or text leaves this function."""
+    now = time.time()
+    with _lock:
+        return sum(1 for e in _entries.values()
+                   if e.stage != "done" and now - e.updated < TTL_SECONDS)
+
+
 def clear() -> None:
     """For tests."""
     with _lock:
