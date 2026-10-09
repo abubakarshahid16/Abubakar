@@ -1,0 +1,7 @@
+{
+  "format": "review-baseline/1",
+  "margin": 0.05,
+  "bar": {"recall": 0.8, "trap_false_flag_rate": 0.1, "false_compliant": 0, "citations_valid": 1.0},
+  "bar_status": "PROPOSED by Claude (issue #676); the owner has not confirmed it, and nothing here was measured",
+  "baselines": {}
+}
