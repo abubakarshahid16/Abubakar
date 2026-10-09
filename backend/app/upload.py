@@ -37,7 +37,24 @@ KIND_XLSX = "xlsx"
 #: DATASHEET_OFFICE_INPUT (off by default): a Word datasheet. Never produced
 #: while the flag is off - a .docx is then refused as `not_xlsx`, as before.
 KIND_DOCX = "docx"
-_SUFFIX_FOR_KIND = {KIND_PDF: ".pdf", KIND_XLSX: ".xlsx", KIND_DOCX: ".docx"}
+#: W5b-01 (#525): a scan sent as an image file. PyMuPDF opens an image as a
+#: document of one page per frame, so from here on it takes the PDF path
+#: unchanged (pages, recognition, chunks, page images, citations by page).
+#: Never produced while IMAGE_INPUT_ENABLED is off - it is then `not_pdf`.
+KIND_PNG = "png"
+KIND_JPEG = "jpeg"
+KIND_TIFF = "tiff"
+IMAGE_KINDS = frozenset({KIND_PNG, KIND_JPEG, KIND_TIFF})
+_SUFFIX_FOR_KIND = {KIND_PDF: ".pdf", KIND_XLSX: ".xlsx", KIND_DOCX: ".docx",
+                    KIND_PNG: ".png", KIND_JPEG: ".jpg", KIND_TIFF: ".tif"}
+#: The first bytes of each accepted image format.
+_IMAGE_MAGIC = ((b"\x89PNG\r\n\x1a\n", KIND_PNG), (b"\xff\xd8\xff", KIND_JPEG),
+                (b"II*\x00", KIND_TIFF), (b"MM\x00*", KIND_TIFF))
+#: An image is small on disk and enormous decoded (a "pixel bomb"), so its
+#: declared size is bounded before anything is decoded: pixels per frame and
+#: frames per file. 120 megapixels is an A0 sheet at 300 dpi with room.
+MAX_IMAGE_PIXELS = 120_000_000
+MAX_IMAGE_FRAMES = 500
 
 #: The entry every real Word document has and no workbook does.
 _DOCX_REQUIRED_ENTRY = "word/document.xml"
@@ -68,8 +85,8 @@ OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 #: Said whenever an Office file we do not read is uploaded. W5b-01: Word
 #: (.docx) is read; the other formats are built later, and the answer says so.
 UNSUPPORTED_OFFICE_HINT = (
-    "This system reads PDF and Word (.docx) files. Save the file as a PDF or, for a "
-    "Word document, as .docx.")
+    "This system reads PDF, Word (.docx) and scanned images (PNG, JPEG, TIFF). Save the "
+    "file as a PDF or, for a Word document, as .docx.")
 
 
 class UploadError(Exception):
@@ -234,6 +251,49 @@ def validate_docx(temp_path: Path) -> None:
                           f"no {_DOCX_REQUIRED_ENTRY} entry")
 
 
+def image_kind(head: bytes) -> str | None:
+    """`png`, `jpeg` or `tiff` from a file's first bytes; None for anything else."""
+    for magic, kind in _IMAGE_MAGIC:
+        if head.startswith(magic):
+            return kind
+    return None
+
+
+def validate_image(temp_path: Path) -> None:
+    """Prove an image upload is a readable image whose decoded size is bounded.
+
+    The header is read, never the pixels: Pillow opens lazily, so a pixel
+    bomb is refused by its declared size before it is decoded. Every frame of
+    a multi-page TIFF is checked. A file that is not a readable image is
+    `not_image`, never stored.
+    """
+    from PIL import Image, UnidentifiedImageError
+
+    try:
+        with Image.open(temp_path) as img:
+            frames = getattr(img, "n_frames", 1)
+            if frames > MAX_IMAGE_FRAMES:
+                raise UploadError("not_image", "That image has more pages than this system accepts",
+                                  f"{frames} frames, limit {MAX_IMAGE_FRAMES}")
+            for index in range(frames):
+                img.seek(index)
+                width, height = img.size
+                if width < 1 or height < 1 or width * height > MAX_IMAGE_PIXELS:
+                    raise UploadError("not_image", "That image is larger than this system accepts",
+                                      f"frame {index + 1} is {width}x{height}, limit "
+                                      f"{MAX_IMAGE_PIXELS} pixels")
+    except UploadError:
+        raise
+    except (OSError, UnidentifiedImageError, ValueError, Image.DecompressionBombError) as exc:
+        raise UploadError("not_image", "That file is not a readable image",
+                          f"{type(exc).__name__}") from exc
+
+
+def image_accepted() -> bool:
+    """Is a scan sent as an image file accepted? W5b-01: `IMAGE_INPUT_ENABLED`."""
+    return bool(settings.image_input_enabled)
+
+
 def docx_accepted() -> bool:
     """Is a Word upload accepted? W5b-01: `DOCX_INPUT_ENABLED` (ON by default),
     or the older datasheet seam `DATASHEET_OFFICE_INPUT`."""
@@ -278,7 +338,9 @@ def detect_kind(temp_path: Path) -> str:
     off a file that was just written is free.
     """
     with open(temp_path, "rb") as fh:
-        head = fh.read(len(ZIP_MAGIC))
+        head = fh.read(8)
+    if image_accepted() and image_kind(head):
+        return image_kind(head)
     return KIND_XLSX if head.startswith(ZIP_MAGIC) else KIND_PDF
 
 
@@ -317,7 +379,8 @@ def stream_to_temp(src: BinaryIO, temp_path: Path) -> tuple[str, int]:
                         "Old Office files (.doc, .xls, .ppt) are not supported. "
                         + UNSUPPORTED_OFFICE_HINT,
                         "legacy Office container")
-                if not (block.startswith(PDF_MAGIC) or block.startswith(ZIP_MAGIC)):
+                if not (block.startswith(PDF_MAGIC) or block.startswith(ZIP_MAGIC)
+                        or (image_accepted() and image_kind(block))):
                     raise UploadError(
                         "not_pdf",
                         "That file is not a PDF",
@@ -391,6 +454,8 @@ def ingest(src: BinaryIO, raw_filename: str, *,
             # reaches the upload directory, so a rejected upload leaves
             # nothing behind to be found or served later.
             validate_xlsx(temp_path)
+        if kind in IMAGE_KINDS:
+            validate_image(temp_path)
     except Exception:
         temp_path.unlink(missing_ok=True)
         raise
@@ -448,6 +513,8 @@ def ingest(src: BinaryIO, raw_filename: str, *,
     # be reviewed. Off: a workbook is stored and never indexed, as above.
     indexed = (kind == KIND_PDF or (kind == KIND_DOCX and docx_accepted())
                or bool(settings.datasheet_office_input))
+    # W5b-01 (#525): a scan sent as an image is indexed like a scanned PDF.
+    indexed = indexed or kind in IMAGE_KINDS
     status = states.QUEUED if indexed else states.STORED_NOT_INDEXED
 
     with conn:

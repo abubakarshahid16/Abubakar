@@ -102,7 +102,9 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M4126", phase=4126, runner="vitest",
              description="the uploader copy says PDFs only again",
              path=FRONTEND_SRC / "components" / "Uploader.tsx",
-             anchor='Drag PDF or Word (.docx) files here, or{" "}', replacement='Drag PDFs here, or{" "}',
+             # Re-anchored 2026-10-09 (#525 images): the copy also names scanned images.
+             anchor='Drag PDF, Word (.docx) or scanned image (PNG, JPEG, TIFF) files here, or{" "}',
+             replacement='Drag PDFs here, or{" "}',
              target="src/components/Uploader.word.test.tsx", keyword="says Word files are accepted",
              tags=_TAG),
 )

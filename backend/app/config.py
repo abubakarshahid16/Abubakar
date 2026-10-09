@@ -563,6 +563,13 @@ class Settings(BaseSettings):
     #: default since the tests in test_w5b_525_docx.py pass.
     #: Env: DOCX_INPUT_ENABLED.
     docx_input_enabled: bool = True
+    #: Scans sent as image files (W5b-01, #525): PNG, JPEG and TIFF (one page
+    #: per frame). ON: accepted and indexed through the SAME pipeline as a
+    #: scanned PDF - PyMuPDF opens the image as a document, every page has no
+    #: text layer and is routed to recognition, and chunks cite the page
+    #: number. OFF: an image is refused as `not_pdf`, as before.
+    #: Env: IMAGE_INPUT_ENABLED.
+    image_input_enabled: bool = True
     #: Generous, because a refusal costs more than a wait: a timeout is
     #: `model_unavailable` and the requirement falls back to
     #: MISSING_INFORMATION, so a tight bound would quietly convert slow
