@@ -1,7 +1,7 @@
 """P1: the labelled question set blocks a change that lowers the score.
 
-The set (eval/p1/questions.json, version 4) is 66 invented-name questions run
-through the real chat on an invented fourteen-document corpus, no model call.
+The set (eval/p1/questions.json, version 5) is 67 invented-name questions run
+through the real chat on an invented fifteen-document corpus, no model call.
 The gate (owner decision 2026-10-08, `gate` in eval/p1/baseline.json, raised
 on 2026-10-09 to 43 of the 66 of version 4): at least 43 pass, and all 25 protected
 questions still pass (the 23 version 1 passes, and P1-65, P1-66). No unanswerable

@@ -1,7 +1,7 @@
 {
- "version": 4,
- "corpus": "P1 invented corpus (eval/p1/corpus.py), 14 documents",
- "author": "Claude, invented, no client text: P1-01 to P1-30 by Cowork (version 1), P1-31 to P1-60 by Claude Code (version 2, 2026-10-08). An engineer extends this set to 100+ before it is called independent. P1-61 to P1-64 by Claude Code (version 3, 2026-10-09, #602 and #610). P1-65 and P1-66 by Claude Code (version 4, 2026-10-09, identifier prefixes).",
+ "version": 5,
+ "corpus": "P1 invented corpus (eval/p1/corpus.py), 15 documents",
+ "author": "Claude, invented, no client text: P1-01 to P1-30 by Cowork (version 1), P1-31 to P1-60 by Claude Code (version 2, 2026-10-08). An engineer extends this set to 100+ before it is called independent. P1-61 to P1-64 by Claude Code (version 3, 2026-10-09, #602 and #610). P1-65 and P1-66 by Claude Code (version 4, 2026-10-09, identifier prefixes). P1-67 by Claude Code (version 5, 2026-10-09, #653 psi vs percent).",
  "questions": [
   {
    "id": "P1-01",
@@ -913,6 +913,20 @@
    "expected_clause": null,
    "expected_answer_contains": [
     "N06625  0.08"
+   ]
+  },
+  {
+   "id": "P1-67",
+   "category": "unit_trap",
+   "question": "What is the maximum accumulation for a single relief device, as a percentage of the design pressure?",
+   "answerable": true,
+   "expected_document": "STD-P-014.pdf",
+   "expected_pages": [
+    1
+   ],
+   "expected_clause": "6.1",
+   "expected_answer_contains": [
+    "10 % of the design pressure"
    ]
   }
  ]

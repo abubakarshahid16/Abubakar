@@ -65,8 +65,11 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="a verified quote vouches for any figure in its sentence again "
                     "('6 mm [S1 \"minimum wall thickness\"]' over a page saying 3 mm)",
         path=APP / "answer.py",
+        # re-anchored for #653: the note now names a unit mismatch apart
         anchor="            if figures_removed:\n                lost_tail = True\n"
-               "                note(segment, \"a figure in it is not on the cited page\")\n"
+               "                note(segment, UNIT_MISMATCH_REASON\n"
+               "                     if figures_removed[0].get(\"reason\") == UNIT_MISMATCH\n"
+               "                     else \"a figure in it is not on the cited page\")\n"
                "                continue\n",
         replacement="",
         target=_T, keyword="does_not_vouch_for_a_different_figure",
