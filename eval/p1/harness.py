@@ -7,9 +7,10 @@ with the same scorer as `eval/run_eval.py`, and compares the result with
 `baseline.json`.
 
 THE RULE IT ENFORCES (owner decision 2026-10-08, the `gate` in
-`baseline.json`, raised 2026-10-09): at least 43 of the 66 questions pass,
-and all 25 protected questions still pass, with their clause labels: the 23
-version 1 passes (P1-01 to P1-30) and P1-65, P1-66 (the UNS identifier fix).
+`baseline.json`, raised 2026-10-09): at least 44 of the 67 questions pass,
+and all 26 protected questions still pass, with their clause labels: the 23
+version 1 passes (P1-01 to P1-30), P1-65, P1-66 (the UNS identifier fix) and
+P1-67 (the psi vs percent fix).
 Any other question may trade places with another. An unanswerable question
 that was refused and is now answered fails the run whatever the total.
 A baseline with no `gate` (a private real-library one) keeps the older,
