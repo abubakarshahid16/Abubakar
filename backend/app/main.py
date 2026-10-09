@@ -382,7 +382,7 @@ def health():
         # and version is fingerprinting material and is on /api/metrics,
         # which is scoped to the caller's grants as of the commit that
         # added this note - it was not when the field was moved there.
-        "answer_model_present": bool(settings.answer_model),
+        "answer_model_configured": bool(settings.answer_model),
         "ingestion": {
             "alive": worker["alive"],
             "stalled": worker["stalled"],

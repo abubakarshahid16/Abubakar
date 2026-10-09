@@ -179,7 +179,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/venv
-          key: venv-${{ runner.os }}-py${{ steps.py.outputs.python-version }}-${{ hashFiles('backend/requirements.txt') }}-ruff0.16.6-split0.11.0
+          key: venv-${{ runner.os }}-py${{ steps.py.outputs.python-version }}-${{ hashFiles('backend/requirements.txt') }}-ruff0.16.6-split0.11.0-vulture2.16
 
       - name: Install dependencies
         if: steps.venv.outputs.cache-hit != 'true'
@@ -187,13 +187,20 @@ jobs:
           python -m venv ~/venv
           ~/venv/bin/python -m pip install --upgrade pip
           ~/venv/bin/pip install -r backend/requirements.txt
-          ~/venv/bin/pip install huggingface_hub ruff==0.16.6 pytest-split==0.11.0
+          ~/venv/bin/pip install huggingface_hub ruff==0.16.6 pytest-split==0.11.0 vulture==2.16
 
       - name: Use the environment
         run: echo "$HOME/venv/bin" >> "$GITHUB_PATH"
 
       - name: Lint backend for correctness errors
         run: python -m ruff check backend/app backend/tests --select E9,F63,F7,F82
+
+      # New dead code fails the build (#661). Confidence 80: an unused import,
+      # variable or unreachable branch. Names that only LOOK unused (a cache
+      # key argument, a library callback's parameter) are in the whitelist with
+      # the reason beside each.
+      - name: Find dead code
+        run: python -m vulture backend/app scripts/vulture_whitelist.py --min-confidence 80
 
       # No tests run: reads each mutation's target file and fails when an
       # anchor in scripts/mutations/ no longer matches exactly once, so a
