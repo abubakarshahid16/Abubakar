@@ -1,0 +1,4 @@
+{
+  "baselines": {},
+  "note": "EMPTY ON PURPOSE. A baseline is what a model actually scored, and the model cannot run in the cloud. Run `python eval/p1ai/run_p1ai.py --write-baseline` on the PC once per model (qwen3.5:2b, then 4b, later the Mac Studio model). The owner may add a `gate` {min_passing, protected} to a model's entry; a rewrite keeps it."
+}

@@ -380,6 +380,9 @@ class Settings(BaseSettings):
     # default (the owner's decision of 2026-10-09), "qwen3.5:4b" or a larger
     # local model by changing this one value.
     ai_task_model: str = "qwen3.5:2b"
+    #: The model the P1-AI exam (eval/p1ai, #674) asks. A setting, never a
+    #: constant: the final choice is benchmarked on the Mac Studio (#683).
+    p1_ai_model: str = "qwen3.5:2b"
     #: About this many words of source text per task. Longer input is refused
     #: by name (never cut silently): the caller splits it into passages.
     ai_task_max_words: int = 300
