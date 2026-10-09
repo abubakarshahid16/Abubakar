@@ -3745,3 +3745,67 @@ class AdminDbRows(BaseModel):
 
 
 ERRORS_409 = {409: {"model": ErrorEnvelope, "description": "Conflicts with existing state"}}
+
+
+class PlaybookReviewRequest(BaseModel):
+    """Which playbook to review a document against (#679)."""
+    playbook_id: str
+    #: Let the local model propose a quote for elements the cue words left open.
+    use_ai: bool = False
+
+
+class PlaybookSummary(BaseModel):
+    id: str
+    title: str
+    version: str
+    document_kind: str
+    signed_off: bool
+    sign_off: dict
+    clauses_verified: bool
+    #: Said while the playbook is a draft; null once a discipline engineer signed it off.
+    notice: str | None = None
+    elements: int
+
+
+class PlaybookUnusable(BaseModel):
+    file: str
+    reason: str
+
+
+class PlaybookList(BaseModel):
+    playbooks: list[PlaybookSummary]
+    #: Playbook files that could not be loaded, with the reason. Never dropped.
+    unusable: list[PlaybookUnusable]
+
+
+class PlaybookEvidenceItem(BaseModel):
+    locator: str
+    #: A verbatim slice of the passage's own text; null when only a heading matched.
+    quote: str | None = None
+    method: str
+    groups: list[str] = []
+    in_text: bool | None = None
+
+
+class PlaybookElementResult(BaseModel):
+    id: str
+    title: str
+    expects: str
+    source: dict
+    standard_held: bool
+    #: present | unclear | missing | could_not_be_checked | standard_not_held.
+    #: "standard_not_held" is never "met".
+    state: str
+    reason: str | None = None
+    evidence: list[PlaybookEvidenceItem]
+    missing_cues: list[str]
+    found_at: list[str]
+
+
+class PlaybookReport(BaseModel):
+    playbook: dict
+    document: dict
+    elements: list[PlaybookElementResult]
+    #: Each state's count and the total, so no count lacks its denominator.
+    counts: dict[str, int]
+    ai: dict
