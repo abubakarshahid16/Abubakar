@@ -14,9 +14,12 @@ wrong, restated:
     rather than merely discouraged. `summary.text` is REBUILT from the cited
     sentences, so what the reader sees and what `documented_findings` lists are
     the same sentences by construction.
-  * A number in a sentence must appear in a span that sentence cites. This is
-    what stops the model quietly converting 280 um to 0.28 mm and citing a page
-    that says neither. A numeral that REFERS - "Document 17", "clause 6.1",
+  * A number in a sentence must appear in a span that sentence cites - or be
+    the SAME QUANTITY the span states in another unit of the same kind, equal
+    after conversion to the sentence's own printed precision (#653, owner
+    order: "16 psi matches 110 kPa"). This is what stops the model quietly
+    converting 280 um to 0.30 mm, or reading 11 psi as 11 %, and citing a
+    page that says neither. A numeral that REFERS - "Document 17", "clause 6.1",
     "Table 1", "page 183", "doc17.pdf" - is not a number in this sense and is
     excluded from the sentence's side of the comparison, never from the span's.
   * The rendered prose opens with a sentence that stands alone. "It also
@@ -576,14 +579,12 @@ def first_unit_conflict(sentence: str, spans: str) -> str | None:
     (a table cell, whose unit is a column away) is not a conflict; a figure
     the spans do not contain at all is not this check's business (the bag
     check removes that sentence)."""
-    page = _figures_with_units(spans)
-    for value, unit, written in _figures_with_units(sentence):
-        if unit is None:
-            continue
-        same_value = [u for v, u, _ in page if v == value]
-        if same_value and unit not in same_value and None not in same_value:
-            return written
-    return None
+    # #653 ONE CHECK, NOT TWO: this lane kept its own copy of the unit
+    # comparison, and it did not know gauge from absolute or a label's unit
+    # written before its number. It now asks the shared one.
+    from . import answer
+
+    return answer.first_unit_conflict(sentence, spans)
 
 
 def claimed_numbers(sentence: str) -> set[str]:
@@ -674,10 +675,11 @@ def _cite(
 
       * it cites nothing - an uncited claim is a defect, not a stylistic
         choice, so it does not reach `documented_findings` OR the prose;
-      * it carries a number that appears in no span it cites. This is the
-        second form the design asks for, and it is the one that catches a
-        silent unit conversion: "0.28 mm [S1]" over a source that says
-        "280 um" cites a real page for a number that page does not contain.
+      * it carries a number that appears in no span it cites, and is not
+        that span's figure correctly converted to another unit of the same
+        kind (#653). This catches a WRONG silent conversion: "0.30 mm [S1]"
+        over a source that says "280 um" cites a real page for a figure that
+        page does not state. "0.28 mm" over it is the same figure and stays.
     """
     kept: list[CitedSentence] = []
     dropped: list[tuple[str, str]] = []
@@ -708,6 +710,13 @@ def _cite(
         # vouch for a sentence's "6 mm".
         supported = span_numbers(spans)
         unsupported = claimed_numbers(sentence) - supported
+        if unsupported:
+            # #653 the same quantity in another unit, checked by the ONE
+            # shared figure check the answer lanes use.
+            from . import answer
+
+            unsupported = {v for v in unsupported
+                           if not answer._converted_on_page(sentence, v, spans)}
         if unsupported:
             # Named as the reader sees it: "value 300 not in cited passage".
             value = first_unsupported_value(sentence, supported) or sorted(unsupported)[0]

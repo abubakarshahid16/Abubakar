@@ -208,12 +208,16 @@ def test_generation_from_ollama_reads_done_reason_length():
 # ------------------------------------------- a number must be in a span it cites
 
 
-def test_a_silently_converted_unit_is_rejected():
-    """The span says 280 um. "0.28 mm" cites a real page for a number that page
-    does not contain, and that is the whole failure mode."""
-    out = summarise(QUESTION, TWO, Stub("The system requires 0.28 mm [S1]."))
+def test_a_silently_converted_unit_is_rejected_unless_the_conversion_is_right():
+    """The span says 280 um. A WRONG conversion - "0.30 mm" is 300 um - cites
+    a real page for a figure that page does not state, and that is the whole
+    failure mode. Since #653 (owner order: "16 psi matches 110 kPa") the
+    CORRECT conversion, "0.28 mm", is the same figure and is kept."""
+    out = summarise(QUESTION, TWO, Stub("The system requires 0.30 mm [S1]."))
     assert out.text is None
-    assert out.dropped_sentences[0][1] == "value 0.28 not in cited passage"
+    assert out.dropped_sentences[0][1] == "value 0.30 not in cited passage"
+    out = summarise(QUESTION, TWO, Stub("The system requires 0.28 mm [S1]."))
+    assert out.text == "The system requires 0.28 mm [S1]."
 
 
 def test_a_number_written_with_a_comma_decimal_is_the_same_number():

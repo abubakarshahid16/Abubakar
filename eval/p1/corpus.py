@@ -1,4 +1,4 @@
-"""The P1 invented corpus: fourteen made-up standards, no client text.
+"""The P1 invented corpus: fifteen made-up standards, no client text.
 
 Every name, number and sentence here is invented. The set is small on purpose
 and built to hit the failure classes found in this project: a reworded
@@ -23,6 +23,9 @@ standard is about pipe supports, not flanged joints, for that reason.
 
 Version 4 (2026-10-09) added STD-N-013: a composition table that prints the
 bare alloy code under its UNS column, for a question that writes the prefix.
+
+Version 5 (2026-10-09) added STD-P-014 for #653: a percent limit beside a
+worked-example row that prints the same number as psi, label-style.
 
 `build(folder)` writes the PDFs deterministically. Page numbers below are the
 ground truth the question set points at; `questions.json` is checked against
@@ -287,6 +290,24 @@ DOCS: dict[str, list[list[str]]] = {
             "N06625  0.08  20.0-23.0  58.0",
             "N08825  0.04  19.5-23.5  38.0",
             "N10276  0.01  14.5-16.5  51.0",
+        ],
+    ],
+    # Version 5 (#653): a limit stated in percent beside a worked example
+    # that prints the same number as a pressure, label-style ("psi (kPa)
+    # 10.0 (69)") - the shape a model read as "10 %" from "10.0 psi".
+    "STD-P-014.pdf": [
+        [
+            "STD-P-014 Relief Device Accumulation, Revision 0",
+            "1 Scope",
+            "1.1 This standard limits pressure accumulation in protected equipment.",
+            "6 Accumulation",
+            "6.1 Accumulation shall not exceed 10 % of the design pressure for a single relief device.",
+        ],
+        [
+            "Table 3 Worked example",
+            "Item  Value",
+            "Allowable accumulation, psi (kPa)  10.0 (69)",
+            "Design pressure, psig (kPag)  100.0 (690)",
         ],
     ],
 }
