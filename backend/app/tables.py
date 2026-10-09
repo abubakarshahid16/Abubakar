@@ -253,6 +253,29 @@ def parse_page_tables(stored_path: str, page_no: int) -> list[list[list[str]]]:
         return []
 
 
+def _table_of_chunk(tables: list[list[list[str]]], chunk_text: str | None) -> list[list[str]]:
+    """The table on the page that THIS chunk is the text of.
+
+    #695: a page with two tables used to give both table chunks the LARGEST
+    table, so the smaller table's rows were never read and the larger one's
+    were read twice. The chunk's own text says which table it is: the table
+    whose cells appear most in it. Ties, and a chunk whose text matches none
+    (or has no text), fall back to the largest table by cell count - the old
+    rule, which still protects a real table from a stray two-cell artefact.
+    """
+    def size(t: list[list[str]]) -> int:
+        return sum(len(r) for r in t)
+
+    text = " ".join((chunk_text or "").split())
+    if text and len(tables) > 1:
+        def hits(t: list[list[str]]) -> int:
+            return sum(1 for r in t for c in r if len(c) >= 2 and c in text)
+        scored = sorted(tables, key=lambda t: (hits(t), size(t)), reverse=True)
+        if hits(scored[0]) > 0:
+            return scored[0]
+    return max(tables, key=size)
+
+
 def parse_document_tables(
     document_id: str, *, allowed_document_ids: frozenset[str],
 ) -> list[TableParse]:
@@ -265,7 +288,7 @@ def parse_document_tables(
         return []
     marks = ",".join("?" for _ in allowed_document_ids)
     rows = connect().execute(
-        f"""SELECT c.id, c.document_id, c.page_start, d.stored_path
+        f"""SELECT c.id, c.document_id, c.page_start, c.text, d.stored_path
             FROM chunks c JOIN documents d ON d.id = c.document_id
             WHERE c.document_id IN ({marks}) AND c.document_id = ?
               AND c.kind = 'table'
@@ -292,10 +315,7 @@ def parse_document_tables(
                 unparsed_reason="no recoverable table geometry on this page",
             ))
             continue
-        # The largest table on the page, by cell count. A page with a real
-        # table and a stray two-cell artefact should yield the real one, and
-        # the chunk cannot tell us which it belongs to.
-        best = max(tables, key=lambda t: sum(len(r) for r in t))
+        best = _table_of_chunk(tables, row["text"])
         header, data_rows = _compose_header(best)
         out.append(TableParse(
             chunk_id=row["id"], document_id=row["document_id"], page=page,

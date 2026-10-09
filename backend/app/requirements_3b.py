@@ -252,6 +252,41 @@ def cell_value(cell: str) -> str | None:
     return cell.strip()
 
 
+#: A cell that is a number WITH ITS OWN UNIT: "50 mm", "0.5 %", ">= 5 mm",
+#: "12.5 \u00b0C", "90 dB(A)". #695: `cell_value` accepted only a bare number, so
+#: every cell of a table that writes the unit in the cell (rather than in the
+#: column header) was dropped without a trace - the commonest layout of a
+#: limits table. The unit token is shaped like a unit (letters, %, a degree
+#: sign, "/" and a bracketed qualifier), never a sentence; words that join the
+#: two ends of a range are not units.
+_CELL_WITH_UNIT = re.compile(
+    r"^\s*(?P<num>[<>=\u2264\u2265\u00b1]{0,2}\s*[-+]?\d[\d.,]*)\s*"
+    r"(?P<unit>%|\u00b0\s?[A-Za-z]|[A-Za-z][A-Za-z0-9/\u00b2\u00b3\u00b5\u00b7.\-]{0,11}"
+    r"(?:\([A-Za-z]{1,4}\))?)\s*[*\u2020\u2021]?\s*$")
+_NOT_A_UNIT = frozenset({"x", "to", "and", "or", "of", "no", "na", "nil"})
+
+
+def cell_reading(cell: str) -> tuple[str, str | None] | None:
+    """(the number as written, the unit written in the same cell) for a cell
+    that holds a number, or None for a cell that does not.
+
+    A bare number gives (cell, None). The unit, when there is one, is the
+    SPELLING the cell used; whether it means anything is `claims`' decision
+    (an unknown unit leaves the value NULL, never 0 - the same rule as a unit
+    taken from a column header).
+    """
+    if cell_value(cell) is not None:
+        return cell, None
+    text = numparse.normalise_text(cell or "")
+    match = _CELL_WITH_UNIT.match(text)
+    if match is None:
+        return None
+    unit = re.sub(r"\s+", "", match.group("unit"))
+    if unit.lower() in _NOT_A_UNIT:
+        return None
+    return match.group("num").strip(), unit
+
+
 #: "Max.", "Maximum", "Min", "Minimum" as a WORD of a column header. A header
 #: naming both ("Min/Max") says nothing about one cell and gives no operator.
 _HEADER_MAX = re.compile(r"\bmax(?:imum)?\b", re.IGNORECASE)

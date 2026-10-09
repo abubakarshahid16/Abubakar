@@ -427,3 +427,52 @@ def test_search_conflicts_and_missing_standards_read_active_rows_only(monkeypatc
     cited = str(standards_inventory._requirement_citations(allowed_document_ids=scope))
     assert "610" in cited, cited
     assert "674" not in cited
+
+
+# ------------------------------------------------- #673 the repeats are counted
+
+def _bare_standard() -> str:
+    """A standard built from rows alone: these counts do not need the chunker."""
+    doc_id = str(uuid.uuid4())
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO documents (id,filename,sha256,size_bytes,stored_path,status,page_count,uploaded_at)"
+            " VALUES (?,?,?,1,'s.pdf','ready',1,?)", (doc_id, "s.pdf", f"sha-{doc_id}", NOW))
+        conn.execute(
+            "INSERT INTO chunks (id, document_id, filename, ordinal, page_start, page_end, kind,"
+            " text, token_count, content_hash) VALUES (?,?,?,?,1,1,'prose','t',1,?)",
+            (f"c-{doc_id}", doc_id, "s.pdf", 0, f"h-{doc_id}"))
+    return doc_id
+
+
+def test_the_rehearsal_counts_old_style_repeats_that_the_narrow_counts_miss():
+    """Rows written before #594 have no identity key, and a repeat can sit under
+    another clause. The two narrow counts said 0 for both; the plain count
+    (same standard, same text) must see them, and count superseded ones apart."""
+    std = _bare_standard()
+    for _ in range(3):      # a table cell met three times, no identity key
+        _row(std, "Fan - Speed: 900", requirement_type="table_value", identity_key=None)
+    first = _row(std, "The casing shall be painted.")
+    second = _row(std, "The casing shall be painted.")
+    with db.connect() as conn:    # the repeat is filed under another clause
+        conn.execute("UPDATE standard_requirements SET clause = '7.1' WHERE id = ?", (second,))
+    _row(std, "The shaft shall be balanced.")
+    _row(std, "The shaft shall be balanced.", superseded=True)
+    counted = _script().counts(db.connect())
+    assert counted["duplicate_table_cells_active"] == 0     # the old blind spots,
+    assert counted["duplicate_sentences_active"] == 0       # kept as they were
+    assert counted["repeated_rows_active"] == 3             # 2 extra cells + 1 sentence
+    assert counted["repeated_table_cell_rows_active"] == 2
+    assert counted["repeated_rows_including_superseded"] == 4
+    assert first != second
+
+
+def test_the_rehearsal_prints_the_repeated_share_with_its_denominator(capsys):
+    std = _bare_standard()
+    for _ in range(2):
+        _row(std, "Fan - Speed: 900", requirement_type="table_value")
+    path = Path(settings.db_path)
+    db.reset_connection()
+    _script().main(["--db", str(path)])
+    out = capsys.readouterr().out
+    assert "repeated rows before:" in out and "active rows" in out
