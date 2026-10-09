@@ -299,7 +299,43 @@ def run_list_cited_standards(input: dict, *, allowed_document_ids: frozenset[str
     lines = [f"{h['identifier']}: held ({h['filename']})" for h in held]
     lines += [f"{m['identifier']}: cited but not held in this library" for m in missing]
     return ToolRun("list_cited_standards", input, "Checked cited standards", True,
-                  note="\n".join(lines) or "no standards cited")
+                   _cited_standard_sources(doc, document_id, cited, held,
+                                           allowed_document_ids=allowed_document_ids),
+                   note="\n".join(lines) or "no standards cited")
+
+
+def _cited_standard_sources(doc: dict, document_id: str, cited: list[str], held: list[dict], *,
+                            allowed_document_ids: frozenset[str]) -> list[dict]:
+    """#454 (audit B04): the passages a "which standards does it cite" answer
+    rests on, with their DOCUMENT IDS. Before, this tool returned only text, so
+    an answer from it alone lost every citation and read as general knowledge.
+
+    For each citation, the submittal's own printed line and its page
+    (`applicability.citation_evidence`, read under the caller's grants); for
+    each HELD standard, that standard's first readable passage. A citation
+    whose page cannot be found gets no source - never a guessed page."""
+    sources: list[dict] = []
+    for i, identifier in enumerate(cited):
+        page, quote = applicability.citation_evidence(document_id, identifier, allowed_document_ids)
+        if page is None or not quote:
+            continue
+        sources.append({"chunk_id": f"cite_{document_id}_{i}", "document_id": document_id,
+                        "filename": doc["filename"], "page_start": page, "page_end": page,
+                        "section": f"cites {identifier}", "text": quote, "score": 1.0})
+    for h in held:
+        std_id = h.get("standard_document_id")
+        std = _readable(std_id or "", allowed_document_ids=allowed_document_ids)
+        if std is None:
+            continue
+        row = connect().execute(
+            "SELECT id, page_start, page_end, section, text FROM chunks WHERE document_id = ?"
+            " AND retrievable = 1 ORDER BY ordinal LIMIT 1", (std_id,)).fetchone()
+        if row is None:
+            continue
+        sources.append({"chunk_id": row["id"], "document_id": std_id, "filename": std["filename"],
+                        "page_start": row["page_start"], "page_end": row["page_end"],
+                        "section": row["section"], "text": row["text"], "score": 1.0})
+    return sources
 
 
 def run_look_at_page(input: dict, *, allowed_document_ids: frozenset[str],
