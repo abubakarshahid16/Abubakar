@@ -45,7 +45,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         path=APP / "upload.py",
         # Re-anchored 2026-09-30 (DATASHEET_OFFICE_INPUT): the line now also
         # names the flag; with it off (the default) the meaning is unchanged.
-        anchor="    indexed = kind == KIND_PDF or bool(settings.datasheet_office_input)",
+        # Re-anchored 2026-10-09 (W5b-01, #525): a Word upload is also indexed
+        # when DOCX_INPUT_ENABLED is on; the mutation (index everything) is the same.
+        anchor=("    indexed = (kind == KIND_PDF or (kind == KIND_DOCX and docx_accepted())\n"
+                "               or bool(settings.datasheet_office_input))"),
         replacement="    indexed = True",
         target="tests/test_xlsx_upload.py",
         keyword="terminal_state or worker_never_selects",
