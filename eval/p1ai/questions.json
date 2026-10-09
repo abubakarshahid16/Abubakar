@@ -1,0 +1,370 @@
+{
+ "version": 1,
+ "corpus": "eval/p1/corpus.py (invented standards STD-A-001 to STD-P-014)",
+ "author": "Claude (invented), 2026-10-09; the answer key is the corpus text itself",
+ "questions": [
+  {
+   "id": "PAI-01",
+   "category": "figure",
+   "question": "What is the vibration limit at a centrifugal pump bearing housing?",
+   "answerable": true,
+   "expected_document": "STD-A-001.pdf",
+   "expected_pages": [
+    3
+   ],
+   "expected_clause": "4.1",
+   "expected_answer_contains": [
+    "3.0 mm/s"
+   ],
+   "forbidden_in_answer": [
+    "2.5 mm/s"
+   ]
+  },
+  {
+   "id": "PAI-02",
+   "category": "old_revision",
+   "question": "What did Revision 0 of STD-A-001 give as the vibration limit?",
+   "answerable": true,
+   "expected_document": "STD-A-001-REV0.pdf",
+   "expected_pages": [
+    1
+   ],
+   "expected_clause": "4.1",
+   "expected_answer_contains": [
+    "2.5 mm/s"
+   ],
+   "forbidden_in_answer": [
+    "3.0 mm/s"
+   ]
+  },
+  {
+   "id": "PAI-03",
+   "category": "figure",
+   "question": "How many operating hours may pass between pump inspections?",
+   "answerable": true,
+   "expected_document": "STD-A-001.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "3.1",
+   "expected_answer_contains": [
+    "4000"
+   ]
+  },
+  {
+   "id": "PAI-04",
+   "category": "two_figures",
+   "question": "What are the alarm and trip temperatures for the drive end bearing of a pump?",
+   "answerable": true,
+   "expected_document": "STD-A-001.pdf",
+   "expected_pages": [
+    3
+   ],
+   "expected_clause": null,
+   "expected_answer_contains": [
+    "85 degC",
+    "95 degC"
+   ],
+   "forbidden_in_answer": [
+    "80 degC",
+    "90 degC"
+   ]
+  },
+  {
+   "id": "PAI-05",
+   "category": "figure",
+   "question": "What minimum dry film thickness is required for the primer coat?",
+   "answerable": true,
+   "expected_document": "STD-B-002.pdf",
+   "expected_pages": [
+    3
+   ],
+   "expected_clause": "4.1",
+   "expected_answer_contains": [
+    "250 micrometres"
+   ]
+  },
+  {
+   "id": "PAI-06",
+   "category": "figure",
+   "question": "Within how many hours of blast cleaning must the coating be applied?",
+   "answerable": true,
+   "expected_document": "STD-B-002.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "3.2",
+   "expected_answer_contains": [
+    "4 hours"
+   ]
+  },
+  {
+   "id": "PAI-07",
+   "category": "figure",
+   "question": "What is the hydrostatic test pressure for a fabricated pressure vessel?",
+   "answerable": true,
+   "expected_document": "STD-C-003.pdf",
+   "expected_pages": [
+    3
+   ],
+   "expected_clause": "7.1",
+   "expected_answer_contains": [
+    "1.3 times"
+   ]
+  },
+  {
+   "id": "PAI-08",
+   "category": "near_miss",
+   "question": "How long must a vessel hydrostatic test pressure be held?",
+   "answerable": true,
+   "expected_document": "STD-C-003.pdf",
+   "expected_pages": [
+    3
+   ],
+   "expected_clause": "7.2",
+   "expected_answer_contains": [
+    "30 minutes"
+   ],
+   "forbidden_in_answer": [
+    "24 hours"
+   ]
+  },
+  {
+   "id": "PAI-09",
+   "category": "near_miss",
+   "question": "How long must a new atmospheric storage tank be held full of water?",
+   "answerable": true,
+   "expected_document": "STD-J-009.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "4.1",
+   "expected_answer_contains": [
+    "24 hours"
+   ],
+   "forbidden_in_answer": [
+    "30 minutes"
+   ]
+  },
+  {
+   "id": "PAI-10",
+   "category": "figure",
+   "question": "What minimum IP rating do outdoor electrical enclosures need?",
+   "answerable": true,
+   "expected_document": "STD-D-004.pdf",
+   "expected_pages": [
+    1
+   ],
+   "expected_clause": "2.1",
+   "expected_answer_contains": [
+    "IP66"
+   ]
+  },
+  {
+   "id": "PAI-11",
+   "category": "near_miss",
+   "question": "At what noise level must an area be marked as a hearing protection zone?",
+   "answerable": true,
+   "expected_document": "STD-F-006.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "4.1",
+   "expected_answer_contains": [
+    "85 dB(A)"
+   ],
+   "forbidden_in_answer": [
+    "90 dB(A)"
+   ]
+  },
+  {
+   "id": "PAI-12",
+   "category": "sign",
+   "question": "What is the lowest design temperature for outdoor equipment?",
+   "answerable": true,
+   "expected_document": "STD-G-007.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "3.1",
+   "expected_answer_contains": [
+    "-29 degC"
+   ],
+   "forbidden_in_answer": [
+    "+29"
+   ]
+  },
+  {
+   "id": "PAI-13",
+   "category": "figure",
+   "question": "What accuracy must pressure transmitters achieve?",
+   "answerable": true,
+   "expected_document": "STD-H-008.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "5.1",
+   "expected_answer_contains": [
+    "0.25 percent"
+   ]
+  },
+  {
+   "id": "PAI-14",
+   "category": "near_miss",
+   "question": "How often must safety critical instruments be calibrated?",
+   "answerable": true,
+   "expected_document": "STD-H-008.pdf",
+   "expected_pages": [
+    3
+   ],
+   "expected_clause": "6.1",
+   "expected_answer_contains": [
+    "12 months"
+   ],
+   "forbidden_in_answer": [
+    "24 months"
+   ]
+  },
+  {
+   "id": "PAI-15",
+   "category": "unit_trap",
+   "question": "What is the maximum accumulation for a single relief device, as a percentage of the design pressure?",
+   "answerable": true,
+   "expected_document": "STD-P-014.pdf",
+   "expected_pages": [
+    1
+   ],
+   "expected_clause": "6.1",
+   "expected_answer_contains": [
+    "10 %"
+   ],
+   "forbidden_in_answer": [
+    "psi"
+   ]
+  },
+  {
+   "id": "PAI-16",
+   "category": "figure",
+   "question": "At what overpressure must a relief valve in liquid service reach full rated capacity?",
+   "answerable": true,
+   "expected_document": "STD-L-011.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "5.1",
+   "expected_answer_contains": [
+    "10 percent"
+   ]
+  },
+  {
+   "id": "PAI-17",
+   "category": "figure",
+   "question": "What bolt grade is required for pipe supports?",
+   "answerable": true,
+   "expected_document": "STD-M-012.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "4.1",
+   "expected_answer_contains": [
+    "B7"
+   ]
+  },
+  {
+   "id": "PAI-18",
+   "category": "table",
+   "question": "What maximum carbon content does the nickel alloy standard allow for UNS N08825?",
+   "answerable": true,
+   "expected_document": "STD-N-013.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": null,
+   "expected_answer_contains": [
+    "0.04"
+   ],
+   "forbidden_in_answer": [
+    "0.08",
+    "0.01"
+   ]
+  },
+  {
+   "id": "PAI-19",
+   "category": "near_miss",
+   "question": "What is the maximum vibration at an air cooled heat exchanger fan bearing?",
+   "answerable": true,
+   "expected_document": "STD-K-010.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "3.1",
+   "expected_answer_contains": [
+    "6.0 mm/s"
+   ],
+   "forbidden_in_answer": [
+    "3.0 mm/s"
+   ]
+  },
+  {
+   "id": "PAI-20",
+   "category": "decimal_comma",
+   "question": "What zero drift is allowed for instruments per year?",
+   "answerable": true,
+   "expected_document": "STD-H-008.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": "5.2",
+   "expected_answer_contains": [
+    "0.5 kPa"
+   ]
+  },
+  {
+   "id": "PAI-21",
+   "category": "figure",
+   "question": "How often must external inspection of an atmospheric storage tank take place?",
+   "answerable": true,
+   "expected_document": "STD-J-009.pdf",
+   "expected_pages": [
+    3
+   ],
+   "expected_clause": "5.1",
+   "expected_answer_contains": [
+    "5 years"
+   ]
+  },
+  {
+   "id": "PAI-22",
+   "category": "absent",
+   "question": "What is the vibration limit for a reciprocating pump?",
+   "answerable": false,
+   "forbidden_in_answer": [
+    "3.0 mm/s"
+   ]
+  },
+  {
+   "id": "PAI-23",
+   "category": "absent",
+   "question": "What colour must the fire water pipework be painted?",
+   "answerable": false
+  },
+  {
+   "id": "PAI-24",
+   "category": "absent",
+   "question": "What is the warranty period for relief valves?",
+   "answerable": false
+  },
+  {
+   "id": "PAI-25",
+   "category": "absent",
+   "question": "What crane capacity is needed to lift pipe supports?",
+   "answerable": false
+  },
+  {
+   "id": "PAI-26",
+   "category": "absent",
+   "question": "What flange rating is required for the vessel nozzles?",
+   "answerable": false
+  }
+ ]
+}
