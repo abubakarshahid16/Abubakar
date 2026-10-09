@@ -29,10 +29,17 @@ APPLIES_NOT_CHECKED = "applies_not_checked"
 DOES_NOT_APPLY = "does_not_apply"
 STATES = (CHECKED, APPLIES_NOT_CHECKED, DOES_NOT_APPLY)
 
-#: reason code -> (state, plain words for an engineer)
+#: reason code -> (state, plain words for an engineer). "checked" means what
+#: #678's three-way split means by it: the requirement REACHED the comparison
+#: (met / not met / needs engineer); the reason says how it ended there, so
+#: "compared with a value" stays visible beside "needs an engineer".
 REASONS: dict[str, tuple[str, str]] = {
-    # checked: the verdict the comparison reached
+    # checked: reached the comparison - how it ended
     "compared": (CHECKED, "compared with the datasheet value"),
+    "missing_information": (CHECKED, "no value for it on this datasheet"),
+    "needs_engineer": (CHECKED, "an engineer has to decide it"),
+    "needs_other_document": (CHECKED, "it asks for evidence another document gives"),
+    "not_applicable": (CHECKED, "the comparison found it does not apply here"),
     # applies, not checked
     "row_label_not_on_sheet": (APPLIES_NOT_CHECKED,
                                "table row: its row label is not on this datasheet"),
@@ -43,10 +50,6 @@ REASONS: dict[str, tuple[str, str]] = {
     "no_label": (APPLIES_NOT_CHECKED, "table row: it has no row label or column to match"),
     "unreadable_text": (APPLIES_NOT_CHECKED,
                         "its text failed the quality check and is not confirmed"),
-    "missing_information": (APPLIES_NOT_CHECKED, "no value for it on this datasheet"),
-    "needs_engineer": (APPLIES_NOT_CHECKED, "an engineer has to decide it"),
-    "needs_other_document": (APPLIES_NOT_CHECKED,
-                             "it asks for evidence another document gives"),
     "service_unknown": (APPLIES_NOT_CHECKED,
                         "it applies only in a service the submittal does not state"),
     "applicability_unsure": (APPLIES_NOT_CHECKED,
@@ -56,7 +59,6 @@ REASONS: dict[str, tuple[str, str]] = {
     "other_equipment": (DOES_NOT_APPLY, "it is about another kind of equipment"),
     "service_condition_not_met": (DOES_NOT_APPLY,
                                   "it applies only in a service this submittal says it is not in"),
-    "not_applicable": (DOES_NOT_APPLY, "the comparison found it does not apply"),
     "informative_note": (DOES_NOT_APPLY, "an informative note, not a requirement"),
 }
 
@@ -69,6 +71,46 @@ STATUS_REASON = {
     "NOT_IN_DOCUMENT_SCOPE": "needs_other_document",
     "NOT_APPLICABLE": "not_applicable",
 }
+
+
+#: #678 item codes that differ from this module's reason codes.
+_ITEM_CODE = {"text_quality": "unreadable_text"}
+
+
+def build(*, checked: list[dict], status_of: dict, rejected: set,
+          not_checked: list[dict], not_applied: list[dict], notes: dict | None = None) -> list[dict]:
+    """The per-requirement decisions, from the SAME inputs #678's
+    `requirement_split.build` counts: the requirements that reached the
+    comparison (with their finding's status), and the not-checked / does-not-
+    apply items (`{"requirement", "code", "detail"}`). One decision per stored
+    row. `notes`: what an AI tier suggested and code did not confirm, kept on
+    the decision of a requirement that was not compared with a value."""
+    notes = notes or {}
+    out: list[dict] = []
+    for requirement in checked:
+        rid = requirement.get("id")
+        if rid in status_of:
+            decided = from_finding(requirement, status_of[rid])
+        else:
+            decided = decision(requirement, "needs_engineer",
+                               "an engineer rejected the pairing" if rid in rejected
+                               else "no finding was written")
+        if rid in notes and decided["reason_code"] != "compared":
+            decided = {**decided, "reason": f"{decided['reason']}; {notes[rid]}"}
+        out.append(decided)
+    for item in not_checked:
+        out.append(_from_item(item, APPLIES_NOT_CHECKED))
+    for item in not_applied:
+        out.append(_from_item(item, DOES_NOT_APPLY))
+    return out
+
+
+def _from_item(item: dict, state: str) -> dict:
+    code = _ITEM_CODE.get(item.get("code") or "", item.get("code") or "")
+    words = (item.get("detail") or "").strip() or REASONS.get(code, (state, "no reason recorded"))[1]
+    return {"requirement_id": item["requirement"].get("id"), "state": state,
+            "reason_code": code or "no_reason_recorded", "reason": words,
+            "decided_by": item.get("decided_by") or "code"}
 
 
 def from_finding(requirement: dict, status: str | None) -> dict:

@@ -1,12 +1,14 @@
 """#677: every requirement in a review's scope ends in exactly ONE state, with a reason.
 
-States: checked / applies but not checked / does not apply (`scope_ledger`).
-Each gate returns its own per-requirement decisions (owner: "per-requirement
-states and reasons belong in table_gate and subject_scope outputs, not just
-grouped lines"); the review adds the comparison's, checks the whole set adds
-up (exactly one decision per requirement in scope, or it fails loudly), and
-stores it per requirement. #638: a service-condition requirement does not
-apply only when the datasheet DECLARES the condition absent.
+States: checked / applies but not checked / does not apply, as #678 (#685)
+defines them: "checked" is every requirement that REACHED the comparison; the
+stored reason says how it ended (compared with a value, missing information,
+needs an engineer, needs another document). The per-requirement ledger
+(`scope_ledger`) is built from the SAME items #678's counts are, checks the
+whole set adds up (exactly one decision per requirement in scope, or it fails
+loudly), and stores it. The gates' own per-item reasons are #685's and are
+tested there. #638: a service-condition requirement does not apply only when
+the datasheet DECLARES the condition absent.
 
 Invented documents only. Mutations M4501-M4514.
 """
@@ -17,8 +19,7 @@ import uuid
 
 import pytest
 
-from app import (comparison, datasheets, db, scope_ledger, service_scope, standards,
-                 submittal_review, subject_scope, table_gate)
+from app import comparison, datasheets, db, scope_ledger, service_scope, standards, submittal_review
 from app.config import settings
 
 NOW = "2026-10-09T00:00:00Z"
@@ -32,59 +33,6 @@ def temp_storage(tmp_path, monkeypatch):
     submittal_review.migrate_facts_to_per_document()
     yield
     db.reset_connection()
-
-
-# ------------------------------------------------- the gates' own decisions
-
-def cell(rid, row, column, *, chunk="c1", std="s1"):
-    return {"id": rid, "standard_document_id": std, "chunk_id": chunk, "page": 1,
-            "requirement_type": "table_value", "condition": row, "field": column}
-
-
-FACTS = [{"field_label": "Material", "field_value": "S31600"},
-         {"field_label": "Set pressure", "field_value": "9 barg"}]
-
-
-def test_table_gate_gives_every_requirement_it_does_not_keep_a_reason():
-    reqs = [
-        {"id": "d1", "requirement_type": "definition"},
-        {"id": "q1", "requirement_type": "numeric_limit", "quality_reason": "text_quality"},
-        cell("kept", "UNS S31600", "Max hardness"),                 # row label on the sheet
-        cell("row", "UNS N08825", "Max hardness", chunk="c2"),      # row label not on the sheet
-        cell("other", "UNS N06625", "Max hardness"),                # same table, another row matched
-        cell("col", "", "Bolt torque", chunk="c3"),                 # no row label, column absent
-        cell("none", "", "", chunk="c4"),                           # nothing to match
-        {"id": "prose", "requirement_type": "numeric_limit"},       # not a table cell: kept
-    ]
-    out = table_gate.gate(reqs, FACTS)
-    assert {r["id"] for r in out["kept"]} == {"kept", "prose"}
-    by_id = {d["requirement_id"]: d for d in out["decisions"]}
-    assert {k: (v["state"], v["reason_code"]) for k, v in by_id.items()} == {
-        "d1": (scope_ledger.DOES_NOT_APPLY, "definition"),
-        "q1": (scope_ledger.APPLIES_NOT_CHECKED, "unreadable_text"),
-        "row": (scope_ledger.APPLIES_NOT_CHECKED, "row_label_not_on_sheet"),
-        "other": (scope_ledger.APPLIES_NOT_CHECKED, "other_row_matched"),
-        "col": (scope_ledger.APPLIES_NOT_CHECKED, "column_not_on_sheet"),
-        "none": (scope_ledger.APPLIES_NOT_CHECKED, "no_label"),
-    }
-    # #669: the grouped line counts them by reason too
-    [line] = out["not_compared"]
-    assert line["reasons"] == {"row_label_not_on_sheet": 1, "other_row_matched": 1,
-                               "column_not_on_sheet": 1, "no_label": 1}
-
-
-def test_subject_scope_gives_each_requirement_it_sets_aside_a_reason():
-    reqs = [{"id": "pump", "requirement_text": "Pump bearings shall be rated for 25000 hours.",
-             "clause": "5.1", "standard_document_id": "s1"},
-            {"id": "general", "requirement_text": "Nameplates shall be stainless steel.",
-             "clause": "5.2", "standard_document_id": "s1"}]
-    out = subject_scope.gate(reqs, classification={"equipment_type": "Pressure Safety Valve"},
-                             facts=[])
-    assert [r["id"] for r in out["kept"]] == ["general"]
-    [d] = out["decisions"]
-    assert (d["requirement_id"], d["state"], d["reason_code"]) == (
-        "pump", scope_ledger.DOES_NOT_APPLY, "other_equipment")
-    assert "pump" in d["reason"].lower()
 
 
 # ------------------------------------------------- service condition (#638)
@@ -105,9 +53,9 @@ def _service(facts):
 def test_declared_not_sour_sets_sour_requirements_aside_with_the_citation():
     out = _service([{"field_label": "H2S service", "field_value": "No", "page": 2}])
     assert [r["id"] for r in out["kept"]] == ["p"]
-    assert {d["requirement_id"] for d in out["decisions"]} == {"s", "m"}
-    assert all(d["reason_code"] == "service_condition_not_met"
-               and "H2S service: No, page 2" in d["reason"] for d in out["decisions"])
+    assert {i["requirement"]["id"] for i in out["items"]} == {"s", "m"}
+    assert all(i["code"] == "service_condition_not_met"
+               and "H2S service: No, page 2" in i["detail"] for i in out["items"])
 
 
 @pytest.mark.parametrize("facts", [
@@ -118,7 +66,7 @@ def test_declared_not_sour_sets_sour_requirements_aside_with_the_citation():
 def test_declared_sour_or_unknown_keeps_them_checks(facts):
     out = _service(facts)
     assert [r["id"] for r in out["kept"]] == ["s", "m", "p"]
-    assert out["decisions"] == []
+    assert out["items"] == []
 
 
 def test_service_conditions_come_from_the_editable_file(tmp_path):
@@ -132,9 +80,9 @@ def test_service_conditions_come_from_the_editable_file(tmp_path):
            "requirement_text": "Cryogenic valves shall have extended bonnets."}
     out = service_scope.gate([req], facts=[{"field_label": "Cryogenic", "field_value": "No"}],
                              path=edited)
-    assert [d["requirement_id"] for d in out["decisions"]] == ["c"]
+    assert [i["requirement"]["id"] for i in out["items"]] == ["c"]
     assert service_scope.gate([req], facts=[{"field_label": "Cryogenic", "field_value": "No"}]
-                              )["decisions"] == []
+                              )["items"] == []
 
 
 # ------------------------------------------------- the ledger's invariant
@@ -154,11 +102,12 @@ def test_the_ledger_fails_loudly_when_it_does_not_add_up():
 @pytest.mark.parametrize(("status", "state", "code"), [
     ("COMPLIANT", scope_ledger.CHECKED, "compared"),
     ("NON_COMPLIANT", scope_ledger.CHECKED, "compared"),
-    ("MISSING_INFORMATION", scope_ledger.APPLIES_NOT_CHECKED, "missing_information"),
-    ("NEEDS_ENGINEER_REVIEW", scope_ledger.APPLIES_NOT_CHECKED, "needs_engineer"),
-    ("NOT_IN_DOCUMENT_SCOPE", scope_ledger.APPLIES_NOT_CHECKED, "needs_other_document"),
-    ("NOT_APPLICABLE", scope_ledger.DOES_NOT_APPLY, "not_applicable"),
-    ("SOMETHING_NEW", scope_ledger.APPLIES_NOT_CHECKED, "needs_engineer"),
+    # #678: reaching the comparison is "checked"; the reason says how it ended
+    ("MISSING_INFORMATION", scope_ledger.CHECKED, "missing_information"),
+    ("NEEDS_ENGINEER_REVIEW", scope_ledger.CHECKED, "needs_engineer"),
+    ("NOT_IN_DOCUMENT_SCOPE", scope_ledger.CHECKED, "needs_other_document"),
+    ("NOT_APPLICABLE", scope_ledger.CHECKED, "not_applicable"),
+    ("SOMETHING_NEW", scope_ledger.CHECKED, "needs_engineer"),
 ])
 def test_a_finding_status_maps_to_one_state(status, state, code):
     d = scope_ledger.from_finding({"id": "r"}, status)
@@ -246,6 +195,9 @@ def test_every_requirement_in_scope_has_exactly_one_stored_decision(review_run):
     assert s["in_scope"] == 5
     assert (s[scope_ledger.CHECKED], s[scope_ledger.APPLIES_NOT_CHECKED],
             s[scope_ledger.DOES_NOT_APPLY]) == (1, 1, 3)
+    # ONE SOURCE: #678's distinct counts agree with the ledger
+    split = result["requirement_split"]
+    assert (split["checked"], split["applies_not_checked"], split["does_not_apply"]) == (1, 1, 3)
 
 
 def test_a_rerun_replaces_the_ledger_not_adds_to_it(review_run):
@@ -286,9 +238,9 @@ def test_a_does_not_apply_that_code_confirms_leaves_the_check():
     out = _ai([PUMP_CLAUSE], {"applies": "no", "reason": "other_equipment",
                               "quote": "Pump bearings shall be rated"})
     assert out["kept"] == []
-    [d] = out["decisions"]
-    assert (d["state"], d["reason_code"], d["decided_by"]) == (
-        scope_ledger.DOES_NOT_APPLY, "other_equipment", "ai:test-model+code")
+    [i] = out["items"]
+    assert (i["code"], i["decided_by"]) == ("other_equipment", "ai:test-model+code")
+    assert 'quoted: "Pump bearings shall be rated"' in i["detail"]   # the quoted reason
 
 
 def test_a_does_not_apply_code_cannot_confirm_stays_a_check_with_a_note():
@@ -296,8 +248,9 @@ def test_a_does_not_apply_code_cannot_confirm_stays_a_check_with_a_note():
     vocabulary finds no equipment in it, so code cannot confirm: still a check."""
     out = _ai([SHALL_CLAUSE], {"applies": "no", "reason": "other_equipment",
                                "quote": "The body shall be forged steel."})
-    assert [r["id"] for r in out["kept"]] == ["c"] and out["decisions"] == []
+    assert [r["id"] for r in out["kept"]] == ["c"] and out["items"] == []
     assert "could not confirm" in out["notes"]["c"]
+    assert 'it quoted: "The body shall be forged steel."' in out["notes"]["c"]
 
 
 def test_unsure_stays_a_check_never_dropped():
@@ -309,7 +262,7 @@ def test_unsure_stays_a_check_never_dropped():
 def test_a_quote_that_is_not_in_the_clause_confirms_nothing():
     out = _ai([PUMP_CLAUSE], {"applies": "no", "reason": "other_equipment",
                               "quote": "Compressor seals shall be dry gas seals"})
-    assert [r["id"] for r in out["kept"]] == ["a"] and out["decisions"] == []
+    assert [r["id"] for r in out["kept"]] == ["a"] and out["items"] == []
 
 
 def test_an_informative_note_is_confirmed_only_without_a_mandatory_word():
@@ -318,7 +271,7 @@ def test_an_informative_note_is_confirmed_only_without_a_mandatory_word():
                "quote": "NOTE Further guidance is given in Annex B."},
               {"applies": "no", "reason": "informative_note",
                "quote": "The body shall be forged steel."})
-    assert [d["requirement_id"] for d in out["decisions"]] == ["b"]
+    assert [i["requirement"]["id"] for i in out["items"]] == ["b"]
     assert [r["id"] for r in out["kept"]] == ["c"]
 
 
@@ -350,9 +303,9 @@ def test_the_review_records_the_models_note_on_an_unchecked_requirement(review_r
     result = comparison.run_comparison(run, allowed_document_ids=scope)
     assert calls["n"] == result["ai_applicability"]["asked"] >= 1
     stored = {d["requirement_id"]: d for d in scope_ledger.decisions_for(run)}
-    # the compared one stays checked and carries no note; the unchecked one does
-    assert stored[ids["compared"]]["state"] == scope_ledger.CHECKED
+    # the one compared with a value carries no note; one that was not does
+    assert stored[ids["compared"]]["reason_code"] == "compared"
     assert "unsure" not in stored[ids["compared"]]["reason"]
-    assert stored[leak]["state"] == scope_ledger.APPLIES_NOT_CHECKED
+    assert stored[leak]["reason_code"] != "compared"
     assert stored[leak]["reason"].endswith("the model was unsure whether it applies")
     assert result["scope"]["in_scope"] == 6

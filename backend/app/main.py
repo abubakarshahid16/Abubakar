@@ -47,6 +47,7 @@ from .api_utils import (
 )
 from . import access
 from . import admin as admin_mod
+from . import requirement_split as requirement_split_mod
 from . import model_memory as model_memory_mod
 from . import auth as auth_mod
 from . import errors
@@ -1918,6 +1919,10 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         "page_coverage": outcome.get("page_coverage"),
         "table_values_not_compared": outcome.get("table_values_not_compared") or [],
         "requirements_not_applied": outcome.get("requirements_not_applied") or [],
+        # #678: every requirement in scope in one of three groups; a run stored
+        # before this existed has only its counts, so its reasons say so.
+        "requirement_split": (outcome.get("requirement_split")
+                              or requirement_split_mod.from_counts(outcome.get("unchecked_counts"))),
         "applicability": outcome.get("applicability"),
         # P3: the background job running this review - progress and cancel.
         "job": job,
@@ -3735,6 +3740,15 @@ def page_image(
     """
     reject_unknown_params(request, {"dpi", "chunk_id", "q"})
     doc = require_document(document_id, scope)
+    if dict(doc).get("pagination") == "flow":
+        # A Word document has no printed pages: rendering it would show a
+        # layout that matches none of its reading pages or citations.
+        return JSONResponse(
+            status_code=404,
+            content={"detail": errors.safe_error(
+                errors.NOT_FOUND, "a Word document has no printed pages; it is cited by "
+                "heading path and paragraph", document_id=document_id)},
+        )
 
     rects: list[tuple[float, float, float, float]] = []
     if chunk_id and q:
@@ -3791,7 +3805,7 @@ def document_chunks(
     conn = connect()
     rows = conn.execute(
         f"""SELECT id, ordinal, page_start, page_end, section, kind, token_count,
-                   content_hash, retrievable, quality_flags, text
+                   content_hash, retrievable, quality_flags, locator, text
             FROM chunks WHERE document_id = ?{clause}
             ORDER BY ordinal LIMIT ? OFFSET ?""",
         (document_id, limit, offset),

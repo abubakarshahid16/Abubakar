@@ -1,5 +1,7 @@
 """#677 (with #638, #647, #669): every requirement in a review's scope ends in
-exactly one state with a stored reason. M4501 onward. M1446 re-anchored."""
+exactly one state with a stored reason. M4501 onward. M1446 re-anchored.
+M4501-M4504 are RETIRED: they mutated per-gate reason code that #685 (#678)
+replaced; #685's own mutations M4418-M4437 cover those reasons."""
 from __future__ import annotations
 
 from ._base import APP, Mutation
@@ -7,28 +9,6 @@ from ._base import APP, Mutation
 _T = "tests/test_w5_677_scope_ledger.py"
 
 MUTATIONS: tuple[Mutation, ...] = (
-    Mutation(id="M4501", phase=4501, description="a table cell left uncompared gets no decision of its own",
-             path=APP / "table_gate.py",
-             anchor="        decisions.append(scope_ledger.decision(requirement, cell_reason))\n",
-             replacement="",
-             target=_T, keyword="table_gate_gives or exactly_one_stored", tags=("honesty", "critical")),
-    Mutation(id="M4502", phase=4502, description="every uncompared cell gets the same reason",
-             path=APP / "table_gate.py",
-             anchor="                       else \"other_row_matched\" if table_selectable[table]\n",
-             replacement="                       else \"row_label_not_on_sheet\" if table_selectable[table]\n",
-             target=_T, keyword="table_gate_gives", tags=("honesty",)),
-    Mutation(id="M4503", phase=4503, description="the grouped line does not count its cells by reason",
-             path=APP / "table_gate.py",
-             anchor="        entry[\"reasons\"][cell_reason] += 1\n",
-             replacement="",
-             target=_T, keyword="table_gate_gives", tags=("honesty",)),
-    Mutation(id="M4504", phase=4504, description="a requirement about other equipment gets no decision",
-             path=APP / "subject_scope.py",
-             anchor="            decisions.append(scope_ledger.decision(\n"
-                    "                requirement, \"other_equipment\",\n",
-             replacement="            (lambda *a, **k: None)(scope_ledger.decision(\n"
-                         "                requirement, \"other_equipment\",\n",
-             target=_T, keyword="subject_scope_gives or exactly_one_stored", tags=("honesty", "critical")),
     Mutation(id="M4505", phase=4505, description="#638 is back: a declared non-sour sheet still gets sour requirements",
              path=APP / "service_scope.py",
              anchor="            if d is not None and d[\"present\"] is False and specific_to(c, requirement, label):\n",
@@ -56,12 +36,12 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T, keyword="maps_to_one_state", tags=("honesty", "critical")),
     Mutation(id="M4510", phase=4510, description="held-back definitions get no decision (the review fails its ledger)",
              path=APP / "comparison.py",
-             anchor="                decisions.append(scope_ledger.decision(r, \"definition\"))\n",
-             replacement="",
+             anchor="                extra_not_applied.append({\"requirement\": dict(r), \"code\": \"definition\",\n",
+             replacement="                (lambda *a: None)({\"requirement\": dict(r), \"code\": \"definition\",\n",
              target=_T, keyword="exactly_one_stored", tags=("honesty",)),
     Mutation(id="M4511", phase=4511, description="the service gate's decisions are dropped from the ledger",
              path=APP / "comparison.py",
-             anchor="    decisions.extend(serviced[\"decisions\"])\n",
+             anchor="    extra_not_applied.extend(serviced[\"items\"])\n",
              replacement="",
              target=_T, keyword="exactly_one_stored", tags=("honesty",)),
     Mutation(id="M4512", phase=4512, description="an AI 'does not apply' is taken without code's confirmation",
@@ -76,10 +56,18 @@ MUTATIONS: tuple[Mutation, ...] = (
              replacement="        return True\n",
              target=_T, keyword="code_cannot_confirm", tags=("honesty", "critical")),
     Mutation(id="M4514", phase=4514, description="the model's unconfirmed suggestion does not reach the engineer",
-             path=APP / "comparison.py",
-             anchor="            decided = {**decided, \"reason\": f\"{decided['reason']}; {ai_notes[rid]}\"}\n",
+             path=APP / "scope_ledger.py",
+             anchor="            decided = {**decided, \"reason\": f\"{decided['reason']}; {notes[rid]}\"}\n",
              replacement="            pass\n",
              target=_T, keyword="models_note", tags=("honesty",)),
+)
+
+MUTATIONS = MUTATIONS + (
+    Mutation(id="M4520", phase=4520, description="#678's counts leave out the service gate, AI and definitions (two sources)",
+             path=APP / "comparison.py",
+             anchor="        scoped[\"not_applied_items\"] + extra_not_applied)\n",
+             replacement="        scoped[\"not_applied_items\"])\n",
+             target=_T, keyword="exactly_one_stored", tags=("honesty", "critical")),
 )
 
 _DS_T = "tests/test_w4b_646_ai_datasheet.py"

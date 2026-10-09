@@ -1396,17 +1396,19 @@ def recommend_code(findings: list[dict], completeness: dict, *,
     # counted on the run; when they are most of what was in scope, an approval
     # (outright or with comments) would be a claim about the part nobody
     # compared. A proven breach (rejected) and a manual review stay as they are.
+    # #678: ONLY "APPLIES BUT NOT CHECKED" COUNTS. Requirements about other
+    # equipment do not apply to this submittal, so they are neither checked nor
+    # unchecked, and never weigh against a run.
     counts = unchecked_counts or {}
-    share = absence.unchecked_share(
-        counts.get("not_compared", 0), counts.get("not_applied", 0), counts.get("checked", 0))
+    share = absence.unchecked_share(counts.get("not_compared", 0), counts.get("checked", 0))
     if (share is not None and share >= absence.unchecked_share_limit()
             and result["code"] in (codes[0], codes[1])):
-        unchecked_n = counts.get("not_compared", 0) + counts.get("not_applied", 0)
-        total_n = unchecked_n + counts.get("checked", 0)
+        unchecked_n = counts.get("not_compared", 0)
+        applies_n = unchecked_n + counts.get("checked", 0)
         result = {**result, "code": codes[3],
-                  "reason": (f"Manual review: {unchecked_n} of {total_n} requirements in scope "
-                             "were not compared with this submittal (no matching field, or "
-                             "about other equipment), so the rest cannot be called met"),
+                  "reason": (f"Manual review: {unchecked_n} of {applies_n} requirements that apply "
+                             "to this submittal were not checked (no matching field, or text that "
+                             "could not be read), so the rest cannot be called met"),
                   "unchecked_share": round(share, 3)}
     missing = [m for m in dict.fromkeys(missing_references or ()) if m]
     if result["code"] == codes[2]:
@@ -1832,11 +1834,13 @@ def run_comparison(
     # requirements held back as definitions or unreadable text are counted.
     unchecked_standards: list[str] = []
     held_back = {"definition": 0, "text_quality": 0}
+    held_items: list[dict] = []     # #678: requirements that apply, held for unreadable text
     # #677 THE SCOPE LEDGER: every requirement of every applicable standard
-    # (`in_scope`) ends in exactly one decision with a reason (`scope_ledger`).
+    # (`in_scope_all`) ends in exactly one decision with a stored reason,
+    # built from the SAME items #678's counts are built from - one source.
     from . import scope_ledger
     in_scope_all: list[dict] = []
-    decisions: list[dict] = []
+    extra_not_applied: list[dict] = []   # #677: definitions, service gate, AI tier
     for standard_id in standard_ids:
         from . import standards as standards_mod
         # #596/#597: a definition, and text the quality gate holds, are not
@@ -1855,10 +1859,11 @@ def run_comparison(
                 requirements.append(r)
             elif r.get("requirement_type") == "definition":
                 held_back["definition"] += 1
-                decisions.append(scope_ledger.decision(r, "definition"))
+                extra_not_applied.append({"requirement": dict(r), "code": "definition",
+                                          "detail": scope_ledger.REASONS["definition"][1]})
             else:
                 held_back["text_quality"] += 1
-                decisions.append(scope_ledger.decision(r, "unreadable_text"))
+                held_items.append({"requirement": dict(r), "code": "text_quality"})
 
     facts = datasheets.list_facts(
         submittal_id, allowed_document_ids=allowed_document_ids)
@@ -1871,7 +1876,6 @@ def run_comparison(
         "SELECT id, filename FROM documents WHERE id IN (%s)" % ",".join(
             "?" for _ in standard_ids), standard_ids)} if standard_ids else {}
     gated = table_gate.gate(requirements, facts, standard_names=names)
-    decisions.extend(gated["decisions"])
     all_requirements = len(requirements)
     requirements = gated["kept"]
     table_values_not_compared = gated["not_compared"]
@@ -1905,7 +1909,6 @@ def run_comparison(
         standard_names=names)
     requirements = scoped["kept"]
     requirements_not_applied = scoped["not_applied"]
-    decisions.extend(scoped["decisions"])
     # #638 A REQUIREMENT FOR A SERVICE THE SUBMITTAL SAYS IT IS NOT IN does
     # not apply (sour service on a sheet declaring no H2S). Declared absent
     # only: an unstated service keeps it a check. See `service_scope`.
@@ -1915,7 +1918,7 @@ def run_comparison(
         (classification_mod.of_document(sid) or {}).get("title")))) for sid in standard_ids}
     serviced = service_scope.gate(requirements, facts=facts, standard_labels=standard_labels)
     requirements = serviced["kept"]
-    decisions.extend(serviced["decisions"])
+    extra_not_applied.extend(serviced["items"])
     service_declarations = serviced["declarations"]
     # #647 AI APPLICABILITY, when switched on: the model proposes "does not
     # apply" with a quoted reason; only what code confirms leaves the check.
@@ -1928,10 +1931,10 @@ def run_comparison(
         ai = ai_applicability.gate(requirements, classification=stored, facts=facts,
                                    limit=settings.ai_applicability_max_per_run)
         requirements = ai["kept"]
-        decisions.extend(ai["decisions"])
+        extra_not_applied.extend(ai["items"])
         ai_notes = ai["notes"]
         ai_applicability_summary = {"asked": ai["asked"], "not_asked": ai["not_asked"],
-                                    "confirmed_does_not_apply": len(ai["decisions"]),
+                                    "confirmed_does_not_apply": len(ai["items"]),
                                     "unconfirmed": len(ai["notes"])}
     applicability_summary = scoped["summary"]
     findings: list[dict] = []
@@ -2210,18 +2213,10 @@ def run_comparison(
     status_of: dict = {}
     for row in prepared_rows:
         status_of.setdefault(row.get("requirement_id"), row.get("compliance_status"))
-    for requirement in requirements:
-        rid = requirement.get("id")
-        if rid in status_of:
-            decided = scope_ledger.from_finding(requirement, status_of[rid])
-        else:
-            decided = scope_ledger.decision(
-                requirement, "needs_engineer",
-                "an engineer rejected the pairing" if rid in rejected_requirements
-                else "no finding was written")
-        if rid in ai_notes and decided["state"] != scope_ledger.CHECKED:
-            decided = {**decided, "reason": f"{decided['reason']}; {ai_notes[rid]}"}
-        decisions.append(decided)
+    decisions = scope_ledger.build(
+        checked=requirements, status_of=status_of, rejected=rejected_requirements,
+        not_checked=gated["not_compared_items"] + held_items,
+        not_applied=scoped["not_applied_items"] + extra_not_applied, notes=ai_notes)
     scope_counts = scope_ledger.check_complete(in_scope_all, decisions)
     scope_ledger.store(review_run_id, decisions)
 
@@ -2243,10 +2238,21 @@ def run_comparison(
     coverage = completeness_for_run(
         submittal_id, allowed_document_ids=allowed_document_ids,
         reference_coverage=reference_coverage, findings=findings)
+    # #678: EVERY REQUIREMENT IN SCOPE IS IN ONE OF THREE GROUPS, each repeat
+    # counted once: checked / applies but not checked / does not apply. The
+    # approval rule uses only the middle group.
+    from . import requirement_split
+    split = requirement_split.build(
+        requirements,
+        gated["not_compared_items"] + held_items,
+        # #677: does-not-apply also holds the service gate's, the AI tier's
+        # (confirmed by code) and the definitions - the same items the
+        # per-requirement ledger above is built from
+        scoped["not_applied_items"] + extra_not_applied)
     unchecked_counts = {
-        "not_compared": sum(int(l.get("count") or 0) for l in table_values_not_compared),
-        "not_applied": applicability_summary.get("not_applied", 0),
-        "checked": len(requirements)}
+        "not_compared": split["applies_not_checked"],
+        "not_applied": split["does_not_apply"],
+        "checked": split["checked"]}
     recommendation = recommend_code(findings, coverage,
                                     missing_references=missing_references or (),
                                     page_coverage=pages_read,
@@ -2261,7 +2267,8 @@ def run_comparison(
                        requirements_not_applied=requirements_not_applied,
                        applicability=applicability_summary,
                        datasheet_check_not_run=datasheet_check_not_run,
-                       unchecked_counts=unchecked_counts)
+                       unchecked_counts=unchecked_counts,
+                       requirement_split=split)
 
     return {
         "review_run_id": review_run_id,
@@ -2273,6 +2280,8 @@ def run_comparison(
         # checked / does not apply - with the count per reason. The decisions
         # themselves are stored per requirement (`scope_ledger`).
         "scope": scope_counts,
+        # #678's distinct counts, built from the same items as `scope`
+        "requirement_split": split,
         "service_declarations": service_declarations,
         "ai_applicability": ai_applicability_summary,
         "requirements_held_back": held_back,
@@ -3365,7 +3374,8 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
                        requirements_not_applied: list[dict] | None = None,
                        applicability: dict | None = None,
                        datasheet_check_not_run: str | None = None,
-                       unchecked_counts: dict | None = None) -> None:
+                       unchecked_counts: dict | None = None,
+                       requirement_split: dict | None = None) -> None:
     """Persist the AI recommendation and the completeness it was gated on.
 
     B3: `page_coverage` is the page ledger's summary AT THE TIME OF THE RUN -
@@ -3407,6 +3417,7 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
                 "datasheet_check_not_run": datasheet_check_not_run,
                 # #633: the counts the unchecked share is taken from.
                 "unchecked_counts": unchecked_counts,
+                "requirement_split": requirement_split,
             # completed_at: the readiness strip's "since the last run" is
             # measured from here, not from updated_at (which the engineer's
             # code decision moves later).

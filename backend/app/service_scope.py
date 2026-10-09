@@ -96,13 +96,14 @@ def specific_to(condition: dict, requirement: dict, standard_label: str) -> bool
 def gate(requirements: list[dict], *, facts: list[dict],
          standard_labels: dict[str, str] | None = None,
          path: Path | str | None = None) -> dict:
-    """{"kept": [...], "decisions": [one per requirement that does not apply],
+    """{"kept": [...], "items": [{"requirement", "code", "detail"} - one per
+    requirement that does not apply, the shape #678's counts take],
     "declarations": {condition: what the sheet says, or None}}. Order kept."""
     labels = standard_labels or {}
     conds = conditions(path)
     declared = {c["name"]: declaration(c, facts) for c in conds}
     kept: list[dict] = []
-    decisions: list[dict] = []
+    items: list[dict] = []
     for requirement in requirements:
         label = labels.get(requirement.get("standard_document_id") or "", "")
         out = None
@@ -110,12 +111,12 @@ def gate(requirements: list[dict], *, facts: list[dict],
             d = declared[c["name"]]
             if d is not None and d["present"] is False and specific_to(c, requirement, label):
                 page = f", page {d['page']}" if d.get("page") is not None else ""
-                out = scope_ledger.decision(
-                    requirement, "service_condition_not_met",
-                    f"{c['name']}; the datasheet says {d['label']}: {d['value']}{page}")
+                out = {"requirement": requirement, "code": "service_condition_not_met",
+                       "detail": (f"{scope_ledger.REASONS['service_condition_not_met'][1]}: "
+                                  f"{c['name']}; the datasheet says {d['label']}: {d['value']}{page}")}
                 break
         if out is None:
             kept.append(requirement)
         else:
-            decisions.append(out)
-    return {"kept": kept, "decisions": decisions, "declarations": declared}
+            items.append(out)
+    return {"kept": kept, "items": items, "declarations": declared}

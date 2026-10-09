@@ -98,14 +98,15 @@ def confirm(reason: str, quote: str, *, equipment: set[str], facts: list[dict]) 
 
 def gate(requirements: list[dict], *, classification: dict | None, facts: list[dict],
          provider=None, limit: int | None = None) -> dict:
-    """{"kept", "decisions" (confirmed "does not apply"), "notes" {requirement
-    id: what the model suggested that code did not confirm}, "asked", "not_asked"}."""
+    """{"kept", "items" (confirmed "does not apply", as {"requirement", "code",
+    "detail", "decided_by"}), "notes" {requirement id: what the model suggested
+    that code did not confirm}, "asked", "not_asked"}."""
     vocab = subject_scope.vocabulary()
     equipment, _ = subject_scope.submittal_equipment(classification, facts, vocab)
     head = context(classification, facts)
     model = getattr(provider, "requested_model", None) or ai_task_runner.settings.ai_task_model
     kept: list[dict] = []
-    decisions: list[dict] = []
+    items: list[dict] = []
     notes: dict = {}
     asked = 0
     for requirement in requirements:
@@ -124,14 +125,16 @@ def gate(requirements: list[dict], *, classification: dict | None, facts: list[d
         reason = data.get("reason") or "none"
         if (data.get("applies") == "no" and in_clause and reason in scope_ledger.REASONS
                 and confirm(reason, quote, equipment=equipment, facts=facts)):
-            decisions.append(scope_ledger.decision(
-                requirement, reason, "proposed by the model, confirmed by code",
-                decided_by=f"ai:{model}+code"))
+            items.append({"requirement": requirement, "code": reason,
+                          "detail": (f"{scope_ledger.REASONS[reason][1]}: proposed by the "
+                                     f"model, confirmed by code; quoted: \"{quote.strip()}\""),
+                          "decided_by": f"ai:{model}+code"})
             continue
         kept.append(requirement)
+        said = (f'; it quoted: "{quote.strip()}"' if in_clause else "")
         notes[requirement.get("id")] = (
             "the model was unsure whether it applies" if data.get("applies") == "unsure"
             else f"the model said it may not apply ({reason.replace('_', ' ')}); "
-                 "code could not confirm it")
-    return {"kept": kept, "decisions": decisions, "notes": notes, "asked": asked,
+                 f"code could not confirm it{said}")
+    return {"kept": kept, "items": items, "notes": notes, "asked": asked,
             "not_asked": len(requirements) - asked}

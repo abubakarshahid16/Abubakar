@@ -35,7 +35,10 @@ CREATE TABLE IF NOT EXISTS documents (
     -- #177. Also added by `_migrate` for databases written before it.
     priority          INTEGER NOT NULL DEFAULT 0,
     claimed_by        TEXT,
-    claimed_at        TEXT
+    claimed_at        TEXT,
+    -- 'flow' for a Word document (no fixed pages: its "pages" are reading
+    -- units and a citation uses chunks.locator); NULL or 'fixed' for a PDF.
+    pagination        TEXT
 );
 
 CREATE TABLE IF NOT EXISTS jobs (
@@ -163,7 +166,10 @@ CREATE TABLE IF NOT EXISTS chunks (
     -- than 2 inch > 4.2.1"). INDEX-ONLY - keyword and embedding input, never
     -- quoted. NULL for chunks made before CHUNKER_VERSION 8, and for a
     -- section two different chains set (chunker.segment_document).
-    context                 TEXT
+    context                 TEXT,
+    -- Where the chunk sits in a document with no fixed pages ("4.2 > para 3").
+    -- NULL for a PDF chunk, which is cited by page.
+    locator                 TEXT
 );
 
 CREATE TABLE IF NOT EXISTS chunk_vectors (
@@ -1154,6 +1160,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE chunks ADD COLUMN ocr_alphabet_sample TEXT")
     if have and "context" not in have:
         add_column_if_missing(conn, "chunks", "context", "TEXT")
+    if have and "locator" not in have:
+        add_column_if_missing(conn, "chunks", "locator", "TEXT")
+    if docs and "pagination" not in docs:
+        add_column_if_missing(conn, "documents", "pagination", "TEXT")
     if docs and "recognised_pages" not in docs:
         # A count, not a boolean, matching needs_ocr_pages and equation_pages.
         # A 546-page document with 12 recognised pages must never read as
