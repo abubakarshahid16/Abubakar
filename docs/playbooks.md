@@ -22,6 +22,7 @@ value check.
 ```json
 {"format": "review-playbook/1", "id": "hazop_procedure", "title": "...", "version": "1",
  "document_kind": "procedure",
+ "applies_when": ["hazop", "hazard and operability"],
  "sign_off": {"status": "draft", "by": null, "date": null},
  "clauses_verified": false,
  "elements": [
@@ -38,6 +39,14 @@ value check.
   trailing `*` means any ending, `revalidat*`; a space or hyphen in the text
   matches either). An element is **present** when one passage holds a cue of
   **every** group.
+* `applies_when` (#527) is a list of cues (same cue rules) saying a document is
+  about this playbook's subject. When the document router's kind (confirmed,
+  or suggested and then named a guess) equals `document_kind` AND the
+  document's text holds one of these cues, the standards the elements cite are
+  **mandatory** in applicability selection: included as `playbook` when the
+  playbook is signed off, considered and NOT included as `playbook_draft`
+  while it is a draft, and listed under `mandatory_not_held` when the library
+  does not hold them. No cues: the playbook is never chosen on its own.
 * `sign_off.status` is `draft` until a client discipline engineer is recorded
   (`by` and `date` are then required). A draft playbook's report carries the
   sentence "This playbook has not been signed off by a client discipline
