@@ -94,18 +94,18 @@ def _scope(*ids):
 
 # ======================================================= 1. selection on evidence
 
-def test_a_shared_discipline_alone_is_considered_not_applied():
+def test_a_shared_discipline_alone_is_no_selection_reason():
+    """#212: discipline is retired as a selection rule. A standard sharing
+    only a discipline with the submittal is not selected by it (it can still
+    be found by another rule, which then names its own reason)."""
     std = _doc("std_d", "mech.pdf", "COMPANY_STANDARD", discipline="Mechanical")
     sub = _doc("sub", "pump.pdf", "CONTRACTOR_SUBMITTAL", discipline="Mechanical")
     run = _run(sub)
     result = applicability.select(sub, allowed_document_ids=_scope(std, sub),
                                   review_run_id=run)
-    [row] = [r for r in result["selected"] if r["standard_document_id"] == std]
-    assert row["method"] == applicability.METHOD_DISCIPLINE     # it WAS considered
-    assert row["included"] is False
-    stored = _rows(run)[std]
-    assert stored["included"] == 0
-    assert "shared discipline alone" in stored["exclusion_reason"]
+    assert all(r["method"] != applicability.METHOD_DISCIPLINE for r in result["selected"])
+    assert all(r["selection_method"] != applicability.METHOD_DISCIPLINE
+               for r in _rows(run).values())
 
 
 def test_similar_wording_alone_is_considered_not_applied():
@@ -450,14 +450,17 @@ def test_the_standards_and_reasons_reach_the_run_and_the_crs(monkeypatch, tmp_pa
 
 
 def test_the_applicability_list_reports_a_discipline_match_as_unknown_not_applicable():
-    """The four-bucket list (`applicability_with_reasons`) reads the same
-    policy: a considered-not-applied standard is not "applicable"."""
+    """The four-bucket list (`applicability_with_reasons`): a standard that
+    shares only a discipline is "unknown", never "applicable" and never "not
+    applicable" - and since #212 the shared discipline is not given as a
+    reason at all."""
     std = _doc("std_d", "mech.pdf", "COMPANY_STANDARD", discipline="Mechanical")
     sub = _doc("sub", "pump.pdf", "CONTRACTOR_SUBMITTAL", discipline="Mechanical")
     [entry] = applicability.applicability_with_reasons(
         sub, allowed_document_ids=_scope(std, sub))
     assert entry["status"] == applicability.STATUS_UNKNOWN
-    assert "shared discipline alone" in entry["reason"]
+    assert "cannot be determined" in entry["reason"]
+    assert "discipline" not in entry["reason"]
 
 
 def test_an_empty_taxonomy_setting_is_no_taxonomy(monkeypatch, tmp_path):
