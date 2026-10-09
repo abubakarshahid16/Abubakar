@@ -1,4 +1,26 @@
 {
-  "baselines": {},
-  "note": "EMPTY ON PURPOSE. A baseline is what a model actually scored, and the model cannot run in the cloud. Run `python eval/p1ai/run_p1ai.py --write-baseline` on the PC once per model (qwen3.5:2b, then 4b, later the Mac Studio model). The owner may add a `gate` {min_passing, protected} to a model's entry; a rewrite keeps it."
+ "baselines": {
+  "qwen3.5:2b": {
+   "passing": [
+    "PAI-06",
+    "PAI-07",
+    "PAI-08",
+    "PAI-10",
+    "PAI-16",
+    "PAI-20",
+    "PAI-21",
+    "PAI-22",
+    "PAI-23",
+    "PAI-25",
+    "PAI-26"
+   ],
+   "seconds_median": 23.2,
+   "seconds_total": 600.0,
+   "total": [
+    11,
+    26
+   ]
+  }
+ },
+ "note": "EMPTY ON PURPOSE. A baseline is what a model actually scored, and the model cannot run in the cloud. Run `python eval/p1ai/run_p1ai.py --write-baseline` on the PC once per model (qwen3.5:2b, then 4b, later the Mac Studio model). The owner may add a `gate` {min_passing, protected} to a model's entry; a rewrite keeps it."
 }
