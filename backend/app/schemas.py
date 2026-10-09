@@ -2448,6 +2448,11 @@ class ReviewRunSummary(BaseModel):
     #: they are about X, this submittal is Y") with the standards and clauses
     #: behind it. Empty for a run that predates it.
     requirements_not_applied: list[dict] = []
+    #: #678: every requirement in the run's scope in ONE of three groups
+    #: (checked / applies but not checked / does not apply), each repeat counted
+    #: once, with the reasons behind the last two. For a run that predates it
+    #: only the counts are known and every reason is "no reason recorded".
+    requirement_split: dict | None = None
     #: #453: how the requirements that stayed were decided (general, matching,
     #: kept because the equipment is unknown). Null for a run that predates it.
     applicability: dict | None = None

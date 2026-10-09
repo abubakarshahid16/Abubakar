@@ -146,24 +146,48 @@ def unchecked_share_limit() -> float:
 
 
 def share_sentence(not_compared: int, not_applied: int, checked: int) -> str | None:
-    """"N of M (P%) requirements in scope were not compared", with its
-    denominator, or None when there is nothing to take a share of."""
-    share = unchecked_share(not_compared, not_applied, checked)
+    """The three honest groups, then the share that matters: "Of T requirements
+    in scope: C checked, N apply but were not checked, D do not apply. N of A
+    (P%) of the requirements that apply were not checked." None when no
+    requirement applies (nothing to take a share of). `not_applied` is shown
+    but never part of the share (#678)."""
+    share = unchecked_share(not_compared, checked)
     if share is None:
         return None
-    n = (not_compared or 0) + (not_applied or 0)
-    total = n + (checked or 0)
-    return (f"{n} of {total} requirements in scope ({round(share * 100)}%) were not compared "
-            "with this submittal.")
+    nc, na, ck = (not_compared or 0), (not_applied or 0), (checked or 0)
+    return (f"Of {nc + na + ck} requirements in scope: {ck} checked, {nc} apply but were not "
+            f"checked, {na} do not apply. {nc} of {nc + ck} ({round(share * 100)}%) of the "
+            "requirements that apply were not checked.")
 
 
-def unchecked_share(not_compared: int, not_applied: int, checked: int) -> float | None:
-    """Share of the in-scope requirements that were not compared, or None when
-    there were none in scope at all (nothing to take a share of)."""
-    total = (not_compared or 0) + (not_applied or 0) + (checked or 0)
-    if total <= 0:
+def unchecked_share(not_compared: int, checked: int) -> float | None:
+    """Share of the requirements that APPLY that were not checked, or None when
+    none apply (nothing to take a share of). Requirements that do not apply are
+    not in it, on either side (#678)."""
+    applies = (not_compared or 0) + (checked or 0)
+    if applies <= 0:
         return None
-    return ((not_compared or 0) + (not_applied or 0)) / total
+    return (not_compared or 0) / applies
+
+
+def split_lines(split: dict | None) -> list[str]:
+    """The reasons behind the two groups that have one, as plain lines, most
+    common first (the CRS prints the top three of each)."""
+    if not split:
+        return []
+    lines = []
+    for title, key, count_key in (
+            ("Apply but not checked", "applies_not_checked_reasons", "applies_not_checked"),
+            ("Do not apply", "does_not_apply_reasons", "does_not_apply")):
+        reasons = split.get(key) or []
+        if not split.get(count_key):
+            continue
+        top = reasons[:3]
+        more = len(reasons) - len(top)
+        text = "; ".join(f"{r['reason']} ({r['count']})" for r in top)
+        lines.append(f"{title} ({split[count_key]}): {text or 'no reason recorded'}"
+                     + (f"; and {more} more reason(s)" if more > 0 else "") + ".")
+    return lines
 
 
 def check_failed_status(name: str, reason: str) -> dict:
@@ -189,8 +213,11 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
     outcome = outcome or {}
     parts: list[dict] = []
 
-    def add(part: str, line: str) -> None:
-        parts.append({"part": part, "line": line})
+    def add(part: str, line: str, detail: bool = False) -> None:
+        # `detail` lines explain another part (the reasons behind the unchecked
+        # share); they are listed on the internal copy and are not counted as
+        # parts that could not be checked.
+        parts.append({"part": part, "line": line, **({"detail": True} if detail else {})})
 
     if run_status != "completed":
         why = (outcome.get("error") or "").strip().rstrip(".")
@@ -218,10 +245,6 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
     if cells:
         add("table_values_not_compared",
             f"{cells} standards-table value(s) were not compared: no matching field on this submittal.")
-    applied = sum(int(l.get("count") or 0) for l in outcome.get("requirements_not_applied") or [])
-    if applied:
-        add("requirements_not_applied",
-            f"{applied} requirement(s) were not applied: they are about other equipment than this submittal.")
     held = (outcome.get("requirements_held_back") or {}).get("text_quality") or 0
     if held:
         add("text_quality_held_back",
@@ -237,8 +260,14 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
     counts = outcome.get("unchecked_counts") or {}
     sentence = share_sentence(counts.get("not_compared", 0), counts.get("not_applied", 0),
                               counts.get("checked", 0)) if counts else None
-    if sentence and (counts.get("not_compared", 0) or counts.get("not_applied", 0)):
+    # #678: only requirements that APPLY and were not checked make a sheet
+    # incomplete. Ones that do not apply are in the sentence, as a count.
+    if sentence and counts.get("not_compared", 0):
         add("unchecked_share", sentence)
+        from . import requirement_split
+
+        for line in split_lines(outcome.get("requirement_split") or requirement_split.from_counts(counts)):
+            add("requirement_reasons", line, detail=True)
     elif parts and not counts:
         add("unchecked_share", "The share of requirements not compared is not known: "
                                "this review did not reach the comparison.")
@@ -249,6 +278,7 @@ def notice_for(parts: list[dict]) -> str:
     """The one line a sheet prints when something could not be checked."""
     if not parts:
         return ""
+    parts = [p for p in parts if not p.get("detail")]
     notice = (f"REVIEW INCOMPLETE: {len(parts)} part(s) could not be checked "
               "- this sheet is not a complete review.")
     # The unchecked share, with its denominator, is part of the notice on every

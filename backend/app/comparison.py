@@ -1396,17 +1396,19 @@ def recommend_code(findings: list[dict], completeness: dict, *,
     # counted on the run; when they are most of what was in scope, an approval
     # (outright or with comments) would be a claim about the part nobody
     # compared. A proven breach (rejected) and a manual review stay as they are.
+    # #678: ONLY "APPLIES BUT NOT CHECKED" COUNTS. Requirements about other
+    # equipment do not apply to this submittal, so they are neither checked nor
+    # unchecked, and never weigh against a run.
     counts = unchecked_counts or {}
-    share = absence.unchecked_share(
-        counts.get("not_compared", 0), counts.get("not_applied", 0), counts.get("checked", 0))
+    share = absence.unchecked_share(counts.get("not_compared", 0), counts.get("checked", 0))
     if (share is not None and share >= absence.unchecked_share_limit()
             and result["code"] in (codes[0], codes[1])):
-        unchecked_n = counts.get("not_compared", 0) + counts.get("not_applied", 0)
-        total_n = unchecked_n + counts.get("checked", 0)
+        unchecked_n = counts.get("not_compared", 0)
+        applies_n = unchecked_n + counts.get("checked", 0)
         result = {**result, "code": codes[3],
-                  "reason": (f"Manual review: {unchecked_n} of {total_n} requirements in scope "
-                             "were not compared with this submittal (no matching field, or "
-                             "about other equipment), so the rest cannot be called met"),
+                  "reason": (f"Manual review: {unchecked_n} of {applies_n} requirements that apply "
+                             "to this submittal were not checked (no matching field, or text that "
+                             "could not be read), so the rest cannot be called met"),
                   "unchecked_share": round(share, 3)}
     missing = [m for m in dict.fromkeys(missing_references or ()) if m]
     if result["code"] == codes[2]:
@@ -1832,6 +1834,7 @@ def run_comparison(
     # requirements held back as definitions or unreadable text are counted.
     unchecked_standards: list[str] = []
     held_back = {"definition": 0, "text_quality": 0}
+    held_items: list[dict] = []     # #678: requirements that apply, held for unreadable text
     for standard_id in standard_ids:
         from . import standards as standards_mod
         # #596/#597: a definition, and text the quality gate holds, are not
@@ -1851,6 +1854,7 @@ def run_comparison(
                 held_back["definition"] += 1
             else:
                 held_back["text_quality"] += 1
+                held_items.append({"requirement": dict(r), "code": "text_quality"})
 
     facts = datasheets.list_facts(
         submittal_id, allowed_document_ids=allowed_document_ids)
@@ -2183,10 +2187,18 @@ def run_comparison(
     coverage = completeness_for_run(
         submittal_id, allowed_document_ids=allowed_document_ids,
         reference_coverage=reference_coverage, findings=findings)
+    # #678: EVERY REQUIREMENT IN SCOPE IS IN ONE OF THREE GROUPS, each repeat
+    # counted once: checked / applies but not checked / does not apply. The
+    # approval rule uses only the middle group.
+    from . import requirement_split
+    split = requirement_split.build(
+        requirements,
+        gated["not_compared_items"] + held_items,
+        scoped["not_applied_items"])
     unchecked_counts = {
-        "not_compared": sum(int(l.get("count") or 0) for l in table_values_not_compared),
-        "not_applied": applicability_summary.get("not_applied", 0),
-        "checked": len(requirements)}
+        "not_compared": split["applies_not_checked"],
+        "not_applied": split["does_not_apply"],
+        "checked": split["checked"]}
     recommendation = recommend_code(findings, coverage,
                                     missing_references=missing_references or (),
                                     page_coverage=pages_read,
@@ -2201,7 +2213,8 @@ def run_comparison(
                        requirements_not_applied=requirements_not_applied,
                        applicability=applicability_summary,
                        datasheet_check_not_run=datasheet_check_not_run,
-                       unchecked_counts=unchecked_counts)
+                       unchecked_counts=unchecked_counts,
+                       requirement_split=split)
 
     return {
         "review_run_id": review_run_id,
@@ -3298,7 +3311,8 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
                        requirements_not_applied: list[dict] | None = None,
                        applicability: dict | None = None,
                        datasheet_check_not_run: str | None = None,
-                       unchecked_counts: dict | None = None) -> None:
+                       unchecked_counts: dict | None = None,
+                       requirement_split: dict | None = None) -> None:
     """Persist the AI recommendation and the completeness it was gated on.
 
     B3: `page_coverage` is the page ledger's summary AT THE TIME OF THE RUN -
@@ -3340,6 +3354,7 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
                 "datasheet_check_not_run": datasheet_check_not_run,
                 # #633: the counts the unchecked share is taken from.
                 "unchecked_counts": unchecked_counts,
+                "requirement_split": requirement_split,
             # completed_at: the readiness strip's "since the last run" is
             # measured from here, not from updated_at (which the engineer's
             # code decision moves later).
