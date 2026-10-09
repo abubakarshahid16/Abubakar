@@ -180,3 +180,34 @@ def test_a_spelling_listed_under_two_types_matches_both():
     assert {"relief valve", "control valve"} <= vocab.types_in("the valve")
     assert vocab.equipment_in("a steam turbine casing") == {"steam turbine"}
     assert vocab.equipment_in("the turbine") == {"steam turbine", "gas turbine"}
+
+
+RELIEF_SPELLINGS = ["PZV", "PZVs", "PSV", "PSVs", "PRV", "PRVs", "pressure relief valve",
+                    "pressure relief valves", "pressure safety valves", "safety valve",
+                    "safety valves", "safety relief valves", "pilot-operated relief valve",
+                    "pilot-operated relief valves", "rupture disk", "rupture disks",
+                    "rupture disc", "rupture discs", "bursting disc", "bursting discs"]
+
+
+@pytest.mark.parametrize("spelling", RELIEF_SPELLINGS)
+def test_every_relief_valve_spelling_means_a_relief_valve(spelling):
+    vocab = subject_scope.vocabulary()
+    requirement = {"requirement_text": f"The {spelling} shall be sealed and tested."}
+    assert subject_scope.requirement_subject(requirement, {}, vocab) == ({"relief valve"}, "wording")
+
+
+def test_a_requirement_about_pzvs_is_not_applied_to_a_pump_submittal():
+    requirement = {"id": "r", "standard_document_id": "s", "clause": "9.1",
+                   "requirement_text": "PZVs shall be set at the stated pressure."}
+    result = subject_scope.gate([requirement], classification={"equipment_type": "Pump"}, facts=[])
+    assert result["kept"] == []
+    assert result["not_applied"][0]["subject"] == "relief valve"
+
+
+def test_a_plural_needs_no_listing_of_its_own(tmp_path, monkeypatch):
+    path = tmp_path / "vocab.json"
+    path.write_text(json.dumps({"types": {"widget": {"kind": "equipment", "synonyms": ["thx"]}}}),
+                    encoding="utf-8")
+    vocab = subject_scope.vocabulary(path)
+    assert vocab.equipment_in("The thxs shall be tested") == {"widget"}
+    assert vocab.equipment_in("The widgets shall be tested") == {"widget"}

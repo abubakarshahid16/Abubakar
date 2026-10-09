@@ -31,6 +31,10 @@ import threading
 import time
 from dataclasses import dataclass, field
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 #: How long a finished or abandoned entry survives. Long enough for a client
 #: polling once a second to collect the final stage, short enough that an
 #: abandoned request is forgotten.
@@ -128,8 +132,8 @@ def stage(request_id: str | None, name: str, detail: str | None = None) -> None:
     if listener is not None:
         try:
             listener(name, detail)
-        except Exception:  # noqa: BLE001 - a listener never fails the answer it describes
-            pass
+        except Exception as exc:  # noqa: BLE001 - a listener never fails the answer it describes
+            _log.warning("a progress listener failed at stage %r (%s)", name, type(exc).__name__)
 
 
 def finish(request_id: str | None) -> None:
@@ -153,6 +157,17 @@ def read(request_id: str, *, reader: str | None = None,
             "seconds": round(now - entry.started, 1),
             "history": [{"stage": s, "at_seconds": t} for s, t in entry.history],
         }
+
+
+def active_count() -> int:
+    """Requests still being answered right now (any stage but `done`, and
+    updated within the TTL). The AI task runner (#644) reads it so background
+    work yields to a person waiting for a chat answer. A number only: no
+    request id, owner or text leaves this function."""
+    now = time.time()
+    with _lock:
+        return sum(1 for e in _entries.values()
+                   if e.stage != "done" and now - e.updated < TTL_SECONDS)
 
 
 def clear() -> None:

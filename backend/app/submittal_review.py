@@ -239,6 +239,19 @@ def ensure_schema() -> None:
             # #597 why a row is held for a human beyond its confidence:
             # 'text_quality' (garbled or mirrored text). NULL otherwise.
             ("quality_reason", "TEXT"),
+            # #640 SUPERSESSION, as #179 did for facts. A re-extraction used
+            # to DELETE every unconfirmed requirement of the standard, and
+            # `review_findings.requirement_id` (no foreign key) was left
+            # pointing at nothing. Now a row the new run no longer produces
+            # STAYS and carries when and by which run it was replaced. NULL =
+            # an ACTIVE requirement. Every reader of current requirements
+            # filters on it; a by-id lookup (a finding resolving the row it
+            # cited) does not. A CONFIRMED row is never superseded.
+            ("superseded_at", "TEXT"),
+            ("superseded_by_run", "TEXT"),
+            # The extraction run that wrote (or last re-produced) the row.
+            # NULL on rows written before the column existed - not guessed.
+            ("extraction_run_id", "TEXT"),
         ):
             # RACE-SAFE, because this runs on read paths. See
             # `db.add_column_if_missing`.
@@ -312,6 +325,8 @@ def ensure_schema() -> None:
             # reply is a fact on the run a reviewer can see, never a run that
             # silently looks like it raised nothing to say.
             ("ai_check_status", "TEXT"),
+            # #633: the web standards check's own outcome, stored the same way.
+            ("web_check_status", "TEXT"),
         ):
             add_column_if_missing(conn, "review_runs", _column, _type)
         conn.execute(
@@ -868,10 +883,12 @@ def list_applicable_standards(
 def list_standard_requirements(
     *, allowed_document_ids: frozenset[str], standard_document_id: str | None = None,
 ) -> list[dict]:
-    """Requirements from standards the caller may read."""
+    """ACTIVE requirements from standards the caller may read (#640: a row a
+    re-extraction superseded is kept for the findings that cite it, by id,
+    and is not listed)."""
     ensure_schema()
     where, args = _scope_clause(allowed_document_ids, "standard_document_id")
-    sql = "SELECT * FROM standard_requirements" + where
+    sql = "SELECT * FROM standard_requirements" + where + " AND superseded_at IS NULL"
     if standard_document_id is not None:
         sql += " AND standard_document_id = ?"
         args = [*args, standard_document_id]

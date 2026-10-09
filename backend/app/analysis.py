@@ -240,6 +240,17 @@ def named_document_ids(
     return frozenset(r["id"] for r in rows) & scope.allowed_document_ids
 
 
+def unresolved_names(scope: access.AccessScope, filenames: list[str]) -> list[str]:
+    """The named files that resolve to NO document the caller may read
+    (misspelt, absent, not granted, or a lookup that failed). Each is a
+    document the answer did not examine."""
+    unresolved = []
+    for name in filenames:
+        if not named_document_ids(scope, [name]):
+            unresolved.append(name)
+    return unresolved
+
+
 def narrow_to_named(
     scope: access.AccessScope, filenames: list[str]
 ) -> tuple[frozenset[str], bool]:
@@ -649,6 +660,11 @@ def gather(question: str, scope: access.AccessScope, *, limit: int = 8,
     """
     names = named_documents(question, _corpus_filenames(scope))
     allowed, narrowed = narrow_to_named(scope, names)
+    # #633: A NAMED DOCUMENT THAT COULD NOT BE READ IS SAID. Narrowing stands
+    # down when nothing resolves (a broad answer beats an empty one), but the
+    # answer used to read as if the named document had been examined. The names
+    # that resolved to nothing the caller may read are listed on the result.
+    not_read = unresolved_names(scope, names)
     depth = max(limit, limit * ANALYSIS_OVERFETCH)
 
     result = search_mod.search(
@@ -679,6 +695,7 @@ def gather(question: str, scope: access.AccessScope, *, limit: int = 8,
     shares = document_shares(hits)
     result["analysis_named_documents"] = names
     result["analysis_named_scope_applied"] = narrowed
+    result["analysis_named_not_read"] = not_read
     result["analysis_per_document_cap"] = cap
     result["analysis_per_document_cap_lifted"] = bool(
         hits and max(shares.values()) > cap)
@@ -766,11 +783,12 @@ def summary(question: str, scope: access.AccessScope, *, limit: int = 8,
     why the single pass could not be made to mean "more documents" simply by
     handing it more passages.
     """
-    evidence, _ = gather(question, scope, limit=limit)
+    evidence, raw = gather(question, scope, limit=limit)
     result = _synthesise(question, evidence, limit, generate)
     return {
         "question": question,
         "evidence_ledger": evidence,
+        "named_documents_not_read": raw.get("analysis_named_not_read") or [],
         **synthesis.summary_to_api(result),
         "not_implemented_sections": not_implemented_sections(),
     }
@@ -870,7 +888,7 @@ def _gaps(question: str, scope: access.AccessScope, *, limit: int = 8,
                     f"(asked for {limit})")
         limit = budget.max_evidence
     with acronyms.request_scope() as not_ready:
-        evidence, _ = gather(question, scope, limit=limit)
+        evidence, raw = gather(question, scope, limit=limit)
         rows = claims.extract_claims(
             evidence, allowed_document_ids=scope.allowed_document_ids,
             budget=budget)
@@ -893,6 +911,9 @@ def _gaps(question: str, scope: access.AccessScope, *, limit: int = 8,
         "question": question,
         "comparison_type": comparison_type,
         "evidence_ledger": evidence,
+        # #633: documents the question named that could not be read; the
+        # comparison did NOT examine them.
+        "named_documents_not_read": raw.get("analysis_named_not_read") or [],
         "claim_clusters": claims.to_api(clusters),
         "gaps": {
             "applicability": applicability,

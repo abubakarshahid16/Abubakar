@@ -520,6 +520,7 @@ def _requirement_citations(*, allowed_document_ids: frozenset[str]) -> list[dict
             WHERE r.standard_document_id IN ({marks})
               AND c.document_role = 'COMPANY_STANDARD'
               AND c.superseded_by IS NULL
+              AND r.superseded_at IS NULL
               AND r.requirement_type = ?""",
         [*sorted(allowed_document_ids), APPLICABILITY_TRIGGER]).fetchall()
 

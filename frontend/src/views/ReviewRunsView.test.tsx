@@ -147,6 +147,27 @@ describe("B3: the pages a run read into fields", () => {
   });
 });
 
+describe("#633: a run that could not check everything says so on its card", () => {
+  it("shows a web check that could not be checked, and findings that are only partial", async () => {
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({
+      web_check_status: { ran: false, complete: false, reason: "it failed (RuntimeError)",
+                          plain: "Web standards check could not be checked: it failed (RuntimeError)." },
+      partial_findings: 3,
+    })] } });
+    render(<ReviewRunsView />);
+    const card = within(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    expect(card.getByTestId("web-check-incomplete")).toHaveTextContent("could not be checked");
+    expect(card.getByTestId("partial-findings")).toHaveTextContent("3 finding(s) were written before this review stopped");
+  });
+
+  it("shows neither line for a run with nothing unchecked", async () => {
+    render(<ReviewRunsView />);
+    const card = within(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    expect(card.queryByTestId("web-check-incomplete")).toBeNull();
+    expect(card.queryByTestId("partial-findings")).toBeNull();
+  });
+});
+
 describe("#453: requirements about a different kind of equipment", () => {
   it("shows one expandable line per subject, never dropping them silently", async () => {
     reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({
