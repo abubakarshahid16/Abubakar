@@ -132,12 +132,23 @@ def gate(requirements: list[dict], facts: list[dict], *,
     """Split `requirements` into what a review checks and what it does not.
 
     Returns {"kept": [...], "excluded": {"definition": n, "text_quality": n},
-    "not_compared": [one grouped line per standard]}. Order of `kept` is the
-    order given. Non-table requirements always stay.
+    "not_compared": [one grouped line per standard], "decisions": [one per
+    requirement NOT kept]}. Order of `kept` is the order given. Non-table
+    requirements always stay.
+
+    #669/#677 EVERY REQUIREMENT IT DOES NOT KEEP GETS ITS OWN DECISION, with
+    the reason (`scope_ledger`): a definition does not apply; unconfirmed
+    garbled text, and a table cell no field answers, apply but are not
+    checked - the cell's reason says which handle failed (`row_label_not_on_
+    sheet`, `column_not_on_sheet`, `other_row_matched`, `no_label`). The
+    grouped line counts them by that reason too.
     """
+    from . import scope_ledger
+
     values, labels = _fact_words(facts)
     kept_flags: dict[int, bool] = {}
     excluded: dict[str, int] = defaultdict(int)
+    decisions: list[dict] = []
 
     # Rows that match by their key, and which tables have any such row.
     row_matched: dict[int, bool] = {}
@@ -156,22 +167,32 @@ def gate(requirements: list[dict], facts: list[dict], *,
         reason = excluded_reason(requirement)
         if reason:
             excluded[reason] += 1
+            decisions.append(scope_ledger.decision(
+                requirement, "definition" if reason == DEFINITION else "unreadable_text"))
             continue
         if not _is_table_cell(requirement):
             kept_flags[index] = True
             continue
         table = _table_of(requirement)
         checked = row_matched.get(index, False)
+        column = _column_words(requirement)
         if not checked and not table_selectable[table]:
-            column = _column_words(requirement)
             checked = bool(column) and _matches_column(column, labels)
         if checked:
             kept_flags[index] = True
             continue
+        key = _row_key(requirement)
+        cell_reason = ("no_label" if not key and not column
+                       else "other_row_matched" if table_selectable[table]
+                       else "row_label_not_on_sheet" if key
+                       else "column_not_on_sheet")
+        decisions.append(scope_ledger.decision(requirement, cell_reason))
         standard_id = requirement.get("standard_document_id") or ""
         entry = not_compared.setdefault(standard_id, {
-            "standard_document_id": standard_id, "count": 0, "tables": {}})
+            "standard_document_id": standard_id, "count": 0, "tables": {},
+            "reasons": defaultdict(int)})
         entry["count"] += 1
+        entry["reasons"][cell_reason] += 1
         page = requirement.get("page")
         table_entry = entry["tables"].setdefault(
             table[1], {"page": page, "count": 0, "examples": []})
@@ -193,12 +214,16 @@ def gate(requirements: list[dict], facts: list[dict], *,
                      f"table{'s' if len(tables) != 1 else ''} of {name} not compared: "
                      "no matching field on this submittal"),
             "tables": tables,
+            # #669: why, cell by cell, counted (each cell's own reason is in
+            # `decisions`)
+            "reasons": dict(entry["reasons"]),
         })
     lines.sort(key=lambda l: (-l["count"], l["standard_name"]))
     return {
         "kept": [r for i, r in enumerate(requirements) if kept_flags.get(i)],
         "excluded": dict(excluded),
         "not_compared": lines,
+        "decisions": decisions,
     }
 
 

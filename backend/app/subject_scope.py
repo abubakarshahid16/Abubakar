@@ -185,8 +185,14 @@ def gate(requirements: list[dict], *, classification: dict | None, facts: list[d
     """Split `requirements` into what the review checks and what does not apply.
 
     Returns {"kept": [...], "not_applied": [one grouped line per subject],
-    "summary": {...counts...}}. Order of `kept` is the order given.
+    "summary": {...counts...}, "decisions": [one per requirement not kept]}.
+    Order of `kept` is the order given. #677: each requirement set aside has
+    its own "does not apply: other equipment" decision (`scope_ledger`),
+    naming its subject and this submittal's equipment.
     """
+    from . import scope_ledger
+
+    decisions: list[dict] = []
     vocab = vocab or vocabulary()
     equipment, source = submittal_equipment(classification, facts, vocab)
     headings_by_standard = headings_by_standard or {}
@@ -211,6 +217,9 @@ def gate(requirements: list[dict], *, classification: dict | None, facts: list[d
         else:
             summary["not_applied"] += 1
             label = " / ".join(sorted(subject))
+            decisions.append(scope_ledger.decision(
+                requirement, "other_equipment",
+                f"about {label}, this submittal is {', '.join(sorted(equipment))}"))
             entry = groups.setdefault(label, {"subject": label, "count": 0, "standards": {}})
             entry["count"] += 1
             sid = requirement.get("standard_document_id") or ""
@@ -233,4 +242,4 @@ def gate(requirements: list[dict], *, classification: dict | None, facts: list[d
                      f"they are about {entry['subject']}, this submittal is {this_is}"),
             "standards": standards})
     lines.sort(key=lambda l: (-l["count"], l["subject"]))
-    return {"kept": kept, "not_applied": lines, "summary": summary}
+    return {"kept": kept, "not_applied": lines, "summary": summary, "decisions": decisions}

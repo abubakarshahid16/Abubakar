@@ -1832,6 +1832,11 @@ def run_comparison(
     # requirements held back as definitions or unreadable text are counted.
     unchecked_standards: list[str] = []
     held_back = {"definition": 0, "text_quality": 0}
+    # #677 THE SCOPE LEDGER: every requirement of every applicable standard
+    # (`in_scope`) ends in exactly one decision with a reason (`scope_ledger`).
+    from . import scope_ledger
+    in_scope_all: list[dict] = []
+    decisions: list[dict] = []
     for standard_id in standard_ids:
         from . import standards as standards_mod
         # #596/#597: a definition, and text the quality gate holds, are not
@@ -1845,12 +1850,15 @@ def run_comparison(
                 if connect().execute("SELECT 1 FROM documents WHERE id = ?",
                                      (standard_id,)).fetchone() else standard_id)
         for r in loaded:
+            in_scope_all.append(r)
             if standards_mod.is_reviewable(r):
                 requirements.append(r)
             elif r.get("requirement_type") == "definition":
                 held_back["definition"] += 1
+                decisions.append(scope_ledger.decision(r, "definition"))
             else:
                 held_back["text_quality"] += 1
+                decisions.append(scope_ledger.decision(r, "unreadable_text"))
 
     facts = datasheets.list_facts(
         submittal_id, allowed_document_ids=allowed_document_ids)
@@ -1863,6 +1871,7 @@ def run_comparison(
         "SELECT id, filename FROM documents WHERE id IN (%s)" % ",".join(
             "?" for _ in standard_ids), standard_ids)} if standard_ids else {}
     gated = table_gate.gate(requirements, facts, standard_names=names)
+    decisions.extend(gated["decisions"])
     all_requirements = len(requirements)
     requirements = gated["kept"]
     table_values_not_compared = gated["not_compared"]
@@ -1896,6 +1905,34 @@ def run_comparison(
         standard_names=names)
     requirements = scoped["kept"]
     requirements_not_applied = scoped["not_applied"]
+    decisions.extend(scoped["decisions"])
+    # #638 A REQUIREMENT FOR A SERVICE THE SUBMITTAL SAYS IT IS NOT IN does
+    # not apply (sour service on a sheet declaring no H2S). Declared absent
+    # only: an unstated service keeps it a check. See `service_scope`.
+    from . import service_scope
+    standard_labels = {sid: " ".join(filter(None, (
+        names.get(sid), (classification_mod.of_document(sid) or {}).get("document_number"),
+        (classification_mod.of_document(sid) or {}).get("title")))) for sid in standard_ids}
+    serviced = service_scope.gate(requirements, facts=facts, standard_labels=standard_labels)
+    requirements = serviced["kept"]
+    decisions.extend(serviced["decisions"])
+    service_declarations = serviced["declarations"]
+    # #647 AI APPLICABILITY, when switched on: the model proposes "does not
+    # apply" with a quoted reason; only what code confirms leaves the check.
+    # What it suggested and code did not confirm is kept on the requirement's
+    # decision, for the engineer. See `ai_applicability`.
+    ai_notes: dict = {}
+    ai_applicability_summary = None
+    if settings.ai_applicability_enabled:
+        from . import ai_applicability
+        ai = ai_applicability.gate(requirements, classification=stored, facts=facts,
+                                   limit=settings.ai_applicability_max_per_run)
+        requirements = ai["kept"]
+        decisions.extend(ai["decisions"])
+        ai_notes = ai["notes"]
+        ai_applicability_summary = {"asked": ai["asked"], "not_asked": ai["not_asked"],
+                                    "confirmed_does_not_apply": len(ai["decisions"]),
+                                    "unconfirmed": len(ai["notes"])}
     applicability_summary = scoped["summary"]
     findings: list[dict] = []
     # The run's findings, prepared and gated but NOT yet written: they go in
@@ -1911,6 +1948,7 @@ def run_comparison(
                       for r in review_mod.rejected_in_run(review_run_id)
                       if r.get("requirement_id")}
     matches_attempted = matches_made = 0
+    rejected_requirements: set = set()
     rule_refusals: dict[str, int] = {}
     model_matches = 0
     model_reasons: dict[str, int] = {}
@@ -2136,6 +2174,7 @@ def run_comparison(
                     verdict = {**verdict, "rationale": (
                         f"{verdict.get('rationale') or ''} ({'; '.join(notes)})")}
             if (requirement.get("id"), (fact or {}).get("id")) in rejected_pairs:
+                rejected_requirements.add(requirement.get("id"))
                 continue
             opinion = (model_opinions or {}).get(requirement.get("id"))
             # ONE FINDING PER ITEM, WRITTEN THROUGH THE BATCH HELPER: `_prepare_finding`
@@ -2164,6 +2203,27 @@ def run_comparison(
     # datasheet self-checks below, which add their own rows to this run and
     # must not be deleted by it.
     _write_run_findings(review_run_id, prepared_rows, replace=replace)
+
+    # #677 EVERY REQUIREMENT THAT REACHED THE COMPARISON: its finding's status
+    # decides its state; one with no finding (an engineer rejected the
+    # pairing) is an engineer's question, never silent.
+    status_of: dict = {}
+    for row in prepared_rows:
+        status_of.setdefault(row.get("requirement_id"), row.get("compliance_status"))
+    for requirement in requirements:
+        rid = requirement.get("id")
+        if rid in status_of:
+            decided = scope_ledger.from_finding(requirement, status_of[rid])
+        else:
+            decided = scope_ledger.decision(
+                requirement, "needs_engineer",
+                "an engineer rejected the pairing" if rid in rejected_requirements
+                else "no finding was written")
+        if rid in ai_notes and decided["state"] != scope_ledger.CHECKED:
+            decided = {**decided, "reason": f"{decided['reason']}; {ai_notes[rid]}"}
+        decisions.append(decided)
+    scope_counts = scope_ledger.check_complete(in_scope_all, decisions)
+    scope_ledger.store(review_run_id, decisions)
 
     # OWNER ORDER 2c: DATASHEET SELF-CHECKS (kind B) - the sheet against
     # itself, pure arithmetic, no standard needed. Written before the code is
@@ -2208,6 +2268,13 @@ def run_comparison(
         "submittal_document_id": submittal_id,
         "requirements_evaluated": len(requirements),
         "requirements_in_scope": all_requirements,
+        # #677: every requirement of the applicable standards (the held-back
+        # ones included) in exactly one state - checked / applies but not
+        # checked / does not apply - with the count per reason. The decisions
+        # themselves are stored per requirement (`scope_ledger`).
+        "scope": scope_counts,
+        "service_declarations": service_declarations,
+        "ai_applicability": ai_applicability_summary,
         "requirements_held_back": held_back,
         "standards_not_checked": unchecked_standards,
         "requirements_after_table_gate": in_scope,
