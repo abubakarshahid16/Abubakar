@@ -384,6 +384,7 @@ def _held_standards(review_run_id: str) -> dict[str, list[str]]:
            FROM review_applicable_standards a
            JOIN documents d ON d.id = a.standard_document_id
            LEFT JOIN standard_requirements r ON r.standard_document_id = a.standard_document_id
+                AND r.superseded_at IS NULL
            WHERE a.review_run_id = ? AND COALESCE(a.included, 1) = 1""",
         (review_run_id,)).fetchall()
     held: dict[str, list[str]] = {}
