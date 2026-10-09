@@ -18,7 +18,7 @@ import { WorkerPanel } from "../components/WorkerPanel";
 import { useDocumentClassifications } from "../components/classification/useDocumentClassifications";
 import { useTypeVocabularyLoad } from "../components/classification/TypeFilter";
 import { EmptyState, ErrorState, Spinner } from "../components/states";
-import type { ApiError, DocumentClassification, DocumentRecord, DocumentRole, WorkerStatus } from "../types/api";
+import type { ApiError, DocumentClassification, DocumentKindOption, DocumentRecord, DocumentRole, WorkerStatus } from "../types/api";
 
 type Load =
   | { state: "loading" }
@@ -431,6 +431,34 @@ export function DocumentsView({
     [setOneClassification],
   );
 
+  // The document kinds the router knows (W5b-02). A failed load simply means
+  // no picker is offered; the chips still show what the router stored.
+  const [kinds, setKinds] = useState<DocumentKindOption[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    void classification.kinds().then((r) => {
+      if (!cancelled && r.ok && Array.isArray(r.data.kinds)) setKinds(r.data.kinds);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const confirmKind = useCallback(
+    async (doc: DocumentRecord, kind: string) => {
+      const result = await classification.confirmKind(doc.id, kind);
+      if (result.ok) {
+        setOneClassification(doc.id, result.data);
+        setNotice(`Confirmed ${doc.filename} as ${kinds.find((k) => k.id === kind)?.label ?? kind}`);
+      } else if (!result.disconnected && result.error.code === "not_found") {
+        setNotice("You do not have permission to confirm this document's kind.");
+      } else {
+        setNotice(`Could not confirm the kind for ${doc.filename}. Try again.`);
+      }
+    },
+    [setOneClassification, kinds],
+  );
+
   const run = useCallback(
     async (doc: DocumentRecord, label: string, call: () => Promise<{ ok: boolean }>) => {
       setBusy(doc.id);
@@ -702,6 +730,10 @@ export function DocumentsView({
                                 types={types}
                                 isAdmin={isAdmin}
                                 onConfirmType={confirmType}
+                            kinds={kinds}
+                            onConfirmKind={confirmKind}
+                                kinds={kinds}
+                                onConfirmKind={confirmKind}
                                 selected={isAdmin ? selectedIds.includes(doc.id) : undefined}
                                 onToggleSelected={isAdmin ? toggleSelected : undefined}
                               />

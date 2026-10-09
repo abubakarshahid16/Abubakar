@@ -2460,6 +2460,15 @@ export interface DocumentClassification {
    *  agreed with the machine yet. */
   confirmed: boolean;
   subjects: DocumentSubject[];
+  // ------------------------------------ document-type router (W5b-02)
+  /** What SORT of document this is (datasheet, procedure, letter...). Null is
+   *  "the router could not tell": the engineer is asked, no kind is invented. */
+  document_kind?: string | null;
+  /** `suggested` is a guess; `needs_engineer` has no kind; `confirmed` is a
+   *  person's decision. Null/absent: not routed yet. */
+  document_kind_state?: "suggested" | "needs_engineer" | "confirmed" | null;
+  /** Cue ids and scores only, never document text. */
+  document_kind_evidence?: { scores?: Record<string, number>; evidence?: string[]; reason?: string } | null;
   // ------------------------------------ AI submittal review, phase 2
   // Null is "not recorded" for every one of these, and renders as nothing.
   document_role?: DocumentRole | null;
@@ -2673,4 +2682,16 @@ export interface RunCheckStatus {
   complete: boolean;
   reason: string | null;
   plain: string;
+}
+
+/** One document type the router knows. */
+export interface DocumentKindOption {
+  id: string;
+  label: string;
+}
+/** GET /api/document-kinds: the types, and how many of THE CALLER'S OWN
+ *  documents are in each routing state. */
+export interface DocumentKindVocabulary {
+  kinds: DocumentKindOption[];
+  counts: { total: number; suggested: number; needs_engineer: number; confirmed: number; not_routed: number };
 }
