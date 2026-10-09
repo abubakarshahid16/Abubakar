@@ -137,10 +137,11 @@ MUTATIONS: tuple[Mutation, ...] = (
     #: call for a no-op that accepts the same arguments.
     Mutation(
         id="M329", phase=38,
-        description="path 3: a re-chunk cascades cited requirements away unguarded",
+        description="path 3: a re-chunk cascades cited requirements away (they are "
+                    "not detached before the chunks are deleted, #659)",
         path=APP / "chunker.py",
-        anchor='    orphan_guard.check(\n        "re_chunk",',
-        replacement=f'    {_B38_NOOP}\n        "re_chunk",',
+        anchor="        detached = orphan_guard.detach_requirements_for_rechunk(conn, doc_id)",
+        replacement="        detached = []",
         target=_B38_TEST, keyword="re_chunk",
         tags=("critical",),
     ),

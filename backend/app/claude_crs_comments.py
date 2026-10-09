@@ -65,8 +65,10 @@ import copy
 import json
 import re
 from enum import Enum
+from functools import lru_cache
+from pathlib import Path
 
-from . import comparison, crs_mapping, numparse
+from . import comparison, crs_mapping, numparse, standard_ids
 from .claude_spend import StopRun
 from .crs_export import row_reference
 from .reader_api import _contains, _fold
@@ -127,6 +129,13 @@ class Reason(Enum):
     CLAUSE_NOT_CITED = "clause_not_cited"
     #: The standard's code does not appear in the comment.
     STANDARD_NOT_CITED = "standard_not_cited"
+    #: A sentence of the draft says something the finding's own evidence does
+    #: not (#648): two or more words that are neither in the quotes nor in the
+    #: reviewer vocabulary - a material, a fault, a cause the model supplied.
+    CLAIM_NOT_IN_QUOTES = "claim_not_in_quotes"
+    #: The comment or action names a standard that is not among the finding's
+    #: inputs (#648): "per API 610" written by a model that was never given it.
+    STANDARD_NOT_IN_INPUTS = "standard_not_in_inputs"
     #: A number in the comment or action is not among the finding's inputs.
     #: This is the fabrication catch.
     NUMBER_NOT_IN_INPUTS = "number_not_in_inputs"
@@ -218,7 +227,7 @@ STYLE RULES, ALL MANDATORY:
 "SAES-D-001 Para. 6.2.3". The comment must contain that citation.
 2. State the submitted value and the required value, with their units, as \
 given below. Do not round, convert or restate them.
-3. Use NO number that is not in the inputs below. No typical values, no \
+3. Say nothing the inputs below do not say: no causes, faults, materials or opinions of your own. Name NO standard that is not in the inputs below. Use NO number that is not in the inputs below. No typical values, no \
 margins, no percentages, no estimates. A number you did not receive is an \
 invention and the comment will be discarded.
 4. No speculation about why the contractor did what they did or what else \
@@ -341,12 +350,86 @@ def _status_contradicted(status: str, prose: str) -> bool:
     return False
 
 
+def _unknown_standards(prose: str, inputs: dict) -> list[str]:
+    """Standards the prose names that the model was never given (#648).
+
+    A standard is "given" when it is the finding's own standard code or is
+    cited anywhere in the inputs (the requirement's wording, the submitted
+    text). Identity is `standard_ids.same_standard`: "API 610" and "API-610"
+    are one standard, "API 65" is not "API 650". A standard the comment names
+    that is nowhere in the inputs is a claim the engineer cannot defend, the
+    same as an invented number.
+    """
+    known = [inputs["standard_code"],
+             *standard_ids.cited_standards(" ".join(v for v in inputs.values() if v))]
+    return [raw for raw in standard_ids.cited_standards(prose)
+            if not any(known_one and standard_ids.same_standard(raw, known_one)
+                       for known_one in known)]
+
+
+_VOCABULARY_PATH = Path(__file__).parent / "reference" / "crs_comment_vocabulary.json"
+_WORD = re.compile(r"[a-z]{4,}")
+#: Words of a sentence that are neither in the evidence nor the reviewer's
+#: vocabulary, at which a sentence stops being a restatement of the evidence.
+MAX_UNSUPPORTED_WORDS_PER_SENTENCE = 1
+
+
+@lru_cache(maxsize=2)
+def _vocabulary(mtime: float) -> frozenset[str]:
+    data = json.loads(_VOCABULARY_PATH.read_text(encoding="utf-8"))
+    return frozenset(w.lower() for w in data.get("words", []))
+
+
+def _stems(word: str) -> set[str]:
+    out = {word}
+    for suffix in ("es", "s", "ed", "ing", "d"):
+        if word.endswith(suffix) and len(word) - len(suffix) >= 4:
+            out.add(word[: -len(suffix)])
+    if word.endswith("ing") and len(word) > 6:
+        out.add(word[:-3] + "e")
+    return out
+
+
+def _known(word: str, known: frozenset[str] | set[str]) -> bool:
+    return bool(_stems(word) & known)
+
+
+def unsupported_sentences(prose: str, inputs: dict) -> list[list[str]]:
+    """The words, per sentence of the draft, that the evidence does not carry.
+
+    A sentence is a restatement of the finding when every word of four or more
+    letters is in the finding's own quotes (the inputs: requirement, submitted
+    value, field, citation, status) or in the reviewer vocabulary
+    (`reference/crs_comment_vocabulary.json`: generic words for what is
+    submitted, required, stated, revised). The citation and standard code are
+    removed first. Returns the unsupported words of each sentence that has
+    MORE than `MAX_UNSUPPORTED_WORDS_PER_SENTENCE`: a model's one stray word
+    is a style choice; a second is a claim.
+    """
+    vocabulary = _vocabulary(_VOCABULARY_PATH.stat().st_mtime)
+    known = set(_WORD.findall(_fold(" ".join(v for v in inputs.values() if v))))
+    known |= {w for k in known for w in _stems(k)}
+    cleaned = _strip_citations(_fold(prose), inputs)
+    bad: list[list[str]] = []
+    for sentence in re.split(r"(?<=[.!?;])\s+", cleaned):
+        words = []
+        for word in _WORD.findall(sentence):
+            if not _known(word, known) and not _known(word, vocabulary) and word not in words:
+                words.append(word)
+        if len(words) > MAX_UNSUPPORTED_WORDS_PER_SENTENCE:
+            bad.append(words)
+    return bad
+
+
 def accept(proposal: dict, finding: dict, row: dict) -> dict:
     """THE GATE. A draft is kept only when ALL of these hold:
 
       1. it has a comment
       2. the clause number appears in the comment
-      3. the standard code appears in the comment
+      3. the standard code appears in the comment, and no OTHER standard is
+         named unless the inputs name it too (#648); and no sentence says
+         something the finding's quotes do not (two or more words that are
+         neither in the quotes nor in the reviewer vocabulary, #648)
       4. every number in comment + action appears in the inputs
          (`numparse.number_keys` both sides; the citation and page are excused)
       5. comment + action is at most `MAX_DRAFT_CHARS`
@@ -377,10 +460,15 @@ def accept(proposal: dict, finding: dict, row: dict) -> dict:
             folded_comment, _fold(inputs["standard_code"])):
         return refuse(Reason.STANDARD_NOT_CITED)
     prose = f"{comment} {action}"
+    if _unknown_standards(prose, inputs):
+        return refuse(Reason.STANDARD_NOT_IN_INPUTS)
+
     allowed = _numbers_in_inputs(inputs)
     found = _numbers(_strip_citations(_fold(prose), inputs))
     if not found <= allowed:
         return refuse(Reason.NUMBER_NOT_IN_INPUTS)
+    if unsupported_sentences(prose, inputs):
+        return refuse(Reason.CLAIM_NOT_IN_QUOTES)
     if len(comment) + len(action) > MAX_DRAFT_CHARS:
         return refuse(Reason.TOO_LONG)
     if _status_contradicted(inputs["status"], prose):
