@@ -33,7 +33,7 @@ const fullWorker: WorkerStatus = {
 const health: Health = {
   ok: true,
   embed_model_present: true,
-  answer_model_present: true,
+  answer_model_configured: true,
   ingestion: {
     // /api/health is unauthenticated and carries only
     // these three. The full worker status is on /api/metrics.

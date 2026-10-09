@@ -832,6 +832,7 @@ def stop_watcher() -> None:
             _watcher = None
 
 
+# TEST HOOK (#661): called by the tests to start from a clean state; the app does not call it.
 def reset_watcher() -> None:
     """Test helper - drop the singleton, exactly as `db.reset_connection` does.
 

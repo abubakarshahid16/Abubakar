@@ -51,9 +51,6 @@ def instruction(styles: list[str]) -> str:
     return " and ".join(words)
 
 
-def _engine_label(provider: str | None) -> str:
-    return "Claude" if provider == rp.CLAUDE else "Local model"
-
 
 def _failed(base: dict, exc: Exception, timer: Timer, preference: str | None = None) -> dict:
     if isinstance(exc, claude_spend.BudgetExceeded):

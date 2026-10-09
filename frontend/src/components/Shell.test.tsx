@@ -15,7 +15,7 @@ import type { Health } from "../api/client";
 const healthOnline: Health = {
   ok: true,
   embed_model_present: true,
-  answer_model_present: true,
+  answer_model_configured: true,
   ingestion: {
     // /api/health is unauthenticated and carries only
     // these three. The full worker status is on /api/metrics.
@@ -50,8 +50,15 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-beforeEach(() => vi.useRealTimers());
-afterEach(() => vi.unstubAllGlobals());
+beforeEach(() => {
+  vi.useRealTimers();
+  // the production poll is 15 s; these tests wait for several polls
+  vi.stubEnv("VITE_HEALTH_POLL_MS", "400");
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
 
 describe("shell navigation", () => {
   it("lists all four views and marks the unbuilt ones", async () => {
@@ -209,4 +216,12 @@ describe("connection stability", () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(screen.queryByText(/backend is not running/i)).toBeNull();
   }, 20000);
+});
+
+describe("answer model badge (#656)", () => {
+  it("says no answer model is configured when the health field is false", async () => {
+    mockFetch(() => json({ ...healthOnline, answer_model_configured: false }));
+    render(<App />);
+    expect(await screen.findByText(/no answer model configured/i)).toBeInTheDocument();
+  });
 });

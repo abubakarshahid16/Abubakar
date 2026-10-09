@@ -19,7 +19,7 @@ import uuid
 from datetime import datetime, timezone
 
 from . import acronyms as acronyms_mod
-from . import errors, job_queue, page_ledger, states
+from . import doc_router, errors, job_queue, page_ledger, states
 from .chunker import chunk_document
 from . import telemetry
 from .db import connect
@@ -115,6 +115,19 @@ def _passage_text(embedder, row) -> str:
         if text != body:
             return text
     return embedder.passage_input(row["section"], body)
+
+
+def _route_document_kind(doc_id: str, result: dict) -> None:
+    """Suggest a document type once the text is chunked. A routing failure must
+    never fail ingestion (the type is advice), but it is not silent: it is
+    logged and recorded in the result, and the document stays unrouted."""
+    try:
+        routing = doc_router.route_document(doc_id)
+        if routing is not None:
+            result["route_kind"] = routing.state
+    except Exception as exc:  # noqa: BLE001 - advice must not block ingestion
+        _log.warning("document type routing failed for %s: %s", doc_id, type(exc).__name__)
+        result["route_kind_error"] = type(exc).__name__
 
 
 class IngestionWorker:
@@ -508,6 +521,7 @@ class IngestionWorker:
 
                 if status == states.CHUNKING:
                     result["chunk"] = chunk_document(doc_id)
+                    _route_document_kind(doc_id, result)
                     telemetry.record(
                         telemetry.CHUNK,
                         result["chunk"].get("chunks_this_run", 0),

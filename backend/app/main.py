@@ -47,6 +47,7 @@ from .api_utils import (
 )
 from . import access
 from . import admin as admin_mod
+from . import doc_router as doc_router_mod
 from . import playbooks as playbooks_mod
 from . import requirement_split as requirement_split_mod
 from . import model_memory as model_memory_mod
@@ -382,7 +383,7 @@ def health():
         # and version is fingerprinting material and is on /api/metrics,
         # which is scoped to the caller's grants as of the commit that
         # added this note - it was not when the field was moved there.
-        "answer_model_present": bool(settings.answer_model),
+        "answer_model_configured": bool(settings.answer_model),
         "ingestion": {
             "alive": worker["alive"],
             "stalled": worker["stalled"],
@@ -1387,6 +1388,47 @@ def playbook_review(
     proposer = playbooks_mod.task_proposer() if body.use_ai else None
     return playbooks_mod.review(document_id, playbook, allowed_document_ids=scope.allowed_document_ids,
                                 proposer=proposer)
+
+
+@app.get("/api/document-kinds", response_model=schemas.DocumentKindVocabulary,
+         responses={**schemas.ERRORS_404})
+def get_document_kinds(scope: access.AccessScope = Depends(access.current_scope)):
+    """The document types the router knows, and how many of the caller's OWN
+    documents are in each routing state (rule 5: a count states whose
+    documents it counts)."""
+    allowed = None if scope.unrestricted else scope.allowed_document_ids
+    return {"kinds": doc_router_mod.kinds(), "counts": doc_router_mod.counts(allowed)}
+
+
+@app.put("/api/documents/{document_id}/kind", response_model=schemas.DocumentClassification,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def put_document_kind(
+    document_id: str,
+    body: schemas.DocumentKindUpdate,
+    scope: access.AccessScope = Depends(access.current_scope),
+    actor: dict | None = Depends(admin_mod.current_admin),
+):
+    """A person confirms (or corrects) the document type the router suggested.
+    Admin-gated like the rest of classification; a kind outside the vocabulary
+    is a 422 naming it. Classification is not access control: this changes what
+    the document is called, never who may read it."""
+    require_document(document_id, scope)
+    try:
+        doc_router_mod.confirm(document_id, body.kind, (actor or {}).get("id"))
+    except doc_router_mod.UnknownKind as exc:
+        raise HTTPException(status_code=422, detail={
+            "code": "unknown_document_kind", "message": str(exc)}) from exc
+    row = classification_mod.of_document(document_id) or {}
+    return {**row, "document_id": document_id}
+
+
+@app.post("/api/admin/document-kinds/route", response_model=schemas.DocumentKindRouted,
+          responses={**schemas.ERRORS_404})
+def route_document_kinds(_admin: dict | None = Depends(admin_mod.current_admin)):
+    """Route every document that has no routing yet (or an older router's).
+    Documents already in the library when the router arrived need this once.
+    Confirmed kinds are never touched. Returns counts only."""
+    return doc_router_mod.route_unrouted()
 
 
 @app.post("/api/documents/bulk/role", response_model=schemas.BulkRoleResult,
