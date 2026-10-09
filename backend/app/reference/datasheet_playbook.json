@@ -1,0 +1,18 @@
+{
+ "format": "datasheet-playbook/1",
+ "note": "The datasheet review's checks that used to be code (#528). Edit here, not in rule_eval.py or field_links.py. The self-checks are datasheet_checks.json; field aliases are field_synonyms.json.",
+ "derivation_rules": [
+  {"output": "design pressure",
+   "input_names": ["mop", "maximum operating pressure", "max operating pressure", "operating pressure"],
+   "requirement_words": ["design pressure"]},
+  {"output": "design temperature",
+   "input_names": ["mot", "maximum operating temperature", "max operating temperature", "operating temperature"],
+   "requirement_words": ["design temperature"]}
+ ],
+ "categorical": {
+  "flange_classes": [150, 300, 400, 600, 900, 1500, 2500],
+  "radiography_levels": {"none": 0, "nil": 0, "no": 0, "spot": 1, "partial": 1, "random": 1,
+                         "full": 2, "100%": 2, "100 %": 2},
+  "family_fields": {"flange_rating": ["flange rating"], "radiography": ["radiography"], "pwht": ["pwht"]}
+ }
+}

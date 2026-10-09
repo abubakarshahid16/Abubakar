@@ -38,6 +38,8 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
+from . import datasheet_playbook
+
 SYNONYMS_PATH = Path(__file__).parent / "reference" / "field_synonyms.json"
 
 
@@ -98,13 +100,15 @@ def field_of(fact_name: str | None) -> tuple[str, str | None]:
 # ------------------------------------------------ closed categorical values
 
 #: The ASME B16.5 pressure classes, in order. A class is compared by its
-#: number, and only these numbers are classes.
-_CLASSES = (150, 300, 400, 600, 900, 1500, 2500)
-_CLASS_IN_TEXT = re.compile(r"\b(?:class|cl\.?)\s*[-#]?\s*(150|300|400|600|900|1500|2500)\b"
-                            r"|\b(150|300|400|600|900|1500|2500)\s*#", re.IGNORECASE)
-#: Radiography extent, weakest to strongest.
-_RT_LEVELS = {"none": 0, "nil": 0, "no": 0, "spot": 1, "partial": 1, "random": 1,
-              "full": 2, "100%": 2, "100 %": 2}
+#: number, and only these numbers are classes. DATA since #528
+#: (`reference/datasheet_playbook.json`); the patterns below are built from it,
+#: so a class added there is read in text too.
+_CLASSES = datasheet_playbook.PLAYBOOK["flange_classes"]
+_CLASS_ALT = "|".join(str(c) for c in _CLASSES)
+_CLASS_IN_TEXT = re.compile(rf"\b(?:class|cl\.?)\s*[-#]?\s*({_CLASS_ALT})\b"
+                            rf"|\b({_CLASS_ALT})\s*#", re.IGNORECASE)
+#: Radiography extent, weakest to strongest. DATA since #528.
+_RT_LEVELS = datasheet_playbook.PLAYBOOK["radiography_levels"]
 _RT_IN_TEXT = re.compile(r"\b(full|spot|partial|random)\s+radiograph|\b(100\s?%)\s+radiograph"
                          r"|radiograph\w*\s+(?:shall\s+be\s+)?(full|spot|100\s?%)", re.IGNORECASE)
 _AT_LEAST = re.compile(r"\b(?:minimum|at least|not less than|or higher|or above|or greater)\b",
@@ -136,15 +140,11 @@ _CONDITION = re.compile(r"\b(?:when|where|if|unless|provided\s+that|except|in\s+
                         r"|for\s+\w+\s+service|and\s+(?:larger|smaller|above|below|over|under)"
                         r"|or\s+(?:larger|smaller))\b", re.IGNORECASE)
 
-#: Which canonical field names answer each family.
-FAMILY_FIELDS = {
-    "flange_rating": frozenset({"flange rating"}),
-    "radiography": frozenset({"radiography"}),
-    "pwht": frozenset({"pwht"}),
-}
+#: Which canonical field names answer each family. DATA since #528.
+FAMILY_FIELDS = datasheet_playbook.PLAYBOOK["family_fields"]
 
 
-_JOINED_CLASS = re.compile(r"(?:\band\b|\bor\b|,|/)\s*(150|300|400|600|900|1500|2500)\b"
+_JOINED_CLASS = re.compile(rf"(?:\band\b|\bor\b|,|/)\s*({_CLASS_ALT})\b"
                            r"(?!\s*(?:#|mm|in\b|inch|\"|°|deg|bar|psi|kpa|mpa))", re.IGNORECASE)
 
 
