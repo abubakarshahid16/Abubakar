@@ -498,6 +498,11 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
 
     ok, why = available() if provider is None else (True, "injected")
     if not ok:
+        # #633: ASKED FOR AND COULD NOT RUN IS A FACT ON THE RUN, not silence
+        # that reads as "the check found nothing".
+        from . import absence
+        _store_status(review_run_id, absence.check_failed_status(
+            "AI engineering check", str(why)))
         return {"ran": False, "reason": why, "proposed": 0, "kept": 0, "rejected": {}}
     run = submittal_review.get_review_run(review_run_id, allowed_document_ids=allowed_document_ids)
     if run is None:

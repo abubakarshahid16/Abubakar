@@ -264,8 +264,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         path=APP / "main.py",
         # Re-anchored by B3: the call gained `unread_pages=` on the next line.
         # Re-anchored 2026-09-26 (order 2f): the gaps are Review notes now.
-        anchor='        "review_notes": crs_mapping_mod.build_review_notes(findings, missing, unread),\n',
-        replacement='        "review_notes": crs_mapping_mod.build_review_notes(findings, [], unread),\n',
+        # Re-anchored 2026-10-08 (#633): the notes list also carries the
+        # "Not checked" lines after this call.
+        anchor='        "review_notes": crs_mapping_mod.build_review_notes(findings, missing, unread) + [\n',
+        replacement='        "review_notes": crs_mapping_mod.build_review_notes(findings, [], unread) + [\n',
         target="tests/test_crs_endpoint.py",
         keyword="no_includable_findings_still_exports_its_gap_rows",
         tags=("honesty", "critical"),
@@ -359,8 +361,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         # Re-anchored 2026-10-01: `build_crs_rows` ignores `unread_pages` (the
         # old anchor was a dead argument, so the mutation proved nothing); the
         # pages are named by the Review notes, built a few lines further on.
-        anchor="        \"review_notes\": crs_mapping_mod.build_review_notes(findings, missing, unread),",
-        replacement="        \"review_notes\": crs_mapping_mod.build_review_notes(findings, missing, []),",
+        # Re-anchored 2026-10-08 (#633): the notes list now also carries the
+        # "Not checked" lines after this call.
+        anchor="        \"review_notes\": crs_mapping_mod.build_review_notes(findings, missing, unread) + [",
+        replacement="        \"review_notes\": crs_mapping_mod.build_review_notes(findings, missing, []) + [",
         target=_B3_TEST, keyword="crs_names_the_unread_pages",
         tags=("honesty",),
     ),

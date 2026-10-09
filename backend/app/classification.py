@@ -60,6 +60,10 @@ from . import schemas
 from . import disciplines as disciplines_mod
 from .db import connect
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 # ------------------------------------------------------------------- types
 
 #: The register's own three. Not a database CHECK constraint - the importer
@@ -569,8 +573,9 @@ def _audit_equipment_type_change(document_id: str, *, old_value: str | None,
                      "confidence": evidence.confidence,
                      "classifier_version": evidence.classifier_version,
                  })))
-    except Exception:  # noqa: BLE001 - see docstring
-        pass
+    except Exception as exc:  # noqa: BLE001 - see docstring
+        _log.warning("the equipment-type audit event for %s was not written (%s)",
+                     document_id, type(exc).__name__)
 
 
 def classify_equipment_type_for_submittal(
@@ -1068,8 +1073,9 @@ def _audit_field_change(document_id: str, *, field_name: str, old_value,
                 " VALUES (?, NULL, ?, ?, 'document_classification', ?, 'ok', ?)",
                 (_now(), classified_by, FIELD_RECLASSIFIED_ACTION, document_id,
                  json.dumps(detail)))
-    except Exception:  # noqa: BLE001 - see docstring
-        pass
+    except Exception as exc:  # noqa: BLE001 - see docstring
+        _log.warning("the field-reclassified audit event for %s was not written (%s)",
+                     document_id, type(exc).__name__)
 
 
 def classify_metadata_for_submittal(

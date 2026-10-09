@@ -700,15 +700,26 @@ def render_report(document_id: str, *,
             f"Disposition: {finding.get('disposition') or 'not recorded'}  |  Approval: {finding.get('approval_status') or 'pending'}\n"
             f"Status: {finding['status']}  |  Escalation level: {finding['escalation_level']}"
         )
-        height = 150 if len(block) < 900 else 190
+        # #633: THE BOX IS SIZED TO THE TEXT. It was a fixed 150 or 190 points, and
+        # `insert_textbox` draws nothing past its rectangle, so a long finding was
+        # cut off with no sign. About 100 characters fit a line at this size.
+        wrapped_lines = sum(max(1, -(-len(line) // 100)) for line in block.splitlines())
+        height = min(700, max(150, int(wrapped_lines * 8.5 * 1.25) + 24))
         if y + height > 770:
             page = pdf.new_page()
             y = 48
         page.draw_rect(pymupdf.Rect(48, y, 548, y + height), color=(0.65, 0.72, 0.75), fill=(0.96, 0.98, 0.98), width=0.5)
-        page.insert_textbox(pymupdf.Rect(58, y + 8, 538, y + height - 8), block, fontsize=8.5, fontname="helv", lineheight=1.25)
+        rest = page.insert_textbox(pymupdf.Rect(58, y + 8, 538, y + height - 8), block, fontsize=8.5, fontname="helv", lineheight=1.25)
+        if rest < 0:
+            # Still too long for one page: say so on the box, never cut silently.
+            page.insert_text((58, y + height - 4),
+                             "[TEXT CONTINUES - NOT SHOWN HERE. Open this finding in the review screen.]",
+                             fontsize=7, fontname="hebo", color=(0.7, 0.1, 0.1))
         y += height + 12
     if not findings:
         page.insert_text((48, y), "No review findings have been recorded for this document.", fontsize=10, fontname="helv")
+        page.insert_text((48, y + 14), "This is NOT a statement that the document was reviewed and found acceptable.",
+                         fontsize=9, fontname="hebo", color=(0.7, 0.1, 0.1))
     pdf.save(str(path))
     pdf.close()
     return path

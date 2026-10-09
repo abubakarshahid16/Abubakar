@@ -618,6 +618,10 @@ export interface CrsPreview {
   recommended_code_reason: string;
   /** B10: "Decided by the reviewing engineer." or the not-yet-decided notice; "" when no code. */
   recommended_code_status?: string;
+  /** #633: set when part of the review could not be checked; the sheet must
+   *  never look complete. "" / absent when nothing is known to be unchecked. */
+  incomplete_notice?: string;
+  unchecked_parts?: string[];
   recommended_code_label: string;
   /** "internal" (with "AI Review Comments") or "issue" (to the contractor). */
   crs_copy?: "internal" | "issue";
@@ -731,6 +735,10 @@ export interface ReviewRunSummary {
    *  false whenever a reply was truncated, only partially recovered after
    *  the one capped retry, or refused outright - `plain` is the sentence to
    *  show, and it always states its boundary (how many of how many). */
+  /** #633: the web standards check's own outcome (same shape and rule). */
+  web_check_status?: RunCheckStatus | null;
+  /** #633: findings written before a failed run stopped. Partial. */
+  partial_findings?: number;
   ai_check_status?: {
     ran: boolean;
     complete: boolean;
@@ -1446,6 +1454,9 @@ export interface RemovedSentence {
 export interface AnalysisSummaryResult {
   question: string;
   evidence_ledger: EvidenceItem[];
+  /** #633: documents the question NAMED that could not be read; the answer
+   *  did not examine them. */
+  named_documents_not_read?: string[];
   /** Null when synthesis did not run or was refused. Null renders as NOTHING -
    *  never an empty prose block. */
   summary: string | null;
@@ -1506,6 +1517,9 @@ export interface GapAnalysisOut {
 export interface AnalysisGapsResult {
   question: string;
   evidence_ledger: EvidenceItem[];
+  /** #633: documents the question NAMED that could not be read; the answer
+   *  did not examine them. */
+  named_documents_not_read?: string[];
   claim_clusters: ClaimClusterOut[];
   gaps: GapAnalysisOut;
   not_implemented_sections: string[];
@@ -2649,4 +2663,14 @@ export interface RequirementsNotApplied {
   count: number;
   line: string;
   standards: { standard_document_id: string; standard_name: string; count: number; clauses: string[] }[];
+}
+
+/** The outcome of an optional check on a run (AI engineering check, web
+ *  standards check). `complete` false: it did not finish or could not run;
+ *  `plain` says why. */
+export interface RunCheckStatus {
+  ran: boolean;
+  complete: boolean;
+  reason: string | null;
+  plain: string;
 }

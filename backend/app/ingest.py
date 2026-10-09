@@ -28,6 +28,10 @@ from . import ocr
 from .extract import extract_document
 from .embedder import Embedder, EmbedderConfig, embedding_tag, searchable_tags
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 # A worker with no heartbeat for this long has died or hung.
 STALL_AFTER_SECONDS = 120
 # Work is waiting but nothing has completed for this long: the queue is stuck
@@ -83,8 +87,9 @@ def _stuck_reason(conn, doc_id: str, row, status: str) -> str:
                       f"{row['chunk_count']} chunks still have no vector")
         elif not row["chunk_count_total"]:
             detail = (f"stalled in {status!r}: the document produced no chunks")
-    except Exception:  # noqa: BLE001 - a diagnostic must never mask the failure
-        pass
+    except Exception as exc:  # noqa: BLE001 - a diagnostic must never mask the failure
+        _log.warning("the stall diagnosis for %s could not be worked out (%s)",
+                     doc_id, type(exc).__name__)
     return detail
 
 
