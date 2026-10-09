@@ -38,9 +38,6 @@ _FINISHED_TYPES = frozenset({"extract", "generated", "comparison"})
 STOPPED_REASON = "the run was stopped before this side was finished"
 
 
-def not_found_text(name: str) -> str:
-    return f"{name}: not found in the pages read."
-
 
 def could_not_be_checked_sentence(reason: str | None) -> str:
     why = (reason or "").strip().rstrip(".") or "the check did not complete"
@@ -73,12 +70,6 @@ def side_state(side: dict, used_passages: list) -> tuple[str, str | None]:
         return (ANSWERED, None) if used_passages else (NOT_FOUND, reason)
     return COULD_NOT_BE_CHECKED, reason or f"the side returned no answer ({kind or 'unknown type'})"
 
-
-#: Review statuses that are an ANSWER ABOUT THE REQUIREMENT. Anything else, an
-#: unrecognised status, None, a status added later, counts as unresolved and can
-#: never lead to an approval.
-def is_unrecognised(status: object, recognised: frozenset[str]) -> bool:
-    return status not in recognised
 
 
 # ---------------------------------------------------------------- the review

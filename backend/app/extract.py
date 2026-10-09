@@ -15,7 +15,6 @@ import concurrent.futures as cf
 import json
 import logging
 import os
-from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import pymupdf  # PyMuPDF
@@ -62,12 +61,6 @@ def equation_density(text: str) -> float:
             hits += 1
     return hits / len(tokens)
 
-
-@dataclass
-class PageResult:
-    page_no: int
-    text: str
-    needs_ocr: bool
 
 
 def _now() -> str:

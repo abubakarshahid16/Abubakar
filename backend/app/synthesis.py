@@ -558,17 +558,6 @@ _UNIT_SPELLING = {"\u00b5m": "um", "\u03bcm": "um", "hr": "h", "hrs": "h", "hour
                   "percent": "%"}
 
 
-def _figures_with_units(text: str) -> list[tuple[str, str | None, str]]:
-    """(canonical number, bound unit or None, the figure as written)."""
-    held = strip_reference_numerals(_CITATION.sub("", text))
-    out = []
-    for n in numparse.find_numbers(held):
-        m = _BOUND_UNIT.match(held, n.end)
-        unit = re.sub(r"\s", "", m.group(1).lower()) if m else None
-        out.append((numparse.canonical(n), _UNIT_SPELLING.get(unit, unit) if unit else None,
-                    f"{n.raw} {m.group(1)}" if m else n.raw))
-    return out
-
 
 def first_unit_conflict(sentence: str, spans: str) -> str | None:
     """The first figure in `sentence` that the cited spans state only in

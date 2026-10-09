@@ -41,6 +41,7 @@ def vocabulary() -> dict:
     }
 
 
+# TEST HOOK (#661): called by the tests to start from a clean state; the app does not call it.
 def reload_vocabulary() -> None:
     """Forget the cached vocabulary (a test, or an edit in a running process)."""
     vocabulary.cache_clear()

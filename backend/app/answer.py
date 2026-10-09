@@ -1254,11 +1254,6 @@ UNIT_MISMATCH = "unit_mismatch"
 FIGURE_MISSING = "figure_missing"
 
 
-def figure_conflict(segment: str, claimed: set[str], passage_text: str) -> str | None:
-    """`figure_check`'s figure only - the unchanged interface."""
-    found = figure_check(segment, claimed, passage_text)
-    return found[0] if found else None
-
 
 def first_unit_conflict(sentence: str, passage_text: str) -> str | None:
     """The first figure the passage states with the same number but only in a

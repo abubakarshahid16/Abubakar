@@ -371,6 +371,7 @@ class _Limiter:
 _limiter = _Limiter()
 
 
+# TEST HOOK (#661): called by the tests to start from a clean state; the app does not call it.
 def reset_limiter() -> None:
     """For tests. Production has no reason to call this."""
     global _limiter

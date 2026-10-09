@@ -103,6 +103,7 @@ def _load() -> tuple[dict, ...]:
     return tuple(_check(row, i) for i, row in enumerate(rows))
 
 
+# TEST HOOK (#661): called by the tests to start from a clean state; the app does not call it.
 def reload_samples() -> None:
     """For tests that write their own fixture."""
     _load.cache_clear()
