@@ -64,6 +64,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(4119, "the chunks API drops the locator", "main.py",
        "content_hash, retrievable, quality_flags, locator, text", "content_hash, retrievable, quality_flags, NULL AS locator, text",
        "api_lists_a_word_chunk"),
+    _m(4127, "a Word document is rendered as a page image", "main.py",
+       '    if dict(doc).get("pagination") == "flow":\n', "    if False:\n", "no_page_image"),
     _m(4120, "a table is not kept whole as rows", C, '    tail = f"table {b.table_no}"\n',
        '    tail = "para 1"\n', "heading_path_and_paragraph"),
     Mutation(id="M4121", phase=4121, runner="vitest",

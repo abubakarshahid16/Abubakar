@@ -355,3 +355,13 @@ def test_the_api_lists_a_word_chunk_with_its_locator(tmp_path):
     assert {c["kind"] for c in body["chunks"]} >= {"prose", "table", "header_footer"}
     document = client.get(f"/api/documents/{doc}").json()
     assert document["pagination"] == "flow"
+
+
+def test_a_word_document_has_no_page_image(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+    doc = _ingest(tmp_path)
+    response = TestClient(app).get(f"/api/documents/{doc}/pages/1/image")
+    assert response.status_code == 404
+    assert "no printed pages" in json.dumps(response.json())
