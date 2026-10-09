@@ -135,6 +135,13 @@ def _ai_relates_to(finding: dict) -> str:
     return "" if name == "no standard named" else name
 
 
+def _ai_unverified(finding: dict) -> bool:
+    """W5b-11 (#559): an AI item resting on a standard the library does not
+    hold (`ai_engineering_check.UNVERIFIED_LABEL` leads its rationale)."""
+    from .ai_engineering_check import UNVERIFIED_LABEL
+    return (finding.get("ai_rationale") or "").startswith(UNVERIFIED_LABEL)
+
+
 def _rejected(finding: dict) -> bool:
     """Owner order section 3: an engineer rejected this comment - it is left
     off the sheet. The finding and the rejection both stay on record."""
@@ -674,6 +681,12 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             relates = _ai_relates_to(f)
             if relates and not f.get("engineer_comment"):
                 text += f" (Relates to {relates}.)"
+            # #559: from the model's memory of a standard not held. The label
+            # stays on the row even once an engineer confirms raising it - the
+            # source is still not held - unless the engineer rewrote it.
+            if _ai_unverified(f) and not f.get("engineer_comment"):
+                from .ai_engineering_check import UNVERIFIED_LABEL
+                text = f"{UNVERIFIED_LABEL}. {text}"
         # The datasheet's page and field, in the shape every row uses.
         where = " - ".join(p for p in (
             f"p.{f['contractor_page']}" if f.get("contractor_page") else "",
