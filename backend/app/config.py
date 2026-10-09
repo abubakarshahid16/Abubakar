@@ -394,6 +394,12 @@ class Settings(BaseSettings):
     #: The queue pauses below this much free memory, so a chat answer is never
     #: starved by background work.
     ai_task_min_free_ram_gb: float = 1.5
+    #: #647 AI applicability in a review: the model PROPOSES "does not apply"
+    #: with a quoted reason, code confirms it from stated facts or it stays a
+    #: check. OFF by default (one model call per requirement); the model is
+    #: `ai_task_model`. At most this many requirements per run are asked.
+    ai_applicability_enabled: bool = False
+    ai_applicability_max_per_run: int = 200
 
     # Measured on the target CPU - see docs/benchmarks.md
     num_thread: int = 12

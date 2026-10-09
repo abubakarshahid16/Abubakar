@@ -96,6 +96,9 @@ EGRESS_SAFE: dict[str, object] = {
     "answer_model_allow_remote_host": False,
     "answer_model_allowed_hosts": (),
     "match_enabled": False,
+    # #647: the review's AI applicability tier calls the local model once per
+    # requirement - off, like the model matcher above.
+    "ai_applicability_enabled": False,
     # --- notifications (SMTP)
     "smtp_enabled": False,
     "smtp_host": "",
