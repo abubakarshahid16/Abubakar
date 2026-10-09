@@ -45,7 +45,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id='M2506', phase=2506,
              description='a header-only unit is no longer marked unit_from column_header',
              path=APP / 'standards.py',
-             anchor='"unit_from": "column_header" if unit else None,',
+             anchor='"unit_from": (("cell" if cell_unit else "column_header")\n'
+                    '                                          if unit else None),',
              replacement='"unit_from": None,',
              target=_T, keyword='max_column', tags=_TAG),
     Mutation(id='M2507', phase=2507,

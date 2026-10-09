@@ -98,7 +98,9 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T, keyword="rejection_survives or acceptance_survives", tags=("honesty", "critical")),
     Mutation(id="M1446", phase=_P, description="a re-run proposes a rejected pair again as a draft",
              path=_CMP,
+             # re-anchored for #677: the rejected requirement is recorded first
              anchor=("            if (requirement.get(\"id\"), (fact or {}).get(\"id\")) in rejected_pairs:\n"
+                     "                rejected_requirements.add(requirement.get(\"id\"))\n"
                      "                continue\n"),
              replacement="",
              target=_T, keyword="rejection_survives", tags=("honesty",)),

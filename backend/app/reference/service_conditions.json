@@ -1,0 +1,28 @@
+{
+  "_comment": [
+    "Service conditions a requirement may depend on (#638, #677). Read by",
+    "app/service_scope.py. A requirement is SPECIFIC to a condition when its",
+    "standard is one of `standards` (read by standard_ids, so any spelling and",
+    "the equivalent names match) or its own text carries one of",
+    "`requirement_markers`. It does NOT APPLY only when the submittal's own",
+    "datasheet DECLARES the condition absent: a field whose label carries one",
+    "of `field_labels` and whose value reads as `declared_absent`. Declared",
+    "present, or not declared at all, keeps the requirement a check - unknown",
+    "is never 'does not apply'. Edit this file to add a condition; no code",
+    "change is needed."
+  ],
+  "conditions": [
+    {
+      "name": "sour service",
+      "standards": ["NACE MR0175", "ISO 15156", "NACE MR0103", "ISO 17945"],
+      "requirement_markers": ["sour service", "sour environment", "sour environments",
+                              "wet h2s", "h2s service", "hydrogen sulfide", "hydrogen sulphide",
+                              "sulfide stress cracking", "sulphide stress cracking"],
+      "field_labels": ["sour", "h2s", "hydrogen sulfide", "hydrogen sulphide", "nace",
+                       "mr0175", "15156", "mr0103"],
+      "declared_present": ["yes", "y", "sour", "required", "applicable", "present", "wet h2s"],
+      "declared_absent": ["no", "n", "none", "non-sour", "non sour", "not sour", "sweet",
+                          "not required", "not applicable", "n/a", "absent", "nil", "0"]
+    }
+  ]
+}
