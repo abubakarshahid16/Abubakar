@@ -1,0 +1,23 @@
+{
+ "format": "checkpoint-procedure/1",
+ "note": "INVENTED procedure for the checkpoint (#533). No client text. Two elements are left out on purpose (H07 risk ranking, H11 revalidation) and one is only partly stated (H02: no scribe), so a review that calls everything present fails here.",
+ "playbook": "hazop_procedure",
+ "filename": "invented-hazop-procedure.pdf",
+ "library": [{"document_number": "IEC 61882", "filename": "invented stand-in for IEC 61882.pdf"}],
+ "sections": [
+  ["1 Purpose and scope", "This procedure sets out how a HAZOP study is run on the invented unit. Its scope is every new process unit and its objective is to find hazards before start-up."],
+  ["2 Study team", "The study leader chairs every session. Team members come from the process, instrument and operations disciplines."],
+  ["3 Preparation", "Before the study the P&IDs and the operating procedures shall be prepared and issued to the team."],
+  ["4 Nodes", "The unit is divided into nodes, each a section of plant with one design intent."],
+  ["5 Guidewords", "Guidewords such as no, more and less are applied to each parameter to give deviations."],
+  ["6 Analysis", "For every deviation the causes, the consequences and the safeguards are discussed and written down."],
+  ["7 Worksheet", "The worksheet has one row per deviation and an action column for recommendations."],
+  ["8 Follow-up", "Every recommendation is given a responsible person and a due date and is tracked until it is closed out."],
+  ["9 Reporting", "A report is issued after the study and the records are retained for the life of the unit."]
+ ],
+ "expected": {
+  "H01": "present", "H02": "unclear", "H03": "present", "H04": "present", "H05": "present",
+  "H06": "present", "H07": "missing", "H08": "present", "H09": "present", "H10": "present",
+  "H11": "missing"
+ }
+}
