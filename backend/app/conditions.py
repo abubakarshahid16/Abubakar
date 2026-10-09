@@ -297,12 +297,27 @@ def _evaluate_terms(shape: str, condition: str, facts: list[dict]) -> dict:
                                f"{fact.get('field_name')!r} states {term!r}",
                                _evidence_of(fact))
     # Every stated candidate was read and none carries the condition's term.
-    # THIS is the only route to NOT_APPLICABLE, and it carries its proof.
+    # #633: THAT ALONE IS ABSENCE, NOT PROOF. "SA-516 Gr 70" is a carbon steel
+    # this list does not spell; reading its silence as "not carbon steel"
+    # excused the clause on no evidence. The only route to NOT_APPLICABLE is a
+    # field that NAMES ANOTHER recognised value of the same kind ("stainless
+    # steel" against a carbon-steel clause), and that field is the proof.
+    table = {SHAPE_MATERIAL: _MATERIAL_TERMS, SHAPE_SERVICE: _SERVICE_TERMS,
+             SHAPE_CLASS: _CLASS_TERMS}.get(shape, ())
+    for named in stated:
+        value = _fold(named.get("field_value"))
+        other = next((t for t in table if t not in terms and _contains_term(value, t)), None)
+        if other is not None:
+            return _result(
+                NOT_SATISFIED, shape, condition,
+                f"{named.get('field_name')!r} states {other!r}, not "
+                f"{', '.join(repr(t) for t in terms)}",
+                _evidence_of(named))
     return _result(
-        NOT_SATISFIED, shape, condition,
-        f"{len(stated)} field(s) state a value and none of them is "
-        f"{', '.join(repr(t) for t in terms)}",
-        _evidence_of(stated[0]))
+        UNKNOWN, shape, condition,
+        f"{len(stated)} field(s) state a value, but none names a "
+        f"{shape.replace('_', ' ')} this check recognises (for example a grade code), so "
+        f"it cannot say the condition does not hold")
 
 
 def _evaluate_numeric(condition: str, facts: list[dict]) -> dict:

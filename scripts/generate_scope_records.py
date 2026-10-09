@@ -108,9 +108,10 @@ def main(argv: list[str] | None = None) -> int:
     for std in needed:
         doc_id = std["document_id"]
         try:
-            passages = scope_records.find_passages(doc_id)
+            # read_scope gathers the passages itself, so a failed passage
+            # source is recorded on the result and the stored record (#633).
             result = scope_records.read_scope(doc_id, provider, lexicon={},
-                                              step="scope-reasoning-read", passages=passages)
+                                              step="scope-reasoning-read")
         except Exception as exc:  # noqa: BLE001 - a down model or a budget cap
             skipped.append({**std, "reason": f"reasoning call failed: {exc}"})
             continue

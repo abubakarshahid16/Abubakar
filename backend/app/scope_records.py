@@ -61,7 +61,7 @@ def page_text(document_id: str, page_no: int) -> str:
     return (row["text"] if row else "") or ""
 
 
-def find_passages(document_id: str, *, search_fn=None) -> list[dict]:
+def find_passages(document_id: str, *, search_fn=None, failures: list | None = None) -> list[dict]:
     """Up to MAX_PASSAGES candidate scope passages: {page, method, text}.
     A Scope/Application/Exclusions heading is looked for on EVERY page (a
     long standard puts its scope on page 18); a scope that runs off the end of
@@ -95,6 +95,10 @@ def find_passages(document_id: str, *, search_fn=None) -> list[dict]:
     except Exception as exc:  # noqa: BLE001 - search is one of three sources; the others still count
         _log.warning("the scope search for %s failed; only the other sources were used (%s)",
                      document_id, type(exc).__name__)
+        # #633: SAID ON THE RECORD, not only in a log. A scope read from two
+        # of its three sources must say so (error TYPE only, never its text).
+        if failures is not None:
+            failures.append(f"hybrid-search: {type(exc).__name__}")
     for p in range(1, 7):
         text = texts.get(p, "").strip()
         if text:
@@ -252,13 +256,18 @@ def usable(response) -> dict | None:
 
 
 def record_from(document_id: str, passages: list[dict], responses: list, *, lexicon: dict,
-                seed: int | None = None) -> dict:
+                seed: int | None = None, sources_failed: list[str] | tuple = ()) -> dict:
     """The scope-record result from the (one or two) responses of one
-    standard: the last response decides; invalid after the retry = UNKNOWN."""
+    standard: the last response decides; invalid after the retry = UNKNOWN.
+    `sources_failed`: passage sources that failed (#633), carried on the
+    result AND on the stored record."""
+    failed = list(sources_failed)
     out = {"document_id": document_id, "prompt_version": PROMPT_VERSION, "seed": seed,
-           "passages": [{"page": p["page"], "method": p["method"]} for p in passages]}
+           "passages": [{"page": p["page"], "method": p["method"]} for p in passages],
+           "sources_failed": failed}
     if not passages:
-        return {**out, "status": "UNKNOWN", "why": "no scope passage found", "record": None,
+        why = "no scope passage found" + (f" (a passage source failed: {', '.join(failed)})" if failed else "")
+        return {**out, "status": "UNKNOWN", "why": why, "record": None,
                 "invalid_output": False, "tries": 0}
     last = responses[-1]
     parsed = usable(last)
@@ -267,6 +276,8 @@ def record_from(document_id: str, passages: list[dict], responses: list, *, lexi
     if parsed is None:
         return {**out, "status": "UNKNOWN", "why": "invalid output after one retry", "record": None}
     record, dropped, count = verify(parsed, passages, document_id, lexicon)
+    if count and failed:
+        record = {**record, "sources_failed": failed}
     return {**out, "record": record if count else None, "dropped_unverified": dropped, "verified_items": count,
             "status": "PROPOSED" if count else "UNKNOWN", "why": None if count else "no item with a verified quote"}
 
@@ -276,14 +287,16 @@ def read_scope(document_id: str, provider, *, lexicon: dict, step: str, seed: in
     """One scope record for one standard edition. `seed` distinguishes the
     independent re-reads of the NOT_APPLICABLE confirmation (it is part of the
     response-cache key, so a re-read is a real call)."""
-    passages = find_passages(document_id) if passages is None else passages
+    failures: list[str] = []
+    passages = find_passages(document_id, failures=failures) if passages is None else passages
     responses: list = []
     if passages:
         for retry in (False, True):
             responses.append(provider.reason(packet(passages, step=step, seed=seed, retry=retry)))
             if usable(responses[-1]) is not None:
                 break
-    return record_from(document_id, passages, responses, lexicon=lexicon, seed=seed)
+    return record_from(document_id, passages, responses, lexicon=lexicon, seed=seed,
+                       sources_failed=failures)
 
 
 def read_scope_batch(passages_by_doc: dict[str, list[dict]], provider, *, lexicon: dict, step: str,
