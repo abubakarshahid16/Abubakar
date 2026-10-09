@@ -28,6 +28,10 @@ to know whether a change helped or merely moved the failures around.
 
 `eval/p1/` holds 67 invented-name questions (version 5), an invented corpus and a baseline. CI fails a change that drops below 44 of 67 or makes one of the 26 protected questions fail. See `eval/p1/README.md`.
 
+## P1-AI: the scored model tier
+
+`eval/p1ai/` asks 26 invented questions through the generated tier with the local model and scores what the model wrote: no figure or unit that the cited passage does not hold, the right clause, and "could not read" instead of a guess. It cannot run in the cloud; run it on the PC before any W4b merge. See `eval/p1ai/README.md`.
+
 ## The question set
 
 Shape is defined in `questions.schema.json`. Only `id`, `question` and
