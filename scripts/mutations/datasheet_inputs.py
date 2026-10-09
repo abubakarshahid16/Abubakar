@@ -72,13 +72,13 @@ MUTATIONS: tuple[Mutation, ...] = (
        "    table_lines = True",
        "flag_off_ocr_table_lines"),
     _m(1711, "a .docx is accepted with the flag OFF", APP / "upload.py",
-       "        if (kind == KIND_XLSX and settings.datasheet_office_input\n"
-       "                and is_docx(temp_path)):",
-       "        if (kind == KIND_XLSX\n"
-       "                and is_docx(temp_path)):",
+       # Re-anchored 2026-10-09 (W5b-01): the gate is `docx_accepted()`.
+       "        if (kind == KIND_XLSX and docx_accepted() and is_docx(temp_path)):",
+       "        if (kind == KIND_XLSX and is_docx(temp_path)):",
        "flag_off_docx_upload_is_refused"),
     _m(1712, "a workbook is indexed with the flag OFF", APP / "upload.py",
-       "    indexed = kind == KIND_PDF or bool(settings.datasheet_office_input)",
+       "    indexed = (kind == KIND_PDF or (kind == KIND_DOCX and docx_accepted())\n"
+       "               or bool(settings.datasheet_office_input))",
        "    indexed = True",
        "flag_off_xlsx_is_stored_not_indexed"),
     _m(1713, "office facts are recorded as 'extracted', not by their source",
@@ -88,8 +88,10 @@ MUTATIONS: tuple[Mutation, ...] = (
        "xlsx_rows_become_facts or docx_table_becomes_facts"),
     _m(1714, "the extract stage reads an office file with PyMuPDF",
        APP / "extract.py",
-       "    office_rows = _office_rows(pdf_path) if settings.datasheet_office_input else None",
-       "    office_rows = None",
+       "    office_rows = (docx_rows if docx_rows is not None\n"
+       "                   else _office_rows(pdf_path) if settings.datasheet_office_input else None)",
+       "    office_rows = (docx_rows if docx_rows is not None\n"
+       "                   else None)",
        "extract_stage_writes_office_pages or whole_pipeline"),
     _m(1715, "an office file's condition is left to PyMuPDF",
        APP / "datasheets.py",

@@ -195,6 +195,7 @@ def gate(requirements: list[dict], *, classification: dict | None, facts: list[d
                "checked_general": 0, "checked_matching": 0,
                "kept_equipment_unknown": 0, "not_applied": 0}
     groups: dict[str, dict] = {}
+    not_applied_items: list[dict] = []
     for requirement in requirements:
         subject, _where = requirement_subject(
             requirement, headings_by_standard.get(requirement.get("standard_document_id"), {}),
@@ -211,6 +212,9 @@ def gate(requirements: list[dict], *, classification: dict | None, facts: list[d
         else:
             summary["not_applied"] += 1
             label = " / ".join(sorted(subject))
+            not_applied_items.append({
+                "requirement": requirement, "code": "other_equipment",
+                "detail": f"about {label}, this submittal is {', '.join(sorted(equipment))}"})
             entry = groups.setdefault(label, {"subject": label, "count": 0, "standards": {}})
             entry["count"] += 1
             sid = requirement.get("standard_document_id") or ""
@@ -233,4 +237,6 @@ def gate(requirements: list[dict], *, classification: dict | None, facts: list[d
                      f"they are about {entry['subject']}, this submittal is {this_is}"),
             "standards": standards})
     lines.sort(key=lambda l: (-l["count"], l["subject"]))
-    return {"kept": kept, "not_applied": lines, "summary": summary}
+    return {"kept": kept, "not_applied": lines, "summary": summary,
+            # One item per requirement that does not apply, with its reason (#678).
+            "not_applied_items": not_applied_items}

@@ -47,6 +47,9 @@ from .api_utils import (
 )
 from . import access
 from . import admin as admin_mod
+from . import doc_router as doc_router_mod
+from . import requirement_split as requirement_split_mod
+from . import model_memory as model_memory_mod
 from . import auth as auth_mod
 from . import errors
 from . import analysis as analysis_mod
@@ -1349,6 +1352,47 @@ def put_document_classification(
     return {**row, "document_id": document_id}
 
 
+@app.get("/api/document-kinds", response_model=schemas.DocumentKindVocabulary,
+         responses={**schemas.ERRORS_404})
+def get_document_kinds(scope: access.AccessScope = Depends(access.current_scope)):
+    """The document types the router knows, and how many of the caller's OWN
+    documents are in each routing state (rule 5: a count states whose
+    documents it counts)."""
+    allowed = None if scope.unrestricted else scope.allowed_document_ids
+    return {"kinds": doc_router_mod.kinds(), "counts": doc_router_mod.counts(allowed)}
+
+
+@app.put("/api/documents/{document_id}/kind", response_model=schemas.DocumentClassification,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def put_document_kind(
+    document_id: str,
+    body: schemas.DocumentKindUpdate,
+    scope: access.AccessScope = Depends(access.current_scope),
+    actor: dict | None = Depends(admin_mod.current_admin),
+):
+    """A person confirms (or corrects) the document type the router suggested.
+    Admin-gated like the rest of classification; a kind outside the vocabulary
+    is a 422 naming it. Classification is not access control: this changes what
+    the document is called, never who may read it."""
+    require_document(document_id, scope)
+    try:
+        doc_router_mod.confirm(document_id, body.kind, (actor or {}).get("id"))
+    except doc_router_mod.UnknownKind as exc:
+        raise HTTPException(status_code=422, detail={
+            "code": "unknown_document_kind", "message": str(exc)}) from exc
+    row = classification_mod.of_document(document_id) or {}
+    return {**row, "document_id": document_id}
+
+
+@app.post("/api/admin/document-kinds/route", response_model=schemas.DocumentKindRouted,
+          responses={**schemas.ERRORS_404})
+def route_document_kinds(_admin: dict | None = Depends(admin_mod.current_admin)):
+    """Route every document that has no routing yet (or an older router's).
+    Documents already in the library when the router arrived need this once.
+    Confirmed kinds are never touched. Returns counts only."""
+    return doc_router_mod.route_unrouted()
+
+
 @app.post("/api/documents/bulk/role", response_model=schemas.BulkRoleResult,
           responses={**schemas.ERRORS_404, **schemas.ERRORS_422,
                      207: {"model": schemas.BulkRoleResult,
@@ -1917,6 +1961,10 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         "page_coverage": outcome.get("page_coverage"),
         "table_values_not_compared": outcome.get("table_values_not_compared") or [],
         "requirements_not_applied": outcome.get("requirements_not_applied") or [],
+        # #678: every requirement in scope in one of three groups; a run stored
+        # before this existed has only its counts, so its reasons say so.
+        "requirement_split": (outcome.get("requirement_split")
+                              or requirement_split_mod.from_counts(outcome.get("unchecked_counts"))),
         "applicability": outcome.get("applicability"),
         # P3: the background job running this review - progress and cancel.
         "job": job,
@@ -3734,6 +3782,15 @@ def page_image(
     """
     reject_unknown_params(request, {"dpi", "chunk_id", "q"})
     doc = require_document(document_id, scope)
+    if dict(doc).get("pagination") == "flow":
+        # A Word document has no printed pages: rendering it would show a
+        # layout that matches none of its reading pages or citations.
+        return JSONResponse(
+            status_code=404,
+            content={"detail": errors.safe_error(
+                errors.NOT_FOUND, "a Word document has no printed pages; it is cited by "
+                "heading path and paragraph", document_id=document_id)},
+        )
 
     rects: list[tuple[float, float, float, float]] = []
     if chunk_id and q:
@@ -3790,7 +3847,7 @@ def document_chunks(
     conn = connect()
     rows = conn.execute(
         f"""SELECT id, ordinal, page_start, page_end, section, kind, token_count,
-                   content_hash, retrievable, quality_flags, text
+                   content_hash, retrievable, quality_flags, locator, text
             FROM chunks WHERE document_id = ?{clause}
             ORDER BY ordinal LIMIT ? OFFSET ?""",
         (document_id, limit, offset),
@@ -3867,6 +3924,18 @@ def document_excluded(
 # `current_admin` rather than `current_scope`: the question is not which
 # documents this request may see, it is whether this request may be here at
 # all.
+
+
+@app.post("/api/admin/models/unload", response_model=schemas.AdminModelsFreed,
+          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def admin_free_model_memory(request: Request,
+                            actor: dict | None = Depends(admin_mod.current_admin)):
+    """Give back the memory the local models hold (#666): ask Ollama to unload
+    every resident model (keep_alive 0). A non-admin gets the same 404 as every
+    other route here. Nothing is sent but model names; the next question pays a
+    cold load, which the button's label says."""
+    reject_unknown_params(request, set())
+    return model_memory_mod.free_all()
 
 
 @app.get("/api/admin/users", response_model=schemas.AdminUserList,

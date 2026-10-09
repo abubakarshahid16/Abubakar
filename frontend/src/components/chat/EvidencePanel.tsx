@@ -7,6 +7,7 @@
  * only way to verify a citation for certain is to look at the real page.
  */
 
+import { citationWhere, hasPrintedPage } from "./citationWhere";
 import { api } from "../../api/client";
 import { clauseLabel, CitationInspector, OcrConfidence, ProvenanceMark } from "./Provenance";
 import type { AnswerPassage } from "../../types/api";
@@ -61,10 +62,7 @@ export function Highlighted({ passage }: { passage: AnswerPassage }) {
  *  Document plus page is the claim, it is auditable, and it stands.
  */
 export function Citation({ passage }: { passage: AnswerPassage }) {
-  const pages =
-    passage.page_start === passage.page_end
-      ? `page ${passage.page_start}`
-      : `pages ${passage.page_start}–${passage.page_end}`;
+  const pages = citationWhere(passage);
   // null today, always. Rendered only if it is ever a label worth standing
   // behind; null renders as NOTHING, never as a placeholder. The old `(no
   // clause numbering)` branch went with it - now that no clause is ever
@@ -103,10 +101,7 @@ export function Citation({ passage }: { passage: AnswerPassage }) {
 /** The same claim in a list row: document and page, and no clause. See
  *  `clauseLabel` in Provenance.tsx. */
 export function PassageLocation({ passage }: { passage: AnswerPassage }) {
-  const pages =
-    passage.page_start === passage.page_end
-      ? `page ${passage.page_start}`
-      : `pages ${passage.page_start}–${passage.page_end}`;
+  const pages = citationWhere(passage);
   const clause = clauseLabel(passage);
   return (
     <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
@@ -171,7 +166,7 @@ export function EvidencePanel({
   const boxed = Boolean(question && passage?.highlight);
   // Fetched with the bearer header, never as a bare <img src>: see useAuthedImage.
   const image = useAuthedImage(
-    passage
+    passage && hasPrintedPage(passage)
       ? boxed
         ? api.pageImageWithAnswerUrl(
             passage.document_id,
@@ -247,6 +242,13 @@ export function EvidencePanel({
           <Highlighted passage={passage} />
         </blockquote>
 
+        {passage.locator && (
+          <p className="mt-5 text-xs text-slateish-400">
+            Position in the document: <span className="font-mono text-slateish-200">{passage.locator}</span>
+            . A Word document has no fixed pages, so there is no printed page to show.
+          </p>
+        )}
+        {hasPrintedPage(passage) && (<>
         <h3 className="mt-5 text-xs uppercase tracking-wide text-slateish-400">
           Page {passage.page_start} as printed
           {boxed && image.answerLocated !== false && (
@@ -295,6 +297,7 @@ export function EvidencePanel({
             />
           )}
         </div>
+        </>)}
       </div>
     </aside>
   );

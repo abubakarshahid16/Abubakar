@@ -19,7 +19,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, reviews as reviewsApi } from "../api/client";
 import type {
   CrsPreview, CrsReviewNote, DocumentRecord, ReviewFinding, ReviewReadiness,
-  ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary, RequirementsNotApplied, TableValuesNotCompared,
+  ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary, RequirementsNotApplied, RequirementSplit, RequirementSplitReason, TableValuesNotCompared,
   VisionReaderStatus,
 } from "../types/api";
 import { FindingDetail } from "../components/review/FindingDetail";
@@ -536,6 +536,7 @@ export function ReviewRunsView(
           {showStandards && (
             <StandardsInScope standards={standards} missing={missingStandards} error={standardsError} />
           )}
+          {run?.requirement_split && <RequirementSplitPanel split={run.requirement_split} />}
           {run && (run.requirements_not_applied?.length ?? 0) > 0 && (
             <RequirementsNotAppliedList lines={run.requirements_not_applied ?? []} />
           )}
@@ -1087,6 +1088,39 @@ function CrsPreviewSheet(
           {preview.recommended_code_status}
         </p>
       )}
+    </section>
+  );
+}
+
+/** #678: the three honest groups. "Not checked" and "does not apply" are
+ *  different things and never one blended number; only "apply but not checked"
+ *  counts against the run. */
+function RequirementSplitPanel({ split }: { split: RequirementSplit }) {
+  const group = (label: string, count: number, reasons: RequirementSplitReason[], testId: string) => (
+    <li data-testid={testId}>
+      <span className="text-slateish-300">{`${count} ${label}`}</span>
+      {count > 0 && reasons.length > 0 && (
+        <ul className="mt-0.5 list-disc ps-5 text-xs text-slateish-400">
+          {reasons.slice(0, 3).map((r) => (
+            <li key={r.reason}>{`${r.reason} (${r.count})`}</li>
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+  const applies = split.checked + split.applies_not_checked;
+  return (
+    <section aria-label="Requirements in scope" data-testid="requirement-split" className="text-sm">
+      <p className="text-slateish-300">
+        {`${split.total} requirements in scope`}
+        {split.unchecked_share !== null &&
+          `; ${split.applies_not_checked} of ${applies} (${Math.round(split.unchecked_share * 100)}%) of those that apply were not checked`}
+      </p>
+      <ul className="mt-1 space-y-1">
+        {group("checked", split.checked, [], "split-checked")}
+        {group("apply but were not checked", split.applies_not_checked, split.applies_not_checked_reasons, "split-not-checked")}
+        {group("do not apply", split.does_not_apply, split.does_not_apply_reasons, "split-not-apply")}
+      </ul>
     </section>
   );
 }

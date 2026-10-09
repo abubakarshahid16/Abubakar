@@ -14,6 +14,7 @@
  * `provenance.enumerated.test.tsx` walks the source for every component that
  * renders a passage and fails until each one complies.
  */
+import { citationWhere } from "./citationWhere";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { AnswerPassage } from "../../types/api";
 
@@ -132,7 +133,7 @@ export function provenanceLabel(passage: ProvenanceSource): string {
 }
 
 /** Keyboard-accessible source inspection without inventing a second evidence model. */
-type CitationSource = { filename: string; page_start: number; page_end: number; section: string | null; text: string; text_source: "extracted" | "recognised"; ocr_min_conf: number | null; ocr_alphabet_violations: number; ocr_alphabet_sample: string | null };
+type CitationSource = { filename: string; page_start: number; page_end: number; locator?: string | null; section: string | null; text: string; text_source: "extracted" | "recognised"; ocr_min_conf: number | null; ocr_alphabet_violations: number; ocr_alphabet_sample: string | null };
 export function CitationInspector({ passage, children }: { passage: CitationSource; children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -153,7 +154,7 @@ export function CitationInspector({ passage, children }: { passage: CitationSour
         ref={trigger}
         type="button"
         aria-expanded={open}
-        aria-label={`Inspect citation for ${passage.filename}, page ${passage.page_start}`}
+        aria-label={`Inspect citation for ${passage.filename}, ${citationWhere(passage)}`}
         onClick={() => setOpen((value) => !value)}
         className="rounded-[var(--radius-xs)] text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal-400"
       >
@@ -163,7 +164,7 @@ export function CitationInspector({ passage, children }: { passage: CitationSour
         <span role="dialog" aria-label="Citation details" className="absolute start-0 top-full z-30 mt-2 w-[min(28rem,calc(100vw-2rem))] rounded-[var(--radius-sm)] border border-signal-500/40 bg-ink-900 p-3 text-left shadow-[var(--shadow-floating)]">
           <span className="block text-xs font-semibold text-slateish-100">{provenanceLabel(passage)}</span>
           <span className="mt-1 block text-xs text-slateish-400">
-            {passage.filename} · {passage.page_start === passage.page_end ? `page ${passage.page_start}` : `pages ${passage.page_start}–${passage.page_end}`}
+            {passage.filename} · {citationWhere(passage)}
             {passage.section ? ` · section ${passage.section}` : ""}
           </span>
           <span className="mt-2 block max-h-32 overflow-auto whitespace-pre-wrap border-l-2 border-signal-500/50 ps-2 text-xs text-slateish-200">{passage.text}</span>

@@ -20,6 +20,28 @@ import harness
 
 
 def main() -> int:
+    """Run P1, and leave the machine as it was found: every local model this
+    run sent work to is unloaded (keep_alive 0) when it finishes - on success,
+    on an error, and on Ctrl+C (#666)."""
+    try:
+        return _run()
+    finally:
+        _unload_models()
+
+
+def _unload_models() -> None:
+    try:
+        from app import model_memory
+
+        report = model_memory.unload_used()
+        if report["unloaded"] or report["failed"]:
+            print(f"models unloaded: {report['unloaded']}"
+                  + (f"  NOT unloaded: {report['failed']}" if report["failed"] else ""))
+    except Exception as exc:  # noqa: BLE001 - freeing memory must never turn a result into a crash
+        print(f"models could not be unloaded ({type(exc).__name__})")
+
+
+def _run() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--write-baseline", action="store_true")
     ap.add_argument("--show", action="store_true")
@@ -91,4 +113,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # One heavy job at a time on this machine (#680): P1, the changed-test run,
+    # the mutation run and the AI batch share one lock file.
+    from app import heavy_lock
+
+    raise SystemExit(heavy_lock.run_locked("p1", main))

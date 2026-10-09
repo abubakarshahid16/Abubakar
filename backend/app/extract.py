@@ -284,6 +284,30 @@ def _office_rows(path: str) -> list[tuple] | None:
     return rows
 
 
+def _docx_rows(path: str) -> list[tuple] | None:
+    """`extract_batch`-shaped rows for a Word document; None for anything else.
+
+    W5b-01 (#525): a Word file is read by `docx_reader` with its structure
+    kept. Its "pages" are reading units (an explicit page or section break, or
+    a long stretch cut at a block boundary), numbered 1..n so every page-keyed
+    table works unchanged; the CITATION of a Word chunk is its locator
+    ("4.2 > para 3"), not that number. A file `docx_reader` refuses (a
+    DOCTYPE, a bomb, not a Word document) RAISES; the worker records the
+    document as failed with that reason.
+    """
+    from . import datasheet_inputs, docx_reader
+
+    if datasheet_inputs.office_kind(path) != datasheet_inputs.KIND_DOCX:
+        return None
+    structure = docx_reader.read_structure(path)
+    if structure.notes:
+        # Counts only - never document text.
+        log.info("word document read with %d note(s): %s", len(structure.notes),
+                 "; ".join(structure.notes[:10]))
+    return [(i, normalise_text(text), False, False, None, None)
+            for i, text in enumerate(structure.pages, start=1)]
+
+
 def _batches(total_pages: int, size: int, start_batch: int) -> list[tuple[int, int, int]]:
     """(batch_no, first_page, last_page), 0-based batch numbers, 1-based pages."""
     result = []
@@ -373,7 +397,16 @@ def extract_document(doc_id: str, progress=None) -> dict:
     # document is read by `datasheet_inputs` - one page per visible sheet /
     # per explicit page break - in THIS process and one batch. A PDF never
     # takes this branch, so its path below is exactly what it was.
-    office_rows = _office_rows(pdf_path) if settings.datasheet_office_input else None
+    # With DATASHEET_OFFICE_INPUT on, a Word file keeps the datasheet reader's
+    # own pages (its facts cite them); otherwise it is read with its structure.
+    docx_rows = (_docx_rows(pdf_path)
+                 if settings.docx_input_enabled and not settings.datasheet_office_input
+                 else None)
+    if docx_rows is not None:
+        with conn:
+            conn.execute("UPDATE documents SET pagination = 'flow' WHERE id = ?", (doc_id,))
+    office_rows = (docx_rows if docx_rows is not None
+                   else _office_rows(pdf_path) if settings.datasheet_office_input else None)
     total = (len(office_rows) if office_rows is not None
              else doc["page_count"] or page_count(pdf_path))
     if doc["page_count"] is None:

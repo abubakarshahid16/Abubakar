@@ -9,6 +9,7 @@
  */
 import { SseParser } from "./sse";
 import type {
+  ModelsFreed,
   BackgroundJob,
   DeletedConversation,
   DeletedDocument,
@@ -67,6 +68,7 @@ import type {
   ClassificationCoverage,
   ClassificationUpdate,
   DocumentClassification,
+  DocumentKindVocabulary,
   BulkRoleUpdate,
   BulkRoleResult,
   ReviewFinding,
@@ -731,6 +733,16 @@ export const classification = {
         body: JSON.stringify(body),
       },
     ),
+  /** The document types the router knows (never a hardcoded list). */
+  kinds: () => request<DocumentKindVocabulary>("/document-kinds"),
+  /** A person confirms or corrects the router's suggested document type.
+   *  Admin only; a non-admin gets the same silent 404 as `confirm`. */
+  confirmKind: (id: string, kind: string) =>
+    request<DocumentClassification>(`/documents/${encodeURIComponent(id)}/kind`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind }),
+    }),
   /** Set ONE role on MANY documents. Admin only, same as `confirm`.
    *
    *  Answers 207 when some documents were not written, and the result names
@@ -1052,6 +1064,10 @@ async function request<T>(
 
 export const api = {
   health: () => request<Health>("/health"),
+  /** Administrator only (a 404 for anyone else): ask Ollama to unload every
+   *  resident model. The next question pays a cold load. */
+  freeModelMemory: () =>
+    request<ModelsFreed>("/admin/models/unload", { method: "POST" }, hasArrayField("freed")),
   metrics: () => request<Metrics>("/metrics"),
   /** Who a new upload may be made visible to, and the default (#609). */
   uploadDisciplines: () =>
