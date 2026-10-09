@@ -16,8 +16,11 @@ module first:
      `record_requirements_superseded`. Nothing to refuse, so not guarded;
   2. `standards.decide_requirement(decision="reject")` - one row;
   3. `chunker.chunk_document` - re-chunking deletes the document's chunks,
-     and `standard_requirements.chunk_id ... ON DELETE CASCADE` takes their
-     requirements with them, confirmed or not;
+     and `standard_requirements.chunk_id ... ON DELETE CASCADE` took their
+     requirements with them, confirmed or not. NO LONGER (#659): the link is
+     detached before the delete and re-pointed after the insert; what cannot
+     be re-pointed is superseded (confirmed rows stay, with no chunk). See
+     `detach_requirements_for_rechunk` / `reattach_requirements_after_rechunk`;
   4. `DELETE /api/documents/{id}` - `standard_requirements.standard_document_id
      ... ON DELETE CASCADE` takes every requirement of a deleted standard.
 
@@ -258,6 +261,113 @@ def record_requirements_superseded(conn: sqlite3.Connection, action: str,
          f"requirements.superseded.{action}", document_id,
          f"run={run_id} requirements_superseded={superseded} "
          f"findings_citing={findings_citing}"))
+
+
+def detach_requirements_for_rechunk(conn: sqlite3.Connection, document_id: str) -> list[dict]:
+    """#659: take the document's requirements off their chunks BEFORE the
+    chunks are deleted, so `ON DELETE CASCADE` has nothing to take.
+
+    Returns what was detached (id, old chunk id, page, text, confirmed,
+    superseded, type) for `reattach_requirements_after_rechunk`. On the
+    caller's connection, inside the caller's transaction: the detach, the
+    delete and the re-point commit together or not at all.
+    """
+    rows = conn.execute(
+        "SELECT id, chunk_id, page, requirement_text, confirmed_by, superseded_at,"
+        " requirement_type FROM standard_requirements WHERE chunk_id IN"
+        " (SELECT id FROM chunks WHERE document_id = ?)", (document_id,)).fetchall()
+    detached = [dict(r) for r in rows]
+    if detached:
+        conn.execute(
+            "UPDATE standard_requirements SET chunk_id = NULL WHERE chunk_id IN"
+            " (SELECT id FROM chunks WHERE document_id = ?)", (document_id,))
+    return detached
+
+
+def _fold(text: str | None) -> str:
+    return "".join(ch for ch in (text or "").lower() if ch.isalnum())
+
+
+def reattach_requirements_after_rechunk(conn: sqlite3.Connection, document_id: str,
+                                        detached: list[dict],
+                                        actor: dict | None = None) -> dict:
+    """#659: put detached requirements back on the NEW chunks, after they exist.
+
+    In order: (1) the same chunk id exists again (unchanged text and place):
+    same link; (2) a new chunk on the requirement's page holds its sentence:
+    that chunk; (3) otherwise an UNCONFIRMED row is superseded (kept, marked,
+    findings still resolve it by id - the #640 rule); (4) a CONFIRMED row with
+    no chunk to go to stays active with no chunk link: a human's decision is
+    never superseded or deleted, and it says so on the audit row rather than
+    quietly resolving to nothing. Returns the counts (also written to the
+    audit table; ids and counts only, never text).
+    """
+    counts = {"same_chunk": 0, "repointed": 0, "superseded": 0,
+              "confirmed_unlinked": 0, "history_unlinked": 0}
+    if not detached:
+        return counts
+    new_chunks = conn.execute(
+        "SELECT id, page_start, page_end, text FROM chunks WHERE document_id = ?"
+        " ORDER BY ordinal", (document_id,)).fetchall()
+    new_ids = {c["id"] for c in new_chunks}
+    folded = {c["id"]: _fold(c["text"]) for c in new_chunks}
+    now = datetime.now(UTC).isoformat(timespec="seconds")
+    run_id = f"xrun_rechunk_{int(datetime.now(UTC).timestamp())}"
+    superseded_ids: list[str] = []
+    for r in detached:
+        target = None
+        if r["chunk_id"] in new_ids:
+            target = r["chunk_id"]
+            counts["same_chunk"] += 1
+        elif r["requirement_type"] != "table_value":
+            needle = _fold(r["requirement_text"])
+            if len(needle) >= 12:
+                for c in new_chunks:
+                    if (r["page"] is None or c["page_start"] <= r["page"] <= c["page_end"]) \
+                            and needle in folded[c["id"]]:
+                        target = c["id"]
+                        counts["repointed"] += 1
+                        break
+        if target is not None:
+            conn.execute("UPDATE standard_requirements SET chunk_id = ? WHERE id = ?",
+                         (target, r["id"]))
+        elif r["confirmed_by"] is not None:
+            counts["confirmed_unlinked"] += 1
+        elif r["superseded_at"] is not None:
+            counts["history_unlinked"] += 1     # already superseded: left as history
+        else:
+            superseded_ids.append(r["id"])
+    for start in range(0, len(superseded_ids), 500):
+        part = superseded_ids[start:start + 500]
+        marks = ",".join("?" for _ in part)
+        counts["superseded"] += conn.execute(
+            "UPDATE standard_requirements SET superseded_at = ?, superseded_by_run = ?,"
+            " updated_at = ? WHERE id IN (" + marks + ") AND superseded_at IS NULL",
+            (now, run_id, now, *part)).rowcount
+    citing = 0
+    if superseded_ids:
+        try:
+            for start in range(0, len(superseded_ids), 500):
+                part = superseded_ids[start:start + 500]
+                marks = ",".join("?" for _ in part)
+                citing += conn.execute(
+                    "SELECT COUNT(*) FROM review_findings WHERE requirement_id IN (" + marks + ")",
+                    part).fetchone()[0]
+        except sqlite3.OperationalError as exc:
+            if "no such table" not in str(exc):
+                raise
+    conn.execute(
+        """INSERT INTO audit_events
+               (at, actor_user_id, actor_username, action,
+                resource_type, resource_id, outcome, detail)
+           VALUES (?, ?, ?, 'requirements.rechunked', 'document', ?, 'ok', ?)""",
+        (now, (actor or {}).get("id"),
+         ((actor or {}).get("email") or "unauthenticated")[:200], document_id,
+         f"run={run_id} detached={len(detached)} same_chunk={counts['same_chunk']}"
+         f" repointed={counts['repointed']} superseded={counts['superseded']}"
+         f" confirmed_unlinked={counts['confirmed_unlinked']}"
+         f" history_unlinked={counts['history_unlinked']} findings_citing_superseded={citing}"))
+    return counts
 
 
 def _decide(action: str, orphaned: int, document_id: str | None,
