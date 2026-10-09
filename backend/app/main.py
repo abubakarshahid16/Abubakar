@@ -1351,7 +1351,7 @@ def put_document_classification(
     return {**row, "document_id": document_id}
 
 
-@app.get("/api/playbooks", responses={**schemas.ERRORS_404})
+@app.get("/api/playbooks", response_model=schemas.PlaybookList, responses={**schemas.ERRORS_404})
 def list_playbooks(scope: access.AccessScope = Depends(access.current_scope)):
     """The review playbooks (data files): what each expects a document of its
     kind to contain, the standard clause each element comes from, and whether a
@@ -1365,7 +1365,8 @@ def list_playbooks(scope: access.AccessScope = Depends(access.current_scope)):
         for pb in found.values()], "unusable": broken}
 
 
-@app.post("/api/documents/{document_id}/playbook-review", responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+@app.post("/api/documents/{document_id}/playbook-review", response_model=schemas.PlaybookReport,
+          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
 def playbook_review(
     document_id: str,
     body: schemas.PlaybookReviewRequest,
