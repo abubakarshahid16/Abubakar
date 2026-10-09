@@ -15,6 +15,7 @@ export function DashboardView({
   onOpenReview,
   onOpenDocuments,
   onOpenDeliverables,
+  isAdmin = false,
 }: {
   connection: Connection;
   onRetryConnection: () => void;
@@ -23,6 +24,8 @@ export function DashboardView({
   onOpenDocuments?: () => void;
   /** The app's router, not a `#deliverables` hash the router never reads. */
   onOpenDeliverables?: () => void;
+  /** An administrator sees the "Free model memory" button (#666). */
+  isAdmin?: boolean;
 }) {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [error, setError] = useState<{ error: ApiError; disconnected: boolean } | null>(null);
@@ -314,7 +317,7 @@ export function DashboardView({
           the warnings are what a reader came for; the rest is the operator's
           console, one click away, with every number intact. Nothing about
           the honesty rules changes: an unmeasured value still says so. */}
-      <DashboardTechnicalDetails metrics={metrics} corpus={corpus} throughput={throughput} retrieval={retrieval} jobs={jobs} worker={worker} models={models} system={system} noSearchable={noSearchable} />
+      <DashboardTechnicalDetails metrics={metrics} corpus={corpus} throughput={throughput} retrieval={retrieval} jobs={jobs} worker={worker} models={models} system={system} noSearchable={noSearchable} isAdmin={isAdmin} />
     </div>
   );
 }
