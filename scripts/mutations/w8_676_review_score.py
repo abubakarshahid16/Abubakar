@@ -1,0 +1,95 @@
+"""#676 "the review scorer": each entry deletes one part;
+backend/tests/test_w8_676_review_score.py must notice."""
+from __future__ import annotations
+
+from ._base import APP, REPO, Mutation
+
+_T = "tests/test_w8_676_review_score.py"
+_TAG = ("w8_676", "review_score")
+RS = APP / "review_score.py"
+CLI = REPO / "scripts" / "review_score.py"
+
+
+def _m(i, desc, path, anchor, repl, kw=None):
+    return Mutation(id=f"M{i}", phase=i, description=desc, path=path,
+                    anchor=anchor, replacement=repl, target=_T, keyword=kw, tags=_TAG)
+
+
+MUTATIONS: tuple[Mutation, ...] = (
+    _m(4438, "a defect called COMPLIANT counts as found", RS,
+       '    found = [it for it in defects if statuses(it["id"]) & FLAG_STATUSES]\n',
+       '    found = [it for it in defects if statuses(it["id"])]\n', "compliant"),
+    _m(4439, "false compliant is never counted", RS,
+       '    false_compliant = [it for it in defects if OK_STATUS in statuses(it["id"])]\n',
+       "    false_compliant = []\n", "compliant"),
+    _m(4440, "false not-applicable ignores items that are met", RS,
+       "    applying = [it for it in items if it[\"kind\"] in (DEFECT, MET, TRAP)]\n",
+       "    applying = [it for it in items if it[\"kind\"] in (DEFECT,)]\n", "not_applicable"),
+    _m(4441, "a flagged trap is not counted", RS,
+       '    flagged_traps = [it for it in traps if statuses(it["id"]) & FLAG_STATUSES]\n',
+       "    flagged_traps = []\n", "known_answers"),
+    _m(4442, "a flag on a trap counts as a correct finding", RS,
+       "                ok = kind == DEFECT\n", "                ok = True\n", "known_answers"),
+    _m(4443, "COMPLIANT on a defect counts as a correct finding", RS,
+       "                ok = kind in (MET, TRAP)\n", "                ok = True\n", "known_answers or defect_called_compliant"),
+    _m(4444, "a flag no item matches counts against precision on every key", RS,
+       '    if key.get("complete_for_flags"):\n        wrong += len(unmatched_flags)\n',
+       "    if True:\n        wrong += len(unmatched_flags)\n", "not_judged"),
+    _m(4445, "a finding with another status counts in precision", RS,
+       "                other_status += 1\n                continue\n",
+       "                other_status += 1\n                ok = False\n", "another_status"),
+    _m(4446, "4.20 matches an item at 4.2", RS,
+       '    return bool(f) and bool(i) and (f == i or f.startswith(i + "."))',
+       "    return bool(f) and bool(i) and (f == i or f.startswith(i))", "subclause"),
+    _m(4447, "the standard does not have to match", RS,
+       "    return bool(wanted) and wanted in have\n", "    return True\n", "standard_must_match"),
+    _m(4448, "the field words are ignored", RS,
+       '    field = item.get("field")\n    if not field:\n        return True\n', "    return True\n",
+       "field_words"),
+    _m(4449, "the least specific item wins", RS,
+       "    return max(hits, key=_specificity) if hits else None", "    return min(hits, key=_specificity) if hits else None",
+       "most_specific"),
+    _m(4450, "a citation need not contain the clause", RS,
+       "    return not clause or clause in page\n", "    return True\n", "citation"),
+    _m(4451, "a missing page counts as valid", RS,
+       "    if page_text is None:\n        return None\n", "    if page_text is None:\n        return True\n", "citation"),
+    _m(4452, "a table row is valid on any page that has its cells' words anywhere", RS,
+       "        contained = all(w in set(page.split()) for w in source.split())", "        contained = True",
+       "table_row"),
+    _m(4453, "a false compliant does not block", RS,
+       '    if result["false_compliant"]:\n', "    if False:\n", "blocks"),
+    _m(4454, "the margin lets any fall through", RS,
+       "elif before is not None and now is not None and now < before - margin:",
+       "elif before is not None and now is not None and now < before - 1:", "margin"),
+    _m(4455, "a number that cannot be computed passes", RS,
+       "            if before is not None and now is None:\n", "            if False:\n", "no_longer_be_computed"),
+    _m(4456, "the baseline ignores the model", RS,
+       "    return f\"{result.get('model') or 'unknown model'}|{result.get('key')}\"",
+       "    return f\"{result.get('key')}\"", "per_model"),
+    _m(4457, "unchecked citations are reported as 100% valid", RS,
+       '        "citation_validity": _ratio(valid, checked),',
+       '        "citation_validity": _ratio(valid, checked) if checked else 1.0,', "never_100"),
+    _m(4458, "a stored citation verdict is ignored", RS,
+       '            verdict = f.get("citation_valid")\n', "            verdict = None\n", "stored_verdict"),
+    _m(4459, "an engineer-confirmed key need not name the engineer", RS,
+       '    if source == "engineer_confirmed" and not str(data.get("approved_by") or "").strip():\n',
+       "    if False:\n", "names_its_engineer"),
+    _m(4460, "the weekly report scores hidden-exam keys", CLI,
+       '        (skipped_hidden if key["source"] == "hidden_exam" else keys).append((path, key))',
+       "        keys.append((path, key))", "hidden"),
+    _m(4461, "the weekly report reads a folder in the hidden exam", CLI,
+       "            if _hidden_exam_path(keys_dir):\n", "            if False:\n", "hidden"),
+    _m(4462, "export opens the database for writing", CLI, "?mode=ro", "?mode=rw", "read_only"),
+    _m(4463, "export computes no citation verdict", CLI,
+       '        f["citation_valid"] = rs.citation_valid(f, page_text(r["standard_document_id"], r["standard_page"]))',
+       '        f["citation_valid"] = None', "export"),
+    _m(4464, "check exits 0 when it blocks", CLI,
+       '                print("BLOCKED: " + "; ".join(reasons))\n                return 1\n',
+       '                print("BLOCKED: " + "; ".join(reasons))\n                return 0\n', "check"),
+    _m(4465, "the weekly report never fails the gate", CLI,
+       '    return "\\n".join(out) + "\\n", (1 if failures else 0)', '    return "\\n".join(out) + "\\n", 0',
+       "weekly"),
+    _m(4466, "the weekly report prints a key with no run as a score", CLI,
+       "        if not findings_path.exists():\n            no_run.append(key.get(\"name\") or path.stem)\n            continue\n",
+       "        if not findings_path.exists():\n            findings_path = runs_dir / 'invented-pump.findings.json'\n", "could_not_score"),
+)
