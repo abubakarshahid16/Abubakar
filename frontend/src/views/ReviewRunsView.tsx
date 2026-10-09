@@ -1025,6 +1025,12 @@ function CrsPreviewSheet(
                   {row.standard_reference ?? ""}
                 </td>
               )}
+              {/* #725 F7: the severity, after Standard Reference, both copies. */}
+              {preview.columns.includes("Severity") && (
+                <td className="border border-ink-600 px-2 py-1 align-top text-slateish-300">
+                  {row.severity ?? ""}
+                </td>
+              )}
               {/* Owner order 2f: the last column, internal copy only. */}
               {preview.columns.includes("AI Review Comments") && (
                 <td className="whitespace-pre-line border border-ink-600 px-2 py-1 align-top text-slateish-200">
