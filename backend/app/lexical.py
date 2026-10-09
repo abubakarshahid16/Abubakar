@@ -230,6 +230,32 @@ def looks_like_a_named_subject(term: str, question: str) -> bool:
     return not question.strip().startswith(term)
 
 
+#: A hyphenated qualifier: a capitalised first part and a lowercase word after
+#: the hyphen - "ASME-certified", "UL-listed", "Code-stamped". The lowercase
+#: tail is what makes it describe something rather than name it; a designation
+#: ("STD-Q-999") has no lowercase tail and is never a qualifier.
+_QUALIFIER = re.compile(r"[A-Z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*-[a-z]{3,}")
+
+
+def is_absent_qualifier(term: str, question: str, present: list[str]) -> bool:
+    """Is this missing term a word DESCRIBING the subject, not the subject?
+
+    Only a hyphenated qualifier (see _QUALIFIER) that is not an identifier,
+    and only when the very next word of the question is a term found in the
+    documents - the thing it qualifies. "ASME-certified relief valves" sets
+    the qualifier aside when "relief" is indexed; "ASME-certified" at the end
+    of a question qualifies nothing and still refuses.
+    """
+    if keyword.IDENTIFIER.fullmatch(term) or not _QUALIFIER.fullmatch(term):
+        return False
+    after = re.search(re.escape(term) + r"\s+([A-Za-z][A-Za-z0-9./-]*)", question)
+    if not after:
+        return False
+    following = after.group(1).rstrip(".").lower()
+    return any(following == p.lower() or p.lower().startswith(following + " ")
+               for p in present)
+
+
 def searched_scope(
     document_id: str | None, allowed_document_ids: frozenset[str]
 ) -> str:
@@ -490,6 +516,15 @@ def assess(
                 distinguishing_count += 1
 
     named_absent = [t for t in absent if looks_like_a_named_subject(t, question)]
+    # A QUALIFIER IS NOT THE SUBJECT (#602). "ASME-certified liquid service
+    # relief valves" names relief valves; the certification word describes
+    # them. Refusing because that one word is not printed anywhere threw away
+    # strong matches for everything else the reader asked. Such a word is set
+    # aside - and named to the reader - only when the word it describes is in
+    # the documents; the remaining terms must still pass the gate below.
+    qualifiers = [t for t in named_absent
+                  if is_absent_qualifier(t, question, present)]
+    named_absent = [t for t in named_absent if t not in qualifiers]
     if named_absent:
         joined = ", ".join(named_absent)
         verb = "does" if len(named_absent) == 1 else "do"
@@ -555,6 +590,9 @@ def assess(
         "absent_from_corpus": absent,
         "coverage": round(coverage, 3),
         "spelling_corrections": corrections,
+        # Qualifier words not found anywhere in scope, set aside rather than
+        # refused over (#602). The answer names them to the reader.
+        "unmatched_qualifiers": qualifiers,
     }
 
 

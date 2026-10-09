@@ -28,6 +28,7 @@ from . import condition_choice as cc
 from . import context_budget
 from . import claims as claims_mod
 from . import coverage
+from . import front_matter
 from . import numparse
 from . import progress
 from . import lexical
@@ -264,6 +265,61 @@ def _assess_candidates(
     return best or empty, best_index
 
 
+#: The refusal when the only passages that matched are front matter (#610).
+FRONT_MATTER_REASON = ("the only passages that matched are front matter of {filename} "
+                       "(its foreword, history or contents), which describe the "
+                       "document rather than state its requirements")
+
+
+def _front_matter_vouches(lead: dict, hits: list[dict], question: str) -> bool:
+    """The semantic score that ranked this document's front matter, standing
+    for the clause it was ranked below (#610).
+
+    A cross-encoder scores a foreword that repeats the question's words above
+    the clause that answers it - measured: foreword 4.2, the clause -4.2 - so
+    once the clause leads, its own score would refuse the question that the
+    foreword alone was allowed to answer. Only for a lead that is not itself
+    front matter, passed the lexical gate, and sits in the same document as
+    a credible front-matter hit; never more permissive than quoting the
+    foreword was.
+    """
+    if front_matter.demoted(lead, question):
+        return False
+    return any(h["document_id"] == lead["document_id"]
+               and front_matter.demoted(h, question)
+               and _is_semantically_credible(h) for h in hits)
+
+
+def _past_front_matter(question: str, gate_question: str, hits: list[dict], *, limit: int,
+                       document_id: str | None, allowed_document_ids: frozenset[str],
+                       progress_id: str | None, soft_identifiers: tuple[str, ...]):
+    """One wider search when only front matter passed the gate (#610).
+
+    The foreword matched, so its document is about the topic; its clauses
+    were ranked out of the window by other documents' title lines. Searched
+    again at twice the depth and gated over THAT document's non-front-matter
+    hits only - the window is not widened for any other document, so a
+    question nothing answers gains no new chances to pass. Returns (results,
+    hits, verdict, index) with those hits first, or None when none passes.
+    """
+    documents = {h["document_id"] for h in hits if front_matter.demoted(h, question)}
+    results = search_mod.search(
+        question, limit=2 * limit, document_id=document_id,
+        allowed_document_ids=allowed_document_ids, progress_id=progress_id,
+        soft_identifiers=soft_identifiers)
+    ranked = front_matter.rank_down(results["hits"], question)
+    own = [h for h in ranked if h["document_id"] in documents
+           and not front_matter.demoted(h, question)]
+    if not own:
+        return None
+    verdict, index = _assess_candidates(
+        gate_question, own, document_id, allowed_document_ids)
+    if not verdict["ok"]:
+        return None
+    rest = [h for h in ranked if all(h["chunk_id"] != o["chunk_id"] for o in own)]
+    return results, own + rest, verdict, index
+
+
 def _filenames(document_ids: frozenset[str]) -> dict[str, str]:
     """Filenames for every document in scope, including those with no hits.
 
@@ -373,6 +429,9 @@ def _second_passage(
 
     for hit in hits[1:]:
         if hit["section"] and hit["section"] == first["section"]:
+            continue
+        # a foreword covers every term and answers none of them (#610)
+        if front_matter.demoted(hit, question):
             continue
 
         # How far below the primary this sits, as a fraction of the query's own
@@ -1267,6 +1326,20 @@ def _numbers_notice(removed: list[dict]) -> list[str]:
                                   it2="it" if n == 1 else "they")]
 
 
+#: Shown above an answer whose question carried a qualifier word found nowhere
+#: in scope (#602). True whether the answer is quoted, generated or refused:
+#: the word was set aside, and nothing shown confirms it.
+QUALIFIER_NOTICE = ("{words} {verb} not found in the documents searched. "
+                    "{it} was set aside, so nothing here confirms it.")
+
+
+def qualifier_notice(words: list[str]) -> str:
+    many = len(words) > 1
+    return QUALIFIER_NOTICE.format(
+        words=", ".join(f'"{w}"' for w in words), verb="were" if many else "was",
+        it="They" if many else "It")
+
+
 def context_budget_for_lane() -> dict:
     """How a Tier 2 prompt is packed, by the engine that will read it.
 
@@ -1561,7 +1634,11 @@ def _answer_from_documents(
         progress_id=progress_id,
         soft_identifiers=soft_identifiers,
     )
-    hits = results["hits"]
+    # FRONT MATTER LAST (#610): a foreword or revision history shares every
+    # word of a topic question and states none of its requirements. It stays
+    # in the list, below the document's clauses, unless the question asks
+    # about it - see app/front_matter.py.
+    hits = front_matter.rank_down(results["hits"], question)
     # Recorded from real questions actually asked, so the dashboard's latency
     # is what the reader experienced rather than a synthetic benchmark.
     telemetry.record(telemetry.RETRIEVAL, 1, results["seconds"], document_id)
@@ -1611,17 +1688,52 @@ def _answer_from_documents(
                      if soft_identifiers else question) or question
     lexical_verdict, gate_index = _assess_candidates(
         gate_question, hits, document_id, allowed_document_ids)
+    front = [h for h in hits if front_matter.demoted(h, question)]
+    if front and (not lexical_verdict["ok"]
+                    or front_matter.demoted(hits[gate_index], question)):
+        # No clause passed, and front matter matched. Its document is about
+        # this topic, so look once more, wider, at that document's clauses.
+        wider = _past_front_matter(
+            question, gate_question, hits, limit=max(limit, gate_candidates()),
+            document_id=document_id, allowed_document_ids=allowed_document_ids,
+            progress_id=progress_id, soft_identifiers=soft_identifiers)
+        if wider is not None:
+            results, hits, lexical_verdict, gate_index = wider
+            base["candidates_considered"] = results["total"]
+        elif not lexical_verdict["ok"]:
+            # Ranked below the window: judged on its own, so a refusal says
+            # it was front matter that matched rather than nothing at all.
+            fm_verdict, fm_index = _assess_candidates(
+                gate_question, front, document_id, allowed_document_ids)
+            if fm_verdict["ok"]:
+                lexical_verdict = fm_verdict
+                gate_index = next(i for i, h in enumerate(hits)
+                                  if h["chunk_id"] == front[fm_index]["chunk_id"])
     base["lexical"] = {
         k: lexical_verdict[k]
         for k in ("coverage", "terms", "covered", "absent_from_corpus")
     }
+    # #602: a qualifier word found nowhere in scope was set aside by the gate
+    # rather than refused over. The reader is told, and the model is asked the
+    # question without it - asked with it, it reports "insufficient evidence"
+    # for a passage that answers everything else.
+    qualifiers = list(lexical_verdict.get("unmatched_qualifiers") or [])
+    model_question = question
+    if qualifiers:
+        base["lexical"]["unmatched_qualifiers"] = qualifiers
+        base["notices"] = [qualifier_notice(qualifiers)]
+        model_question = search_mod.without_terms(question, tuple(qualifiers)) or question
 
     # The passage that PASSED the gate is the passage that gets quoted. Letting
     # the gate approve rank 4 while the answer quotes rank 0 would mean the
     # justification and the answer were different passages.
     lead = hits[gate_index] if hits else None
     review_fallback = _is_broad_review_request(question, lexical_verdict, tier)
-    if not hits or not lexical_verdict["ok"] or (not _is_semantically_credible(lead) and not review_fallback):
+    only_front_matter = bool(lead) and lexical_verdict["ok"] and front_matter.demoted(lead, question)
+    credible = bool(lead) and (_is_semantically_credible(lead)
+                               or _front_matter_vouches(lead, hits, question))
+    if (not hits or not lexical_verdict["ok"] or only_front_matter
+            or (not credible and not review_fallback)):
         if not hits:
             if document_id:
                 # A question scoped to one named document searched that
@@ -1634,6 +1746,8 @@ def _answer_from_documents(
                 reason = _nothing_matched(len(allowed_document_ids))
         elif not lexical_verdict["ok"]:
             reason = lexical_verdict["reason"]
+        elif only_front_matter:
+            reason = FRONT_MATTER_REASON.format(filename=lead["filename"])
         else:
             reason = "the closest matches were not a strong enough fit to answer confidently"
         return {
@@ -1755,7 +1869,7 @@ def _answer_from_documents(
     # passage bodies emptied, plus the system prompt. A long question cannot
     # quietly push the evidence over the line.
     overhead = budget["system"] + _build_prompt(
-        question, [{**p, "text": ""} for p in passages], history
+        model_question, [{**p, "text": ""} for p in passages], history
     )
     passages, evidence_removed = context_budget.fit_passages(
         passages, overhead, budget=budget["tokens"])
@@ -1777,7 +1891,7 @@ def _answer_from_documents(
             "seconds": timer.seconds(),
         }
 
-    prompt = _build_prompt(question, passages, history)
+    prompt = _build_prompt(model_question, passages, history)
 
     # The long one. Everything before this is seconds; this is tens of seconds,
     # and it is the stage a reader spends almost all of the wait in.
@@ -1999,7 +2113,7 @@ def _answer_from_documents(
         # Local lane: the figures whose sentences were removed because the
         # cited passage does not contain them (values only, never sentences).
         "numbers_unsupported": [r["value"] for r in numbers_removed],
-        "notices": _numbers_notice(numbers_removed),
+        "notices": [*(base.get("notices") or []), *_numbers_notice(numbers_removed)],
         # Which clause applies, for the passages the model was given - a
         # warning beside the prose, never a change to it.
         "condition_choice": _choice_for_sent(choice, passages),
