@@ -380,6 +380,9 @@ class Settings(BaseSettings):
     # default (the owner's decision of 2026-10-09), "qwen3.5:4b" or a larger
     # local model by changing this one value.
     ai_task_model: str = "qwen3.5:2b"
+    #: The model the P1-AI exam (eval/p1ai, #674) asks. A setting, never a
+    #: constant: the final choice is benchmarked on the Mac Studio (#683).
+    p1_ai_model: str = "qwen3.5:2b"
     #: About this many words of source text per task. Longer input is refused
     #: by name (never cut silently): the caller splits it into passages.
     ai_task_max_words: int = 300
@@ -391,6 +394,12 @@ class Settings(BaseSettings):
     #: The queue pauses below this much free memory, so a chat answer is never
     #: starved by background work.
     ai_task_min_free_ram_gb: float = 1.5
+    #: #647 AI applicability in a review: the model PROPOSES "does not apply"
+    #: with a quoted reason, code confirms it from stated facts or it stays a
+    #: check. OFF by default (one model call per requirement); the model is
+    #: `ai_task_model`. At most this many requirements per run are asked.
+    ai_applicability_enabled: bool = False
+    ai_applicability_max_per_run: int = 200
 
     # Measured on the target CPU - see docs/benchmarks.md
     num_thread: int = 12
