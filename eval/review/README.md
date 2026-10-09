@@ -84,7 +84,7 @@ report shows each number against it as "meets", "BELOW" or "cannot tell".
   refuses a keys folder with `hidden-exam` in its path. Only the merger session
   scores it, by passing its key to `score` itself.
 * **Real answer keys.** At least two real submittals with a CRS written or
-  approved by a named KJO engineer are an owner action. Until they exist the
+  approved by a named engineer at the client are an owner action. Until they exist the
   weekly report says it scored only invented keys.
 * It does not replace `scripts/blind_score.py`, which scores a run's CRS rows
   against an engineer's CSV key (the blind-test procedure, `docs/blind-test.md`).
