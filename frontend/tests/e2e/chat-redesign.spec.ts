@@ -79,7 +79,7 @@ async function mockApi(page: Page, api: Partial<Api> = {}): Promise<Api> {
     const url = req.url();
     state.calls.push({ url, method: req.method(), body: req.postData() });
     const json = (b: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(b) });
-    if (url.includes("/health")) return json({ ok: true, embed_model_present: true, answer_model_present: true, ingestion: { alive: true, stalled: false, busy: false } });
+    if (url.includes("/health")) return json({ ok: true, embed_model_present: true, answer_model_configured: true, ingestion: { alive: true, stalled: false, busy: false } });
     if (url.includes("/auth/me")) return json({ required: false, user: null });
     if (url.includes("/chat/models")) return json({ default: "claude", web_available: true, web_reason: null, models: [
       { id: "claude", label: "Claude", model: "m", available: true, reason: null },

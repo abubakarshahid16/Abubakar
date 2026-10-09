@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Review answer key, format review-answer-key/1",
+  "description": "What a review of ONE submittal should find. Written by a person, from the submittal and the standards alone, before the review runs. The scorer (scripts/review_score.py) compares a run's findings with it. Items are INVENTED for the sample key; a real key names the engineer who approved it.",
+  "type": "object",
+  "required": ["format", "name", "source", "items"],
+  "properties": {
+    "format": {"const": "review-answer-key/1"},
+    "name": {"type": "string", "description": "Short neutral name; the weekly report matches a run file called <name>.findings.json."},
+    "source": {"enum": ["invented", "engineer_confirmed", "hidden_exam"],
+               "description": "invented: written to test the scorer. engineer_confirmed: a named engineer wrote or approved it (approved_by required). hidden_exam: the owner's hidden exam; scored only by the merger session (#650), never by the weekly report."},
+    "approved_by": {"type": "string", "description": "Required when source is engineer_confirmed."},
+    "complete_for_flags": {"type": "boolean", "default": false,
+      "description": "true when every real defect on the sheet is listed, so a flagged finding that matches no item is a false positive. false: such findings are reported as 'not judged by the key' and stay out of precision."},
+    "items": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "standard", "clause"],
+        "properties": {
+          "id": {"type": "string", "description": "Unique. Reports name missed items by this id only."},
+          "kind": {"enum": ["defect", "met", "trap", "not_applicable"],
+            "description": "defect: a real breach or missing value; the review must flag it. met: complies; must not be flagged. trap: looks like a defect but is fine (an equivalent unit, a value exactly at the limit); flagging it is a trap false flag. not_applicable: does not apply to this submittal."},
+          "standard": {"type": "string", "description": "A file name or document number; matched as a normalised substring of the finding's standard."},
+          "clause": {"type": "string", "description": "Matches a finding at this clause or a subclause (4.2 matches 4.2.1, not 4.20)."},
+          "field": {"type": "string", "description": "Optional. Every word must appear in the finding's matched field or requirement text; makes the item more specific."},
+          "note": {"type": "string", "description": "For humans. Never printed in a report."}
+        }
+      }
+    }
+  }
+}

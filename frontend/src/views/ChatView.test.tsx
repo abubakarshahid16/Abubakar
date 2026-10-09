@@ -17,7 +17,7 @@ import type { AnswerPassage, AskResult, Conversation, Message } from "../types/a
 const health: Health = {
   ok: true,
   embed_model_present: true,
-  answer_model_present: true,
+  answer_model_configured: true,
   ingestion: {
     // /api/health is unauthenticated and carries only
     // these three. The full worker status is on /api/metrics.
@@ -221,7 +221,10 @@ async function openChat() {
   await userEvent.click(await screen.findByRole("button", { name: /^Chat/ }));
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
 
 describe("structured workflow search", () => {
   it("renders workflow records separately from document evidence", async () => {
@@ -1759,6 +1762,8 @@ describe("visual stability", () => {
   });
 
   it("keeps the transcript through a backend outage instead of rebuilding the screen", async () => {
+    // the production poll is 15 s (#654); this test waits for the next poll
+    vi.stubEnv("VITE_HEALTH_POLL_MS", "400");
     mockApi();
     await openChat();
     await userEvent.type(screen.getByLabelText("Your question"), "what is the NDFT for coating system no. 1");

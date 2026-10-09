@@ -5,7 +5,7 @@ import { CommandPalette } from "./CommandPalette";
 describe("CommandPalette", () => {
   it("opens with Ctrl+K and keeps administration commands admin-only", () => {
     const onNavigate = vi.fn();
-    const connection = { state: "online", health: { ok: true, embed_model_present: true, answer_model_present: true, ingestion: { alive: true, stalled: false, busy: false } }, at: 1 } as const;
+    const connection = { state: "online", health: { ok: true, embed_model_present: true, answer_model_configured: true, ingestion: { alive: true, stalled: false, busy: false } }, at: 1 } as const;
     render(<CommandPalette onNavigate={onNavigate} auth={{ required: true, user: { id: "u", email: "a", display_name: "A", roles: [] } }} connection={connection} />);
     fireEvent.keyDown(window, { key: "k", ctrlKey: true });
     expect(screen.getByRole("dialog", { name: "Command palette" })).toBeInTheDocument();
