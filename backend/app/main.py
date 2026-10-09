@@ -3361,6 +3361,23 @@ def standards_cited_but_not_held(
         allowed_document_ids=scope.allowed_document_ids)
 
 
+@app.get("/api/standards/coverage",
+         response_model=schemas.StandardsCoverage,
+         responses=schemas.ERRORS_422)
+def standards_coverage(
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Each reference standard on the owner's watch list (functional safety,
+    HAZOP, relief and flare, company procedures; `reference/standards_watchlist.json`)
+    as HELD (with its edition) or MISSING in the caller's own library (#532).
+    Scope: the caller's grants, like every standards route (CLAUDE.md rule 5);
+    a group with no entries says so rather than reading as all held."""
+    reject_unknown_params(request, set())
+    return standards_inventory_mod.reference_coverage(
+        allowed_document_ids=scope.allowed_document_ids)
+
+
 @app.get("/api/standards/missing",
          response_model=list[schemas.MissingStandard],
          responses=schemas.ERRORS_422)
