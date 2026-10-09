@@ -867,9 +867,8 @@ def ask(
     if (inventory_result is None and explain_of is None
             and route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER)
             and chat_comparison.is_comparison_question(resolved)):
-        comparison_sides = chat_comparison.matched_sides(resolved, documents_map)
-        comparison_missing = (chat_comparison.missing_designations(
-            resolved, [n for n, _ in comparison_sides]) if comparison_sides else [])
+        comparison_sides, comparison_missing = chat_comparison.resolve_sides(
+            resolved, documents_map)
         if comparison_sides and len(comparison_sides) + len(comparison_missing) >= 2:
             comparison_result = chat_comparison.compare(
                 resolved, comparison_sides, tier=tier,
