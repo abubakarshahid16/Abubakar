@@ -56,6 +56,7 @@ from .db import connect
 #: engineer can act on and "the datasheet names it in note 8" is. A row without
 #: a method is refused by `record_selection`.
 METHOD_REFERENCED = "referenced"          # 1. named in the datasheet
+METHOD_POSSIBLE = "possible_citation"     # 1.5 looks like a library number, unconfirmed (#702)
 METHOD_EQUIPMENT = "equipment_type"       # 2. mapped to the equipment
 METHOD_DISCIPLINE = "discipline"          # 3. discipline match
 METHOD_SERVICE = "service"                # 4. service / operating conditions
@@ -77,6 +78,10 @@ METHOD_SCOPE = "scope"
 INCLUDING_METHODS = frozenset({
     "manual", "referenced", "equipment_type", "scope", "service", "project"})
 CANDIDATE_ONLY_REASON = {
+    "possible_citation": ("possible match, engineer to confirm: the submittal names something "
+                          "that looks like this standard's number or title but is not its "
+                          "recorded document number; considered, not included - an engineer "
+                          "may add it"),
     "discipline": ("a shared discipline alone is not evidence that this standard "
                    "governs this equipment; considered, not included - an engineer "
                    "may add it"),
@@ -90,6 +95,7 @@ CANDIDATE_ONLY_REASON = {
 _PRIORITY = {
     METHOD_MANUAL: 0,
     METHOD_REFERENCED: 1,
+    METHOD_POSSIBLE: 1.5,
     METHOD_EQUIPMENT: 2,
     METHOD_SCOPE: 2,
     METHOD_DISCIPLINE: 3,
@@ -105,6 +111,7 @@ _PRIORITY = {
 _CONFIDENCE = {
     METHOD_MANUAL: 0.9,
     METHOD_REFERENCED: 0.9,
+    METHOD_POSSIBLE: 0.5,
     METHOD_EQUIPMENT: 0.7,
     METHOD_SCOPE: 0.7,
     METHOD_DISCIPLINE: 0.5,
@@ -198,19 +205,26 @@ def _submittal_profile(document_id: str) -> dict:
         "discipline": None, "equipment_type": None, "service": None, "project": None}
 
 
+def _submittal_text(document_id: str, allowed_document_ids: frozenset[str]) -> str:
+    """The submittal's own chunk text, read under the caller's grants."""
+    where, args = _scope_clause(allowed_document_ids, "document_id")
+    rows = connect().execute(
+        "SELECT text FROM chunks" + where + " AND document_id = ?",
+        [*args, document_id]).fetchall()
+    return " ".join(r["text"] or "" for r in rows)
+
+
 def _referenced_in_submittal(document_id: str,
                              allowed_document_ids: frozenset[str]) -> list[str]:
     """The standard identifiers this submittal's own text cites.
 
     Read from the chunks under the caller's grants, using phase 4's detector -
     so a datasheet's citations and a chat answer's citations come from the same
-    text.
+    text. THIS DETECTOR KNOWS THE BUILT-IN FAMILIES ONLY (API, ASME, ISO, SAES
+    ...); a standard numbered any other way is found by `library_citations`,
+    which starts from the library's own identifiers (#702).
     """
-    where, args = _scope_clause(allowed_document_ids, "document_id")
-    rows = connect().execute(
-        "SELECT text FROM chunks" + where + " AND document_id = ?",
-        [*args, document_id]).fetchall()
-    return datasheets.referenced_standards(" ".join(r["text"] or "" for r in rows))
+    return datasheets.referenced_standards(_submittal_text(document_id, allowed_document_ids))
 
 
 def citation_evidence(document_id: str, identifier: str,
@@ -242,12 +256,12 @@ def citation_evidence(document_id: str, identifier: str,
         "SELECT page_start, page_end, text FROM chunks" + where + " AND document_id = ?"
         " ORDER BY page_start, ordinal", [*args, document_id]).fetchall()
     for row in rows:
-        quote = _printed_line(row["text"] or "", key)
+        quote = _printed_line(row["text"] or "", key, identifier)
         if quote is None:
             continue
         first, last = row["page_start"], row["page_end"] or row["page_start"]
         for page in range(first, last + 1):
-            on_page = _printed_line(_page_text(document_id, page), key)
+            on_page = _printed_line(_page_text(document_id, page), key, identifier)
             if on_page is not None:
                 return page, on_page
         return (first if first == last else None), quote
@@ -271,8 +285,13 @@ _SHORT_LINE_WORDS = 6
 _QUOTE_CHARS = 200
 
 
-def _printed_line(text: str, key: str) -> str | None:
+def _printed_line(text: str, key: str, identifier: str | None = None) -> str | None:
     """The line of `text` citing the standard whose key is `key`, or None.
+
+    `identifier` (#702) is the library's own number for a standard the
+    built-in detector cannot read ("XYZ-PR-0042"): when no built-in citation
+    on a line has `key`, the lines are searched for that number itself, whole
+    numbers only, with any dash or space between its parts.
 
     A line longer than a quote is cut to the words AROUND the citation, never
     to its first characters - a quote that does not contain what it is
@@ -284,11 +303,23 @@ def _printed_line(text: str, key: str) -> str | None:
         for raw, start, stop in datasheets.referenced_standard_spans(line):
             if normalise_identifier(raw) != key:
                 continue
-            if len(line.split()) < _SHORT_LINE_WORDS and index > 0:
-                shift = len(lines[index - 1]) + 1
-                line, start, stop = f"{lines[index - 1]} {line}", start + shift, stop + shift
-            return _around(line, start, stop)
+            return _quoted(lines, index, line, start, stop)
+    pattern = standard_ids._token_pattern(identifier) if identifier else None
+    if pattern is not None:
+        for index, line in enumerate(lines):
+            found = pattern.search(line.replace("_", " ").upper())
+            if found is None:
+                continue
+            return _quoted(lines, index, line, found.start(), found.end())
     return None
+
+
+def _quoted(lines: list[str], index: int, line: str, start: int, stop: int) -> str:
+    """`line` as evidence: a bare cell value is quoted with its label above."""
+    if len(line.split()) < _SHORT_LINE_WORDS and index > 0:
+        shift = len(lines[index - 1]) + 1
+        line, start, stop = f"{lines[index - 1]} {line}", start + shift, stop + shift
+    return _around(line, start, stop)
 
 
 def _around(line: str, start: int, stop: int) -> str:
@@ -605,6 +636,81 @@ def _match_referenced(library: list[dict], referenced: list[str]) -> dict[str, d
     return out
 
 
+#: A file name's leading identifier: letters and digits joined by - or _
+#: ("STD-Q-210" in "STD-Q-210_Ed2024.pdf"). Trailing edition/revision groups
+#: are not part of the number.
+_FILE_IDENTIFIER = re.compile(r"^[A-Za-z][A-Za-z0-9]*(?:[-_][A-Za-z0-9]+){1,6}")
+_EDITION_GROUP = re.compile(r"^(?:ed|edn|rev|r|v|issue|iss)\d*$|^(?:19|20)\d\d$|^\d{1,2}$",
+                            re.IGNORECASE)
+
+
+def _identifier_like(text: str) -> bool:
+    """Enough to identify one standard: a digit, a letter, five characters."""
+    alnum = re.sub(r"[^A-Za-z0-9]", "", text or "")
+    return (len(alnum) >= 5 and any(c.isdigit() for c in alnum)
+            and any(c.isalpha() for c in alnum))
+
+
+def _file_identifier(filename: str) -> str | None:
+    stem = re.sub(r"\.[A-Za-z0-9]{1,5}$", "", filename or "").strip()
+    match = _FILE_IDENTIFIER.match(stem)
+    if match is None:
+        return None
+    groups = re.split(r"[-_]", match.group(0))
+    while len(groups) > 2 and _EDITION_GROUP.match(groups[-1]):
+        groups.pop()
+    ident = "-".join(groups)
+    return ident if _identifier_like(ident) and len(groups) >= 2 else None
+
+
+def _fold_words(text: str) -> str:
+    return " ".join(re.findall(r"[a-z0-9]+", (text or "").lower()))
+
+
+def library_citations(library: list[dict], text: str) -> dict[str, dict]:
+    """Library standards the submittal names by THE LIBRARY'S OWN identifiers (#702).
+
+    `datasheets.referenced_standards` only reads the built-in families, so a
+    company or project standard numbered any other way ("STD-Q-210",
+    "ABC-ENG-PRC-0042 Rev 3") was never "cited", and a review selected none of
+    the standards its datasheets named (0 of 3 on every hidden-exam datasheet).
+    This starts from the other end: for each library standard, is its OWN
+    identifier in the text? Matching is `standard_ids.names_standard`'s: whole
+    numbers, any dash or space between the parts, never a substring.
+
+    Three sources, strongest first:
+      * the recorded `document_number`: REFERENCED, included - the number on the
+        standard's own cover and the number in the submittal agree;
+      * the identifier at the start of the FILE NAME, and the TITLE (three or
+        more words): `possible_citation`, shown as "possible match, engineer to
+        confirm", never silently dropped and never silently included.
+    One row per library standard, the strongest source.
+    """
+    folded_text = " " + _fold_words(text) + " "
+    out: dict[str, dict] = {}
+    for entry in library:
+        number = (entry.get("document_number") or "").strip()
+        if _identifier_like(number) and standard_ids.names_standard(text, number):
+            out[entry["id"]] = {
+                "method": METHOD_REFERENCED, "identifier": number,
+                "reason": f"named in the submittal as {number} (this standard's document number)"}
+            continue
+        from_file = _file_identifier(entry.get("filename") or "")
+        if from_file and standard_ids.names_standard(text, from_file):
+            out[entry["id"]] = {
+                "method": METHOD_POSSIBLE, "identifier": from_file,
+                "reason": (f"possible match, engineer to confirm: the submittal names {from_file}, "
+                           "which is the number at the start of this file's name")}
+            continue
+        title = _fold_words(entry.get("title") or "")
+        if len(title.split()) >= 3 and f" {title} " in folded_text:
+            out[entry["id"]] = {
+                "method": METHOD_POSSIBLE, "identifier": None,
+                "reason": ("possible match, engineer to confirm: the submittal names this "
+                           f"standard's title ({entry.get('title')})")}
+    return out
+
+
 def missing_references(library: list[dict], referenced: list[str]) -> list[str]:
     """The standards a submittal CITES that the library does not hold.
 
@@ -776,11 +882,13 @@ def select(
     submittal_review.ensure_schema()
     library = _library(allowed_document_ids)
     profile = _submittal_profile(submittal_document_id)
-    referenced = _referenced_in_submittal(submittal_document_id, allowed_document_ids)
+    submittal_text = _submittal_text(submittal_document_id, allowed_document_ids)
+    referenced = datasheets.referenced_standards(submittal_text)
 
     selected: dict[str, dict] = {}
     for candidates in (
         _match_referenced(library, referenced),
+        library_citations(library, submittal_text),
         _match_attribute(library, profile, "equipment_type", METHOD_EQUIPMENT),
         _match_attribute(library, profile, "discipline", METHOD_DISCIPLINE),
         _match_attribute(library, profile, "service", METHOD_SERVICE),
@@ -806,7 +914,7 @@ def select(
 
     # B5: THE EVIDENCE for every citation - the page and the line it is on.
     for standard_id, row in selected.items():
-        if row["method"] == METHOD_REFERENCED and row.get("identifier"):
+        if row["method"] in (METHOD_REFERENCED, METHOD_POSSIBLE) and row.get("identifier"):
             page, quote = citation_evidence(
                 submittal_document_id, row["identifier"], allowed_document_ids)
             row["evidence_page"], row["evidence_quote"] = page, quote
