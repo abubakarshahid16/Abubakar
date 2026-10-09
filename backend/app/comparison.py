@@ -1938,7 +1938,8 @@ def run_comparison(
         ai_applicability_summary = {"asked": ai["asked"], "not_asked": ai["not_asked"],
                                     "confirmed_does_not_apply": len(ai["items"]),
                                     "unconfirmed": len(ai["notes"]),
-                                    "not_run": ai.get("not_run"), "model": ai.get("model")}
+                                    "not_run": ai.get("not_run"), "stopped": ai.get("stopped"),
+                                    "model": ai.get("model")}
     applicability_summary = scoped["summary"]
     findings: list[dict] = []
     # The run's findings, prepared and gated but NOT yet written: they go in

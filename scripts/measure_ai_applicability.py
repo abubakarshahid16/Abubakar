@@ -52,6 +52,9 @@ def main(argv: list[str] | None = None) -> int:
     settings.ai_task_model = args.model
     settings.ai_applicability_max_per_run = args.limit
     db.reset_connection()
+    # the copy may predate newer tables (a copy made before a merge): bring
+    # its schema up to date, as the app does at startup - on the COPY only
+    db.init_db()
     submittal_review.ensure_schema()
     conn = db.connect()
     every = frozenset(r["id"] for r in conn.execute("SELECT id FROM documents"))
@@ -72,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
                 ai = result.get("ai_applicability") or {}
                 out["ai"] = {
                     "asked": ai.get("asked"), "not_asked": ai.get("not_asked"),
-                    "not_run": ai.get("not_run"), "model": ai.get("model"),
+                    "not_run": ai.get("not_run"), "stopped": ai.get("stopped"), "model": ai.get("model"),
                     "confirmed_does_not_apply_by_reason": dict(Counter(
                         d["reason_code"] for d in stored if d["decided_by"].startswith("ai:"))),
                     "unconfirmed_suggestions": sum(

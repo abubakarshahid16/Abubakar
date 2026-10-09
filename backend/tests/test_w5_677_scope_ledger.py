@@ -352,3 +352,36 @@ def test_the_tier_unloads_the_model_and_releases_the_lock_even_on_error(monkeypa
         ai_applicability.run_in_review([PUMP_CLAUSE], classification=PSV, facts=[], limit=None,
                                        provider=FakeModel())
     assert released == [1, 1] and len(unloaded) == 2
+
+
+def test_the_tier_steps_aside_when_another_job_starts_waiting(monkeypatch):
+    """#680/#692: a review's AI tier must not keep the machine while another
+    heavy job waits. After the first clause someone queues; the rest are not
+    asked, stay checks, and the run says why. The lock is still released and
+    the model unloaded."""
+    from app import ai_applicability, ai_task_runner, heavy_lock
+    released, unloaded = [], []
+
+    class Lock:
+        def release(self):
+            released.append(1)
+
+    model = FakeModel({"applies": "no", "reason": "other_equipment", "quote": "Pump bearings"},
+                      {"applies": "yes", "reason": "none", "quote": None})
+    monkeypatch.setattr(heavy_lock, "try_acquire", lambda *a, **k: Lock())
+    monkeypatch.setattr(heavy_lock, "waiters",
+                        lambda *a, **k: [{"kind": "p1"}] if len(model.replies) < 2 else [])
+    monkeypatch.setattr(ai_task_runner, "_unload", lambda provider: unloaded.append(provider))
+    out = ai_applicability.run_in_review([PUMP_CLAUSE, NOTE_CLAUSE, SHALL_CLAUSE], classification=PSV,
+                                         facts=[], limit=None, provider=model)
+    assert out["asked"] == 1 and out["not_asked"] == 2
+    assert [i["requirement"]["id"] for i in out["items"]] == ["a"]      # the one asked still counts
+    assert [r["id"] for r in out["kept"]] == ["b", "c"]                 # the rest stay checks
+    assert out["stopped"] and "waiting" in out["stopped"] and "p1" in out["stopped"]
+    assert released == [1] and len(unloaded) == 1
+    # nobody waiting: every clause is asked, nothing says "stopped"
+    monkeypatch.setattr(heavy_lock, "waiters", lambda *a, **k: [])
+    out = ai_applicability.run_in_review(
+        [SHALL_CLAUSE], classification=PSV, facts=[], limit=None,
+        provider=FakeModel({"applies": "yes", "reason": "none", "quote": None}))
+    assert out["asked"] == 1 and out["stopped"] is None
