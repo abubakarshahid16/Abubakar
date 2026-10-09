@@ -91,6 +91,7 @@ EGRESS_SAFE: dict[str, object] = {
     "market_allowed_hosts": ("api.openalex.org", "en.wikipedia.org"),
     "chat_web_enabled": False,
     "review_web_standards_enabled": False,
+    "standard_lookup_enabled": False,
     # --- the model lane (model_transport): loopback Ollama only
     "ollama_url": "http://127.0.0.1:11434",
     "answer_model_allow_remote_host": False,

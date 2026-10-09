@@ -25,7 +25,12 @@ carries the client's name; only the owner can rename it.
    USD 20 in total** (enforced in `claude_spend`), and with **no document text
    in logs, GitHub issues, PRs or CI**. Every other outbound path for document
    content stays forbidden. The market search sends only the human-typed
-   phrase, previewed and approved per query. Only four modules may open a
+   phrase, previewed and approved per query. The standard lookup
+   (`standard_lookup.py`, #560, owner decision 2026-10-08) sends only a
+   standard-identifier query that passes its whitelist (public identifiers,
+   edition years, a closed word list; a value, name, document number or quoted
+   sentence blocks the whole query), once per stored approval, through
+   `market_transport`; off unless `STANDARD_LOOKUP_ENABLED` and both market flags. Only four modules may open a
    socket, each behind a gate:
    `market_transport.py` (market lane, off by default), `model_transport.py`
    (local Ollama only — `ollama_url` validated by `config.check_model_url`),

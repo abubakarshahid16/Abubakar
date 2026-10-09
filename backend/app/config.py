@@ -983,6 +983,12 @@ class Settings(BaseSettings):
     #: outbound network access for the process holding the client's corpus.
     #: That is an operator decision, never a caller's.
     market_live_enabled: bool = False
+    #: W5b-12 (#560): web search for standard IDENTIFIERS (edition, supersession,
+    #: free availability, publisher page) through `standard_lookup`: a whitelist
+    #: filter, then one stored approval per query, used once. Rides the market
+    #: lane's socket, so it ALSO needs both market flags. OFF by default.
+    #: Env: STANDARD_LOOKUP_ENABLED.
+    standard_lookup_enabled: bool = False
 
     #: The second half of the switch: does this DEPLOYMENT permit egress.
     #: Kept distinct so the two questions - "is the feature finished" and "is
