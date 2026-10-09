@@ -1221,7 +1221,14 @@ def test_a_rejected_pair_survives_re_extraction_of_the_standard():
                            reason="a different piece of equipment")
     assert comparison.match_by_containment(requirement, [fact])["fact"] is None
 
-    # RE-EXTRACT. Every requirement row is replaced and re-issued a new id.
+    # RE-EXTRACT, WITH A NEW ID. Since #640 a sentence met again keeps its
+    # row and id, so a plain re-run no longer re-issues it. A new id still
+    # happens when an earlier run superseded the row (that run's extractor
+    # did not produce the sentence) and a later run produces it again: the
+    # old row stays superseded and a new one is written. That is staged here.
+    with db.connect() as conn:
+        conn.execute("UPDATE standard_requirements SET superseded_at = ?"
+                     " WHERE id = ?", ("2026-10-09T00:00:00Z", first_requirement_id))
     standards.extract_requirements(std, allowed_document_ids=scope, replace=True)
     again = standards.list_requirements(std, allowed_document_ids=scope)[0]
     assert again["id"] != first_requirement_id, (

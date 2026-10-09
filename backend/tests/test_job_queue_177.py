@@ -448,17 +448,23 @@ def test_requirement_extraction_records_its_version_and_input_hash():
     assert len(row["input_hash"]) == 64
     first_hash = row["input_hash"]
 
+    # #640: a re-extraction supersedes the old row instead of deleting it, so
+    # "the" requirement is the ACTIVE one (superseded_at IS NULL).
+    active = ("SELECT input_hash FROM standard_requirements"
+              " WHERE superseded_at IS NULL")
     standards.extract_requirements("doc_req", allowed_document_ids=every)
-    assert connect().execute("SELECT input_hash FROM standard_requirements"
-                             ).fetchone()["input_hash"] == first_hash, (
+    assert connect().execute(active).fetchone()["input_hash"] == first_hash, (
         "the same input produced a different hash - not reproducible")
 
     with connect() as conn:
         conn.execute("UPDATE chunks SET text = ? WHERE id = 'c_req'",
                      ("1.1 The vessel design pressure shall not exceed 12 bar at any time.",))
     standards.extract_requirements("doc_req", allowed_document_ids=every)
-    assert connect().execute("SELECT input_hash FROM standard_requirements"
-                             ).fetchone()["input_hash"] != first_hash
+    assert connect().execute(active).fetchone()["input_hash"] != first_hash
+    # The row the old input produced is kept, superseded, not deleted.
+    assert connect().execute(
+        "SELECT superseded_at FROM standard_requirements WHERE input_hash = ?",
+        (first_hash,)).fetchone()["superseded_at"] is not None
 
 
 def _datasheet(path) -> str:

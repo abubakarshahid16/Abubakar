@@ -3,10 +3,14 @@
 `review_findings.requirement_id` has no foreign key, so every path that
 deleted a requirement row left the findings citing it untraceable - 16,168 of
 20,288 on the laptop database (owner's evaluation, reported). Four paths
-delete requirement rows; each is asserted here to RECORD the attempt in
-`audit_events` and REFUSE unless explicitly acknowledged:
+deleted requirement rows; the three that still do are asserted here to
+RECORD the attempt in `audit_events` and REFUSE unless acknowledged:
 
-  1. re-extraction  (standards.extract_requirements, replace=True)
+  1. re-extraction  (standards.extract_requirements, replace=True) - SINCE
+                    #640 IT DELETES NOTHING: the row is kept, marked
+                    superseded, and the finding still resolves it. Asserted
+                    here as that; tests/test_w6_640_requirements_supersede.py
+                    has the rest.
   2. reject         (standards.decide_requirement)
   3. re-chunk       (chunker.chunk_document - the chunk_id CASCADE)
   4. document delete (DELETE /api/documents/{id} - the standard_document_id
@@ -124,23 +128,27 @@ def _scope(*ids): return frozenset(ids)
 
 # ================================================== 1. re-extraction
 
-def test_a_re_extraction_that_would_orphan_findings_is_recorded_and_refused():
+def _superseded(req_id: str) -> bool:
+    return db.connect().execute(
+        "SELECT superseded_at FROM standard_requirements WHERE id = ?",
+        (req_id,)).fetchone()["superseded_at"] is not None
+
+
+def test_a_re_extraction_keeps_a_cited_row_and_the_finding_resolves_it():
+    """#640: nothing to refuse, because nothing is destroyed. The row this run
+    does not produce stays, superseded, and the finding still finds it."""
     std = _standard()
     req = _requirement(std)
     _finding_citing(std, req)
 
-    with pytest.raises(orphan_guard.OrphaningRefused,
-                       match=r"^Re-extract is blocked because 1 review finding"):
-        standards.extract_requirements(std, allowed_document_ids=_scope(std))
+    standards.extract_requirements(std, allowed_document_ids=_scope(std))
 
-    assert _requirement_exists(req), "the refused re-extraction deleted the row"
-    [event] = _audit("re_extraction")
-    assert event["outcome"] == "refused"
-    assert event["detail"] == "findings_orphaned=1"
-    assert event["resource_id"] == std
+    assert _requirement_exists(req), "the re-extraction deleted a cited row"
+    assert _superseded(req)
+    assert _audit("re_extraction") == [], "no orphaning, so nothing to refuse or record"
 
 
-def test_an_acknowledged_re_extraction_proceeds_and_is_recorded():
+def test_acknowledging_is_no_longer_needed_and_changes_nothing():
     std = _standard()
     req = _requirement(std)
     _finding_citing(std, req)
@@ -148,20 +156,18 @@ def test_an_acknowledged_re_extraction_proceeds_and_is_recorded():
     standards.extract_requirements(std, allowed_document_ids=_scope(std),
                                    acknowledge_orphaned_findings=True)
 
-    assert not _requirement_exists(req)
-    [event] = _audit("re_extraction")
-    assert event["outcome"] == "ok"
-    assert event["detail"] == "findings_orphaned=1"
+    assert _requirement_exists(req) and _superseded(req)
 
 
-def test_nothing_is_refused_or_recorded_when_no_finding_cites_the_rows():
-    """The ordinary case: a standard no review has cited re-extracts freely."""
+def test_an_uncited_row_is_superseded_too_never_deleted():
+    """The ordinary case: a standard no review has cited re-extracts freely -
+    and still deletes nothing."""
     std = _standard()
     req = _requirement(std)
 
     standards.extract_requirements(std, allowed_document_ids=_scope(std))
 
-    assert not _requirement_exists(req)
+    assert _requirement_exists(req) and _superseded(req)
     assert _audit("re_extraction") == []
 
 
