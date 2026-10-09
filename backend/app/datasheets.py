@@ -827,11 +827,16 @@ def value_and_note(value: str | None) -> tuple[str | None, str | None]:
         return value, None
     if marker in (None, "empty", "placeholder") or not blank_markers.names_a_marker(value):
         return None, marker
-    rest = re.sub(re.escape(marker), " ", value or "", count=1, flags=re.IGNORECASE)
-    rest = _EMPTY_BRACKETS.sub(" ", rest)
-    rest = " ".join(rest.split()).strip(_EDGE)
-    if rest and (measure_value(rest)[0] is not None or parse_range(rest) is not None):
-        return rest, marker
+    found = re.search(re.escape(marker), value or "", flags=re.IGNORECASE)
+    text = value or ""
+    before, after = (text[:found.start()], text[found.end():]) if found else (text, "")
+    # The value is the text BEFORE the marker ("145 psig By Contractor, as per
+    # Code"), else AFTER it ("(By Contractor) 340 psig"), else what is left of
+    # the whole cell ("340 psig (By Contractor, as per Code)").
+    for candidate in (before, after, before + " " + after):
+        rest = " ".join(_EMPTY_BRACKETS.sub(" ", candidate).split()).strip(_EDGE)
+        if rest and (measure_value(rest)[0] is not None or parse_range(rest) is not None):
+            return rest, marker
     return None, marker
 
 

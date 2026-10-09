@@ -18,6 +18,9 @@ from app import comparison, datasheets
     ("(By Contractor) 340 psig", "340", "By Contractor"),
     ("340 psig - by contractor", "340", "by contractor"),
     ("10 barg (by vendor)", "10", "by vendor"),
+    # no brackets, words after the marker (the real PSV sheet's own shape)
+    ("145 psig By Contractor, as per Code", "145", "By Contractor"),
+    ("130 psig By Contractor, as per", "130", "By Contractor"),
 ])
 def test_a_value_beside_a_marker_is_a_value_with_a_note(text, value, note):
     assert datasheets.is_blank_value(text) == (False, None)
