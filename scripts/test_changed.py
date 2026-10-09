@@ -113,15 +113,22 @@ def main(argv: list[str] | None = None) -> int:
     if args.dry_run:
         return 0
 
-    rc = 0
-    if backend:
-        rc |= subprocess.run([sys.executable, "-m", "pytest", "-q", *sorted(backend)],
-                             cwd=REPO / "backend").returncode
-    if frontend:
-        npx = "npx.cmd" if sys.platform == "win32" else "npx"
-        rc |= subprocess.run([npx, "vitest", "related", "--run", *frontend],
-                             cwd=REPO / "frontend").returncode
-    return rc
+    def run_all() -> int:
+        rc = 0
+        if backend:
+            rc |= subprocess.run([sys.executable, "-m", "pytest", "-q", *sorted(backend)],
+                                 cwd=REPO / "backend").returncode
+        if frontend:
+            npx = "npx.cmd" if sys.platform == "win32" else "npx"
+            rc |= subprocess.run([npx, "vitest", "related", "--run", *frontend],
+                                 cwd=REPO / "frontend").returncode
+        return rc
+
+    # One heavy job at a time on this machine (#680).
+    sys.path.insert(0, str(REPO / "backend"))
+    from app import heavy_lock
+
+    return heavy_lock.run_locked("tests", run_all)
 
 
 if __name__ == "__main__":

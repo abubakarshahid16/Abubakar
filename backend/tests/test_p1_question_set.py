@@ -3,8 +3,8 @@
 The set (eval/p1/questions.json, version 5) is 67 invented-name questions run
 through the real chat on an invented fifteen-document corpus, no model call.
 The gate (owner decision 2026-10-08, `gate` in eval/p1/baseline.json, raised
-on 2026-10-09 to 43 of the 66 of version 4): at least 43 pass, and all 25 protected
-questions still pass (the 23 version 1 passes, and P1-65, P1-66). No unanswerable
+on 2026-10-09 to 44 of the 67 of version 5): at least 44 pass, and all 26 protected
+questions still pass (the 23 version 1 passes, and P1-65, P1-66, P1-67). No unanswerable
 question may start getting an answer.
 
 Raise the bar after an improvement with:
@@ -100,15 +100,15 @@ def test_with_a_gate_a_total_below_the_minimum_blocks():
     assert any("the gate needs at least 2" in r for r in reasons), reasons
 
 
-def test_the_committed_gate_is_43_of_66_with_25_protected():
+def test_the_committed_gate_is_44_of_67_with_26_protected():
     """The README states this gate; the file it is enforced from must agree."""
     base = harness.load_baseline()
     gate = base["gate"]
-    assert gate["min_passing"] == 43 and base["total"][1] == 66
-    assert len(gate["protected"]) == 25
+    assert gate["min_passing"] == 44 and base["total"][1] == 67
+    assert len(gate["protected"]) == 26
     originals = [q for q in gate["protected"] if int(q.split("-")[1]) <= 30]
     assert len(originals) == 23
-    assert set(gate["protected"]) - set(originals) == {"P1-65", "P1-66"}
+    assert set(gate["protected"]) - set(originals) == {"P1-65", "P1-66", "P1-67"}
     assert set(gate["protected"]) <= set(base["passing"])
 
 

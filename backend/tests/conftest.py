@@ -51,6 +51,10 @@ from tests import env_isolation
 #: At import, not in a fixture: a test module imported during collection must
 #: never see the developer's values, even for the length of an import.
 _REMOVED_ENV = env_isolation.isolate(settings)
+# The shared heavy-job lock (#680) is a machine-wide file; a test run must
+# never take, wait on or collide with the real one. Tests of the lock itself
+# pass an explicit path.
+os.environ["HEAVY_JOB_LOCK"] = "off"
 env_isolation.install_network_guard()
 
 #: What the application opens at runtime. A missing file here is a setup

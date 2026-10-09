@@ -113,4 +113,8 @@ def _run() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # One heavy job at a time on this machine (#680): P1, the changed-test run,
+    # the mutation run and the AI batch share one lock file.
+    from app import heavy_lock
+
+    raise SystemExit(heavy_lock.run_locked("p1", main))
