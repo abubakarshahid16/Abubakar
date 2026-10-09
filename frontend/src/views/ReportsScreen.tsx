@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from "react";
 import { reports as reportsApi, type DownloadFailure } from "../api/client";
 import type { ReportRecord, ReportVerification } from "../types/api";
 import { ReportsView } from "./ReportsView";
+import { ReviewCrsList } from "./ReviewCrsList";
 
 /** What the reader is told when a download does not produce a file.
  *
@@ -149,6 +150,8 @@ export function ReportsScreen() {
 
   return (
     <div className="space-y-4">
+      {/* #725 F7: the review runs' CRSs, on the page named after them. */}
+      <ReviewCrsList />
       {downloadState.state === "failed" && (
         // Same shape and palette as ReportsView's "Verification could not be
         // completed" panel: role=alert, a danger-coloured heading, and the

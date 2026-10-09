@@ -2549,6 +2549,15 @@ class CrsCommentStatusUpdate(BaseModel):
     note: str | None = Field(default=None, max_length=2000)
 
 
+class CrsTransmittals(BaseModel):
+    """#725 F7: the two transmittal numbers the CRS header names, as an
+    engineer entered them. "" = none entered; the sheet then prints nothing."""
+
+    model_config = ConfigDict(extra="forbid")
+    company_transmittal: str = Field(default="", max_length=80)
+    contractor_transmittal: str = Field(default="", max_length=80)
+
+
 class CrsCommentResponseUpdate(BaseModel):
     """The contractor's reply to one comment, recorded by an engineer when it
     arrived some other way than the returned sheet (an email, a letter).
