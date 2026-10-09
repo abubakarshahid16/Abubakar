@@ -374,6 +374,24 @@ class Settings(BaseSettings):
     #: rather than after a two-minute stall in front of a client.
     answer_model_ram_bytes: int = 3_400_000_000
 
+    # ---------------------------------------------------------- AI task runner
+    # (#644). Small strict model tasks run from a background queue by
+    # `ai_task_runner`. The model is a SETTING, never code: "qwen3.5:2b" by
+    # default (the owner's decision of 2026-10-09), "qwen3.5:4b" or a larger
+    # local model by changing this one value.
+    ai_task_model: str = "qwen3.5:2b"
+    #: About this many words of source text per task. Longer input is refused
+    #: by name (never cut silently): the caller splits it into passages.
+    ai_task_max_words: int = 300
+    #: Seconds a task may take. A reply after this is "could not read".
+    ai_task_timeout_s: float = 120.0
+    #: How long the model stays loaded between the tasks of ONE batch. When the
+    #: batch ends the runner unloads it (keep_alive 0).
+    ai_task_batch_keep_alive: str = "10m"
+    #: The queue pauses below this much free memory, so a chat answer is never
+    #: starved by background work.
+    ai_task_min_free_ram_gb: float = 1.5
+
     # Measured on the target CPU - see docs/benchmarks.md
     num_thread: int = 12
     num_batch: int = 2048
