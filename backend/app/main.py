@@ -47,6 +47,7 @@ from .api_utils import (
 )
 from . import access
 from . import admin as admin_mod
+from . import playbooks as playbooks_mod
 from . import model_memory as model_memory_mod
 from . import auth as auth_mod
 from . import errors
@@ -1348,6 +1349,42 @@ def put_document_classification(
         equipment_tags=body.equipment_tags)
     row = classification_mod.of_document(document_id) or {}
     return {**row, "document_id": document_id}
+
+
+@app.get("/api/playbooks", responses={**schemas.ERRORS_404})
+def list_playbooks(scope: access.AccessScope = Depends(access.current_scope)):
+    """The review playbooks (data files): what each expects a document of its
+    kind to contain, the standard clause each element comes from, and whether a
+    discipline engineer has signed it off. A file that cannot be used is listed
+    with the reason, never dropped."""
+    found, broken = playbooks_mod.available()
+    return {"playbooks": [
+        {"id": pb.id, "title": pb.title, "version": pb.version, "document_kind": pb.document_kind,
+         "signed_off": pb.signed_off, "sign_off": pb.sign_off, "clauses_verified": pb.clauses_verified,
+         "notice": playbooks_mod.notice(pb), "elements": len(pb.elements)}
+        for pb in found.values()], "unusable": broken}
+
+
+@app.post("/api/documents/{document_id}/playbook-review", responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def playbook_review(
+    document_id: str,
+    body: schemas.PlaybookReviewRequest,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Review one document the caller may read against a playbook: per element
+    present, unclear, missing, could not be checked, or standard not held (never
+    "met"). Cited by the passage's locator. `use_ai` lets the LOCAL model propose
+    a quote for an element the cue words did not settle; a proposal is kept only
+    when its quote is verbatim in the passage it names."""
+    require_document(document_id, scope)
+    found, _broken = playbooks_mod.available()
+    playbook = found.get(body.playbook_id)
+    if playbook is None:
+        raise HTTPException(status_code=422, detail={
+            "code": "unknown_playbook", "message": f"no usable playbook {body.playbook_id!r}"})
+    proposer = playbooks_mod.task_proposer() if body.use_ai else None
+    return playbooks_mod.review(document_id, playbook, allowed_document_ids=scope.allowed_document_ids,
+                                proposer=proposer)
 
 
 @app.post("/api/documents/bulk/role", response_model=schemas.BulkRoleResult,

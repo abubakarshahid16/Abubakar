@@ -3697,3 +3697,10 @@ class AdminDbRows(BaseModel):
 
 
 ERRORS_409 = {409: {"model": ErrorEnvelope, "description": "Conflicts with existing state"}}
+
+
+class PlaybookReviewRequest(BaseModel):
+    """Which playbook to review a document against (#679)."""
+    playbook_id: str
+    #: Let the local model propose a quote for elements the cue words left open.
+    use_ai: bool = False
