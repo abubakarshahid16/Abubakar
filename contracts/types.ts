@@ -2304,6 +2304,15 @@ export interface MetricWarning {
   message: string;
 }
 
+/** What "Free model memory" did (#666). `still_loaded` is read back from
+ *  Ollama afterwards. `reachable: false` means Ollama could not be read and
+ *  nothing was asked. */
+export interface ModelsFreed {
+  reachable: boolean;
+  freed: string[];
+  still_loaded: string[];
+}
+
 export interface Metrics {
   at: string;
   refresh_seconds: number;

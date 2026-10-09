@@ -96,7 +96,8 @@ def test_a_verified_quote_with_the_right_figure_is_kept():
 
 def test_a_clause_number_in_the_passage_does_not_support_a_figure():
     clean, removed = answer_mod.ground_numbers("The minimum wall thickness is 6 mm [S1].", PIPING)
-    assert clean == "" and removed == [{"value": "6", "cited": [1]}]
+    # #653: every removed record also says why
+    assert clean == "" and removed == [{"value": "6", "cited": [1], "reason": "figure_missing"}]
 
 
 def test_a_clause_number_in_the_span_does_not_support_a_summary_figure():
