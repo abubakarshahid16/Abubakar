@@ -2,7 +2,7 @@
 invented dicts shaped like `chat.ask`'s, and the runner is driven with a fake
 `ask`. Every document and standard is INVENTED (the P1 corpus).
 
-Mutations: M5001-M5030 (scripts/mutations/w4b_674_p1_ai.py).
+Mutations: M4601-M4630 (scripts/mutations/w4b_674_p1_ai.py).
 """
 from __future__ import annotations
 
