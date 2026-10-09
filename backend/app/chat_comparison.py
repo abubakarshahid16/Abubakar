@@ -111,6 +111,107 @@ def missing_designations(question: str, matched_names: list[str]) -> list[str]:
     return out
 
 
+def _stem(filename: str) -> str:
+    return filename.rsplit(".", 1)[0]
+
+
+def _identity_key(text: str) -> str:
+    """ONE key per standard, from the shared matcher: the parsed identifier
+    ("ASME B 16.5") or, for a name it cannot parse, the flat key of the name
+    with a trailing edition year dropped."""
+    ident = standard_ids.parse(text)
+    if ident is not None:
+        return ident.key()
+    return standard_ids.flat_key(re.sub(r"[-\s_]*(?:19|20)\d\d\s*$", "", text or ""))
+
+
+def _same_as_typed(typed: str, filename: str) -> bool:
+    """Is the standard the reader typed the standard this file is? The shared
+    matcher first; a file named only "B16.5" is still ASME B16.5 when the
+    reader wrote "ASME B16.5" (the letters-and-digits designation matches)."""
+    if standard_ids.same_standard(typed, _stem(filename)):
+        return True
+    designation = understanding_mod.designation(filename)
+    if not designation:
+        return False
+    want = standard_ids.flat_key(typed)
+    have = standard_ids.flat_key(re.sub(r"[-\s_]*(?:19|20)\d\d\s*$", "", designation))
+    # One written with the issuing body ("ASME B16.5"), the other without
+    # ("B16.5"): the shorter must be the END of the longer, whole.
+    return bool(have) and (want.endswith(have) or have.endswith(want))
+
+
+def typed_standards(question: str) -> list[str]:
+    """The standards the reader TYPED, in order, each once: the citations the
+    shared reader finds ("ASME B16.5"), then any capitalised designation with
+    a digit it did not read that is not inside one of them ("B16.5")."""
+    text = question or ""
+    out: list[str] = []
+    spans: list[tuple[int, int]] = []
+
+    def add(label: str) -> None:
+        if not any(standard_ids.same_standard(label, seen) for seen in out):
+            out.append(label)
+
+    for label, start, end in standard_ids.find_citations(text):
+        spans.append((start, end))
+        add(label)
+    for m in _TYPED_DESIGNATION.finditer(text):
+        token = m.group(0)
+        if not re.search(r"\d", token) or any(s <= m.start() and m.end() <= e for s, e in spans):
+            continue
+        add(token)
+    return out
+
+
+def resolve_sides(
+    question: str, documents: dict[str, str]
+) -> tuple[list[tuple[str, frozenset[str]]], list[str]]:
+    """(sides, missing) for a comparison, by the STANDARD'S IDENTITY.
+
+    #636: one named standard is ONE side. A standard filed as three documents
+    (parts, copies) is one side holding all three ids; the same standard typed
+    two ways ("ASME B16.5", "B16.5") or filed under two spellings
+    ("ASME-B16.5", "ASME B16.5-2020") is still one. Two DIFFERENT EDITIONS of
+    one standard (two years in the library) are two sides, each labelled with
+    its edition, because their answers can differ. Never grouped by document
+    title or by a hard-coded name: the identity is the shared matcher's
+    (`standard_ids`), and an edition is a year printed in the file's name.
+
+    `missing` is every standard the reader typed that no readable document is.
+    """
+    named = understanding_mod.named_documents(question, documents)
+    ids = sorted({d for group in named.values() for d in group},
+                 key=lambda d: (documents[d], d))
+    groups: dict[str, list[str]] = {}
+    for doc_id in ids:
+        groups.setdefault(_identity_key(_stem(documents[doc_id])), []).append(doc_id)
+    typed = typed_standards(question)
+    label_of: dict[str, str] = {}
+    matched_typed: set[str] = set()
+    for key, members in groups.items():
+        for want in typed:
+            if any(_same_as_typed(want, documents[d]) for d in members):
+                label_of.setdefault(key, want)
+                matched_typed.add(want)
+    sides: list[tuple[str, frozenset[str]]] = []
+    for key, members in groups.items():
+        base = label_of.get(key) or (
+            understanding_mod.designation(documents[members[0]])
+            or _stem(documents[members[0]]))
+        base = re.sub(r"[-\s_]*(?:19|20)\d\d\s*$", "", base)
+        editions = {standard_ids.edition_of(documents[d]) for d in members}
+        if len({e for e in editions if e}) < 2:
+            sides.append((base, frozenset(members)))
+            continue
+        for edition in sorted(editions, key=lambda e: (e is None, e or "")):
+            label = f"{base} ({edition})" if edition else f"{base} (edition not stated)"
+            sides.append((label, frozenset(d for d in members
+                                           if standard_ids.edition_of(documents[d]) == edition)))
+    sides.sort(key=lambda side: side[0])
+    return sides, [want for want in typed if want not in matched_typed]
+
+
 def matched_sides(
     question: str, documents: dict[str, str]
 ) -> list[tuple[str, frozenset[str]]]:
@@ -124,13 +225,19 @@ def topic_of(question: str, names: list[str]) -> str | None:
     the word "compare" taken out. None when nothing is left - a comparison of
     two standards on no subject has nothing to search for."""
     text = question or ""
+    # Every citation the shared reader finds goes first, longest span first, so
+    # "ASME B16.5" leaves no stray "ASME" behind to be searched for as a topic.
+    for _label, start, end in sorted(standard_ids.find_citations(text), key=lambda c: -c[1]):
+        text = text[:start] + " " + text[end:]
     for name in names:
         text = re.sub(re.escape(name), " ", text, flags=re.I)
     text = _TRIGGER.sub(" ", text)
     words = [w for w in re.split(r"\s+", text.strip()) if w]
-    while words and words[0].lower().strip(",.?!:;") in _CONNECTORS:
+    while words and (words[0].lower().strip(",.?!:;") in _CONNECTORS
+                     or not re.search(r"\w", words[0])):
         words.pop(0)
-    while words and words[-1].lower().strip(",.?!:;") in _CONNECTORS:
+    while words and (words[-1].lower().strip(",.?!:;") in _CONNECTORS
+                     or not re.search(r"\w", words[-1])):
         words.pop()
     topic = " ".join(words).strip(" ,.?!:;")
     return topic if re.search(r"[A-Za-z]{3,}", topic) else None
