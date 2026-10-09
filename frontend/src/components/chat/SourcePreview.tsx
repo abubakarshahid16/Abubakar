@@ -32,6 +32,9 @@ function nameOf(s: PreviewSource): string {
 }
 
 function pageOf(s: PreviewSource): string | null {
+  // A Word passage is cited by where it sits ("4.2 > para 3"), not by a page.
+  const locator = s.meta?.locator ?? s.passage?.locator ?? null;
+  if (locator) return locator;
   const page = s.meta?.page ?? s.passage?.page_start ?? null;
   const end = s.meta?.page_end ?? s.passage?.page_end ?? null;
   if (page == null) return null;

@@ -3770,7 +3770,7 @@ def document_chunks(
     conn = connect()
     rows = conn.execute(
         f"""SELECT id, ordinal, page_start, page_end, section, kind, token_count,
-                   content_hash, retrievable, quality_flags, text
+                   content_hash, retrievable, quality_flags, locator, text
             FROM chunks WHERE document_id = ?{clause}
             ORDER BY ordinal LIMIT ? OFFSET ?""",
         (document_id, limit, offset),

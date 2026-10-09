@@ -2103,6 +2103,11 @@ UNREADABLE = {
     "pdf_empty_file": "the stored file is empty",
     "pdf_damaged": "the stored file is not a readable PDF",
     "pdf_encrypted": "the stored file is password-protected",
+    # W5b-01: a Word document is indexed and searchable by default, but its
+    # datasheet FIELDS are read from its tables only by the office datasheet
+    # reader. Opened as a PDF it would be flattened, so it is not opened.
+    "docx_fields_not_read": ("a Word document's datasheet fields are read only when "
+                             "DATASHEET_OFFICE_INPUT is on; its text is searchable"),
 }
 
 #: NOT unreadable - readable and not to be trusted whole. MuPDF rebuilt the
@@ -2131,6 +2136,9 @@ def pdf_condition(stored_path: str) -> tuple[str | None, str, bool]:
         # `datasheet_inputs` can read it (a DOCTYPE, a bomb, a damaged zip).
         slug, why = datasheet_inputs.office_condition(stored_path)
         return slug, why, False
+    if datasheet_inputs.office_kind(stored_path) == datasheet_inputs.KIND_DOCX:
+        # A Word file never reaches the PDF reader below: MuPDF flattens it.
+        return "docx_fields_not_read", UNREADABLE["docx_fields_not_read"], False
     try:
         import pymupdf
     except ImportError:  # pragma: no cover
