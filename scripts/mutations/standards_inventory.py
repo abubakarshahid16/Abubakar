@@ -194,9 +194,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         path=APP / "standards_inventory.py",
         anchor="              AND c.document_role = 'COMPANY_STANDARD'\n"
                "              AND c.superseded_by IS NULL\n"
-               "              AND r.requirement_type = ?\"\"\",",
+               "              AND r.superseded_at IS NULL\n",
         replacement="              AND c.document_role = 'COMPANY_STANDARD'\n"
-                    "              AND r.requirement_type = ?\"\"\",",
+                    "              AND r.superseded_at IS NULL\n",
         target="tests/test_standards_inventory.py",
         keyword="a_superseded_standards_requirement_citations_are_not_reported",
         tags=("honesty", "inventory"),

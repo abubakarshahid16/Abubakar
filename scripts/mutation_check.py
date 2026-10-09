@@ -20,7 +20,7 @@ and the tests that must then FAIL. The entries live in `scripts/mutations/`,
 one file per module they mutate (see its `__init__.py`); this file is the
 harness. For every mutation the harness:
 
-  1. copies the file to `<file>.mutbak`,
+  1. copies the file to a temp directory outside the repo (`mutbak-*`),
   2. refuses to continue if the anchor is not found EXACTLY once - an anchor
      that silently stops matching turns a mutation into a no-op, and a no-op
      mutation reports "tests passed" and looks like a vacuous test,
@@ -59,6 +59,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Iterable
 
@@ -246,7 +247,12 @@ def run(mutation: Mutation) -> tuple[str, str]:
         # ran, and a mutation that never ran cannot detect anything.
         return "ERROR", (f"anchor matched {occurrences} times, expected exactly 1 "
                          f"- the mutation was NOT applied")
-    backup = path.with_suffix(path.suffix + ".mutbak")
+    # THE BACKUP LIVES OUTSIDE THE REPOSITORY. Next to the file it was once
+    # swept into a commit (`git add -A` during a run), together with the
+    # half-mutated source. A temp directory cannot be committed; if the process
+    # is killed the original is still there, and its path is printed.
+    backup_dir = Path(tempfile.mkdtemp(prefix="mutbak-"))
+    backup = backup_dir / (path.name + ".mutbak")
     shutil.copyfile(path, backup)
     try:
         path.write_text(source.replace(mutation.anchor, mutation.replacement, 1),
@@ -254,7 +260,7 @@ def run(mutation: Mutation) -> tuple[str, str]:
         code, summary = _run_tests(mutation)
     finally:
         shutil.copyfile(backup, path)
-        os.remove(backup)
+        shutil.rmtree(backup_dir, ignore_errors=True)
     # A VERDICT NEEDS TESTS TO HAVE RUN. Checked before the exit code is read,
     # because a run that executed nothing has no verdict to give - whatever it
     # exited with.

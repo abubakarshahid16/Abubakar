@@ -138,6 +138,22 @@ def _step(conn, job_id: str, index: int) -> None:
                      (index, STEPS[index], _now(), _now(), job_id))
 
 
+def _record_check_failure(run_id: str, column: str, name: str, exc: BaseException) -> None:
+    """Store "<check> could not be checked: <ErrorName>" on the run. The error's
+    TYPE only: no text from the failure, which could carry document text."""
+    from . import absence
+    status = absence.check_failed_status(name, f"it failed ({type(exc).__name__})")
+    assert column in ("ai_check_status", "web_check_status")
+    try:
+        conn = connect()
+        with conn:
+            conn.execute(f"UPDATE review_runs SET {column} = ?, updated_at = ? WHERE id = ?",
+                         (json.dumps(status), _now(), run_id))
+    except Exception:  # noqa: BLE001 - recording must not fail the review either
+        import logging
+        logging.getLogger(__name__).warning("could not record %s failure", column)
+
+
 def _ai_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
     """Owner order 2d: the AI engineering check, AFTER the comparison decided
     the code, only with its flag on. Drafts only; a failure here (budget,
@@ -159,6 +175,9 @@ def _ai_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
     except Exception as exc:  # noqa: BLE001 - drafts are optional; the review stands
         import logging
         logging.getLogger(__name__).warning("AI engineering check skipped: %s", type(exc).__name__)
+        # #633: AND IT SAYS SO ON THE RUN. The review stands, but a reviewer must
+        # be able to tell "ran, nothing to raise" from "could not be checked".
+        _record_check_failure(run_id, "ai_check_status", "AI engineering check", exc)
 
 
 def _web_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
@@ -179,6 +198,7 @@ def _web_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
     except Exception as exc:  # noqa: BLE001 - drafts are optional; the review stands
         import logging
         logging.getLogger(__name__).warning("web standards check skipped: %s", type(exc).__name__)
+        _record_check_failure(run_id, "web_check_status", "Web standards check", exc)
 
 
 def run(job_id: str, worker_id: str, heartbeat=None) -> str:
@@ -234,9 +254,18 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
         with conn:
             state = job_queue.fail(conn, job_id, code=type(exc).__name__, message=safe["message"])
             if state == job_queue.POISONED:
+                # #633: FINDINGS WRITTEN BEFORE THE FAILURE ARE PARTIAL, and the
+                # run says so. They were committed before the datasheet checks
+                # and the outcome, so a later failure left findings with no
+                # code and nothing to say the set was incomplete.
+                written = conn.execute(
+                    "SELECT COUNT(*) FROM review_findings WHERE review_run_id = ?",
+                    (run_id,)).fetchone()[0]
                 conn.execute("UPDATE review_runs SET status = 'failed', refusal_reason = ?,"
                              " updated_at = ? WHERE id = ?",
-                             (json.dumps({"error": safe["message"]}), _now(), run_id))
+                             (json.dumps({"error": safe["message"],
+                                          **({"partial": True, "partial_findings": written}
+                                             if written else {})}), _now(), run_id))
             else:
                 conn.execute("UPDATE review_runs SET status = 'queued', updated_at = ? WHERE id = ?",
                              (_now(), run_id))

@@ -111,12 +111,15 @@ MUTATIONS: tuple[Mutation, ...] = (
     ),
     Mutation(
         id="M34", phase=3,
-        description="let re-extraction delete a human-confirmed requirement",
+        # re-anchored for #640: re-extraction no longer deletes; the rule that
+        # protects a confirmed row is now `_SUPERSEDABLE`, and the test that
+        # sees a confirmed row it does NOT re-produce is the #640 one.
+        description="let re-extraction supersede a human-confirmed requirement",
         path=APP / "standards.py",
-        anchor='                " WHERE standard_document_id = ? AND confirmed_by IS NULL",',
-        replacement='                " WHERE standard_document_id = ?",',
-        target="tests/test_standards_library.py",
-        keyword="never_discards_a_confirmed",
+        anchor='_SUPERSEDABLE = "confirmed_by IS NULL AND superseded_at IS NULL"\n',
+        replacement='_SUPERSEDABLE = "superseded_at IS NULL"\n',
+        target="tests/test_w6_640_requirements_supersede.py",
+        keyword="confirmed_requirement_is_never",
         tags=("data-loss",),
     ),
     # ---- from PHASE_3B ----------------------------------------------------
@@ -141,12 +144,12 @@ MUTATIONS: tuple[Mutation, ...] = (
                '    rows = connect().execute(\n'
                '        "SELECT r.*, c.page_start AS chunk_page FROM standard_requirements r"\n'
                '        " LEFT JOIN chunks c ON c.id = r.chunk_id" + where +\n'
-               '        " AND r.confirmed_by IS NULL"',
+               '        " AND r.confirmed_by IS NULL AND r.superseded_at IS NULL"',
         replacement='    where, args = " WHERE 1 = 1", []\n'
                     '    rows = connect().execute(\n'
                     '        "SELECT r.*, c.page_start AS chunk_page FROM standard_requirements r"\n'
                     '        " LEFT JOIN chunks c ON c.id = r.chunk_id" + where +\n'
-                    '        " AND r.confirmed_by IS NULL"',
+                    '        " AND r.confirmed_by IS NULL AND r.superseded_at IS NULL"',
         target="tests/test_standards_3b.py",
         keyword="unauthorised_user_sees_no_requirement or empty_grant_set",
         tags=("permission",),
@@ -347,11 +350,17 @@ MUTATIONS: tuple[Mutation, ...] = (
     #: call for a no-op that accepts the same arguments.
     Mutation(
         id="M327", phase=38,
-        description="path 1: re-extraction deletes cited rows unguarded",
+        # re-anchored for #640: path 1 no longer deletes, so there is no
+        # guard to bypass; the defect it stood for is a re-extraction that
+        # deletes cited rows, which is what this puts back.
+        description="path 1: re-extraction deletes cited rows instead of superseding them",
         path=APP / "standards.py",
-        anchor='        orphan_guard.check(\n            "re_extraction",',
-        replacement=f'        {_B38_NOOP}\n            "re_extraction",',
-        target=_B38_TEST, keyword="re_extraction",
+        anchor=('                "UPDATE standard_requirements SET superseded_at = ?,"\n'
+                '                " superseded_by_run = ?, updated_at = ? WHERE " + where,\n'
+                '                (now, run_id, now, *part)).rowcount\n'),
+        replacement=('                "DELETE FROM standard_requirements WHERE " + where,\n'
+                     '                tuple(part)).rowcount\n'),
+        target=_B38_TEST, keyword="re_extraction or superseded_too",
         tags=("critical",),
     ),
     Mutation(
