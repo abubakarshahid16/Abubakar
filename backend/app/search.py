@@ -419,7 +419,10 @@ def apply_identifier_boost(
     required = [i.lower() for i in find_identifiers(question) if i.lower() not in soft]
     wanted: dict[str, list[str]] = {}
     for ident in find_identifiers(question):
-        wanted[ident.lower()] = [ident.lower()]
+        # with or without an optional prefix: "UNS N06625" is named by a
+        # table row that prints "N06625" (keyword.unprefixed_forms)
+        wanted[ident.lower()] = [ident.lower(), *(
+            f.lower() for f in keyword.unprefixed_forms(ident))]
     for designator in keyword.find_designators(question):
         wanted[designator.lower()] = [
             v.lower() for v in keyword.designator_variants(designator)
@@ -444,7 +447,8 @@ def apply_identifier_boost(
         )
         if hits:
             c.identifier_hits = hits
-        c.names_identifiers = bool(required) and all(i in lowered for i in required)
+        c.names_identifiers = bool(required) and all(
+            any(v in lowered for v in wanted[i]) for i in required)
         c.numeric_hits = [value for value in decimals if re.search(
             r"(?<![\w.])" + re.escape(value) + r"(?![\w.])", lowered
         )]

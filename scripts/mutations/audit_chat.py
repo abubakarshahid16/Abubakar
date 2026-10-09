@@ -191,7 +191,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              path=APP / "chat_claude_first.py",
              # re-anchored at integration: the spend batch added turn_cost
              anchor="                return _finish(response, sources, steps, started, thinking_seconds,\n"
-                    '                               turn_cost, text="\\n\\n".join(round_texts))\n',
+                    '                               turn_cost, text="\\n\\n".join(round_texts), question=question)\n',
              replacement="                return _finish(response, sources, steps, started, thinking_seconds,\n"
                          "                               turn_cost)\n",
              target=_T, keyword="keeps_text_written_before_a_tool_call",
