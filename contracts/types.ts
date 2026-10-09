@@ -728,6 +728,10 @@ export interface ReviewRunSummary {
    *  submittal, one grouped line per subject. Counted and shown, never
    *  dropped silently. Empty or absent renders as nothing. */
   requirements_not_applied?: RequirementsNotApplied[];
+  /** #678: every requirement in scope in ONE of three groups, each repeat
+   *  counted once. Only "applies but not checked" counts against a run. Null
+   *  when the run has no counts at all. */
+  requirement_split?: RequirementSplit | null;
   /** #453: how the rest were decided; null for a run that predates it. */
   applicability?: {
     submittal_equipment: string[]; equipment_source: string | null;
@@ -2695,4 +2699,22 @@ export interface RunCheckStatus {
   complete: boolean;
   reason: string | null;
   plain: string;
+}
+
+/** #678: the three honest groups of requirements in a review run's scope. */
+export interface RequirementSplitReason {
+  reason: string;
+  count: number;
+}
+export interface RequirementSplit {
+  checked: number;
+  applies_not_checked: number;
+  does_not_apply: number;
+  total: number;
+  applies_not_checked_reasons: RequirementSplitReason[];
+  does_not_apply_reasons: RequirementSplitReason[];
+  /** Stored repeats ignored (the same standard and text counted once); null when unknown. */
+  repeats_ignored: number | null;
+  /** Share of the requirements that APPLY that were not checked; null when none apply. */
+  unchecked_share: number | null;
 }
