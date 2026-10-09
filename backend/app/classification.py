@@ -1545,7 +1545,9 @@ def empty_record(document_id: str) -> dict:
             "discipline": None, "doc_class": None, "register_id": None,
             "suggested_by": SOURCE_NONE,
             "confirmed_by": None, "confirmed_at": None,
-            "confirmed": False, "subjects": []}
+            "confirmed": False, "subjects": [],
+            "document_kind": None, "document_kind_state": None,
+            "document_kind_evidence": None}
 
 
 def of_document(document_id: str) -> dict | None:
@@ -1578,6 +1580,15 @@ def of_documents(document_ids: list[str]) -> dict[str, dict]:
             subjects.setdefault(item.pop("document_id"), []).append(item)
         for row in rows:
             out[row["document_id"]] = _decode(row, subjects.get(row["document_id"], []))
+    # W5b-02: what SORT of document each is (datasheet, procedure, ...), from the
+    # document-type router. A document routed but never classified still gets a
+    # record (empty apart from its kind), so the list shows it.
+    from . import doc_router
+
+    for record in out.values():
+        record.update(document_kind=None, document_kind_state=None, document_kind_evidence=None)
+    for document_id, kind in doc_router.of_documents(ids).items():
+        out.setdefault(document_id, empty_record(document_id)).update(kind)
     return out
 
 
