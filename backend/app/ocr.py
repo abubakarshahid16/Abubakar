@@ -436,18 +436,6 @@ def alphabet_violations(text: str, script: str = "latin") -> tuple[int, str]:
 
 # ----------------------------------------------------------------- worker
 
-@dataclass
-class PageOCR:
-    page_no: int
-    text: str
-    mean_conf: float | None
-    min_conf: float | None
-    box_count: int
-    low_conf_boxes: int
-    seconds: float
-    violations: int
-    violation_sample: str
-
 
 def _build_engine():
     """Construct RapidOCR from VENDORED paths. Runs in a worker process.

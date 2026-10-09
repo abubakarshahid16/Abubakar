@@ -863,13 +863,6 @@ class KeywordHit(BaseModel):
     text: str
 
 
-class KeywordSearchResult(BaseModel):
-    query: str
-    match_expression: str = Field(description="the FTS5 expression actually run")
-    total: int
-    seconds: float
-    hits: list[KeywordHit]
-
 
 class Passage(BaseModel):
     chunk_id: str

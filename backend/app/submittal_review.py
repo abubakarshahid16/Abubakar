@@ -43,16 +43,6 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def _new_id() -> str:
-    """A random uuid4, matching review.py:317 and deliverables.py:122.
-
-    NOT the `doc_{sha256[:12]}` content hash. That identifier exists so that
-    re-uploading the same bytes is recognised as the same document; a review
-    run, a fact and a requirement are events, and two of them with identical
-    contents are two different things that must not collide.
-    """
-    return str(uuid.uuid4())
-
 
 def _scope_clause(
     allowed_document_ids: frozenset[str], column: str

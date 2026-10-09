@@ -79,6 +79,7 @@ def vocabulary() -> dict:
     }
 
 
+# TEST HOOK (#661): called by the tests to start from a clean state; the app does not call it.
 def reload_vocabulary() -> None:
     """Forget the cached vocabulary and every parse made with it. A test (or a
     future admin edit) that rewrites the file calls this."""
