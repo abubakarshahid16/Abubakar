@@ -440,3 +440,19 @@ def cited_standards(text: str) -> list[str]:
         ident = parse(raw)
         seen.setdefault(ident.literal_key() if ident else flat_key(raw), raw)
     return list(seen.values())
+
+
+# ------------------------------------------------------------------ the edition
+
+#: A four-digit year in a filename or a title: the edition it is a copy of.
+#: Not part of the number ("B16.47" has no four-digit group), not a longer
+#: number ("API 12345"), not glued to letters.
+_EDITION_YEAR = re.compile(r"(?<![\dA-Za-z.])((?:19[5-9]|20[0-4])\d)(?![\dA-Za-z])")
+
+
+def edition_of(text: str) -> str | None:
+    """The edition year printed in `text` ("ASME B16.5-2020.pdf" -> "2020"), or
+    None when none is printed. The LAST year wins: a title that names an older
+    standard it replaces ends with its own year. Never guessed from nothing."""
+    years = _EDITION_YEAR.findall((text or "").replace("_", " "))
+    return years[-1] if years else None

@@ -31,6 +31,10 @@ from .db import connect
 from .model_evidence import _collapse, quote_verified  # the verifier's own normalisation
 from .reasoning_provider import Packet
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 PROMPT_VERSION = "scope-record-v4"
 
 #: A heading alone on its line ("1 Scope", "Scope:"), or a heading word
@@ -88,8 +92,9 @@ def find_passages(document_id: str, *, search_fn=None) -> list[dict]:
         for i, hit in enumerate(res["hits"][:4]):
             cands.append({"page": hit["page_start"], "method": "hybrid-search", "rank": (2, i, 0),
                           "text": (hit["text"] or "")[:PASSAGE_CHARS]})
-    except Exception:  # noqa: BLE001 - search is one of three sources; the others still count
-        pass
+    except Exception as exc:  # noqa: BLE001 - search is one of three sources; the others still count
+        _log.warning("the scope search for %s failed; only the other sources were used (%s)",
+                     document_id, type(exc).__name__)
     for p in range(1, 7):
         text = texts.get(p, "").strip()
         if text:

@@ -1491,6 +1491,9 @@ class RemovedSentence(BaseModel):
 class AnalysisSummary(BaseModel):
     question: str
     evidence_ledger: list[EvidenceItem]
+    #: #633: documents the question NAMED that could not be read (misspelt,
+    #: absent, not granted). The answer did not examine them.
+    named_documents_not_read: list[str] = []
     summary: str | None = Field(
         None, description="null when synthesis did not run or was refused. "
         "Null renders as nothing - never an empty prose block")
@@ -1549,6 +1552,9 @@ class GapAnalysisOut(BaseModel):
 class AnalysisGaps(BaseModel):
     question: str
     evidence_ledger: list[EvidenceItem]
+    #: #633: documents the question NAMED that could not be read; the
+    #: comparison did not examine them.
+    named_documents_not_read: list[str] = []
     claim_clusters: list[ClaimClusterOut]
     gaps: GapAnalysisOut
     not_implemented_sections: list[str]
@@ -2309,6 +2315,12 @@ class CrsPreview(BaseModel):
     recommended_code_reason: str = ""
     recommended_code_status: str = ""
     recommended_code_label: str
+    #: #633: "REVIEW INCOMPLETE: N part(s) could not be checked" when the run
+    #: failed, stopped, or left parts unchecked; "" when nothing is known to be
+    #: unchecked. In both copies. `unchecked_parts` lists each part (internal
+    #: copy only).
+    incomplete_notice: str = ""
+    unchecked_parts: list[str] = []
     #: B5: the standards the review applied and why, the ones considered and
     #: not applied, and cited ones not held (MISSING_LOCALLY) - the workbook's
     #: "Applicable standards" sheet.
@@ -2449,6 +2461,12 @@ class ReviewRunSummary(BaseModel):
     #: of how many, cut off by what) whenever a reply was truncated, only
     #: partially recovered after the one capped retry, or refused outright.
     ai_check_status: dict | None = None
+    #: #633: the web standards check's own outcome (same shape): when it was
+    #: asked for and could not run, `complete` is false and `plain` says why.
+    web_check_status: dict | None = None
+    #: #633: findings written before a failed run stopped. They are partial and
+    #: the run recommends no code.
+    partial_findings: int = 0
 
 
 class PageLedgerRow(BaseModel):
