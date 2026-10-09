@@ -188,23 +188,28 @@ def test_rejecting_a_cited_requirement_is_refused():
 
 # ====================================================== 3. re-chunk cascade
 
-def test_a_re_chunk_that_would_cascade_away_cited_requirements_is_refused():
-    """standard_requirements.chunk_id is ON DELETE CASCADE: replacing the
-    chunks took their requirements with them, confirmed or not."""
+def test_a_re_chunk_keeps_cited_requirements_and_their_findings():
+    """#659: standard_requirements.chunk_id is ON DELETE CASCADE, so replacing
+    the chunks used to take the requirements with them (and a re-chunk was
+    REFUSED when findings cited them). Now nothing is refused and nothing is
+    deleted: the link is detached before the delete and put back after. The
+    test that stood here asserted the refusal; it is changed because the
+    behaviour it pinned was the defect, not the guard's purpose."""
     std = _standard()
     req = _requirement(std)
     _finding_citing(std, req)
-    chunks_before = db.connect().execute(
-        "SELECT COUNT(*) FROM chunks WHERE document_id = ?", (std,)).fetchone()[0]
+    before = db.connect().execute(
+        "SELECT chunk_id FROM standard_requirements WHERE id = ?", (req,)).fetchone()["chunk_id"]
 
-    with pytest.raises(orphan_guard.OrphaningRefused):
-        chunk_document(std, force=True)
+    chunk_document(std, force=True)
 
-    assert _requirement_exists(req), "the cascade ran despite the refusal"
+    assert _requirement_exists(req), "the cascade ran"
+    row = db.connect().execute(
+        "SELECT chunk_id, superseded_at FROM standard_requirements WHERE id = ?", (req,)).fetchone()
+    assert row["chunk_id"] == before and row["superseded_at"] is None
     assert db.connect().execute(
-        "SELECT COUNT(*) FROM chunks WHERE document_id = ?",
-        (std,)).fetchone()[0] == chunks_before
-    assert _audit("re_chunk")[0]["outcome"] == "refused"
+        "SELECT COUNT(*) FROM review_findings WHERE requirement_id = ?", (req,)).fetchone()[0] == 1
+    assert _audit("re_chunk") == [], "nothing is orphaned, so nothing is refused or recorded"
 
 
 # ================================================ 4. document delete cascade
