@@ -723,7 +723,7 @@ class HealthWorker(BaseModel):
 class Health(BaseModel):
     ok: bool
     embed_model_present: bool
-    answer_model_present: bool = Field(
+    answer_model_configured: bool = Field(
         description="whether an answer model is configured, NOT which one. The "
         "exact name and version is fingerprinting material and lives on the "
         "scoped /api/metrics."

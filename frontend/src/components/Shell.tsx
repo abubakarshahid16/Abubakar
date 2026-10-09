@@ -400,7 +400,7 @@ export function Shell({
               corrected this comment. */}
           {connection.state === "online" && (
             <p className="mt-1.5 text-xs text-slateish-500">
-              {connection.health.answer_model_present
+              {connection.health.answer_model_configured
                 ? "Answer model configured"
                 : "No answer model configured"}
             </p>

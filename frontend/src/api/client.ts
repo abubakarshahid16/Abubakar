@@ -128,7 +128,7 @@ export interface Health {
   ok: boolean;
   embed_model_present: boolean;
   /** whether an answer model is configured, NOT which one */
-  answer_model_present: boolean;
+  answer_model_configured: boolean;
   ingestion: HealthWorker;
 }
 
