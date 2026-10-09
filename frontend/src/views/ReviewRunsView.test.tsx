@@ -384,3 +384,46 @@ describe("audit 2026-09-30: the review screen does not turn a failure into an em
     expect(card).not.toHaveTextContent(/status cancelled/);
   });
 });
+
+describe("#678: the three groups of requirements", () => {
+  const split = {
+    checked: 40, applies_not_checked: 30, does_not_apply: 10, total: 80,
+    applies_not_checked_reasons: [
+      { reason: "the column name matches no field on this submittal", count: 25 },
+      { reason: "no reason recorded", count: 5 }],
+    does_not_apply_reasons: [{ reason: "about steam turbine, this submittal is relief valve", count: 10 }],
+    repeats_ignored: 4, unchecked_share: 30 / 70,
+  };
+
+  it("shows checked, apply-but-not-checked and do-not-apply as three numbers with their reasons", async () => {
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({ requirement_split: split })] } });
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    const panel = await screen.findByTestId("requirement-split");
+    expect(within(panel).getByTestId("split-checked")).toHaveTextContent("40 checked");
+    const notChecked = within(panel).getByTestId("split-not-checked");
+    expect(notChecked).toHaveTextContent("30 apply but were not checked");
+    expect(notChecked).toHaveTextContent("the column name matches no field on this submittal (25)");
+    expect(notChecked).toHaveTextContent("no reason recorded (5)");
+    expect(within(panel).getByTestId("split-not-apply")).toHaveTextContent("10 do not apply");
+    // The share is of the requirements that APPLY (70), never of all 80.
+    expect(panel).toHaveTextContent("30 of 70 (43%) of those that apply were not checked");
+  });
+
+  it("shows no share when no requirement applies, never 0%", async () => {
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({ requirement_split: {
+      ...split, checked: 0, applies_not_checked: 0, does_not_apply: 5, total: 5,
+      applies_not_checked_reasons: [], unchecked_share: null } })] } });
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    const panel = await screen.findByTestId("requirement-split");
+    expect(panel.textContent).not.toMatch(/%/);
+  });
+
+  it("shows nothing for a run with no counts", async () => {
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    await screen.findByRole("heading", { name: "drum.pdf", level: 2 });
+    expect(screen.queryByTestId("requirement-split")).toBeNull();
+  });
+});

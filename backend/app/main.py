@@ -48,6 +48,7 @@ from .api_utils import (
 from . import access
 from . import admin as admin_mod
 from . import playbooks as playbooks_mod
+from . import requirement_split as requirement_split_mod
 from . import model_memory as model_memory_mod
 from . import auth as auth_mod
 from . import errors
@@ -1956,6 +1957,10 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         "page_coverage": outcome.get("page_coverage"),
         "table_values_not_compared": outcome.get("table_values_not_compared") or [],
         "requirements_not_applied": outcome.get("requirements_not_applied") or [],
+        # #678: every requirement in scope in one of three groups; a run stored
+        # before this existed has only its counts, so its reasons say so.
+        "requirement_split": (outcome.get("requirement_split")
+                              or requirement_split_mod.from_counts(outcome.get("unchecked_counts"))),
         "applicability": outcome.get("applicability"),
         # P3: the background job running this review - progress and cancel.
         "job": job,
