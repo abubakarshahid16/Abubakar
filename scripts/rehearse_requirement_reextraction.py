@@ -52,6 +52,7 @@ import json
 import os
 import sqlite3
 import sys
+import threading
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -185,13 +186,49 @@ class LiveRunRefused(SystemExit):
     """A `--live` run that did not pass a guard. Nothing was written."""
 
 
+#: Seconds one process check may take. `open_files()` on Windows can block for
+#: ever (seen 2026-10-09 with the backend stopped, #738): past this the check
+#: counts as "could not check", which refuses.
+PROCESS_CHECK_TIMEOUT = 3.0
+
+
+class _CouldNotCheck(Exception):
+    pass
+
+
+def _within(seconds: float, fn, what: str):
+    """`fn()` in a daemon thread; its result, or `_CouldNotCheck` when it raised
+    or did not return in time (a hung thread is abandoned, never joined)."""
+    box: dict = {}
+
+    def run():
+        try:
+            box["value"] = fn()
+        except BaseException as exc:  # reported, then refused
+            box["error"] = exc
+
+    worker = threading.Thread(target=run, name=f"backend-check {what}", daemon=True)
+    worker.start()
+    worker.join(seconds)
+    if worker.is_alive():
+        raise _CouldNotCheck(f"{what} did not answer within {seconds:g} s")
+    if "error" in box:
+        raise _CouldNotCheck(f"{what} failed ({type(box['error']).__name__})") from box["error"]
+    return box.get("value")
+
+
+def _is_python(name) -> bool:
+    return "python" in str(name or "").lower()
+
+
 def backend_running(db_path: Path) -> str | None:
     """Why the backend counts as running (a reason), or None when it is not.
 
-    Two independent signs: a process other than this one holds the database
-    file open, or something is listening on the API port. A check that cannot
-    be made (no permission to look) is a reason too: "could not confirm" is
-    not "stopped".
+    Two independent signs: something is listening on the API port, or a Python
+    process other than this one holds the database file open (the backend is
+    `python run.py`; other processes are not asked, #738). Every check runs
+    under `PROCESS_CHECK_TIMEOUT`; a check that errs, is denied or does not
+    answer is a reason too: "could not confirm" is never "stopped".
     """
     try:
         import psutil
@@ -202,20 +239,28 @@ def backend_running(db_path: Path) -> str | None:
     target = str(Path(db_path).resolve())
     me = os.getpid()
     try:
-        for proc in psutil.process_iter(["pid"]):
-            if proc.info["pid"] == me:
+        listening = _within(PROCESS_CHECK_TIMEOUT, lambda: [
+            c for c in psutil.net_connections(kind="inet")
+            if c.status == psutil.CONN_LISTEN and c.laddr and c.laddr.port == settings.port],
+            "the API port check")
+        if listening:
+            return f"something is listening on the API port {settings.port}"
+        procs = _within(PROCESS_CHECK_TIMEOUT, lambda: list(psutil.process_iter(["pid", "name"])),
+                        "the process list")
+        for proc in procs:
+            pid = proc.info["pid"]
+            if pid == me or not _is_python(proc.info.get("name")):
                 continue
-            try:
-                if any(str(Path(f.path).resolve()) == target for f in proc.open_files()):
-                    return f"process {proc.info['pid']} has the database file open"
-            except (psutil.AccessDenied, psutil.NoSuchProcess, OSError):
-                continue
-        for conn in psutil.net_connections(kind="inet"):
-            if (conn.status == psutil.CONN_LISTEN and conn.laddr
-                    and conn.laddr.port == settings.port):
-                return f"something is listening on the API port {settings.port}"
-    except (psutil.AccessDenied, OSError) as exc:
-        return f"could not check whether the backend is running ({type(exc).__name__})"
+
+            def holds(proc=proc):
+                try:
+                    return any(str(Path(f.path).resolve()) == target for f in proc.open_files())
+                except psutil.NoSuchProcess:
+                    return False            # it exited: it holds nothing
+            if _within(PROCESS_CHECK_TIMEOUT, holds, f"process {pid}"):
+                return f"process {pid} has the database file open"
+    except _CouldNotCheck as exc:
+        return f"could not check whether the backend is running ({exc})"
     return None
 
 
