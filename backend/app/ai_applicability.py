@@ -138,3 +138,29 @@ def gate(requirements: list[dict], *, classification: dict | None, facts: list[d
                  f"code could not confirm it{said}")
     return {"kept": kept, "items": items, "notes": notes, "asked": asked,
             "not_asked": len(requirements) - asked}
+
+
+def run_in_review(requirements: list[dict], *, classification: dict | None, facts: list[dict],
+                  limit: int | None, provider=None) -> dict:
+    """The tier as a review runs it, under the machine rules (#644, #680, #692):
+    the shared heavy-job lock is TRIED, never waited for - when another heavy
+    job holds it the tier does not run, every requirement stays a check, and
+    the run says so ("not run: ..."). When it runs, the model stays loaded
+    for the batch (`ai_task_batch_keep_alive`) and is unloaded at the end."""
+    from . import heavy_lock, model_transport
+    from .config import settings
+
+    lock = heavy_lock.try_acquire("ai_batch", owner="review ai applicability")
+    if lock is None:
+        return {"kept": list(requirements), "items": [], "notes": {}, "asked": 0,
+                "not_asked": len(requirements),
+                "not_run": heavy_lock.describe(heavy_lock.read())}
+    provider = provider or ai_task_runner.make_provider()
+    try:
+        with model_transport.keep_alive_override(settings.ai_task_batch_keep_alive):
+            out = gate(requirements, classification=classification, facts=facts,
+                       provider=provider, limit=limit)
+        return {**out, "not_run": None, "model": getattr(provider, "requested_model", None)}
+    finally:
+        ai_task_runner._unload(provider)
+        lock.release()

@@ -1928,14 +1928,17 @@ def run_comparison(
     ai_applicability_summary = None
     if settings.ai_applicability_enabled:
         from . import ai_applicability
-        ai = ai_applicability.gate(requirements, classification=stored, facts=facts,
-                                   limit=settings.ai_applicability_max_per_run)
+        # under the machine rules: the shared lock tried (never waited for),
+        # batch keep-alive, the model unloaded at the end (#680, #692)
+        ai = ai_applicability.run_in_review(requirements, classification=stored, facts=facts,
+                                            limit=settings.ai_applicability_max_per_run)
         requirements = ai["kept"]
         extra_not_applied.extend(ai["items"])
         ai_notes = ai["notes"]
         ai_applicability_summary = {"asked": ai["asked"], "not_asked": ai["not_asked"],
                                     "confirmed_does_not_apply": len(ai["items"]),
-                                    "unconfirmed": len(ai["notes"])}
+                                    "unconfirmed": len(ai["notes"]),
+                                    "not_run": ai.get("not_run"), "model": ai.get("model")}
     applicability_summary = scoped["summary"]
     findings: list[dict] = []
     # The run's findings, prepared and gated but NOT yet written: they go in
