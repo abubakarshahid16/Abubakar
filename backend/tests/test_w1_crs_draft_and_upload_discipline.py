@@ -129,13 +129,34 @@ def test_the_crs_draft_route_itself_refuses_a_caller_without_an_identity(monkeyp
     assert _audit_rows() == []
 
 
+def _without_time(body):
+    """The body with every `at` timestamp removed, at any depth."""
+    if isinstance(body, dict):
+        return {k: _without_time(v) for k, v in body.items() if k != "at"}
+    if isinstance(body, list):
+        return [_without_time(v) for v in body]
+    return body
+
+
+def test_the_time_filter_removes_only_the_timestamp():
+    """Guards the filter itself: a difference in code or message must survive it,
+    or the 404 comparison above would pass for two different refusals."""
+    a = {"detail": {"code": "not_found", "message": "x", "at": "t1"}}
+    assert _without_time(a) == _without_time({"detail": {"code": "not_found", "message": "x", "at": "t2"}})
+    assert _without_time(a) != _without_time({"detail": {"code": "forbidden", "message": "x", "at": "t1"}})
+    assert _without_time(a) != _without_time({"detail": {"code": "not_found", "message": "y", "at": "t1"}})
+
+
 def test_crs_draft_on_a_run_the_caller_cannot_read_is_the_same_404_as_a_missing_one(monkeypatch):
     _no_transport(monkeypatch)
     client = TestClient(app)
     hidden = client.post(DRAFT.format("run-1"), headers=_as("outsider"))
     missing = client.post(DRAFT.format("run-none"), headers=_as("outsider"))
     assert hidden.status_code == 404, hidden.text
-    assert hidden.json() == missing.json()
+    # The 404 body carries `at`, the time to the second (errors.safe_error); two
+    # requests either side of a second boundary differ in nothing else (#658).
+    # Everything else - code, message, the detail - must still be identical.
+    assert _without_time(hidden.json()) == _without_time(missing.json())
     assert _audit_rows() == []
 
 
