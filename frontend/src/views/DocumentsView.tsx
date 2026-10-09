@@ -730,8 +730,6 @@ export function DocumentsView({
                                 types={types}
                                 isAdmin={isAdmin}
                                 onConfirmType={confirmType}
-                            kinds={kinds}
-                            onConfirmKind={confirmKind}
                                 kinds={kinds}
                                 onConfirmKind={confirmKind}
                                 selected={isAdmin ? selectedIds.includes(doc.id) : undefined}
@@ -764,6 +762,8 @@ export function DocumentsView({
                             types={types}
                             isAdmin={isAdmin}
                             onConfirmType={confirmType}
+                            kinds={kinds}
+                            onConfirmKind={confirmKind}
                             selected={isAdmin ? selectedIds.includes(doc.id) : undefined}
                             onToggleSelected={isAdmin ? toggleSelected : undefined}
                           />
