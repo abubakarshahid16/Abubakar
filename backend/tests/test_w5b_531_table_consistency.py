@@ -24,6 +24,9 @@ BANDS_OK = [["Class", "From", "To"], ["A", "0", "10"], ["B", "11", "20"], ["C", 
 def test_a_plain_number_keeps_the_precision_it_was_printed_to():
     n = tc.read_number("1,250.50")
     assert (n.value, n.decimals) == (1250.5, 2)
+    comma = tc.read_number("10,5")                 # numparse's reading: a decimal comma
+    assert (comma.value, comma.decimals) == (10.5, 1)
+    assert tc.read_number("1,250").value == 1250.0
     assert tc.read_number("12 mm") is None and tc.read_number("10-20") is None
     assert tc.read_number("") is None and tc.read_number(None) is None
 

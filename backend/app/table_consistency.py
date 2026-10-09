@@ -37,7 +37,9 @@ _BAND_PAIRS = (
 )
 _TOTAL_WORD = re.compile(r"^(?:grand\s+)?(?:total|sum|subtotal)\b", re.IGNORECASE)
 _SUBTOTAL_WORD = re.compile(r"^subtotal\b", re.IGNORECASE)
-_NUMBER = re.compile(r"^[-+]?\d{1,3}(?:,\d{3})+(?:\.\d+)?$|^[-+]?\d+(?:\.\d+)?$")
+#: A cell made only of digits and separators. The VALUE is numparse's (#616: the
+#: project reads numbers one way); this only gates what counts as a plain cell.
+_PLAIN_CELL = re.compile(r"^[-+]?\d[\d.,]*$")
 _RANGE = re.compile(
     r"^\s*(?P<lo>[-+]?\d+(?:\.\d+)?)\s*(?:–|—|to|-)\s*(?P<hi>[-+]?\d+(?:\.\d+)?)"
     r"\s*[A-Za-z%°/]*\s*$")
@@ -60,13 +62,22 @@ class Num:
 
 def read_number(cell: str | None) -> Num | None:
     """A plain number in a cell, or None. "1,250.5" is 1250.5; "12 mm" and
-    "10-20" are not plain numbers (a unit or a range is a different reading)."""
+    "10-20" are not plain numbers (a unit or a range is a different reading).
+    The value is `numparse.parse_value`'s, so a decimal comma and a thousands
+    group are read the way the rest of the system reads them."""
     text = numparse.normalise_text((cell or "").strip())
-    if not text or not _NUMBER.match(text):
+    if not text or not _PLAIN_CELL.match(text):
         return None
-    plain = text.replace(",", "")
-    decimals = len(plain.split(".")[1]) if "." in plain else 0
-    return Num(float(plain), decimals, (cell or "").strip())
+    value = numparse.parse_value(text)
+    if value is None:
+        return None
+    if "." in text:
+        decimals = len(text.rsplit(".", 1)[1].replace(",", ""))
+    elif "," in text and value != int(value):       # a decimal comma: "10,5"
+        decimals = len(text.rsplit(",", 1)[1])
+    else:                                            # whole, or a thousands comma: "1,250"
+        decimals = 0
+    return Num(value, decimals, (cell or "").strip())
 
 
 def _fold_header(text: str) -> str:
