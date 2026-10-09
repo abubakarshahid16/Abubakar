@@ -1,12 +1,13 @@
 """#645: AI requirement extraction - the model reads, code checks every field.
 
 A fake model stands in for qwen3.5 (no weights needed). Every test is about
-what CODE does with what the model said: a quote not in the passage, a figure
-not in its quote, a unit read wrongly (11 psi as 11 %), a standard that is not
-the one quoted - each is `could_not_read` with its reason, never kept. Clean
-items are kept once, however many overlapping passages repeat them.
+what CODE does with what the model said. The model LOCATES a requirement (its
+quote); code checks the quote is in the passage, then READS the figures and
+the standards from it. The model's own value, unit and standard fields are
+hints: when they disagree with code, code wins and the item is flagged.
+Items are kept once, however many overlapping passages repeat them.
 
-Invented text only. Mutations M4301-M4310.
+Invented text only. Mutations M4301-M4314.
 """
 from __future__ import annotations
 
@@ -66,15 +67,83 @@ def run(*items, text=PASSAGE):
 
 # ------------------------------------------------- what code keeps
 
-def test_a_clean_item_is_kept():
+def figs(out) -> list[list[tuple]]:
+    return [[(f["value"], f["unit"], f["operator"]) for f in r["figures"]]
+            for r in out["requirements"]]
+
+
+def test_a_clean_item_is_kept_with_the_figure_code_read():
     out = run(item())
-    assert [r["value"] for r in out["requirements"]] == ["10"]
+    assert figs(out) == [[("10", "%", "<=")]]
+    assert out["requirements"][0]["flags"] == []
     assert out["could_not_read"] == []
 
 
 def test_the_same_requirement_read_twice_is_kept_once():
     out = run(item(), item())
     assert len(out["requirements"]) == 1 and out["merged"] == 1
+
+
+# ------------------------------------------------- AI locates, code reads (owner, #645)
+
+MIN_PASSAGE = "7.2 The overlap on sound laminate shall be minimum 50 mm in every repair."
+
+
+def test_a_quote_whose_model_value_is_null_still_gives_its_figure():
+    """THE DIAGNOSED DEFECT: the model found the sentence and left value and
+    unit null, so nothing could be scored. Code reads it from the quote."""
+    out = run(item(quote="The overlap on sound laminate shall be minimum 50 mm",
+                   value=None, unit=None, operator="range"), text=MIN_PASSAGE)
+    assert figs(out) == [[("50", "mm", ">=")]]
+    assert out["requirements"][0]["flags"] == []
+
+
+def test_a_model_value_that_disagrees_loses_to_code_and_is_flagged():
+    out = run(item(quote="The overlap on sound laminate shall be minimum 50 mm",
+                   value="30", unit="mm", operator=">="), text=MIN_PASSAGE)
+    assert figs(out) == [[("50", "mm", ">=")]]
+    assert out["requirements"][0]["flags"] == [air.MODEL_VALUE_DISAGREED]
+
+
+def test_a_bracketed_conversion_is_one_quantity_not_two():
+    passage = "4.1 The inlet pressure shall not exceed 16 psi (110 kPa) at any time."
+    out = run(item(quote="The inlet pressure shall not exceed 16 psi (110 kPa)",
+                   value=None, unit=None), text=passage)
+    assert figs(out) == [[("16", "psi", "<=")]]
+
+
+def test_a_quote_with_two_figures_keeps_both_and_a_range_keeps_both_ends():
+    passage = "3.1 The film shall be 25-30 microns thick and cure for at least 7 days."
+    out = run(item(quote="The film shall be 25-30 microns thick and cure for at least 7 days",
+                   value=None, unit=None), text=passage)
+    assert [(v, u) for v, u, _ in figs(out)[0]] == [("25", "microns"), ("30", "microns"),
+                                                     ("7", "days")]
+
+
+def test_a_quote_with_no_figure_stays_a_figure_less_requirement():
+    out = run(item(quote="Bolting shall comply with ASTM A193 grade B7", value=None, unit=None,
+                   operator="none"))
+    assert figs(out) == [[]]
+
+
+def test_psi_read_as_percent_is_read_as_psi_and_flagged():
+    """#653 in the extraction lane: the row says 10.0 psi, the model says 10 %.
+    Code reads psi from the quote; the model's percent is flagged."""
+    out = run(item(quote="Allowable accumulation, psi (kPa) 10.0 (69)", value="10.0", unit="%"))
+    assert figs(out) == [[("10", "psi", None)]]
+    assert out["requirements"][0]["flags"] == [air.MODEL_VALUE_DISAGREED]
+
+
+def test_gauge_read_as_absolute_is_flagged():
+    out = run(item(quote="The test pressure shall be 150 psig", value="150", unit="psia",
+                   operator="="))
+    assert figs(out) == [[("150", "psig", None)]]
+    assert out["requirements"][0]["flags"] == [air.MODEL_VALUE_DISAGREED]
+
+
+def test_a_correctly_converted_model_value_agrees():
+    out = run(item(quote="Allowable accumulation, psi (kPa) 10.0 (69)", value="69", unit="kPa"))
+    assert out["requirements"][0]["flags"] == []
 
 
 # ------------------------------------------------- what code refuses
@@ -85,39 +154,31 @@ def test_a_quote_not_in_the_passage_is_not_kept():
     assert out["could_not_read"] == [{"passage": 0, "reason": air.QUOTE_NOT_IN_SOURCE}]
 
 
-def test_a_figure_not_in_its_quote_is_not_kept():
-    out = run(item(value="12"))
-    assert out["could_not_read"][0]["reason"] == air.FIGURE_NOT_IN_QUOTE
+# ------------------------------------------------- standards: code reads, the model hints
+
+BOLTING = "Bolting shall comply with ASTM A193 grade B7"
 
 
-def test_psi_read_as_percent_is_not_kept():
-    """#653 in the extraction lane: the row says 10.0 psi, the model says 10 %."""
-    out = run(item(quote="Allowable accumulation, psi (kPa) 10.0 (69)", value="10.0", unit="%"))
-    assert out["requirements"] == []
-    assert out["could_not_read"][0]["reason"] == air.UNIT_NOT_IN_QUOTE
+def test_the_standard_is_read_from_the_quote():
+    out = run(item(quote=BOLTING, value=None, unit=None, operator="none", standard="ASTM A193"))
+    assert out["requirements"][0]["standards"] == ["ASTM A193"]
+    assert out["requirements"][0]["flags"] == []
 
 
-def test_gauge_read_as_absolute_is_not_kept():
-    out = run(item(quote="The test pressure shall be 150 psig", value="150", unit="psia",
-                   operator="="))
-    assert out["could_not_read"][0]["reason"] == air.UNIT_NOT_IN_QUOTE
+def test_a_word_for_nothing_in_the_standard_field_is_no_hint():
+    """THE DIAGNOSED DEFECT: the string "None" in the standard field rejected
+    real requirements (a whole FCAW clause was lost in the pilot)."""
+    for nothing in ("None", "null", "N/A", ""):
+        out = run(item(standard=nothing))
+        assert len(out["requirements"]) == 1, nothing
+        assert out["requirements"][0]["flags"] == []
 
 
-def test_a_correctly_converted_figure_is_kept():
-    out = run(item(quote="Allowable accumulation, psi (kPa) 10.0 (69)", value="69", unit="kPa"))
-    assert len(out["requirements"]) == 1
-
-
-def test_a_named_standard_must_be_the_one_quoted():
-    good = run(item(quote="Bolting shall comply with ASTM A193 grade B7", value=None, unit=None,
-                    operator="none", standard="ASTM A193"))
-    assert len(good["requirements"]) == 1
-    wrong = run(item(quote="Bolting shall comply with ASTM A193 grade B7", value=None, unit=None,
-                     operator="none", standard="ASTM A194"))
-    assert wrong["could_not_read"][0]["reason"] == air.STANDARD_NOT_IN_QUOTE
-    unread = run(item(quote="Bolting shall comply with ASTM A193 grade B7", value=None, unit=None,
-                      operator="none", standard="the bolting rules"))
-    assert unread["could_not_read"][0]["reason"] == air.STANDARD_NOT_READ
+def test_a_standard_the_quote_does_not_cite_is_flagged_not_dropped():
+    for named in ("ASTM A194", "a standard drawing"):
+        out = run(item(quote=BOLTING, value=None, unit=None, operator="none", standard=named))
+        assert len(out["requirements"]) == 1, named
+        assert out["requirements"][0]["flags"] == [air.MODEL_STANDARD_DISAGREED], named
 
 
 def test_a_reply_the_runner_cannot_read_is_listed_not_guessed():
@@ -169,11 +230,16 @@ def test_the_pilot_refuses_a_live_database_path(tmp_path):
 def test_the_pilot_scores_value_and_unit_not_the_number_alone():
     pilot = _pilot()
     truth = [{"value": "4", "unit": "psi"}, {"value": "116", "unit": "%"}]
-    found = [{"value": "28", "unit": "kPa"},          # 4 psi, converted: true
-             {"value": "4", "unit": "%"},             # number right, unit wrong: not true
-             {"value": "116", "unit": "%"}]
-    s = pilot.score(found, truth)
+    def found(*pairs):   # items as extract() returns them: the figures CODE read
+        return [{"figures": [{"value": v, "unit": u}]} for v, u in pairs]
+
+    s = pilot.score(found(("28", "kPa"),     # 4 psi, converted: true
+                          ("4", "%"),        # number right, unit wrong: not true
+                          ("116", "%")), truth)
     assert s == {"true": 2, "found": 3, "true_found": 2, "found_correct": 2}
     # the wrong unit alone does not find the psi item
-    s = pilot.score([{"value": "4", "unit": "%"}, {"value": "116", "unit": "%"}], truth)
+    s = pilot.score(found(("4", "%"), ("116", "%")), truth)
     assert s == {"true": 2, "found": 2, "true_found": 1, "found_correct": 1}
+    # the model's own value fields are never scored, only code's figures
+    s = pilot.score([{"value": "4", "unit": "psi", "figures": []}], truth)
+    assert s["found"] == 0

@@ -1,5 +1,10 @@
 """#645 pilot: AI requirement extraction, scored against hand labels.
 
+A BASELINE PER MODEL, NOT A MODEL DECISION (owner, #683): the small models on
+the 16 GB PC are development models; the final model is chosen by running
+this same pilot, unchanged, on the Mac Studio. Nothing here is tuned to a
+model; the model is the only thing that changes (--model).
+
 Runs `app.ai_requirements.extract` on the hand-labelled sections of a few
 standards, for one or more models, and reports per standard and model:
 recall (true items found / true items), precision (found items that are true
@@ -52,7 +57,7 @@ def refuse_live(path: Path) -> Path:
 
 
 def figures(value: str | None, value_to: str | None, unit: str | None) -> list[dict]:
-    """The figures an item states, as `answer._figure_occurrences` reads them."""
+    """A labelled true item's figure(s), as `answer._figure_occurrences` reads them."""
     from app import answer
 
     out = []
@@ -61,6 +66,26 @@ def figures(value: str | None, value_to: str | None, unit: str | None) -> list[d
             found = answer._figure_occurrences(f"{v} {unit or ''}".strip())
             out.extend(found[:1])
     return out
+
+
+def item_figures(item: dict) -> list[dict]:
+    """The figures CODE read for a found item (`ai_requirements.read_figures`),
+    never the model's own value fields - AI locates, code reads."""
+    return [f for fig in item.get("figures") or []
+            for f in figures(fig.get("value"), None, fig.get("unit"))]
+
+
+def table_items(conn, chunk_ids: list[str]) -> list[dict]:
+    """TABLE rows come from the existing table extraction (#594/#595), not the
+    AI pass: one item per active table cell stored for these chunks."""
+    marks = ",".join("?" * len(chunk_ids))
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(standard_requirements)")}
+    active = " AND superseded_at IS NULL" if "superseded_at" in cols else ""
+    rows = conn.execute(
+        f"SELECT raw_value, COALESCE(raw_unit, unit) FROM standard_requirements"
+        f" WHERE requirement_type = 'table_value' AND chunk_id IN ({marks}){active}",
+        chunk_ids).fetchall()
+    return [{"figures": [{"value": r[0], "unit": r[1]}]} for r in rows if r[0]]
 
 
 def matches(a: dict, b: dict) -> bool:
@@ -77,8 +102,7 @@ def score(found_items: list[dict], truth: list[dict]) -> dict:
     """Recall over true items, precision over found figures; one found figure
     matches at most one true item."""
     true_figs = [figures(t["value"], None, t["unit"])[0] for t in truth]
-    found_figs = [f for item in found_items
-                  for f in figures(item.get("value"), item.get("value_to"), item.get("unit"))]
+    found_figs = [f for item in found_items for f in item_figures(item)]
     used: set[int] = set()
     correct = 0
     for f in found_figs:
@@ -134,7 +158,8 @@ def run(db: Path, labels: dict, models: list[str]) -> dict:
         peak_model_gb = None
         with model_transport.keep_alive_override(settings.ai_task_batch_keep_alive):
             for std in labels["standards"]:
-                row = {"kind": std["kind"], "document_id": std["document_id"], "sections": [],
+                row = {"model": model, "kind": std["kind"], "document_id": std["document_id"],
+                       "sections": [],
                        "true": 0, "found": 0, "true_found": 0, "found_correct": 0,
                        "could_not_read": 0, "seconds": 0.0}
                 for section in std["sections"]:
@@ -144,13 +169,18 @@ def run(db: Path, labels: dict, models: list[str]) -> dict:
                         f"SELECT text FROM chunks WHERE id IN ({marks}) ORDER BY ordinal",
                         section["chunk_ids"]))
                     started = time.time()
-                    result = ai_requirements.extract(text, provider=provider, use_cache=False)
+                    if section.get("type") == "table":
+                        result = {"requirements": table_items(conn, section["chunk_ids"]),
+                                  "could_not_read": [], "passages": 0}
+                    else:
+                        result = ai_requirements.extract(text, provider=provider, use_cache=False)
                     seconds = round(time.time() - started, 1)
                     s = score(result["requirements"], section["true"])
                     reasons: dict[str, int] = {}
                     for u in result["could_not_read"]:
                         reasons[u["reason"]] = reasons.get(u["reason"], 0) + 1
-                    row["sections"].append({"label": section["label"], **s, "seconds": seconds,
+                    row["sections"].append({"label": section["label"],
+                                            "type": section.get("type", "prose"), **s, "seconds": seconds,
                                             "passages": result["passages"],
                                             "could_not_read": reasons})
                     for k in ("true", "found", "true_found", "found_correct"):
@@ -169,12 +199,22 @@ def run(db: Path, labels: dict, models: list[str]) -> dict:
         ai_task_runner._unload(provider)
         totals = {k: sum(r[k] for r in per_standard)
                   for k in ("true", "found", "true_found", "found_correct", "could_not_read")}
+        # PROSE (the AI pass) and TABLE rows (the existing table extraction)
+        # are reported apart: they are different readers.
+        for kind in ("prose", "table"):
+            secs = [x for r in per_standard for x in r["sections"] if x["type"] == kind]
+            t = {k: sum(x[k] for x in secs) for k in ("true", "found", "true_found", "found_correct")}
+            t["recall"] = round(t["true_found"] / t["true"], 3) if t["true"] else None
+            t["precision"] = round(t["found_correct"] / t["found"], 3) if t["found"] else None
+            totals[kind] = t
         sections = sum(len(r["sections"]) for r in per_standard)
         totals["recall"] = round(totals["true_found"] / totals["true"], 3) if totals["true"] else None
         totals["precision"] = (round(totals["found_correct"] / totals["found"], 3)
                                if totals["found"] else None)
         totals["seconds_per_section"] = round(sum(r["seconds"] for r in per_standard) / sections, 1)
-        report["models"][model] = {"per_standard": per_standard, "totals": totals,
+        # #683: the model is a setting and every result names it, so the same
+        # pilot runs unchanged on another machine and results never mix.
+        report["models"][model] = {"model": model, "per_standard": per_standard, "totals": totals,
                                    "model_memory_gb": peak_model_gb,
                                    "free_ram_gb_before": round(free_before / 1e9, 2)}
     db_mod.reset_connection()
