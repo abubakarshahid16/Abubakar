@@ -223,6 +223,49 @@ def test_invented_number_in_the_action_is_rejected():
     assert gate["reason"] == Reason.NUMBER_NOT_IN_INPUTS.value
 
 
+def test_a_standard_the_model_was_never_given_is_rejected():
+    """#648: "per API 610" written from the model's memory is a claim the
+    engineer cannot defend, the same as an invented number."""
+    comment = GOOD_NC + " This is also contrary to API 610."
+    gate = accept({"comment": comment, "action": None}, NC, row_for(NC))
+    assert gate["accepted"] is False
+    assert gate["reason"] == Reason.STANDARD_NOT_IN_INPUTS.value
+
+
+def test_a_standard_in_the_action_is_checked_too():
+    action = "Contractor shall revise the design in accordance with ASME B31.3."
+    gate = accept({"comment": GOOD_NC, "action": action}, NC, row_for(NC))
+    assert gate["reason"] == Reason.STANDARD_NOT_IN_INPUTS.value
+
+
+def test_a_standard_that_the_requirement_itself_cites_may_be_named():
+    finding = {**NC, "requirement_source_text":
+               "The chloride content shall not exceed 5 g/L as measured to ASTM D512."}
+    comment = GOOD_NC + " The measurement basis is ASTM D512."
+    gate = accept({"comment": comment, "action": None}, finding, row_for(finding))
+    assert gate["accepted"] is True, gate
+
+
+def test_the_same_standard_in_another_spelling_is_the_same_standard():
+    finding = {**NC, "requirement_source_text":
+               "The chloride content shall not exceed 5 g/L, API 610."}
+    comment = GOOD_NC + " See API-610."
+    gate = accept({"comment": comment, "action": None}, finding, row_for(finding))
+    assert gate["accepted"] is True, gate
+
+
+def test_another_standard_of_the_same_family_is_not_the_one_that_was_given():
+    finding = {**NC, "requirement_source_text":
+               "The chloride content shall not exceed 5 g/L, API 650."}
+    comment = GOOD_NC + " See API 610."
+    gate = accept({"comment": comment, "action": None}, finding, row_for(finding))
+    assert gate["reason"] == Reason.STANDARD_NOT_IN_INPUTS.value
+
+
+def test_the_prompt_tells_the_model_to_name_no_other_standard():
+    assert "Name NO standard that is not in the inputs" in build_prompt(NC, row_for(NC))
+
+
 def test_number_that_is_in_the_inputs_is_accepted():
     # 8 (submitted), 5 (required), 4 (the datasheet page - page_section is
     # now the DATASHEET's page, never the standard's own page 14 - CRS quick
@@ -284,8 +327,8 @@ def test_reason_values_are_the_stored_strings():
     assert Reason.NUMBER_NOT_IN_INPUTS.value == "number_not_in_inputs"
     assert {r.value for r in Reason} == {
         "model_malformed", "comment_missing", "clause_not_cited",
-        "standard_not_cited", "number_not_in_inputs", "too_long",
-        "status_contradicted", "model_unstable"}
+        "standard_not_cited", "standard_not_in_inputs", "number_not_in_inputs",
+        "too_long", "status_contradicted", "model_unstable"}   # #648 added one
 
 
 # --------------------------------------------------------------- two runs
