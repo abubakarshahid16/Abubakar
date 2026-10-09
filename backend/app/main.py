@@ -48,6 +48,7 @@ from .api_utils import (
 from . import access
 from . import admin as admin_mod
 from . import requirement_split as requirement_split_mod
+from . import model_memory as model_memory_mod
 from . import auth as auth_mod
 from . import errors
 from . import analysis as analysis_mod
@@ -3872,6 +3873,18 @@ def document_excluded(
 # `current_admin` rather than `current_scope`: the question is not which
 # documents this request may see, it is whether this request may be here at
 # all.
+
+
+@app.post("/api/admin/models/unload", response_model=schemas.AdminModelsFreed,
+          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def admin_free_model_memory(request: Request,
+                            actor: dict | None = Depends(admin_mod.current_admin)):
+    """Give back the memory the local models hold (#666): ask Ollama to unload
+    every resident model (keep_alive 0). A non-admin gets the same 404 as every
+    other route here. Nothing is sent but model names; the next question pays a
+    cold load, which the button's label says."""
+    reject_unknown_params(request, set())
+    return model_memory_mod.free_all()
 
 
 @app.get("/api/admin/users", response_model=schemas.AdminUserList,

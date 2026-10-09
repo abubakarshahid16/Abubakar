@@ -3612,6 +3612,15 @@ class AdminGrantList(BaseModel):
     documents: list[AdminGrantDocument]
 
 
+class AdminModelsFreed(BaseModel):
+    """What "Free model memory" did (#666). `still_loaded` is read back from
+    Ollama afterwards, so it is what Ollama reports, not what was asked."""
+
+    reachable: bool = Field(description="false: Ollama could not be read, nothing was asked")
+    freed: list[str] = []
+    still_loaded: list[str] = []
+
+
 class AdminGrantResult(BaseModel):
     """`granted` states the RESULTING state, not what this call changed.
 
