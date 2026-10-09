@@ -964,6 +964,15 @@ class DocumentClassification(BaseModel):
     document_id: str
     doc_type: str | None
     discipline: str | None
+    document_kind: str | None = Field(
+        None, description="W5b-02: datasheet | procedure | study | report | feed | letter, "
+        "from the document-type router. NULL is an answer: with state needs_engineer the "
+        "router could not decide and an engineer is asked; otherwise it has not run.")
+    document_kind_state: str | None = Field(
+        None, description="suggested (a guess, until a person confirms) | needs_engineer | "
+        "confirmed | null (not routed yet)")
+    document_kind_evidence: dict | None = Field(
+        None, description="the scores and the cue ids that fired; never document text")
     doc_class: str | None = Field(
         None, description="P&ID, DATASHEET, SLD... A CHIP ONLY. Measured: 88% "
                           "derivable and nobody searches by it, so it is "
@@ -1006,6 +1015,23 @@ class DocumentClassification(BaseModel):
         None, description="the document id that replaced this one, or null. "
                           "Not a foreign key: deleting the superseding "
                           "document must not erase the fact of supersession")
+
+
+class DocumentKindUpdate(BaseModel):
+    """An administrator confirms (or changes) what sort of document this is."""
+
+    kind: str
+
+
+class DocumentKindVocabulary(BaseModel):
+    kinds: list[dict]
+    counts: dict
+
+
+class DocumentKindRouted(BaseModel):
+    routed: int
+    suggested: int
+    needs_engineer: int
 
 
 class ClassificationUpdate(BaseModel):
