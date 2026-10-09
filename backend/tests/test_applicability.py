@@ -194,7 +194,10 @@ def test_a_weaker_rule_never_overrides_a_citation():
 
 # ================================================ the other selection rules
 
-def test_equipment_discipline_and_service_each_select_with_their_own_method():
+def test_equipment_and_service_select_and_a_shared_discipline_does_not():
+    """#212: a standard's discipline is its owning committee and a
+    submittal's is a category; the two vocabularies never met on the real
+    library (0 of 11,786 stored rows), so discipline is no selection rule."""
     equip = _doc("std_eq", "pumps.pdf", "COMPANY_STANDARD", equipment_type="pump")
     disc = _doc("std_di", "mech.pdf", "COMPANY_STANDARD", discipline="Mechanical")
     serv = _doc("std_sv", "sour.pdf", "COMPANY_STANDARD", service="sour")
@@ -204,8 +207,9 @@ def test_equipment_discipline_and_service_each_select_with_their_own_method():
         sub, allowed_document_ids=_scope(equip, disc, serv, sub), persist=False)
     by_id = {s["standard_document_id"]: s["method"] for s in result["selected"]}
     assert by_id[equip] == applicability.METHOD_EQUIPMENT
-    assert by_id[disc] == applicability.METHOD_DISCIPLINE
+    assert disc not in by_id
     assert by_id[serv] == applicability.METHOD_SERVICE
+    assert applicability.METHOD_DISCIPLINE not in by_id.values()
 
 
 def test_a_null_attribute_on_either_side_is_not_a_match():
@@ -396,8 +400,8 @@ def test_a_caller_that_forgets_the_filter_raises_typeerror(call):
 
 def test_the_selection_is_written_to_the_phase_1_relation():
     """`review_applicable_standards`, filled at last - not a second table."""
-    std = _doc("std", "s.pdf", "COMPANY_STANDARD", discipline="Mechanical")
-    sub = _doc("sub", "d.pdf", "CONTRACTOR_SUBMITTAL", discipline="Mechanical")
+    std = _doc("std", "s.pdf", "COMPANY_STANDARD", equipment_type="pump")
+    sub = _doc("sub", "d.pdf", "CONTRACTOR_SUBMITTAL", equipment_type="pump")
     run = _run(sub)
     applicability.select(sub, allowed_document_ids=_scope(std, sub),
                          review_run_id=run)
@@ -406,9 +410,9 @@ def test_the_selection_is_written_to_the_phase_1_relation():
         (run,)).fetchall()
     assert rows, "the phase 1 relation is still empty"
     row = next(r for r in rows if r["standard_document_id"] == std)
-    assert row["selection_method"] == applicability.METHOD_DISCIPLINE
+    assert row["selection_method"] == applicability.METHOD_EQUIPMENT
     assert row["selection_reason"]
-    assert row["confidence"] <= 0.5
+    assert row["confidence"] <= 0.7
     # And no second table appeared.
     tables = {r[0] for r in db.connect().execute(
         "SELECT name FROM sqlite_master WHERE type='table'")}
