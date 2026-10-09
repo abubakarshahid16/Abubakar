@@ -55,7 +55,7 @@ carries the client's name; only the owner can rename it.
    when its feature is deleted — prove it by mutation. Vacuous tests are this
    project's documented recurring defect (`docs/status-honesty-audit.md`).
 7. **When something this project stated turns out false, record the retraction**
-   in `docs/status-honesty-audit.md`. It is at 150 entries. Several findings in
+   in `docs/status-honesty-audit.md`. It is at 148 entries. Several findings in
    `docs/code-review/` belong there.
 8. **Fix a claim in every home it lives in.** A third of the review findings are
    "fixed in one of two places" (a flag read in one file, a literal left in
@@ -137,7 +137,7 @@ Never write a second waiter.
 | Full state, decisions, what's next | `docs/HANDOVER.md` |
 | Architecture as the code actually is | `docs/architecture-call-graph.md` (current); `docs/architecture.md` (older, stale line refs) |
 | The 134 review findings, prioritised | `docs/code-review/README.md` |
-| Recorded false claims (150) | `docs/status-honesty-audit.md` |
+| Recorded false claims (148) | `docs/status-honesty-audit.md` |
 | The review score (recall, precision, false compliant, citations; answer-key format) | `eval/review/README.md`, `scripts/review_score.py` |
 | Review playbooks (HAZOP, SIL procedures; data files, clause-cited, standard not held is never met) | `docs/playbooks.md` |
 | The scored model tier of P1 (figures, clause, could-not-read; PC only) | `eval/p1ai/README.md` |
