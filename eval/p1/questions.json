@@ -1,7 +1,7 @@
 {
- "version": 3,
- "corpus": "P1 invented corpus (eval/p1/corpus.py), 13 documents",
- "author": "Claude, invented, no client text: P1-01 to P1-30 by Cowork (version 1), P1-31 to P1-60 by Claude Code (version 2, 2026-10-08). An engineer extends this set to 100+ before it is called independent. P1-61 to P1-64 by Claude Code (version 3, 2026-10-09, #602 and #610).",
+ "version": 4,
+ "corpus": "P1 invented corpus (eval/p1/corpus.py), 14 documents",
+ "author": "Claude, invented, no client text: P1-01 to P1-30 by Cowork (version 1), P1-31 to P1-60 by Claude Code (version 2, 2026-10-08). An engineer extends this set to 100+ before it is called independent. P1-61 to P1-64 by Claude Code (version 3, 2026-10-09, #602 and #610). P1-65 and P1-66 by Claude Code (version 4, 2026-10-09, identifier prefixes).",
  "questions": [
   {
    "id": "P1-01",
@@ -885,6 +885,34 @@
    "expected_clause": "4.1",
    "expected_answer_contains": [
     "grade B7"
+   ]
+  },
+  {
+   "id": "P1-65",
+   "category": "identifier_prefix",
+   "question": "What is the maximum carbon content for alloy UNS N06625?",
+   "answerable": true,
+   "expected_document": "STD-N-013.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": null,
+   "expected_answer_contains": [
+    "N06625  0.08"
+   ]
+  },
+  {
+   "id": "P1-66",
+   "category": "identifier_prefix",
+   "question": "According to STD-N-013, what is the maximum carbon content for alloy UNS N06625?",
+   "answerable": true,
+   "expected_document": "STD-N-013.pdf",
+   "expected_pages": [
+    2
+   ],
+   "expected_clause": null,
+   "expected_answer_contains": [
+    "N06625  0.08"
    ]
   }
  ]

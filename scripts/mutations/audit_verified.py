@@ -110,7 +110,8 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "is dropped, and the notice still says it was kept",
         path=APP / "chat_claude_first.py",
         anchor="        text, verification, claims, removed = answer_mod.verify_claims(\n"
-               "            text, sources, narration_from_line=first_last_line, dropped=dropped_points)\n"
+               "            text, sources, narration_from_line=first_last_line, dropped=dropped_points,\n"
+               "            question=question)\n"
                "        text, _labels = _relabel_image_only_citations(text, sources)\n"
                "        # The notice counts the POINTS that were kept unverified, not the\n"
                "        # labels written - so it can never announce a point that was removed.\n"
