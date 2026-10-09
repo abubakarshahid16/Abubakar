@@ -101,6 +101,19 @@ _CONSONANT_RUN = re.compile(r"[b-df-hj-np-tv-xzB-DF-HJ-NP-TV-XZ]{5,}")
 #: line has too few words for a ratio to mean anything, and "10 % or less
 #: overpressure" must never be flagged.
 _MIN_WORDS_FOR_RATIO = 6
+#: #618: below this share of words a real dictionary knows, the text is not
+#: read as English. Judged on words that COUNT: acronyms, and capitalised
+#: words the dictionary does not know (trade names - "Inconel", "Hastelloy"),
+#: are neutral, never evidence of garbling.
+_MIN_KNOWN_SHARE = 0.6
+
+
+def _known(word: str) -> bool:
+    """Is this lower-case word English? The committed SCOWL list (with British
+    spellings) that `market_phrase` already uses - one home for the question -
+    plus the short engineering list above."""
+    from .market_phrase import vouched_for
+    return word in _COMMON or vouched_for(word)
 
 
 def _non_latin_letter_share(text: str) -> float:
@@ -123,11 +136,14 @@ def text_quality(text: str | None) -> str | None:
       * most letters outside the Latin alphabet in an English standard;
       * mostly punctuation and symbols;
       * enough words to judge, and the words read as reversed or as noise:
-        more of the words are English when spelled backwards than forwards, or
-        too few look like words at all (no vowel, or a run of five consonants).
+        more of the words are English when spelled backwards than forwards,
+        fewer than half are in a real dictionary (#618: the committed SCOWL
+        list, not a short built-in one), or too few look like words at all
+        (no vowel, or a run of five consonants).
 
-    Acronyms ("PSV", "NPS", "SAES") are neutral: they are ignored, not counted
-    against the text. None means "no evidence of a problem", not "verified".
+    Acronyms ("PSV", "NPS", "SAES") and capitalised names the dictionary does
+    not know ("Inconel") are neutral: they are ignored, not counted against
+    the text. None means "no evidence of a problem", not "verified".
     """
     if not text or not text.strip():
         return None
@@ -143,12 +159,18 @@ def text_quality(text: str | None) -> str | None:
             return TEXT_QUALITY
 
     words = [w for w in _WORD.findall(text) if not _ACRONYM.fullmatch(w)]
+    # A capitalised word the dictionary does not know is a name, not noise -
+    # except the text's first word, which is capitalised whatever it is.
+    words = [w for i, w in enumerate(words)
+             if i == 0 or not (w[:1].isupper() and not _known(w.lower()))]
     if len(words) < _MIN_WORDS_FOR_RATIO:
         return None
     lowered = [w.lower() for w in words]
-    forward = sum(1 for w in lowered if w in _COMMON)
-    backward = sum(1 for w in lowered if len(w) >= 3 and w[::-1] in _COMMON)
+    forward = sum(1 for w in lowered if _known(w))
+    backward = sum(1 for w in lowered if len(w) >= 3 and not _known(w) and _known(w[::-1]))
     if backward >= 3 and backward > forward:
+        return TEXT_QUALITY
+    if forward / len(words) < _MIN_KNOWN_SHARE:
         return TEXT_QUALITY
     wordlike = sum(1 for w in words
                    if _VOWEL.search(w) and not _CONSONANT_RUN.search(w))
