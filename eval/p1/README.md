@@ -1,16 +1,17 @@
 # P1: the labelled question set
 
 A fixed list of questions with known right answers, run through the real chat
-on every change. A change is blocked when fewer than 41 of the 64 questions
-pass (raised from 37 of 60 on 2026-10-09, when version 3 entered the
-baseline), or when any of the 23 original passes stops passing (see "The gate").
+on every change. A change is blocked when fewer than 43 of the 66 questions
+pass (37 of 60 at first; 41 of 64 with version 3; 43 of 66 with version 4,
+all on 2026-10-09 or before), or when any of the 25 protected questions stops
+passing (see "The gate").
 
 ## What is in this folder
 
 | file | what it is |
 |---|---|
-| `corpus.py` | thirteen invented standards (STD-A-001 to STD-M-012, one of them an old revision) and the code that writes them as PDFs |
-| `questions.json` | 60 invented-name questions, version 2. P1-01 to P1-30: direct, reworded, abbreviation, document named in the question, table, condition, old revision, and six that the corpus cannot answer. P1-31 to P1-60: ten hard paraphrases, five distractors, five more unanswerable, five multi-document, five number/unit/sign. P1-61 to P1-64 (version 3): a describing word no document prints, and a standard whose first page is front matter |
+| `corpus.py` | fourteen invented standards (STD-A-001 to STD-N-013, one of them an old revision) and the code that writes them as PDFs |
+| `questions.json` | 60 invented-name questions, version 2. P1-01 to P1-30: direct, reworded, abbreviation, document named in the question, table, condition, old revision, and six that the corpus cannot answer. P1-31 to P1-60: ten hard paraphrases, five distractors, five more unanswerable, five multi-document, five number/unit/sign. P1-61 to P1-64 (version 3): a describing word no document prints, and a standard whose first page is front matter. P1-65 and P1-66 (version 4): an identifier asked with a prefix ("UNS N06625") that a table prints bare |
 | `baseline.json` | which questions pass today, and the `gate` the run is held to |
 | `harness.py`, `run_p1.py` | build the corpus in a throwaway database, ask every question, score, compare |
 | `../../backend/tests/test_p1_question_set.py` | the gate. GitHub CI runs it with the rest of the suite |
@@ -48,27 +49,27 @@ After a real improvement, raise the bar and commit the new `baseline.json`:
 
 ## The gate
 
-Owner decision, 2026-10-08; the bar raised to 41 of 64 on 2026-10-09. A change
+Owner decision, 2026-10-08; the bar raised to 41 of 64 and then 43 of 66 on 2026-10-09. A change
 is blocked when ANY of these is true:
 
 | rule | where it lives |
 |---|---|
-| fewer than **41 of 64** questions pass | `gate.min_passing` in `baseline.json` |
-| any of the **23 original passes** (P1-02 to P1-30 that passed in version 1) fails | `gate.protected` |
-| one of those 23 loses its right clause label | `clause_passing`, limited to `gate.protected` |
+| fewer than **43 of 66** questions pass | `gate.min_passing` in `baseline.json` |
+| any of the **25 protected** questions fails: the 23 original passes (P1-02 to P1-30 that passed in version 1) and P1-65, P1-66 (they guard the UNS identifier fix) | `gate.protected` |
+| one of those 25 loses its right clause label (P1-65 and P1-66 carry none) | `clause_passing`, limited to `gate.protected` |
 | an unanswerable question that was refused is now answered | `failing_known` |
 
-Outside the 23, a question may trade places: P1-34 failing is fine if
-another new question starts passing and the total stays at 41 or more.
+Outside the 25, a question may trade places: P1-34 failing is fine if
+another new question starts passing and the total stays at 43 or more.
 
 The last two rows come from the version 1 rule. The owner confirmed
 on 2026-10-08 that both stay: an unanswerable question must never flip
 from refused to answered, and the 23 protected questions keep their
-clause labels. The clause row covers only those 23, so the other
+clause labels. The clause row covers only the protected questions, so the other
 questions can still trade places.
 
 `--write-baseline` keeps the `gate` as it is. Only a person edits it, and
-`test_the_committed_gate_is_41_of_64_with_the_23_original_passes` checks
+`test_the_committed_gate_is_43_of_66_with_25_protected` checks
 that the file still says 37 and 23.
 
 ## What this does not prove
@@ -160,3 +161,16 @@ version 3 corpus; P1-63 passed before the fix too, so it guards the fix
 rather than proving it. On 2026-10-09 the owner raised the bar: the
 baseline now holds P1-61 to P1-64 and `gate.min_passing` is 41 (the 23
 protected questions are unchanged).
+
+## Version 4 (2026-10-09): 66 questions
+
+STD-N-013 (invented) holds a composition table that prints the bare alloy
+code under its UNS column. P1-65 asks for the alloy as "UNS N06625"; P1-66
+asks the same naming the standard. Both were refused before the fix ("UNS
+N06625 does not appear ..."), measured on an equivalent invented document.
+
+Whole set: **43 of 66**, clause label right 29 of 45, unanswerable 6 of 11.
+All earlier passes still pass and no unanswerable question flipped.
+P1-65 and P1-66 passed in 3 of 3 runs. On 2026-10-09 the owner raised the
+bar: the baseline holds them, `gate.min_passing` is 43, and both are
+protected (25 protected questions).

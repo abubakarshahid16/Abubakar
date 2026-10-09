@@ -1,4 +1,4 @@
-"""The P1 invented corpus: thirteen made-up standards, no client text.
+"""The P1 invented corpus: fourteen made-up standards, no client text.
 
 Every name, number and sentence here is invented. The set is small on purpose
 and built to hit the failure classes found in this project: a reworded
@@ -20,6 +20,9 @@ question carrying a describing word no document prints, and a standard whose
 first page is a foreword and revision history. They too avoid a crane, a
 warranty, a colour and a flange (P1-27 depends on that), and the bolting
 standard is about pipe supports, not flanged joints, for that reason.
+
+Version 4 (2026-10-09) added STD-N-013: a composition table that prints the
+bare alloy code under its UNS column, for a question that writes the prefix.
 
 `build(folder)` writes the PDFs deterministically. Page numbers below are the
 ground truth the question set points at; `questions.json` is checked against
@@ -266,6 +269,24 @@ DOCS: dict[str, list[list[str]]] = {
             "4.1 Bolting material for pipe supports shall be alloy steel stud bolts",
             "to grade B7 with grade 2H heavy hex nuts.",
             "4.2 Bolts shall extend at least two threads beyond the nut.",
+        ],
+    ],
+    # Version 4: a materials table that prints the bare code ("N06625")
+    # under its UNS column, asked about with the prefix ("UNS N06625").
+    "STD-N-013.pdf": [
+        [
+            "STD-N-013 Sour Service Alloy Selection, Revision 0",
+            "1 Scope",
+            "1.1 This standard limits the composition of corrosion resistant alloys for sour service.",
+            "2 Composition",
+            "2.1 Nickel alloys shall meet the composition limits in Table 1.",
+        ],
+        [
+            "Table 1 Composition limits of nickel alloys",
+            "UNS  C max  Cr  Ni min",
+            "N06625  0.08  20.0-23.0  58.0",
+            "N08825  0.04  19.5-23.5  38.0",
+            "N10276  0.01  14.5-16.5  51.0",
         ],
     ],
 }

@@ -457,6 +457,10 @@ def assess(
         # an engineer reviews rather than from the corpus. It can only make a
         # term COUNT as present; the reranker's floor still decides.
         forms.extend(expanded.get(term.lower(), ()))
+        # ...and an identifier without its optional prefix: a materials table
+        # prints "N06625" under its UNS column, and "UNS N06625" was refused
+        # as absent from the standard that lists it (keyword.unprefixed_forms).
+        forms.extend(keyword.unprefixed_forms(term))
 
         # ...and the spelling the corpus uses, when the reader's spelling is
         # not in it at all. Issue #85: "sumbittal requirements" refused with

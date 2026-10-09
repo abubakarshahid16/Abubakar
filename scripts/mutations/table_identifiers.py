@@ -1,0 +1,70 @@
+"""Identifiers with or without an optional prefix ("UNS N06625" finds the
+table row "N06625"), and front matter on the Claude lane's count (#610
+follow-up). M3301-M3318 are #634's, so this set starts at M3501."""
+from __future__ import annotations
+
+from ._base import APP, Mutation
+
+_T = "tests/test_table_identifiers.py"
+_K = APP / "keyword.py"
+_A = APP / "answer.py"
+
+MUTATIONS: tuple[Mutation, ...] = (
+    Mutation(id="M3501", phase=3501, description="the bare code is never asked for: UNS N06625 is refused again",
+             path=_K,
+             anchor="    forms.extend(unprefixed_forms(ident))\n",
+             replacement="",
+             target=_T, keyword="prefixed_identifier_finds or keyword_search_asks or bare_code_is_one",
+             tags=("honesty", "critical")),
+    Mutation(id="M3502", phase=3502, description="a prefix is dropped even when a bare number remains",
+             path=_K,
+             anchor="    return [rest] if _UNPREFIXED_CODE.fullmatch(rest) else []\n",
+             replacement="    return [rest]\n",
+             target=_T, keyword="what_an_optional_prefix_drops", tags=("honesty", "critical")),
+    Mutation(id="M3503", phase=3503, description="any word is an optional prefix, not only the listed ones",
+             path=_K,
+             anchor="    if not m or m.group(1).upper() not in optional_prefixes():\n",
+             replacement="    if not m:\n",
+             target=_T, keyword="what_an_optional_prefix_drops or editable_file", tags=("honesty", "critical")),
+    Mutation(id="M3504", phase=3504, description="the gate does not read the bare code on the passage",
+             path=APP / "lexical.py",
+             anchor="        forms.extend(keyword.unprefixed_forms(term))\n",
+             replacement="",
+             target=_T, keyword="prefixed_identifier_finds or gate_counts_the_table_row", tags=("honesty",)),
+    Mutation(id="M3505", phase=3505, description="the ranking boost does not see the bare code",
+             path=APP / "search.py",
+             anchor="            f.lower() for f in keyword.unprefixed_forms(ident))]\n",
+             replacement="            f.lower() for f in [])]\n",
+             target=_T, keyword="bare_code_names", tags=("honesty",)),
+    Mutation(id="M3506", phase=3506, description="a table row naming the bare code does not name the identifier",
+             path=APP / "search.py",
+             anchor="            any(v in lowered for v in wanted[i]) for i in required)\n",
+             replacement="            i in lowered for i in required)\n",
+             target=_T, keyword="bare_code_names", tags=("honesty",)),
+    Mutation(id="M3507", phase=3507, description="a Claude point quoted from front matter is a point found",
+             path=_A,
+             anchor="            if question is not None and all(\n",
+             replacement="            if False and all(\n",
+             target=_T, keyword="point_quoted_from_front_matter or quoting_only_front_matter or counts_front_matter",
+             tags=("honesty", "critical")),
+    Mutation(id="M3508", phase=3508, description="the Claude lane of answer() does not pass the question to the count",
+             path=_A,
+             anchor="verify_claims(text, passages, question=question)\n",
+             replacement="verify_claims(text, passages)\n",
+             target=_T, keyword="generated_answer_counts or quoting_only_front_matter", tags=("honesty",)),
+    Mutation(id="M3509", phase=3509, description="the Claude-first answer does not pass the question to the count",
+             path=APP / "chat_claude_first.py",
+             anchor="dropped=dropped_points,\n            question=question)\n",
+             replacement="dropped=dropped_points)\n",
+             target=_T, keyword="claude_first_answer_counts", tags=("honesty",)),
+    Mutation(id="M3510", phase=3510, description="a front-matter point that is shown is reported as removed",
+             path=_A,
+             anchor="    return clean, verification, claims, total - verified - front\n",
+             replacement="    return clean, verification, claims, total - verified\n",
+             target=_T, keyword="point_quoted_from_front_matter", tags=("honesty",)),
+    Mutation(id="M3511", phase=3511, description="an all-front-matter answer is refused as 'not found on the page'",
+             path=_A,
+             anchor='                           if verification.get("front_matter") == verification["total"]\n',
+             replacement="                           if False\n",
+             target=_T, keyword="quoting_only_front_matter", tags=("honesty",)),
+)

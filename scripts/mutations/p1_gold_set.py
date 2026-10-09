@@ -38,7 +38,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         replacement="    pass",
         target=_T, keyword="cites_only_one_side",
     ),
-    # The gate, owner decision 2026-10-08 (bar raised to 41 of 64 on 2026-10-09), and the 23
+    # The gate, owner decision 2026-10-08 (bar raised to 43 of 66, 25 protected, on 2026-10-09), and the 23
     # version 1 passes protected.
     Mutation(
         id="M2204", phase=2010,
