@@ -126,7 +126,7 @@ describe("StrictMode double-invokes every effect", () => {
 const health = (busy: boolean): Health => ({
   ok: true,
   embed_model_present: true,
-  answer_model_present: true,
+  answer_model_configured: true,
   ingestion: { alive: true, stalled: false, busy },
 });
 

@@ -613,6 +613,7 @@ def known_expansions(
     return sorted(phrases, key=len, reverse=True)
 
 
+# TEST HOOK (#661): called by the tests to start from a clean state; the app does not call it.
 def reset_cache() -> None:
     """For tests. A re-chunk no longer needs it: the signatures change."""
     with _cache_lock:

@@ -346,7 +346,7 @@ never enough.
 **Unauthenticated.** Three routes take neither a scope nor an admin dependency, and each is
 deliberate:
 
-- `GET /api/health` (`main.py:114`) — `ok`, `embed_model_present`, `answer_model_present`, and
+- `GET /api/health` (`main.py:114`) — `ok`, `embed_model_present`, `answer_model_configured`, and
   `ingestion.{alive, stalled, busy}`. Nothing else. `busy` is a boolean where
   `current_document` used to be an id: "A boolean says work is under way; an id would say
   whose."

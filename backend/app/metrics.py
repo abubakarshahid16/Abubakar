@@ -277,6 +277,7 @@ _probe_lock = threading.Lock()
 _probe_cache: dict = {}
 
 
+# TEST HOOK (#661): called by the tests to start from a clean state; the app does not call it.
 def reset_ollama_cache() -> None:
     """Forget the cached probe (tests, and a settings change)."""
     with _probe_lock:

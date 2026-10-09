@@ -59,6 +59,9 @@ def is_comparison_question(question: str) -> bool:
     return bool(_TRIGGER.search(question or ""))
 
 
+# TEST HELPER (#661): production names the sides with `resolve_sides` (by
+# standard identity, #636); the comparison tests use this plain by-designation
+# split to set a case up. Not called by the app.
 def named_sides(
     question: str, documents: dict[str, str]
 ) -> list[tuple[str, frozenset[str]]] | None:
