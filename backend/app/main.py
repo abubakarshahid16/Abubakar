@@ -66,6 +66,7 @@ from . import structured_search as structured_search_mod
 from . import risks as risks_mod
 from . import standards as standards_mod
 from . import standards_inventory as standards_inventory_mod
+from . import table_consistency as table_consistency_mod
 from . import standards_acquisition as standards_acquisition_mod
 from . import submittal_review as submittal_review_mod
 from . import workbook as workbook_mod
@@ -3508,6 +3509,26 @@ def standard_tables(
     reject_unknown_params(request, set())
     require_document(document_id, scope)
     return standards_mod.table_report(
+        document_id, allowed_document_ids=scope.allowed_document_ids)
+
+
+@app.get("/api/documents/{document_id}/table-consistency",
+         response_model=schemas.TableConsistency,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def document_table_consistency(
+    document_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Internal consistency of the document's numeric tables (#531): bands that
+    overlap or leave a gap, a Total that is not the sum, a column that is not
+    its own stated formula. Each finding names the page, chunk, rows and cells.
+    It never says a table is consistent: `checks_run` says what was checked and
+    a table with nothing to check is counted as such. Scope: the caller's
+    grants (404 for a document they may not read)."""
+    reject_unknown_params(request, set())
+    require_document(document_id, scope)
+    return table_consistency_mod.check_document(
         document_id, allowed_document_ids=scope.allowed_document_ids)
 
 

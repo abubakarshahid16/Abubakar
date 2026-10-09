@@ -546,6 +546,30 @@ class MissingStandard(CitedButNotHeld):
     obtain: StandardObtainPointer
 
 
+class TableConsistencyFinding(BaseModel):
+    kind: str = Field(description="band_overlap, band_gap, band_shared_boundary, band_inverted, "
+                                  "total_column_mismatch, total_row_mismatch or formula_mismatch")
+    message: str
+    rows: list[int] = Field(description="data rows, counted from 1 below the header")
+    columns: list[str]
+    cells: list[str] = Field(description="the cells' own text, as printed")
+    page: int | None = None
+    chunk_id: str | None = None
+    status: str = Field(description="always needs_engineer_review: a finding is a question")
+
+
+class TableConsistency(BaseModel):
+    document_id: str
+    state: str = Field(description="'ok', 'nothing_checked' (no table had a band, total or declared "
+                                   "formula) or 'no_tables'. Never 'consistent'.")
+    tables_total: int
+    tables_checked: int
+    tables_unparsed: int
+    tables_with_nothing_to_check: int
+    checks_run: dict[str, int]
+    findings: list[TableConsistencyFinding]
+
+
 class StandardRequestBody(BaseModel):
     identifier: str = Field(min_length=1, max_length=200)
     note: str | None = Field(default=None, max_length=1000)
