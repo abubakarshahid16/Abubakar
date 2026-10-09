@@ -34,7 +34,7 @@ import json
 import re
 from pathlib import Path
 
-from . import blank_markers
+from . import absence, blank_markers
 
 RULES_PATH = Path(__file__).parent / "reference" / "datasheet_checks.json"
 ORIGIN = "datasheet_check"
@@ -43,6 +43,7 @@ LABEL = "Datasheet check"
 COMPLIANT = "COMPLIANT"
 NON_COMPLIANT = "NON_COMPLIANT"
 MISSING_INFORMATION = "MISSING_INFORMATION"
+NEEDS_ENGINEER_REVIEW = "NEEDS_ENGINEER_REVIEW"
 
 _OPS = {">=": lambda a, b: a >= b, ">": lambda a, b: a > b,
         "<=": lambda a, b: a <= b, "<": lambda a, b: a < b}
@@ -110,6 +111,12 @@ def _shown(fact: dict) -> str:
     return str(fact.get("field_value") or fact.get("raw_value") or "").strip()
 
 
+def _sentence(reason: str) -> str:
+    """"Could not be checked: <reason>." as a sentence that starts a finding."""
+    text = absence.could_not_be_checked_sentence(reason)
+    return text[:1].upper() + text[1:]
+
+
 def _result(rule_id: str, status: str, text: str, detail: str, fact: dict | None,
             role: str, tag: str | None) -> dict:
     return {"rule_id": rule_id, "status": status, "text": text, "detail": detail,
@@ -159,6 +166,22 @@ def mandatory_list_key(equipment_type: str | None, rules: dict) -> str:
     if bare:
         return bare[0]
     return same[0] if len(same) == 1 else GENERIC
+
+
+def revision_check_not_run(equipment_type: str | None, page_texts: dict) -> str | None:
+    """Why the revision-block check (DS-R1) did not run, or None when it did.
+
+    #633: it used to be dropped silently, so a sheet with no page text, or no
+    known equipment type, read as having passed a check nobody made. This is
+    not a finding (a review of a sheet with no equipment type would then always
+    carry one more engineer question); the run records it and every export
+    lists it among the parts that could not be checked.
+    """
+    if not page_texts:
+        return "no page text was read for this datasheet"
+    if not equipment_type:
+        return "the equipment type is unknown"
+    return None
 
 
 def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[int, str],
@@ -252,11 +275,29 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
                 # A side this tag does not state is the common section's.
                 left = left or common.get(rule["left"], [])
                 right = right or common.get(rule["right"], [])
+            if not left or not right:
+                continue    # absent: the mandatory-field checks say so
+            # #633: A PAIR THAT CANNOT BE COMPARED IS SAID, NOT SKIPPED. Both
+            # fields are on the sheet; if they cannot be checked against each
+            # other (a name with two different values, a value that is not a
+            # number, two different scales or pressure bases) a design pressure
+            # below the operating pressure would be invisible. It is an
+            # engineer's question, with the reason; never a guess either way.
             if len({_shown(f) for f in left}) != 1 or len({_shown(f) for f in right}) != 1:
-                continue    # absent, or two different values under one name: not chosen
+                out.append(_result(rule["id"], NEEDS_ENGINEER_REVIEW, rule["text"],
+                                   _sentence(
+                                       "a field in this pair has two different values on the "
+                                       "sheet, so none was chosen"),
+                                   left[0], rule["left"], tag))
+                continue
             a, b = _number(left[0]), _number(right[0])
             if a is None or b is None or a[1] != b[1] or a[2] != b[2]:
-                continue    # not on one scale: skipped, never guessed
+                out.append(_result(rule["id"], NEEDS_ENGINEER_REVIEW, rule["text"],
+                                   _sentence(
+                                       "the two values are not numbers on one scale and "
+                                       "pressure basis"),
+                                   left[0], rule["left"], tag))
+                continue
             ok = _OPS[rule["op"]](a[0], b[0])
             calc = (f"{_label(left[0], rule['left'])} {_shown(left[0])} (page {left[0].get('page')}) is "
                     f"{'' if ok else 'not '}{_OP_WORDS[rule['op']]} {_label(right[0], rule['right']).lower()} "
@@ -300,7 +341,7 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
     # a check that held adds no row (it would only pad every count).
     for r in (x for x in results if x["status"] != COMPLIANT):
         status, detail = r["status"], r["detail"]
-        if r["rule_id"] == "DS-M1":
+        if r["rule_id"] in ("DS-M1", "DS-R1") and status == MISSING_INFORMATION:
             # AN ABSENCE IS QUALIFIED LIKE EVERY ABSENCE: not found is not "not
             # stated" while a page is unread or read only by the page reader.
             verdict = comparison.qualify_by_pages(
@@ -315,6 +356,7 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
             "requirement": r["text"][:4000], "finding": f"{LABEL}: {detail}"[:4000],
             "required_action": ("Contractor to correct the datasheet." if status == NON_COMPLIANT
                                 else "Contractor to provide the value." if status == MISSING_INFORMATION
+                                else "Engineer to check." if status == NEEDS_ENGINEER_REVIEW
                                 else "None."),
             "status": "open", "approval_status": "pending",
         }, created_by=None)

@@ -44,6 +44,10 @@ import re
 
 from . import claims, numparse
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 COMPLIANT = "COMPLIANT"
 NON_COMPLIANT = "NON_COMPLIANT"
 NEEDS_ENGINEER_REVIEW = "NEEDS_ENGINEER_REVIEW"
@@ -519,8 +523,11 @@ def _page_texts(requirement: dict) -> list[str]:
             from . import tables
             for shape in tables.parse_page_tables(doc["stored_path"], int(page)):
                 texts.append("\n".join(" | ".join(c or "" for c in row) for row in shape))
-        except Exception:  # noqa: BLE001 - an unreadable page leaves the text sources
-            pass
+        except Exception as exc:  # noqa: BLE001 - an unreadable page leaves the text sources
+            # The caller then reports "the table ... could not be read" when no
+            # rule results; the cause is logged so it is not lost.
+            _log.warning("the ruled table on page %s of %s could not be re-read (%s)",
+                         page, requirement.get("standard_document_id"), type(exc).__name__)
     return texts
 
 

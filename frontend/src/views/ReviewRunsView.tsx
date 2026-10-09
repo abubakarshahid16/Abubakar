@@ -914,6 +914,17 @@ function RunCard({ run, selected, onOpen }: {
           on the run, shown here rather than left for a reviewer to notice
           only from an empty AI Review Comments column. Never shown for a
           run where the check simply never ran. */}
+      {run.web_check_status && !run.web_check_status.complete && (
+        <p className="mt-1 text-xs text-warn-500" data-testid="web-check-incomplete">
+          {run.web_check_status.plain}
+        </p>
+      )}
+      {(run.partial_findings ?? 0) > 0 && (
+        <p className="mt-1 text-xs text-warn-500" data-testid="partial-findings">
+          {run.partial_findings} finding(s) were written before this review stopped. They are
+          partial and no review code was recommended.
+        </p>
+      )}
       {run.ai_check_status && !run.ai_check_status.complete && (
         <p className="mt-1 text-xs text-warn-500" data-testid="ai-check-incomplete">
           {run.ai_check_status.plain}
@@ -1062,6 +1073,12 @@ function CrsPreviewSheet(
           {preview.recommended_code_reason
             ? <span className="text-slateish-400"> — {preview.recommended_code_reason}</span>
             : null}
+        </p>
+      )}
+      {/* #633: a sheet that could not check everything says so, above the code. */}
+      {preview.incomplete_notice && (
+        <p className="text-xs font-semibold text-warn-500" role="note" data-testid="crs-incomplete">
+          {preview.incomplete_notice}
         </p>
       )}
       {/* B10: whether an engineer decided the code, or it is still the AI's. */}

@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any
 
@@ -147,6 +148,31 @@ def runner_options(num_ctx: int | None = None) -> dict[str, object]:
     }
 
 
+_keep_alive_local = threading.local()
+
+
+@contextmanager
+def keep_alive_override(value):
+    """For THIS thread, send `value` as `keep_alive` instead of the setting.
+
+    One user only: the AI task runner (#644) keeps its small model loaded for
+    the length of one batch ("10m") and unloads it at the end (0). Every other
+    call site keeps `settings.ollama_keep_alive`; the override is thread-local,
+    so a chat answer on another thread is never affected by a batch.
+    """
+    previous = getattr(_keep_alive_local, "value", None)
+    _keep_alive_local.value = value
+    try:
+        yield
+    finally:
+        _keep_alive_local.value = previous
+
+
+def _keep_alive():
+    override = getattr(_keep_alive_local, "value", None)
+    return settings.ollama_keep_alive if override is None else override
+
+
 def with_runner_options(body: dict) -> dict:
     """`body` with the shared runner options and `keep_alive`. A new dict.
 
@@ -156,7 +182,7 @@ def with_runner_options(body: dict) -> dict:
     """
     options = dict(body.get("options") or {})
     options.update(runner_options(options.get("num_ctx")))
-    return {**body, "options": options, "keep_alive": settings.ollama_keep_alive}
+    return {**body, "options": options, "keep_alive": _keep_alive()}
 
 
 def _normalised(path: str, body: dict) -> dict:

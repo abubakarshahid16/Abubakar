@@ -12,6 +12,7 @@ from . import admin_explorer as explorer_mod
 from . import chat as chat_mod
 from . import classification as classification_mod
 from . import chunker as chunk_mod
+from . import absence as absence_mod
 from . import ai_engineering_check as ai_engineering_check_mod
 from . import applicability as applicability_mod
 from . import comparison as comparison_mod
@@ -178,8 +179,10 @@ async def lifespan(app: FastAPI):
     # run while one is going.
     try:
         submittal_review_mod.fail_orphaned_review_runs()
-    except Exception:  # noqa: BLE001 - a sweep that fails must not stop boot
-        pass
+    except Exception as exc:  # noqa: BLE001 - a sweep that fails must not stop boot
+        import logging as _logging
+        _logging.getLogger("uvicorn.error").warning("the sweep for review runs left running by a dead process failed (%s); "
+                          "such a run may still look busy", type(exc).__name__)
     # Put back any extraction that was `running` when a previous process died.
     # `next_extraction_job` only ever claims `queued` (or a `retrying` job
     # whose backoff is due, #177), so without this an
@@ -190,8 +193,10 @@ async def lifespan(app: FastAPI):
     try:
         standards_mod.recover_stale_extraction_jobs()
         review_jobs_mod.recover_stale()
-    except Exception:  # noqa: BLE001 - a sweep that fails must not stop boot
-        pass
+    except Exception as exc:  # noqa: BLE001 - a sweep that fails must not stop boot
+        import logging as _logging
+        _logging.getLogger("uvicorn.error").warning("the recovery of stale extraction and review jobs failed (%s); "
+                          "such a job may stay queued", type(exc).__name__)
     # THE DENSE-SEARCH INDEX: say which backend is active (sqlite-vec, or the
     # exact numpy fallback and why), and backfill/sync the vec0 index from
     # chunk_vectors before the first question pays for it. Never raises.
@@ -1924,7 +1929,22 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         # reads directly (`ai_engineering_check._plain_status`).
         "ai_check_status": ai_engineering_check_mod.ai_check_status(
             run["id"], allowed_document_ids=scope.allowed_document_ids),
+        # #633: the web standards check's own outcome, same rule.
+        "web_check_status": _json_column(run.get("web_check_status")),
+        # #633: findings written before a failed run stopped are PARTIAL.
+        "partial_findings": outcome.get("partial_findings") or 0,
     }
+
+
+def _json_column(raw) -> dict | None:
+    """A JSON object stored in a TEXT column, or None (never ran, or malformed)."""
+    if not raw:
+        return None
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if isinstance(value, dict) else None
 
 
 @app.post("/api/reviews/runs/{review_run_id}/code",
@@ -4336,6 +4356,15 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
             "crs_status": crs_numbers_mod.resolution_cell(record),
             "crs_response": crs_numbers_mod.response_cell(record),
         })
+    # #633: THE PARTS THIS REVIEW COULD NOT CHECK, one list for every export. A
+    # sheet for a run that failed, stopped, or left large parts unchecked must
+    # never look like a complete review.
+    unchecked = absence_mod.unchecked_parts(
+        run_status=run.get("status"), outcome=outcome,
+        partial_findings=int(outcome.get("partial_findings") or 0),
+        ai_status=ai_engineering_check_mod.ai_check_status(
+            review_run_id, allowed_document_ids=allowed),
+        web_status=_json_column(run.get("web_check_status")))
     stamp = _now_date()
     meta = {
         "document_title": submittal_name,
@@ -4363,7 +4392,11 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         # "internal" (with "AI Review Comments") or "issue" (to the contractor).
         "copy": copy,
         # 2f: the engineer's internal notes, on their own sheet.
-        "review_notes": crs_mapping_mod.build_review_notes(findings, missing, unread),
+        "review_notes": crs_mapping_mod.build_review_notes(findings, missing, unread) + [
+            {"note": "Not checked", "standard": "", "count": None, "detail": part["line"]}
+            for part in unchecked],
+        "unchecked_parts": [part["line"] for part in unchecked],
+        "incomplete_notice": absence_mod.notice_for(unchecked),
         # Never printed: the keys of this run's rejected comments, for
         # `_mint_crs_numbers` to withdraw.
         "rejected_row_keys": meta_rejected_keys,

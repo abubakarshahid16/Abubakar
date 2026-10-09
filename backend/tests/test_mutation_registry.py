@@ -51,3 +51,33 @@ def test_a_duplicate_id_across_two_modules_is_refused():
     assert len(mutation_check.aggregate([("alpha", (first,)), ("beta", (other,))])) == 2
     with pytest.raises(ValueError, match=rf"duplicate mutation id '{first.id}'.*alpha.*beta"):
         mutation_check.aggregate([("alpha", (first,)), ("beta", (clash,))])
+
+
+def test_the_mutation_backup_is_outside_the_repo_and_the_file_is_restored(tmp_path, monkeypatch):
+    """A `.mutbak` next to the source was once committed mid-run, with the
+    mutated file. The backup now lives in a temp directory."""
+    target = tmp_path / "victim.py"
+    target.write_text("VALUE = 1\n", encoding="utf-8")
+    mutation = mutation_check.Mutation(
+        id="MTEST", phase=1, description="d", path=target, anchor="VALUE = 1",
+        replacement="VALUE = 2", target="tests/x.py")
+    seen = {}
+
+    def fake_run_tests(_m):
+        seen["siblings"] = sorted(p.name for p in tmp_path.iterdir())
+        seen["text_during"] = target.read_text(encoding="utf-8")
+        return 1, "1 failed"
+
+    monkeypatch.setattr(mutation_check, "_run_tests", fake_run_tests)
+    monkeypatch.setattr(mutation_check, "_tests_collected", lambda *_a: 1)
+    verdict, _ = mutation_check.run(mutation)
+    assert verdict == "DETECTED"
+    assert seen["text_during"] == "VALUE = 2\n"
+    assert seen["siblings"] == ["victim.py"]            # no .mutbak beside the source
+    assert target.read_text(encoding="utf-8") == "VALUE = 1\n"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["victim.py"]
+
+
+def test_gitignore_keeps_a_mutation_backup_out_of_a_commit():
+    lines = (REPO / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert "*.mutbak" in lines
