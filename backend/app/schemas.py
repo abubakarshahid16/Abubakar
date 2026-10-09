@@ -28,7 +28,7 @@ DocStatus = Literal[
 ]
 
 ChunkKind = Literal["prose", "table", "toc", "frontmatter", "index", "references",
-                  "revision_history"]
+                  "revision_history", "header_footer", "tracked_change", "comment"]
 
 #: What part a document plays in a submittal review.
 #:
@@ -163,6 +163,11 @@ class Document(BaseModel):
         "presented as 'OCR'd'. State the fraction.",
     )
     equation_pages: int = Field(description="maths did not survive extraction")
+    pagination: str | None = Field(
+        None,
+        description="'flow' for a Word document: it has no fixed pages, its "
+        "'pages' are reading units and a citation is the chunk's locator "
+        "(heading path and paragraph). null for a PDF, which is cited by page.")
     error: DocumentError | None = None
     pages_excluded: int = Field(
         0, description="pages search cannot see at all - not a quiet count"
@@ -737,6 +742,8 @@ class Chunk(BaseModel):
     content_hash: str
     retrievable: bool
     quality_flags: str | None = Field(None, description="why the gate excluded it")
+    locator: str | None = Field(
+        None, description="Word documents: where the chunk sits, '4.2 > para 3'")
     text: str
 
 
@@ -869,6 +876,8 @@ class Passage(BaseModel):
     document_id: str
     filename: str
     section: str | None
+    locator: str | None = Field(
+        None, description="Word documents: '4.2 > para 3', shown instead of a page")
     page_start: int
     page_end: int
     text: str
@@ -1264,6 +1273,8 @@ class AnswerPassage(BaseModel):
     page_start: int
     page_end: int
     section: str | None
+    locator: str | None = Field(
+        None, description="Word documents: '4.2 > para 3', shown instead of a page")
     text: str
     highlight: list[int] | None = Field(
         None, description="character offsets of the answering span within text"
@@ -3017,6 +3028,8 @@ class ChatSource(BaseModel):
     page: int | None = None
     page_end: int | None = None
     clause: str | None = None
+    locator: str | None = Field(
+        None, description="Word documents: '4.2 > para 3', shown instead of a page number")
     text_source: str | None = None
     ocr_min_conf: float | None = None
     url: str | None = None

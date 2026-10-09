@@ -225,7 +225,10 @@ def test_rules_mode_is_todays_production_for_office_files():
     xlsx = bench.read_file_with("rules", XLSX)
     docx = bench.read_file_with("rules", BENCH / "ds13_heater.docx")
     assert xlsx["status"] == "stored_not_indexed" and xlsx["facts"] == []
-    assert docx["status"] == "refused_at_upload" and docx["facts"] == []
+    # W5b-01 (#525): a Word file is no longer refused at upload by default (it
+    # is indexed and searchable), but with DATASHEET_OFFICE_INPUT off its
+    # datasheet FIELDS are not read - so today's production still yields no facts.
+    assert docx["status"] == "read" and docx["facts"] == []
     assert bench.read_file_with("rules+office", XLSX)["status"] == "read"
 
 

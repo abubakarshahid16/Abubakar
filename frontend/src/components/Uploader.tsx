@@ -231,7 +231,7 @@ export function Uploader({ onUploaded }: { onUploaded: () => void }) {
         ].join(" ")}
       >
         <p className="text-sm text-slateish-300">
-          Drag PDFs here, or{" "}
+          Drag PDF or Word (.docx) files here, or{" "}
           <button
             type="button"
             disabled={blocked}
@@ -247,9 +247,9 @@ export function Uploader({ onUploaded }: { onUploaded: () => void }) {
         <input
           ref={inputRef}
           type="file"
-          accept="application/pdf,.pdf"
+          accept="application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx"
           multiple
-          aria-label="Choose PDF files to upload"
+          aria-label="Choose PDF or Word files to upload"
           className="sr-only"
           onChange={(e) => {
             if (e.target.files) void start(e.target.files);
