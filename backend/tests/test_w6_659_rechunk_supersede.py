@@ -113,3 +113,14 @@ def test_a_standard_with_no_requirements_re_chunks_and_writes_no_record():
     std = _standard()
     chunk_document(std, force=True)
     assert _audit_detail() == []
+
+
+def test_a_database_with_no_requirements_table_still_re_chunks():
+    """The requirements table is created with the review schema; a plain
+    ingestion database may not have it, and re-chunking must not need it."""
+    std = _standard()
+    with db.connect() as conn:
+        conn.execute("DROP TABLE standard_requirements")
+    chunk_document(std, force=True)
+    assert db.connect().execute(
+        "SELECT COUNT(*) FROM chunks WHERE document_id = ?", (std,)).fetchone()[0] > 0

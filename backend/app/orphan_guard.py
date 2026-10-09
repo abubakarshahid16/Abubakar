@@ -272,10 +272,17 @@ def detach_requirements_for_rechunk(conn: sqlite3.Connection, document_id: str) 
     caller's connection, inside the caller's transaction: the detach, the
     delete and the re-point commit together or not at all.
     """
-    rows = conn.execute(
-        "SELECT id, chunk_id, page, requirement_text, confirmed_by, superseded_at,"
-        " requirement_type FROM standard_requirements WHERE chunk_id IN"
-        " (SELECT id FROM chunks WHERE document_id = ?)", (document_id,)).fetchall()
+    try:
+        rows = conn.execute(
+            "SELECT id, chunk_id, page, requirement_text, confirmed_by, superseded_at,"
+            " requirement_type FROM standard_requirements WHERE chunk_id IN"
+            " (SELECT id FROM chunks WHERE document_id = ?)", (document_id,)).fetchall()
+    except sqlite3.OperationalError as exc:
+        # A database that has never held a requirement has no such table (it is
+        # created with the review schema): nothing to detach.
+        if "no such table" in str(exc):
+            return []
+        raise
     detached = [dict(r) for r in rows]
     if detached:
         conn.execute(

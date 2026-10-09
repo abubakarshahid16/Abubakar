@@ -1,5 +1,5 @@
 """#659: a re-chunk detaches, re-points or supersedes requirements; it never
-deletes them. Ids M4961-M4967."""
+deletes them. Ids M4961-M4968."""
 from __future__ import annotations
 
 from ._base import APP, Mutation
@@ -33,4 +33,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(4967, "the re-chunk leaves no audit record", _G,
        "VALUES (?, ?, ?, 'requirements.rechunked', 'document', ?, 'ok', ?)",
        "VALUES (?, ?, ?, 'requirements.unrecorded', 'document', ?, 'ok', ?)", "unchanged_chunk"),
+    _m(4968, "re-chunking needs the requirements table to exist", _G,
+       '        if "no such table" in str(exc):\n            return []\n        raise\n    detached',
+       '        if False:\n            return []\n        raise\n    detached', "no_requirements_table"),
 )
