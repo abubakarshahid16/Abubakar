@@ -4,6 +4,7 @@
  "title": "SIL assessment procedure",
  "version": "1",
  "document_kind": "procedure",
+  "applies_when": ["safety integrity level*", "sil assessment", "sil determination", "safety instrumented"],
  "sign_off": {
   "status": "draft",
   "by": null,

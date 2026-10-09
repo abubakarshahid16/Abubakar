@@ -77,6 +77,10 @@ class Playbook:
     clauses_verified: bool
     note: str
     elements: tuple[Element, ...]
+    #: Cues that say a document is about this playbook's subject ("hazop",
+    #: "safety integrity level"). Empty: the playbook is never chosen for a
+    #: document on its own (#527); it can still be run by name.
+    applies_when: tuple[str, ...] = ()
 
     @property
     def signed_off(self) -> bool:
@@ -123,9 +127,13 @@ def parse(data: object, where: str = "playbook") -> Playbook:
             raise PlaybookError(f"{where}: element {eid} has no title")
         elements.append(Element(eid, str(e["title"]).strip(), str(e.get("expects") or "").strip(),
                                 str(source["standard"]).strip(), str(source["clause"]).strip(), tuple(groups)))
+    applies = data.get("applies_when") or []
+    if not isinstance(applies, list) or not all(isinstance(a, str) for a in applies):
+        raise PlaybookError(f"{where}: applies_when must be a list of phrases")
     return Playbook(str(data["id"]).strip(), str(data["title"]).strip(), str(data["version"]).strip(),
                     str(data.get("document_kind") or "").strip(), dict(sign), bool(data.get("clauses_verified", False)),
-                    str(data.get("note") or "").strip(), tuple(elements))
+                    str(data.get("note") or "").strip(), tuple(elements),
+                    tuple(a.strip() for a in applies if a.strip()))
 
 
 def load_file(path: str | Path) -> Playbook:
@@ -150,6 +158,12 @@ def available(directory: Path | None = None) -> tuple[dict[str, Playbook], list[
             continue
         found[pb.id] = pb
     return found, broken
+
+
+def applies_to(pb: Playbook, text: str) -> bool:
+    """Is a document whose text is `text` about this playbook's subject? Its
+    `applies_when` cues, whole words (#527). No cues: never on its own."""
+    return bool(pb.applies_when) and bool(_hits(pb.applies_when, text))
 
 
 def notice(pb: Playbook) -> str | None:

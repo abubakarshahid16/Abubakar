@@ -57,6 +57,7 @@ from .db import connect
 #: a method is refused by `record_selection`.
 METHOD_REFERENCED = "referenced"          # 1. named in the datasheet
 METHOD_EQUIPMENT = "equipment_type"       # 2. mapped to the equipment
+METHOD_PLAYBOOK = "playbook"              # 2. mandatory in the review playbook for this kind (#527)
 METHOD_DISCIPLINE = "discipline"          # 3. discipline match
 METHOD_SERVICE = "service"                # 4. service / operating conditions
 METHOD_SEMANTIC = "semantic"              # 5. dense retrieval
@@ -75,8 +76,11 @@ METHOD_SCOPE = "scope"
 #: as considered and not included, with the reason, and an engineer may add
 #: any of them (`override`).
 INCLUDING_METHODS = frozenset({
+    "playbook",  # signed-off playbook only; a draft is "playbook_draft" (#527)
     "manual", "referenced", "equipment_type", "scope", "service", "project"})
 CANDIDATE_ONLY_REASON = {
+    "playbook_draft": ("named by a review playbook that is still a DRAFT (not signed off by a "
+                       "discipline engineer, #547); considered, not included - an engineer may add it"),
     "discipline": ("a shared discipline alone is not evidence that this standard "
                    "governs this equipment; considered, not included - an engineer "
                    "may add it"),
@@ -91,6 +95,8 @@ _PRIORITY = {
     METHOD_MANUAL: 0,
     METHOD_REFERENCED: 1,
     METHOD_EQUIPMENT: 2,
+    METHOD_PLAYBOOK: 2,
+    "playbook_draft": 2.5,
     METHOD_SCOPE: 2,
     METHOD_DISCIPLINE: 3,
     METHOD_SERVICE: 4,
@@ -106,6 +112,8 @@ _CONFIDENCE = {
     METHOD_MANUAL: 0.9,
     METHOD_REFERENCED: 0.9,
     METHOD_EQUIPMENT: 0.7,
+    METHOD_PLAYBOOK: 0.7,
+    "playbook_draft": 0.4,
     METHOD_SCOPE: 0.7,
     METHOD_DISCIPLINE: 0.5,
     METHOD_SERVICE: 0.5,
@@ -196,6 +204,15 @@ def _submittal_profile(document_id: str) -> dict:
         (document_id,)).fetchone()
     return dict(row) if row else {
         "discipline": None, "equipment_type": None, "service": None, "project": None}
+
+
+def _submittal_text(document_id: str, allowed_document_ids: frozenset[str]) -> str:
+    """The submittal's own chunk text, read under the caller's grants."""
+    where, args = _scope_clause(allowed_document_ids, "document_id")
+    rows = connect().execute(
+        "SELECT text FROM chunks" + where + " AND document_id = ?",
+        [*args, document_id]).fetchall()
+    return " ".join(r["text"] or "" for r in rows)
 
 
 def _referenced_in_submittal(document_id: str,
@@ -605,6 +622,57 @@ def _match_referenced(library: list[dict], referenced: list[str]) -> dict[str, d
     return out
 
 
+def playbook_mandatory(submittal_document_id: str, library: list[dict],
+                       text: str = "") -> tuple[dict[str, dict], list[dict]]:
+    """Standards the review playbook for THIS kind of document makes mandatory (#527).
+
+    A written document (a procedure, a study) has no equipment type, so the
+    equipment, service and scope rules select nothing for it, and only its own
+    citations could. The playbook for its kind (`reference/playbooks`, matched
+    on `document_kind`) names the standards each element comes from; those are
+    mandatory for that kind of document. Held: selected (`playbook`, included,
+    when the playbook is signed off; `playbook_draft`, considered and NOT
+    included while it is a draft). Not held: reported missing, never met.
+
+    The kind is the document router's (#526): a CONFIRMED kind, or a SUGGESTED
+    one, which the reason says is a guess. No kind, no playbook rule. A kind
+    is not enough on its own - every procedure is not a HAZOP procedure - so a
+    playbook also needs one of its `applies_when` cues in the document's text.
+    Returns (candidates by standard id, missing rows).
+    """
+    from . import doc_router, playbooks
+
+    routing = doc_router.of_documents([submittal_document_id]).get(submittal_document_id) or {}
+    kind, state = routing.get("document_kind"), routing.get("document_kind_state")
+    if not kind or state not in ("confirmed", "suggested"):
+        return {}, []
+    guess = "" if state == "confirmed" else " (document kind suggested, not confirmed)"
+    found, _problems = playbooks.available()
+    selected: dict[str, dict] = {}
+    missing: list[dict] = []
+    seen: set[str] = set()
+    for pb in sorted(found.values(), key=lambda p: p.id):
+        if pb.document_kind != kind or not playbooks.applies_to(pb, text):
+            continue
+        method = METHOD_PLAYBOOK if pb.signed_off else "playbook_draft"
+        for element in pb.elements:
+            identifier = (element.standard or "").strip()
+            key = standard_ids.key(identifier) if identifier else ""
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            entry = find_standard(library, identifier)
+            if entry is None:
+                missing.append({"identifier": identifier,
+                                "reason": f"mandatory in the {pb.title} playbook for a {kind}{guess} "
+                                          "and not present in the library"})
+            elif entry["id"] not in selected:
+                selected[entry["id"]] = {
+                    "method": method, "identifier": identifier,
+                    "reason": f"mandatory in the {pb.title} playbook for a {kind}{guess}"}
+    return selected, missing
+
+
 def missing_references(library: list[dict], referenced: list[str]) -> list[str]:
     """The standards a submittal CITES that the library does not hold.
 
@@ -777,10 +845,13 @@ def select(
     library = _library(allowed_document_ids)
     profile = _submittal_profile(submittal_document_id)
     referenced = _referenced_in_submittal(submittal_document_id, allowed_document_ids)
+    mandatory, mandatory_missing = playbook_mandatory(
+        submittal_document_id, library, _submittal_text(submittal_document_id, allowed_document_ids))
 
     selected: dict[str, dict] = {}
     for candidates in (
         _match_referenced(library, referenced),
+        mandatory,
         _match_attribute(library, profile, "equipment_type", METHOD_EQUIPMENT),
         _match_attribute(library, profile, "discipline", METHOD_DISCIPLINE),
         _match_attribute(library, profile, "service", METHOD_SERVICE),
@@ -878,6 +949,12 @@ def select(
         ],
         "scope_decision_not_run": scope_not_run,
         "missing_references": missing,
+        # #527: mandatory in the playbook for this kind of document and not
+        # held. Kept APART from `missing_references`, which the CRS words as
+        # "this submittal cites": these were never cited by the submittal.
+        "mandatory_not_held": [
+            m for m in mandatory_missing
+            if standard_ids.key(m["identifier"]) not in {standard_ids.key(x["identifier"]) for x in missing}],
         "referenced_total": len(referenced),
         "library_size": len(library),
         **completeness(selected, missing, submittal_document_id,

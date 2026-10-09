@@ -4,6 +4,7 @@
  "title": "HAZOP procedure",
  "version": "1",
  "document_kind": "procedure",
+  "applies_when": ["hazop", "hazard and operability"],
  "sign_off": {
   "status": "draft",
   "by": null,
