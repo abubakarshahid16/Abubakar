@@ -546,6 +546,34 @@ class MissingStandard(CitedButNotHeld):
     obtain: StandardObtainPointer
 
 
+class CoverageEntry(BaseModel):
+    identifier: str
+    title: str | None = None
+    status: str = Field(description="'held' or 'missing', for the caller's own library")
+    document_id: str | None = None
+    edition: str | None = Field(
+        default=None,
+        description="the year printed in the held file's name or title, or its recorded "
+                    "revision; None means the edition is not stated, never a guess")
+    superseded: bool = False
+
+
+class CoverageGroup(BaseModel):
+    id: str | None = None
+    label: str | None = None
+    listed: int
+    held: int
+    missing: int
+    entries: list[CoverageEntry]
+
+
+class StandardsCoverage(BaseModel):
+    state: str = Field(description="'ok' or 'could_not_check'")
+    scope: str = Field(description="whose standards the counts are of")
+    reason: str | None = None
+    groups: list[CoverageGroup]
+
+
 class StandardRequestBody(BaseModel):
     identifier: str = Field(min_length=1, max_length=200)
     note: str | None = Field(default=None, max_length=1000)

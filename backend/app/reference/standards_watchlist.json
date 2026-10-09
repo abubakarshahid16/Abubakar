@@ -1,0 +1,33 @@
+{
+  "_about": "Reference standards the owner wants reported as HELD or MISSING before a blind test, whether or not any document cites them yet (W5b-08, #532). Groups and entries are DATA: edit here, not in code. An entry is a standard's designation as people write it; the report decides held/missing with the same rule the cited-but-not-held report uses (standard_ids.same_standard), so 'IEC 61511' finds a library file named 'iec-61511-1'. A group with no entries is reported as 'no standards listed', never as 'all held'. The company-procedure group is empty on purpose: which company procedure standards govern a review is the client engineer's list (#682) - add them here when it exists.",
+  "version": "1",
+  "groups": [
+    {
+      "id": "functional_safety",
+      "label": "Functional safety",
+      "entries": [
+        {"identifier": "IEC 61508", "title": "Functional safety of electrical/electronic/programmable electronic safety-related systems"},
+        {"identifier": "IEC 61511", "title": "Functional safety: safety instrumented systems for the process industry sector"}
+      ]
+    },
+    {
+      "id": "hazop",
+      "label": "HAZOP and hazard study",
+      "entries": [
+        {"identifier": "IEC 61882", "title": "Hazard and operability studies (HAZOP studies): application guide"}
+      ]
+    },
+    {
+      "id": "relief_and_flare",
+      "label": "Pressure relief and flare",
+      "entries": [
+        {"identifier": "API 521", "title": "Pressure-relieving and depressuring systems"}
+      ]
+    },
+    {
+      "id": "company_procedure",
+      "label": "Company procedure standards",
+      "entries": []
+    }
+  ]
+}

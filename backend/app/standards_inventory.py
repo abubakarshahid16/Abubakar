@@ -50,8 +50,10 @@ source. Nothing in this system downloads a standard.
 """
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Sequence
 
 from . import datasheets, db, standard_ids, standards
@@ -597,3 +599,76 @@ def cited_but_not_held(*, allowed_document_ids: frozenset[str]) -> list[dict]:
             k: v for k, v in citation.items() if k != "identifier"})
 
     return sorted(by_key.values(), key=lambda e: e["identifier"])
+
+
+# --------------------------------------------------- the reference watch list
+
+WATCHLIST_PATH = Path(__file__).parent / "reference" / "standards_watchlist.json"
+
+#: What a count of "held" is a count of. States its boundary (CLAUDE.md rule 4).
+COVERAGE_SCOPE = "the standards in the library that the caller may read"
+
+
+def _watchlist() -> dict | None:
+    try:
+        return json.loads(WATCHLIST_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def reference_coverage(*, allowed_document_ids: frozenset[str]) -> dict:
+    """W5b-08 (#532): each listed reference standard is HELD (with its edition)
+    or MISSING, for the caller's own library.
+
+    The list is data (`reference/standards_watchlist.json`): functional safety,
+    HAZOP, relief and flare, and the company-procedure group (empty until the
+    client engineer lists them, #682). The rule is the cited-but-not-held
+    report's own (`applicability.find_standard`), so the two reports cannot
+    disagree about whether a standard is held.
+
+    NAMED STATES, NEVER A SILENT PASS:
+      * the list could not be read -> `state: "could_not_check"`, no rows;
+      * a group with no entries -> `entries: []` and `listed: 0`, which a
+        screen must render as "no standards listed", not as "all held";
+      * an edition is the year printed in the held file's name or title, or
+        the revision recorded on it; with neither it is None ("edition not
+        stated"), never guessed;
+      * a held standard that has been superseded is held, and says so.
+    """
+    from .applicability import find_standard
+
+    data = _watchlist()
+    if data is None or not isinstance(data.get("groups"), list):
+        return {"state": "could_not_check", "scope": COVERAGE_SCOPE, "groups": [],
+                "reason": "the reference standards list could not be read"}
+    library = standards.list_standards(
+        allowed_document_ids=allowed_document_ids, include_superseded=True)
+    groups = []
+    for group in data["groups"]:
+        rows = []
+        for entry in group.get("entries", []):
+            identifier = str(entry.get("identifier") or "").strip()
+            if not identifier:
+                continue
+            held = find_standard(library, identifier)
+            edition = None
+            if held is not None:
+                edition = (standard_ids.edition_of(held.get("filename") or "")
+                           or standard_ids.edition_of(held.get("title") or "")
+                           or (str(held.get("revision")).strip() if held.get("revision") else None))
+            rows.append({
+                "identifier": identifier,
+                "title": entry.get("title"),
+                "status": "held" if held is not None else "missing",
+                "document_id": held["id"] if held is not None else None,
+                "edition": edition,
+                "superseded": bool(held and held.get("superseded_by")),
+            })
+        groups.append({
+            "id": group.get("id"), "label": group.get("label"),
+            "listed": len(rows),
+            "held": sum(1 for r in rows if r["status"] == "held"),
+            "missing": sum(1 for r in rows if r["status"] == "missing"),
+            "entries": rows,
+        })
+    return {"state": "ok", "scope": COVERAGE_SCOPE, "groups": groups, "reason": None}
