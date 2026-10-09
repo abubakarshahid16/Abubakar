@@ -139,6 +139,8 @@ Never write a second waiter.
 | The 134 review findings, prioritised | `docs/code-review/README.md` |
 | Recorded false claims (146) | `docs/status-honesty-audit.md` |
 | The review score (recall, precision, false compliant, citations; answer-key format) | `eval/review/README.md`, `scripts/review_score.py` |
+| Review playbooks (HAZOP, SIL procedures; data files, clause-cited, standard not held is never met) | `docs/playbooks.md` |
+| The scored model tier of P1 (figures, clause, could-not-read; PC only) | `eval/p1ai/README.md` |
 | Review any change against the project's own failure modes | `/review` (`.claude/commands/review.md`) |
 | Demo script and safe questions | `docs/HANDOVER.md` § Demo |
 | Run it | `backend`: `python run.py` · `frontend`: `npm run dev` · Ollama must be up |

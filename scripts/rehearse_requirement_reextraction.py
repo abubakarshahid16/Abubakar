@@ -85,6 +85,25 @@ def counts(conn: sqlite3.Connection) -> dict[str, int]:
               SELECT COUNT(*) AS n FROM standard_requirements
                WHERE COALESCE(requirement_type, '') != 'table_value' AND {active}
                GROUP BY standard_document_id, clause, requirement_text HAVING n > 1)"""),
+        # #673: repeats counted PLAINLY - the same standard and the same
+        # requirement text, whatever the clause, the type or the identity key
+        # (rows written before #594 have no identity key, so the two counts
+        # above said 0 for exactly the rows #599 cleans up). Extra rows beyond
+        # the first of each text; the denominators are requirements_active and
+        # requirements_total above. Superseded rows are counted in the second.
+        "repeated_rows_active": _one(conn, f"""
+            SELECT COALESCE(SUM(n - 1), 0) FROM (
+              SELECT COUNT(*) AS n FROM standard_requirements WHERE {active}
+               GROUP BY standard_document_id, requirement_text HAVING n > 1)"""),
+        "repeated_table_cell_rows_active": _one(conn, f"""
+            SELECT COALESCE(SUM(n - 1), 0) FROM (
+              SELECT COUNT(*) AS n FROM standard_requirements
+               WHERE requirement_type = 'table_value' AND {active}
+               GROUP BY standard_document_id, requirement_text HAVING n > 1)"""),
+        "repeated_rows_including_superseded": _one(conn, """
+            SELECT COALESCE(SUM(n - 1), 0) FROM (
+              SELECT COUNT(*) AS n FROM standard_requirements
+               GROUP BY standard_document_id, requirement_text HAVING n > 1)"""),
         "confirmed": _one(
             conn, "SELECT COUNT(*) FROM standard_requirements WHERE confirmed_by IS NOT NULL"),
         "confirmed_active": _one(
@@ -152,6 +171,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"{'count':<{width}}  {'before':>9}  {'after':>9}")
     for key in summary["before"]:
         print(f"{key:<{width}}  {summary['before'][key]:>9}  {summary['after'][key]:>9}")
+    for label, side in (("before", summary["before"]), ("after", summary["after"])):
+        total, repeated = side["requirements_active"], side["repeated_rows_active"]
+        share = f" ({repeated / total:.1%})" if total else ""
+        print(f"repeated rows {label}: {repeated} of {total} active rows{share}")
     if args.json:
         args.json.write_text(json.dumps(summary, indent=1), encoding="utf-8")
     ok = (summary["after"]["confirmed"] == summary["before"]["confirmed"]
