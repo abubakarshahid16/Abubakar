@@ -50,6 +50,7 @@ REGISTRY: dict[tuple[str, str], tuple[str, str]] = {
     ("chunk_vectors", "document_id"): (FK_CASCADE, "derived from the document's chunks"),
     ("chunks", "document_id"): (FK_CASCADE, "the document's own text"),
     ("document_classification", "document_id"): (FK_CASCADE, "metadata about this document"),
+    ("document_kinds", "document_id"): (FK_CASCADE, "the document-type router's suggestion or a person's confirmed kind"),
     ("document_role_access", "document_id"): (FK_CASCADE, "grants on a document that is gone"),
     ("document_subjects", "document_id"): (FK_CASCADE, "metadata about this document"),
     ("exclusions", "document_id"): (FK_CASCADE, "records of this document's dropped text"),
