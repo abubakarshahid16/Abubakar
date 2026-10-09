@@ -544,6 +544,16 @@ class Settings(BaseSettings):
     #: then indexed too. OFF by default - merging changes nothing.
     #: Env: DATASHEET_OFFICE_INPUT.
     datasheet_office_input: bool = False
+    #: Word (.docx) as a first-class input (W5b-01, #525). ON: an uploaded .docx
+    #: is accepted and indexed through the SAME pipeline as a PDF (pages,
+    #: chunks, search, citations, requirements, reviews), read by
+    #: `docx_reader` with its structure kept (heading levels, list numbers,
+    #: tables, headers and footers, tracked changes) and cited by heading path
+    #: and paragraph ("4.2 > para 3") because a Word file has no fixed pages.
+    #: OFF: a .docx is refused unless DATASHEET_OFFICE_INPUT is on. ON by
+    #: default since the tests in test_w5b_525_docx.py pass.
+    #: Env: DOCX_INPUT_ENABLED.
+    docx_input_enabled: bool = True
     #: Generous, because a refusal costs more than a wait: a timeout is
     #: `model_unavailable` and the requirement falls back to
     #: MISSING_INFORMATION, so a tight bound would quietly convert slow

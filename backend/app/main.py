@@ -3735,6 +3735,15 @@ def page_image(
     """
     reject_unknown_params(request, {"dpi", "chunk_id", "q"})
     doc = require_document(document_id, scope)
+    if dict(doc).get("pagination") == "flow":
+        # A Word document has no printed pages: rendering it would show a
+        # layout that matches none of its reading pages or citations.
+        return JSONResponse(
+            status_code=404,
+            content={"detail": errors.safe_error(
+                errors.NOT_FOUND, "a Word document has no printed pages; it is cited by "
+                "heading path and paragraph", document_id=document_id)},
+        )
 
     rects: list[tuple[float, float, float, float]] = []
     if chunk_id and q:
@@ -3791,7 +3800,7 @@ def document_chunks(
     conn = connect()
     rows = conn.execute(
         f"""SELECT id, ordinal, page_start, page_end, section, kind, token_count,
-                   content_hash, retrievable, quality_flags, text
+                   content_hash, retrievable, quality_flags, locator, text
             FROM chunks WHERE document_id = ?{clause}
             ORDER BY ordinal LIMIT ? OFFSET ?""",
         (document_id, limit, offset),

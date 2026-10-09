@@ -93,6 +93,10 @@ export interface DocumentRecord {
    *  document with 12 recognised pages must not be presented as "OCR'd".
    *  State the fraction - "12 of 546 pages read by OCR". */
   recognised_pages: number;
+  /** "flow" for a Word document: no fixed pages, so its "pages" are reading
+   *  units and a citation is the chunk's `locator` ("4.2 > para 3"). Absent or
+   *  null for a PDF, which is cited by page. */
+  pagination?: "flow" | null;
   /** pages whose mathematics did not survive extraction; see the page image */
   equation_pages: number;
   error: ApiError | null;
@@ -966,7 +970,8 @@ export interface JobRecord {
 
 // ---------- retrieval ----------
 
-export type ChunkKind = "prose" | "table" | "toc" | "frontmatter" | "index" | "references";
+export type ChunkKind = "prose" | "table" | "toc" | "frontmatter" | "index" | "references"
+  | "revision_history" | "header_footer" | "tracked_change" | "comment";
 
 export interface ChunkRecord {
   id: string;
@@ -974,6 +979,8 @@ export interface ChunkRecord {
   page_start: number;
   page_end: number;
   section: string | null;
+  /** Word documents: where the chunk sits ("4.2 > para 3"); null for a PDF. */
+  locator?: string | null;
   kind: ChunkKind;
   token_count: number;
   content_hash: string;
@@ -1069,6 +1076,8 @@ export interface Passage {
   page_start: number;
   page_end: number;
   section: string | null;
+  /** Word documents: "4.2 > para 3", cited instead of a page. */
+  locator?: string | null;
   text: string;              // exact source text, never paraphrased
   score: number;             // post-rerank
 }
@@ -1125,6 +1134,8 @@ export interface ChatSource {
   page: number | null;
   page_end: number | null;
   clause: string | null;
+  /** Word documents: "4.2 > para 3", shown instead of a page number. */
+  locator?: string | null;
   text_source: string | null;
   ocr_min_conf: number | null;
   url: string | null;
@@ -1197,6 +1208,8 @@ export interface AnswerPassage {
   page_start: number;
   page_end: number;
   section: string | null;    // the clause, when the document numbers its clauses
+  /** Word documents: "4.2 > para 3", cited instead of a page number. */
+  locator?: string | null;
   text: string;              // exact source text, never paraphrased
   /** char offsets into `text` for the answering span, when one can be located */
   highlight: [number, number] | null;

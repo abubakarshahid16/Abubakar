@@ -950,6 +950,10 @@ class Block:
     #: The header row as a tuple, so a table continued on the next page (its
     #: header reprinted) is recognised and joined to its first part.
     header: tuple[str, ...] | None = None
+    #: Word documents (W5b-01): where the chunk sits in a document that has no
+    #: fixed pages ("4.2 > para 3"), and its heading chain. None for a PDF.
+    locator: str | None = None
+    context: str | None = None
 
 
 def _table_run_length(lines: list[str], i: int, stop=None) -> int:
@@ -2879,7 +2883,13 @@ def chunk_document(doc_id: str, force: bool = False,
         raise ValueError(f"{doc_id} has no extracted pages - run extraction first")
 
     total_pages = doc["page_count"] or len(pages)
-    page_kinds = classify_document_pages(pages, total_pages)
+    # A WORD document (pagination 'flow') states its structure, so none of the
+    # PDF heuristics below (page classes, running lines, ruled-table masks,
+    # clause-number headings) is applied to it: its chunks are built from the
+    # structure by `docx_chunks`. Everything after chunking is shared.
+    flow = "pagination" in doc.keys() and doc["pagination"] == "flow"
+    page_kinds = ({pno: "prose" for pno, _ in pages} if flow
+                  else classify_document_pages(pages, total_pages))
     signature = _chunk_signature(doc["sha256"], pages, raw_tables)
     existing = conn.execute(
         "SELECT COUNT(*) FROM chunks WHERE document_id = ?", (doc_id,)
@@ -2910,14 +2920,20 @@ def chunk_document(doc_id: str, force: bool = False,
             "chunks_per_sec": None,
         }
 
-    running = detect_running_lines(pages)
-    # Ruled tables replace their own lines with one structured stand-in
-    # BEFORE segmentation, so no cell is read as a heading, stripped as a
-    # running line, or published twice (as the table and as shredded prose).
-    masked = mask_tables(pages, _decode_tables(raw_tables), running)
     paths: dict[str, str | None] = {}
-    blocks, removed = segment_document(masked, running, page_kinds, paths_out=paths)
-    chunks = build_chunks(blocks, document_vocabulary(pages))
+    if flow:
+        from . import docx_chunks, docx_reader
+
+        running, removed = set(), 0
+        chunks = docx_chunks.build_chunks(docx_reader.read_structure(doc["stored_path"]))
+    else:
+        running = detect_running_lines(pages)
+        # Ruled tables replace their own lines with one structured stand-in
+        # BEFORE segmentation, so no cell is read as a heading, stripped as a
+        # running line, or published twice (as the table and as shredded prose).
+        masked = mask_tables(pages, _decode_tables(raw_tables), running)
+        blocks, removed = segment_document(masked, running, page_kinds, paths_out=paths)
+        chunks = build_chunks(blocks, document_vocabulary(pages))
 
     ceiling = settings.chunk_max_tokens
     over = [c for c in chunks if c.tokens > ceiling]
@@ -2980,7 +2996,9 @@ def chunk_document(doc_id: str, force: bool = False,
                      else None)),
                 *chunk_provenance(c.page_start, c.page_end, recognised_pages,
                                   page_conf, page_viol),
-                paths.get(c.section) if c.section else None,
+                (c.context if c.context is not None
+                 else (paths.get(c.section) if c.section else None)),
+                c.locator,
             )
         )
 
@@ -3160,8 +3178,8 @@ def chunk_document(doc_id: str, force: bool = False,
                (id, document_id, filename, ordinal, page_start, page_end,
                 section, parent_id, kind, text, token_count, content_hash,
                 retrievable, quality_flags, text_source, ocr_min_conf,
-                ocr_alphabet_violations, ocr_alphabet_sample, context)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                ocr_alphabet_violations, ocr_alphabet_sample, context, locator)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             rows,
         )
         # ORPHANED VECTORS ONLY, and only AFTER the new chunks exist. Vectors

@@ -391,7 +391,10 @@ def test_the_extract_stage_writes_office_pages(tmp_path, flag_on):
 # ------------------------------------------------------------------ flag off
 
 
-def test_flag_off_docx_upload_is_refused_as_before():
+def test_flag_off_docx_upload_is_refused_as_before(monkeypatch):
+    # Word input (DOCX_INPUT_ENABLED, W5b-01) is ON by default; this is the
+    # behaviour with BOTH it and DATASHEET_OFFICE_INPUT off.
+    monkeypatch.setattr(settings, "docx_input_enabled", False)
     assert settings.datasheet_office_input is False
     with pytest.raises(upload.UploadError) as err:
         upload.ingest(io.BytesIO(_docx_bytes(_p("x"))), "DS-0003.docx")

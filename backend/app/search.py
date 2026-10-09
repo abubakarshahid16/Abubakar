@@ -144,6 +144,8 @@ class Candidate:
     ocr_min_conf: float | None = None
     ocr_alphabet_violations: int = 0
     ocr_alphabet_sample: str | None = None
+    #: Word documents: "4.2 > para 3", cited instead of a page. None for a PDF.
+    locator: str | None = None
     keyword_rank: int | None = None
     dense_rank: int | None = None
     bm25: float | None = None
@@ -210,6 +212,7 @@ class Candidate:
             "section": self.section,
             "page_start": self.page_start,
             "page_end": self.page_end,
+            "locator": self.locator,
             "text": self.text,
             "score": round(self.score, 6),
             "rrf": round(self.rrf, 6),
@@ -754,7 +757,7 @@ def _hydrate(chunk_ids: list[str]) -> dict[str, sqlite3.Row]:
     rows = conn.execute(
         f"""SELECT id, document_id, filename, section, page_start, page_end,
                    text, retrievable, text_source, ocr_min_conf,
-                   ocr_alphabet_violations, ocr_alphabet_sample, context
+                   ocr_alphabet_violations, ocr_alphabet_sample, context, locator
             FROM chunks WHERE id IN ({marks})""",
         chunk_ids,
     ).fetchall()
@@ -1036,6 +1039,7 @@ def search(
                 # rows from a caller that selects no context (older fakes,
                 # older databases) simply carry none
                 context=row["context"] if "context" in row.keys() else None,
+                locator=row["locator"] if "locator" in row.keys() else None,
                 keyword_rank=meta.get("keyword_rank"),
                 dense_rank=meta.get("dense_rank"),
                 bm25=meta.get("bm25"),
