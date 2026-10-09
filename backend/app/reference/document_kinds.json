@@ -1,0 +1,74 @@
+{
+  "_about": "The document-type router's cues (W5b-02, #526). A document's KIND is what sort of document it is: datasheet, procedure, study, report, FEED or letter. The router scores each kind from cues in the file name, the title lines, the body and the page structure, and DECIDES only when one kind clearly leads. Otherwise the kind is left empty and an engineer is asked: a guess is never stored as a fact. Cues are generic words and shapes, never the name of one document or one discipline. Edit here, not in code; a change takes effect when `router_version` is changed (bump it so suggestions are re-read). where: filename | title (the first lines of page 1) | body (the first three pages) | feature (a measured shape of the text: label_value_ratio, numbered_steps, modal_verbs, salutation, signoff, subject_line, table_rows).",
+  "router_version": "1",
+  "min_score": 4,
+  "min_margin": 2,
+  "body_cue_cap": 3,
+  "kinds": {
+    "datasheet": {
+      "label": "Datasheet",
+      "cues": [
+        {"where": "filename", "pattern": "data[ _-]?sheet|\\bds[-_ ]?\\d", "weight": 2},
+        {"where": "title", "pattern": "data[ _-]?sheet", "weight": 3},
+        {"where": "feature", "feature": "label_value_ratio", "min": 0.3, "weight": 3},
+        {"where": "feature", "feature": "table_rows", "min": 6, "weight": 1},
+        {"where": "body", "pattern": "design (data|conditions)|operating (data|conditions)", "weight": 1}
+      ]
+    },
+    "procedure": {
+      "label": "Procedure",
+      "cues": [
+        {"where": "filename", "pattern": "procedure|method[ _-]statement|work[ _-]instruction|\\bsop\\b", "weight": 2},
+        {"where": "title", "pattern": "procedure|method statement|work instruction", "weight": 3},
+        {"where": "body", "pattern": "\\bpurpose\\b", "weight": 1},
+        {"where": "body", "pattern": "\\bscope\\b", "weight": 1},
+        {"where": "body", "pattern": "responsibilit(y|ies)", "weight": 1},
+        {"where": "body", "pattern": "prerequisites?|precautions?", "weight": 1},
+        {"where": "feature", "feature": "numbered_steps", "min": 6, "weight": 2},
+        {"where": "feature", "feature": "modal_verbs", "min": 5, "weight": 1}
+      ]
+    },
+    "study": {
+      "label": "Study",
+      "cues": [
+        {"where": "filename", "pattern": "study|assessment|evaluation|analysis|feasibility", "weight": 2},
+        {"where": "title", "pattern": "\\bstudy\\b|assessment|evaluation|\\banalysis\\b|feasibility", "weight": 3},
+        {"where": "body", "pattern": "methodology|approach", "weight": 1},
+        {"where": "body", "pattern": "assumptions?", "weight": 1},
+        {"where": "body", "pattern": "findings?|results", "weight": 1},
+        {"where": "body", "pattern": "recommendations?", "weight": 1}
+      ]
+    },
+    "report": {
+      "label": "Report",
+      "cues": [
+        {"where": "filename", "pattern": "report", "weight": 2},
+        {"where": "title", "pattern": "\\breport\\b", "weight": 3},
+        {"where": "body", "pattern": "executive summary", "weight": 1},
+        {"where": "body", "pattern": "introduction", "weight": 1},
+        {"where": "body", "pattern": "conclusions?", "weight": 1},
+        {"where": "body", "pattern": "appendi(x|ces)", "weight": 1}
+      ]
+    },
+    "feed": {
+      "label": "FEED",
+      "cues": [
+        {"where": "filename", "pattern": "front[ _-]end[ _-]engineering|\\bfeed\\b|basis[ _-]of[ _-]design", "weight": 2},
+        {"where": "title", "pattern": "front[- ]end engineering design|\\bfeed\\b|basis of design", "weight": 3},
+        {"where": "body", "pattern": "basis of design|design basis", "weight": 1},
+        {"where": "body", "pattern": "battery limits?", "weight": 1},
+        {"where": "body", "pattern": "scope of (work|supply)", "weight": 1}
+      ]
+    },
+    "letter": {
+      "label": "Letter",
+      "cues": [
+        {"where": "filename", "pattern": "letter|correspondence|\\bltr\\b", "weight": 2},
+        {"where": "feature", "feature": "salutation", "min": 1, "weight": 3},
+        {"where": "feature", "feature": "signoff", "min": 1, "weight": 3},
+        {"where": "feature", "feature": "subject_line", "min": 1, "weight": 2},
+        {"where": "body", "pattern": "(our|your) ref(erence)?\\b", "weight": 1}
+      ]
+    }
+  }
+}

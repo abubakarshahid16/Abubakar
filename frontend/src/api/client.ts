@@ -68,6 +68,7 @@ import type {
   ClassificationCoverage,
   ClassificationUpdate,
   DocumentClassification,
+  DocumentKindVocabulary,
   BulkRoleUpdate,
   BulkRoleResult,
   ReviewFinding,
@@ -127,7 +128,7 @@ export interface Health {
   ok: boolean;
   embed_model_present: boolean;
   /** whether an answer model is configured, NOT which one */
-  answer_model_present: boolean;
+  answer_model_configured: boolean;
   ingestion: HealthWorker;
 }
 
@@ -732,6 +733,16 @@ export const classification = {
         body: JSON.stringify(body),
       },
     ),
+  /** The document types the router knows (never a hardcoded list). */
+  kinds: () => request<DocumentKindVocabulary>("/document-kinds"),
+  /** A person confirms or corrects the router's suggested document type.
+   *  Admin only; a non-admin gets the same silent 404 as `confirm`. */
+  confirmKind: (id: string, kind: string) =>
+    request<DocumentClassification>(`/documents/${encodeURIComponent(id)}/kind`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind }),
+    }),
   /** Set ONE role on MANY documents. Admin only, same as `confirm`.
    *
    *  Answers 207 when some documents were not written, and the result names

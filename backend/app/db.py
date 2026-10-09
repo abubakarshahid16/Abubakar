@@ -41,6 +41,21 @@ CREATE TABLE IF NOT EXISTS documents (
     pagination        TEXT
 );
 
+-- W5b-02 (#526): what SORT of document this is (datasheet, procedure, study,
+-- report, FEED, letter). `kind` is NULL when the router could not decide and an
+-- engineer has been asked (state 'needs_engineer'); a kind is a SUGGESTION until
+-- a person confirms it. Classification, never access control (rule 5).
+CREATE TABLE IF NOT EXISTS document_kinds (
+    document_id    TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+    kind           TEXT,
+    state          TEXT NOT NULL,
+    evidence       TEXT,
+    router_version TEXT,
+    routed_at      TEXT NOT NULL,
+    confirmed_by   TEXT REFERENCES users(id) ON DELETE SET NULL,
+    confirmed_at   TEXT
+);
+
 CREATE TABLE IF NOT EXISTS jobs (
     id                    TEXT PRIMARY KEY,
     document_id           TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,

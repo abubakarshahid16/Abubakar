@@ -202,6 +202,7 @@ def optional_prefixes() -> frozenset[str]:
     return frozenset(p.strip().upper() for p in data.get("prefixes") or [] if p.strip())
 
 
+# TEST HOOK (#661): called by the tests to start from a clean state; the app does not call it.
 def reload_prefixes() -> None:
     optional_prefixes.cache_clear()
 
@@ -461,12 +462,6 @@ def indexed_count(
         f"SELECT COUNT(*) FROM chunks_fts WHERE {where}", params
     ).fetchone()[0]
 
-
-def drop_document(document_id: str) -> None:
-    conn = connect()
-    ensure_schema(conn)
-    with conn:
-        conn.execute("DELETE FROM chunks_fts WHERE document_id = ?", (document_id,))
 
 
 # ------------------------------------------------------------------ querying
