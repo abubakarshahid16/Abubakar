@@ -122,7 +122,7 @@ def _title_text(pages: list[str]) -> str:
     return "\n".join([ln for ln in first.splitlines() if ln.strip()][:TITLE_LINES])
 
 
-def score(filename: str, pages: list[str]) -> tuple[dict[str, int], dict[str, list[str]]]:
+def score(filename: str, pages: list[str], role: str | None = None) -> tuple[dict[str, int], dict[str, list[str]]]:
     """Per-kind score and the cues that fired. Body cues are capped per kind so
     a long document that merely mentions many words does not outvote a title."""
     vocab = vocabulary()
@@ -138,7 +138,9 @@ def score(filename: str, pages: list[str]) -> tuple[dict[str, int], dict[str, li
         for i, cue in enumerate(spec.get("cues", []), start=1):
             where, weight = cue["where"], int(cue.get("weight", 1))
             hit = False
-            if where == "feature":
+            if where == "classification":
+                hit = role is not None and role == cue.get("role")
+            elif where == "feature":
                 hit = feats.get(cue["feature"], 0.0) >= float(cue.get("min", 1))
             else:
                 subject = {"filename": stem, "title": title, "body": body}[where]
@@ -156,14 +158,17 @@ def score(filename: str, pages: list[str]) -> tuple[dict[str, int], dict[str, li
     return scores, fired
 
 
-def route(filename: str, pages: list[str]) -> Routing:
-    """Decide a kind, or ask. `pages` are the page texts in order (page 1 first)."""
+def route(filename: str, pages: list[str], role: str | None = None) -> Routing:
+    """Decide a kind, or ask. `pages` are the page texts in order (page 1 first).
+    `role` is the document's recorded role (`document_classification.document_role`),
+    one cue among the others: a document already classified COMPANY_STANDARD is
+    a standard, and was suggested as a procedure before it counted (#693)."""
     vocab = vocabulary()
     min_score, min_margin = int(vocab.get("min_score", 4)), int(vocab.get("min_margin", 2))
     if not any((p or "").strip() for p in pages):
         return Routing(None, STATE_NEEDS_ENGINEER, {}, [],
                        "no text could be read, so the router has nothing to go on")
-    scores, fired = score(filename, [p or "" for p in pages])
+    scores, fired = score(filename, [p or "" for p in pages], role)
     ranked = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
     (best, best_score), (second, second_score) = ranked[0], ranked[1]
     shown = dict(ranked[:3])
@@ -201,7 +206,10 @@ def route_document(document_id: str) -> Routing | None:
     doc = conn.execute("SELECT filename FROM documents WHERE id = ?", (document_id,)).fetchone()
     if doc is None:
         return None
-    routing = route(doc["filename"], _pages_of(document_id))
+    recorded = conn.execute("SELECT document_role FROM document_classification WHERE document_id = ?",
+                            (document_id,)).fetchone()
+    routing = route(doc["filename"], _pages_of(document_id),
+                    recorded["document_role"] if recorded is not None else None)
     version = str(vocabulary().get("router_version", "1"))
     with conn:
         conn.execute(

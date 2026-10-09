@@ -1107,6 +1107,8 @@ def extract_table_values(
           for p in parses))
     written = 0
     merged = 0
+    # #695: where a table's cells go that are NOT recorded, by reason.
+    skipped = {"no_row_label": 0, "empty": 0, "not_a_number": 0}
     for parse in parses:
         if not parse.parsed or len(parse.rows) < 2:
             continue
@@ -1115,6 +1117,7 @@ def extract_table_values(
         for row_index, row in enumerate(parse.rows[1:], start=1):
             label = (row[0] if row else "").strip()
             if not label:
+                skipped["no_row_label"] += sum(1 for c in row[1:] if (c or "").strip())
                 continue
             for column_index, cell in enumerate(row[1:], start=1):
                 if column_index >= len(header):
@@ -1123,16 +1126,21 @@ def extract_table_values(
                 # A cell that is not a number is not a value. A label repeated
                 # in a data column, an empty cell, a footnote marker - none of
                 # them is a limit, and recording one would invent a
-                # requirement out of formatting.
-                if requirements_3b.cell_value(raw_value) is None:
+                # requirement out of formatting. A number that carries its own
+                # unit ("50 mm") IS a value (#695); every cell skipped is
+                # counted by reason, not lost.
+                reading = requirements_3b.cell_reading(raw_value)
+                if reading is None:
+                    skipped["empty" if not raw_value else "not_a_number"] += 1
                     continue
+                number_text, cell_unit = reading
                 column = header[column_index]
-                unit = requirements_3b.header_unit(column)
+                unit = cell_unit or requirements_3b.header_unit(column)
                 # #595 THE NUMBER COMES FROM numparse (decimal comma, sign,
                 # thousands). A unit the table does not know leaves the value
                 # NULL (never 0); a cell with no unit anywhere keeps the
                 # number as written, with no unit.
-                number, cell_operator = requirements_3b.cell_number(raw_value)
+                number, cell_operator = requirements_3b.cell_number(number_text)
                 if unit:
                     # The parsed number goes in, not the cell's text: the unit
                     # table reads the text with its own rules, numparse's
@@ -1171,7 +1179,8 @@ def extract_table_values(
                             "operator": operator,
                             "raw_value": raw_value,
                             "raw_unit": unit,
-                            "unit_from": "column_header" if unit else None,
+                            "unit_from": (("cell" if cell_unit else "column_header")
+                                          if unit else None),
                             "value": value,
                             "unit": normal_unit,
                             "table_row": row_index,
@@ -1202,7 +1211,7 @@ def extract_table_values(
                   f"merged_repeats={merged} superseded={superseded}")
     return {"document_id": document_id, "values": written,
             "merged_repeats": merged, "extraction_run_id": run_id,
-            "superseded": superseded, **stats}
+            "superseded": superseded, "cells_skipped": skipped, **stats}
 
 
 def table_report(document_id: str, *,
