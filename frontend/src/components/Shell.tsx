@@ -99,6 +99,29 @@ export type Connection =
 /** How soon a single failed poll is re-checked before anything is declared. */
 export const CONFIRM_OFFLINE_MS = 1500;
 
+/** The health check runs this often while the tab is visible (#654). It was
+ *  5 s, and kept running in a hidden tab: 4 calls in 20 s, forever, against a
+ *  PC with little spare memory and one server worker. */
+export const HEALTH_POLL_MS = 15000;
+
+/** The interval in use. VITE_HEALTH_POLL_MS exists so tests need not wait out 15 s. */
+function pollInterval(): number {
+  const raw = Number(import.meta.env.VITE_HEALTH_POLL_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : HEALTH_POLL_MS;
+}
+
+/** Consecutive failed polls double the wait, up to this. */
+export const HEALTH_MAX_BACKOFF_MS = 60000;
+
+/** The wait before the next poll after `failures` polls in a row failed. */
+export function healthDelay(base: number, failures: number): number {
+  return Math.min(base * 2 ** Math.max(0, failures), HEALTH_MAX_BACKOFF_MS);
+}
+
+function tabHidden(): boolean {
+  return typeof document !== "undefined" && document.visibilityState === "hidden";
+}
+
 /** Polls health. Exposed so screens can react to the backend going away.
  *
  * ONE FAILED POLL IS NOT AN OUTAGE. Going offline hands the whole screen to
@@ -116,8 +139,15 @@ export const CONFIRM_OFFLINE_MS = 1500;
  *
  * Responses are applied in order of REQUEST: a slow poll that resolves after a
  * newer one must not overwrite it.
+ *
+ * THE POLLER IS ONE, AND IT IS POLITE (#654). It runs every HEALTH_POLL_MS
+ * while the tab is visible, makes NO call while the tab is hidden (the Page
+ * Visibility API), checks once the moment the tab is shown again, and backs
+ * off (doubling, to HEALTH_MAX_BACKOFF_MS) while the backend does not answer;
+ * the first good answer returns it to the normal pace. The badge, the screens
+ * and the reconnect banner all read this one connection (App.tsx).
  */
-export function useConnection(intervalMs = 5000) {
+export function useConnection(intervalMs = pollInterval()) {
   const [connection, setConnection] = useState<Connection>({ state: "connecting" });
   const lastHealth = useRef<Health | null>(null);
   const state = useRef<Connection["state"]>("connecting");
@@ -127,12 +157,15 @@ export function useConnection(intervalMs = 5000) {
 
   // Consecutive polls that could not reach the backend.
   const strikes = useRef(0);
+  // Consecutive polls that did not succeed for any reason: the back-off.
+  const failures = useRef(0);
 
   const check = useCallback(async (): Promise<void> => {
     const seq = ++issued.current;
     const result = await api.health();
     if (seq < applied.current) return; // a newer poll already answered
     applied.current = seq;
+    failures.current = result.ok ? 0 : failures.current + 1;
     if (result.ok) {
       strikes.current = 0;
       if (confirmTimer.current !== null) {
@@ -167,14 +200,44 @@ export function useConnection(intervalMs = 5000) {
 
   useEffect(() => {
     let cancelled = false;
-    const tick = () => {
-      if (!cancelled) void check();
+    let timer: number | null = null;
+
+    const stop = () => {
+      if (timer !== null) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
     };
-    tick();
-    const timer = window.setInterval(tick, intervalMs);
+    // One timer at a time. A hidden tab schedules nothing at all; the
+    // visibilitychange handler below starts the cycle again.
+    const schedule = () => {
+      stop();
+      if (cancelled || tabHidden()) return;
+      timer = window.setTimeout(() => {
+        timer = null;
+        void poll();
+      }, healthDelay(intervalMs, failures.current));
+    };
+    const poll = async () => {
+      if (cancelled || tabHidden()) return;
+      await check();
+      schedule();
+    };
+    const onVisibility = () => {
+      if (tabHidden()) {
+        stop();
+      } else {
+        stop();
+        void poll();           // shown again: look at once, then keep the pace
+      }
+    };
+
+    void poll();
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
       if (confirmTimer.current !== null) window.clearTimeout(confirmTimer.current);
     };
   }, [check, intervalMs]);
