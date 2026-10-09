@@ -731,8 +731,54 @@ def new_extraction_run_id() -> str:
     return f"xrun_{uuid.uuid4().hex[:16]}"
 
 
+_ALNUM = re.compile(r"[\W_]+", re.UNICODE)
+#: How much of a sentence is looked for on a page. Long enough to be this
+#: sentence and not a phrase every page repeats, short enough to survive a
+#: line-break hyphen or a running footer later in the sentence.
+_PAGE_PROBE_CHARS = 48
+
+
+def _fold_for_page(text: str) -> str:
+    return _ALNUM.sub("", (text or "").lower())
+
+
+def sentence_page(chunk, sentence: str, page_texts: dict[int, str] | None) -> int:
+    """The page a requirement sentence is ON, for a chunk that spans pages.
+
+    #660: a requirement recorded `page_start` of its chunk, so a clause that
+    began on the next page cited the wrong one and "found on the page" could
+    call a correct quote missing. The chunk's pages are searched for the start
+    of the sentence (letters and digits only, so line breaks, hyphens and
+    spacing do not matter). A sentence found nowhere (the chunk text was
+    cleaned after the page was read) keeps `page_start`: the old, still
+    resolving citation, never an invented page. A sentence that runs over the
+    page break cites the page it STARTS on.
+    """
+    first, last = chunk["page_start"], chunk["page_end"]
+    if not page_texts or last <= first:
+        return first
+    probe = _fold_for_page(sentence)[:_PAGE_PROBE_CHARS]
+    if len(probe) < 12:
+        return first
+    for page_no in range(first, last + 1):
+        if probe in page_texts.get(page_no, ""):
+            return page_no
+    return first
+
+
+def _page_texts(document_id: str, chunk) -> dict[int, str] | None:
+    """Folded text of each page a chunk spans, or None for a one-page chunk."""
+    if chunk["page_end"] <= chunk["page_start"]:
+        return None
+    rows = connect().execute(
+        "SELECT page_no, text FROM pages WHERE document_id = ? AND page_no BETWEEN ? AND ?",
+        (document_id, chunk["page_start"], chunk["page_end"])).fetchall()
+    return {r["page_no"]: _fold_for_page(r["text"]) for r in rows}
+
+
 def _reproduced(requirement_id: str, chunk, run_id: str,
-                extractor_version: str | None, inputs: str | None) -> None:
+                extractor_version: str | None, inputs: str | None, *,
+                page: int | None = None) -> None:
     """A requirement met again by a re-extraction: same row, new provenance.
     The text is not touched - it is the same text, which is why it matched."""
     conn = connect()
@@ -741,8 +787,8 @@ def _reproduced(requirement_id: str, chunk, run_id: str,
             "UPDATE standard_requirements SET chunk_id = ?, page = ?,"
             " extraction_run_id = ?, extractor_version = ?, input_hash = ?,"
             " updated_at = ? WHERE id = ? AND " + _SUPERSEDABLE,
-            (chunk["id"], chunk["page_start"], run_id, extractor_version,
-             inputs, _now(), requirement_id))
+            (chunk["id"], page if page is not None else chunk["page_start"], run_id,
+             extractor_version, inputs, _now(), requirement_id))
 
 
 def _supersede(document_id: str, ids: list[str], run_id: str, *, action: str) -> int:
@@ -899,6 +945,7 @@ def extract_requirements(
             # and read as a requirement it said the opposite of the standard.
             continue
         clause = clause_number(chunk["section"])
+        pages_of_chunk = _page_texts(document_id, chunk)    # #660
         # The running footer is removed BEFORE splitting. After the split it is
         # already inside a sentence, having joined the tail of one page to the
         # head of the next.
@@ -924,7 +971,8 @@ def extract_requirements(
                     # #640 the same requirement, met again: the row stays,
                     # with this run's provenance, and nothing is written.
                     _reproduced(reproducible[key], chunk, run_id,
-                                extractor_version, inputs)
+                                extractor_version, inputs,
+                                page=sentence_page(chunk, sentence, pages_of_chunk))
                     kept.add(reproducible[key])
                     written += 1
                     continue
@@ -976,7 +1024,7 @@ def extract_requirements(
                         requirement_text=sentence,
                         source_text=sentence,
                         clause=clause,
-                        page=chunk["page_start"],
+                        page=sentence_page(chunk, sentence, pages_of_chunk),
                         extraction_method="extracted",
                         confidence=confidence,
                         category="prohibition" if _PROHIBITION.search(sentence) else None,
