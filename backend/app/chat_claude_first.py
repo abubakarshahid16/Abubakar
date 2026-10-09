@@ -305,7 +305,7 @@ def answer(question: str, *, history: str, allowed_document_ids: frozenset[str],
                 if turn is not None:
                     turn.flush()
                 return _finish(response, sources, steps, started, thinking_seconds,
-                               turn_cost, text="\n\n".join(round_texts))
+                               turn_cost, text="\n\n".join(round_texts), question=question)
 
             tool_results = []
             for block in tool_uses:
@@ -425,10 +425,11 @@ def _budget_or_provider_failure(exc: Exception, sources: list[dict], steps: list
 
 def _finish(response, sources: list[dict], steps: list[dict], started: float,
            thinking_seconds: float | None, turn_cost: float | None = None,
-           *, text: str | None = None) -> dict:
+           *, text: str | None = None, question: str | None = None) -> dict:
     """`turn_cost`: USD for every call of the turn; the last call's own cost
     only when no total is given. `text`: every round's text joined in order
-    (what was streamed); the last response's own text when not given."""
+    (what was streamed); the last response's own text when not given.
+    `question`: so a point quoted from front matter is not counted as found."""
     from . import answer as answer_mod
 
     cost = round(turn_cost, 6) if turn_cost is not None else response.cost_usd
@@ -446,7 +447,8 @@ def _finish(response, sources: list[dict], steps: list[dict], started: float,
         first_last_line = (len(text[: len(text) - len(last_round)].splitlines())
                            if last_round and text.endswith(last_round) else None)
         text, verification, claims, removed = answer_mod.verify_claims(
-            text, sources, narration_from_line=first_last_line, dropped=dropped_points)
+            text, sources, narration_from_line=first_last_line, dropped=dropped_points,
+            question=question)
         text, _labels = _relabel_image_only_citations(text, sources)
         # The notice counts the POINTS that were kept unverified, not the
         # labels written - so it can never announce a point that was removed.

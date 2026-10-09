@@ -1,0 +1,19 @@
+{
+  "_comment": [
+    "Prefixes an identifier may be written with or without (read by",
+    "app/keyword.py, unprefixed_forms). A materials table under a 'UNS' column",
+    "prints 'N06625'; a question asks about 'UNS N06625'. Both must match.",
+    "The prefix is dropped ONLY when what remains is a code with a letter AND",
+    "a digit (N06625, A216, MR0175), so 'API 610' never becomes a bare '610'.",
+    "Matched case-insensitively. Edit this file to add a prefix; no code",
+    "change is needed. Call keyword.reload_prefixes() in a running process."
+  ],
+  "prefixes": [
+    "UNS",
+    "ASTM",
+    "ASME",
+    "AISI",
+    "SAE",
+    "NACE"
+  ]
+}
