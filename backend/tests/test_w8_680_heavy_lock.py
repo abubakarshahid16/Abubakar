@@ -83,7 +83,7 @@ def test_a_lock_whose_process_is_gone_is_stale_at_once(lock):
                           capture_output=True, text=True)
     dead_pid = int(done.stdout)
     rec = {"token": "x", "kind": "p1", "owner": "gone", "pid": dead_pid,
-           "host": heavy_lock.socket.gethostname(), "started_epoch": time.time()}
+           "host": heavy_lock.platform.node(), "started_epoch": time.time()}
     lock.write_text(json.dumps(rec))
     assert heavy_lock.try_acquire("tests") is not None
 

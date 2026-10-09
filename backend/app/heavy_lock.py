@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import json
 import os
-import socket
+import platform
 import time
 import uuid
 from contextlib import contextmanager
@@ -99,7 +99,7 @@ def is_stale(record: dict | None, now: float | None = None) -> bool:
     started = record.get("started_epoch")
     if not isinstance(started, (int, float)) or now - started > STALE_AFTER_SECONDS:
         return True
-    if record.get("host") == socket.gethostname() and isinstance(record.get("pid"), int):
+    if record.get("host") == platform.node() and isinstance(record.get("pid"), int):
         if _pid_alive(record["pid"]) is False:
             return True
     return False
@@ -138,7 +138,7 @@ def _record(kind: str, owner: str | None) -> tuple[str, dict]:
     return token, {
         "token": token, "kind": kind,
         "owner": owner or os.environ.get("HEAVY_JOB_OWNER") or f"pid {os.getpid()}",
-        "pid": os.getpid(), "host": socket.gethostname(),
+        "pid": os.getpid(), "host": platform.node(),
         "started_epoch": now,
         "started_at": datetime.fromtimestamp(now, UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
     }
