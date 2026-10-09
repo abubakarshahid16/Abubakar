@@ -2858,10 +2858,12 @@ def chunk_document(doc_id: str, force: bool = False,
                    acknowledge_orphaned_findings: bool = False) -> dict:
     """Chunk one extracted document. Idempotent - re-running replaces rows.
 
-    B38: replacing the chunks CASCADES into `standard_requirements` (its
-    `chunk_id` is ON DELETE CASCADE), so a re-chunk that would take requirement
-    rows review findings cite is RECORDED and REFUSED unless
-    `acknowledge_orphaned_findings` - see `orphan_guard`."""
+    B38/#659: `standard_requirements.chunk_id` is ON DELETE CASCADE, so deleting
+    the chunks used to take the document's requirements with them (and a
+    re-chunk was refused when findings cited them). Now the requirements are
+    detached before the delete and re-pointed after the insert, or superseded
+    - nothing is deleted - see `orphan_guard`.
+    `acknowledge_orphaned_findings` is kept for callers and is not needed."""
     timer = Timer()
     conn = connect()
     keyword.ensure_schema(conn)
@@ -3146,12 +3148,12 @@ def chunk_document(doc_id: str, force: bool = False,
                  c.text[:2000], len(c.text.strip()), now, 0)
             )
 
-    orphan_guard.check(
-        "re_chunk",
-        requirement_where="chunk_id IN (SELECT id FROM chunks WHERE document_id = ?)",
-        params=(doc_id,), document_id=doc_id,
-        acknowledge=acknowledge_orphaned_findings)
+    # #659: re-chunking no longer refuses and no longer deletes requirements.
+    # Their chunk link is detached before the chunks go (so ON DELETE CASCADE
+    # has nothing to take) and re-pointed after the new chunks exist.
+    # `acknowledge_orphaned_findings` is kept for callers and is not needed.
     with conn:
+        detached = orphan_guard.detach_requirements_for_rechunk(conn, doc_id)
         conn.execute("DELETE FROM exclusions WHERE document_id = ?", (doc_id,))
         conn.executemany(
             """INSERT INTO exclusions
@@ -3205,6 +3207,7 @@ def chunk_document(doc_id: str, force: bool = False,
                AND chunk_id NOT IN (SELECT id FROM chunks WHERE document_id = ?)""",
             (doc_id, doc_id),
         )
+        orphan_guard.reattach_requirements_after_rechunk(conn, doc_id, detached)
         # chunk_count is the RETRIEVABLE count - what search can actually see.
         # chunk_count_total is every row, including the ones kept only for
         # inspection. The two differ and both are reported.
