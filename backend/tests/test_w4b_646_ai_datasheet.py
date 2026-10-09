@@ -4,7 +4,7 @@ A fake model stands in for any model (no weights; #683). Code checks the
 label and the value are on the page as whole words, reads the figure and unit
 from the verified value text, keeps text values as text, and merges repeats.
 
-Invented datasheet only. Mutations M4515-M4520.
+Invented datasheet only. Mutations M4515-M4519.
 """
 from __future__ import annotations
 
