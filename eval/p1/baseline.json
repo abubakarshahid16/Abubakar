@@ -42,7 +42,8 @@
   "P1-63",
   "P1-64",
   "P1-65",
-  "P1-66"
+  "P1-66",
+  "P1-67"
  ],
  "clause_passing": [
   "P1-03",
@@ -101,12 +102,12 @@
   "P1-55"
  ],
  "total": [
-  43,
-  66
+  44,
+  67
  ],
  "gate": {
-  "decided": "owner, 2026-10-08; raised to 41 of 64 on 2026-10-09; raised to 43 of 66 with P1-65 and P1-66 protected (they guard the UNS identifier fix) on 2026-10-09",
-  "min_passing": 43,
+  "decided": "owner, 2026-10-08; raised to 41 of 64 on 2026-10-09; raised to 43 of 66 with P1-65 and P1-66 protected (they guard the UNS identifier fix) on 2026-10-09; raised to 44 of 67 with P1-67 protected (it guards the psi vs percent fix, #653) on 2026-10-09",
+  "min_passing": 44,
   "protected": [
    "P1-02",
    "P1-03",
@@ -132,7 +133,8 @@
    "P1-28",
    "P1-30",
    "P1-65",
-   "P1-66"
+   "P1-66",
+   "P1-67"
   ]
  }
 }

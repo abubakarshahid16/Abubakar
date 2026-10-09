@@ -152,16 +152,18 @@ def test_unchecked_parts_names_every_part_and_a_clean_run_has_none():
     lines = " | ".join(p["line"] for p in parts)
     assert {p["part"] for p in parts} == {
         "run_not_completed", "partial_findings", "standards_not_checked",
-        "table_values_not_compared", "requirements_not_applied", "text_quality_held_back",
+        "table_values_not_compared", "text_quality_held_back",
         "unread_pages", "ai_check", "web_check", "unchecked_share"}
     assert "did not complete (status: failed): the model host went away" in lines
     assert "42 standards-table value(s) were not compared" in lines
-    assert "7 requirement(s) were not applied" in lines
+    # #678: requirements about other equipment DO NOT APPLY; they are not an
+    # unchecked part and no longer make a sheet incomplete.
+    assert "were not applied" not in lines
     assert "4 requirement(s) were held back" in lines
     # The control: a completed run that left nothing unchecked has no parts.
     assert absence.unchecked_parts(run_status="completed", outcome={}) == []
     assert absence.notice_for([]) == ""
-    assert absence.notice_for(parts).startswith("REVIEW INCOMPLETE: 10 part(s)")
+    assert absence.notice_for(parts).startswith("REVIEW INCOMPLETE: 9 part(s)")
 
 
 def test_the_workbook_prints_the_incomplete_notice_above_the_code():
@@ -261,7 +263,11 @@ def test_a_run_with_large_unchecked_parts_cannot_be_approved():
     big = comparison.recommend_code(
         met, SUFFICIENT, unchecked_counts={"not_compared": 900, "not_applied": 100, "checked": 3})
     assert big["code"] == comparison.CODE_MANUAL
-    assert "1000 of 1003 requirements in scope were not compared" in big["reason"]
+    assert "900 of 903 requirements that apply to this submittal were not checked" in big["reason"]
+    # #678: requirements that DO NOT APPLY never weigh against a run, however many.
+    inapplicable = comparison.recommend_code(
+        met, SUFFICIENT, unchecked_counts={"not_compared": 1, "not_applied": 5000, "checked": 3})
+    assert inapplicable["code"] == comparison.CODE_APPROVED
     # Approved with comments is an approval too.
     with_comments = comparison.recommend_code(
         met + [{"compliance_status": comparison.MISSING_INFORMATION}], SUFFICIENT,
@@ -272,7 +278,7 @@ def test_a_run_with_large_unchecked_parts_cannot_be_approved():
         [{"compliance_status": comparison.NON_COMPLIANT}], SUFFICIENT,
         unchecked_counts={"not_compared": 900, "not_applied": 0, "checked": 1})
     assert breach["code"] == comparison.CODE_REJECTED
-    assert absence.unchecked_share(0, 0, 0) is None
+    assert absence.unchecked_share(0, 0) is None
 
 
 def test_the_run_hands_its_unchecked_counts_to_the_review_code(world, monkeypatch):
@@ -374,9 +380,11 @@ def test_a_named_document_that_cannot_be_read_is_listed_and_a_readable_one_is_no
 def test_every_incomplete_sheet_shows_the_unchecked_share_with_its_denominator():
     outcome = {"unchecked_counts": {"not_compared": 30, "not_applied": 10, "checked": 40}}
     parts = absence.unchecked_parts(run_status="completed", outcome=outcome)
-    assert [p["part"] for p in parts] == ["unchecked_share"]
-    assert "40 of 80 requirements in scope (50%) were not compared" in parts[0]["line"]
-    assert "40 of 80 requirements in scope (50%)" in absence.notice_for(parts)
+    assert [p["part"] for p in parts] == ["unchecked_share", "requirement_reasons", "requirement_reasons"]
+    assert ("Of 80 requirements in scope: 40 checked, 30 apply but were not checked, "
+            "10 do not apply. 30 of 70 (43%) of the requirements that apply were not checked"
+            ) in parts[0]["line"]
+    assert "30 of 70 (43%)" in absence.notice_for(parts)
     # A run that never reached the comparison says the share is not known, never 0%.
     failed = absence.unchecked_parts(run_status="failed", outcome={})
     assert failed[-1]["part"] == "unchecked_share" and "not known" in failed[-1]["line"]

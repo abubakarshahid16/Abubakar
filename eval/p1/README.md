@@ -1,10 +1,10 @@
 # P1: the labelled question set
 
 A fixed list of questions with known right answers, run through the real chat
-on every change. A change is blocked when fewer than 43 of the 66 questions
-pass (37 of 60 at first; 41 of 64 with version 3; 43 of 66 with version 4,
-all on 2026-10-09 or before), or when any of the 25 protected questions stops
-passing (see "The gate").
+on every change. A change is blocked when fewer than 44 of the 67 questions
+pass (37 of 60 at first; 41 of 64 with version 3; 43 of 66 with version 4;
+44 of 67 with version 5, all on 2026-10-09 or before), or when any of the 26
+protected questions stops passing (see "The gate").
 
 ## What is in this folder
 
@@ -49,18 +49,18 @@ After a real improvement, raise the bar and commit the new `baseline.json`:
 
 ## The gate
 
-Owner decision, 2026-10-08; the bar raised to 41 of 64 and then 43 of 66 on 2026-10-09. A change
+Owner decision, 2026-10-08; the bar raised to 41 of 64, 43 of 66 and then 44 of 67 on 2026-10-09. A change
 is blocked when ANY of these is true:
 
 | rule | where it lives |
 |---|---|
-| fewer than **43 of 66** questions pass | `gate.min_passing` in `baseline.json` |
-| any of the **25 protected** questions fails: the 23 original passes (P1-02 to P1-30 that passed in version 1) and P1-65, P1-66 (they guard the UNS identifier fix) | `gate.protected` |
-| one of those 25 loses its right clause label (P1-65 and P1-66 carry none) | `clause_passing`, limited to `gate.protected` |
+| fewer than **44 of 67** questions pass | `gate.min_passing` in `baseline.json` |
+| any of the **26 protected** questions fails: the 23 original passes (P1-02 to P1-30 that passed in version 1), P1-65 and P1-66 (they guard the UNS identifier fix) and P1-67 (it guards the psi vs percent fix) | `gate.protected` |
+| one of those 26 loses its right clause label (P1-65, P1-66 and P1-67 carry none) | `clause_passing`, limited to `gate.protected` |
 | an unanswerable question that was refused is now answered | `failing_known` |
 
-Outside the 25, a question may trade places: P1-34 failing is fine if
-another new question starts passing and the total stays at 43 or more.
+Outside the 26, a question may trade places: P1-34 failing is fine if
+another new question starts passing and the total stays at 44 or more.
 
 The last two rows come from the version 1 rule. The owner confirmed
 on 2026-10-08 that both stay: an unanswerable question must never flip
@@ -69,8 +69,8 @@ clause labels. The clause row covers only the protected questions, so the other
 questions can still trade places.
 
 `--write-baseline` keeps the `gate` as it is. Only a person edits it, and
-`test_the_committed_gate_is_43_of_66_with_25_protected` checks
-that the file still says 37 and 23.
+`test_the_committed_gate_is_44_of_67_with_26_protected` checks
+that the file still says 44 of 67 and those 26 protected questions.
 
 ## What this does not prove
 
@@ -174,3 +174,12 @@ All earlier passes still pass and no unanswerable question flipped.
 P1-65 and P1-66 passed in 3 of 3 runs. On 2026-10-09 the owner raised the
 bar: the baseline holds them, `gate.min_passing` is 43, and both are
 protected (25 protected questions).
+
+## Version 5 (2026-10-09): 67 questions
+
+P1-67 (invented STD-P-014, #653): a percent limit beside a worked-example row
+that prints the same number as psi. Whole set: **44 of 67**, clause label right
+29 of 46, unanswerable 6 of 11; no earlier pass lost and no unanswerable
+question flipped. P1-67 passed in 3 of 3 runs of its own plus the full runs, so
+on 2026-10-09 the owner raised the bar: `gate.min_passing` is 44 and P1-67 is
+protected (26 protected questions).

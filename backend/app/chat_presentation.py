@@ -125,6 +125,7 @@ def sources(result: dict) -> list[dict]:
             "page": p.get("page_start"),
             "page_end": p.get("page_end"),
             "clause": p.get("section"),
+            "locator": p.get("locator"),
             "text_source": p.get("text_source"),
             "ocr_min_conf": p.get("ocr_min_conf"),
             "url": None,

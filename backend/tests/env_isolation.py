@@ -125,6 +125,8 @@ EGRESS_SAFE: dict[str, object] = {
     "applicability_taxonomy_path": None,
     # --- local only; listed so the completeness check has seen it
     "geometry_table_reader_enabled": True,
+    # --- local only: reads an uploaded Word file with the standard library
+    "docx_input_enabled": True,
 }
 
 #: Path fields the suite WRITES through. They must point inside a temp dir,
