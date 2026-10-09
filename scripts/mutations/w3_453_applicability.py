@@ -56,11 +56,11 @@ MUTATIONS: tuple[Mutation, ...] = (
 )
 
 MUTATIONS = MUTATIONS + (
-    _m(3501, "the vocabulary has no plural rule again",
+    _m(3701, "the vocabulary has no plural rule again",
        "subject_scope.py", "                    if not folded.endswith(\"s\"):\n",
        "                    if False:\n", "plural_needs_no_listing"),
-    _m(3502, "PZV is not a relief valve again",
+    _m(3702, "PZV is not a relief valve again",
        "reference/equipment_vocabulary.json", '        "pzv",\n        "pzvs",\n', "", "every_relief_valve_spelling"),
-    _m(3503, "rupture disks are not relief valves again",
+    _m(3703, "rupture disks are not relief valves again",
        "reference/equipment_vocabulary.json", '        "rupture disk",\n        "rupture disks",\n', "", "every_relief_valve_spelling"),
 )
