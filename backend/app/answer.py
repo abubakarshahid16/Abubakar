@@ -271,6 +271,12 @@ FRONT_MATTER_REASON = ("the only passages that matched are front matter of {file
                        "document rather than state its requirements")
 
 
+#: The Claude lane's refusal when every point it made quoted front matter.
+FRONT_MATTER_POINTS_REASON = ("every point of the answer quoted the document's front matter "
+                              "(its foreword, history or contents), which describes the "
+                              "document rather than stating its requirements")
+
+
 def _front_matter_vouches(lead: dict, hits: list[dict], question: str) -> bool:
     """The semantic score that ranked this document's front matter, standing
     for the clause it was ranked below (#610).
@@ -836,7 +842,8 @@ def _ends_in_lead_in(plain: str) -> bool:
 def verify_claims(text: str, passages: list[dict], *,
                   final: bool = True,
                   narration_from_line: int | None = 0,
-                  dropped: list[dict] | None = None) -> tuple[str, dict, list[dict], int]:
+                  dropped: list[dict] | None = None,
+                  question: str | None = None) -> tuple[str, dict, list[dict], int]:
     """Keep only the claims whose quote AND figures are on the page they cite.
 
     Returns (clean text with [S#] markers only, {verified, total, method},
@@ -882,13 +889,20 @@ def verify_claims(text: str, passages: list[dict], *,
     `verification["image_only"]`, and the caller labels it "read from image -
     check the page" (`chat_claude_first`). Its citation is only ever a marker
     here, never a figure the sentence claims.
+
+    FRONT MATTER IS NOT A POINT FOUND (#610 follow-up). With `question`, a
+    point whose every quote comes from a foreword, revision history or
+    contents page the question did not ask about (`front_matter.demoted`) is
+    kept as written but counted in `total` only, never in `verified` - the
+    same rule the quoted answer's count follows (chat_presentation). Its
+    words are on the page; they do not answer the question.
     """
     from .model_evidence import claim_quote_verified
 
     # Each kept segment is [text, kind, claims]: kind "verified", "image" or
     # "plain" - so a segment dropped later is taken out of the right count.
     lines: list[dict] = []
-    total = verified = image_only = 0
+    total = verified = image_only = front = 0
 
     def note(segment: str, why: str) -> None:
         # What was removed and why, kept for the reader's own audit of a
@@ -958,6 +972,15 @@ def verify_claims(text: str, passages: list[dict], *,
                 lost_tail = True
                 note(segment, "says the opposite of the words it quotes")
                 continue
+            if question is not None and all(
+                    front_matter.demoted(passages[int(m.group(1)) - 1], question)
+                    for m in cites):
+                # already counted in `total` above; never in `verified`,
+                # and never reported as removed - it is shown
+                front += 1
+                kept_segments.append([plain, "front", []])
+                lost_tail = False
+                continue
             verified += 1
             kept_segments.append([plain, "verified",
                                   [{"n": int(m.group(1)), "quote": m.group(2)} for m in cites]])
@@ -968,10 +991,13 @@ def verify_claims(text: str, passages: list[dict], *,
     claims: list[dict] = []
 
     def drop_segment(seg: list) -> None:
-        nonlocal total, verified, image_only
+        nonlocal total, verified, image_only, front
         if seg[1] == "verified":
             total -= 1
             verified -= 1
+        elif seg[1] == "front":
+            total -= 1
+            front -= 1
         elif seg[1] == "image":
             image_only -= 1
 
@@ -1003,7 +1029,9 @@ def verify_claims(text: str, passages: list[dict], *,
     verification = {"verified": verified, "total": total, "method": "quote found on the page"}
     if image_only:
         verification["image_only"] = image_only
-    return clean, verification, claims, total - verified
+    if front:
+        verification["front_matter"] = front
+    return clean, verification, claims, total - verified - front
 
 
 #: A markdown list marker at the start of a line ("- ", "* ", "1. ", "2) ").
@@ -1965,13 +1993,15 @@ def _answer_from_documents(
     verification = claims = None
     claims_removed = 0
     if claude_lane():
-        text, verification, claims, claims_removed = verify_claims(text, passages)
+        text, verification, claims, claims_removed = verify_claims(text, passages, question=question)
         if verification["total"] and not verification["verified"]:
             return {
                 **base,
                 "answer_type": "insufficient_evidence",
                 "answer": None,
-                "reason": "none of the answer's points could be found on the page they cited",
+                "reason": (FRONT_MATTER_POINTS_REASON
+                           if verification.get("front_matter") == verification["total"]
+                           else "none of the answer's points could be found on the page they cited"),
                 "passages": passages,
                 "verification": verification,
                 "claims_removed": claims_removed,
