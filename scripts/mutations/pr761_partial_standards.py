@@ -23,3 +23,16 @@ MUTATIONS: tuple[Mutation, ...] = (
              replacement="    entries = [(kind, e) for kind in partial_standards for e in partial_standards[kind]]\n",
              target=_T, keyword="no_entry_is_untouched", tags=("applicability",)),
 )
+
+MUTATIONS = MUTATIONS + (
+    Mutation(id="M761-04", phase=761, description="the CRS prints a table number as an ASME clause again",
+             path=APP / "crs_mapping.py",
+             anchor="    if clause and finding.get(\"clause_identified\") is False:\n",
+             replacement="    if False:\n",
+             target=_T, keyword="never_prints_a_table_number", tags=("crs", "honesty", "critical")),
+    Mutation(id="M761-05", phase=761, description="the CRS context never marks a standard's clauses as unidentified",
+             path=APP / "comparison.py",
+             anchor="            f[\"clause_identified\"] = known[f[\"standard_document_id\"]]\n",
+             replacement="            pass\n",
+             target="tests/test_partial_standards.py", keyword="attach_marks", tags=("crs", "honesty")),
+)

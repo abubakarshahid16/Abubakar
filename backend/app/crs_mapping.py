@@ -368,6 +368,10 @@ def _standard_reference(finding: dict) -> str:
         return ""
     clause = finding.get("standard_clause")
     page = finding.get("standard_page")
+    # A-761b: a standard whose clause values are table numbers, not paragraph
+    # ids (`standards.paragraph_ids_known`), never prints them as a clause.
+    if clause and finding.get("clause_identified") is False:
+        return std + " (paragraph not identified)" + (f" (p.{page})" if page else "")
     return std + (f" cl. {clause}" if clause else "") + (f" (p.{page})" if page else "")
 
 

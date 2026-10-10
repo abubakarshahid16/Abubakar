@@ -117,3 +117,46 @@ def test_a_relief_valve_review_does_not_check_vessel_construction_rules(temp_sto
 def test_a_pressure_vessel_review_still_checks_them(temp_storage):
     _result, stored, ids = _review("Pressure Vessel")
     assert stored[ids["vessel"]]["state"] == scope_ledger.CHECKED
+
+
+# ---------------------------------------------------- A-761b: no false-looking clause numbers
+
+def test_a_crs_never_prints_a_table_number_as_a_clause():
+    from app import crs_mapping
+    finding = {"standard_name": "ASME-Sec-VIII-Div1-2023.pdf", "standard_clause": "0.3", "standard_page": 12}
+    assert "cl. 0.3" in crs_mapping._standard_reference(finding)                  # not flagged: unchanged
+    flagged = {**finding, "clause_identified": False}
+    ref = crs_mapping._standard_reference(flagged)
+    assert "cl. 0.3" not in ref and "paragraph not identified" in ref and "(p.12)" in ref
+
+
+def test_a_standard_whose_clauses_are_table_numbers_is_detected(temp_storage):
+    from app import standards as standards_mod
+    with db.connect() as conn:
+        for doc in ("tab", "par", "few"):
+            conn.execute("INSERT INTO documents (id,filename,sha256,size_bytes,stored_path,status,page_count,"
+                         "uploaded_at) VALUES (?,?,?,1,?,'ready',1,?)", (doc, f"{doc}.pdf", f"s-{doc}", f"{doc}.pdf", NOW))
+            conn.execute("INSERT INTO chunks (id,document_id,filename,ordinal,page_start,page_end,section,kind,text,"
+                         "token_count,content_hash,retrievable) VALUES (?,?,?,0,1,1,NULL,'prose','x',1,?,1)",
+                         (f"c-{doc}", doc, f"{doc}.pdf", f"h-{doc}"))
+
+    def add(doc, clause, i):
+        standards.create_requirement(standard_document_id=doc, chunk_id=f"c-{doc}", clause=clause, page=1,
+                                     requirement_text=f"Rule {i} of {doc} shall apply.",
+                                     source_text=f"Rule {i} of {doc} shall apply.",
+                                     structured={"requirement_type": "statement"})
+    for i in range(60):
+        add("tab", ("0.3", "2.5")[i % 2], i)          # 60 clause values, 2 distinct (3%): table numbers
+        add("par", f"5.{i}", i)                       # 60 distinct paragraph ids
+    for i in range(5):
+        add("few", "0.3", i)                          # too few to tell
+    assert standards_mod.paragraph_ids_known(["tab", "par", "few"]) == {"tab": False, "par": True, "few": True}
+
+
+def test_attach_marks_a_standard_whose_clauses_are_table_numbers(temp_storage, monkeypatch):
+    from app import standards as standards_mod
+    monkeypatch.setattr(standards_mod, "paragraph_ids_known", lambda ids: {i: i != "tab" for i in ids})
+    findings = [{"standard_document_id": "tab", "standard_clause": "0.3"},
+                {"standard_document_id": "par", "standard_clause": "5.3"}]
+    comparison.attach_crs_context(findings)
+    assert [f.get("clause_identified") for f in findings] == [False, True]
