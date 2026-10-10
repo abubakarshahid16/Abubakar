@@ -80,9 +80,9 @@ def test_cells_that_are_not_recorded_are_counted_by_reason(tmp_path):
     doc, result = _extract(tmp_path, ["Item", "Limit", "Note"],
                            [["Wall", "50 mm", "Grade B"], ["Cover", "N/A", "10 to 20"],
                             ["", "12", "13"]])
-    assert result["values"] == 1                       # only "50 mm"
+    assert result["values"] == 2                       # "50 mm", and the range "10 to 20" (#617)
     skipped = result["cells_skipped"]
-    assert skipped["not_a_number"] == 3                # Grade B, N/A, 10 to 20
+    assert skipped["not_a_number"] == 2                # Grade B, N/A
     assert skipped["no_row_label"] == 2                # the row with no label: "12" and "13"
     assert skipped["empty"] == 0
 
