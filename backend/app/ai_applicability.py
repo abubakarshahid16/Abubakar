@@ -97,10 +97,12 @@ def confirm(reason: str, quote: str, *, equipment: set[str], facts: list[dict]) 
 
 
 def gate(requirements: list[dict], *, classification: dict | None, facts: list[dict],
-         provider=None, limit: int | None = None) -> dict:
+         provider=None, limit: int | None = None, stop=None) -> dict:
     """{"kept", "items" (confirmed "does not apply", as {"requirement", "code",
     "detail", "decided_by"}), "notes" {requirement id: what the model suggested
-    that code did not confirm}, "asked", "not_asked"}."""
+    that code did not confirm}, "asked", "not_asked", "stopped"}. `stop`: asked
+    before each clause; when it gives a reason, no more clauses are asked (they
+    stay checks) and "stopped" carries the reason."""
     vocab = subject_scope.vocabulary()
     equipment, _ = subject_scope.submittal_equipment(classification, facts, vocab)
     head = context(classification, facts)
@@ -109,9 +111,12 @@ def gate(requirements: list[dict], *, classification: dict | None, facts: list[d
     items: list[dict] = []
     notes: dict = {}
     asked = 0
+    stopped = None
     for requirement in requirements:
         clause = (requirement.get("source_text") or requirement.get("requirement_text") or "").strip()
-        if limit is not None and asked >= limit or not clause:
+        if stopped is None and clause and stop is not None:
+            stopped = stop()
+        if stopped or limit is not None and asked >= limit or not clause:
             kept.append(requirement)
             continue
         asked += 1
@@ -137,4 +142,42 @@ def gate(requirements: list[dict], *, classification: dict | None, facts: list[d
             else f"the model said it may not apply ({reason.replace('_', ' ')}); "
                  f"code could not confirm it{said}")
     return {"kept": kept, "items": items, "notes": notes, "asked": asked,
-            "not_asked": len(requirements) - asked}
+            "not_asked": len(requirements) - asked, "stopped": stopped}
+
+
+def _someone_waiting() -> str | None:
+    from . import heavy_lock
+    queued = heavy_lock.waiters()
+    if not queued:
+        return None
+    return "stepped aside: another job is waiting for the machine (" + ", ".join(
+        sorted({str(w.get("kind") or "?") for w in queued})) + ")"
+
+
+def run_in_review(requirements: list[dict], *, classification: dict | None, facts: list[dict],
+                  limit: int | None, provider=None) -> dict:
+    """The tier as a review runs it, under the machine rules (#644, #680, #692):
+    the shared heavy-job lock is TRIED, never waited for - when another heavy
+    job holds it the tier does not run, every requirement stays a check, and
+    the run says so ("not run: ..."). When it runs, the model stays loaded
+    for the batch (`ai_task_batch_keep_alive`) and is unloaded at the end.
+    When another job starts WAITING for the lock mid-run, the tier steps aside
+    (as the task runner does, #680): the clauses not yet asked stay checks and
+    the run says so ("stopped: ...")."""
+    from . import heavy_lock, model_transport
+    from .config import settings
+
+    lock = heavy_lock.try_acquire("ai_batch", owner="review ai applicability")
+    if lock is None:
+        return {"kept": list(requirements), "items": [], "notes": {}, "asked": 0,
+                "not_asked": len(requirements),
+                "stopped": None, "not_run": heavy_lock.describe(heavy_lock.read())}
+    provider = provider or ai_task_runner.make_provider()
+    try:
+        with model_transport.keep_alive_override(settings.ai_task_batch_keep_alive):
+            out = gate(requirements, classification=classification, facts=facts,
+                       provider=provider, limit=limit, stop=_someone_waiting)
+        return {**out, "not_run": None, "model": getattr(provider, "requested_model", None)}
+    finally:
+        ai_task_runner._unload(provider)
+        lock.release()
