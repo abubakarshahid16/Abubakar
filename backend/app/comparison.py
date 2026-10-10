@@ -2335,7 +2335,7 @@ def run_comparison(
         # #677: does-not-apply also holds the service gate's, the AI tier's
         # (confirmed by code) and the definitions - the same items the
         # per-requirement ledger above is built from
-        scoped["not_applied_items"],
+        scoped["not_applied_items"] + extra_not_applied,
         covered_items)
     if checklist_note:
         split = {**split, "checklist": checklist_note}
