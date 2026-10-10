@@ -73,30 +73,3 @@ MUTATIONS = MUTATIONS + (
              target=_T, keyword="exactly_one_stored", tags=("honesty", "critical")),
 )
 
-_DS_T = "tests/test_w4b_646_ai_datasheet.py"
-_DS = APP / "ai_datasheet.py"
-
-MUTATIONS = MUTATIONS + (
-    Mutation(id="M4515", phase=4515, description="#646: a label not on the page is kept",
-             path=_DS, anchor="            if not label or not _on_page(label, squashed):\n",
-             replacement="            if not label:\n",
-             target=_DS_T, keyword="label_not_on_the_page", tags=("honesty", "critical")),
-    Mutation(id="M4516", phase=4516, description="#646: a value not on the page is kept",
-             path=_DS, anchor="            if not value or not _on_page(value, squashed):\n",
-             replacement="            if not value:\n",
-             target=_DS_T, keyword="value_not_on_the_page or part_of_a_word", tags=("honesty", "critical")),
-    Mutation(id="M4517", phase=4517, description="#646: part of a word counts as on the page (10 bar inside 10 barg)",
-             path=_DS,
-             anchor='    return bool(s) and re.search(r"(?<!\w)" + re.escape(s) + r"(?!\w)", squashed_page) is not None\n',
-             replacement="    return bool(s) and s in squashed_page\n",
-             target=_DS_T, keyword="part_of_a_word", tags=("honesty", "critical")),
-    Mutation(id="M4518", phase=4518, description="#646: code does not read the value's figure",
-             path=_DS,
-             anchor='    return {"figures": ai_requirements.read_figures(value_text), "text": value_text.strip()}\n',
-             replacement='    return {"figures": [], "text": value_text.strip()}\n',
-             target=_DS_T, keyword="read_by_code", tags=("honesty", "critical")),
-    Mutation(id="M4519", phase=4519, description="#646: a field read twice is kept twice",
-             path=_DS, anchor="            if key in seen:\n",
-             replacement="            if False:\n",
-             target=_DS_T, keyword="read_twice", tags=("honesty",)),
-)

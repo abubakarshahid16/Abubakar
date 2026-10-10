@@ -544,7 +544,7 @@ def ensure_schema() -> None:
                                ("evidence_quote", "TEXT"),
                                ("scope_decision", "TEXT")):
             add_column_if_missing(conn, "review_applicable_standards", _column, _type)
-        # B5: a standard's SCOPE RECORD (scope_records.py), stored once so the
+        # B5: a standard's SCOPE RECORD (tools/scope_records.py), stored once so the
         # live review can use it without calling a model. Written only by an
         # explicit reading step; the review route only reads it.
         # `not_applicable_confirmed` is 1 only when the reader's three

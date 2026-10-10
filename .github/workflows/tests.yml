@@ -202,6 +202,14 @@ jobs:
       - name: Find dead code
         run: python -m vulture backend/app scripts/vulture_whitelist.py --min-confidence 80
 
+      # #725 F8a (#736): every backend/app module is reached from the app (a
+      # tool only scripts or tests use lives in backend/tools/), and
+      # docs/system-map.md lists every module once, one module per job.
+      - name: No unused app modules
+        run: python scripts/check_unused_modules.py
+      - name: System map is complete
+        run: python scripts/check_system_map.py
+
       # No tests run: reads each mutation's target file and fails when an
       # anchor in scripts/mutations/ no longer matches exactly once, so a
       # refactor cannot silently turn a mutation into a no-op.

@@ -97,7 +97,8 @@ def main(argv: list[str] | None = None) -> int:
     if live_guard.is_live_shaped(path):
         clearance = live_guard.prepare_live_write(path, reason="generate_scope_records: B5 scope reading")
         print(f"rollback point: {clearance.backup_path}", file=sys.stderr)
-    from app import db, reasoning_provider as rp, scope_records
+    from app import db, reasoning_provider as rp
+    from tools import scope_records
     from app.applicability import store_scope_record
 
     db.reset_connection()

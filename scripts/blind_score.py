@@ -43,7 +43,7 @@ def main(argv: list[str] | None = None) -> int:
                     help="print each key line's field (keep it on this machine)")
     args = ap.parse_args(argv)
 
-    from app import blind_test
+    from tools import blind_test
     key_path = Path(args.answer_key)
     digest = hashlib.sha256(key_path.read_bytes()).hexdigest()
     try:
