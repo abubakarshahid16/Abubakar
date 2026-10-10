@@ -130,6 +130,8 @@ EGRESS_SAFE: dict[str, object] = {
     "geometry_table_reader_enabled": True,
     # --- local only: reads an uploaded Word file with the standard library
     "docx_input_enabled": True,
+    # --- local only: an uploaded image is opened by PyMuPDF and Pillow (#525)
+    "image_input_enabled": True,
 }
 
 #: Path fields the suite WRITES through. They must point inside a temp dir,

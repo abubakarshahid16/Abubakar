@@ -3268,6 +3268,10 @@ _MEDIA_TYPES = {
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     ".xlsm": "application/vnd.ms-excel.sheet.macroEnabled.12",
     ".xls": "application/vnd.ms-excel",
+    # W5b-01 (#525): a scan sent as an image previews as that image. TIFF is
+    # not shown by browsers, so it downloads (the default).
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
 }
 
 

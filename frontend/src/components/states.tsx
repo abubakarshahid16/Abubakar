@@ -76,6 +76,7 @@ const ERROR_TITLES: Record<string, string> = {
   encrypted_pdf: "That PDF is password protected",
   unsupported_office: "That file type is not supported yet",
   not_docx: "That is not a Word document",
+  not_image: "That is not a readable image",
   too_large: "That file is too large",
   duplicate: "Already uploaded",
   extract_failed: "This document could not be read",
