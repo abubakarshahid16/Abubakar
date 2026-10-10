@@ -25,6 +25,8 @@ kind its own colour without re-deciding what the sheet says.
 import hashlib
 import re
 
+from . import standard_ids
+
 INCLUDED_STATUSES = ("NON_COMPLIANT", "NEEDS_ENGINEER_REVIEW", "MISSING_INFORMATION")
 
 #: Read by `crs_export` to colour a row. Never printed. One tag per bucket
@@ -57,6 +59,13 @@ _AI_CONFIRMED_BY = "AI engineering check, confirmed by "
 #: kind C - unconfirmed rides in "AI Review Comments", confirmed moves to
 #: COMPANY Comments under the engineer's name, rejected is not on the sheet.
 ROW_KIND_WEB_STANDARD_CHECK = "web_standard_check"
+#: #754 F5b: a standard that APPLIES to this submittal (its equipment type or
+#: a service condition it declares) and that the contractor did not
+#: reference - ONE row per standard, never one per requirement.
+ROW_KIND_STANDARD_NOT_CITED = "standard_not_cited"
+#: #754 F5b: a standard the contractor cites that does not appear to apply
+#: (it governs another equipment type, or a service the sheet declares absent).
+ROW_KIND_STANDARD_NOT_APPLICABLE = "standard_not_applicable"
 #: An Open comment from an earlier run or revision of this submittal that the
 #: current run no longer raises. Industry practice carries it forward until a
 #: reviewer closes it (`crs_numbers.open_elsewhere`); never dropped silently.
@@ -613,9 +622,42 @@ def _by(group: list[dict]) -> str:
     return "AI Review"
 
 
+def standards_check_rows(check: dict | None, submittal_name: str) -> list[dict]:
+    """#754 F5b: the CRS rows of `applicability.standards_check` - one per
+    required standard the contractor did not reference, one per cited
+    standard that does not appear to apply. Machine drafts ("AI Review"),
+    never confirmed here; a cited standard the library does not hold stays a
+    Review note (`build_review_notes`), never a row and never met."""
+    rows: list[dict] = []
+    for r in (check or {}).get("required_not_cited") or []:
+        ident = r["identifier"]
+        rows.append({
+            "finding_id": "", "document_name": submittal_name, "page_section": "",
+            "comment": (f"Contractor did not reference {ident}; confirm compliance with "
+                        f"{ident} (required because {r['reason']})."),
+            "comment_by": "AI Review", "standard_reference": ident,
+            "row_kind": ROW_KIND_STANDARD_NOT_CITED, "severity": "",
+            "engineer_confirmed": False,
+            "comment_key": comment_key("standard not cited", standard_ids.key(ident)),
+        })
+    for r in (check or {}).get("cited_not_applicable") or []:
+        ident = r["identifier"]
+        rows.append({
+            "finding_id": "", "document_name": submittal_name, "page_section": "",
+            "comment": (f"{ident} is cited but does not appear to apply ({r['reason']}); "
+                        "confirm."),
+            "comment_by": "AI Review", "standard_reference": ident,
+            "row_kind": ROW_KIND_STANDARD_NOT_APPLICABLE, "severity": "",
+            "engineer_confirmed": False,
+            "comment_key": comment_key("standard not applicable", standard_ids.key(ident)),
+        })
+    return rows
+
+
 def build_crs_rows(findings: list[dict], missing_references: list[str],
                    submittal_name: str,
-                   unread_pages: list[int] | None = None) -> list[dict]:
+                   unread_pages: list[int] | None = None,
+                   standards_check: dict | None = None) -> list[dict]:
     """The CRS rows for one run - ONE ROW PER FIELD ISSUE.
 
     CRS QUICK WINS (2026-09-27, audit crs.md defects 2, 8, 9):
@@ -751,6 +793,9 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             # confirming or re-wording an AI/web item keeps its number.
             "comment_key": finding_comment_key(f),
         })
+
+    # #754 F5b: the required-vs-cited result, one row per standard.
+    rows.extend(standards_check_rows(standards_check, submittal_name))
 
     # OWNER ORDER 2f: THE INTERNAL NOTES LEFT THIS SHEET. Requirements that
     # need another document, pages not yet read, values the page reader did

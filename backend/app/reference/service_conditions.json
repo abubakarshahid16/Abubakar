@@ -10,7 +10,8 @@
     "present, or not declared at all, keeps the requirement a check - unknown",
     "is never 'does not apply'. Edit this file to add a condition; no code",
     "change is needed.",
-    "#725 F6: a condition with \"mode\": \"value\" is declared by WHAT the application fields say: present when a stated field in `field_labels` names one of `satisfied_by`; absent only when such fields are stated and none does (the stated value is cited). Its markers are also read from the clause heading and its parents. Nothing stated keeps it a check."
+    "#725 F6: a condition with \"mode\": \"value\" is declared by WHAT the application fields say: present when a stated field in `field_labels` names one of `satisfied_by`; absent only when such fields are stated and none does (the stated value is cited). Its markers are also read from the clause heading and its parents. Nothing stated keeps it a check.",
+    "#754 F5b: `required_standards` names the standards a datasheet that DECLARES the condition present must be reviewed against (sour service stated: NACE MR0175 / ISO 15156, one standard under two names). applicability.standards_check adds them to the required set; one the contractor did not cite gets one CRS comment. A cited `standards` entry on a datasheet that declares the condition ABSENT gets a \"does not appear to apply\" note. Generic: no per-document rules."
   ],
   "conditions": [
     {
@@ -20,6 +21,9 @@
         "ISO 15156",
         "NACE MR0103",
         "ISO 17945"
+      ],
+      "required_standards": [
+        "NACE MR0175"
       ],
       "requirement_markers": [
         "sour service",
