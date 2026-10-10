@@ -5,7 +5,8 @@ Everything runs on a TEMP database placed at a live-shaped path
 "this checkout's live file" pointed at it. INVENTED standard. The real live
 database is never touched.
 
-Mutations: M6001-M6014, `python scripts/mutation_check.py --phase 6001`.
+Mutations: M6001-M6014, `python scripts/mutation_check.py --phase 6001`;
+#738 (the check never hangs): M7301-M7306.
 """
 from __future__ import annotations
 
@@ -13,6 +14,8 @@ import importlib.util
 import shutil
 import sqlite3
 import sys
+import threading
+import time
 import types
 import uuid
 from pathlib import Path
@@ -230,22 +233,16 @@ def test_a_run_that_lost_rows_would_not_be_called_safe(world, monkeypatch, capsy
 
 # ----------------------------------------------- how "backend running" is decided
 
-def _fake_psutil(monkeypatch, *, open_path=None, listen_port=None, deny=False):
+def _fake_psutil(monkeypatch, *, open_path=None, listen_port=None, deny=False, procs=None):
     class Denied(Exception):
         pass
 
     class Gone(Exception):
         pass
 
-    class Proc:
-        def __init__(self, pid, paths):
-            self.info, self._paths = {"pid": pid}, paths
-
-        def open_files(self):
-            return [types.SimpleNamespace(path=p) for p in self._paths]
-
     fake = types.SimpleNamespace(AccessDenied=Denied, NoSuchProcess=Gone, CONN_LISTEN="LISTEN")
-    fake.process_iter = lambda attrs=None: [Proc(1, ["/x/other"]), Proc(4242, [open_path] if open_path else [])]
+    fake.process_iter = lambda attrs=None: procs if procs is not None else [
+        _Proc(1, ["/x/other"]), _Proc(4242, [open_path] if open_path else [])]
 
     def net_connections(kind="inet"):
         if deny:
@@ -254,6 +251,17 @@ def _fake_psutil(monkeypatch, *, open_path=None, listen_port=None, deny=False):
             if listen_port else []
     fake.net_connections = net_connections
     monkeypatch.setitem(sys.modules, "psutil", fake)
+    return fake
+
+
+class _Proc:
+    def __init__(self, pid, paths=(), name="python.exe", open_files=None):
+        self.info, self._paths, self._open_files = {"pid": pid, "name": name}, list(paths), open_files
+
+    def open_files(self):
+        if self._open_files is not None:
+            return self._open_files()
+        return [types.SimpleNamespace(path=p) for p in self._paths]
 
 
 def test_another_process_holding_the_file_open_means_running(world, monkeypatch):
@@ -278,3 +286,73 @@ def test_nothing_open_and_nothing_listening_means_stopped(world, monkeypatch):
     script = _script()
     _fake_psutil(monkeypatch)
     assert script.backend_running(world.live) is None
+
+
+# ----------------------------------------------- #738: the check never hangs
+
+@pytest.fixture
+def hang():
+    """An `open_files` that blocks until the test ends (as on Windows, #738)."""
+    release = threading.Event()
+    yield lambda: release.wait(60) and []
+    release.set()
+
+
+def test_a_process_whose_open_files_hangs_refuses_within_seconds(world, monkeypatch, hang):
+    """THE MUTATION TARGET (#738): it hung for ever with the backend stopped."""
+    script = _script()
+    _fake_psutil(monkeypatch, procs=[_Proc(4242, open_files=hang)])
+    started = time.monotonic()
+    reason = script.backend_running(world.live)
+    assert time.monotonic() - started < script.PROCESS_CHECK_TIMEOUT + 3
+    assert reason and "could not check" in reason and "4242" in reason
+
+
+def test_a_hanging_check_refuses_the_live_run_and_writes_nothing(world, monkeypatch, hang):
+    script = _script()
+    _fake_psutil(monkeypatch, procs=[_Proc(4242, open_files=hang)])
+    monkeypatch.setattr(world.script, "backend_running", script.backend_running)
+    before = _rows(world.live)
+    with pytest.raises(world.script.LiveRunRefused, match="backend may be running"):
+        world.script.main(_argv(world))
+    assert _rows(world.live) == before
+
+
+def test_a_process_that_denies_the_check_refuses(world, monkeypatch):
+    script = _script()
+    fake = _fake_psutil(monkeypatch, procs=[])
+
+    def denied():
+        raise fake.AccessDenied()
+    fake.process_iter = lambda attrs=None: [_Proc(4242, open_files=denied)]
+    assert "could not check" in script.backend_running(world.live)
+
+
+def test_a_process_that_exited_meanwhile_holds_nothing(world, monkeypatch):
+    script = _script()
+    fake = _fake_psutil(monkeypatch, procs=[])
+
+    def gone():
+        raise fake.NoSuchProcess()
+    fake.process_iter = lambda attrs=None: [_Proc(4242, open_files=gone)]
+    assert script.backend_running(world.live) is None
+
+
+def test_only_python_processes_are_asked(world, monkeypatch, hang):
+    """A non-Python process is never asked for its open files, so it cannot hang the check."""
+    script = _script()
+    _fake_psutil(monkeypatch, procs=[_Proc(7, name="explorer.exe", open_files=hang),
+                                     _Proc(8, [str(world.live)], name="sqlite3.exe")])
+    started = time.monotonic()
+    assert script.backend_running(world.live) is None
+    assert time.monotonic() - started < 1
+    _fake_psutil(monkeypatch, procs=[_Proc(9, [str(world.live)], name="Python3.12")])
+    assert "process 9" in script.backend_running(world.live)
+
+
+def test_a_listener_on_the_api_port_refuses_before_any_process_is_asked(world, monkeypatch, hang):
+    script = _script()
+    _fake_psutil(monkeypatch, listen_port=settings.port, procs=[_Proc(4242, open_files=hang)])
+    started = time.monotonic()
+    assert str(settings.port) in script.backend_running(world.live)
+    assert time.monotonic() - started < 1
