@@ -360,7 +360,7 @@ def test_an_unconfirmed_item_is_only_in_the_ai_column_of_the_internal_copy(world
 
     view = _preview(run)
     # CRS quick wins: "Standard Reference" follows the seven; AI stays last.
-    assert view["columns"] == [*crs_export.HEADERS, "Standard Reference", "AI Review Comments"]
+    assert view["columns"] == [*crs_export.HEADERS, "Standard Reference", "Severity", "AI Review Comments"]
     [row] = [r for r in view["rows"] if TEXT in r["ai_review_comment"]]
     assert TEXT not in row["comment"]
     # Honesty audit entry 71: "Comment By" is never blank - unconfirmed is a
@@ -372,7 +372,7 @@ def test_an_unconfirmed_item_is_only_in_the_ai_column_of_the_internal_copy(world
     assert "Relates to API 610" in row["ai_review_comment"]
     name, sheet, _text = _workbook_text(run, "internal")
     assert "internal-review-copy" in name
-    assert sheet.cell(row=crs_export.COLUMN_HEADER_ROW, column=9).value == "AI Review Comments"
+    assert sheet.cell(row=crs_export.COLUMN_HEADER_ROW, column=10).value == "AI Review Comments"  # #725 F7: Severity is column 9
 
 
 def test_an_unconfirmed_items_comment_by_is_never_blank(world):
@@ -406,13 +406,13 @@ def test_the_issue_copy_carries_no_ai_column_and_no_unconfirmed_text(world):
                      " WHERE id = ?", (run,))
 
     view = _preview(run, "issue")
-    assert view["columns"] == [*crs_export.HEADERS, "Standard Reference"]
+    assert view["columns"] == [*crs_export.HEADERS, "Standard Reference", "Severity"]
     assert TEXT not in json.dumps(view)
     assert not [r for r in view["rows"] if r["row_kind"] == "ai_engineering_check"], \
         "an unconfirmed item's row was issued, emptied"
     name, sheet, text = _workbook_text(run, "issue")
     assert "issue-to-contractor" in name
-    assert sheet.cell(row=crs_export.COLUMN_HEADER_ROW, column=9).value is None
+    assert sheet.cell(row=crs_export.COLUMN_HEADER_ROW, column=10).value is None
     assert TEXT not in text
 
 

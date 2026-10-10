@@ -192,7 +192,8 @@ def test_the_row_reference_is_the_first_line_of_the_comment_cell():
     # wins); only the internal copy carries the owner's "AI Review Comments"
     # column (2026-09-27), and neither carries the reference as a column.
     assert ws.cell(row=COLUMN_HEADER_ROW, column=8).value == "Standard Reference"
-    assert ws.cell(row=COLUMN_HEADER_ROW, column=9).value is None
+    assert ws.cell(row=COLUMN_HEADER_ROW, column=9).value == "Severity"  # #725 F7
+    assert ws.cell(row=COLUMN_HEADER_ROW, column=10).value is None
     assert [ws.cell(row=COLUMN_HEADER_ROW, column=c).value
             for c in range(1, 8)] == HEADERS
 

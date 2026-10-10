@@ -14,7 +14,6 @@
     backend/app/job_queue.py
     backend/app/lexical.py
     backend/app/metrics.py
-    backend/app/quotes.py
     backend/run.py
     scripts/gold_pairs_score.py
     scripts/mutation_check.py
@@ -109,27 +108,6 @@ MUTATIONS: tuple[Mutation, ...] = (
     #: re-anchoring of B20's dimension guard, so all three safety gates that came out
     #: of the Phase 0.5 slice are proven by this harness rather than by an ad-hoc
     #: script in one session's scratchpad.
-    Mutation(
-        id="M271", phase=29,
-        description="widen B23's closed normalisation list to fold case and "
-                    "strip decimal points, so 1.6 would match 16",
-        path=APP / "quotes.py",
-        anchor='    return " ".join(s.split())',
-        replacement='    return " ".join(s.lower().replace(".", "").split())  # MUTANT',
-        target="tests/test_quote_validation.py",
-        tags=("honesty", "critical"),
-    ),
-    Mutation(
-        id="M272", phase=29,
-        description="make the quote validator accept everything, so an invented "
-                    "quote passes as verbatim - the Phase 0.5 run's rewritten "
-                    "inch mark with nothing checking it",
-        path=APP / "quotes.py",
-        anchor="    return (needle in haystack, OK if needle in haystack else NOT_FOUND)",
-        replacement="    return (True, OK)  # MUTANT: every quote accepted",
-        target="tests/test_quote_validation.py",
-        tags=("honesty", "critical"),
-    ),
     # ---- from B38_ORPHAN_GUARD --------------------------------------------
     #: B38: record, then refuse by default, on all four paths that delete
     #: requirement rows review findings cite. A path's mutation swaps its guard

@@ -253,8 +253,12 @@ def states_a_value(value: str | None) -> bool:
     and a bare star both wrongly became answers).
     """
     _blank, marker = is_blank_value(value)
-    parsed, _unit, _measure = measure_value(value or "")
-    if parsed is None and parse_range(value) is not None:
+    # #725 F3: a value beside a "not provided" phrase is measured WITHOUT the
+    # phrase ("0.01cP  By Contractor" states 0.01 cP).
+    text, note = value_and_note(value)
+    measured = text if note is not None and text is not None else value
+    parsed, _unit, _measure = measure_value(measured or "")
+    if parsed is None and parse_range(measured) is not None:
         parsed = "range"
     ambiguous_residue = (marker not in (None, "empty", "placeholder")
                          and not blank_markers.names_a_marker(value))
@@ -786,13 +790,54 @@ def is_blank_value(value: str | None) -> tuple[bool, str | None]:
 
     Three ways a datasheet says "not filled in": an empty cell, a rule of
     underscores or asterisks where the value goes, and an explicit
-    "By Contractor / Vendor". All three are MISSING INFORMATION.
+    "By Contractor / Vendor". All three are MISSING INFORMATION - but ONLY
+    when no value is present (#725 F3).
     """
     # ONE HOME (rule 8): `blank_markers.classify`, which the geometry reader
-    # and the datasheet self-checks read too. "217C By Contractor /Vendor"
-    # carries a number AND the marker and is still blank: the number is a
-    # provisional figure the vendor has to confirm.
-    return blank_markers.classify(value)
+    # and the datasheet self-checks read too.
+    # #725 F3, OWNER DECISION 2026-10-09 (reverses the rule written here
+    # before): "340 psig (By Contractor, as per Code)" carries a number AND
+    # the marker, and it is the VALUE 340 psig with the note "By Contractor"
+    # - not a blank. Storing it as blank made the CRS tell the contractor the
+    # set pressure was "left to be provided" when the sheet gives it.
+    blank, marker = blank_markers.classify(value)
+    if blank and value_and_note(value)[0] is not None:
+        return False, None
+    return blank, marker
+
+
+#: What is left around a removed marker: empty brackets, separators.
+_EMPTY_BRACKETS = re.compile(r"[\(\[]\s*[,;:/\-–—]*\s*[\)\]]")
+_EDGE = " ,;:/-–—"
+
+
+def value_and_note(value: str | None) -> tuple[str | None, str | None]:
+    """`(the value without its note, the note)` for a cell that prints a "not
+    provided" phrase BESIDE a value (#725 F3).
+
+    "340 psig (By Contractor, as per Code)" -> ("340 psig (, as per Code)"
+    cleaned to a readable value, "By Contractor"). The value counts only when
+    the text left after removing the marker reads as a number or a range; a
+    marker alone ("By Contractor", "TBD") is `(None, marker)`. A cell with no
+    phrase marker is `(value, None)`: nothing to split. Drawn placeholders and
+    empty cells carry no value either.
+    """
+    blank, marker = blank_markers.classify(value)
+    if not blank:
+        return value, None
+    if marker in (None, "empty", "placeholder") or not blank_markers.names_a_marker(value):
+        return None, marker
+    found = re.search(re.escape(marker), value or "", flags=re.IGNORECASE)
+    text = value or ""
+    before, after = (text[:found.start()], text[found.end():]) if found else (text, "")
+    # The value is the text BEFORE the marker ("145 psig By Contractor, as per
+    # Code"), else AFTER it ("(By Contractor) 340 psig"), else what is left of
+    # the whole cell ("340 psig (By Contractor, as per Code)").
+    for candidate in (before, after, before + " " + after):
+        rest = " ".join(_EMPTY_BRACKETS.sub(" ", candidate).split()).strip(_EDGE)
+        if rest and (measure_value(rest)[0] is not None or parse_range(rest) is not None):
+            return rest, marker
+    return None, marker
 
 
 def referenced_standard_spans(text: str) -> list[tuple[str, int, int]]:
@@ -1906,6 +1951,14 @@ def value_columns(raw_value: str | None, *, field_label: str, unit: str | None =
     # it has already separated from any printed unit ("____ bar g"). None
     # (every other caller) keeps the one text rule below.
     blank, marker = blank if blank is not None else is_blank_value(raw_value)
+    # #725 F3: a value printed beside a "not provided" phrase is parsed WITHOUT
+    # the phrase, and the phrase is kept as the value's note - whoever judged
+    # the cell (the text rule above, or a reader's own blank evidence).
+    note = None
+    if blank_markers.names_a_marker(raw_value):
+        text, found = value_and_note(raw_value)
+        if text is not None:
+            blank, marker, note, raw_value = False, None, found, text
     unit_hint = unit
     value, unit, measurement = (None, None, None) if blank else measure_value(raw_value or "")
     if value is not None and unit is None and unit_hint:
@@ -1944,18 +1997,17 @@ def value_columns(raw_value: str | None, *, field_label: str, unit: str | None =
         # not a plain quantity ("<85" + "dBA"). Kept as printed, so the unit
         # is not lost; it never turns the value into a number.
         raw_unit = printed_unit
+    # A gauge or absolute pressure is normalised through its base unit by
+    # `claims.normalise` itself (#725 F2); the reference is kept here as a flag.
     base_unit, unit_reference = claims.split_reference(raw_unit)
-    if unit_reference is not None:
-        # Re-normalised against the BASE, which the table knows. Without this
-        # every gauge pressure kept a null normalised value.
-        measurement = claims.normalise(value or "", base_unit or "")
     # `unit` HOLDS A UNIT OR NOTHING. A bill-of-materials row reads "6
     # VEFV1101M" and the tag landed in the unit column - measured at ten of
     # twenty numeric facts on the real submittal - where it reads as an
     # engineering unit to anything downstream. The spelling is still kept in
     # `raw_unit`, because the document did write it.
     unit = base_unit if claims.is_unit(base_unit or "") else None
-    return {"is_blank": bool(blank), "blank_marker": marker, "raw_value": value,
+    return {"is_blank": bool(blank), "blank_marker": marker if blank else None,
+            "value_note": note, "raw_value": value,
             "raw_unit": raw_unit, "unit_reference": unit_reference,
             "normalized_value": measurement.normalized_value if measurement else None,
             "normalized_unit": measurement.normalized_unit if measurement else None,
@@ -2048,6 +2100,8 @@ def create_fact(
         "value_max": cols["value_max"],
         "is_blank": 1 if blank else 0,
         "blank_marker": marker,
+        # #725 F3: the phrase printed beside a real value ("By Contractor").
+        "value_note": cols["value_note"],
         "page": page if page is not None else chunk["page_start"],
         "section": section,
         "source_text": source_text or (raw_value or ""),
@@ -2074,7 +2128,7 @@ def create_fact(
             blank_marker, page, section, source_text, extraction_method,
             confidence, created_at, updated_at, unit_reference,
             value_min, value_max, equipment_tag, validation_state,
-            extractor_version, input_hash, value_column, bbox)
+            extractor_version, input_hash, value_column, bbox, value_note)
            VALUES (:id, :review_run_id, :submittal_document_id, :chunk_id,
                    :field_name, :field_label, :field_value, :raw_value,
                    :raw_unit, :normalized_value, :normalized_unit, :unit,
@@ -2082,7 +2136,7 @@ def create_fact(
                    :extraction_method, :confidence, :created_at,
                    :updated_at, :unit_reference, :value_min, :value_max,
                    :equipment_tag, :validation_state,
-                   :extractor_version, :input_hash, :value_column, :bbox)""")
+                   :extractor_version, :input_hash, :value_column, :bbox, :value_note)""")
     if commit:
         with conn:
             conn.execute(insert, row)

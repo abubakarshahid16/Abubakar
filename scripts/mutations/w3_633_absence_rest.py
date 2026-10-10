@@ -92,7 +92,7 @@ _S = "tests/test_w3_633_silent_excepts.py"
 _SILENT = (
     (3423, "telemetry.py", '        _log.warning("a stage timing for %r was not recorded (%s)", stage, type(exc).__name__)', "stage_timing"),
     (3424, "progress.py", '            _log.warning("a progress listener failed at stage %r (%s)", name, type(exc).__name__)', "progress_listener"),
-    (3425, "scope_records.py", '        _log.warning("the scope search for %s failed; only the other sources were used (%s)",\n                     document_id, type(exc).__name__)', "scope_search"),
+    (3425, "../tools/scope_records.py", '        _log.warning("the scope search for %s failed; only the other sources were used (%s)",\n                     document_id, type(exc).__name__)', "scope_search"),
     (3426, "rule_eval.py", '            _log.warning("the ruled table on page %s of %s could not be re-read (%s)",\n                         page, requirement.get("standard_document_id"), type(exc).__name__)', "re_read"),
     (3427, "classification.py", '        _log.warning("the equipment-type audit event for %s was not written (%s)",\n                     document_id, type(exc).__name__)', "audit_write"),
     (3428, "classification.py", '        _log.warning("the field-reclassified audit event for %s was not written (%s)",\n                     document_id, type(exc).__name__)', "no_broad_except"),

@@ -1,6 +1,6 @@
 """Mutations of the made-up datasheet benchmark: `scripts/datasheet_bench.py`
 (scorer maths, key honesty, reader dispatch, the Claude lane's caps),
-`scripts/make_datasheet_bench.py` (determinism) and `app/datasheet_offline.py`
+`scripts/make_datasheet_bench.py` (determinism) and `tools/datasheet_offline.py`
 (the rules reader without the project database)."""
 
 from __future__ import annotations
@@ -86,7 +86,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              replacement="    if False:",
              target=_T, keyword="field_matching", tags=("honesty",)),
     Mutation(id="M1666", phase=1666, description="the offline rules reader leaves the settings pointing at its temp database",
-             path=APP / "datasheet_offline.py",
+             path=APP.parent / "tools" / "datasheet_offline.py",
              anchor="            settings.data_dir, settings.db_path, settings.upload_dir = saved",
              replacement="            pass",
              target=_T, keyword="without_the_project_database", tags=("security", "critical")),

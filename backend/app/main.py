@@ -4299,8 +4299,9 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
                               and BLANK when it carried none
       date_issued             today - the date this file was exported, which
                               is the only date this system actually knows
-      company_transmittal     BLANK. Nobody has issued one.
-      contractor_transmittal  BLANK. The contractor has not responded.
+      company_transmittal     as an engineer ENTERED it on the run (#725 F7,
+                              PUT .../crs/transmittals), else BLANK
+      contractor_transmittal  the same, else BLANK
       recommended_code        the run's recommendation, and its reason, both
                               verbatim - never re-worded here
 
@@ -4472,8 +4473,8 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         "review_run_id": review_run_id,
         "date_issued": stamp,
         # Left blank on purpose - see above. Absent, not invented.
-        "company_transmittal": "",
-        "contractor_transmittal": "",
+        "company_transmittal": run.get("crs_company_transmittal") or "",
+        "contractor_transmittal": run.get("crs_contractor_transmittal") or "",
         "date_responded": "",
         "recommended_code": run.get("engineer_final_code")
                             or outcome.get("recommended_code") or "",
@@ -4826,6 +4827,30 @@ def set_crs_comment_status(
     crs_scope, seq = _crs_comment(review_run_id, crs_ref, scope)
     return crs_numbers_mod.set_status(crs_scope, seq, body.status,
                                       user_id=scope.user_id, note=body.note)
+
+
+@app.put("/api/reviews/runs/{review_run_id}/crs/transmittals",
+         response_model=schemas.CrsTransmittals,
+         responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
+def set_crs_transmittals(
+    review_run_id: str,
+    body: schemas.CrsTransmittals,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """#725 F7: enter the CRS header's company and contractor transmittal
+    numbers for this run. A signed-in reviewer who may read the run's
+    submittal; "" clears one. The sheet prints exactly what was entered and
+    nothing when nothing was - never an invented number."""
+    _require_named_reviewer(scope, "entering a transmittal number")
+    reject_unknown_params(request, set())
+    saved = submittal_review_mod.set_crs_transmittals(
+        review_run_id, company=body.company_transmittal, contractor=body.contractor_transmittal,
+        allowed_document_ids=scope.allowed_document_ids)
+    if saved is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no review run with that id"))
+    return saved
 
 
 @app.post("/api/reviews/runs/{review_run_id}/crs/comments/{crs_ref}/response",

@@ -33,7 +33,8 @@ from pathlib import Path
 
 import pytest
 
-from app import datasheet_ai, datasheet_offline, datasheets
+from app import datasheet_ai, datasheets
+from tools import datasheet_offline
 from app.config import settings
 
 REPO = Path(__file__).resolve().parents[2]
