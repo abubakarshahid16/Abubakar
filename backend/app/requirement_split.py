@@ -31,7 +31,12 @@ from . import table_gate
 CHECKED = "checked"
 APPLIES_NOT_CHECKED = "applies_not_checked"
 DOES_NOT_APPLY = "does_not_apply"
-_ORDER = (CHECKED, APPLIES_NOT_CHECKED, DOES_NOT_APPLY)
+#: #746: NOT USED - the equipment type's review checklist governs this
+#: requirement's standard, so the review checked the checklist item instead of
+#: the library rule one by one. Shown with its count; never in the unchecked
+#: share or the approval rule (planner decision on #746).
+NOT_USED = "not_used"
+_ORDER = (CHECKED, APPLIES_NOT_CHECKED, DOES_NOT_APPLY, NOT_USED)
 
 NO_REASON = "no reason recorded"
 
@@ -63,7 +68,8 @@ def reason_words(code: str | None, detail: str | None = None) -> str:
     return REASON_TEXT.get(code or "", NO_REASON)
 
 
-def build(checked: list[dict], not_checked: list[dict], not_applied: list[dict]) -> dict:
+def build(checked: list[dict], not_checked: list[dict], not_applied: list[dict],
+          not_used: list[dict] | None = None) -> dict:
     """`checked`: requirement dicts. `not_checked` / `not_applied`: items
     {"requirement": dict, "code": str|None, "detail": str|None}.
 
@@ -88,6 +94,9 @@ def build(checked: list[dict], not_checked: list[dict], not_applied: list[dict])
     for item in not_applied:
         put(DOES_NOT_APPLY, requirement_key(item["requirement"]),
             reason_words(item.get("code"), item.get("detail")))
+    for item in not_used or []:
+        put(NOT_USED, requirement_key(item["requirement"]),
+            reason_words(item.get("code"), item.get("detail")))
 
     counts = Counter(group for group, _ in placed.values())
     reasons: dict[str, Counter] = {APPLIES_NOT_CHECKED: Counter(), DOES_NOT_APPLY: Counter()}
@@ -100,12 +109,14 @@ def build(checked: list[dict], not_checked: list[dict], not_applied: list[dict])
                 for text, n in sorted(reasons[group].items(), key=lambda kv: (-kv[1], kv[0]))]
 
     n_checked, n_not, n_na = counts[CHECKED], counts[APPLIES_NOT_CHECKED], counts[DOES_NOT_APPLY]
+    n_unused = counts[NOT_USED]
     applies = n_checked + n_not
     return {
         "checked": n_checked,
         "applies_not_checked": n_not,
         "does_not_apply": n_na,
-        "total": n_checked + n_not + n_na,
+        "not_used": n_unused,
+        "total": n_checked + n_not + n_na + n_unused,
         "applies_not_checked_reasons": listed(APPLIES_NOT_CHECKED),
         "does_not_apply_reasons": listed(DOES_NOT_APPLY),
         "repeats_ignored": seen_rows - len(placed),
