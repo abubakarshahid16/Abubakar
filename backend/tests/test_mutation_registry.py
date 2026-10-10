@@ -53,6 +53,21 @@ def test_a_duplicate_id_across_two_modules_is_refused():
         mutation_check.aggregate([("alpha", (first,)), ("beta", (clash,))])
 
 
+def test_ids_named_after_their_pr_are_accepted_and_still_unique():
+    """CLAUDE.md rule 12 (#749): ids are `M<PR>-NN` with `phase=<PR>`, so two
+    PRs never pick the same "next free number". The registry must take that
+    shape as it takes `M576`, and still refuse the same id twice."""
+    base = mutation_check.ALL[0]
+    one = dataclasses.replace(base, id="M746-01", phase=746)
+    two = dataclasses.replace(base, id="M746-02", phase=746)
+    other_pr = dataclasses.replace(base, id="M747-01", phase=747)
+    merged = mutation_check.aggregate([("a", (one, two)), ("b", (other_pr,))])
+    assert [m.id for m in merged] == ["M746-01", "M746-02", "M747-01"]
+    assert {m.phase for m in merged} == {746, 747}
+    with pytest.raises(ValueError, match=r"duplicate mutation id 'M746-01'"):
+        mutation_check.aggregate([("a", (one,)), ("b", (dataclasses.replace(one, description="again"),))])
+
+
 def test_the_mutation_backup_is_outside_the_repo_and_the_file_is_restored(tmp_path, monkeypatch):
     """A `.mutbak` next to the source was once committed mid-run, with the
     mutated file. The backup now lives in a temp directory."""
