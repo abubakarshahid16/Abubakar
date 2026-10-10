@@ -1997,11 +1997,9 @@ def value_columns(raw_value: str | None, *, field_label: str, unit: str | None =
         # not a plain quantity ("<85" + "dBA"). Kept as printed, so the unit
         # is not lost; it never turns the value into a number.
         raw_unit = printed_unit
+    # A gauge or absolute pressure is normalised through its base unit by
+    # `claims.normalise` itself (#725 F2); the reference is kept here as a flag.
     base_unit, unit_reference = claims.split_reference(raw_unit)
-    if unit_reference is not None:
-        # Re-normalised against the BASE, which the table knows. Without this
-        # every gauge pressure kept a null normalised value.
-        measurement = claims.normalise(value or "", base_unit or "")
     # `unit` HOLDS A UNIT OR NOTHING. A bill-of-materials row reads "6
     # VEFV1101M" and the tag landed in the unit column - measured at ten of
     # twenty numeric facts on the real submittal - where it reads as an

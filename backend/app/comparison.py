@@ -43,6 +43,7 @@ reported with its denominator.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import re
@@ -329,8 +330,19 @@ def _measurement_from_fact(fact: dict) -> claims.Measurement | None:
     raw_value = fact.get("raw_value")
     if raw_value is None:
         return None
-    return _normalise_in_document(
+    read = _normalise_in_document(
         str(raw_value), fact.get("raw_unit") or "", fact.get("document_id"))
+    # #725 F2: THE VALUE THE EXTRACTION ALREADY NORMALISED IS USED, with its
+    # gauge / absolute flag. Re-reading the printed spelling alone threw it
+    # away whenever the spelling carried more than a unit ("psig (By
+    # Contractor)"), and every gauge pressure on the PSV sheet had no number.
+    stored, stored_unit = fact.get("normalized_value"), fact.get("normalized_unit")
+    if read.normalized_value is None and stored is not None and stored_unit:
+        return dataclasses.replace(read, normalized_value=float(stored), normalized_unit=stored_unit,
+                                   reference=read.reference or fact.get("unit_reference"))
+    if read.reference is None and fact.get("unit_reference"):
+        return dataclasses.replace(read, reference=fact["unit_reference"])
+    return read
 
 
 def fact_has_number(fact: dict) -> bool:
@@ -856,7 +868,8 @@ def _compare(requirement: dict, fact: dict | None, *,
     if verdict is None:
         return {
             "status": NEEDS_ENGINEER_REVIEW,
-            "rationale": _unit_obstacle(fact.get("raw_unit"), governing.get("raw_unit")),
+            "rationale": (_reference_obstacle(observed, limit)
+                          or _unit_obstacle(fact.get("raw_unit"), governing.get("raw_unit"))),
             "limit": _describe(limit, governing),
             "observed": _describe(observed, fact),
             "exception_applied": exception, **_cond,
@@ -894,6 +907,15 @@ def _compare(requirement: dict, fact: dict | None, *,
 #: `ai_rationale` (`claude_recheck`'s blocked check) matches them the way it
 #: matches the two-unit refusal's "no conversion is guessed".
 UNIT_NOT_GUESSED_PHRASE = "no unit is guessed, so no comparison was made"
+
+
+def _reference_obstacle(observed: claims.Measurement, limit: claims.Measurement) -> str | None:
+    """#725 F2: the reason when one pressure is gauge and the other absolute."""
+    if observed.reference and limit.reference and observed.reference != limit.reference:
+        return (f"the submitted pressure is {observed.reference} and the required one is "
+                f"{limit.reference}; they differ by the atmospheric pressure, which is not "
+                "recorded, so no comparison was made")
+    return None
 
 
 def _unit_obstacle(submitted_unit: str | None, required_unit: str | None) -> str:
@@ -2417,8 +2439,7 @@ def _unit_measure(row: dict) -> claims.Measurement:
     """
     return claims.Measurement(
         raw_value=str(row.get("raw_value") or ""),
-        raw_unit=claims.split_reference(
-            row.get("raw_unit") or row.get("unit"))[0] or "",
+        raw_unit=claims.base_unit(row.get("raw_unit") or row.get("unit")),
         normalized_value=None, normalized_unit=None, comparator=None)
 
 
@@ -2594,7 +2615,7 @@ def _containment_hits(requirement: dict, subject: str, facts: list[dict],
                          "item": item, "synonym": canonical_name})
         elif (_contains_words(subject_form, _match_form(name))
               and len(_match_form(name)) >= 4
-              and _same_quantity_units(requirement, fact)):
+              and claims.same_quantity(requirement.get("raw_unit"), fact.get("raw_unit"))):
             # ABBREVIATION / GENERIC-WORD TOLERANCE (audit N5): "Noise" meets
             # "Noise level", "Maximum operating temperature" meets "Max
             # operating temperature". Only the fact name's own words are
@@ -2625,20 +2646,6 @@ def _match_form(text: str) -> str:
     while len(trimmed) > 1 and trimmed[-1] in _GENERIC_TRAILING_WORDS:
         trimmed.pop()
     return " ".join(trimmed)
-
-
-def _same_quantity_units(requirement: dict, fact: dict) -> bool:
-    """Both sides state a unit, and it is the same unit or the same known
-    dimension. A missing or unknown unit is NOT compatible here."""
-    left = str(requirement.get("raw_unit") or "").strip()
-    right = str(fact.get("raw_unit") or "").strip()
-    if not left or not right:
-        return False
-    if claims.same_unit(claims.Measurement("", left, None, None, None),
-                        claims.Measurement("", right, None, None, None)):
-        return True
-    left_dim, right_dim = claims.unit_dimension(left), claims.unit_dimension(right)
-    return left_dim is not None and left_dim == right_dim
 
 
 def _item_of(hit: dict) -> str | None:
