@@ -2740,3 +2740,10 @@ export interface RequirementSplit {
   /** Share of the requirements that APPLY that were not checked; null when none apply. */
   unchecked_share: number | null;
 }
+
+/** #725 F7: the CRS header's two transmittal numbers, as an engineer entered
+ *  them on the run ("" = none entered; the sheet then prints nothing). */
+export interface CrsTransmittals {
+  company_transmittal: string;
+  contractor_transmittal: string;
+}

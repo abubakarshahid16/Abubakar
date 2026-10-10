@@ -317,6 +317,11 @@ def ensure_schema() -> None:
             ("ai_check_status", "TEXT"),
             # #633: the web standards check's own outcome, stored the same way.
             ("web_check_status", "TEXT"),
+            # #725 F7: the two transmittal numbers the CRS header names, as an
+            # engineer ENTERED them (`set_crs_transmittals`). NULL = nobody
+            # entered one, and the sheet prints nothing - never a placeholder.
+            ("crs_company_transmittal", "TEXT"),
+            ("crs_contractor_transmittal", "TEXT"),
         ):
             add_column_if_missing(conn, "review_runs", _column, _type)
         conn.execute(
@@ -1056,3 +1061,22 @@ def migrate_facts_to_per_document() -> None:
     # The added columns are re-applied by ensure_schema, which is additive and
     # safe to call again.
     ensure_schema()
+
+
+def set_crs_transmittals(review_run_id: str, *, company: str | None, contractor: str | None,
+                         allowed_document_ids: frozenset[str]) -> dict | None:
+    """#725 F7: record the CRS header's two transmittal numbers for a run the
+    caller may read (None when it cannot, the caller's 404). An empty string
+    clears a number. Returns {"company_transmittal", "contractor_transmittal"}."""
+    run = get_review_run(review_run_id, allowed_document_ids=allowed_document_ids)
+    if run is None:
+        return None
+    clean = lambda v: (" ".join(v.split()) or None) if isinstance(v, str) else None  # noqa: E731
+    conn = connect()
+    with conn:
+        conn.execute("UPDATE review_runs SET crs_company_transmittal = ?, crs_contractor_transmittal = ?"
+                     " WHERE id = ?", (clean(company), clean(contractor), review_run_id))
+    row = conn.execute("SELECT crs_company_transmittal, crs_contractor_transmittal FROM review_runs"
+                       " WHERE id = ?", (review_run_id,)).fetchone()
+    return {"company_transmittal": row["crs_company_transmittal"] or "",
+            "contractor_transmittal": row["crs_contractor_transmittal"] or ""}
