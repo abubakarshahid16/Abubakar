@@ -1,4 +1,5 @@
-"""#711: the guarded --live mode of the #599 re-extraction. Ids M6001-M6014."""
+"""#711: the guarded --live mode of the #599 re-extraction. Ids M6001-M6014;
+#738 (the check never hangs): M7301-M7306."""
 from __future__ import annotations
 
 from ._base import REPO, Mutation
@@ -48,9 +49,28 @@ MUTATIONS: tuple[Mutation, ...] = (
        "          and summary[\"after\"][\"requirements_total\"] >= summary[\"before\"][\"requirements_total\"])",
        "          and True)", "lost_rows"),
     _m(6013, "a process holding the file open is not noticed",
-       "                if any(str(Path(f.path).resolve()) == target for f in proc.open_files()):",
-       "                if False:", "holding_the_file_open"),
+       # re-anchored 2026-10-09 (#738): the open-files check runs inside holds()
+       "                    return any(str(Path(f.path).resolve()) == target for f in proc.open_files())",
+       "                    return False", "holding_the_file_open"),
     _m(6014, "a check that cannot be made counts as stopped",
-       "        return f\"could not check whether the backend is running ({type(exc).__name__})\"",
-       "        return None", "cannot_be_made"),
+       # re-anchored 2026-10-09 (#738): every failed check arrives as _CouldNotCheck
+       "        return f\"could not check whether the backend is running ({exc})\"",
+       "        return None", "cannot_be_made or denies_the_check or hangs"),
+    _m(7301, "a process check that does not answer is waited on for ever (#738)",
+       "    worker.join(seconds)\n", "    worker.join()\n", "hangs_refuses_within_seconds"),
+    _m(7302, "a check that did not answer in time counts as stopped (#738)",
+       "        raise _CouldNotCheck(f\"{what} did not answer within {seconds:g} s\")",
+       "        return None", "hangs"),
+    _m(7303, "a process check that raised counts as stopped (#738)",
+       "        raise _CouldNotCheck(f\"{what} failed ({type(box['error']).__name__})\") from box[\"error\"]",
+       "        return None", "denies_the_check"),
+    _m(7304, "every process is asked, not only Python ones (#738)",
+       "            if pid == me or not _is_python(proc.info.get(\"name\")):",
+       "            if pid == me:", "only_python_processes"),
+    _m(7305, "a Python process named in another case is skipped (#738)",
+       "    return \"python\" in str(name or \"\").lower()", "    return \"python\" in str(name or \"\")",
+       "only_python_processes"),
+    _m(7306, "the API port is checked only after every process (#738)",
+       "        if listening:\n            return f\"something is listening on the API port {settings.port}\"\n",
+       "", "listener_on_the_api_port"),
 )
