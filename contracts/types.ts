@@ -538,6 +538,8 @@ export interface CrsPreviewRow {
   /** CRS quick wins: the standard and clause the comment rests on, in the
    *  "Standard Reference" column after the client's seven. */
   standard_reference?: string;
+  /** #725 F7: worst severity of the grouped findings (critical, major, minor, observation). */
+  severity?: string;
   /** Owner order 2f: an unconfirmed AI engineering check item's text, shown
    *  in the "AI Review Comments" column of the internal copy only. */
   ai_review_comment?: string;
@@ -2723,4 +2725,11 @@ export interface RequirementSplit {
   repeats_ignored: number | null;
   /** Share of the requirements that APPLY that were not checked; null when none apply. */
   unchecked_share: number | null;
+}
+
+/** #725 F7: the CRS header's two transmittal numbers, as an engineer entered
+ *  them on the run ("" = none entered; the sheet then prints nothing). */
+export interface CrsTransmittals {
+  company_transmittal: string;
+  contractor_transmittal: string;
 }

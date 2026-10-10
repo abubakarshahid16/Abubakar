@@ -11,7 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from app import db, review, review_score as rs
+from app import db, review
+from tools import review_score as rs
 from app.config import settings
 
 REPO = Path(__file__).resolve().parents[2]
@@ -387,7 +388,7 @@ def test_the_weekly_command_refuses_a_keys_folder_in_the_hidden_exam_and_reads_n
 def test_nothing_defaults_to_the_hidden_exam():
     assert cli.DEFAULT_KEYS == REPO / "eval" / "review" / "keys"
     for text in ((REPO / "scripts" / "review_score.py").read_text(encoding="utf-8").splitlines()
-                 + (REPO / "backend" / "app" / "review_score.py").read_text(encoding="utf-8").splitlines()):
+                 + (REPO / "backend" / "tools" / "review_score.py").read_text(encoding="utf-8").splitlines()):
         code = text.split("#")[0]
         assert not ("hidden-exam" in code.lower() and ("Path(" in code or "open(" in code or "glob(" in code)), text
 

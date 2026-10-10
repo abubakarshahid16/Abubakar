@@ -9,20 +9,149 @@
     "of `field_labels` and whose value reads as `declared_absent`. Declared",
     "present, or not declared at all, keeps the requirement a check - unknown",
     "is never 'does not apply'. Edit this file to add a condition; no code",
-    "change is needed."
+    "change is needed.",
+    "#725 F6: a condition with \"mode\": \"value\" is declared by WHAT the application fields say: present when a stated field in `field_labels` names one of `satisfied_by`; absent only when such fields are stated and none does (the stated value is cited). Its markers are also read from the clause heading and its parents. Nothing stated keeps it a check."
   ],
   "conditions": [
     {
       "name": "sour service",
-      "standards": ["NACE MR0175", "ISO 15156", "NACE MR0103", "ISO 17945"],
-      "requirement_markers": ["sour service", "sour environment", "sour environments",
-                              "wet h2s", "h2s service", "hydrogen sulfide", "hydrogen sulphide",
-                              "sulfide stress cracking", "sulphide stress cracking"],
-      "field_labels": ["sour", "h2s", "hydrogen sulfide", "hydrogen sulphide", "nace",
-                       "mr0175", "15156", "mr0103"],
-      "declared_present": ["yes", "y", "sour", "required", "applicable", "present", "wet h2s"],
-      "declared_absent": ["no", "n", "none", "non-sour", "non sour", "not sour", "sweet",
-                          "not required", "not applicable", "n/a", "absent", "nil", "0"]
+      "standards": [
+        "NACE MR0175",
+        "ISO 15156",
+        "NACE MR0103",
+        "ISO 17945"
+      ],
+      "requirement_markers": [
+        "sour service",
+        "sour environment",
+        "sour environments",
+        "wet h2s",
+        "h2s service",
+        "hydrogen sulfide",
+        "hydrogen sulphide",
+        "sulfide stress cracking",
+        "sulphide stress cracking"
+      ],
+      "field_labels": [
+        "sour",
+        "h2s",
+        "hydrogen sulfide",
+        "hydrogen sulphide",
+        "nace",
+        "mr0175",
+        "15156",
+        "mr0103"
+      ],
+      "declared_present": [
+        "yes",
+        "y",
+        "sour",
+        "required",
+        "applicable",
+        "present",
+        "wet h2s"
+      ],
+      "declared_absent": [
+        "no",
+        "n",
+        "none",
+        "non-sour",
+        "non sour",
+        "not sour",
+        "sweet",
+        "not required",
+        "not applicable",
+        "n/a",
+        "absent",
+        "nil",
+        "0"
+      ]
+    },
+    {
+      "name": "turbine exhaust relief",
+      "mode": "value",
+      "standards": [],
+      "requirement_markers": [
+        "turbine exhaust",
+        "turbine exhausts",
+        "steam turbine exhaust",
+        "turbine casing",
+        "turbine casings"
+      ],
+      "field_labels": [
+        "application",
+        "relieving case",
+        "governing case",
+        "sizing case",
+        "relief case",
+        "protected equipment",
+        "equipment protected",
+        "installed on",
+        "location",
+        "service"
+      ],
+      "satisfied_by": [
+        "turbine",
+        "turbines"
+      ]
+    },
+    {
+      "name": "pump discharge relief",
+      "mode": "value",
+      "standards": [],
+      "requirement_markers": [
+        "pump discharge",
+        "pump discharges",
+        "positive displacement pump",
+        "positive displacement pumps",
+        "pd pump"
+      ],
+      "field_labels": [
+        "application",
+        "relieving case",
+        "governing case",
+        "sizing case",
+        "relief case",
+        "protected equipment",
+        "equipment protected",
+        "installed on",
+        "location",
+        "service"
+      ],
+      "satisfied_by": [
+        "pump",
+        "pumps"
+      ]
+    },
+    {
+      "name": "thermal relief",
+      "mode": "value",
+      "standards": [],
+      "requirement_markers": [
+        "thermal relief",
+        "thermal expansion",
+        "thermal relief valve",
+        "thermal relief valves",
+        "blocked in liquid",
+        "blocked-in liquid"
+      ],
+      "field_labels": [
+        "application",
+        "relieving case",
+        "governing case",
+        "sizing case",
+        "relief case",
+        "protected equipment",
+        "equipment protected",
+        "installed on",
+        "location",
+        "service"
+      ],
+      "satisfied_by": [
+        "thermal",
+        "thermal expansion",
+        "blocked in"
+      ]
     }
   ]
 }

@@ -56,6 +56,7 @@ import type {
   CrsComment,
   CrsCommentHistory,
   CrsPreview,
+  CrsTransmittals,
   CrsReplyImport,
   CrsResponseCode,
   ReviewReadiness,
@@ -469,6 +470,13 @@ export const reviews = {
       (b) => typeof b === "object" && b !== null
         && typeof (b as Record<string, unknown>).state === "string",
     ),
+  /** #725 F7: enter the CRS header's transmittal numbers for a run. */
+  setCrsTransmittals: (runId: string, body: CrsTransmittals) =>
+    request<CrsTransmittals>(`/reviews/runs/${encodeURIComponent(runId)}/crs/transmittals`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
   previewCrs: (runId: string) =>
     request<CrsPreview>(
       `/reviews/runs/${encodeURIComponent(runId)}/crs/preview`,

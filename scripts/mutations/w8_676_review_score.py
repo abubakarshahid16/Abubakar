@@ -6,7 +6,7 @@ from ._base import APP, REPO, Mutation
 
 _T = "tests/test_w8_676_review_score.py"
 _TAG = ("w8_676", "review_score")
-RS = APP / "review_score.py"
+RS = APP.parent / "tools" / "review_score.py"
 CLI = REPO / "scripts" / "review_score.py"
 
 

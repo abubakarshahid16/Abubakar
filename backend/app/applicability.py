@@ -58,6 +58,7 @@ from .db import connect
 METHOD_REFERENCED = "referenced"          # 1. named in the datasheet
 METHOD_POSSIBLE = "possible_citation"     # 1.5 looks like a library number, unconfirmed (#702)
 METHOD_EQUIPMENT = "equipment_type"       # 2. mapped to the equipment
+METHOD_GOVERNING = "governing_standard"   # 2. governs this equipment type (#725 F5)
 METHOD_DISCIPLINE = "discipline"          # 3. discipline match
 METHOD_SERVICE = "service"                # 4. service / operating conditions
 METHOD_SEMANTIC = "semantic"              # 5. dense retrieval
@@ -76,6 +77,7 @@ METHOD_SCOPE = "scope"
 #: as considered and not included, with the reason, and an engineer may add
 #: any of them (`override`).
 INCLUDING_METHODS = frozenset({
+    "governing_standard",  # #725 F5: reference/governing_standards.json
     "manual", "referenced", "equipment_type", "scope", "service", "project"})
 CANDIDATE_ONLY_REASON = {
     "possible_citation": ("possible match, engineer to confirm: the submittal names something "
@@ -92,16 +94,23 @@ CANDIDATE_ONLY_REASON = {
 #: Priority order, lowest number wins when two rules pick the same standard.
 #: A standard both cited and semantically similar is recorded as CITED: the
 #: stronger reason is the true one and the weaker one adds nothing.
+#:
+#: #725 F5: EVERY INCLUDING REASON OUTRANKS EVERY CANDIDATE-ONLY ONE. The old
+#: order put discipline (3) above service (4), semantic (5) above project (6)
+#: and a possible citation (1.5) above an equipment match (2), so a standard
+#: matched both ways was recorded by its weaker, candidate-only reason - and
+#: left out of the review although an including rule had picked it.
 _PRIORITY = {
     METHOD_MANUAL: 0,
     METHOD_REFERENCED: 1,
-    METHOD_POSSIBLE: 1.5,
     METHOD_EQUIPMENT: 2,
+    METHOD_GOVERNING: 2,
     METHOD_SCOPE: 2,
-    METHOD_DISCIPLINE: 3,
-    METHOD_SERVICE: 4,
-    METHOD_SEMANTIC: 5,
-    METHOD_PROJECT: 6,
+    METHOD_SERVICE: 3,
+    METHOD_PROJECT: 3,
+    METHOD_POSSIBLE: 4,
+    METHOD_DISCIPLINE: 5,
+    METHOD_SEMANTIC: 6,
 }
 
 #: CONFIDENCE IS NEVER "high" (CLAUDE.md rule 4). These are the ceiling for
@@ -113,6 +122,7 @@ _CONFIDENCE = {
     METHOD_REFERENCED: 0.9,
     METHOD_POSSIBLE: 0.5,
     METHOD_EQUIPMENT: 0.7,
+    METHOD_GOVERNING: 0.7,
     METHOD_SCOPE: 0.7,
     METHOD_DISCIPLINE: 0.5,
     METHOD_SERVICE: 0.5,
@@ -203,6 +213,73 @@ def _submittal_profile(document_id: str) -> dict:
         (document_id,)).fetchone()
     return dict(row) if row else {
         "discipline": None, "equipment_type": None, "service": None, "project": None}
+
+
+GOVERNING_PATH = Path(__file__).resolve().parent / "reference" / "governing_standards.json"
+
+
+def governing_table(path: Path | None = None) -> dict:
+    """reference/governing_standards.json: {"equipment_types": {type: [ids]},
+    "materials_standards": [ids]}. A missing or malformed file RAISES - a
+    review never runs with the table silently empty."""
+    data = json.loads((path or GOVERNING_PATH).read_text(encoding="utf-8"))
+    types = data.get("equipment_types")
+    materials = data.get("materials_standards")
+    if (data.get("format") != "governing-standards/1" or not isinstance(types, dict)
+            or not all(isinstance(v, list) and all(isinstance(i, str) for i in v) for v in types.values())
+            or not isinstance(materials, list)):
+        raise ValueError(f"{(path or GOVERNING_PATH).name}: not a governing-standards/1 table")
+    return {"equipment_types": {k.strip().lower(): v for k, v in types.items()},
+            "materials_standards": list(materials)}
+
+
+def is_materials_standard(entry_or_label: dict | str, table: dict | None = None) -> bool:
+    """Is this library entry (or label) one of the materials standards?"""
+    table = table or governing_table()
+    if isinstance(entry_or_label, dict):
+        return any(find_standard([entry_or_label], m) is not None for m in table["materials_standards"])
+    return any(standard_ids.same_standard(entry_or_label, m) for m in table["materials_standards"])
+
+
+def governing_standards(submittal_document_id: str, library: list[dict],
+                        allowed_document_ids: frozenset[str]) -> tuple[dict[str, dict], list[dict]]:
+    """#725 F5: the standards that GOVERN this submittal's equipment type.
+
+    The type is read by `subject_scope.submittal_equipment` - THE one reader
+    of what a submittal is (classification, then title, then its own type
+    fields) - and the reason says where it was read. Each governing identifier
+    the library holds is selected (`governing_standard`, included); one it does
+    not hold is returned as not held, never as met. Unknown type: nothing.
+    Returns (candidates by standard id, not-held rows)."""
+    from . import subject_scope
+
+    row = connect().execute(
+        "SELECT equipment_type, title FROM document_classification WHERE document_id = ?",
+        (submittal_document_id,)).fetchone()
+    facts = datasheets.list_facts(submittal_document_id, allowed_document_ids=allowed_document_ids)
+    equipment, source = subject_scope.submittal_equipment(dict(row) if row else {}, facts,
+                                                          subject_scope.vocabulary())
+    if not equipment:
+        return {}, []
+    table = governing_table()["equipment_types"]
+    selected: dict[str, dict] = {}
+    not_held: list[dict] = []
+    seen: set[str] = set()
+    for kind in sorted(equipment):
+        for identifier in table.get(kind, []):
+            key = standard_ids.key(identifier)
+            if key in seen:
+                continue
+            seen.add(key)
+            entry = find_standard(library, identifier)
+            where = f"{kind} (read from the submittal's {source})"
+            if entry is None:
+                not_held.append({"identifier": identifier,
+                                 "reason": f"governs a {where} and is not present in the library"})
+            elif entry["id"] not in selected:
+                selected[entry["id"]] = {"method": METHOD_GOVERNING, "identifier": identifier,
+                                         "reason": f"{identifier} governs a {where}"}
+    return selected, not_held
 
 
 def _submittal_text(document_id: str, allowed_document_ids: frozenset[str]) -> str:
@@ -885,11 +962,17 @@ def select(
     submittal_text = _submittal_text(submittal_document_id, allowed_document_ids)
     referenced = datasheets.referenced_standards(submittal_text)
 
+    governing, governing_missing = governing_standards(
+        submittal_document_id, library, allowed_document_ids)
+
     selected: dict[str, dict] = {}
     for candidates in (
         _match_referenced(library, referenced),
         library_citations(library, submittal_text),
         _match_attribute(library, profile, "equipment_type", METHOD_EQUIPMENT),
+        # After the classification match: a tie keeps the standard's own
+        # equipment classification as the reason (both are included).
+        governing,
         _match_attribute(library, profile, "discipline", METHOD_DISCIPLINE),
         _match_attribute(library, profile, "service", METHOD_SERVICE),
         _match_attribute(library, profile, "project", METHOD_PROJECT),
@@ -986,6 +1069,12 @@ def select(
         ],
         "scope_decision_not_run": scope_not_run,
         "missing_references": missing,
+        # #725 F5: governing standards for the equipment type that the library
+        # does not hold. Apart from `missing_references` (which the CRS words
+        # as "this submittal cites"): the submittal did not cite these.
+        "governing_not_held": [
+            g for g in governing_missing
+            if standard_ids.key(g["identifier"]) not in {standard_ids.key(m["identifier"]) for m in missing}],
         "referenced_total": len(referenced),
         "library_size": len(library),
         **completeness(selected, missing, submittal_document_id,
