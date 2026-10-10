@@ -89,7 +89,7 @@ Every module that can open a socket:
 | Module | Destination | Production caller | Gate | State |
 |---|---|---|---|---|
 | `model_transport.py` | `settings.ollama_url`, validated by `config.check_model_url` at settings load (:794) and before every request (:111) | `answer._call_model` (Tier 2 chat), `analysis.ollama_generate` (summary, recommendation), `comparison._ask_model_once`, `metrics` probes | `answer_model_allow_remote_host=False`, `answer_model_allowed_hosts=()` | LIVE, loopback only |
-| `market_transport.py` | `market_allowed_hosts` | `POST /api/market/search` (`main.py:1369`) | `market_live_enabled=False`, `market_allow_public_egress=False` | OFF |
+| `market_transport.py` | `market_allowed_hosts` | `POST /api/market/search` (`main.py:1369`) | `market_live_enabled=False`, `market_allow_public_egress=False` | OFF. Also carries the standard lookup (`standard_lookup.search`, #560): a whitelisted identifier query, one stored approval per query, extra gate `standard_lookup_enabled=False`; no route yet |
 | `reader_transport.py` | Anthropic API | only `claude_api.py` | `standards_reader_enabled=False`, `..._allow_public_egress=False` | DEAD |
 | `notifications.py:64` (`smtplib.SMTP`) | `smtp_host` | management-summary e-mail, deliverable/risk notifications | `smtp_enabled=False` | OFF — **not covered by `tests/test_socket_containment.py`** (gap G2) |
 
