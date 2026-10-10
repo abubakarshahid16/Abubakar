@@ -60,3 +60,11 @@ def test_a_qualifier_counts_only_next_to_the_fields_own_words():
     assert not match_rules.qualifier_conflict(_req("nozzle size"), "size")
     # but "of the jacket" right after the field's words is a conflict
     assert match_rules.qualifier_conflict(_req("the design pressure of the shell"), "design pressure")
+
+
+def test_a_field_with_a_qualifier_the_subject_lacks_is_refused_too():
+    """Planner decision 2026-10-10: both directions."""
+    assert match_rules.qualifier_conflict(_req("the design pressure"), "jacket design pressure")
+    assert match_rules.qualifier_conflict(_req("the operating pressure"), "inlet operating pressure")
+    # the same qualifier on both sides still pairs
+    assert not match_rules.qualifier_conflict(_req("the jacket design pressure"), "jacket design pressure")

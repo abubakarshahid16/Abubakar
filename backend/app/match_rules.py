@@ -361,6 +361,12 @@ def qualifier_conflict(requirement: dict, field_name: str) -> bool:
     field = _normalise(field_name).split()
     if not subject or not field:
         return False
+    # BOTH DIRECTIONS (planner, 2026-10-10): a FIELD that names a side or part
+    # the subject does not ("Jacket design pressure" against a plain "design
+    # pressure" rule) is a different quantity too. Same qualifier both sides
+    # still pairs.
+    if (set(field) & qualifiers()) - set(subject):
+        return True
     words = qualifiers() - set(field)
     n = len(field)
     for start in range(len(subject) - n + 1):
