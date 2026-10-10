@@ -333,20 +333,6 @@ export interface UploadDisciplines {
   default: string[];
 }
 
-/** POST /api/reviews/runs/{id}/claude/crs-draft (#441).
- *
- *  The CRS preview with model-drafted comments laid over it. A POST because
- *  it sends the run's findings to Claude and spends from the USD caps; the
- *  drafts are not stored, and an audit row names who asked. */
-export interface ClaudeCrsDraft extends CrsPreview {
-  drafted: number;
-  rejected: number;
-  counts: Record<string, number>;
-  complete: boolean;
-  /** The signed-in user who asked; null only with authentication off. */
-  drafted_by: string | null;
-}
-
 /** DELETE /api/documents/{id}
  *
  *  Typed because it was not. The conversation-delete response was a COPY of
