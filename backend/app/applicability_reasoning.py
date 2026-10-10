@@ -16,7 +16,8 @@ the worst error - enforced by the same `applicability_v2.confirm_not_applicable`
 gate: NOT_APPLICABLE needs 3 independent re-reads to agree, each with a
 verified quote, or it falls back to UNKNOWN.
 
-LIVE as of PR #310 (2026-09-28), behind `APPLICABILITY_REASONING_ENABLED`:
+LIVE as of PR #310 (2026-09-28), behind `APPLICABILITY_REASONING_ENABLED` (on by
+default since #736):
 `applicability.select` calls `scope_decisions_by_reasoning`, which calls
 `decide_with_confirmation_by_reasoning` below, through a per-(standard,
 equipment type) cache. Not a proposal any more - correct this docstring
