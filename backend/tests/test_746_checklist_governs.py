@@ -60,7 +60,13 @@ def _review(equipment_type):
     other = _doc("other", "SPEC-X-valves.pdf", "COMPANY_STANDARD")
     sub = _doc("sub", "sheet.pdf", "CONTRACTOR_SUBMITTAL", equipment_type=equipment_type)
     cc, oc, fc = _chunk("cc", cited), _chunk("oc", other), _chunk("fc", sub)
-    ids = {"cited_1": _req(cited, cc, "The valve shall be sized for the relieving rate."),
+    cell = standards.create_requirement(
+        standard_document_id=cited, chunk_id=cc, clause="5.2", page=1,
+        requirement_text="Orifice J - Effective area: 1.287", source_text="Orifice J - Effective area: 1.287",
+        structured={"requirement_type": "table_value", "condition": "Orifice J",
+                    "field": "Effective area", "raw_value": "1.287"})["id"]
+    ids = {"cell": cell,
+           "cited_1": _req(cited, cc, "The valve shall be sized for the relieving rate."),
            "cited_2": _req(cited, cc, "Built-up back pressure shall be evaluated."),
            "other": _req(other, oc, "The body shall be cast steel.")}
     datasheets.create_fact(submittal_document_id=sub, chunk_id=fc, field_label="Set pressure",
@@ -87,13 +93,13 @@ def test_the_checklist_governs_only_the_standards_it_cites():
     # (a) the GUARD: a requirement from a standard the checklist does not cite is still checked
     assert stored[ids["other"]]["state"] == scope_ledger.CHECKED
     split = result["requirement_split"]
-    assert split["not_used"] == 2 and split["checked"] == 1
+    assert split["not_used"] == 3 and split["checked"] == 1     # 2 statements + 1 table cell
     assert split["checklist"]["type"] == "Pressure Safety Valve"
     # never in the unchecked share
     assert split["applies_not_checked"] == 0 and split["unchecked_share"] == 0.0
     line = absence.split_lines(split)[0]
     assert line.startswith("Reviewed against the Pressure Safety Valve checklist (")
-    assert "2 library requirement(s)" in line
+    assert "3 library requirement(s)" in line
 
 
 def test_a_type_with_no_checklist_is_unchanged():
@@ -104,7 +110,7 @@ def test_a_type_with_no_checklist_is_unchanged():
     assert not any(d["state"] == scope_ledger.NOT_USED for d in stored.values())
     assert stored[ids["other"]]["state"] == scope_ledger.CHECKED
     split = result["requirement_split"]
-    assert split["not_used"] == 0 and "checklist" not in split and split["total"] == 3
+    assert split["not_used"] == 0 and "checklist" not in split and split["total"] == 4
     assert not any(line.startswith("Reviewed against") for line in absence.split_lines(split))
 
 
@@ -114,3 +120,20 @@ def test_the_cited_standard_is_found_by_its_identifier_not_a_list_in_code():
     _doc("c", "API-521.pdf", "COMPANY_STANDARD")
     assert comparison.governed_standards(["a", "b", "c"], ["API 520-I"]) == {"a"}
     assert comparison.governed_standards(["a", "b", "c"], []) == set()
+
+
+def test_a_governed_standards_table_cell_no_field_answers_is_not_used_not_unchecked():
+    """A table cell of a cited standard that no datasheet field answers would
+    count as "applies, not checked"; under the checklist it is "not used"."""
+    _result, stored, ids = _review("Pressure Safety Valve")
+    assert stored[ids["cell"]]["state"] == scope_ledger.NOT_USED
+    _result, stored, ids = _review_again("Pressure Vessel")
+    assert stored[ids["cell"]]["state"] == scope_ledger.APPLIES_NOT_CHECKED   # no checklist: unchanged
+
+
+def _review_again(equipment_type):
+    db.reset_connection()
+    import os
+    os.remove(settings.db_path)
+    db.init_db(); submittal_review.ensure_schema(); submittal_review.migrate_facts_to_per_document()
+    return _review(equipment_type)

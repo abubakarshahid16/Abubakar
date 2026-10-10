@@ -1911,29 +1911,6 @@ def run_comparison(
                 held_back["text_quality"] += 1
                 held_items.append({"requirement": dict(r), "code": "text_quality"})
 
-    # #746 THE CHECKLIST GOVERNS ITS OWN STANDARDS (planner decision, #746).
-    # When this submittal's equipment type has a review checklist, the library
-    # requirements of a standard the checklist CITES are not checked one by
-    # one: the checklist items are. They stay quotable. GUARD: only standards
-    # named in the checklist's own `source.standard` (`checklist_sources`) -
-    # a requirement from any other applicable standard keeps the normal path,
-    # and a type with no checklist is unchanged.
-    covered_items: list[dict] = []
-    checklist_note = None
-    from . import classification as _classification, datasheet_checks as _checks
-    governing = _checks.checklist_sources(
-        (_classification.of_document(submittal_id) or {}).get("equipment_type"))
-    if governing and requirements:
-        covered_ids = governed_standards(standard_ids, governing["standards"])
-        if covered_ids:
-            detail = (f"the {governing['key']} review checklist governs this standard "
-                      f"({governing['items']} items); not checked one by one")
-            covered_items = [{"requirement": dict(r), "code": "covered_by_checklist", "detail": detail}
-                             for r in requirements if r.get("standard_document_id") in covered_ids]
-            requirements = [r for r in requirements if r.get("standard_document_id") not in covered_ids]
-            checklist_note = {"type": governing["key"], "items": governing["items"],
-                              "standards": len(covered_ids)}
-
     facts = datasheets.list_facts(
         submittal_id, allowed_document_ids=allowed_document_ids)
     # #598 A TABLE CELL IS A CHECK ONLY WHEN THE SUBMITTAL HAS A FIELD THAT
@@ -2014,6 +1991,37 @@ def run_comparison(
         ai_applicability_summary = {"asked": ai["asked"], "not_asked": ai["not_asked"],
                                     "confirmed_does_not_apply": len(ai["items"]),
                                     "unconfirmed": len(ai["notes"])}
+    # #746 THE CHECKLIST GOVERNS ITS OWN STANDARDS (planner decision, #746).
+    # When this submittal's equipment type has a review checklist, the library
+    # requirements of a standard the checklist CITES are not checked one by
+    # one: the checklist items are. They stay quotable. GUARD: only standards
+    # named in the checklist's own `source.standard` (`checklist_sources`) -
+    # a requirement from any other applicable standard keeps the normal path,
+    # and a type with no checklist is unchanged. AFTER the applicability gates
+    # (subject, service and clause conditions, AI): a clause that does not
+    # apply keeps that stronger, reasoned decision; only what still applies -
+    # the kept requirements and the table cells no field answered - is "not used".
+    covered_items: list[dict] = []
+    checklist_note = None
+    from . import datasheet_checks as _checks
+    governing = _checks.checklist_sources(stored.get("equipment_type"))
+    if governing:
+        covered_ids = governed_standards(standard_ids, governing["standards"])
+        if covered_ids:
+            detail = (f"the {governing['key']} review checklist governs this standard "
+                      f"({governing['items']} items); not checked one by one")
+            governed_cells = [i for i in gated["not_compared_items"]
+                              if i["requirement"].get("standard_document_id") in covered_ids]
+            covered_items = ([{"requirement": dict(r), "code": "covered_by_checklist", "detail": detail}
+                              for r in requirements if r.get("standard_document_id") in covered_ids]
+                             + [{"requirement": i["requirement"], "code": "covered_by_checklist",
+                                 "detail": detail} for i in governed_cells])
+            requirements = [r for r in requirements if r.get("standard_document_id") not in covered_ids]
+            gated = {**gated, "not_compared_items": [
+                i for i in gated["not_compared_items"]
+                if i["requirement"].get("standard_document_id") not in covered_ids]}
+            checklist_note = {"type": governing["key"], "items": governing["items"],
+                              "standards": len(covered_ids)}
     applicability_summary = scoped["summary"]
     findings: list[dict] = []
     # The run's findings, prepared and gated but NOT yet written: they go in
@@ -2327,7 +2335,7 @@ def run_comparison(
         # #677: does-not-apply also holds the service gate's, the AI tier's
         # (confirmed by code) and the definitions - the same items the
         # per-requirement ledger above is built from
-        scoped["not_applied_items"] + extra_not_applied,
+        scoped["not_applied_items"],
         covered_items)
     if checklist_note:
         split = {**split, "checklist": checklist_note}
