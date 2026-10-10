@@ -70,6 +70,11 @@ WIDTHS = {"A": 11.7, "B": 25.8, "C": 21.8, "D": 93.5, "E": 23.0, "F": 25.0,
 #: / submittal p1", which is not where the contractor looks.
 STANDARD_COLUMN = "Standard Reference"
 STANDARD_COLUMN_WIDTH = 26.0
+#: #725 F7: the comment's severity (the worst of the findings it groups:
+#: critical, major, minor, observation), after Standard Reference, in BOTH
+#: copies. None of the client's seven columns moves or is renamed.
+SEVERITY_COLUMN = "Severity"
+SEVERITY_COLUMN_WIDTH = 12.0
 #: OWNER DECISION 2026-09-27 (order 2f): a NEW LAST column for the AI
 #: engineering check's unconfirmed items, so the engineer sees them on the
 #: sheet before confirming. No existing column moves or is renamed.
@@ -328,6 +333,7 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
             # what kind a row is, same as every other field here.
             "row_kind": finding.get("row_kind", ""),
             "standard_reference": str(finding.get("standard_reference") or ""),
+            "severity": str(finding.get("severity") or ""),
             "ai_review_comment": (str(finding.get("ai_review_comment") or "")
                                   if copy == COPY_INTERNAL else ""),
         })
@@ -341,7 +347,7 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         # a plausible-looking transmittal number lies about its own provenance.
         "header": [{"label": label, "value": meta.get(key, "") or ""}
                    for label, key in HEADER_FIELDS],
-        "columns": list(HEADERS) + [STANDARD_COLUMN]
+        "columns": list(HEADERS) + [STANDARD_COLUMN, SEVERITY_COLUMN]
                    + ([AI_COLUMN] if copy == COPY_INTERNAL else []),
         "crs_copy": copy,
         "rows": rows,
@@ -441,8 +447,9 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         ws.column_dimensions[col].width = width
     internal = view["crs_copy"] == COPY_INTERNAL
     ws.column_dimensions["H"].width = STANDARD_COLUMN_WIDTH
+    ws.column_dimensions["I"].width = SEVERITY_COLUMN_WIDTH
     if internal:
-        ws.column_dimensions["I"].width = AI_COLUMN_WIDTH
+        ws.column_dimensions["J"].width = AI_COLUMN_WIDTH
 
     def put(row, col, value, bold=False, size=10, center=False, wrap=False):
         cell = _write(ws, row, col, value)
@@ -480,12 +487,12 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         values = [entry["item_no"], entry["document_name"],
                   entry["page_section"], comment, entry["comment_by"],
                   entry["contractor_response"], entry["final_resolution"],
-                  entry["standard_reference"]]
+                  entry["standard_reference"], entry.get("severity", "")]
         if internal:
             values.append(entry["ai_review_comment"])
         fill = ROW_FILLS.get(entry.get("row_kind") or "")
         for i, value in enumerate(values, start=1):
-            cell = put(row, i, value, wrap=(i in (3, 4, 8, 9)), center=(i == 1))
+            cell = put(row, i, value, wrap=(i in (3, 4, 8, 10)), center=(i in (1, 9)))
             cell.border = BOX
             if fill is not None:
                 cell.fill = fill

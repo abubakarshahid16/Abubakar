@@ -524,11 +524,11 @@ def test_the_preview_carries_the_seven_columns_the_template_defines():
     # adds "AI Review Comments" LAST (owner decision 2026-09-27), and the
     # copy issued to the contractor is the template exactly.
     # CRS quick wins: "Standard Reference" follows the seven, in both copies.
-    assert body["columns"] == [*HEADERS, "Standard Reference", "AI Review Comments"]
+    assert body["columns"] == [*HEADERS, "Standard Reference", "Severity", "AI Review Comments"]  # #725 F7: Severity after Standard Reference
     assert body["columns"][5:7] == ["Contractor's Response", "Final Resolution"]
     issued = _preview(_client(doc).get(f"/api/reviews/runs/{run_id}/crs/preview",
                                        params={"copy": "issue"}))
-    assert issued["columns"] == [*HEADERS, "Standard Reference"]
+    assert issued["columns"] == [*HEADERS, "Standard Reference", "Severity"]
 
 
 def test_the_contractor_columns_come_back_empty_rather_than_missing():
@@ -591,7 +591,7 @@ def test_the_preview_is_the_workbook_row_for_row(monkeypatch):
 
     # The column headers, directly under the header block.
     assert [_cell(ws, COLUMN_HEADER_ROW, c)
-            for c in range(1, 10)] == body["columns"]
+            for c in range(1, 11)] == body["columns"]
 
     # Every data row, from row 9, across all seven columns.
     assert len(body["rows"]) >= 3, "the fixture produced too few rows to prove"
@@ -602,7 +602,8 @@ def test_the_preview_is_the_workbook_row_for_row(monkeypatch):
             row["comment"], row["comment_by"], row["contractor_response"],
             row["final_resolution"]], f"row {row['item_no']} disagrees"
         assert _cell(ws, r, 8) == row["standard_reference"]
-        assert _cell(ws, r, 9) == row["ai_review_comment"]
+        assert _cell(ws, r, 9) == row["severity"]  # #725 F7
+        assert _cell(ws, r, 10) == row["ai_review_comment"]
     # And no eighth row hiding in the workbook that the preview never showed.
     assert _cell(ws, COLUMN_HEADER_ROW + len(body["rows"]) + 1, 1) == ""
 
@@ -817,11 +818,11 @@ def test_the_additions_left_the_seven_template_columns_in_place():
     ws = _sheet(_client(doc).get(f"/api/reviews/runs/{run_id}/crs", params={"copy": "issue"}))
     internal = _sheet(_client(doc).get(f"/api/reviews/runs/{run_id}/crs"))
     assert [internal.cell(row=COLUMN_HEADER_ROW, column=c).value
-            for c in range(1, 10)] == [*HEADERS, "Standard Reference", "AI Review Comments"]
+            for c in range(1, 11)] == [*HEADERS, "Standard Reference", "Severity", "AI Review Comments"]
 
     assert [ws.cell(row=COLUMN_HEADER_ROW, column=c).value
-            for c in range(1, 9)] == [*HEADERS, "Standard Reference"]
-    assert ws.max_column == 8
+            for c in range(1, 10)] == [*HEADERS, "Standard Reference", "Severity"]
+    assert ws.max_column == 9
 
 
 def test_the_issue_copy_is_refused_until_an_engineer_decides():
