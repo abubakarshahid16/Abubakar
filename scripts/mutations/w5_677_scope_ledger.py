@@ -67,8 +67,9 @@ MUTATIONS: tuple[Mutation, ...] = (
 MUTATIONS = MUTATIONS + (
     Mutation(id="M4520", phase=4520, description="#678's counts leave out the service gate, AI and definitions (two sources)",
              path=APP / "comparison.py",
-             anchor="        scoped[\"not_applied_items\"] + extra_not_applied)\n",
-             replacement="        scoped[\"not_applied_items\"])\n",
+             # re-anchored 2026-10-10 (#746 part 2): the call also passes covered_items
+             anchor="        scoped[\"not_applied_items\"] + extra_not_applied,\n        covered_items)\n",
+             replacement="        scoped[\"not_applied_items\"],\n        covered_items)\n",
              target=_T, keyword="exactly_one_stored", tags=("honesty", "critical")),
 )
 

@@ -1,0 +1,34 @@
+"""#746 part 2: the checklist governs the standards it cites. M6501 onward."""
+from __future__ import annotations
+
+from ._base import APP, Mutation
+
+_T = "tests/test_746_checklist_governs.py"
+
+MUTATIONS: tuple[Mutation, ...] = (
+    Mutation(id="M6501", phase=6501, description="the guard is dropped: every applicable standard is covered",
+             path=APP / "comparison.py",
+             anchor='        covered_ids = governed_standards(standard_ids, governing["standards"])\n',
+             replacement="        covered_ids = set(standard_ids)\n",
+             target=_T, keyword="governs_only_the_standards_it_cites", tags=("checklist", "critical")),
+    Mutation(id="M6502", phase=6502, description="'not used' is counted as applies-but-not-checked",
+             path=APP / "requirement_split.py",
+             anchor="        put(NOT_USED, requirement_key(item[\"requirement\"]),\n",
+             replacement="        put(APPLIES_NOT_CHECKED, requirement_key(item[\"requirement\"]),\n",
+             target=_T, keyword="governs_only_the_standards_it_cites", tags=("checklist", "honesty")),
+    Mutation(id="M6503", phase=6503, description="the checklist never governs, so its standards are checked rule by rule",
+             path=APP / "comparison.py",
+             anchor="    if governing and requirements:\n",
+             replacement="    if False:\n",
+             target=_T, keyword="governs_only_the_standards_it_cites", tags=("checklist",)),
+    Mutation(id="M6504", phase=6504, description="the CRS does not say the review used the checklist",
+             path=APP / "absence.py",
+             anchor="    if note and split.get(\"not_used\"):\n",
+             replacement="    if False:\n",
+             target=_T, keyword="governs_only_the_standards_it_cites", tags=("checklist", "honesty")),
+    Mutation(id="M6505", phase=6505, description="a cited standard is found by a loose match, not its identifier",
+             path=APP / "comparison.py",
+             anchor="        if any(ids.same_standard(c, label) for c in cited for label in labels):\n",
+             replacement="        if any(c.split()[0].lower() in label.lower() for c in cited for label in labels):\n",
+             target=_T, keyword="identifier_not_a_list", tags=("checklist",)),
+)

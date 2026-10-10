@@ -918,6 +918,26 @@ def _reference_obstacle(observed: claims.Measurement, limit: claims.Measurement)
     return None
 
 
+def governed_standards(standard_ids: list[str], cited: list[str]) -> set[str]:
+    """#746: the applicable standards a checklist cites - matched by the one
+    identifier rule (`standard_ids.same_standard`) against each standard's
+    file name, document number and title. Nothing is matched by a list in code."""
+    from . import classification as classification_mod
+    from . import standard_ids as ids
+    if not standard_ids or not cited:
+        return set()
+    names = {r["id"]: r["filename"] for r in connect().execute(
+        "SELECT id, filename FROM documents WHERE id IN (%s)" % ",".join("?" for _ in standard_ids),
+        standard_ids)}
+    out = set()
+    for sid in standard_ids:
+        meta = classification_mod.of_document(sid) or {}
+        labels = [x for x in (names.get(sid), meta.get("document_number"), meta.get("title")) if x]
+        if any(ids.same_standard(c, label) for c in cited for label in labels):
+            out.add(sid)
+    return out
+
+
 def _unit_obstacle(submitted_unit: str | None, required_unit: str | None) -> str:
     """Why two readable numbers were not compared, naming only the units that
     exist. Audit leftover 2026-09-30: two values with no unit read "the
@@ -1891,6 +1911,29 @@ def run_comparison(
                 held_back["text_quality"] += 1
                 held_items.append({"requirement": dict(r), "code": "text_quality"})
 
+    # #746 THE CHECKLIST GOVERNS ITS OWN STANDARDS (planner decision, #746).
+    # When this submittal's equipment type has a review checklist, the library
+    # requirements of a standard the checklist CITES are not checked one by
+    # one: the checklist items are. They stay quotable. GUARD: only standards
+    # named in the checklist's own `source.standard` (`checklist_sources`) -
+    # a requirement from any other applicable standard keeps the normal path,
+    # and a type with no checklist is unchanged.
+    covered_items: list[dict] = []
+    checklist_note = None
+    from . import classification as _classification, datasheet_checks as _checks
+    governing = _checks.checklist_sources(
+        (_classification.of_document(submittal_id) or {}).get("equipment_type"))
+    if governing and requirements:
+        covered_ids = governed_standards(standard_ids, governing["standards"])
+        if covered_ids:
+            detail = (f"the {governing['key']} review checklist governs this standard "
+                      f"({governing['items']} items); not checked one by one")
+            covered_items = [{"requirement": dict(r), "code": "covered_by_checklist", "detail": detail}
+                             for r in requirements if r.get("standard_document_id") in covered_ids]
+            requirements = [r for r in requirements if r.get("standard_document_id") not in covered_ids]
+            checklist_note = {"type": governing["key"], "items": governing["items"],
+                              "standards": len(covered_ids)}
+
     facts = datasheets.list_facts(
         submittal_id, allowed_document_ids=allowed_document_ids)
     # #598 A TABLE CELL IS A CHECK ONLY WHEN THE SUBMITTAL HAS A FIELD THAT
@@ -2251,7 +2294,8 @@ def run_comparison(
     decisions = scope_ledger.build(
         checked=requirements, status_of=status_of, rejected=rejected_requirements,
         not_checked=gated["not_compared_items"] + held_items,
-        not_applied=scoped["not_applied_items"] + extra_not_applied, notes=ai_notes)
+        not_applied=scoped["not_applied_items"] + extra_not_applied, notes=ai_notes,
+        not_used=covered_items)
     scope_counts = scope_ledger.check_complete(in_scope_all, decisions)
     scope_ledger.store(review_run_id, decisions)
 
@@ -2283,7 +2327,10 @@ def run_comparison(
         # #677: does-not-apply also holds the service gate's, the AI tier's
         # (confirmed by code) and the definitions - the same items the
         # per-requirement ledger above is built from
-        scoped["not_applied_items"] + extra_not_applied)
+        scoped["not_applied_items"] + extra_not_applied,
+        covered_items)
+    if checklist_note:
+        split = {**split, "checklist": checklist_note}
     unchecked_counts = {
         "not_compared": split["applies_not_checked"],
         "not_applied": split["does_not_apply"],

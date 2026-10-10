@@ -380,6 +380,17 @@ def checklist_for(equipment_type: str | None, rules: dict) -> dict | None:
     return {"key": key, "items": items, "draft": draft}
 
 
+def checklist_sources(equipment_type: str | None, rules: dict | None = None) -> dict | None:
+    """#746: `{"key", "items", "standards"}` - the type's checklist, how many
+    items it has, and the standards its items cite (from `source.standard`,
+    never a list written in code). None when the type has no checklist."""
+    checklist = checklist_for(equipment_type, rules or load_rules())
+    if not checklist:
+        return None
+    return {"key": checklist["key"], "items": len(checklist["items"]),
+            "standards": sorted({i["source"]["standard"] for i in checklist["items"]})}
+
+
 def _measure(fact: dict):
     """The fact's value as a `claims.Measurement`: read from the printed number
     and unit, or the stored normalised value when the printed unit cannot be
