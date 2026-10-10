@@ -175,6 +175,11 @@ def main(argv: list[str] | None = None) -> int:
         sp.add_argument("--findings", required=True)
         sp.add_argument("--baseline", default=str(DEFAULT_BASELINE))
         sp.add_argument("--json", action="store_true")
+    c = sub.add_parser("from-crs", help="draft an answer key from a real CRS workbook (#747)")
+    c.add_argument("--crs", required=True, help="the CRS .xlsx (client template)")
+    c.add_argument("--name", required=True)
+    c.add_argument("--approved-by", required=True)
+    c.add_argument("--out", required=True, help="the draft key; keep it outside the repo")
     w = sub.add_parser("weekly")
     w.add_argument("--keys-dir", default=str(DEFAULT_KEYS))
     w.add_argument("--runs-dir", required=True)
@@ -184,6 +189,19 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     try:
+        if args.cmd == "from-crs":
+            from openpyxl import load_workbook
+            out = Path(args.out).resolve()
+            if REPO in out.parents:
+                print("REFUSED: a key drafted from a real CRS stays outside the repo (#747).")
+                return 2
+            ws = load_workbook(args.crs, read_only=True, data_only=True).worksheets[0]
+            key, todo = rs.key_from_crs(list(ws.iter_rows(values_only=True)),
+                                        name=args.name, approved_by=args.approved_by)
+            out.write_text(json.dumps({**key, "to_complete": todo}, indent=1) + "\n", encoding="utf-8")
+            print(f"{len(key['items'])} item(s) drafted, {len(todo)} comment(s) to complete by hand "
+                  f"(rows only), written to {out}. Check every item before scoring.")
+            return 0
         if args.cmd == "export":
             conn = _open_readonly(args.db)
             doc = export_findings(conn, args.run, args.model)
