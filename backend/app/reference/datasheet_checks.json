@@ -200,6 +200,47 @@
       "names": [
         "^viscosity( at relieving temp(erature|er|\\.)?)?$"
       ]
+    },
+    "inlet_rating": {
+      "kind": "text",
+      "names": [
+        "^inlet (flange |connection )?(rating|class)$",
+        "^inlet (flange|connection)$"
+      ]
+    },
+    "body_material": {
+      "kind": "text",
+      "names": [
+        "^body( and bonnet)? material$",
+        "^body$"
+      ]
+    },
+    "trim_material": {
+      "kind": "text",
+      "names": [
+        "^(trim|nozzle|disc|disk)( and (disc|disk|nozzle|seat))? material$",
+        "^trim$"
+      ]
+    },
+    "spring_material": {
+      "kind": "text",
+      "names": [
+        "^spring( material)?$"
+      ]
+    },
+    "bellows_material": {
+      "kind": "text",
+      "names": [
+        "^bellows( material)?$"
+      ]
+    },
+    "sour_service": {
+      "kind": "text",
+      "names": [
+        "^h2s( service| content| present)?$",
+        "^sour service$",
+        "^nace( mr0175)?( required)?$"
+      ]
     }
   },
   "units": {
@@ -346,7 +387,7 @@
     "corrosion_allowance"
   ],
   "checklists": {
-    "_about": "#746: the review checklist per equipment type, in the one datasheet-checks engine. Each item: id, plain text, source {standard, clause} (required), a rule (required, compare, constant, percent_of or allowed), an optional condition {role, any}, a severity. Items drawn from a client's own standard go in the local, git-ignored overlay <data_dir>/checklists/<type>.json, never here (CLAUDE.md rule 1).",
+    "_about": "#746: the review checklist per equipment type, in the one datasheet-checks engine. Each item: id, plain text, source {standard, clause} (required), a rule (required, compare, constant, percent_of, allowed, or above_by: left >= right + the greater of a percent or an absolute margin), an optional condition {role, any} or a list of them that must all hold, a severity. Client standard items are written here in our own words (owner decision 2026-10-10); the local overlay <data_dir>/checklists/<type>.json stays for items not yet approved for the repo.",
     "Pressure Safety Valve": {
       "sign_off": {
         "status": "draft",
@@ -354,7 +395,7 @@
         "date": null
       },
       "clauses_verified": false,
-      "note": "DRAFT. Clause numbers are API 520 Part I section headings found in the held copy; the rule under each is the author's engineering reading, NOT checked line by line against the clause text. Nothing here is binding until a client discipline engineer signs it off.",
+      "note": "DRAFT. API 520 Part I items: clause numbers are section headings found in the held copy; SAES-J-600 items: clause numbers and the check written in our own words from the held copy (owner decision 2026-10-10: client standard items go in this file, no verbatim text). The rule under each is an engineering reading, not checked line by line. Nothing here is binding until a client discipline engineer signs it off.",
       "items": [
         {
           "id": "PSV-01",
@@ -934,6 +975,190 @@
             ]
           },
           "when_unknown": "evaluate"
+        },
+        {
+          "id": "PSV-S01",
+          "text": "The inlet size is stated (the standard's minimum is 3/4 in threaded or 1 in flanged).",
+          "source": {
+            "standard": "SAES-J-600",
+            "clause": "4.1.2"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "inlet_size"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "PSV-S02",
+          "text": "The inlet flange rating is at least ASME B16.5 Class 150.",
+          "source": {
+            "standard": "SAES-J-600",
+            "clause": "4.1.3"
+          },
+          "rule": {
+            "kind": "allowed",
+            "field": "inlet_rating",
+            "values": [
+              "150",
+              "300",
+              "600",
+              "900",
+              "1500",
+              "2500"
+            ]
+          },
+          "severity": "major"
+        },
+        {
+          "id": "PSV-S03",
+          "text": "The set pressure is above the maximum operating pressure by at least the greater of 10% or 100 kPa.",
+          "source": {
+            "standard": "SAES-J-600",
+            "clause": "8"
+          },
+          "rule": {
+            "kind": "above_by",
+            "left": "set_pressure",
+            "right": "operating_pressure",
+            "percent": 10,
+            "at_least": 100,
+            "unit": "kPa"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "PSV-S04",
+          "text": "For a thermal relief valve, the set pressure does not exceed 110% of the maximum allowable pressure.",
+          "source": {
+            "standard": "SAES-J-600",
+            "clause": "8.9.3"
+          },
+          "rule": {
+            "kind": "percent_of",
+            "left": "set_pressure",
+            "op": "<=",
+            "percent": 110,
+            "right": "mawp"
+          },
+          "severity": "major",
+          "condition": {
+            "role": "relief_case",
+            "any": [
+              "thermal"
+            ]
+          }
+        },
+        {
+          "id": "PSV-S05",
+          "text": "The governing relief case is stated (external fire is included where the codes require it).",
+          "source": {
+            "standard": "SAES-J-600",
+            "clause": "7.1"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "relief_case"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "PSV-S06",
+          "text": "The worst-case relieving rate the valve is sized for is stated.",
+          "source": {
+            "standard": "SAES-J-600",
+            "clause": "10"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "required_capacity"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "PSV-S07",
+          "text": "The body material is stated (materials follow API 526 with the standard's exceptions).",
+          "source": {
+            "standard": "SAES-J-600",
+            "clause": "6.1"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "body_material"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "PSV-S08",
+          "text": "The trim (nozzle and disc) material is stated.",
+          "source": {
+            "standard": "SAES-J-600",
+            "clause": "6.1"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "trim_material"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "PSV-S09",
+          "text": "In sour service, the spring material is stated (protected by bellows or a rupture disc, or crack-resistant).",
+          "source": {
+            "standard": "SAES-J-600",
+            "clause": "6.2"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "spring_material"
+          },
+          "severity": "major",
+          "condition": {
+            "role": "sour_service",
+            "any": [
+              "yes",
+              "sour",
+              "present",
+              "required"
+            ]
+          }
+        },
+        {
+          "id": "PSV-S10",
+          "text": "For a bellows valve in sour service, the bellows are Alloy 625 or Alloy C-276.",
+          "source": {
+            "standard": "SAES-J-600",
+            "clause": "6.3"
+          },
+          "rule": {
+            "kind": "allowed",
+            "field": "bellows_material",
+            "values": [
+              "625",
+              "N06625",
+              "C-276",
+              "C276",
+              "N10276"
+            ]
+          },
+          "severity": "major",
+          "condition": [
+            {
+              "role": "valve_type",
+              "any": [
+                "bellows"
+              ]
+            },
+            {
+              "role": "sour_service",
+              "any": [
+                "yes",
+                "sour",
+                "present",
+                "required"
+              ]
+            }
+          ]
         }
       ]
     }

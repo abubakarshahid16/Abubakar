@@ -1,13 +1,12 @@
-"""The four places a reviewer may ask Claude for a second pair of eyes.
+"""The three places a reviewer may ask Claude for a second pair of eyes.
 
-ONE ROUTER, FOUR ROUTES, ONE SWITCH. Each route runs one of the model-assisted
+ONE ROUTER, THREE ROUTES, ONE SWITCH. Each route runs one of the model-assisted
 modules over one review run and stores only what the module's own gate
 accepted, marked as the model's, for an engineer to confirm:
 
   POST /api/reviews/runs/{id}/claude/select-standards   claude_selection
   POST /api/reviews/runs/{id}/claude/read-datasheet     claude_datasheet
   POST /api/reviews/runs/{id}/claude/recheck            claude_recheck
-  POST /api/reviews/runs/{id}/claude/crs-draft          claude_crs_comments
 
 THE SWITCH IS THE READER'S. `reader_transport.transport()` returns None
 unless BOTH `STANDARDS_READER_ENABLED` and
@@ -29,11 +28,6 @@ repeated here so the router cannot be read as granting more:
   recheck           appends a note to a finding's rationale; may raise a
                     COMPLIANT or NON_COMPLIANT finding to
                     NEEDS_ENGINEER_REVIEW and may do nothing else to a status.
-  crs-draft         stores no draft. Returns the CRS preview with each row's
-                    comment replaced by a gated draft under
-                    `MODEL_DRAFT_PREFIX`, the machine text kept beside it,
-                    and writes one `audit_events` row naming who asked
-                    (#441: it was a GET, though it sends text and spends).
 
 Every response carries the gate's counts by reason and the transport's token
 usage, so what the model was allowed to say and what it cost are on the same
@@ -71,9 +65,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from . import access, errors
 from . import claude_budget, claude_spend
-from . import claude_crs_comments, claude_datasheet, claude_recheck, claude_selection
+from . import claude_datasheet, claude_recheck, claude_selection
 from . import classification as classification_mod
-from . import crs_export as crs_export_mod
 from . import datasheets, reader_api
 from . import reader_transport as reader_transport_mod
 from . import submittal_review as submittal_review_mod
@@ -91,8 +84,7 @@ MODEL_DISABLED = errors.MODEL_UNAVAILABLE
 STEP_SELECT_STANDARDS = "claude-select-standards"
 STEP_READ_DATASHEET = "claude-read-datasheet"
 STEP_RECHECK = "claude-recheck"
-STEP_CRS_DRAFT = "claude-crs-draft"
-STEPS = (STEP_SELECT_STANDARDS, STEP_READ_DATASHEET, STEP_RECHECK, STEP_CRS_DRAFT)
+STEPS = (STEP_SELECT_STANDARDS, STEP_READ_DATASHEET, STEP_RECHECK)
 
 
 def _run_or_404(review_run_id: str, scope: access.AccessScope) -> dict:
@@ -359,88 +351,6 @@ def claude_recheck_findings(
         "stored": stored,
         "total": result.get("total", 0),
         "findings": result.get("findings"),
-    }, exhausted, model_call)
-
-
-#: The `audit_events.action` of a CRS draft request (#441).
-AUDIT_CRS_DRAFT = "claude_crs_draft"
-
-
-def _record_crs_draft_started(review_run_id: str, scope: access.AccessScope) -> int:
-    """Who asked for a CRS draft, written BEFORE anything is sent (#441).
-
-    A write-ahead row: if it cannot be written the request fails with nothing
-    sent, and a call that fails half way is still on record. Ids and counts
-    only, never a comment or a finding - the audit table is the one most
-    likely to be exported."""
-    from datetime import UTC, datetime
-
-    from . import auth as auth_mod
-    described = auth_mod.describe(scope.user_id) if scope.user_id else None
-    name = ((described or {}).get("email") or "unauthenticated")[:200]
-    conn = connect()
-    with conn:
-        cur = conn.execute(
-            """INSERT INTO audit_events
-                   (at, actor_user_id, actor_username, action,
-                    resource_type, resource_id, outcome, detail)
-               VALUES (?, ?, ?, ?, 'review_run', ?, 'started', NULL)""",
-            (datetime.now(UTC).isoformat(timespec="seconds"), scope.user_id, name,
-             AUDIT_CRS_DRAFT, review_run_id))
-    return int(cur.lastrowid)
-
-
-def _record_crs_draft_finished(audit_id: int, outcome: str, drafted: dict) -> None:
-    detail = (f"drafted={int(drafted.get('drafted', 0))} "
-              f"rejected={int(drafted.get('rejected', 0))}")
-    try:
-        conn = connect()
-        with conn:
-            conn.execute(
-                "UPDATE audit_events SET outcome = ?, detail = ? WHERE id = ?",
-                (outcome, detail, audit_id))
-    except Exception as exc:  # noqa: BLE001 - the paid draft is still returned
-        # Not silent: the 'started' row already names who asked; only the
-        # counts are missing, and the failure is logged.
-        errors.record_failure(exc, stage="crs_draft_audit")
-
-
-@router.post("/api/reviews/runs/{review_run_id}/claude/crs-draft", response_model=ClaudeRouteResult)
-def claude_crs_draft(
-    review_run_id: str, request: Request,
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """The CRS preview with model-drafted comments laid over it (#441).
-
-    A POST, because it does work: it sends the run's findings to Claude and
-    spends from the USD caps. So it needs an identity like every other writer,
-    a run the caller may read (404 otherwise, the same as a missing run), and
-    an audit row naming who asked. The drafts themselves are not stored; the
-    download route still exports the machine text until an engineer copies a
-    draft in."""
-    reject_unknown_params(request, set())
-    _require_identity_to_write(scope)
-    _run_or_404(review_run_id, scope)
-    from .main import _crs_content  # the same composition the preview uses
-    rows, meta, submittal_name, _stamp = _crs_content(review_run_id, scope)
-    model_call, transport = _model_call_or_409(STEP_CRS_DRAFT)
-    audit_id = _record_crs_draft_started(review_run_id, scope)
-    try:
-        drafted, exhausted = _capped(model_call, lambda call: claude_crs_comments.draft_run(
-            review_run_id, call, allowed_document_ids=scope.allowed_document_ids,
-            submittal_name=submittal_name), transport)
-    except HTTPException:
-        # The USD cap refused the first call: nothing was sent.
-        _record_crs_draft_finished(audit_id, "refused", {})
-        raise
-    _record_crs_draft_finished(audit_id, "incomplete" if exhausted else "ok", drafted)
-    view = crs_export_mod.build_crs_view(rows, meta)
-    return _settle(transport, {
-        **claude_crs_comments.apply_drafts(view, drafted.get("drafts", {})),
-        "drafted": drafted.get("drafted", 0),
-        "rejected": drafted.get("rejected", 0),
-        "counts": drafted.get("counts", {}),
-        "drafted_by": scope.user_id,
     }, exhausted, model_call)
 
 

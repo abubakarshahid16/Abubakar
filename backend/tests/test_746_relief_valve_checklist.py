@@ -109,8 +109,8 @@ def test_an_item_without_a_clause_is_refused():
 
 
 def test_local_items_are_merged_and_marked_local(tmp_path, monkeypatch):
-    """Items drawn from a client's own standard live in the git-ignored data
-    folder (CLAUDE.md rule 1) and run beside the committed ones."""
+    """Items not (yet) approved for the repo live in the git-ignored data
+    folder and run beside the committed ones."""
     from app.config import settings
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     (tmp_path / "checklists").mkdir()
@@ -156,3 +156,31 @@ def test_an_unknown_condition_stops_only_the_items_it_could_make_wrong():
     assert "fluid phase" in r["PSV-22"]["detail"].lower()          # not owed for sure, so not "missing"
     no_case = [f for f in SHEET if f["field_name"] != "relief case"]
     assert results(no_case)["PSV-28"]["status"] == "NEEDS_ENGINEER_REVIEW"
+
+
+def test_the_set_pressure_margin_takes_the_greater_of_a_percent_or_an_absolute_value():
+    """SAES-J-600 cl. 8 in our own words: set >= max operating + max(10%, 100 kPa)."""
+    def sheet(op):
+        return [f for f in SHEET if f["field_name"] != "operating pressure"] + [
+            fact("operating pressure", op, "barg")]
+    assert results(sheet("8.9"))["PSV-S03"]["status"] == "COMPLIANT"        # 10 >= 8.9 + 1.0 (100 kPa wins)
+    assert results(sheet("9.05"))["PSV-S03"]["status"] == "NON_COMPLIANT"   # 10 < 9.05 + 1.0 (10% alone would pass)
+    r = results(sheet("9.2"))["PSV-S03"]                                     # 10 < 9.2 + 1.0
+    assert r["status"] == "NON_COMPLIANT" and "SAES-J-600 8" in r["text"]
+    high = [f for f in SHEET if f["field_name"] not in ("operating pressure", "set pressure",
+                                                       "max allow working pressure")] + [
+        fact("set pressure", "50", "barg"), fact("max allow working pressure", "60", "barg"),
+        fact("operating pressure", "46", "barg")]
+    assert results(high)["PSV-S03"]["status"] == "NON_COMPLIANT"            # 50 < 46 + 4.6 (10% wins)
+
+
+def test_every_condition_in_a_list_must_hold():
+    """SAES-J-600 cl. 6.3: bellows material only for a bellows valve AND sour service."""
+    base = [f for f in SHEET if f["field_name"] != "valve type"]
+    sour_bellows = base + [fact("valve type", "Balanced bellows"), fact("h2s service", "Yes")]
+    assert results(sour_bellows)["PSV-S10"]["status"] == "MISSING_INFORMATION"     # both hold, not given
+    ok = sour_bellows + [fact("bellows material", "Alloy 625")]
+    assert results(ok)["PSV-S10"]["status"] == "COMPLIANT"
+    not_sour = base + [fact("valve type", "Balanced bellows"), fact("h2s service", "No")]
+    assert results(not_sour)["PSV-S10"]["status"] == "NOT_APPLICABLE"
+    assert results(SHEET)["PSV-S10"]["status"] == "NOT_APPLICABLE"                 # conventional valve
