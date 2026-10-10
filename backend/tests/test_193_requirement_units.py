@@ -45,9 +45,11 @@ def test_a_word_that_is_not_a_unit_is_still_not_a_unit(sentence):
 
 
 def test_absolute_and_gauge_pressures_never_compare_as_one_unit():
-    """Recognised, not converted: 13 psia is not 13 psig."""
+    """13 psia is not 13 psig. Since #725 F2 both convert through psi and keep
+    their reference; they are still never compared with each other."""
     psia = claims.normalise("13", "psia")
     psig = claims.normalise("13", "psig")
-    assert psia.normalized_value is None and psig.normalized_value is None
+    assert (psia.reference, psig.reference) == ("absolute", "gauge")
+    assert claims._compatible(psia, psig) is None
     assert not claims.same_unit(psia, psig)
     assert claims.unit_dimension("kPag") == claims.unit_dimension("psia") == "pressure"

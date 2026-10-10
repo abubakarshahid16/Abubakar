@@ -157,11 +157,6 @@ def sheet_kind(facts: list[dict], equipment_type: str | None = None) -> str | No
 
 
 # ------------------------------------------------------------------ rule 1
-def _unit_of(row: dict) -> str:
-    base, _reference = claims.split_reference(row.get("raw_unit") or row.get("unit"))
-    return base or ""
-
-
 def unit_dimension_conflict(requirement: dict, fact: dict) -> bool:
     """True when the two units cannot be about the same quantity.
 
@@ -170,7 +165,8 @@ def unit_dimension_conflict(requirement: dict, fact: dict) -> bool:
     `ohm-cm`. Everything else is left alone - `compare` has the last word on
     whether two numbers can actually be compared.
     """
-    left, right = _unit_of(requirement), _unit_of(fact)
+    left = claims.base_unit(requirement.get("raw_unit") or requirement.get("unit"))
+    right = claims.base_unit(fact.get("raw_unit") or fact.get("unit"))
     if not left or not right:
         return False
     left_dim, right_dim = claims.unit_dimension(left), claims.unit_dimension(right)
