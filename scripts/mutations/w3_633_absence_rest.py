@@ -59,8 +59,9 @@ MUTATIONS: tuple[Mutation, ...] = (
        '                out.append(_result(rule["id"], COMPLIANT, rule["text"],\n                                   _sentence(\n                                       "the two values are not numbers',
        None, target="tests/test_datasheet_checks.py"),
     _m(3416, "a missing revision block is the contractor's omission while pages are unread",
-       "datasheet_checks.py", '        if r["rule_id"] in ("DS-M1", "DS-R1") and status == MISSING_INFORMATION:',
-       '        if r["rule_id"] == "DS-M1" and status == MISSING_INFORMATION:', "revision_block_is_not"),
+       # re-anchored 2026-10-10 (#746): the absence test now also covers checklist items
+       "datasheet_checks.py", '        absent = (r["rule_id"] in ("DS-M1", "DS-R1")',
+       '        absent = (r["rule_id"] == "DS-M1"', "revision_block_is_not"),
     _m(3417, "an engineer-to-check self-check says 'None.' as the action",
        "datasheet_checks.py", '                                else "Engineer to check." if status == NEEDS_ENGINEER_REVIEW',
        '                                else "None." if status == NEEDS_ENGINEER_REVIEW', "revision_block_is_not"),
