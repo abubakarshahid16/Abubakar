@@ -67,6 +67,15 @@ class OneOf(tuple):
 #: (here), never by a production default - see `config.trusted_host_names`.
 TEST_ALLOWED_HOSTS = "testserver"
 
+#: Fields whose PRODUCTION default is on but which a test session must not
+#: run: `isolate()` sets these after copying the code's defaults. Only for a
+#: switch the owner turned on by default; EGRESS_SAFE still checks the value.
+TEST_PINS: dict[str, object] = {
+    # On by default since #736 (owner decision 2026-10-10); in tests it would
+    # be a model call per standard per review.
+    "applicability_reasoning_enabled": False,
+}
+
 #: The only values these fields may hold when a test session starts. A test
 #: that needs one of them on sets it itself, with a fake transport - that is
 #: the established pattern (monkeypatch.setattr / setenv, undone per test).
@@ -179,6 +188,8 @@ def isolate(target: Settings, env=None) -> list[str]:
     for name in Settings.model_fields:
         setattr(target, name, getattr(clean, name))
     target.allowed_hosts = TEST_ALLOWED_HOSTS
+    for name, value in TEST_PINS.items():
+        setattr(target, name, value)
     return removed
 
 
