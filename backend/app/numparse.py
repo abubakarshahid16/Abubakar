@@ -10,8 +10,8 @@ own regex, and each regex had a different blind spot:
     issue #447.
   * `quality.normalise_text` used NFKC, which turns the superscript exponent in
     "10\u207b\u2076" into the digits "10-6": audit F14, issue #448.
-  * Each of `claude_crs_comments`, `claude_recheck`, `ai_engineering_check`,
-    `synthesis`, `rule_eval` re-implemented the thousands-separator and
+  * Each of `claude_crs_comments` (since deleted, #736), `claude_recheck`,
+    `ai_engineering_check`, `synthesis`, `rule_eval` re-implemented the thousands-separator and
     decimal-comma rules, so "8,300" and "9,0" meant different things in
     different gates.
 

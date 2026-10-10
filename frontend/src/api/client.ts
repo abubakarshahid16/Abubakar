@@ -94,7 +94,6 @@ import type {
   StandardClause,
   StandardRequirement,
   StandardExtraction,
-  ClaudeCrsDraft,
   UploadDisciplines,
 } from "../types/api";
 
@@ -482,16 +481,6 @@ export const reviews = {
     request<CrsPreview>(
       `/reviews/runs/${encodeURIComponent(runId)}/crs/preview`,
       undefined,
-      hasArrayField("rows"),
-    ),
-  /** The CRS preview with Claude-drafted comments (#441). A POST, never a
-   *  GET: it sends the run's findings to Claude and spends from the USD
-   *  caps, so a link or a prefetch must not be able to start it. The server
-   *  records who asked. */
-  claudeCrsDraft: (runId: string) =>
-    request<ClaudeCrsDraft>(
-      `/reviews/runs/${encodeURIComponent(runId)}/claude/crs-draft`,
-      { method: "POST" },
       hasArrayField("rows"),
     ),
   /** Close or re-open one numbered comment (its Final Resolution). Only a

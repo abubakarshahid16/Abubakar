@@ -27,7 +27,10 @@ from __future__ import annotations
 CHECKED = "checked"
 APPLIES_NOT_CHECKED = "applies_not_checked"
 DOES_NOT_APPLY = "does_not_apply"
-STATES = (CHECKED, APPLIES_NOT_CHECKED, DOES_NOT_APPLY)
+#: #746: the equipment type's review checklist governs this standard; the
+#: requirement stays quotable but is not checked one by one.
+NOT_USED = "not_used"
+STATES = (CHECKED, APPLIES_NOT_CHECKED, DOES_NOT_APPLY, NOT_USED)
 
 #: reason code -> (state, plain words for an engineer). "checked" means what
 #: #678's three-way split means by it: the requirement REACHED the comparison
@@ -56,6 +59,8 @@ REASONS: dict[str, tuple[str, str]] = {
                              "whether it applies could not be confirmed"),
     # does not apply
     "definition": (DOES_NOT_APPLY, "a definition, not a requirement"),
+    # #746
+    "covered_by_checklist": (NOT_USED, "the review checklist for this equipment type governs its standard"),
     "other_equipment": (DOES_NOT_APPLY, "it is about another kind of equipment"),
     "service_condition_not_met": (DOES_NOT_APPLY,
                                   "it applies only in a service this submittal says it is not in"),
@@ -80,7 +85,8 @@ _ITEM_CODE = {"text_quality": "unreadable_text"}
 
 
 def build(*, checked: list[dict], status_of: dict, rejected: set,
-          not_checked: list[dict], not_applied: list[dict], notes: dict | None = None) -> list[dict]:
+          not_checked: list[dict], not_applied: list[dict], notes: dict | None = None,
+          not_used: list[dict] | None = None) -> list[dict]:
     """The per-requirement decisions, from the SAME inputs #678's
     `requirement_split.build` counts: the requirements that reached the
     comparison (with their finding's status), and the not-checked / does-not-
@@ -104,6 +110,8 @@ def build(*, checked: list[dict], status_of: dict, rejected: set,
         out.append(_from_item(item, APPLIES_NOT_CHECKED))
     for item in not_applied:
         out.append(_from_item(item, DOES_NOT_APPLY))
+    for item in not_used or []:
+        out.append(_from_item(item, NOT_USED))
     return out
 
 

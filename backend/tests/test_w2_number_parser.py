@@ -30,8 +30,6 @@ from app import (
     rule_eval,
     synthesis,
 )
-from app.claude_crs_comments import accept as crs_accept
-from tests.test_claude_crs_comments import NC, row_for
 
 MINUS = "−"            # U+2212 MINUS SIGN
 EN_DASH = "–"
@@ -262,21 +260,6 @@ def test_the_ai_check_refuses_a_value_that_is_only_inside_a_longer_number():
 
 # ============================================== #449: the other callers
 
-def test_the_crs_comment_gate_does_not_read_u2212_as_a_positive_number():
-    """The inputs say the limit is U+2212 5. A comment that says 5 states a
-    different number; the old float regex read U+2212 5 as 5 and let it by."""
-    finding = {**NC, "requirement_source_text":
-               f"The metal temperature shall not be less than {MINUS}5 degC.",
-               "contractor_evidence_text": "-10 degC", "required_value": f"{MINUS}5",
-               "required_unit": "degC", "comparator": ">=", "matched_phrase": "metal temperature"}
-    row = row_for(finding)
-    base = "SAES-D-001 Para. 6.2.3 requires {limit} degC; the submittal states -10 degC."
-    refused = crs_accept({"comment": base.format(limit="5"), "action": None}, finding, row)
-    assert refused["accepted"] is False and refused["reason"] == "number_not_in_inputs", refused
-    kept = crs_accept({"comment": base.format(limit="-5"), "action": None}, finding, row)
-    assert kept["accepted"] is True, kept
-
-
 def test_the_recheck_gate_does_not_read_u2212_as_a_positive_number():
     finding = {
         "id": "f1", "compliance_status": comparison.COMPLIANT,
@@ -392,7 +375,7 @@ def test_a_selection_with_no_threshold_is_not_a_trigger():
 APP = Path(__file__).resolve().parent.parent / "app"
 
 #: Modules whose number reading was switched to `numparse` in W2.
-SWITCHED = ("reader_api", "claude_datasheet", "ai_engineering_check", "claude_crs_comments",
+SWITCHED = ("reader_api", "claude_datasheet", "ai_engineering_check",
             "claude_recheck", "synthesis", "answer", "rule_eval", "claims", "quality")
 
 #: What a private number reader looks like. If one of these is defined outside
