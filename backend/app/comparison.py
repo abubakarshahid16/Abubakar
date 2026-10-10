@@ -1946,6 +1946,15 @@ def run_comparison(
     requirements = serviced["kept"]
     extra_not_applied.extend(serviced["items"])
     service_declarations = serviced["declarations"]
+    # #725 F5 A MATERIALS STANDARD applies only to material fields: NACE's
+    # alloy-composition table rows are not checks for a datasheet that states
+    # no such material (6,702 of them were on one PSV review).
+    from . import applicability as applicability_mod
+    materials = subject_scope.materials_gate(
+        requirements, facts=facts, standard_labels=standard_labels,
+        is_materials_standard=applicability_mod.is_materials_standard)
+    requirements = materials["kept"]
+    extra_not_applied.extend(materials["items"])
     # #647 AI APPLICABILITY, when switched on: the model proposes "does not
     # apply" with a quoted reason; only what code confirms leaves the check.
     # What it suggested and code did not confirm is kept on the requirement's
