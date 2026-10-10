@@ -343,19 +343,38 @@ def qualifiers() -> frozenset[str]:
 
 
 def qualifier_conflict(requirement: dict, field_name: str) -> bool:
-    """True when the requirement's SUBJECT names a side, part or location of
-    the quantity (a `qualifiers()` word: external, jacket, inlet...) that the
-    field name does not. FOUND on the real PSV review (2026-10-10): "the
-    maximum external design pressure" and "the operating pressure of the
-    jacket" were paired with the sheet's plain design and operating pressures
-    by whole-word containment, and gave seven false NON_COMPLIANT findings.
-    The subject only, never the whole sentence: a clause may mention an inlet
-    in passing while its quantity is the plain one."""
-    subject = set(_normalise(str(requirement.get("subject") or "")).split())
-    if not subject:
+    """True when the requirement's SUBJECT puts a side, part or location word
+    (`qualifiers()`: external, jacket, inlet...) right AT the field's own words
+    and the field name does not carry it: just before them ("the maximum
+    EXTERNAL design pressure") or just after, through "of (the)" ("the
+    operating pressure OF THE JACKET"). FOUND on the real PSV review
+    (2026-10-10): those two were paired with the sheet's plain design and
+    operating pressures by whole-word containment and gave seven false
+    NON_COMPLIANT findings.
+
+    Next to the field's words only, never anywhere in the subject: in "the
+    minimum shell thickness and the maximum allowable working pressure" the
+    word "shell" qualifies the thickness, not the pressure. When the field was
+    matched through a synonym and its words are not in the subject, there is
+    nothing to stand next to, so no conflict."""
+    subject = _normalise(str(requirement.get("subject") or "")).split()
+    field = _normalise(field_name).split()
+    if not subject or not field:
         return False
-    field = set(_normalise(field_name).split())
-    return bool((subject & qualifiers()) - field)
+    words = qualifiers() - set(field)
+    n = len(field)
+    for start in range(len(subject) - n + 1):
+        if subject[start:start + n] != field:
+            continue
+        before = subject[max(0, start - 2):start]
+        after = subject[start + n:start + n + 3]
+        if after[:1] == ["of"]:
+            after = after[2:3] if after[1:2] == ["the"] else after[1:2]
+        else:
+            after = []
+        if words & set(before) or words & set(after):
+            return True
+    return False
 
 
 # ------------------------------------------------------------------ together

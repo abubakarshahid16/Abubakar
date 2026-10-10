@@ -49,3 +49,14 @@ def test_a_field_that_names_the_same_side_still_pairs():
     match = comparison.match_by_containment(_req("the outlet pressure", "10", "barg"),
                                             [_fact("outlet pressure", "8", "barg")])
     assert match["fact"] is not None and match["fact"]["field_name"] == "outlet pressure"
+
+
+def test_a_qualifier_counts_only_next_to_the_fields_own_words():
+    # "shell" qualifies the thickness here, not the pressure
+    assert not match_rules.qualifier_conflict(
+        _req("the minimum shell thickness and the maximum allowable working pressure"),
+        "maximum allowable working pressure")
+    # a nozzle is the item a field names, not a side of it
+    assert not match_rules.qualifier_conflict(_req("nozzle size"), "size")
+    # but "of the jacket" right after the field's words is a conflict
+    assert match_rules.qualifier_conflict(_req("the design pressure of the shell"), "design pressure")
