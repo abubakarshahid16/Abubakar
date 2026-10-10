@@ -489,7 +489,7 @@ def _world():
                             "operator": "<=", "raw_value": "10", "raw_unit": "bar",
                             "requirement_type": "numeric_limit"})
     fact = datasheets.create_fact(submittal_document_id=sub, chunk_id="fc",
-                                  field_label="Shell working press.", raw_value="______", page=1)
+                                  field_label="Working press.", raw_value="______", page=1)
     run_id = str(uuid.uuid4())
     with db.connect() as conn:
         conn.execute("INSERT INTO review_runs (id,submittal_document_id,status,created_at,"

@@ -250,7 +250,7 @@ def test_a_field_name_pairing_never_carries_a_verdict(monkeypatch):
     """THE MUTATION TARGET (M590): the numbers read NON_COMPLIANT (12 > 10),
     but a model-named pairing is held for an engineer, with the arithmetic
     stated and model-assisted confidence."""
-    req, fact, run, scope = _world("Shell working press.", "12 bar")
+    req, fact, run, scope = _world("Working press.", "12 bar")
     monkeypatch.setattr(settings, "geometry_reader_enabled", True)
     monkeypatch.setattr(field_naming, "ensure_names", lambda *_a, **_k: {
         "requirements": {str(req["id"]): "working pressure"},
@@ -266,7 +266,7 @@ def test_a_field_name_pairing_never_carries_a_verdict(monkeypatch):
 
 
 def test_with_the_flag_off_no_naming_runs(monkeypatch):
-    req, fact, run, scope = _world("Shell working press.", "12 bar")
+    req, fact, run, scope = _world("Working press.", "12 bar")
 
     def explode(*_a, **_k):
         raise AssertionError("field naming ran with the flag off")
