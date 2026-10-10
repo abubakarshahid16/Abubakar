@@ -1,43 +1,941 @@
 {
   "_about": "Owner order 2c: datasheet self-checks (kind B). Rules as data, each with an id and plain-English text. Pure arithmetic on the datasheet's own values - no standard, no model. Edit here, not in code; datasheet_checks.py reads this file.",
   "roles": {
-    "design_pressure": {"kind": "pressure", "names": ["^(internal |shell |tube )?(side )?design press(ure|\\.)?$", "^design press(ure|\\.)? \\(?internal\\)?$"]},
-    "operating_pressure": {"kind": "pressure", "names": ["^(max(imum|\\.)? )?(normal )?operating press(ure|\\.)?$"]},
-    "test_pressure": {"kind": "pressure", "names": ["^(hydro(static)? ?)?test press(ure|\\.)?$", "^hydrotest press(ure|\\.)?$"]},
-    "design_temperature": {"kind": "temperature", "names": ["^(max(imum|\\.)? )?design temp(erature|\\.)?$"]},
-    "operating_temperature": {"kind": "temperature", "names": ["^(max(imum|\\.)? )?(normal )?operating temp(erature|\\.)?$"]},
-    "rated_flow": {"kind": "flow", "names": ["^rated (flow|capacity)$"]},
-    "min_flow": {"kind": "flow", "names": ["^min(imum|\\.)? (continuous |stable )*flow$"]},
-    "max_flow": {"kind": "flow", "names": ["^max(imum|\\.)? (continuous |allowable )*flow$"]},
-    "corrosion_allowance": {"kind": "length", "names": ["^corrosion allowance$"]}
+    "design_pressure": {
+      "kind": "pressure",
+      "names": [
+        "^(internal |shell |tube )?(side )?design press(ure|\\.)?$",
+        "^design press(ure|\\.)? \\(?internal\\)?$"
+      ]
+    },
+    "operating_pressure": {
+      "kind": "pressure",
+      "names": [
+        "^(max(imum|\\.)? )?(normal )?operating press(ure|\\.)?$"
+      ]
+    },
+    "test_pressure": {
+      "kind": "pressure",
+      "names": [
+        "^(hydro(static)? ?)?test press(ure|\\.)?$",
+        "^hydrotest press(ure|\\.)?$"
+      ]
+    },
+    "design_temperature": {
+      "kind": "temperature",
+      "names": [
+        "^(max(imum|\\.)? )?design temp(erature|\\.)?$"
+      ]
+    },
+    "operating_temperature": {
+      "kind": "temperature",
+      "names": [
+        "^(max(imum|\\.)? )?(normal )?operating temp(erature|\\.)?$"
+      ]
+    },
+    "rated_flow": {
+      "kind": "flow",
+      "names": [
+        "^rated (flow|capacity)$"
+      ]
+    },
+    "min_flow": {
+      "kind": "flow",
+      "names": [
+        "^min(imum|\\.)? (continuous |stable )*flow$"
+      ]
+    },
+    "max_flow": {
+      "kind": "flow",
+      "names": [
+        "^max(imum|\\.)? (continuous |allowable )*flow$"
+      ]
+    },
+    "corrosion_allowance": {
+      "kind": "length",
+      "names": [
+        "^corrosion allowance$"
+      ]
+    },
+    "set_pressure": {
+      "kind": "pressure",
+      "names": [
+        "^set press(ure|\\.)?$",
+        "^set press(ure|\\.)? (at inlet )?\\(?psig|barg\\)?$"
+      ]
+    },
+    "mawp": {
+      "kind": "pressure",
+      "names": [
+        "^max(imum|\\.)? allow(able|\\.)? working press(ure|\\.)?$",
+        "^mawp$"
+      ]
+    },
+    "cdtp": {
+      "kind": "pressure",
+      "names": [
+        "^cold diff(erential|\\.)? (set |test )?press(ure|\\.)?$",
+        "^cdtp$"
+      ]
+    },
+    "built_up_back_pressure": {
+      "kind": "pressure",
+      "names": [
+        "^built[ -]?up back ?press(ure|\\.)?$",
+        "^back ?press(ure|\\.)? variable$"
+      ]
+    },
+    "superimposed_back_pressure": {
+      "kind": "pressure",
+      "names": [
+        "^superimposed back ?press(ure|\\.)?( constant)?$",
+        "^back ?press(ure|\\.)? constant$"
+      ]
+    },
+    "overpressure": {
+      "kind": "percent",
+      "names": [
+        "^over ?press(ure|\\.)?( %)?$",
+        "^allowable over ?press(ure|\\.)?$",
+        "^accumulation( %)?$"
+      ]
+    },
+    "relieving_temperature": {
+      "kind": "temperature",
+      "names": [
+        "^relieving temp(erature|er|\\.)?$"
+      ]
+    },
+    "required_capacity": {
+      "kind": "flow",
+      "names": [
+        "^required (relieving )?capacity$"
+      ]
+    },
+    "rated_capacity": {
+      "kind": "flow",
+      "names": [
+        "^(rated|certified) (relieving )?capacity$"
+      ]
+    },
+    "orifice_area": {
+      "kind": "area",
+      "names": [
+        "^(selected |effective |actual )?(effective )?orifice area$"
+      ]
+    },
+    "orifice_designation": {
+      "kind": "text",
+      "names": [
+        "^orifice (designation|letter)$"
+      ]
+    },
+    "inlet_size": {
+      "kind": "text",
+      "names": [
+        "^inlet size( .*)?$"
+      ]
+    },
+    "outlet_size": {
+      "kind": "text",
+      "names": [
+        "^outlet size( .*)?$"
+      ]
+    },
+    "valve_type": {
+      "kind": "text",
+      "names": [
+        "^(valve |prv |psv )?type$",
+        "^type of (valve|prv)$",
+        "^valve design$"
+      ]
+    },
+    "relief_case": {
+      "kind": "text",
+      "names": [
+        "^(governing |design |sizing )?(relief |relieving )?case$",
+        "^basis of selection$"
+      ]
+    },
+    "fluid": {
+      "kind": "text",
+      "names": [
+        "^fluid( name)?$",
+        "^(relieved )?fluid service$"
+      ]
+    },
+    "fluid_phase": {
+      "kind": "text",
+      "names": [
+        "^(fluid )?(phase|state)( of fluid)?$"
+      ]
+    },
+    "molecular_weight": {
+      "kind": "number",
+      "names": [
+        "^mol(e|ecular|\\.)? ?(wt|weight)( of relieved fluid)?$"
+      ]
+    },
+    "compressibility": {
+      "kind": "number",
+      "names": [
+        "^compressibility( factor)?( z)?$"
+      ]
+    },
+    "specific_heat_ratio": {
+      "kind": "number",
+      "names": [
+        "^specific heat ratio( cp ?/ ?cv)?$",
+        "^cp ?/ ?cv$"
+      ]
+    },
+    "density_relieving": {
+      "kind": "density",
+      "names": [
+        "^density( at relieving temp(erature|er|\\.)?)?$"
+      ]
+    },
+    "viscosity_relieving": {
+      "kind": "viscosity",
+      "names": [
+        "^viscosity( at relieving temp(erature|er|\\.)?)?$"
+      ]
+    }
   },
   "units": {
-    "pressure": ["bar", "barg", "bara", "bar g", "bar a", "bar(g)", "bar(a)", "psi", "psig", "psia", "kpa", "kpag", "kpaa", "mpa", "mpag", "kg/cm2", "kg/cm2g", "kgf/cm2", "kgf/cm2g", "pa"],
-    "temperature": ["c", "°c", "degc", "deg c", "f", "°f", "degf", "deg f", "k"],
-    "flow": ["m3/h", "m3/hr", "m³/h", "gpm", "usgpm", "l/s", "l/min", "m3/s", "bpd"],
-    "length": ["mm", "in", "inch", "m", "cm"]
+    "pressure": [
+      "bar",
+      "barg",
+      "bara",
+      "bar g",
+      "bar a",
+      "bar(g)",
+      "bar(a)",
+      "psi",
+      "psig",
+      "psia",
+      "kpa",
+      "kpag",
+      "kpaa",
+      "mpa",
+      "mpag",
+      "kg/cm2",
+      "kg/cm2g",
+      "kgf/cm2",
+      "kgf/cm2g",
+      "pa"
+    ],
+    "temperature": [
+      "c",
+      "°c",
+      "degc",
+      "deg c",
+      "f",
+      "°f",
+      "degf",
+      "deg f",
+      "k"
+    ],
+    "flow": [
+      "m3/h",
+      "m3/hr",
+      "m³/h",
+      "gpm",
+      "usgpm",
+      "l/s",
+      "l/min",
+      "m3/s",
+      "bpd"
+    ],
+    "length": [
+      "mm",
+      "in",
+      "inch",
+      "m",
+      "cm"
+    ]
   },
   "_placeholders": "Moved 2026-09-27 to app/blank_markers.py - the ONE list of not-provided markers every datasheet reader and these checks read (CLAUDE.md rule 8).",
   "consistency": [
-    {"id": "DS-C1", "left": "design_pressure", "op": ">=", "right": "operating_pressure",
-     "text": "The design pressure should be at least the operating pressure."},
-    {"id": "DS-C2", "left": "design_temperature", "op": ">=", "right": "operating_temperature",
-     "text": "The design temperature should be at least the operating temperature."},
-    {"id": "DS-C3", "left": "test_pressure", "op": ">", "right": "design_pressure",
-     "text": "The test pressure should be higher than the design pressure."},
-    {"id": "DS-C4", "left": "rated_flow", "op": ">=", "right": "min_flow",
-     "text": "The rated flow should not be below the minimum flow."},
-    {"id": "DS-C5", "left": "rated_flow", "op": "<=", "right": "max_flow",
-     "text": "The rated flow should not be above the maximum flow."}
+    {
+      "id": "DS-C1",
+      "left": "design_pressure",
+      "op": ">=",
+      "right": "operating_pressure",
+      "text": "The design pressure should be at least the operating pressure."
+    },
+    {
+      "id": "DS-C2",
+      "left": "design_temperature",
+      "op": ">=",
+      "right": "operating_temperature",
+      "text": "The design temperature should be at least the operating temperature."
+    },
+    {
+      "id": "DS-C3",
+      "left": "test_pressure",
+      "op": ">",
+      "right": "design_pressure",
+      "text": "The test pressure should be higher than the design pressure."
+    },
+    {
+      "id": "DS-C4",
+      "left": "rated_flow",
+      "op": ">=",
+      "right": "min_flow",
+      "text": "The rated flow should not be below the minimum flow."
+    },
+    {
+      "id": "DS-C5",
+      "left": "rated_flow",
+      "op": "<=",
+      "right": "max_flow",
+      "text": "The rated flow should not be above the maximum flow."
+    }
   ],
   "mandatory": {
-    "Pressure Vessel": ["design_pressure", "design_temperature", "test_pressure", "corrosion_allowance", "operating_pressure", "operating_temperature"],
-    "Centrifugal Pump": ["rated_flow", "design_pressure", "design_temperature", "operating_temperature"],
-    "Pump": ["rated_flow", "design_pressure", "design_temperature", "operating_temperature"],
-    "Pressure Safety Valve": ["design_pressure", "design_temperature"],
-    "Compressor": ["rated_flow", "design_pressure", "design_temperature", "operating_temperature"],
-    "Heat Exchanger": ["design_pressure", "design_temperature", "test_pressure"],
-    "_generic": ["design_pressure", "design_temperature"]
+    "Pressure Vessel": [
+      "design_pressure",
+      "design_temperature",
+      "test_pressure",
+      "corrosion_allowance",
+      "operating_pressure",
+      "operating_temperature"
+    ],
+    "Centrifugal Pump": [
+      "rated_flow",
+      "design_pressure",
+      "design_temperature",
+      "operating_temperature"
+    ],
+    "Pump": [
+      "rated_flow",
+      "design_pressure",
+      "design_temperature",
+      "operating_temperature"
+    ],
+    "Pressure Safety Valve": [
+      "design_pressure",
+      "design_temperature"
+    ],
+    "Compressor": [
+      "rated_flow",
+      "design_pressure",
+      "design_temperature",
+      "operating_temperature"
+    ],
+    "Heat Exchanger": [
+      "design_pressure",
+      "design_temperature",
+      "test_pressure"
+    ],
+    "_generic": [
+      "design_pressure",
+      "design_temperature"
+    ]
   },
-  "needs_unit": ["design_pressure", "operating_pressure", "test_pressure", "design_temperature", "operating_temperature", "rated_flow", "min_flow", "max_flow", "corrosion_allowance"]
+  "needs_unit": [
+    "design_pressure",
+    "operating_pressure",
+    "test_pressure",
+    "design_temperature",
+    "operating_temperature",
+    "rated_flow",
+    "min_flow",
+    "max_flow",
+    "corrosion_allowance"
+  ],
+  "checklists": {
+    "_about": "#746: the review checklist per equipment type, in the one datasheet-checks engine. Each item: id, plain text, source {standard, clause} (required), a rule (required, compare, constant, percent_of or allowed), an optional condition {role, any}, a severity. Items drawn from a client's own standard go in the local, git-ignored overlay <data_dir>/checklists/<type>.json, never here (CLAUDE.md rule 1).",
+    "Pressure Safety Valve": {
+      "sign_off": {
+        "status": "draft",
+        "by": null,
+        "date": null
+      },
+      "clauses_verified": false,
+      "note": "DRAFT. Clause numbers are API 520 Part I section headings found in the held copy; the rule under each is the author's engineering reading, NOT checked line by line against the clause text. Nothing here is binding until a client discipline engineer signs it off.",
+      "items": [
+        {
+          "id": "PSV-01",
+          "text": "The set pressure is stated.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "3.49"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "set_pressure"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "PSV-02",
+          "text": "The maximum allowable working pressure is stated.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "3.26"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "mawp"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "PSV-03",
+          "text": "The design pressure is stated.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "3.16"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "design_pressure"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "PSV-04",
+          "text": "The maximum operating pressure is stated.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "3.27"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "operating_pressure"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "PSV-05",
+          "text": "The relieving temperature is stated.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "3.43"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "relieving_temperature"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "PSV-06",
+          "text": "The allowable overpressure is stated.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "5.4.1"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "overpressure"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "PSV-07",
+          "text": "The built-up back pressure is stated.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "3.7"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "built_up_back_pressure"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "PSV-08",
+          "text": "The superimposed back pressure is stated.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "3.53"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "superimposed_back_pressure"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "PSV-09",
+          "text": "The cold differential test pressure is stated.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "4.2.3"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "cdtp"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "PSV-10",
+          "text": "The required relieving capacity is stated.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "5.6.1"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "required_capacity"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "PSV-11",
+          "text": "The rated relieving capacity is stated.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "3.41"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "rated_capacity"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "PSV-12",
+          "text": "The effective orifice area is stated.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "5.2"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "orifice_area"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "PSV-13",
+          "text": "The orifice designation is stated.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "5.2"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "orifice_designation"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "PSV-14",
+          "text": "The inlet size is stated.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "3.20"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "inlet_size"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "PSV-15",
+          "text": "The outlet size is stated.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "3.34"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "outlet_size"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "PSV-16",
+          "text": "The valve type is stated as conventional, balanced (bellows) or pilot-operated.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "4.2"
+          },
+          "rule": {
+            "kind": "allowed",
+            "field": "valve_type",
+            "values": [
+              "conventional",
+              "balanced",
+              "bellows",
+              "pilot"
+            ]
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "PSV-17",
+          "text": "The fluid is stated.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "5.5"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "fluid"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "PSV-18",
+          "text": "The fluid phase at relieving conditions is stated (gas or vapour, or liquid).",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "5.5"
+          },
+          "rule": {
+            "kind": "allowed",
+            "field": "fluid_phase",
+            "values": [
+              "gas",
+              "vapour",
+              "vapor",
+              "steam",
+              "liquid"
+            ]
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "PSV-19",
+          "text": "For gas or vapour relief, the molecular weight is stated.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "5.6.3.1"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "molecular_weight"
+          },
+          "severity": "minor",
+          "condition": {
+            "role": "fluid_phase",
+            "any": [
+              "gas",
+              "vapour",
+              "vapor",
+              "steam"
+            ]
+          },
+          "when_unknown": "evaluate"
+        },
+        {
+          "id": "PSV-20",
+          "text": "For gas or vapour relief, the compressibility factor is stated.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "5.6.3.1"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "compressibility"
+          },
+          "severity": "minor",
+          "condition": {
+            "role": "fluid_phase",
+            "any": [
+              "gas",
+              "vapour",
+              "vapor",
+              "steam"
+            ]
+          },
+          "when_unknown": "evaluate"
+        },
+        {
+          "id": "PSV-21",
+          "text": "For gas or vapour relief, the specific heat ratio (k) is stated.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "5.6.2"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "specific_heat_ratio"
+          },
+          "severity": "minor",
+          "condition": {
+            "role": "fluid_phase",
+            "any": [
+              "gas",
+              "vapour",
+              "vapor",
+              "steam"
+            ]
+          },
+          "when_unknown": "evaluate"
+        },
+        {
+          "id": "PSV-22",
+          "text": "For liquid relief, the density at relieving conditions is stated.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "5.8"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "density_relieving"
+          },
+          "severity": "minor",
+          "condition": {
+            "role": "fluid_phase",
+            "any": [
+              "liquid"
+            ]
+          },
+          "when_unknown": "evaluate"
+        },
+        {
+          "id": "PSV-23",
+          "text": "For liquid relief, the viscosity at relieving conditions is stated.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "5.8.2.4"
+          },
+          "rule": {
+            "kind": "required",
+            "field": "viscosity_relieving"
+          },
+          "severity": "minor",
+          "condition": {
+            "role": "fluid_phase",
+            "any": [
+              "liquid"
+            ]
+          },
+          "when_unknown": "evaluate"
+        },
+        {
+          "id": "PSV-24",
+          "text": "The set pressure does not exceed the maximum allowable working pressure.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "5.4.2.1"
+          },
+          "rule": {
+            "kind": "compare",
+            "left": "set_pressure",
+            "op": "<=",
+            "right": "mawp"
+          },
+          "severity": "critical"
+        },
+        {
+          "id": "PSV-25",
+          "text": "The maximum allowable working pressure is at least the design pressure.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "3.26"
+          },
+          "rule": {
+            "kind": "compare",
+            "left": "mawp",
+            "op": ">=",
+            "right": "design_pressure"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "PSV-26",
+          "text": "The maximum operating pressure leaves a margin below the set pressure (at most 90% of it).",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "3.32"
+          },
+          "rule": {
+            "kind": "percent_of",
+            "left": "operating_pressure",
+            "op": "<=",
+            "percent": 90,
+            "right": "set_pressure"
+          },
+          "severity": "major"
+        },
+        {
+          "id": "PSV-27",
+          "text": "For a fire case, the overpressure does not exceed 21%.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "5.4.3.1"
+          },
+          "rule": {
+            "kind": "constant",
+            "field": "overpressure",
+            "op": "<=",
+            "value": 21,
+            "unit": "%"
+          },
+          "severity": "major",
+          "condition": {
+            "role": "relief_case",
+            "any": [
+              "fire"
+            ]
+          }
+        },
+        {
+          "id": "PSV-28",
+          "text": "For a single device in a non-fire case, the overpressure does not exceed 10%.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "5.4.2.1"
+          },
+          "rule": {
+            "kind": "constant",
+            "field": "overpressure",
+            "op": "<=",
+            "value": 10,
+            "unit": "%"
+          },
+          "severity": "major",
+          "condition": {
+            "role": "relief_case",
+            "any": [
+              "blocked",
+              "control valve",
+              "thermal",
+              "tube rupture",
+              "power failure",
+              "reflux",
+              "cooling"
+            ]
+          }
+        },
+        {
+          "id": "PSV-29",
+          "text": "For a conventional valve, the built-up back pressure does not exceed 10% of the set pressure.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "5.3.3.1"
+          },
+          "rule": {
+            "kind": "percent_of",
+            "left": "built_up_back_pressure",
+            "op": "<=",
+            "percent": 10,
+            "right": "set_pressure"
+          },
+          "severity": "major",
+          "condition": {
+            "role": "valve_type",
+            "any": [
+              "conventional"
+            ]
+          }
+        },
+        {
+          "id": "PSV-30",
+          "text": "The cold differential test pressure does not exceed the set pressure.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "4.2.3"
+          },
+          "rule": {
+            "kind": "compare",
+            "left": "cdtp",
+            "op": "<=",
+            "right": "set_pressure"
+          },
+          "severity": "minor"
+        },
+        {
+          "id": "PSV-31",
+          "text": "The rated relieving capacity is at least the required relieving capacity.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "5.6.4.1"
+          },
+          "rule": {
+            "kind": "compare",
+            "left": "rated_capacity",
+            "op": ">=",
+            "right": "required_capacity"
+          },
+          "severity": "critical"
+        },
+        {
+          "id": "PSV-32",
+          "text": "For gas or vapour relief, the specific heat ratio (k) is above 1.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "5.6.2"
+          },
+          "rule": {
+            "kind": "constant",
+            "field": "specific_heat_ratio",
+            "op": ">",
+            "value": 1
+          },
+          "severity": "minor",
+          "condition": {
+            "role": "fluid_phase",
+            "any": [
+              "gas",
+              "vapour",
+              "vapor",
+              "steam"
+            ]
+          },
+          "when_unknown": "evaluate"
+        },
+        {
+          "id": "PSV-33",
+          "text": "For gas or vapour relief, the compressibility factor is above 0.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "5.6.3.1"
+          },
+          "rule": {
+            "kind": "constant",
+            "field": "compressibility",
+            "op": ">",
+            "value": 0
+          },
+          "severity": "minor",
+          "condition": {
+            "role": "fluid_phase",
+            "any": [
+              "gas",
+              "vapour",
+              "vapor",
+              "steam"
+            ]
+          },
+          "when_unknown": "evaluate"
+        },
+        {
+          "id": "PSV-34",
+          "text": "For gas or vapour relief, the molecular weight is above 0.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "5.6.3.1"
+          },
+          "rule": {
+            "kind": "constant",
+            "field": "molecular_weight",
+            "op": ">",
+            "value": 0
+          },
+          "severity": "minor",
+          "condition": {
+            "role": "fluid_phase",
+            "any": [
+              "gas",
+              "vapour",
+              "vapor",
+              "steam"
+            ]
+          },
+          "when_unknown": "evaluate"
+        }
+      ]
+    }
+  }
 }
