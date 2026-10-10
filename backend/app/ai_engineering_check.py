@@ -57,6 +57,11 @@ PROMPT_VERSION = "review-ai-check-v1"
 ORIGIN = "ai_engineering_check"
 #: The label the screen and the CRS print beside an item (owner order, table 1).
 LABEL = "AI engineering check - not from the standard text - engineer to confirm"
+#: W5b-11 (#559): an item that relates to a standard the library does NOT hold
+#: comes from the model's memory of that standard, so it is its own class. It
+#: leads the stored rationale (the CRS reads it there), its confidence is
+#: "low", and it never carries a clause (the gate refuses one, `_held_clause`).
+UNVERIFIED_LABEL = "Potential, unverified: source not held, engineer to verify"
 #: Comment By on the CRS once an engineer has confirmed an item.
 CONFIRMED_BY_PREFIX = "AI engineering check, confirmed by "
 
@@ -220,22 +225,40 @@ def _strip_names(folded: str, names) -> str:
     return folded
 
 
-def _held_clause(item: dict, held: dict[str, list[str]]) -> tuple[str, str] | None:
-    """(held standard name, clause) when the item's clause is one read from
-    the standard it names; None otherwise."""
-    clause = str(item.get("clause") or "").strip()
+def _held_names(item: dict, held: dict[str, list[str]]) -> list[str]:
+    """The held standards the item's `relates_to` names in full."""
     relates = _fold(item.get("relates_to") or "")
-    if not clause or not relates:
-        return None
-    for name, clauses in held.items():
+    if not relates:
+        return []
+    out = []
+    for name in held:
         stem = _fold(re.sub(r"\.(pdf|docx?)$", "", name, flags=re.IGNORECASE))
         # The item must NAME the held standard in full (audit A10). The old
         # `relates in stem` also accepted "API" for "API 610" and "SAES-D-00"
         # for "SAES-D-001", attaching the clause to the wrong standard.
         if stem and re.search(r"(?<![a-z0-9])" + re.escape(stem) + r"(?![a-z0-9])",
-                              relates) and clause in clauses:
+                              relates):
+            out.append(name)
+    return out
+
+
+def _held_clause(item: dict, held: dict[str, list[str]]) -> tuple[str, str] | None:
+    """(held standard name, clause) when the item's clause is one read from
+    the standard it names; None otherwise."""
+    clause = str(item.get("clause") or "").strip()
+    if not clause:
+        return None
+    for name in _held_names(item, held):
+        if clause in held[name]:
             return name, clause
     return None
+
+
+def from_memory(item: dict, held: dict[str, list[str]]) -> bool:
+    """W5b-11 (#559): does the item rest on a standard the library does not
+    hold? True when it names a standard and none of the names is a held one.
+    An item that names no standard is a general observation, not this class."""
+    return bool(str(item.get("relates_to") or "").strip()) and not _held_names(item, held)
 
 
 def accept(item: dict, pages: dict[int, str], held: dict[str, list[str]],
@@ -587,11 +610,13 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
                           item["page"], str(item["field"])[:400]) in rejected_items:
             continue
         verified = _held_clause(item, held)
+        unverified = from_memory(item, held)
+        relates = str(item.get("relates_to") or "").strip()
         finding = review_mod.create({
             "document_id": submittal,
             "category": "technical_query",
             "severity": "minor",
-            "confidence": item["confidence"],
+            "confidence": "low" if unverified else item["confidence"],
             "requirement": str(item["topic"])[:4000],
             "finding": str(item["observation"])[:4000],
             "required_action": str(item["action"])[:4000],
@@ -606,8 +631,9 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
                    WHERE id = ?""",
                 (review_run_id, ORIGIN, item["page"], str(item["field"])[:400],
                  str(item.get("value") or "")[:400] or None,
-                 verified[1] if verified else None,
-                 f"{LABEL}. Relates to: {str(item.get('relates_to') or '').strip() or 'no standard named'}.",
+                 None if unverified else (verified[1] if verified else None),
+                 (f"{UNVERIFIED_LABEL}. {LABEL}. Relates to: {relates}." if unverified
+                  else f"{LABEL}. Relates to: {relates or 'no standard named'}."),
                  finding["id"]))
     return {"ran": True, "reason": reason, "proposed": proposed_total, "kept": len(all_kept),
             "rejected": rejected, "cost_usd": round(cost_total, 6), "complete": complete,
