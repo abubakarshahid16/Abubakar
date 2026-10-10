@@ -42,7 +42,8 @@ MUTATIONS: tuple[Mutation, ...] = (
        '    return bool(f) and bool(i) and (f == i or f.startswith(i + "."))',
        "    return bool(f) and bool(i) and (f == i or f.startswith(i))", "subclause"),
     _m(4447, "the standard does not have to match", RS,
-       "    return bool(wanted) and wanted in have\n", "    return True\n", "standard_must_match"),
+       # re-anchored 2026-10-10 (#747): the substring check is now the first of two
+       "    if bool(wanted) and wanted in have:\n", "    if True:\n", "standard_must_match"),
     _m(4448, "the field words are ignored", RS,
        '    field = item.get("field")\n    if not field:\n        return True\n', "    return True\n",
        "field_words"),
