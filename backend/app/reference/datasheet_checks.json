@@ -122,6 +122,11 @@
       "kind": "area",
       "names": [
         "^(selected |effective |actual )?(effective )?orifice area$"
+      ],
+      "printed_as": [
+        "effective area",
+        "orifice area",
+        "selected area"
       ]
     },
     "orifice_designation": {
@@ -133,7 +138,8 @@
     "inlet_size": {
       "kind": "text",
       "names": [
-        "^inlet size( .*)?$"
+        "^inlet size( .*)?$",
+        "^valve size( .*)?$"
       ]
     },
     "outlet_size": {
@@ -155,6 +161,18 @@
       "names": [
         "^(governing |design |sizing )?(relief |relieving )?case$",
         "^basis of selection$"
+      ],
+      "printed_as": [
+        "blocked discharge",
+        "blocked flow",
+        "blocked outlet",
+        "fire condition",
+        "fire case",
+        "external fire",
+        "relieving case",
+        "sizing basis",
+        "basis of sizing",
+        "governing case"
       ]
     },
     "fluid": {
@@ -168,6 +186,15 @@
       "kind": "text",
       "names": [
         "^(fluid )?(phase|state)( of fluid)?$"
+      ],
+      "printed_as": [
+        "gas",
+        "vapour",
+        "vapor",
+        "liquid",
+        "steam",
+        "two phase",
+        "dual service"
       ]
     },
     "molecular_weight": {

@@ -328,7 +328,7 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
                 continue    # the common section counts for every tag (above)
             for item in checklist["items"]:
                 out.append(evaluate_item(item, roles, common if tag is not None else {},
-                                         tag, rules, draft=checklist["draft"]))
+                                         tag, rules, draft=checklist["draft"], page_texts=page_texts))
     if page_texts and equipment_type:
         out.append(_result("DS-R1", COMPLIANT if has_block else MISSING_INFORMATION,
                            "A datasheet carries a revision block.",
@@ -433,8 +433,106 @@ def _one(found: list[dict]) -> tuple[dict | None, str | None]:
     return found[0], None
 
 
+
+def coverage(results: list[dict]) -> dict | None:
+    """The reader-coverage line of a review (planner 2026-10-10, roadmap R11):
+    of the checklist's fields (each field once, across tags), how many were
+    READ as a fact, and how many are on the sheet but were NOT read (a reader
+    gap, with the pages): the to-do list for the datasheet reader. None when
+    the review ran no checklist."""
+    items = [r for r in results if r.get("checklist")]
+    if not items:
+        return None
+    fields: dict[str, str] = {}
+    gap_pages: dict[str, set] = {}
+    for r in items:
+        role = r.get("role") or ""
+        state = "read" if r.get("fact_id") else ("gap" if r.get("reader_gap") else "absent")
+        # a field read for one tag counts as read; a gap only if never read
+        if fields.get(role) != "read":
+            fields[role] = "read" if state == "read" else (fields.get(role) if fields.get(role) == "gap" else state)
+        if r.get("reader_gap"):
+            gap_pages.setdefault(role, set()).update(r.get("pages") or [])
+    gaps = sorted(f for f, st in fields.items() if st == "gap")
+    return {"fields": len(fields), "read": sum(1 for st in fields.values() if st == "read"),
+            "on_sheet_not_read": len(gaps),
+            "gap_pages": sorted({p for f in gaps for p in gap_pages.get(f, ())})}
+
+
+def _page_span(page_texts: dict[int, str] | None) -> str:
+    pages = sorted(page_texts or {})
+    if not pages:
+        return "none"
+    return f"{pages[0]}-{pages[-1]}" if len(pages) > 1 else str(pages[0])
+
+
+def _synonyms() -> dict[str, list[str]]:
+    data = json.loads((RULES_PATH.parent / "field_synonyms.json").read_text(encoding="utf-8"))
+    return data.get("groups") or {}
+
+
+def label_patterns(role: str, rules: dict) -> list[re.Pattern]:
+    """The ways a sheet prints this role's label: the role's own name patterns
+    (written for whole folded labels, used here without their anchors) and,
+    when the role is a group of `field_synonyms.json`, every spelling of it."""
+    out = []
+    for pattern in rules["roles"].get(role, {}).get("names", []):
+        body = pattern[1:] if pattern.startswith("^") else pattern
+        body = body[:-1] if body.endswith("$") else body
+        body = body.replace("( .*)?", "")
+        out.append(re.compile(r"(?<![a-z0-9])(?:" + body + r")(?![a-z0-9])"))
+    # Other wordings a sheet uses for this field (`printed_as`, data): "Effective
+    # area" for the orifice area, "blocked discharge" for the relief case.
+    group = (_synonyms().get(role.replace("_", " ")) or []) + list(
+        rules["roles"].get(role, {}).get("printed_as", []))
+    for spelling in group:
+        out.append(re.compile(r"(?<![a-z0-9])" + re.escape(spelling.lower()) + r"(?![a-z0-9])"))
+    return out
+
+
+def label_search(role: str, rules: dict, page_texts: dict[int, str]) -> list[int] | None:
+    """The pages whose own text prints the role's label, or None when the
+    search cannot decide anything: no page text at all, or a page with no text
+    (a scan the text layer does not cover), where the label could be."""
+    from .datasheets import normalise_field_name
+    if not page_texts or any(not (t or "").strip() for t in page_texts.values()):
+        return None
+    patterns = label_patterns(role, rules)
+    words = [w for w in role.split("_") if w]
+    if not patterns and not words:
+        return None
+    found = []
+    for page, text in sorted(page_texts.items()):
+        # Lines JOINED: a label wraps ("Orifice" / "area") or is combined
+        # ("Inlet / Outlet size"). The search errs towards FINDING the label:
+        # a false "on the sheet, engineer check" costs a look; a false
+        # "missing" blames the contractor for a value the sheet prints.
+        folded = " ".join(normalise_field_name(line) for line in (text or "").splitlines())
+        if any(p.search(folded) for p in patterns) or _words_near(words, folded.split()):
+            found.append(page)
+    return found
+
+
+#: How many words apart a label's own words may stand and still be the label.
+LABEL_WINDOW = 6
+
+
+def _words_near(words: list[str], tokens: list[str]) -> bool:
+    """Every word of the role's name ("orifice", "area") within LABEL_WINDOW
+    tokens of the first, each matched by its first five letters ("relie"
+    finds relief and relieving, "press" finds press. and pressure)."""
+    stems = [w[:5] for w in words]
+    for i, tok in enumerate(tokens):
+        if not tok.startswith(stems[0]):
+            continue
+        window = tokens[max(0, i - LABEL_WINDOW):i + LABEL_WINDOW + 1]
+        if all(any(t.startswith(stem) for t in window) for stem in stems[1:]):
+            return True
+    return False
+
+
 def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules: dict,
-                  *, draft: bool) -> dict:
+                  *, draft: bool, page_texts: dict[int, str] | None = None) -> dict:
     """One checklist item's result: COMPLIANT, NON_COMPLIANT, MISSING_INFORMATION
     (the field is not given; qualified by the pages read when stored),
     NEEDS_ENGINEER_REVIEW (with the reason) or NOT_APPLICABLE (its condition
@@ -490,8 +588,24 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
             f"{_pretty(unknown['role']).lower()}, which the sheet does not state"))
     if fact is None:
         if why == "absent":
-            return res(MISSING_INFORMATION,
-                       f"{_pretty(field)} was not found in the fields read from the datasheet.")
+            # PLANNER 2026-10-10 (F-a): a field not read as a fact is searched
+            # for in the text of every page. On the sheet but not read is a
+            # READER GAP, never the contractor's omission; not in any page's
+            # text, with every page's text there, is missing (the contractor's).
+            searched = label_search(field, rules, page_texts or {})
+            if searched is None:
+                return res(MISSING_INFORMATION,
+                           f"{_pretty(field)} was not found in the fields read from the datasheet.")
+            if searched:
+                pages = ", ".join(str(n) for n in searched)
+                r = res(NEEDS_ENGINEER_REVIEW,
+                        f"{_pretty(field)} is on the sheet but was not read: engineer to check "
+                        f"page{'s' if len(searched) > 1 else ''} {pages}.")
+                return {**r, "reader_gap": True, "pages": searched}
+            r = res(MISSING_INFORMATION,
+                    f"{_pretty(field)} was not found in the fields read or in the text of "
+                    f"pages {_page_span(page_texts)}; the contractor is to provide it.")
+            return {**r, "text_searched": True}
         return res(NEEDS_ENGINEER_REVIEW,
                    _sentence(f"the {_pretty(field).lower()} has two different values on the sheet"),
                    get(field)[0])
@@ -579,7 +693,7 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
     for r in (x for x in results if x["status"] not in (COMPLIANT, NOT_APPLICABLE)):
         status, detail = r["status"], r["detail"]
         absent = (r["rule_id"] in ("DS-M1", "DS-R1")
-                  or (r.get("checklist") and r.get("fact_id") is None))
+                  or (r.get("checklist") and r.get("fact_id") is None and not r.get("text_searched")))
         if absent and status == MISSING_INFORMATION:
             # AN ABSENCE IS QUALIFIED LIKE EVERY ABSENCE: not found is not "not
             # stated" while a page is unread or read only by the page reader.
