@@ -134,8 +134,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="drop the 'has no facts' guard: every review re-reads the "
                     "sheet and, with replace=False, duplicates it",
         path=APP / "submittal_review.py",
-        anchor="    if has_facts is not None:\n        return",
-        replacement="    if False:\n        return",
+        # re-anchored 2026-10-10 (F-b): the guard's block now also re-reads stale facts
+        anchor="    if has_facts is not None:\n        # F-b",
+        replacement="    if False:\n        # F-b",
         target=_B19_TEST,
         keyword="second_review or confirmed_fact",
         tags=("critical",),
@@ -202,8 +203,9 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "ingestion path, so re-ingesting a submittal with facts "
                     "already extracted duplicates them",
         path=APP / "submittal_review.py",
-        anchor="    if has_facts is not None:\n        return",
-        replacement="    if False:\n        return",
+        # re-anchored 2026-10-10 (F-b): the guard's block now also re-reads stale facts
+        anchor="    if has_facts is not None:\n        # F-b",
+        replacement="    if False:\n        # F-b",
         target=_INGEST_FACTS_TEST,
         keyword="does_not_duplicate_them",
         tags=("critical",),
