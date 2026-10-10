@@ -1006,8 +1006,8 @@ def select(
 
     # B5: THE SCOPE DECISION on every standard that has a stored, verified
     # scope record. Owner request 2026-09-28: by AI reasoning
-    # (`applicability_reasoning_enabled`), no manual taxonomy - or, while
-    # that stays off, the older taxonomy-matched path (`applicability_v2`),
+    # (`applicability_reasoning_enabled`, on by default since #736), no manual
+    # taxonomy - or, when it is turned off, the older taxonomy-matched path (`applicability_v2`),
     # which already reports "not run" when no taxonomy is approved.
     from .config import settings as _settings
     if _settings.applicability_reasoning_enabled:

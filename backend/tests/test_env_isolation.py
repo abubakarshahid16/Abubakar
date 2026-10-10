@@ -148,7 +148,10 @@ def test_isolate_closes_every_lane_a_hostile_machine_opened(hostile_machine, tmp
     assert not [k for k in ENV_HALF if k in os.environ]
     # ... and a fresh Settings() - what several tests build - reads no file.
     assert Settings.model_config["env_file"] is None
-    assert env_isolation.unsafe_fields(Settings()) == []
+    # Except an owner-approved default that is ON in production and pinned off
+    # for tests by `isolate()` (TEST_PINS, #736): a fresh Settings() has it on.
+    assert [f for f in env_isolation.unsafe_fields(Settings())
+            if f not in env_isolation.TEST_PINS] == []
     # The model lane dials loopback.
     from app import model_transport
     assert model_transport.endpoint("/api/tags").startswith("http://127.0.0.1:")
@@ -218,9 +221,15 @@ def test_every_risky_setting_is_classified():
     # The safe value IS the code default: a default flipped on is caught here.
     # A OneOf entry's FIRST value is the code default; the others are values
     # the test configuration itself sets (`allowed_hosts` <- "testserver").
+    # The exception is TEST_PINS: a default the owner turned on (#736), which
+    # `isolate()` sets back to its safe value for the test session.
     for name, safe in env_isolation.EGRESS_SAFE.items():
         default = safe[0] if isinstance(safe, env_isolation.OneOf) else safe
+        if name in env_isolation.TEST_PINS:
+            assert env_isolation.TEST_PINS[name] == default, name
+            continue
         assert Settings.model_fields[name].default == default, name
+    assert set(env_isolation.TEST_PINS) <= set(env_isolation.EGRESS_SAFE)
 
 
 # ------------------------------------------------------------ network guard
