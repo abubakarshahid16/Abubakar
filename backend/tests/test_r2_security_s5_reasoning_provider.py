@@ -1,5 +1,5 @@
 """r2 S5: CLAUDE.md says Claude is off unless REASONING_PROVIDER=claude AND both
-reader flags AND a key. The four `claude_api` review routes checked only the
+reader flags AND a key. The `claude_api` review routes (four then, three since #736) checked only the
 two flags, so REASONING_PROVIDER=ollama with the flags and a key set still
 sent document text to Claude. Mutations: scripts/mutations/r2_security.py M1986.
 """
@@ -17,7 +17,6 @@ ROUTES = [
     ("post", "/api/reviews/runs/run-x/claude/select-standards"),
     ("post", "/api/reviews/runs/run-x/claude/read-datasheet"),
     ("post", "/api/reviews/runs/run-x/claude/recheck"),
-    ("post", "/api/reviews/runs/run-x/claude/crs-draft"),
 ]
 
 
@@ -60,8 +59,6 @@ def test_a_review_route_refuses_when_the_provider_is_not_claude(
     monkeypatch.setattr(claude_api, "_run_or_404",
                         lambda rid, scope: {"id": "run-x", "submittal_document_id": "doc-1"})
     monkeypatch.setattr(claude_api, "_datasheet_summary", lambda sid, scope: {"text": "x"})
-    from app import main
-    monkeypatch.setattr(main, "_crs_content", lambda *a, **k: ([], {}, "sub.pdf", "stamp"))
     response = getattr(TestClient(app), method)(path)
     assert response.status_code == 409, response.text
     assert response.json()["detail"]["code"] == claude_api.MODEL_DISABLED

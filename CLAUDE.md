@@ -32,7 +32,7 @@ carries the client's name; only the owner can rename it.
    `reader_transport.py` (Claude API: the reasoning provider and the reader;
    off unless `REASONING_PROVIDER=claude` AND both `STANDARDS_READER_*` egress
    flags AND a key - owner decision 2026-09-25, USD caps in `claude_spend`,
-   which the four `claude_api` review routes reach via `claude_spend.metered`) and the datasheet AI reader (`datasheet_ai`, `DATASHEET_AI_READER=claude`, off by default) reaches the same way and
+   which the three `claude_api` review routes reach via `claude_spend.metered`) and the datasheet AI reader (`datasheet_ai`, `DATASHEET_AI_READER=claude`, off by default) reaches the same way and
    `notifications.py` (SMTP, off by default). Known gap: the socket-containment
    test does not yet cover `smtplib` (honesty audit entry 49). Known gap: the
    `claude_api` review routes check the two egress flags but not

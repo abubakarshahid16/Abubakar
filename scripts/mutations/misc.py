@@ -4,7 +4,6 @@
     backend/app/chat.py
     backend/app/chunker.py
     backend/app/claude_api.py
-    backend/app/claude_crs_comments.py
     backend/app/claude_datasheet.py
     backend/app/claude_recheck.py
     backend/app/claude_spend.py
@@ -445,7 +444,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         # a lettered clause number that repeats at every page top.
         target="tests/test_b6b_e4_numbered_paragraphs.py", keyword="top_of_page_prefixed_number",
     ),
-    # ---- the four claude_api review routes under the USD caps (2026-09-27)
+    # ---- the claude_api review routes under the USD caps (2026-09-27; three since #736)
     Mutation(
         id="M1160", phase=96,
         description="the claude_api routes reach the transport without the USD meter",
@@ -489,16 +488,6 @@ MUTATIONS: tuple[Mutation, ...] = (
         replacement="            result = recheck_finding(finding, model_call, second_call)\n        except ZeroDivisionError as exc:",
         target="tests/test_claude_recheck.py",
         keyword="finished_before_a_usd_limit",
-        tags=("budget",),
-    ),
-    Mutation(
-        id="M1164", phase=96,
-        description="a limit mid-draft throws away the CRS drafts already paid for",
-        path=APP / "claude_crs_comments.py",
-        anchor="            draft = draft_comment(finding, row, model_call, second_call)\n        except StopRun as exc:",
-        replacement="            draft = draft_comment(finding, row, model_call, second_call)\n        except ZeroDivisionError as exc:",
-        target="tests/test_claude_crs_comments.py",
-        keyword="finished_before_a_limit",
         tags=("budget",),
     ),
     Mutation(
