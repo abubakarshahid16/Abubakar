@@ -54,7 +54,9 @@ re-measured with `scripts/gold_pairs_score.py` before they are quoted again.
 
 from __future__ import annotations
 
+import json
 import re
+from pathlib import Path
 
 from . import claims
 
@@ -66,9 +68,10 @@ UNIT_DIMENSION = "unit_dimension"
 EQUIPMENT_DOMAIN = "equipment_domain"
 TABLE_LOOKUP_INPUT = "table_lookup_input"
 COMPOUND_TERM = "compound_term"
+QUALIFIER = "qualifier"
 
 REASONS: tuple[str, ...] = (
-    UNIT_DIMENSION, EQUIPMENT_DOMAIN, TABLE_LOOKUP_INPUT, COMPOUND_TERM)
+    UNIT_DIMENSION, EQUIPMENT_DOMAIN, TABLE_LOOKUP_INPUT, COMPOUND_TERM, QUALIFIER)
 
 # ------------------------------------------------------------------ domains
 #: Ten kinds of equipment a clause names when it applies to one kind only. The
@@ -329,6 +332,57 @@ def compound_term_conflict(field_name: str, requirement: dict) -> bool:
     return any(_contains_words(text, phrase) for phrase in others)
 
 
+# ------------------------------------------------------------------ rule 5
+#: The words, as data: `reference/field_qualifiers.json` (see its `_about`).
+QUALIFIERS_PATH = Path(__file__).parent / "reference" / "field_qualifiers.json"
+
+
+def qualifiers() -> frozenset[str]:
+    return frozenset(w.lower() for w in json.loads(
+        QUALIFIERS_PATH.read_text(encoding="utf-8"))["qualifiers"])
+
+
+def qualifier_conflict(requirement: dict, field_name: str) -> bool:
+    """True when the requirement's SUBJECT puts a side, part or location word
+    (`qualifiers()`: external, jacket, inlet...) right AT the field's own words
+    and the field name does not carry it: just before them ("the maximum
+    EXTERNAL design pressure") or just after, through "of (the)" ("the
+    operating pressure OF THE JACKET"). FOUND on the real PSV review
+    (2026-10-10): those two were paired with the sheet's plain design and
+    operating pressures by whole-word containment and gave seven false
+    NON_COMPLIANT findings.
+
+    Next to the field's words only, never anywhere in the subject: in "the
+    minimum shell thickness and the maximum allowable working pressure" the
+    word "shell" qualifies the thickness, not the pressure. When the field was
+    matched through a synonym and its words are not in the subject, there is
+    nothing to stand next to, so no conflict."""
+    subject = _normalise(str(requirement.get("subject") or "")).split()
+    field = _normalise(field_name).split()
+    if not subject or not field:
+        return False
+    # BOTH DIRECTIONS (planner, 2026-10-10): a FIELD that names a side or part
+    # the subject does not ("Jacket design pressure" against a plain "design
+    # pressure" rule) is a different quantity too. Same qualifier both sides
+    # still pairs.
+    if (set(field) & qualifiers()) - set(subject):
+        return True
+    words = qualifiers() - set(field)
+    n = len(field)
+    for start in range(len(subject) - n + 1):
+        if subject[start:start + n] != field:
+            continue
+        before = subject[max(0, start - 2):start]
+        after = subject[start + n:start + n + 3]
+        if after[:1] == ["of"]:
+            after = after[2:3] if after[1:2] == ["the"] else after[1:2]
+        else:
+            after = []
+        if words & set(before) or words & set(after):
+            return True
+    return False
+
+
 # ------------------------------------------------------------------ together
 def refusal(requirement: dict, fact: dict, *, sheet: str | None) -> str | None:
     """The first rule that refuses this pairing, by name, or None to allow it."""
@@ -340,4 +394,6 @@ def refusal(requirement: dict, fact: dict, *, sheet: str | None) -> str | None:
         return TABLE_LOOKUP_INPUT
     if compound_term_conflict(fact.get("field_name") or "", requirement):
         return COMPOUND_TERM
+    if qualifier_conflict(requirement, fact.get("field_name") or ""):
+        return QUALIFIER
     return None
