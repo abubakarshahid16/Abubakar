@@ -342,9 +342,10 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
 
 NOT_APPLICABLE = "NOT_APPLICABLE"
 #: The local, git-ignored overlay (`<data_dir>/checklists/<type>.json`): items
-#: drawn from a client's own standard stay on the machine (CLAUDE.md rule 1).
+#: not (yet) approved for the repo stay on the machine. Client standard items
+#: approved by the owner (2026-10-10) are in the committed JSON, in our own words.
 LOCAL_DIR_NAME = "checklists"
-_RULE_KINDS = ("required", "compare", "constant", "percent_of", "allowed")
+_RULE_KINDS = ("required", "compare", "constant", "percent_of", "allowed", "above_by")
 
 
 def _local_items(key: str) -> list[dict]:
@@ -378,6 +379,17 @@ def checklist_for(equipment_type: str | None, rules: dict) -> dict | None:
             raise ValueError(f"checklist item {item['id']!r}: unknown rule kind")
     draft = (entry.get("sign_off") or {}).get("status") != "signed"
     return {"key": key, "items": items, "draft": draft}
+
+
+def checklist_sources(equipment_type: str | None, rules: dict | None = None) -> dict | None:
+    """#746: `{"key", "items", "standards"}` - the type's checklist, how many
+    items it has, and the standards its items cite (from `source.standard`,
+    never a list written in code). None when the type has no checklist."""
+    checklist = checklist_for(equipment_type, rules or load_rules())
+    if not checklist:
+        return None
+    return {"key": checklist["key"], "items": len(checklist["items"]),
+            "standards": sorted({i["source"]["standard"] for i in checklist["items"]})}
 
 
 def _measure(fact: dict):
@@ -443,33 +455,39 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
         return {**r, "source": cite, "severity": item.get("severity", "minor"),
                 "checklist": True, "local": bool(item.get("local"))}
 
-    condition = item.get("condition")
-    stated = None
-    if condition:
+    raw_conditions = item.get("condition")
+    # One condition, or a list that must ALL hold (a bellows valve AND sour service).
+    conditions = (raw_conditions if isinstance(raw_conditions, list)
+                  else [raw_conditions] if raw_conditions else [])
+    unknown = None    # the first condition the sheet does not state, if any
+    for condition in conditions:
         cond_fact, why = _one(get(condition["role"]))
         # `when_unknown: "evaluate"` - set ONLY on items whose answer cannot
         # be wrong whatever the condition ("the molecular weight is stated",
         # "k is above 1"): an unknown condition does not stop them. Any other
         # item with an unknown condition is an engineer's question.
-        if cond_fact is None and item.get("when_unknown") != "evaluate":
-            state = ("the sheet does not state it" if why == "absent"
-                     else "it has two different values on the sheet")
-            return res(NEEDS_ENGINEER_REVIEW, _sentence(
-                f"whether it applies depends on the {_pretty(condition['role']).lower()}, and {state}"))
-        stated = _fold(_shown(cond_fact)) if cond_fact is not None else None
-        if stated is not None and not any(_fold(word) in stated for word in condition["any"]):
+        if cond_fact is None:
+            if item.get("when_unknown") != "evaluate":
+                state = ("the sheet does not state it" if why == "absent"
+                         else "it has two different values on the sheet")
+                return res(NEEDS_ENGINEER_REVIEW, _sentence(
+                    f"whether it applies depends on the {_pretty(condition['role']).lower()}, and {state}"))
+            unknown = unknown or condition
+            continue
+        stated = _fold(_shown(cond_fact))
+        if not any(_fold(word) in stated for word in condition["any"]):
             return res(NOT_APPLICABLE,
                        f"Does not apply: {_label(cond_fact, condition['role'])} is "
                        f"'{_shown(cond_fact)}' (page {cond_fact.get('page')}).",
                        cond_fact, condition["role"])
     kind = rule["kind"]
     fact, why = _one(get(field))
-    if fact is None and condition and stated is None:
+    if fact is None and unknown is not None:
         # The condition is unknown and the field is absent: whether the
         # contractor owes this value is not known, so it is not a missing value.
         return res(NEEDS_ENGINEER_REVIEW, _sentence(
             f"the {_pretty(field).lower()} is not given, and whether it is needed depends on the "
-            f"{_pretty(condition['role']).lower()}, which the sheet does not state"))
+            f"{_pretty(unknown['role']).lower()}, which the sheet does not state"))
     if fact is None:
         if why == "absent":
             return res(MISSING_INFORMATION,
@@ -514,12 +532,25 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
         right = _scale(_measure(other))
         if kind == "percent_of":
             factor = float(rule["percent"]) / 100.0
+        if kind == "above_by":
+            right_words = (f"{_label(other, rule['right']).lower()} {_shown(other)} (page {other.get('page')}) "
+                           f"plus the greater of {rule['percent']}% or {rule['at_least']} {rule['unit']}")
         right_words = ((f"{rule['percent']}% of " if kind == "percent_of" else "")
                        + f"{_label(other, rule['right']).lower()} {_shown(other)} (page {other.get('page')})")
     if (left is None or right is None or left[1] != right[1]
             or (left[2] and right[2] and left[2] != right[2])):
         return res(NEEDS_ENGINEER_REVIEW, _sentence(
             "the two values are not numbers on one scale and pressure basis"), fact)
+    if kind == "above_by":
+        # The margin's absolute part on the same scale as both values.
+        floor = _scale(claims.normalise(str(rule["at_least"]), rule["unit"]))
+        if floor is None or floor[1] != right[1]:
+            return res(NEEDS_ENGINEER_REVIEW, _sentence(
+                "the required margin is not on the same scale as the two values"), fact)
+        margin = max(right[0] * float(rule["percent"]) / 100.0, floor[0])
+        ok = left[0] >= right[0] + margin
+        return res(COMPLIANT if ok else NON_COMPLIANT,
+                   f"{where} is {'' if ok else 'not '}at least {right_words}.{noted}", fact)
     ok = _OPS[rule["op"]](left[0], right[0] * factor)
     return res(COMPLIANT if ok else NON_COMPLIANT,
                f"{where} is {'' if ok else 'not '}{_OP_WORDS[rule['op']]} {right_words}.{noted}", fact)
