@@ -4,6 +4,7 @@ from __future__ import annotations
 from ._base import APP, Mutation
 
 _T = "tests/test_746_checklist_governs.py"
+_T2 = "tests/test_746_relief_valve_checklist.py"
 
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M6501", phase=6501, description="the guard is dropped: every applicable standard is covered",
@@ -31,4 +32,19 @@ MUTATIONS: tuple[Mutation, ...] = (
              anchor="        if any(ids.same_standard(c, label) for c in cited for label in labels):\n",
              replacement="        if any(c.split()[0].lower() in label.lower() for c in cited for label in labels):\n",
              target=_T, keyword="identifier_not_a_list", tags=("checklist",)),
+    Mutation(id="M6506", phase=6506, description="the margin ignores its absolute floor (100 kPa)",
+             path=APP / "datasheet_checks.py",
+             anchor='        margin = max(right[0] * float(rule["percent"]) / 100.0, floor[0])\n',
+             replacement='        margin = right[0] * float(rule["percent"]) / 100.0\n',
+             target=_T2, keyword="greater_of_a_percent", tags=("checklist",)),
+    Mutation(id="M6507", phase=6507, description="only the first of several conditions is checked",
+             path=APP / "datasheet_checks.py",
+             anchor="    for condition in conditions:\n",
+             replacement="    for condition in conditions[:1]:\n",
+             target=_T2, keyword="every_condition_in_a_list", tags=("checklist", "critical")),
+    Mutation(id="M6508", phase=6508, description="the set pressure needs no margin above the operating pressure",
+             path=APP / "datasheet_checks.py",
+             anchor="        ok = left[0] >= right[0] + margin\n",
+             replacement="        ok = left[0] >= right[0]\n",
+             target=_T2, keyword="greater_of_a_percent", tags=("checklist",)),
 )
