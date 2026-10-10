@@ -881,6 +881,10 @@ def _compare(requirement: dict, fact: dict | None, *,
     if exception is not None:
         note = (f"; the exception for {exception.get('applies_to')!r} governs "
                 f"instead of the general limit")
+    if fact.get("value_note"):
+        # #725 F3: a value the sheet printed beside "By Contractor" (or the
+        # like) is compared, and the finding says so - never silently trusted.
+        note += f"; the datasheet marks this value {fact['value_note']!r}"
     if fact.get("compared_end"):
         end = "highest" if fact["compared_end"] == "max" else "lowest"
         note = (f"; compared at the {end} of the submitted range "

@@ -117,22 +117,24 @@ def test_a_value_with_its_unit_is_extracted_from_a_datasheet_page(tmp_path):
 
 
 def test_a_by_contractor_field_is_recorded_as_blank_never_as_zero(tmp_path):
-    """THE MUTATION TARGET (M50). MISSING_INFORMATION, not NON_COMPLIANT."""
+    """THE MUTATION TARGET (M50). A "By Contractor" field with NO value is
+    MISSING_INFORMATION, not NON_COMPLIANT and never a zero. #725 F3 (owner
+    decision 2026-10-09) reversed the older rule for a value printed BESIDE
+    the marker: "340 psig By Contractor" is the value 340 psig with the note
+    "By Contractor" - asserted here too, so both halves stay pinned."""
     doc = _ingest(_datasheet_pdf(tmp_path / "d.pdf", ROWS))
     datasheets.extract_facts(doc, allowed_document_ids=_scope(doc))
     rows = {r["field_name"]: r for r in
             datasheets.list_facts(doc, allowed_document_ids=_scope(doc))}
 
-    blank = rows["set pressure"]
-    assert blank["is_blank"] == 1
-    assert "contractor" in (blank["blank_marker"] or "").lower()
-    # NEVER A ZERO, and never a parsed value: the 340 is provisional and the
-    # sheet says the vendor must confirm it.
-    assert blank["normalized_value"] is None
-    assert blank["raw_value"] is None
-    assert blank["field_value"] != 0
+    noted = rows["set pressure"]
+    assert noted["is_blank"] == 0
+    assert noted["raw_value"] == "340" and noted["normalized_value"] is not None
+    assert "contractor" in (noted["value_note"] or "").lower()
     # The sheet's own words survive, so a reader can see what it said.
-    assert "340 psig" in blank["field_value"]
+    assert "340 psig" in noted["field_value"]
+    # A marker with no value is still a blank, never a zero.
+    assert datasheets.value_columns("By Contractor", field_label="Set pressure")["is_blank"] is True
 
 
 def test_a_drawn_placeholder_rule_is_a_blank(tmp_path):

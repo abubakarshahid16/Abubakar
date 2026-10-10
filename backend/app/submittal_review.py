@@ -373,6 +373,9 @@ def ensure_schema() -> None:
             # NON_COMPLIANT and never a zero.
             ("is_blank", "INTEGER"),
             ("blank_marker", "TEXT"),
+            # #725 F3: the "not provided" phrase printed BESIDE a value
+            # ("340 psig (By Contractor)"): the value is real, this is its note.
+            ("value_note", "TEXT"),
             ("field_label", "TEXT"),
             ("bbox", "TEXT"),
             # A PAIRING AN ENGINEER HAS REJECTED. See

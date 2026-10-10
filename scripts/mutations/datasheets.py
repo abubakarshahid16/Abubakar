@@ -480,8 +480,9 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "discarded as free text before it reaches create_fact",
         path=APP / "datasheets.py",
         # Re-anchored 2026-09-24: #179 moved the value gate into its one home,
-        # `states_a_value`, which `extract_facts` gates on.
-        anchor="    if parsed is None and parse_range(value) is not None:\n        parsed = \"range\"",
+        # `states_a_value`, which `extract_facts` gates on. Re-anchored
+        # 2026-10-09 (#725 F3): the gate measures the value without its note.
+        anchor="    if parsed is None and parse_range(measured) is not None:\n        parsed = \"range\"",
         replacement="    if False:\n        parsed = \"range\"",
         target="tests/test_ranges_and_compounds.py",
         keyword="survives_the_value_gate",
