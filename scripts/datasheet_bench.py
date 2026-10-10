@@ -436,7 +436,8 @@ def _stored_facts(rows: list[dict]) -> list[dict]:
 
 def _production_facts(path: Path, spec: dict, model_call) -> dict:
     """The production path for one file (`datasheet_offline.read_file`)."""
-    from app import datasheet_offline, datasheets
+    from app import datasheets
+    from tools import datasheet_offline
     out = datasheet_offline.read_file(path, office_input=spec["office"],
                                       ai_engine=spec["engine"], model_call=model_call)
     summary = out["summary"] or {}
@@ -463,7 +464,8 @@ def _ai_facts(path: Path, model_call) -> dict:
     page_texts` - PDF text layer, OCR for a page without one (when the
     project's OCR engine can run here), a workbook's sheets, a Word file's
     pages. No rules, no merge."""
-    from app import claude_datasheet, claude_spend, datasheet_inputs, datasheet_offline
+    from app import claude_datasheet, claude_spend, datasheet_inputs
+    from tools import datasheet_offline
     ocr_ok, ocr_why = datasheet_offline.ocr_available()
     pages = datasheet_inputs.page_texts(path, recognise=ocr_ok)
     texts = [p.text or "" for p in pages]
@@ -688,7 +690,7 @@ def run_reader(reader: str, key: dict, *, bench_dir: Path = BENCH, model_call=No
         report["label"] = ORACLE_LABEL
     if usage_fn is not None:
         report["usage"] = usage_fn()
-    from app import datasheet_offline
+    from tools import datasheet_offline
     report["flags"] = datasheet_offline.reader_flags()
     return report
 

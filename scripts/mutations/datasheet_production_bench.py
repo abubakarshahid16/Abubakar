@@ -12,7 +12,7 @@ from ._base import APP, REPO, Mutation
 _T = "tests/test_datasheet_production_bench.py"
 _B = "tests/test_datasheet_bench.py"
 _S = REPO / "scripts" / "datasheet_bench.py"
-_O = APP / "datasheet_offline.py"
+_O = APP.parent / "tools" / "datasheet_offline.py"
 _A = APP / "datasheet_ai.py"
 
 MUTATIONS: tuple[Mutation, ...] = (
