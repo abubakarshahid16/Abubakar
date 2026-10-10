@@ -282,6 +282,127 @@ def governing_standards(submittal_document_id: str, library: list[dict],
     return selected, not_held
 
 
+#: #754 F5b: why a standard is in a submittal's REQUIRED set.
+REQUIRED_BY_TYPE = "equipment type"
+REQUIRED_BY_SERVICE = "service"
+
+
+def _cited_by(cited: list[str], identifier: str) -> bool:
+    return any(standard_ids.same_standard(c, identifier) for c in cited)
+
+
+def standards_check(submittal_document_id: str, *, allowed_document_ids: frozenset[str],
+                    library: list[dict] | None = None) -> dict:
+    """#754 F5b: the standards that APPLY to this submittal, against the ones
+    it CITES. A senior engineer reviews a datasheet against the standards that
+    apply to it, and says so when the contractor did not reference one.
+
+    REQUIRED = the governing standards for the submittal's equipment type
+    (`governing_standards.json`, the type read by `subject_scope`) + the
+    standards of every service condition the datasheet DECLARES present
+    (`service_conditions.json`, `required_standards`). The contractor's own
+    citations are reviewed too; they are not "required" by this rule.
+
+    Outcomes, every one a result (data files only, no per-document rule):
+      * required and cited: nothing to say;
+      * `required_not_cited`: reviewed anyway (held or not), and ONE CRS
+        comment per standard - never one per requirement;
+      * `cited_not_held`: the existing "missing standards" list, never met;
+      * `cited_not_applicable`: a cited standard that governs only OTHER
+        equipment types, or belongs to a service condition the datasheet
+        declares absent - a note asking to confirm, never a verdict;
+      * `not_used`: every other library standard, counted, not listed.
+    An unknown equipment type and no declared condition give nothing new:
+    the review behaves as before.
+    """
+    from . import service_scope, subject_scope
+
+    library = _library(allowed_document_ids) if library is None else library
+    text = _submittal_text(submittal_document_id, allowed_document_ids)
+    referenced = datasheets.referenced_standards(text)
+    cited = list(dict.fromkeys([*referenced, *(
+        r["identifier"] for r in library_citations(library, text).values()
+        if r["method"] == METHOD_REFERENCED)]))
+    row = connect().execute(
+        "SELECT equipment_type, title FROM document_classification WHERE document_id = ?",
+        (submittal_document_id,)).fetchone()
+    facts = datasheets.list_facts(submittal_document_id, allowed_document_ids=allowed_document_ids)
+    equipment, source = subject_scope.submittal_equipment(dict(row) if row else {}, facts,
+                                                          subject_scope.vocabulary())
+    equipment = set(equipment or ())
+    table = governing_table()["equipment_types"]
+
+    required: list[dict] = []
+    for kind in sorted(equipment):
+        for identifier in table.get(kind, []):
+            required.append({"identifier": identifier, "by": REQUIRED_BY_TYPE,
+                             "reason": f"it governs a {kind} (read from the submittal's {source})"})
+    declared_absent: list[tuple[dict, str]] = []
+    for condition in service_scope.conditions():
+        if condition["mode"] == "value" or not (condition["required"] or condition["standards"]):
+            continue
+        stated = service_scope.declaration(condition, facts)
+        if stated is None:
+            continue
+        where = f"{stated['label']}: {stated['value']}" + (
+            f", page {stated['page']}" if stated.get("page") else "")
+        if stated["present"]:
+            for identifier in condition["required"]:
+                required.append({"identifier": identifier, "by": REQUIRED_BY_SERVICE,
+                                 "reason": f"the datasheet states {condition['name']} ({where})"})
+        else:
+            declared_absent.append((condition, where))
+
+    seen: set[str] = set()
+    unique: list[dict] = []
+    required_not_cited: list[dict] = []
+    for r in required:
+        k = standard_ids.key(r["identifier"])
+        if k in seen:
+            continue
+        seen.add(k)
+        unique.append(r)
+        if _cited_by(cited, r["identifier"]):
+            continue
+        entry = find_standard(library, r["identifier"])
+        required_not_cited.append({**r, "held": entry is not None,
+                                   "standard_document_id": entry["id"] if entry else None})
+
+    cited_not_applicable: list[dict] = []
+    if equipment:
+        own = [i for kind in equipment for i in table.get(kind, [])]
+        for c in cited:
+            others = sorted(kind for kind, ids in table.items()
+                            if kind not in equipment and any(standard_ids.same_standard(c, i) for i in ids))
+            if others and not any(standard_ids.same_standard(c, i) for i in own) \
+                    and not any(standard_ids.same_standard(c, r["identifier"]) for r in required):
+                cited_not_applicable.append({
+                    "identifier": c,
+                    "reason": (f"it governs {', '.join(others)}, and this submittal is a "
+                               f"{', '.join(sorted(equipment))} (read from its {source})")})
+    for condition, where in declared_absent:
+        for c in cited:
+            if any(standard_ids.same_standard(c, s) for s in condition["standards"]) \
+                    and not any(x["identifier"] == c for x in cited_not_applicable):
+                cited_not_applicable.append({
+                    "identifier": c,
+                    "reason": f"the datasheet states no {condition['name']} ({where})"})
+
+    used = {e["id"] for e in (find_standard(library, c) for c in cited) if e}
+    used |= {r["standard_document_id"] for r in required_not_cited if r["standard_document_id"]}
+    used |= {e["id"] for e in (find_standard(library, r["identifier"]) for r in required) if e}
+    return {
+        "equipment_types": sorted(equipment),
+        "cited": cited,
+        "required": [{"identifier": r["identifier"], "by": r["by"], "reason": r["reason"]}
+                     for r in unique],
+        "required_not_cited": required_not_cited,
+        "cited_not_held": missing_references(library, referenced),
+        "cited_not_applicable": cited_not_applicable,
+        "not_used": max(0, len(library) - len(used)),
+    }
+
+
 def _submittal_text(document_id: str, allowed_document_ids: frozenset[str]) -> str:
     """The submittal's own chunk text, read under the caller's grants."""
     where, args = _scope_clause(allowed_document_ids, "document_id")
@@ -964,6 +1085,16 @@ def select(
 
     governing, governing_missing = governing_standards(
         submittal_document_id, library, allowed_document_ids)
+    # #754 F5b: required vs cited FIRST. A standard a declared service
+    # condition requires, held but not cited, is reviewed anyway.
+    check = standards_check(submittal_document_id, allowed_document_ids=allowed_document_ids,
+                            library=library)
+    for r in check["required_not_cited"]:
+        if r["by"] == REQUIRED_BY_SERVICE and r["standard_document_id"] \
+                and r["standard_document_id"] not in governing:
+            governing[r["standard_document_id"]] = {
+                "method": METHOD_GOVERNING, "identifier": r["identifier"],
+                "reason": f"{r['identifier']} is required because {r['reason']}"}
 
     selected: dict[str, dict] = {}
     for candidates in (
@@ -1077,6 +1208,8 @@ def select(
             if standard_ids.key(g["identifier"]) not in {standard_ids.key(m["identifier"]) for m in missing}],
         "referenced_total": len(referenced),
         "library_size": len(library),
+        # #754 F5b: required vs cited, computed from the same library.
+        "standards_check": check,
         **completeness(selected, missing, submittal_document_id,
                        allowed_document_ids=allowed_document_ids),
     }

@@ -4377,8 +4377,11 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     unread = ((outcome.get("page_coverage") or {})
               .get("pages_not_read_into_fields") or [])
     missing = _missing_references(submittal_id, allowed)
+    # #754 F5b: required vs cited, recomputed like `missing` from the
+    # submittal's own text, facts and type (no stored copy to go stale).
+    check = applicability_mod.standards_check(submittal_id, allowed_document_ids=allowed)
     rows = crs_mapping_mod.build_crs_rows(findings, missing, submittal_name,
-                                          unread_pages=unread)
+                                          unread_pages=unread, standards_check=check)
     # PERMANENT COMMENT NUMBERS, READ ONLY. Minted by the write routes that
     # make a comment an engineer's (`_mint_crs_numbers`); this composition
     # serves the export and the preview, which write nothing.

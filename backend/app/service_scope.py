@@ -47,6 +47,9 @@ def _load(path: str, mtime: float) -> list[dict]:
             # not by a yes/no field.
             "mode": c.get("mode") or "declared",
             "satisfied_by": tuple(m.casefold() for m in c.get("satisfied_by") or ()),
+            # #754 F5b: standards a datasheet DECLARING the condition present
+            # is reviewed against (applicability.standards_check).
+            "required": tuple(c.get("required_standards") or ()),
         })
     return out
 
