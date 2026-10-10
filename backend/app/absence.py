@@ -232,10 +232,20 @@ def unchecked_parts(*, run_status: str | None, outcome: dict | None,
             f"{len(stds)} standard(s) in scope had no requirement that could be checked "
             f"and were not checked: {', '.join(stds[:5])}"
             + (f" and {len(stds) - 5} more" if len(stds) > 5 else "") + ".")
-    cells = sum(int(l.get("count") or 0) for l in outcome.get("table_values_not_compared") or [])
+    table_lines = outcome.get("table_values_not_compared") or []
+    cells = sum(int(l.get("count") or 0) for l in table_lines)
     if cells:
+        # #669: DISTINCT values, as the share counts them (#678). A run stored
+        # before lines carried `distinct` says its number is stored rows.
+        if all("distinct" in l for l in table_lines):
+            distinct = sum(int(l.get("distinct") or 0) for l in table_lines)
+            note = (f" ({cells} stored rows, repeats of the same value included)"
+                    if distinct != cells else "")
+        else:
+            distinct, note = cells, " (stored rows; repeats of the same value not removed)"
         add("table_values_not_compared",
-            f"{cells} standards-table value(s) were not compared: no matching field on this submittal.")
+            f"{distinct} standards-table value(s) were not compared{note}: "
+            "no matching field on this submittal.")
     held = (outcome.get("requirements_held_back") or {}).get("text_quality") or 0
     if held:
         add("text_quality_held_back",

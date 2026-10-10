@@ -173,8 +173,12 @@ def gate(requirements: list[dict], facts: list[dict], *,
         code = _skip_reason(requirement, table_selectable[table])
         items.append({"requirement": requirement, "code": code})
         entry = not_compared.setdefault(standard_id, {
-            "standard_document_id": standard_id, "count": 0, "tables": {}, "reasons": {}})
+            "standard_document_id": standard_id, "count": 0, "tables": {}, "reasons": {},
+            "distinct": set()})
         entry["count"] += 1
+        # #669: a stored repeat of the same value is ONE requirement. The
+        # share already counts distinct requirements (#678); this line does too.
+        entry["distinct"].add(" ".join(str(requirement.get("requirement_text") or "").lower().split()))
         entry["reasons"][code] = entry["reasons"].get(code, 0) + 1
         page = requirement.get("page")
         table_entry = entry["tables"].setdefault(
@@ -188,14 +192,18 @@ def gate(requirements: list[dict], facts: list[dict], *,
     for standard_id, entry in not_compared.items():
         name = (standard_names or {}).get(standard_id) or standard_id
         tables = sorted(entry["tables"].values(), key=lambda t: (t["page"] or 0))
+        distinct = len(entry["distinct"])
+        repeats = (f" ({entry['count']} stored rows, repeats of the same value included)"
+                   if distinct != entry["count"] else "")
         lines.append({
             "standard_document_id": standard_id,
             "standard_name": name,
             "count": entry["count"],
+            "distinct": distinct,
             "table_count": len(tables),
             "reasons": dict(sorted(entry["reasons"].items())),
-            "line": (f"{entry['count']} table values in {len(tables)} "
-                     f"table{'s' if len(tables) != 1 else ''} of {name} not compared: "
+            "line": (f"{distinct} table values in {len(tables)} "
+                     f"table{'s' if len(tables) != 1 else ''} of {name} not compared{repeats}: "
                      "no matching field on this submittal"),
             "tables": tables,
         })
