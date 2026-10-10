@@ -1,0 +1,22 @@
+{
+ "format": "governing-standards/1",
+ "_about": "Which standards GOVERN an equipment type (#725 F5, #733). Keys are the equipment types of reference/equipment_vocabulary.json (one vocabulary: subject_scope reads what a submittal is from it). A governing standard that the library holds is selected for a submittal of that type (method governing_standard, included) with the type and where it was read; one the library does not hold is listed as governing_not_held, never as met. materials_standards apply only to material fields of a datasheet (subject_scope.materials_gate). Generic engineering standards only; edit here, not in code.",
+ "equipment_types": {
+  "relief valve": ["API 520 Part I", "API 520 Part II", "API 521", "API 526", "API 527", "SAES-J-600"],
+  "pump": ["API 610", "API 674", "API 675", "API 676", "API 682"],
+  "compressor": ["API 617", "API 618", "API 619"],
+  "steam turbine": ["API 611", "API 612"],
+  "gas turbine": ["API 616"],
+  "heat exchanger": ["API 660", "API 661"],
+  "pressure vessel": ["ASME BPVC Section VIII Division 1"],
+  "storage tank": ["API 650", "API 620"],
+  "fired heater": ["API 560"],
+  "boiler": ["ASME BPVC Section I"],
+  "control valve": ["IEC 60534"],
+  "piping": ["ASME B31.3"],
+  "flange": ["ASME B16.5", "ASME B16.47"],
+  "motor": ["IEC 60034"],
+  "transformer": ["IEC 60076"]
+ },
+ "materials_standards": ["NACE MR0175", "ISO 15156", "NACE MR0103", "ISO 17945"]
+}

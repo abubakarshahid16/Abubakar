@@ -11,13 +11,15 @@ _T = "tests/test_w5_677_scope_ledger.py"
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M4505", phase=4505, description="#638 is back: a declared non-sour sheet still gets sour requirements",
              path=APP / "service_scope.py",
-             anchor="            if d is not None and d[\"present\"] is False and specific_to(c, requirement, label):\n",
-             replacement="            if False:\n",
+             # Re-anchored 2026-10-09 (#725 F6): the call now also passes the clause heading.
+             anchor="            if d is not None and d[\"present\"] is False and specific_to(\n",
+             replacement="            if False and specific_to(\n",
              target=_T, keyword="declared_not_sour or exactly_one_stored", tags=("honesty", "critical")),
     Mutation(id="M4506", phase=4506, description="an unknown or present service drops sour requirements too",
              path=APP / "service_scope.py",
-             anchor="            if d is not None and d[\"present\"] is False and specific_to(c, requirement, label):\n",
-             replacement="            if specific_to(c, requirement, label):\n",
+             # Re-anchored 2026-10-09 (#725 F6), same mutation.
+             anchor="            if d is not None and d[\"present\"] is False and specific_to(\n",
+             replacement="            if specific_to(\n",
              target=_T, keyword="declared_sour_or_unknown", tags=("honesty", "critical")),
     Mutation(id="M4507", phase=4507, description="the requirement's standard does not make it service-specific",
              path=APP / "service_scope.py",

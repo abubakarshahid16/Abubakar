@@ -881,6 +881,10 @@ def _compare(requirement: dict, fact: dict | None, *,
     if exception is not None:
         note = (f"; the exception for {exception.get('applies_to')!r} governs "
                 f"instead of the general limit")
+    if fact.get("value_note"):
+        # #725 F3: a value the sheet printed beside "By Contractor" (or the
+        # like) is compared, and the finding says so - never silently trusted.
+        note += f"; the datasheet marks this value {fact['value_note']!r}"
     if fact.get("compared_end"):
         end = "highest" if fact["compared_end"] == "max" else "lowest"
         note = (f"; compared at the {end} of the submitted range "
@@ -1942,6 +1946,15 @@ def run_comparison(
     requirements = serviced["kept"]
     extra_not_applied.extend(serviced["items"])
     service_declarations = serviced["declarations"]
+    # #725 F5 A MATERIALS STANDARD applies only to material fields: NACE's
+    # alloy-composition table rows are not checks for a datasheet that states
+    # no such material (6,702 of them were on one PSV review).
+    from . import applicability as applicability_mod
+    materials = subject_scope.materials_gate(
+        requirements, facts=facts, standard_labels=standard_labels,
+        is_materials_standard=applicability_mod.is_materials_standard)
+    requirements = materials["kept"]
+    extra_not_applied.extend(materials["items"])
     # #647 AI APPLICABILITY, when switched on: the model proposes "does not
     # apply" with a quoted reason; only what code confirms leaves the check.
     # What it suggested and code did not confirm is kept on the requirement's

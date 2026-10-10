@@ -2246,6 +2246,10 @@ class CrsPreviewRow(BaseModel):
     #: its own "Standard Reference" column after the client's seven. Empty
     #: for an engineer's own chat comment.
     standard_reference: str = ""
+    #: #725 F7: the worst severity of the findings the row groups (critical,
+    #: major, minor, observation), printed in the "Severity" column after
+    #: Standard Reference in both copies. Empty when none is recorded.
+    severity: str = ""
     #: Owner decision 2026-09-27 (order 2f): an UNCONFIRMED AI engineering
     #: check item's text, printed in the last column "AI Review Comments" of
     #: the internal review copy, with `comment` left empty. Empty on every
@@ -2547,6 +2551,15 @@ class CrsCommentStatusUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     status: Literal["Open", "Closed"]
     note: str | None = Field(default=None, max_length=2000)
+
+
+class CrsTransmittals(BaseModel):
+    """#725 F7: the two transmittal numbers the CRS header names, as an
+    engineer entered them. "" = none entered; the sheet then prints nothing."""
+
+    model_config = ConfigDict(extra="forbid")
+    company_transmittal: str = Field(default="", max_length=80)
+    contractor_transmittal: str = Field(default="", max_length=80)
 
 
 class CrsCommentResponseUpdate(BaseModel):
