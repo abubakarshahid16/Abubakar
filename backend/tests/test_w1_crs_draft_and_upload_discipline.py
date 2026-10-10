@@ -1,11 +1,11 @@
-"""W1: crs-draft is a POST that names its author (#441), and an upload names
-at least one discipline, so no document is left visible to nobody (#609).
+"""W1: a Claude review route answers a run the caller may not read with the
+same 404 as a missing one (#658), and an upload names at least one discipline,
+so no document is left visible to nobody (#609).
 
-crs-draft sends a run's findings to Claude and spends from the USD caps. It
-used to be a GET with no identity check, so a link, a prefetch or a crawler
-could make the system do that work. It is now a POST that needs an identity,
-answers a run the caller may not read with the same 404 as a missing one, and
-writes an audit row naming who asked BEFORE anything is sent.
+The crs-draft route these tests were first written for (#441) was deleted with
+`claude_crs_comments` (#736, F8c row 1): no screen called it. The 404 rule is
+shared by every route through `claude_api._run_or_404`; it is tested here on
+the recheck route.
 
 An upload with an identity used to be granted to the admin capability only,
 which left it visible to no discipline until an administrator noticed. It now
@@ -21,15 +21,13 @@ import io
 import pytest
 from fastapi.testclient import TestClient
 
-from app import access, claude_api, claude_crs_comments, crs_export, db, submittal_review
+from app import access, claude_api, db, submittal_review
 from app.config import settings
 from app.db import connect
 from app.main import app
 
 NOW = "2026-10-08T00:00:00Z"
 KEY = "sk-ant-test-NEVER-IN-A-LOG-0123456789"
-#: Stands in for finding text; must never reach the audit table.
-DOC_TEXT = "CONFIDENTIAL-FINDING the pump shall be rated 40 bar"
 
 
 @pytest.fixture(autouse=True)
@@ -88,46 +86,10 @@ def _no_transport(monkeypatch):
                         lambda: pytest.fail("the Claude transport was built"))
 
 
-def _audit_rows() -> list[dict]:
-    return [dict(r) for r in connect().execute(
-        "SELECT * FROM audit_events WHERE action = ?", (claude_api.AUDIT_CRS_DRAFT,))]
+RECHECK = "/api/reviews/runs/{}/claude/recheck"
 
 
-DRAFT = "/api/reviews/runs/{}/claude/crs-draft"
-
-
-# ------------------------------------------------------------- #441 crs-draft
-
-def test_crs_draft_get_is_gone_and_does_nothing(monkeypatch):
-    _no_transport(monkeypatch)
-    response = TestClient(app).get(DRAFT.format("run-1"), headers=_as("engineer"))
-    assert response.status_code == 405, response.text
-    assert _audit_rows() == []
-
-
-def test_crs_draft_post_without_an_identity_is_refused(monkeypatch):
-    _no_transport(monkeypatch)
-    response = TestClient(app).post(DRAFT.format("run-1"))
-    assert response.status_code == 401, response.text
-    assert _audit_rows() == []
-
-
-def test_the_crs_draft_route_itself_refuses_a_caller_without_an_identity(monkeypatch):
-    """The test above is answered by `main.identity_gate` before the route
-    runs. This one calls the route with the empty scope an anonymous caller
-    gets, so the route's own `_require_identity_to_write` is what answers,
-    and a later change to the gate's prefixes cannot open it silently."""
-    from fastapi import HTTPException
-    from starlette.requests import Request
-
-    _no_transport(monkeypatch)
-    request = Request({"type": "http", "method": "POST", "path": "/",
-                       "query_string": b"", "headers": []})
-    with pytest.raises(HTTPException) as caught:
-        claude_api.claude_crs_draft("run-1", request, scope=access.empty_scope())
-    assert caught.value.status_code == 401
-    assert _audit_rows() == []
-
+# ------------------------------------------------------- #658 the same 404
 
 def _without_time(body):
     """The body with every `at` timestamp removed, at any depth."""
@@ -147,52 +109,16 @@ def test_the_time_filter_removes_only_the_timestamp():
     assert _without_time(a) != _without_time({"detail": {"code": "not_found", "message": "y", "at": "t1"}})
 
 
-def test_crs_draft_on_a_run_the_caller_cannot_read_is_the_same_404_as_a_missing_one(monkeypatch):
+def test_a_run_the_caller_cannot_read_is_the_same_404_as_a_missing_one(monkeypatch):
     _no_transport(monkeypatch)
     client = TestClient(app)
-    hidden = client.post(DRAFT.format("run-1"), headers=_as("outsider"))
-    missing = client.post(DRAFT.format("run-none"), headers=_as("outsider"))
+    hidden = client.post(RECHECK.format("run-1"), headers=_as("outsider"))
+    missing = client.post(RECHECK.format("run-none"), headers=_as("outsider"))
     assert hidden.status_code == 404, hidden.text
     # The 404 body carries `at`, the time to the second (errors.safe_error); two
     # requests either side of a second boundary differ in nothing else (#658).
     # Everything else - code, message, the detail - must still be identical.
     assert _without_time(hidden.json()) == _without_time(missing.json())
-    assert _audit_rows() == []
-
-
-def _fake_claude(monkeypatch) -> list[dict]:
-    sent: list[dict] = []
-
-    def send(url, *, headers, body, timeout):
-        sent.append(body)
-        send.usage["calls"] += 1
-        return {"model": "claude-sonnet-4-5", "stop_reason": "end_turn",
-                "content": [{"type": "text", "text": "{}"}],
-                "usage": {"input_tokens": 10, "output_tokens": 5}}
-    send.usage = {"calls": 0, "input_tokens": 0, "output_tokens": 0}
-    monkeypatch.setattr(claude_api.reader_transport_mod, "transport", lambda: send)
-    monkeypatch.setattr(claude_crs_comments, "draft_run",
-                        lambda rid, call, **kw: (call(DOC_TEXT), {"drafted": 3, "rejected": 1})[1])
-    monkeypatch.setattr(claude_crs_comments, "apply_drafts", lambda view, drafts: {})
-    monkeypatch.setattr(crs_export, "build_crs_view", lambda rows, meta: {})
-    from app import main
-    monkeypatch.setattr(main, "_crs_content", lambda rid, scope: ([], {}, "sub.pdf", "stamp"))
-    return sent
-
-
-def test_the_created_draft_records_its_author(monkeypatch):
-    sent = _fake_claude(monkeypatch)
-    response = TestClient(app).post(DRAFT.format("run-1"), headers=_as("engineer"))
-    assert response.status_code == 200, response.text
-    assert len(sent) == 1
-    assert response.json()["drafted_by"] == "engineer"
-    rows = _audit_rows()
-    assert len(rows) == 1
-    row = rows[0]
-    assert (row["actor_user_id"], row["actor_username"]) == ("engineer", "engineer@test.local")
-    assert (row["resource_type"], row["resource_id"], row["outcome"]) == ("review_run", "run-1", "ok")
-    assert row["detail"] == "drafted=3 rejected=1"
-    assert DOC_TEXT not in str(row)
 
 
 # ------------------------------------------------- #609 upload disciplines

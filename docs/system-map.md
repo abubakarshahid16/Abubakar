@@ -15,7 +15,6 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | Read a contractor datasheet into facts | `datasheets`, `datasheet_ai`, `claude_datasheet`, `vision_reader` |
 | Choose the standards that apply to a submittal | `applicability`, `applicability_v2`, `applicability_reasoning`, `claude_selection`, `ai_applicability` |
 | Answer a chat question from the documents | `answer`, `chat_claude_first` |
-| Write the CRS comment text | `crs_mapping`, `claude_crs_comments` |
 
 ## Modules
 
@@ -55,7 +54,6 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `classification` | What a document IS. Never who may read it |
 | `claude_api` | The four places a reviewer may ask Claude for a second pair of eyes |
 | `claude_budget` | The two numbers that keep a $20 API credit from vanishing in one run |
-| `claude_crs_comments` | Write the CRS comment text |
 | `claude_datasheet` | Read a contractor datasheet into facts |
 | `claude_recheck` | Recheck findings: the model gives a SECOND OPINION on an engine verdict, and Python decides what that opinion |
 | `claude_selection` | Choose the standards that apply to a submittal |

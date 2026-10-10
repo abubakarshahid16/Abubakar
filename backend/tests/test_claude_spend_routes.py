@@ -1,4 +1,4 @@
-"""The four Claude review routes obey the owner's USD caps (USD 5 per step /
+"""The three Claude review routes obey the owner's USD caps (USD 5 per step /
 USD 20 in total, `claude_spend`) - checked BEFORE a call leaves, and each call
 written to the one ledger the caps read.
 
@@ -16,9 +16,8 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from app import (access, claude_api, claude_budget, claude_crs_comments, claude_datasheet,
-                 claude_recheck, claude_selection, claude_spend, crs_export, db, reader_transport,
-                 submittal_review)
+from app import (access, claude_api, claude_budget, claude_datasheet, claude_recheck,
+                 claude_selection, claude_spend, db, reader_transport, submittal_review)
 from app.config import settings
 from app.main import app
 
@@ -141,19 +140,12 @@ def _stub_modules(monkeypatch):
     monkeypatch.setattr(claude_datasheet, "store_facts", lambda *a, **kw: {})
     monkeypatch.setattr(claude_recheck, "recheck_run",
                         lambda rid, call, *, allowed_document_ids: {"a": call(DOC_TEXT)})
-    monkeypatch.setattr(claude_crs_comments, "draft_run",
-                        lambda rid, call, **kw: {"a": call(DOC_TEXT)})
-    monkeypatch.setattr(claude_crs_comments, "apply_drafts", lambda view, drafts: {})
-    monkeypatch.setattr(crs_export, "build_crs_view", lambda rows, meta: {})
-    from app import main
-    monkeypatch.setattr(main, "_crs_content", lambda rid, scope: ([], {}, "sub.pdf", "stamp"))
 
 
 ROUTES = [
     ("post", "/api/reviews/runs/run-x/claude/select-standards", claude_api.STEP_SELECT_STANDARDS),
     ("post", "/api/reviews/runs/run-x/claude/read-datasheet", claude_api.STEP_READ_DATASHEET),
     ("post", "/api/reviews/runs/run-x/claude/recheck", claude_api.STEP_RECHECK),
-    ("post", "/api/reviews/runs/run-x/claude/crs-draft", claude_api.STEP_CRS_DRAFT),
 ]
 
 
@@ -188,7 +180,7 @@ def test_the_409_helper_is_what_the_routes_raise(monkeypatch):
     'model disabled', and the message carries no prompt text."""
     sent = _fake_transport(monkeypatch)
     monkeypatch.setattr(settings, "claude_budget_usd_total", 0.0)
-    model_call, transport = claude_api._model_call_or_409(claude_api.STEP_CRS_DRAFT)
+    model_call, transport = claude_api._model_call_or_409(claude_api.STEP_RECHECK)
     with pytest.raises(HTTPException) as caught:
         claude_api._capped(model_call, lambda call: call(DOC_TEXT), transport)
     assert caught.value.status_code == 409
