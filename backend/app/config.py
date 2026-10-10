@@ -524,9 +524,11 @@ class Settings(BaseSettings):
     #: written only by the explicit `scripts/generate_scope_records.py` step) and
     #: the submittal's own classified equipment type - no taxonomy needed. Same
     #: asymmetric safety rule as the taxonomy path: an unconfirmed
-    #: NOT_APPLICABLE is still reported as UNKNOWN. OFF by default. Env:
-    #: APPLICABILITY_REASONING_ENABLED.
-    applicability_reasoning_enabled: bool = False
+    #: NOT_APPLICABLE is still reported as UNKNOWN. ON by default since #736
+    #: (owner decision 2026-10-10): the F1 baseline was measured with it on,
+    #: and a run without the owner's settings file used to drop the standards
+    #: it chooses. Env: APPLICABILITY_REASONING_ENABLED (false turns it off).
+    applicability_reasoning_enabled: bool = True
     #: B4 (nozzle schedules): ONLY the geometry reader's TABLE path - a ruled
     #: grid read cell by cell under its column heading ("N1 Size 4", "N1
     #: Flange Rating CL-150"). A schedule is one row per item across many
