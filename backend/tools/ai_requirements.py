@@ -40,7 +40,7 @@ from __future__ import annotations
 
 import re
 
-from . import ai_task_runner, numparse, standard_ids
+from app import ai_task_runner, numparse, standard_ids
 
 #: Words per task. Under the runner's 300-word limit, so a passage split at a
 #: sentence never crosses it (#644 decision b).
@@ -212,7 +212,7 @@ def read_figures(quote: str) -> list[dict]:
     operator its wording states. A bracketed figure that is the same quantity
     as the figure before it ("16 psi (110 kPa)") is that figure again, not a
     second limit. A reference numeral (clause, table, page) is not a figure."""
-    from . import answer, synthesis
+    from app import answer, synthesis
 
     held = synthesis.strip_reference_numerals(quote)
     every = answer._figure_occurrences(held)
@@ -244,7 +244,7 @@ MODEL_VALUE_DISAGREED = "model value disagreed"
 
 def _hints_agree(item: dict, figures: list[dict]) -> bool:
     """Do the model's own value fields (hints) agree with what code read?"""
-    from . import answer
+    from app import answer
 
     unit = hint(item.get("unit")) or ""
     read = [answer._figure_occurrences(f"{f['value']} {f['unit']}")[0] for f in figures]

@@ -69,8 +69,8 @@ import os
 import tempfile
 from pathlib import Path
 
-from . import datasheets, db, submittal_review
-from .config import settings
+from app import datasheets, db, submittal_review
+from app.config import settings
 
 #: The fact columns a caller gets back - what a reviewer sees of a fact.
 FACT_COLUMNS = (
@@ -222,7 +222,7 @@ def _ingest(path: Path, *, run_ocr: bool) -> dict:
     reader, in the throwaway database. Returns `{"document_id", "status",
     "reason", "stages", "ocr"}`; never raises for the FILE's sake (a refusal,
     a failed stage) - that is the file's result."""
-    from . import chunker, extract, ocr, states, upload
+    from app import chunker, extract, ocr, states, upload
 
     out: dict = {"document_id": None, "status": READ, "reason": None,
                  "stages": [], "ocr": {"pages_needing_ocr": 0}}
@@ -291,7 +291,7 @@ def read_file(path: str | Path, *, office_input: bool, ai_engine: str | None,
     or None, "flags": the flags the run used, "stages", "ocr"}`. Superseded
     rows are left out. Settings and flags are restored afterwards.
     """
-    from . import datasheet_ai
+    from app import datasheet_ai
 
     if model_call is not None and not ai_engine:
         raise ValueError("a model_call needs an ai_engine: with the AI reader off it is never asked")

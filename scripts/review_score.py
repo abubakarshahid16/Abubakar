@@ -30,7 +30,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "backend"))
 
-from app import review_score as rs  # noqa: E402
+from tools import review_score as rs  # noqa: E402
 
 DEFAULT_BASELINE = REPO / "eval" / "review" / "baseline.json"
 DEFAULT_KEYS = REPO / "eval" / "review" / "keys"

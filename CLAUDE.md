@@ -51,11 +51,26 @@ carries the client's name; only the owner can rename it.
 5. **Classification is NOT access control.** `document_classification` says what
    a document is about; the grant tables say who may read it. A filter may only
    NARROW what a caller may already read — intersection, never union.
-6. **Tests are non-negotiable and must not be vacuous.** Every new test must fail
-   when its feature is deleted — prove it by mutation. Vacuous tests are this
-   project's documented recurring defect (`docs/status-honesty-audit.md`).
-7. **When something this project stated turns out false, record the retraction**
-   in `docs/status-honesty-audit.md`. It is at 148 entries. Several findings in
+6. **Tests are non-negotiable and must not be vacuous.** Every change ships with
+   a test that fails without it (check it once by hand: revert the fix, see the
+   test fail). **Mutation entries are required only in the danger zone**, where a
+   wrong answer reaches an engineer, the live data, the network or the budget:
+   `comparison.py`, `numparse.py` and the unit code in `claims.py`,
+   `datasheet_checks.py` and `reference/datasheet_checks.json` (the #746
+   checklist), `crs_mapping.py`, `crs_export.py` and `crs_numbers.py`,
+   `live_guard.py`, `heavy_lock.py` and the live guards in
+   `scripts/rehearse_requirement_reextraction.py`, the four socket modules of
+   rule 1 (`market_transport.py`, `model_transport.py`, `reader_transport.py`,
+   `notifications.py`) and `claude_spend.py`. Everywhere else ordinary tests are
+   enough; do not add mutation entries. Existing entries stay and keep running.
+   Vacuous tests are this project's documented recurring defect
+   (`docs/status-honesty-audit.md`).
+7. **When something the user sees turns out false, record the retraction** in
+   `docs/status-honesty-audit.md`: screen text, CRS wording, reports, exports,
+   and claims made to the owner in issues or PRs. Internal refactors, test-only
+   changes and renamed helpers get no entry. Name a new entry after its PR:
+   `- **A-<PR number> - ...**` (a second one in the same PR: `A-<PR number>b`).
+   Existing numbered entries stay as they are. Several findings in
    `docs/code-review/` belong there.
 8. **Fix a claim in every home it lives in.** A third of the review findings are
    "fixed in one of two places" (a flag read in one file, a literal left in
@@ -75,6 +90,10 @@ carries the client's name; only the owner can rename it.
     without updating this rule first.
 11. Merge commits, not squash. Conventional prefixes (`feat:`, `fix:`, `test:`,
     `docs:`). Issues, milestones, PRs with `Closes #N`. Free tools only.
+12. **IDs are named after the PR, never "the next free number".** Mutation ids:
+    `M<PR number>-01`, `M<PR number>-02`, ... with `phase=<PR number>`. Audit
+    entries: `A-<PR number>`. Existing ids are never renumbered. A merge that
+    only renumbers ids is not allowed.
 
 ## Who does what
 
@@ -127,7 +146,7 @@ Never write a second waiter.
    of green PRs, plus per PR only when it touches retrieval, answer, review or
    eval code.
 3. Every P1, test run and AI batch unloads its models at the end (#666).
-4. Mutation runs are for changed modules only:
+4. Mutation runs are for changed danger-zone modules only (rule 6):
    `python scripts/mutation_check.py --changed`, not the full registry.
 
 ## Where to look
@@ -137,7 +156,7 @@ Never write a second waiter.
 | Full state, decisions, what's next | `docs/HANDOVER.md` |
 | Architecture as the code actually is | `docs/architecture-call-graph.md` (current); `docs/architecture.md` (older, stale line refs) |
 | The 134 review findings, prioritised | `docs/code-review/README.md` |
-| Recorded false claims (148) | `docs/status-honesty-audit.md` |
+| Recorded false claims | `docs/status-honesty-audit.md` |
 | The review score (recall, precision, false compliant, citations; answer-key format) | `eval/review/README.md`, `scripts/review_score.py` |
 | Review playbooks (HAZOP, SIL procedures; data files, clause-cited, standard not held is never met) | `docs/playbooks.md` |
 | The scored model tier of P1 (figures, clause, could-not-read; PC only) | `eval/p1ai/README.md` |

@@ -477,7 +477,11 @@ def _action(finding: dict, field: str) -> str:
     if status == _MISSING_INFORMATION:
         if finding.get("fact_id") or finding.get("contractor_page"):
             return f"Contractor to provide {what}."
-        return f"Contractor to state {what} on the datasheet."
+        # #725 F7: NOT PAIRED IS THE SYSTEM'S MISS UNTIL AN ENGINEER SAYS
+        # OTHERWISE. No field read from the sheet answered it; the sheet may
+        # state it under another name. Never "Contractor to state" here.
+        return (f"Engineer to check whether the datasheet states {what}: no field this "
+                "system read was paired with it.")
     return f"Engineer to check: {_reason_words(finding).rstrip('.')}."
 
 
@@ -499,8 +503,9 @@ def engineer_comment_text(group: list[dict]) -> str:
     ref = "; ".join(refs) or "Requirement"
     field = _field_label(f)
     tags = _items(group)
+    pages = sorted({g.get("contractor_page") for g in group if g.get("contractor_page")})
     where = " ".join(p for p in (
-        f"p.{f['contractor_page']}," if f.get("contractor_page") else "",
+        f"p.{_page_list(pages)}," if pages else "",
         field or "", f"({', '.join(tags)})" if tags else "") if p)
     lead = f"{ref}: {_requirement_words(f)}"
     if not (f.get("fact_id") or f.get("contractor_page")):
@@ -510,6 +515,14 @@ def engineer_comment_text(group: list[dict]) -> str:
         checked = (f.get("ai_rationale") or "").partition("; ")[2].strip().rstrip(".")
         said = ("Not answered by any field read from the datasheet"
                 + (f" ({checked})" if checked else "") + ".")
+    elif len({(_provided(g), g.get("contractor_page")) for g in group}) > 1:
+        # #725 F7: the tags in one row say different things - each tag's own
+        # value and page, never the first tag's value printed for all.
+        per_tag = "; ".join(
+            f"{g.get('equipment_tag') or 'untagged'} {_provided(g)}"
+            + (f" (p.{g['contractor_page']})" if g.get("contractor_page") else "")
+            for g in group)
+        said = f"Datasheet {field or 'value'}: {per_tag}."
     else:
         said = f"Datasheet {where} {_provided(f)}." if where else f"The datasheet {_provided(f)}."
     return f"{lead} {said} {_action(f, field)}"
@@ -530,9 +543,12 @@ def _group_key(f: dict) -> tuple:
     text = _fold(f.get("requirement_source_text"))
     if not text or f.get("engineer_comment"):
         return ("__unique__", f.get("id") or id(f))
+    # #725 F7: ONE ROW PER PROBLEM. The printed value and the page are NOT in
+    # the key: the same requirement on the same field with the same outcome is
+    # one comment listing every tag (and each tag's own value and page when
+    # they differ), not one row per tag.
     return (f.get("compliance_status"), text,
             _fold(f.get("crs_field_label") or f.get("matched_phrase") or f.get("contractor_section")),
-            _fold(f.get("contractor_evidence_text")), f.get("contractor_page"),
             f.get("origin") == _DATASHEET_ORIGIN)
 
 
@@ -553,7 +569,39 @@ def _grouped(ordered: list[dict]) -> list[list[dict]]:
     # engineer's permanent number - on every re-run done a second or more
     # after the confirmation (honesty audit entry 81). Stable sort: otherwise
     # the order the caller gave is kept.
-    return [sorted(groups[k], key=lambda f: not f.get("confirmed_by")) for k in order]
+    #
+    # #725 F7: AND THE LEADER IS THE SAME ON EVERY RUN. A group now holds every
+    # tag's finding, and the row's permanent number is keyed on its leader, so
+    # the leader cannot depend on update order: confirmed first, then the
+    # lowest page, tag and value.
+    return [sorted(groups[k], key=_leader_order) for k in order]
+
+
+def _leader_order(f: dict) -> tuple:
+    page = f.get("contractor_page")
+    return (not f.get("confirmed_by"), page if isinstance(page, int) else 10 ** 9,
+            str(f.get("equipment_tag") or ""), _fold(f.get("contractor_evidence_text")))
+
+
+#: Worst first. A row carries the worst severity of the findings it groups.
+SEVERITY_ORDER = ("critical", "major", "minor", "observation")
+
+
+def row_severity(group: list[dict]) -> str:
+    """The worst severity in the group; "" when none is recorded."""
+    found = {str(g.get("severity") or "").lower() for g in group}
+    return next((s for s in SEVERITY_ORDER if s in found), "")
+
+
+def _clause_key(clause: object) -> tuple:
+    return tuple(int(p) if p.isdigit() else 10 ** 6 for p in re.findall(r"\w+", str(clause or ""))) or (10 ** 6,)
+
+
+def _row_order(group: list[dict]) -> tuple:
+    """#725 F7: rows within a bucket by datasheet page, then clause."""
+    pages = [g.get("contractor_page") for g in group if isinstance(g.get("contractor_page"), int)]
+    return (min(pages) if pages else 10 ** 9, _clause_key(group[0].get("standard_clause")),
+            _fold(_field_label(group[0])))
 
 
 def _by(group: list[dict]) -> str:
@@ -616,7 +664,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                          (ROW_KIND_MISSING_INFORMATION, not_found),
                          (ROW_KIND_DATASHEET_CHECK, checks),
                          (ROW_KIND_NEEDS_ENGINEER_REVIEW, questions)):
-        for group in _grouped(bucket):
+        for group in sorted(_grouped(bucket), key=_row_order):
             f = group[0]
             if kind == ROW_KIND_DATASHEET_CHECK:
                 text = f.get("engineer_comment") or " ".join(p for p in (
@@ -634,6 +682,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                 "standard_reference": "; ".join(dict.fromkeys(
                     r for r in (_standard_reference(g) for g in group) if r)),
                 "row_kind": kind,
+                "severity": row_severity(group),
                 "engineer_confirmed": all(_confirmed(g) for g in group),
                 # Never printed: what the permanent CRS number is keyed on.
                 "comment_key": _subject_key(f),
@@ -655,6 +704,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                            " (filed from chat)"),
             "standard_reference": "",
             "row_kind": ROW_KIND_ENGINEER_COMMENT,
+            "severity": row_severity([f]),
             "engineer_confirmed": True,
             # An engineer's own free-text comment IS its subject.
             "comment_key": finding_comment_key(f),
@@ -695,6 +745,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             "ai_review_comment": "" if confirmed else text,
             "standard_reference": relates if origin == _AI_ORIGIN and not f.get("engineer_comment") else "",
             "row_kind": row_kind,
+            "severity": row_severity([f]),
             "engineer_confirmed": confirmed,
             # The machine's finding text, not the engineer's edit of it, so
             # confirming or re-wording an AI/web item keeps its number.

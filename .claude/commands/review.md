@@ -83,7 +83,8 @@ not fail; it passes, which is worse than having no test.**
 For every test the change adds or modifies, answer explicitly:
 
 1. **Would it fail if the feature were deleted?** If you cannot say yes with a
-   reason, report it. Name the mutation that should break it.
+   reason, report it. In the danger zone (CLAUDE.md rule 6), name the mutation
+   that should break it; elsewhere, name the revert that makes it fail.
 2. **Does it mock the thing under test?** A test that asserts against its own
    mock's shape proves the mock, not the product. This exact defect shipped 23
    tests that all passed while the panel rendered `undefined`.
