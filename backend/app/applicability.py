@@ -229,8 +229,14 @@ def governing_table(path: Path | None = None) -> dict:
             or not all(isinstance(v, list) and all(isinstance(i, str) for i in v) for v in types.values())
             or not isinstance(materials, list)):
         raise ValueError(f"{(path or GOVERNING_PATH).name}: not a governing-standards/1 table")
+    partial = data.get("partial_standards") or {}
+    if not isinstance(partial, dict) or not all(
+            isinstance(v, list) and all(isinstance(e, dict) and e.get("standard") and e.get("words")
+                                        for e in v) for v in partial.values()):
+        raise ValueError(f"{(path or GOVERNING_PATH).name}: partial_standards is malformed")
     return {"equipment_types": {k.strip().lower(): v for k, v in types.items()},
-            "materials_standards": list(materials)}
+            "materials_standards": list(materials),
+            "partial_standards": {k.strip().lower(): v for k, v in partial.items()}}
 
 
 def is_materials_standard(entry_or_label: dict | str, table: dict | None = None) -> bool:

@@ -244,6 +244,43 @@ def gate(requirements: list[dict], *, classification: dict | None, facts: list[d
 
 # ------------------------------------------------------- materials standards
 
+def partial_gate(requirements: list[dict], *, equipment: set[str], standard_labels: dict[str, str],
+                 partial_standards: dict[str, list[dict]]) -> dict:
+    """A standard an equipment type takes only IN PART (`partial_standards` in
+    reference/governing_standards.json): ASME VIII Div 1 governs a relief valve
+    only through its pressure relief device rules. On a review of that type,
+    only that standard's requirements whose own words name one of the entry's
+    `words` stay checks; the rest do not apply, with the reason. FOUND on the
+    PSV review (2026-10-10): vessel-construction clauses (openings, castings)
+    were checked against a relief valve's design pressure and read COMPLIANT.
+    Every other standard, and every type with no entry, passes untouched.
+    Returns {"kept", "items"}; items carry `outside_partial_scope`."""
+    entries = [(kind, e) for kind in sorted(equipment) for e in partial_standards.get(kind, [])]
+    if not entries:
+        return {"kept": list(requirements), "items": []}
+    from . import standard_ids
+
+    kept: list[dict] = []
+    items: list[dict] = []
+    for requirement in requirements:
+        label = standard_labels.get(requirement.get("standard_document_id") or "", "")
+        entry = next(((kind, e) for kind, e in entries
+                      if label and standard_ids.same_standard(label, e["standard"])), None)
+        if entry is None:
+            kept.append(requirement)
+            continue
+        kind, e = entry
+        text = _fold(" ".join(str(requirement.get(k) or "")
+                              for k in ("subject", "requirement_text", "source_text")))
+        if any(re.search(r"(?<![a-z0-9])" + re.escape(_fold(w)) + r"(?![a-z0-9])", text) for w in e["words"]):
+            kept.append(requirement)
+            continue
+        items.append({"requirement": requirement, "code": "outside_partial_scope",
+                      "detail": (f"{e['standard']} applies to a {kind} only in its rules on "
+                                 f"{e.get('applies_to') or 'one topic'}, and this requirement is not about that")})
+    return {"kept": kept, "items": items}
+
+
 def materials_gate(requirements: list[dict], *, facts: list[dict], standard_labels: dict[str, str],
                    is_materials_standard) -> dict:
     """#725 F5: a MATERIALS standard (NACE MR0175 / ISO 15156 ...) applies only

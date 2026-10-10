@@ -1975,6 +1975,15 @@ def run_comparison(
         is_materials_standard=applicability_mod.is_materials_standard)
     requirements = materials["kept"]
     extra_not_applied.extend(materials["items"])
+    # A STANDARD THE EQUIPMENT TYPE TAKES ONLY IN PART (ASME VIII Div 1 for a
+    # relief valve: its relief-device rules only). See `subject_scope.partial_gate`.
+    partial = subject_scope.partial_gate(
+        requirements,
+        equipment=subject_scope.submittal_equipment(stored, facts, subject_scope.vocabulary())[0],
+        standard_labels=standard_labels,
+        partial_standards=applicability_mod.governing_table()["partial_standards"])
+    requirements = partial["kept"]
+    extra_not_applied.extend(partial["items"])
     # #647 AI APPLICABILITY, when switched on: the model proposes "does not
     # apply" with a quoted reason; only what code confirms leaves the check.
     # What it suggested and code did not confirm is kept on the requirement's
@@ -3408,6 +3417,14 @@ def attach_crs_context(findings: list[dict]) -> list[dict]:
     """
     req_ids = sorted({f["requirement_id"] for f in findings if f.get("requirement_id")})
     fact_ids = sorted({f["fact_id"] for f in findings if f.get("fact_id")})
+    # A-761b: a standard whose "clauses" are table numbers gets no clause
+    # number on the CRS ("paragraph not identified"), never "cl. 0.3".
+    from . import standards as standards_mod
+    known = standards_mod.paragraph_ids_known(
+        {f.get("standard_document_id") for f in findings if f.get("standard_document_id")})
+    for f in findings:
+        if f.get("standard_document_id") in known:
+            f["clause_identified"] = known[f["standard_document_id"]]
     requirements: dict = {}
     facts: dict = {}
     conn = connect()

@@ -65,6 +65,8 @@ REASONS: dict[str, tuple[str, str]] = {
     "service_condition_not_met": (DOES_NOT_APPLY,
                                   "it applies only in a service this submittal says it is not in"),
     "informative_note": (DOES_NOT_APPLY, "an informative note, not a requirement"),
+    "outside_partial_scope": (DOES_NOT_APPLY,
+                              "the equipment type takes this standard only in part, and not this rule"),
     "not_material_field": (DOES_NOT_APPLY,
                            "a materials standard applies only to the material fields this datasheet states"),
 }
