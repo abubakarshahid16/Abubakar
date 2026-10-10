@@ -42,7 +42,7 @@ from __future__ import annotations
 import json
 import re
 
-from . import claims, numparse
+from . import claims, datasheet_playbook, numparse
 
 import logging
 
@@ -294,17 +294,9 @@ def verify_numbers(rule: dict, text: str) -> bool:
 # ------------------------------------------------------------ pairing (2b)
 
 #: What a pressure-from-operating-pressure rule reads from a datasheet. Field
-#: names are matched after `datasheets.normalise_field_name`.
-KNOWN_RULES = (
-    {"output": "design pressure",
-     "input_names": ["mop", "maximum operating pressure", "max operating pressure",
-                     "operating pressure"],
-     "requirement_words": ("design pressure",)},
-    {"output": "design temperature",
-     "input_names": ["mot", "maximum operating temperature", "max operating temperature",
-                     "operating temperature"],
-     "requirement_words": ("design temperature",)},
-)
+#: names are matched after `datasheets.normalise_field_name`. DATA since #528:
+#: `reference/datasheet_playbook.json` ("derivation_rules"), edited there.
+KNOWN_RULES = datasheet_playbook.PLAYBOOK["derivation_rules"]
 
 
 #: The three states a datasheet field can be in for a rule. A CONFLICT is not

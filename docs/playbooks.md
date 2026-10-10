@@ -90,3 +90,15 @@ invented documents were used.
 * Playbooks for other document types, and a playbook editor.
 * Storing a review result on the document.
 * Measured accuracy on a real procedure (guessed, not measured).
+
+## The datasheet playbook (W5b-04, #528)
+
+A contractor datasheet review reads its checks from data files too:
+
+| file | holds |
+|---|---|
+| `backend/app/reference/datasheet_playbook.json` (`datasheet-playbook/1`, loaded by `datasheet_playbook.py`) | the derivation rules (which datasheet fields a "design pressure / temperature from operating" rule reads, and the words that name such a requirement) and the closed categorical families (flange classes, radiography levels, which fields answer each family). These were literals in `rule_eval.py` and `field_links.py` until #528; the class patterns in text are built from the class list |
+| `backend/app/reference/datasheet_checks.json` | the datasheet self-checks (roles, units, consistency, mandatory fields per equipment type) |
+| `backend/app/reference/field_synonyms.json` | field-name aliases |
+
+A datasheet playbook file that is missing, not JSON or the wrong shape stops the server with `DatasheetPlaybookError` naming the file and the problem; the review never runs with an empty playbook. Still code (not moved by #528): the pairing gates in `match_rules.py` (domain nouns, equipment-type aliases, ambiguous compounds) and the small alias tables in `comparison.py`.
