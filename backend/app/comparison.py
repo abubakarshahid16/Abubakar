@@ -1975,6 +1975,15 @@ def run_comparison(
         is_materials_standard=applicability_mod.is_materials_standard)
     requirements = materials["kept"]
     extra_not_applied.extend(materials["items"])
+    # A STANDARD THE EQUIPMENT TYPE TAKES ONLY IN PART (ASME VIII Div 1 for a
+    # relief valve: its relief-device rules only). See `subject_scope.partial_gate`.
+    partial = subject_scope.partial_gate(
+        requirements,
+        equipment=subject_scope.submittal_equipment(stored, facts, subject_scope.vocabulary())[0],
+        standard_labels=standard_labels,
+        partial_standards=applicability_mod.governing_table()["partial_standards"])
+    requirements = partial["kept"]
+    extra_not_applied.extend(partial["items"])
     # #647 AI APPLICABILITY, when switched on: the model proposes "does not
     # apply" with a quoted reason; only what code confirms leaves the check.
     # What it suggested and code did not confirm is kept on the requirement's
