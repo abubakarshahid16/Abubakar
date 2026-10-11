@@ -274,6 +274,16 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
         from .main import number_crs_rows
         number_crs_rows(run_id, access.AccessScope(user_id=job["created_by"],
                                                    allowed_document_ids=scope))
+        # R26 step 8 (#763): the model words each machine CRS comment; a code
+        # lock keeps every fact. Never fails the run (see the helper).
+        from .main import word_crs_rows
+        word_crs_rows(run_id, access.AccessScope(user_id=job["created_by"],
+                                                 allowed_document_ids=scope))
+        # #791 part 0: REVIEW_DEBUG prints every step (off by default; reads
+        # only, never fails the run).
+        from . import review_trace
+        review_trace.emit(run_id, access.AccessScope(user_id=job["created_by"],
+                                                     allowed_document_ids=scope))
     except _Cancelled:
         with conn:
             from . import review as review_mod
