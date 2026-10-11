@@ -504,12 +504,13 @@ def test_the_budget_stops_the_tier_and_says_so(stub):
 
 # =========================================== the tier inside a whole run
 
-#: A subject containment cannot pair with "Shell design pressure" and the
-#: match refusal rules allow. Until 2026-10-11 these tests used "the maximum
+#: A subject containment cannot pair with "Shell design pressure" (the words
+#: are there, not side by side) and the match refusal rules allow; every word
+#: of the field's name is in it, so the pairing is not doubted either. Until 2026-10-11 these tests used "the maximum
 #: allowable working pressure" - a false friend of design pressure, which the
 #: qualifier rule now refuses even when the model proposes it (owner order
 #: item 4; `test_a_model_proposal_a_refusal_rule_refuses_is_not_used`).
-MODEL_SUBJECT = "the shell pressure"
+MODEL_SUBJECT = "the pressure for the design of the shell"
 
 
 def _world(monkeypatch, *, subject: str, field_label: str,
@@ -1027,13 +1028,16 @@ def test_a_model_pairing_is_doubted_for_the_three_reasons_f1_found():
     were all false. Invented sentences of the same three shapes."""
     from app import match_rules as m
     field = {"field_name": "pumping temperature"}
-    # nothing the clause says names the field
+    # a word of the field's name is not in the clause (one shared word is not enough)
+    assert m.model_pairing_doubt(
+        _req("The maximum allowable working pressure shall not exceed 10 bar.", "10"),
+        {"field_name": "maximum operating pressure"}) == m.FIELD_WORD_ABSENT
     assert m.model_pairing_doubt(
         _req("The push button shall be mounted at least 7.5 m beyond the edge of the zone.", "7.5"),
         {"field_name": "elevation msl"}) == m.FIELD_WORD_ABSENT
     # the limit is relative to another quantity
     assert m.model_pairing_doubt(
-        _req("The temperature of the drained material shall be at least 10 C (18 F) above the pour point.", "10"),
+        _req("The pumping temperature shall be at least 10 C (18 F) above the pour point.", "10"),
         field) == m.RELATIVE_LIMIT
     # a table read as one sentence: which value is the limit is a guess
     assert m.model_pairing_doubt(
@@ -1044,10 +1048,12 @@ def test_a_model_pairing_is_doubted_for_the_three_reasons_f1_found():
 def test_a_plain_single_limit_sentence_is_not_doubted():
     from app import match_rules as m
     field = {"field_name": "shell design pressure"}
-    assert m.model_pairing_doubt(_req("The shell pressure shall be 10 bar.", "10"), field) is None
+    assert m.model_pairing_doubt(
+        _req("The pressure for the design of the shell shall be 10 bar.", "10"), field) is None
     # a clause number and a bracketed conversion are not second values
     assert m.model_pairing_doubt(
-        _req("6.4.1 The shell pressure shall not exceed 10 bar (145 psi).", "10"), field) is None
+        _req("6.4.1 The design value of the shell pressure shall not exceed 10 bar (145 psi).", "10"),
+        field) is None
 
 
 def test_a_doubted_model_pairing_shows_its_numbers_and_waits(stub, monkeypatch):

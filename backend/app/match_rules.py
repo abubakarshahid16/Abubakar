@@ -423,8 +423,11 @@ def model_pairing_doubt(requirement: dict, fact: dict) -> str | None:
     It errs towards holding: a held true pairing costs a look, a decided
     false one is a false result.
 
-      * no word of the field's own name is in the clause (the model paired
-        on an idea, not on anything the clause says);
+      * a word of the field's own name is not in the clause (the model
+        paired on an idea: "corrosion allowance" with every thickness, the
+        "operating" pressure with the "allowable working" one). EVERY word
+        of four letters or more must be there - one shared word ("pressure",
+        "corrosion") was not enough on F1;
       * the limit is relative to another quantity or place;
       * the clause states several values (a table read as one sentence), so
         which one is the limit is a guess.
@@ -432,7 +435,7 @@ def model_pairing_doubt(requirement: dict, fact: dict) -> str | None:
     text = _clause_text(requirement)
     folded = _normalise(text)
     name_words = [w for w in _words(fact.get("field_name")) if len(w) >= 4]
-    if name_words and not any(re.search(rf"(?<!\w){re.escape(w[:5])}", folded) for w in name_words):
+    if name_words and not all(re.search(rf"(?<!\w){re.escape(w[:5])}", folded) for w in name_words):
         return FIELD_WORD_ABSENT
     value = str(requirement.get("raw_value") or "").strip()
     if value:
