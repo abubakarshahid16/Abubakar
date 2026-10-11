@@ -408,6 +408,41 @@ def _items(group: list[dict]) -> list[str]:
     return seen
 
 
+#: R30: a finding's verdict in the words the reasoning line uses.
+_RESULT_WORDS = {"COMPLIANT": "meets", "NON_COMPLIANT": "does not meet",
+                 "MISSING_INFORMATION": "value not given", "NEEDS_ENGINEER_REVIEW": "engineer to check",
+                 "NOT_IN_DOCUMENT_SCOPE": "needs another document", "NOT_APPLICABLE": "does not apply"}
+
+
+def reasoning_text(group: list[dict]) -> str:
+    """R30 (#763): the chain behind a CRS row, for the INTERNAL copy only -
+    per finding it groups: the value read and its page, the clause, the
+    result, and the code's own why (a calculation's inputs and numbers
+    included). Only what the findings STORED, never re-worded or guessed: a
+    value not read says so, a missing clause or result prints nothing."""
+    lines = []
+    for f in group:
+        bits = []
+        field = str(f.get("contractor_section") or "").strip()
+        value = str(f.get("contractor_evidence_text") or "").strip()
+        page = f.get("contractor_page")
+        if field or value:
+            bits.append(f"Read: {field or 'value'}" + (f" = {value}" if value else " (no value read)")
+                        + (f" (p.{page})" if page else ""))
+        reference = _standard_reference(f)
+        if reference:
+            bits.append(f"Clause: {reference}")
+        status = f.get("compliance_status")
+        if status:
+            bits.append(f"Result: {_RESULT_WORDS.get(status, status)}")
+        why = str(f.get("ai_rationale") or "").strip()
+        if why:
+            bits.append(f"Why: {why}")
+        if bits:
+            lines.append(". ".join(bits))
+    return "\n".join(dict.fromkeys(lines))
+
+
 def _page_section(group: list[dict]) -> str:
     """The DATASHEET's page and field: "p.1 - Corrosion allowance (V-2001)".
     Never the standard's file name - that is the Standard Reference column."""
@@ -732,6 +767,8 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                 "engineer_confirmed": all(_confirmed(g) for g in group),
                 # Never printed: what the permanent CRS number is keyed on.
                 "comment_key": _subject_key(f),
+                # R30: the chain behind the comment (internal copy only).
+                "reasoning": reasoning_text(group),
             })
 
     # An engineer's own comments, filed from chat: individual comments to the
@@ -796,6 +833,8 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             # The machine's finding text, not the engineer's edit of it, so
             # confirming or re-wording an AI/web item keeps its number.
             "comment_key": finding_comment_key(f),
+            # R30: the chain behind the item (internal copy only).
+            "reasoning": reasoning_text([f]),
         })
 
     # #754 F5b: the required-vs-cited result, one row per standard.
