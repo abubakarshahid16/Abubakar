@@ -3259,7 +3259,10 @@ def _extract_facts_by_plan(
             routed_so_far=len(readings), budget=settings.vision_max_pages_per_document)
         routing[page] = why
         if routed:
-            readings[page] = _vision_reading(stored_path, page, geometry.get(page, []), provider)
+            # #806 S3: the request carries an image of THIS datasheet's page.
+            from . import claude_approved
+            with claude_approved.carrying([document_id]):
+                readings[page] = _vision_reading(stored_path, page, geometry.get(page, []), provider)
     return _extract_facts(document_id, allowed_document_ids=allowed_document_ids,
                           review_run_id=review_run_id, replace=replace,
                           _vision={"readings": readings, "routing": routing,
@@ -3498,9 +3501,12 @@ def _extract_facts(
     if _plan is None and (str(settings.datasheet_ai_reader or "off").strip().lower()
                           or "off") != "off":
         from . import datasheet_ai
-        ai_run = datasheet_ai.read_pages(
-            {page: datasheet_ai.page_text(stored_path, page, by_page[page])
-             for page in sorted(by_page)})
+        # #806 S3: the prompts carry THIS datasheet's page text.
+        from . import claude_approved
+        with claude_approved.carrying([document_id]):
+            ai_run = datasheet_ai.read_pages(
+                {page: datasheet_ai.page_text(stored_path, page, by_page[page])
+                 for page in sorted(by_page)})
         ai_stats = {"engine": ai_run["engine"], "unavailable": ai_run["unavailable"],
                     "stopped": ai_run["stopped"], "pages_read": 0,
                     "agreed": 0, "conflicts": 0, "ai_only": 0, "facts_written": 0,

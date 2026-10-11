@@ -115,6 +115,9 @@ def fallback_words(exc: BaseException | None) -> str | None:
     can carry a spend figure or a provider message and is not repeated."""
     if exc is None:
         return None
+    if isinstance(exc, claude_spend.DocumentNotApproved):
+        # #806 S3, the planner's wording: the local model answers instead.
+        return "a document here is not approved for the cloud model; answered locally"
     if isinstance(exc, claude_spend.BudgetExceeded):
         return "the Claude spending cap would be exceeded"
     return "the Claude call failed"
