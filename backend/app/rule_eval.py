@@ -17,7 +17,7 @@ WHAT THIS MODULE IS. Pure: no database, no model, no network.
     engineer).
   * `verify_numbers(rule, text)` - the gate for a rule the MODEL parsed: every
     number in it must appear verbatim in the clause or table text on its page
-    (claude_crs_comments.accept's rule). The arithmetic is always Python.
+    (the rule the deleted CRS-comment gate used). The arithmetic is always Python.
 
 2b, THE RIGHT FIELD. `judge` pairs the rule's OUTPUT field for the verdict and
 records the INPUT used. Output absent -> MISSING_INFORMATION ("design pressure
@@ -575,11 +575,14 @@ def rule_for(requirement: dict, *, provider=None) -> tuple[dict | None, str | No
         if provider is not None or rp.claude_available()[0]:
             try:
                 engine = provider or rp.get_provider("reasoning", step=MODEL_STEP)
-                for text in texts:
-                    rule = _model_parse(text, known, engine)
-                    if rule is not None:
-                        source = SOURCE_MODEL
-                        break
+                # #806 S3: the prompt carries this standard's requirement text.
+                from . import claude_approved
+                with claude_approved.carrying([requirement.get("standard_document_id")]):
+                    for text in texts:
+                        rule = _model_parse(text, known, engine)
+                        if rule is not None:
+                            source = SOURCE_MODEL
+                            break
             except Exception:  # noqa: BLE001 - budget or refusal: stays with an engineer
                 rule = None
     if rule is None:

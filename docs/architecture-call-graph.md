@@ -107,7 +107,7 @@ process-local mutex plus an OS lock on `<ledger>.lock`), so threads and processe
 pass on the same last dollars; `settle` replaces it with the reported cost, and `settle_failure` charges a call that
 failed after it may have been sent (timeout, dropped stream, 1 MB cap) its final usage or its worst case, releasing it
 only when `reader_transport.unbilled` proves no billable work. `ClaudeProvider` (`reason`, `stream`, and a batch
-via `reserve_all`) reserves itself and caches by (model, prompt version, input hash); the four `claude_api` review
+via `reserve_all`) reserves itself and caches by (model, prompt version, input hash); the three `claude_api` review
 routes get the same reservation and ledger through `claude_spend.metered(transport, step)` inside `_model_call_or_409(step)`
 (one step per route, e.g. `claude-recheck`), plus `claude_budget`'s per-run call cap, and are NOT cached (fixed
 2026-09-27: before that they had only the call cap and their spend never reached the USD ledger). Page IMAGES (B4 vision reader, behind `GEOMETRY_READER_ENABLED`) ride in the same request: `Packet.images` -> `reader_api.build_request(images=...)` (PNG/JPEG only; same gates) -> `reader_transport`; the image digests are part of the prompt hash and cache key, and the worst-case cost counts image tokens.

@@ -65,7 +65,8 @@ def test_every_missing_value_is_its_own_row_one_per_field():
         'SAES-G-905 cl. 4.1 (p.1): "The noise level shall not exceed 85 dB(A) at 1 m." '
         "Datasheet p.1, Noise level (P-101A, P-101B) is left to be provided ('*'). "
         "Contractor to provide Noise level.")
-    assert "VENDOR TO ADVISE" in rows[2]["comment"] and "Seal type" in rows[2]["page_section"]
+    # #725 F7: rows are ordered by page, then clause (4.1, 4.5, 4.7).
+    assert "VENDOR TO ADVISE" in rows[1]["comment"] and "Seal type" in rows[1]["page_section"]
     assert not any("not itemized" in r["comment"] for r in rows)
     # 20,000 findings about ONE field and value are still one row
     assert len(build_crs_rows([BLANK] * 20000, [], "s.pdf")) == 1
@@ -113,10 +114,13 @@ def test_missing_references_become_one_review_note_each_and_no_crs_row():
 
 def test_the_same_rule_from_two_standards_is_one_comment_citing_both():
     """Owner order 2e: identical requirement text, same value, same page and
-    same status - one row, both sources. A different value stays its own row."""
+    same status - one row, both sources. #725 F7: a different value on the
+    same field is the SAME problem - still one row, each value stated (it was
+    a second row, one per tag value)."""
     other = dict(NC, standard_name="STD-OTHER.pdf", standard_clause="9.9", standard_page=3)
     rows = build_crs_rows([NC, other, dict(NC, contractor_evidence_text="9 g/L")], [], "s.pdf")
-    assert len(rows) == 2
+    assert len(rows) == 1
+    assert "states 9 g/L" in rows[0]["comment"]
     assert rows[0]["standard_reference"] == "SAES-X-001 cl. 5.1 (p.7); STD-OTHER cl. 9.9 (p.3)"
     assert rows[0]["comment"].startswith("SAES-X-001 cl. 5.1 (p.7); STD-OTHER cl. 9.9 (p.3):")
 

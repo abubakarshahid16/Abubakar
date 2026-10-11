@@ -164,6 +164,16 @@ Retraction 25 is recorded.
 | Architecture document written from the code | ✅ `docs/architecture.md` |
 | Design canvas of the whole system incl. Compare screen | ✅ published artifact "RAG Intelligence System" (Claude Design) |
 
+**Approved documents for the cloud model (#806 S3, 2026-10-11).** A Claude call is refused before it
+leaves unless every document its prompt carries is on the owner's list
+`backend/data/claude_approved_documents.json` (outside git; one entry per file sha256 with
+`status: approved`, `approved_by`, `approved_on`; missing or empty = nothing approved). Every caller
+declares its documents (`claude_approved.carrying`); a caller that declares nothing is refused too
+(fail closed). The check sits in `claude_spend.reserve_all`, which both Claude lanes pass. A refusal
+is in the spend ledger at USD 0 (ids only) and a change to the list is in the audit table. Chat on
+an unapproved document: the Claude-first path answers with the local model and says so; the other
+chat paths say the document is not approved and ask the reader to choose the Local model.
+
 **Datasheet AI reader ("AI reads, code checks"), added 2026-09-30, OFF and NOT
 YET MEASURED.** `DATASHEET_AI_READER` (`off` default | `ollama` | `claude`)
 makes `datasheets.extract_facts` also read every page with text through
@@ -296,7 +306,8 @@ when the demo interrupted it.
   D) ingestion + retrieval: `upload.py`, `ingest.py`, `chunker.py`, `ocr.py`, `keyword.py`, `lexical.py`, `intent.py`, `search.py` ·
   E) honesty of output: `synthesis.py`, `claims.py`, `reports.py` ·
   Cowork itself: all of `frontend/` and `contracts/types.ts`.
-- Every fix ships with a test proven red-then-green by mutation. No agent runs
+- Every fix ships with a test proven red-then-green (by reverting the fix once;
+  by a mutation entry only in the CLAUDE.md rule 6 danger zone). No agent runs
   the whole backend suite (5 min); Cowork runs it once at the end.
 - Changed files go back to the device via SendUserFile → `device_commit_files`
   (writing into `.claude/` is refused by the bridge; use device_bash `cp`).

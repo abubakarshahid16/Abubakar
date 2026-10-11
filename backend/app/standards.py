@@ -633,7 +633,7 @@ def create_requirement(
     for key in ("requirement_type", "field", "operator", "value", "unit",
                 "raw_value", "raw_unit", "condition", "exceptions",
                 "discipline", "table_row", "subject", "required_evidence_type",
-                "unit_from", "identity_key"):
+                "unit_from", "identity_key", "value_low", "value_high"):
         row[key] = structured.get(key)
     row["evidence_pages"] = json.dumps(
         [{"page": row["page"], "chunk_id": chunk_id}]) if identity_key else None
@@ -656,6 +656,7 @@ def create_requirement(
                 requirement_text, source_text, category, extraction_method,
                 confidence, created_at, updated_at,
                 requirement_type, field, operator, value, unit,
+                value_low, value_high,
                 raw_value, raw_unit, condition, exceptions, discipline,
                 table_row, subject, required_evidence_type,
                 extractor_version, input_hash,
@@ -666,6 +667,7 @@ def create_requirement(
                        :extraction_method, :confidence, :created_at,
                        :updated_at,
                        :requirement_type, :field, :operator, :value, :unit,
+                       :value_low, :value_high,
                        :raw_value, :raw_unit, :condition, :exceptions,
                        :discipline, :table_row, :subject,
                        :required_evidence_type,
@@ -1130,18 +1132,35 @@ def extract_table_values(
                 # unit ("50 mm") IS a value (#695); every cell skipped is
                 # counted by reason, not lost.
                 reading = requirements_3b.cell_reading(raw_value)
-                if reading is None:
+                span = requirements_3b.cell_range(raw_value) if reading is None else None
+                if reading is None and span is None:
                     skipped["empty" if not raw_value else "not_a_number"] += 1
                     continue
-                number_text, cell_unit = reading
+                number_text, cell_unit = reading if reading is not None else ("", span.unit)
                 column = header[column_index]
                 unit = cell_unit or requirements_3b.header_unit(column)
                 # #595 THE NUMBER COMES FROM numparse (decimal comma, sign,
                 # thousands). A unit the table does not know leaves the value
                 # NULL (never 0); a cell with no unit anywhere keeps the
                 # number as written, with no unit.
-                number, cell_operator = requirements_3b.cell_number(number_text)
-                if unit:
+                number, cell_operator = (requirements_3b.cell_number(number_text)
+                                         if span is None else (None, None))
+                if span is not None:
+                    # #617: a range is ONE requirement with two bounds, never
+                    # one number. In the table's unit only when the unit is
+                    # known; an ambiguous dash keeps no bounds at all.
+                    low, high = span.low, span.high
+                    if unit and low is not None and high is not None:
+                        lo = requirements_3b.measure(f"{low:.12f}".rstrip("0").rstrip("."), unit)
+                        hi = requirements_3b.measure(f"{high:.12f}".rstrip("0").rstrip("."), unit)
+                        low, high = lo.normalized_value, hi.normalized_value
+                        normal_unit = lo.normalized_unit if lo.normalized_value is not None else None
+                        if low is None or high is None:
+                            low = high = None
+                    else:
+                        normal_unit = None
+                    value = None
+                elif unit:
                     # The parsed number goes in, not the cell's text: the unit
                     # table reads the text with its own rules, numparse's
                     # answer for a decimal comma is the one recorded here.
@@ -1152,7 +1171,9 @@ def extract_table_values(
                                           measurement.normalized_unit)
                 else:
                     value, normal_unit = number, None
-                operator = cell_operator or requirements_3b.header_operator(column)
+                operator = (cell_operator or requirements_3b.header_operator(column)
+                            if span is None else
+                            (requirements_3b.RANGE_OPERATOR if span.low is not None else None))
                 field = requirements_3b.field_name("", column)
                 # #594 IDENTITY: standard (the column below) + table (its
                 # header) + row key + column + the value as written.
@@ -1173,7 +1194,8 @@ def extract_table_values(
                         # reference value. It is never presented as confirmed.
                         confidence=0.5,
                         structured={
-                            "requirement_type": "table_value",
+                            "requirement_type": ("table_value" if span is None
+                                                 else requirements_3b.TABLE_RANGE),
                             "field": field,
                             "condition": label,
                             "operator": operator,
@@ -1183,6 +1205,8 @@ def extract_table_values(
                                           if unit else None),
                             "value": value,
                             "unit": normal_unit,
+                            "value_low": low if span is not None else None,
+                            "value_high": high if span is not None else None,
                             "table_row": row_index,
                             "identity_key": identity,
                         },
@@ -1885,3 +1909,33 @@ def supersede(document_id: str, superseded_by: str | None, *,
     _audit("standard.superseded" if superseded_by else "standard.supersession_cleared",
            actor, document_id, detail=f"superseded_by={superseded_by}")
     return {"document_id": document_id, "superseded_by": superseded_by}
+
+
+#: A standard whose non-blank clause values are fewer than this share distinct
+#: (with at least `PARAGRAPH_IDS_MIN` of them) does not carry paragraph ids:
+#: its "clauses" are numbers read from its tables. Measured on the library
+#: copy (2026-10-10): ASME VIII Div 1 0.6% (3,456 clause values, 21 distinct),
+#: one other standard 2.6%, every other standard 15% or more (median 59%).
+PARAGRAPH_IDS_MIN_DISTINCT_SHARE = 0.05
+PARAGRAPH_IDS_MIN = 20
+
+
+def paragraph_ids_known(standard_ids: list[str] | set[str]) -> dict[str, bool]:
+    """{standard id: whether its requirements' clause values are paragraph
+    ids}. False when they are table numbers (audit A-761b): a CRS then says
+    "paragraph not identified" instead of printing "cl. 0.3". A standard with
+    too few clause values to tell is trusted (True), as before."""
+    ids = sorted({i for i in standard_ids if i})
+    if not ids:
+        return {}
+    marks = ",".join("?" for _ in ids)
+    rows = connect().execute(
+        "SELECT standard_document_id, count(*) AS n, count(DISTINCT clause) AS k"
+        " FROM standard_requirements WHERE standard_document_id IN (%s)"
+        " AND superseded_at IS NULL AND clause IS NOT NULL AND trim(clause) != ''"
+        " GROUP BY standard_document_id" % marks, ids).fetchall()
+    out = {i: True for i in ids}
+    for r in rows:
+        if r["n"] >= PARAGRAPH_IDS_MIN and r["k"] / r["n"] < PARAGRAPH_IDS_MIN_DISTINCT_SHARE:
+            out[r["standard_document_id"]] = False
+    return out

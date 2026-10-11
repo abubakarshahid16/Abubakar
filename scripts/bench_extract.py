@@ -13,7 +13,7 @@ for doc, name in DOCS:
     subprocess.run([PY, r"..\scripts\resetdoc.py", doc], cwd=BACKEND, capture_output=True)
     memlog = os.path.join(os.environ["TEMP"], f"mem_{doc}.csv")
     t0 = time.perf_counter()
-    r = subprocess.run([PY, "-m", "app.worker", doc, "--memlog", memlog],
+    r = subprocess.run([PY, "-m", "tools.worker", doc, "--memlog", memlog],
                        cwd=BACKEND, capture_output=True, text=True)
     wall = time.perf_counter() - t0
     line = [l for l in r.stdout.splitlines() if "[done]" in l]

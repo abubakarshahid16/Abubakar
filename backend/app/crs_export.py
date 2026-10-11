@@ -70,11 +70,21 @@ WIDTHS = {"A": 11.7, "B": 25.8, "C": 21.8, "D": 93.5, "E": 23.0, "F": 25.0,
 #: / submittal p1", which is not where the contractor looks.
 STANDARD_COLUMN = "Standard Reference"
 STANDARD_COLUMN_WIDTH = 26.0
+#: #725 F7: the comment's severity (the worst of the findings it groups:
+#: critical, major, minor, observation), after Standard Reference, in BOTH
+#: copies. None of the client's seven columns moves or is renamed.
+SEVERITY_COLUMN = "Severity"
+SEVERITY_COLUMN_WIDTH = 12.0
 #: OWNER DECISION 2026-09-27 (order 2f): a NEW LAST column for the AI
 #: engineering check's unconfirmed items, so the engineer sees them on the
 #: sheet before confirming. No existing column moves or is renamed.
 AI_COLUMN = "AI Review Comments"
 AI_COLUMN_WIDTH = 60.0
+#: R30 (#763, owner approved 11 Oct): the chain behind each row - value and
+#: page read, clause, result, and why - in a NEW LAST column of the INTERNAL
+#: copy only. The issue copy never carries it; no existing column moves.
+REASONING_COLUMN = "Reasoning (internal)"
+REASONING_COLUMN_WIDTH = 70.0
 #: The two copies Export CRS offers. INTERNAL (the default) carries the AI
 #: column; ISSUE (to the contractor) drops it and every unconfirmed AI row,
 #: so only confirmed comments leave the building.
@@ -292,10 +302,12 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         # has made their own carries "CRS-<submittal no>-001" in the client's
         # own Item No column, and its Open/Closed status in Final Resolution -
         # industry practice, and still seven columns. The caller looked it up
-        # (read only); this builder never mints one. A row without one - an
-        # unconfirmed draft, or a caller from before numbers existed - keeps
-        # the old shape: its position, and the digest reference as the
-        # comment's first line. A numbered row does not ALSO print the digest:
+        # (read only); this builder never mints one. Since R15 (#779) a
+        # finished review numbers its machine drafts too (Final Resolution
+        # "Draft (not issued)"). A row without one - a run that has not
+        # finished, or a caller from before numbers existed - keeps the old
+        # shape: its position, and the digest reference as the comment's
+        # first line. A numbered row does not ALSO print the digest:
         # two different IDs on one comment is exactly what a contractor
         # quoting it back cannot resolve.
         crs_ref = str(finding.get("crs_ref") or "")
@@ -328,8 +340,12 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
             # what kind a row is, same as every other field here.
             "row_kind": finding.get("row_kind", ""),
             "standard_reference": str(finding.get("standard_reference") or ""),
+            "severity": str(finding.get("severity") or ""),
             "ai_review_comment": (str(finding.get("ai_review_comment") or "")
                                   if copy == COPY_INTERNAL else ""),
+            # R30: internal copy only, like the AI column.
+            "reasoning": (str(finding.get("reasoning") or "")
+                          if copy == COPY_INTERNAL else ""),
         })
 
     return {
@@ -341,8 +357,8 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         # a plausible-looking transmittal number lies about its own provenance.
         "header": [{"label": label, "value": meta.get(key, "") or ""}
                    for label, key in HEADER_FIELDS],
-        "columns": list(HEADERS) + [STANDARD_COLUMN]
-                   + ([AI_COLUMN] if copy == COPY_INTERNAL else []),
+        "columns": list(HEADERS) + [STANDARD_COLUMN, SEVERITY_COLUMN]
+                   + ([AI_COLUMN, REASONING_COLUMN] if copy == COPY_INTERNAL else []),
         "crs_copy": copy,
         "rows": rows,
         "recommended_code": meta.get("recommended_code") or "",
@@ -441,8 +457,10 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         ws.column_dimensions[col].width = width
     internal = view["crs_copy"] == COPY_INTERNAL
     ws.column_dimensions["H"].width = STANDARD_COLUMN_WIDTH
+    ws.column_dimensions["I"].width = SEVERITY_COLUMN_WIDTH
     if internal:
-        ws.column_dimensions["I"].width = AI_COLUMN_WIDTH
+        ws.column_dimensions["J"].width = AI_COLUMN_WIDTH
+        ws.column_dimensions["K"].width = REASONING_COLUMN_WIDTH
 
     def put(row, col, value, bold=False, size=10, center=False, wrap=False):
         cell = _write(ws, row, col, value)
@@ -480,12 +498,12 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         values = [entry["item_no"], entry["document_name"],
                   entry["page_section"], comment, entry["comment_by"],
                   entry["contractor_response"], entry["final_resolution"],
-                  entry["standard_reference"]]
+                  entry["standard_reference"], entry.get("severity", "")]
         if internal:
-            values.append(entry["ai_review_comment"])
+            values.extend([entry["ai_review_comment"], entry["reasoning"]])
         fill = ROW_FILLS.get(entry.get("row_kind") or "")
         for i, value in enumerate(values, start=1):
-            cell = put(row, i, value, wrap=(i in (3, 4, 8, 9)), center=(i == 1))
+            cell = put(row, i, value, wrap=(i in (3, 4, 8, 10, 11)), center=(i in (1, 9)))
             cell.border = BOX
             if fill is not None:
                 cell.fill = fill

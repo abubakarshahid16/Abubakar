@@ -524,9 +524,32 @@ class Settings(BaseSettings):
     #: written only by the explicit `scripts/generate_scope_records.py` step) and
     #: the submittal's own classified equipment type - no taxonomy needed. Same
     #: asymmetric safety rule as the taxonomy path: an unconfirmed
-    #: NOT_APPLICABLE is still reported as UNKNOWN. OFF by default. Env:
-    #: APPLICABILITY_REASONING_ENABLED.
-    applicability_reasoning_enabled: bool = False
+    #: NOT_APPLICABLE is still reported as UNKNOWN. ON by default since #736
+    #: (owner decision 2026-10-10): the F1 baseline was measured with it on,
+    #: and a run without the owner's settings file used to drop the standards
+    #: it chooses. Env: APPLICABILITY_REASONING_ENABLED (false turns it off).
+    applicability_reasoning_enabled: bool = True
+    #: #791 part 0: print every review step to the backend console and to
+    #: `<data_dir>/debug/review-<run>.log` (git-ignored, this machine only),
+    #: through the `review.debug` logger (`review_trace`). OFF by default; the
+    #: lines carry document values. Env: REVIEW_DEBUG.
+    review_debug: bool = False
+    #: With `review_debug`: one more line per checklist item and per CRS row.
+    #: Env: REVIEW_DEBUG_DETAIL.
+    review_debug_detail: bool = False
+    #: R26 step 8 (#763): when a review finishes, the configured model
+    #: (`reasoning_provider`: the local engine, or the Claude lane when it is
+    #: on) rewrites each machine CRS comment in a reviewing engineer's voice;
+    #: `crs_wording.lock` refuses any rewrite that changes a number, unit,
+    #: clause, page or standard, and the template stays. Accepted rewrites print
+    #: in the INTERNAL copy's "AI Review Comments" column only - never in the
+    #: issue copy. ON by default (owner rule "AI-first", 11 Oct): a model that
+    #: is down or slow stops the step with a recorded reason, never the review.
+    #: Env: CRS_AI_WORDING_ENABLED (false turns it off).
+    crs_ai_wording_enabled: bool = True
+    #: Seconds one local wording call may take before the step stops for the
+    #: run (templates kept). Env: CRS_AI_WORDING_TIMEOUT_S.
+    crs_ai_wording_timeout_s: float = 60.0
     #: B4 (nozzle schedules): ONLY the geometry reader's TABLE path - a ruled
     #: grid read cell by cell under its column heading ("N1 Size 4", "N1
     #: Flange Rating CL-150"). A schedule is one row per item across many
@@ -1048,6 +1071,14 @@ class Settings(BaseSettings):
     #: worst case of the next call must fit under both. Owner: 5 per step,
     #: 20 in total.
     claude_budget_usd_per_step: float = 5.0
+    #: #806 S3: a Claude call is refused, before it leaves, unless every
+    #: document its prompt carries is on the owner's approved list
+    #: (`<data_dir>/claude_approved_documents.json`, by file sha256) - and when
+    #: its caller declared nothing (`claude_approved`). ON, and it stays on:
+    #: the switch exists for the test suite (pinned off in
+    #: `tests/env_isolation.py`, whose fakes carry invented documents) and for
+    #: a measurement on a copy. Env: CLAUDE_APPROVED_LIST_ENFORCED.
+    claude_approved_list_enforced: bool = True
     claude_budget_usd_total: float = 20.0
     #: Local JSONL ledger: one line per call - time, step, model, tokens, cost,
     #: prompt digest. Never prompt or document text, never the key.
@@ -1092,10 +1123,18 @@ class Settings(BaseSettings):
     #: Owner order 2026-09-26 (2d): the AI engineering check - Claude reads the
     #: datasheet and drafts observations a reviewer would raise, each gated
     #: (ai_engineering_check.accept) and stored as a pending, unconfirmed draft
-    #: that never counts in the review code. OFF BY DEFAULT; on its own it
-    #: sends nothing - it also needs the Claude lane (REASONING_PROVIDER=claude,
-    #: both STANDARDS_READER_* egress flags and a key), within the USD caps.
-    review_ai_check_enabled: bool = False
+    #: that never counts in the review code. ON BY DEFAULT since R26 step 7
+    #: (#763, owner rule "AI-first", 11 Oct): it runs on the configured model -
+    #: the Claude lane when it is on (REASONING_PROVIDER=claude, both
+    #: STANDARDS_READER_* egress flags and a key, within the USD caps), else the
+    #: LOCAL model, which sends nothing off the machine. A slow or failed call
+    #: is recorded on the run (a warning), never a failed review.
+    #: Env: REVIEW_AI_CHECK_ENABLED (false turns it off).
+    review_ai_check_enabled: bool = True
+    #: Seconds one LOCAL-model call of the AI engineering check may take before
+    #: the check stops for the run (recorded). The Claude lane keeps its own.
+    #: Env: REVIEW_AI_CHECK_LOCAL_TIMEOUT_S.
+    review_ai_check_local_timeout_s: float = 300.0
     #: Output token cap per `review_ai_check` call. Raised from 4000 (2026-09-27):
     #: every one of the 10 historical calls at that cap hit `finish_reason ==
     #: "length"` and produced zero storable items - the check was truncating

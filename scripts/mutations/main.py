@@ -277,8 +277,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="INVENT A TRANSMITTAL NUMBER, so the CRS lies about its "
                     "own provenance to whoever receives it",
         path=APP / "main.py",
-        anchor='        "company_transmittal": "",',
-        replacement='        "company_transmittal": "EOC-TRX-0001",',
+        # Re-anchored 2026-10-09 (#725 F7): the cell now prints what an engineer
+        # entered, else blank; the mutation still invents one when none was.
+        anchor='        "company_transmittal": run.get("crs_company_transmittal") or "",',
+        replacement='        "company_transmittal": run.get("crs_company_transmittal") or "EOC-TRX-0001",',
         target="tests/test_crs_endpoint.py",
         keyword="transmittal_numbers_are_blank_rather_than_invented",
         tags=("honesty", "critical"),

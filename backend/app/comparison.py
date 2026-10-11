@@ -881,6 +881,10 @@ def _compare(requirement: dict, fact: dict | None, *,
     if exception is not None:
         note = (f"; the exception for {exception.get('applies_to')!r} governs "
                 f"instead of the general limit")
+    if fact.get("value_note"):
+        # #725 F3: a value the sheet printed beside "By Contractor" (or the
+        # like) is compared, and the finding says so - never silently trusted.
+        note += f"; the datasheet marks this value {fact['value_note']!r}"
     if fact.get("compared_end"):
         end = "highest" if fact["compared_end"] == "max" else "lowest"
         note = (f"; compared at the {end} of the submitted range "
@@ -912,6 +916,26 @@ def _reference_obstacle(observed: claims.Measurement, limit: claims.Measurement)
                 f"{limit.reference}; they differ by the atmospheric pressure, which is not "
                 "recorded, so no comparison was made")
     return None
+
+
+def governed_standards(standard_ids: list[str], cited: list[str]) -> set[str]:
+    """#746: the applicable standards a checklist cites - matched by the one
+    identifier rule (`standard_ids.same_standard`) against each standard's
+    file name, document number and title. Nothing is matched by a list in code."""
+    from . import classification as classification_mod
+    from . import standard_ids as ids
+    if not standard_ids or not cited:
+        return set()
+    names = {r["id"]: r["filename"] for r in connect().execute(
+        "SELECT id, filename FROM documents WHERE id IN (%s)" % ",".join("?" for _ in standard_ids),
+        standard_ids)}
+    out = set()
+    for sid in standard_ids:
+        meta = classification_mod.of_document(sid) or {}
+        labels = [x for x in (names.get(sid), meta.get("document_number"), meta.get("title")) if x]
+        if any(ids.same_standard(c, label) for c in cited for label in labels):
+            out.add(sid)
+    return out
 
 
 def _unit_obstacle(submitted_unit: str | None, required_unit: str | None) -> str:
@@ -1811,6 +1835,24 @@ def run_comparison(
     model_opinions: dict | None = None, replace: bool = True,
     missing_references: list[str] | None = None,
 ) -> dict:
+    """`_run_comparison`, with the review's documents declared for the Claude
+    lane (#806 S3): any model call a comparison makes (field naming, rule
+    parsing, the matcher) carries the submittal's fields and the applied
+    standards' clause text - those documents and no others."""
+    from . import claude_approved
+    with claude_approved.carrying(claude_approved.review_documents(review_run_id)):
+        return _run_comparison(
+            review_run_id, allowed_document_ids=allowed_document_ids, subject=subject,
+            reference_coverage=reference_coverage, model_opinions=model_opinions,
+            replace=replace, missing_references=missing_references)
+
+
+def _run_comparison(
+    review_run_id: str, *, allowed_document_ids: frozenset[str],
+    subject: str | None = None, reference_coverage: float | None = None,
+    model_opinions: dict | None = None, replace: bool = True,
+    missing_references: list[str] | None = None,
+) -> dict:
     """Evaluate every applicable requirement against the submittal's facts.
 
     One finding per requirement. The verdict is deterministic; `model_opinions`
@@ -1942,6 +1984,24 @@ def run_comparison(
     requirements = serviced["kept"]
     extra_not_applied.extend(serviced["items"])
     service_declarations = serviced["declarations"]
+    # #725 F5 A MATERIALS STANDARD applies only to material fields: NACE's
+    # alloy-composition table rows are not checks for a datasheet that states
+    # no such material (6,702 of them were on one PSV review).
+    from . import applicability as applicability_mod
+    materials = subject_scope.materials_gate(
+        requirements, facts=facts, standard_labels=standard_labels,
+        is_materials_standard=applicability_mod.is_materials_standard)
+    requirements = materials["kept"]
+    extra_not_applied.extend(materials["items"])
+    # A STANDARD THE EQUIPMENT TYPE TAKES ONLY IN PART (ASME VIII Div 1 for a
+    # relief valve: its relief-device rules only). See `subject_scope.partial_gate`.
+    partial = subject_scope.partial_gate(
+        requirements,
+        equipment=subject_scope.submittal_equipment(stored, facts, subject_scope.vocabulary())[0],
+        standard_labels=standard_labels,
+        partial_standards=applicability_mod.governing_table()["partial_standards"])
+    requirements = partial["kept"]
+    extra_not_applied.extend(partial["items"])
     # #647 AI APPLICABILITY, when switched on: the model proposes "does not
     # apply" with a quoted reason; only what code confirms leaves the check.
     # What it suggested and code did not confirm is kept on the requirement's
@@ -1958,6 +2018,37 @@ def run_comparison(
         ai_applicability_summary = {"asked": ai["asked"], "not_asked": ai["not_asked"],
                                     "confirmed_does_not_apply": len(ai["items"]),
                                     "unconfirmed": len(ai["notes"])}
+    # #746 THE CHECKLIST GOVERNS ITS OWN STANDARDS (planner decision, #746).
+    # When this submittal's equipment type has a review checklist, the library
+    # requirements of a standard the checklist CITES are not checked one by
+    # one: the checklist items are. They stay quotable. GUARD: only standards
+    # named in the checklist's own `source.standard` (`checklist_sources`) -
+    # a requirement from any other applicable standard keeps the normal path,
+    # and a type with no checklist is unchanged. AFTER the applicability gates
+    # (subject, service and clause conditions, AI): a clause that does not
+    # apply keeps that stronger, reasoned decision; only what still applies -
+    # the kept requirements and the table cells no field answered - is "not used".
+    covered_items: list[dict] = []
+    checklist_note = None
+    from . import datasheet_checks as _checks
+    governing = _checks.checklist_sources(stored.get("equipment_type"))
+    if governing:
+        covered_ids = governed_standards(standard_ids, governing["standards"])
+        if covered_ids:
+            detail = (f"the {governing['key']} review checklist governs this standard "
+                      f"({governing['items']} items); not checked one by one")
+            governed_cells = [i for i in gated["not_compared_items"]
+                              if i["requirement"].get("standard_document_id") in covered_ids]
+            covered_items = ([{"requirement": dict(r), "code": "covered_by_checklist", "detail": detail}
+                              for r in requirements if r.get("standard_document_id") in covered_ids]
+                             + [{"requirement": i["requirement"], "code": "covered_by_checklist",
+                                 "detail": detail} for i in governed_cells])
+            requirements = [r for r in requirements if r.get("standard_document_id") not in covered_ids]
+            gated = {**gated, "not_compared_items": [
+                i for i in gated["not_compared_items"]
+                if i["requirement"].get("standard_document_id") not in covered_ids]}
+            checklist_note = {"type": governing["key"], "items": governing["items"],
+                              "standards": len(covered_ids)}
     applicability_summary = scoped["summary"]
     findings: list[dict] = []
     # The run's findings, prepared and gated but NOT yet written: they go in
@@ -2238,7 +2329,8 @@ def run_comparison(
     decisions = scope_ledger.build(
         checked=requirements, status_of=status_of, rejected=rejected_requirements,
         not_checked=gated["not_compared_items"] + held_items,
-        not_applied=scoped["not_applied_items"] + extra_not_applied, notes=ai_notes)
+        not_applied=scoped["not_applied_items"] + extra_not_applied, notes=ai_notes,
+        not_used=covered_items)
     scope_counts = scope_ledger.check_complete(in_scope_all, decisions)
     scope_ledger.store(review_run_id, decisions)
 
@@ -2251,11 +2343,11 @@ def run_comparison(
         "SELECT page_no, text FROM pages WHERE document_id = ?", (submittal_id,))}
     datasheet_check_not_run = datasheet_checks.revision_check_not_run(
         stored.get("equipment_type"), page_texts)
-    findings.extend(datasheet_checks.store(
-        review_run_id, submittal_id,
-        datasheet_checks.evaluate(facts, equipment_type=stored.get("equipment_type"),
-                                  page_texts=page_texts),
-        pages_read=pages_read))
+    check_results = datasheet_checks.evaluate(facts, equipment_type=stored.get("equipment_type"),
+                                              page_texts=page_texts)
+    findings.extend(datasheet_checks.store(review_run_id, submittal_id, check_results,
+                                           pages_read=pages_read))
+    checklist_coverage = datasheet_checks.coverage(check_results)
 
     coverage = completeness_for_run(
         submittal_id, allowed_document_ids=allowed_document_ids,
@@ -2270,7 +2362,12 @@ def run_comparison(
         # #677: does-not-apply also holds the service gate's, the AI tier's
         # (confirmed by code) and the definitions - the same items the
         # per-requirement ledger above is built from
-        scoped["not_applied_items"] + extra_not_applied)
+        scoped["not_applied_items"] + extra_not_applied,
+        covered_items)
+    if checklist_note:
+        split = {**split, "checklist": checklist_note}
+    if checklist_coverage:
+        split = {**split, "checklist_coverage": checklist_coverage}
     unchecked_counts = {
         "not_compared": split["applies_not_checked"],
         "not_applied": split["does_not_apply"],
@@ -3340,6 +3437,14 @@ def attach_crs_context(findings: list[dict]) -> list[dict]:
     """
     req_ids = sorted({f["requirement_id"] for f in findings if f.get("requirement_id")})
     fact_ids = sorted({f["fact_id"] for f in findings if f.get("fact_id")})
+    # A-761b: a standard whose "clauses" are table numbers gets no clause
+    # number on the CRS ("paragraph not identified"), never "cl. 0.3".
+    from . import standards as standards_mod
+    known = standards_mod.paragraph_ids_known(
+        {f.get("standard_document_id") for f in findings if f.get("standard_document_id")})
+    for f in findings:
+        if f.get("standard_document_id") in known:
+            f["clause_identified"] = known[f["standard_document_id"]]
     requirements: dict = {}
     facts: dict = {}
     conn = connect()

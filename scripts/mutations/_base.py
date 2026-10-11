@@ -122,7 +122,6 @@ _B44_TEST = "tests/test_datasheets.py"
 #: B50: a model row that fails its schema is refused, never coerced. The two
 #: malformations these protect against are real - a 9B returned them on the
 #: frozen packet.
-_B50_TEST = "tests/test_extraction_schema.py"
 
 #: Feature 1 section 5a + B54: one interface, and provenance that cannot be
 #: omitted. Before it, nothing in the system could say which model answered.

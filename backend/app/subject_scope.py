@@ -240,3 +240,81 @@ def gate(requirements: list[dict], *, classification: dict | None, facts: list[d
     return {"kept": kept, "not_applied": lines, "summary": summary,
             # One item per requirement that does not apply, with its reason (#678).
             "not_applied_items": not_applied_items}
+
+
+# ------------------------------------------------------- materials standards
+
+def partial_gate(requirements: list[dict], *, equipment: set[str], standard_labels: dict[str, str],
+                 partial_standards: dict[str, list[dict]]) -> dict:
+    """A standard an equipment type takes only IN PART (`partial_standards` in
+    reference/governing_standards.json): ASME VIII Div 1 governs a relief valve
+    only through its pressure relief device rules. On a review of that type,
+    only that standard's requirements whose own words name one of the entry's
+    `words` stay checks; the rest do not apply, with the reason. FOUND on the
+    PSV review (2026-10-10): vessel-construction clauses (openings, castings)
+    were checked against a relief valve's design pressure and read COMPLIANT.
+    Every other standard, and every type with no entry, passes untouched.
+    Returns {"kept", "items"}; items carry `outside_partial_scope`."""
+    entries = [(kind, e) for kind in sorted(equipment) for e in partial_standards.get(kind, [])]
+    if not entries:
+        return {"kept": list(requirements), "items": []}
+    from . import standard_ids
+
+    kept: list[dict] = []
+    items: list[dict] = []
+    for requirement in requirements:
+        label = standard_labels.get(requirement.get("standard_document_id") or "", "")
+        entry = next(((kind, e) for kind, e in entries
+                      if label and standard_ids.same_standard(label, e["standard"])), None)
+        if entry is None:
+            kept.append(requirement)
+            continue
+        kind, e = entry
+        text = _fold(" ".join(str(requirement.get(k) or "")
+                              for k in ("subject", "requirement_text", "source_text")))
+        if any(re.search(r"(?<![a-z0-9])" + re.escape(_fold(w)) + r"(?![a-z0-9])", text) for w in e["words"]):
+            kept.append(requirement)
+            continue
+        items.append({"requirement": requirement, "code": "outside_partial_scope",
+                      "detail": (f"{e['standard']} applies to a {kind} only in its rules on "
+                                 f"{e.get('applies_to') or 'one topic'}, and this requirement is not about that")})
+    return {"kept": kept, "items": items}
+
+
+def materials_gate(requirements: list[dict], *, facts: list[dict], standard_labels: dict[str, str],
+                   is_materials_standard) -> dict:
+    """#725 F5: a MATERIALS standard (NACE MR0175 / ISO 15156 ...) applies only
+    to the datasheet's MATERIAL fields.
+
+    Material fields are chosen by the one role test that already exists
+    (`conditions._candidate_facts`, a stated material, never a measured
+    quantity). A materials standard's requirement does not apply when the
+    datasheet states no material at all, or when it is a table row whose row
+    label (an alloy, a grade) is not a material any of those fields states.
+    Its sentences stay checks while a material is stated. Every other
+    standard passes untouched. Returns {"kept", "items"}; each item carries
+    the reason code `not_material_field` and the detail."""
+    from . import conditions
+
+    materials = [f for f in conditions._candidate_facts(conditions.SHAPE_MATERIAL, facts)
+                 if not conditions._is_empty(f.get("field_value"))]
+    stated = " ; ".join(_fold(f.get("field_value")) for f in materials)
+    kept: list[dict] = []
+    items: list[dict] = []
+    for requirement in requirements:
+        label = standard_labels.get(requirement.get("standard_document_id") or "", "")
+        if not label or not is_materials_standard(label):
+            kept.append(requirement)
+            continue
+        row_label = _fold(requirement.get("condition"))
+        if not materials:
+            detail = "a materials standard, and this datasheet states no material"
+        elif requirement.get("requirement_type") == "table_value" and not (
+                row_label and re.search(r"(?<![a-z0-9])" + re.escape(row_label) + r"(?![a-z0-9])", stated)):
+            detail = (f"a materials standard's table row {requirement.get('condition')!r}, "
+                      "and no material field of this datasheet states it")
+        else:
+            kept.append(requirement)
+            continue
+        items.append({"requirement": requirement, "code": "not_material_field", "detail": detail})
+    return {"kept": kept, "items": items}

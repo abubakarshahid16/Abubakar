@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from pathlib import Path
 
 from . import access, job_queue, provenance
 from .config import config_version, settings
@@ -72,11 +73,43 @@ def enqueue(submittal_document_id: str, *, allowed_document_ids: frozenset[str],
                                  review_run_id, progress_done, progress_total, progress_label)
                VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, 0, ?, 'queued')""",
             (job_id, submittal_document_id, STAGE, now, now, job_queue.PRIORITY_INTERACTIVE,
-             requested_by, provenance.code_version("comparison", "applicability", "datasheets"),
-             config_version(), run_id, len(STEPS)))
+             requested_by, review_code_version(), config_version(), run_id, len(STEPS)))
         job_queue.audit(conn, "job.queued", job_id, actor_user_id=requested_by,
                         detail=f"stage={STAGE} run={run_id}")
     return run_id, job_id
+
+
+#: Roadmap R5 (#763): the modules whose code decides a review's result. Their
+#: source, plus the data files in `app/reference/` they read, IS the review
+#: code version: stamped on every review job, and compared by the readiness
+#: check, so "nothing changed since the last run" is never said after the
+#: review code changed (it was, live, on 10 Oct 2026).
+REVIEW_CODE_MODULES = (
+    "comparison", "applicability", "datasheets", "datasheet_checks", "match_rules",
+    "crs_mapping", "service_scope", "subject_scope", "scope_ledger", "claims", "numparse",
+    "page_ledger", "table_gate", "requirement_quality", "submittal_review",
+)
+REFERENCE_DIR = Path(__file__).resolve().parent / "reference"
+
+
+def review_code_version() -> str:
+    """`review@<12 hex>` over the review modules' source and every
+    `reference/*.json` data file. Derived, never typed (see `provenance`);
+    recomputed each call, so a changed data file is seen without a restart."""
+    import hashlib
+    digest = hashlib.sha256(provenance.code_version(*REVIEW_CODE_MODULES).encode())
+    for path in sorted(REFERENCE_DIR.glob("*.json")):
+        digest.update(path.name.encode() + b"\0" + path.read_bytes())
+    return f"review@{digest.hexdigest()[:12]}"
+
+
+def last_run_versions(review_run_id: str) -> dict | None:
+    """The code and config versions stamped on a run's job; None when the run
+    has no job row (a run started before jobs existed, or by another route)."""
+    row = connect().execute(
+        "SELECT code_version, config_version FROM jobs WHERE review_run_id = ?"
+        " ORDER BY started_at DESC LIMIT 1", (review_run_id,)).fetchone()
+    return dict(row) if row else None
 
 
 def job_for_run(review_run_id: str) -> dict | None:
@@ -224,18 +257,38 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
     try:
         if submittal not in scope:
             raise PermissionError("the requester can no longer read this submittal")
+        from . import review_trace
+        timings: dict = {}    # #791 part 1: when each phase ran, for the stored trace
         _step(conn, job_id, 0)
-        submittal_review.ensure_facts_extracted(submittal, scope, review_run_id=run_id)
+        with review_trace.timed(timings, "read"):
+            submittal_review.ensure_facts_extracted(submittal, scope, review_run_id=run_id)
         _step(conn, job_id, 1)
-        selection = applicability.select(submittal, allowed_document_ids=scope,
-                                         review_run_id=run_id, persist=True, heartbeat=heartbeat)
+        with review_trace.timed(timings, "standards"):
+            selection = applicability.select(submittal, allowed_document_ids=scope,
+                                             review_run_id=run_id, persist=True, heartbeat=heartbeat)
         _step(conn, job_id, 2)
-        comparison.run_comparison(
-            run_id, allowed_document_ids=scope,
-            reference_coverage=selection.get("reference_coverage"),
-            missing_references=[m["identifier"] for m in selection["missing_references"]])
-        _ai_check(run_id, scope, [m["identifier"] for m in selection["missing_references"]])
-        _web_check(run_id, scope, [m["identifier"] for m in selection["missing_references"]])
+        with review_trace.timed(timings, "compare"):
+            comparison.run_comparison(
+                run_id, allowed_document_ids=scope,
+                reference_coverage=selection.get("reference_coverage"),
+                missing_references=[m["identifier"] for m in selection["missing_references"]])
+        with review_trace.timed(timings, "checks"):
+            _ai_check(run_id, scope, [m["identifier"] for m in selection["missing_references"]])
+            _web_check(run_id, scope, [m["identifier"] for m in selection["missing_references"]])
+        requester = access.AccessScope(user_id=job["created_by"], allowed_document_ids=scope)
+        # R15 (#779): every CRS row of the finished run gets its permanent
+        # number (drafts not issued). Never fails the run (see the helper).
+        from .main import number_crs_rows
+        number_crs_rows(run_id, requester)
+        # R26 step 8 (#763): the model words each machine CRS comment; a code
+        # lock keeps every fact. Never fails the run (see the helper).
+        from .main import word_crs_rows
+        word_crs_rows(run_id, requester)
+        # #791 part 1: the run's step-by-step trace, stored behind the run's
+        # access rules (reads only, never fails the run) ...
+        review_trace.store(run_id, requester, timings)
+        # ... and part 0: REVIEW_DEBUG prints it (off by default).
+        review_trace.emit(run_id, requester)
     except _Cancelled:
         with conn:
             from . import review as review_mod

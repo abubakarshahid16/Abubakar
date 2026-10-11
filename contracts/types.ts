@@ -333,20 +333,6 @@ export interface UploadDisciplines {
   default: string[];
 }
 
-/** POST /api/reviews/runs/{id}/claude/crs-draft (#441).
- *
- *  The CRS preview with model-drafted comments laid over it. A POST because
- *  it sends the run's findings to Claude and spends from the USD caps; the
- *  drafts are not stored, and an audit row names who asked. */
-export interface ClaudeCrsDraft extends CrsPreview {
-  drafted: number;
-  rejected: number;
-  counts: Record<string, number>;
-  complete: boolean;
-  /** The signed-in user who asked; null only with authentication off. */
-  drafted_by: string | null;
-}
-
 /** DELETE /api/documents/{id}
  *
  *  Typed because it was not. The conversation-delete response was a COPY of
@@ -552,9 +538,15 @@ export interface CrsPreviewRow {
   /** CRS quick wins: the standard and clause the comment rests on, in the
    *  "Standard Reference" column after the client's seven. */
   standard_reference?: string;
+  /** #725 F7: worst severity of the grouped findings (critical, major, minor, observation). */
+  severity?: string;
   /** Owner order 2f: an unconfirmed AI engineering check item's text, shown
    *  in the "AI Review Comments" column of the internal copy only. */
   ai_review_comment?: string;
+  /** R30: the chain behind the row (value and page read, clause, result,
+   *  why), in the "Reasoning (internal)" column of the internal copy only;
+   *  always "" in the issue copy. */
+  reasoning?: string;
 }
 
 /**
@@ -608,6 +600,34 @@ export interface VisionReaderStatus {
   fix: string;
   detail: string | null;
   checked_at: string;
+}
+
+/** #791: one step of a review run, as stored when the run finished
+ *  (`GET /api/reviews/runs/{id}/trace`). */
+export interface ReviewTraceStep {
+  /** READ, CLEAN, EQUIPMENT, STANDARDS, CHECKLIST, RULES, DECIDE, COVERAGE, CRS, CODE. */
+  step: string;
+  summary: string;
+  /** "ok", "warning" (something looks wrong) or "failed" (could not be built). */
+  status: "ok" | "warning" | "failed" | string;
+  warning: string | null;
+  counts: Record<string, number | null>;
+  /** One line per value, item or row - internal, carries document values. */
+  items: string[];
+  /** When the step's phase of the review job started and how long it took. */
+  timing: { started_at: string; seconds: number } | null;
+}
+
+/** #791 parts 1-3: a review run step by step, and its AI use. */
+export interface ReviewTrace {
+  review_run_id: string;
+  document: string | null;
+  steps: ReviewTraceStep[];
+  /** Per AI step, its own stored status ("plain", "model", counts). */
+  ai: Record<string, { plain?: string; model?: string | null; [key: string]: unknown }>;
+  /** "stored when the review finished", or built now under the caller's access. */
+  source: string;
+  stored_at?: string | null;
 }
 
 export interface CrsPreview {
@@ -2737,4 +2757,11 @@ export interface RequirementSplit {
   repeats_ignored: number | null;
   /** Share of the requirements that APPLY that were not checked; null when none apply. */
   unchecked_share: number | null;
+}
+
+/** #725 F7: the CRS header's two transmittal numbers, as an engineer entered
+ *  them on the run ("" = none entered; the sheet then prints nothing). */
+export interface CrsTransmittals {
+  company_transmittal: string;
+  contractor_transmittal: string;
 }

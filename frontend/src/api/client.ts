@@ -56,6 +56,8 @@ import type {
   CrsComment,
   CrsCommentHistory,
   CrsPreview,
+  ReviewTrace,
+  CrsTransmittals,
   CrsReplyImport,
   CrsResponseCode,
   ReviewReadiness,
@@ -93,7 +95,6 @@ import type {
   StandardClause,
   StandardRequirement,
   StandardExtraction,
-  ClaudeCrsDraft,
   UploadDisciplines,
 } from "../types/api";
 
@@ -470,20 +471,24 @@ export const reviews = {
       (b) => typeof b === "object" && b !== null
         && typeof (b as Record<string, unknown>).state === "string",
     ),
+  /** #725 F7: enter the CRS header's transmittal numbers for a run. */
+  setCrsTransmittals: (runId: string, body: CrsTransmittals) =>
+    request<CrsTransmittals>(`/reviews/runs/${encodeURIComponent(runId)}/crs/transmittals`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  /** #791: the run step by step (stored trace, or built under the caller's access). */
+  reviewTrace: (runId: string) =>
+    request<ReviewTrace>(
+      `/reviews/runs/${encodeURIComponent(runId)}/trace`,
+      undefined,
+      hasArrayField("steps"),
+    ),
   previewCrs: (runId: string) =>
     request<CrsPreview>(
       `/reviews/runs/${encodeURIComponent(runId)}/crs/preview`,
       undefined,
-      hasArrayField("rows"),
-    ),
-  /** The CRS preview with Claude-drafted comments (#441). A POST, never a
-   *  GET: it sends the run's findings to Claude and spends from the USD
-   *  caps, so a link or a prefetch must not be able to start it. The server
-   *  records who asked. */
-  claudeCrsDraft: (runId: string) =>
-    request<ClaudeCrsDraft>(
-      `/reviews/runs/${encodeURIComponent(runId)}/claude/crs-draft`,
-      { method: "POST" },
       hasArrayField("rows"),
     ),
   /** Close or re-open one numbered comment (its Final Resolution). Only a

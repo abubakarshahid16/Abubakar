@@ -2067,6 +2067,57 @@ class ReviewFindingCreate(BaseModel):
     escalation_level: int = Field(default=0, ge=0, le=5)
 
 
+class ReviewTraceStep(BaseModel):
+    """#791: one step of a review run, as stored when the run finished."""
+
+    step: str
+    summary: str
+    status: str = "ok"
+    warning: str | None = None
+    counts: dict = {}
+    items: list[str] = []
+    timing: dict | None = None
+
+
+class ReviewTrace(BaseModel):
+    """#791 parts 1-3: a review run step by step - the ten steps, the run's AI
+    use, and whether this is the stored trace or one built now under the
+    caller's access."""
+
+    review_run_id: str
+    document: str | None
+    steps: list[ReviewTraceStep]
+    ai: dict = {}
+    source: str
+    stored_at: str | None = None
+
+
+class FeedbackRow(BaseModel):
+    """R26 step 10: engineers' decisions on one standard's or one rule's
+    findings. `precision` is "kept of decided" in words - never a percentage."""
+
+    name: str
+    accepted: int
+    edited: int
+    rejected: int
+    pending: int
+    kept: int
+    decided: int
+    precision: str
+    note: str | None = None
+
+
+class EngineerFeedback(BaseModel):
+    """R26 step 10 (#763, R4 #768): what engineers' accept / edit / reject
+    decisions say about the review's comments, within the caller's grants."""
+
+    boundary: str
+    totals: FeedbackRow
+    by_standard: list[FeedbackRow]
+    by_rule: list[FeedbackRow]
+    candidates: list[FeedbackRow]
+
+
 class ReviewFindingUpdate(BaseModel):
     #: Owner order section 3: the engineer's own wording of the comment.
     #: Saving it also confirms the comment under the caller's name.
@@ -2246,11 +2297,19 @@ class CrsPreviewRow(BaseModel):
     #: its own "Standard Reference" column after the client's seven. Empty
     #: for an engineer's own chat comment.
     standard_reference: str = ""
+    #: #725 F7: the worst severity of the findings the row groups (critical,
+    #: major, minor, observation), printed in the "Severity" column after
+    #: Standard Reference in both copies. Empty when none is recorded.
+    severity: str = ""
     #: Owner decision 2026-09-27 (order 2f): an UNCONFIRMED AI engineering
     #: check item's text, printed in the last column "AI Review Comments" of
     #: the internal review copy, with `comment` left empty. Empty on every
     #: other row, and the column is absent from the "Issue to contractor" copy.
     ai_review_comment: str = ""
+    #: R30: the chain behind the row (value and page read, clause, result,
+    #: why), printed in the internal copy's last column "Reasoning (internal)".
+    #: Always empty in the "Issue to contractor" copy.
+    reasoning: str = ""
 
 
 class CrsStandardRow(BaseModel):
@@ -2547,6 +2606,15 @@ class CrsCommentStatusUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     status: Literal["Open", "Closed"]
     note: str | None = Field(default=None, max_length=2000)
+
+
+class CrsTransmittals(BaseModel):
+    """#725 F7: the two transmittal numbers the CRS header names, as an
+    engineer entered them. "" = none entered; the sheet then prints nothing."""
+
+    model_config = ConfigDict(extra="forbid")
+    company_transmittal: str = Field(default="", max_length=80)
+    contractor_transmittal: str = Field(default="", max_length=80)
 
 
 class CrsCommentResponseUpdate(BaseModel):

@@ -284,3 +284,18 @@ def test_a_pre_existing_cached_decision_with_no_quote_is_backed_on_read(monkeypa
     assert row["scope_decision"] == applicability_v2.APPLICABLE
     assert row["evidence_quote"] == "covers centrifugal pumps"
     assert row["evidence_page"] == 2
+
+
+# ------------------------------------------------- #736: on by default
+
+def test_the_scope_reasoning_is_on_by_default_and_can_be_turned_off(monkeypatch):
+    """Owner decision 2026-10-10 (#736): the F1 baseline was measured with the
+    scope reasoning on, and a run without the owner's settings file used to
+    drop the standards it chooses. The code's default is now ON; the env
+    variable still turns it off. (The test session itself pins it off in
+    `tests/env_isolation.py`: a model call per standard per review.)"""
+    from app.config import Settings
+    monkeypatch.delenv("APPLICABILITY_REASONING_ENABLED", raising=False)
+    assert Settings(_env_file=None).applicability_reasoning_enabled is True
+    monkeypatch.setenv("APPLICABILITY_REASONING_ENABLED", "false")
+    assert Settings(_env_file=None).applicability_reasoning_enabled is False

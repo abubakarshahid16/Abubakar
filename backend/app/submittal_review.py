@@ -220,6 +220,12 @@ def ensure_schema() -> None:
             # owner's go). Not UNIQUE on purpose: an existing database holds
             # duplicates, so the upsert lives in `standards.create_requirement`.
             ("identity_key", "TEXT"),
+            # #617 A RANGE CELL ("5-10", "5 to 10 mm"): the low and high bound,
+            # each parsed by numparse; `raw_value` keeps the cell as written.
+            # NULL on every other row, and on an AMBIGUOUS range ("5 -10":
+            # five to ten, or five and minus ten?), which goes to an engineer.
+            ("value_low", "REAL"),
+            ("value_high", "REAL"),
             # #594 EVERY page a repeated table cell was read from, a JSON list
             # of {"page", "chunk_id"}. `page`/`chunk_id` stay the first one.
             ("evidence_pages", "TEXT"),
@@ -317,6 +323,11 @@ def ensure_schema() -> None:
             ("ai_check_status", "TEXT"),
             # #633: the web standards check's own outcome, stored the same way.
             ("web_check_status", "TEXT"),
+            # #725 F7: the two transmittal numbers the CRS header names, as an
+            # engineer ENTERED them (`set_crs_transmittals`). NULL = nobody
+            # entered one, and the sheet prints nothing - never a placeholder.
+            ("crs_company_transmittal", "TEXT"),
+            ("crs_contractor_transmittal", "TEXT"),
         ):
             add_column_if_missing(conn, "review_runs", _column, _type)
         conn.execute(
@@ -373,6 +384,9 @@ def ensure_schema() -> None:
             # NON_COMPLIANT and never a zero.
             ("is_blank", "INTEGER"),
             ("blank_marker", "TEXT"),
+            # #725 F3: the "not provided" phrase printed BESIDE a value
+            # ("340 psig (By Contractor)"): the value is real, this is its note.
+            ("value_note", "TEXT"),
             ("field_label", "TEXT"),
             ("bbox", "TEXT"),
             # A PAIRING AN ENGINEER HAS REJECTED. See
@@ -536,7 +550,7 @@ def ensure_schema() -> None:
                                ("evidence_quote", "TEXT"),
                                ("scope_decision", "TEXT")):
             add_column_if_missing(conn, "review_applicable_standards", _column, _type)
-        # B5: a standard's SCOPE RECORD (scope_records.py), stored once so the
+        # B5: a standard's SCOPE RECORD (tools/scope_records.py), stored once so the
         # live review can use it without calling a model. Written only by an
         # explicit reading step; the review route only reads it.
         # `not_applicable_confirmed` is 1 only when the reader's three
@@ -653,8 +667,11 @@ def ensure_facts_extracted(document_id: str, allowed_document_ids: frozenset[str
     (master plan section 24), so a second call over the same sheet extracts
     nothing and cannot duplicate them. Any existing fact - confirmed by an
     engineer or not - means the sheet has been read; re-reading it is the
-    explicit re-extraction route's job, never a side effect of a review or of
-    ingestion.
+    explicit re-extraction route's job, with ONE exception (F-b, planner
+    2026-10-10): when the current rule-read facts were written by another
+    reader version (`datasheets.facts_reader_stale`), the sheet is read again
+    with `replace=True` (supersede, never delete; confirmed facts survive), so
+    a fix to the reader reaches the next review instead of never.
 
     Returns `extract_facts`'s result dict, or None when nothing ran because
     facts already existed. Raises whatever `extract_facts` raises; callers
@@ -682,6 +699,13 @@ def ensure_facts_extracted(document_id: str, allowed_document_ids: frozenset[str
         " AND superseded_at IS NULL LIMIT 1",
         (document_id,)).fetchone()
     if has_facts is not None:
+        # F-b (planner 2026-10-10): the facts were read by an OLDER reader -
+        # read the sheet again (replace=True supersedes, never deletes; an
+        # engineer-confirmed fact survives), so a reader fix reaches reviews.
+        if datasheets.facts_reader_stale(document_id):
+            return datasheets.extract_facts(
+                document_id, allowed_document_ids=allowed_document_ids,
+                review_run_id=review_run_id, replace=True)
         return
     return datasheets.extract_facts(
         document_id, allowed_document_ids=allowed_document_ids,
@@ -1053,3 +1077,22 @@ def migrate_facts_to_per_document() -> None:
     # The added columns are re-applied by ensure_schema, which is additive and
     # safe to call again.
     ensure_schema()
+
+
+def set_crs_transmittals(review_run_id: str, *, company: str | None, contractor: str | None,
+                         allowed_document_ids: frozenset[str]) -> dict | None:
+    """#725 F7: record the CRS header's two transmittal numbers for a run the
+    caller may read (None when it cannot, the caller's 404). An empty string
+    clears a number. Returns {"company_transmittal", "contractor_transmittal"}."""
+    run = get_review_run(review_run_id, allowed_document_ids=allowed_document_ids)
+    if run is None:
+        return None
+    clean = lambda v: (" ".join(v.split()) or None) if isinstance(v, str) else None  # noqa: E731
+    conn = connect()
+    with conn:
+        conn.execute("UPDATE review_runs SET crs_company_transmittal = ?, crs_contractor_transmittal = ?"
+                     " WHERE id = ?", (clean(company), clean(contractor), review_run_id))
+    row = conn.execute("SELECT crs_company_transmittal, crs_contractor_transmittal FROM review_runs"
+                       " WHERE id = ?", (review_run_id,)).fetchone()
+    return {"company_transmittal": row["crs_company_transmittal"] or "",
+            "contractor_transmittal": row["crs_contractor_transmittal"] or ""}
