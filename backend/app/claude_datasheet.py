@@ -384,6 +384,23 @@ def atomise(proposals: list[dict]) -> list[dict]:
 
 # -------------------------------------------------------------------- parse
 
+_FENCE = re.compile(r"^\s*```[A-Za-z0-9_-]*\s*\n(?P<body>.*?)\n?\s*```\s*$", re.DOTALL)
+
+
+def _unfenced(raw):
+    """The answer without ONE surrounding Markdown code fence.
+
+    R32, 2026-10-11: the cloud model answered four of five pages as a fenced
+    block and every one was thrown away as malformed. Taking the fence off is
+    not repairing the answer: what is inside must still be the whole, valid
+    JSON, and a cut-off answer (no closing fence, or half an object) still
+    fails the strict parse below."""
+    if not isinstance(raw, str):
+        return raw
+    fenced = _FENCE.match(raw)
+    return fenced.group("body") if fenced else raw
+
+
 def parse_response(raw: str) -> tuple[list[dict], str | None]:
     """Strict parse. Anything malformed yields no proposals AND A REASON.
 
@@ -393,7 +410,7 @@ def parse_response(raw: str) -> tuple[list[dict], str | None]:
     to be worth not losing.
     """
     try:
-        body = json.loads(raw)
+        body = json.loads(_unfenced(raw))
     except (json.JSONDecodeError, TypeError):
         return [], Reason.MODEL_MALFORMED.value
     if isinstance(body, dict) and "facts" not in body and "field" in body:

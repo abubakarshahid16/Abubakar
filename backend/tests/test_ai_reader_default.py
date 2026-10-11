@@ -240,3 +240,21 @@ def test_temperature_is_still_sent_to_a_model_that_accepts_it(monkeypatch):
     call, _why = datasheet_ai.model_call_for("claude")
     datasheet_ai.read_page_text_with_ai("1 Design pressure 23.5 barg", 1, call)
     assert sent and all(b["temperature"] == 0 for b in sent)
+
+
+def test_an_answer_inside_one_code_fence_is_read_and_a_cut_off_one_is_not():
+    """R32: four of five pages came back fenced and were thrown away."""
+    import json as _json
+
+    from app import claude_datasheet
+    fact = {"field": "Design pressure", "value": "23.5", "unit": "barg",
+            "quote": "Design pressure 23.5 barg", "kind": "offered"}
+    whole = _json.dumps({"facts": [fact]})
+    fence = "`" * 3
+    for raw in (whole, f"{fence}json\n{whole}\n{fence}", f"{fence}\n{whole}\n{fence}",
+                f"  {fence}json\n{whole}\n{fence}  \n"):
+        facts, err = claude_datasheet.parse_response(raw)
+        assert err is None and [f["field"] for f in facts] == ["Design pressure"], raw[:12]
+    for raw in (f"{fence}json\n{whole[:-9]}", f"{fence}json\n{whole[:-9]}\n{fence}", f"Here you go:\n{whole}"):
+        assert claude_datasheet.parse_response(raw) == ([], "model_malformed"), raw[:16]
+    assert settings.datasheet_ai_claude_max_tokens >= 8192
