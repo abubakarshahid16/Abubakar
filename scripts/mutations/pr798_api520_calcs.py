@@ -1,0 +1,75 @@
+"""PR #798 (R13, #777): API 520-I sizing calculated by code in the PSV
+checklist (`datasheet_checks` calc rule kind and its reference data), and the
+two percentage rules worked out from the set pressure. Danger zone: a wrong
+number here reaches an engineer as a pass or a finding."""
+from __future__ import annotations
+
+from ._base import APP, Mutation
+
+_T = "tests/test_777_api520_calcs.py"
+_C = APP / "datasheet_checks.py"
+_J = APP / "reference" / "datasheet_checks.json"
+
+MUTATIONS: tuple[Mutation, ...] = (
+    Mutation(id="M798-01", phase=798, description="the gas coefficient of discharge is not API 520's 0.975",
+             path=_C, anchor="KD_GAS = 0.975\n", replacement="KD_GAS = 0.9\n",
+             target=_T, keyword="gas_formula_reproduces", tags=("calc",)),
+    Mutation(id="M798-02", phase=798, description="the SI constant of C is wrong",
+             path=_C, anchor="    c = 0.03948 * math.sqrt(", replacement="    c = 0.04 * math.sqrt(",
+             target=_T, keyword="gas_formula_reproduces", tags=("calc",)),
+    Mutation(id="M798-03", phase=798, description="the relieving pressure is used as gauge in the gas formula",
+             path=_C, anchor="    p1 = set_g + over + ATMOSPHERIC_KPA\n", replacement="    p1 = set_g + over\n",
+             target=_T, keyword="gas_formula_reproduces", tags=("calc", "units")),
+    Mutation(id="M798-04", phase=798, description="an absolute set pressure is used as gauge",
+             path=_C, anchor="        return value - ATMOSPHERIC_KPA\n", replacement="        return value\n",
+             target=_T, keyword="absolute_set_pressure", tags=("calc", "units")),
+    Mutation(id="M798-05", phase=798, description="a pressure that says neither gauge nor absolute is guessed as gauge",
+             path=_C, anchor='    if basis != "gauge":\n        raise _NotCalculated(',
+             replacement='    if False:\n        raise _NotCalculated(',
+             target=_T, keyword="missing_input_skips", tags=("calc", "honesty")),
+    Mutation(id="M798-06", phase=798, description="an undersized orifice is not a finding",
+             path=_C, anchor="    if stated < floor:\n", replacement="    if stated <= 0:\n",
+             target=_T, keyword="below_the_calculated_area", tags=("calc",)),
+    Mutation(id="M798-07", phase=798, description="a lower-bound area is reported as a pass",
+             path=_C, anchor='    elif calc["lower_bound"]:\n', replacement="    elif False:\n",
+             target=_T, keyword="lower_bound_area_is_never_a_pass", tags=("calc", "honesty")),
+    Mutation(id="M798-08", phase=798, description="subcritical gas flow is not flagged",
+             path=_C, anchor="    elif back + ATMOSPHERIC_KPA > p1 * (2 / (k + 1)) ** (k / (k - 1)):\n",
+             replacement="    elif False:\n",
+             target=_T, keyword="lower_bound_area_is_never_a_pass", tags=("calc", "honesty")),
+    Mutation(id="M798-09", phase=798, description="the liquid coefficient of discharge is not API 520's 0.65",
+             path=_C, anchor="KD_LIQUID = 0.65\n", replacement="KD_LIQUID = 0.62\n",
+             target=_T, keyword="liquid_formula_reproduces", tags=("calc",)),
+    Mutation(id="M798-10", phase=798, description="the viscosity correction Kv is not applied",
+             path=_C, anchor='    return {"area_mm2": base / kv,', replacement='    return {"area_mm2": base,',
+             target=_T, keyword="viscous_liquid", tags=("calc",)),
+    Mutation(id="M798-11", phase=798, description="a calculation that could not run is written as a comment",
+             path=_C, anchor="not in (COMPLIANT, NOT_APPLICABLE, NOT_CALCULATED)):",
+             replacement="not in (COMPLIANT, NOT_APPLICABLE)):",
+             target=_T, keyword="never_written", tags=("calc", "honesty")),
+    Mutation(id="M798-12", phase=798, description="a calculation counts as a field in the reader-coverage line",
+             path=_C, anchor='if r.get("checklist") and not r.get("calc")]',
+             replacement='if r.get("checklist")]',
+             target=_T, keyword="never_written", tags=("calc",)),
+    Mutation(id="M798-13", phase=798, description="a back pressure stated as a percentage is not compared as one",
+             path=_C, anchor='    if kind == "percent_of" and rule.get("stated_as_percent") and _is_percent(fact):\n',
+             replacement='    if False:\n',
+             target=_T, keyword="built_up_back_pressure_stated", tags=("calc",)),
+    Mutation(id="M798-14", phase=798, description="an overpressure stated as a pressure is not worked out as a percentage",
+             path=_C, anchor='    if kind == "constant" and rule.get("percent_of_role") and not _is_percent(fact):\n',
+             replacement='    if False:\n',
+             target=_T, keyword="overpressure_stated_as_a_pressure", tags=("calc",)),
+    Mutation(id="M798-15", phase=798, description="Fahrenheit is converted without its offset",
+             path=_C, anchor='"degf": (1 / 1.8, 459.67 / 1.8),',
+             replacement='"degf": (1 / 1.8, 0.0),',
+             target=_T, keyword="us_units_on_the_sheet", tags=("calc", "units")),
+    Mutation(id="M798-16", phase=798, description="the sheet's own required area gets no rounding allowance",
+             path=_C, anchor="    floor = area * (1 - tolerance / 100.0)\n", replacement="    floor = area\n",
+             target=_T, keyword="within_its_rounding", tags=("calc",)),
+    Mutation(id="M798-17", phase=798, description="pounds per hour are read as kilograms per hour",
+             path=_J, anchor='"lb/h": 0.45359237,', replacement='"lb/h": 1.0,',
+             target=_T, keyword="us_units_on_the_sheet", tags=("calc", "units")),
+    Mutation(id="M798-18", phase=798, description="an unknown fluid phase makes a calculation item an engineer's question",
+             path=_C, anchor='            if rule["kind"] == "calc":\n', replacement='            if False:\n',
+             target=_T, keyword="missing_input_skips", tags=("calc", "honesty")),
+)

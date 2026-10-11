@@ -345,7 +345,7 @@ NOT_APPLICABLE = "NOT_APPLICABLE"
 #: not (yet) approved for the repo stay on the machine. Client standard items
 #: approved by the owner (2026-10-10) are in the committed JSON, in our own words.
 LOCAL_DIR_NAME = "checklists"
-_RULE_KINDS = ("required", "compare", "constant", "percent_of", "allowed", "above_by")
+_RULE_KINDS = ("required", "compare", "constant", "percent_of", "allowed", "above_by", "calc")
 
 
 def _local_items(key: str) -> list[dict]:
@@ -440,7 +440,9 @@ def coverage(results: list[dict]) -> dict | None:
     READ as a fact, and how many are on the sheet but were NOT read (a reader
     gap, with the pages): the to-do list for the datasheet reader. None when
     the review ran no checklist."""
-    items = [r for r in results if r.get("checklist")]
+    # A calculation compares a field the `required` items already count; it
+    # is not a field of its own (R13), so the reader-coverage line is unchanged.
+    items = [r for r in results if r.get("checklist") and not r.get("calc")]
     if not items:
         return None
     fields: dict[str, str] = {}
@@ -565,6 +567,11 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
         # "k is above 1"): an unknown condition does not stop them. Any other
         # item with an unknown condition is an engineer's question.
         if cond_fact is None:
+            if rule["kind"] == "calc":
+                # R13: which formula applies is not known; the phase item asks.
+                return {**res(NOT_CALCULATED, _sentence(
+                    f"the {_pretty(condition['role']).lower()} is not stated, so the formula "
+                    f"to use is not known")), "calc": True}
             if item.get("when_unknown") != "evaluate":
                 state = ("the sheet does not state it" if why == "absent"
                          else "it has two different values on the sheet")
@@ -579,6 +586,8 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
                        f"'{_shown(cond_fact)}' (page {cond_fact.get('page')}).",
                        cond_fact, condition["role"])
     kind = rule["kind"]
+    if kind == "calc":
+        return evaluate_calc(item, field, get, res, rules)
     fact, why = _one(get(field))
     if fact is None and unknown is not None:
         # The condition is unknown and the field is absent: whether the
@@ -623,6 +632,36 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
         return res(COMPLIANT if ok else NON_COMPLIANT,
                    f"{where} is {'one of' if ok else 'not one of'}: {', '.join(rule['values'])}.{noted}",
                    fact)
+    if kind == "percent_of" and rule.get("stated_as_percent") and _is_percent(fact):
+        # R13: a value the sheet states AS a percentage of the right-hand
+        # field ("built-up back pressure 8 %" of the set pressure) is compared
+        # as that percentage; the right-hand value is not needed.
+        stated = _number_of_or_none(fact)
+        if stated is None:
+            return res(NEEDS_ENGINEER_REVIEW, _sentence(f"'{_shown(fact)}' is not a number"), fact)
+        ok = _OPS[rule["op"]](stated, float(rule["percent"]))
+        return res(COMPLIANT if ok else NON_COMPLIANT,
+                   f"{where} is {'' if ok else 'not '}{_OP_WORDS[rule['op']]} {rule['percent']}% of the "
+                   f"{_pretty(rule['right']).lower()}.{noted}", fact)
+    if kind == "constant" and rule.get("percent_of_role") and not _is_percent(fact):
+        # R13: a percentage limit on a value the sheet states as a PRESSURE
+        # ("overpressure 1.2 barg" against 10 % of the set pressure): the
+        # percentage is worked out from the set pressure, by code.
+        reference = rule["percent_of_role"]
+        try:
+            amount = _converted(fact, field, "pressure_kpa", rules)
+            ref_fact = _input(get, reference)
+            ref_kpa = _gauge_kpa(ref_fact, reference, rules)
+            if ref_kpa <= 0:
+                raise _NotCalculated(f"the {_pretty(reference).lower()} is not above 0")
+        except _NotCalculated as exc:
+            return res(NEEDS_ENGINEER_REVIEW, _sentence(
+                f"{exc.reason}, so the percentage was not worked out"), fact)
+        percent = amount / ref_kpa * 100.0
+        ok = _OPS[rule["op"]](percent, float(rule["value"]))
+        return res(COMPLIANT if ok else NON_COMPLIANT,
+                   f"{where} is {percent:.1f}% of {_quoted(ref_fact, reference)}, which is "
+                   f"{'' if ok else 'not '}{_OP_WORDS[rule['op']]} {rule['value']}%.{noted}", fact)
     measured = _measure(fact)
     unit = (rule.get("unit") or "").strip()
     if (kind == "constant" and unit and measured is not None and not (fact.get("raw_unit") or "").strip()
@@ -670,6 +709,328 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
                f"{where} is {'' if ok else 'not '}{_OP_WORDS[rule['op']]} {right_words}.{noted}", fact)
 
 
+# ---------------------------------------------------------------- R13 calculations
+
+#: A calculation item whose inputs the sheet does not give: skipped with its
+#: reason, never a comment (the `required` items already ask for the field).
+NOT_CALCULATED = "NOT_CALCULATED"
+#: API 520-I takes atmospheric pressure as 101.325 kPa (14.7 psi) when it
+#: turns a gauge relieving pressure into an absolute one.
+ATMOSPHERIC_KPA = 101.325
+#: Specific gravity is referred to water at 15.6 C (60 F).
+WATER_DENSITY_KG_M3 = 999.0
+#: The effective coefficients of discharge API 520-I gives for preliminary
+#: sizing, the ones API 526 effective orifice areas are paired with.
+KD_GAS = 0.975
+KD_LIQUID = 0.65
+MM2_PER_IN2 = 645.16
+_GAUGE_WORDS = re.compile(r"(?<![a-z])(barg|psig|kpag|mpag)(?![a-z])|\(g\)|\bgauge\b")
+_ABSOLUTE_WORDS = re.compile(r"(?<![a-z])(bara|psia|kpaa|mpaa)(?![a-z])|\(a\)|\babs(olute)?\b")
+_TEMPERATURE = {"c": (1.0, 273.15), "degc": (1.0, 273.15), "k": (1.0, 0.0),
+                "f": (1 / 1.8, 459.67 / 1.8), "degf": (1 / 1.8, 459.67 / 1.8),
+                "r": (1 / 1.8, 0.0), "degr": (1 / 1.8, 0.0)}
+
+
+class _NotCalculated(Exception):
+    """An input the calculation needs is not on the sheet in a form it reads."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def _unit_key(unit: str | None) -> str:
+    return (str(unit or "").lower().replace(" ", "").replace("²", "2").replace("³", "3")
+            .replace("°", "deg").replace("μ", "u").replace("µ", "u"))
+
+
+def _printed_unit(fact: dict) -> tuple[str, str | None]:
+    """(unit, gauge/absolute) as the sheet prints it: the value's own unit, else
+    the unit the label names in brackets ("Set pressure (barg)")."""
+    from . import claims
+    raw = str(fact.get("raw_unit") or "").strip()
+    if not raw:
+        label = str(fact.get("field_label") or fact.get("field_name") or "")
+        bracket = re.search(r"\(([^()]+)\)\s*$", label)
+        raw = bracket.group(1).strip() if bracket else ""
+    base, reference = claims.split_reference(raw) if raw else (None, None)
+    return _unit_key(base or raw), reference
+
+
+def _number_of_or_none(fact: dict) -> float | None:
+    from . import claims
+    return claims.parse_value(str(fact.get("raw_value")))
+
+
+def _input(get, role: str) -> dict:
+    fact, why = _one(get(role))
+    if fact is None or fact.get("is_blank"):
+        state = "has two different values" if why == "two different values" else "is not given"
+        raise _NotCalculated(f"the {_pretty(role).lower()} {state}")
+    return fact
+
+
+def _number_of(fact: dict, role: str) -> float:
+    from . import claims
+    number = claims.parse_value(str(fact.get("raw_value")))
+    if number is None:
+        raise _NotCalculated(f"the {_pretty(role).lower()} '{_shown(fact)}' is not a number")
+    return number
+
+
+def _converted(fact: dict, role: str, table: str, rules: dict) -> float:
+    """The fact's number in the calculation's unit (`calc_units[table]`)."""
+    number = _number_of(fact, role)
+    unit, _reference = _printed_unit(fact)
+    factor = rules["calc_units"][table].get(unit)
+    if factor is None:
+        raise _NotCalculated(f"the {_pretty(role).lower()} unit '{fact.get('raw_unit') or unit or 'none'}'"
+                             f" is not one this calculation converts")
+    return number * float(factor)
+
+
+def _kelvin(fact: dict, role: str) -> float:
+    number = _number_of(fact, role)
+    unit, _reference = _printed_unit(fact)
+    scale = _TEMPERATURE.get(unit)
+    if scale is None:
+        raise _NotCalculated(f"the {_pretty(role).lower()} unit '{fact.get('raw_unit') or 'none'}'"
+                             f" is not a temperature unit this calculation converts")
+    return number * scale[0] + scale[1]
+
+
+def _basis(fact: dict) -> str | None:
+    _unit, reference = _printed_unit(fact)
+    if reference:
+        return reference
+    words = " ".join(str(fact.get(k) or "").lower() for k in ("raw_unit", "field_label", "field_name"))
+    if _GAUGE_WORDS.search(words):
+        return "gauge"
+    if _ABSOLUTE_WORDS.search(words):
+        return "absolute"
+    return None
+
+
+def _gauge_kpa(fact: dict, role: str, rules: dict) -> float:
+    """A pressure in kPa gauge. A pressure that says neither gauge nor absolute
+    is not guessed: the two differ by one atmosphere."""
+    value = _converted(fact, role, "pressure_kpa", rules)
+    basis = _basis(fact)
+    if basis == "absolute":
+        return value - ATMOSPHERIC_KPA
+    if basis != "gauge":
+        raise _NotCalculated(f"the {_pretty(role).lower()} does not say gauge or absolute")
+    return value
+
+
+def _is_percent(fact: dict) -> bool:
+    unit = _unit_key(fact.get("raw_unit"))
+    if unit == "%":
+        return True
+    label = str(fact.get("field_label") or fact.get("field_name") or "")
+    return not unit and "%" in label
+
+
+def _overpressure_kpa(get, set_kpa_g: float, rules: dict) -> tuple[float, dict]:
+    fact = _input(get, "overpressure")
+    if _is_percent(fact):
+        return set_kpa_g * _number_of(fact, "overpressure") / 100.0, fact
+    return _converted(fact, "overpressure", "pressure_kpa", rules), fact
+
+
+def _back_pressure_kpa_g(get, rules: dict) -> tuple[float, list[dict], str | None]:
+    """(superimposed + built-up back pressure in kPa gauge, the facts used,
+    why the figure is only a lower bound). A back pressure the sheet does not
+    give, or gives in a form not read, counts as 0 - which can only make the
+    calculated area SMALLER than the true one - and says so."""
+    total, used, doubt = 0.0, [], None
+    for role in ("superimposed_back_pressure", "built_up_back_pressure"):
+        fact, _why = _one(get(role))
+        if fact is None or fact.get("is_blank"):
+            doubt = doubt or f"the {_pretty(role).lower()} is not given (taken as 0)"
+            continue
+        if re.fullmatch(r"\s*(atm|atmos(pheric)?)\.?\s*", _shown(fact).lower()):
+            used.append((role, fact))
+            continue
+        try:
+            number = _number_of(fact, role)
+            total += 0.0 if number == 0 else _gauge_kpa(fact, role, rules)
+            used.append((role, fact))
+        except _NotCalculated as exc:
+            doubt = doubt or f"{exc.reason} (taken as 0)"
+    return total, used, doubt
+
+
+def _quoted(fact: dict, role: str) -> str:
+    return f"{_label(fact, role).lower()} {_shown(fact)} (page {fact.get('page')})"
+
+
+def _conventional(get) -> str | None:
+    """Why the valve's own correction factor (Kb for gas, Kw for liquid) is
+    not exactly 1.0, or None when the sheet states a conventional valve."""
+    fact, _why = _one(get("valve_type"))
+    if fact is not None and "conventional" in _fold(_shown(fact)):
+        return None
+    return "the valve is not stated as conventional"
+
+
+def api520_gas_area(get, rules: dict, selected_mm2: float | None = None) -> dict:
+    """API 520-I critical flow sizing for gas or vapour (SI form):
+
+        A = W / (C Kd P1 Kb Kc) * sqrt(T Z / M)
+        C = 0.03948 * sqrt(k (2 / (k + 1)) ** ((k + 1) / (k - 1)))
+
+    A in mm2, W in kg/h, P1 = set pressure + overpressure + 101.325 kPa (abs),
+    T in K. Kd 0.975, Kb 1.0, Kc 1.0. Every simplification can only make A
+    SMALLER than the true required area, and each one the sheet does not rule
+    out is returned in `lower_bound` (subcritical flow, a non-conventional
+    valve, an unknown back pressure)."""
+    import math
+    capacity = _input(get, "required_capacity")
+    w = _converted(capacity, "required_capacity", "mass_flow_kg_h", rules)
+    set_fact = _input(get, "set_pressure")
+    set_g = _gauge_kpa(set_fact, "set_pressure", rules)
+    over, over_fact = _overpressure_kpa(get, set_g, rules)
+    p1 = set_g + over + ATMOSPHERIC_KPA
+    temperature = _input(get, "relieving_temperature")
+    t = _kelvin(temperature, "relieving_temperature")
+    facts = {role: _input(get, role) for role in ("molecular_weight", "compressibility",
+                                                  "specific_heat_ratio")}
+    m = _number_of(facts["molecular_weight"], "molecular_weight")
+    z = _number_of(facts["compressibility"], "compressibility")
+    k = _number_of(facts["specific_heat_ratio"], "specific_heat_ratio")
+    if w <= 0 or p1 <= 0 or t <= 0 or m <= 0 or z <= 0 or k <= 1:
+        raise _NotCalculated("an input is outside the formula's range (capacity, pressure, "
+                             "temperature, M and Z above 0; k above 1)")
+    c = 0.03948 * math.sqrt(k * (2 / (k + 1)) ** ((k + 1) / (k - 1)))
+    area = w / (c * KD_GAS * p1) * math.sqrt(t * z / m)
+    lower_bound = []
+    if (why := _conventional(get)) is not None:
+        lower_bound.append(f"{why}, so Kb was taken as 1.0")
+    back, back_facts, doubt = _back_pressure_kpa_g(get, rules)
+    if doubt:
+        lower_bound.append(f"{doubt}, so critical flow was assumed")
+    elif back + ATMOSPHERIC_KPA > p1 * (2 / (k + 1)) ** (k / (k - 1)):
+        lower_bound.append("the back pressure is above the critical flow pressure, so the flow "
+                           "is subcritical and needs a larger area than this")
+    inputs = [_quoted(capacity, "required_capacity"), _quoted(set_fact, "set_pressure"),
+              _quoted(over_fact, "overpressure"), _quoted(temperature, "relieving_temperature"),
+              *(_quoted(f, r) for r, f in facts.items()), *(_quoted(f, r) for r, f in back_facts)]
+    return {"area_mm2": area, "inputs": inputs, "lower_bound": lower_bound,
+            "coefficients": f"P1 {p1:,.1f} kPa(a), C {c:.4f}, Kd {KD_GAS}, Kb 1.0, Kc 1.0",
+            "name": "critical flow sizing for gas or vapour"}
+
+
+def api520_liquid_area(get, rules: dict, selected_mm2: float | None = None) -> dict:
+    """API 520-I sizing for liquid relief (SI form, capacity-certified valves):
+
+        A = 11.78 Q / (Kd Kw Kc Kv) * sqrt(G / (p1 - p2))
+
+    A in mm2, Q in L/min, p1 = set pressure + overpressure (kPa gauge), p2 the
+    total back pressure (kPa gauge), G = density / 999 kg/m3. Kd 0.65, Kw 1.0,
+    Kc 1.0. Kv from the Reynolds number when the viscosity is given:
+
+        R = Q 18800 G / (mu sqrt(A)),  Kv = 1 / (0.9935 + 2.878 / R**0.5 + 342.75 / R**1.5)
+
+    with A the selected effective area when the sheet gives it, else the
+    calculated one (iterated). Every simplification makes A SMALLER than the
+    true required area; each one the sheet does not rule out is returned in
+    `lower_bound`."""
+    import math
+    capacity = _input(get, "required_capacity")
+    density_fact = _input(get, "density_relieving")
+    rho = _converted(density_fact, "density_relieving", "density_kg_m3", rules)
+    unit, _reference = _printed_unit(capacity)
+    if unit in rules["calc_units"]["liquid_flow_l_min"]:
+        q = _converted(capacity, "required_capacity", "liquid_flow_l_min", rules)
+    else:
+        # a mass flow: Q = W / rho (kg/h over kg/m3 is m3/h; 1 m3/h = 1000/60 L/min)
+        w = _converted(capacity, "required_capacity", "mass_flow_kg_h", rules)
+        q = w / rho * 1000.0 / 60.0 if rho > 0 else 0.0
+    set_fact = _input(get, "set_pressure")
+    set_g = _gauge_kpa(set_fact, "set_pressure", rules)
+    over, over_fact = _overpressure_kpa(get, set_g, rules)
+    back, back_facts, doubt = _back_pressure_kpa_g(get, rules)
+    dp = set_g + over - back
+    if q <= 0 or rho <= 0:
+        raise _NotCalculated("the capacity or the density is not above 0")
+    if dp <= 0:
+        raise _NotCalculated("the back pressure is not below the relieving pressure")
+    g = rho / WATER_DENSITY_KG_M3
+    base = 11.78 * q / KD_LIQUID * math.sqrt(g / dp)
+    lower_bound = []
+    if (why := _conventional(get)) is not None:
+        lower_bound.append(f"{why}, so Kw was taken as 1.0")
+    if doubt:
+        lower_bound.append(doubt)
+    inputs = [_quoted(capacity, "required_capacity"), _quoted(density_fact, "density_relieving"),
+              _quoted(set_fact, "set_pressure"), _quoted(over_fact, "overpressure"),
+              *(_quoted(f, r) for r, f in back_facts)]
+    viscosity_fact, _why = _one(get("viscosity_relieving"))
+    kv = 1.0
+    if viscosity_fact is None or viscosity_fact.get("is_blank"):
+        lower_bound.append("the viscosity is not given, so Kv was taken as 1.0")
+    else:
+        unit, _reference = _printed_unit(viscosity_fact)
+        if unit in ("cst", "mm2/s"):
+            mu = _number_of(viscosity_fact, "viscosity_relieving") * rho / 1000.0
+        else:
+            mu = _converted(viscosity_fact, "viscosity_relieving", "viscosity_cp", rules)
+        if mu <= 0:
+            raise _NotCalculated("the viscosity is not above 0")
+        area = selected_mm2 or base
+        for _ in range(1 if selected_mm2 else 50):
+            reynolds = q * 18800.0 * g / (mu * math.sqrt(area))
+            kv = 1.0 / (0.9935 + 2.878 / reynolds ** 0.5 + 342.75 / reynolds ** 1.5)
+            area = base / kv
+        inputs.append(_quoted(viscosity_fact, "viscosity_relieving"))
+    return {"area_mm2": base / kv, "inputs": inputs, "lower_bound": lower_bound,
+            "coefficients": f"p1 - p2 {dp:,.1f} kPa, G {g:.3f}, Kd {KD_LIQUID}, Kw 1.0, Kc 1.0, Kv {kv:.3f}",
+            "name": "sizing for liquid relief"}
+
+
+#: The calculations a checklist item may name (`rule.formula`). Formulas are
+#: code; which item runs which formula, on which field, is data.
+CALCULATIONS = {formula.__name__: formula for formula in (api520_gas_area, api520_liquid_area)}
+
+
+def evaluate_calc(item: dict, field: str, get, res, rules: dict) -> dict:
+    """One calculation item: the sheet's stated area (`field`, the selected
+    orifice area or the sheet's own required area) against the area the
+    formula calculates from the sheet's own inputs. Below it: NON_COMPLIANT,
+    with both numbers. At least it, with every input exact: COMPLIANT. At
+    least it, but the calculated area is only a lower bound: an engineer's
+    question, with why. An input missing: NOT_CALCULATED, with which."""
+    rule = item["rule"]
+    fact, _why = _one(get(field))
+    if fact is None or fact.get("is_blank"):
+        return {**res(NOT_CALCULATED, f"Not calculated: the {_pretty(field).lower()} to compare "
+                                      f"with is not given."), "calc": True}
+    try:
+        stated = _converted(fact, field, "area_mm2", rules)
+        calc = CALCULATIONS[rule["formula"]](get, rules, selected_mm2=stated)
+    except _NotCalculated as exc:
+        return {**res(NOT_CALCULATED, f"Not calculated: {exc.reason}.", fact), "calc": True}
+    area = calc["area_mm2"]
+    tolerance = float(rule.get("tolerance_percent") or 0)
+    floor = area * (1 - tolerance / 100.0)
+    source = item["source"]
+    basis = (f"the required effective area {area:,.1f} mm2 ({area / MM2_PER_IN2:.4f} in2) calculated by "
+             f"{source['standard']} {source['clause']} ({calc['name']}) from "
+             f"{', '.join(calc['inputs'])}; {calc['coefficients']}")
+    within = f" (within {tolerance:g}% for rounding)" if tolerance else ""
+    where = f"{_label(fact, field)} {_shown(fact)} (page {fact.get('page')})"
+    if stated < floor:
+        result = res(NON_COMPLIANT, f"{where} is below {basis}{within}.", fact)
+    elif calc["lower_bound"]:
+        result = res(NEEDS_ENGINEER_REVIEW,
+                     f"{where} is at least {basis}{within}, but that area is a lower bound: "
+                     f"{'; '.join(calc['lower_bound'])}. Engineer to check.", fact)
+    else:
+        result = res(COMPLIANT, f"{where} is at least {basis}{within}.", fact)
+    return {**result, "calculated_mm2": round(area, 3), "calc": True}
+
+
 # ---------------------------------------------------------------- store
 
 def store(review_run_id: str, submittal_id: str, results: list[dict], *,
@@ -690,7 +1051,9 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
     # a check that held adds no row (it would only pad every count).
     # "Does not apply" is not a comment either (#746): the condition's reason
     # is in the result, never a CRS row.
-    for r in (x for x in results if x["status"] not in (COMPLIANT, NOT_APPLICABLE)):
+    # NOT CALCULATED is not a comment either (R13): the inputs it lacked are
+    # asked for by their own `required` items.
+    for r in (x for x in results if x["status"] not in (COMPLIANT, NOT_APPLICABLE, NOT_CALCULATED)):
         status, detail = r["status"], r["detail"]
         absent = (r["rule_id"] in ("DS-M1", "DS-R1")
                   or (r.get("checklist") and r.get("fact_id") is None and not r.get("text_searched")))

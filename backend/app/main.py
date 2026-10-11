@@ -19,6 +19,8 @@ from . import comparison as comparison_mod
 from . import crs_export as crs_export_mod
 from . import crs_mapping as crs_mapping_mod
 from . import crs_numbers as crs_numbers_mod
+from . import crs_wording as crs_wording_mod
+from . import review_trace as review_trace_mod
 from . import engineer_feedback as engineer_feedback_mod
 from . import datasheets as datasheets_mod
 from . import disciplines as disciplines_mod
@@ -2177,6 +2179,34 @@ def review_dashboard(
     }
 
 
+@app.get("/api/reviews/runs/{review_run_id}/trace", response_model=schemas.ReviewTrace,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def review_run_trace(
+    review_run_id: str,
+    request: Request,
+    download: bool = Query(False, description="as a JSON file to save (the internal trace export)"),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """#791 parts 1-3: the run step by step - read, clean, equipment,
+    standards, checklist, rules, decide, coverage, CRS, code - each with its
+    status, counts, items and timing, and the run's AI use. The stored trace
+    only for a caller who may read every document it names; any other reader
+    of the run gets the steps built now under their own access. A run the
+    caller may not read is 404. Read only. `download=true` returns the same
+    as a file (internal: it carries document values; never for the contractor)."""
+    reject_unknown_params(request, {"download"})
+    trace = review_trace_mod.for_caller(review_run_id, scope)
+    if trace is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no review run with that id"))
+    trace = {k: v for k, v in trace.items() if k != "document_ids"}
+    if download:
+        return Response(content=json.dumps(trace, indent=2), media_type="application/json",
+                        headers={"Content-Disposition":
+                                 f'attachment; filename="review-trace-{review_run_id}.json"'})
+    return trace
+
+
 @app.get("/api/reviews/feedback", response_model=schemas.EngineerFeedback,
          responses=schemas.ERRORS_422)
 def review_feedback(
@@ -4212,6 +4242,50 @@ def _crs_scope_of(submittal_id: str) -> tuple[str, str]:
     return crs_numbers_mod.scope_of_document(submittal_id, number)
 
 
+#: R15 (#779): Final Resolution of a numbered machine draft (internal copy
+#: only; the issue copy never carries an unconfirmed row).
+DRAFT_NOT_ISSUED = "Draft (not issued)"
+
+
+def number_crs_rows(review_run_id: str, scope: access.AccessScope) -> int:
+    """R15 (#779): give every CRS row of a FINISHED review its permanent
+    number, so the Item No column always carries it and a re-run of the same
+    submittal gives the same comment the same number. Machine drafts are
+    numbered NOT ISSUED (`crs_numbers.assign(issued=False)`); a number an
+    engineer already made theirs stays issued. Called by the review job when
+    the run completes - a write path, never the export or preview.
+
+    NEVER FAILS THE REVIEW: the findings are stored when this runs; a failure
+    is logged (ids and counts only) and the rows stay unnumbered until the
+    next write. Returns how many rows carry a number afterwards."""
+    import logging
+    try:
+        run = submittal_review_mod.get_review_run(
+            review_run_id, allowed_document_ids=scope.allowed_document_ids)
+        if run is None:
+            return 0
+        rows, _meta, _name, _stamp = _crs_content(review_run_id, scope, "internal")
+        submittal_id = run["submittal_document_id"]
+        crs_scope, label = _crs_scope_of(submittal_id)
+        mine = [row for row in rows if row.get("crs_row_key")
+                and row.get("row_kind") != crs_mapping_mod.ROW_KIND_CARRIED_FORWARD]
+        if not mine:
+            return 0
+        drafts = [row for row in mine if not row.get("engineer_confirmed")]
+        if drafts:
+            crs_numbers_mod.assign(
+                crs_scope, label, [row["crs_row_key"] for row in drafts],
+                document_id=submittal_id, review_run_id=review_run_id,
+                snapshots={row["crs_row_key"]: row for row in drafts},
+                user_id=None, issued=False)
+        return len(crs_numbers_mod.lookup(crs_scope, [row["crs_row_key"] for row in mine]))
+    except Exception:  # noqa: BLE001 - see docstring: never fail a finished review
+        logging.getLogger(__name__).warning(
+            "crs numbers: numbering run %s failed; rows stay unnumbered", review_run_id,
+            exc_info=True)
+        return 0
+
+
 def _mint_crs_numbers(review_run_id: str | None, scope: access.AccessScope) -> None:
     """Give every CRS comment an engineer has made their own its permanent
     number (`crs_numbers`). Called by the WRITE routes that make a comment an
@@ -4220,7 +4294,8 @@ def _mint_crs_numbers(review_run_id: str | None, scope: access.AccessScope) -> N
 
     The rows are composed exactly as the export composes them, so the keys
     minted here are the keys the export looks up. An unconfirmed machine draft
-    gets no number: it is not a comment yet, and may never be issued.
+    is not ISSUED here: it was numbered (not issued) when its review finished
+    (`number_crs_rows`, R15), and confirming it issues that same number.
 
     NEVER FAILS THE CALLER'S SAVE. The engineer's decision is already stored
     when this runs; a failure here is logged and the numbers are minted by the
@@ -4422,13 +4497,19 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         if key in numbered:
             record = numbered[key]
             row["crs_ref"] = record["ref"]
+            if not record.get("issued", 1):
+                # R15 (#779): a MACHINE DRAFT'S number - printed in Item No so
+                # the comment is the same comment on every re-run, but not an
+                # engineer's: no confirmation carried, no status, no reply.
+                row["crs_status"] = DRAFT_NOT_ISSUED
+                continue
             row["crs_status"] = crs_numbers_mod.resolution_cell(record)
             row["crs_response"] = crs_numbers_mod.response_cell(record)
-            # A NUMBER IS AN ENGINEER'S CONFIRMATION, CARRIED. It is only ever
-            # minted for a comment an engineer made theirs, and the key is the
-            # comment's subject including the value the sheet states - so the
-            # same comment raised again by a re-run or on a resubmittal is the
-            # one already confirmed, and is issued as such.
+            # AN ISSUED NUMBER IS AN ENGINEER'S CONFIRMATION, CARRIED. It is
+            # only ever issued for a comment an engineer made theirs, and the
+            # key is the comment's subject including the value the sheet
+            # states - so the same comment raised again by a re-run or on a
+            # resubmittal is the one already confirmed, and is issued as such.
             row["engineer_confirmed"] = True
     # A DRAFT THE ENGINEER ALREADY REJECTED SAYS SO (audit leftover
     # 2026-09-30). A new run of the same submittal raises the same comment
@@ -4477,6 +4558,20 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
             "crs_status": crs_numbers_mod.resolution_cell(record),
             "crs_response": crs_numbers_mod.response_cell(record),
         })
+    # R26 STEP 8 (#763): THE AI'S WORDING, INTERNAL COPY ONLY. A rewrite the
+    # lock accepted when the review finished (`crs_wording`) prints in the "AI
+    # Review Comments" column beside the template of an UNCONFIRMED machine
+    # row. Never on the issue copy: there a row with AI text is a draft and is
+    # dropped (`crs_export`), and the contractor gets the template until an
+    # engineer makes the comment theirs. Never over an AI/web item's own
+    # draft, and never on a row an engineer confirmed (the words are theirs).
+    if copy == "internal":
+        worded = crs_wording_mod.stored(review_run_id)
+        for row in rows:
+            text = worded.get(row.get("crs_row_key") or "")
+            if (text and not row.get("engineer_confirmed")
+                    and not str(row.get("ai_review_comment") or "").strip()):
+                row["ai_review_comment"] = text
     # #633: THE PARTS THIS REVIEW COULD NOT CHECK, one list for every export. A
     # sheet for a run that failed, stopped, or left large parts unchecked must
     # never look like a complete review.
@@ -4523,6 +4618,25 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         "rejected_row_keys": meta_rejected_keys,
     }
     return rows, meta, submittal_name, stamp
+
+
+def word_crs_rows(review_run_id: str, scope: access.AccessScope) -> dict | None:
+    """R26 step 8 (#763): ask the model to word each machine CRS comment of a
+    FINISHED review like a reviewing engineer (`crs_wording.word_run`, which
+    keeps only rewrites its lock accepts). Called by the review job when the
+    run completes - a write path, never the export or preview.
+
+    NEVER FAILS THE REVIEW: the findings are stored when this runs; a failure
+    is logged (ids only) and the templates stay. Returns the run's AI-use
+    summary, or None when it could not run."""
+    import logging
+    try:
+        rows, _meta, _name, _stamp = _crs_content(review_run_id, scope, "internal")
+        return crs_wording_mod.word_run(review_run_id, rows)
+    except Exception:  # noqa: BLE001 - see docstring: never fail a finished review
+        logging.getLogger(__name__).warning(
+            "crs wording: run %s failed; templates kept", review_run_id, exc_info=True)
+        return None
 
 
 def _crs_standards(review_run_id: str, submittal_id: str,

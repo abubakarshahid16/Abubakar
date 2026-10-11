@@ -2067,6 +2067,31 @@ class ReviewFindingCreate(BaseModel):
     escalation_level: int = Field(default=0, ge=0, le=5)
 
 
+class ReviewTraceStep(BaseModel):
+    """#791: one step of a review run, as stored when the run finished."""
+
+    step: str
+    summary: str
+    status: str = "ok"
+    warning: str | None = None
+    counts: dict = {}
+    items: list[str] = []
+    timing: dict | None = None
+
+
+class ReviewTrace(BaseModel):
+    """#791 parts 1-3: a review run step by step - the ten steps, the run's AI
+    use, and whether this is the stored trace or one built now under the
+    caller's access."""
+
+    review_run_id: str
+    document: str | None
+    steps: list[ReviewTraceStep]
+    ai: dict = {}
+    source: str
+    stored_at: str | None = None
+
+
 class FeedbackRow(BaseModel):
     """R26 step 10: engineers' decisions on one standard's or one rule's
     findings. `precision` is "kept of decided" in words - never a percentage."""
@@ -2281,6 +2306,10 @@ class CrsPreviewRow(BaseModel):
     #: the internal review copy, with `comment` left empty. Empty on every
     #: other row, and the column is absent from the "Issue to contractor" copy.
     ai_review_comment: str = ""
+    #: R30: the chain behind the row (value and page read, clause, result,
+    #: why), printed in the internal copy's last column "Reasoning (internal)".
+    #: Always empty in the "Issue to contractor" copy.
+    reasoning: str = ""
 
 
 class CrsStandardRow(BaseModel):
