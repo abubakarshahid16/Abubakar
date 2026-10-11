@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 
 from . import claims, numparse
 
@@ -285,6 +286,56 @@ def cell_reading(cell: str) -> tuple[str, str | None] | None:
     if unit.lower() in _NOT_A_UNIT:
         return None
     return match.group("num").strip(), unit
+
+
+#: #617: a table cell holding a RANGE ("5-10", "5 - 10", "5 to 10 mm",
+#: "5–10"). Recorded as ONE requirement of this type with a low and a high
+#: bound; it is not a single number, so no matcher pairs it as one
+#: (`comparison.MATCHABLE_TYPES` does not list it).
+TABLE_RANGE = "table_range"
+RANGE_OPERATOR = "between"
+_RANGE_CELL = re.compile(
+    r"^\s*(?P<low>[-+]?\d[\d.,]*)(?P<sep>\s*(?:to|[-\u2012\u2013\u2014\u2015])\s*)"
+    r"(?P<high>[-+]?\d[\d.,]*)\s*"
+    r"(?P<unit>%|\u00b0\s?[A-Za-z]|[A-Za-z][A-Za-z0-9/\u00b2\u00b3\u00b5\u00b7.\-]{0,11}"
+    r"(?:\([A-Za-z]{1,4}\))?)?\s*$", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class CellRange:
+    low: float | None        # None for an ambiguous range
+    high: float | None
+    unit: str | None         # the unit written in the cell, if any
+    ambiguous: bool
+
+
+def cell_range(cell: str) -> CellRange | None:
+    """A range cell, or None for anything else.
+
+    "5-10", "5 - 10", "5 to 10" and an en dash are ranges. "5 -10" (a space
+    before the dash and none after) could be five and minus ten: AMBIGUOUS,
+    no bounds, an engineer decides. So is a range whose low end is above its
+    high end, and one whose ends numparse cannot read as single numbers.
+    """
+    text = numparse.normalise_text(cell or "")
+    match = _RANGE_CELL.match(text)
+    if match is None:
+        return None
+    unit = match.group("unit")
+    if unit is not None:
+        unit = re.sub(r"\s+", "", unit)
+        if unit.lower() in _NOT_A_UNIT:
+            return None
+    sep = match.group("sep")
+    # A dash with a space before it and none after reads as a sign on the
+    # second number; a signed second number is ambiguous either way.
+    ambiguous = ((sep.strip().lower() != "to" and sep[:1].isspace() and not sep[-1:].isspace())
+                 or match.group("high").startswith(("-", "+")))
+    low = numparse.parse_value(match.group("low"))
+    high = numparse.parse_value(match.group("high"))
+    if ambiguous or low is None or high is None or low > high:
+        return CellRange(None, None, unit, True)
+    return CellRange(low, high, unit, False)
 
 
 #: "Max.", "Maximum", "Min", "Minimum" as a WORD of a column header. A header

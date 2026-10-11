@@ -59,7 +59,17 @@ METHOD_REFERENCED = "referenced"          # 1. named in the datasheet
 METHOD_POSSIBLE = "possible_citation"     # 1.5 looks like a library number, unconfirmed (#702)
 METHOD_EQUIPMENT = "equipment_type"       # 2. mapped to the equipment
 METHOD_GOVERNING = "governing_standard"   # 2. governs this equipment type (#725 F5)
-METHOD_DISCIPLINE = "discipline"          # 3. discipline match
+#: RETIRED as a selection rule (#212): kept so stored rows that carry it stay
+#: readable. A standard's `discipline` is the committee that owns it ("Piping
+#: Standards Committee") and a submittal's is a broad category ("Mechanical"),
+#: so the two do not match - measured on a copy of the current library
+#: 2026-10-09: 178 of 179 standards with a discipline are committee-shaped, no
+#: submittal's equals any standard's, and 0 of 11,786 stored selection rows in
+#: 43 runs carry this method (the progress log records one earlier run where
+#: it did select). A mapping between the two would be a manual
+#: taxonomy (owner decision 2026-09-28: none), and since B5 a discipline match
+#: could not include a standard anyway.
+METHOD_DISCIPLINE = "discipline"          # 3. discipline match (retired, #212)
 METHOD_SERVICE = "service"                # 4. service / operating conditions
 METHOD_SEMANTIC = "semantic"              # 5. dense retrieval
 METHOD_PROJECT = "project"                # 6. contract / project requirement
@@ -1114,7 +1124,6 @@ def select(
         # After the classification match: a tie keeps the standard's own
         # equipment classification as the reason (both are included).
         governing,
-        _match_attribute(library, profile, "discipline", METHOD_DISCIPLINE),
         _match_attribute(library, profile, "service", METHOD_SERVICE),
         _match_attribute(library, profile, "project", METHOD_PROJECT),
         _match_semantic(submittal_document_id, library, allowed_document_ids),
