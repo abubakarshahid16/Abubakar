@@ -481,12 +481,13 @@ def _plain_status(status: dict) -> str:
     never a guess dressed as a result."""
     calls = status["calls_made"]
     call_word = "call" if calls == 1 else "calls"
+    local = f" The check {status['local_instead']}." if status.get("local_instead") else ""
     if status["complete"]:
         return (f"AI engineering check complete: {status['kept_items']} of "
-                f"{status['proposed_items']} proposed item(s) kept, over {calls} {call_word}.")
+                f"{status['proposed_items']} proposed item(s) kept, over {calls} {call_word}.{local}")
     return (f"AI engineering check incomplete - {status['reason']}. "
             f"{status['kept_items']} item(s) kept so far (at most {status['requested_items']} "
-            f"requested per call, {calls} {call_word} made).")
+            f"requested per call, {calls} {call_word} made).{local}")
 
 
 def _store_status(review_run_id: str, status: dict) -> None:
@@ -552,8 +553,15 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
     pages = datasheet_pages(submittal)
     held = _held_standards(review_run_id)
     fields = datasheet_fields(submittal)
+    local_instead: str | None = None
     if provider is None:
         provider = rp.get_provider("reasoning", step=STEP)
+        if isinstance(provider, rp.ClaudeProvider):
+            # #838: documents not approved for the cloud model -> the local
+            # model, said on the run. A budget refusal is NOT replaced.
+            local_instead = claude_approved.local_instead()
+            if local_instead:
+                provider = rp.OllamaProvider()
     max_output_tokens = settings.review_ai_check_max_output_tokens
     timeout_s = 240.0
     if isinstance(provider, rp.OllamaProvider):
@@ -620,6 +628,8 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
         "cost_usd": round(cost_total, 6),
         # R26 step 7 / AI-first rule 3: which engine and model ran it.
         "model": engine,
+        # #838: None, or why the local model ran in the cloud model's place.
+        "local_instead": local_instead,
     }
     status["plain"] = _plain_status(status)
     _store_status(review_run_id, status)
@@ -665,7 +675,7 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
                  finding["id"]))
     return {"ran": True, "reason": reason, "proposed": proposed_total, "kept": len(all_kept),
             "rejected": rejected, "cost_usd": round(cost_total, 6), "complete": complete,
-            "calls_made": calls_made}
+            "calls_made": calls_made, "local_instead": local_instead}
 
 
 def _item_identity(finding, action, page, section) -> tuple:

@@ -174,6 +174,32 @@ def refusal() -> tuple[str, str] | None:
     return None
 
 
+#: #838: what a review step says when it ran on the local model because its
+#: documents are not on the list. `{n}` and `{of}` are counts, never a title.
+LOCAL_INSTEAD = ("ran on the local model: {n} of {of} document(s) in its prompt are not approved "
+                 "for the cloud model")
+
+
+def local_instead() -> str | None:
+    """#838 (planner decision, 11 Oct): a review step whose documents are NOT
+    APPROVED runs on the local model instead of being refused - nothing leaves
+    the machine - and says so. Returns that sentence when the call the caller
+    is about to make would be refused as `NOT_APPROVED`, else None.
+
+    ONLY that refusal. Undeclared and unknown documents are faults of the
+    caller, and a budget refusal is the owner's cap: those stay refusals,
+    shown and never replaced. This asks the same question as `refusal()` and
+    opens no door: the choke point in `claude_spend.reserve_all` is untouched,
+    so a caller that ignored the answer would still be refused there."""
+    found = refusal()
+    if found is None or found[0] != NOT_APPROVED:
+        return None
+    ids = carried() or frozenset()
+    approved = approved_hashes()
+    missing = sum(1 for h in _hashes_of(ids).values() if h not in approved)
+    return LOCAL_INSTEAD.format(n=missing, of=len(ids))
+
+
 def sync_audit() -> bool:
     """Write an audit row when the list file's content changed since the last
     row (who = the file, what = how many entries per status and the list's own
