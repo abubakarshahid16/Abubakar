@@ -139,15 +139,21 @@ def build(review_run_id: str, scope) -> dict:
                 "cited standards not held" if missing else None,
         counts={"chosen": len(chosen), "cited_not_held": len(missing)}))
     # 5 CHECKLIST
+    from .datasheet_checks import is_draft_checklist
     checklist = [f for f in findings if f.get("origin") == "datasheet_check"]
     c_status = Counter(f.get("compliance_status") for f in checklist)
+    # #805 Stage A: results of a checklist nobody has signed off are counted
+    # and marked, so a "meets" from a DRAFT checklist reads as unconfirmed.
+    draft = sum(1 for f in checklist if is_draft_checklist(f.get("requirement")))
     steps.append(_step(
         "CHECKLIST",
         (f"{len(checklist)} results | " + " | ".join(
-            f"{label} {c_status.get(s, 0)}" for s, label in _DECISIONS[:4])) if checklist
+            f"{label} {c_status.get(s, 0)}" for s, label in _DECISIONS[:4])
+         + (f" | draft_checklist {draft} (not signed off)" if draft else "")) if checklist
         else "no checklist for this type",
-        counts=dict(c_status),
-        items=[f"{_short(f.get('matched_phrase') or f.get('requirement'), 30)} | "
+        counts={**dict(c_status), **({"draft_checklist": draft} if draft else {})},
+        items=[("[draft_checklist] " if is_draft_checklist(f.get("requirement")) else "")
+               + f"{_short(f.get('matched_phrase') or f.get('requirement'), 30)} | "
                f"value {_short(f.get('contractor_evidence_text'), 25)} | p{f.get('contractor_page') or '-'}"
                f" | {f.get('compliance_status')} | {_short(f.get('ai_rationale') or f.get('finding'), 60)}"
                for f in checklist]))
