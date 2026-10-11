@@ -137,6 +137,21 @@ export function WhyStandardApplies({ finding, entry }: {
           This run holds no record of why this standard was selected.
         </p>
       )}
+      <RequirementScope finding={finding} />
     </div>
+  );
+}
+
+/** R21: why THIS requirement applies (or not) here, from the run's own scope
+ *  ledger, verbatim, with who decided. Nothing when the run recorded none:
+ *  the standard-level reason above is then the only one there is. */
+function RequirementScope({ finding }: { finding: ReviewFinding }) {
+  const decision = finding.scope_decision;
+  if (!decision) return null;
+  return (
+    <p data-testid="requirement-scope" className="text-xs text-slateish-300">
+      This requirement: {decision.reason}
+      <span className="ml-1 text-slateish-500">(decided by {decision.decided_by})</span>
+    </p>
   );
 }

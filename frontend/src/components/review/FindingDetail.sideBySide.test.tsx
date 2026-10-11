@@ -147,3 +147,27 @@ describe("why this standard applies", () => {
     expect(screen.queryByTestId("why-standard-applies")).toBeNull();
   });
 });
+
+describe("why this requirement applies (R21, run ledger)", () => {
+  const decided = { state: "applies", reason_code: "applies", reason: "Applies: the sheet states a pump", decided_by: "code" };
+
+  it("prints the requirement's own reason and who decided, verbatim", () => {
+    render(<FindingDetail finding={finding({ scope_decision: decided } as Partial<ReviewFinding>)}
+      documents={[]} whyApplies={WHY} onChanged={vi.fn()} />);
+    expect(screen.getByTestId("requirement-scope"))
+      .toHaveTextContent("This requirement: Applies: the sheet states a pump(decided by code)");
+  });
+
+  it("is shown even when the run holds no standard-level record", () => {
+    render(<FindingDetail finding={finding({ scope_decision: decided } as Partial<ReviewFinding>)}
+      documents={[]} whyApplies={null} onChanged={vi.fn()} />);
+    expect(screen.getByTestId("why-standard-applies")).toHaveTextContent("holds no record");
+    expect(screen.getByTestId("requirement-scope")).toBeInTheDocument();
+  });
+
+  it("no ledger row shows no line, never an invented reason", () => {
+    render(<FindingDetail finding={finding({ scope_decision: null } as Partial<ReviewFinding>)}
+      documents={[]} whyApplies={WHY} onChanged={vi.fn()} />);
+    expect(screen.queryByTestId("requirement-scope")).toBeNull();
+  });
+});
