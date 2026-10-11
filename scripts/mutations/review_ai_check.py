@@ -52,7 +52,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              path=APP / "ai_engineering_check.py",
              anchor="    if not settings.review_ai_check_enabled:\n        return False,",
              replacement="    if False:\n        return False,",
-             target=_T, keyword="off_by_default_and_off_sends_nothing", tags=("privacy", "critical")),
+             target=_T, keyword="on_by_default_and_off_sends_nothing", tags=("privacy", "critical")),
     Mutation(id="M1037", phase=86, description="the route runs with the flag or Claude lane off",
              path=APP / "claude_api.py",
              anchor="    ok, why = ai_engineering_check.available()\n    if not ok:\n",

@@ -20,6 +20,8 @@ from . import crs_export as crs_export_mod
 from . import crs_mapping as crs_mapping_mod
 from . import crs_numbers as crs_numbers_mod
 from . import crs_wording as crs_wording_mod
+from . import review_trace as review_trace_mod
+from . import engineer_feedback as engineer_feedback_mod
 from . import datasheets as datasheets_mod
 from . import disciplines as disciplines_mod
 from . import extract as extract_mod
@@ -2175,6 +2177,52 @@ def review_dashboard(
         "needs_attention_reasons": reasons,
         "recent": recent,
     }
+
+
+@app.get("/api/reviews/runs/{review_run_id}/trace", response_model=schemas.ReviewTrace,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def review_run_trace(
+    review_run_id: str,
+    request: Request,
+    download: bool = Query(False, description="as a JSON file to save (the internal trace export)"),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """#791 parts 1-3: the run step by step - read, clean, equipment,
+    standards, checklist, rules, decide, coverage, CRS, code - each with its
+    status, counts, items and timing, and the run's AI use. The stored trace
+    only for a caller who may read every document it names; any other reader
+    of the run gets the steps built now under their own access. A run the
+    caller may not read is 404. Read only. `download=true` returns the same
+    as a file (internal: it carries document values; never for the contractor)."""
+    reject_unknown_params(request, {"download"})
+    trace = review_trace_mod.for_caller(review_run_id, scope)
+    if trace is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no review run with that id"))
+    trace = {k: v for k, v in trace.items() if k != "document_ids"}
+    if download:
+        return Response(content=json.dumps(trace, indent=2), media_type="application/json",
+                        headers={"Content-Disposition":
+                                 f'attachment; filename="review-trace-{review_run_id}.json"'})
+    return trace
+
+
+@app.get("/api/reviews/feedback", response_model=schemas.EngineerFeedback,
+         responses=schemas.ERRORS_422)
+def review_feedback(
+    request: Request,
+    since: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}",
+                              description="only findings created on or after this ISO date"),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """R26 step 10: engineers' accept / edit / reject decisions on review
+    findings, per standard and per rule, with the rules engineers keep
+    rejecting listed as candidates for a checklist or guard change. Read only;
+    only the findings of documents the caller may read are counted, and a
+    standard they may not read is not named. Nothing changes automatically."""
+    reject_unknown_params(request, {"since"})
+    return engineer_feedback_mod.report(
+        allowed_document_ids=scope.allowed_document_ids, since=since)
 
 
 @app.get("/api/reviews/runs", response_model=schemas.ReviewRunList,
