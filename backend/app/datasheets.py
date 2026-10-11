@@ -2998,7 +2998,13 @@ def _write_ai_reading(conn, ai_run: dict, stats: dict, rule_rows: list[dict], *,
     decisions = datasheet_ai.merge_readings(rule_rows, ai_facts)
 
     def provenance_box(fact: dict, **extra) -> str:
+        # `quote_on_page`: every reading that reaches here passed
+        # `claude_datasheet.accept` - its quote is on THIS page, the value and
+        # the label's main word are in the quote, the unit is one `claims`
+        # knows, and two runs agreed. Written by the code that checked, read
+        # by `comparison.low_trust_reason` (planner decision 2026-10-11).
         return json.dumps({"reader": datasheet_ai.READER, "engine": engine,
+                           "model": ai_run.get("model"), "quote_on_page": True,
                            "quote": fact.get("quote"), "kind": fact.get("kind"),
                            **extra}, sort_keys=True)
 

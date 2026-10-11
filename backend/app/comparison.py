@@ -499,7 +499,26 @@ def low_trust_reason(fact: dict | None) -> str | None:
         return (f"the value was read with validation state '{state}' "
                 "(a low-confidence or conflicting reading)")
     if (fact.get("extraction_method") or "").strip().lower() == "model":
+        # PLANNER DECISION 2026-10-11 (09:11 UTC): an AI-read value whose
+        # quote the code found on that page is a normal fact and decides like
+        # a code-read one. Any other model-read value (no proved quote: the
+        # vision reader, an older reading) still waits for an engineer; a
+        # reading that CONFLICTS with the code readers is caught above.
+        if ai_quote_proved(fact):
+            return None
         return "the value was read by the model reader and no engineer has confirmed it"
+    return None
+
+
+def ai_quote_proved(fact: dict | None) -> dict | None:
+    """The AI reader's provenance (`engine`, `model`) when this fact was read
+    by `datasheet_ai` and the code proved its quote on the page; else None."""
+    try:
+        box = json.loads((fact or {}).get("bbox") or "{}")
+    except (TypeError, ValueError):
+        return None
+    if isinstance(box, dict) and box.get("reader") == "datasheet_ai" and box.get("quote_on_page") is True:
+        return box
     return None
 
 
@@ -535,9 +554,17 @@ def compare(requirement: dict, fact: dict | None, *,
             submittal_facts: list[dict] | None = None) -> dict:
     """`_compare`'s verdict, with a breach on an untrusted value held for an
     engineer (`_hold_low_trust_breach`). Every caller gets the guard."""
-    return _hold_low_trust_breach(
+    verdict = _hold_low_trust_breach(
         _compare(requirement, fact, subject=subject, submittal_facts=submittal_facts),
         fact)
+    box = ai_quote_proved(fact) if fact and not fact.get("confirmed_by") else None
+    if box and verdict.get("status") in _VERDICTS_HELD_ON_LOW_TRUST:
+        # THE TRACE SAYS THE SOURCE: an AI-read value decided this verdict.
+        who = (box.get("engine") or "AI") + (f" ({box['model']})" if box.get("model") else "")
+        verdict = {**verdict, "rationale": (
+            f"{verdict.get('rationale') or ''} (value read by the AI reader {who}; "
+            f"its quote was found on page {fact.get('page')})")}
+    return verdict
 
 
 def _compare(requirement: dict, fact: dict | None, *,

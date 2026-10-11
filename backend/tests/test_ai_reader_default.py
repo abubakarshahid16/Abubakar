@@ -163,3 +163,53 @@ def test_the_review_line_names_the_reader_and_the_code_only_pages():
         f"AI reader ollama (m1) read 3 of 5 page(s); code readers only on page(s) 2, 4: {slow}.")
     assert absence.split_lines({"reader": {"engine": "off", "pages": 2}})[0].startswith(
         "Datasheet read by the code readers only")
+
+
+# ---------------------------------------------------------------- a proved AI value decides
+
+def _model_fact(**over):
+    base = {"id": "f1", "field_name": "design pressure", "field_label": "Design pressure",
+            "raw_value": "8.5", "raw_unit": "bar", "unit": "bar", "normalized_value": 0.85,
+            "normalized_unit": "MPa", "page": 2, "extraction_method": "model", "is_blank": 0,
+            "bbox": '{"reader": "datasheet_ai", "engine": "ollama", "model": "m1", "quote_on_page": true}'}
+    return {**base, **over}
+
+
+def test_an_ai_value_whose_quote_is_on_the_page_is_trusted_like_a_code_read_one():
+    """Planner decision 2026-10-11 (09:11 UTC)."""
+    from app import comparison
+    assert comparison.low_trust_reason(_model_fact()) is None
+    # any other model-read value still waits for an engineer
+    assert comparison.low_trust_reason(_model_fact(bbox=None)) is not None
+    assert comparison.low_trust_reason(_model_fact(bbox='{"reader": "vision_reader"}')) is not None
+    assert comparison.low_trust_reason(
+        _model_fact(bbox='{"reader": "datasheet_ai", "quote_on_page": false}')) is not None
+    # and a reading that conflicts with the code readers is never trusted
+    assert comparison.low_trust_reason(_model_fact(validation_state="conflict")) is not None
+
+
+def test_a_verdict_an_ai_value_decided_says_so():
+    from app import comparison
+    requirement = {"id": "r1", "requirement_type": "numeric_limit", "subject": "design pressure",
+                   "requirement_text": "The design pressure shall not exceed 10 bar.",
+                   "operator": "<=", "raw_value": "10", "raw_unit": "bar",
+                   "normalized_value": 1.0, "normalized_unit": "MPa"}
+    verdict = comparison.compare(requirement, _model_fact())
+    assert verdict["status"] == comparison.COMPLIANT
+    assert "value read by the AI reader ollama (m1); its quote was found on page 2" in verdict["rationale"]
+    held = comparison.compare(requirement, _model_fact(bbox=None))
+    assert held["status"] == comparison.NEEDS_ENGINEER_REVIEW
+
+
+def test_an_ai_only_fact_is_written_with_its_proof_and_its_model(tmp_path, monkeypatch):
+    import json as _json
+    free = {"field": "Paint system", "value": "Two coat epoxy", "unit": None,
+            "quote": "Paint system Two coat epoxy", "kind": "offered"}
+    _use(monkeypatch, FakeModel([free]))
+    doc = _ingest(_datasheet_pdf(tmp_path / "d.pdf", ROWS))
+    datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
+    facts = [f for f in datasheets.list_facts(doc, allowed_document_ids=frozenset({doc}))
+             if f["extraction_method"] == "model"]
+    assert facts, "the AI-only fact was not written"
+    box = _json.loads(facts[0]["bbox"])
+    assert box["reader"] == "datasheet_ai" and box["quote_on_page"] is True and "model" in box

@@ -69,8 +69,10 @@ STEP = "datasheet-ai-reader"
 READER = "datasheet_ai"
 
 #: An AI-only fact is written exactly as `claude_datasheet.store_facts` writes
-#: one: `extraction_method="model"` (so `comparison.low_trust_reason` holds
-#: any verdict resting on it until an engineer confirms it) at confidence 0.5.
+#: one: `extraction_method="model"` at confidence 0.5. Since the planner
+#: decision of 2026-10-11 it DECIDES like a code-read fact, because its quote
+#: was proved on the page (`quote_on_page` in its provenance,
+#: `comparison.ai_quote_proved`); the finding says an AI-read value decided it.
 #: The ENGINE is recorded in the fact's provenance (`bbox`), not in the method,
 #: so every existing reader of "model" keeps working.
 EXTRACTION_METHOD = claude_datasheet.EXTRACTION_METHOD
