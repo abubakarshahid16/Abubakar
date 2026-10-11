@@ -2067,6 +2067,32 @@ class ReviewFindingCreate(BaseModel):
     escalation_level: int = Field(default=0, ge=0, le=5)
 
 
+class FeedbackRow(BaseModel):
+    """R26 step 10: engineers' decisions on one standard's or one rule's
+    findings. `precision` is "kept of decided" in words - never a percentage."""
+
+    name: str
+    accepted: int
+    edited: int
+    rejected: int
+    pending: int
+    kept: int
+    decided: int
+    precision: str
+    note: str | None = None
+
+
+class EngineerFeedback(BaseModel):
+    """R26 step 10 (#763, R4 #768): what engineers' accept / edit / reject
+    decisions say about the review's comments, within the caller's grants."""
+
+    boundary: str
+    totals: FeedbackRow
+    by_standard: list[FeedbackRow]
+    by_rule: list[FeedbackRow]
+    candidates: list[FeedbackRow]
+
+
 class ReviewFindingUpdate(BaseModel):
     #: Owner order section 3: the engineer's own wording of the comment.
     #: Saving it also confirms the comment under the caller's name.
