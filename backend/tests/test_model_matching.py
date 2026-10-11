@@ -607,6 +607,7 @@ def test_a_model_proposal_a_refusal_rule_refuses_is_not_used(stub, monkeypatch):
 
     assert "shell design pressure" in seen                 # the proposal was checked
     assert result["model_matches"] == 0
+    assert result["rule_refusals"].get(match_rules.QUALIFIER) == 1      # counted by rule
     found = result["findings"][0]
     assert found["match_method"] != comparison.METHOD_MODEL_CHOICE
     assert f"{comparison.MODEL_REFUSED} ({match_rules.QUALIFIER})" in found["ai_rationale"]
