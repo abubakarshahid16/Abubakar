@@ -70,3 +70,24 @@ def test_the_answer_cell_carries_its_box_and_the_labels_box():
     with pymupdf.open(str(DATA / "ds01_pump_ruled.pdf")) as doc:
         row = next(r for r in g.read_page_rows(doc[0]) if r["label"] == "Rated capacity")
     assert row["bbox"] and row["label_bbox"] and row["bbox"][0] > row["label_bbox"][0]
+
+
+def test_the_header_stops_at_the_first_row_that_already_answers():
+    """A row of values WITH UNITS under a real header row is data, not a second
+    header row: it was walked over (it holds no two plain numbers) and its
+    values were glued to every column name - 14 extra fields on this sheet."""
+    table = _tables("ds04_control_valve_req_off.pdf")[0]
+    assert table["header_rows"] == [0] and table["labels"] == ["Description", "Required", "Offered"]
+    assert table["headerless"] is False
+    rows = dict(_table_rows("ds04_control_valve_req_off.pdf"))
+    assert rows["Maximum flow Required"] == "150 m3/h"            # the row that used to be a header
+    assert rows["Valve Cv Offered"] == "210"
+    assert not [label for label in rows if "150 m3/h" in label], sorted(rows)
+
+
+def test_a_schedule_table_keeps_its_header_rows():
+    """The rule only moves the body start UP to an answer row; a header row
+    names columns and states no value, so a multi-row schedule header stays."""
+    gutter: set[int] = set()
+    assert not g._states_a_value_beside_a_label(["Mark", "Size", "Rating", "Service"], gutter)
+    assert not g._states_a_value_beside_a_label(["Nozzle", "in", "class", ""], gutter)

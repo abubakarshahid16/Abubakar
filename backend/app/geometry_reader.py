@@ -349,7 +349,21 @@ def _structure(table: Any, *, page_no: int, table_id: str, strategy: str,
                       None)
     title_rows: list[int] = []
     headerless = False
+    answer_first = False
     if first_data is not None:
+        # THE HEADER STOPS AT THE FIRST ROW THAT ALREADY ANSWERS (R27, #504).
+        # "Data-like" above means a tag or two PLAIN numbers; a row of values
+        # WITH UNITS ("Maximum flow | 150 m3/h | 150 m3/h") is neither, so it
+        # was walked over as a second header row and its values were glued to
+        # every column name ("Valve Cv Required 150 m3/h"): 14 extra fields on
+        # the invented Required/Offered sheet. An answer row above the first
+        # data-like row is where the body starts.
+        earlier = next((i for i in range(first_data)
+                        if not _is_empty(texts[i], gutter)
+                        and not _is_title_row(rects[i], texts[i], gutter, x_left, x_right)
+                        and _states_a_value_beside_a_label(texts[i], gutter)), None)
+        if earlier is not None:
+            first_data, answer_first = earlier, True
         # HEADER = the non-title rows directly above the first data-like row
         # (empty rows on the way are skipped, never kept). Walking up stops at
         # the first title row; it and everything above it is preamble and is
@@ -367,6 +381,10 @@ def _structure(table: Any, *, page_no: int, table_id: str, strategy: str,
             rule = (f"none: {len(header)} rows above the first data-like row "
                     f"exceed MAX_HEADER_ROWS={MAX_HEADER_ROWS}")
             header, title_rows, body_start = [], [], nrows
+        elif answer_first and not header:
+            # No row above the first answer: a label/value table (as below).
+            rule = "none: the first row states a value (a label/value table)"
+            headerless = True
     else:
         # No data-like row: the first non-empty non-title row is the header.
         rule = "fallback: first non-title row"

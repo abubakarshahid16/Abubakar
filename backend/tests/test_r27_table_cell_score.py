@@ -94,13 +94,17 @@ def test_the_layout_readers_cell_score_does_not_fall():
     cells right in 7 invented files, 0 read wrong, 16 taken as column headers
     (several were first DATA rows of a two-column table), 11 missed. With
     label/value tables read as headerless (`test_r27_label_value_tables.py`):
-    150 right, 6 real header cells, 6 missed. Raise the floor when the
-    reader improves; never lower it without saying why."""
+    150 right, 6 real header cells, 6 missed. With the header stopping at the
+    first row that already answers: 153 right, 9 header cells (the three
+    real header rows of three files, three cells each) and NOTHING missed -
+    every keyed cell is either read right or is a genuine header. Raise the
+    floor when the reader improves; never lower it without saying why."""
     total = score.score_all()["total"]
     assert total["cells"] == 162
     assert total["wrong"] == 0, "a cell was read with the wrong text"
-    assert total["right"] >= 150, f"the layout reader's cell score fell: {total}"
-    assert total["header"] <= 6, f"a data row was taken as a header again: {total}"
+    assert total["right"] >= 153, f"the layout reader's cell score fell: {total}"
+    assert total["header"] <= 9, f"a data row was taken as a header again: {total}"
+    assert total["missed"] == 0, f"a cell is no longer found: {total}"
     assert total["extra"] == 0
 
 
