@@ -478,8 +478,8 @@ def test_with_the_claude_lane_off_it_runs_on_the_local_model(world, monkeypatch)
     review_jobs._ai_check(run, scope, ["API 610"])
     assert len(transport.calls) == 1
     body, timeout = transport.calls[0]
-    # its own timeout and the smaller output cap: a review is never held long
-    assert timeout == 77.0 and body["options"]["num_predict"] == aic.LOCAL_MAX_OUTPUT_TOKENS
+    # its own timeout and a small output cap per page (#844): a review is never held long
+    assert timeout == 77.0 and body["options"]["num_predict"] == aic.LOCAL_PAGE_OUTPUT_TOKENS
     assert len(_ai_rows(run)) == 1
     status = aic.ai_check_status(run, allowed_document_ids=scope)
     assert status["model"] == "ollama:local-test:1b" and status["complete"] is True
@@ -491,7 +491,10 @@ def test_a_local_model_that_times_out_is_a_warning_on_the_run_not_a_failed_revie
     _local(monkeypatch, _Transport(raises=TimeoutError("slow")))
     review_jobs._ai_check(run, scope, [])
     status = aic.ai_check_status(run, allowed_document_ids=scope)
-    assert status["complete"] is False and "the model call failed" in status["reason"]
+    # #844: the page that timed out is counted against the pages asked, and named
+    assert status["complete"] is False and status["reason"].startswith(
+        "1 of 1 page(s) were not checked on the local model: 1 timed out after ")
+    assert status["local_pages"]["timed_out"] == [1]
     assert _ai_rows(run) == []
 
 

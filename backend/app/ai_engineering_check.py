@@ -105,6 +105,20 @@ MAX_TEXT_CHARS = 600
 MAX_OUTPUT_TOKENS = 4000
 #: The local model's output cap (R26 step 7): about 12 compact items.
 LOCAL_MAX_OUTPUT_TOKENS = 2000
+#: #844 THE LOCAL MODEL GETS SMALL CALLS: ONE DATASHEET PAGE EACH. Measured
+#: on copies of three real sheets (F1 for #842): the whole-sheet packet is
+#: 30,000 to 60,000 characters - far past the local model's context window -
+#: and all three runs timed out at 300 s with nothing. So, for the local
+#: engine only, each call carries one page, that page's fields and a capped
+#: clause list, and asks for a few items. The caps are sizes, not guesses
+#: about content: what does not fit is cut and the run says how many pages
+#: it asked. The Claude lane keeps its one whole-sheet call.
+LOCAL_PAGE_CHARS = 3000
+LOCAL_FIELDS_PER_PAGE = 40
+LOCAL_CLAUSES_PER_STANDARD = 6
+LOCAL_STANDARDS = 12
+LOCAL_ITEMS_PER_PAGE = 3
+LOCAL_PAGE_OUTPUT_TOKENS = 500
 #: At most this many Claude calls per run: one first attempt and one retry
 #: for whatever a truncated first reply left uncovered. Never more - a run
 #: that keeps retrying is a budget leak, not a more complete answer.
@@ -129,6 +143,7 @@ class Reason(Enum):
     QUOTE_NOT_ON_PAGE = "quote_not_on_page"
     PASS_FAIL_WORD = "pass_fail_word"
     TOO_LONG = "too_long"
+    PAGE_NOT_ASKED = "page_not_the_one_asked"
 
 
 SCHEMA = {
@@ -224,6 +239,100 @@ def build_prompt(fields: list[dict], pages: dict[int, str], cited: list[str],
     for page, text in pages.items():
         lines.append(f"--- page {page} ---\n{text[:MAX_PAGE_CHARS]}")
     return "\n".join(lines)[:MAX_PROMPT_CHARS]
+
+
+def build_local_prompt(page: int, text: str, fields: list[dict], cited: list[str],
+                       held: dict[str, list[str]]) -> str:
+    """#844: the local model's prompt - ONE datasheet page, the fields read
+    from that page, and a capped list of the standards and clauses it may
+    name. Everything is cut to a fixed size, so the packet fits the local
+    context window whatever the sheet."""
+    lines = ["STANDARDS THE DATASHEET CITES (names only):"]
+    lines += [f"- {name}" for name in cited[:LOCAL_STANDARDS]] or ["- (none)"]
+    lines.append("\nHELD STANDARDS AND THE CLAUSES YOU MAY CITE:")
+    lines += [f"- {name}: {', '.join(clauses[:LOCAL_CLAUSES_PER_STANDARD]) or '(no clause)'}"
+              for name, clauses in list(held.items())[:LOCAL_STANDARDS]] or ["- (none: cite no clause)"]
+    lines.append(f"\nFIELDS READ FROM PAGE {page} (page | field | value | unit):")
+    lines += [f"p{f['page']} | {f['field']} | {f['value'] or ''} | {f['unit'] or ''}"
+              for f in fields[:LOCAL_FIELDS_PER_PAGE]] or ["(none)"]
+    lines.append(f"\nTHIS CALL IS ABOUT PAGE {page} ONLY. At most {LOCAL_ITEMS_PER_PAGE} items, "
+                 f"each citing page {page}. If nothing is worth raising, answer with no items.")
+    lines.append(f"\nDATASHEET PAGE:\n--- page {page} ---\n{text[:LOCAL_PAGE_CHARS]}")
+    return "\n".join(lines)
+
+
+def _timed_out(call_failed: str) -> bool:
+    return "timed out" in call_failed.lower() or "timeout" in call_failed.lower()
+
+
+def _local_page_calls(provider, fields: list[dict], pages: dict[int, str], cited: list[str],
+                      held: dict[str, list[str]], timeout_s: float,
+                      all_kept: list[dict], rejected: dict[str, int]) -> dict:
+    """#844: the check on the LOCAL model, one page per call. Items are
+    gated by the same `_gate_items` as every other call, and an item must
+    cite the page it was asked about. A page whose call times out or fails is
+    COUNTED AND NAMED on the run, never asked again; pages left when the
+    run's time is spent are named too."""
+    import time
+    deadline = time.monotonic() + float(settings.review_ai_check_local_max_seconds)
+    asked = [p for p, text in pages.items() if (text or "").strip()]
+    out = {"pages": len(asked), "done": [], "timed_out": [], "failed": [], "not_tried": [],
+           "calls_made": 0, "proposed": 0, "engine": None}
+    for page in asked:
+        if time.monotonic() >= deadline:
+            out["not_tried"].append(page)
+            continue
+        prompt = build_local_prompt(page, pages[page], [f for f in fields if f.get("page") == page],
+                                    cited, held)
+        response, call_failed = _call(provider, _local_packet(prompt, timeout_s))
+        out["calls_made"] += 1
+        if call_failed is not None:
+            out["timed_out" if _timed_out(call_failed) else "failed"].append(page)
+            continue
+        out["engine"] = f"{response.provider}:{response.model_tag}"
+        items = None if response.schema_errors else parse(response.text)
+        if items is None and response.truncated:
+            items = parse_partial(response.text)
+        if items is None:
+            rejected[Reason.MALFORMED.value] = rejected.get(Reason.MALFORMED.value, 0) + 1
+            out["failed"].append(page)
+            continue
+        items = items[:LOCAL_ITEMS_PER_PAGE]
+        out["proposed"] += len(items)
+        on_page = [i for i in items if isinstance(i, dict) and i.get("page") == page]
+        if len(on_page) < len(items):
+            key = Reason.PAGE_NOT_ASKED.value
+            rejected[key] = rejected.get(key, 0) + len(items) - len(on_page)
+        _gate_items(on_page, pages, held, cited, all_kept, rejected)
+        out["done"].append(page)
+    return out
+
+
+def _local_packet(prompt: str, timeout_s: float):
+    from . import reasoning_provider as rp
+    return rp.Packet(prompt=prompt, system=SYSTEM, num_ctx=settings.num_ctx,
+                     num_predict=LOCAL_PAGE_OUTPUT_TOKENS, json_schema=SCHEMA, step=STEP,
+                     prompt_version=PROMPT_VERSION + "+local-page", timeout_s=timeout_s)
+
+
+def _local_reason(local: dict, timeout_s: float) -> str | None:
+    """Why the local run is not complete, with every count against its
+    total - or None when every page was asked and answered."""
+    left = len(local["timed_out"]) + len(local["failed"]) + len(local["not_tried"])
+    if not left:
+        return None
+    parts = []
+    if local["timed_out"]:
+        parts.append(f"{len(local['timed_out'])} timed out after {timeout_s:.0f} s "
+                     f"(page {', '.join(map(str, local['timed_out']))})")
+    if local["failed"]:
+        parts.append(f"{len(local['failed'])} gave no usable answer "
+                     f"(page {', '.join(map(str, local['failed']))})")
+    if local["not_tried"]:
+        parts.append(f"{len(local['not_tried'])} not asked because the run's time was spent "
+                     f"(page {', '.join(map(str, local['not_tried']))})")
+    return (f"{left} of {local['pages']} page(s) were not checked on the local model: "
+            + "; ".join(parts))
 
 
 # ------------------------------------------------------------------ gate
@@ -581,7 +690,17 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
     reason: str | None = None
     covered: list[str] = []
 
-    for call_index in range(MAX_CALLS):
+    local_pages: dict | None = None
+    if isinstance(provider, rp.OllamaProvider):
+        # #844: the local model is asked one page at a time.
+        local_pages = _local_page_calls(provider, fields, pages, cited, held, timeout_s,
+                                        all_kept, rejected)
+        calls_made, proposed_total = local_pages["calls_made"], local_pages["proposed"]
+        engine = local_pages["engine"]
+        reason = _local_reason(local_pages, timeout_s)
+        complete = reason is None
+
+    for call_index in range(0 if local_pages is not None else MAX_CALLS):
         prompt = build_prompt(fields, pages, cited, held,
                               covered=covered if call_index else None)
         response, call_failed = _call(provider, rp.Packet(
@@ -620,7 +739,7 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
         "ran": True,
         "complete": complete,
         "calls_made": calls_made,
-        "requested_items": MAX_ITEMS,
+        "requested_items": LOCAL_ITEMS_PER_PAGE if local_pages is not None else MAX_ITEMS,
         "proposed_items": proposed_total,
         "kept_items": len(all_kept),
         "rejected": dict(rejected),
@@ -630,6 +749,10 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
         "model": engine,
         # #838: None, or why the local model ran in the cloud model's place.
         "local_instead": local_instead,
+        # #844: None on the Claude lane; on the local model, pages asked and
+        # what became of each (page numbers only).
+        "local_pages": None if local_pages is None else {
+            k: local_pages[k] for k in ("pages", "done", "timed_out", "failed", "not_tried")},
     }
     status["plain"] = _plain_status(status)
     _store_status(review_run_id, status)
