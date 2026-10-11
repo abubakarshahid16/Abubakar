@@ -43,6 +43,7 @@ import uuid
 from datetime import datetime, timezone
 
 import json
+from pathlib import Path
 from contextvars import ContextVar
 
 from . import (blank_markers, claims, datasheet_inputs, numparse, orphan_guard, page_ledger,
@@ -102,6 +103,15 @@ _BARE_NUMBER = re.compile(r"[-+]?\d[\d.,]*")
 #: "(Note - 3)" stay remainders.
 _REFERENCE_PARENTHETICAL = re.compile(
     r"^\(\s*(?:ga|g|gauge|a|abs|absolute)\s*\)$", re.IGNORECASE)
+
+#: A trailing note reference with no brackets - "5200 kg/h Note – 3",
+#: "Notes 2 & 4". It points at the sheet's notes; it is not prose after the
+#: number, and refusing it lost the required relieving capacity (planner
+#: 2026-10-11, the reader job). Only "note(s)" and note numbers: anything
+#: else after the number still means the cell was a sentence.
+_NOTE_REFERENCE = re.compile(
+    r"^notes?\s*(?:no\.?\s*)?[-–—:.]?\s*\d{1,3}(?:\s*(?:[,&/-]|and)\s*\d{1,3})*\.?$",
+    re.IGNORECASE)
 
 #: How many pages a label must appear on before it is page furniture.
 #:
@@ -267,6 +277,62 @@ def states_a_value(value: str | None) -> bool:
                 and not is_designation_value(value))
 
 
+_CHECK_RULES: dict | None = None
+
+
+def named_field_role(label: str | None) -> tuple[str, str] | None:
+    """`(role, kind)` when the reference data names this label as an
+    equipment field - a role of `reference/datasheet_checks.json`, matched
+    the way the checklist matches a fact (`datasheet_checks.role_of`) - else
+    None. Labels as DATA, one home: the checklist and the reader agree on
+    what a field is called (planner 2026-10-11, the reader job)."""
+    global _CHECK_RULES
+    if not (label or "").strip():
+        return None
+    from . import datasheet_checks
+    if _CHECK_RULES is None:
+        _CHECK_RULES = datasheet_checks.load_rules()
+    role = datasheet_checks.role_of(normalise_field_name(label), _CHECK_RULES)
+    return (role, _CHECK_RULES["roles"][role].get("kind") or "") if role else None
+
+
+def states_a_named_text_value(label: str | None, value: str | None) -> bool:
+    """Does a free-text cell state the value of a TEXT field the reference
+    data names ("Valve type": "Balanced bellows", "Body": a material)?
+
+    `states_a_value` refuses free text, because "Prepared by: A. Engineer"
+    has the shape of a filled field and states nothing (audit 69). That rule
+    also threw away every answer the checklist reads as words - valve type,
+    fluid, body, spring and bellows materials - and the review then called
+    them "on the sheet but not read" (#764's to-do list). A label the
+    reference data names as a text field is a field, not a caption, so its
+    words are its value. A blank or empty cell is still no value, and a
+    label the data does not name is gated exactly as before."""
+    named = named_field_role(label)
+    if named is None or named[1] != "text":
+        return False
+    text = (value or "").strip()
+    if not text or not re.search(r"[A-Za-z]", text) or is_blank_value(text)[0]:
+        return False
+    # A COLUMN HEADER IS NOT AN ANSWER. Measured on a pump sheet (F1,
+    # 2026-10-11): a nozzle table's header row read as the field "Type"
+    # with a header word as its value. The header words are data
+    # (`field_synonyms.json` nozzle_attributes).
+    return normalise_field_name(text) not in _column_header_words()
+
+
+_HEADER_WORDS: frozenset[str] | None = None
+
+
+def _column_header_words() -> frozenset[str]:
+    global _HEADER_WORDS
+    if _HEADER_WORDS is None:
+        from .field_links import SYNONYMS_PATH
+        data = json.loads(SYNONYMS_PATH.read_text(encoding="utf-8"))
+        _HEADER_WORDS = frozenset(w.lower() for w in data.get("nozzle_attributes") or [])
+    return _HEADER_WORDS
+
+
 def furniture_labels(pairs_by_page: dict[int, list[tuple[str, str]]],
                      *, threshold: int = FURNITURE_PAGE_THRESHOLD) -> set[str]:
     """Normalised label names that repeat across `threshold` or more pages.
@@ -321,6 +387,11 @@ def furniture_labels(pairs_by_page: dict[int, list[tuple[str, str]]],
     stripped. That is the accepted cost of the rule; it is a smaller loss than
     the whole form, and it is measured in
     docs/cold-evaluation-psv-2026-09-19.md rather than guessed at.
+
+    NARROWED 2026-10-11 (the reader job): a label the reference data names as
+    a field (`named_field_role`, the checklist's roles) is never furniture, so
+    the residual now holds for UNNAMED labels only - `Body: <one material>` on
+    every valve is kept; `Lifting lever: Required` is still stripped.
     """
     pages_per_label: dict[str, set[int]] = {}
     answered_pages: dict[str, set[int]] = {}
@@ -347,6 +418,13 @@ def furniture_labels(pairs_by_page: dict[int, list[tuple[str, str]]],
     furniture = set()
     for name, pages in pages_per_label.items():
         if len(pages) < threshold:
+            continue
+        # A FIELD THE REFERENCE DATA NAMES IS NOT FURNITURE (planner
+        # 2026-10-11): a title block is not called "Body" or "Valve type".
+        # This closes the residual below for named fields only - `Body:
+        # <one material>` on every valve of a one-valve-per-page sheet was
+        # stripped as a header. An unnamed label is counted as before.
+        if named_field_role(name) is not None:
             continue
         distinct = len(answers_per_label[name])
         answered = len(answered_pages[name])
@@ -1913,7 +1991,7 @@ def measure_value(raw: str) -> tuple[str | None, str | None, claims.Measurement 
     # the few that carry a digit (m3, g/m2, dB(A)) are in the table already.
     if unit and _looks_like_an_identifier(unit):
         return None, None, None
-    if remainder and not remainder.startswith("("):
+    if remainder and not remainder.startswith("(") and not _NOTE_REFERENCE.match(remainder):
         return None, None, None
     return value, unit, claims.normalise(value, unit or "")
 
@@ -2018,10 +2096,21 @@ def value_columns(raw_value: str | None, *, field_label: str, unit: str | None =
 #: version is written on every rule-read fact (`extractor_version`).
 RULE_READER_MODULES = ("datasheets", "tables", "blank_markers")
 
+#: The reference data the rule readers read (2026-10-11, the reader job): a
+#: label the checklist's roles name is a field (`named_field_role`), and a
+#: nozzle-table header word is no answer. A change to either changes what a
+#: sheet reads as, so it is part of the reader's version - otherwise #790's
+#: re-read would never see it.
+RULE_READER_REFERENCE = ("datasheet_checks.json", "field_synonyms.json")
+READER_REFERENCE_DIR = Path(__file__).parent / "reference"
+
 
 def rule_reader_version() -> str:
-    """The current rule readers' version, as `_extract_facts` writes it."""
-    return provenance.code_version(*RULE_READER_MODULES)
+    """The current rule readers' version, as `_extract_facts` writes it: the
+    modules' code and the reference data they read."""
+    data = provenance.input_hash(*((READER_REFERENCE_DIR / name).read_text(encoding="utf-8")
+                                   for name in RULE_READER_REFERENCE))
+    return f"{provenance.code_version(*RULE_READER_MODULES)}+reference@{data[:12]}"
 
 
 def facts_reader_stale(document_id: str) -> bool:
@@ -3553,8 +3642,9 @@ def _extract_facts(
                     # everywhere else; it is only as a FACT that it is wrong.
                     dropped["date"] = dropped.get("date", 0) + 1
                     continue
-                if not states_a_value(value):
-                    # A LABEL WITH FREE TEXT BESIDE IT IS NOT A FACT. "Prepared by:
+                if not states_a_value(value) and not states_a_named_text_value(label, value):
+                    # A LABEL WITH FREE TEXT BESIDE IT IS NOT A FACT - unless
+                    # the reference data names the label as a text field. "Prepared by:
                     # A. Engineer" and "Facility: Example Bay" have exactly the shape
                     # of a filled-in field and state nothing about the equipment.
                     # A quantity, an explicit blank, a closed categorical answer
