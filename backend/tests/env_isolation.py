@@ -74,6 +74,9 @@ TEST_PINS: dict[str, object] = {
     # On by default since #736 (owner decision 2026-10-10); in tests it would
     # be a model call per standard per review.
     "applicability_reasoning_enabled": False,
+    # On by default since the owner order of 2026-10-11 ("AI reads every
+    # datasheet box"); in tests it would be two model calls per page.
+    "datasheet_ai_reader": "off",
     # On by default since the owner order of 2026-10-11 (item 4); in tests it
     # would be two model calls per unmatched requirement.
     "match_enabled": False,
@@ -123,6 +126,9 @@ EGRESS_SAFE: dict[str, object] = {
     "answer_model_allow_remote_host": False,
     "answer_model_allowed_hosts": (),
     "match_enabled": False,
+    # the datasheet AI reader (`datasheet_ai`): local Ollama by default, or
+    # Claude through reader_transport - two model calls per page
+    "datasheet_ai_reader": "off",
     "match_engine": "ollama",              # "claude" sends clause text out
     # #647: the review's AI applicability tier calls the local model once per
     # requirement - off, like the model matcher above.

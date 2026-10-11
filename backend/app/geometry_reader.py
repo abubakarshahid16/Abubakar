@@ -193,6 +193,21 @@ def _is_data_like(row: list[str], gutter: set[int]) -> bool:
     return sum(1 for v in cells if v and _NUMERIC.match(v)) >= 2
 
 
+_STARTS_WITH_A_NUMBER = re.compile(r"^[<>=~\u2264\u2265\u00b1+\-\u2212]?\s*\d")
+
+
+def _states_a_value_beside_a_label(row: list[str], gutter: set[int]) -> bool:
+    """A row that is already an ANSWER, not a header: its leftmost cell is
+    words (a label) and a cell after it states a value - it starts with a
+    number, or it is one of the "not filled in" markers (`blank_markers`).
+    A header names columns; it does neither."""
+    cells = [v for j, v in enumerate(row) if j not in gutter]
+    filled = [v for v in cells if v]
+    if len(filled) < 2 or _STARTS_WITH_A_NUMBER.match(filled[0]):
+        return False
+    return any(_STARTS_WITH_A_NUMBER.match(v) or blank_markers.names_a_marker(v) for v in filled[1:])
+
+
 def _is_title_row(row_rects: list[Any], row_texts: list[str], gutter: set[int],
                   x_left: float, x_right: float) -> bool:
     """TITLE: one non-empty cell spans >= TITLE_SPAN_SHARE of the table width."""
@@ -333,6 +348,7 @@ def _structure(table: Any, *, page_no: int, table_id: str, strategy: str,
                        if not _is_empty(texts[i], gutter) and _is_data_like(texts[i], gutter)),
                       None)
     title_rows: list[int] = []
+    headerless = False
     if first_data is not None:
         # HEADER = the non-title rows directly above the first data-like row
         # (empty rows on the way are skipped, never kept). Walking up stops at
@@ -362,11 +378,25 @@ def _structure(table: Any, *, page_no: int, table_id: str, strategy: str,
             if not header and _is_title_row(rects[i], texts[i], gutter, x_left, x_right):
                 title_rows.append(i)
                 continue
+            if _states_a_value_beside_a_label(texts[i], gutter):
+                # A LABEL/VALUE TABLE HAS NO HEADER ROW (R27, 2026-10-11). Its
+                # first row is already an answer ("Rated capacity | 125 m3/h").
+                # Taking it as the header lost that row and named every other
+                # row after its value ("Differential head 125 m3/h"): measured
+                # by `scripts/table_cell_score.py`, 16 of 162 keyed cells.
+                rule = "none: the first row states a value (a label/value table)"
+                headerless = True
+                body_start = i
+                break
             header = [i]
             body_start = i + 1
             break
 
     labels = _header_labels(header, rects, texts, spans, gutter)
+    if headerless:
+        # Every column is a cell of its row; a value column carries no header
+        # of its own, so a row's label is its leftmost cell alone.
+        labels = {j: "" for j in range(ncols) if j not in gutter}
 
     data_rows: list[dict[str, Any]] = []
     empty_rows = 0
@@ -404,6 +434,7 @@ def _structure(table: Any, *, page_no: int, table_id: str, strategy: str,
         "title_rows": [" | ".join(v for v in texts[r] if v) for r in title_rows],
         "dropped_empty_rows": empty_rows,
         "trailing_rows": len(trailing_rows),
+        "headerless": headerless,
         "rows": data_rows,
     }
 
@@ -931,6 +962,64 @@ def _row_key(row: dict[str, Any]) -> tuple:
     return row["page"], label, answer
 
 
+def _merged_from_above(table_rows: list[dict], index: int, column: int) -> str:
+    """The text of a cell MERGED DOWN into row `index`: the nearest cell above
+    in the same column whose drawn box reaches this row's own height. A group
+    cell drawn once over two rows ("DESIGN" beside "Pressure" and
+    "Temperature") names both. Decided by the box, never by "the cell above
+    happened to be filled": a cell merged SIDEWAYS has no cell above that
+    reaches down, and gets nothing."""
+    here = [c["bbox"] for c in table_rows[index]["cells"] if c.get("bbox")]
+    if not here:
+        return ""
+    middle = (min(b[1] for b in here) + max(b[3] for b in here)) / 2
+    for above in range(index - 1, -1, -1):
+        cell = next((c for c in table_rows[above]["cells"] if c["column"] == column), None)
+        if cell is None or not cell.get("bbox"):
+            continue
+        return cell["text"] if cell["text"] and cell["bbox"][3] > middle else ""
+    return ""
+
+
+def _label_value_rows(table: dict[str, Any], alphabet_violations) -> list[dict[str, Any]]:
+    """The rows of a HEADERLESS label/value table (R27): per row, the label is
+    every word cell to the left of the answer (a group cell merged from above
+    included), and the answer is the first cell that states a value - or,
+    when none does, the last filled cell ("Roof type | Fixed cone roof").
+    A row with no reliable label (garbled, cut, empty) emits nothing, as for
+    every other table."""
+    out: list[dict[str, Any]] = []
+    for index, data in enumerate(table["rows"]):
+        cells = sorted(data["cells"], key=lambda c: c["column"])
+        texts = [c["text"] or (_merged_from_above(table["rows"], index, c["column"])
+                               if c.get("bbox") is None else "") for c in cells]
+        filled = [i for i, t in enumerate(texts) if t]
+        if len(filled) < 2:
+            continue
+        answer = next((i for i in filled[1:] if cells[i]["text"] and (
+            _STARTS_WITH_A_NUMBER.match(texts[i]) or blank_markers.names_a_marker(texts[i]))), None)
+        if answer is None:
+            answer = filled[-1]
+        if not cells[answer]["text"]:
+            continue
+        parts = [(i, texts[i]) for i in filled if i < answer]
+        if not parts or any(not re.search(r"[^\W_]", t) or cells[i].get("cut_word", False)
+                            or alphabet_violations(t)[0] > 0 for i, t in parts):
+            continue
+        c = cells[answer]
+        out.append({
+            "source": "table", "page": c["page"],
+            "label": " ".join(t for _i, t in parts),
+            "label_text": "", "value_text": c["text"],
+            "value": c["value"], "unit": c["unit"], "is_blank": c["is_blank"],
+            "blank_marker": c["blank_marker"], "condition": c.get("condition"),
+            "note": c.get("note"), "bbox": c["bbox"], "label_bbox": cells[parts[-1][0]].get("bbox"),
+            "position": None, "table_id": c["table_id"], "row": c["row"],
+            "column": c["column"], "column_label": "",
+        })
+    return out
+
+
 def read_page_rows(page: Any, *, form: dict[str, Any] | None = None,
                    tables: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """Every label/value the two readers found on `page`, one row each.
@@ -980,6 +1069,9 @@ def read_page_rows(page: Any, *, form: dict[str, Any] | None = None,
             "table_id": None, "row": None, "column": None, "column_label": None,
         })
     for table in tables["tables"]:
+        if table.get("headerless"):
+            rows.extend(_label_value_rows(table, alphabet_violations))
+            continue
         for data in table["rows"]:
             cells = sorted(data["cells"], key=lambda c: c["column"])
             if not cells:
