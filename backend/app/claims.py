@@ -1417,6 +1417,16 @@ def _compatible(a: Measurement, b: Measurement) -> bool | None:
     # either is compared, as `comparison` has always treated it.
     if a.reference is not None and b.reference is not None and a.reference != b.reference:
         return None
+    # R32, 2026-10-11: ONE side ABSOLUTE, the other with NO stated reference,
+    # is the same obstacle. An unreferenced pressure is read as gauge or
+    # differential (which is why gauge against a plain unit stays comparable);
+    # an absolute value beside it is off by an atmosphere. A note's absolute
+    # pressure read "within" an unreferenced limit: a false Meets on a real
+    # sheet. THE DECISION IS HERE, not in `comparison._reference_obstacle`
+    # (that only words the reason): the first fix sat there, changed no
+    # verdict, and its test passed anyway (audit A-793).
+    if {a.reference, b.reference} == {"absolute", None}:
+        return None
     if (a.normalized_value is None or b.normalized_value is None) and same_unit(a, b):
         a, b = _same_unit_view(a), _same_unit_view(b)
         if a is None or b is None:

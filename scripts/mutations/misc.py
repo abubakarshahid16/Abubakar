@@ -40,13 +40,15 @@ MUTATIONS: tuple[Mutation, ...] = (
     #: it was turned off by.
     Mutation(
         id="M159", phase=12,
-        description="SHIP THE MODEL TIER ON AGAIN, after it failed its hard "
-                    "gate with six false pairings in seven",
+        # REVERSED 2026-10-11 (owner order item 4): the tier ships ON as a
+        # proposer whose pairings are held (M-held below); the mutant ships it
+        # off again.
+        description="the model tier ships off, against the owner order of 2026-10-11",
         path=APP / "config.py",
-        anchor="    match_enabled: bool = False",
-        replacement="    match_enabled: bool = True",
+        anchor="    match_enabled: bool = True",
+        replacement="    match_enabled: bool = False",
         target="tests/test_model_matching.py",
-        keyword="shipped_default_is_off",
+        keyword="shipped_default_is_on",
         tags=("honesty", "critical"),
     ),
     # ---- from DISCIPLINE_CANONICAL ----------------------------------------
