@@ -38,7 +38,22 @@ def world(tmp_path, monkeypatch):
     datasheets.extract_facts(sub, allowed_document_ids=frozenset({sub}))
     run, scope = _review(sub)
     comparison.run_comparison(run, allowed_document_ids=scope)
+    _stamp(sub, run)
     return sub, run, scope
+
+
+def _stamp(sub, run, code=None, config=None):
+    """The job row `review_jobs.enqueue` writes for every real run, with the
+    review-code and config versions it stamps (roadmap R5, #763)."""
+    from app import review_jobs
+    from app.config import config_version
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO jobs (id, document_id, stage, state, started_at, updated_at,"
+            " code_version, config_version, review_run_id)"
+            " VALUES (?, ?, 'review', 'done', ?, ?, ?, ?, ?)",
+            (f"job-{run}", sub, PAST, PAST, code or review_jobs.review_code_version(),
+             config or config_version(), run))
 
 
 def _readiness(sub):
@@ -214,3 +229,59 @@ def test_an_empty_edit_is_refused(world, monkeypatch):
     assert TestClient(app).patch(f"/api/reviews/findings/{finding_id}",
                                  json={"engineer_comment": ""}).status_code == 422
 
+
+
+# ------------------------------------------- roadmap R5 (#763): code is an input
+
+def test_new_review_code_is_a_change(world):
+    """Same sheet, same library, new review code: never "nothing changed"
+    (live, 10 Oct 2026, it said so while the result moved 6,900 -> 3,470)."""
+    sub, run, _scope = world
+    with db.connect() as conn:
+        conn.execute("UPDATE jobs SET code_version = 'review@000000000000' WHERE review_run_id = ?",
+                     (run,))
+    body = _readiness(sub)
+    assert body["nothing_changed"] is False
+    assert "the review code was updated since the last run" in body["changes"]
+
+
+def test_changed_review_settings_are_a_change(world):
+    sub, run, _scope = world
+    with db.connect() as conn:
+        conn.execute("UPDATE jobs SET config_version = 'cfg-old' WHERE review_run_id = ?", (run,))
+    body = _readiness(sub)
+    assert body["nothing_changed"] is False
+    assert "the review settings changed since the last run" in body["changes"]
+
+
+def test_a_run_with_no_recorded_code_version_is_never_called_unchanged(world):
+    sub, run, _scope = world
+    with db.connect() as conn:
+        conn.execute("DELETE FROM jobs WHERE review_run_id = ?", (run,))
+    body = _readiness(sub)
+    assert body["nothing_changed"] is False
+    assert any("not recorded" in c for c in body["changes"])
+
+
+def test_a_changed_reference_data_file_changes_the_review_code_version(monkeypatch, tmp_path):
+    from app import review_jobs
+    before = review_jobs.review_code_version()
+    data = tmp_path / "reference"
+    data.mkdir()
+    for f in review_jobs.REFERENCE_DIR.glob("*.json"):
+        (data / f.name).write_bytes(f.read_bytes())
+    monkeypatch.setattr(review_jobs, "REFERENCE_DIR", data)
+    assert review_jobs.review_code_version() == before
+    first = sorted(data.glob("*.json"))[0]
+    first.write_text(first.read_text() + " ", encoding="utf-8")
+    assert review_jobs.review_code_version() != before
+
+
+def test_every_review_job_is_stamped_with_the_review_code_version(world):
+    """A real enqueue stamps the current version, so its readiness is unchanged."""
+    from app import review_jobs
+    sub, run, scope = world
+    with db.connect() as conn:
+        conn.execute("DELETE FROM jobs WHERE review_run_id = ?", (run,))
+    new_run, _job = review_jobs.enqueue(sub, allowed_document_ids=scope, requested_by=None)
+    assert review_jobs.last_run_versions(new_run)["code_version"] == review_jobs.review_code_version()

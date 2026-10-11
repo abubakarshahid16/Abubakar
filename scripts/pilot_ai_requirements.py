@@ -141,7 +141,8 @@ def model_memory_gb(model: str) -> float | None:
 
 
 def run(db: Path, labels: dict, models: list[str]) -> dict:
-    from app import access, ai_requirements, ai_task_runner, db as db_mod, model_transport
+    from app import access, ai_task_runner, db as db_mod, model_transport
+    from tools import ai_requirements
     from app.config import settings
 
     settings.db_path = refuse_live(db)

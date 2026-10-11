@@ -296,7 +296,8 @@ when the demo interrupted it.
   D) ingestion + retrieval: `upload.py`, `ingest.py`, `chunker.py`, `ocr.py`, `keyword.py`, `lexical.py`, `intent.py`, `search.py` ·
   E) honesty of output: `synthesis.py`, `claims.py`, `reports.py` ·
   Cowork itself: all of `frontend/` and `contracts/types.ts`.
-- Every fix ships with a test proven red-then-green by mutation. No agent runs
+- Every fix ships with a test proven red-then-green (by reverting the fix once;
+  by a mutation entry only in the CLAUDE.md rule 6 danger zone). No agent runs
   the whole backend suite (5 min); Cowork runs it once at the end.
 - Changed files go back to the device via SendUserFile → `device_commit_files`
   (writing into `.claude/` is refused by the bridge; use device_bash `cp`).

@@ -227,3 +227,16 @@ def test_the_job_api_shows_the_reviews_progress_only_to_readers(world):
     assert body["progress_total"] == 3 and body["review_run_id"]
     stranger = _user("stranger", [])
     assert TestClient(app).get(f"/api/jobs/{job_id}", headers=stranger).status_code == 404
+
+
+def test_a_finished_review_numbers_its_crs_rows_as_drafts(world):
+    """R15 (#779): the job numbers every CRS row when the run completes;
+    machine drafts are numbered NOT issued."""
+    run_id, job_id = _enqueue(world)
+    review_jobs.claim_next(W)
+    assert review_jobs.run(job_id, W) == "done"
+    rows = db.connect().execute(
+        "SELECT issued, first_review_run_id FROM crs_comment_numbers").fetchall()
+    assert rows, "a finished review numbered no CRS row"
+    assert {r["issued"] for r in rows} == {0}
+    assert {r["first_review_run_id"] for r in rows} == {run_id}

@@ -943,6 +943,58 @@ function RunCard({ run, selected, onOpen }: {
  *  comes from the route verbatim - the labels are the client's wording, not
  *  this screen's, so nothing here re-types what their document says.
  */
+/** #725 F7: enter the CRS header's company and contractor transmittal
+ *  numbers. Starts from what the sheet prints now; "" clears a number. */
+export function CrsTransmittalsForm(
+  { runId, header, onChanged }: {
+    runId: string; header: CrsPreview["header"]; onChanged: () => void;
+  },
+) {
+  const valueOf = (prefix: string) =>
+    header.find((h) => h.label.replace(/\s+/g, " ").startsWith(prefix))?.value ?? "";
+  const [company, setCompany] = useState(valueOf("COMPANY Transmittal"));
+  const [contractor, setContractor] = useState(valueOf("CONTRACTOR Transmittal"));
+  const [state, setState] = useState<"idle" | "saving" | "saved" | string>("idle");
+  const save = async () => {
+    setState("saving");
+    const res = await reviewsApi.setCrsTransmittals(runId, {
+      company_transmittal: company, contractor_transmittal: contractor,
+    });
+    if (res.ok) {
+      setState("saved");
+      onChanged();
+    } else {
+      setState(`Not saved: ${res.error.message}`);
+    }
+  };
+  return (
+    <form
+      aria-label="Transmittal numbers"
+      className="flex flex-wrap items-end gap-2 text-xs"
+      onSubmit={(e) => { e.preventDefault(); void save(); }}
+    >
+      <label className="flex flex-col text-slateish-300">
+        Company transmittal no.
+        <input value={company} maxLength={80} onChange={(e) => setCompany(e.target.value)}
+          className="mt-1 rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-2 py-1 text-slateish-100" />
+      </label>
+      <label className="flex flex-col text-slateish-300">
+        Contractor transmittal no.
+        <input value={contractor} maxLength={80} onChange={(e) => setContractor(e.target.value)}
+          className="mt-1 rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-2 py-1 text-slateish-100" />
+      </label>
+      <button type="submit" disabled={state === "saving"}
+        className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-slateish-200">
+        Save transmittal numbers
+      </button>
+      {state === "saved" && <span role="status" className="text-slateish-400">Saved</span>}
+      {state !== "idle" && state !== "saving" && state !== "saved" && (
+        <span role="alert" className="text-danger-500">{state}</span>
+      )}
+    </form>
+  );
+}
+
 function CrsPreviewSheet(
   { preview, runId, onChanged }: { preview: CrsPreview; runId: string; onChanged: () => void },
 ) {
@@ -970,6 +1022,9 @@ function CrsPreviewSheet(
           </div>
         ))}
       </dl>
+
+      {/* #725 F7: the two transmittal numbers are entered here, never invented. */}
+      <CrsTransmittalsForm runId={runId} header={preview.header} onChanged={onChanged} />
 
       {/* AFTER ISSUE: the contractor's returned sheet, matched by each
           comment's permanent number (never by position). */}
@@ -1023,6 +1078,12 @@ function CrsPreviewSheet(
               {preview.columns.includes("Standard Reference") && (
                 <td className="border border-ink-600 px-2 py-1 align-top text-slateish-300">
                   {row.standard_reference ?? ""}
+                </td>
+              )}
+              {/* #725 F7: the severity, after Standard Reference, both copies. */}
+              {preview.columns.includes("Severity") && (
+                <td className="border border-ink-600 px-2 py-1 align-top text-slateish-300">
+                  {row.severity ?? ""}
                 </td>
               )}
               {/* Owner order 2f: the last column, internal copy only. */}

@@ -88,18 +88,17 @@ def test_layout_b_unit_appended_to_the_value_is_read():
     assert (value, unit) == ("3.5", "barg")
 
 
-def test_layout_b_reads_a_unit_it_cannot_convert():
-    """Read and converted are different questions.
-
-    `barg` is recognised as a pressure but has no conversion factor, so the
-    raw unit is kept and the normalised value stays NULL. That is the honest
-    outcome: the sheet said barg, and nothing here invents a conversion.
-    """
+def test_layout_b_reads_a_gauge_unit_and_keeps_its_reference():
+    """`barg` converts through `bar` and the reference stays (#725 F2). Until
+    #725 the normalised value stayed NULL, so no gauge pressure on a real
+    datasheet could ever be compared; gauge against absolute is still never
+    compared (`claims._compatible`)."""
     _value, unit, measure = measure_value("3.5 barg")
 
     assert unit == "barg"
     assert claims.unit_dimension("barg") == "pressure"
-    assert measure.normalized_value is None
+    assert measure.normalized_value == pytest.approx(0.35)
+    assert measure.normalized_unit == "MPa" and measure.reference == "gauge"
 
 
 def test_layout_b_no_longer_reads_a_tag_number_as_a_unit():

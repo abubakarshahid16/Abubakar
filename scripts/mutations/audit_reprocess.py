@@ -19,10 +19,12 @@ MUTATIONS: tuple[Mutation, ...] = (
              anchor="               AND chunk_id NOT IN (SELECT id FROM chunks WHERE document_id = ?)\"\"\",\n"
                     "            (doc_id, doc_id),\n"
                     "        )\n"
+                    "        orphan_guard.reattach_requirements_after_rechunk(conn, doc_id, detached)\n"
                     "        # chunk_count is the RETRIEVABLE count",
              replacement="               AND chunk_id NOT IN (SELECT id FROM chunks WHERE document_id = ? AND 0)\"\"\",\n"
                          "            (doc_id, doc_id),\n"
                          "        )\n"
+                         "        orphan_guard.reattach_requirements_after_rechunk(conn, doc_id, detached)\n"
                          "        # chunk_count is the RETRIEVABLE count",
              target=_T, keyword="keeps_the_vectors_of_unchanged_chunks",
              tags=("reliability",)),

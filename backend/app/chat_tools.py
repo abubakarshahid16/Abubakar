@@ -296,7 +296,23 @@ def run_list_cited_standards(input: dict, *, allowed_document_ids: frozenset[str
                         "standard_document_id": entry.get("id"), "filename": entry.get("filename")})
         else:
             missing.append({"identifier": identifier, "held": False})
+    # #702: a standard numbered outside the built-in families is found by the
+    # library's own identifiers; a title or file-name match is only "possible".
+    seen = {h["standard_document_id"] for h in held}
+    possible = []
+    for std_id, hit in applicability.library_citations(library, text).items():
+        if std_id in seen:
+            continue
+        entry = next((e for e in library if e.get("id") == std_id), {})
+        if hit["method"] == applicability.METHOD_REFERENCED:
+            held.append({"identifier": hit["identifier"], "held": True,
+                         "standard_document_id": std_id, "filename": entry.get("filename")})
+        else:
+            possible.append({"identifier": hit["identifier"] or entry.get("title"),
+                             "filename": entry.get("filename")})
     lines = [f"{h['identifier']}: held ({h['filename']})" for h in held]
+    lines += [f"{p['identifier']}: possible match, engineer to confirm ({p['filename']})"
+              for p in possible]
     lines += [f"{m['identifier']}: cited but not held in this library" for m in missing]
     return ToolRun("list_cited_standards", input, "Checked cited standards", True,
                   note="\n".join(lines) or "no standards cited")
