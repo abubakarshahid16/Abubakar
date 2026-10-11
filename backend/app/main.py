@@ -19,6 +19,7 @@ from . import comparison as comparison_mod
 from . import crs_export as crs_export_mod
 from . import crs_mapping as crs_mapping_mod
 from . import crs_numbers as crs_numbers_mod
+from . import crs_wording as crs_wording_mod
 from . import datasheets as datasheets_mod
 from . import disciplines as disciplines_mod
 from . import extract as extract_mod
@@ -4509,6 +4510,20 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
             "crs_status": crs_numbers_mod.resolution_cell(record),
             "crs_response": crs_numbers_mod.response_cell(record),
         })
+    # R26 STEP 8 (#763): THE AI'S WORDING, INTERNAL COPY ONLY. A rewrite the
+    # lock accepted when the review finished (`crs_wording`) prints in the "AI
+    # Review Comments" column beside the template of an UNCONFIRMED machine
+    # row. Never on the issue copy: there a row with AI text is a draft and is
+    # dropped (`crs_export`), and the contractor gets the template until an
+    # engineer makes the comment theirs. Never over an AI/web item's own
+    # draft, and never on a row an engineer confirmed (the words are theirs).
+    if copy == "internal":
+        worded = crs_wording_mod.stored(review_run_id)
+        for row in rows:
+            text = worded.get(row.get("crs_row_key") or "")
+            if (text and not row.get("engineer_confirmed")
+                    and not str(row.get("ai_review_comment") or "").strip()):
+                row["ai_review_comment"] = text
     # #633: THE PARTS THIS REVIEW COULD NOT CHECK, one list for every export. A
     # sheet for a run that failed, stopped, or left large parts unchecked must
     # never look like a complete review.
@@ -4555,6 +4570,25 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         "rejected_row_keys": meta_rejected_keys,
     }
     return rows, meta, submittal_name, stamp
+
+
+def word_crs_rows(review_run_id: str, scope: access.AccessScope) -> dict | None:
+    """R26 step 8 (#763): ask the model to word each machine CRS comment of a
+    FINISHED review like a reviewing engineer (`crs_wording.word_run`, which
+    keeps only rewrites its lock accepts). Called by the review job when the
+    run completes - a write path, never the export or preview.
+
+    NEVER FAILS THE REVIEW: the findings are stored when this runs; a failure
+    is logged (ids only) and the templates stay. Returns the run's AI-use
+    summary, or None when it could not run."""
+    import logging
+    try:
+        rows, _meta, _name, _stamp = _crs_content(review_run_id, scope, "internal")
+        return crs_wording_mod.word_run(review_run_id, rows)
+    except Exception:  # noqa: BLE001 - see docstring: never fail a finished review
+        logging.getLogger(__name__).warning(
+            "crs wording: run %s failed; templates kept", review_run_id, exc_info=True)
+        return None
 
 
 def _crs_standards(review_run_id: str, submittal_id: str,
