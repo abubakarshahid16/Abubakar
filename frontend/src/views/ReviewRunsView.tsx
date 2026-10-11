@@ -600,6 +600,8 @@ export function ReviewRunsView(
                 key={finding.id}
                 finding={finding} documents={documents}
                 standardNames={standardNames}
+                whyApplies={standards === null ? undefined
+                  : standards.find((s) => s.standard_document_id === finding.standard_document_id) ?? null}
                 onChanged={() => { void loadFindings(run.review_run_id); }}
               />
             </div>
