@@ -238,10 +238,16 @@ def test_an_identical_by_contractor_answer_everywhere_is_the_known_residual():
     strips it. No such field exists on either real sheet today. This is the
     same residual as `Lifting lever`, and it is the trigger for adding a
     blank-marker exemption if a future sheet has one.
-    """
-    pages = {p: [("Orifice designation", "By Contractor")] for p in range(1, 5)}
 
-    assert "orifice designation" in datasheets.furniture_labels(pages)
+    Narrowed 2026-10-11 (the reader job): a label the reference data names
+    as a field (`datasheet_checks.json` roles - "Orifice designation") is
+    never furniture, so the residual is now an UNNAMED label only.
+    """
+    pages = {p: [("Cap material", "By Contractor")] for p in range(1, 5)}
+    assert "cap material" in datasheets.furniture_labels(pages)
+
+    named = {p: [("Orifice designation", "By Contractor")] for p in range(1, 5)}
+    assert "orifice designation" not in datasheets.furniture_labels(named)
 
 
 # ------------------------------------------------- the drum sheet's shape
