@@ -74,6 +74,9 @@ TEST_PINS: dict[str, object] = {
     # On by default since #736 (owner decision 2026-10-10); in tests it would
     # be a model call per standard per review.
     "applicability_reasoning_enabled": False,
+    # On by default since #763 R26 step 7 (owner rule "AI-first", 11 Oct);
+    # in tests it would be a model call per review.
+    "review_ai_check_enabled": False,
     # On by default since #763 R26 step 8 (owner rule "AI-first", 11 Oct);
     # in tests it would be a model call per CRS row per review.
     "crs_ai_wording_enabled": False,
