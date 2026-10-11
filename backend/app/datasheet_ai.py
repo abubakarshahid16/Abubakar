@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import contextlib
 import re
+import time
 from contextvars import ContextVar
 
 from . import claims, claude_datasheet, datasheet_inputs, datasheets
@@ -159,7 +160,10 @@ def _ollama_call():
         model_transport.endpoint("/api/generate")
     except Exception as exc:  # noqa: BLE001 - a refused host is a reason, not a crash
         return None, f"ollama engine unavailable ({type(exc).__name__})"
-    provider = OllamaProvider(settings.datasheet_ai_ollama_model or settings.answer_model)
+    # Owner order 2026-10-11: the local model is slow - every call has its
+    # own timeout (DATASHEET_AI_TIMEOUT_SECONDS), not the provider's 15 min.
+    model = settings.datasheet_ai_ollama_model or settings.answer_model
+    provider = OllamaProvider(model, timeout=float(settings.datasheet_ai_timeout_seconds))
 
     def call(prompt: str) -> str:
         response = provider.reason(Packet(
@@ -172,6 +176,7 @@ def _ollama_call():
         return response.text
 
     call.engine = OLLAMA
+    call.model = model
     return call, None
 
 
@@ -241,12 +246,35 @@ def _read(page_text: str, page_no: int, model_call, engine: str | None) -> dict:
         return _empty(page_no, engine, error=f"stopped by a limit ({exc.count_key})",
                       stopped=exc.count_key)
     except Exception as exc:  # noqa: BLE001 - never into ingestion
+        if is_timeout(exc):
+            return _empty(page_no, engine, error=TIMED_OUT.format(
+                seconds=_seconds(settings.datasheet_ai_timeout_seconds)), timed_out=True)
         return _empty(page_no, engine, error=f"engine failed ({type(exc).__name__})")
     if out.get("error"):
         out["error"] = f"engine answer unusable ({out['error']})"
     out["engine"] = engine
     out["accepted"] = [{**p, "page": page_no} for p in out["accepted"]]
     return out
+
+
+#: Said on a page the model did not answer in time. The page keeps the rule
+#: readers' reading (code only) - owner order 2026-10-11.
+TIMED_OUT = "the AI reader timed out after {seconds} s; the code readers' reading stands"
+#: Said on every page left unread once the document's time budget is spent.
+OUT_OF_TIME = ("not read: the AI reader's time budget for this document ({seconds} s) ran out; "
+               "the code readers' reading stands")
+
+
+def _seconds(value) -> str:
+    return f"{float(value):g}"
+
+
+def is_timeout(exc: BaseException) -> bool:
+    """A call that ran out of time, by type: the transport's timeout
+    (httpx's `TimeoutException` family) or a plain `TimeoutError`. Only the
+    type is looked at - never the message."""
+    return isinstance(exc, TimeoutError) or any(
+        "Timeout" in k.__name__ for k in type(exc).__mro__)
 
 
 def read_page_text_with_ai(page_text: str, page_no: int, engine_or_callable) -> dict:
@@ -269,10 +297,13 @@ def read_page_text_with_ai(page_text: str, page_no: int, engine_or_callable) -> 
 def read_pages(page_texts: dict[int, str], engine_or_callable=None) -> dict:
     """Every page of one document through the reader, in page order.
 
-    Returns `{"engine", "unavailable", "pages": {page: read result},
-    "reasons": {page: why this page has no AI reading}, "stopped"}`. After a
-    budget refusal no further call is made: the remaining pages are recorded
-    as not read, with that reason."""
+    Returns `{"engine", "model", "unavailable", "pages": {page: read result},
+    "reasons": {page: why this page has no AI reading}, "stopped",
+    "timed_out", "seconds"}`. After a budget refusal no further call is made:
+    the remaining pages are recorded as not read, with that reason. The same
+    once the document's TIME budget (DATASHEET_AI_MAX_SECONDS) is spent:
+    the local model is slow, and a review must not wait on it without end -
+    the rest of the pages keep the code readers' reading, said per page."""
     if engine_or_callable is None or not callable(engine_or_callable):
         engine = (engine_or_callable or engine_setting())
         call, why = model_call_for(engine)
@@ -283,13 +314,21 @@ def read_pages(page_texts: dict[int, str], engine_or_callable=None) -> dict:
     pages: dict[int, dict] = {}
     reasons: dict[int, str] = {}
     stopped = None
+    timed_out: list[int] = []
+    budget = float(settings.datasheet_ai_max_seconds)
+    started = time.monotonic()
     for page_no in sorted(page_texts):
         text = page_texts[page_no] or ""
         if call is None:
             reasons[page_no] = why
             continue
         if stopped is not None:
-            reasons[page_no] = f"not read: a limit stopped the AI reader ({stopped})"
+            reasons[page_no] = (OUT_OF_TIME.format(seconds=_seconds(budget)) if stopped == "time_budget"
+                                else f"not read: a limit stopped the AI reader ({stopped})")
+            continue
+        if text.strip() and time.monotonic() - started >= budget:
+            stopped = "time_budget"
+            reasons[page_no] = OUT_OF_TIME.format(seconds=_seconds(budget))
             continue
         if not text.strip():
             reasons[page_no] = "no text on this page"
@@ -298,10 +337,13 @@ def read_pages(page_texts: dict[int, str], engine_or_callable=None) -> dict:
         pages[page_no] = out
         if out.get("stopped"):
             stopped = out["stopped"]
+        if out.get("timed_out"):
+            timed_out.append(page_no)
         if out.get("error"):
             reasons[page_no] = out["error"]
-    return {"engine": engine, "unavailable": why, "pages": pages,
-            "reasons": reasons, "stopped": stopped}
+    return {"engine": engine, "model": getattr(call, "model", None), "unavailable": why,
+            "pages": pages, "reasons": reasons, "stopped": stopped, "timed_out": timed_out,
+            "seconds": round(time.monotonic() - started, 1)}
 
 
 def page_text(stored_path: str | None, page_no: int, chunks: list) -> str:

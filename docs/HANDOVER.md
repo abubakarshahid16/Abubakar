@@ -164,8 +164,14 @@ Retraction 25 is recorded.
 | Architecture document written from the code | ✅ `docs/architecture.md` |
 | Design canvas of the whole system incl. Compare screen | ✅ published artifact "RAG Intelligence System" (Claude Design) |
 
-**Datasheet AI reader ("AI reads, code checks"), added 2026-09-30, OFF and NOT
-YET MEASURED.** `DATASHEET_AI_READER` (`off` default | `ollama` | `claude`)
+**Datasheet AI reader ("AI reads, code checks"), added 2026-09-30, ON BY
+DEFAULT (local engine) since the owner order of 2026-10-11; NOT YET MEASURED on
+the real datasheets.** `DATASHEET_AI_READER` (`ollama` default | `off` |
+`claude`; tests pin it off). A model call past `DATASHEET_AI_TIMEOUT_SECONDS`
+(180) and every page after `DATASHEET_AI_MAX_SECONDS` (900) per document keep
+the code readers' reading, and the review says which reader read the sheet
+(`datasheets.latest_reader_summary`, `absence.reader_summary_line`). An owner's
+`backend/.env` that still says `DATASHEET_AI_READER=off` keeps it off.
 makes `datasheets.extract_facts` also read every page with text through
 `claude_datasheet.read_page` (two runs must agree; each fact's quote, value and
 label must be on the page) and merge it with the rule readers

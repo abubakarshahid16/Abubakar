@@ -486,18 +486,31 @@ class Settings(BaseSettings):
     #: agreement raises confidence (never to "high"), disagreement keeps both
     #: flagged `validation_state='conflict'`, an AI-only fact is kept only
     #: because its quote was proved on the page. One of:
-    #:   "off"    - the default; extraction is exactly what it was before.
-    #:   "ollama" - the local engine, through `model_transport` (loopback, or
-    #:              a host `check_model_url` permits).
+    #:   "off"    - extraction is exactly what it was before the AI reader.
+    #:   "ollama" - THE DEFAULT since the owner order of 2026-10-11 ("AI reads
+    #:              every datasheet box, any layout"): the local engine,
+    #:              through `model_transport` (loopback, or a host
+    #:              `check_model_url` permits). Nothing leaves the machine.
     #:   "claude" - the Claude API, only when REASONING_PROVIDER=claude AND
     #:              both STANDARDS_READER_* egress flags AND a key, and every
     #:              call metered by `claude_spend` (USD caps) under the step
     #:              `datasheet-ai-reader`.
     #: An engine that is unavailable, fails or is refused by a cap leaves the
     #: page to the rule readers, with the reason recorded; ingestion never
-    #: fails on it. NOT YET MEASURED on real datasheets. Any other value is
-    #: treated as off. Env: DATASHEET_AI_READER. The owner flips it.
-    datasheet_ai_reader: str = "off"
+    #: fails on it. A call that runs past DATASHEET_AI_TIMEOUT_SECONDS, and
+    #: every page left once DATASHEET_AI_MAX_SECONDS is spent on a document,
+    #: keeps the code readers' reading, and the review says so. Any other
+    #: value is refused with a reason. Env: DATASHEET_AI_READER. Tests pin it
+    #: off (`tests/env_isolation.py` TEST_PINS).
+    datasheet_ai_reader: str = "ollama"
+    #: Seconds one AI-reader model call may take before the page keeps the
+    #: code readers' reading (the provider's own default is 15 minutes).
+    #: Env: DATASHEET_AI_TIMEOUT_SECONDS.
+    datasheet_ai_timeout_seconds: float = 180.0
+    #: Seconds the AI reader may spend on ONE document; the pages after that
+    #: keep the code readers' reading, each with the reason.
+    #: Env: DATASHEET_AI_MAX_SECONDS.
+    datasheet_ai_max_seconds: float = 900.0
     #: The local model the "ollama" engine uses; empty = `answer_model`.
     #: Env: DATASHEET_AI_OLLAMA_MODEL.
     datasheet_ai_ollama_model: str = ""
@@ -1268,6 +1281,14 @@ class Settings(BaseSettings):
                 "every caller on the network would see every document. Set "
                 "AUTH_MODE=demo_required, bind 127.0.0.1, or set "
                 "ALLOW_UNAUTHENTICATED_NETWORK_BIND=true deliberately.")
+        return self
+
+    @model_validator(mode="after")
+    def _datasheet_ai_time_limits_are_positive(self) -> "Settings":
+        """A zero or negative limit would skip every page silently (budget)
+        or fail every call at once (timeout): refused at startup instead."""
+        if self.datasheet_ai_timeout_seconds <= 0 or self.datasheet_ai_max_seconds <= 0:
+            raise ValueError("DATASHEET_AI_TIMEOUT_SECONDS and DATASHEET_AI_MAX_SECONDS must be positive")
         return self
 
     @model_validator(mode="after")

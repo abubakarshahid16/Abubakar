@@ -96,9 +96,12 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1681", phase=1681,
              description="an engine failure propagates into ingestion",
              path=_AI,
-             anchor="    except Exception as exc:  # noqa: BLE001 - never into ingestion\n"
-                    "        return _empty(page_no, engine, error=f\"engine failed ({type(exc).__name__})\")\n",
-             replacement="",
+             # re-anchored 2026-10-11 (AI reader on by default): the except block
+             # now names a timeout first; the mutant re-raises every other failure
+             anchor="        return _empty(page_no, engine, error=f\"engine failed ({type(exc).__name__})\")\n"
+                    "    if out.get(\"error\"):\n",
+             replacement="        raise\n"
+                         "    if out.get(\"error\"):\n",
              target=_T, keyword="engine_failure", tags=("datasheet_ai", "critical")),
     Mutation(id="M1682", phase=1682,
              description="after a cap refusal the reader keeps calling for later pages",

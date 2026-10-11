@@ -2350,6 +2350,12 @@ def run_comparison(
         split = {**split, "checklist": checklist_note}
     if checklist_coverage:
         split = {**split, "checklist_coverage": checklist_coverage}
+    # Owner order 2026-10-11: the run says which reader read the sheet - the
+    # AI engine and model, or "code readers only", and the pages the AI did
+    # not read (timed out, unavailable) with the reason.
+    reader = datasheets.latest_reader_summary(submittal_id)
+    if reader:
+        split = {**split, "reader": reader}
     unchecked_counts = {
         "not_compared": split["applies_not_checked"],
         "not_applied": split["does_not_apply"],

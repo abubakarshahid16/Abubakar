@@ -3943,6 +3943,12 @@ def _extract_facts(
     if ai_run is not None:
         ai_stats["page_reasons"] = {p: ai_run["reasons"][p] for p in sorted(ai_run["reasons"])}
         geometry_counts = {**geometry_counts, "ai_reader": ai_stats}
+    if _plan is None:
+        # Owner order 2026-10-11: which reader read this sheet - engine,
+        # model, pages read, and every page left to the code readers with
+        # its reason - is kept, so the review that uses these facts says it.
+        record_reader_summary(document_id, extractor_version,
+                              reader_summary(ai_run, ai_stats, pages=sorted(by_page)))
     return {
         **geometry_counts,
         "document_id": document_id,
@@ -3962,6 +3968,49 @@ def _extract_facts(
         "unreadable": [],
         "repaired": repaired,
     }
+
+
+def reader_summary(ai_run: dict | None, ai_stats: dict, *, pages: list[int]) -> dict:
+    """What read a datasheet, as counts and reasons - never a page's words.
+    `engine` "off" when the AI reader was not asked (DATASHEET_AI_READER=off);
+    otherwise the engine and model, how many pages the model read, and each
+    page left to the code readers (`code_only`, page -> reason: unavailable,
+    timed out, out of time, an unusable answer)."""
+    if ai_run is None:
+        return {"engine": "off", "pages": len(pages)}
+    read = sorted(p for p, out in ai_run["pages"].items() if not out.get("error"))
+    return {"engine": ai_run["engine"], "model": ai_run.get("model"), "pages": len(pages),
+            "pages_read": len(read),
+            "code_only": {str(p): ai_run["reasons"][p] for p in sorted(ai_run["reasons"])},
+            "unavailable": ai_run.get("unavailable"), "stopped": ai_run.get("stopped"),
+            "timed_out": list(ai_run.get("timed_out") or []), "seconds": ai_run.get("seconds"),
+            "facts_written": ai_stats.get("facts_written", 0), "agreed": ai_stats.get("agreed", 0),
+            "conflicts": ai_stats.get("conflicts", 0), "ai_only": ai_stats.get("ai_only", 0)}
+
+
+def _ensure_reader_runs(conn) -> None:
+    conn.execute("""CREATE TABLE IF NOT EXISTS datasheet_reader_runs (
+        document_id TEXT NOT NULL, read_at TEXT NOT NULL,
+        extractor_version TEXT, summary TEXT NOT NULL)""")
+
+
+def record_reader_summary(document_id: str, extractor_version: str | None, summary: dict) -> None:
+    """One row per extraction (append-only: an earlier reading stays history)."""
+    conn = connect()
+    with conn:
+        _ensure_reader_runs(conn)
+        conn.execute("INSERT INTO datasheet_reader_runs (document_id, read_at, extractor_version, summary)"
+                     " VALUES (?, ?, ?, ?)", (document_id, _now(), extractor_version, json.dumps(summary)))
+
+
+def latest_reader_summary(document_id: str) -> dict | None:
+    """The newest extraction's reader summary for this datasheet, or None
+    when it was read before summaries were kept."""
+    conn = connect()
+    _ensure_reader_runs(conn)
+    row = conn.execute("SELECT summary FROM datasheet_reader_runs WHERE document_id = ?"
+                       " ORDER BY rowid DESC LIMIT 1", (document_id,)).fetchone()
+    return json.loads(row["summary"]) if row else None
 
 
 def list_facts(document_id: str, *, allowed_document_ids: frozenset[str],
