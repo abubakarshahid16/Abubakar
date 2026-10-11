@@ -212,6 +212,20 @@ def _provider():
     return provider
 
 
+def _provider_for_this_review():
+    """`(provider, local_instead)`. #838: when the review's documents are not
+    approved for the cloud model, the local model words the rows - nothing
+    leaves the machine - and the run's summary says so. Any other refusal (a
+    budget cap) is not replaced: it stops the run, as before."""
+    from . import reasoning_provider as rp
+    provider = _provider()
+    if isinstance(provider, rp.ClaudeProvider):
+        note = claude_approved.local_instead()
+        if note:
+            return rp.OllamaProvider(timeout=float(settings.crs_ai_wording_timeout_s)), note
+    return provider, None
+
+
 def _ask(provider, row: dict) -> tuple[str | None, str | None, str]:
     """(ai_text, refusal reason, model). A transport failure raises."""
     from . import reasoning_provider as rp
@@ -237,7 +251,9 @@ def word_run(review_run_id: str, rows: list[dict], *, provider=None) -> dict:
     rewrites that pass `lock`. Returns and stores the run's summary."""
     ensure_schema()
     summary = {"enabled": bool(settings.crs_ai_wording_enabled), "model": None, "tried": 0,
-               "accepted": 0, "refused": {}, "not_tried": 0, "stopped": None}
+               "accepted": 0, "refused": {}, "not_tried": 0, "stopped": None,
+               # #838: None, or why the local model ran in the cloud model's place.
+               "local_instead": None}
     if not summary["enabled"]:
         summary["stopped"] = "off (CRS_AI_WORDING_ENABLED=false)"
         return _store_summary(review_run_id, summary)
@@ -246,7 +262,8 @@ def word_run(review_run_id: str, rows: list[dict], *, provider=None) -> dict:
                   and not str(r.get("comment_by") or "").startswith(("Edited", "Engineer"))]
     summary["not_tried"] = max(0, len(candidates) - MAX_ROWS)
     try:
-        provider = provider or _provider()
+        if provider is None:
+            provider, summary["local_instead"] = _provider_for_this_review()
     except Exception as exc:  # noqa: BLE001 - no model: the template stays
         summary["stopped"] = f"no model available ({type(exc).__name__})"
         return _store_summary(review_run_id, summary)

@@ -1173,6 +1173,13 @@ class Settings(BaseSettings):
     #: the check stops for the run (recorded). The Claude lane keeps its own.
     #: Env: REVIEW_AI_CHECK_LOCAL_TIMEOUT_S.
     review_ai_check_local_timeout_s: float = 300.0
+    #: #838: when a review's documents are not approved for the cloud model,
+    #: the re-check runs on the LOCAL model. Seconds one such call may take,
+    #: and seconds the whole run may take before it stops with what it has
+    #: (the route answers a waiting request).
+    #: Env: CLAUDE_RECHECK_LOCAL_TIMEOUT_S, CLAUDE_RECHECK_LOCAL_MAX_SECONDS.
+    claude_recheck_local_timeout_s: float = 120.0
+    claude_recheck_local_max_seconds: float = 600.0
     #: Output token cap per `review_ai_check` call. Raised from 4000 (2026-09-27):
     #: every one of the 10 historical calls at that cap hit `finish_reason ==
     #: "length"` and produced zero storable items - the check was truncating
