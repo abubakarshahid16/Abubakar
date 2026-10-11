@@ -15,18 +15,20 @@ Every AI service and AI agent is listed here **before** it is used. The second t
 
 ## AI switches in `backend/app/config.py` (machine-checked)
 
+**Defaults as they stand once #793, #794 and #799 are merged** (the #805 Stage A merge order puts #808 after them). Until #793 and #794 are on main, the check reports exactly those two rows.
+
 A switch is any `*_enabled` flag, or `*_provider` / `*_reader` setting, whose name names an AI step (`ai`, `reasoning`, `judge`, `match`, `model`, `reader`, `wording`, `vision`, `llm`). The default is the code's own default. An operator overrides it in `backend/.env`.
 
 | Switch | Default | Uses | What it does | Off means |
 |---|---|---|---|---|
 | `reasoning_provider` | `ollama` | Claude API or local model | Which engine every reasoning step uses. `claude` only when both standards-reader egress flags and a key are also set | The local model |
 | `standards_reader_enabled` | `False` | Claude API | One of the two egress flags for the Claude lane | No document text can reach the Claude API |
-| `datasheet_ai_reader` | `off` | Local model or Claude API | An AI reads each datasheet page; code proves every value's quote on the page | The code readers only |
-| `match_enabled` | `False` | Local model or Claude API | The AI proposes which rule fits which value; code applies the refusal rules | Code pairing only |
+| `datasheet_ai_reader` | `ollama` | Local model or Claude API | An AI reads each datasheet page; code proves every value's quote on the page. Local model by default since #793 | The code readers only (`off`) |
+| `match_enabled` | `True` | Local model or Claude API | The AI proposes which rule fits which value; code applies the refusal rules. On by default since #794 | Code pairing only |
 | `applicability_reasoning_enabled` | `True` | Local model or Claude API | Decides which standards apply, against each standard's verified scope record | The taxonomy path, or "scope not checked" |
 | `ai_applicability_enabled` | `False` | Local model | Proposes "does not apply" per requirement with a quote; code confirms | Every requirement is checked |
 | `crs_ai_wording_enabled` | `True` | Local model or Claude API | Rewrites CRS comments; code keeps every number, unit, clause, page and standard; internal copy only | Template wording |
-| `review_ai_check_enabled` | `False` | Local model or Claude API | The AI engineering check: concerns no rule covers, as drafts, never a verdict | No AI drafts |
+| `review_ai_check_enabled` | `True` | Local model or Claude API | The AI engineering check: concerns no rule covers, as drafts, never a verdict. On by default since #799 | No AI drafts |
 | `answer_judge_enabled` | `False` | Local model or Claude API | Judges whether chat passages answer the question; may only downgrade | Structural checks only |
 | `rule_parse_model_enabled` | `False` | Claude API | Turns a table or formula clause into a structured rule; every number must be on the page | Code parser only |
 | `geometry_reader_enabled` | `False` | Claude API (vision) | The geometry reader's form path and the vision reader for pages no text reader can read | Text readers only |
