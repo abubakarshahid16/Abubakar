@@ -137,3 +137,11 @@ def _review_again(equipment_type):
     os.remove(settings.db_path)
     db.init_db(); submittal_review.ensure_schema(); submittal_review.migrate_facts_to_per_document()
     return _review(equipment_type)
+
+
+def test_a_review_with_a_checklist_states_its_reader_coverage():
+    """Planner 2026-10-10: every checklist review says how many of its fields
+    were read, and how many are on the sheet but were not read."""
+    result, _stored, _ids = _review("Pressure Safety Valve")
+    cov = result["requirement_split"]["checklist_coverage"]
+    assert cov["fields"] > 0 and cov["read"] <= cov["fields"]

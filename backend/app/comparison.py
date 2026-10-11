@@ -2325,11 +2325,11 @@ def run_comparison(
         "SELECT page_no, text FROM pages WHERE document_id = ?", (submittal_id,))}
     datasheet_check_not_run = datasheet_checks.revision_check_not_run(
         stored.get("equipment_type"), page_texts)
-    findings.extend(datasheet_checks.store(
-        review_run_id, submittal_id,
-        datasheet_checks.evaluate(facts, equipment_type=stored.get("equipment_type"),
-                                  page_texts=page_texts),
-        pages_read=pages_read))
+    check_results = datasheet_checks.evaluate(facts, equipment_type=stored.get("equipment_type"),
+                                              page_texts=page_texts)
+    findings.extend(datasheet_checks.store(review_run_id, submittal_id, check_results,
+                                           pages_read=pages_read))
+    checklist_coverage = datasheet_checks.coverage(check_results)
 
     coverage = completeness_for_run(
         submittal_id, allowed_document_ids=allowed_document_ids,
@@ -2348,6 +2348,8 @@ def run_comparison(
         covered_items)
     if checklist_note:
         split = {**split, "checklist": checklist_note}
+    if checklist_coverage:
+        split = {**split, "checklist_coverage": checklist_coverage}
     unchecked_counts = {
         "not_compared": split["applies_not_checked"],
         "not_applied": split["does_not_apply"],
