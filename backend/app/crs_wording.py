@@ -44,6 +44,7 @@ from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 
+from . import claude_approved
 from . import claims, numparse, standard_ids
 from .config import settings
 from .db import connect
@@ -230,6 +231,7 @@ def _ask(provider, row: dict) -> tuple[str | None, str | None, str]:
     return text, lock(text, row), model
 
 
+@claude_approved.for_review      # #806 S3: a CRS row is the review's submittal and standards
 def word_run(review_run_id: str, rows: list[dict], *, provider=None) -> dict:
     """Ask the model to reword each machine row of a finished run; keep the
     rewrites that pass `lock`. Returns and stores the run's summary."""

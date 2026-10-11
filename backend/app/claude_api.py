@@ -278,9 +278,14 @@ def claude_select_standards(
     candidates = claude_selection.candidates_from_corpus(
         allowed_document_ids=scope.allowed_document_ids)
     summary = _datasheet_summary(run["submittal_document_id"], scope)
-    result, exhausted = _capped(
-        model_call, lambda call: claude_selection.select_standards(summary, candidates, call),
-        transport)
+    # #806 S3: the prompt carries the submittal's summary and, for EVERY
+    # selectable standard, its number, title and a scope excerpt.
+    from . import claude_approved
+    with claude_approved.carrying([run["submittal_document_id"],
+                                   *(c.get("document_id") for c in candidates)]):
+        result, exhausted = _capped(
+            model_call, lambda call: claude_selection.select_standards(summary, candidates, call),
+            transport)
     stored = claude_selection.store_selection(
         review_run_id, result.get("accepted", []), candidates,
         allowed_document_ids=scope.allowed_document_ids)

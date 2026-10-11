@@ -54,7 +54,8 @@ def instruction(styles: list[str]) -> str:
 
 def _failed(base: dict, exc: Exception, timer: Timer, preference: str | None = None) -> dict:
     if isinstance(exc, claude_spend.BudgetExceeded):
-        reason = f"the Claude spending cap would be exceeded, so no answer was generated ({exc})"
+        reason = claude_spend.refusal_words(
+            exc, "the Claude spending cap would be exceeded, so no answer was generated")
     elif isinstance(exc, rp.ProviderRefused):
         reason = f"the answer model would not answer ({str(exc).split(':')[0]})"
     else:
@@ -72,7 +73,16 @@ def _base(question: str, input_kind: str) -> dict:
 
 def _generate(system: str, prompt: str, temperature: float, preference: str | None) -> dict:
     answer_mod._prepare_stream(None, general=True)
-    return chat_model.generate(system, prompt, temperature=temperature, preference=preference)
+    # #806 S3: a general answer or a rewrite carries no passage. What it CAN
+    # carry is the conversation (earlier document answers in the history, the
+    # previous answer's text): `chat.ask` declares the conversation's
+    # documents for the whole turn, and this adds nothing to them. Declared
+    # here as "nothing more" so a general answer outside a conversation (no
+    # history at all) is a declared, document-free prompt rather than an
+    # undeclared one.
+    from . import claude_approved
+    with claude_approved.carrying(()):
+        return chat_model.generate(system, prompt, temperature=temperature, preference=preference)
 
 
 # ------------------------------------------------------------- general
