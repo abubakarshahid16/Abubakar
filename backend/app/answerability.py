@@ -271,7 +271,10 @@ def judge(question: str, result: dict, current: dict, provider) -> dict:
     from .reasoning_provider import ProviderRefused, schema_errors
     passages = _shown(result)[:JUDGE_PASSAGES]
     try:
-        response = provider.reason(_judge_packet(question, passages))
+        # #806 S3: the prompt carries the shown passages of these documents.
+        from . import claude_approved
+        with claude_approved.carrying(p.get("document_id") for p in passages):
+            response = provider.reason(_judge_packet(question, passages))
     except ProviderRefused as exc:
         return {**current, "judge": {"accepted": False, "why": f"model refused: {exc}"}}
     except Exception as exc:  # noqa: BLE001 - a judge failure never breaks an answer
