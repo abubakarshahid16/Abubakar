@@ -114,6 +114,42 @@ def _hashes_of(document_ids: frozenset[str]) -> dict[str, str | None]:
     return {d: found.get(d) for d in document_ids}
 
 
+def review_documents(review_run_id: str) -> list[str]:
+    """The documents a review's prompts can carry: its submittal and every
+    standard applied to it. Empty when the run is not found (the callers'
+    own checks say that; here it just declares nothing extra)."""
+    import sqlite3
+
+    from .db import connect
+    conn = connect()
+    try:
+        run = conn.execute("SELECT submittal_document_id FROM review_runs WHERE id = ?",
+                           (review_run_id,)).fetchone()
+        if run is None:
+            return []
+        standards = [r["standard_document_id"] for r in conn.execute(
+            "SELECT standard_document_id FROM review_applicable_standards"
+            " WHERE review_run_id = ? AND COALESCE(included, 1) = 1", (review_run_id,))]
+    except sqlite3.OperationalError:
+        # No review tables at all (a database that never ran a review): there
+        # is no review to declare. Declaring less can only refuse, never leak.
+        return []
+    return [run["submittal_document_id"], *standards]
+
+
+def for_review(fn):
+    """Decorator for a function whose first argument is a review run id and
+    whose model calls carry that review's documents (its submittal and the
+    standards applied to it): the whole call runs under that declaration."""
+    import functools
+
+    @functools.wraps(fn)
+    def declared(review_run_id, *args, **kwargs):
+        with carrying(review_documents(review_run_id)):
+            return fn(review_run_id, *args, **kwargs)
+    return declared
+
+
 def refusal() -> tuple[str, str] | None:
     """`(code, reason)` when the Claude call about to be reserved must not
     leave, else None. Ids only in the reason - never a file name."""

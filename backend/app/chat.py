@@ -675,7 +675,31 @@ def _payload(result: dict) -> dict:
     return {k: result[k] for k in _PAYLOAD_KEYS if k in result}
 
 
-def ask(
+def conversation_document_ids(conversation_id: str) -> set[str]:
+    """Every document any stored turn of this conversation refers to
+    (`referenced_document_ids` over each payload). #806 S3: the history a
+    chat prompt carries is made of these turns, so they are what the turn
+    declares to the Claude lane - all of them, whatever the history budget
+    later keeps, because declaring too much can only refuse, never leak."""
+    found: set[str] = set()
+    for row in connect().execute(
+            "SELECT payload FROM messages WHERE conversation_id = ?", (conversation_id,)):
+        try:
+            found |= referenced_document_ids(json.loads(row["payload"] or "{}"))
+        except (TypeError, ValueError):
+            continue
+    return found
+
+
+def ask(conversation_id: str, question: str, *args, **kwargs) -> dict:
+    """`_ask`, with the conversation's documents declared for the Claude lane
+    (#806 S3). The call sites inside add what they retrieve or read."""
+    from . import claude_approved
+    with claude_approved.carrying(conversation_document_ids(conversation_id)):
+        return _ask(conversation_id, question, *args, **kwargs)
+
+
+def _ask(
     conversation_id: str,
     question: str,
     tier: str = "extract",

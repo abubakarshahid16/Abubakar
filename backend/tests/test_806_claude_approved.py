@@ -154,3 +154,17 @@ def test_a_change_to_the_list_is_written_to_the_audit_table_once():
     _approve(("aa" * 32, "approved"), ("bb" * 32, "approved"))
     assert claude_approved.sync_audit() is True
     assert claude_approved.counts() == {"approved": 2}
+
+
+# ---------------------------------------------------------------- what the reader is told
+
+def test_the_reader_is_told_it_is_the_approved_list_not_the_spending_cap():
+    from app import chat_model
+    refused = claude_spend.DocumentNotApproved(claude_approved.NOT_APPROVED, "1 of 1 document(s) ... (ids: doc_b)")
+    cap = claude_spend.BudgetExceeded("the per-step cap")
+    assert claude_spend.refusal_words(refused, "the cap words").startswith(claude_spend.NOT_APPROVED_WORDS)
+    assert "doc_b" in claude_spend.refusal_words(refused, "the cap words")
+    assert claude_spend.refusal_words(cap, "the cap words") == "the cap words (the per-step cap)"
+    assert chat_model.fallback_words(refused) == (
+        "a document here is not approved for the cloud model; answered locally")
+    assert chat_model.fallback_words(cap) == "the Claude spending cap would be exceeded"

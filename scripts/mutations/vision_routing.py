@@ -32,8 +32,9 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         id="M815", phase=70, description="B7: the routing decision is ignored - every page is read by the model",
         path=_D,
-        anchor="        if routed:\n            readings[page] = _vision_reading(",
-        replacement="        if True:\n            readings[page] = _vision_reading(",
+        # re-anchored 2026-10-11 (#806 S3): the vision call now declares its document
+        anchor="        if routed:\n            # #806 S3: the request carries an image",
+        replacement="        if True:\n            # #806 S3: the request carries an image",
         target=_T, keyword="only_the_page or budget",
     ),
     Mutation(

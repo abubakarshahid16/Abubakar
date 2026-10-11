@@ -346,6 +346,21 @@ class Reservation:
     batch: bool = False
 
 
+#: What the reader is told when #806 S3 stopped a Claude answer. One wording,
+#: in every chat path; ids are in the bracket, never a file name.
+NOT_APPROVED_WORDS = ("a document this answer needs is not approved for the cloud model, so nothing "
+                      "was sent to it and no answer was generated; choose the Local model to answer "
+                      "from this document")
+
+
+def refusal_words(exc: BaseException, cap_words: str) -> str:
+    """The reason shown for a call refused before it left: the approved-list
+    wording for `DocumentNotApproved`, else the caller's own spending-cap
+    wording (`cap_words`). The exception's text follows in brackets."""
+    words = NOT_APPROVED_WORDS if isinstance(exc, DocumentNotApproved) else cap_words
+    return f"{words} ({exc})"
+
+
 def reserve_all(items: list[tuple[str, float]], *, model: str, prompt_sha256: str = "",
                 batch: bool = False, caps: Caps | None = None) -> list[Reservation]:
     """Check and reserve every `(step, worst_case)` in ONE locked step: all
