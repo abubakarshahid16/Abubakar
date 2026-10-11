@@ -182,9 +182,12 @@ def test_a_rerun_replaces_drafts_but_never_an_engineers_confirmation(world):
     assert first["id"] in ids and len(ids) == 2
 
 
-def test_the_flag_is_off_by_default_and_off_sends_nothing(world, monkeypatch):
-    """M1033: off, a review never reaches the provider."""
-    assert Settings.model_fields["review_ai_check_enabled"].default is False
+def test_the_flag_is_on_by_default_and_off_sends_nothing(world, monkeypatch):
+    """M1033: off, a review never reaches the provider. ON by default since
+    R26 step 7 (owner rule "AI-first", 11 Oct): switching it off by default
+    needs the owner's written approval, so this fails the build if it is."""
+    assert Settings.model_fields["review_ai_check_enabled"].default is True
+    monkeypatch.setattr(settings, "review_ai_check_enabled", False)
     _sub, run, scope = world
     fake = Fake()
     # The Claude lane is ON here, so the flag alone is what must stop it.
@@ -440,3 +443,66 @@ def test_a_rejected_item_is_not_on_the_sheet(world, monkeypatch):
     assert TestClient(app).patch(f"/api/reviews/findings/{item['id']}",
                                  json={"approval_status": "rejected"}).status_code == 200
     assert TEXT not in json.dumps(_preview(run))
+
+
+# ------------------------------------------------- R26 step 7 (#763): AI-first
+
+class _Transport:
+    """The local model's transport: records what was asked, answers or fails."""
+
+    def __init__(self, raises=None):
+        self.calls, self.raises = [], raises
+
+    def __call__(self, path, body, timeout):
+        self.calls.append((body, timeout))
+        if self.raises:
+            raise self.raises
+        return {"response": json.dumps({"items": [GOOD]}), "model": "local-test:1b",
+                "done_reason": "stop"}
+
+
+def _local(monkeypatch, transport):
+    from app import model_transport
+    monkeypatch.setattr(settings, "review_ai_check_enabled", True)
+    monkeypatch.setattr(rp, "claude_available", lambda: (False, "off in tests"))
+    monkeypatch.setattr(model_transport, "post_json", transport)
+
+
+def test_with_the_claude_lane_off_it_runs_on_the_local_model(world, monkeypatch):
+    _sub, run, scope = world
+    transport = _Transport()
+    _local(monkeypatch, transport)
+    monkeypatch.setattr(settings, "review_ai_check_local_timeout_s", 77.0)
+    assert aic.available() == (True, "local")
+    review_jobs._ai_check(run, scope, ["API 610"])
+    assert len(transport.calls) == 1
+    body, timeout = transport.calls[0]
+    # its own timeout and the smaller output cap: a review is never held long
+    assert timeout == 77.0 and body["options"]["num_predict"] == aic.LOCAL_MAX_OUTPUT_TOKENS
+    assert len(_ai_rows(run)) == 1
+    status = aic.ai_check_status(run, allowed_document_ids=scope)
+    assert status["model"] == "ollama:local-test:1b" and status["complete"] is True
+
+
+def test_a_local_model_that_times_out_is_a_warning_on_the_run_not_a_failed_review(
+        world, monkeypatch):
+    _sub, run, scope = world
+    _local(monkeypatch, _Transport(raises=TimeoutError("slow")))
+    review_jobs._ai_check(run, scope, [])
+    status = aic.ai_check_status(run, allowed_document_ids=scope)
+    assert status["complete"] is False and "the model call failed" in status["reason"]
+    assert _ai_rows(run) == []
+
+
+def test_the_prompt_asks_for_what_no_rule_covers(world, monkeypatch):
+    _sub, run, scope = world
+    fake = Fake()
+    monkeypatch.setattr(settings, "review_ai_check_enabled", True)
+    monkeypatch.setattr(rp, "claude_available", lambda: (True, "claude"))
+    monkeypatch.setattr(rp, "get_provider", lambda *a, **k: fake)
+    review_jobs._ai_check(run, scope, [])
+    assert "UNUSUAL COMBINATIONS" in fake.packets[0].system
+    assert fake.packets[0].prompt_version == "review-ai-check-v2"
+    # an item is still a draft: no compliance status, pending, unconfirmed
+    row = _ai_rows(run)[0]
+    assert row["compliance_status"] is None and row["approval_status"] == "pending"
