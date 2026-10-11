@@ -425,9 +425,9 @@ def _failure_reason(exc: Exception) -> str:
     """Say what actually stopped the answer. Only a `BudgetExceeded` is the
     spending cap; a `ProviderRefused` is the call itself failing (network,
     timeout, an HTTP 4xx/5xx, egress off) and must not be blamed on the cap."""
+    if isinstance(exc, claude_spend.DocumentNotApproved):
+        return claude_spend.refusal_words(exc, "")       # #806 S3: not the cap
     if isinstance(exc, claude_spend.BudgetExceeded):
-        if isinstance(exc, claude_spend.DocumentNotApproved):
-            return claude_spend.refusal_words(exc, "")
         return f"the spending cap would be exceeded partway through this answer: {exc}"
     return f"the Claude call failed partway through this answer: {exc}"
 
