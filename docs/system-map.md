@@ -68,6 +68,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `crs_export` | CRS (Comment Resolution Sheet) generator - client CRS format |
 | `crs_mapping` | Write the CRS comment text |
 | `crs_numbers` | Permanent CRS comment numbers and everything that happens to a comment after it is issued: the contractor's re |
+| `crs_wording` | AI-worded CRS comments, with a code lock on every number, unit, clause, page and standard |
 | `crs_reply` | Read a contractor's returned Comment Resolution Sheet |
 | `datasheet_ai` | Read a contractor datasheet into facts |
 | `datasheet_checks` | Datasheet self-checks (kind B): what a datasheet says against ITSELF |

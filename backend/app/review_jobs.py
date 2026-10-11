@@ -269,6 +269,11 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
             missing_references=[m["identifier"] for m in selection["missing_references"]])
         _ai_check(run_id, scope, [m["identifier"] for m in selection["missing_references"]])
         _web_check(run_id, scope, [m["identifier"] for m in selection["missing_references"]])
+        # R26 step 8 (#763): the model words each machine CRS comment; a code
+        # lock keeps every fact. Never fails the run (see the helper).
+        from .main import word_crs_rows
+        word_crs_rows(run_id, access.AccessScope(user_id=job["created_by"],
+                                                 allowed_document_ids=scope))
     except _Cancelled:
         with conn:
             from . import review as review_mod

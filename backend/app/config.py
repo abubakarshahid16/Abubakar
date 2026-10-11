@@ -529,6 +529,19 @@ class Settings(BaseSettings):
     #: and a run without the owner's settings file used to drop the standards
     #: it chooses. Env: APPLICABILITY_REASONING_ENABLED (false turns it off).
     applicability_reasoning_enabled: bool = True
+    #: R26 step 8 (#763): when a review finishes, the configured model
+    #: (`reasoning_provider`: the local engine, or the Claude lane when it is
+    #: on) rewrites each machine CRS comment in a reviewing engineer's voice;
+    #: `crs_wording.lock` refuses any rewrite that changes a number, unit,
+    #: clause, page or standard, and the template stays. Accepted rewrites print
+    #: in the INTERNAL copy's "AI Review Comments" column only - never in the
+    #: issue copy. ON by default (owner rule "AI-first", 11 Oct): a model that
+    #: is down or slow stops the step with a recorded reason, never the review.
+    #: Env: CRS_AI_WORDING_ENABLED (false turns it off).
+    crs_ai_wording_enabled: bool = True
+    #: Seconds one local wording call may take before the step stops for the
+    #: run (templates kept). Env: CRS_AI_WORDING_TIMEOUT_S.
+    crs_ai_wording_timeout_s: float = 60.0
     #: B4 (nozzle schedules): ONLY the geometry reader's TABLE path - a ruled
     #: grid read cell by cell under its column heading ("N1 Size 4", "N1
     #: Flange Rating CL-150"). A schedule is one row per item across many
