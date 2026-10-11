@@ -1,0 +1,22 @@
+{
+  "_about": "Generic reviewer words a drafted CRS comment may use WITHOUT finding them in the finding's own evidence (#648). A word of four or more letters in a draft is either in the finding's quotes (the requirement, the submitted value, the matched field, the citation) or in this list; a sentence with two or more words that are neither is a claim the evidence does not support, and the draft is thrown away. This is the vocabulary of the reviewer's voice - what is submitted, required, stated, revised, confirmed - and never a technical term, a material, a fault or a cause: those must come from the quotes. Edit here, not in code; keep it free of subject matter.",
+  "version": "1",
+  "words": [
+    "about", "above", "accordance", "action", "actual", "address", "after", "against", "agree", "agrees",
+    "also", "applicable", "applies", "apply", "attach", "attached", "available", "based", "because", "before",
+    "below", "between", "both", "cited", "clarify", "clause", "comment", "comply", "complies", "compliance",
+    "compliant", "conform", "conforms", "confirm", "confirmed", "contractor", "contrary", "covered", "datasheet",
+    "defined", "design", "deviation", "document", "documented", "does", "each", "either", "engineer", "evidence",
+    "exceed", "exceeds", "exceeded", "expected", "found", "from", "given", "have", "here", "however", "identified",
+    "indicate", "indicated", "indicates", "information", "item", "limit", "limits", "listed", "match", "matches",
+    "maximum", "meet", "meets", "minimum", "missing", "more", "must", "noted", "nominal", "provide", "provided",
+    "reference", "referenced", "references", "remains", "required", "requirement", "requirements", "resubmit",
+    "review", "reviewed", "revise", "revised", "revision", "section", "shall", "should", "show", "shown", "shows",
+    "specified", "specifies", "state", "stated", "states", "status", "submit", "submitted", "submittal", "submittals",
+    "supply", "supplied", "than", "that", "their", "then", "there", "therefore", "these", "this", "those", "unable",
+    "under", "unit", "units", "update", "updated", "value", "values", "verify", "verified", "verification", "when",
+    "where", "whether", "which", "with", "within", "without", "would", "page", "pages", "table", "sheet", "data",
+    "along", "being", "could", "established", "further", "more", "needs", "need", "only", "other", "same", "such",
+    "will", "was", "were", "has", "not", "the", "and", "for", "are", "per", "its", "may", "can"
+  ]
+}

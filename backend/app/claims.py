@@ -452,7 +452,33 @@ def unit_dimension(unit_str: str) -> str | None:
     entry = _UNIT_TABLE.get(folded)
     if entry:
         return entry[0]
-    return _UNCONVERTED_UNITS.get(folded)
+    if folded in _UNCONVERTED_UNITS:
+        return _UNCONVERTED_UNITS[folded]
+    # #725 F2: a gauge or absolute spelling ("kg/cm2g", "bar (ga)") is the
+    # dimension of its base unit.
+    base, reference = split_reference(unit_str)
+    if reference is not None and base:
+        return unit_dimension(base)
+    return None
+
+
+def base_unit(unit_str: str | None) -> str:
+    """The unit with any gauge / absolute reference split off ("barg" ->
+    "bar", "bar (ga)" -> "bar"); "" when there is none. THE ONE HOME for
+    this (#725 F2): matchers and guards that compare unit SPELLINGS use it."""
+    return split_reference(unit_str)[0] or ""
+
+
+def same_quantity(left_unit: str | None, right_unit: str | None) -> bool:
+    """Both units stated, and the same unit or the same known dimension. A
+    missing or unknown unit is NOT the same quantity."""
+    left, right = (left_unit or "").strip(), (right_unit or "").strip()
+    if not left or not right:
+        return False
+    if same_unit(Measurement("", left, None, None, None), Measurement("", right, None, None, None)):
+        return True
+    left_dim, right_dim = unit_dimension(left), unit_dimension(right)
+    return left_dim is not None and left_dim == right_dim
 
 
 # ------------------------------------------------------------------ comparators
@@ -569,6 +595,9 @@ class Measurement:
     normalized_value: float | None
     normalized_unit: str | None
     comparator: str | None
+    #: 'gauge', 'absolute' or None (#725 F2). Set by `normalise` from the unit
+    #: as written, or by a caller from a stored flag (`unit_reference`).
+    reference: str | None = None
 
     @property
     def dimension(self) -> str | None:
@@ -614,10 +643,19 @@ def normalise(value_str: str, unit_str: str, comparator: str | None = None) -> M
     comparator = comparator or cmp_from_value
     value = parse_value(number_part)
     entry = _UNIT_TABLE.get(_fold_unit(unit_str))
+    if entry is None:
+        # #725 F2: A GAUGE OR ABSOLUTE PRESSURE CONVERTS THROUGH ITS BASE UNIT
+        # ("340 psig" is 340 psi, gauge). The reference is not lost: it stays
+        # in `raw_unit` and is read back by `Measurement.reference`, and
+        # `_compatible` never compares a gauge value with an absolute one.
+        base, reference = split_reference(unit_str)
+        if reference is not None and base:
+            entry = _UNIT_TABLE.get(_fold_unit(base))
+    reference = split_reference(unit_str)[1]
     if entry is None or value is None:
-        return Measurement(value_str, unit_str, None, None, comparator)
+        return Measurement(value_str, unit_str, None, None, comparator, reference)
     _dimension, canonical, factor = entry
-    return Measurement(value_str, unit_str, value * factor, canonical, comparator)
+    return Measurement(value_str, unit_str, value * factor, canonical, comparator, reference)
 
 
 def normalise_strict(value_str: str, unit_str: str, comparator: str | None = None) -> Measurement:
@@ -1373,6 +1411,11 @@ def _compatible(a: Measurement, b: Measurement) -> bool | None:
     """
     dim_a, dim_b = a.dimension, b.dimension
     if dim_a is not None and dim_b is not None and dim_a != dim_b:
+        return None
+    # #725 F2: A GAUGE AND AN ABSOLUTE PRESSURE DIFFER BY AN ATMOSPHERE nobody
+    # recorded, so they are never compared. A plain unit ("bar") against
+    # either is compared, as `comparison` has always treated it.
+    if a.reference is not None and b.reference is not None and a.reference != b.reference:
         return None
     if (a.normalized_value is None or b.normalized_value is None) and same_unit(a, b):
         a, b = _same_unit_view(a), _same_unit_view(b)

@@ -309,7 +309,7 @@ piece of evidence. `file:line` references are to the audited commit.
 | R083 | Keep multilingual-e5-small ONNX int8, 384 dimensions | MET | `embedder.py`, `scripts/fetch_models.py`. |
 | R084 | Keep the local Qwen generator | MET | `config.py:107` `answer_model: "qwen3.5:4b"`. |
 | R085 | Keep the ONNX int8 cross-encoder; fix the displayed model identity; do not tune thresholds | PARTIAL | Kept, and `DashboardView.tsx:701-713` now displays `embed_model`, `reranker_model`, `answer_model` by name. Revision, quantization, hash and context settings are not displayed (see R483/A35). Thresholds untuned except the window change recorded at R027. |
-| R086 | Heavy work in the durable worker/subprocesses, not in-process `BackgroundTasks` | MET | `app/worker.py`, `ingest.py`, `extract.py` dispatch to processes; PyMuPDF never used from threads. |
+| R086 | Heavy work in the durable worker/subprocesses, not in-process `BackgroundTasks` | MET | `ingest.py`, `extract.py` dispatch to processes; PyMuPDF never used from threads. (`app/worker.py` was listed here, but no app code imported it: it is a command-line bench runner, moved to `backend/tools/worker.py` in #736.) |
 | R087 | One codebase, two measured configuration profiles | NOT MET | No profiles (R008). |
 | R088 | "Smart agent" is a bounded deterministic workflow — no arbitrary tools, loops, shell or hidden actions | MET | No shell, filesystem, SQL or HTTP tool is exposed to the model anywhere; the only model call sites are `analysis.py` and `answer.py` with fixed system prompts. |
 | R089 | Filter access before retrieval and recheck at the resource | MET | `search.py` takes `allowed_document_ids` as a keyword-only argument; every route re-checks via `require_document`. |
