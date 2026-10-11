@@ -213,3 +213,19 @@ def test_an_ai_only_fact_is_written_with_its_proof_and_its_model(tmp_path, monke
     assert facts, "the AI-only fact was not written"
     box = _json.loads(facts[0]["bbox"])
     assert box["reader"] == "datasheet_ai" and box["quote_on_page"] is True and "model" in box
+
+
+# ---------------------------------------------------------------- the claude engine reads a PAGE
+
+def test_the_claude_engine_asks_for_a_page_sized_answer_with_the_reasoning_model(monkeypatch):
+    """R32: the reader lane's one-sentence defaults (512 tokens, 30 s) cut a
+    page of values off mid-JSON."""
+    from tests.test_datasheet_ai import _claude_env
+    sent = _claude_env(monkeypatch)
+    monkeypatch.setattr(settings, "datasheet_ai_claude_max_tokens", 3000)
+    monkeypatch.setattr(settings, "claude_reasoning_model", "claude-sonnet-5")
+    call, why = datasheet_ai.model_call_for("claude")
+    assert why is None and call.model == "claude-sonnet-5"
+    datasheet_ai.read_page_text_with_ai("1 Design pressure 23.5 barg", 1, call)
+    assert sent and {b["max_tokens"] for b in sent} == {3000}
+    assert {b["model"] for b in sent} == {"claude-sonnet-5"}

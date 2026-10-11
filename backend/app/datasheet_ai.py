@@ -144,9 +144,23 @@ def _claude_call():
     transport = reader_transport.transport()
     if transport is None:
         return None, "claude engine unavailable (EGRESS_OFF: no transport)"
+    # A PAGE OF VALUES, NOT ONE SENTENCE (R32, 2026-10-11). The reader lane's
+    # own defaults are sized for `read_sentence` (512 tokens out, 30 s): a
+    # whole datasheet page's facts were cut off mid-JSON and read as
+    # "engine answer unusable". Same destination, same flags, same key check
+    # (`build_request`); only the answer budget, the time and the model are
+    # this reader's own. The model is the configured reasoning model unless
+    # STANDARDS_READER_MODEL names one.
+    import dataclasses
+    import os
+    base = reader_api.ReaderSettings.from_env()
+    model = (os.environ.get("STANDARDS_READER_MODEL") or "").strip() or settings.claude_reasoning_model
+    cfg = dataclasses.replace(base, model=model, max_tokens=int(settings.datasheet_ai_claude_max_tokens),
+                              timeout_seconds=float(settings.datasheet_ai_timeout_seconds))
     call = claude_budget.Budget(reader_api.model_call_via(claude_spend.metered(
-        transport, STEP, unbilled=reader_transport.unbilled)))
+        transport, STEP, unbilled=reader_transport.unbilled), cfg=cfg))
     call.engine = CLAUDE
+    call.model = model
     call.step = STEP
     return call, None
 

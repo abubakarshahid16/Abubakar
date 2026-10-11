@@ -507,6 +507,11 @@ class Settings(BaseSettings):
     #: code readers' reading (the provider's own default is 15 minutes).
     #: Env: DATASHEET_AI_TIMEOUT_SECONDS.
     datasheet_ai_timeout_seconds: float = 180.0
+    #: Answer budget (tokens) of one "claude" engine call: a page of values,
+    #: not the reader lane's one-sentence 512. `claude_spend` prices the
+    #: worst case from it before the call leaves. Env:
+    #: DATASHEET_AI_CLAUDE_MAX_TOKENS.
+    datasheet_ai_claude_max_tokens: int = 4096
     #: Seconds the AI reader may spend on ONE document; the pages after that
     #: keep the code readers' reading, each with the reason. Checked before
     #: each page: a page already started finishes (two calls, each up to
