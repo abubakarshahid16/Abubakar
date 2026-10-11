@@ -107,3 +107,24 @@ def test_an_absolute_pressure_against_a_limit_with_no_reference_is_not_compared(
     assert comparison._reference_obstacle(bare, absolute)              # either way round
     assert comparison._reference_obstacle(gauge, bare) is None         # the everyday case still compares
     assert comparison._reference_obstacle(bare, bare) is None
+
+
+def test_an_absolute_value_against_an_unreferenced_limit_gets_no_verdict():
+    """THE VERDICT, not the wording (audit A-793): the first version of this
+    fix changed only the sentence `_reference_obstacle` returns, and a test of
+    that sentence passed while the comparison still read "within the limit".
+    Through `comparison.compare`, the way a review reaches it."""
+    from app import claims, comparison
+    limit = _requirement(requirement_text="The external design pressure shall not exceed 15 psi.",
+                         raw_value="15", raw_unit="psi", field="external design pressure")
+    absolute = _fact(field_name="external design pressure", field_label="External design pressure",
+                     field_value="50 kPaa", raw_value="50", raw_unit="kPaa")
+    verdict = comparison.compare(limit, absolute)
+    assert verdict["status"] == comparison.NEEDS_ENGINEER_REVIEW
+    assert "absolute" in verdict["rationale"] and "no reference" in verdict["rationale"]
+    # the same number stated as gauge, or with no reference, is still decided
+    for unit in ("kPag", "kPa"):
+        same = comparison.compare(limit, {**absolute, "raw_unit": unit, "field_value": f"50 {unit}"})
+        assert same["status"] == comparison.COMPLIANT, unit
+    assert claims._compatible(claims.normalise("50", "kPaa"), claims.normalise("15", "psi", "<=")) is None
+    assert claims._compatible(claims.normalise("15", "psi", "<="), claims.normalise("50", "kPaa")) is None

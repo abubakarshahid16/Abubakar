@@ -31,4 +31,12 @@ MUTATIONS: tuple[Mutation, ...] = (
              replacement='    if False:\n',
              target="tests/test_f2_gauge_absolute_units.py", keyword="no_reference_is_not_compared",
              tags=("honesty", "critical")),
+    # The DECISION (claims unit code, danger zone): M793-05 above guards only the wording.
+    Mutation(id="M793-06", phase=793,
+             description="an absolute pressure is compared with an unreferenced limit after all (the verdict)",
+             path=APP / "claims.py",
+             anchor='    if {a.reference, b.reference} == {"absolute", None}:\n        return None\n',
+             replacement='',
+             target="tests/test_f2_gauge_absolute_units.py", keyword="gets_no_verdict",
+             tags=("honesty", "critical")),
 )
