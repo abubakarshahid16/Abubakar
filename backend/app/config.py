@@ -458,7 +458,23 @@ class Settings(BaseSettings):
     #: False turns the tier off entirely and the findings SAY SO in their
     #: rationale - a review that silently stopped asking would look identical
     #: to one where the model declined every time.
-    match_enabled: bool = False
+    #:
+    #: ON BY DEFAULT since the owner order of 2026-10-11 (item 4, "AI proposes
+    #: rule-value matches"), REDESIGNED so the 2026-09-19 failure cannot reach
+    #: a verdict: the model's choice passes the same refusal rules as a
+    #: containment pairing (`match_rules.refusal`, refusals counted by rule
+    #: and said on the finding). A proposal that passes every rule is a normal
+    #: pairing and code decides its verdict (planner decision 2026-10-11); it
+    #: is labelled as AI-paired, at medium confidence. Tests pin it off
+    #: (`tests/env_isolation.py` TEST_PINS). Env: MATCH_ENABLED.
+    match_enabled: bool = True
+    #: Which engine answers the matcher's question: "ollama" (the default,
+    #: local) or "claude" - the Claude API, only when REASONING_PROVIDER=claude
+    #: AND both STANDARDS_READER_* egress flags AND a key, every call metered
+    #: by `claude_spend` under the step `requirement-matcher` (R32). What
+    #: leaves is the requirement's sentence and the candidate field names.
+    #: Env: MATCH_ENGINE.
+    match_engine: str = "ollama"
     #: #193 plan B4 (order 5.5): the geometry reader (`geometry_reader.py`)
     #: adds its form and table readings to `submittal_facts` during
     #: `datasheets.extract_facts`, as `extraction_method='geometry'` rows with
