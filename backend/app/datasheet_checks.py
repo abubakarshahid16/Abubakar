@@ -991,7 +991,7 @@ def api520_liquid_area(get, rules: dict, selected_mm2: float | None = None) -> d
 
 #: The calculations a checklist item may name (`rule.formula`). Formulas are
 #: code; which item runs which formula, on which field, is data.
-CALCULATIONS = {"api520_gas_area": api520_gas_area, "api520_liquid_area": api520_liquid_area}
+CALCULATIONS = {formula.__name__: formula for formula in (api520_gas_area, api520_liquid_area)}
 
 
 def evaluate_calc(item: dict, field: str, get, res, rules: dict) -> dict:
