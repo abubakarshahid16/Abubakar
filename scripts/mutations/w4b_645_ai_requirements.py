@@ -5,7 +5,7 @@ from __future__ import annotations
 from ._base import APP, Mutation
 
 _T = "tests/test_w4b_645_ai_requirements.py"
-_M = APP / "ai_requirements.py"
+_M = APP.parent / "tools" / "ai_requirements.py"
 _P = APP.parent.parent / "scripts" / "pilot_ai_requirements.py"
 
 MUTATIONS: tuple[Mutation, ...] = (

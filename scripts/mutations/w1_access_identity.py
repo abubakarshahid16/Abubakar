@@ -1,7 +1,7 @@
-"""Mutations for W1 access and identity (2026-10-08): #441 and #609.
+"""Mutations for W1 access and identity (2026-10-08): #609.
 
-#441: crs-draft is a POST that needs an identity, answers a run the caller
-may not read with the same 404 as a missing one, and records who asked.
+The #441 entries (M2401-M2405, M2413) were removed with the crs-draft route
+(#736, F8c row 1).
 #609: an upload names at least one discipline, defaulting to the uploader's
 own, so no document is left visible to no discipline; the Administration
 screen lists any such document first.
@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from ._base import APP, FRONTEND_SRC, Mutation
 
-_API = APP / "claude_api.py"
 _ACCESS = APP / "access.py"
 _MAIN = APP / "main.py"
 _T = "tests/test_w1_crs_draft_and_upload_discipline.py"
@@ -23,57 +22,6 @@ _ADMIN = FRONTEND_SRC / "views" / "AdminView.tsx"
 _T_UPLOADER = "src/components/Uploader.disciplines.test.tsx"
 
 MUTATIONS: tuple[Mutation, ...] = (
-    # ---------------------------------------------------------------- #441
-    Mutation(
-        id="M2401", phase=2401,
-        description="crs-draft is a GET again",
-        path=_API,
-        anchor='@router.post("/api/reviews/runs/{review_run_id}/claude/crs-draft"',
-        replacement='@router.get("/api/reviews/runs/{review_run_id}/claude/crs-draft"',
-        target=_T, keyword="crs_draft_get_is_gone",
-    ),
-    Mutation(
-        id="M2402", phase=2401,
-        description="crs-draft no longer needs an identity",
-        path=_API,
-        anchor="    reject_unknown_params(request, set())\n"
-               "    _require_identity_to_write(scope)\n"
-               "    _run_or_404(review_run_id, scope)\n"
-               "    from .main import _crs_content",
-        replacement="    reject_unknown_params(request, set())\n"
-                    "    _run_or_404(review_run_id, scope)\n"
-                    "    from .main import _crs_content",
-        target=_T, keyword="route_itself_refuses",
-    ),
-    Mutation(
-        id="M2403", phase=2401,
-        description="crs-draft ignores the caller's scope when finding the run",
-        path=_API,
-        anchor="    _run_or_404(review_run_id, scope)\n"
-               "    from .main import _crs_content  # the same composition the preview uses\n"
-               "    rows, meta, submittal_name, _stamp = _crs_content(review_run_id, scope)",
-        replacement="    _run_or_404(review_run_id, access.unrestricted_scope())\n"
-                    "    from .main import _crs_content  # the same composition the preview uses\n"
-                    "    rows, meta, submittal_name, _stamp = _crs_content(\n"
-                    "        review_run_id, access.unrestricted_scope())",
-        target=_T, keyword="cannot_read_is_the_same_404",
-    ),
-    Mutation(
-        id="M2404", phase=2401,
-        description="a CRS draft writes no audit row naming who asked",
-        path=_API,
-        anchor="    audit_id = _record_crs_draft_started(review_run_id, scope)",
-        replacement="    audit_id = 0",
-        target=_T, keyword="records_its_author",
-    ),
-    Mutation(
-        id="M2405", phase=2401,
-        description="the CRS draft response does not say who asked",
-        path=_API,
-        anchor='        "drafted_by": scope.user_id,',
-        replacement='        "drafted_by": None,',
-        target=_T, keyword="records_its_author",
-    ),
     # ---------------------------------------------------------------- #609
     Mutation(
         id="M2406", phase=2406,
@@ -141,18 +89,6 @@ MUTATIONS: tuple[Mutation, ...] = (
         anchor='    || (picker.s === "ready" && chosen.length === 0);',
         replacement=";",
         target=_T_UPLOADER, keyword="blocks the upload when no discipline is ticked",
-        tags=("ui",),
-    ),
-    Mutation(
-        id="M2413", phase=2410, runner="vitest",
-        description="the CRS draft is requested with GET",
-        path=_CLIENT,
-        anchor="      `/reviews/runs/${encodeURIComponent(runId)}/claude/crs-draft`,\n"
-               '      { method: "POST" },',
-        replacement="      `/reviews/runs/${encodeURIComponent(runId)}/claude/crs-draft`,\n"
-                    "      undefined,",
-        target="src/api/client.crsDraft.test.ts",
-        keyword="requests the draft with POST on the run's crs-draft path",
         tags=("ui",),
     ),
     Mutation(

@@ -271,9 +271,9 @@ expected on a fresh clone, all in `backend/tests/`:
   - `test_an_engineer_cannot_decide_a_run_they_may_not_read`
   - `test_an_engineer_who_is_not_an_admin_can_record_the_final_code`
   - `test_the_route_still_refuses_an_override_with_no_reason`
-- `test_claude_api.py` (5, **B5**; passing since the lane was revived 2026-09-25, #222):
-  - `test_the_four_routes_are_registered`
-  - `test_an_unknown_run_is_404_before_the_model_is_asked[...]` x4 (`select-standards`, `read-datasheet`, `recheck`, `crs-draft`)
+- `test_claude_api.py` (4, **B5**; passing since the lane was revived 2026-09-25, #222):
+  - `test_the_three_routes_are_registered`
+  - `test_an_unknown_run_is_404_before_the_model_is_asked[...]` x3 (`select-standards`, `read-datasheet`, `recheck`)
 - `test_analysis_routes.py` (4, **B7**):
   - `test_a_sentence_whose_number_is_in_no_cited_span_is_dropped_not_flagged`
   - `test_an_uncited_sentence_never_reaches_the_prose`

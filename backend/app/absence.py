@@ -167,6 +167,18 @@ def split_lines(split: dict | None) -> list[str]:
     if not split:
         return []
     lines = []
+    note = split.get("checklist")
+    if note and split.get("not_used"):
+        # #746: the review used the equipment type's checklist; say so with
+        # both counts, so a smaller number of checks is never mistaken for less work.
+        lines.append(f"Reviewed against the {note['type']} checklist ({note['items']} items); "
+                     f"{split['not_used']} library requirement(s) of the standard(s) it cites "
+                     "were not used one by one.")
+    cov = split.get("checklist_coverage")
+    if cov:
+        pages = ", ".join(str(p) for p in cov.get("gap_pages") or [])
+        lines.append(f"Checklist fields read {cov['read']} of {cov['fields']}; on the sheet but not read "
+                     f"{cov['on_sheet_not_read']}" + (f" (pages {pages})" if pages else "") + ".")
     for title, key, count_key in (
             ("Apply but not checked", "applies_not_checked_reasons", "applies_not_checked"),
             ("Do not apply", "does_not_apply_reasons", "does_not_apply")):

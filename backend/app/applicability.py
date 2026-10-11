@@ -56,7 +56,9 @@ from .db import connect
 #: engineer can act on and "the datasheet names it in note 8" is. A row without
 #: a method is refused by `record_selection`.
 METHOD_REFERENCED = "referenced"          # 1. named in the datasheet
+METHOD_POSSIBLE = "possible_citation"     # 1.5 looks like a library number, unconfirmed (#702)
 METHOD_EQUIPMENT = "equipment_type"       # 2. mapped to the equipment
+METHOD_GOVERNING = "governing_standard"   # 2. governs this equipment type (#725 F5)
 METHOD_DISCIPLINE = "discipline"          # 3. discipline match
 METHOD_SERVICE = "service"                # 4. service / operating conditions
 METHOD_SEMANTIC = "semantic"              # 5. dense retrieval
@@ -75,8 +77,13 @@ METHOD_SCOPE = "scope"
 #: as considered and not included, with the reason, and an engineer may add
 #: any of them (`override`).
 INCLUDING_METHODS = frozenset({
+    "governing_standard",  # #725 F5: reference/governing_standards.json
     "manual", "referenced", "equipment_type", "scope", "service", "project"})
 CANDIDATE_ONLY_REASON = {
+    "possible_citation": ("possible match, engineer to confirm: the submittal names something "
+                          "that looks like this standard's number or title but is not its "
+                          "recorded document number; considered, not included - an engineer "
+                          "may add it"),
     "discipline": ("a shared discipline alone is not evidence that this standard "
                    "governs this equipment; considered, not included - an engineer "
                    "may add it"),
@@ -87,15 +94,23 @@ CANDIDATE_ONLY_REASON = {
 #: Priority order, lowest number wins when two rules pick the same standard.
 #: A standard both cited and semantically similar is recorded as CITED: the
 #: stronger reason is the true one and the weaker one adds nothing.
+#:
+#: #725 F5: EVERY INCLUDING REASON OUTRANKS EVERY CANDIDATE-ONLY ONE. The old
+#: order put discipline (3) above service (4), semantic (5) above project (6)
+#: and a possible citation (1.5) above an equipment match (2), so a standard
+#: matched both ways was recorded by its weaker, candidate-only reason - and
+#: left out of the review although an including rule had picked it.
 _PRIORITY = {
     METHOD_MANUAL: 0,
     METHOD_REFERENCED: 1,
     METHOD_EQUIPMENT: 2,
+    METHOD_GOVERNING: 2,
     METHOD_SCOPE: 2,
-    METHOD_DISCIPLINE: 3,
-    METHOD_SERVICE: 4,
-    METHOD_SEMANTIC: 5,
-    METHOD_PROJECT: 6,
+    METHOD_SERVICE: 3,
+    METHOD_PROJECT: 3,
+    METHOD_POSSIBLE: 4,
+    METHOD_DISCIPLINE: 5,
+    METHOD_SEMANTIC: 6,
 }
 
 #: CONFIDENCE IS NEVER "high" (CLAUDE.md rule 4). These are the ceiling for
@@ -105,7 +120,9 @@ _PRIORITY = {
 _CONFIDENCE = {
     METHOD_MANUAL: 0.9,
     METHOD_REFERENCED: 0.9,
+    METHOD_POSSIBLE: 0.5,
     METHOD_EQUIPMENT: 0.7,
+    METHOD_GOVERNING: 0.7,
     METHOD_SCOPE: 0.7,
     METHOD_DISCIPLINE: 0.5,
     METHOD_SERVICE: 0.5,
@@ -198,19 +215,220 @@ def _submittal_profile(document_id: str) -> dict:
         "discipline": None, "equipment_type": None, "service": None, "project": None}
 
 
+GOVERNING_PATH = Path(__file__).resolve().parent / "reference" / "governing_standards.json"
+
+
+def governing_table(path: Path | None = None) -> dict:
+    """reference/governing_standards.json: {"equipment_types": {type: [ids]},
+    "materials_standards": [ids]}. A missing or malformed file RAISES - a
+    review never runs with the table silently empty."""
+    data = json.loads((path or GOVERNING_PATH).read_text(encoding="utf-8"))
+    types = data.get("equipment_types")
+    materials = data.get("materials_standards")
+    if (data.get("format") != "governing-standards/1" or not isinstance(types, dict)
+            or not all(isinstance(v, list) and all(isinstance(i, str) for i in v) for v in types.values())
+            or not isinstance(materials, list)):
+        raise ValueError(f"{(path or GOVERNING_PATH).name}: not a governing-standards/1 table")
+    partial = data.get("partial_standards") or {}
+    if not isinstance(partial, dict) or not all(
+            isinstance(v, list) and all(isinstance(e, dict) and e.get("standard") and e.get("words")
+                                        for e in v) for v in partial.values()):
+        raise ValueError(f"{(path or GOVERNING_PATH).name}: partial_standards is malformed")
+    return {"equipment_types": {k.strip().lower(): v for k, v in types.items()},
+            "materials_standards": list(materials),
+            "partial_standards": {k.strip().lower(): v for k, v in partial.items()}}
+
+
+def is_materials_standard(entry_or_label: dict | str, table: dict | None = None) -> bool:
+    """Is this library entry (or label) one of the materials standards?"""
+    table = table or governing_table()
+    if isinstance(entry_or_label, dict):
+        return any(find_standard([entry_or_label], m) is not None for m in table["materials_standards"])
+    return any(standard_ids.same_standard(entry_or_label, m) for m in table["materials_standards"])
+
+
+def governing_standards(submittal_document_id: str, library: list[dict],
+                        allowed_document_ids: frozenset[str]) -> tuple[dict[str, dict], list[dict]]:
+    """#725 F5: the standards that GOVERN this submittal's equipment type.
+
+    The type is read by `subject_scope.submittal_equipment` - THE one reader
+    of what a submittal is (classification, then title, then its own type
+    fields) - and the reason says where it was read. Each governing identifier
+    the library holds is selected (`governing_standard`, included); one it does
+    not hold is returned as not held, never as met. Unknown type: nothing.
+    Returns (candidates by standard id, not-held rows)."""
+    from . import subject_scope
+
+    row = connect().execute(
+        "SELECT equipment_type, title FROM document_classification WHERE document_id = ?",
+        (submittal_document_id,)).fetchone()
+    facts = datasheets.list_facts(submittal_document_id, allowed_document_ids=allowed_document_ids)
+    equipment, source = subject_scope.submittal_equipment(dict(row) if row else {}, facts,
+                                                          subject_scope.vocabulary())
+    if not equipment:
+        return {}, []
+    table = governing_table()["equipment_types"]
+    selected: dict[str, dict] = {}
+    not_held: list[dict] = []
+    seen: set[str] = set()
+    for kind in sorted(equipment):
+        for identifier in table.get(kind, []):
+            key = standard_ids.key(identifier)
+            if key in seen:
+                continue
+            seen.add(key)
+            entry = find_standard(library, identifier)
+            where = f"{kind} (read from the submittal's {source})"
+            if entry is None:
+                not_held.append({"identifier": identifier,
+                                 "reason": f"governs a {where} and is not present in the library"})
+            elif entry["id"] not in selected:
+                selected[entry["id"]] = {"method": METHOD_GOVERNING, "identifier": identifier,
+                                         "reason": f"{identifier} governs a {where}"}
+    return selected, not_held
+
+
+#: #754 F5b: why a standard is in a submittal's REQUIRED set.
+REQUIRED_BY_TYPE = "equipment type"
+REQUIRED_BY_SERVICE = "service"
+
+
+def _cited_by(cited: list[str], identifier: str) -> bool:
+    return any(standard_ids.same_standard(c, identifier) for c in cited)
+
+
+def standards_check(submittal_document_id: str, *, allowed_document_ids: frozenset[str],
+                    library: list[dict] | None = None) -> dict:
+    """#754 F5b: the standards that APPLY to this submittal, against the ones
+    it CITES. A senior engineer reviews a datasheet against the standards that
+    apply to it, and says so when the contractor did not reference one.
+
+    REQUIRED = the governing standards for the submittal's equipment type
+    (`governing_standards.json`, the type read by `subject_scope`) + the
+    standards of every service condition the datasheet DECLARES present
+    (`service_conditions.json`, `required_standards`). The contractor's own
+    citations are reviewed too; they are not "required" by this rule.
+
+    Outcomes, every one a result (data files only, no per-document rule):
+      * required and cited: nothing to say;
+      * `required_not_cited`: reviewed anyway (held or not), and ONE CRS
+        comment per standard - never one per requirement;
+      * `cited_not_held`: the existing "missing standards" list, never met;
+      * `cited_not_applicable`: a cited standard that governs only OTHER
+        equipment types, or belongs to a service condition the datasheet
+        declares absent - a note asking to confirm, never a verdict;
+      * `not_used`: every other library standard, counted, not listed.
+    An unknown equipment type and no declared condition give nothing new:
+    the review behaves as before.
+    """
+    from . import service_scope, subject_scope
+
+    library = _library(allowed_document_ids) if library is None else library
+    text = _submittal_text(submittal_document_id, allowed_document_ids)
+    referenced = datasheets.referenced_standards(text)
+    cited = list(dict.fromkeys([*referenced, *(
+        r["identifier"] for r in library_citations(library, text).values()
+        if r["method"] == METHOD_REFERENCED)]))
+    row = connect().execute(
+        "SELECT equipment_type, title FROM document_classification WHERE document_id = ?",
+        (submittal_document_id,)).fetchone()
+    facts = datasheets.list_facts(submittal_document_id, allowed_document_ids=allowed_document_ids)
+    equipment, source = subject_scope.submittal_equipment(dict(row) if row else {}, facts,
+                                                          subject_scope.vocabulary())
+    equipment = set(equipment or ())
+    table = governing_table()["equipment_types"]
+
+    required: list[dict] = []
+    for kind in sorted(equipment):
+        for identifier in table.get(kind, []):
+            required.append({"identifier": identifier, "by": REQUIRED_BY_TYPE,
+                             "reason": f"it governs a {kind} (read from the submittal's {source})"})
+    declared_absent: list[tuple[dict, str]] = []
+    for condition in service_scope.conditions():
+        if condition["mode"] == "value" or not (condition["required"] or condition["standards"]):
+            continue
+        stated = service_scope.declaration(condition, facts)
+        if stated is None:
+            continue
+        where = f"{stated['label']}: {stated['value']}" + (
+            f", page {stated['page']}" if stated.get("page") else "")
+        if stated["present"]:
+            for identifier in condition["required"]:
+                required.append({"identifier": identifier, "by": REQUIRED_BY_SERVICE,
+                                 "reason": f"the datasheet states {condition['name']} ({where})"})
+        else:
+            declared_absent.append((condition, where))
+
+    seen: set[str] = set()
+    unique: list[dict] = []
+    required_not_cited: list[dict] = []
+    for r in required:
+        k = standard_ids.key(r["identifier"])
+        if k in seen:
+            continue
+        seen.add(k)
+        unique.append(r)
+        if _cited_by(cited, r["identifier"]):
+            continue
+        entry = find_standard(library, r["identifier"])
+        required_not_cited.append({**r, "held": entry is not None,
+                                   "standard_document_id": entry["id"] if entry else None})
+
+    cited_not_applicable: list[dict] = []
+    if equipment:
+        own = [i for kind in equipment for i in table.get(kind, [])]
+        for c in cited:
+            others = sorted(kind for kind, ids in table.items()
+                            if kind not in equipment and any(standard_ids.same_standard(c, i) for i in ids))
+            if others and not any(standard_ids.same_standard(c, i) for i in own) \
+                    and not any(standard_ids.same_standard(c, r["identifier"]) for r in required):
+                cited_not_applicable.append({
+                    "identifier": c,
+                    "reason": (f"it governs {', '.join(others)}, and this submittal is a "
+                               f"{', '.join(sorted(equipment))} (read from its {source})")})
+    for condition, where in declared_absent:
+        for c in cited:
+            if any(standard_ids.same_standard(c, s) for s in condition["standards"]) \
+                    and not any(x["identifier"] == c for x in cited_not_applicable):
+                cited_not_applicable.append({
+                    "identifier": c,
+                    "reason": f"the datasheet states no {condition['name']} ({where})"})
+
+    used = {e["id"] for e in (find_standard(library, c) for c in cited) if e}
+    used |= {r["standard_document_id"] for r in required_not_cited if r["standard_document_id"]}
+    used |= {e["id"] for e in (find_standard(library, r["identifier"]) for r in required) if e}
+    return {
+        "equipment_types": sorted(equipment),
+        "cited": cited,
+        "required": [{"identifier": r["identifier"], "by": r["by"], "reason": r["reason"]}
+                     for r in unique],
+        "required_not_cited": required_not_cited,
+        "cited_not_held": missing_references(library, referenced),
+        "cited_not_applicable": cited_not_applicable,
+        "not_used": max(0, len(library) - len(used)),
+    }
+
+
+def _submittal_text(document_id: str, allowed_document_ids: frozenset[str]) -> str:
+    """The submittal's own chunk text, read under the caller's grants."""
+    where, args = _scope_clause(allowed_document_ids, "document_id")
+    rows = connect().execute(
+        "SELECT text FROM chunks" + where + " AND document_id = ?",
+        [*args, document_id]).fetchall()
+    return " ".join(r["text"] or "" for r in rows)
+
+
 def _referenced_in_submittal(document_id: str,
                              allowed_document_ids: frozenset[str]) -> list[str]:
     """The standard identifiers this submittal's own text cites.
 
     Read from the chunks under the caller's grants, using phase 4's detector -
     so a datasheet's citations and a chat answer's citations come from the same
-    text.
+    text. THIS DETECTOR KNOWS THE BUILT-IN FAMILIES ONLY (API, ASME, ISO, SAES
+    ...); a standard numbered any other way is found by `library_citations`,
+    which starts from the library's own identifiers (#702).
     """
-    where, args = _scope_clause(allowed_document_ids, "document_id")
-    rows = connect().execute(
-        "SELECT text FROM chunks" + where + " AND document_id = ?",
-        [*args, document_id]).fetchall()
-    return datasheets.referenced_standards(" ".join(r["text"] or "" for r in rows))
+    return datasheets.referenced_standards(_submittal_text(document_id, allowed_document_ids))
 
 
 def citation_evidence(document_id: str, identifier: str,
@@ -242,12 +460,12 @@ def citation_evidence(document_id: str, identifier: str,
         "SELECT page_start, page_end, text FROM chunks" + where + " AND document_id = ?"
         " ORDER BY page_start, ordinal", [*args, document_id]).fetchall()
     for row in rows:
-        quote = _printed_line(row["text"] or "", key)
+        quote = _printed_line(row["text"] or "", key, identifier)
         if quote is None:
             continue
         first, last = row["page_start"], row["page_end"] or row["page_start"]
         for page in range(first, last + 1):
-            on_page = _printed_line(_page_text(document_id, page), key)
+            on_page = _printed_line(_page_text(document_id, page), key, identifier)
             if on_page is not None:
                 return page, on_page
         return (first if first == last else None), quote
@@ -271,8 +489,13 @@ _SHORT_LINE_WORDS = 6
 _QUOTE_CHARS = 200
 
 
-def _printed_line(text: str, key: str) -> str | None:
+def _printed_line(text: str, key: str, identifier: str | None = None) -> str | None:
     """The line of `text` citing the standard whose key is `key`, or None.
+
+    `identifier` (#702) is the library's own number for a standard the
+    built-in detector cannot read ("XYZ-PR-0042"): when no built-in citation
+    on a line has `key`, the lines are searched for that number itself, whole
+    numbers only, with any dash or space between its parts.
 
     A line longer than a quote is cut to the words AROUND the citation, never
     to its first characters - a quote that does not contain what it is
@@ -284,11 +507,23 @@ def _printed_line(text: str, key: str) -> str | None:
         for raw, start, stop in datasheets.referenced_standard_spans(line):
             if normalise_identifier(raw) != key:
                 continue
-            if len(line.split()) < _SHORT_LINE_WORDS and index > 0:
-                shift = len(lines[index - 1]) + 1
-                line, start, stop = f"{lines[index - 1]} {line}", start + shift, stop + shift
-            return _around(line, start, stop)
+            return _quoted(lines, index, line, start, stop)
+    pattern = standard_ids._token_pattern(identifier) if identifier else None
+    if pattern is not None:
+        for index, line in enumerate(lines):
+            found = pattern.search(line.replace("_", " ").upper())
+            if found is None:
+                continue
+            return _quoted(lines, index, line, found.start(), found.end())
     return None
+
+
+def _quoted(lines: list[str], index: int, line: str, start: int, stop: int) -> str:
+    """`line` as evidence: a bare cell value is quoted with its label above."""
+    if len(line.split()) < _SHORT_LINE_WORDS and index > 0:
+        shift = len(lines[index - 1]) + 1
+        line, start, stop = f"{lines[index - 1]} {line}", start + shift, stop + shift
+    return _around(line, start, stop)
 
 
 def _around(line: str, start: int, stop: int) -> str:
@@ -605,6 +840,81 @@ def _match_referenced(library: list[dict], referenced: list[str]) -> dict[str, d
     return out
 
 
+#: A file name's leading identifier: letters and digits joined by - or _
+#: ("STD-Q-210" in "STD-Q-210_Ed2024.pdf"). Trailing edition/revision groups
+#: are not part of the number.
+_FILE_IDENTIFIER = re.compile(r"^[A-Za-z][A-Za-z0-9]*(?:[-_][A-Za-z0-9]+){1,6}")
+_EDITION_GROUP = re.compile(r"^(?:ed|edn|rev|r|v|issue|iss)\d*$|^(?:19|20)\d\d$|^\d{1,2}$",
+                            re.IGNORECASE)
+
+
+def _identifier_like(text: str) -> bool:
+    """Enough to identify one standard: a digit, a letter, five characters."""
+    alnum = re.sub(r"[^A-Za-z0-9]", "", text or "")
+    return (len(alnum) >= 5 and any(c.isdigit() for c in alnum)
+            and any(c.isalpha() for c in alnum))
+
+
+def _file_identifier(filename: str) -> str | None:
+    stem = re.sub(r"\.[A-Za-z0-9]{1,5}$", "", filename or "").strip()
+    match = _FILE_IDENTIFIER.match(stem)
+    if match is None:
+        return None
+    groups = re.split(r"[-_]", match.group(0))
+    while len(groups) > 2 and _EDITION_GROUP.match(groups[-1]):
+        groups.pop()
+    ident = "-".join(groups)
+    return ident if _identifier_like(ident) and len(groups) >= 2 else None
+
+
+def _fold_words(text: str) -> str:
+    return " ".join(re.findall(r"[a-z0-9]+", (text or "").lower()))
+
+
+def library_citations(library: list[dict], text: str) -> dict[str, dict]:
+    """Library standards the submittal names by THE LIBRARY'S OWN identifiers (#702).
+
+    `datasheets.referenced_standards` only reads the built-in families, so a
+    company or project standard numbered any other way ("STD-Q-210",
+    "ABC-ENG-PRC-0042 Rev 3") was never "cited", and a review selected none of
+    the standards its datasheets named (0 of 3 on every hidden-exam datasheet).
+    This starts from the other end: for each library standard, is its OWN
+    identifier in the text? Matching is `standard_ids.names_standard`'s: whole
+    numbers, any dash or space between the parts, never a substring.
+
+    Three sources, strongest first:
+      * the recorded `document_number`: REFERENCED, included - the number on the
+        standard's own cover and the number in the submittal agree;
+      * the identifier at the start of the FILE NAME, and the TITLE (three or
+        more words): `possible_citation`, shown as "possible match, engineer to
+        confirm", never silently dropped and never silently included.
+    One row per library standard, the strongest source.
+    """
+    folded_text = " " + _fold_words(text) + " "
+    out: dict[str, dict] = {}
+    for entry in library:
+        number = (entry.get("document_number") or "").strip()
+        if _identifier_like(number) and standard_ids.names_standard(text, number):
+            out[entry["id"]] = {
+                "method": METHOD_REFERENCED, "identifier": number,
+                "reason": f"named in the submittal as {number} (this standard's document number)"}
+            continue
+        from_file = _file_identifier(entry.get("filename") or "")
+        if from_file and standard_ids.names_standard(text, from_file):
+            out[entry["id"]] = {
+                "method": METHOD_POSSIBLE, "identifier": from_file,
+                "reason": (f"possible match, engineer to confirm: the submittal names {from_file}, "
+                           "which is the number at the start of this file's name")}
+            continue
+        title = _fold_words(entry.get("title") or "")
+        if len(title.split()) >= 3 and f" {title} " in folded_text:
+            out[entry["id"]] = {
+                "method": METHOD_POSSIBLE, "identifier": None,
+                "reason": ("possible match, engineer to confirm: the submittal names this "
+                           f"standard's title ({entry.get('title')})")}
+    return out
+
+
 def missing_references(library: list[dict], referenced: list[str]) -> list[str]:
     """The standards a submittal CITES that the library does not hold.
 
@@ -776,12 +1086,30 @@ def select(
     submittal_review.ensure_schema()
     library = _library(allowed_document_ids)
     profile = _submittal_profile(submittal_document_id)
-    referenced = _referenced_in_submittal(submittal_document_id, allowed_document_ids)
+    submittal_text = _submittal_text(submittal_document_id, allowed_document_ids)
+    referenced = datasheets.referenced_standards(submittal_text)
+
+    governing, governing_missing = governing_standards(
+        submittal_document_id, library, allowed_document_ids)
+    # #754 F5b: required vs cited FIRST. A standard a declared service
+    # condition requires, held but not cited, is reviewed anyway.
+    check = standards_check(submittal_document_id, allowed_document_ids=allowed_document_ids,
+                            library=library)
+    for r in check["required_not_cited"]:
+        if r["by"] == REQUIRED_BY_SERVICE and r["standard_document_id"] \
+                and r["standard_document_id"] not in governing:
+            governing[r["standard_document_id"]] = {
+                "method": METHOD_GOVERNING, "identifier": r["identifier"],
+                "reason": f"{r['identifier']} is required because {r['reason']}"}
 
     selected: dict[str, dict] = {}
     for candidates in (
         _match_referenced(library, referenced),
+        library_citations(library, submittal_text),
         _match_attribute(library, profile, "equipment_type", METHOD_EQUIPMENT),
+        # After the classification match: a tie keeps the standard's own
+        # equipment classification as the reason (both are included).
+        governing,
         _match_attribute(library, profile, "discipline", METHOD_DISCIPLINE),
         _match_attribute(library, profile, "service", METHOD_SERVICE),
         _match_attribute(library, profile, "project", METHOD_PROJECT),
@@ -806,7 +1134,7 @@ def select(
 
     # B5: THE EVIDENCE for every citation - the page and the line it is on.
     for standard_id, row in selected.items():
-        if row["method"] == METHOD_REFERENCED and row.get("identifier"):
+        if row["method"] in (METHOD_REFERENCED, METHOD_POSSIBLE) and row.get("identifier"):
             page, quote = citation_evidence(
                 submittal_document_id, row["identifier"], allowed_document_ids)
             row["evidence_page"], row["evidence_quote"] = page, quote
@@ -815,8 +1143,8 @@ def select(
 
     # B5: THE SCOPE DECISION on every standard that has a stored, verified
     # scope record. Owner request 2026-09-28: by AI reasoning
-    # (`applicability_reasoning_enabled`), no manual taxonomy - or, while
-    # that stays off, the older taxonomy-matched path (`applicability_v2`),
+    # (`applicability_reasoning_enabled`, on by default since #736), no manual
+    # taxonomy - or, when it is turned off, the older taxonomy-matched path (`applicability_v2`),
     # which already reports "not run" when no taxonomy is approved.
     from .config import settings as _settings
     if _settings.applicability_reasoning_enabled:
@@ -878,8 +1206,16 @@ def select(
         ],
         "scope_decision_not_run": scope_not_run,
         "missing_references": missing,
+        # #725 F5: governing standards for the equipment type that the library
+        # does not hold. Apart from `missing_references` (which the CRS words
+        # as "this submittal cites"): the submittal did not cite these.
+        "governing_not_held": [
+            g for g in governing_missing
+            if standard_ids.key(g["identifier"]) not in {standard_ids.key(m["identifier"]) for m in missing}],
         "referenced_total": len(referenced),
         "library_size": len(library),
+        # #754 F5b: required vs cited, computed from the same library.
+        "standards_check": check,
         **completeness(selected, missing, submittal_document_id,
                        allowed_document_ids=allowed_document_ids),
     }

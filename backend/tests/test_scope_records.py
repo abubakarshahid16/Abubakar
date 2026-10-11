@@ -6,7 +6,8 @@ import sqlite3
 
 import pytest
 
-from app import applicability_v2, scope_records
+from app import applicability_v2
+from tools import scope_records
 from app import reasoning_provider as rp
 
 LEX = {"centrifugal pump": ("type", "Centrifugal Pump"), "pump": ("family", "Pumps")}

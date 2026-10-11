@@ -3,7 +3,7 @@
 P1 scores chat answers. This scores **reviews**: did a review run find the real
 defects in a submittal, and only those? Nothing else measures that.
 
-The scorer (`backend/app/review_score.py`, command `scripts/review_score.py`)
+The scorer (`backend/tools/review_score.py`, command `scripts/review_score.py`)
 compares a run's findings with an **answer key**. It prints counts and item ids,
 never document text, so a report can be posted to the tracking comment.
 

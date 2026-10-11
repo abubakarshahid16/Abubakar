@@ -7,7 +7,7 @@ import itertools
 
 import pytest
 
-from app import absence, chat_comparison, claude_crs_comments, comparison, db
+from app import absence, chat_comparison, comparison, db
 from app.config import settings
 
 ALL = frozenset({"doc-a", "doc-b", "doc-c"})
@@ -201,19 +201,6 @@ def test_a_run_with_no_recommendation_cannot_be_approved_without_a_reason():
     # A stated reason, or any non-approving code, is still allowed.
     comparison.record_engineer_code(
         "run", code=comparison.CODE_MANUAL, reviewer=None, allowed_document_ids=scope)
-
-
-@pytest.mark.parametrize("status", [comparison.MISSING_INFORMATION,
-                                    comparison.NEEDS_ENGINEER_REVIEW])
-def test_a_drafted_comment_on_an_unestablished_row_may_not_say_it_conforms(status):
-    for bad in ("The datasheet complies with this clause.",
-                "Acceptable, no comment.",
-                "Value meets the requirement of 6.2."):
-        assert claude_crs_comments._status_contradicted(status, bad) is True, bad
-    for fine in ("The contractor shall provide the design temperature.",
-                 "This is not acceptable until the value is provided.",
-                 "Engineer to check the value on page 4; it does not comply as written."):
-        assert claude_crs_comments._status_contradicted(status, fine) is False, fine
 
 
 # ------------------------------------------- applicability: no data is not "not applicable"
