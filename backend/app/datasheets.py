@@ -43,6 +43,7 @@ import uuid
 from datetime import datetime, timezone
 
 import json
+from pathlib import Path
 from contextvars import ContextVar
 
 from . import (blank_markers, claims, datasheet_inputs, numparse, orphan_guard, page_ledger,
@@ -2095,10 +2096,21 @@ def value_columns(raw_value: str | None, *, field_label: str, unit: str | None =
 #: version is written on every rule-read fact (`extractor_version`).
 RULE_READER_MODULES = ("datasheets", "tables", "blank_markers")
 
+#: The reference data the rule readers read (2026-10-11, the reader job): a
+#: label the checklist's roles name is a field (`named_field_role`), and a
+#: nozzle-table header word is no answer. A change to either changes what a
+#: sheet reads as, so it is part of the reader's version - otherwise #790's
+#: re-read would never see it.
+RULE_READER_REFERENCE = ("datasheet_checks.json", "field_synonyms.json")
+READER_REFERENCE_DIR = Path(__file__).parent / "reference"
+
 
 def rule_reader_version() -> str:
-    """The current rule readers' version, as `_extract_facts` writes it."""
-    return provenance.code_version(*RULE_READER_MODULES)
+    """The current rule readers' version, as `_extract_facts` writes it: the
+    modules' code and the reference data they read."""
+    data = provenance.input_hash(*((READER_REFERENCE_DIR / name).read_text(encoding="utf-8")
+                                   for name in RULE_READER_REFERENCE))
+    return f"{provenance.code_version(*RULE_READER_MODULES)}+reference@{data[:12]}"
 
 
 def facts_reader_stale(document_id: str) -> bool:

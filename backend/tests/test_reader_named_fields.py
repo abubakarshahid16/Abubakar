@@ -127,3 +127,17 @@ def test_the_reader_keeps_the_checklist_answers_on_every_page(tmp_path):
     assert "Prepared by" not in by_label                 # still a caption
     capacity = next(f for f in facts if f["field_label"] == "Required relieving capacity")
     assert capacity["raw_unit"] == "kg/h" and not capacity["is_blank"]
+
+
+def test_the_reader_version_covers_the_reference_data_it_reads(tmp_path, monkeypatch):
+    """#790 re-reads a sheet when the reader's version changes. The reader
+    now reads two reference files, so a change to one of them alone must
+    change the version - or a sheet would keep facts read under old labels."""
+    before = datasheets.rule_reader_version()
+    for name in datasheets.RULE_READER_REFERENCE:
+        (tmp_path / name).write_text((datasheets.READER_REFERENCE_DIR / name).read_text(encoding="utf-8"),
+                                     encoding="utf-8")
+    monkeypatch.setattr(datasheets, "READER_REFERENCE_DIR", tmp_path)
+    assert datasheets.rule_reader_version() == before          # same data, same version
+    (tmp_path / "datasheet_checks.json").write_text("{}", encoding="utf-8")
+    assert datasheets.rule_reader_version() != before
