@@ -234,7 +234,9 @@ unreadable content.
 
 Search all accessible active standards and select applicable ones, in priority
 order: standards explicitly referenced in the datasheet; standards mapped to the
-detected equipment type; discipline matches; service and operating-condition
+detected equipment type; discipline matches (retired 2026-10-09, #212: a
+standard's discipline is its owning committee, a submittal's a category, and
+they do not match); service and operating-condition
 matches; semantically relevant standards via vector retrieval; relevant
 contract/project requirements.
 

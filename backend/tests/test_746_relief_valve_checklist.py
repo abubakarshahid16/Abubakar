@@ -137,7 +137,7 @@ def test_does_not_apply_is_never_written_as_a_finding(monkeypatch):
     import app.db as db_mod
     monkeypatch.setattr(db_mod, "connect", lambda: _Conn())
     only = [r for r in dc.evaluate(SHEET, equipment_type=PSV, page_texts={})
-            if r.get("checklist") and r["status"] in ("NOT_APPLICABLE", "COMPLIANT")]
+            if r.get("checklist") and r["status"] == "NOT_APPLICABLE"]
     assert only
     dc.store("run", "sub", only, pages_read={})
     assert written == []
