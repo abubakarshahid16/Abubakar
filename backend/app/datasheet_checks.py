@@ -341,6 +341,16 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
 # ---------------------------------------------------------------- #746 checklist
 
 NOT_APPLICABLE = "NOT_APPLICABLE"
+#: The words a DRAFT checklist's item carries (planner 11 Oct: a draft still
+#: produces its findings, marked so the engineer sees they are unconfirmed;
+#: the run trace counts them as `draft_checklist`). One home: written here,
+#: read by `is_draft_checklist`.
+DRAFT_MARK = "DRAFT checklist, not signed off"
+
+
+def is_draft_checklist(text: str | None) -> bool:
+    """Whether a stored finding's requirement came from a DRAFT checklist."""
+    return DRAFT_MARK in str(text or "")
 #: The local, git-ignored overlay (`<data_dir>/checklists/<type>.json`): items
 #: not (yet) approved for the repo stay on the machine. Client standard items
 #: approved by the owner (2026-10-10) are in the committed JSON, in our own words.
@@ -542,7 +552,7 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
     rule = item["rule"]
     source = item["source"]
     cite = f"{source['standard']} {source['clause']}"
-    text = f"{item['text']} ({cite}{'; DRAFT checklist, not signed off' if draft else ''})"
+    text = f"{item['text']} ({cite}{'; ' + DRAFT_MARK if draft else ''})"
     field = rule.get("field") or rule.get("left")
 
     def get(role):
@@ -551,7 +561,9 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
     def res(status, detail, fact=None, role=None):
         r = _result(item["id"], status, text, detail, fact, role or field, tag)
         return {**r, "source": cite, "severity": item.get("severity", "minor"),
-                "checklist": True, "local": bool(item.get("local"))}
+                "checklist": True, "local": bool(item.get("local")),
+                # Stored with the finding like any other citation (#805 Stage A).
+                "standard": source["standard"], "clause": source["clause"], "draft": draft}
 
     raw_conditions = item.get("condition")
     # One condition, or a list that must ALL hold (a bellows valve AND sour service).
@@ -686,11 +698,15 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
     rejected = {(fold(f.get("requirement_source_text")), f.get("fact_id"),
                  fold(f.get("equipment_tag")), fold(f.get("contractor_section")))
                 for f in review_mod.rejected_in_run(review_run_id, ORIGIN)}
-    # A PASS IS NOT A COMMENT. Only what the engineer must act on is written;
-    # a check that held adds no row (it would only pad every count).
-    # "Does not apply" is not a comment either (#746): the condition's reason
-    # is in the result, never a CRS row.
-    for r in (x for x in results if x["status"] not in (COMPLIANT, NOT_APPLICABLE)):
+    # A CHECKLIST PASS IS A RESULT (planner 11 Oct, #805 Stage A): a met
+    # checklist item is stored as a COMPLIANT finding with its item id, the
+    # fact, the page and the clause, so "Meets" is visible like any result. It
+    # is never a CRS comment (`crs_mapping` takes only breaches and gaps). Any
+    # OTHER check that held (a consistency pair, the revision block) still
+    # adds no row. "Does not apply" is not a result either (#746): the
+    # condition's reason is in the result, never a row.
+    for r in (x for x in results if x["status"] != NOT_APPLICABLE
+              and (x["status"] != COMPLIANT or x.get("checklist"))):
         status, detail = r["status"], r["detail"]
         absent = (r["rule_id"] in ("DS-M1", "DS-R1")
                   or (r.get("checklist") and r.get("fact_id") is None and not r.get("text_searched")))
@@ -706,7 +722,8 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
         finding = review_mod.create({
             "document_id": submittal_id, "category": "technical_query",
             "severity": (r["severity"] if r.get("checklist") and status == NON_COMPLIANT
-                         else "major" if status == NON_COMPLIANT else "minor"),
+                         else "major" if status == NON_COMPLIANT
+                         else "observation" if status == COMPLIANT else "minor"),
             "requirement": r["text"][:4000], "finding": f"{LABEL}: {detail}"[:4000],
             "required_action": ("Contractor to correct the datasheet." if status == NON_COMPLIANT
                                 else "Contractor to provide the value." if status == MISSING_INFORMATION
@@ -719,13 +736,15 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
             conn.execute(
                 """UPDATE review_findings SET review_run_id = ?, origin = ?, compliance_status = ?,
                        contractor_page = ?, contractor_section = ?, contractor_evidence_text = ?,
-                       requirement_source_text = ?, ai_rationale = ?, fact_id = ?, equipment_tag = ?
+                       requirement_source_text = ?, ai_rationale = ?, fact_id = ?, equipment_tag = ?,
+                       standard_clause = ?
                    WHERE id = ?""",
                 (review_run_id, ORIGIN, status, r["page"], r["field"], r["value"],
                  f"{LABEL} {r['rule_id']}: {r['text']}",
                  detail if detail.startswith(("UNREAD_PAGES", "PAGE_READER_ONLY"))
                  else f"{LABEL} {r['rule_id']}: {detail}",
-                 r["fact_id"], r["equipment_tag"], finding["id"]))
+                 r["fact_id"], r["equipment_tag"],
+                 f"{r['standard']} {r['clause']}" if r.get("clause") else None, finding["id"]))
         written.append({**finding, "compliance_status": status, "origin": ORIGIN,
                         "contractor_page": r["page"], "ai_rationale": detail})
     return written
