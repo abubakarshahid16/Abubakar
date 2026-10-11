@@ -691,15 +691,22 @@ def conversation_document_ids(conversation_id: str) -> set[str]:
     return found
 
 
-def ask(conversation_id: str, question: str, *args, **kwargs) -> dict:
-    """`_ask`, with the conversation's documents declared for the Claude lane
-    (#806 S3). The call sites inside add what they retrieve or read."""
-    from . import claude_approved
-    with claude_approved.carrying(conversation_document_ids(conversation_id)):
-        return _ask(conversation_id, question, *args, **kwargs)
+def _declaring_the_conversation(fn):
+    """Run a chat turn with the conversation's documents declared for the
+    Claude lane (#806 S3); the call sites inside add what they retrieve or
+    read. `functools.wraps` keeps the turn's own signature and defaults."""
+    import functools
+
+    @functools.wraps(fn)
+    def declared(conversation_id: str, question: str, *args, **kwargs):
+        from . import claude_approved
+        with claude_approved.carrying(conversation_document_ids(conversation_id)):
+            return fn(conversation_id, question, *args, **kwargs)
+    return declared
 
 
-def _ask(
+@_declaring_the_conversation
+def ask(
     conversation_id: str,
     question: str,
     tier: str = "extract",

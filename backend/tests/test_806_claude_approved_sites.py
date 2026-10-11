@@ -108,8 +108,9 @@ def test_a_chat_turn_declares_every_document_the_conversation_referred_to(monkey
                          " VALUES (?,?,?,?,?,?, '2026-10-11T00:00:00Z')",
                          (f"m{n}", "c1", n, "assistant", "x", json.dumps(payload)))
     assert chat.conversation_document_ids("c1") == {"doc_x", "doc_y"}
-    monkeypatch.setattr(chat, "_ask", lambda *a, **k: claude_approved.carried())
-    assert chat.ask("c1", "a question", allowed_document_ids=frozenset()) == {"doc_x", "doc_y"}
+    turn = chat._declaring_the_conversation(lambda cid, question, **kw: claude_approved.carried())
+    assert turn("c1", "a question", allowed_document_ids=frozenset()) == {"doc_x", "doc_y"}
+    assert chat.ask.__wrapped__.__name__ == "ask"                  # the real turn is wrapped the same way
 
 
 def test_a_general_answer_outside_a_conversation_is_a_declared_document_free_prompt(monkeypatch):
