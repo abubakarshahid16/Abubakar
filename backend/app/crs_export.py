@@ -297,10 +297,12 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         # has made their own carries "CRS-<submittal no>-001" in the client's
         # own Item No column, and its Open/Closed status in Final Resolution -
         # industry practice, and still seven columns. The caller looked it up
-        # (read only); this builder never mints one. A row without one - an
-        # unconfirmed draft, or a caller from before numbers existed - keeps
-        # the old shape: its position, and the digest reference as the
-        # comment's first line. A numbered row does not ALSO print the digest:
+        # (read only); this builder never mints one. Since R15 (#779) a
+        # finished review numbers its machine drafts too (Final Resolution
+        # "Draft (not issued)"). A row without one - a run that has not
+        # finished, or a caller from before numbers existed - keeps the old
+        # shape: its position, and the digest reference as the comment's
+        # first line. A numbered row does not ALSO print the digest:
         # two different IDs on one comment is exactly what a contractor
         # quoting it back cannot resolve.
         crs_ref = str(finding.get("crs_ref") or "")
