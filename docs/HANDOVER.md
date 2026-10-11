@@ -174,8 +174,19 @@ is in the spend ledger at USD 0 (ids only) and a change to the list is in the au
 an unapproved document: the Claude-first path answers with the local model and says so; the other
 chat paths say the document is not approved and ask the reader to choose the Local model.
 
-**Datasheet AI reader ("AI reads, code checks"), added 2026-09-30, OFF and NOT
-YET MEASURED.** `DATASHEET_AI_READER` (`off` default | `ollama` | `claude`)
+**Datasheet AI reader ("AI reads, code checks"), added 2026-09-30, ON BY
+DEFAULT (local engine) since the owner order of 2026-10-11. Measured on copies
+of the three real datasheets (F1, 2026-10-11, qwen3.5:4b): findings identical
+to AI-off on all three; the model read 1, 3 and 6 pages of 5, 7 and 11 within
+the budget, most other pages timed out, and it added 2 AI-only facts and 1
+agreement in total. Safe, and of little use on this PC. Since the planner
+decision of 2026-10-11 an AI-read value whose quote the code proved on the page
+decides like a code-read one (`comparison.ai_quote_proved`); the verdict says so.** `DATASHEET_AI_READER` (`ollama` default | `off` |
+`claude`; tests pin it off). A model call past `DATASHEET_AI_TIMEOUT_SECONDS`
+(180) and every page after `DATASHEET_AI_MAX_SECONDS` (900) per document keep
+the code readers' reading, and the review says which reader read the sheet
+(`datasheets.latest_reader_summary`, `absence.reader_summary_line`). An owner's
+`backend/.env` that still says `DATASHEET_AI_READER=off` keeps it off.
 makes `datasheets.extract_facts` also read every page with text through
 `claude_datasheet.read_page` (two runs must agree; each fact's quote, value and
 label must be on the page) and merge it with the rule readers

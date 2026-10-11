@@ -77,7 +77,230 @@
     "Rev",
     "Project",
     "Sheet"
-   ]
+   ],
+   "cells": [
+    {
+     "page": 1,
+     "text": "Rated capacity",
+     "box": [
+      40.0,
+      110.0,
+      280.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "125 m3/h",
+     "box": [
+      280.0,
+      110.0,
+      520.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Differential head",
+     "box": [
+      40.0,
+      128.0,
+      280.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "85 m",
+     "box": [
+      280.0,
+      128.0,
+      520.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Suction pressure",
+     "box": [
+      40.0,
+      146.0,
+      280.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "1.5 barg",
+     "box": [
+      280.0,
+      146.0,
+      520.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Discharge pressure",
+     "box": [
+      40.0,
+      164.0,
+      280.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "9.8 barg",
+     "box": [
+      280.0,
+      164.0,
+      520.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Pumping temperature",
+     "box": [
+      40.0,
+      182.0,
+      280.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "45 °C",
+     "box": [
+      280.0,
+      182.0,
+      520.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Speed",
+     "box": [
+      40.0,
+      200.0,
+      280.0,
+      218.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "2950 rpm",
+     "box": [
+      280.0,
+      200.0,
+      520.0,
+      218.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Driver power",
+     "box": [
+      40.0,
+      218.0,
+      280.0,
+      236.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "55 kW",
+     "box": [
+      280.0,
+      218.0,
+      520.0,
+      236.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Impeller diameter",
+     "box": [
+      40.0,
+      236.0,
+      280.0,
+      254.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "310 mm",
+     "box": [
+      280.0,
+      236.0,
+      520.0,
+      254.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "NPSH required",
+     "box": [
+      40.0,
+      254.0,
+      280.0,
+      272.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "3.2 m",
+     "box": [
+      280.0,
+      254.0,
+      520.0,
+      272.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Casing material",
+     "box": [
+      40.0,
+      272.0,
+      280.0,
+      290.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Carbon steel",
+     "box": [
+      280.0,
+      272.0,
+      520.0,
+      290.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Coupling type",
+     "box": [
+      40.0,
+      290.0,
+      280.0,
+      308.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "By Vendor",
+     "box": [
+      280.0,
+      290.0,
+      520.0,
+      308.0
+     ]
+    }
+   ],
+   "cells_not_keyed": null
   },
   "ds02_psv_unruled.pdf": {
    "equipment": "pressure safety valve",
@@ -154,7 +377,9 @@
     "Rev",
     "Project",
     "Sheet"
-   ]
+   ],
+   "cells": [],
+   "cells_not_keyed": null
   },
   "ds03_hx_two_column_form.pdf": {
    "equipment": "shell and tube heat exchanger",
@@ -241,7 +466,9 @@
     "Rev",
     "Project",
     "Sheet"
-   ]
+   ],
+   "cells": [],
+   "cells_not_keyed": null
   },
   "ds04_control_valve_req_off.pdf": {
    "equipment": "control valve",
@@ -346,7 +573,280 @@
     "Rev",
     "Project",
     "Sheet"
-   ]
+   ],
+   "cells": [
+    {
+     "page": 1,
+     "text": "Description",
+     "box": [
+      40.0,
+      110.0,
+      240.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Required",
+     "box": [
+      240.0,
+      110.0,
+      380.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Offered",
+     "box": [
+      380.0,
+      110.0,
+      520.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Maximum flow",
+     "box": [
+      40.0,
+      128.0,
+      240.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "150 m3/h",
+     "box": [
+      240.0,
+      128.0,
+      380.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "150 m3/h",
+     "box": [
+      380.0,
+      128.0,
+      520.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Valve Cv",
+     "box": [
+      40.0,
+      146.0,
+      240.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "180",
+     "box": [
+      240.0,
+      146.0,
+      380.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "210",
+     "box": [
+      380.0,
+      146.0,
+      520.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Body size",
+     "box": [
+      40.0,
+      164.0,
+      240.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "6 in",
+     "box": [
+      240.0,
+      164.0,
+      380.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "6 in",
+     "box": [
+      380.0,
+      164.0,
+      520.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Shutoff pressure",
+     "box": [
+      40.0,
+      182.0,
+      240.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "20 barg",
+     "box": [
+      240.0,
+      182.0,
+      380.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "25 barg",
+     "box": [
+      380.0,
+      182.0,
+      520.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Noise level",
+     "box": [
+      40.0,
+      200.0,
+      240.0,
+      218.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "85 dBA",
+     "box": [
+      240.0,
+      200.0,
+      380.0,
+      218.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "82 dBA",
+     "box": [
+      380.0,
+      200.0,
+      520.0,
+      218.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Stroke time",
+     "box": [
+      40.0,
+      218.0,
+      240.0,
+      236.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "10 s",
+     "box": [
+      240.0,
+      218.0,
+      380.0,
+      236.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "8 s",
+     "box": [
+      380.0,
+      218.0,
+      520.0,
+      236.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Leakage class",
+     "box": [
+      40.0,
+      236.0,
+      240.0,
+      254.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Class IV",
+     "box": [
+      240.0,
+      236.0,
+      380.0,
+      254.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Class V",
+     "box": [
+      380.0,
+      236.0,
+      520.0,
+      254.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Actuator air supply",
+     "box": [
+      40.0,
+      254.0,
+      240.0,
+      272.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "5.5 barg",
+     "box": [
+      240.0,
+      254.0,
+      380.0,
+      272.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "By Vendor",
+     "box": [
+      380.0,
+      254.0,
+      520.0,
+      272.0
+     ]
+    }
+   ],
+   "cells_not_keyed": null
   },
   "ds05_motor_units_grid.pdf": {
    "equipment": "electric motor",
@@ -421,7 +921,340 @@
     "Rev",
     "Project",
     "Sheet"
-   ]
+   ],
+   "cells": [
+    {
+     "page": 1,
+     "text": "Parameter",
+     "box": [
+      40.0,
+      110.0,
+      260.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Units",
+     "box": [
+      260.0,
+      110.0,
+      350.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Value",
+     "box": [
+      350.0,
+      110.0,
+      500.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Rated power",
+     "box": [
+      40.0,
+      128.0,
+      260.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "kW",
+     "box": [
+      260.0,
+      128.0,
+      350.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "75",
+     "box": [
+      350.0,
+      128.0,
+      500.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Rated voltage",
+     "box": [
+      40.0,
+      146.0,
+      260.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "V",
+     "box": [
+      260.0,
+      146.0,
+      350.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "400",
+     "box": [
+      350.0,
+      146.0,
+      500.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Frequency",
+     "box": [
+      40.0,
+      164.0,
+      260.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Hz",
+     "box": [
+      260.0,
+      164.0,
+      350.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "50",
+     "box": [
+      350.0,
+      164.0,
+      500.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Speed",
+     "box": [
+      40.0,
+      182.0,
+      260.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "rpm",
+     "box": [
+      260.0,
+      182.0,
+      350.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "1485",
+     "box": [
+      350.0,
+      182.0,
+      500.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Full load current",
+     "box": [
+      40.0,
+      200.0,
+      260.0,
+      218.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "A",
+     "box": [
+      260.0,
+      200.0,
+      350.0,
+      218.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "132",
+     "box": [
+      350.0,
+      200.0,
+      500.0,
+      218.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Efficiency",
+     "box": [
+      40.0,
+      218.0,
+      260.0,
+      236.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "%",
+     "box": [
+      260.0,
+      218.0,
+      350.0,
+      236.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "95.2",
+     "box": [
+      350.0,
+      218.0,
+      500.0,
+      236.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Power factor",
+     "box": [
+      40.0,
+      236.0,
+      260.0,
+      254.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "-",
+     "box": [
+      260.0,
+      236.0,
+      350.0,
+      254.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "0.87",
+     "box": [
+      350.0,
+      236.0,
+      500.0,
+      254.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Weight",
+     "box": [
+      40.0,
+      254.0,
+      260.0,
+      272.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "kg",
+     "box": [
+      260.0,
+      254.0,
+      350.0,
+      272.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "520",
+     "box": [
+      350.0,
+      254.0,
+      500.0,
+      272.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Insulation class",
+     "box": [
+      40.0,
+      272.0,
+      260.0,
+      290.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "-",
+     "box": [
+      260.0,
+      272.0,
+      350.0,
+      290.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "F",
+     "box": [
+      350.0,
+      272.0,
+      500.0,
+      290.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Enclosure",
+     "box": [
+      40.0,
+      290.0,
+      260.0,
+      308.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "-",
+     "box": [
+      260.0,
+      290.0,
+      350.0,
+      308.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "IP55",
+     "box": [
+      350.0,
+      290.0,
+      500.0,
+      308.0
+     ]
+    }
+   ],
+   "cells_not_keyed": null
   },
   "ds06_transmitter_odd_headers.pdf": {
    "equipment": "pressure transmitter",
@@ -484,7 +1317,260 @@
     "Rev",
     "Project",
     "Sheet"
-   ]
+   ],
+   "cells": [
+    {
+     "page": 1,
+     "text": "Attribute",
+     "box": [
+      40.0,
+      110.0,
+      260.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Measure",
+     "box": [
+      260.0,
+      110.0,
+      350.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Figure",
+     "box": [
+      350.0,
+      110.0,
+      500.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Range lower limit",
+     "box": [
+      40.0,
+      128.0,
+      260.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "bar",
+     "box": [
+      260.0,
+      128.0,
+      350.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "0",
+     "box": [
+      350.0,
+      128.0,
+      500.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Range upper limit",
+     "box": [
+      40.0,
+      146.0,
+      260.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "bar",
+     "box": [
+      260.0,
+      146.0,
+      350.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "40",
+     "box": [
+      350.0,
+      146.0,
+      500.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Accuracy",
+     "box": [
+      40.0,
+      164.0,
+      260.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "%",
+     "box": [
+      260.0,
+      164.0,
+      350.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "0.075",
+     "box": [
+      350.0,
+      164.0,
+      500.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Supply voltage",
+     "box": [
+      40.0,
+      182.0,
+      260.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "V",
+     "box": [
+      260.0,
+      182.0,
+      350.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "24",
+     "box": [
+      350.0,
+      182.0,
+      500.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Maximum ambient temperature",
+     "box": [
+      40.0,
+      200.0,
+      260.0,
+      218.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "°C",
+     "box": [
+      260.0,
+      200.0,
+      350.0,
+      218.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "85",
+     "box": [
+      350.0,
+      200.0,
+      500.0,
+      218.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Response time",
+     "box": [
+      40.0,
+      218.0,
+      260.0,
+      236.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "ms",
+     "box": [
+      260.0,
+      218.0,
+      350.0,
+      236.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "100",
+     "box": [
+      350.0,
+      218.0,
+      500.0,
+      236.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Communication protocol",
+     "box": [
+      40.0,
+      236.0,
+      260.0,
+      254.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "HART",
+     "box": [
+      350.0,
+      236.0,
+      500.0,
+      254.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Wetted parts material",
+     "box": [
+      40.0,
+      254.0,
+      260.0,
+      272.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "316L SS",
+     "box": [
+      350.0,
+      254.0,
+      500.0,
+      272.0
+     ]
+    }
+   ],
+   "cells_not_keyed": null
   },
   "ds07_gate_valve_free_text.pdf": {
    "equipment": "gate valve",
@@ -559,7 +1645,9 @@
     "Rev",
     "Project",
     "Sheet"
-   ]
+   ],
+   "cells": [],
+   "cells_not_keyed": null
   },
   "ds08_tank_merged_cells.pdf": {
    "equipment": "storage tank",
@@ -652,7 +1740,220 @@
     "Rev",
     "Project",
     "Sheet"
-   ]
+   ],
+   "cells": [
+    {
+     "page": 1,
+     "text": "DESIGN",
+     "box": [
+      40.0,
+      110.0,
+      160.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Pressure",
+     "box": [
+      160.0,
+      110.0,
+      320.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "0.05 barg",
+     "box": [
+      320.0,
+      110.0,
+      520.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Temperature",
+     "box": [
+      160.0,
+      128.0,
+      320.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "85 °C",
+     "box": [
+      320.0,
+      128.0,
+      520.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "GEOMETRY",
+     "box": [
+      40.0,
+      146.0,
+      160.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Diameter",
+     "box": [
+      160.0,
+      146.0,
+      320.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "12000 mm",
+     "box": [
+      320.0,
+      146.0,
+      520.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Height",
+     "box": [
+      160.0,
+      164.0,
+      320.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "14500 mm",
+     "box": [
+      320.0,
+      164.0,
+      520.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Nominal capacity",
+     "box": [
+      40.0,
+      182.0,
+      320.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "1500 m3",
+     "box": [
+      320.0,
+      182.0,
+      520.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Corrosion allowance",
+     "box": [
+      40.0,
+      200.0,
+      320.0,
+      218.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "3 mm",
+     "box": [
+      320.0,
+      200.0,
+      520.0,
+      218.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Roof type",
+     "box": [
+      40.0,
+      218.0,
+      320.0,
+      236.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Fixed cone roof",
+     "box": [
+      320.0,
+      218.0,
+      520.0,
+      236.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Design code",
+     "box": [
+      40.0,
+      236.0,
+      320.0,
+      254.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "API 650",
+     "box": [
+      320.0,
+      236.0,
+      520.0,
+      254.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Shell plate thickness",
+     "box": [
+      40.0,
+      254.0,
+      320.0,
+      290.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Bottom course: 14 mm",
+     "box": [
+      320.0,
+      254.0,
+      520.0,
+      272.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Top course: 8 mm",
+     "box": [
+      320.0,
+      272.0,
+      520.0,
+      290.0
+     ]
+    }
+   ],
+   "cells_not_keyed": null
   },
   "ds09_rotated_page.pdf": {
    "equipment": "basket strainer",
@@ -709,7 +2010,9 @@
     "Rev",
     "Project",
     "Sheet"
-   ]
+   ],
+   "cells": null,
+   "cells_not_keyed": "the page is rotated after drawing: the drawn boxes are not the page's"
   },
   "ds10_compressor_multipage.pdf": {
    "equipment": "centrifugal compressor",
@@ -852,7 +2155,170 @@
     "Rev",
     "Project",
     "Sheet"
-   ]
+   ],
+   "cells": [
+    {
+     "page": 2,
+     "text": "Number of stages",
+     "box": [
+      40.0,
+      120.0,
+      280.0,
+      138.0
+     ]
+    },
+    {
+     "page": 2,
+     "text": "2",
+     "box": [
+      280.0,
+      120.0,
+      480.0,
+      138.0
+     ]
+    },
+    {
+     "page": 2,
+     "text": "Impeller diameter",
+     "box": [
+      40.0,
+      138.0,
+      280.0,
+      156.0
+     ]
+    },
+    {
+     "page": 2,
+     "text": "540 mm",
+     "box": [
+      280.0,
+      138.0,
+      480.0,
+      156.0
+     ]
+    },
+    {
+     "page": 2,
+     "text": "Maximum continuous speed",
+     "box": [
+      40.0,
+      156.0,
+      280.0,
+      174.0
+     ]
+    },
+    {
+     "page": 2,
+     "text": "11200 rpm",
+     "box": [
+      280.0,
+      156.0,
+      480.0,
+      174.0
+     ]
+    },
+    {
+     "page": 2,
+     "text": "Driver rated power",
+     "box": [
+      40.0,
+      174.0,
+      280.0,
+      192.0
+     ]
+    },
+    {
+     "page": 2,
+     "text": "2400 kW",
+     "box": [
+      280.0,
+      174.0,
+      480.0,
+      192.0
+     ]
+    },
+    {
+     "page": 2,
+     "text": "Casing split",
+     "box": [
+      40.0,
+      192.0,
+      280.0,
+      210.0
+     ]
+    },
+    {
+     "page": 2,
+     "text": "Horizontal",
+     "box": [
+      280.0,
+      192.0,
+      480.0,
+      210.0
+     ]
+    },
+    {
+     "page": 3,
+     "text": "Lube oil cooling water flow",
+     "box": [
+      40.0,
+      120.0,
+      280.0,
+      138.0
+     ]
+    },
+    {
+     "page": 3,
+     "text": "12 m3/h",
+     "box": [
+      280.0,
+      120.0,
+      480.0,
+      138.0
+     ]
+    },
+    {
+     "page": 3,
+     "text": "Noise level",
+     "box": [
+      40.0,
+      138.0,
+      280.0,
+      156.0
+     ]
+    },
+    {
+     "page": 3,
+     "text": "85 dBA",
+     "box": [
+      280.0,
+      138.0,
+      480.0,
+      156.0
+     ]
+    },
+    {
+     "page": 3,
+     "text": "Seal gas consumption",
+     "box": [
+      40.0,
+      156.0,
+      280.0,
+      174.0
+     ]
+    },
+    {
+     "page": 3,
+     "text": "By Vendor",
+     "box": [
+      280.0,
+      156.0,
+      480.0,
+      174.0
+     ]
+    }
+   ],
+   "cells_not_keyed": null
   },
   "ds11_flowmeter_scanned.pdf": {
    "equipment": "flow meter",
@@ -909,7 +2375,9 @@
     "Rev",
     "Project",
     "Sheet"
-   ]
+   ],
+   "cells": null,
+   "cells_not_keyed": "a scan with no text layer: the cells exist only as pixels"
   },
   "ds12_pump.xlsx": {
    "equipment": "end suction pump",
@@ -974,7 +2442,9 @@
     "Rev",
     "Project",
     "Sheet"
-   ]
+   ],
+   "cells": [],
+   "cells_not_keyed": null
   },
   "ds13_heater.docx": {
    "equipment": "electric heater",
@@ -1039,7 +2509,9 @@
     "Rev",
     "Project",
     "Sheet"
-   ]
+   ],
+   "cells": [],
+   "cells_not_keyed": null
   },
   "ds14_blanks_by_vendor.pdf": {
    "equipment": "centrifugal fan",
@@ -1085,7 +2557,190 @@
     "Rev",
     "Project",
     "Sheet"
-   ]
+   ],
+   "cells": [
+    {
+     "page": 1,
+     "text": "Air flow",
+     "box": [
+      40.0,
+      110.0,
+      280.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "36000 m3/h",
+     "box": [
+      280.0,
+      110.0,
+      480.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Motor power",
+     "box": [
+      40.0,
+      128.0,
+      280.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "By Vendor",
+     "box": [
+      280.0,
+      128.0,
+      480.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Static pressure",
+     "box": [
+      40.0,
+      146.0,
+      280.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "2.5 kPa",
+     "box": [
+      280.0,
+      146.0,
+      480.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Impeller diameter",
+     "box": [
+      40.0,
+      164.0,
+      280.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "By Vendor",
+     "box": [
+      280.0,
+      164.0,
+      480.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Fan speed",
+     "box": [
+      40.0,
+      182.0,
+      280.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "1450 rpm",
+     "box": [
+      280.0,
+      182.0,
+      480.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Bearing type",
+     "box": [
+      40.0,
+      200.0,
+      280.0,
+      218.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "BY VENDOR",
+     "box": [
+      280.0,
+      200.0,
+      480.0,
+      218.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Casing material",
+     "box": [
+      40.0,
+      218.0,
+      280.0,
+      236.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Galvanised steel",
+     "box": [
+      280.0,
+      218.0,
+      480.0,
+      236.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Blade material",
+     "box": [
+      40.0,
+      236.0,
+      280.0,
+      254.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "TBA",
+     "box": [
+      280.0,
+      236.0,
+      480.0,
+      254.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Sound power level",
+     "box": [
+      40.0,
+      254.0,
+      280.0,
+      272.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Weight",
+     "box": [
+      40.0,
+      272.0,
+      280.0,
+      290.0
+     ]
+    }
+   ],
+   "cells_not_keyed": null
   }
  }
 }
