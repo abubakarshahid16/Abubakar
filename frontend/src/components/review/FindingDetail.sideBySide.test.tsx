@@ -22,10 +22,17 @@ vi.mock("../../api/client", () => ({
   },
 }));
 
-// The preview fetches page images; here it only says which page it shows.
+// The panes fetch the boxed page from the finding's evidence route; here they
+// only say which finding, side and page they would show.
+vi.mock("./EvidencePageImage", () => ({
+  EvidencePageImage: ({ findingId, side, page }: { findingId: string; side: string; page: number }) => (
+    <div data-testid="preview">{`${findingId} ${side} p${page}`}</div>
+  ),
+}));
+// The one-page view (opened from a citation) is not under test here.
 vi.mock("../DocumentPreview", () => ({
   DocumentPreview: ({ doc, page }: { doc: DocumentRecord; page?: number | null }) => (
-    <div data-testid="preview">{`${doc.filename} p${page}`}</div>
+    <div data-testid="single-page">{`${doc.filename} p${page}`}</div>
   ),
 }));
 
@@ -85,10 +92,10 @@ describe("side by side", () => {
     await openSideBySide();
     const sub = screen.getByRole("group", { name: "Submittal" });
     const std = screen.getByRole("group", { name: "Standard" });
-    expect(within(sub).getByTestId("preview")).toHaveTextContent("pump-datasheet.pdf p2");
+    expect(within(sub).getByTestId("preview")).toHaveTextContent("f-1 submittal p2");
     expect(within(sub).getByText("95 dB(A)")).toBeInTheDocument();
     expect(within(sub).getByText("Read: Noise level")).toBeInTheDocument();
-    expect(within(std).getByTestId("preview")).toHaveTextContent("std-noise.pdf p12");
+    expect(within(std).getByTestId("preview")).toHaveTextContent("f-1 standard p12");
     expect(within(std).getByText("Clause 6.1.14")).toBeInTheDocument();
     expect(within(std).getByText("The noise level shall not exceed 90 dB(A) at 1 m.")).toBeInTheDocument();
   });
@@ -121,6 +128,7 @@ describe("side by side", () => {
     await openSideBySide();
     await userEvent.click(screen.getAllByRole("button", { name: /Open at page/ })[0]);
     expect(screen.queryByRole("group", { name: "Standard" })).toBeNull();
+    expect(screen.getByTestId("single-page")).toHaveTextContent("std-noise.pdf p12");
   });
 });
 
