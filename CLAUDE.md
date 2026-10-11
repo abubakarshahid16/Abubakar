@@ -1,5 +1,15 @@
 # CLAUDE.md — RAG Intelligence System
 
+> **#805 overrides this file and every other file.** #805 (PLAN ONE) is the
+> only plan; where anything here, in `docs/` or in `.cowork/` differs from it,
+> #805 wins.
+>
+> **Top rule - AI-first (owner, 11 Oct 2026; #805 rule 1):** the review is
+> AI-first. AI reads, understands and proposes; code verifies and decides
+> pass/fail; the engineer decides. Switching any AI step off by default, or
+> replacing an AI step with a rules-only path, needs the owner's written
+> approval on #692.
+
 Read this first, every session. It is short on purpose; the long version is
 `docs/HANDOVER.md`, and the current defect list is `docs/code-review/README.md`.
 
@@ -32,7 +42,7 @@ carries the client's name; only the owner can rename it.
    `reader_transport.py` (Claude API: the reasoning provider and the reader;
    off unless `REASONING_PROVIDER=claude` AND both `STANDARDS_READER_*` egress
    flags AND a key - owner decision 2026-09-25, USD caps in `claude_spend`,
-   which the three `claude_api` review routes reach via `claude_spend.metered`) and the datasheet AI reader (`datasheet_ai`, `DATASHEET_AI_READER=claude`, off by default) reaches the same way and
+   which the three `claude_api` review routes reach via `claude_spend.metered`) and the datasheet AI reader (`datasheet_ai`, with `DATASHEET_AI_READER=claude`) reaches the same way and
    `notifications.py` (SMTP, off by default). Known gap: the socket-containment
    test does not yet cover `smtplib` (honesty audit entry 49). Known gap: the
    `claude_api` review routes check the two egress flags but not

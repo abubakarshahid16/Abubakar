@@ -1,8 +1,13 @@
 # NORTH-STAR.md — governing product policy
 
+> **#805 (PLAN ONE) overrides this file and every other file.** Where this
+> file and #805 differ, #805 wins. The order of work, the stages and the
+> pass marks are in #805; this file keeps the stable policy text only.
+
 Owner: Muhammad Usman
 
-Status: **PENDING OWNER APPROVAL**
+Status: **governed by #805** (PLAN ONE, owner order 11 Oct 2026). The owner's
+signature on this file itself is recorded only in section 9.
 
 Applies to: Codex, Claude/Cowork, Claude Code, developers, testers and reviewers
 
