@@ -56,6 +56,7 @@ import type {
   CrsComment,
   CrsCommentHistory,
   CrsPreview,
+  ReviewTrace,
   CrsTransmittals,
   CrsReplyImport,
   CrsResponseCode,
@@ -477,6 +478,13 @@ export const reviews = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }),
+  /** #791: the run step by step (stored trace, or built under the caller's access). */
+  reviewTrace: (runId: string) =>
+    request<ReviewTrace>(
+      `/reviews/runs/${encodeURIComponent(runId)}/trace`,
+      undefined,
+      hasArrayField("steps"),
+    ),
   previewCrs: (runId: string) =>
     request<CrsPreview>(
       `/reviews/runs/${encodeURIComponent(runId)}/crs/preview`,

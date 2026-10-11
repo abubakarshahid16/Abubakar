@@ -1115,10 +1115,18 @@ class Settings(BaseSettings):
     #: Owner order 2026-09-26 (2d): the AI engineering check - Claude reads the
     #: datasheet and drafts observations a reviewer would raise, each gated
     #: (ai_engineering_check.accept) and stored as a pending, unconfirmed draft
-    #: that never counts in the review code. OFF BY DEFAULT; on its own it
-    #: sends nothing - it also needs the Claude lane (REASONING_PROVIDER=claude,
-    #: both STANDARDS_READER_* egress flags and a key), within the USD caps.
-    review_ai_check_enabled: bool = False
+    #: that never counts in the review code. ON BY DEFAULT since R26 step 7
+    #: (#763, owner rule "AI-first", 11 Oct): it runs on the configured model -
+    #: the Claude lane when it is on (REASONING_PROVIDER=claude, both
+    #: STANDARDS_READER_* egress flags and a key, within the USD caps), else the
+    #: LOCAL model, which sends nothing off the machine. A slow or failed call
+    #: is recorded on the run (a warning), never a failed review.
+    #: Env: REVIEW_AI_CHECK_ENABLED (false turns it off).
+    review_ai_check_enabled: bool = True
+    #: Seconds one LOCAL-model call of the AI engineering check may take before
+    #: the check stops for the run (recorded). The Claude lane keeps its own.
+    #: Env: REVIEW_AI_CHECK_LOCAL_TIMEOUT_S.
+    review_ai_check_local_timeout_s: float = 300.0
     #: Output token cap per `review_ai_check` call. Raised from 4000 (2026-09-27):
     #: every one of the 10 historical calls at that cap hit `finish_reason ==
     #: "length"` and produced zero storable items - the check was truncating
