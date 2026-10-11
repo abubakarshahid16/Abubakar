@@ -1,4 +1,5 @@
-"""#617: range cells such as 5-10 are recorded as a range requirement. Ids M6301-M6308."""
+"""#617 (PR #723): range cells such as 5-10 are recorded as a range requirement. Ids M723-01..M723-08
+(renamed from M6301-M6308 on the refresh: main now has an M6301; rule 12 names ids after the PR)."""
 from __future__ import annotations
 
 from ._base import APP, Mutation
@@ -10,7 +11,7 @@ _TAG = ("w2b", "tables")
 
 
 def _m(i, desc, path, anchor, repl, kw=None):
-    return Mutation(id=f"M{i}", phase=i, description=desc, path=path, anchor=anchor,
+    return Mutation(id=f"M723-{i - 6300:02d}", phase=723, description=desc, path=path, anchor=anchor,
                     replacement=repl, target=_T, keyword=kw, tags=_TAG)
 
 
