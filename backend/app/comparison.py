@@ -1835,6 +1835,24 @@ def run_comparison(
     model_opinions: dict | None = None, replace: bool = True,
     missing_references: list[str] | None = None,
 ) -> dict:
+    """`_run_comparison`, with the review's documents declared for the Claude
+    lane (#806 S3): any model call a comparison makes (field naming, rule
+    parsing, the matcher) carries the submittal's fields and the applied
+    standards' clause text - those documents and no others."""
+    from . import claude_approved
+    with claude_approved.carrying(claude_approved.review_documents(review_run_id)):
+        return _run_comparison(
+            review_run_id, allowed_document_ids=allowed_document_ids, subject=subject,
+            reference_coverage=reference_coverage, model_opinions=model_opinions,
+            replace=replace, missing_references=missing_references)
+
+
+def _run_comparison(
+    review_run_id: str, *, allowed_document_ids: frozenset[str],
+    subject: str | None = None, reference_coverage: float | None = None,
+    model_opinions: dict | None = None, replace: bool = True,
+    missing_references: list[str] | None = None,
+) -> dict:
     """Evaluate every applicable requirement against the submittal's facts.
 
     One finding per requirement. The verdict is deterministic; `model_opinions`

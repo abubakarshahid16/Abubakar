@@ -185,6 +185,26 @@ describe("the CRS preview", () => {
     expect(within(rows[1]).getByText(/32-SAMSS-004/)).toBeInTheDocument();
   });
 
+  it("shows each row's reasoning when the internal copy carries the column (R30)", async () => {
+    const base = sheet();
+    previewCrs.mockResolvedValue({ ok: true, data: sheet({
+      columns: [...base.columns, "Standard Reference", "Severity", "AI Review Comments",
+                "Reasoning (internal)"],
+      rows: base.rows.map((r, i) => ({ ...r, reasoning: i === 0
+        ? "Read: Design pressure = 5,000 kPa (p.4). Clause: SAES-D-001 cl. 6.2.2. Result: does not meet."
+        : "" })),
+    }) });
+    const panel = within(await openThePreview());
+    const cells = panel.getAllByTestId("crs-reasoning");
+    expect(cells).toHaveLength(2);
+    expect(cells[0].textContent).toContain("Result: does not meet");
+  });
+
+  it("shows no reasoning column when the copy does not carry it", async () => {
+    const panel = within(await openThePreview());
+    expect(panel.queryAllByTestId("crs-reasoning")).toHaveLength(0);
+  });
+
   it("leaves the contractor's two columns present and empty", async () => {
     // THEY BELONG TO THE CONTRACTOR. Omitting them would hide the shape of
     // the document they are being asked to answer; writing anything in them

@@ -257,33 +257,38 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
     try:
         if submittal not in scope:
             raise PermissionError("the requester can no longer read this submittal")
+        from . import review_trace
+        timings: dict = {}    # #791 part 1: when each phase ran, for the stored trace
         _step(conn, job_id, 0)
-        submittal_review.ensure_facts_extracted(submittal, scope, review_run_id=run_id)
+        with review_trace.timed(timings, "read"):
+            submittal_review.ensure_facts_extracted(submittal, scope, review_run_id=run_id)
         _step(conn, job_id, 1)
-        selection = applicability.select(submittal, allowed_document_ids=scope,
-                                         review_run_id=run_id, persist=True, heartbeat=heartbeat)
+        with review_trace.timed(timings, "standards"):
+            selection = applicability.select(submittal, allowed_document_ids=scope,
+                                             review_run_id=run_id, persist=True, heartbeat=heartbeat)
         _step(conn, job_id, 2)
-        comparison.run_comparison(
-            run_id, allowed_document_ids=scope,
-            reference_coverage=selection.get("reference_coverage"),
-            missing_references=[m["identifier"] for m in selection["missing_references"]])
-        _ai_check(run_id, scope, [m["identifier"] for m in selection["missing_references"]])
-        _web_check(run_id, scope, [m["identifier"] for m in selection["missing_references"]])
+        with review_trace.timed(timings, "compare"):
+            comparison.run_comparison(
+                run_id, allowed_document_ids=scope,
+                reference_coverage=selection.get("reference_coverage"),
+                missing_references=[m["identifier"] for m in selection["missing_references"]])
+        with review_trace.timed(timings, "checks"):
+            _ai_check(run_id, scope, [m["identifier"] for m in selection["missing_references"]])
+            _web_check(run_id, scope, [m["identifier"] for m in selection["missing_references"]])
+        requester = access.AccessScope(user_id=job["created_by"], allowed_document_ids=scope)
         # R15 (#779): every CRS row of the finished run gets its permanent
         # number (drafts not issued). Never fails the run (see the helper).
         from .main import number_crs_rows
-        number_crs_rows(run_id, access.AccessScope(user_id=job["created_by"],
-                                                   allowed_document_ids=scope))
+        number_crs_rows(run_id, requester)
         # R26 step 8 (#763): the model words each machine CRS comment; a code
         # lock keeps every fact. Never fails the run (see the helper).
         from .main import word_crs_rows
-        word_crs_rows(run_id, access.AccessScope(user_id=job["created_by"],
-                                                 allowed_document_ids=scope))
-        # #791 part 0: REVIEW_DEBUG prints every step (off by default; reads
-        # only, never fails the run).
-        from . import review_trace
-        review_trace.emit(run_id, access.AccessScope(user_id=job["created_by"],
-                                                     allowed_document_ids=scope))
+        word_crs_rows(run_id, requester)
+        # #791 part 1: the run's step-by-step trace, stored behind the run's
+        # access rules (reads only, never fails the run) ...
+        review_trace.store(run_id, requester, timings)
+        # ... and part 0: REVIEW_DEBUG prints it (off by default).
+        review_trace.emit(run_id, requester)
     except _Cancelled:
         with conn:
             from . import review as review_mod

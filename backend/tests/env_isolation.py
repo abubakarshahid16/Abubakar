@@ -77,6 +77,10 @@ TEST_PINS: dict[str, object] = {
     # On by default since the owner order of 2026-10-11 (item 4); in tests it
     # would be two model calls per unmatched requirement.
     "match_enabled": False,
+    # #806 S3 is ON in production. The suite's Claude-lane tests run fake
+    # transports over invented documents that are on no approved list; the
+    # guard has its own tests (`test_806_claude_approved.py`), which turn it on.
+    "claude_approved_list_enforced": False,
     # On by default since #763 R26 step 7 (owner rule "AI-first", 11 Oct);
     # in tests it would be a model call per review.
     "review_ai_check_enabled": False,
@@ -94,6 +98,10 @@ EGRESS_SAFE: dict[str, object] = {
     "standards_reader_enabled": False,
     "standards_reader_allow_public_egress": False,
     "anthropic_api_key": "",
+    # #806 S3: the approved-document guard is off for the suite only (its
+    # fakes carry invented documents); with no key and the egress flags off
+    # above, nothing can leave either way.
+    "claude_approved_list_enforced": False,
     "review_ai_check_enabled": False,
     "rule_parse_model_enabled": False,
     "geometry_reader_enabled": False,      # also gates the Claude vision reader

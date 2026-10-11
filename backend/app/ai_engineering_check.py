@@ -53,6 +53,7 @@ import re
 from datetime import datetime, timezone
 from enum import Enum
 
+from . import claude_approved
 from . import claude_spend, numparse
 from .config import settings
 from .db import connect
@@ -489,6 +490,7 @@ def ai_check_status(review_run_id: str, *, allowed_document_ids: frozenset[str])
         return None
 
 
+@claude_approved.for_review      # #806 S3: the packet is the review's submittal and standards
 def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
               cited: list[str], provider=None) -> dict:
     """Ask Claude for engineering observations, gate every item, store the

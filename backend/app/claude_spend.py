@@ -94,6 +94,21 @@ class BudgetExceeded(StopRun):
     count_key = "usd_cap_reached"
 
 
+class DocumentNotApproved(BudgetExceeded):
+    """#806 S3: the prompt carries a document the owner has not approved for
+    the cloud model (or its caller declared nothing), so the call was not
+    made. A `BudgetExceeded` on purpose: it is refused at the same place, for
+    the same kind of reason (an owner limit), before anything leaves, and
+    every caller that already stops cleanly on a cap stops cleanly on this.
+    `code` is `claude_approved.UNDECLARED / NOT_APPROVED / UNKNOWN_DOCUMENT`."""
+
+    count_key = "document_not_approved"
+
+    def __init__(self, code: str, reason: str) -> None:
+        super().__init__(reason)
+        self.code = code
+
+
 def price_for(model: str | None) -> tuple[float, float, float, float]:
     """List prices for `model`; a dated id ('...-20251001') finds its family."""
     name = (model or "").lower()
@@ -331,12 +346,44 @@ class Reservation:
     batch: bool = False
 
 
+#: What the reader is told when #806 S3 stopped a Claude answer. One wording,
+#: in every chat path; ids are in the bracket, never a file name.
+NOT_APPROVED_WORDS = ("a document this answer needs is not approved for the cloud model, so nothing "
+                      "was sent to it and no answer was generated; choose the Local model to answer "
+                      "from this document")
+
+
+def refusal_words(exc: BaseException, cap_words: str) -> str:
+    """The reason shown for a call refused before it left: the approved-list
+    wording for `DocumentNotApproved`, else the caller's own spending-cap
+    wording (`cap_words`). The exception's text follows in brackets."""
+    words = NOT_APPROVED_WORDS if isinstance(exc, DocumentNotApproved) else cap_words
+    return f"{words} ({exc})"
+
+
 def reserve_all(items: list[tuple[str, float]], *, model: str, prompt_sha256: str = "",
                 batch: bool = False, caps: Caps | None = None) -> list[Reservation]:
     """Check and reserve every `(step, worst_case)` in ONE locked step: all
     fit together, or `BudgetExceeded` is raised and nothing is reserved.
     Each item is checked on top of the ledger AND the items before it, so a
     batch cannot pass one request at a time and cross a cap together."""
+    # #806 S3, BEFORE THE CAPS AND BEFORE ANYTHING IS HELD: every Claude call
+    # reserves here (the `metered` lane and the `ClaudeProvider` lane), so this
+    # is the one place a prompt carrying an unapproved document - or one whose
+    # caller declared nothing - is stopped. The refusal is written to the
+    # ledger at USD 0 (step, code, ids; never a title), for the log review.
+    from . import claude_approved
+    refused = claude_approved.refusal()
+    if refused is not None:
+        code, reason = refused
+        with _ledger_lock():
+            for step, _worst in items:
+                line = _entry(step=step, model=model, usage=None, prompt_sha256=prompt_sha256,
+                              wall_time_s=0.0, finish_reason=f"refused:{code}", batch=batch)
+                line["refused"] = code
+                line["documents"] = sorted(claude_approved.carried() or ())
+                _append(line)
+        raise DocumentNotApproved(code, reason)
     caps = caps or Caps.from_settings()
     now = time.time()
     out: list[Reservation] = []

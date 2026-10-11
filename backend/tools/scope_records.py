@@ -279,10 +279,13 @@ def read_scope(document_id: str, provider, *, lexicon: dict, step: str, seed: in
     passages = find_passages(document_id) if passages is None else passages
     responses: list = []
     if passages:
-        for retry in (False, True):
-            responses.append(provider.reason(packet(passages, step=step, seed=seed, retry=retry)))
-            if usable(responses[-1]) is not None:
-                break
+        # #806 S3: the prompt carries this standard's scope passages.
+        from app import claude_approved
+        with claude_approved.carrying([document_id]):
+            for retry in (False, True):
+                responses.append(provider.reason(packet(passages, step=step, seed=seed, retry=retry)))
+                if usable(responses[-1]) is not None:
+                    break
     return record_from(document_id, passages, responses, lexicon=lexicon, seed=seed)
 
 
@@ -309,7 +312,11 @@ def read_scope_batch(passages_by_doc: dict[str, list[dict]], provider, *, lexico
         packets = [packet(passages_by_doc[d], step=step, retry=retry or compact, num_predict=cap) for d in todo]
         if may_send is not None and not may_send(packets):
             continue
-        for d, r in zip(todo, provider.reason_batch(packets, **batch_kw)):
+        # #806 S3: one batch carries the scope passages of every standard in it.
+        from app import claude_approved
+        with claude_approved.carrying(todo):
+            answers = provider.reason_batch(packets, **batch_kw)
+        for d, r in zip(todo, answers):
             responses[d].append(r)
     out = {}
     for d, ps in passages_by_doc.items():

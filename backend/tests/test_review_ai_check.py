@@ -363,7 +363,8 @@ def test_an_unconfirmed_item_is_only_in_the_ai_column_of_the_internal_copy(world
 
     view = _preview(run)
     # CRS quick wins: "Standard Reference" follows the seven; AI stays last.
-    assert view["columns"] == [*crs_export.HEADERS, "Standard Reference", "Severity", "AI Review Comments"]
+    assert view["columns"] == [*crs_export.HEADERS, "Standard Reference", "Severity", "AI Review Comments",
+                               crs_export.REASONING_COLUMN]  # R30: reasoning last, internal only
     [row] = [r for r in view["rows"] if TEXT in r["ai_review_comment"]]
     assert TEXT not in row["comment"]
     # Honesty audit entry 71: "Comment By" is never blank - unconfirmed is a

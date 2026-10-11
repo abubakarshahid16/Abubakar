@@ -1082,3 +1082,17 @@ def test_the_claude_matcher_sends_no_temperature_to_a_model_that_rejects_it(stub
     comparison.match_by_model(requirement(subject=MODEL_SUBJECT), CANDIDATES)
     assert sent and all("temperature" not in body for body in sent)
     assert {body["model"] for body in sent} == {"claude-sonnet-5"}
+
+
+def test_the_claude_matcher_obeys_the_approved_document_guard(stub, monkeypatch, tmp_path):
+    """#806 S3: the matcher's Claude call reserves like every other, so an
+    undeclared or unapproved prompt is stopped before it leaves; a comparison
+    declares the review's documents (`run_comparison`)."""
+    from app import claude_approved
+    sent = _claude_matcher(monkeypatch, tmp_path, '{"choice": 0, "reason": "x"}')
+    monkeypatch.setattr(settings, "claude_approved_list_enforced", True)
+    got = comparison.match_by_model(requirement(subject=MODEL_SUBJECT), CANDIDATES)     # nothing declared
+    assert got["fact"] is None and got["reason"] == comparison.MODEL_BUDGET and sent == []
+    with claude_approved.carrying(()):                                                  # declared, no documents
+        got = comparison.match_by_model(requirement(subject=MODEL_SUBJECT), CANDIDATES)
+    assert got["fact"] is CANDIDATES[0] and len(sent) == 2
