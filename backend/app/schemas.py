@@ -2280,6 +2280,10 @@ class CrsPreviewRow(BaseModel):
     #: the internal review copy, with `comment` left empty. Empty on every
     #: other row, and the column is absent from the "Issue to contractor" copy.
     ai_review_comment: str = ""
+    #: R30: the chain behind the row (value and page read, clause, result,
+    #: why), printed in the internal copy's last column "Reasoning (internal)".
+    #: Always empty in the "Issue to contractor" copy.
+    reasoning: str = ""
 
 
 class CrsStandardRow(BaseModel):

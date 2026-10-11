@@ -524,7 +524,8 @@ def test_the_preview_carries_the_seven_columns_the_template_defines():
     # adds "AI Review Comments" LAST (owner decision 2026-09-27), and the
     # copy issued to the contractor is the template exactly.
     # CRS quick wins: "Standard Reference" follows the seven, in both copies.
-    assert body["columns"] == [*HEADERS, "Standard Reference", "Severity", "AI Review Comments"]  # #725 F7: Severity after Standard Reference
+    assert body["columns"] == [*HEADERS, "Standard Reference", "Severity", "AI Review Comments",
+                               "Reasoning (internal)"]  # #725 F7: Severity after Standard Reference; R30 last
     assert body["columns"][5:7] == ["Contractor's Response", "Final Resolution"]
     issued = _preview(_client(doc).get(f"/api/reviews/runs/{run_id}/crs/preview",
                                        params={"copy": "issue"}))
@@ -591,7 +592,7 @@ def test_the_preview_is_the_workbook_row_for_row(monkeypatch):
 
     # The column headers, directly under the header block.
     assert [_cell(ws, COLUMN_HEADER_ROW, c)
-            for c in range(1, 11)] == body["columns"]
+            for c in range(1, 12)] == body["columns"]
 
     # Every data row, from row 9, across all seven columns.
     assert len(body["rows"]) >= 3, "the fixture produced too few rows to prove"
@@ -604,6 +605,10 @@ def test_the_preview_is_the_workbook_row_for_row(monkeypatch):
         assert _cell(ws, r, 8) == row["standard_reference"]
         assert _cell(ws, r, 9) == row["severity"]  # #725 F7
         assert _cell(ws, r, 10) == row["ai_review_comment"]
+        assert _cell(ws, r, 11) == row["reasoning"]  # R30
+    # R30: the machine rows carry their chain (value read, clause, result, why).
+    assert any(row["reasoning"].startswith("Read: ") or "Result: " in row["reasoning"]
+               for row in body["rows"])
     # And no eighth row hiding in the workbook that the preview never showed.
     assert _cell(ws, COLUMN_HEADER_ROW + len(body["rows"]) + 1, 1) == ""
 

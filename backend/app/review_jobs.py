@@ -276,6 +276,14 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
             _ai_check(run_id, scope, [m["identifier"] for m in selection["missing_references"]])
             _web_check(run_id, scope, [m["identifier"] for m in selection["missing_references"]])
         requester = access.AccessScope(user_id=job["created_by"], allowed_document_ids=scope)
+        # R15 (#779): every CRS row of the finished run gets its permanent
+        # number (drafts not issued). Never fails the run (see the helper).
+        from .main import number_crs_rows
+        number_crs_rows(run_id, requester)
+        # R26 step 8 (#763): the model words each machine CRS comment; a code
+        # lock keeps every fact. Never fails the run (see the helper).
+        from .main import word_crs_rows
+        word_crs_rows(run_id, requester)
         # #791 part 1: the run's step-by-step trace, stored behind the run's
         # access rules (reads only, never fails the run) ...
         review_trace.store(run_id, requester, timings)

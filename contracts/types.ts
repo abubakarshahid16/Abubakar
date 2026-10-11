@@ -543,6 +543,10 @@ export interface CrsPreviewRow {
   /** Owner order 2f: an unconfirmed AI engineering check item's text, shown
    *  in the "AI Review Comments" column of the internal copy only. */
   ai_review_comment?: string;
+  /** R30: the chain behind the row (value and page read, clause, result,
+   *  why), in the "Reasoning (internal)" column of the internal copy only;
+   *  always "" in the issue copy. */
+  reasoning?: string;
 }
 
 /**

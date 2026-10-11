@@ -1095,6 +1095,13 @@ function CrsPreviewSheet(
                   {row.ai_review_comment}
                 </td>
               )}
+              {/* R30: the reasoning behind the row, internal copy only. */}
+              {preview.columns.includes("Reasoning (internal)") && (
+                <td data-testid="crs-reasoning"
+                  className="whitespace-pre-line border border-ink-600 px-2 py-1 align-top text-xs text-slateish-300">
+                  {row.reasoning ?? ""}
+                </td>
+              )}
             </tr>
           ))}
         </tbody>
