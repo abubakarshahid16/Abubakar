@@ -1570,9 +1570,9 @@ def generate_from_passages(instruction: str, passages: list[dict], *, history: s
     try:
         prompt = _build_prompt(instruction, passages, history)
         _prepare_stream(passages, general=False)
+        from . import claude_approved
         try:
             # #806 S3: the prompt carries these passages' documents.
-            from . import claude_approved
             with claude_approved.carrying(p.get("document_id") for p in passages):
                 raw = _call_model(prompt)
         except model_transport.ModelHostRefused:
@@ -2087,9 +2087,9 @@ def _answer_from_documents(
 
     t = Timer()
     _prepare_stream(passages, general=False)
+    from . import claude_approved
     try:
         # #806 S3: the prompt carries these passages' documents.
-        from . import claude_approved
         with claude_approved.carrying(p.get("document_id") for p in passages):
             raw = _call_model(prompt)
     except model_transport.ModelHostRefused:
