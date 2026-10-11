@@ -1,8 +1,10 @@
 # CLAUDE.md — RAG Intelligence System
 
-> **#805 overrides this file and every other file.** #805 (PLAN ONE) is the
-> only plan; where anything here, in `docs/` or in `.cowork/` differs from it,
-> #805 wins.
+> **#805 overrides this file and every other file, except the privacy and
+> safety rules 1 to 5 in CLAUDE.md and the security controls in #806.** No
+> issue, comment or plan overrides those; changing them needs the owner's
+> written approval on #692. #805 (PLAN ONE) is the only plan; where anything
+> else here, in `docs/` or in `.cowork/` differs from it, #805 wins.
 >
 > **Top rule - AI-first (owner, 11 Oct 2026; #805 rule 1):** the review is
 > AI-first. AI reads, understands and proposes; code verifies and decides

@@ -1,8 +1,11 @@
 # NORTH-STAR.md — governing product policy
 
-> **#805 (PLAN ONE) overrides this file and every other file.** Where this
-> file and #805 differ, #805 wins. The order of work, the stages and the
-> pass marks are in #805; this file keeps the stable policy text only.
+> **#805 (PLAN ONE) overrides this file and every other file, except the
+> privacy and safety rules 1 to 5 in CLAUDE.md and the security controls in
+> #806.** No issue, comment or plan overrides those; changing them needs the
+> owner's written approval on #692. Elsewhere, where this file and #805
+> differ, #805 wins. The order of work, the stages and the pass marks are in
+> #805; this file keeps the stable policy text only.
 
 Owner: Muhammad Usman
 
