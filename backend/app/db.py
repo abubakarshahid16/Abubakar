@@ -267,6 +267,10 @@ CREATE TABLE IF NOT EXISTS crs_comment_numbers (
     comment_by      TEXT,
     standard_reference TEXT,
     last_review_run_id TEXT,
+    -- R15 (#779): 1 when an engineer made the comment theirs (it is ISSUED:
+    -- carried forward, printed as confirmed); 0 for a machine draft that was
+    -- numbered when its review finished. A number is never reused either way.
+    issued          INTEGER NOT NULL DEFAULT 1,
     PRIMARY KEY (scope_key, row_key),
     UNIQUE (scope_key, seq)
 );
@@ -1315,6 +1319,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
         # column lacks it, so every existing row reads as "not recorded" -
         # correct, since none of them ever held a real decision either.
         ("page_ledger", "vision_recorded_by", "TEXT"),
+        # R15 (#779): every number minted before this column was an
+        # engineer's, so the default 1 is the honest value for existing rows.
+        ("crs_comment_numbers", "issued", "INTEGER NOT NULL DEFAULT 1"),
     ):
         add_column_if_missing(conn, _table, _column, _definition)
     conn.execute(
