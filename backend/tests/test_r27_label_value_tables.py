@@ -100,3 +100,28 @@ def test_a_header_row_with_one_number_in_it_is_still_a_header():
     assert not g._answers_in_every_cell(header, gutter)              # ...the strict one is not
     assert g._answers_in_every_cell(["", "Maximum flow", "150 m3/h", "150 m3/h"], gutter)
     assert not g._answers_in_every_cell(["", "Mark", "Size", "Rating"], gutter)
+
+
+def test_an_answer_row_cut_off_from_its_header_does_not_start_the_body():
+    """THE SECOND REGRESSION THE REAL SHEETS CAUGHT (F1, 2026-10-11). A form
+    page had its column names at the top, then section headings drawn inside
+    the grid, then the rows. Starting the body at the first answering row cut
+    the header off: the table was read as a plain label/value table and a
+    clause-reference column became part of every name. The body may start at
+    an answer row only when a header row sits directly on it, or nothing does."""
+    box = (0.0, 0.0, 100.0, 10.0)
+    cell = (0.0, 0.0, 30.0, 10.0)
+    gutter: set[int] = set()
+    header = ["Item", "Required", "Offered"]
+    heading = ["Process data", "", ""]
+    answer = ["Maximum flow", "150 m3/h", "150 m3/h"]
+    rects = [[cell, cell, cell], [box, None, None], [cell, cell, cell]]
+    assert g._is_title_row(rects[1], heading, gutter, 0.0, 100.0)
+    # a section heading between the header and the answer row: no jump
+    assert not g._header_sits_on(2, rects, [header, heading, answer], gutter, 0.0, 100.0)
+    # one filled cell above that is not even a title: still not a header
+    assert not g._header_sits_on(1, [rects[0], rects[2]], [["Note", "", ""], answer], gutter, 0.0, 100.0)
+    # the header directly above, or nothing above (blank rows are nothing): jump
+    assert g._header_sits_on(1, [rects[0], rects[2]], [header, answer], gutter, 0.0, 100.0)
+    assert g._header_sits_on(0, [rects[2]], [answer], gutter, 0.0, 100.0)
+    assert g._header_sits_on(1, [rects[0], rects[2]], [["", "", ""], answer], gutter, 0.0, 100.0)

@@ -222,6 +222,26 @@ def _answers_in_every_cell(row: list[str], gutter: set[int]) -> bool:
     return all(_STARTS_WITH_A_NUMBER.match(v) or blank_markers.names_a_marker(v) for v in filled[1:])
 
 
+def _header_sits_on(row: int, rects: list[list[Any]], texts: list[list[str]], gutter: set[int],
+                    x_left: float, x_right: float) -> bool:
+    """May the body start at answer row `row`? Only when its column names are
+    where a reader expects them: the row DIRECTLY above it is a header row
+    (several filled cells, not a title), or nothing at all is above it.
+
+    Otherwise the answer row is cut off from its header - by a section
+    heading, a title-block row drawn inside the grid - and starting the body
+    there loses the header: a real form page with a clause-reference column
+    was read as a plain label/value table and stored a unit as a value and
+    title-block fragments as fields (F1, 2026-10-11). Then the table is left
+    exactly as it was read before."""
+    above = [r for r in range(row) if not _is_empty(texts[r], gutter)]
+    if not above:
+        return True
+    nearest = above[-1]
+    filled = [v for j, v in enumerate(texts[nearest]) if j not in gutter and v]
+    return len(filled) >= 2 and not _is_title_row(rects[nearest], texts[nearest], gutter, x_left, x_right)
+
+
 def _is_title_row(row_rects: list[Any], row_texts: list[str], gutter: set[int],
                   x_left: float, x_right: float) -> bool:
     """TITLE: one non-empty cell spans >= TITLE_SPAN_SHARE of the table width."""
@@ -376,7 +396,7 @@ def _structure(table: Any, *, page_no: int, table_id: str, strategy: str,
                         if not _is_empty(texts[i], gutter)
                         and not _is_title_row(rects[i], texts[i], gutter, x_left, x_right)
                         and _answers_in_every_cell(texts[i], gutter)), None)
-        if earlier is not None:
+        if earlier is not None and _header_sits_on(earlier, rects, texts, gutter, x_left, x_right):
             first_data, answer_first = earlier, True
         # HEADER = the non-title rows directly above the first data-like row
         # (empty rows on the way are skipped, never kept). Walking up stops at
