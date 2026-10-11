@@ -125,3 +125,48 @@ def test_an_answer_row_cut_off_from_its_header_does_not_start_the_body():
     assert g._header_sits_on(1, [rects[0], rects[2]], [header, answer], gutter, 0.0, 100.0)
     assert g._header_sits_on(0, [rects[2]], [answer], gutter, 0.0, 100.0)
     assert g._header_sits_on(1, [rects[0], rects[2]], [["", "", ""], answer], gutter, 0.0, 100.0)
+
+
+
+def test_a_contents_row_is_layout_not_a_datasheet_value():
+    """F1 on a real sheet (2026-10-11): a sheet's index table has the shape of
+    a label/value table, and one of its rows was stored as a field - a section
+    title with its page range. Read faithfully, and not a value of the
+    equipment. A row whose label ends on the word for a sheet or a page and
+    whose answer is only page numbers is dropped; everything else stays."""
+    assert g._is_a_contents_row("Process and mechanical data Sht", "4 to 5")
+    assert g._is_a_contents_row("Notes sheet", "6")
+    assert g._is_a_contents_row("Drawings, pages:", "7 - 9")
+    # a value with a unit, a value that is not only numbers, a label that is not a sheet
+    assert not g._is_a_contents_row("Tube sheet", "25 mm")
+    assert not g._is_a_contents_row("Tube sheet", "fixed")
+    assert not g._is_a_contents_row("Operating pH", "4 to 5")
+    assert not g._is_a_contents_row("Sheet size", "3")
+
+
+def _lv_table(rows: list[list[str]]) -> dict:
+    cell = lambda r, j, t: {"text": t, "column": j, "row": r, "page": 1, "bbox": (0, 0, 1, 1),   # noqa: E731
+                            "value": t, "unit": None, "is_blank": False, "blank_marker": None,
+                            "table_id": "p1-t1"}
+    return {"rows": [{"cells": [cell(r, j, t) for j, t in enumerate(row)]} for r, row in enumerate(rows)]}
+
+
+def test_a_headerless_table_emits_its_values_and_not_its_contents_rows():
+    table = _lv_table([["Process and mechanical data Sht", "4 to 5"],
+                       ["Operating pH", "4 to 5"],
+                       ["Design pressure", "10 barg"]])
+    rows = g._label_value_rows(table, lambda text: (0, 0))
+    assert [(r["label"], r["value_text"]) for r in rows] == [
+        ("Operating pH", "4 to 5"), ("Design pressure", "10 barg")]
+
+
+def test_a_column_of_sheet_numbers_is_not_emitted_from_a_table_with_a_header():
+    """The same row through the other door: the real index table HAS a header
+    row, so its cell is labelled "<title> Sht" by the ordinary table path."""
+    cell = lambda j, text, label: {"text": text, "column": j, "row": 1, "page": 1, "bbox": (0, 0, 1, 1),   # noqa: E731
+                                   "value": text, "unit": None, "is_blank": False, "blank_marker": None,
+                                   "table_id": "p1-t1", "label": label}
+    table = {"headerless": False, "rows": [{"cells": [
+        cell(0, "Process and mechanical data", "Contents"), cell(1, "4 to 5", "Sht"), cell(2, "B", "Rev")]}]}
+    rows = g.read_page_rows(None, form={"pairs": []}, tables={"tables": [table]})
+    assert [(r["label"], r["value_text"]) for r in rows] == [("Process and mechanical data Rev", "B")]

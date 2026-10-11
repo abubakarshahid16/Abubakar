@@ -1033,13 +1033,27 @@ def _merged_from_above(table_rows: list[dict], index: int, column: int) -> str:
     return ""
 
 
+#: A CONTENTS ROW IS LAYOUT, NOT A DATASHEET VALUE. A sheet's index table
+#: ("General data sheet | 4 to 5") has the shape of a label/value table, so
+#: its rows were stored as fields - read faithfully, and not a value of the
+#: equipment (F1 on a real sheet, 2026-10-11; planner's rule on #692). The
+#: label ends on the word for a sheet or a page, and the answer is nothing but
+#: a whole number or a range of two.
+_ENDS_ON_A_SHEET_WORD = re.compile(r"(?:sht|shts|sheet|sheets|page|pages)[\s.:]*$", re.IGNORECASE)
+_ONLY_PAGE_NUMBERS = re.compile(r"^\s*\d{1,4}(?:\s*(?:to|-|\u2013|,|&|and)\s*\d{1,4})?\s*$", re.IGNORECASE)
+
+
+def _is_a_contents_row(label: str, answer: str) -> bool:
+    return bool(_ENDS_ON_A_SHEET_WORD.search(label) and _ONLY_PAGE_NUMBERS.match(answer))
+
+
 def _label_value_rows(table: dict[str, Any], alphabet_violations) -> list[dict[str, Any]]:
     """The rows of a HEADERLESS label/value table (R27): per row, the label is
     every word cell to the left of the answer (a group cell merged from above
     included), and the answer is the first cell that states a value - or,
     when none does, the last filled cell ("Roof type | Fixed cone roof").
     A row with no reliable label (garbled, cut, empty) emits nothing, as for
-    every other table."""
+    every other table - and neither does a contents row (`_is_a_contents_row`)."""
     out: list[dict[str, Any]] = []
     for index, data in enumerate(table["rows"]):
         cells = sorted(data["cells"], key=lambda c: c["column"])
@@ -1059,6 +1073,8 @@ def _label_value_rows(table: dict[str, Any], alphabet_violations) -> list[dict[s
                             or alphabet_violations(t)[0] > 0 for i, t in parts):
             continue
         c = cells[answer]
+        if _is_a_contents_row(" ".join(t for _i, t in parts), c["text"]):
+            continue
         out.append({
             "source": "table", "page": c["page"],
             "label": " ".join(t for _i, t in parts),
@@ -1148,6 +1164,8 @@ def read_page_rows(page: Any, *, form: dict[str, Any] | None = None,
             for c in cells:
                 if c is key_cell or not c["text"]:
                     continue
+                if _is_a_contents_row(c["label"] or "", c["text"]):
+                    continue        # a column of sheet numbers: layout, not a value
                 rows.append({
                     "source": "table", "page": c["page"],
                     "label": f"{key_cell['text']} {c['label']}".strip(),
