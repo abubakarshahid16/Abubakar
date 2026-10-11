@@ -216,6 +216,13 @@ def answer(question: str, *, history: str, allowed_document_ids: frozenset[str],
     sources: list[dict] = []
     steps: list[dict] = []
     pages_used: list = []
+    #: #806 S3: every document whose content the NEXT request to Claude
+    #: carries - the tools' results stay in `messages` for the rest of the
+    #: turn, so this only grows: each source a tool added, each page looked
+    #: at, and each document a tool was asked about (a tool's note is about
+    #: the document it was given). The conversation's own documents are
+    #: declared by `chat.ask`.
+    carried_ids: set[str] = set()
     tool_calls_made = 0
     started = time.time()
     thinking_seconds: float | None = None
@@ -279,7 +286,9 @@ def answer(question: str, *, history: str, allowed_document_ids: frozenset[str],
                 # existing pipeline already has. Document sentences stream
                 # through the SAME sentence gate (`chat_stream`) the existing
                 # pipeline uses, verified against `sources` as they arrive.
-                response = engine.stream(packet, on_text, turn.cancel if turn else None)
+                from . import claude_approved
+                with claude_approved.carrying(carried_ids):
+                    response = engine.stream(packet, on_text, turn.cancel if turn else None)
             except (rp.ProviderRefused, claude_spend.BudgetExceeded) as exc:
                 turn_cost += float(getattr(exc, "cost_usd", 0.0) or 0.0)
                 if tool_calls_made == 0 and not sources:
@@ -312,6 +321,10 @@ def answer(question: str, *, history: str, allowed_document_ids: frozenset[str],
                 if cancelled():
                     return _cancelled(turn, sources, steps, started, turn_cost)
                 tool_calls_made += 1
+                tool_input = block.get("input") if isinstance(block.get("input"), dict) else {}
+                carried_ids.update(str(d) for d in [tool_input.get("document_id"),
+                                                    *(tool_input.get("document_ids") or [])]
+                                   if isinstance(d, str) and d)
                 try:
                     run, image = chat_tools.dispatch(
                         block.get("name"), block.get("input") or {},
@@ -336,6 +349,8 @@ def answer(question: str, *, history: str, allowed_document_ids: frozenset[str],
                         note=f"invalid tool input ({type(exc).__name__})"), None
                 first_n = len(sources) + 1
                 sources.extend(run.sources_added)
+                carried_ids.update(str(s["document_id"]) for s in run.sources_added if s.get("document_id"))
+                carried_ids.update(str(p[0]) for p in pages_used if p and p[0])
                 steps.append({"label": run.label, "count": len(run.sources_added) or None,
                              "done": run.ok})
                 content: list[dict] = []
@@ -410,6 +425,8 @@ def _failure_reason(exc: Exception) -> str:
     """Say what actually stopped the answer. Only a `BudgetExceeded` is the
     spending cap; a `ProviderRefused` is the call itself failing (network,
     timeout, an HTTP 4xx/5xx, egress off) and must not be blamed on the cap."""
+    if isinstance(exc, claude_spend.DocumentNotApproved):
+        return claude_spend.refusal_words(exc, "")       # #806 S3: not the cap
     if isinstance(exc, claude_spend.BudgetExceeded):
         return f"the spending cap would be exceeded partway through this answer: {exc}"
     return f"the Claude call failed partway through this answer: {exc}"

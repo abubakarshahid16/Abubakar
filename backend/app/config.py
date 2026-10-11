@@ -1071,6 +1071,14 @@ class Settings(BaseSettings):
     #: worst case of the next call must fit under both. Owner: 5 per step,
     #: 20 in total.
     claude_budget_usd_per_step: float = 5.0
+    #: #806 S3: a Claude call is refused, before it leaves, unless every
+    #: document its prompt carries is on the owner's approved list
+    #: (`<data_dir>/claude_approved_documents.json`, by file sha256) - and when
+    #: its caller declared nothing (`claude_approved`). ON, and it stays on:
+    #: the switch exists for the test suite (pinned off in
+    #: `tests/env_isolation.py`, whose fakes carry invented documents) and for
+    #: a measurement on a copy. Env: CLAUDE_APPROVED_LIST_ENFORCED.
+    claude_approved_list_enforced: bool = True
     claude_budget_usd_total: float = 20.0
     #: Local JSONL ledger: one line per call - time, step, model, tokens, cost,
     #: prompt digest. Never prompt or document text, never the key.
