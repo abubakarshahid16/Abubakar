@@ -246,6 +246,7 @@
       "kind": "text",
       "names": [
         "^(trim|nozzle|disc|disk)( and (disc|disk|nozzle|seat))? material$",
+        "^(nozzle|disc|disk) ?(/ ?base|base|insert) material$",
         "^trim$"
       ]
     },
