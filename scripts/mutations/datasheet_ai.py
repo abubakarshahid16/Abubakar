@@ -120,8 +120,9 @@ MUTATIONS: tuple[Mutation, ...] = (
              description="the claude engine is not metered by claude_spend",
              path=_AI,
              anchor="    call = claude_budget.Budget(reader_api.model_call_via(claude_spend.metered(\n"
-                    "        transport, STEP, unbilled=reader_transport.unbilled)))\n",
-             replacement="    call = claude_budget.Budget(reader_api.model_call_via(transport))\n",
+                    "        transport, STEP, unbilled=reader_transport.unbilled), cfg=cfg))\n",
+             # re-anchored 2026-10-11 (#793): the call carries this reader's own cfg
+             replacement="    call = claude_budget.Budget(reader_api.model_call_via(transport, cfg=cfg))\n",
              target=_T, keyword="metered or cap_refusal", tags=("datasheet_ai", "budget", "critical")),
     Mutation(id="M1685", phase=1685,
              description="the ollama engine skips the model URL check",
