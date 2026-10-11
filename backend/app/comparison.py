@@ -499,7 +499,26 @@ def low_trust_reason(fact: dict | None) -> str | None:
         return (f"the value was read with validation state '{state}' "
                 "(a low-confidence or conflicting reading)")
     if (fact.get("extraction_method") or "").strip().lower() == "model":
+        # PLANNER DECISION 2026-10-11 (09:11 UTC): an AI-read value whose
+        # quote the code found on that page is a normal fact and decides like
+        # a code-read one. Any other model-read value (no proved quote: the
+        # vision reader, an older reading) still waits for an engineer; a
+        # reading that CONFLICTS with the code readers is caught above.
+        if ai_quote_proved(fact):
+            return None
         return "the value was read by the model reader and no engineer has confirmed it"
+    return None
+
+
+def ai_quote_proved(fact: dict | None) -> dict | None:
+    """The AI reader's provenance (`engine`, `model`) when this fact was read
+    by `datasheet_ai` and the code proved its quote on the page; else None."""
+    try:
+        box = json.loads((fact or {}).get("bbox") or "{}")
+    except (TypeError, ValueError):
+        return None
+    if isinstance(box, dict) and box.get("reader") == "datasheet_ai" and box.get("quote_on_page") is True:
+        return box
     return None
 
 
@@ -535,9 +554,17 @@ def compare(requirement: dict, fact: dict | None, *,
             submittal_facts: list[dict] | None = None) -> dict:
     """`_compare`'s verdict, with a breach on an untrusted value held for an
     engineer (`_hold_low_trust_breach`). Every caller gets the guard."""
-    return _hold_low_trust_breach(
+    verdict = _hold_low_trust_breach(
         _compare(requirement, fact, subject=subject, submittal_facts=submittal_facts),
         fact)
+    box = ai_quote_proved(fact) if fact and not fact.get("confirmed_by") else None
+    if box and verdict.get("status") in _VERDICTS_HELD_ON_LOW_TRUST:
+        # THE TRACE SAYS THE SOURCE: an AI-read value decided this verdict.
+        who = (box.get("engine") or "AI") + (f" ({box['model']})" if box.get("model") else "")
+        verdict = {**verdict, "rationale": (
+            f"{verdict.get('rationale') or ''} (value read by the AI reader {who}; "
+            f"its quote was found on page {fact.get('page')})")}
+    return verdict
 
 
 def _compare(requirement: dict, fact: dict | None, *,
@@ -915,6 +942,18 @@ def _reference_obstacle(observed: claims.Measurement, limit: claims.Measurement)
         return (f"the submitted pressure is {observed.reference} and the required one is "
                 f"{limit.reference}; they differ by the atmospheric pressure, which is not "
                 "recorded, so no comparison was made")
+    # R32, 2026-10-11: ONE side absolute, the other with NO stated reference.
+    # An unreferenced pressure limit is read as gauge or differential (the
+    # everyday meaning, and why gauge against unreferenced stays comparable);
+    # an ABSOLUTE value beside it is off by an atmosphere, the same obstacle
+    # as above. Found when a note's absolute pressure read "within" a limit
+    # stated with no reference - a verdict nobody could stand behind.
+    references = {observed.reference, limit.reference}
+    if "absolute" in references and None in references:
+        stated, other = (("submitted", "required") if observed.reference else ("required", "submitted"))
+        return (f"the {stated} pressure is absolute and the {other} one states no reference "
+                "(gauge or absolute); they can differ by the atmospheric pressure, so no "
+                "comparison was made")
     return None
 
 
@@ -2066,6 +2105,8 @@ def _run_comparison(
     matches_attempted = matches_made = 0
     rejected_requirements: set = set()
     rule_refusals: dict[str, int] = {}
+    #: Model pairings whose verdict was held, by `match_rules.model_pairing_doubt`.
+    model_held: dict[str, int] = {}
     model_matches = 0
     model_reasons: dict[str, int] = {}
     # ONE CACHE AND ONE BUDGET FOR THE WHOLE RUN. The cache answers a repeated
@@ -2120,7 +2161,17 @@ def _run_comparison(
             else:
                 chosen = match_by_model(
                     requirement, facts, cache=model_cache, budget=budget)
-                if chosen["fact"] is not None:
+                # OWNER ORDER 2026-10-11 (item 4): THE MODEL ONLY PROPOSES.
+                # Its choice passes the same refusal rules a containment
+                # pairing does (unit dimension, equipment, table input,
+                # compound term, qualifier); a refused proposal is counted by
+                # rule and said on the finding, never used.
+                refused = (match_rules.refusal(requirement, chosen["fact"], sheet=sheet)
+                           if chosen["fact"] is not None else None)
+                if refused:
+                    rule_refusals[refused] = rule_refusals.get(refused, 0) + 1
+                    model_reason = f"{MODEL_REFUSED} ({refused})"
+                elif chosen["fact"] is not None:
                     match = chosen
                     fact = chosen["fact"]
                     model_matches += 1
@@ -2239,9 +2290,29 @@ def _run_comparison(
             # prefix written before them would be silently dropped on exactly the
             # findings a reader most needs it on.
             if match["method"] == METHOD_MODEL_CHOICE:
+                # PLANNER DECISION 2026-10-11 (09:11 UTC): a model-proposed
+                # pairing that passed EVERY refusal rule above is a normal
+                # pairing - code decides the verdict as usual. It reached
+                # here only because `match_rules.refusal` allowed it (a
+                # refused proposal is never used). The finding still says who
+                # paired it, at medium confidence, never high.
                 verdict = {**verdict, "rationale": (
                     f"{MODEL_PAIR_PREFIX}{match.get('reason') or ''}. "
                     f"{verdict.get('rationale') or ''}")}
+                # ...UNLESS THE PAIRING IS LOW-CONFIDENCE (the same decision:
+                # "low-confidence proposals wait for the engineer"). On the
+                # real-model F1 the first three model pairings to decide were
+                # all false; `match_rules.model_pairing_doubt` names why each
+                # was doubtful. The verdict is shown and held, counted by doubt.
+                doubt = (match_rules.model_pairing_doubt(governing_requirement, fact)
+                         if fact is not None else None)
+                if doubt:
+                    model_held[doubt] = model_held.get(doubt, 0) + 1
+                    status = verdict.get("status")
+                    if status in (COMPLIANT, NON_COMPLIANT):
+                        verdict = {**verdict, "status": NEEDS_ENGINEER_REVIEW, "rationale": (
+                            f"{verdict.get('rationale') or ''} The numbers read {status}, held "
+                            f"for an engineer: the AI matcher's pairing is low-confidence ({doubt}).")}
             elif match["method"] == METHOD_FIELD_NAME:
                 # A MODEL-NAMED PAIRING NEVER CARRIES A VERDICT. The arithmetic
                 # is shown, the status waits for an engineer: measured on a copy
@@ -2368,6 +2439,12 @@ def _run_comparison(
         split = {**split, "checklist": checklist_note}
     if checklist_coverage:
         split = {**split, "checklist_coverage": checklist_coverage}
+    # Owner order 2026-10-11: the run says which reader read the sheet - the
+    # AI engine and model, or "code readers only", and the pages the AI did
+    # not read (timed out, unavailable) with the reason.
+    reader = datasheets.latest_reader_summary(submittal_id)
+    if reader:
+        split = {**split, "reader": reader}
     unchecked_counts = {
         "not_compared": split["applies_not_checked"],
         "not_applied": split["does_not_apply"],
@@ -2420,6 +2497,7 @@ def _run_comparison(
            if field_names is not None else {}),
         "model_calls": budget.calls,
         "model_reasons": model_reasons,
+        "model_held": model_held,
         "sheet_kind": sheet,
         "rule_refusals": rule_refusals,
         "findings": findings,
@@ -2959,11 +3037,14 @@ MODEL_NAMED_OTHER = "model_named_other"
 MODEL_UNSTABLE = "model_unstable"
 MODEL_BUDGET = "model_budget"
 MODEL_DECLINED = "model_declined"
+#: The model proposed a pairing and a refusal rule (`match_rules.refusal`)
+#: refused it; the rule's name follows in brackets.
+MODEL_REFUSED = "model_refused_by_rule"
 
 #: Every model-paired finding says so in its own first words. A pairing the
 #: machine guessed and a pairing it derived must not read alike - the same rule
 #: `review_applicable_standards.selection_method` follows.
-MODEL_PAIR_PREFIX = "Paired by model; engineer must confirm. Model reason: "
+MODEL_PAIR_PREFIX = "Paired by the AI matcher (passed the match rules). Model reason: "
 
 
 class _Budget:
@@ -3089,9 +3170,55 @@ def _none_match(reason: str | None = None) -> dict:
             "reason": reason, "candidates": []}
 
 
+#: The `claude_spend` step every matcher call to Claude is charged to.
+MATCH_STEP = "requirement-matcher"
+
+
+def _ask_claude_for_a_pair(prompt: str) -> tuple[str | None, str | None]:
+    """The matcher's question through the ONE Claude lane (R32, 2026-10-11;
+    MATCH_ENGINE=claude): only when `reasoning_provider.claude_unavailable`
+    says Claude may be used, through `reader_transport.transport()` wrapped in
+    `claude_spend.metered` (the USD caps are checked before the call leaves,
+    every call is in the ledger) - `datasheet_ai._claude_call`'s chain.
+    Returns `(text, None)` or `(None, reason)`; never raises."""
+    import dataclasses
+
+    from . import claude_spend, reader_api, reader_transport
+    from .reasoning_provider import claude_unavailable
+    try:
+        code, _why = claude_unavailable()
+        if code is not None:
+            return None, MODEL_UNAVAILABLE
+        transport = reader_transport.transport()
+        if transport is None:
+            return None, MODEL_UNAVAILABLE
+        cfg = dataclasses.replace(reader_api.ReaderSettings.from_env(),
+                                  model=settings.claude_reasoning_model, max_tokens=200,
+                                  timeout_seconds=float(settings.match_timeout_seconds))
+        call = reader_api.model_call_via(claude_spend.metered(
+            transport, MATCH_STEP, unbilled=reader_transport.unbilled), cfg=cfg)
+        return call(prompt), None
+    except (claude_spend.StopRun, claude_spend.BudgetExceeded):
+        return None, MODEL_BUDGET
+    except Exception:  # noqa: BLE001 - refused, timed out, or answered wrongly
+        return None, MODEL_UNAVAILABLE
+
+
+def _json_object_in(text: str | None) -> str:
+    """The first {...} of an answer: Claude may wrap its JSON in a fence."""
+    text = text or ""
+    start, end = text.find("{"), text.rfind("}")
+    return text[start:end + 1] if 0 <= start < end else text
+
+
 def _ask_model_once(requirement: dict, candidates: list[dict]) -> tuple[object, str | None]:
     """One call. Returns `(PairChoice, None)` or `(None, reason)`."""
     from . import model_transport
+    if (str(settings.match_engine or "ollama").strip().lower()) == "claude":
+        answer, why = _ask_claude_for_a_pair(build_prompt(requirement, candidates))
+        if why is not None:
+            return None, why
+        return _checked_choice(_json_object_in(answer), candidates)
     body = {
         "model": settings.answer_model,
         "prompt": build_prompt(requirement, candidates),
@@ -3124,8 +3251,13 @@ def _ask_model_once(requirement: dict, candidates: list[dict]) -> tuple[object, 
             "/api/generate", body, timeout=settings.match_timeout_seconds)
     except Exception:  # noqa: BLE001 - refused, timed out, or answered wrongly
         return None, MODEL_UNAVAILABLE
+    return _checked_choice((raw or {}).get("response") or "", candidates)
+
+
+def _checked_choice(answer: str, candidates: list[dict]) -> tuple[object, str | None]:
+    """The answer validated the same way whichever engine gave it."""
     try:
-        payload = json.loads((raw or {}).get("response") or "")
+        payload = json.loads(answer)
         choice = schemas.PairChoice.model_validate(payload)
     except Exception:  # noqa: BLE001 - not JSON, or not this shape
         return None, MODEL_MALFORMED
