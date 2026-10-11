@@ -2067,6 +2067,31 @@ class ReviewFindingCreate(BaseModel):
     escalation_level: int = Field(default=0, ge=0, le=5)
 
 
+class ReviewTraceStep(BaseModel):
+    """#791: one step of a review run, as stored when the run finished."""
+
+    step: str
+    summary: str
+    status: str = "ok"
+    warning: str | None = None
+    counts: dict = {}
+    items: list[str] = []
+    timing: dict | None = None
+
+
+class ReviewTrace(BaseModel):
+    """#791 parts 1-3: a review run step by step - the ten steps, the run's AI
+    use, and whether this is the stored trace or one built now under the
+    caller's access."""
+
+    review_run_id: str
+    document: str | None
+    steps: list[ReviewTraceStep]
+    ai: dict = {}
+    source: str
+    stored_at: str | None = None
+
+
 class ReviewFindingUpdate(BaseModel):
     #: Owner order section 3: the engineer's own wording of the comment.
     #: Saving it also confirms the comment under the caller's name.
