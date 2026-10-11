@@ -19,11 +19,24 @@ reason), so a row can be checked against the datasheet by eye. These lines
 carry document values and comment text: they go to this machine's console and
 file only, never to the server's normal log handlers (`propagate = False`),
 GitHub or CI. A failure here never breaks a review.
+
+#791 PART 1 - THE STORED TRACE. `store(run, scope, timings)` keeps the same
+ten records per run in `review_run_traces`, ALWAYS (not only in debug), each
+with a status (ok / warning / failed), its counts, the time its phase started
+and how long it took (`timed`, around the review job's phases), plus the run's
+AI use. It is behind the run's access rules: `stored(run, scope)` serves it
+only to a caller who may read EVERY document it names (`document_ids`); any
+other reader of the run gets the records built now under their own grants
+(`for_caller`). The server log carries ids and counts only.
 """
 from __future__ import annotations
 
+import json
 import logging
+import time
 from collections import Counter
+from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .config import settings
@@ -45,8 +58,10 @@ def debug_dir() -> Path:
 
 
 def _step(name: str, summary: str, *, warning: str | None = None,
-          counts: dict | None = None, items: list[str] | None = None) -> dict:
+          counts: dict | None = None, items: list[str] | None = None,
+          failed: bool = False) -> dict:
     return {"step": name, "summary": summary, "warning": warning,
+            "status": "failed" if failed else "warning" if warning else "ok",
             "counts": counts or {}, "items": items or []}
 
 
@@ -104,10 +119,14 @@ def build(review_run_id: str, scope) -> dict:
                        warning="equipment type not identified" if kind == "not identified" else None,
                        counts={"tags": len(tags)}))
     # 4 STANDARDS
+    # Only the standards the CALLER may read are named (a reader of the run
+    # with fewer grants must not learn which standards it was checked against).
     chosen = [dict(r) for r in connect().execute(
-        "SELECT d.filename, a.selection_method FROM review_applicable_standards a"
+        "SELECT d.filename, a.selection_method, a.standard_document_id"
+        " FROM review_applicable_standards a"
         " JOIN documents d ON d.id = a.standard_document_id"
-        " WHERE a.review_run_id = ? AND a.included = 1 ORDER BY d.filename", (review_run_id,))]
+        " WHERE a.review_run_id = ? AND a.included = 1 ORDER BY d.filename", (review_run_id,))
+        if r["standard_document_id"] in allowed]
     missing = [m if isinstance(m, str) else m.get("identifier")
                for m in outcome.get("missing_references") or []]
     steps.append(_step(
@@ -168,7 +187,8 @@ def build(review_run_id: str, scope) -> dict:
     except Exception:  # noqa: BLE001 - a trace never fails; say why the step is empty
         rows = None
     if rows is None:
-        steps.append(_step("CRS", "could not compose the CRS", warning="CRS not composed"))
+        steps.append(_step("CRS", "could not compose the CRS", warning="CRS not composed",
+                           failed=True))
     else:
         missed = sum(1 for r in rows if r.get("row_kind") == "standard_not_cited")
         steps.append(_step(
@@ -180,8 +200,121 @@ def build(review_run_id: str, scope) -> dict:
     # 10 CODE
     steps.append(_step("CODE", f"{outcome.get('recommended_code') or 'none'} | rule: "
                                f"{_short(outcome.get('reason'), 120) or 'none recorded'}"))
+    # THE DOCUMENTS THESE RECORDS NAME: a stored trace is served only to a
+    # caller who may read every one of them (`stored`).
+    named = {sub} | {r["standard_document_id"] for r in connect().execute(
+        "SELECT standard_document_id FROM review_applicable_standards WHERE review_run_id = ?",
+        (review_run_id,)) if r["standard_document_id"]} | {
+        f["standard_document_id"] for f in findings if f.get("standard_document_id")}
     return {"review_run_id": review_run_id, "document": doc["filename"] if doc else sub,
-            "steps": steps}
+            "steps": steps, "ai": _ai_use(run), "document_ids": sorted(named)}
+
+
+def _ai_use(run: dict) -> dict:
+    """AI-first rule 3 (#692, 11 Oct): what the AI steps of this run did, as
+    the run stored it - never re-run. Each entry is the step's own status."""
+    out = {}
+    raw = run.get("ai_check_status")
+    if raw:
+        try:
+            status = json.loads(raw) if isinstance(raw, str) else raw
+        except ValueError:
+            status = {"plain": "unreadable status"}
+        out["ai_engineering_check"] = {k: status.get(k) for k in (
+            "ran", "complete", "calls_made", "proposed_items", "kept_items", "rejected",
+            "reason", "model", "plain") if k in status}
+    else:
+        out["ai_engineering_check"] = {"plain": "did not run (off, or no status recorded)"}
+    return out
+
+
+# ---------------------------------------------------------------- part 1: stored
+
+#: Which phase of the review job each step's work happens in (`timed`).
+PHASE_OF = {"READ": "read", "CLEAN": "read", "EQUIPMENT": "read", "STANDARDS": "standards",
+            "CHECKLIST": "compare", "RULES": "compare", "DECIDE": "compare",
+            "COVERAGE": "compare", "CODE": "compare", "CRS": "checks"}
+
+
+@contextmanager
+def timed(timings: dict, phase: str):
+    """Record when a phase of the review job started and how long it took -
+    also when it raised (the trace then shows how far the run got)."""
+    started, clock = datetime.now(UTC).isoformat(timespec="seconds"), time.monotonic()
+    try:
+        yield
+    finally:
+        timings[phase] = {"started_at": started, "seconds": round(time.monotonic() - clock, 3)}
+
+
+def ensure_schema() -> None:
+    from .db import connect
+    with connect() as conn:
+        conn.execute("""CREATE TABLE IF NOT EXISTS review_run_traces (
+            review_run_id TEXT PRIMARY KEY, trace TEXT NOT NULL, created_at TEXT NOT NULL)""")
+
+
+def store(review_run_id: str, scope, timings: dict | None = None) -> dict | None:
+    """Build the run's records under the requester's grants, attach each
+    step's phase timing, and keep them. Never raises: a trace never breaks or
+    changes a review. Returns the stored trace (None when it failed)."""
+    from .db import connect
+    try:
+        trace = build(review_run_id, scope)
+        for step in trace["steps"]:
+            step["timing"] = (timings or {}).get(PHASE_OF.get(step["step"], ""))
+        trace["stored_at"] = datetime.now(UTC).isoformat(timespec="seconds")
+        ensure_schema()
+        with connect() as conn:
+            conn.execute("INSERT OR REPLACE INTO review_run_traces (review_run_id, trace, created_at)"
+                         " VALUES (?, ?, ?)", (review_run_id, json.dumps(trace), trace["stored_at"]))
+        logging.getLogger(__name__).info(
+            "review trace stored: run %s, %d steps, %d warnings", review_run_id,
+            len(trace["steps"]), sum(1 for s in trace["steps"] if s["status"] != "ok"))
+        return trace
+    except Exception:  # noqa: BLE001 - a trace never breaks a review
+        logging.getLogger(__name__).warning("review trace not stored for run %s", review_run_id,
+                                            exc_info=True)
+        return None
+
+
+def stored(review_run_id: str, scope) -> dict | None:
+    """The run's stored trace, for a caller who may read the run AND every
+    document the trace names; else None. Read only."""
+    from . import submittal_review
+    from .db import connect
+    if submittal_review.get_review_run(
+            review_run_id, allowed_document_ids=scope.allowed_document_ids) is None:
+        return None
+    conn = connect()
+    # READ ONLY: a GET never creates the table; no table means no trace yet.
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table'"
+                    " AND name = 'review_run_traces'").fetchone() is None:
+        return None
+    row = conn.execute("SELECT trace FROM review_run_traces WHERE review_run_id = ?",
+                       (review_run_id,)).fetchone()
+    if row is None:
+        return None
+    trace = json.loads(row["trace"])
+    if not set(trace.get("document_ids") or []) <= set(scope.allowed_document_ids):
+        return None
+    return trace
+
+
+def for_caller(review_run_id: str, scope) -> dict | None:
+    """What a reader of the run sees: the stored trace when they may read
+    everything it names; else the records built now under their own grants,
+    marked as such. None when they may not read the run."""
+    from . import submittal_review
+    if submittal_review.get_review_run(
+            review_run_id, allowed_document_ids=scope.allowed_document_ids) is None:
+        return None
+    trace = stored(review_run_id, scope)
+    if trace is not None:
+        return {**trace, "source": "stored when the review finished"}
+    return {**build(review_run_id, scope),
+            "source": ("built now under your access (the stored trace names documents you "
+                       "cannot read, or this run finished before traces were stored)")}
 
 
 def render(trace: dict, *, detail: bool = False) -> list[str]:
