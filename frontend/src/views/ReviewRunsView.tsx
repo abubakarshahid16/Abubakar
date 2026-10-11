@@ -34,6 +34,7 @@ import {
   pageCoverageLine, pageList, pagesReadLine, runStatusLabel, statusLabel, statusTone, standardsChangeLine,
   progressLine, summaryTotals, totalFromResponse, truncationNote, whenLabel, withDenominator,
 } from "../components/review/reviewFormat";
+import { ReviewPipeline } from "./ReviewPipeline";
 
 type Phase =
   | { kind: "loading" }
@@ -563,6 +564,8 @@ export function ReviewRunsView(
           <RunSummary findings={findings} />
 
           <ReviewNotes key={run.review_run_id} runId={run.review_run_id} />
+          {/* #791: how this run was done, step by step (internal). */}
+          <ReviewPipeline key={`pipeline-${run.review_run_id}`} runId={run.review_run_id} />
 
           {/* Owner order section 3: COMMENTS GROUPED BY TOPIC - the field a
               comment is about - so ten findings on one field read as one
