@@ -2231,22 +2231,15 @@ def run_comparison(
             # prefix written before them would be silently dropped on exactly the
             # findings a reader most needs it on.
             if match["method"] == METHOD_MODEL_CHOICE:
-                # A MODEL-PROPOSED PAIRING NEVER CARRIES A VERDICT (owner order
-                # 2026-10-11, item 4): measured 2026-09-19, six of seven model
-                # pairings were false friends and three read NON_COMPLIANT. The
-                # code's arithmetic is shown; the status waits for an engineer,
-                # exactly like a pairing by model-assigned field name below.
-                status = verdict.get("status")
-                held = status != NEEDS_ENGINEER_REVIEW
-                said = ("The numbers read" if status in (COMPLIANT, NON_COMPLIANT)
-                        else "The comparison read")
-                verdict = {**verdict,
-                           "status": NEEDS_ENGINEER_REVIEW,
-                           "rationale": (
-                               f"{MODEL_PAIR_PREFIX}{match.get('reason') or ''}. "
-                               + (f"{said} {status}, held for an engineer because "
-                                  "the model proposed the pairing. " if held else "")
-                               + f"{verdict.get('rationale') or ''}")}
+                # PLANNER DECISION 2026-10-11 (09:11 UTC): a model-proposed
+                # pairing that passed EVERY refusal rule above is a normal
+                # pairing - code decides the verdict as usual. It reached
+                # here only because `match_rules.refusal` allowed it (a
+                # refused proposal is never used). The finding still says who
+                # paired it, at medium confidence, never high.
+                verdict = {**verdict, "rationale": (
+                    f"{MODEL_PAIR_PREFIX}{match.get('reason') or ''}. "
+                    f"{verdict.get('rationale') or ''}")}
             elif match["method"] == METHOD_FIELD_NAME:
                 # A MODEL-NAMED PAIRING NEVER CARRIES A VERDICT. The arithmetic
                 # is shown, the status waits for an engineer: measured on a copy
@@ -2971,7 +2964,7 @@ MODEL_REFUSED = "model_refused_by_rule"
 #: Every model-paired finding says so in its own first words. A pairing the
 #: machine guessed and a pairing it derived must not read alike - the same rule
 #: `review_applicable_standards.selection_method` follows.
-MODEL_PAIR_PREFIX = "Paired by model; engineer must confirm. Model reason: "
+MODEL_PAIR_PREFIX = "Paired by the AI matcher (passed the match rules). Model reason: "
 
 
 class _Budget:

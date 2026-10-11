@@ -89,10 +89,10 @@ def _log_match_tier() -> None:
     if settings.match_enabled:
         log.warning(
             "MATCH_ENABLED=true - the model tier of the requirement matcher is "
-            "ON. It only PROPOSES: its pairings pass the match refusal rules "
-            "and never carry a status (each waits for an engineer), because it "
-            "failed its hard gate on 2026-09-19 (six of seven pairings were "
-            "false friends). Every pairing it makes is labelled match_method=model.")
+            "ON. It only PROPOSES: a pairing is used only when it passes the "
+            "match refusal rules (it failed its hard gate without them on "
+            "2026-09-19: six of seven pairings were false friends). Every "
+            "pairing it makes is labelled match_method=model.")
     else:
         log.info(
             "MATCH_ENABLED=false - requirement matching is deterministic "

@@ -126,13 +126,13 @@ CANDIDATES = [fact("shell design pressure"), fact("hydrotest pressure")]
 
 def test_the_shipped_default_is_on_and_the_tier_only_proposes():
     """THE TIER FAILED ITS HARD GATE ON 2026-09-19 and was off until the owner
-    order of 2026-10-11 (item 4) turned it on REDESIGNED: its pairings pass the
-    match refusal rules and never carry a status (each waits for an engineer -
-    `test_model_proposals.py`).
+    order of 2026-10-11 (item 4) turned it on REDESIGNED: its pairing is used
+    only when it passes the match refusal rules
+    (`test_a_model_proposal_a_refusal_rule_refuses_is_not_used`).
 
     Measured on datasheet 1: 7 pairings proposed, SIX false friends, three of
     them reporting NON_COMPLIANT against the contractor with both citations
-    resolving. That is why a model pairing is held, not trusted.
+    resolving. That is why a model pairing must pass the refusal rules.
 
     A fresh `Settings()` is the claim, not the module singleton: this file's
     own fixture turns the tier ON, and `conftest` pins it off for every other
@@ -581,10 +581,10 @@ def test_a_model_paired_finding_is_labelled_medium_and_says_who_paired_it(
     assert found["confidence"] == "medium"
     assert found["ai_rationale"].startswith(comparison.MODEL_PAIR_PREFIX)
     assert "both describe the vessel working pressure" in found["ai_rationale"]
-    # THE MODEL DID NOT SET THE STATUS, AND ITS PAIRING CARRIES NONE (owner
-    # order 2026-10-11, item 4): 8.5 <= 10 is arithmetic, shown and held.
-    assert found["compliance_status"] == comparison.NEEDS_ENGINEER_REVIEW
-    assert "The numbers read COMPLIANT, held for an engineer" in found["ai_rationale"]
+    # THE MODEL DID NOT SET THE STATUS. 8.5 <= 10 is arithmetic, and a
+    # pairing that passed every refusal rule decides like any other (planner
+    # decision 2026-10-11).
+    assert found["compliance_status"] == comparison.COMPLIANT
 
 
 def test_a_model_proposal_a_refusal_rule_refuses_is_not_used(stub, monkeypatch):

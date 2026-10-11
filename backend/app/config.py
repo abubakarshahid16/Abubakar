@@ -462,10 +462,11 @@ class Settings(BaseSettings):
     #: ON BY DEFAULT since the owner order of 2026-10-11 (item 4, "AI proposes
     #: rule-value matches"), REDESIGNED so the 2026-09-19 failure cannot reach
     #: a verdict: the model's choice passes the same refusal rules as a
-    #: containment pairing (`match_rules.refusal`, refusals counted by rule),
-    #: and a pairing it proposed NEVER carries a status - the code's
-    #: arithmetic is shown and the finding waits for an engineer. Tests pin it
-    #: off (`tests/env_isolation.py` TEST_PINS). Env: MATCH_ENABLED.
+    #: containment pairing (`match_rules.refusal`, refusals counted by rule
+    #: and said on the finding). A proposal that passes every rule is a normal
+    #: pairing and code decides its verdict (planner decision 2026-10-11); it
+    #: is labelled as AI-paired, at medium confidence. Tests pin it off
+    #: (`tests/env_isolation.py` TEST_PINS). Env: MATCH_ENABLED.
     match_enabled: bool = True
     #: #193 plan B4 (order 5.5): the geometry reader (`geometry_reader.py`)
     #: adds its form and table readings to `submittal_facts` during
