@@ -74,6 +74,7 @@ from __future__ import annotations
 import json
 from enum import Enum
 
+from . import claude_approved
 from . import comparison, numparse
 from .claude_spend import StopRun
 from .db import connect
@@ -368,6 +369,7 @@ def recheck_finding(finding: dict, model_call, second_call=None) -> dict:
     }
 
 
+@claude_approved.for_review      # #806 S3: a finding is the review's submittal and standards
 def recheck_run(review_run_id: str, model_call, *,
                 allowed_document_ids: frozenset[str],
                 findings: list[dict] | None = None,

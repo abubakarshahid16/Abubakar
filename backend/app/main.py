@@ -21,6 +21,7 @@ from . import crs_mapping as crs_mapping_mod
 from . import crs_numbers as crs_numbers_mod
 from . import crs_wording as crs_wording_mod
 from . import review_trace as review_trace_mod
+from . import engineer_feedback as engineer_feedback_mod
 from . import datasheets as datasheets_mod
 from . import disciplines as disciplines_mod
 from . import extract as extract_mod
@@ -2204,6 +2205,24 @@ def review_run_trace(
                         headers={"Content-Disposition":
                                  f'attachment; filename="review-trace-{review_run_id}.json"'})
     return trace
+
+
+@app.get("/api/reviews/feedback", response_model=schemas.EngineerFeedback,
+         responses=schemas.ERRORS_422)
+def review_feedback(
+    request: Request,
+    since: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}",
+                              description="only findings created on or after this ISO date"),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """R26 step 10: engineers' accept / edit / reject decisions on review
+    findings, per standard and per rule, with the rules engineers keep
+    rejecting listed as candidates for a checklist or guard change. Read only;
+    only the findings of documents the caller may read are counted, and a
+    standard they may not read is not named. Nothing changes automatically."""
+    reject_unknown_params(request, {"since"})
+    return engineer_feedback_mod.report(
+        allowed_document_ids=scope.allowed_document_ids, since=since)
 
 
 @app.get("/api/reviews/runs", response_model=schemas.ReviewRunList,
