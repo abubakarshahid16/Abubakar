@@ -1,5 +1,5 @@
 {
-  "_about": "match_rules rule 5 (qualifier_conflict): a word in a requirement's SUBJECT that says WHICH side, part or location of a quantity it is about. When the subject carries one and the datasheet field name does not, the pairing is refused ('the maximum external design pressure' is not the sheet's 'Design pressure'; 'the operating pressure of the jacket' is not its 'Operating pressure'). Found on the real PSV review, 2026-10-10. Generic: no standard, document or equipment named. A refusal leaves the requirement unpaired (an engineer's question), never a verdict, so a word here errs towards caution. Checked only next to the field's own words (before them, or after through 'of (the)'). 'nozzle' is NOT a qualifier: a nozzle is the item a field names (N1 size), not a side of it.",
+  "_about": "match_rules rule 5 (qualifier_conflict): a word in a requirement's SUBJECT that says WHICH side, part or location of a quantity it is about. When the subject carries one and the datasheet field name does not, the pairing is refused ('the maximum external design pressure' is not the sheet's 'Design pressure'; 'the operating pressure of the jacket' is not its 'Operating pressure'). Found on the real PSV review, 2026-10-10. Generic: no standard, document or equipment named. A refusal leaves the requirement unpaired (an engineer's question), never a verdict, so a word here errs towards caution. Checked only next to the field's own words (before them, or after through 'of (the)'). 'nozzle' is NOT a qualifier: a nozzle is the item a field names (N1 size), not a side of it. derived_after: a word RIGHT AFTER the field's own words that makes it a different quantity ('set pressure TOLERANCE' is not the sheet's 'Set pressure'; 'pressure DROP' is not 'Pressure'). Found when the F-b re-read gave the PSV's set pressures values: two ASME VIII tolerance rules read COMPLIANT against the set pressure itself.",
   "qualifiers": [
     "external",
     "internal",
@@ -15,5 +15,21 @@
     "downstream",
     "suction",
     "discharge"
+  ],
+  "derived_after": [
+    "tolerance",
+    "tolerances",
+    "drop",
+    "loss",
+    "losses",
+    "range",
+    "margin",
+    "ratio",
+    "deviation",
+    "variation",
+    "difference",
+    "differential",
+    "rise",
+    "fluctuation"
   ]
 }
