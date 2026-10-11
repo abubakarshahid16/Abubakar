@@ -77,6 +77,12 @@ TEST_PINS: dict[str, object] = {
     # On by default since the owner order of 2026-10-11 (item 4); in tests it
     # would be two model calls per unmatched requirement.
     "match_enabled": False,
+    # On by default since #763 R26 step 7 (owner rule "AI-first", 11 Oct);
+    # in tests it would be a model call per review.
+    "review_ai_check_enabled": False,
+    # On by default since #763 R26 step 8 (owner rule "AI-first", 11 Oct);
+    # in tests it would be a model call per CRS row per review.
+    "crs_ai_wording_enabled": False,
 }
 
 #: The only values these fields may hold when a test session starts. A test
@@ -93,6 +99,7 @@ EGRESS_SAFE: dict[str, object] = {
     "geometry_reader_enabled": False,      # also gates the Claude vision reader
     "answer_judge_enabled": False,          # a model call per answer
     "applicability_reasoning_enabled": False,  # a model call per standard per review
+    "crs_ai_wording_enabled": False,       # a model call per CRS row per review
     # --- the market lane (market_transport)
     "market_live_enabled": False,
     "market_allow_public_egress": False,

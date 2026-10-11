@@ -129,6 +129,18 @@
         "selected area"
       ]
     },
+    "required_area": {
+      "kind": "area",
+      "names": [
+        "^(calculated|required|computed) (effective |orifice |discharge )*area( required)?$"
+      ],
+      "printed_as": [
+        "calculated area",
+        "required area",
+        "required orifice area",
+        "calculated orifice area"
+      ]
+    },
     "orifice_designation": {
       "kind": "text",
       "names": [
@@ -324,6 +336,67 @@
       "cm"
     ]
   },
+  "calc_units": {
+    "_about": "R13 (#777): the units each API 520-I calculation converts its inputs from, as factors to one unit per table (key = the printed unit, lower case, no spaces, superscripts as digits). Temperature is converted in code (an offset, not a factor). A unit not listed is not guessed: the calculation is not run and says which unit it could not read.",
+    "mass_flow_kg_h": {
+      "kg/h": 1.0,
+      "kg/hr": 1.0,
+      "kgph": 1.0,
+      "kg/s": 3600.0,
+      "t/h": 1000.0,
+      "lb/h": 0.45359237,
+      "lb/hr": 0.45359237,
+      "lbs/hr": 0.45359237,
+      "lbs/h": 0.45359237,
+      "pph": 0.45359237
+    },
+    "liquid_flow_l_min": {
+      "l/min": 1.0,
+      "lpm": 1.0,
+      "l/h": 0.016666666666666666,
+      "l/hr": 0.016666666666666666,
+      "m3/h": 16.666666666666668,
+      "m3/hr": 16.666666666666668,
+      "gpm": 3.785411784,
+      "usgpm": 3.785411784,
+      "us gpm": 3.785411784
+    },
+    "pressure_kpa": {
+      "kpa": 1.0,
+      "mpa": 1000.0,
+      "pa": 0.001,
+      "bar": 100.0,
+      "mbar": 0.1,
+      "psi": 6.894757293168361,
+      "kg/cm2": 98.0665,
+      "kgf/cm2": 98.0665
+    },
+    "density_kg_m3": {
+      "kg/m3": 1.0,
+      "g/cm3": 1000.0,
+      "g/ml": 1000.0,
+      "kg/l": 1000.0,
+      "lb/ft3": 16.018463373960138
+    },
+    "viscosity_cp": {
+      "cp": 1.0,
+      "mpa.s": 1.0,
+      "mpas": 1.0,
+      "mpa-s": 1.0,
+      "pa.s": 1000.0,
+      "pas": 1000.0,
+      "poise": 100.0
+    },
+    "area_mm2": {
+      "mm2": 1.0,
+      "sq.mm": 1.0,
+      "cm2": 100.0,
+      "in2": 645.16,
+      "sq.in": 645.16,
+      "sqin": 645.16,
+      "sq.in.": 645.16
+    }
+  },
   "_placeholders": "Moved 2026-09-27 to app/blank_markers.py - the ONE list of not-provided markers every datasheet reader and these checks read (CLAUDE.md rule 8).",
   "consistency": [
     {
@@ -415,7 +488,7 @@
     "corrosion_allowance"
   ],
   "checklists": {
-    "_about": "#746: the review checklist per equipment type, in the one datasheet-checks engine. Each item: id, plain text, source {standard, clause} (required), a rule (required, compare, constant, percent_of, allowed, or above_by: left >= right + the greater of a percent or an absolute margin), an optional condition {role, any} or a list of them that must all hold, a severity. Client standard items are written here in our own words (owner decision 2026-10-10); the local overlay <data_dir>/checklists/<type>.json stays for items not yet approved for the repo.",
+    "_about": "#746: the review checklist per equipment type, in the one datasheet-checks engine. Each item: id, plain text, source {standard, clause} (required), a rule (required, compare, constant, percent_of, allowed, above_by: left >= right + the greater of a percent or an absolute margin, or calc: a named API 520-I calculation in code (R13) whose result the field is compared with), an optional condition {role, any} or a list of them that must all hold, a severity. Client standard items are written here in our own words (owner decision 2026-10-10); the local overlay <data_dir>/checklists/<type>.json stays for items not yet approved for the repo.",
     "Pressure Safety Valve": {
       "sign_off": {
         "status": "draft",
@@ -839,7 +912,8 @@
             "field": "overpressure",
             "op": "<=",
             "value": 21,
-            "unit": "%"
+            "unit": "%",
+            "percent_of_role": "set_pressure"
           },
           "severity": "major",
           "condition": {
@@ -861,7 +935,8 @@
             "field": "overpressure",
             "op": "<=",
             "value": 10,
-            "unit": "%"
+            "unit": "%",
+            "percent_of_role": "set_pressure"
           },
           "severity": "major",
           "condition": {
@@ -889,7 +964,8 @@
             "left": "built_up_back_pressure",
             "op": "<=",
             "percent": 10,
-            "right": "set_pressure"
+            "right": "set_pressure",
+            "stated_as_percent": true
           },
           "severity": "major",
           "condition": {
@@ -1003,6 +1079,92 @@
             ]
           },
           "when_unknown": "evaluate"
+        },
+        {
+          "id": "PSV-C01",
+          "text": "For gas or vapour relief, the selected effective orifice area is at least the required area calculated from the sheet's own inputs.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "5.6.3"
+          },
+          "rule": {
+            "kind": "calc",
+            "formula": "api520_gas_area",
+            "field": "orifice_area"
+          },
+          "severity": "major",
+          "condition": {
+            "role": "fluid_phase",
+            "any": [
+              "gas",
+              "vapour",
+              "vapor"
+            ]
+          }
+        },
+        {
+          "id": "PSV-C02",
+          "text": "For gas or vapour relief, the required area the sheet states is at least the area calculated from the sheet's own inputs.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "5.6.3"
+          },
+          "rule": {
+            "kind": "calc",
+            "formula": "api520_gas_area",
+            "field": "required_area",
+            "tolerance_percent": 2
+          },
+          "severity": "major",
+          "condition": {
+            "role": "fluid_phase",
+            "any": [
+              "gas",
+              "vapour",
+              "vapor"
+            ]
+          }
+        },
+        {
+          "id": "PSV-C03",
+          "text": "For liquid relief, the selected effective orifice area is at least the required area calculated from the sheet's own inputs.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "5.8"
+          },
+          "rule": {
+            "kind": "calc",
+            "formula": "api520_liquid_area",
+            "field": "orifice_area"
+          },
+          "severity": "major",
+          "condition": {
+            "role": "fluid_phase",
+            "any": [
+              "liquid"
+            ]
+          }
+        },
+        {
+          "id": "PSV-C04",
+          "text": "For liquid relief, the required area the sheet states is at least the area calculated from the sheet's own inputs.",
+          "source": {
+            "standard": "API 520-I",
+            "clause": "5.8"
+          },
+          "rule": {
+            "kind": "calc",
+            "formula": "api520_liquid_area",
+            "field": "required_area",
+            "tolerance_percent": 2
+          },
+          "severity": "major",
+          "condition": {
+            "role": "fluid_phase",
+            "any": [
+              "liquid"
+            ]
+          }
         },
         {
           "id": "PSV-S01",

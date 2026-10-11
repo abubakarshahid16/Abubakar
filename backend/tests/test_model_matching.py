@@ -1072,3 +1072,13 @@ def test_a_doubted_model_pairing_shows_its_numbers_and_waits(stub, monkeypatch):
     assert "The numbers read COMPLIANT, held for an engineer" in found["ai_rationale"]
     assert f"low-confidence ({match_rules.RELATIVE_LIMIT})" in found["ai_rationale"]
     assert result["model_held"] == {match_rules.RELATIVE_LIMIT: 1}
+
+
+def test_the_claude_matcher_sends_no_temperature_to_a_model_that_rejects_it(stub, monkeypatch, tmp_path):
+    """R32, 2026-10-11: every matcher call to the reasoning model failed with
+    an HTTP error because the request carried `temperature`."""
+    sent = _claude_matcher(monkeypatch, tmp_path, '{"choice": null, "reason": "none"}')
+    monkeypatch.setattr(settings, "claude_reasoning_model", "claude-sonnet-5")
+    comparison.match_by_model(requirement(subject=MODEL_SUBJECT), CANDIDATES)
+    assert sent and all("temperature" not in body for body in sent)
+    assert {body["model"] for body in sent} == {"claude-sonnet-5"}
