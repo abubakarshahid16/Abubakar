@@ -3,7 +3,8 @@ AI switches in `backend/app/config.py`, by name and by default, and every
 control file of the security pack must exist.
 
 An AI switch is a setting whose name names an AI step (`AI_WORDS`) and that
-is either a `*_enabled` flag or a `*_provider` / `*_reader` selector. A new
+is either a `*_enabled` flag or a `*_provider` / `*_reader` / `*_engine`
+selector (which engine answers: local model or Claude API). A new
 switch, a removed one or a changed default fails this check until the
 register says so - "every AI service is added to the register before use".
 
@@ -28,19 +29,21 @@ _ROW = re.compile(r"^\|\s*`([a-z0-9_]+)`\s*\|\s*`([^`]*)`\s*\|")
 SWITCH_HEADING = "## AI switches"
 
 
+def is_switch(name: str, kind: type) -> bool:
+    """A setting is an AI switch when its name names an AI step and it turns
+    the step on or off, or chooses the engine that answers it."""
+    if not AI_WORDS.search(name):
+        return False
+    return (kind is bool and name.endswith("_enabled")) or (
+        kind is str and name.endswith(("_provider", "_reader", "_engine")))
+
+
 def config_switches() -> dict[str, str]:
     """{name: default as text} for every AI switch in the code."""
     sys.path.insert(0, str(ROOT / "backend"))
     from app.config import Settings
-    out = {}
-    for name, field in Settings.model_fields.items():
-        kind = field.annotation
-        if not AI_WORDS.search(name):
-            continue
-        if (kind is bool and name.endswith("_enabled")) or (
-                kind is str and name.endswith(("_provider", "_reader"))):
-            out[name] = str(field.default)
-    return out
+    return {name: str(field.default) for name, field in Settings.model_fields.items()
+            if is_switch(name, field.annotation)}
 
 
 def register_switches(text: str) -> dict[str, str]:

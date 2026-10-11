@@ -15,9 +15,9 @@ Every AI service and AI agent is listed here **before** it is used. The second t
 
 ## AI switches in `backend/app/config.py` (machine-checked)
 
-**Defaults as they stand once #793, #794 and #799 are merged** (the #805 Stage A merge order puts #808 after them). Until #793 and #794 are on main, the check reports exactly those two rows.
+**Defaults as they stand once #793, #794 and #799 are merged** (the #805 Stage A merge order puts #808 after them). Until #793 and #794 are on main, the check reports exactly their rows (`datasheet_ai_reader`, `match_enabled`, and `match_engine`, which #794 adds).
 
-A switch is any `*_enabled` flag, or `*_provider` / `*_reader` setting, whose name names an AI step (`ai`, `reasoning`, `judge`, `match`, `model`, `reader`, `wording`, `vision`, `llm`). The default is the code's own default. An operator overrides it in `backend/.env`.
+A switch is any `*_enabled` flag, or `*_provider` / `*_reader` / `*_engine` setting (the engine that answers), whose name names an AI step (`ai`, `reasoning`, `judge`, `match`, `model`, `reader`, `wording`, `vision`, `llm`). The default is the code's own default. An operator overrides it in `backend/.env`.
 
 | Switch | Default | Uses | What it does | Off means |
 |---|---|---|---|---|
@@ -25,6 +25,7 @@ A switch is any `*_enabled` flag, or `*_provider` / `*_reader` setting, whose na
 | `standards_reader_enabled` | `False` | Claude API | One of the two egress flags for the Claude lane | No document text can reach the Claude API |
 | `datasheet_ai_reader` | `ollama` | Local model or Claude API | An AI reads each datasheet page; code proves every value's quote on the page. Local model by default since #793 | The code readers only (`off`) |
 | `match_enabled` | `True` | Local model or Claude API | The AI proposes which rule fits which value; code applies the refusal rules. On by default since #794 | Code pairing only |
+| `match_engine` | `ollama` | Local model or Claude API | Which engine answers the matcher: `ollama` (local) or `claude` (only with the Claude lane on; metered under the step `requirement-matcher`). Added by #794 | Not a switch-off: `match_enabled` turns the matcher off |
 | `applicability_reasoning_enabled` | `True` | Local model or Claude API | Decides which standards apply, against each standard's verified scope record | The taxonomy path, or "scope not checked" |
 | `ai_applicability_enabled` | `False` | Local model | Proposes "does not apply" per requirement with a quote; code confirms | Every requirement is checked |
 | `crs_ai_wording_enabled` | `True` | Local model or Claude API | Rewrites CRS comments; code keeps every number, unit, clause, page and standard; internal copy only | Template wording |

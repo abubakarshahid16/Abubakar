@@ -51,6 +51,16 @@ def test_the_switch_rule_finds_the_known_ai_switches():
     assert "market_live_enabled" not in names and "auth_mode" not in names
 
 
+def test_an_engine_selector_is_a_switch_but_a_model_name_is_not():
+    """#794 adds `match_engine` (local model or Claude API): choosing the
+    engine is an AI switch, so a new one cannot skip the register."""
+    assert check.is_switch("match_engine", str)
+    assert check.is_switch("datasheet_ai_reader", str) and check.is_switch("match_enabled", bool)
+    assert not check.is_switch("answer_model", str)        # which model, not which engine
+    assert not check.is_switch("vector_backend", str)      # not an AI step
+    assert not check.is_switch("match_engine", bool)
+
+
 def test_the_pack_carries_no_secret_shaped_text():
     import re
     for path in check.DOCS.glob("*.md"):
