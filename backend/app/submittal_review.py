@@ -220,6 +220,12 @@ def ensure_schema() -> None:
             # owner's go). Not UNIQUE on purpose: an existing database holds
             # duplicates, so the upsert lives in `standards.create_requirement`.
             ("identity_key", "TEXT"),
+            # #617 A RANGE CELL ("5-10", "5 to 10 mm"): the low and high bound,
+            # each parsed by numparse; `raw_value` keeps the cell as written.
+            # NULL on every other row, and on an AMBIGUOUS range ("5 -10":
+            # five to ten, or five and minus ten?), which goes to an engineer.
+            ("value_low", "REAL"),
+            ("value_high", "REAL"),
             # #594 EVERY page a repeated table cell was read from, a JSON list
             # of {"page", "chunk_id"}. `page`/`chunk_id` stay the first one.
             ("evidence_pages", "TEXT"),
