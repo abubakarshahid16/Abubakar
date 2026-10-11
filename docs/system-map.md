@@ -131,6 +131,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `reranker` | Cross-encoder reranking, local and CPU-only |
 | `review` | Persistent workflow records for AI-assisted engineering reviews |
 | `review_jobs` | P3: a review runs as a background job on the B11 queue, not inside the request |
+| `review_trace` | Show what each step of a finished review produced (REVIEW_DEBUG console and per-run log, #791) |
 | `risks` | Typed EPC risk register, kept separate from evidence-backed findings |
 | `row_noise` | Page furniture and fragments that are not fields (#193 plan B4, item 3) |
 | `rule_eval` | Table and formula rules, evaluated in code (owner order 2026-09-26, 2a + 2b) |
