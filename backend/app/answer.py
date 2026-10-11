@@ -1570,8 +1570,11 @@ def generate_from_passages(instruction: str, passages: list[dict], *, history: s
     try:
         prompt = _build_prompt(instruction, passages, history)
         _prepare_stream(passages, general=False)
+        from . import claude_approved
         try:
-            raw = _call_model(prompt)
+            # #806 S3: the prompt carries these passages' documents.
+            with claude_approved.carrying(p.get("document_id") for p in passages):
+                raw = _call_model(prompt)
         except model_transport.ModelHostRefused:
             raise
         except Exception as exc:  # noqa: BLE001
@@ -2084,8 +2087,11 @@ def _answer_from_documents(
 
     t = Timer()
     _prepare_stream(passages, general=False)
+    from . import claude_approved
     try:
-        raw = _call_model(prompt)
+        # #806 S3: the prompt carries these passages' documents.
+        with claude_approved.carrying(p.get("document_id") for p in passages):
+            raw = _call_model(prompt)
     except model_transport.ModelHostRefused:
         # NOT caught by the handler below, and this clause exists only to say
         # so. A refused host is a misconfiguration of the privacy boundary,
@@ -2102,7 +2108,8 @@ def _answer_from_documents(
             "answer_type": "model_unavailable",
             "provider": reasoning_provider.CLAUDE,
             "answer": None,
-            "reason": f"the Claude spending cap would be exceeded, so no answer was generated ({exc})",
+            "reason": claude_spend.refusal_words(
+                exc, "the Claude spending cap would be exceeded, so no answer was generated"),
             "passages": passages,
             "evidence_removed": evidence_removed,
             "seconds": timer.seconds(),

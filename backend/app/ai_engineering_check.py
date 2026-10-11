@@ -29,12 +29,20 @@ WHAT IT IS NOT, ENFORCED IN CODE:
 A refused item is DROPPED WITH A NAMED REASON (`Reason`), never repaired: the
 run reports "5 proposed, 3 kept: 1 value not on page, 1 pass/fail word".
 
-OFF BY DEFAULT (`settings.review_ai_check_enabled`), and even on it needs the
-Claude lane (`reasoning_provider.claude_available`: REASONING_PROVIDER=claude,
-both reader egress flags and a key). The call goes through `ClaudeProvider`,
-so `claude_spend.reserve` refuses it BEFORE it leaves if it could cross the
-USD caps (and holds its worst case until it is settled); the spend is booked
-to the step `review_ai_check`.
+ON BY DEFAULT since R26 step 7 (#763, owner rule "AI-first", 11 Oct;
+`settings.review_ai_check_enabled`). It runs on the configured model: the
+Claude lane when it is on (`reasoning_provider.claude_available`:
+REASONING_PROVIDER=claude, both reader egress flags and a key) - through
+`ClaudeProvider`, so `claude_spend.reserve` refuses it BEFORE it leaves if it
+could cross the USD caps (and holds its worst case until it is settled); the
+spend is booked to the step `review_ai_check` - else the LOCAL model, which
+sends nothing off the machine, with its own timeout and a smaller output cap.
+A timeout or a failed call is recorded on the run (a warning), never a
+failed review. Every run records which engine and model ran it.
+
+WHAT IT LOOKS FOR (R26 step 7): the concerns no rule covers - unusual
+combinations, values that do not fit each other or the service - as drafts
+"for the engineer", never counted as pass or fail.
 
 The provider is injectable, so every test runs against a fake - no socket.
 """
@@ -45,6 +53,7 @@ import re
 from datetime import datetime, timezone
 from enum import Enum
 
+from . import claude_approved
 from . import claude_spend, numparse
 from .config import settings
 from .db import connect
@@ -52,7 +61,7 @@ from .reader_api import _contains, _fold
 
 #: The budget step (claude_spend) this lane is charged to.
 STEP = "review_ai_check"
-PROMPT_VERSION = "review-ai-check-v1"
+PROMPT_VERSION = "review-ai-check-v2"
 #: `review_findings.origin` for every item this module stores.
 ORIGIN = "ai_engineering_check"
 #: The label the screen and the CRS print beside an item (owner order, table 1).
@@ -89,6 +98,8 @@ MAX_TEXT_CHARS = 600
 #: 2026-09-27 (raised from this same 4000 - the ledger showed every one of
 #: the 10 historical calls hitting exactly this cap and being thrown away).
 MAX_OUTPUT_TOKENS = 4000
+#: The local model's output cap (R26 step 7): about 12 compact items.
+LOCAL_MAX_OUTPUT_TOKENS = 2000
 #: At most this many Claude calls per run: one first attempt and one retry
 #: for whatever a truncated first reply left uncovered. Never more - a run
 #: that keeps retrying is a budget leak, not a more complete answer.
@@ -135,6 +146,10 @@ SYSTEM = """You are a senior mechanical engineer reviewing a contractor's equipm
 datasheet for an operating company. Raise the observations an experienced reviewer \
 would raise from the datasheet itself and general engineering knowledge: values that \
 look missing, inconsistent, unusual for the service, or needing confirmation.
+Look first for what a rule-by-rule check would miss: UNUSUAL COMBINATIONS (a \
+material unusual for the stated fluid or temperature, a rating, size or type that \
+does not fit the stated pressure, flow or service, a service condition the rest of \
+the sheet seems to ignore) and values that do not fit EACH OTHER.
 
 RULES, ALL MANDATORY - an item that breaks one is discarded:
 1. Cite the datasheet page and the field. "value" is the datasheet's value for that \
@@ -374,7 +389,8 @@ def available() -> tuple[bool, str]:
     from . import reasoning_provider
     ok, why = reasoning_provider.claude_available()
     if not ok:
-        return False, f"the Claude lane is off ({why})"
+        # R26 step 7: the local model instead - nothing leaves the machine.
+        return True, "local"
     return True, "claude"
 
 
@@ -474,6 +490,7 @@ def ai_check_status(review_run_id: str, *, allowed_document_ids: frozenset[str])
         return None
 
 
+@claude_approved.for_review      # #806 S3: the packet is the review's submittal and standards
 def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
               cited: list[str], provider=None) -> dict:
     """Ask Claude for engineering observations, gate every item, store the
@@ -515,6 +532,14 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
     if provider is None:
         provider = rp.get_provider("reasoning", step=STEP)
     max_output_tokens = settings.review_ai_check_max_output_tokens
+    timeout_s = 240.0
+    if isinstance(provider, rp.OllamaProvider):
+        # A local model writes far slower than the Claude lane: a smaller
+        # output cap and its own timeout, so a review is never held for long.
+        max_output_tokens = min(max_output_tokens, LOCAL_MAX_OUTPUT_TOKENS)
+        timeout_s = float(settings.review_ai_check_local_timeout_s)
+        provider = rp.OllamaProvider(timeout=timeout_s)
+    engine: str | None = None
 
     all_kept: list[dict] = []
     rejected: dict[str, int] = {}
@@ -531,11 +556,12 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
         response, call_failed = _call(provider, rp.Packet(
             prompt=prompt, system=SYSTEM, num_ctx=settings.num_ctx,
             num_predict=max_output_tokens, json_schema=SCHEMA,
-            step=STEP, prompt_version=PROMPT_VERSION, timeout_s=240))
+            step=STEP, prompt_version=PROMPT_VERSION, timeout_s=timeout_s))
         calls_made += 1
         if call_failed is not None:
             reason = call_failed
             break
+        engine = f"{response.provider}:{response.model_tag}"
         cost_total += response.cost_usd or 0.0
         items = None if response.schema_errors else parse(response.text)
         if items is None and response.truncated:
@@ -569,6 +595,8 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
         "rejected": dict(rejected),
         "reason": reason,
         "cost_usd": round(cost_total, 6),
+        # R26 step 7 / AI-first rule 3: which engine and model ran it.
+        "model": engine,
     }
     status["plain"] = _plain_status(status)
     _store_status(review_run_id, status)

@@ -781,8 +781,12 @@ def scope_decisions_by_reasoning(library: list[dict], profile: dict,
         try:
             from . import reasoning_provider as rp
             engine = provider or rp.get_provider("reasoning", step=SCOPE_REASONING_STEP)
-            decision = _cached_scope_decision(
-                entry["id"], equipment_type, record, engine, SCOPE_REASONING_STEP)
+            # #806 S3: the prompt carries this standard's scope quotes (and
+            # the submittal's equipment TYPE, a classification label only).
+            from . import claude_approved
+            with claude_approved.carrying([entry["id"]]):
+                decision = _cached_scope_decision(
+                    entry["id"], equipment_type, record, engine, SCOPE_REASONING_STEP)
         except Exception as exc:  # noqa: BLE001 - budget cap, refusal or a down model:
             # stays with an engineer as "not decided", never crashes the review.
             # #450: AND SAYS SO. It used to be skipped with no record, so a

@@ -575,11 +575,14 @@ def rule_for(requirement: dict, *, provider=None) -> tuple[dict | None, str | No
         if provider is not None or rp.claude_available()[0]:
             try:
                 engine = provider or rp.get_provider("reasoning", step=MODEL_STEP)
-                for text in texts:
-                    rule = _model_parse(text, known, engine)
-                    if rule is not None:
-                        source = SOURCE_MODEL
-                        break
+                # #806 S3: the prompt carries this standard's requirement text.
+                from . import claude_approved
+                with claude_approved.carrying([requirement.get("standard_document_id")]):
+                    for text in texts:
+                        rule = _model_parse(text, known, engine)
+                        if rule is not None:
+                            source = SOURCE_MODEL
+                            break
             except Exception:  # noqa: BLE001 - budget or refusal: stays with an engineer
                 rule = None
     if rule is None:
