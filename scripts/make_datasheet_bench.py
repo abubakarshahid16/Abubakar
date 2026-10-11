@@ -55,6 +55,17 @@ FONT = 9
 ZIP_TIME = (1980, 1, 1, 0, 0, 0)
 
 KEY: dict[str, dict] = {}
+#: R27 (#504): every table cell the builder DREW for the file being built -
+#: its text and its box, in page points. `record` moves them into the key, so
+#: a layout reader can be scored cell by cell (`scripts/table_cell_score.py`).
+_CELLS: list[dict] = []
+
+
+def drawn(page, rect, text) -> None:
+    """Remember one drawn cell that holds text."""
+    if text:
+        _CELLS.append({"page": page.number + 1, "text": str(text),
+                       "box": [round(float(v), 2) for v in (rect.x0, rect.y0, rect.x1, rect.y1)]})
 
 TITLE_IGNORE = ["Doc No", "Tag No", "Rev", "Project", "Sheet"]
 
@@ -71,9 +82,15 @@ def printed(r: dict) -> str:
 
 
 def record(name, *, equipment, layout, expected, forbidden=(), ignore=TITLE_IGNORE,
-           text_layer=True):
+           text_layer=True, cells_not_keyed: str | None = None):
+    """`cells_not_keyed`: why this file's drawn boxes are NOT a key for a
+    layout reader (a rotated page, a scan) - then `cells` is null, never an
+    empty list a scorer could read as "no cells to find"."""
+    cells = None if cells_not_keyed else list(_CELLS)
+    _CELLS.clear()
     KEY[name] = {"equipment": equipment, "layout": layout, "text_layer": text_layer,
-                 "expected": expected, "forbidden": list(forbidden), "ignore": list(ignore)}
+                 "expected": expected, "forbidden": list(forbidden), "ignore": list(ignore),
+                 "cells": cells, "cells_not_keyed": cells_not_keyed}
 
 
 def title_block(page, doc_no, tag, title, *, y=40):
@@ -96,9 +113,11 @@ def ruled_table(page, top, widths, rows, *, height=18, left=40, fontsize=FONT):
     for cells in rows:
         x = left
         for width, cell in zip(widths, cells):
-            page.draw_rect(pymupdf.Rect(x, y, x + width, y + height), color=(0, 0, 0), width=0.6)
+            rect = pymupdf.Rect(x, y, x + width, y + height)
+            page.draw_rect(rect, color=(0, 0, 0), width=0.6)
             if cell:
                 page.insert_text((x + 4, y + height - 5), str(cell), fontsize=fontsize)
+                drawn(page, rect, cell)
             x += width
         y += height
     return y
@@ -290,11 +309,14 @@ def ds08_tank_merged_cells():
     for group, subs in groups:
         page.draw_rect(pymupdf.Rect(left, y, left + widths[0], y + h * len(subs)), color=(0, 0, 0), width=0.6)
         page.insert_text((left + 4, y + h * len(subs) / 2 + 3), group, fontsize=FONT)
+        drawn(page, pymupdf.Rect(left, y, left + widths[0], y + h * len(subs)), group)
         for label, value in subs:
             page.draw_rect(pymupdf.Rect(left + widths[0], y, left + widths[0] + widths[1], y + h), color=(0, 0, 0), width=0.6)
             page.draw_rect(pymupdf.Rect(left + widths[0] + widths[1], y, left + sum(widths), y + h), color=(0, 0, 0), width=0.6)
             page.insert_text((left + widths[0] + 4, y + h - 5), label, fontsize=FONT)
             page.insert_text((left + widths[0] + widths[1] + 4, y + h - 5), value, fontsize=FONT)
+            drawn(page, pymupdf.Rect(left + widths[0], y, left + widths[0] + widths[1], y + h), label)
+            drawn(page, pymupdf.Rect(left + widths[0] + widths[1], y, left + sum(widths), y + h), value)
             y += h
     # Label cells merged across the first two columns.
     for label, value in [("Nominal capacity", "1500 m3"), ("Corrosion allowance", "3 mm"),
@@ -303,14 +325,18 @@ def ds08_tank_merged_cells():
         page.draw_rect(pymupdf.Rect(left + widths[0] + widths[1], y, left + sum(widths), y + h), color=(0, 0, 0), width=0.6)
         page.insert_text((left + 4, y + h - 5), label, fontsize=FONT)
         page.insert_text((left + widths[0] + widths[1] + 4, y + h - 5), value, fontsize=FONT)
+        drawn(page, pymupdf.Rect(left, y, left + widths[0] + widths[1], y + h), label)
+        drawn(page, pymupdf.Rect(left + widths[0] + widths[1], y, left + sum(widths), y + h), value)
         y += h
     # A value cell split in two: shell plate thickness, bottom and top course.
     page.draw_rect(pymupdf.Rect(left, y, left + widths[0] + widths[1], y + 2 * h), color=(0, 0, 0), width=0.6)
     page.insert_text((left + 4, y + h + 3), "Shell plate thickness", fontsize=FONT)
+    drawn(page, pymupdf.Rect(left, y, left + widths[0] + widths[1], y + 2 * h), "Shell plate thickness")
     for k, (label, value) in enumerate([("Bottom course", "14 mm"), ("Top course", "8 mm")]):
         yy = y + k * h
         page.draw_rect(pymupdf.Rect(left + widths[0] + widths[1], yy, left + sum(widths), yy + h), color=(0, 0, 0), width=0.6)
         page.insert_text((left + widths[0] + widths[1] + 4, yy + h - 5), f"{label}: {value}", fontsize=FONT)
+        drawn(page, pymupdf.Rect(left + widths[0] + widths[1], yy, left + sum(widths), yy + h), f"{label}: {value}")
     save_pdf(doc, name)
     expected = [
         row("Design pressure", "0.05", "barg", aliases=["Pressure"]),
@@ -339,7 +365,7 @@ def ds09_rotated_page():
     page.set_rotation(90)
     save_pdf(doc, name)
     record(name, equipment="basket strainer", layout="ruled table on a page rotated 90 degrees",
-           expected=rows)
+           expected=rows, cells_not_keyed="the page is rotated after drawing: the drawn boxes are not the page's")
 
 
 def ds10_compressor_multipage():
@@ -404,7 +430,8 @@ def ds11_flowmeter_scanned():
     page.insert_image(page.rect, stream=png)
     save_pdf(doc, name)
     record(name, equipment="flow meter",
-           layout="image-only scanned page (no text layer)", expected=rows, text_layer=False)
+           layout="image-only scanned page (no text layer)", expected=rows, text_layer=False,
+           cells_not_keyed="a scan with no text layer: the cells exist only as pixels")
 
 
 def ds12_pump_xlsx():
