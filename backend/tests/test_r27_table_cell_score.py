@@ -92,12 +92,15 @@ def test_the_layout_readers_cell_score_does_not_fall():
     """#504's acceptance line: the cell-level score is recorded and does not
     fall below the current one. Measured 2026-10-11 on main: 135 of 162 keyed
     cells right in 7 invented files, 0 read wrong, 16 taken as column headers
-    (several are first DATA rows of a two-column table), 11 missed. Raise the
-    floor when the reader improves; never lower it without saying why."""
+    (several were first DATA rows of a two-column table), 11 missed. With
+    label/value tables read as headerless (`test_r27_label_value_tables.py`):
+    150 right, 6 real header cells, 6 missed. Raise the floor when the
+    reader improves; never lower it without saying why."""
     total = score.score_all()["total"]
     assert total["cells"] == 162
     assert total["wrong"] == 0, "a cell was read with the wrong text"
-    assert total["right"] >= 135, f"the layout reader's cell score fell: {total}"
+    assert total["right"] >= 150, f"the layout reader's cell score fell: {total}"
+    assert total["header"] <= 6, f"a data row was taken as a header again: {total}"
     assert total["extra"] == 0
 
 
