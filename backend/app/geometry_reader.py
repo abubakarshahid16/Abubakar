@@ -208,6 +208,20 @@ def _states_a_value_beside_a_label(row: list[str], gutter: set[int]) -> bool:
     return any(_STARTS_WITH_A_NUMBER.match(v) or blank_markers.names_a_marker(v) for v in filled[1:])
 
 
+def _answers_in_every_cell(row: list[str], gutter: set[int]) -> bool:
+    """The STRICT form, for a row above a schedule's first data row: a label,
+    and EVERY filled cell after it states a value. A real header row can
+    carry one number among its column names (a revision, a quantity, a note
+    mark) - found on a real nozzle schedule (F1, 2026-10-11), where "any cell
+    states a value" took the header for an answer and the schedule lost its
+    column names. One number in a row of names is still a row of names."""
+    cells = [v for j, v in enumerate(row) if j not in gutter]
+    filled = [v for v in cells if v]
+    if len(filled) < 2 or _STARTS_WITH_A_NUMBER.match(filled[0]):
+        return False
+    return all(_STARTS_WITH_A_NUMBER.match(v) or blank_markers.names_a_marker(v) for v in filled[1:])
+
+
 def _is_title_row(row_rects: list[Any], row_texts: list[str], gutter: set[int],
                   x_left: float, x_right: float) -> bool:
     """TITLE: one non-empty cell spans >= TITLE_SPAN_SHARE of the table width."""
@@ -361,7 +375,7 @@ def _structure(table: Any, *, page_no: int, table_id: str, strategy: str,
         earlier = next((i for i in range(first_data)
                         if not _is_empty(texts[i], gutter)
                         and not _is_title_row(rects[i], texts[i], gutter, x_left, x_right)
-                        and _states_a_value_beside_a_label(texts[i], gutter)), None)
+                        and _answers_in_every_cell(texts[i], gutter)), None)
         if earlier is not None:
             first_data, answer_first = earlier, True
         # HEADER = the non-title rows directly above the first data-like row

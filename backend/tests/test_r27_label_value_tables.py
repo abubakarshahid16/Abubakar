@@ -85,9 +85,18 @@ def test_the_header_stops_at_the_first_row_that_already_answers():
     assert not [label for label in rows if "150 m3/h" in label], sorted(rows)
 
 
-def test_a_schedule_table_keeps_its_header_rows():
-    """The rule only moves the body start UP to an answer row; a header row
-    names columns and states no value, so a multi-row schedule header stays."""
-    gutter: set[int] = set()
-    assert not g._states_a_value_beside_a_label(["Mark", "Size", "Rating", "Service"], gutter)
-    assert not g._states_a_value_beside_a_label(["Nozzle", "in", "class", ""], gutter)
+def test_a_header_row_with_one_number_in_it_is_still_a_header():
+    """THE REGRESSION THE REAL SHEETS CAUGHT (F1, 2026-10-11). A schedule's
+    header row can carry one number among its column names (a revision, a
+    note mark). The first form of the rule above took "any cell states a
+    value" as an answer row: a real nozzle schedule lost its column names and
+    most of its rows, and the invented set had no such table to say so (one
+    is written - `ds15` - and waits for the pre-commit hook to accept invented
+    PDFs under backend/tests/fixtures/synthetic). Above a schedule's data, an
+    answer row is one where EVERY cell after the label answers."""
+    gutter = {0}
+    header = ["1", "Mark", "Size", "Rating", "Flange type", "Service", "2"]
+    assert g._states_a_value_beside_a_label(header, gutter)          # the loose test is fooled...
+    assert not g._answers_in_every_cell(header, gutter)              # ...the strict one is not
+    assert g._answers_in_every_cell(["", "Maximum flow", "150 m3/h", "150 m3/h"], gutter)
+    assert not g._answers_in_every_cell(["", "Mark", "Size", "Rating"], gutter)
