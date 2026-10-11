@@ -1774,17 +1774,22 @@ def pairs_from_blocks(page_text_blocks: list[tuple[float, float, str]]) -> list[
         # before it: 2 of 15 fields read, one of them mispaired. Lines that
         # are not self-contained keep the left-to-right pairing, in runs
         # between the self-contained ones.
-        # ONLY INSIDE A BLOCK OF SEVERAL LINES, and only for a line with no
-        # drawn answer slot. A one-line block was never read by this path (the
-        # geometry reader reads it, test_geometry_wiring), and a slot line
-        # ("ELEVATION (MSL):  5 - 150 M____") is cut by `split_drawn_slots`,
-        # which keeps the range readable (test_b4_pump_layouts).
-        several = len(lines) >= 2
+        # Only for a line with no drawn answer slot: a slot line ("ELEVATION
+        # (MSL):  5 - 150 M____") is cut by `split_drawn_slots`, which keeps
+        # the range readable (test_b4_pump_layouts).
+        # A ONE-LINE BLOCK TOO (R27, #504, 2026-10-11). Until then a
+        # self-contained line was read only inside a block of several lines,
+        # and a one-line block was left to the geometry reader - which is OFF
+        # by default. A sheet printed one field per line, each line its own
+        # text block, read NOTHING: 0 of 10 fields on the invented unruled
+        # sheet (`scripts/datasheet_bench.py`). A line that is its own pair is
+        # its own pair wherever it stands; the value gate and the noise rules
+        # below still decide whether it is a fact (a title-block line is not).
         run: list[str] = []
         for line in lines:
             pieces = split_drawn_slots(line)
             own = (_self_contained_pair(line)
-                   if several and pieces == [line] else None)
+                   if pieces == [line] else None)
             if own is None:
                 run.extend(pieces)
                 continue

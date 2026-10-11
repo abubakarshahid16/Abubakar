@@ -148,7 +148,12 @@ def test_on_adds_geometry_facts_with_their_provenance(tmp_path, on):
     geo = [f for f in _current(doc) if f["extraction_method"] == "geometry"]
     assert geo and result["geometry_facts"] == len(geo)
     names = {f["field_name"]: f for f in geo}
-    assert {"bearing type", "design pressure", "design temperature"} <= set(names)
+    # R27 (#504): the one-line "Label : value" fields (design pressure and
+    # temperature) are now read by the default rule reader, so they are no
+    # longer geometry-only facts; the drawn-slot field still is.
+    assert "bearing type" in names
+    rule = {f["field_name"]: f for f in _current(doc) if f["extraction_method"] == "extracted"}
+    assert {"design pressure", "design temperature"} <= set(rule)
     bearing = names["bearing type"]
     assert (bearing["field_value"], bearing["is_blank"], bearing["page"]) == ("BALL", 0, 1)
     assert bearing["source_text"] == "___BALL___"
@@ -159,7 +164,7 @@ def test_on_adds_geometry_facts_with_their_provenance(tmp_path, on):
     assert box["source"] == "form" and box["reader"] == "geometry_reader"
     assert len(box["value_bbox"]) == 4 and len(box["label_bbox"]) == 4
     assert box["value_bbox"][0] > box["label_bbox"][2]
-    pressure = names["design pressure"]
+    pressure = rule["design pressure"]
     assert (pressure["raw_value"], pressure["raw_unit"]) == ("10", "barg")
 
 
