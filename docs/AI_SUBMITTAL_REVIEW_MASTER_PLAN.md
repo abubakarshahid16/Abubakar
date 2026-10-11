@@ -584,7 +584,8 @@ job scheduling; market-intelligence query sanitization.
 
 Do not hard-code expected findings around the sample filenames. Tests must prove
 the generic workflow. Per `CLAUDE.md` rule 6, every test must fail when its
-feature is deleted; prove it by mutation.
+feature is deleted: check it once by reverting the fix, and add a mutation entry
+only for the rule 6 danger zone.
 
 ## 30. Definition of done
 

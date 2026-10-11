@@ -46,8 +46,9 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T, keyword="revision_block_is_looked_for", tags=("honesty",)),
     Mutation(id="M1064", phase=89, description="the review writes no datasheet check (a zero-standard run says nothing)",
              path=APP / "comparison.py",
-             anchor="    findings.extend(datasheet_checks.store(\n",
-             replacement="    [] and findings.extend(datasheet_checks.store(\n",
+             # re-anchored 2026-10-10 (PR #764): the results are kept for the coverage line
+             anchor="    findings.extend(datasheet_checks.store(review_run_id, submittal_id, check_results,\n",
+             replacement="    [] and findings.extend(datasheet_checks.store(review_run_id, submittal_id, check_results,\n",
              target=_T, keyword="no_standard_held", tags=("critical",)),
     Mutation(id="M1065", phase=89, runner="vitest",
              description="a datasheet check is not labelled as one on screen",

@@ -38,7 +38,7 @@ class Recording:
 
 
 def categorise(reply_text: str, passage: str) -> Counter:
-    from app import ai_requirements as air
+    from tools import ai_requirements as air
     from app import ai_task_runner as runner
     from app.reasoning_provider import schema_errors
 
@@ -72,7 +72,8 @@ def categorise(reply_text: str, passage: str) -> Counter:
 
 def main(argv: list[str] | None = None) -> int:
     import pilot_ai_requirements as pilot
-    from app import access, ai_requirements as air, ai_task_runner as runner, db, model_transport
+    from app import access, ai_task_runner as runner, db, model_transport
+    from tools import ai_requirements as air
     from app.config import settings
 
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])

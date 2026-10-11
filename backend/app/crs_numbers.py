@@ -22,10 +22,16 @@ its document id, never by a guess. Once a document's first comment is
 numbered its sequence is FIXED (`crs_document_scope`), so a later edit of the
 document number cannot renumber comments already issued.
 
-WHEN A NUMBER IS MINTED. Only when a comment becomes an engineer's: an edit,
-a confirmation, an acceptance, a comment filed from chat, or the final code
-(`main._mint_crs_numbers`, called by those write routes). An unconfirmed
-machine draft has no number: it is not a comment yet, and may never be issued.
+WHEN A NUMBER IS MINTED (R15, #779). Every CRS row gets its number when its
+review FINISHES (`main.number_crs_rows`, called by the review job), so the
+Item No column always carries the permanent number and a re-run of the same
+submittal gives the same comment the same number. A machine draft's number is
+NOT ISSUED (`issued = 0`): it is printed in the internal copy, never carried
+forward, and never makes the row an engineer's. A comment becomes ISSUED when
+it becomes an engineer's: an edit, a confirmation, an acceptance, a comment
+filed from chat, or the final code (`main._mint_crs_numbers`, called by those
+write routes), keeping the number its draft already had. (Until R15 a draft
+had no number at all, and 0 numbers were ever issued on the live system.)
 The export and the preview only READ (`lookup`, `open_elsewhere`); they write
 nothing, as the project's own test for them requires.
 
@@ -90,7 +96,7 @@ _SNAPSHOT_FIELDS = ("document_name", "page_section", "comment", "comment_by",
 _COLUMNS = ("row_key, seq, label, status, status_by, status_at, status_note,"
             " response_code, response_text, response_by, response_at, response_source,"
             " document_name, page_section, comment, comment_by, standard_reference,"
-            " last_review_run_id")
+            " last_review_run_id, issued")
 
 
 def _now() -> str:
@@ -220,7 +226,7 @@ def open_elsewhere(scope_key: str, present_keys: set[str]) -> list[dict]:
     longer raises it. In number order."""
     return [_record(r) for r in connect().execute(
         f"SELECT {_COLUMNS} FROM crs_comment_numbers"
-        " WHERE scope_key = ? AND status = ? ORDER BY seq", (scope_key, OPEN))
+        " WHERE scope_key = ? AND status = ? AND issued = 1 ORDER BY seq", (scope_key, OPEN))
         if r["row_key"] not in present_keys]
 
 
@@ -233,9 +239,14 @@ def _event(conn, scope_key: str, seq: int, by: str | None, event: str, detail: s
 def assign(scope_key: str, label: str, keys: list[str], *,
            document_id: str, review_run_id: str,
            snapshots: dict[str, dict] | None = None,
-           user_id: str | None = None) -> dict[str, dict]:
+           user_id: str | None = None, issued: bool = True) -> dict[str, dict]:
     """Give every key that has no number the next one in its scope, and keep
     each key's snapshot current (what the comment says, for carry-forward).
+
+    `issued` (R15): True from the engineer's write routes - a new number is
+    issued, and a draft's existing number BECOMES issued (same number). False
+    from a finished review numbering its machine drafts - never un-issues a
+    number an engineer already made theirs.
 
     Idempotent: a key that already has a number keeps it. Returns `lookup` of
     all the keys afterwards."""
@@ -275,23 +286,38 @@ def assign(scope_key: str, label: str, keys: list[str], *,
                     claimed = conn.execute(
                         """INSERT OR IGNORE INTO crs_comment_numbers
                                (scope_key, row_key, seq, label, first_document_id,
-                                first_review_run_id, assigned_at, status)
-                           SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, ?, ?, ?, ?
+                                first_review_run_id, assigned_at, status, issued)
+                           SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, ?, ?, ?, ?, ?
                              FROM crs_comment_numbers WHERE scope_key = ?""",
                         (scope_key, key, label, document_id, review_run_id, _now(),
-                         OPEN, scope_key)).rowcount
+                         OPEN, 1 if issued else 0, scope_key)).rowcount
                     if claimed:
                         seq = conn.execute(
                             "SELECT seq FROM crs_comment_numbers"
                             " WHERE scope_key = ? AND row_key = ?", (scope_key, key)
                         ).fetchone()["seq"]
                         _event(conn, scope_key, seq, user_id, "numbered",
-                               f"review run {review_run_id}")
+                               f"review run {review_run_id}"
+                               + ("" if issued else " (machine draft, not issued)"))
             except sqlite3.OperationalError as exc:  # busy / stale snapshot: retry
                 log.warning("crs number: retrying after %s", type(exc).__name__)
         else:
             if not lookup(scope_key, [key]):
                 raise RuntimeError("could not assign a CRS comment number")
+        if issued:
+            # The engineer made a numbered draft theirs: the SAME number is now
+            # issued (carried forward, printed as confirmed).
+            with conn:
+                made = conn.execute(
+                    "UPDATE crs_comment_numbers SET issued = 1"
+                    " WHERE scope_key = ? AND row_key = ? AND issued = 0",
+                    (scope_key, key)).rowcount
+                if made:
+                    seq = conn.execute(
+                        "SELECT seq FROM crs_comment_numbers WHERE scope_key = ? AND row_key = ?",
+                        (scope_key, key)).fetchone()["seq"]
+                    _event(conn, scope_key, seq, user_id, "issued",
+                           f"made an engineer's in review run {review_run_id}")
         snap = snapshots.get(key)
         if snap is not None:
             with conn:

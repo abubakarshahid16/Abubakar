@@ -19,8 +19,6 @@ from app import (
     numparse,
     synthesis,
 )
-from app.claude_crs_comments import accept as crs_accept
-from tests.test_claude_crs_comments import NC, row_for
 
 MINUS, EN = "−", "–"
 
@@ -89,18 +87,6 @@ def test_b11_pascal_is_a_unit():
 
 
 # ------------------------------------------------------------------ C-H3
-
-def test_chh3_an_invented_number_is_not_made_valid_by_erasing_a_digit_of_the_clause():
-    finding = {**NC, "standard_clause": "5", "required_value": "6", "required_unit": "bar",
-               "requirement_source_text": "The pressure shall not exceed 6 bar.",
-               "contractor_evidence_text": "8 bar", "comparator": "<="}
-    row = row_for(finding)
-    comment = "SAES-D-001 Para. 5 limits it to 6 bar; typically 56 bar is seen."
-    out = crs_accept({"comment": comment, "action": None}, finding, row)
-    assert out["accepted"] is False and out["reason"] == "number_not_in_inputs", out
-    honest = "SAES-D-001 Para. 5 limits it to 6 bar; the submittal states 8 bar."
-    assert crs_accept({"comment": honest, "action": None}, finding, row)["accepted"] is True
-
 
 # ------------------------------------------------------------------ H07
 

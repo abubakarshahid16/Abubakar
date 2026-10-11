@@ -71,10 +71,11 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "into ONE row regardless of which field it names - the "
                     "old un-itemised summary row, reintroduced",
         path=APP / "crs_mapping.py",
-        anchor="        for group in _grouped(bucket):",
+        # Re-anchored 2026-10-09 (#725 F7): groups are now sorted by page and clause.
+        anchor="        for group in sorted(_grouped(bucket), key=_row_order):",
         replacement=(
             "        for group in ([bucket] if bucket and kind == "
-            "ROW_KIND_MISSING_INFORMATION else _grouped(bucket)):"),
+            "ROW_KIND_MISSING_INFORMATION else sorted(_grouped(bucket), key=_row_order)):"),
         target="tests/test_crs_mapping.py",
         keyword="every_missing_value_is_its_own_row_one_per_field",
         tags=("honesty", "critical"),
@@ -106,7 +107,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="a newer machine draft leads a row it shares with the "
                     "engineer's confirmed finding (re-run prints 'AI Review')",
         path=APP / "crs_mapping.py",
-        anchor='    return [sorted(groups[k], key=lambda f: not f.get("confirmed_by")) for k in order]',
+        # Re-anchored 2026-10-09 (#725 F7): the leader order also sorts by page and tag.
+        anchor='    return [sorted(groups[k], key=_leader_order) for k in order]',
         replacement="    return [groups[k] for k in order]",
         target="tests/test_crs_permanent_numbers.py",
         keyword="confirmed_finding_leads_a_row or survives_a_re_export",

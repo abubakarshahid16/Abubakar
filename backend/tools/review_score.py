@@ -101,6 +101,71 @@ def validate_key(data: object) -> dict:
     return data
 
 
+#: A clause number right after a standard identifier in a CRS comment:
+#: "API 520-I 5.3.3", "SAES-J-600 clause 8", "(API RP 520 Part I, section 5.2)".
+_CLAUSE_AFTER = re.compile(
+    r"^[\s,;:()\[\]-]{0,4}(?:(?:clause|cl|section|sec|para(?:graph)?|\u00a7)\.?\s*)?"
+    r"(\d+(?:\.\d+)*[a-z]?)\b", re.IGNORECASE)
+CRS_HEADER = "company comment"
+
+
+def key_from_crs(rows: list[tuple], *, name: str, approved_by: str) -> tuple[dict, list[dict]]:
+    """#747: a DRAFT answer key from a real Comment Resolution Sheet (the
+    client's template: a header row with "COMPANY Comments"). Each comment
+    becomes one `defect` item: the standard and the clause it names (the first
+    standard followed by a clause number), and the field from "Page
+    No./Section" ("p.3 - Set pressure"). A comment whose standard or clause
+    cannot be read is NOT guessed: it is returned in the to-complete list with
+    its row number only, never its text. The key is `engineer_confirmed`
+    (the comments are a named engineer's) but every item's `note` says it was
+    drafted by code: the merger checks each before scoring."""
+    from app import datasheets
+    if not str(approved_by or "").strip():
+        raise KeyError_("approved_by is required: the engineer (or CRS) the comments come from")
+    header_at = next((i for i, row in enumerate(rows)
+                      if any(str(c or "").strip().lower().startswith(CRS_HEADER) for c in row)), None)
+    if header_at is None:
+        raise KeyError_("no 'COMPANY Comments' header row: not a CRS in the client template")
+    head = [str(c or "").strip().lower() for c in rows[header_at]]
+
+    def col(prefix: str) -> int | None:
+        return next((i for i, h in enumerate(head) if h.startswith(prefix)), None)
+
+    c_item, c_page, c_comment, c_std = col("item"), col("page"), col(CRS_HEADER), col("standard")
+    cell = lambda row, c: str(row[c] or "").strip() if c is not None and c < len(row) else ""  # noqa: E731
+    items: list[dict] = []
+    todo: list[dict] = []
+    for n, row in enumerate(rows[header_at + 1:], start=header_at + 2):
+        comment = cell(row, c_comment)
+        if not comment:
+            continue
+        standard = clause = None
+        for text in (comment, cell(row, c_std)):
+            for spelling, _start, end in datasheets.referenced_standard_spans(text):
+                standard = standard or spelling
+                m = _CLAUSE_AFTER.match(text[end:])
+                if m:
+                    standard, clause = spelling, m.group(1)
+                    break
+            if clause:
+                break
+        item_no = cell(row, c_item)
+        if not standard or not clause:
+            todo.append({"row": n, "item_no": item_no or None,
+                         "missing": "standard" if not standard else "clause"})
+            continue
+        page = cell(row, c_page)
+        field = page.split(" - ", 1)[1].strip() if " - " in page else ""
+        item = {"id": f"crs-{item_no or n}", "kind": DEFECT, "standard": standard, "clause": clause,
+                "note": f"drafted by code from CRS row {n}; check standard, clause and field before scoring"}
+        if field:
+            item["field"] = field
+        items.append(item)
+    key = {"format": KEY_FORMAT, "name": name, "source": "engineer_confirmed",
+           "approved_by": approved_by.strip(), "complete_for_flags": False, "items": items}
+    return key, todo
+
+
 def load_findings(path: str | Path) -> dict:
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -122,7 +187,14 @@ def _clause_under(finding_clause: str, item_clause: str) -> bool:
 def _standard_matches(finding: dict, item: dict) -> bool:
     wanted = _fold(item["standard"])
     have = _fold(f"{finding.get('standard') or ''} {finding.get('standard_number') or ''}")
-    return bool(wanted) and wanted in have
+    if bool(wanted) and wanted in have:
+        return True
+    # #747: a key drafted from a real CRS names the standard as the engineer
+    # wrote it ("API RP 520 Part I"); the finding names the library's file
+    # ("API-520-I.pdf"). The project's one identifier rule decides.
+    from app import standard_ids
+    return any(standard_ids.same_standard(item["standard"], str(other))
+               for other in (finding.get("standard"), finding.get("standard_number")) if other)
 
 
 def _field_matches(finding: dict, item: dict) -> bool:

@@ -20,7 +20,7 @@ ledger lock - before it leaves, and `settle`s that reservation afterwards to
 what it actually cost. Until it is settled, the reservation counts at its
 worst case; a process that dies mid-call leaves it counted that way for
 good, which errs toward spent, never toward unspent. `reasoning_provider`
-(single call, stream and batch) and `metered` (the four `claude_api` review
+(single call, stream and batch) and `metered` (the three `claude_api` review
 routes) all go through `reserve`/`settle`/`settle_failure`. There is one
 ledger; the per-run call cap in `claude_budget` is a second, separate limit,
 not a second record of dollars. `ensure_affordable` remains as a read-only

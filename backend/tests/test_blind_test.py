@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from app import blind_test
+from tools import blind_test
 
 REPO = Path(__file__).resolve().parents[2]
 SUB = "EF1975-DAS-M-99.pdf"

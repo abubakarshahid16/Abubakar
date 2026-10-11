@@ -17,9 +17,9 @@ import time
 
 import psutil
 
-from . import live_guard
-from .db import connect, init_db
-from .extract import extract_document
+from app import live_guard
+from app.db import connect, init_db
+from app.extract import extract_document
 
 
 def tree_rss_mb() -> float:

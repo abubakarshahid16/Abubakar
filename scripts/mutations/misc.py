@@ -4,7 +4,6 @@
     backend/app/chat.py
     backend/app/chunker.py
     backend/app/claude_api.py
-    backend/app/claude_crs_comments.py
     backend/app/claude_datasheet.py
     backend/app/claude_recheck.py
     backend/app/claude_spend.py
@@ -15,7 +14,6 @@
     backend/app/job_queue.py
     backend/app/lexical.py
     backend/app/metrics.py
-    backend/app/quotes.py
     backend/run.py
     scripts/gold_pairs_score.py
     scripts/mutation_check.py
@@ -110,27 +108,6 @@ MUTATIONS: tuple[Mutation, ...] = (
     #: re-anchoring of B20's dimension guard, so all three safety gates that came out
     #: of the Phase 0.5 slice are proven by this harness rather than by an ad-hoc
     #: script in one session's scratchpad.
-    Mutation(
-        id="M271", phase=29,
-        description="widen B23's closed normalisation list to fold case and "
-                    "strip decimal points, so 1.6 would match 16",
-        path=APP / "quotes.py",
-        anchor='    return " ".join(s.split())',
-        replacement='    return " ".join(s.lower().replace(".", "").split())  # MUTANT',
-        target="tests/test_quote_validation.py",
-        tags=("honesty", "critical"),
-    ),
-    Mutation(
-        id="M272", phase=29,
-        description="make the quote validator accept everything, so an invented "
-                    "quote passes as verbatim - the Phase 0.5 run's rewritten "
-                    "inch mark with nothing checking it",
-        path=APP / "quotes.py",
-        anchor="    return (needle in haystack, OK if needle in haystack else NOT_FOUND)",
-        replacement="    return (True, OK)  # MUTANT: every quote accepted",
-        target="tests/test_quote_validation.py",
-        tags=("honesty", "critical"),
-    ),
     # ---- from B38_ORPHAN_GUARD --------------------------------------------
     #: B38: record, then refuse by default, on all four paths that delete
     #: requirement rows review findings cite. A path's mutation swaps its guard
@@ -445,7 +422,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         # a lettered clause number that repeats at every page top.
         target="tests/test_b6b_e4_numbered_paragraphs.py", keyword="top_of_page_prefixed_number",
     ),
-    # ---- the four claude_api review routes under the USD caps (2026-09-27)
+    # ---- the claude_api review routes under the USD caps (2026-09-27; three since #736)
     Mutation(
         id="M1160", phase=96,
         description="the claude_api routes reach the transport without the USD meter",
@@ -489,16 +466,6 @@ MUTATIONS: tuple[Mutation, ...] = (
         replacement="            result = recheck_finding(finding, model_call, second_call)\n        except ZeroDivisionError as exc:",
         target="tests/test_claude_recheck.py",
         keyword="finished_before_a_usd_limit",
-        tags=("budget",),
-    ),
-    Mutation(
-        id="M1164", phase=96,
-        description="a limit mid-draft throws away the CRS drafts already paid for",
-        path=APP / "claude_crs_comments.py",
-        anchor="            draft = draft_comment(finding, row, model_call, second_call)\n        except StopRun as exc:",
-        replacement="            draft = draft_comment(finding, row, model_call, second_call)\n        except ZeroDivisionError as exc:",
-        target="tests/test_claude_crs_comments.py",
-        keyword="finished_before_a_limit",
         tags=("budget",),
     ),
     Mutation(

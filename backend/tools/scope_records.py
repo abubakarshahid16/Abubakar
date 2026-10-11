@@ -26,10 +26,10 @@ from __future__ import annotations
 import json
 import re
 
-from . import applicability_v2, search
-from .db import connect
-from .model_evidence import _collapse, quote_verified  # the verifier's own normalisation
-from .reasoning_provider import Packet
+from app import applicability_v2, search
+from app.db import connect
+from app.model_evidence import _collapse, quote_verified  # the verifier's own normalisation
+from app.reasoning_provider import Packet
 
 import logging
 
