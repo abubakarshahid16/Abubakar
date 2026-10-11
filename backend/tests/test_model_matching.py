@@ -1014,3 +1014,55 @@ def test_a_spend_cap_stops_the_claude_matcher(stub, monkeypatch, tmp_path):
     got = comparison.match_by_model(requirement(subject=MODEL_SUBJECT), CANDIDATES)
     assert got["fact"] is None and got["reason"] == comparison.MODEL_BUDGET
     assert sent == []
+
+
+# ============================== a low-confidence model pairing waits (F1 2026-10-11)
+
+def _req(text, value):
+    return {"requirement_text": text, "raw_value": value}
+
+
+def test_a_model_pairing_is_doubted_for_the_three_reasons_f1_found():
+    """The first three model pairings to carry a verdict on the real-model F1
+    were all false. Invented sentences of the same three shapes."""
+    from app import match_rules as m
+    field = {"field_name": "pumping temperature"}
+    # nothing the clause says names the field
+    assert m.model_pairing_doubt(
+        _req("The push button shall be mounted at least 7.5 m beyond the edge of the zone.", "7.5"),
+        {"field_name": "elevation msl"}) == m.FIELD_WORD_ABSENT
+    # the limit is relative to another quantity
+    assert m.model_pairing_doubt(
+        _req("The temperature of the drained material shall be at least 10 C (18 F) above the pour point.", "10"),
+        field) == m.RELATIVE_LIMIT
+    # a table read as one sentence: which value is the limit is a guess
+    assert m.model_pairing_doubt(
+        _req("Maximum pumping temperature up to 70 above 70 vapour pressure 100 kPa seal code A", "70"),
+        field) == m.SEVERAL_VALUES
+
+
+def test_a_plain_single_limit_sentence_is_not_doubted():
+    from app import match_rules as m
+    field = {"field_name": "shell design pressure"}
+    assert m.model_pairing_doubt(_req("The shell pressure shall be 10 bar.", "10"), field) is None
+    # a clause number and a bracketed conversion are not second values
+    assert m.model_pairing_doubt(
+        _req("6.4.1 The shell pressure shall not exceed 10 bar (145 psi).", "10"), field) is None
+
+
+def test_a_doubted_model_pairing_shows_its_numbers_and_waits(stub, monkeypatch):
+    from app import match_rules
+    stub((0, "both describe the shell pressure"))
+    _std, _sub, run, scope = _world(monkeypatch, subject=MODEL_SUBJECT,
+                                    field_label="Shell design pressure")
+    monkeypatch.setattr(match_rules, "model_pairing_doubt",
+                        lambda requirement, fact: match_rules.RELATIVE_LIMIT)
+
+    result = comparison.run_comparison(run, allowed_document_ids=scope)
+
+    found = result["findings"][0]
+    assert found["match_method"] == comparison.METHOD_MODEL_CHOICE
+    assert found["compliance_status"] == comparison.NEEDS_ENGINEER_REVIEW
+    assert "The numbers read COMPLIANT, held for an engineer" in found["ai_rationale"]
+    assert f"low-confidence ({match_rules.RELATIVE_LIMIT})" in found["ai_rationale"]
+    assert result["model_held"] == {match_rules.RELATIVE_LIMIT: 1}

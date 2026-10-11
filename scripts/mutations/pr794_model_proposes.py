@@ -38,4 +38,9 @@ MUTATIONS: tuple[Mutation, ...] = (
              path=_C, anchor='    if (str(settings.match_engine or "ollama").strip().lower()) == "claude":\n',
              replacement='    if True:\n',
              target=_T, keyword="labelled_medium or refusal_rule_refuses", tags=("egress", "critical")),
+    # F1 2026-10-11: three model pairings decided, three false - a doubted pairing waits.
+    Mutation(id="M794-07", phase=794, description="a low-confidence model pairing carries its verdict",
+             path=_C, anchor='                doubt = (match_rules.model_pairing_doubt(governing_requirement, fact)\n',
+             replacement='                doubt = (None and match_rules.model_pairing_doubt(governing_requirement, fact)\n',
+             target=_T, keyword="doubted_model_pairing", tags=("honesty", "critical")),
 )

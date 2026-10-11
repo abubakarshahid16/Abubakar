@@ -2048,6 +2048,8 @@ def run_comparison(
     matches_attempted = matches_made = 0
     rejected_requirements: set = set()
     rule_refusals: dict[str, int] = {}
+    #: Model pairings whose verdict was held, by `match_rules.model_pairing_doubt`.
+    model_held: dict[str, int] = {}
     model_matches = 0
     model_reasons: dict[str, int] = {}
     # ONE CACHE AND ONE BUDGET FOR THE WHOLE RUN. The cache answers a repeated
@@ -2240,6 +2242,20 @@ def run_comparison(
                 verdict = {**verdict, "rationale": (
                     f"{MODEL_PAIR_PREFIX}{match.get('reason') or ''}. "
                     f"{verdict.get('rationale') or ''}")}
+                # ...UNLESS THE PAIRING IS LOW-CONFIDENCE (the same decision:
+                # "low-confidence proposals wait for the engineer"). On the
+                # real-model F1 the first three model pairings to decide were
+                # all false; `match_rules.model_pairing_doubt` names why each
+                # was doubtful. The verdict is shown and held, counted by doubt.
+                doubt = (match_rules.model_pairing_doubt(governing_requirement, fact)
+                         if fact is not None else None)
+                if doubt:
+                    model_held[doubt] = model_held.get(doubt, 0) + 1
+                    status = verdict.get("status")
+                    if status in (COMPLIANT, NON_COMPLIANT):
+                        verdict = {**verdict, "status": NEEDS_ENGINEER_REVIEW, "rationale": (
+                            f"{verdict.get('rationale') or ''} The numbers read {status}, held "
+                            f"for an engineer: the AI matcher's pairing is low-confidence ({doubt}).")}
             elif match["method"] == METHOD_FIELD_NAME:
                 # A MODEL-NAMED PAIRING NEVER CARRIES A VERDICT. The arithmetic
                 # is shown, the status waits for an engineer: measured on a copy
@@ -2418,6 +2434,7 @@ def run_comparison(
            if field_names is not None else {}),
         "model_calls": budget.calls,
         "model_reasons": model_reasons,
+        "model_held": model_held,
         "sheet_kind": sheet,
         "rule_refusals": rule_refusals,
         "findings": findings,
