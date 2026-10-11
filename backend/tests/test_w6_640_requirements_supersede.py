@@ -424,9 +424,12 @@ def test_search_conflicts_and_missing_standards_read_active_rows_only(monkeypatc
     standards.conflicts(allowed_document_ids=scope)
     assert active in handed and old not in handed
 
-    cited = str(standards_inventory._requirement_citations(allowed_document_ids=scope))
-    assert "610" in cited, cited
-    assert "674" not in cited
+    # The cited STANDARD IDENTIFIERS, not the rows' string form: that also
+    # carries a random document id, and "doc_7ec67471b764" contains "674".
+    from app import standard_ids
+    cited = {c["identifier"] for c in standards_inventory._requirement_citations(allowed_document_ids=scope)}
+    assert any(standard_ids.same_standard(i, "API 610") for i in cited), cited
+    assert not any(standard_ids.same_standard(i, "API 674") for i in cited), cited
 
 
 # ------------------------------------------------- #673 the repeats are counted
