@@ -3090,9 +3090,55 @@ def _none_match(reason: str | None = None) -> dict:
             "reason": reason, "candidates": []}
 
 
+#: The `claude_spend` step every matcher call to Claude is charged to.
+MATCH_STEP = "requirement-matcher"
+
+
+def _ask_claude_for_a_pair(prompt: str) -> tuple[str | None, str | None]:
+    """The matcher's question through the ONE Claude lane (R32, 2026-10-11;
+    MATCH_ENGINE=claude): only when `reasoning_provider.claude_unavailable`
+    says Claude may be used, through `reader_transport.transport()` wrapped in
+    `claude_spend.metered` (the USD caps are checked before the call leaves,
+    every call is in the ledger) - `datasheet_ai._claude_call`'s chain.
+    Returns `(text, None)` or `(None, reason)`; never raises."""
+    import dataclasses
+
+    from . import claude_spend, reader_api, reader_transport
+    from .reasoning_provider import claude_unavailable
+    try:
+        code, _why = claude_unavailable()
+        if code is not None:
+            return None, MODEL_UNAVAILABLE
+        transport = reader_transport.transport()
+        if transport is None:
+            return None, MODEL_UNAVAILABLE
+        cfg = dataclasses.replace(reader_api.ReaderSettings.from_env(),
+                                  model=settings.claude_reasoning_model, max_tokens=200,
+                                  timeout_seconds=float(settings.match_timeout_seconds))
+        call = reader_api.model_call_via(claude_spend.metered(
+            transport, MATCH_STEP, unbilled=reader_transport.unbilled), cfg=cfg)
+        return call(prompt), None
+    except (claude_spend.StopRun, claude_spend.BudgetExceeded):
+        return None, MODEL_BUDGET
+    except Exception:  # noqa: BLE001 - refused, timed out, or answered wrongly
+        return None, MODEL_UNAVAILABLE
+
+
+def _json_object_in(text: str | None) -> str:
+    """The first {...} of an answer: Claude may wrap its JSON in a fence."""
+    text = text or ""
+    start, end = text.find("{"), text.rfind("}")
+    return text[start:end + 1] if 0 <= start < end else text
+
+
 def _ask_model_once(requirement: dict, candidates: list[dict]) -> tuple[object, str | None]:
     """One call. Returns `(PairChoice, None)` or `(None, reason)`."""
     from . import model_transport
+    if (str(settings.match_engine or "ollama").strip().lower()) == "claude":
+        answer, why = _ask_claude_for_a_pair(build_prompt(requirement, candidates))
+        if why is not None:
+            return None, why
+        return _checked_choice(_json_object_in(answer), candidates)
     body = {
         "model": settings.answer_model,
         "prompt": build_prompt(requirement, candidates),
@@ -3125,8 +3171,13 @@ def _ask_model_once(requirement: dict, candidates: list[dict]) -> tuple[object, 
             "/api/generate", body, timeout=settings.match_timeout_seconds)
     except Exception:  # noqa: BLE001 - refused, timed out, or answered wrongly
         return None, MODEL_UNAVAILABLE
+    return _checked_choice((raw or {}).get("response") or "", candidates)
+
+
+def _checked_choice(answer: str, candidates: list[dict]) -> tuple[object, str | None]:
+    """The answer validated the same way whichever engine gave it."""
     try:
-        payload = json.loads((raw or {}).get("response") or "")
+        payload = json.loads(answer)
         choice = schemas.PairChoice.model_validate(payload)
     except Exception:  # noqa: BLE001 - not JSON, or not this shape
         return None, MODEL_MALFORMED

@@ -958,3 +958,59 @@ def test_an_unknown_field_in_the_rejection_body_is_refused():
     assert TestClient(app).post(
         "/api/reviews/pairs/reject",
         json={"finding_id": "x", "requirement_id": "y"}).status_code == 422
+
+
+# ================================================== the claude engine (R32)
+
+def _claude_matcher(monkeypatch, tmp_path, text):
+    """MATCH_ENGINE=claude with a fake transport; what was sent is returned."""
+    from app import reader_transport
+    monkeypatch.setattr(settings, "match_engine", "claude")
+    monkeypatch.setattr(settings, "reasoning_provider", "claude")
+    monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
+    monkeypatch.setenv("STANDARDS_READER_ENABLED", "true")
+    monkeypatch.setenv("STANDARDS_READER_ALLOW_PUBLIC_EGRESS", "true")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-NEVER-IN-A-LOG-0000")
+    sent: list[dict] = []
+
+    def send(url, *, headers, body, timeout):
+        sent.append(body)
+        return {"model": body["model"], "stop_reason": "end_turn",
+                "content": [{"type": "text", "text": text}],
+                "usage": {"input_tokens": 100, "output_tokens": 10}}
+    send.usage = {"calls": 0, "input_tokens": 0, "output_tokens": 0}
+    monkeypatch.setattr(reader_transport, "transport", lambda: send)
+    return sent
+
+
+def test_the_matcher_engine_is_local_by_default():
+    from app.config import Settings
+    assert Settings(_env_file=None).match_engine == "ollama"
+
+
+def test_the_claude_matcher_goes_through_the_metered_lane(stub, monkeypatch, tmp_path):
+    from app import claude_spend
+    local = stub((0, "should never be asked"))
+    sent = _claude_matcher(monkeypatch, tmp_path,
+                           '```json\n{"choice": 0, "reason": "both are the shell pressure"}\n```')
+    got = comparison.match_by_model(requirement(subject=MODEL_SUBJECT), CANDIDATES)
+    assert got["fact"] is CANDIDATES[0] and got["method"] == comparison.METHOD_MODEL_CHOICE
+    assert local.calls == 0                                # the local model was not asked
+    assert len(sent) == 2                                  # asked twice, as always
+    assert [e["step"] for e in claude_spend.entries()] == [comparison.MATCH_STEP] * 2
+
+
+def test_the_claude_matcher_is_refused_unless_claude_may_be_used(stub, monkeypatch, tmp_path):
+    sent = _claude_matcher(monkeypatch, tmp_path, '{"choice": 0, "reason": "x"}')
+    monkeypatch.setattr(settings, "reasoning_provider", "ollama")
+    got = comparison.match_by_model(requirement(subject=MODEL_SUBJECT), CANDIDATES)
+    assert got["fact"] is None and got["reason"] == comparison.MODEL_UNAVAILABLE
+    assert sent == []                                      # nothing left the machine
+
+
+def test_a_spend_cap_stops_the_claude_matcher(stub, monkeypatch, tmp_path):
+    sent = _claude_matcher(monkeypatch, tmp_path, '{"choice": 0, "reason": "x"}')
+    monkeypatch.setattr(settings, "claude_budget_usd_per_step", 0.000001)
+    got = comparison.match_by_model(requirement(subject=MODEL_SUBJECT), CANDIDATES)
+    assert got["fact"] is None and got["reason"] == comparison.MODEL_BUDGET
+    assert sent == []

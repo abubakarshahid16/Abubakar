@@ -21,4 +21,21 @@ MUTATIONS: tuple[Mutation, ...] = (
              path=_C, anchor='                    rule_refusals[refused] = rule_refusals.get(refused, 0) + 1\n',
              replacement='',
              target=_T, keyword="refusal_rule_refuses", tags=("honesty",)),
+    # MATCH_ENGINE=claude (R32): the one Claude lane, gated and metered.
+    Mutation(id="M794-04", phase=794, description="the claude matcher is not metered by claude_spend",
+             path=_C, anchor=('        call = reader_api.model_call_via(claude_spend.metered(\n'
+                              '            transport, MATCH_STEP, unbilled=reader_transport.unbilled), cfg=cfg)\n'),
+             replacement='        call = reader_api.model_call_via(transport, cfg=cfg)\n',
+             target=_T, keyword="metered_lane or spend_cap", tags=("budget", "egress", "critical")),
+    Mutation(id="M794-05", phase=794, description="the claude matcher skips the 'may Claude be used' check",
+             path=_C, anchor=('        code, _why = claude_unavailable()\n'
+                              '        if code is not None:\n'
+                              '            return None, MODEL_UNAVAILABLE\n'
+                              '        transport = reader_transport.transport()\n'),
+             replacement='        transport = reader_transport.transport()\n',
+             target=_T, keyword="refused_unless", tags=("egress", "critical")),
+    Mutation(id="M794-06", phase=794, description="the matcher asks Claude although MATCH_ENGINE is ollama",
+             path=_C, anchor='    if (str(settings.match_engine or "ollama").strip().lower()) == "claude":\n',
+             replacement='    if True:\n',
+             target=_T, keyword="labelled_medium or refusal_rule_refuses", tags=("egress", "critical")),
 )
