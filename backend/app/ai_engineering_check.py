@@ -292,7 +292,8 @@ def _local_page_calls(provider, fields: list[dict], pages: dict[int, str], cited
         out["engine"] = f"{response.provider}:{response.model_tag}"
         items = None if response.schema_errors else parse(response.text)
         if items is None and response.truncated:
-            items = parse_partial(response.text)
+            # cut off by the small output cap: the complete items before the cut stand
+            items = parse_partial(response.text or "")
         if items is None:
             rejected[Reason.MALFORMED.value] = rejected.get(Reason.MALFORMED.value, 0) + 1
             out["failed"].append(page)
