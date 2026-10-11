@@ -529,6 +529,14 @@ class Settings(BaseSettings):
     #: and a run without the owner's settings file used to drop the standards
     #: it chooses. Env: APPLICABILITY_REASONING_ENABLED (false turns it off).
     applicability_reasoning_enabled: bool = True
+    #: #791 part 0: print every review step to the backend console and to
+    #: `<data_dir>/debug/review-<run>.log` (git-ignored, this machine only),
+    #: through the `review.debug` logger (`review_trace`). OFF by default; the
+    #: lines carry document values. Env: REVIEW_DEBUG.
+    review_debug: bool = False
+    #: With `review_debug`: one more line per checklist item and per CRS row.
+    #: Env: REVIEW_DEBUG_DETAIL.
+    review_debug_detail: bool = False
     #: R26 step 8 (#763): when a review finishes, the configured model
     #: (`reasoning_provider`: the local engine, or the Claude lane when it is
     #: on) rewrites each machine CRS comment in a reviewing engineer's voice;
