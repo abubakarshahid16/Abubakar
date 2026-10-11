@@ -65,7 +65,9 @@ running) calls, in order:
      `standards.search_requirements` has **no caller** (DEAD).
    - **Pairing:** `match_by_containment` (:1288, deterministic) first; `match_by_model`
      (:1632) only if containment found nothing AND `settings.match_enabled` — **default
-     False (OFF)**; otherwise the rationale is tagged `MODEL_DISABLED`.
+     True since 2026-10-11 (owner order item 4)**: the model's choice passes
+     `match_rules.refusal` and the finding is always held for an engineer
+     (`MODEL_PAIR_PREFIX`); off, the rationale is tagged `MODEL_DISABLED`.
    - **Verdict:** `compare` (:266) — deterministic unit arithmetic (`claims.normalise`);
      unit guard and ambiguity force `NEEDS_ENGINEER_REVIEW`.
    - **Citation check:** `create_finding` (:633) → `_citation_resolves` (:610): chunk

@@ -89,16 +89,15 @@ def _log_match_tier() -> None:
     if settings.match_enabled:
         log.warning(
             "MATCH_ENABLED=true - the model tier of the requirement matcher is "
-            "ON. It FAILED its hard gate on 2026-09-19 (six of seven pairings "
-            "were false friends, three of them reported NON_COMPLIANT against "
-            "the contractor). Every pairing it makes is labelled "
-            "match_method=model and must be confirmed by an engineer.")
+            "ON. It only PROPOSES: its pairings pass the match refusal rules "
+            "and never carry a status (each waits for an engineer), because it "
+            "failed its hard gate on 2026-09-19 (six of seven pairings were "
+            "false friends). Every pairing it makes is labelled match_method=model.")
     else:
         log.info(
             "MATCH_ENABLED=false - requirement matching is deterministic "
-            "containment only; the model tier is OFF pending redesign (see "
-            "docs/design/model-assisted-matching.md section 10). Findings say "
-            "so in their rationale.")
+            "containment only; the model tier is OFF (it is on by default since "
+            "2026-10-11, proposals only). Findings say so in their rationale.")
 
 
 def _log_hooks_path() -> None:

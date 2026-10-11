@@ -458,7 +458,15 @@ class Settings(BaseSettings):
     #: False turns the tier off entirely and the findings SAY SO in their
     #: rationale - a review that silently stopped asking would look identical
     #: to one where the model declined every time.
-    match_enabled: bool = False
+    #:
+    #: ON BY DEFAULT since the owner order of 2026-10-11 (item 4, "AI proposes
+    #: rule-value matches"), REDESIGNED so the 2026-09-19 failure cannot reach
+    #: a verdict: the model's choice passes the same refusal rules as a
+    #: containment pairing (`match_rules.refusal`, refusals counted by rule),
+    #: and a pairing it proposed NEVER carries a status - the code's
+    #: arithmetic is shown and the finding waits for an engineer. Tests pin it
+    #: off (`tests/env_isolation.py` TEST_PINS). Env: MATCH_ENABLED.
+    match_enabled: bool = True
     #: #193 plan B4 (order 5.5): the geometry reader (`geometry_reader.py`)
     #: adds its form and table readings to `submittal_facts` during
     #: `datasheets.extract_facts`, as `extraction_method='geometry'` rows with

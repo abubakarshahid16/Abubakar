@@ -2102,7 +2102,17 @@ def run_comparison(
             else:
                 chosen = match_by_model(
                     requirement, facts, cache=model_cache, budget=budget)
-                if chosen["fact"] is not None:
+                # OWNER ORDER 2026-10-11 (item 4): THE MODEL ONLY PROPOSES.
+                # Its choice passes the same refusal rules a containment
+                # pairing does (unit dimension, equipment, table input,
+                # compound term, qualifier); a refused proposal is counted by
+                # rule and said on the finding, never used.
+                refused = (match_rules.refusal(requirement, chosen["fact"], sheet=sheet)
+                           if chosen["fact"] is not None else None)
+                if refused:
+                    rule_refusals[refused] = rule_refusals.get(refused, 0) + 1
+                    model_reason = f"{MODEL_REFUSED} ({refused})"
+                elif chosen["fact"] is not None:
                     match = chosen
                     fact = chosen["fact"]
                     model_matches += 1
@@ -2221,9 +2231,22 @@ def run_comparison(
             # prefix written before them would be silently dropped on exactly the
             # findings a reader most needs it on.
             if match["method"] == METHOD_MODEL_CHOICE:
-                verdict = {**verdict, "rationale": (
-                    f"{MODEL_PAIR_PREFIX}{match.get('reason') or ''}. "
-                    f"{verdict.get('rationale') or ''}")}
+                # A MODEL-PROPOSED PAIRING NEVER CARRIES A VERDICT (owner order
+                # 2026-10-11, item 4): measured 2026-09-19, six of seven model
+                # pairings were false friends and three read NON_COMPLIANT. The
+                # code's arithmetic is shown; the status waits for an engineer,
+                # exactly like a pairing by model-assigned field name below.
+                status = verdict.get("status")
+                held = status != NEEDS_ENGINEER_REVIEW
+                said = ("The numbers read" if status in (COMPLIANT, NON_COMPLIANT)
+                        else "The comparison read")
+                verdict = {**verdict,
+                           "status": NEEDS_ENGINEER_REVIEW,
+                           "rationale": (
+                               f"{MODEL_PAIR_PREFIX}{match.get('reason') or ''}. "
+                               + (f"{said} {status}, held for an engineer because "
+                                  "the model proposed the pairing. " if held else "")
+                               + f"{verdict.get('rationale') or ''}")}
             elif match["method"] == METHOD_FIELD_NAME:
                 # A MODEL-NAMED PAIRING NEVER CARRIES A VERDICT. The arithmetic
                 # is shown, the status waits for an engineer: measured on a copy
@@ -2941,6 +2964,9 @@ MODEL_NAMED_OTHER = "model_named_other"
 MODEL_UNSTABLE = "model_unstable"
 MODEL_BUDGET = "model_budget"
 MODEL_DECLINED = "model_declined"
+#: The model proposed a pairing and a refusal rule (`match_rules.refusal`)
+#: refused it; the rule's name follows in brackets.
+MODEL_REFUSED = "model_refused_by_rule"
 
 #: Every model-paired finding says so in its own first words. A pairing the
 #: machine guessed and a pairing it derived must not read alike - the same rule

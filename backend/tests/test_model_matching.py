@@ -124,12 +124,15 @@ CANDIDATES = [fact("shell design pressure"), fact("hydrotest pressure")]
 
 # ============================================== what a deployment gets
 
-def test_the_shipped_default_is_off():
-    """THE TIER FAILED ITS HARD GATE AND MUST NOT RUN UNTIL IT IS REDESIGNED.
+def test_the_shipped_default_is_on_and_the_tier_only_proposes():
+    """THE TIER FAILED ITS HARD GATE ON 2026-09-19 and was off until the owner
+    order of 2026-10-11 (item 4) turned it on REDESIGNED: its pairings pass the
+    match refusal rules and never carry a status (each waits for an engineer -
+    `test_model_proposals.py`).
 
     Measured on datasheet 1: 7 pairings proposed, SIX false friends, three of
     them reporting NON_COMPLIANT against the contractor with both citations
-    resolving. The design's gate is zero false pairings.
+    resolving. That is why a model pairing is held, not trusted.
 
     A fresh `Settings()` is the claim, not the module singleton: this file's
     own fixture turns the tier ON, and `conftest` pins it off for every other
@@ -140,9 +143,8 @@ def test_the_shipped_default_is_off():
     """
     from app.config import Settings
 
-    assert Settings(_env_file=None).match_enabled is False, (
-        "the model tier ships ON again - it failed its hard gate on "
-        "2026-09-19 and no redesign has been evaluated since")
+    assert Settings(_env_file=None).match_enabled is True, (
+        "the model tier ships off - the owner order of 2026-10-11 turned it on")
 
 
 def test_the_startup_line_names_the_tier_and_its_state(caplog):
@@ -165,10 +167,10 @@ def test_the_startup_line_names_the_tier_and_its_state(caplog):
         finally:
             settings.match_enabled = monkey
 
-    assert "MATCH_ENABLED=false" in off and "OFF pending redesign" in off
+    assert "MATCH_ENABLED=false" in off and "model tier is OFF" in off
     # AND THE OTHER STATE SAYS THE OPPOSITE, so this cannot pass against a
     # line that prints the same words whatever the setting is.
-    assert "MATCH_ENABLED=true" in on and "FAILED its hard gate" in on
+    assert "MATCH_ENABLED=true" in on and "only PROPOSES" in on
 
 
 # ================================================= what the model may see
@@ -502,6 +504,14 @@ def test_the_budget_stops_the_tier_and_says_so(stub):
 
 # =========================================== the tier inside a whole run
 
+#: A subject containment cannot pair with "Shell design pressure" and the
+#: match refusal rules allow. Until 2026-10-11 these tests used "the maximum
+#: allowable working pressure" - a false friend of design pressure, which the
+#: qualifier rule now refuses even when the model proposes it (owner order
+#: item 4; `test_a_model_proposal_a_refusal_rule_refuses_is_not_used`).
+MODEL_SUBJECT = "the shell pressure"
+
+
 def _world(monkeypatch, *, subject: str, field_label: str,
            raw_value: str = "8.5 bar") -> tuple[str, str, str, frozenset]:
     """A standard, a submittal, one requirement, one fact, one run."""
@@ -528,8 +538,8 @@ def _world(monkeypatch, *, subject: str, field_label: str,
         chunks[doc_id] = chunk_id
     standards.create_requirement(
         standard_document_id=std, chunk_id="sc",
-        requirement_text="The maximum allowable working pressure shall be 10 bar.",
-        source_text="The maximum allowable working pressure shall be 10 bar.",
+        requirement_text=f"{subject[0].upper()}{subject[1:]} shall be 10 bar.",
+        source_text=f"{subject[0].upper()}{subject[1:]} shall be 10 bar.",
         clause="6.4.1", page=1,
         structured={"subject": subject, "operator": "<=", "raw_value": "10",
                     "raw_unit": "bar", "requirement_type": "numeric_limit"})
@@ -559,7 +569,7 @@ def test_a_model_paired_finding_is_labelled_medium_and_says_who_paired_it(
     """
     stub((0, "both describe the vessel working pressure"))
     _std, _sub, run, scope = _world(
-        monkeypatch, subject="the maximum allowable working pressure",
+        monkeypatch, subject=MODEL_SUBJECT,
         field_label="Shell design pressure")
 
     result = comparison.run_comparison(run, allowed_document_ids=scope)
@@ -571,8 +581,35 @@ def test_a_model_paired_finding_is_labelled_medium_and_says_who_paired_it(
     assert found["confidence"] == "medium"
     assert found["ai_rationale"].startswith(comparison.MODEL_PAIR_PREFIX)
     assert "both describe the vessel working pressure" in found["ai_rationale"]
-    # THE MODEL DID NOT SET THE STATUS. 8.5 <= 10 is arithmetic.
-    assert found["compliance_status"] == comparison.COMPLIANT
+    # THE MODEL DID NOT SET THE STATUS, AND ITS PAIRING CARRIES NONE (owner
+    # order 2026-10-11, item 4): 8.5 <= 10 is arithmetic, shown and held.
+    assert found["compliance_status"] == comparison.NEEDS_ENGINEER_REVIEW
+    assert "The numbers read COMPLIANT, held for an engineer" in found["ai_rationale"]
+
+
+def test_a_model_proposal_a_refusal_rule_refuses_is_not_used(stub, monkeypatch):
+    """Owner order 2026-10-11, item 4: the model only proposes. Its choice
+    passes the same refusal rules a containment pairing does; a refused
+    proposal is counted by rule and said on the finding."""
+    from app import match_rules
+    stub((0, "both describe the vessel working pressure"))
+    _std, _sub, run, scope = _world(
+        monkeypatch, subject=MODEL_SUBJECT,
+        field_label="Shell design pressure")
+    seen = []
+
+    def refuse(requirement, fact, *, sheet):
+        seen.append(fact["field_name"])
+        return match_rules.QUALIFIER
+    monkeypatch.setattr(match_rules, "refusal", refuse)
+
+    result = comparison.run_comparison(run, allowed_document_ids=scope)
+
+    assert "shell design pressure" in seen                 # the proposal was checked
+    assert result["model_matches"] == 0
+    found = result["findings"][0]
+    assert found["match_method"] != comparison.METHOD_MODEL_CHOICE
+    assert f"{comparison.MODEL_REFUSED} ({match_rules.QUALIFIER})" in found["ai_rationale"]
 
 
 def test_containment_takes_precedence_and_the_model_is_not_asked(
@@ -618,7 +655,7 @@ def test_a_declined_pairing_leaves_missing_information_and_says_why(
         stub, monkeypatch):
     stub((None, "no candidate is that quantity"))
     _std, _sub, run, scope = _world(
-        monkeypatch, subject="the maximum allowable working pressure",
+        monkeypatch, subject=MODEL_SUBJECT,
         field_label="Shell design pressure")
 
     result = comparison.run_comparison(run, allowed_document_ids=scope)
@@ -634,7 +671,7 @@ def test_an_unavailable_model_says_so_on_the_finding(stub, monkeypatch):
     answer" must not read alike."""
     stub(raises=RuntimeError("connection refused"))
     _std, _sub, run, scope = _world(
-        monkeypatch, subject="the maximum allowable working pressure",
+        monkeypatch, subject=MODEL_SUBJECT,
         field_label="Shell design pressure")
 
     result = comparison.run_comparison(run, allowed_document_ids=scope)
@@ -658,7 +695,7 @@ def test_the_tier_can_be_turned_off_and_the_finding_says_it_was(
     asked = stub((0, "should never be asked"))
     monkeypatch.setattr(settings, "match_enabled", False)
     _std, _sub, run, scope = _world(
-        monkeypatch, subject="the maximum allowable working pressure",
+        monkeypatch, subject=MODEL_SUBJECT,
         field_label="Shell design pressure")
 
     result = comparison.run_comparison(run, allowed_document_ids=scope)
@@ -676,7 +713,7 @@ def test_the_budget_stops_a_whole_run_and_marks_the_rest(stub, monkeypatch):
     asked = stub((0, "same quantity"))
     monkeypatch.setattr(settings, "match_max_calls_per_run", 0)
     _std, _sub, run, scope = _world(
-        monkeypatch, subject="the maximum allowable working pressure",
+        monkeypatch, subject=MODEL_SUBJECT,
         field_label="Shell design pressure")
 
     result = comparison.run_comparison(run, allowed_document_ids=scope)
@@ -696,7 +733,7 @@ def test_a_model_paired_table_row_is_still_refused_and_quoted(
     """
     stub((0, "the row is about this field"))
     _std, _sub, run, scope = _world(
-        monkeypatch, subject="the maximum allowable working pressure",
+        monkeypatch, subject=MODEL_SUBJECT,
         field_label="Shell design pressure")
     with db.connect() as conn:
         conn.execute("UPDATE standard_requirements SET requirement_type = ?",
@@ -750,7 +787,7 @@ def test_confirming_through_the_patch_route_names_the_caller_not_the_body(
     """
     stub((0, "both describe the vessel working pressure"))
     _std, _sub, run, scope = _world(
-        monkeypatch, subject="the maximum allowable working pressure",
+        monkeypatch, subject=MODEL_SUBJECT,
         field_label="Shell design pressure")
     finding_id = comparison.run_comparison(
         run, allowed_document_ids=scope)["findings"][0]["id"]
@@ -779,7 +816,7 @@ def test_a_body_naming_a_confirmer_cannot_set_one(stub, monkeypatch):
     """
     stub((0, "both describe the vessel working pressure"))
     _std, _sub, run, scope = _world(
-        monkeypatch, subject="the maximum allowable working pressure",
+        monkeypatch, subject=MODEL_SUBJECT,
         field_label="Shell design pressure")
     finding_id = comparison.run_comparison(
         run, allowed_document_ids=scope)["findings"][0]["id"]
@@ -804,7 +841,7 @@ def test_a_confirmation_with_no_identity_is_refused(stub, monkeypatch):
     """
     stub((0, "both describe the vessel working pressure"))
     _std, _sub, run, scope = _world(
-        monkeypatch, subject="the maximum allowable working pressure",
+        monkeypatch, subject=MODEL_SUBJECT,
         field_label="Shell design pressure")
     finding_id = comparison.run_comparison(
         run, allowed_document_ids=scope)["findings"][0]["id"]
@@ -826,7 +863,7 @@ def test_a_confirmed_model_pairing_survives_a_re_run(stub, monkeypatch):
     """THROUGH `run_comparison`, WHICH IS WHERE `replace` ACTUALLY DELETES."""
     stub((0, "both describe the vessel working pressure"))
     _std, _sub, run, scope = _world(
-        monkeypatch, subject="the maximum allowable working pressure",
+        monkeypatch, subject=MODEL_SUBJECT,
         field_label="Shell design pressure")
     kept = comparison.run_comparison(
         run, allowed_document_ids=scope)["findings"][0]["id"]
@@ -854,7 +891,7 @@ def test_rejecting_a_pair_through_the_route_stops_it_being_proposed_again(
     """
     stub((0, "both describe the vessel working pressure"))
     _std, _sub, run, scope = _world(
-        monkeypatch, subject="the maximum allowable working pressure",
+        monkeypatch, subject=MODEL_SUBJECT,
         field_label="Shell design pressure")
     first = comparison.run_comparison(run, allowed_document_ids=scope)
     assert first["model_matches"] == 1
@@ -875,7 +912,7 @@ def test_rejecting_a_finding_with_no_pairing_is_refused(stub, monkeypatch):
     pair, and the engineer would believe a correction had been recorded."""
     stub((None, "no candidate is that quantity"))
     _std, _sub, run, scope = _world(
-        monkeypatch, subject="the maximum allowable working pressure",
+        monkeypatch, subject=MODEL_SUBJECT,
         field_label="Shell design pressure")
     unpaired = comparison.run_comparison(
         run, allowed_document_ids=scope)["findings"][0]
@@ -893,7 +930,7 @@ def test_an_out_of_scope_caller_gets_the_same_answer_as_a_missing_finding(
     to learn it exists by being told they may not touch it."""
     stub((0, "both describe the vessel working pressure"))
     _std, _sub, run, scope = _world(
-        monkeypatch, subject="the maximum allowable working pressure",
+        monkeypatch, subject=MODEL_SUBJECT,
         field_label="Shell design pressure")
     finding_id = comparison.run_comparison(
         run, allowed_document_ids=scope)["findings"][0]["id"]

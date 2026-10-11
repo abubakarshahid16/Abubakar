@@ -74,6 +74,9 @@ TEST_PINS: dict[str, object] = {
     # On by default since #736 (owner decision 2026-10-10); in tests it would
     # be a model call per standard per review.
     "applicability_reasoning_enabled": False,
+    # On by default since the owner order of 2026-10-11 (item 4); in tests it
+    # would be two model calls per unmatched requirement.
+    "match_enabled": False,
 }
 
 #: The only values these fields may hold when a test session starts. A test
