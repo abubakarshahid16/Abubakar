@@ -499,7 +499,26 @@ def low_trust_reason(fact: dict | None) -> str | None:
         return (f"the value was read with validation state '{state}' "
                 "(a low-confidence or conflicting reading)")
     if (fact.get("extraction_method") or "").strip().lower() == "model":
+        # PLANNER DECISION 2026-10-11 (09:11 UTC): an AI-read value whose
+        # quote the code found on that page is a normal fact and decides like
+        # a code-read one. Any other model-read value (no proved quote: the
+        # vision reader, an older reading) still waits for an engineer; a
+        # reading that CONFLICTS with the code readers is caught above.
+        if ai_quote_proved(fact):
+            return None
         return "the value was read by the model reader and no engineer has confirmed it"
+    return None
+
+
+def ai_quote_proved(fact: dict | None) -> dict | None:
+    """The AI reader's provenance (`engine`, `model`) when this fact was read
+    by `datasheet_ai` and the code proved its quote on the page; else None."""
+    try:
+        box = json.loads((fact or {}).get("bbox") or "{}")
+    except (TypeError, ValueError):
+        return None
+    if isinstance(box, dict) and box.get("reader") == "datasheet_ai" and box.get("quote_on_page") is True:
+        return box
     return None
 
 
@@ -535,9 +554,17 @@ def compare(requirement: dict, fact: dict | None, *,
             submittal_facts: list[dict] | None = None) -> dict:
     """`_compare`'s verdict, with a breach on an untrusted value held for an
     engineer (`_hold_low_trust_breach`). Every caller gets the guard."""
-    return _hold_low_trust_breach(
+    verdict = _hold_low_trust_breach(
         _compare(requirement, fact, subject=subject, submittal_facts=submittal_facts),
         fact)
+    box = ai_quote_proved(fact) if fact and not fact.get("confirmed_by") else None
+    if box and verdict.get("status") in _VERDICTS_HELD_ON_LOW_TRUST:
+        # THE TRACE SAYS THE SOURCE: an AI-read value decided this verdict.
+        who = (box.get("engine") or "AI") + (f" ({box['model']})" if box.get("model") else "")
+        verdict = {**verdict, "rationale": (
+            f"{verdict.get('rationale') or ''} (value read by the AI reader {who}; "
+            f"its quote was found on page {fact.get('page')})")}
+    return verdict
 
 
 def _compare(requirement: dict, fact: dict | None, *,
@@ -915,6 +942,18 @@ def _reference_obstacle(observed: claims.Measurement, limit: claims.Measurement)
         return (f"the submitted pressure is {observed.reference} and the required one is "
                 f"{limit.reference}; they differ by the atmospheric pressure, which is not "
                 "recorded, so no comparison was made")
+    # R32, 2026-10-11: ONE side absolute, the other with NO stated reference.
+    # An unreferenced pressure limit is read as gauge or differential (the
+    # everyday meaning, and why gauge against unreferenced stays comparable);
+    # an ABSOLUTE value beside it is off by an atmosphere, the same obstacle
+    # as above. Found when a note's absolute pressure read "within" a limit
+    # stated with no reference - a verdict nobody could stand behind.
+    references = {observed.reference, limit.reference}
+    if "absolute" in references and None in references:
+        stated, other = (("submitted", "required") if observed.reference else ("required", "submitted"))
+        return (f"the {stated} pressure is absolute and the {other} one states no reference "
+                "(gauge or absolute); they can differ by the atmospheric pressure, so no "
+                "comparison was made")
     return None
 
 
@@ -2368,6 +2407,12 @@ def _run_comparison(
         split = {**split, "checklist": checklist_note}
     if checklist_coverage:
         split = {**split, "checklist_coverage": checklist_coverage}
+    # Owner order 2026-10-11: the run says which reader read the sheet - the
+    # AI engine and model, or "code readers only", and the pages the AI did
+    # not read (timed out, unavailable) with the reason.
+    reader = datasheets.latest_reader_summary(submittal_id)
+    if reader:
+        split = {**split, "reader": reader}
     unchecked_counts = {
         "not_compared": split["applies_not_checked"],
         "not_applied": split["does_not_apply"],

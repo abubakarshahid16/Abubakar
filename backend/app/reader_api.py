@@ -688,6 +688,13 @@ class ReaderSettings:
 IMAGE_MEDIA_TYPES = ("image/png", "image/jpeg")
 
 
+def _rejects_temperature(model: str | None) -> bool:
+    from .config import settings
+    name = (model or "").lower()
+    return any(name == p or name.startswith(p + "-")
+               for p in settings.claude_models_without_temperature)
+
+
 def build_request(prompt: str, *, cfg: ReaderSettings | None = None, env=None,
                   images=()) -> dict:
     """The whole outbound request, built and CHECKED, but not sent.
@@ -748,9 +755,15 @@ def build_request(prompt: str, *, cfg: ReaderSettings | None = None, env=None,
     body = {
         "model": cfg.model,
         "max_tokens": cfg.max_tokens,
-        "temperature": 0,
         "messages": [{"role": "user", "content": content}],
     }
+    # SOME MODELS REJECT `temperature` (config `claude_models_without_temperature`,
+    # the list `reasoning_provider.no_temperature` reads). R32, 2026-10-11:
+    # the datasheet reader and the matcher were pointed at the reasoning
+    # model, this function still sent temperature 0, and EVERY call came back
+    # an HTTP error (unbilled, nothing read). Sent wherever it is accepted.
+    if not _rejects_temperature(cfg.model):
+        body["temperature"] = 0
     return {"url": cfg.base_url.rstrip("/") + MESSAGES_PATH,
             "headers": headers, "body": body, "timeout": cfg.timeout_seconds}
 

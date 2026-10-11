@@ -145,3 +145,14 @@ def test_a_review_with_a_checklist_states_its_reader_coverage():
     result, _stored, _ids = _review("Pressure Safety Valve")
     cov = result["requirement_split"]["checklist_coverage"]
     assert cov["fields"] > 0 and cov["read"] <= cov["fields"]
+
+
+def test_a_review_says_which_reader_read_the_sheet():
+    """Owner order 2026-10-11: the run states the AI reader's engine and model
+    and the pages left to the code readers (the newest extraction's summary)."""
+    datasheets.record_reader_summary("sub", "v", {"engine": "ollama", "model": "m1", "pages": 2,
+                                                  "pages_read": 1, "code_only": {"2": "timed out"}})
+    result, _stored, _ids = _review("Pressure Safety Valve")
+    assert result["requirement_split"]["reader"]["model"] == "m1"
+    assert any(line.startswith("AI reader ollama (m1) read 1 of 2")
+               for line in absence.split_lines(result["requirement_split"]))
