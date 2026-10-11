@@ -545,6 +545,14 @@ class Settings(BaseSettings):
     #: and a run without the owner's settings file used to drop the standards
     #: it chooses. Env: APPLICABILITY_REASONING_ENABLED (false turns it off).
     applicability_reasoning_enabled: bool = True
+    #: #791 part 0: print every review step to the backend console and to
+    #: `<data_dir>/debug/review-<run>.log` (git-ignored, this machine only),
+    #: through the `review.debug` logger (`review_trace`). OFF by default; the
+    #: lines carry document values. Env: REVIEW_DEBUG.
+    review_debug: bool = False
+    #: With `review_debug`: one more line per checklist item and per CRS row.
+    #: Env: REVIEW_DEBUG_DETAIL.
+    review_debug_detail: bool = False
     #: B4 (nozzle schedules): ONLY the geometry reader's TABLE path - a ruled
     #: grid read cell by cell under its column heading ("N1 Size 4", "N1
     #: Flange Rating CL-150"). A schedule is one row per item across many
