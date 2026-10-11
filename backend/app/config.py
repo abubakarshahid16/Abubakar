@@ -508,7 +508,10 @@ class Settings(BaseSettings):
     #: Env: DATASHEET_AI_TIMEOUT_SECONDS.
     datasheet_ai_timeout_seconds: float = 180.0
     #: Seconds the AI reader may spend on ONE document; the pages after that
-    #: keep the code readers' reading, each with the reason.
+    #: keep the code readers' reading, each with the reason. Checked before
+    #: each page: a page already started finishes (two calls, each up to
+    #: DATASHEET_AI_TIMEOUT_SECONDS), so a document can run up to two
+    #: timeouts past it (F1 2026-10-11: 907 s and 1056 s against 900).
     #: Env: DATASHEET_AI_MAX_SECONDS.
     datasheet_ai_max_seconds: float = 900.0
     #: The local model the "ollama" engine uses; empty = `answer_model`.

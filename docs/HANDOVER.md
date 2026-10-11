@@ -165,8 +165,11 @@ Retraction 25 is recorded.
 | Design canvas of the whole system incl. Compare screen | ✅ published artifact "RAG Intelligence System" (Claude Design) |
 
 **Datasheet AI reader ("AI reads, code checks"), added 2026-09-30, ON BY
-DEFAULT (local engine) since the owner order of 2026-10-11; NOT YET MEASURED on
-the real datasheets.** `DATASHEET_AI_READER` (`ollama` default | `off` |
+DEFAULT (local engine) since the owner order of 2026-10-11. Measured on copies
+of the three real datasheets (F1, 2026-10-11, qwen3.5:4b): findings identical
+to AI-off on all three; the model read 1, 3 and 6 pages of 5, 7 and 11 within
+the budget, most other pages timed out, and it added 2 AI-only facts (held as
+model readings) and 1 agreement in total. Safe, and of little use on this PC.** `DATASHEET_AI_READER` (`ollama` default | `off` |
 `claude`; tests pin it off). A model call past `DATASHEET_AI_TIMEOUT_SECONDS`
 (180) and every page after `DATASHEET_AI_MAX_SECONDS` (900) per document keep
 the code readers' reading, and the review says which reader read the sheet

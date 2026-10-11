@@ -271,10 +271,17 @@ def _seconds(value) -> str:
 
 def is_timeout(exc: BaseException) -> bool:
     """A call that ran out of time, by type: the transport's timeout
-    (httpx's `TimeoutException` family) or a plain `TimeoutError`. Only the
-    type is looked at - never the message."""
-    return isinstance(exc, TimeoutError) or any(
-        "Timeout" in k.__name__ for k in type(exc).__mro__)
+    (httpx's `TimeoutException` family) or a plain `TimeoutError` - on the
+    exception or anywhere down its cause chain, because the Ollama provider
+    re-raises every transport failure as `ProviderRefused` (measured on F1,
+    2026-10-11: every timed-out page read "engine failed (ProviderRefused)").
+    Only types are looked at - never a message."""
+    seen = 0
+    while exc is not None and seen < 10:
+        if isinstance(exc, TimeoutError) or any("Timeout" in k.__name__ for k in type(exc).__mro__):
+            return True
+        exc, seen = exc.__cause__ or exc.__context__, seen + 1
+    return False
 
 
 def read_page_text_with_ai(page_text: str, page_no: int, engine_or_callable) -> dict:

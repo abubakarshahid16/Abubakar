@@ -85,6 +85,24 @@ def test_a_call_that_times_out_leaves_the_page_to_the_code_readers_and_says_so(m
         assert set(out["pages"]) == {1, 2, 3}                    # pages 1 and 3 still read
 
 
+def test_a_timeout_the_provider_re_raised_is_still_a_timeout(monkeypatch):
+    """F1, 2026-10-11: `OllamaProvider` wraps every transport failure in
+    `ProviderRefused`; the timeout under it must still be named."""
+    from app.reasoning_provider import ProviderRefused
+    monkeypatch.setattr(settings, "datasheet_ai_timeout_seconds", 30.0)
+    try:
+        try:
+            raise httpx.ReadTimeout("slow")
+        except httpx.ReadTimeout as inner:
+            raise ProviderRefused("ollama: ReadTimeout") from inner
+    except ProviderRefused as wrapped:
+        exc = wrapped
+    out = datasheet_ai.read_pages({1: "page two text"}, SlowOnPage(exc))
+    assert out["timed_out"] == [1]
+    assert out["reasons"] == {1: datasheet_ai.TIMED_OUT.format(seconds="30")}
+    assert not datasheet_ai.is_timeout(ProviderRefused("ollama: ConnectError"))
+
+
 def test_another_failure_is_not_called_a_timeout():
     out = datasheet_ai.read_pages({1: "page two text"}, SlowOnPage(RuntimeError("down")))
     assert out["timed_out"] == [] and out["reasons"] == {1: "engine failed (RuntimeError)"}
