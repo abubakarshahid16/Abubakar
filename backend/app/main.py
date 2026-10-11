@@ -72,7 +72,7 @@ from . import submittal_review as submittal_review_mod
 from . import workbook as workbook_mod
 from . import vector_store as vector_store_mod
 from . import schemas
-from .config import settings
+from .config import config_version, settings
 from .db import connect, init_db
 
 
@@ -4571,6 +4571,21 @@ def _readiness_payload(submittal_document_id: str, scope: access.AccessScope) ->
             (submittal_document_id, since)).fetchone()[0]
         if newer_facts:
             changes.append(f"{newer_facts} datasheet value(s) read since the last run")
+        # F-b: a reader change is a change - the next review re-reads the sheet.
+        if datasheets_mod.facts_reader_stale(submittal_document_id):
+            changes.append("the datasheet reader changed since these values were read; "
+                           "the next review reads the sheet again")
+        # Roadmap R5 (#763): the review CODE is an input too. Same sheet, same
+        # library, new code -> a new result (live, 10 Oct: 6,900 -> 3,470).
+        stamped = review_jobs_mod.last_run_versions(last["id"])
+        if not stamped or not stamped.get("code_version"):
+            changes.append("the review code version of the last run is not recorded; "
+                           "the next run uses the current review code")
+        elif stamped["code_version"] != review_jobs_mod.review_code_version():
+            changes.append("the review code was updated since the last run")
+        if stamped and stamped.get("config_version") \
+                and stamped["config_version"] != config_version():
+            changes.append("the review settings changed since the last run")
         newer_standards = [r["filename"] for r in connect().execute(
             "SELECT d.id, d.filename FROM documents d JOIN document_classification c"
             " ON c.document_id = d.id WHERE c.document_role = 'COMPANY_STANDARD'"

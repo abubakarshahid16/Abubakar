@@ -661,8 +661,11 @@ def ensure_facts_extracted(document_id: str, allowed_document_ids: frozenset[str
     (master plan section 24), so a second call over the same sheet extracts
     nothing and cannot duplicate them. Any existing fact - confirmed by an
     engineer or not - means the sheet has been read; re-reading it is the
-    explicit re-extraction route's job, never a side effect of a review or of
-    ingestion.
+    explicit re-extraction route's job, with ONE exception (F-b, planner
+    2026-10-10): when the current rule-read facts were written by another
+    reader version (`datasheets.facts_reader_stale`), the sheet is read again
+    with `replace=True` (supersede, never delete; confirmed facts survive), so
+    a fix to the reader reaches the next review instead of never.
 
     Returns `extract_facts`'s result dict, or None when nothing ran because
     facts already existed. Raises whatever `extract_facts` raises; callers
@@ -690,6 +693,13 @@ def ensure_facts_extracted(document_id: str, allowed_document_ids: frozenset[str
         " AND superseded_at IS NULL LIMIT 1",
         (document_id,)).fetchone()
     if has_facts is not None:
+        # F-b (planner 2026-10-10): the facts were read by an OLDER reader -
+        # read the sheet again (replace=True supersedes, never deletes; an
+        # engineer-confirmed fact survives), so a reader fix reaches reviews.
+        if datasheets.facts_reader_stale(document_id):
+            return datasheets.extract_facts(
+                document_id, allowed_document_ids=allowed_document_ids,
+                review_run_id=review_run_id, replace=True)
         return
     return datasheets.extract_facts(
         document_id, allowed_document_ids=allowed_document_ids,
