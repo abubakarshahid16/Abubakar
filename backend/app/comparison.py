@@ -942,6 +942,18 @@ def _reference_obstacle(observed: claims.Measurement, limit: claims.Measurement)
         return (f"the submitted pressure is {observed.reference} and the required one is "
                 f"{limit.reference}; they differ by the atmospheric pressure, which is not "
                 "recorded, so no comparison was made")
+    # R32, 2026-10-11: ONE side absolute, the other with NO stated reference.
+    # An unreferenced pressure limit is read as gauge or differential (the
+    # everyday meaning, and why gauge against unreferenced stays comparable);
+    # an ABSOLUTE value beside it is off by an atmosphere, the same obstacle
+    # as above. Found when a note's absolute pressure read "within" a limit
+    # stated with no reference - a verdict nobody could stand behind.
+    references = {observed.reference, limit.reference}
+    if "absolute" in references and None in references:
+        stated, other = (("submitted", "required") if observed.reference else ("required", "submitted"))
+        return (f"the {stated} pressure is absolute and the {other} one states no reference "
+                "(gauge or absolute); they can differ by the atmospheric pressure, so no "
+                "comparison was made")
     return None
 
 

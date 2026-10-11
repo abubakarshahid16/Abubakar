@@ -91,3 +91,19 @@ def test_the_stored_normalised_value_of_a_fact_is_used():
     assert m.normalized_value == pytest.approx(340 * MPA_PER_PSI)
     assert m.normalized_unit == "MPa" and m.reference == "gauge"
     assert comparison.compare(_requirement(raw_value="20"), fact)["status"] == comparison.NON_COMPLIANT
+
+
+def test_an_absolute_pressure_against_a_limit_with_no_reference_is_not_compared():
+    """R32, 2026-10-11: a note's absolute pressure read "within" a limit stated
+    with no reference - off by an atmosphere, so a verdict nobody could stand
+    behind. Gauge against an unreferenced limit stays comparable."""
+    from app import claims, comparison
+    absolute = claims.normalise("50", "kPaa")
+    gauge = claims.normalise("50", "kPag")
+    bare = claims.normalise("100", "kPa")
+    assert absolute.reference == "absolute" and gauge.reference == "gauge" and bare.reference is None
+    why = comparison._reference_obstacle(absolute, bare)
+    assert why and "absolute" in why and "no reference" in why
+    assert comparison._reference_obstacle(bare, absolute)              # either way round
+    assert comparison._reference_obstacle(gauge, bare) is None         # the everyday case still compares
+    assert comparison._reference_obstacle(bare, bare) is None

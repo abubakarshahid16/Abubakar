@@ -25,4 +25,10 @@ MUTATIONS: tuple[Mutation, ...] = (
              path=_C, anchor='        if ai_quote_proved(fact):\n            return None\n',
              replacement='',
              target=_T, keyword="trusted_like_a_code_read_one or says_so", tags=("honesty",)),
+    Mutation(id="M793-05", phase=793,
+             description="an absolute pressure is compared with a limit that states no reference",
+             path=_C, anchor='    if "absolute" in references and None in references:\n',
+             replacement='    if False:\n',
+             target="tests/test_f2_gauge_absolute_units.py", keyword="no_reference_is_not_compared",
+             tags=("honesty", "critical")),
 )
