@@ -13,8 +13,9 @@
 import { useEffect, useState } from "react";
 
 import { api, reviews as reviewsApi } from "../../api/client";
-import type { DocumentRecord, ReviewFinding } from "../../types/api";
+import type { DocumentRecord, ReviewFinding, ReviewRunStandard } from "../../types/api";
 import { DocumentPreview } from "../DocumentPreview";
+import { SideBySideEvidence, WhyStandardApplies } from "./SideBySideEvidence";
 import {
   confidenceLabel, findingLabel, matchMethodLabel, matchMethodTone, orNothing,
   statusTone, whenLabel,
@@ -25,6 +26,9 @@ export interface FindingDetailProps {
   documents: DocumentRecord[];
   /** Standard document id -> filename. An id is not a name. */
   standardNames?: Map<string, string>;
+  /** R21: the run's record of why this finding's standard was applied.
+   *  Undefined while the run's standards load; null when the run has none. */
+  whyApplies?: ReviewRunStandard | null;
   onChanged: () => void;
 }
 
@@ -42,7 +46,7 @@ export function FindingDetail(props: FindingDetailProps) {
 }
 
 function FindingDetailBody(
-  { finding, documents, standardNames, onChanged }: FindingDetailProps,
+  { finding, documents, standardNames, whyApplies, onChanged }: FindingDetailProps,
 ) {
   const [action, setAction] = useState<Action>({ kind: "idle" });
   const [reason, setReason] = useState("");
@@ -50,6 +54,8 @@ function FindingDetailBody(
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [open, setOpen] = useState<{ doc: DocumentRecord; page: number | null } | null>(null);
+  // R21: both cited pages at once. Opening it closes the one-page view.
+  const [sideBySide, setSideBySide] = useState(false);
 
   // THE CITED DOCUMENTS, FETCHED BY ID WHEN THEY ARE NOT ALREADY IN HAND.
   // A findings list carries document IDs, and the page's document list holds
@@ -193,21 +199,39 @@ function FindingDetailBody(
         </p>
       </div>
 
+      <WhyStandardApplies finding={finding} entry={whyApplies} />
+
       <div className="grid gap-3 md:grid-cols-2">
         <Citation
           title="Standard" document={standard}
           page={finding.standard_page ?? null}
           detail={finding.standard_clause ? `clause ${finding.standard_clause}` : null}
           fallbackName={standardNames?.get(finding.standard_document_id ?? "")}
-          onOpen={(doc, page) => setOpen({ doc, page })}
+          onOpen={(doc, page) => { setSideBySide(false); setOpen({ doc, page }); }}
         />
         <Citation
           title="Submittal" document={submittal}
           page={finding.contractor_page ?? null}
           detail={orNothing(finding.contractor_evidence_text) || null}
-          onOpen={(doc, page) => setOpen({ doc, page })}
+          onOpen={(doc, page) => { setSideBySide(false); setOpen({ doc, page }); }}
         />
       </div>
+
+      <button
+        type="button"
+        onClick={() => { setOpen(null); setSideBySide((value) => !value); }}
+        className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-2 text-sm text-signal-300"
+      >
+        {sideBySide ? "Close side by side" : "Show submittal and standard side by side"}
+      </button>
+
+      {sideBySide && (
+        <SideBySideEvidence
+          finding={finding} submittal={submittal} standard={standard}
+          standardName={standardNames?.get(finding.standard_document_id ?? "")}
+          onClose={() => setSideBySide(false)}
+        />
+      )}
 
       {open && (
         <div className="rounded-[var(--radius-md)] border border-ink-700 bg-ink-900 p-3">
