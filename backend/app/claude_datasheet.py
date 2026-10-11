@@ -681,8 +681,11 @@ def read_datasheet(document_id: str, *, allowed_document_ids: frozenset[str],
                              "counts": {}, "skipped": "no text"})
             continue
         try:
-            out = read_page(text, page_no, known_by_page.get(page_no, []),
-                            model_call, second_call)
+            # #806 S3: the prompt carries this datasheet's page text and labels.
+            from . import claude_approved
+            with claude_approved.carrying([document_id]):
+                out = read_page(text, page_no, known_by_page.get(page_no, []),
+                                model_call, second_call)
         except StopRun as exc:
             stopped = {"reason": exc.count_key, "done": done, "left": len(pages) - done}
             break

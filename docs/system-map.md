@@ -53,6 +53,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `claims` | Mechanical claim extraction and comparison. No model, no database, no network |
 | `classification` | What a document IS. Never who may read it |
 | `claude_api` | The four places a reviewer may ask Claude for a second pair of eyes |
+| `claude_approved` | Which documents the owner approved for the cloud model, and the refusal for any other (#806 S3) |
 | `claude_budget` | The two numbers that keep a $20 API credit from vanishing in one run |
 | `claude_datasheet` | Read a contractor datasheet into facts |
 | `claude_recheck` | Recheck findings: the model gives a SECOND OPINION on an engine verdict, and Python decides what that opinion |
@@ -82,6 +83,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `docx_chunks` | Chunks for a Word document, built from its STRUCTURE (W5b-01, #525) |
 | `docx_reader` | A structure-preserving reader for Word (.docx) documents (W5b-01, #525) |
 | `embedder` | Step 4 - local ONNX int8 e5-small embeddings |
+| `engineer_feedback` | Engineers' accept / edit / reject decisions as precision per standard and rule |
 | `errors` | Error codes and safe error reporting |
 | `extract` | Step 2 - resumable page-batch extraction |
 | `family_search` | A question that names a FAMILY of standards in general words ("what do the welding standards say about post we |
