@@ -406,7 +406,6 @@ SEVERAL_VALUES = "several_values"            # a flattened table band vs a tempe
 #: place ("at least 10 C ABOVE THE pour point", "7.5 m BEYOND THE edge").
 _RELATIVE_AFTER = (r"(?:above|below|beyond|over|under|higher\s+than|lower\s+than|more\s+than|"
                    r"less\s+than|greater\s+than|from|outside|inside|within)\s+(?:the|its|that|any|each)\b")
-_NUMBER = re.compile(r"(?<![\w.\-/])\d+(?:[.,]\d+)?(?![\w\-/]*\d)")
 _BRACKETS = re.compile(r"\([^()]*\)|\[[^\[\]]*\]")
 _LEADING_CLAUSE_NO = re.compile(r"^\s*\d+(?:\.\d+)+\s+")
 
@@ -443,7 +442,9 @@ def model_pairing_doubt(requirement: dict, fact: dict) -> str | None:
         if after and re.search(_RELATIVE_AFTER, _BRACKETS.sub(" ", after.group(1)), re.IGNORECASE):
             return RELATIVE_LIMIT
     bare = _LEADING_CLAUSE_NO.sub("", _BRACKETS.sub(" ", text))
-    if len({n.replace(",", ".") for n in _NUMBER.findall(bare)}) > 1:
+    # numbers read by the ONE number reader (`numparse`), never a pattern here
+    from . import numparse
+    if len(numparse.number_keys(bare)) > 1:
         return SEVERAL_VALUES
     return None
 
