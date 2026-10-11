@@ -2014,6 +2014,33 @@ def value_columns(raw_value: str | None, *, field_label: str, unit: str | None =
             "unit": unit, "value_min": value_min, "value_max": value_max}
 
 
+#: The modules whose code reads a datasheet with the rule readers (#177): their
+#: version is written on every rule-read fact (`extractor_version`).
+RULE_READER_MODULES = ("datasheets", "tables", "blank_markers")
+
+
+def rule_reader_version() -> str:
+    """The current rule readers' version, as `_extract_facts` writes it."""
+    return provenance.code_version(*RULE_READER_MODULES)
+
+
+def facts_reader_stale(document_id: str) -> bool:
+    """Were this datasheet's current RULE-READ facts read by another reader
+    version (or by one that recorded none)? Planner 2026-10-10 (F-b, roadmap
+    R5): a fix to the reader ("340 psig (By Contractor)" is a value, #725 F3)
+    reached no live review, because a review reuses stored facts forever.
+    Geometry and model facts carry their own versions and are not judged here;
+    an engineer-confirmed fact survives a re-read (supersession, #179)."""
+    rows = connect().execute(
+        "SELECT DISTINCT extractor_version FROM submittal_facts WHERE submittal_document_id = ?"
+        " AND superseded_at IS NULL AND confirmed_by IS NULL"
+        " AND COALESCE(extraction_method, 'extracted') = 'extracted'", (document_id,)).fetchall()
+    if not rows:
+        return False
+    current = rule_reader_version()
+    return any(r["extractor_version"] != current for r in rows)
+
+
 def create_fact(
     *, submittal_document_id: str, chunk_id: str, field_label: str,
     raw_value: str | None, page: int | None, section: str | None = None,
@@ -3200,7 +3227,7 @@ def _extract_facts(
     # hash plus every chunk's text, in order. See `provenance.py`. NOT
     # covered: `page_ocr` text read by the OCR fallback tier, which carries
     # its own engine/model/dpi record; a re-OCR is visible there, not here.
-    extractor_version = provenance.code_version("datasheets", "tables", "blank_markers")
+    extractor_version = rule_reader_version()
     inputs = provenance.input_hash(chunks[0]["sha256"], *(c["text"] for c in chunks))
     # KEYED BY EVERY PAGE A CHUNK COVERS, not by the page it starts on.
     #

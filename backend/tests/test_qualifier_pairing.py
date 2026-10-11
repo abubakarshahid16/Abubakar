@@ -68,3 +68,14 @@ def test_a_field_with_a_qualifier_the_subject_lacks_is_refused_too():
     assert match_rules.qualifier_conflict(_req("the operating pressure"), "inlet operating pressure")
     # the same qualifier on both sides still pairs
     assert not match_rules.qualifier_conflict(_req("the jacket design pressure"), "jacket design pressure")
+
+
+
+def test_a_word_right_after_the_field_that_makes_it_another_quantity_refuses_the_pair():
+    """Found by the F-b re-read: 'the set pressure tolerance ... above 70 psi'
+    read COMPLIANT against the sheet's set pressure itself."""
+    assert match_rules.qualifier_conflict(
+        _req("(d) The set pressure tolerance for pressure relief valves"), "set pressure")
+    assert match_rules.qualifier_conflict(_req("the pressure drop across the strainer"), "pressure")
+    assert not match_rules.qualifier_conflict(_req("the set pressure of the valve"), "set pressure")
+    assert not match_rules.qualifier_conflict(_req("the pressure drop"), "pressure drop")   # same quantity

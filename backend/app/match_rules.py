@@ -337,6 +337,12 @@ def compound_term_conflict(field_name: str, requirement: dict) -> bool:
 QUALIFIERS_PATH = Path(__file__).parent / "reference" / "field_qualifiers.json"
 
 
+def derived_after() -> frozenset[str]:
+    """Words that, right after a field's words, make it a different quantity."""
+    return frozenset(w.lower() for w in json.loads(
+        QUALIFIERS_PATH.read_text(encoding="utf-8")).get("derived_after", []))
+
+
 def qualifiers() -> frozenset[str]:
     return frozenset(w.lower() for w in json.loads(
         QUALIFIERS_PATH.read_text(encoding="utf-8"))["qualifiers"])
@@ -372,6 +378,10 @@ def qualifier_conflict(requirement: dict, field_name: str) -> bool:
     for start in range(len(subject) - n + 1):
         if subject[start:start + n] != field:
             continue
+        # "set pressure TOLERANCE": the next word makes it another quantity
+        nxt = subject[start + n:start + n + 1]
+        if nxt and nxt[0] in derived_after() and nxt[0] not in field:
+            return True
         before = subject[max(0, start - 2):start]
         after = subject[start + n:start + n + 3]
         if after[:1] == ["of"]:

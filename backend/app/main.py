@@ -4571,6 +4571,10 @@ def _readiness_payload(submittal_document_id: str, scope: access.AccessScope) ->
             (submittal_document_id, since)).fetchone()[0]
         if newer_facts:
             changes.append(f"{newer_facts} datasheet value(s) read since the last run")
+        # F-b: a reader change is a change - the next review re-reads the sheet.
+        if datasheets_mod.facts_reader_stale(submittal_document_id):
+            changes.append("the datasheet reader changed since these values were read; "
+                           "the next review reads the sheet again")
         # Roadmap R5 (#763): the review CODE is an input too. Same sheet, same
         # library, new code -> a new result (live, 10 Oct: 6,900 -> 3,470).
         stamped = review_jobs_mod.last_run_versions(last["id"])
