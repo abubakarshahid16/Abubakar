@@ -269,6 +269,11 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
             missing_references=[m["identifier"] for m in selection["missing_references"]])
         _ai_check(run_id, scope, [m["identifier"] for m in selection["missing_references"]])
         _web_check(run_id, scope, [m["identifier"] for m in selection["missing_references"]])
+        # R15 (#779): every CRS row of the finished run gets its permanent
+        # number (drafts not issued). Never fails the run (see the helper).
+        from .main import number_crs_rows
+        number_crs_rows(run_id, access.AccessScope(user_id=job["created_by"],
+                                                   allowed_document_ids=scope))
         # #791 part 0: REVIEW_DEBUG prints every step (off by default; reads
         # only, never fails the run).
         from . import review_trace
