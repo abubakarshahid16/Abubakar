@@ -150,10 +150,17 @@ def mandatory_list_key(equipment_type: str | None, rules: dict) -> str:
     ("Centrifugal Compressor", "Reciprocating Compressor") missed the
     "Compressor" key and silently fell to the 2-field generic list.
     """
+    return table_key(equipment_type, rules["mandatory"])
+
+
+def table_key(equipment_type: str | None, table: dict) -> str:
+    """`mandatory_list_key`'s lookup for any table keyed by equipment type
+    (the mandatory lists, the review checklists): the table's own key, else
+    the equipment family's, else `GENERIC`."""
     from .match_rules import sheet_kind_from_equipment_type
     if not equipment_type:
         return GENERIC
-    table = [key for key in rules["mandatory"] if key != GENERIC]
+    table = [key for key in table if key != GENERIC]
     folded = _fold(equipment_type)
     exact = next((key for key in table if _fold(key) == folded), None)
     if exact is not None:
@@ -312,6 +319,16 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
         lines = (text or "").splitlines()
         return sum(1 for m in _REVISION_TABLE_MARKERS if any(m.search(ln) for ln in lines)) >= 2
     has_block = any(_block(text) for text in page_texts.values())
+    # ---- #746 THE REVIEW CHECKLIST for this equipment type (DRAFT until a
+    # client discipline engineer signs it off): each item carries its clause.
+    checklist = checklist_for(equipment_type, rules)
+    if checklist:
+        for tag, roles in by_tag.items():
+            if tag is None and tagged:
+                continue    # the common section counts for every tag (above)
+            for item in checklist["items"]:
+                out.append(evaluate_item(item, roles, common if tag is not None else {},
+                                         tag, rules, draft=checklist["draft"], page_texts=page_texts))
     if page_texts and equipment_type:
         out.append(_result("DS-R1", COMPLIANT if has_block else MISSING_INFORMATION,
                            "A datasheet carries a revision block.",
@@ -319,6 +336,338 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
                             "No revision block was found on the datasheet pages read."),
                            None, "revision_block", None))
     return out
+
+
+# ---------------------------------------------------------------- #746 checklist
+
+NOT_APPLICABLE = "NOT_APPLICABLE"
+#: The local, git-ignored overlay (`<data_dir>/checklists/<type>.json`): items
+#: not (yet) approved for the repo stay on the machine. Client standard items
+#: approved by the owner (2026-10-10) are in the committed JSON, in our own words.
+LOCAL_DIR_NAME = "checklists"
+_RULE_KINDS = ("required", "compare", "constant", "percent_of", "allowed", "above_by")
+
+
+def _local_items(key: str) -> list[dict]:
+    from .config import settings
+    slug = re.sub(r"[^a-z0-9]+", "_", key.lower()).strip("_")
+    path = Path(settings.data_dir) / LOCAL_DIR_NAME / f"{slug}.json"
+    if not path.is_file():
+        return []
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return [{**item, "local": True} for item in data.get("items", [])]
+
+
+def checklist_for(equipment_type: str | None, rules: dict) -> dict | None:
+    """The equipment type's review checklist: the committed items plus the
+    local overlay's, each validated (an item without a source clause or with
+    an unknown rule kind is refused loudly, never run). None when the type
+    has none."""
+    table = rules.get("checklists") or {}
+    if not table:
+        return None
+    key = table_key(equipment_type, table)
+    if key not in table:
+        return None
+    entry = table[key]
+    items = list(entry.get("items", [])) + _local_items(key)
+    for item in items:
+        source = item.get("source") or {}
+        if not (item.get("id") and item.get("text") and source.get("standard") and source.get("clause")):
+            raise ValueError(f"checklist item {item.get('id')!r} needs an id, text and a source clause")
+        if (item.get("rule") or {}).get("kind") not in _RULE_KINDS:
+            raise ValueError(f"checklist item {item['id']!r}: unknown rule kind")
+    draft = (entry.get("sign_off") or {}).get("status") != "signed"
+    return {"key": key, "items": items, "draft": draft}
+
+
+def checklist_sources(equipment_type: str | None, rules: dict | None = None) -> dict | None:
+    """#746: `{"key", "items", "standards"}` - the type's checklist, how many
+    items it has, and the standards its items cite (from `source.standard`,
+    never a list written in code). None when the type has no checklist."""
+    checklist = checklist_for(equipment_type, rules or load_rules())
+    if not checklist:
+        return None
+    return {"key": checklist["key"], "items": len(checklist["items"]),
+            "standards": sorted({i["source"]["standard"] for i in checklist["items"]})}
+
+
+def _measure(fact: dict):
+    """The fact's value as a `claims.Measurement`: read from the printed number
+    and unit, or the stored normalised value when the printed unit cannot be
+    read."""
+    import dataclasses
+
+    from . import claims
+    raw = fact.get("raw_value")
+    if raw in (None, ""):
+        return None
+    m = claims.normalise(str(raw), fact.get("raw_unit") or "")
+    if m.normalized_value is None and fact.get("normalized_value") is not None and fact.get("normalized_unit"):
+        m = dataclasses.replace(m, normalized_value=float(fact["normalized_value"]),
+                                normalized_unit=fact["normalized_unit"])
+    return m
+
+
+def _scale(m) -> tuple[float, str, str | None] | None:
+    """(number, scale, gauge/absolute) - normalised when possible, else the
+    printed number on its own spelling."""
+    from . import claims
+    if m is None:
+        return None
+    base, reference = claims.split_reference(m.raw_unit)
+    if m.normalized_value is not None and m.normalized_unit:
+        return m.normalized_value, m.normalized_unit, reference
+    number = claims.parse_value(str(m.raw_value))
+    if number is None:
+        return None
+    return number, _fold(base), reference
+
+
+def _one(found: list[dict]) -> tuple[dict | None, str | None]:
+    """The one value a field states, or why there is not one."""
+    if not found:
+        return None, "absent"
+    if len({_shown(f) for f in found}) != 1:
+        return None, "two different values"
+    return found[0], None
+
+
+
+def coverage(results: list[dict]) -> dict | None:
+    """The reader-coverage line of a review (planner 2026-10-10, roadmap R11):
+    of the checklist's fields (each field once, across tags), how many were
+    READ as a fact, and how many are on the sheet but were NOT read (a reader
+    gap, with the pages): the to-do list for the datasheet reader. None when
+    the review ran no checklist."""
+    items = [r for r in results if r.get("checklist")]
+    if not items:
+        return None
+    fields: dict[str, str] = {}
+    gap_pages: dict[str, set] = {}
+    for r in items:
+        role = r.get("role") or ""
+        state = "read" if r.get("fact_id") else ("gap" if r.get("reader_gap") else "absent")
+        # a field read for one tag counts as read; a gap only if never read
+        if fields.get(role) != "read":
+            fields[role] = "read" if state == "read" else (fields.get(role) if fields.get(role) == "gap" else state)
+        if r.get("reader_gap"):
+            gap_pages.setdefault(role, set()).update(r.get("pages") or [])
+    gaps = sorted(f for f, st in fields.items() if st == "gap")
+    return {"fields": len(fields), "read": sum(1 for st in fields.values() if st == "read"),
+            "on_sheet_not_read": len(gaps),
+            "gap_pages": sorted({p for f in gaps for p in gap_pages.get(f, ())})}
+
+
+def _page_span(page_texts: dict[int, str] | None) -> str:
+    pages = sorted(page_texts or {})
+    if not pages:
+        return "none"
+    return f"{pages[0]}-{pages[-1]}" if len(pages) > 1 else str(pages[0])
+
+
+def _synonyms() -> dict[str, list[str]]:
+    data = json.loads((RULES_PATH.parent / "field_synonyms.json").read_text(encoding="utf-8"))
+    return data.get("groups") or {}
+
+
+def label_patterns(role: str, rules: dict) -> list[re.Pattern]:
+    """The ways a sheet prints this role's label: the role's own name patterns
+    (written for whole folded labels, used here without their anchors) and,
+    when the role is a group of `field_synonyms.json`, every spelling of it."""
+    out = []
+    for pattern in rules["roles"].get(role, {}).get("names", []):
+        body = pattern[1:] if pattern.startswith("^") else pattern
+        body = body[:-1] if body.endswith("$") else body
+        body = body.replace("( .*)?", "")
+        out.append(re.compile(r"(?<![a-z0-9])(?:" + body + r")(?![a-z0-9])"))
+    # Other wordings a sheet uses for this field (`printed_as`, data): "Effective
+    # area" for the orifice area, "blocked discharge" for the relief case.
+    group = (_synonyms().get(role.replace("_", " ")) or []) + list(
+        rules["roles"].get(role, {}).get("printed_as", []))
+    for spelling in group:
+        out.append(re.compile(r"(?<![a-z0-9])" + re.escape(spelling.lower()) + r"(?![a-z0-9])"))
+    return out
+
+
+def label_search(role: str, rules: dict, page_texts: dict[int, str]) -> list[int] | None:
+    """The pages whose own text prints the role's label, or None when the
+    search cannot decide anything: no page text at all, or a page with no text
+    (a scan the text layer does not cover), where the label could be."""
+    from .datasheets import normalise_field_name
+    if not page_texts or any(not (t or "").strip() for t in page_texts.values()):
+        return None
+    patterns = label_patterns(role, rules)
+    words = [w for w in role.split("_") if w]
+    if not patterns and not words:
+        return None
+    found = []
+    for page, text in sorted(page_texts.items()):
+        # Lines JOINED: a label wraps ("Orifice" / "area") or is combined
+        # ("Inlet / Outlet size"). The search errs towards FINDING the label:
+        # a false "on the sheet, engineer check" costs a look; a false
+        # "missing" blames the contractor for a value the sheet prints.
+        folded = " ".join(normalise_field_name(line) for line in (text or "").splitlines())
+        if any(p.search(folded) for p in patterns) or _words_near(words, folded.split()):
+            found.append(page)
+    return found
+
+
+#: How many words apart a label's own words may stand and still be the label.
+LABEL_WINDOW = 6
+
+
+def _words_near(words: list[str], tokens: list[str]) -> bool:
+    """Every word of the role's name ("orifice", "area") within LABEL_WINDOW
+    tokens of the first, each matched by its first five letters ("relie"
+    finds relief and relieving, "press" finds press. and pressure)."""
+    stems = [w[:5] for w in words]
+    for i, tok in enumerate(tokens):
+        if not tok.startswith(stems[0]):
+            continue
+        window = tokens[max(0, i - LABEL_WINDOW):i + LABEL_WINDOW + 1]
+        if all(any(t.startswith(stem) for t in window) for stem in stems[1:]):
+            return True
+    return False
+
+
+def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules: dict,
+                  *, draft: bool, page_texts: dict[int, str] | None = None) -> dict:
+    """One checklist item's result: COMPLIANT, NON_COMPLIANT, MISSING_INFORMATION
+    (the field is not given; qualified by the pages read when stored),
+    NEEDS_ENGINEER_REVIEW (with the reason) or NOT_APPLICABLE (its condition
+    does not hold, with the reason). Pure: code decides, no model."""
+    from . import claims
+
+    rule = item["rule"]
+    source = item["source"]
+    cite = f"{source['standard']} {source['clause']}"
+    text = f"{item['text']} ({cite}{'; DRAFT checklist, not signed off' if draft else ''})"
+    field = rule.get("field") or rule.get("left")
+
+    def get(role):
+        return roles.get(role) or common.get(role) or []
+
+    def res(status, detail, fact=None, role=None):
+        r = _result(item["id"], status, text, detail, fact, role or field, tag)
+        return {**r, "source": cite, "severity": item.get("severity", "minor"),
+                "checklist": True, "local": bool(item.get("local"))}
+
+    raw_conditions = item.get("condition")
+    # One condition, or a list that must ALL hold (a bellows valve AND sour service).
+    conditions = (raw_conditions if isinstance(raw_conditions, list)
+                  else [raw_conditions] if raw_conditions else [])
+    unknown = None    # the first condition the sheet does not state, if any
+    for condition in conditions:
+        cond_fact, why = _one(get(condition["role"]))
+        # `when_unknown: "evaluate"` - set ONLY on items whose answer cannot
+        # be wrong whatever the condition ("the molecular weight is stated",
+        # "k is above 1"): an unknown condition does not stop them. Any other
+        # item with an unknown condition is an engineer's question.
+        if cond_fact is None:
+            if item.get("when_unknown") != "evaluate":
+                state = ("the sheet does not state it" if why == "absent"
+                         else "it has two different values on the sheet")
+                return res(NEEDS_ENGINEER_REVIEW, _sentence(
+                    f"whether it applies depends on the {_pretty(condition['role']).lower()}, and {state}"))
+            unknown = unknown or condition
+            continue
+        stated = _fold(_shown(cond_fact))
+        if not any(_fold(word) in stated for word in condition["any"]):
+            return res(NOT_APPLICABLE,
+                       f"Does not apply: {_label(cond_fact, condition['role'])} is "
+                       f"'{_shown(cond_fact)}' (page {cond_fact.get('page')}).",
+                       cond_fact, condition["role"])
+    kind = rule["kind"]
+    fact, why = _one(get(field))
+    if fact is None and unknown is not None:
+        # The condition is unknown and the field is absent: whether the
+        # contractor owes this value is not known, so it is not a missing value.
+        return res(NEEDS_ENGINEER_REVIEW, _sentence(
+            f"the {_pretty(field).lower()} is not given, and whether it is needed depends on the "
+            f"{_pretty(unknown['role']).lower()}, which the sheet does not state"))
+    if fact is None:
+        if why == "absent":
+            # PLANNER 2026-10-10 (F-a): a field not read as a fact is searched
+            # for in the text of every page. On the sheet but not read is a
+            # READER GAP, never the contractor's omission; not in any page's
+            # text, with every page's text there, is missing (the contractor's).
+            searched = label_search(field, rules, page_texts or {})
+            if searched is None:
+                return res(MISSING_INFORMATION,
+                           f"{_pretty(field)} was not found in the fields read from the datasheet.")
+            if searched:
+                pages = ", ".join(str(n) for n in searched)
+                r = res(NEEDS_ENGINEER_REVIEW,
+                        f"{_pretty(field)} is on the sheet but was not read: engineer to check "
+                        f"page{'s' if len(searched) > 1 else ''} {pages}.")
+                return {**r, "reader_gap": True, "pages": searched}
+            r = res(MISSING_INFORMATION,
+                    f"{_pretty(field)} was not found in the fields read or in the text of "
+                    f"pages {_page_span(page_texts)}; the contractor is to provide it.")
+            return {**r, "text_searched": True}
+        return res(NEEDS_ENGINEER_REVIEW,
+                   _sentence(f"the {_pretty(field).lower()} has two different values on the sheet"),
+                   get(field)[0])
+    if fact.get("is_blank"):
+        return res(MISSING_INFORMATION,
+                   f"{_label(fact, field)} is marked '{_shown(fact) or fact.get('blank_marker')}' "
+                   f"on page {fact.get('page')}; the contractor is to provide the value.", fact)
+    noted = f" The sheet marks this value '{fact['value_note']}'." if fact.get("value_note") else ""
+    where = f"{_label(fact, field)} {_shown(fact)} (page {fact.get('page')})"
+    if kind == "required":
+        return res(COMPLIANT, f"{where} is stated.{noted}", fact)
+    if kind == "allowed":
+        stated = _fold(_shown(fact))
+        ok = any(_fold(v) in stated for v in rule["values"])
+        return res(COMPLIANT if ok else NON_COMPLIANT,
+                   f"{where} is {'one of' if ok else 'not one of'}: {', '.join(rule['values'])}.{noted}",
+                   fact)
+    measured = _measure(fact)
+    unit = (rule.get("unit") or "").strip()
+    if (kind == "constant" and unit and measured is not None and not (fact.get("raw_unit") or "").strip()
+            and unit.lower() in _fold(fact.get("field_label") or fact.get("field_name"))):
+        # A value printed with no unit under a label that names it ("Over
+        # pressure %": 21) is in that unit; any other unit-less value is not
+        # guessed.
+        measured = claims.normalise(str(fact.get("raw_value")), unit)
+    left = _scale(measured)
+    factor = 1.0
+    if kind == "constant":
+        right = _scale(claims.normalise(str(rule["value"]), rule.get("unit") or ""))
+        right_words = f"{rule['value']} {rule.get('unit') or ''}".strip()
+    else:
+        other, why = _one(get(rule["right"]))
+        if other is None or other.get("is_blank"):
+            state = ("is not given" if (other is not None or why == "absent")
+                     else "is stated twice with different values")
+            return res(NEEDS_ENGINEER_REVIEW, _sentence(
+                f"the {_pretty(rule['right']).lower()} it is checked against {state}"), fact)
+        right = _scale(_measure(other))
+        if kind == "percent_of":
+            factor = float(rule["percent"]) / 100.0
+        if kind == "above_by":
+            right_words = (f"{_label(other, rule['right']).lower()} {_shown(other)} (page {other.get('page')}) "
+                           f"plus the greater of {rule['percent']}% or {rule['at_least']} {rule['unit']}")
+        right_words = ((f"{rule['percent']}% of " if kind == "percent_of" else "")
+                       + f"{_label(other, rule['right']).lower()} {_shown(other)} (page {other.get('page')})")
+    if (left is None or right is None or left[1] != right[1]
+            or (left[2] and right[2] and left[2] != right[2])):
+        return res(NEEDS_ENGINEER_REVIEW, _sentence(
+            "the two values are not numbers on one scale and pressure basis"), fact)
+    if kind == "above_by":
+        # The margin's absolute part on the same scale as both values.
+        floor = _scale(claims.normalise(str(rule["at_least"]), rule["unit"]))
+        if floor is None or floor[1] != right[1]:
+            return res(NEEDS_ENGINEER_REVIEW, _sentence(
+                "the required margin is not on the same scale as the two values"), fact)
+        margin = max(right[0] * float(rule["percent"]) / 100.0, floor[0])
+        ok = left[0] >= right[0] + margin
+        return res(COMPLIANT if ok else NON_COMPLIANT,
+                   f"{where} is {'' if ok else 'not '}at least {right_words}.{noted}", fact)
+    ok = _OPS[rule["op"]](left[0], right[0] * factor)
+    return res(COMPLIANT if ok else NON_COMPLIANT,
+               f"{where} is {'' if ok else 'not '}{_OP_WORDS[rule['op']]} {right_words}.{noted}", fact)
 
 
 # ---------------------------------------------------------------- store
@@ -339,9 +688,13 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
                 for f in review_mod.rejected_in_run(review_run_id, ORIGIN)}
     # A PASS IS NOT A COMMENT. Only what the engineer must act on is written;
     # a check that held adds no row (it would only pad every count).
-    for r in (x for x in results if x["status"] != COMPLIANT):
+    # "Does not apply" is not a comment either (#746): the condition's reason
+    # is in the result, never a CRS row.
+    for r in (x for x in results if x["status"] not in (COMPLIANT, NOT_APPLICABLE)):
         status, detail = r["status"], r["detail"]
-        if r["rule_id"] in ("DS-M1", "DS-R1") and status == MISSING_INFORMATION:
+        absent = (r["rule_id"] in ("DS-M1", "DS-R1")
+                  or (r.get("checklist") and r.get("fact_id") is None and not r.get("text_searched")))
+        if absent and status == MISSING_INFORMATION:
             # AN ABSENCE IS QUALIFIED LIKE EVERY ABSENCE: not found is not "not
             # stated" while a page is unread or read only by the page reader.
             verdict = comparison.qualify_by_pages(
@@ -352,7 +705,8 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
             continue
         finding = review_mod.create({
             "document_id": submittal_id, "category": "technical_query",
-            "severity": "major" if status == NON_COMPLIANT else "minor",
+            "severity": (r["severity"] if r.get("checklist") and status == NON_COMPLIANT
+                         else "major" if status == NON_COMPLIANT else "minor"),
             "requirement": r["text"][:4000], "finding": f"{LABEL}: {detail}"[:4000],
             "required_action": ("Contractor to correct the datasheet." if status == NON_COMPLIANT
                                 else "Contractor to provide the value." if status == MISSING_INFORMATION

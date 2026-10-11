@@ -12,7 +12,9 @@ MUTATIONS: tuple[Mutation, ...] = (
              replacement="                if False:\n",
              target=_T, keyword="revision_block_title_block", tags=("honesty", "critical")),
     Mutation(id="M1068", phase=90, description="GUARD: the value gate is dropped, so captions and names become facts",
-             path=_D, anchor="                if not states_a_value(value):\n                    # A LABEL WITH FREE TEXT",
+             # re-anchored 2026-10-11 (reader job): a named text field's words pass the gate
+             path=_D, anchor="                if not states_a_value(value) and not states_a_named_text_value(label, value):\n"
+                             "                    # A LABEL WITH FREE TEXT",
              replacement="                if False:\n                    # A LABEL WITH FREE TEXT",
              target=_T, keyword="revision_block_title_block", tags=("honesty", "critical")),
     Mutation(id="M1069", phase=90, description="GUARD: the designation rule admits any free text",

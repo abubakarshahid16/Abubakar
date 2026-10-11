@@ -9,9 +9,9 @@ rather than assumed from the issue text:
   1. QUOTE NORMALISATION - only the closed list in `quotes.py` may ever touch
      a quote, and the LIVE comparison path does not even call it: `compare`
      and `create_finding` store structured `raw_value`/source text verbatim,
-     never a free-text "quote". `quotes.py` itself is exhaustively tested in
-     `test_quote_validation.py`; the test here is the missing half - proof
-     that the live path does not do its OWN, unapproved normalisation.
+     never a free-text "quote". (`quotes.py` and its tests were removed in
+     #736: no app code imported it.) The test here proves the live path does
+     not do its OWN, unapproved normalisation.
 
   2. CITATION GATE - `create_finding` already downgrades to
      NEEDS_ENGINEER_REVIEW, never COMPLIANT/NON_COMPLIANT, when either side's
@@ -45,7 +45,7 @@ import uuid
 
 import pytest
 
-from app import comparison, db, quotes, submittal_review
+from app import comparison, db, submittal_review
 from app.config import settings
 
 
@@ -162,26 +162,6 @@ def test_criterion_1_the_live_path_stores_evidence_text_verbatim():
 
     assert finding["requirement_source_text"] == tricky_source
     assert finding["contractor_evidence_text"] == tricky_evidence
-
-
-def test_criterion_1_quotes_module_matches_the_approved_closed_list_exactly():
-    """`quotes.normalise` implements exactly the five approved rules and
-    nothing else - digits, units and operators are untouched.
-
-    `test_quote_validation.py` already covers this exhaustively; this is a
-    short, load-bearing spot check tied explicitly to issue #164's wording so
-    a future change to the closed list trips a test that names the issue.
-    """
-    assert quotes.normalise("1/16”") == '1/16"'          # curly -> straight
-    assert quotes.normalise("A – B") == "A - B"           # en dash -> hyphen
-    assert quotes.normalise("A B") == "A B"                # NBSP -> space
-    assert quotes.normalise("A   B  ") == "A B"                 # collapse + trim
-    # NEVER touched: digits, decimals, units, operators, words.
-    assert quotes.normalise("1.6 mm") == "1.6 mm"
-    assert quotes.normalise("at least 90") == "at least 90"
-    assert quotes.normalise(">= 90") == ">= 90"
-    ok, _ = quotes.validate("1.6", "the value is 1.5")
-    assert ok is False, "a changed digit must never validate"
 
 
 # ============================================================== criterion 2

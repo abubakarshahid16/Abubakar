@@ -327,7 +327,7 @@ class TestRefusal:
     def test_every_reason_is_listed(self):
         assert set(match_rules.REASONS) == {
             match_rules.UNIT_DIMENSION, match_rules.EQUIPMENT_DOMAIN,
-            match_rules.TABLE_LOOKUP_INPUT, match_rules.COMPOUND_TERM}
+            match_rules.TABLE_LOOKUP_INPUT, match_rules.COMPOUND_TERM, match_rules.QUALIFIER}
 
     def test_no_rule_fires_on_the_plain_case(self):
         """The existing containment behaviour is untouched when nothing is

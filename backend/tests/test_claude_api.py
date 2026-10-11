@@ -1,4 +1,4 @@
-"""The four Claude routes are wired, gated on the reader's flags, and write
+"""The three Claude routes are wired, gated on the reader's flags, and write
 nothing when the flags are off."""
 
 from __future__ import annotations
@@ -28,12 +28,11 @@ ROUTES = [
     ("post", "/api/reviews/runs/run-x/claude/select-standards"),
     ("post", "/api/reviews/runs/run-x/claude/read-datasheet"),
     ("post", "/api/reviews/runs/run-x/claude/recheck"),
-    ("post", "/api/reviews/runs/run-x/claude/crs-draft"),
 ]
 
 
 
-def test_the_four_routes_are_registered():
+def test_the_three_routes_are_registered():
     paths = set(app.openapi()["paths"])
     for _method, path in ROUTES:
         assert path.replace("run-x", "{review_run_id}") in paths

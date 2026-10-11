@@ -1885,3 +1885,33 @@ def supersede(document_id: str, superseded_by: str | None, *,
     _audit("standard.superseded" if superseded_by else "standard.supersession_cleared",
            actor, document_id, detail=f"superseded_by={superseded_by}")
     return {"document_id": document_id, "superseded_by": superseded_by}
+
+
+#: A standard whose non-blank clause values are fewer than this share distinct
+#: (with at least `PARAGRAPH_IDS_MIN` of them) does not carry paragraph ids:
+#: its "clauses" are numbers read from its tables. Measured on the library
+#: copy (2026-10-10): ASME VIII Div 1 0.6% (3,456 clause values, 21 distinct),
+#: one other standard 2.6%, every other standard 15% or more (median 59%).
+PARAGRAPH_IDS_MIN_DISTINCT_SHARE = 0.05
+PARAGRAPH_IDS_MIN = 20
+
+
+def paragraph_ids_known(standard_ids: list[str] | set[str]) -> dict[str, bool]:
+    """{standard id: whether its requirements' clause values are paragraph
+    ids}. False when they are table numbers (audit A-761b): a CRS then says
+    "paragraph not identified" instead of printing "cl. 0.3". A standard with
+    too few clause values to tell is trusted (True), as before."""
+    ids = sorted({i for i in standard_ids if i})
+    if not ids:
+        return {}
+    marks = ",".join("?" for _ in ids)
+    rows = connect().execute(
+        "SELECT standard_document_id, count(*) AS n, count(DISTINCT clause) AS k"
+        " FROM standard_requirements WHERE standard_document_id IN (%s)"
+        " AND superseded_at IS NULL AND clause IS NOT NULL AND trim(clause) != ''"
+        " GROUP BY standard_document_id" % marks, ids).fetchall()
+    out = {i: True for i in ids}
+    for r in rows:
+        if r["n"] >= PARAGRAPH_IDS_MIN and r["k"] / r["n"] < PARAGRAPH_IDS_MIN_DISTINCT_SHARE:
+            out[r["standard_document_id"]] = False
+    return out
