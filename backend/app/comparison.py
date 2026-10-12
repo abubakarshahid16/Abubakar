@@ -95,6 +95,11 @@ REQUIRES_OTHER_DOCUMENT = "requires_other_document"
 #: class, PWHT...) named nothing of the kind. Only a clause whose own sentence
 #: names a document (`required_evidence_type`) carries the first token now.
 NO_FIELD_MATCHED = "no_field_matched"
+#: #893: the clause only asks for the thing to be stated, and it is.
+STATED_AS_ASKED = "stated_as_asked"
+#: #893: the clause names the values a thing shall be; the rationale says
+#: whether the sheet's value is one of them as written.
+NAMED_VALUE = "named_value"
 #: The reason code a NOT_APPLICABLE finding leads with when the requirement's
 #: condition was established as NOT holding by a datasheet fact (B24 and the
 #: condition reader in `conditions`). Read by `crs_mapping` as a literal.
@@ -816,6 +821,31 @@ def _compare(requirement: dict, fact: dict | None, *,
                         "limit": None,
                         "observed": _describe(_measurement_from_fact(fact), fact),
                         "exception_applied": None}
+
+        # #893: THE CLAUSE NAMES VALUES, OR ONLY ASKS FOR THE THING TO BE
+        # STATED. Code decides the two cases it can prove from the two texts
+        # (`field_links`); a stated value that is not one of the named ones
+        # is shown beside them and left to the engineer - never a breach by
+        # code, because another name for the same thing is not a breach.
+        clause = requirement.get("source_text") or requirement.get("requirement_text")
+        stated = " ".join(str(fact.get("field_value") or "").split())
+        if stated and field_links.asks_only_to_be_stated(clause):
+            return {"status": COMPLIANT,
+                    "rationale": (f"{STATED_AS_ASKED}: the clause asks for this to be stated on the "
+                                  f"datasheet, and the sheet states it: {stated}"),
+                    "limit": None, "observed": stated, "exception_applied": None}
+        names = field_links.named_values(clause)
+        if stated and names and not fact_has_number(fact):
+            if field_links.is_named_value(stated, names):
+                return {"status": COMPLIANT,
+                        "rationale": (f"{NAMED_VALUE}: the sheet states {stated!r}, which is one of the "
+                                      f"values the clause names ({'; '.join(names)})"),
+                        "limit": "; ".join(names), "observed": stated, "exception_applied": None}
+            return {"status": NEEDS_ENGINEER_REVIEW,
+                    "rationale": (f"{NAMED_VALUE}: the sheet states {stated!r}; the clause names "
+                                  f"{'; '.join(names)}. As written it is not one of them. Another name for "
+                                  "the same thing is not judged by code: engineer to decide"),
+                    "limit": "; ".join(names), "observed": stated, "exception_applied": None}
 
     # A SATISFIED condition travels with the verdict too. NORTH-STAR section 4
     # requires a review run to preserve its applicability evidence, and "this
@@ -2959,6 +2989,13 @@ def _resolve_hits(requirement: dict, facts: list[dict], hits: list[dict], *,
             "refused": refused, "synonym": best[0]["synonym"]}
 
 
+def _singular(text: str) -> str:
+    """Each word without a plural "s": "shaft seals" names the row "shaft
+    seal". Words that end in "ss" ("class", "thickness") are left alone."""
+    return " ".join(w[:-1] if len(w) > 3 and w.endswith("s") and not w.endswith("ss") else w
+                    for w in text.split())
+
+
 def match_statement(requirement: dict, facts: list[dict], *,
                     sheet_kind: str | None = None) -> dict:
     """The datasheet field a `statement` clause is about, or none. CRS quick
@@ -3004,6 +3041,27 @@ def match_statement(requirement: dict, facts: list[dict], *,
         requirement, subject, facts,
         lambda f: bool(f.get("is_blank")) or fact_has_number(f)
         or datasheets.is_categorical_value(f.get("field_value")))
+    if not hits:
+        # #893: A ROW THAT STATES A NAME, NOT A NUMBER. "Casing material: Cast
+        # iron" under a clause about the casing material was "not in the
+        # document". Free text beside a label is also where noise comes from,
+        # so this route is the strict one: the label has two words or more
+        # and stands whole inside the clause's subject (never "service" or
+        # "type" claiming every clause that says the word).
+        hits = [hit for hit in _containment_hits(
+            requirement, subject, facts,
+            lambda f: not f.get("is_blank") and bool(str(f.get("field_value") or "").strip()))
+            if len(hit["name"].split()) >= 2 and _contains_words(_singular(subject), _singular(hit["name"]))]
+        # TWO READERS, ONE ROW: the layout reader and the AI reader both read
+        # the same label with the same words on the same page. That is one
+        # answer, not a tie. Readings that DIFFER stay a tie - a question.
+        one_per_reading: dict[tuple, dict] = {}
+        for hit in sorted(hits, key=lambda h: h["fact"].get("extraction_method") == "model"):
+            fact = hit["fact"]
+            one_per_reading.setdefault(
+                (hit["name"], _normalise_for_match(fact.get("field_value")), fact.get("page"),
+                 fact.get("equipment_tag")), hit)
+        hits = list(one_per_reading.values())
     if not hits:
         return none
     return _resolve_hits(requirement, facts, hits, sheet_kind=sheet_kind)
