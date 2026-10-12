@@ -3700,7 +3700,8 @@ def get_standard_provenance(
     return {"provenance": standards_acquisition_mod.provenance_of(document_id)}
 
 
-@app.get("/api/standards/{document_id}/okf", responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+@app.get("/api/standards/{document_id}/okf", response_model=schemas.OkfReport,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
 def standard_okf_report(
     document_id: str,
     request: Request,

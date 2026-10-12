@@ -212,6 +212,24 @@ class Document(BaseModel):
     review_status: DocumentReviewStatus = "not_reviewed"
 
 
+class OkfReport(BaseModel):
+    """#513: the OKF build report for one standard. Counts and ids only."""
+
+    document_id: str
+    version: int
+    standards_asked: int
+    not_readable: list[str]
+    not_held: list[str]
+    concepts: dict[str, int] = Field(description="concepts built, by kind")
+    links: dict[str, int] = Field(description="cited links written, by relation")
+    unresolved: dict[str, int] = Field(
+        description="requirements whose citation does not resolve, by closed reason; "
+                    "they are written with no link")
+    requirements_without_a_clause: int
+    problems: int = Field(description="links that break the rule 'no link without a "
+                                      "resolving citation'; a built set has 0")
+
+
 class StandardClause(BaseModel):
     """One clause of a standard, resolving to the chunk it was read from."""
 
