@@ -2626,6 +2626,20 @@ def _evidence_side(current: dict, side: str, scope: access.AccessScope) -> dict:
             return {"document": None, "page": None, "rects": [], "box": None,
                     "reason": f"{current['standard_clause']}: the standard is not in the library "
                               "you may read, or the clause was not found in it"}
+    if (side == "submittal" and document_id and not page_no
+            and current.get("origin") == evidence_boxes_mod.CHECKLIST_ORIGIN
+            and not (current.get("contractor_evidence_text") or "").strip()
+            and scope.may_read(document_id)):
+        # #785 point 3: no value found, so no page cited - show where to look.
+        doc = dict(require_document(document_id, scope))
+        if doc.get("pagination") == "flow" or not doc.get("stored_path"):
+            return {"document": None, "page": None, "rects": [], "box": None,
+                    "reason": f"no value was found for {current.get('contractor_section') or 'this field'}"}
+        look = evidence_boxes_mod.where_to_look(current.get("contractor_section"), doc["stored_path"])
+        if look["page"] is None:
+            return {"document": None, "page": None, "rects": [], "box": None, "reason": look["reason"]}
+        return {"document": doc, "page": look["page"], "rects": look["rects"],
+                "box": evidence_boxes_mod.WHERE_TO_LOOK, "reason": None}
     if not document_id or not page_no:
         return {"document": None, "page": None, "rects": [], "box": None,
                 "reason": f"this finding cites no {side} page"}

@@ -17,6 +17,13 @@ the datasheet checklist rows (planner, live PSV run 12 Oct 05:12 UTC):
    clause's page from the standard's own stored requirements, or failing that
    from a chunk that starts the clause; the clause sentence is boxed when it
    can be placed.
+3. NO VALUE FOUND, NOTHING TO SHOW (#785 point 3, planner 12 Oct). A row the
+   checklist could not find a value for ("PSV-11") cites no page. The engineer
+   is shown WHERE TO LOOK: the field's label (its own name, or a spelling the
+   rules list for it) when it is printed EXACTLY ONCE in the whole datasheet,
+   boxed as "where to look"; printed more than once, no box and the pages in
+   words; not printed, words naming the field and the pages to check (a page
+   with no text layer is named: the label could be there, read by eye).
 
 EVERY BOX IS EITHER RIGHT OR ABSENT, and `box` names which kind it is so the
 screen never calls a label box "the value". Nothing here writes; a run made
@@ -37,6 +44,7 @@ VALUE_ONCE = "value_once"       # the value, the only time it appears on the pag
 LABEL = "label"                 # the field's label (the value sits beside it)
 CLAUSE_TEXT = "clause_text"     # the clause's stored requirement sentence
 CLAUSE_HEADING = "clause_heading"   # the clause number at the start of its line
+WHERE_TO_LOOK = "where_to_look"  # no value found: the field's label, the one place it is printed
 
 CHECKLIST_ORIGIN = "datasheet_check"
 
@@ -174,3 +182,79 @@ def checklist_standard(finding: dict, allowed_document_ids: frozenset[str]) -> d
 def standard_box(text: str | None, pdf_path: str, page_no: int, how: str) -> tuple[list, str | None]:
     rects, _ = highlight.locate(pdf_path, page_no, text or "")
     return (rects, how) if rects else ([], None)
+
+
+def _spellings(field: str) -> list[str]:
+    """The field's own name, then the plain spellings the checklist rules list
+    for it (`printed_as`, `field_synonyms.json`) - text, never a pattern, so a
+    box is only ever drawn on words the page prints."""
+    from . import datasheet_checks
+
+    role = "_".join(field.lower().split())
+    rules = datasheet_checks.load_rules()
+    out = [" ".join(field.split())]
+    out += list(rules["roles"].get(role, {}).get("printed_as", []))
+    out += datasheet_checks._synonyms().get(role.replace("_", " ")) or []
+    seen, kept = set(), []
+    for s in out:
+        key = " ".join(str(s).lower().split())
+        if len(key) >= 3 and key not in seen:
+            seen.add(key)
+            kept.append(" ".join(str(s).split()))
+    return kept
+
+
+def _inside(a, b) -> bool:
+    return a[0] >= b[0] - 1 and a[1] >= b[1] - 1 and a[2] <= b[2] + 1 and a[3] <= b[3] + 1
+
+
+def where_to_look(field: str | None, pdf_path: str) -> dict:
+    """For a row with no value and no page: {page, rects, reason}. A page and
+    one box only when the field's label is printed exactly once in the whole
+    datasheet; otherwise no page, and `reason` says in words where to look.
+    Reads the PDF only; writes nothing."""
+    import pymupdf
+
+    field = " ".join(str(field or "").split())
+    if not field:
+        return {"page": None, "rects": [],
+                "reason": "no value was found, and the finding does not name the field"}
+    hits: list[tuple[int, tuple]] = []
+    blank: list[int] = []
+    with pymupdf.open(pdf_path) as doc:
+        count = doc.page_count
+        for index in range(count):
+            page = doc.load_page(index)
+            if not page.get_text().strip():
+                blank.append(index + 1)
+                continue
+            for spelling in _spellings(field):
+                for r in page.search_for(spelling, quads=False):
+                    hits.append((index + 1, (r.x0, r.y0, r.x1, r.y1)))
+    # A shorter spelling found inside a longer one is the same place, not two.
+    places = [h for h in hits if not any(o is not h and o[0] == h[0] and _inside(h[1], o[1])
+                                         and not _inside(o[1], h[1]) for o in hits)]
+    unique: list[tuple[int, tuple]] = []
+    for h in places:
+        if not any(u[0] == h[0] and _inside(h[1], u[1]) for u in unique):
+            unique.append(h)
+    if len(unique) == 1 and not blank:
+        return {"page": unique[0][0], "rects": [unique[0][1]], "reason": None}
+    no_text = (f"; page{'s' if len(blank) > 1 else ''} {_pages(blank)} "
+               f"{'have' if len(blank) > 1 else 'has'} no text layer, so check "
+               f"{'them' if len(blank) > 1 else 'it'} by eye") if blank else ""
+    if unique:
+        pages = sorted({u[0] for u in unique})
+        return {"page": None, "rects": [], "reason":
+                f"no value was found for {field}; its label is printed {len(unique)} times "
+                f"(page{'s' if len(pages) > 1 else ''} {_pages(pages)}), so no box is drawn - "
+                f"check the {field} entry on {'those pages' if len(pages) > 1 else 'that page'}"
+                + no_text}
+    return {"page": None, "rects": [], "reason":
+            f"no value was found for {field}, and its label is not printed on the datasheet "
+            f"(pages {_pages(list(range(1, count + 1)))} searched) - check the section where "
+            f"{field} would be given, or ask the contractor for it" + no_text}
+
+
+def _pages(numbers: list[int]) -> str:
+    return ", ".join(str(n) for n in numbers) if numbers else "none"
