@@ -356,7 +356,15 @@ def graph(concepts: list[dict], *, conn=None) -> dict:
                     edges.append({"from": concept["id"], "rel": link["rel"], "to": link["to"],
                                   "cite": dict(link["cite"])})
     edges.sort(key=lambda e: (e["from"], e["rel"], e["to"]))
-    return {"nodes": nodes, "edges": edges,
+    # The same edges by the node they leave and the node they arrive at: a
+    # walk asks for one node's edges, and scanning every edge per step made a
+    # question over a whole library take minutes (#515, measured).
+    leaving: dict[str, list[dict]] = {}
+    arriving: dict[str, list[dict]] = {}
+    for edge in edges:
+        leaving.setdefault(edge["from"], []).append(edge)
+        arriving.setdefault(edge["to"], []).append(edge)
+    return {"nodes": nodes, "edges": edges, "leaving": leaving, "arriving": arriving,
             "report": {"nodes": len(nodes), "edges": len(edges), "links_refused": refused,
                        "nodes_by_kind": {k: sum(1 for n in nodes.values() if n["kind"] == k) for k in KINDS},
                        "edges_by_relation": {r: sum(1 for e in edges if e["rel"] == r) for r in RELATIONS}}}
@@ -367,9 +375,8 @@ def neighbours(built: dict, concept_id_: str, *, relation: str | None = None,
     """The edges that leave a node (or, with `incoming`, arrive at it),
     optionally of one relation. Each carries its citation: a step along the
     graph is never taken without one."""
-    end = "to" if incoming else "from"
-    return [e for e in built["edges"]
-            if e[end] == concept_id_ and (relation is None or e["rel"] == relation)]
+    at_node = built["arriving" if incoming else "leaving"].get(concept_id_, ())
+    return [e for e in at_node if relation is None or e["rel"] == relation]
 
 
 def load(directory: Path | None = None) -> dict:
@@ -467,3 +474,118 @@ def check_answer(sentences: list[dict], built: dict, concepts: list[dict], *, co
             refused.append({"index": index, "reason": reason})
             counts[reason] = counts.get(reason, 0) + 1
     return {"kept": kept, "refused": refused, "counts": counts}
+
+
+# ------------------------------------------------- #515: three graph queries
+#
+# WHICH STANDARDS APPLY, IS THIS THE LATEST REVISION, WHAT ELSE IS AFFECTED.
+# Each answer is made of steps, and a step is an edge of the graph with its
+# citation - or, for a revision, the stored classification record, re-read at
+# the time of asking. A question the graph cannot answer gets a NAMED state,
+# never an empty list that reads as "none": "no standard applies" and "this
+# equipment type is not in the graph" are different answers.
+
+#: The states of a query (closed words).
+ANSWERED = "answered"
+EQUIPMENT_UNKNOWN = "equipment_type_not_in_the_graph"
+NO_CITED_PATH = "no_cited_path_to_a_standard"
+NOTHING_AFFECTED = "nothing_reaches_it"
+SUPERSEDED = "superseded"
+ONLY_ONE_HELD = "only_revision_held"
+LATEST_HELD = "latest_of_the_revisions_held"
+ORDER_NOT_RECORDED = "order_of_the_revisions_held_is_not_recorded"
+NO_NUMBER = "no_document_number_recorded"
+
+
+def applicable(built: dict, equipment_type: str) -> dict:
+    """Which standards apply to an equipment type: every standard a cited
+    path reaches from it (requirement applies_to it, in_clause a clause,
+    part_of the standard). `{"state", "standards": [{"standard", "paths"}],
+    "requirements_reaching_no_standard": n}`; a path is its three edges."""
+    target = concept_id(EQUIPMENT_TYPE, equipment_type)
+    if target not in built["nodes"]:
+        return {"state": EQUIPMENT_UNKNOWN, "standards": [], "requirements_reaching_no_standard": 0}
+    reached: dict[str, list[list[dict]]] = {}
+    stranded = 0
+    for applies in neighbours(built, target, relation=APPLIES_TO, incoming=True):
+        paths = [[applies, in_clause, part]
+                 for in_clause in neighbours(built, applies["from"], relation=IN_CLAUSE)
+                 for part in neighbours(built, in_clause["to"], relation=PART_OF)]
+        for path in paths:
+            reached.setdefault(path[-1]["to"], []).append(path)
+        stranded += not paths
+    return {"state": ANSWERED if reached else NO_CITED_PATH,
+            "standards": [{"standard": standard, "paths": reached[standard]} for standard in sorted(reached)],
+            "requirements_reaching_no_standard": stranded}
+
+
+def impact(built: dict, concept_id_: str) -> dict:
+    """What else is affected when a concept changes: everything that reaches
+    it along cited edges (a standard's clauses, their requirements), and the
+    equipment types those requirements apply to. `{"state", "affected":
+    [{"concept", "kind", "path"}]}`; the path is the edges from the concept.
+    An equipment type that is reached is an end: the walk does not go on from
+    it to every other requirement of that type."""
+    nodes = built["nodes"]
+    if concept_id_ not in nodes:
+        return {"state": CONCEPT_MISSING, "affected": []}
+    paths: dict[str, list[dict]] = {}
+    queue: list[tuple[str, list[dict]]] = [(concept_id_, [])]
+    while queue:
+        node, path = queue.pop(0)
+        if node != concept_id_ and nodes[node]["kind"] == EQUIPMENT_TYPE:
+            continue
+        steps = [(e["from"], e) for e in neighbours(built, node, incoming=True)]
+        if nodes[node]["kind"] == REQUIREMENT:
+            steps += [(e["to"], e) for e in neighbours(built, node, relation=APPLIES_TO)]
+        for other, edge in steps:
+            if other != concept_id_ and other not in paths:
+                paths[other] = path + [edge]
+                queue.append((other, paths[other]))
+    return {"state": ANSWERED if paths else NOTHING_AFFECTED,
+            "affected": [{"concept": other, "kind": nodes[other]["kind"], "path": paths[other]}
+                         for other in sorted(paths)]}
+
+
+def _superseded_by(conn, document_id) -> str | None:
+    row = conn.execute("SELECT superseded_by FROM document_classification WHERE document_id = ?",
+                       (document_id,)).fetchone()
+    return (row["superseded_by"] or None) if row is not None else None
+
+
+def latest_revision(built: dict, concepts: list[dict], standard_id: str, *, conn=None) -> dict:
+    """Is this standard the latest revision - OF THE REVISIONS THIS LIBRARY
+    HOLDS, which is all the graph can know. It rests on the stored record
+    that one document supersedes another (set by a person), re-read now; a
+    revision label is never compared to guess an order. `{"state", "basis",
+    ...}`: `superseded` names the document that replaced it; with several
+    revisions held and no record that orders them, the answer is that the
+    order is not recorded."""
+    conn = conn or connect()
+    facts = {c["id"]: c.get("facts") or {} for c in concepts if c.get("kind") == STANDARD}
+    if standard_id not in built["nodes"] or standard_id not in facts:
+        return {"state": CONCEPT_MISSING}
+    document_id = facts[standard_id].get("document_id")
+    basis = {"record": "document_classification.superseded_by", "document_id": document_id,
+             "boundary": "the revisions this library holds"}
+    replaced_by = _superseded_by(conn, document_id)
+    if replaced_by:
+        return {"state": SUPERSEDED, "superseded_by": replaced_by,
+                "superseding_standard_in_the_graph": concept_id(STANDARD, replaced_by) in built["nodes"],
+                "basis": basis}
+    number = _fold(facts[standard_id].get("document_number"))
+    if not number:
+        return {"state": NO_NUMBER, "basis": basis}
+    others = sorted(other for other, f in facts.items()
+                    if other != standard_id and other in built["nodes"] and _fold(f.get("document_number")) == number)
+    unordered = []
+    for other in others:
+        at, seen = facts[other].get("document_id"), set()
+        while at and at != document_id and at not in seen:        # follow the record to its end
+            seen.add(at)
+            at = _superseded_by(conn, at)
+        if at != document_id:
+            unordered.append(other)
+    if unordered:
+        return {"state": ORDER_NOT_RECORDED, "also_held": unordered, "basis": basis}
+    return {"state": LATEST_HELD if others else ONLY_ONE_HELD, "replaces": others, "basis": basis}
