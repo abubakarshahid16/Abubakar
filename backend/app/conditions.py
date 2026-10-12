@@ -854,6 +854,56 @@ def _evaluate_read(reading: _Reading, condition: str, facts: list[dict]) -> dict
     return _result(UNKNOWN, shape, condition, "; ".join(reasons))
 
 
+# ------------------------------------------- #858: a condition nobody read
+#
+# THE GATE BELOW ONLY SEES THE `condition` COLUMN. When the extraction left
+# that column empty, a conditional limit reached the comparison as a plain
+# limit: "In <an environment>, the operating temperature shall not exceed A
+# for <one material>, and B for <another>" was compared with A and reported
+# as Meets - nobody had established the environment or the material (found
+# by the gold-lite key on a real sheet, 2026-10-12). The sentence itself says
+# it is conditional, in two shapes the code can read without a model:
+#
+#   * it OPENS with a conditional clause, up to the first comma
+#     ("In ... environments,", "Where ...,", "When ...,", "If ...,",
+#     "Unless ...,", "Under ...,", "Provided ...,");
+#   * it states SEVERAL limits, each for a different case ("A for X, and B
+#     for Y"): which one applies is a condition too.
+#
+# An opener that only orders the text ("In addition,", "In general,", "In
+# accordance with ...,") is not a condition.
+_NOT_A_CONDITION = (r"(?:addition|general|all cases|no case|any case|particular|accordance|order|lieu"
+                    r"|conjunction|compliance|conformance|this (?:standard|section|specification|case)"
+                    r"|such cases?|either case|both cases|the event|case of)\b")
+_LEADING_CONDITION = re.compile(
+    r"^\W*(?:\(?[0-9a-z]{1,3}\)\s*)?(?P<clause>(?:in(?!\s+" + _NOT_A_CONDITION + r")|where|when|if|unless"
+    r"|under|provided)\s+[^,;:.]{3,140}),\s", re.IGNORECASE)
+_LIMIT_FOR_A_CASE = re.compile(r"\d[^,;.()]{0,30}\bfor\s+[A-Za-z]")
+
+
+def unread_condition(requirement: dict | None) -> str | None:
+    """The condition a numeric limit's own sentence states when its
+    `condition` column is empty - the words, for the engineer - or None.
+
+    Only for the requirement type the gate covers, and only when the column
+    is empty: a condition that WAS extracted is `evaluate`'s business."""
+    kind = (requirement or {}).get("requirement_type")
+    if kind != GATED_TYPE:
+        return None
+    if _fold((requirement or {}).get("condition")):
+        return None
+    text = " ".join(str((requirement or {}).get("source_text")
+                        or (requirement or {}).get("requirement_text") or "").split())
+    if not text:
+        return None
+    found = _LEADING_CONDITION.match(text)
+    if found:
+        return found.group("clause").strip()
+    if len(_LIMIT_FOR_A_CASE.findall(text)) >= 2:
+        return "the limit differs by case (several limits, each for a different case)"
+    return None
+
+
 def evaluate(requirement: dict, facts: list[dict] | None,
              about: dict | None = None) -> dict | None:
     """Is this requirement's condition established, and does it hold?
