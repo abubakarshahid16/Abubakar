@@ -452,22 +452,26 @@ def undecided_statements(requirements: list[dict], status_of: dict) -> list[dict
             if r.get("requirement_type") == STATEMENT and status_of.get(r.get("id")) in open_states]
 
 
-def ensure_schema(conn) -> None:
+def ensure_schema() -> None:
     """Drafts only. A proposed check is never a requirement: the engineer
     approves it into one, or rejects it (#645)."""
-    conn.execute("""CREATE TABLE IF NOT EXISTS clause_check_drafts (
-        requirement_id TEXT NOT NULL,
-        field TEXT NOT NULL,
-        operator TEXT,
-        value TEXT NOT NULL,
-        unit TEXT,
-        condition TEXT,
-        quote TEXT NOT NULL,
-        model TEXT,
-        review_run_id TEXT,
-        status TEXT NOT NULL DEFAULT 'draft',
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (requirement_id, field, value, unit))""")
+    from .db import connect
+
+    conn = connect()
+    with conn:
+        conn.execute("""CREATE TABLE IF NOT EXISTS clause_check_drafts (
+            requirement_id TEXT NOT NULL,
+            field TEXT NOT NULL,
+            operator TEXT,
+            value TEXT NOT NULL,
+            unit TEXT,
+            condition TEXT,
+            quote TEXT NOT NULL,
+            model TEXT,
+            review_run_id TEXT,
+            status TEXT NOT NULL DEFAULT 'draft',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (requirement_id, field, value, unit))""")
 
 
 def propose_checks(requirements: list[dict], *, review_run_id: str | None = None,
@@ -498,9 +502,9 @@ def propose_checks(requirements: list[dict], *, review_run_id: str | None = None
         drafts.append((requirement["id"], check, result.model))
         model = model or result.model
     if drafts:
+        ensure_schema()
         conn = connect()
         with conn:
-            ensure_schema(conn)
             conn.executemany(
                 "INSERT OR IGNORE INTO clause_check_drafts (requirement_id, field, operator, value,"
                 " unit, condition, quote, model, review_run_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
