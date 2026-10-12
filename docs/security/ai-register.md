@@ -21,7 +21,7 @@ A switch is any `*_enabled` flag, or `*_provider` / `*_reader` / `*_engine` sett
 
 | Switch | Default | Uses | What it does | Off means |
 |---|---|---|---|---|
-| `reasoning_provider` | `ollama` | Claude API or local model | Which engine every reasoning step uses. `claude` only when both standards-reader egress flags and a key are also set | The local model |
+| `reasoning_provider` | `ollama` | Claude API or local model | Which engine every reasoning step uses. `claude` only when both standards-reader egress flags and a key are also set. `per_task` (#501): Claude only for a step whose own engine setting says claude (the AI reader, the AI matcher); every other step local | The local model |
 | `standards_reader_enabled` | `False` | Claude API | One of the two egress flags for the Claude lane | No document text can reach the Claude API |
 | `datasheet_ai_reader` | `ollama` | Local model or Claude API | An AI reads each datasheet page; code proves every value's quote on the page. Local model by default since #793 | The code readers only (`off`) |
 | `match_enabled` | `True` | Local model or Claude API | The AI proposes which rule fits which value; code applies the refusal rules. On by default since #794 | Code pairing only |
