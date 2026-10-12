@@ -1493,6 +1493,65 @@ def is_a_header_row_pair(pair: tuple[str, str], headers: list[frozenset[str]]) -
     return bool(label and value) and any(label in cells and value in cells for cells in headers)
 
 
+def _states_a_quantity(cell: str) -> bool:
+    """A number WITH a unit this system knows: "0.05 barg", "12000 mm"."""
+    number, unit, _m = measure_value(cell or "")
+    return number is not None and bool(unit)
+
+
+def _first_row_states_a_value(row0: list[str]) -> bool:
+    """Is a wide table's first row DATA, not column names? Its last filled
+    cell states a quantity, and it has a label before it. A header names
+    columns and states no quantity ("Parameter | Units | Value")."""
+    filled = [c for c in row0 if c]
+    return len(filled) >= 2 and _states_a_quantity(filled[-1]) and bool(re.search(r"[^\W\d_]", filled[0]))
+
+
+#: A value cell that carries its own sub-label: "Bottom course: 14 mm".
+_SUB_LABELLED_VALUE = re.compile(r"^(?P<sub>[A-Za-z][^:]{1,40}):\s*(?P<value>\S.*)$")
+
+
+def _pairs_from_headerless_shape(rows: list[list[str]]) -> list[tuple[str, str]]:
+    """Label:value pairs from a wide ruled table that HAS NO HEADER ROW (R27).
+
+    Measured on the invented merged-cell sheet (#830): a three-column table
+    whose first column is a group cell merged over two rows ("DESIGN" over
+    Pressure and Temperature) starts with data. `pairs_from_table_shape`
+    takes row 0 of a wide table as the header, so the first two DATA rows
+    became "column names" and every field below was named after their
+    values - "Nominal capacity - 0.05 barg - 85 C" - while the two rows
+    themselves were lost.
+
+    Per row: the answer is the LAST filled cell; the label is every filled
+    cell before it. An empty first cell is a cell merged from the row above,
+    so that row's first cell is carried down (a group, or the label of a
+    value cell split in two). A value cell that carries its own sub-label
+    ("Bottom course: 14 mm") gives it to the label and keeps the quantity.
+    A row with no label, or with no answer, yields nothing."""
+    out: list[tuple[str, str]] = []
+    above = ""
+    for cells in rows:
+        filled = [i for i, c in enumerate(cells) if c]
+        if not filled:
+            continue
+        lead = cells[0] or above
+        if cells[0]:
+            above = cells[0]
+        value = cells[filled[-1]]
+        labels = [cells[i] for i in filled[:-1] if i != 0]
+        if lead and (filled[-1] != 0):
+            labels = [lead, *labels]
+        sub = _SUB_LABELLED_VALUE.match(value)
+        if sub and measure_value(sub.group("value"))[0] is not None:
+            labels.append(sub.group("sub").strip())
+            value = sub.group("value").strip()
+        label = " ".join(labels).strip()
+        if not label or not re.search(r"[^\W\d_]", label) or not value:
+            continue
+        out.append((label, value))
+    return out
+
+
 def pairs_from_table_shape(shape: list[list[str]]) -> list[tuple[str, str]]:
     """Label:value pairs from one RULED table shape, respecting its columns.
 
@@ -1546,6 +1605,10 @@ def pairs_from_table_shape(shape: list[list[str]]) -> list[tuple[str, str]]:
 
     def _padded(row: list[str]) -> list[str]:
         return [(c or "").strip() for c in row] + [""] * (width - len(row))
+
+    if _first_row_states_a_value(_padded(shape[0])):
+        # R27: no header row at all - see `_pairs_from_headerless_shape`.
+        return _pairs_from_headerless_shape([_padded(row) for row in shape])
 
     def _carry_forward(row: list[str]) -> list[str]:
         # Column 0 is the label column and never receives a carried header.

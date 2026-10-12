@@ -1118,6 +1118,10 @@ def _is_a_contents_row(label: str, answer: str) -> bool:
     return bool(_ENDS_ON_A_SHEET_WORD.search(label) and _ONLY_PAGE_NUMBERS.match(answer))
 
 
+#: A value cell that carries its own sub-label: "Bottom course: 14 mm".
+_SUB_LABELLED_VALUE = re.compile(r"^(?P<sub>[A-Za-z][^:]{1,40}):" + r"\s*(?P<value>\S.*)$")
+
+
 def _label_value_rows(table: dict[str, Any], alphabet_violations) -> list[dict[str, Any]]:
     """The rows of a HEADERLESS label/value table (R27): per row, the label is
     every word cell to the left of the answer (a group cell merged from above
@@ -1146,11 +1150,21 @@ def _label_value_rows(table: dict[str, Any], alphabet_violations) -> list[dict[s
         c = cells[answer]
         if _is_a_contents_row(" ".join(t for _i, t in parts), c["text"]):
             continue
+        label, value_text, value, unit = " ".join(t for _i, t in parts), c["text"], c["value"], c["unit"]
+        # R27: A VALUE CELL THAT CARRIES ITS OWN SUB-LABEL ("Bottom course:
+        # 14 mm", a value cell split in two under one label). The sub-label
+        # belongs to the name and the quantity is the value; stored whole it
+        # was a field "Shell plate thickness" whose value was a sentence.
+        sub = _SUB_LABELLED_VALUE.match(c["text"] or "") if not c["is_blank"] else None
+        inner = split_value_unit(sub.group("value")) if sub else None
+        if inner and inner["unit"]:
+            label = f"{label} {sub.group('sub').strip()}"
+            value_text, value, unit = sub.group("value").strip(), inner["value"], inner["unit"]
         out.append({
             "source": "table", "page": c["page"],
-            "label": " ".join(t for _i, t in parts),
-            "label_text": "", "value_text": c["text"],
-            "value": c["value"], "unit": c["unit"], "is_blank": c["is_blank"],
+            "label": label,
+            "label_text": "", "value_text": value_text,
+            "value": value, "unit": unit, "is_blank": c["is_blank"],
             "blank_marker": c["blank_marker"], "condition": c.get("condition"),
             "note": c.get("note"), "bbox": c["bbox"], "label_bbox": cells[parts[-1][0]].get("bbox"),
             "position": None, "table_id": c["table_id"], "row": c["row"],
