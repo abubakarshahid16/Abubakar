@@ -22,7 +22,9 @@ import type {
   ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary, RequirementsNotApplied, RequirementSplit, RequirementSplitReason, TableValuesNotCompared,
   VisionReaderStatus,
 } from "../types/api";
+import { AiNumbersPanel } from "../components/review/AiNumbersPanel";
 import { FindingDetail } from "../components/review/FindingDetail";
+import { ReviewStepsPanel } from "../components/review/ReviewStepsPanel";
 import { FindingsTable } from "../components/review/FindingsTable";
 import {
   CrsItemCell, CrsReplyImportControl, CrsResolutionCell, CrsResponseCell,
@@ -538,6 +540,8 @@ export function ReviewRunsView(
             <StandardsInScope standards={standards} missing={missingStandards} error={standardsError} />
           )}
           {run?.requirement_split && <RequirementSplitPanel split={run.requirement_split} />}
+          {run && <ReviewStepsPanel key={`steps-${run.review_run_id}`} run={run} />}
+          {run && <AiNumbersPanel numbers={run.ai_numbers} />}
           {run && (run.requirements_not_applied?.length ?? 0) > 0 && (
             <RequirementsNotAppliedList lines={run.requirements_not_applied ?? []} />
           )}
