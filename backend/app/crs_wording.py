@@ -219,6 +219,10 @@ def _provider_for_this_review():
     budget cap) is not replaced: it stops the run, as before."""
     from . import reasoning_provider as rp
     provider = _provider()
+    if not isinstance(provider, rp.ClaudeProvider):
+        # #819: the wording's own engine says claude and every document of
+        # the review is approved for the cloud model; else it stays local.
+        provider = rp.claude_for_task(settings.crs_ai_wording_engine, "labelling", step=STEP) or provider
     if isinstance(provider, rp.ClaudeProvider):
         note = claude_approved.local_instead()
         if note:
