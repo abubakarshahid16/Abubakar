@@ -27,10 +27,10 @@ vi.mock("../../api/client", () => ({
 // The panes fetch the boxed page from the finding's evidence route; here they
 // only say which finding, side, page and kind of box they would show.
 vi.mock("./EvidencePageImage", () => ({
-  EvidencePageImage: ({ findingId, side, page, box }: {
-    findingId: string; side: string; page: number; box?: string | null;
+  EvidencePageImage: ({ findingId, side, page, box, reason }: {
+    findingId: string; side: string; page: number; box?: string | null; reason?: string | null;
   }) => (
-    <div data-testid="preview">{`${findingId} ${side} p${page}${box ? ` ${box}` : ""}`}</div>
+    <div data-testid="preview">{`${findingId} ${side} p${page}${box ? ` ${box}` : ""}${reason ? ` (${reason})` : ""}`}</div>
   ),
 }));
 // The one-page view (opened from a citation) is not under test here.
@@ -173,6 +173,26 @@ describe("#785: the server finds the page and names the box", () => {
     const std = screen.getByRole("group", { name: "Standard" });
     expect(within(std).queryByTestId("preview")).toBeNull();
     expect(within(std).getByText(/^API 999 1\.2: the standard is not in the library/)).toBeInTheDocument();
+  });
+});
+
+describe("#508: a scanned page", () => {
+  const side = (over: Record<string, unknown>) => ({
+    document_id: null, filename: null, page: null, box: null, reason: null, ...over });
+
+  it("shows the page and passes on why it has no box", async () => {
+    findingEvidence.mockResolvedValue({ ok: true, data: {
+      finding_id: "f-1",
+      submittal: side({ document_id: "doc-sub", filename: "scan.pdf", page: 3,
+        reason: "page 3 is a scanned image with no text layer" }),
+      standard: side({ document_id: "doc-std", filename: "std-noise.pdf", page: 7, box: "ocr_line" }),
+    } });
+    await openSideBySide();
+    const sub = screen.getByRole("group", { name: "Submittal" });
+    expect(within(sub).getByTestId("preview"))
+      .toHaveTextContent("f-1 submittal p3 (page 3 is a scanned image with no text layer)");
+    const std = screen.getByRole("group", { name: "Standard" });
+    expect(within(std).getByTestId("preview")).toHaveTextContent("f-1 standard p7 ocr_line");
   });
 });
 

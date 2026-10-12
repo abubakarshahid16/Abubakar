@@ -78,4 +78,19 @@ describe("EvidencePageImage", () => {
     render(<EvidencePageImage findingId="f-1" side="submittal" page={2} />);
     expect(screen.getByText("Loading page 2…")).toBeInTheDocument();
   });
+
+  it("#508: a scanned page's OCR box says it is the OCR's reading", () => {
+    imageFor.mockReturnValue(ready(true));
+    render(<EvidencePageImage findingId="f-1" side="standard" page={4} box="ocr_line" />);
+    expect(screen.getByTestId("evidence-located")).toHaveTextContent(
+      "A scanned page: the line holding the cited text is boxed, as the OCR read it - check the words on the page.");
+  });
+
+  it("#508: an unboxed scanned page says why, in the server's words", () => {
+    imageFor.mockReturnValue(ready(false));
+    render(<EvidencePageImage findingId="f-1" side="standard" page={4}
+      reason="page 4 is a scanned image with no text layer and could not be read here (recognition took too long), so no box is drawn - read the page itself" />);
+    expect(screen.getByTestId("evidence-located")).toHaveTextContent(
+      "Page 4 is a scanned image with no text layer and could not be read here (recognition took too long), so no box is drawn - read the page itself.");
+  });
 });
