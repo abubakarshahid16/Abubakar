@@ -808,6 +808,9 @@ export interface AiStepNumbers {
   /** #842: why the local model stood in for the cloud model, or null. */
   local_instead: string | null;
   lines: string[];
+  /** #791: the numbers the lines print, for the pipeline panel's lights. A
+   *  count the record does not hold is absent, never 0. */
+  counts?: Record<string, number>;
 }
 
 /** #845: the four AI steps of a run. A step with no record is null. */

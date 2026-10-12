@@ -2498,6 +2498,9 @@ class AiStepNumbers(BaseModel):
     #: #842: why the local model stood in for the cloud model, or null.
     local_instead: str | None = None
     lines: list[str] = []
+    #: #791: the numbers the lines print, for the pipeline panel's lights. A
+    #: count the record does not hold is absent, never 0.
+    counts: dict[str, int] = {}
 
 
 class AiNumbers(BaseModel):

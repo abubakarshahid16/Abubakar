@@ -35,9 +35,13 @@ def _n(value) -> int:
 
 
 def _step(label: str, state: str, lines: list[str], *, engine: str | None = None,
-          model: str | None = None, local_instead: str | None = None) -> dict:
+          model: str | None = None, local_instead: str | None = None,
+          counts: dict | None = None) -> dict:
+    # #791: `counts` are the same numbers the lines print, for the pipeline
+    # panel's lights; a count the record does not hold is left out, never 0.
     return {"step": label, "state": state, "where": where(engine or model),
-            "model": model, "local_instead": local_instead, "lines": lines}
+            "model": model, "local_instead": local_instead, "lines": lines,
+            "counts": counts or {}}
 
 
 def _reasons(counts: dict[str, int]) -> str:
@@ -70,8 +74,13 @@ def reader(summary: dict | None) -> dict | None:
         refused = summary["refused_by_gate"]
         lines.append(f"{refused} of {refused + merged} AI reading(s) refused by the code gate.")
     state = "incomplete" if summary.get("stopped") or summary.get("unavailable") else "ran"
+    counts = {"pages": pages, "pages_read": read, "timed_out": timed_out,
+              "left_to_code": sum(left.values()), "agreed": agreed, "conflicts": conflicts,
+              "ai_only": ai_only}
+    if isinstance(summary.get("refused_by_gate"), int):
+        counts["refused_by_gate"] = summary["refused_by_gate"]
     return _step("AI reader", state, lines, engine=summary.get("engine"),
-                 model=summary.get("model"))
+                 model=summary.get("model"), counts=counts)
 
 
 def matcher(counts: dict | None) -> dict | None:
@@ -97,7 +106,10 @@ def matcher(counts: dict | None) -> dict | None:
                  f"{_n(counts.get('unavailable'))} unavailable (time-out or model down)"
                  + (f", {_reasons(other)}" if other else "") + ".")
     state = "incomplete" if counts.get("unavailable") or counts.get("not_asked_budget") else "ran"
-    return _step("AI matcher", state, lines, engine=counts.get("engine"), model=counts.get("model"))
+    return _step("AI matcher", state, lines, engine=counts.get("engine"), model=counts.get("model"),
+                 counts={k: _n(counts.get(k)) for k in (
+                     "sent", "asked", "proposed", "used", "held", "refused_by_rule",
+                     "declined", "unavailable", "not_asked_budget")})
 
 
 def engineering_check(status: dict | None) -> dict | None:
@@ -110,7 +122,9 @@ def engineering_check(status: dict | None) -> dict | None:
     plain = status.get("plain") or (
         f"{_n(status.get('kept_items'))} of {_n(status.get('proposed_items'))} proposed item(s) kept.")
     return _step("AI engineering check", "ran" if status.get("complete") else "incomplete",
-                 [plain], model=status.get("model"), local_instead=status.get("local_instead"))
+                 [plain], model=status.get("model"), local_instead=status.get("local_instead"),
+                 counts={"proposed": _n(status.get("proposed_items")),
+                         "kept": _n(status.get("kept_items"))})
 
 
 def wording(summary: dict | None) -> dict | None:
@@ -128,7 +142,10 @@ def wording(summary: dict | None) -> dict | None:
     if summary.get("stopped"):
         lines.append(f"Stopped: {summary['stopped']}.")
     return _step("AI wording", "incomplete" if summary.get("stopped") else "ran", lines,
-                 model=summary.get("model"), local_instead=summary.get("local_instead"))
+                 model=summary.get("model"), local_instead=summary.get("local_instead"),
+                 counts={"tried": tried, "accepted": accepted,
+                         "refused": sum(_n(v) for v in refused.values()),
+                         "not_tried": _n(summary.get("not_tried"))})
 
 
 def for_run(outcome: dict | None, ai_check_status: dict | None,
