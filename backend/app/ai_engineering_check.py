@@ -773,6 +773,12 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
     local_instead: str | None = None
     if provider is None:
         provider = rp.get_provider("reasoning", step=STEP)
+        if not isinstance(provider, rp.ClaudeProvider):
+            # #819: this step's own engine says claude and EVERY document of
+            # the review (its standards too) is approved: the full check, with
+            # the clause list, runs on the cloud model. One unapproved
+            # standard keeps it local, and the datasheet-only opinion follows.
+            provider = rp.claude_for_task(opinion_engine(), step=STEP) or provider
         if isinstance(provider, rp.ClaudeProvider):
             # #838: documents not approved for the cloud model -> the local
             # model, said on the run. A budget refusal is NOT replaced.
@@ -960,6 +966,11 @@ def run_datasheet_opinion(review_run_id: str, *, allowed_document_ids: frozenset
                "kept": 0, "stored": 0, "rejected": {}, "cost_usd": 0.0}
     if not settings.review_ai_check_enabled or (provider is None and opinion_engine() != rp.CLAUDE):
         return outcome                      # not asked for: nothing to record
+    if provider is None and str((ai_check_status(review_run_id, allowed_document_ids=allowed_document_ids)
+                                 or {}).get("model") or "").startswith(rp.CLAUDE + ":"):
+        # #819: the FULL check already ran on the cloud model for this run
+        # (every document approved); a second, narrower opinion adds nothing.
+        return outcome
     run = submittal_review.get_review_run(review_run_id, allowed_document_ids=allowed_document_ids)
     if run is None:
         return {**outcome, "reason": "no review run with that id"}

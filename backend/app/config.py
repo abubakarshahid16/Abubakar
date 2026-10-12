@@ -400,6 +400,15 @@ class Settings(BaseSettings):
     #: `ai_task_model`. At most this many requirements per run are asked.
     ai_applicability_enabled: bool = False
     ai_applicability_max_per_run: int = 200
+    #: #645 clause to check: for each clause sentence stored with no limit
+    #: that the review could not decide, the local model PROPOSES a check
+    #: (field, limit, unit, condition, quote); code verifies every part
+    #: against the sentence and keeps what passes as a DRAFT for the engineer
+    #: - never a verdict. ON by default (#805 rule 1, AI-first); the model is
+    #: `ai_task_model`, so standards text stays on this machine. At most this
+    #: many sentences per run are asked (one model call each).
+    ai_clause_checks_enabled: bool = True
+    ai_clause_checks_max_per_run: int = 20
 
     # Measured on the target CPU - see docs/benchmarks.md
     num_thread: int = 12
@@ -588,6 +597,14 @@ class Settings(BaseSettings):
     #: Seconds one local wording call may take before the step stops for the
     #: run (templates kept). Env: CRS_AI_WORDING_TIMEOUT_S.
     crs_ai_wording_timeout_s: float = 60.0
+    #: #819 (owner decision 2026-10-12: standards text may go to the cloud
+    #: model under the approved-documents list). "ollama" (default): the
+    #: wording stays on the local model. "claude": under
+    #: REASONING_PROVIDER=per_task, with both egress flags and a key, the
+    #: wording of a review runs on the Claude API when EVERY document of that
+    #: review - its standards too - is on the approved list; else local.
+    #: Env: CRS_AI_WORDING_ENGINE.
+    crs_ai_wording_engine: str = "ollama"
     #: B4 (nozzle schedules): ONLY the geometry reader's TABLE path - a ruled
     #: grid read cell by cell under its column heading ("N1 Size 4", "N1
     #: Flange Rating CL-150"). A schedule is one row per item across many

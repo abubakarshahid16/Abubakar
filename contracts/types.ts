@@ -838,6 +838,8 @@ export interface AiNumbers {
   matcher: AiStepNumbers | null;
   engineering_check: AiStepNumbers | null;
   wording: AiStepNumbers | null;
+  /** #645: proposed checks for the clause sentences the run could not decide. */
+  clause_checks?: AiStepNumbers | null;
 }
 
 /** Which pages of a submittal were read into fields, and why the rest were

@@ -35,11 +35,15 @@ def test_every_app_module_is_reached_from_the_app():
 def test_the_removed_modules_are_gone_from_the_app():
     app = REPO / "backend" / "app"
     for name in ("ai_datasheet", "extraction_schema", "quotes", "worker", "datasheet_offline",
-                 "review_score", "blind_test", "ai_requirements", "scope_records"):
+                 "review_score", "blind_test", "scope_records"):
         assert not (app / f"{name}.py").exists(), name
-    for name in ("datasheet_offline", "review_score", "blind_test", "ai_requirements",
-                 "scope_records", "worker"):
+    for name in ("datasheet_offline", "review_score", "blind_test", "scope_records", "worker"):
         assert (REPO / "backend" / "tools" / f"{name}.py").exists(), name
+    # #645: ai_requirements was moved out because nothing in the app used it;
+    # the review's clause-to-check step uses it now, so it is back - ONE copy,
+    # in the app, and none left in tools/.
+    assert (app / "ai_requirements.py").exists()
+    assert not (REPO / "backend" / "tools" / "ai_requirements.py").exists()
 
 
 def test_lazy_and_relative_imports_are_followed(tmp_path):

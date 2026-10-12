@@ -880,6 +880,32 @@ def claude_unavailable_for_task(engine: str | None) -> tuple[str | None, str]:
     return _lane_unavailable()
 
 
+def claude_for_task(engine: str | None, role: str = "reasoning", *, step: str | None = None):
+    """#819: the Claude provider for a step whose OWN engine setting says
+    claude, when - and only when - the caller's prompt may leave: the lane is
+    open for that step (`claude_unavailable_for_task`) AND every document the
+    caller declared is on the owner's approved list (`claude_approved.refusal`
+    is None; with the list not enforced that check passes, as everywhere).
+    Otherwise None, and the caller keeps the engine it had.
+
+    The owner allowed standards text to the cloud model on 12 Oct 2026, under
+    the approved-documents list. So a step whose prompt carries a standard
+    (the full AI engineering check, the CRS wording) may run on Claude for a
+    review whose standards are ALL approved - and stays local, as before, for
+    any review where one is not. Nothing here opens the lane: the same check
+    is made again where every call reserves its cost."""
+    from . import claude_approved
+
+    if str(engine or "").strip().lower() != CLAUDE:
+        return None
+    if claude_unavailable_for_task(engine)[0] is not None:
+        return None
+    if claude_approved.refusal() is not None:
+        return None
+    model = settings.claude_labelling_model if role == "labelling" else settings.claude_reasoning_model
+    return ClaudeProvider(model, step=step)
+
+
 def _lane_unavailable() -> tuple[str | None, str]:
     """The lane's own two conditions: both egress flags, and a key."""
     from . import reader_api
