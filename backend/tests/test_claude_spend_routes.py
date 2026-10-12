@@ -270,7 +270,7 @@ def test_a_failure_that_may_have_been_billed_is_charged_its_worst_case(exc, monk
     [entry] = claude_spend.entries()
     assert entry["estimated"] is True and entry["step"] == claude_api.STEP_READ_DATASHEET
     assert entry["cost_usd"] > 0
-    assert entry["finish_reason"] == f"failed:{type(exc).__name__}"
+    assert entry["finish_reason"] == f"failed:{claude_spend.failure_word(exc)}"      # #872: status too
     assert DOC_TEXT not in claude_spend._ledger_path().read_text(encoding="utf-8")
 
 
