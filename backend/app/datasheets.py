@@ -2353,7 +2353,9 @@ def _pairs_from_pdf_page(stored_path: str, page_no: int) -> list[tuple[str, str]
         with pymupdf.open(stored_path) as doc:
             if not (1 <= page_no <= doc.page_count):
                 return []
-            blocks = [(b[1], b[0], b[4]) for b in doc[page_no - 1].get_text("blocks")]
+            # R27: in the space the page reads left to right (a rotated page)
+            from . import geometry_reader
+            blocks = [(b[1], b[0], b[4]) for b in geometry_reader.upright_blocks(doc[page_no - 1])]
             return pairs_from_blocks(blocks)
     except (pymupdf.FileNotFoundError, pymupdf.FileDataError):
         return []  # the FILE; named by pdf_condition, not guessed at here
@@ -2574,7 +2576,8 @@ def _grid_facts_from_pdf_page(stored_path: str | None, page_no: int) -> list[dic
         with pymupdf.open(stored_path) as doc:
             if not (1 <= page_no <= doc.page_count):
                 return []
-            return grid_facts(doc[page_no - 1].get_text("words"))
+            from . import geometry_reader
+            return grid_facts(geometry_reader.upright_words(doc[page_no - 1]))
     except Exception:  # noqa: BLE001 - the file's condition is pdf_condition's to name
         return []
 
