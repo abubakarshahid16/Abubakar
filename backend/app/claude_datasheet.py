@@ -185,6 +185,25 @@ def _contains(haystack: str, needle: str) -> bool:
     return re.search(r"(?<!\w)" + re.escape(needle) + r"(?!\w)", haystack) is not None
 
 
+#: A fill line: underscores that are not BETWEEN two letters or digits.
+_FILL = re.compile(r"(?<![A-Za-z0-9])_+|_+(?![A-Za-z0-9])")
+
+
+def without_fill(text: str) -> str:
+    """The text with a form's fill lines taken out: "TEMP CLASS _____T3___"
+    reads "TEMP CLASS T3".
+
+    #501, measured with the cloud reader on a real pump sheet (12 Oct 2026):
+    62 readings were refused as "value not in the quote" although each value
+    stood in its quote - glued to the underscores of the line it was typed
+    on. The whole-word check counts an underscore as part of a word, so "T3"
+    was not found inside "_____T3___". The underscores are the form's ruling,
+    not the answer. Only runs at a word's edge are removed: an underscore
+    BETWEEN two letters or digits ("A_106") is part of a name and stays. The
+    quote itself is still checked against the page exactly as it was given."""
+    return re.sub(r"\s+", " ", _FILL.sub(" ", str(text or ""))).strip()
+
+
 def _value_in_quote(value, quote: str) -> bool:
     """Rule 2, tolerant of printing and of nothing else. "8,300" and "8300"
     are the same number; "23.55" and "99.9" are not; 5 is not "-5" and not
@@ -401,6 +420,96 @@ def _unfenced(raw):
     return fenced.group("body") if fenced else raw
 
 
+#: Said of a page whose answer ended before its list closed.
+CUT_OFF = ("the answer was cut off by the output limit; the values it had finished "
+           "before the cut are used")
+
+
+def facts_before_the_cut(raw) -> list[dict] | None:
+    """The COMPLETE facts of an answer that was cut off - or None when the
+    answer is not a cut-off `{"facts": [...]}` at all.
+
+    #501, measured with the cloud reader on a real sheet (12 Oct 2026): two
+    dense pages ended exactly at the output cap, half-way through a fact.
+    Half an object is not JSON, so the whole page - every fact the model HAD
+    finished - was thrown away as "unusable". This walks the `facts` array
+    one balanced `{...}` at a time and stops at the first one that never
+    closes. Nothing is repaired or guessed: the unfinished fact is simply not
+    returned, as if it had never been proposed; what is returned still goes
+    through the two-run agreement and the gate like any other proposal.
+
+    None when: the text parses as it stands (not cut off), it has no `facts`
+    list, the list closes, or not one fact was finished."""
+    if not isinstance(raw, str):
+        return None
+    body = raw.strip()
+    fence = re.match(r"^```[A-Za-z0-9_-]*\s*\n(.*)$", body, re.DOTALL)
+    if fence:
+        body = fence.group(1)
+    try:
+        json.loads(_unfenced(raw))
+        return None                                   # a whole answer: not this function's business
+    except (json.JSONDecodeError, TypeError):
+        pass
+    key = body.find('"facts"')
+    start = body.find("[", key) if key != -1 else -1
+    if start == -1:
+        return None
+    facts: list[dict] = []
+    i, n = start + 1, len(body)
+    while i < n:
+        while i < n and body[i] in " \t\r\n,":
+            i += 1
+        if i >= n:
+            break                                     # ended between two facts: cut off
+        if body[i] == "]":
+            return None                               # the list closes: malformed some other way
+        if body[i] != "{":
+            return None                               # not a list of objects: do not guess
+        depth, in_string, escape, j, closed = 0, False, False, i, False
+        while j < n:
+            ch = body[j]
+            if in_string:
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == '"':
+                    in_string = False
+            elif ch == '"':
+                in_string = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    closed = True
+                    break
+            j += 1
+        if not closed:
+            break                                     # the fact the cut fell in: not returned
+        try:
+            fact = json.loads(body[i:j + 1])
+        except json.JSONDecodeError:
+            return None
+        if isinstance(fact, dict):
+            facts.append(fact)
+        i = j + 1
+    return facts or None
+
+
+def parse_or_cut(raw) -> tuple[list[dict], str | None, bool]:
+    """`parse_response`, and when the answer is a cut-off list, its complete
+    facts instead of an error: `(proposals, error, cut_off)`."""
+    proposals, err = parse_response(raw)
+    if err == Reason.MODEL_MALFORMED.value:
+        finished = facts_before_the_cut(raw)
+        if finished:
+            proposals, err = parse_response(json.dumps({"facts": finished}))
+            return proposals, err, err is None
+    return proposals, err, False
+
+
 def parse_response(raw: str) -> tuple[list[dict], str | None]:
     """Strict parse. Anything malformed yields no proposals AND A REASON.
 
@@ -494,10 +603,11 @@ def accept(proposals: list[dict], page_text: str, known_fields: list[str] | None
         if _quote_too_broad(p["quote"], folded_page):
             drop(p, Reason.QUOTE_TOO_BROAD)
             continue
-        if not _value_in_quote(p["value"], quote):
+        printed = without_fill(quote)
+        if not _value_in_quote(p["value"], printed):
             drop(p, Reason.VALUE_NOT_IN_QUOTE)
             continue
-        if not _field_in_quote(p["field"], quote):
+        if not _field_in_quote(p["field"], printed):
             drop(p, Reason.FIELD_NOT_IN_QUOTE)
             continue
         if p.get("unit") and not _unit_recognised(p["unit"]):
@@ -561,13 +671,13 @@ def read_page(page_text: str, page_no: int, known_fields: list[str] | None,
     """
     known_fields = list(known_fields or [])
     prompt = build_prompt(page_text, page_no, known_fields)
-    first, err = parse_response(model_call(prompt))
+    first, err, cut_first = parse_or_cut(model_call(prompt))
     if not err:
         first = atomise(first)
     if err:
         return {"page": page_no, "accepted": [], "rejected": [], "counts": {}, "error": err}
     again = second_call if second_call is not None else model_call
-    second, err2 = parse_response(again(prompt))
+    second, err2, cut_second = parse_or_cut(again(prompt))
     if err2:
         return {"page": page_no, "accepted": [], "rejected": [], "counts": {}, "error": err2}
     second = atomise(second)
@@ -579,6 +689,9 @@ def read_page(page_text: str, page_no: int, known_fields: list[str] | None,
     gate["rejected"].extend(unstable)
     gate["counts"] = rejection_counts(gate["rejected"])
     gate["page"] = page_no
+    if cut_first or cut_second:
+        # #501: said on the run - the page is read, and not to its end.
+        gate["cut_off"] = True
     return gate
 
 

@@ -339,6 +339,27 @@ def test_merge_a_second_same_kind_value_beside_an_agreement_is_a_conflict():
     assert d["agreed_ai"]["value"] == "23.5" and [a["value"] for a in d["ai"]] == ["30"]
 
 
+def test_merge_a_second_copy_of_an_agreeing_reading_is_not_a_conflict():
+    """#501, found on a real sheet with the cloud reader (12 Oct 2026): the
+    model reported one cell twice. The first copy paired with the rules'
+    reading; the second was left over and was called a conflict although it
+    is the same number and unit - the value went to an engineer and two true
+    Meets became questions. Only a reading whose value differs contradicts."""
+    rules = [_rule("required relieving capacity", "5 m3/hr")]
+    twice = [_ai("required relieving capacity", "5", "m3/hr"), _ai("required relieving capacity", "5", "m3/hr")]
+    [d] = datasheet_ai.merge_readings(rules, twice)
+    assert d["outcome"] == datasheet_ai.AGREED and d["ai"]["value"] == "5"
+    # written in another spelling of the same value: still agreement
+    [d] = datasheet_ai.merge_readings(rules, [twice[0], _ai("required relieving capacity", "5.0", "m3/h")])
+    assert d["outcome"] == datasheet_ai.AGREED
+    # three copies and a different value: one conflict, carrying only the different one
+    [d] = datasheet_ai.merge_readings(rules, [*twice, _ai("required relieving capacity", "7", "m3/hr")])
+    assert d["outcome"] == datasheet_ai.CONFLICT and [a["value"] for a in d["ai"]] == ["7"]
+    assert d["agreed_ai"]["value"] == "5"
+    assert datasheet_ai.outcome_counts(datasheet_ai.merge_readings(rules, twice)) == {
+        datasheet_ai.AGREED: 1, datasheet_ai.CONFLICT: 0, datasheet_ai.AI_ONLY: 0, datasheet_ai.RULES_ONLY: 0}
+
+
 # ======================================================== units in the merge
 
 def _unitless(name, number, *, label=None, rid="u1"):

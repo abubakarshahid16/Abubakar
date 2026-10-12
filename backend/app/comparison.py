@@ -779,6 +779,27 @@ def _compare(requirement: dict, fact: dict | None, *,
             "condition": condition,
         }
 
+    # #858: THE SENTENCE IS CONDITIONAL AND NOBODY READ ITS CONDITION. The
+    # gate above sees only the `condition` column; when the extraction left
+    # it empty, a conditional limit was compared as a plain one and reported
+    # as Meets (a real sheet, 2026-10-12). Not a verdict: the engineer is
+    # told which condition was not checked.
+    unread = conditions.unread_condition(requirement) if condition is None else None
+    if unread is not None:
+        return {
+            "status": NEEDS_ENGINEER_REVIEW,
+            "rationale": (
+                f"this requirement is conditional ({unread!r}) and the review did not "
+                "check that condition, so no comparison was made; engineer to confirm "
+                "whether it applies"),
+            "limit": None,
+            "observed": _describe(_measurement_from_fact(fact), fact),
+            "exception_applied": None,
+            "condition": {"state": conditions.UNKNOWN, "shape": "unread", "condition": unread,
+                          "reason": "the condition is stated in the requirement's sentence "
+                                    "and was not extracted, so it was not evaluated"},
+        }
+
     # CRS QUICK WINS: A CLOSED CATEGORICAL CLAUSE IS COMPARED AS TEXT.
     # "minimum pressure rating of Class 300" against CL150, "full
     # radiography" against SPOT. Only the three closed families
@@ -874,6 +895,16 @@ def _compare(requirement: dict, fact: dict | None, *,
                 "observed": _describe(observed, fact),
                 "exception_applied": exception, **_cond,
             }
+    # #858: A PRESSURE OF THE OPPOSITE SIGN IS A SIGN CONVENTION, NOT A MARGIN.
+    opposite = _sign_obstacle(observed, limit)
+    if opposite is not None:
+        return {
+            "status": NEEDS_ENGINEER_REVIEW,
+            "rationale": opposite,
+            "limit": _describe(limit, governing),
+            "observed": _describe(observed, fact),
+            "exception_applied": exception, **_cond,
+        }
     verdict = claims._compatible(observed, limit)
     if verdict is None and (claims.parse_value(str(observed.raw_value or "")) is None
                             or claims.parse_value(str(limit.raw_value or "")) is None):
@@ -934,6 +965,28 @@ def _compare(requirement: dict, fact: dict | None, *,
 #: `ai_rationale` (`claude_recheck`'s blocked check) matches them the way it
 #: matches the two-unit refusal's "no conversion is guessed".
 UNIT_NOT_GUESSED_PHRASE = "no unit is guessed, so no comparison was made"
+
+
+def _sign_obstacle(observed: claims.Measurement, limit: claims.Measurement) -> str | None:
+    """#858: the reason when a pressure is NEGATIVE on one side and POSITIVE
+    on the other. A vacuum or an external pressure is often written as a
+    negative gauge value while a limit states its size as a positive number:
+    "-0.5" then passes "not more than 1" BY ITS SIGN, whatever its size
+    (found on a real sheet, 2026-10-12). Which convention each side uses is
+    not something a number can say, so no comparison is made.
+
+    Pressure only: a negative temperature against a positive limit is a
+    real, comparable value."""
+    if observed.dimension != "pressure" or limit.dimension != "pressure":
+        return None
+    a, b = observed.normalized_value, limit.normalized_value
+    if a is None or b is None or not ((a < 0 < b) or (b < 0 < a)):
+        return None
+    return ("the submitted pressure and the required one have opposite signs "
+            f"({observed.raw_value} against {limit.raw_value}); a negative pressure is a "
+            "vacuum or an external pressure written by a sign convention, so comparing "
+            "the two numbers as they stand would pass or fail by the sign, not the size. "
+            "No comparison was made; engineer to compare the magnitudes")
 
 
 def _reference_obstacle(observed: claims.Measurement, limit: claims.Measurement) -> str | None:

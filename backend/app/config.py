@@ -1182,6 +1182,14 @@ class Settings(BaseSettings):
     #: the check stops for the run (recorded). The Claude lane keeps its own.
     #: Env: REVIEW_AI_CHECK_LOCAL_TIMEOUT_S.
     review_ai_check_local_timeout_s: float = 300.0
+    #: #501 (owner decision 2026-10-12): a SECOND, datasheet-only opinion by
+    #: the Claude API after the check has run. "ollama" (default) = none.
+    #: "claude" = asked only under REASONING_PROVIDER=per_task (or claude),
+    #: both egress flags and a key; the packet carries the datasheet alone -
+    #: no standard's text, no clause list - and declares only the submittal,
+    #: so the approved-document lock decides per datasheet.
+    #: Env: REVIEW_AI_CHECK_ENGINE.
+    review_ai_check_engine: str = "ollama"
     #: #844: seconds the AI engineering check may take in total on the LOCAL
     #: model (it asks one page per call); pages left are named on the run.
     #: Env: REVIEW_AI_CHECK_LOCAL_MAX_SECONDS.

@@ -133,6 +133,7 @@ EGRESS_SAFE: dict[str, object] = {
     # Claude through reader_transport - two model calls per page
     "datasheet_ai_reader": "off",
     "match_engine": "ollama",              # "claude" sends clause text out
+    "review_ai_check_engine": "ollama",    # #501: "claude" sends datasheet pages out
     # #647: the review's AI applicability tier calls the local model once per
     # requirement - off, like the model matcher above.
     "ai_applicability_enabled": False,
