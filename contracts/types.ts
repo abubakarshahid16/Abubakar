@@ -796,6 +796,25 @@ export interface ReviewRunSummary {
   ai_numbers?: AiNumbers | null;
 }
 
+/** #785: one side of a finding in the side-by-side view, as the server
+ *  resolved it. `box` names what is boxed (quote, value_position,
+ *  source_line, value_once, label, clause_text, clause_heading) or null;
+ *  `reason` says why the side cannot be shown. */
+export interface EvidenceSide {
+  document_id: string | null;
+  filename: string | null;
+  page: number | null;
+  box: string | null;
+  reason: string | null;
+}
+
+/** #785: `GET /api/reviews/findings/{id}/evidence`. */
+export interface FindingEvidence {
+  finding_id: string;
+  submittal: EvidenceSide;
+  standard: EvidenceSide;
+}
+
 /** #845: one AI step of a run as the run stored it. Every count in `lines`
  *  is printed with what it is out of. */
 export interface AiStepNumbers {
