@@ -11,10 +11,24 @@
 import { reviews as reviewsApi } from "../../api/client";
 import { useAuthedImage } from "../useAuthedImage";
 
-export function EvidencePageImage({ findingId, side, page }: {
+/** #785: what the box on the page is, in words - a label box is never
+ *  called "the value". */
+const BOXED: Record<string, string> = {
+  quote: "The cited text is boxed on the page.",
+  clause_text: "The cited clause is boxed on the page.",
+  clause_heading: "The clause heading is boxed on the page.",
+  value_position: "The value read is boxed where the reader found it.",
+  source_line: "The line the value was read from is boxed.",
+  value_once: "The value read is boxed (it appears once on this page).",
+  label: "The field's label is boxed; the value read sits beside it.",
+};
+
+export function EvidencePageImage({ findingId, side, page, box }: {
   findingId: string;
   side: "submittal" | "standard";
   page: number;
+  /** #785: the kind of box the server draws, from the evidence route. */
+  box?: string | null;
 }) {
   const image = useAuthedImage(reviewsApi.evidenceImageUrl(findingId, side));
   if (image.loading) {
@@ -31,7 +45,7 @@ export function EvidencePageImage({ findingId, side, page }: {
     <figure className="space-y-1">
       <p data-testid="evidence-located" className="text-xs text-slateish-400">
         {image.answerLocated === true
-          ? "The cited text is boxed on the page."
+          ? (box && BOXED[box]) || BOXED.quote
           : "The cited text could not be placed on this page, so no box is drawn - read the page itself."}
       </p>
       <img

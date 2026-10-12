@@ -242,6 +242,77 @@ def _header_sits_on(row: int, rects: list[list[Any]], texts: list[list[str]], gu
     return len(filled) >= 2 and not _is_title_row(rects[nearest], texts[nearest], gutter, x_left, x_right)
 
 
+# ------------------------------------------------ R27: a rotated page
+#
+# A PAGE STORED WITH A ROTATION FLAG HAS TWO COORDINATE SPACES. PyMuPDF gives
+# text (words, blocks) in the page's UNROTATED space and finds tables in the
+# space the page is DISPLAYED in. On a landscape sheet stored on a portrait
+# page (the common way a wide datasheet is filed) the two disagree: the table
+# reader found the grid and not one word inside it, and the text reader took
+# the rows in the wrong order (measured on an invented sheet: 0 layout rows,
+# pairs shuffled and 2 of 8 rows lost). And a page whose flag turns its text
+# sideways was read as a table of one row whose "header" was the values.
+#
+# So every reader works in ONE space: the page turned so that its text reads
+# left to right. `upright` turns the in-memory page (nothing is saved) and
+# returns the matrix that carries text coordinates into that space. A page
+# with no flag and horizontal text - every page of an ordinary sheet - is not
+# touched and the matrix is the identity.
+_TURN_FOR_DIRECTION = {(1, 0): 0, (0, -1): 90, (-1, 0): 180, (0, 1): 270}
+
+
+def text_rotation(page: Any) -> int:
+    """The rotation (0/90/180/270) at which this page's text reads left to
+    right: the direction most of its characters are written in. A page with
+    no text keeps the rotation it has."""
+    written: dict[tuple[int, int], int] = {}
+    try:
+        blocks = page.get_text("dict").get("blocks", [])
+    except Exception:  # a page that cannot be read as text keeps its rotation
+        return int(page.rotation)
+    for block in blocks:
+        for line in block.get("lines", []) if block.get("type") == 0 else []:
+            direction = tuple(int(round(v)) for v in line.get("dir", (1, 0)))
+            chars = sum(len(span.get("text", "")) for span in line.get("spans", []))
+            written[direction] = written.get(direction, 0) + chars
+    if not written:
+        return int(page.rotation)
+    return _TURN_FOR_DIRECTION.get(max(written, key=written.get), int(page.rotation))
+
+
+def upright(page: Any) -> Any:
+    """Turn the in-memory page so its text reads left to right and return the
+    matrix from text coordinates (unrotated space) to the turned page."""
+    turn = text_rotation(page)
+    if int(page.rotation) != turn:
+        page.set_rotation(turn)
+    return page.rotation_matrix
+
+
+def _turned(box: tuple, matrix: Any) -> tuple[float, float, float, float]:
+    import pymupdf
+    rect = (pymupdf.Rect(box[0], box[1], box[2], box[3]) * matrix).normalize()
+    return (rect.x0, rect.y0, rect.x1, rect.y1)
+
+
+def upright_words(page: Any) -> list[tuple]:
+    """`page.get_text("words")` in the space the page's tables are found in."""
+    matrix = upright(page)
+    words = page.get_text("words")
+    if not int(page.rotation):
+        return words
+    return [(*_turned(w, matrix), *w[4:]) for w in words]
+
+
+def upright_blocks(page: Any) -> list[tuple]:
+    """`page.get_text("blocks")` in that same space."""
+    matrix = upright(page)
+    blocks = page.get_text("blocks")
+    if not int(page.rotation):
+        return blocks
+    return [(*_turned(b, matrix), *b[4:]) for b in blocks]
+
+
 def _is_title_row(row_rects: list[Any], row_texts: list[str], gutter: set[int],
                   x_left: float, x_right: float) -> bool:
     """TITLE: one non-empty cell spans >= TITLE_SPAN_SHARE of the table width."""
@@ -502,7 +573,7 @@ def read_tables(page: Any) -> dict[str, Any]:
     drawn rules rather than guessed from text alignment.
     """
     page_no = page.number + 1
-    words = page.get_text("words")
+    words = upright_words(page)          # R27: one space for words and tables
     found: dict[str, list[Any]] = {}
     scores: dict[str, dict[str, Any]] = {}
     for strategy in STRATEGIES:
@@ -882,7 +953,7 @@ def read_form(page: Any) -> dict[str, Any]:
     label's (within one label height) and which is not itself label-like.
     """
     page_no = page.number + 1
-    words = [w for w in page.get_text("words") if w[4].strip()]
+    words = [w for w in upright_words(page) if w[4].strip()]
     segs: list[dict[str, Any]] = []
     for line in _visual_lines(words):
         line_segs: list[dict[str, Any]] = []

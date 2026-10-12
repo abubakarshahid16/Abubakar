@@ -3218,6 +3218,113 @@
     }
    ],
    "cells_not_keyed": null
+  },
+  "ds16_fan_req_off_landscape.pdf": {
+   "equipment": "centrifugal fan",
+   "layout": "Required / Offered table drawn landscape on a page stored with a rotation flag",
+   "text_layer": true,
+   "expected": [
+    {
+     "field": "Air flow",
+     "value": "42000",
+     "unit": "m3/h",
+     "kind": "required"
+    },
+    {
+     "field": "Air flow",
+     "value": "43500",
+     "unit": "m3/h",
+     "kind": "offered"
+    },
+    {
+     "field": "Static pressure",
+     "value": "35",
+     "unit": "mbar",
+     "kind": "required"
+    },
+    {
+     "field": "Static pressure",
+     "value": "36",
+     "unit": "mbar",
+     "kind": "offered"
+    },
+    {
+     "field": "Shaft power",
+     "value": "55",
+     "unit": "kW",
+     "kind": "required"
+    },
+    {
+     "field": "Shaft power",
+     "value": "52",
+     "unit": "kW",
+     "kind": "offered"
+    },
+    {
+     "field": "Fan speed",
+     "value": "1480",
+     "unit": "rpm",
+     "kind": "required"
+    },
+    {
+     "field": "Fan speed",
+     "value": "1480",
+     "unit": "rpm",
+     "kind": "offered"
+    },
+    {
+     "field": "Inlet temperature",
+     "value": "45",
+     "unit": "°C",
+     "kind": "required"
+    },
+    {
+     "field": "Inlet temperature",
+     "value": "45",
+     "unit": "°C",
+     "kind": "offered"
+    },
+    {
+     "field": "Sound pressure level",
+     "value": "85",
+     "unit": "dBA",
+     "kind": "required"
+    },
+    {
+     "field": "Sound pressure level",
+     "value": "83",
+     "unit": "dBA",
+     "kind": "offered"
+    },
+    {
+     "field": "Impeller diameter",
+     "value": "1250",
+     "unit": "mm",
+     "kind": "required"
+    },
+    {
+     "field": "Impeller diameter",
+     "value": "1250",
+     "unit": "mm",
+     "kind": "offered"
+    },
+    {
+     "field": "Bearing life",
+     "value": "40000",
+     "unit": "h",
+     "kind": "required"
+    }
+   ],
+   "forbidden": [],
+   "ignore": [
+    "Doc No",
+    "Tag No",
+    "Rev",
+    "Project",
+    "Sheet"
+   ],
+   "cells": null,
+   "cells_not_keyed": "the sheet is embedded turned: the drawn boxes are not the stored page's"
   }
  }
 }

@@ -14,8 +14,19 @@
  *
  * #508: each page comes from the finding's evidence route, which boxes the
  * finding's own stored text on it - or says it could not, and draws nothing.
+ *
+ * #785: WHICH PAGE, AND WHAT KIND OF BOX, COME FROM THE SERVER
+ * (`/evidence`): a checklist row has no standard page of its own, so its
+ * clause is found in the held standard there, and a short value is boxed by
+ * its stored position or its label. Until that answer arrives, or if it
+ * fails, the panes use the finding's own cited pages as before.
  */
-import type { DocumentRecord, ReviewFinding, ReviewRunStandard } from "../../types/api";
+import { useEffect, useState } from "react";
+
+import { reviews as reviewsApi } from "../../api/client";
+import type {
+  DocumentRecord, EvidenceSide, FindingEvidence, ReviewFinding, ReviewRunStandard,
+} from "../../types/api";
 import { EvidencePageImage } from "./EvidencePageImage";
 import { orNothing } from "./reviewFormat";
 
@@ -30,6 +41,18 @@ export interface SideBySideEvidenceProps {
 export function SideBySideEvidence(
   { finding, submittal, standard, standardName, onClose }: SideBySideEvidenceProps,
 ) {
+  // undefined: still asking; null: the route failed (fall back to the
+  // finding's own cited pages).
+  const [answer, setAnswer] = useState<{ id: string; data: FindingEvidence | null } | null>(null);
+  useEffect(() => {
+    let live = true;
+    void reviewsApi.findingEvidence(finding.id).then((r) => {
+      if (live) setAnswer({ id: finding.id, data: r.ok ? r.data : null });
+    });
+    return () => { live = false; };
+  }, [finding.id]);
+  // An answer for another finding is not this finding's answer.
+  const evidence = answer && answer.id === finding.id ? answer.data : undefined;
   return (
     <section
       aria-label="Submittal and standard side by side"
@@ -45,6 +68,7 @@ export function SideBySideEvidence(
       <div className="grid gap-3 lg:grid-cols-2">
         <Pane
           side="Submittal" findingId={finding.id}
+          resolved={evidence === undefined ? undefined : evidence?.submittal ?? null}
           document={submittal}
           name={submittal?.filename}
           page={finding.contractor_page ?? null}
@@ -54,6 +78,7 @@ export function SideBySideEvidence(
         />
         <Pane
           side="Standard" findingId={finding.id}
+          resolved={evidence === undefined ? undefined : evidence?.standard ?? null}
           document={standard}
           name={standard?.filename ?? standardName}
           page={finding.standard_page ?? null}
@@ -66,9 +91,12 @@ export function SideBySideEvidence(
   );
 }
 
-function Pane({ side, findingId, document, name, page, label, text, emptyText }: {
+function Pane({ side, findingId, resolved, document, name, page, label, text, emptyText }: {
   side: "Submittal" | "Standard";
   findingId: string;
+  /** #785: the server's answer for this side; undefined while asking, null
+   *  when the route failed. */
+  resolved: EvidenceSide | null | undefined;
   document: DocumentRecord | null;
   name?: string;
   page: number | null;
@@ -76,17 +104,32 @@ function Pane({ side, findingId, document, name, page, label, text, emptyText }:
   text: string | null;
   emptyText: string;
 }) {
+  const shownPage = resolved?.page ?? (resolved ? null : page);
+  const shownName = resolved?.filename ?? name;
   return (
     <div role="group" aria-label={side} className="flex min-w-0 flex-col gap-2">
       <div>
         <h5 className="text-xs uppercase tracking-wide text-slateish-400">{side}</h5>
         <p className="text-sm text-slateish-200">
-          {name ?? ""}{page ? ` — page ${page}` : ""}
+          {shownName ?? ""}{shownPage ? ` — page ${shownPage}` : ""}
         </p>
         <p className="mt-1 text-xs text-slateish-400">{label}</p>
         <p className="whitespace-pre-wrap text-sm text-slateish-100">{text ?? emptyText}</p>
       </div>
-      {document && page ? (
+      {resolved === undefined ? (
+        <p className="text-xs text-slateish-400">Finding the cited page…</p>
+      ) : resolved && resolved.document_id && resolved.page ? (
+        <EvidencePageImage
+          findingId={findingId}
+          side={side === "Submittal" ? "submittal" : "standard"}
+          page={resolved.page}
+          box={resolved.box}
+        />
+      ) : resolved ? (
+        <p className="rounded-[var(--radius-sm)] border border-dashed border-ink-600 p-3 text-xs text-slateish-500">
+          {sentence(resolved.reason ?? `no ${side.toLowerCase()} page can be shown`)}
+        </p>
+      ) : document && page ? (
         <EvidencePageImage
           findingId={findingId}
           side={side === "Submittal" ? "submittal" : "standard"}
@@ -103,6 +146,11 @@ function Pane({ side, findingId, document, name, page, label, text, emptyText }:
       )}
     </div>
   );
+}
+
+function sentence(text: string): string {
+  const t = text.trim();
+  return `${t.charAt(0).toUpperCase()}${t.slice(1)}${/[.!?]$/.test(t) ? "" : "."}`;
 }
 
 /** Why the review applied this finding's standard, as the run recorded it.

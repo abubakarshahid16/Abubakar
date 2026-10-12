@@ -3,7 +3,7 @@
  * standard clause, and why the standard applies - so an engineer decides the
  * row without opening the PDFs separately. Invented documents only.
  */
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -12,21 +12,25 @@ import { FindingDetail } from "./FindingDetail";
 
 const documentCall = vi.fn();
 const update = vi.fn();
+const findingEvidence = vi.fn();
 
 vi.mock("../../api/client", () => ({
   api: { document: (...args: unknown[]) => documentCall(...args) },
   reviews: {
     update: (...args: unknown[]) => update(...args),
+    findingEvidence: (...args: unknown[]) => findingEvidence(...args),
     confirm: vi.fn(),
     rejectPairing: vi.fn(),
   },
 }));
 
 // The panes fetch the boxed page from the finding's evidence route; here they
-// only say which finding, side and page they would show.
+// only say which finding, side, page and kind of box they would show.
 vi.mock("./EvidencePageImage", () => ({
-  EvidencePageImage: ({ findingId, side, page }: { findingId: string; side: string; page: number }) => (
-    <div data-testid="preview">{`${findingId} ${side} p${page}`}</div>
+  EvidencePageImage: ({ findingId, side, page, box }: {
+    findingId: string; side: string; page: number; box?: string | null;
+  }) => (
+    <div data-testid="preview">{`${findingId} ${side} p${page}${box ? ` ${box}` : ""}`}</div>
   ),
 }));
 // The one-page view (opened from a citation) is not under test here.
@@ -80,11 +84,17 @@ beforeEach(() => {
   update.mockReset();
   documentCall.mockResolvedValue({ ok: false, error: { message: "not found" } });
   update.mockResolvedValue({ ok: true, data: finding() });
+  // By default the evidence route is unavailable: the panes use the
+  // finding's own cited pages (the pre-#785 behaviour these tests pin).
+  findingEvidence.mockReset();
+  findingEvidence.mockResolvedValue({ ok: false, error: { message: "unavailable" } });
 });
 
 async function openSideBySide(props: Partial<Parameters<typeof FindingDetail>[0]> = {}) {
   render(<FindingDetail finding={finding()} documents={[SUB, STD]} onChanged={vi.fn()} {...props} />);
   await userEvent.click(screen.getByRole("button", { name: /side by side/i }));
+  await screen.findAllByRole("group", { name: /Submittal|Standard/ });
+  await waitFor(() => expect(screen.queryByText("Finding the cited page…")).toBeNull());
 }
 
 describe("side by side", () => {
@@ -120,6 +130,7 @@ describe("side by side", () => {
     render(<FindingDetail finding={finding()} documents={[SUB]} onChanged={vi.fn()} />);
     await userEvent.click(screen.getByRole("button", { name: /side by side/i }));
     const std = await screen.findByRole("group", { name: "Standard" });
+    await waitFor(() => expect(screen.queryByText("Finding the cited page…")).toBeNull());
     expect(within(std).queryByTestId("preview")).toBeNull();
     expect(within(std).getByText("The cited document could not be opened from this screen.")).toBeInTheDocument();
   });
@@ -129,6 +140,39 @@ describe("side by side", () => {
     await userEvent.click(screen.getAllByRole("button", { name: /Open at page/ })[0]);
     expect(screen.queryByRole("group", { name: "Standard" })).toBeNull();
     expect(screen.getByTestId("single-page")).toHaveTextContent("std-noise.pdf p12");
+  });
+});
+
+describe("#785: the server finds the page and names the box", () => {
+  const side = (over: Record<string, unknown>) => ({
+    document_id: null, filename: null, page: null, box: null, reason: null, ...over });
+
+  it("a checklist row shows its clause's page in the held standard, boxed", async () => {
+    findingEvidence.mockResolvedValue({ ok: true, data: {
+      finding_id: "f-1",
+      submittal: side({ document_id: "doc-sub", filename: "pump-datasheet.pdf", page: 2, box: "label" }),
+      standard: side({ document_id: "doc-std", filename: "std-noise.pdf", page: 7, box: "clause_text" }),
+    } });
+    await openSideBySide({ finding: finding({ standard_document_id: null, standard_page: null,
+      standard_clause: "STD-NOISE 6.1.14" }) });
+    expect(findingEvidence).toHaveBeenCalledWith("f-1");
+    const std = screen.getByRole("group", { name: "Standard" });
+    expect(within(std).getByTestId("preview")).toHaveTextContent("f-1 standard p7 clause_text");
+    expect(within(std).getByText("std-noise.pdf — page 7")).toBeInTheDocument();
+    const sub = screen.getByRole("group", { name: "Submittal" });
+    expect(within(sub).getByTestId("preview")).toHaveTextContent("f-1 submittal p2 label");
+  });
+
+  it("a standard the server could not find is said in its words, with no page", async () => {
+    findingEvidence.mockResolvedValue({ ok: true, data: {
+      finding_id: "f-1",
+      submittal: side({ document_id: "doc-sub", filename: "pump-datasheet.pdf", page: 2, box: "quote" }),
+      standard: side({ reason: "API 999 1.2: the standard is not in the library you may read, or the clause was not found in it" }),
+    } });
+    await openSideBySide();
+    const std = screen.getByRole("group", { name: "Standard" });
+    expect(within(std).queryByTestId("preview")).toBeNull();
+    expect(within(std).getByText(/^API 999 1\.2: the standard is not in the library/)).toBeInTheDocument();
   });
 });
 
