@@ -612,11 +612,19 @@ def merge_readings(rule_facts: list[dict], ai_facts: list[dict]) -> list[dict]:
         for ai_i, a in enumerate(ais):
             if ai_i in used_ai:
                 continue
-            hits = [ri for ri in range(len(rules))
-                    if kind_of(ri) is None or kind_of(ri) == a.get("kind")]
+            compatible = [ri for ri in range(len(rules))
+                          if kind_of(ri) is None or kind_of(ri) == a.get("kind")]
+            # #501: A SECOND COPY OF A READING THAT AGREES IS NOT A CONFLICT.
+            # The model sometimes reports one cell twice. The second copy was
+            # left over after the first had paired, and every left-over
+            # reading was taken as a contradiction without comparing it: the
+            # same number and unit flagged the value for an engineer and two
+            # true Meets became questions (a real sheet, 2026-10-12). Only a
+            # reading whose VALUE differs contradicts.
+            hits = [ri for ri in compatible if not values_agree(rules[ri], a)]
             for ri in hits:
                 against.setdefault(ri, []).append(ai_i)
-            if not hits:
+            if not compatible:
                 alone.append(ai_i)
         for ri, r in enumerate(rules):
             if ri in against:
