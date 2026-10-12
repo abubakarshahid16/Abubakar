@@ -20,6 +20,25 @@ builders, never used when fixing anything, scored only by the merger session.
 The builder refuses an output folder inside a git repository: held-out answers
 in a repository are not held out.
 
+## Two groups (owner, 13 Oct 2026)
+
+* **Library group (the main one).** Invented sheets planted against
+  requirements **stored in our library**. A local script picks stored numeric
+  limits that have a clause, a subject, an operator, a value and a unit and
+  no condition or exception recorded, and plants a value by arithmetic
+  (outside the limit, inside it, exactly at it, or inside it in another
+  unit). The sheet cites the real standards by number. A document says
+  `"library_standards": [...]` instead of `"standard"`; no standard file is
+  written, and every answer names which cited standard it is about.
+  The truth rests on **the stored requirement as extracted**: no engineer
+  confirmed those rows, so a limit the extractor mis-read is inherited. The
+  row label is the requirement's own stored subject, which makes pairing
+  easier than a real vendor's wording would. Its key never claims
+  `complete_for_flags`: a real library may rightly apply requirements nobody
+  judged. Sheets, spec and keys hold text from the standards: local only.
+* **Invented group (diagnostic).** Each sheet cites its own invented standard,
+  described below.
+
 ## What the set does and does not prove
 
 Each sheet cites **its own invented standard** (numbered clauses, a table, a

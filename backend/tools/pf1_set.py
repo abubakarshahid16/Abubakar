@@ -91,14 +91,18 @@ def validate(spec: object) -> dict:
         if doc.get("layout") not in LAYOUTS:
             raise SpecError(f"{doc_id}: layout must be one of {', '.join(LAYOUTS)}")
         sheet, standard = doc.get("sheet"), doc.get("standard")
-        if not isinstance(sheet, dict) or not isinstance(standard, dict):
-            raise SpecError(f"{doc_id}: a sheet and a standard are required")
-        if not _text(standard.get("number")) or not standard.get("sections"):
+        held = library_standards(doc)
+        if not isinstance(sheet, dict) or (standard is None) == (not held):
+            raise SpecError(f"{doc_id}: a sheet is required, and either an invented standard or the "
+                            "library standards it cites (one or the other)")
+        if standard is not None and (not isinstance(standard, dict) or not _text(standard.get("number"))
+                                     or not standard.get("sections")):
             raise SpecError(f"{doc_id}: the standard needs a number and sections")
         pages = sheet.get("pages")
         if not isinstance(pages, list) or not pages or not all(p.get("rows") for p in pages):
             raise SpecError(f"{doc_id}: the sheet needs pages, each with rows")
-        known = clause_numbers(standard)
+        known = clause_numbers(standard or {})
+        own_number = _text((standard or {}).get("number"))
         items = key_items(doc)
         ids = [it["id"] for it in items]
         if len(set(ids)) != len(ids) or not all(ids):
@@ -106,9 +110,11 @@ def validate(spec: object) -> dict:
         for item in items:
             if item["kind"] not in ITEM_KINDS:
                 raise SpecError(f"{doc_id} {item['id']}: kind must be one of {', '.join(ITEM_KINDS)}")
-            own = item["standard"] == _text(standard.get("number"))
+            own = bool(own_number) and item["standard"] == own_number
             if not item["clause"] or (own and not _under(item["clause"], known)):
                 raise SpecError(f"{doc_id} {item['id']}: clause {item['clause']!r} is not in the standard")
+            if held and item["standard"] not in held:
+                raise SpecError(f"{doc_id} {item['id']}: its standard is not one the sheet cites")
         kinds = {it["kind"] for it in items}
         if "defect" not in kinds or not kinds & {"met", "trap"}:
             raise SpecError(f"{doc_id}: a document needs at least one planted defect and one correct item "
@@ -124,6 +130,15 @@ def _keys(row: dict) -> list[dict]:
     return [key] if isinstance(key, dict) else [k for k in key or [] if isinstance(k, dict)]
 
 
+def library_standards(doc: dict) -> list[str]:
+    """The identifiers of standards HELD IN THE LIBRARY that the sheet cites
+    (a document planted against stored requirements, not an invented
+    standard). No standard file is written for them, and the builder cannot
+    open their clauses: whoever wrote the spec took each clause from the
+    stored requirement it plants against."""
+    return [_text(n) for n in doc.get("library_standards") or [] if _text(n)]
+
+
 def key_items(doc: dict) -> list[dict]:
     """The answers of one document, in the order they are drawn: one per
     keyed row (with its page), then the items no row carries (a value the
@@ -132,7 +147,7 @@ def key_items(doc: dict) -> list[dict]:
     An item is about the document's own invented standard unless it names
     another (`standard`): a rule of a checklist the product holds. Such a
     clause cannot be checked against the invented standard and is not."""
-    number = _text(doc["standard"].get("number"))
+    number = _text((doc.get("standard") or {}).get("number"))
     items: list[dict] = []
 
     def item(key: dict, *, field=None, page=None) -> dict:
@@ -267,6 +282,10 @@ LAYOUTS = {
 }
 
 
+def cited_standards(doc: dict) -> list[str]:
+    return [_text(doc["standard"]["number"])] if doc.get("standard") else library_standards(doc)
+
+
 def datasheet_pdf(doc: dict) -> bytes:
     """The invented sheet. The standard it is made to is cited on page 1."""
     draw, text_layer, turned = LAYOUTS[doc["layout"]]
@@ -278,7 +297,7 @@ def datasheet_pdf(doc: dict) -> bytes:
         y = draw(page, spec_page["rows"])
         notes = list(spec_page.get("notes") or [])
         if number == 1:
-            notes.insert(0, f"Applicable standard: {_text(doc['standard']['number'])}")
+            notes[:0] = [f"Applicable standard: {name}" for name in cited_standards(doc)]
         _notes(page, y, notes)
         if turned:
             page.set_rotation(90)
@@ -363,10 +382,12 @@ def unprinted_keyed_rows(doc: dict, pdf_bytes: bytes) -> list[str]:
 
 
 def cites_the_standard(doc: dict, pdf_bytes: bytes) -> bool:
-    """RULE 2 (second half): the standard's number is printed on the sheet."""
+    """RULE 2 (second half): every standard the sheet is made to is printed
+    on it by its number."""
     pdf = pymupdf.open(stream=pdf_bytes, filetype="pdf")
     try:
-        return _squash(doc["standard"]["number"]) in _squash(pdf[0].get_text())
+        on_page = _squash(pdf[0].get_text())
+        return all(_squash(name) in on_page for name in cited_standards(doc))
     finally:
         pdf.close()
 
@@ -382,9 +403,14 @@ def answer_key(doc: dict) -> dict:
     """`complete_for_flags` is true unless the spec says the key does NOT
     list every defect on the sheet (a type whose checklist runs calculations
     the spec's author did not verify by hand): then an extra flag is "not
-    judged by the key", never a false positive the review did not earn."""
+    judged by the key", never a false positive the review did not earn.
+
+    A sheet planted against LIBRARY standards never claims it: the review
+    may rightly apply other requirements of a real library to it, and nobody
+    judged those."""
+    complete = doc.get("complete_for_flags", True) is not False and not library_standards(doc)
     return {"format": KEY_FORMAT, "name": doc["id"], "source": "invented",
-            "complete_for_flags": doc.get("complete_for_flags", True) is not False, "items": key_items(doc)}
+            "complete_for_flags": complete, "items": key_items(doc)}
 
 
 def build(spec: dict, out_dir: str | Path) -> dict:
@@ -406,16 +432,19 @@ def build(spec: dict, out_dir: str | Path) -> dict:
         if not cites_the_standard(doc, readable):
             raise SpecError(f"{doc['id']}: the sheet does not print its standard's number")
         key = answer_key(doc)
-        names = {"datasheet": f"{doc['id']}.datasheet.pdf", "standard": f"{doc['id']}.standard.pdf",
-                 "key": f"{doc['id']}.key.json"}
+        names = {"datasheet": f"{doc['id']}.datasheet.pdf", "key": f"{doc['id']}.key.json",
+                 "standard": f"{doc['id']}.standard.pdf" if doc.get("standard") else None}
         files[names["datasheet"]] = sheet
-        files[names["standard"]] = standard_pdf(doc)
+        if names["standard"]:
+            files[names["standard"]] = standard_pdf(doc)
         files[names["key"]] = (json.dumps(key, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
         counts = {kind: sum(1 for it in key["items"] if it["kind"] == kind) for kind in ITEM_KINDS}
         entries.append({"id": doc["id"], "equipment_type": _text(doc["equipment_type"]),
                         "held_out": doc["held_out"], "layout": doc["layout"],
                         "text_layer": LAYOUTS[doc["layout"]][1], "pages": len(doc["sheet"]["pages"]),
-                        "standard_number": _text(doc["standard"]["number"]), "items": counts,
+                        "standard_number": _text((doc.get("standard") or {}).get("number")) or None,
+                        "library_standards": len(library_standards(doc)),
+                        "group": "library" if library_standards(doc) else "invented", "items": counts,
                         "complete_for_flags": key["complete_for_flags"], **names})
     index = {"format": INDEX_FORMAT, "source": "invented", "documents": entries}
     out.mkdir(parents=True, exist_ok=True)
@@ -430,6 +459,7 @@ def summary(index: dict) -> dict:
     kind. Never an id of a held-out item, a value or a clause."""
     docs = index["documents"]
     return {"documents": len(docs),
+            "against_library_standards": sum(1 for d in docs if d["group"] == "library"),
             "equipment_types": len({d["equipment_type"] for d in docs}),
             "layouts": len({d["layout"] for d in docs}),
             "held_out": sum(1 for d in docs if d["held_out"]),

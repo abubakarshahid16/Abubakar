@@ -165,7 +165,8 @@ def test_two_documents_one_held_out_and_the_summary_holds_counts_only(tmp_path):
     held["equipment_type"] = "Storage Tank"
     index = pf1_set.build(_spec(_with_clause_5_1(_doc()), held), tmp_path / "set")
     assert pf1_set.summary(index) == {
-        "documents": 2, "equipment_types": 2, "layouts": 2, "held_out": 1, "without_a_text_layer": 1,
+        "documents": 2, "against_library_standards": 0, "equipment_types": 2, "layouts": 2, "held_out": 1,
+        "without_a_text_layer": 1,
         "items": {"defect": 4, "met": 2, "trap": 2, "not_applicable": 2}}
     text = json.dumps(pf1_set.summary(index))
     assert "D1" not in text and "4.2" not in text and "pf1-t" not in text
@@ -210,3 +211,44 @@ def test_a_label_that_would_print_over_its_neighbour_stops_the_build(tmp_path):
     with pytest.raises(pf1_set.SpecError, match="does not fit its 160-point cell"):
         pf1_set.build(_spec(doc), tmp_path / "set")
     assert not (tmp_path / "set").exists()
+
+
+def _library_doc():
+    """A sheet planted against requirements STORED in the library: it cites
+    two held standards by number and has no invented standard."""
+    doc = _doc("pf1r-t-pump")
+    del doc["standard"], doc["unprinted"]
+    doc["library_standards"] = ["LIB-STD-0001", "LIB-STD-0002"]
+    rows = doc["sheet"]["pages"][0]["rows"] + doc["sheet"]["pages"][1]["rows"]
+    for row, standard in zip([r for r in rows if "key" in r], ("LIB-STD-0001", "LIB-STD-0002", "LIB-STD-0001")):
+        row["key"]["standard"] = standard
+    return doc
+
+
+def test_a_sheet_against_library_standards_cites_them_and_writes_no_standard_file(tmp_path):
+    index = pf1_set.build(_spec(_library_doc(), _with_clause_5_1(_doc())), tmp_path / "set")
+    entry = index["documents"][0]
+    assert entry["group"] == "library" and entry["library_standards"] == 2
+    assert entry["standard"] is None and entry["standard_number"] is None
+    assert not (tmp_path / "set" / "pf1r-t-pump.standard.pdf").exists()
+    text = pymupdf.open(tmp_path / "set" / entry["datasheet"])[0].get_text()
+    assert "Applicable standard: LIB-STD-0001" in text and "Applicable standard: LIB-STD-0002" in text
+    key = review_score.load_key(tmp_path / "set" / entry["key"])
+    assert {item["standard"] for item in key["items"]} == {"LIB-STD-0001", "LIB-STD-0002"}
+    # a real library may rightly apply requirements nobody judged: the key never claims to be complete
+    assert key["complete_for_flags"] is False and entry["complete_for_flags"] is False
+    assert index["documents"][1]["group"] == "invented"
+    assert pf1_set.summary(index)["against_library_standards"] == 1
+
+
+@pytest.mark.parametrize("change, message", [
+    (lambda d: d["sheet"]["pages"][0]["rows"][0]["key"].update(standard="LIB-STD-0009"), "not one the sheet cites"),
+    (lambda d: d["sheet"]["pages"][0]["rows"][0]["key"].pop("standard"), "not one the sheet cites"),
+    (lambda d: d.update(library_standards=[]), "one or the other"),
+    (lambda d: d.update(standard=_doc()["standard"]), "one or the other"),
+])
+def test_a_library_sheet_whose_answers_cannot_be_traced_is_refused(change, message):
+    doc = _library_doc()
+    change(doc)
+    with pytest.raises(pf1_set.SpecError, match=message):
+        pf1_set.validate(_spec(doc))
