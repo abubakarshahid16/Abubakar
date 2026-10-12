@@ -477,8 +477,9 @@ def failure_word(exc: BaseException) -> str:
             stated = str(err.get("type") or "")
             kind = stated if _ERROR_TYPE.fullmatch(stated) else ""
             no_credit = status == 400 and "credit balance" in str(err.get("message") or "").lower()
-    except Exception:  # noqa: BLE001 - a body that is not the API's JSON says nothing more
-        pass
+    except (ValueError, TypeError, AttributeError, LookupError):
+        # A body that is not the API's JSON says nothing more than its status.
+        kind, no_credit = "", False
     if no_credit:
         return f"{name}:http_{status}:{NO_CREDIT}"
     return f"{name}:http_{status}" + (f":{kind}" if kind else "")
