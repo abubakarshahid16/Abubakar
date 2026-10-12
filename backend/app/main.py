@@ -14,6 +14,7 @@ from . import classification as classification_mod
 from . import chunker as chunk_mod
 from . import absence as absence_mod
 from . import ai_engineering_check as ai_engineering_check_mod
+from . import ai_numbers as ai_numbers_mod
 from . import applicability as applicability_mod
 from . import comparison as comparison_mod
 from . import crs_export as crs_export_mod
@@ -2021,7 +2022,20 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         "web_check_status": _json_column(run.get("web_check_status")),
         # #633: findings written before a failed run stopped are PARTIAL.
         "partial_findings": outcome.get("partial_findings") or 0,
+        # #845: the AI numbers (reader, matcher, AI check, wording), each with
+        # its denominator and where it ran - from stored data, no model call.
+        "ai_numbers": _ai_numbers(run, scope, outcome),
     }
+
+
+def _ai_numbers(run: dict, scope: access.AccessScope, outcome: dict | None) -> dict | None:
+    """#845: the run's four AI steps as `ai_numbers.for_run` reads them from
+    what the run stored. None when the run holds no record of any of them."""
+    return ai_numbers_mod.for_run(
+        outcome,
+        ai_engineering_check_mod.ai_check_status(
+            run["id"], allowed_document_ids=scope.allowed_document_ids),
+        crs_wording_mod.summary_of(run["id"]))
 
 
 def _json_column(raw) -> dict | None:
@@ -2245,6 +2259,32 @@ def list_review_runs(
         allowed_document_ids=scope.allowed_document_ids,
         submittal_document_id=document_id)
     return {"runs": [_run_summary(run, scope) for run in runs]}
+
+
+@app.get("/api/reviews/runs/{review_run_id}/ai-numbers",
+         response_model=schemas.ReviewAiNumbers,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def review_run_ai_numbers(
+    review_run_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """#845: the run's AI numbers - the AI reader, the AI matcher, the AI
+    engineering check and the AI wording - each with its denominator and
+    "local model" or "cloud model", read from what the run stored. No model is
+    called. A step with no record is null (shown as nothing, never 0). A run
+    the caller may not read is 404. Read only."""
+    reject_unknown_params(request, set())
+    run = submittal_review_mod.get_review_run(
+        review_run_id, allowed_document_ids=scope.allowed_document_ids)
+    if run is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no review run with that id"))
+    outcome = comparison_mod.run_outcome(
+        review_run_id, allowed_document_ids=scope.allowed_document_ids)
+    steps = _ai_numbers(run, scope, outcome) or {}
+    return {"review_run_id": review_run_id,
+            **{k: steps.get(k) for k in ("reader", "matcher", "engineering_check", "wording")}}
 
 
 @app.get("/api/reviews/runs/{review_run_id}/standards",

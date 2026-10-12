@@ -2486,6 +2486,28 @@ class ReviewJobState(BaseModel):
     cancel_requested: bool = False
 
 
+class AiStepNumbers(BaseModel):
+    """#845: one AI step of a run, as the run stored it. Every count in
+    `lines` is printed with what it is out of (CLAUDE.md rule 4)."""
+    step: str
+    #: off / ran / incomplete / not run
+    state: str
+    #: "local model" / "cloud model", or null when the record names neither.
+    where: str | None = None
+    model: str | None = None
+    #: #842: why the local model stood in for the cloud model, or null.
+    local_instead: str | None = None
+    lines: list[str] = []
+
+
+class AiNumbers(BaseModel):
+    """#845: the four AI steps of a run. A step with no record is null."""
+    reader: AiStepNumbers | None = None
+    matcher: AiStepNumbers | None = None
+    engineering_check: AiStepNumbers | None = None
+    wording: AiStepNumbers | None = None
+
+
 class ReviewRunSummary(BaseModel):
     """A review run as the runs list shows it.
 
@@ -2573,6 +2595,15 @@ class ReviewRunSummary(BaseModel):
     #: #633: findings written before a failed run stopped. They are partial and
     #: the run recommends no code.
     partial_findings: int = 0
+    #: #845: the run's AI numbers (reader, matcher, AI check, wording), each
+    #: with its denominator and where it ran. Null when the run holds no
+    #: record of any AI step; a step with no record is null inside it.
+    ai_numbers: AiNumbers | None = None
+
+
+class ReviewAiNumbers(AiNumbers):
+    """#845: `GET /api/reviews/runs/{id}/ai-numbers`."""
+    review_run_id: str
 
 
 class PageLedgerRow(BaseModel):

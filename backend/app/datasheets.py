@@ -4092,7 +4092,13 @@ def reader_summary(ai_run: dict | None, ai_stats: dict, *, pages: list[int]) -> 
             "unavailable": ai_run.get("unavailable"), "stopped": ai_run.get("stopped"),
             "timed_out": list(ai_run.get("timed_out") or []), "seconds": ai_run.get("seconds"),
             "facts_written": ai_stats.get("facts_written", 0), "agreed": ai_stats.get("agreed", 0),
-            "conflicts": ai_stats.get("conflicts", 0), "ai_only": ai_stats.get("ai_only", 0)}
+            "conflicts": ai_stats.get("conflicts", 0), "ai_only": ai_stats.get("ai_only", 0),
+            # #845: the AI's readings the code gate refused (checks in
+            # `claude_datasheet.accept` and `_ai_gate`), so the run card can
+            # say "N of M readings refused by the gate".
+            "refused_by_gate": (sum((ai_stats.get("proposals_rejected") or {}).values())
+                                + sum((ai_stats.get("dropped") or {}).values())),
+            "unconfirmed": ai_stats.get("unconfirmed", 0)}
 
 
 def _ensure_reader_runs(conn) -> None:
