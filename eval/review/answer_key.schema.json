@@ -25,6 +25,7 @@
           "standard": {"type": "string", "description": "A file name or document number; matched as a normalised substring of the finding's standard."},
           "clause": {"type": "string", "description": "Matches a finding at this clause or a subclause (4.2 matches 4.2.1, not 4.20)."},
           "field": {"type": "string", "description": "Optional. Every word must appear in the finding's matched field or requirement text; makes the item more specific."},
+          "submittal_page": {"type": "integer", "minimum": 1, "description": "Optional. The datasheet page the item is about (one valve or tag on a multi-tag sheet). A finding answers the item only on that page."},
           "note": {"type": "string", "description": "For humans. Never printed in a report."}
         }
       }
