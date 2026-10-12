@@ -796,6 +796,34 @@ export interface ReviewRunSummary {
   ai_numbers?: AiNumbers | null;
 }
 
+/** #645: a check the AI proposed for a clause sentence and code verified,
+ *  waiting for the engineer. Never used for a verdict until accepted. */
+export interface ClauseCheckDraft {
+  id: string;
+  requirement_id: string;
+  standard_document_id: string;
+  clause: string | null;
+  page: number | null;
+  source_text: string | null;
+  field: string;
+  operator: string | null;
+  value: string;
+  unit: string | null;
+  condition: string | null;
+  quote: string;
+  model: string | null;
+  status: "draft" | "accepted" | "rejected" | "replaced";
+  decided_at: string | null;
+  new_requirement_id: string | null;
+}
+
+export interface ClauseCheckDecisionResult {
+  id: string;
+  decision: string;
+  status: string;
+  new_requirement_id: string | null;
+}
+
 /** #785: one side of a finding in the side-by-side view, as the server
  *  resolved it. `box` names what is boxed (quote, value_position,
  *  source_line, value_once, label, clause_text, clause_heading) or null;

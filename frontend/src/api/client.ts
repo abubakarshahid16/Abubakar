@@ -14,6 +14,8 @@ import type {
   DeletedConversation,
   DeletedDocument,
   ApiError,
+  ClauseCheckDecisionResult,
+  ClauseCheckDraft,
   MissingStandard,
   AskRequest,
   AskResult,
@@ -1195,6 +1197,19 @@ export const api = {
     request<StandardExtraction>(
       `/standards/${encodeURIComponent(id)}/requirements/extract`,
       { method: "POST" }),
+  /** #645: checks the AI proposed for clause sentences, verified by code,
+   *  waiting for the engineer. */
+  clauseCheckDrafts: () =>
+    request<ClauseCheckDraft[]>("/standards/clause-checks", undefined, isArrayBody),
+  /** #645: accept (a confirmed, versioned limit) or reject a draft. ADMIN, audited. */
+  decideClauseCheck: (id: string, decision: "accept" | "reject") =>
+    request<ClauseCheckDecisionResult>(
+      `/standards/clause-checks/${encodeURIComponent(id)}/decision`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision }),
+      }),
   /** Mark a standard as replaced, or clear the mark with null. ADMIN, audited. */
   /** Standards cited but not in the library, with the publisher's catalogue
    *  page and whether each has been requested. Nothing is fetched. */

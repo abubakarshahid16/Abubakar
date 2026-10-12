@@ -3838,6 +3838,49 @@ def decide_standard_requirement(
             errors.INVALID_PARAMETER, str(exc))) from exc
 
 
+@app.get("/api/standards/clause-checks",
+         response_model=list[schemas.ClauseCheckDraft],
+         responses=schemas.ERRORS_422)
+def list_clause_checks(
+    request: Request,
+    status: str = Query("draft", pattern="^(draft|accepted|rejected|replaced)$"),
+    limit: int = Query(200, ge=1, le=500),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """#645: checks the AI proposed for clause sentences and code verified,
+    for the standards the caller may read. Read only."""
+    reject_unknown_params(request, {"status", "limit"})
+    from . import ai_requirements
+    return ai_requirements.list_drafts(
+        allowed_document_ids=scope.allowed_document_ids, status=status, limit=limit)
+
+
+@app.post("/api/standards/clause-checks/{draft_id}/decision",
+          response_model=schemas.ClauseCheckDecisionResult,
+          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def decide_clause_check(
+    draft_id: str,
+    body: schemas.ClauseCheckDecisionRequest,
+    scope: access.AccessScope = Depends(access.current_scope),
+    actor: dict | None = Depends(admin_mod.current_admin),
+):
+    """#645: accept or reject a clause-check draft. ADMIN, and AUDITED.
+
+    Accept is verified by code again and VERSIONED: a new confirmed numeric
+    limit is written and the sentence row is superseded, not deleted. A draft
+    the caller may not read is 404, like every route."""
+    from . import ai_requirements
+    try:
+        return ai_requirements.decide_draft(
+            draft_id, decision=body.decision,
+            allowed_document_ids=scope.allowed_document_ids, actor=actor)
+    except ai_requirements.DraftError as exc:
+        status = 404 if str(exc).startswith("no clause-check draft") else 422
+        raise HTTPException(status_code=status, detail=errors.safe_error(
+            errors.NOT_FOUND if status == 404 else errors.INVALID_PARAMETER,
+            str(exc))) from exc
+
+
 @app.post("/api/standards/{document_id}/requirements/extract-async",
           response_model=schemas.ExtractionJob,
           responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
