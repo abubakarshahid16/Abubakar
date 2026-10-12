@@ -207,7 +207,15 @@
         "steam",
         "two phase",
         "dual service"
-      ]
+      ],
+      "_implied_by": "R12 (#776, planner 2026-10-11 point 5a): when the phase is NOT stated, a fluid service that names one phase only (whole words) says which phase the sheet probably means. Used only to turn an item for the OTHER phase into an engineer's question - never a verdict, never 'does not apply'. A service naming both (e.g. 'water vapour') implies nothing.",
+      "implied_by": {
+        "role": "fluid",
+        "phases": {
+          "liquid": ["water", "crude", "oil", "condensate", "glycol", "amine", "diesel", "kerosene", "caustic", "brine"],
+          "gas": ["gas", "vapour", "vapor", "steam", "air", "nitrogen", "hydrogen", "oxygen", "co2"]
+        }
+      }
     },
     "molecular_weight": {
       "kind": "number",
@@ -226,7 +234,9 @@
       "names": [
         "^specific heat ratio( cp ?/ ?cv)?$",
         "^cp ?/ ?cv$"
-      ]
+      ],
+      "_plausible": "R12 (#776, planner 2026-10-11 point 5b): k = Cp/Cv of a gas is above 1 and at most 5/3 (a monatomic ideal gas); a printed k outside this is a reading or entry error (a sheet printed 18). Above the range the value is an engineer's question and no calculation uses it; 'above 1' stays PSV-32's own check.",
+      "plausible": {"max": 1.7}
     },
     "density_relieving": {
       "kind": "density",

@@ -434,6 +434,47 @@ def _scale(m) -> tuple[float, str, str | None] | None:
     return number, _fold(base), reference
 
 
+def implausible(fact: dict, role: str, rules: dict) -> str | None:
+    """Why a stated number cannot be right for its field, or None (R12, #776).
+
+    The field's `plausible` range in the rules (only fields that carry one):
+    a value outside it is a reading or entry error, so it is never "stated"
+    and never fed to a calculation. A value that is not a number is not judged
+    here."""
+    bounds = (rules.get("roles", {}).get(role) or {}).get("plausible")
+    if not bounds:
+        return None
+    from . import claims
+    number = claims.parse_value(str(fact.get("raw_value")))
+    if number is None:
+        return None
+    low, high = bounds.get("min"), bounds.get("max")
+    if (low is not None and number < low) or (high is not None and number > high):
+        span = (f"{low} to {high}" if low is not None and high is not None
+                else f"at most {high}" if high is not None else f"at least {low}")
+        return (f"{_label(fact, role)} {_shown(fact)} (page {fact.get('page')}) is outside the "
+                f"plausible range for this field ({span}); engineer to check the value")
+    return None
+
+
+def implied_phase(get, condition_role: str, rules: dict) -> tuple[str, dict, str] | None:
+    """(phase, the fact that implies it, that fact's role) when the condition's own field is not
+    stated but another field names one phase only - e.g. the fluid service
+    'Cooling water' implies liquid (R12, #776). None when nothing is implied
+    or the service names more than one phase. A guess: callers only use it to
+    ask the engineer, never to decide."""
+    spec = (rules.get("roles", {}).get(condition_role) or {}).get("implied_by")
+    if not spec:
+        return None
+    fact, _why = _one(get(spec["role"]))
+    if fact is None or fact.get("is_blank"):
+        return None
+    words = set(re.findall(r"[a-z0-9]+", _fold(_shown(fact))))
+    phases = [phase for phase, names in spec["phases"].items()
+              if any(name in words for name in names)]
+    return (phases[0], fact, spec["role"]) if len(phases) == 1 else None
+
+
 def _one(found: list[dict]) -> tuple[dict | None, str | None]:
     """The one value a field states, or why there is not one."""
     if not found:
@@ -584,6 +625,17 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
                 return {**res(NOT_CALCULATED, _sentence(
                     f"the {_pretty(condition['role']).lower()} is not stated, so the formula "
                     f"to use is not known")), "calc": True}
+            implied = implied_phase(get, condition["role"], rules) if why == "absent" else None
+            if implied and not any(_fold(word) in implied[0] for word in condition["any"]):
+                # R12 (#776): the phase is not stated, but the service names the
+                # OTHER phase - this item probably does not apply. Asked, never
+                # decided: a guess is shown as a guess (CLAUDE.md rule 4).
+                phase, hint, hint_role = implied
+                return res(NEEDS_ENGINEER_REVIEW, _sentence(
+                    f"the {_pretty(condition['role']).lower()} is not stated, and "
+                    f"{_label(hint, hint_role).lower()} '{_shown(hint)}' (page {hint.get('page')}) "
+                    f"suggests {phase}, so this item probably does not apply; engineer to confirm "
+                    f"the {_pretty(condition['role']).lower()}"), hint, hint_role)
             if item.get("when_unknown") != "evaluate":
                 state = ("the sheet does not state it" if why == "absent"
                          else "it has two different values on the sheet")
@@ -634,6 +686,9 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
         return res(MISSING_INFORMATION,
                    f"{_label(fact, field)} is marked '{_shown(fact) or fact.get('blank_marker')}' "
                    f"on page {fact.get('page')}; the contractor is to provide the value.", fact)
+    if (doubt := implausible(fact, field, rules)) is not None:
+        # R12 (#776): an impossible value is never "stated" or compared.
+        return res(NEEDS_ENGINEER_REVIEW, _sentence(doubt), fact)
     noted = f" The sheet marks this value '{fact['value_note']}'." if fact.get("value_note") else ""
     where = f"{_label(fact, field)} {_shown(fact)} (page {fact.get('page')})"
     if kind == "required":
@@ -908,6 +963,9 @@ def api520_gas_area(get, rules: dict, selected_mm2: float | None = None) -> dict
     t = _kelvin(temperature, "relieving_temperature")
     facts = {role: _input(get, role) for role in ("molecular_weight", "compressibility",
                                                   "specific_heat_ratio")}
+    for role, input_fact in facts.items():
+        if (doubt := implausible(input_fact, role, rules)) is not None:
+            raise _NotCalculated(doubt)        # R12 (#776): never computed from it
     m = _number_of(facts["molecular_weight"], "molecular_weight")
     z = _number_of(facts["compressibility"], "compressibility")
     k = _number_of(facts["specific_heat_ratio"], "specific_heat_ratio")
