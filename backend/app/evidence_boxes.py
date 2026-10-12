@@ -188,15 +188,13 @@ def _spellings(field: str) -> list[str]:
     """The field's own name, then the plain spellings the checklist rules list
     for it (`printed_as`, `field_synonyms.json`) - text, never a pattern, so a
     box is only ever drawn on words the page prints."""
+    from . import datasheet_checks
+
+    role = "_".join(field.lower().split())
+    rules = datasheet_checks.load_rules()
     out = [" ".join(field.split())]
-    try:
-        from . import datasheet_checks
-        role = "_".join(field.lower().split())
-        rules = datasheet_checks.load_rules()
-        out += list(rules["roles"].get(role, {}).get("printed_as", []))
-        out += datasheet_checks._synonyms().get(role.replace("_", " ")) or []
-    except Exception:  # noqa: BLE001 - the field's own name is still searched
-        pass
+    out += list(rules["roles"].get(role, {}).get("printed_as", []))
+    out += datasheet_checks._synonyms().get(role.replace("_", " ")) or []
     seen, kept = set(), []
     for s in out:
         key = " ".join(str(s).lower().split())
