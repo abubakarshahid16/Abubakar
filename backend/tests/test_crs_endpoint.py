@@ -39,6 +39,7 @@ from app.config import settings
 from app.crs_export import (COLUMN_HEADER_ROW, FIRST_DATA_ROW,
                             HEADER_FIELDS, HEADERS)
 from app.main import app
+from app import main as main_mod
 
 NOW = "2026-09-19T00:00:00Z"
 
@@ -820,7 +821,11 @@ def test_the_additions_left_the_seven_template_columns_in_place():
     # The copy ISSUED to the contractor is the template's seven columns plus
     # "Standard Reference"; the internal review copy adds "AI Review
     # Comments", last (owner decision 2026-09-27), and moves no other column.
-    ws = _sheet(_client(doc).get(f"/api/reviews/runs/{run_id}/crs", params={"copy": "issue"}))
+    # PF5 (#885): the contractor's copy is issued by POST, gated; its content
+    # (what this test is about) is the same builder's, read here directly.
+    workbook, _name = main_mod._crs_workbook(
+        run_id, access.AccessScope(user_id="eng", allowed_document_ids=frozenset({doc})), "issue")
+    ws = load_workbook(io.BytesIO(workbook)).active
     internal = _sheet(_client(doc).get(f"/api/reviews/runs/{run_id}/crs"))
     assert [internal.cell(row=COLUMN_HEADER_ROW, column=c).value
             for c in range(1, 11)] == [*HEADERS, "Standard Reference", "Severity", "AI Review Comments"]
@@ -840,20 +845,22 @@ def test_the_issue_copy_is_refused_until_an_engineer_decides():
     run_id = _run(doc)
     _finding(doc, run_id, "NON_COMPLIANT")
 
-    response = _client(doc).get(f"/api/reviews/runs/{run_id}/crs",
-                                 params={"copy": "issue"})
+    # PF5 (#885): the contractor's copy is issued by POST .../crs/issue.
+    response = _client(doc).post(f"/api/reviews/runs/{run_id}/crs/issue")
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "code_not_decided"
 
     # The internal copy is unaffected by the same gate.
     assert _client(doc).get(f"/api/reviews/runs/{run_id}/crs").status_code == 200
 
-    # Once an engineer records the final code, the issue copy is allowed.
+    # Once an engineer records the final code, the code gate is passed; the
+    # run is still not finished (an undecided finding, no page record), so
+    # PF5's gate refuses it in words (`test_885_crs_issue_gate`).
     with db.connect() as conn:
         conn.execute("UPDATE review_runs SET engineer_final_code='Approved'"
                      " WHERE id = ?", (run_id,))
-    assert _client(doc).get(f"/api/reviews/runs/{run_id}/crs",
-                            params={"copy": "issue"}).status_code == 200
+    again = _client(doc).post(f"/api/reviews/runs/{run_id}/crs/issue")
+    assert again.status_code == 409 and again.json()["detail"]["code"] == "crs_not_finished"
 
 
 def _document_number(doc_id: str, number: str, revision: str | None = None) -> None:

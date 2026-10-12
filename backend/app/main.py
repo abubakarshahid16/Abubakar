@@ -19,6 +19,7 @@ from . import evidence_boxes as evidence_boxes_mod
 from . import applicability as applicability_mod
 from . import comparison as comparison_mod
 from . import crs_export as crs_export_mod
+from . import crs_issue as crs_issue_mod
 from . import crs_mapping as crs_mapping_mod
 from . import crs_numbers as crs_numbers_mod
 from . import crs_wording as crs_wording_mod
@@ -5109,29 +5110,223 @@ def export_review_crs(
     """
     reject_unknown_params(request, {"copy"})
     if copy == "issue":
-        run = submittal_review_mod.get_review_run(
-            review_run_id, allowed_document_ids=scope.allowed_document_ids)
-        if run is None:
+        if submittal_review_mod.get_review_run(
+                review_run_id, allowed_document_ids=scope.allowed_document_ids) is None:
             raise HTTPException(status_code=404, detail=errors.safe_error(
                 errors.NOT_FOUND, "no review run with that id"))
-        if not run.get("engineer_final_code"):
-            raise HTTPException(status_code=409, detail=errors.safe_error(
-                errors.CODE_NOT_DECIDED,
-                "an engineer must record the final code before this run can "
-                "be issued to the contractor"))
+        # PF5 (#885): THE CONTRACTOR'S COPY IS ISSUED, NOT DOWNLOADED. A GET
+        # writes nothing, so it could not keep the copy it hands out; the
+        # gated, archived issue is `POST .../crs/issue`.
+        raise HTTPException(status_code=409, detail=errors.safe_error(
+            errors.ISSUE_THROUGH_POST,
+            "the contractor's copy is issued with POST /api/reviews/runs/{id}/crs/issue, "
+            "which checks it is finished and keeps the issued copy"))
+    workbook, filename = _crs_workbook(review_run_id, scope, copy)
+    return _xlsx_response(workbook, filename)
+
+
+_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _xlsx_response(workbook: bytes, filename: str, headers: dict | None = None) -> Response:
+    return Response(content=workbook, media_type=_XLSX, headers={
+        "Content-Disposition": f'attachment; filename="{filename}"', **(headers or {})})
+
+
+def _crs_workbook(review_run_id: str, scope: access.AccessScope, copy: str) -> tuple[bytes, str]:
+    """The CRS workbook for one copy and its file name. No gate: callers gate."""
     rows, meta, submittal_name, stamp = _crs_content(review_run_id, scope, copy)
     workbook = crs_export_mod.build_crs(rows, meta)
-
     safe = "".join(
         ch for ch in Path(submittal_name).stem if ch.isalnum() or ch in "-_")
     # Owner order 2f: the file name says which copy it is.
     filename = (f"CRS_{safe or 'submittal'}_{stamp}_"
                 f"{crs_export_mod.COPY_FILE_SUFFIX[copy]}.xlsx")
-    return Response(
-        content=workbook,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+    return workbook, filename
+
+
+def _crs_issue_gate(review_run_id: str, scope: access.AccessScope) -> dict:
+    """PF5 (#885): the run's open items (unread pages, undecided findings)
+    and whether the final code is recorded. Read only; 404 like the export."""
+    run = submittal_review_mod.get_review_run(
+        review_run_id, allowed_document_ids=scope.allowed_document_ids)
+    if run is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no review run with that id"))
+    rows, _meta, _name, _stamp = _crs_content(review_run_id, scope, "internal")
+    outcome = comparison_mod.run_outcome(
+        review_run_id, allowed_document_ids=scope.allowed_document_ids) or {}
+    gate = crs_issue_mod.open_items(review_run_id, rows, outcome.get("page_coverage"))
+    final = bool(run.get("engineer_final_code"))
+    if not final:
+        gate["blockers"].insert(0, "an engineer has not recorded the final code")
+    return {"review_run_id": review_run_id, **gate,
+            "issuable": gate["issuable"] and final, "final_code_recorded": final}
+
+
+@app.get("/api/reviews/runs/{review_run_id}/crs/issue-gate",
+         response_model=schemas.CrsIssueGate,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def crs_issue_gate(
+    review_run_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """PF5 (#885): what still stands between this run and its contractor
+    copy - unread pages, findings with no engineer's decision, the final
+    code. Read only."""
+    reject_unknown_params(request, set())
+    return _crs_issue_gate(review_run_id, scope)
+
+
+def _crs_decision_actor(review_run_id: str, scope: access.AccessScope) -> str:
+    _require_identity_to_write(scope)
+    if scope.user_id is None:
+        raise HTTPException(status_code=401, detail=errors.safe_error(
+            errors.UNAUTHENTICATED, "a decision must name the engineer who made it"))
+    if submittal_review_mod.get_review_run(
+            review_run_id, allowed_document_ids=scope.allowed_document_ids) is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no review run with that id"))
+    return scope.user_id
+
+
+@app.post("/api/reviews/runs/{review_run_id}/crs/open-items/pages/{page_no}/decision",
+          response_model=schemas.CrsIssueDecision,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
+def decide_crs_unread_page(
+    review_run_id: str,
+    page_no: int,
+    body: schemas.CrsIssueDecisionRequest,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """PF5 (#885): the engineer checked an unread page by eye, and says why
+    that is enough. Who and when are the caller and the clock."""
+    actor = _crs_decision_actor(review_run_id, scope)
+    outcome = comparison_mod.run_outcome(
+        review_run_id, allowed_document_ids=scope.allowed_document_ids) or {}
+    unread = (outcome.get("page_coverage") or {}).get("pages_not_read_into_fields") or []
+    try:
+        return crs_issue_mod.decide_page(review_run_id, page_no, unread=unread,
+                                         reason=body.reason, actor=actor)
+    except crs_issue_mod.IssueError as exc:
+        raise HTTPException(status_code=422, detail=errors.safe_error(
+            errors.INVALID_PARAMETER, str(exc))) from exc
+
+
+@app.post("/api/reviews/runs/{review_run_id}/crs/open-items/findings/{finding_id}/decision",
+          response_model=schemas.CrsIssueDecision,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
+def decide_crs_open_finding(
+    review_run_id: str,
+    finding_id: str,
+    body: schemas.CrsIssueDecisionRequest,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """PF5 (#885): the engineer accepts or rejects one finding of the run,
+    with a reason, without waiting for any AI step. The decision is written
+    on the finding (accepted and confirmed, or rejected, by the caller) and
+    the reason is kept beside it."""
+    actor = _crs_decision_actor(review_run_id, scope)
+    current = review_mod.get(finding_id)
+    if (current is None or current.get("review_run_id") != review_run_id
+            or not scope.may_read(current["document_id"])):
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no review finding with that id in this run"))
+    try:
+        record = crs_issue_mod.decide_finding(review_run_id, finding_id, body.decision or "",
+                                              reason=body.reason, actor=actor)
+    except crs_issue_mod.IssueError as exc:
+        raise HTTPException(status_code=422, detail=errors.safe_error(
+            errors.INVALID_PARAMETER, str(exc))) from exc
+    now = review_mod.now_iso()
+    changes = {"approval_status": "accepted" if body.decision == "accept" else "rejected",
+               "approved_by": actor, "approved_at": now}
+    if body.decision == "accept":
+        changes.update({"confirmed_by": actor, "confirmed_at": now})
+    review_mod.update(finding_id, changes, actor_user_id=actor)
+    _mint_crs_numbers(review_run_id, scope)
+    return record
+
+
+@app.post("/api/reviews/runs/{review_run_id}/crs/issue",
+          response_class=Response,
+          responses={200: {"content": {_XLSX: {}},
+                           "description": "The contractor's copy, as issued and archived"},
+                     **schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_409})
+def issue_review_crs(
+    review_run_id: str,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """PF5 (#885): ISSUE THE CONTRACTOR'S COPY - only a finished one.
+
+    Refused (409) while the final code is not recorded, any page of the
+    submittal is unread, or any finding on the sheet has no engineer's
+    decision; the reply names each blocker in words. When it is issued, the
+    exact workbook is kept with its sha256 and the run (`crs_issue.archive`)
+    and the reply carries both. The internal copy is not gated."""
+    _require_identity_to_write(scope)
+    gate = _crs_issue_gate(review_run_id, scope)
+    if not gate["final_code_recorded"]:
+        raise HTTPException(status_code=409, detail=errors.safe_error(
+            errors.CODE_NOT_DECIDED,
+            "an engineer must record the final code before this run can "
+            "be issued to the contractor"))
+    if not gate["issuable"]:
+        raise HTTPException(status_code=409, detail=errors.safe_error(
+            errors.CRS_NOT_FINISHED,
+            "the contractor's copy is not finished: " + "; ".join(gate["blockers"])))
+    workbook, filename = _crs_workbook(review_run_id, scope, crs_export_mod.COPY_ISSUE)
+    record = crs_issue_mod.archive(review_run_id, workbook, filename,
+                                   actor=scope.user_id or "unrestricted")
+    return _xlsx_response(workbook, filename, {"X-Issued-Copy-Id": record["id"],
+                                               "X-Issued-Sha256": record["sha256"]})
+
+
+@app.get("/api/reviews/runs/{review_run_id}/crs/issued",
+         response_model=schemas.CrsIssuedCopyList,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def list_issued_crs(
+    review_run_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """PF5 (#885): the contractor copies issued for this run. Read only."""
+    reject_unknown_params(request, set())
+    if submittal_review_mod.get_review_run(
+            review_run_id, allowed_document_ids=scope.allowed_document_ids) is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no review run with that id"))
+    return {"copies": crs_issue_mod.issued(review_run_id)}
+
+
+@app.get("/api/reviews/runs/{review_run_id}/crs/issued/{copy_id}",
+         response_class=Response,
+         responses={200: {"content": {_XLSX: {}}, "description": "One issued copy, byte for byte"},
+                    **schemas.ERRORS_404, **schemas.ERRORS_409, **schemas.ERRORS_422})
+def get_issued_crs(
+    review_run_id: str,
+    copy_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """PF5 (#885): one issued copy exactly as issued - refused if its bytes
+    no longer match the recorded sha256. Read only."""
+    reject_unknown_params(request, set())
+    if submittal_review_mod.get_review_run(
+            review_run_id, allowed_document_ids=scope.allowed_document_ids) is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no review run with that id"))
+    try:
+        found = crs_issue_mod.issued_bytes(review_run_id, copy_id)
+    except crs_issue_mod.IssueError as exc:
+        raise HTTPException(status_code=409, detail=errors.safe_error(
+            errors.CRS_NOT_FINISHED, str(exc))) from exc
+    if found is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no issued copy with that id"))
+    record, data = found
+    return _xlsx_response(data, record["filename"], {"X-Issued-Sha256": record["sha256"]})
 
 
 @app.get("/api/reviews/runs/{review_run_id}/crs/preview",

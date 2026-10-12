@@ -493,14 +493,16 @@ export function ReviewRunsView(
                 SAFETY GATE (2026-09-27): a copy meant to leave the building
                 must carry a human's decision, not just the machine's
                 recommendation - disabled here AND refused with 409 on the
-                server (`export_review_crs`), so a client that skips this
-                button still cannot get the file. */}
+                server, so a client that skips this button still cannot get
+                the file. PF5 (#885): issuing is a POST that is also refused
+                while a page is unread or a finding undecided (the reason is
+                shown below), and the server keeps the issued copy. */}
             <button
               type="button" onClick={() => void exportCrs(run.review_run_id, "issue")}
               disabled={exporting || !run.engineer_final_code}
               className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-200 disabled:opacity-50"
             >
-              Export CRS - issue to contractor
+              Issue CRS to contractor
             </button>
             {!run.engineer_final_code && (
               <p className="text-xs text-slateish-400">

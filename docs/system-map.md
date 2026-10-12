@@ -70,6 +70,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `corpus` | Questions about the corpus itself, and counts that pretend to be about it |
 | `coverage` | Which documents the question was about, and which of them the answer used |
 | `crs_export` | CRS (Comment Resolution Sheet) generator - client CRS format |
+| `crs_issue` | PF5 (#885): the contractor-copy gate (unread pages, undecided findings), the engineer's recorded decisions, and the archive of each issued copy with its sha256 |
 | `crs_mapping` | Write the CRS comment text |
 | `crs_numbers` | Permanent CRS comment numbers and everything that happens to a comment after it is issued: the contractor's re |
 | `crs_wording` | AI-worded CRS comments, with a code lock on every number, unit, clause, page and standard |

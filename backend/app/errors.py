@@ -71,11 +71,18 @@ ORPHANING_REFUSED = "orphaning_refused"
 #: `export_review_crs` - so it MUST be a client code.
 CODE_NOT_DECIDED = "code_not_decided"
 
+#: PF5 (#885): the contractor's copy was requested while a page is unread or
+#: a finding is undecided (`crs_issue.open_items`), or through the GET route,
+#: which cannot archive what it hands out. A deliberate refusal, not a crash.
+CRS_NOT_FINISHED = "crs_not_finished"
+ISSUE_THROUGH_POST = "issue_through_post"
+
 CLIENT_ERROR_CODES = frozenset(
     {NOT_FOUND, INVALID_PARAMETER, UNKNOWN_PARAMETER, CONFIRM_REQUIRED,
      NOT_PDF, ENCRYPTED_PDF, TOO_LARGE, DUPLICATE,
      UNAUTHENTICATED, INVALID_CREDENTIALS, RATE_LIMITED,
-     INVALID_RESET_TOKEN, WEAK_PASSWORD, ORPHANING_REFUSED, CODE_NOT_DECIDED}
+     INVALID_RESET_TOKEN, WEAK_PASSWORD, ORPHANING_REFUSED, CODE_NOT_DECIDED,
+     CRS_NOT_FINISHED, ISSUE_THROUGH_POST}
 )
 
 ALL_CODES = CLIENT_ERROR_CODES | {
