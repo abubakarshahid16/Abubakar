@@ -3,13 +3,14 @@
  * decide, write the CRS - each with a green / amber / red light and one line
  * saying why (`pipelineLights`). The numbers come from the run's stored trace
  * and its AI numbers; nothing is recomputed. The lines behind each light open
- * under it.
+ * under it, and a count of findings opens those findings (`onShowStatus`).
  */
 import { useEffect, useState } from "react";
 
 import { reviews as reviewsApi } from "../../api/client";
 import type { ReviewRunSummary, ReviewTrace } from "../../types/api";
 import { type Light, pipelineSteps } from "./pipelineLights";
+import { statusRank, statusLabel, withDenominator } from "./reviewFormat";
 
 const LIGHT: Record<Light, { label: string; className: string }> = {
   green: { label: "Green", className: "bg-signal-500" },
@@ -17,7 +18,11 @@ const LIGHT: Record<Light, { label: string; className: string }> = {
   red: { label: "Red", className: "bg-danger-500" },
 };
 
-export function ReviewStepsPanel({ run }: { run: ReviewRunSummary }) {
+export function ReviewStepsPanel({ run, onShowStatus }: {
+  run: ReviewRunSummary;
+  /** #791: show the run's findings of this status (a count was clicked). */
+  onShowStatus?: (status: string) => void;
+}) {
   const [trace, setTrace] = useState<ReviewTrace | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -55,6 +60,16 @@ export function ReviewStepsPanel({ run }: { run: ReviewRunSummary }) {
                 <ul className="mt-0.5 list-disc ps-8 text-xs text-slateish-400">
                   {step.details.map((line) => <li key={line}>{line}</li>)}
                 </ul>
+              )}
+              {onShowStatus && step.links && step.links.length > 0 && (
+                <p className="mt-0.5 flex flex-wrap gap-2 ps-8 text-xs" data-testid={`step-${step.key}-links`}>
+                  {[...step.links].sort((a, b) => statusRank(a.status) - statusRank(b.status)).map((link) => (
+                    <button key={link.status} type="button" className="underline"
+                            onClick={() => onShowStatus(link.status)}>
+                      {`${statusLabel(link.status)} ${withDenominator(link.count, link.total)}`}
+                    </button>
+                  ))}
+                </p>
               )}
             </details>
           </li>
