@@ -96,6 +96,17 @@ def test_a_spent_budget_is_not_counted_as_asked(stub, monkeypatch):
     assert "1 not asked: the call budget was spent" in _card(run)["ai_numbers"]["matcher"]["lines"][0]
 
 
+def test_a_requirement_with_no_candidate_field_is_not_counted_as_asked(stub, monkeypatch):
+    asked = stub((0, "never asked"))
+    _std, _sub, run, scope = _world(monkeypatch, subject=MODEL_SUBJECT,
+                                    field_label="Shell design pressure", raw_value="200 mm")
+    comparison.run_comparison(run, allowed_document_ids=scope)
+    stored = _stored_matcher(run, scope)
+    assert asked.calls == 0
+    assert (stored["sent"], stored["asked"], stored["no_candidates"]) == (1, 0, 1)
+    assert "(1 had no candidate field)" in _card(run)["ai_numbers"]["matcher"]["lines"][0]
+
+
 def test_the_matcher_switched_off_says_off_not_zero(stub, monkeypatch):
     monkeypatch.setattr(settings, "match_enabled", False)
     run, scope, _ = _matched_run(stub, monkeypatch, (0, "never asked"))
