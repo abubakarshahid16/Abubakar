@@ -2285,7 +2285,8 @@ def review_run_ai_numbers(
         review_run_id, allowed_document_ids=scope.allowed_document_ids)
     steps = _ai_numbers(run, scope, outcome) or {}
     return {"review_run_id": review_run_id,
-            **{k: steps.get(k) for k in ("reader", "matcher", "engineering_check", "wording")}}
+            **{k: steps.get(k) for k in ("reader", "matcher", "engineering_check", "wording",
+                                         "clause_checks")}}
 
 
 @app.get("/api/reviews/runs/{review_run_id}/standards",

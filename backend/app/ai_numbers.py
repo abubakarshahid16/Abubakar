@@ -1,10 +1,11 @@
 """#845 (Stage B, #805 rule 7 "AI numbers first"): a finished run's AI
 numbers, read from what the run stored. No model is called here.
 
-FOUR STEPS, EACH WITH ITS OWN DENOMINATOR AND WHERE IT RAN. The reader (how
+THE STEPS, EACH WITH ITS OWN DENOMINATOR AND WHERE IT RAN. The reader (how
 many pages the AI read, and what became of its readings), the matcher (how
 many requirements it was asked about, and what became of its proposals), the
-AI engineering check and the AI wording. Each says "local model" or "cloud
+AI engineering check, the AI wording and (#645) the AI clause checks - how
+many undecided clause sentences got a proposed check. Each says "local model" or "cloud
 model" when the stored record names the engine, and nothing when it does not.
 
 NULL RENDERS AS NOTHING, NEVER 0 (CLAUDE.md rule 4). A step the run holds no
@@ -148,6 +149,25 @@ def wording(summary: dict | None) -> dict | None:
                          "not_tried": _n(summary.get("not_tried"))})
 
 
+def clause_checks(counts: dict | None) -> dict | None:
+    """#645 AI clause checks, from the run outcome's
+    `requirement_split.clause_checks` (`ai_requirements.propose_checks`).
+    Always the local runner's model: standards text stays on this machine."""
+    if not counts:
+        return None
+    from . import ai_requirements
+
+    incomplete = counts.get("could_not_read") or counts.get("not_asked_budget")
+    return _step("AI clause checks", "incomplete" if incomplete else "ran",
+                 [ai_requirements.report_line(counts)],
+                 engine="ollama", model=counts.get("model"),
+                 counts={"sentences": _n(counts.get("sentences")), "asked": _n(counts.get("asked")),
+                         "proposed": _n(counts.get("proposed")),
+                         "refused": sum(_n(v) for v in (counts.get("refused") or {}).values()),
+                         "could_not_read": _n(counts.get("could_not_read")),
+                         "not_asked_budget": _n(counts.get("not_asked_budget"))})
+
+
 def for_run(outcome: dict | None, ai_check_status: dict | None,
             wording_summary: dict | None) -> dict | None:
     """The four steps for one run, or None when the run holds no record of
@@ -158,5 +178,6 @@ def for_run(outcome: dict | None, ai_check_status: dict | None,
         "matcher": matcher(outcome.get("ai_matcher")),
         "engineering_check": engineering_check(ai_check_status),
         "wording": wording(wording_summary),
+        "clause_checks": clause_checks((outcome.get("requirement_split") or {}).get("clause_checks")),
     }
     return steps if any(steps.values()) else None

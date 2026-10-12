@@ -1,7 +1,7 @@
 /**
  * #845 (Stage B, "AI numbers first"): what each AI step of this run did, as
  * the run stored it - the reader, the matcher, the AI engineering check and
- * the AI wording.
+ * the AI wording, and (#645) the AI clause checks.
  *
  * EVERY LINE COMES FROM THE SERVER WITH ITS DENOMINATOR ("2 of 3 pages",
  * "of 4 proposed: 3 used"); this panel prints them verbatim and adds no
@@ -13,7 +13,7 @@
  */
 import type { AiNumbers, AiStepNumbers } from "../../types/api";
 
-const ORDER: (keyof AiNumbers)[] = ["reader", "matcher", "engineering_check", "wording"];
+const ORDER: (keyof AiNumbers)[] = ["reader", "matcher", "engineering_check", "wording", "clause_checks"];
 
 export function AiNumbersPanel({ numbers }: { numbers: AiNumbers | null | undefined }) {
   const steps = ORDER.map((key) => numbers?.[key]).filter((s): s is AiStepNumbers => Boolean(s));
