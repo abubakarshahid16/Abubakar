@@ -507,6 +507,9 @@ def propose_checks(requirements: list[dict], *, review_run_id: str | None = None
         if result.state != ai_task_runner.STATE_OK:
             unread += 1
             continue
+        # the model that answered, whatever it answered (live run: 20 answers,
+        # none passed, and the run recorded no model)
+        model = model or result.model
         check, why = verify_proposal(result.data, sentence)
         if why == NO_LIMIT:
             # the model's answer, not a refusal: it read no limit in the sentence
@@ -517,7 +520,6 @@ def propose_checks(requirements: list[dict], *, review_run_id: str | None = None
             continue
         proposed += 1
         drafts.append((requirement["id"], check, result.model))
-        model = model or result.model
     if drafts:
         ensure_schema()
         conn = connect()

@@ -222,3 +222,12 @@ def test_the_cap_goes_first_to_sentences_that_print_a_figure():
     assert (out["asked"], out["proposed"], out["not_asked_budget"]) == (1, 1, 2)
     rows = [r["requirement_id"] for r in connect().execute("SELECT requirement_id FROM clause_check_drafts")]
     assert rows == ["figure"]
+
+
+def test_the_model_is_recorded_when_it_answered_but_nothing_passed():
+    """Live run 12 Oct: 20 answers, all "no limit", and the run said model: null."""
+    out = air.propose_checks([_statement("r1", "Valve bodies shall be cast steel.")], limit=5,
+                             provider=Fake({"has_limit": False, "field": None, "operator": None,
+                                           "value": None, "unit": None, "condition": None,
+                                           "quote": None}, model="local-2b"))
+    assert (out["no_limit"], out["proposed"], out["model"]) == (1, 0, "local-2b")
