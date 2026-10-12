@@ -477,6 +477,42 @@ def test_an_item_that_names_its_datasheet_page_is_answered_only_on_that_page():
     assert rs.match_item(on(1, "COMPLIANT"), k["items"] + [anypage])["id"] == "V1"
 
 
+def test_a_finding_that_names_no_page_is_still_a_finding_and_is_counted_apart():
+    """#881 (first PF1 run): "no value was found" names no datasheet page. It
+    was scored as if the review had said nothing about the planted defect."""
+    k = {"format": rs.KEY_FORMAT, "name": "one-sheet", "source": "invented", "complete_for_flags": True, "items": [
+        {"id": "D1", "kind": "defect", "standard": "STD-PUMP-001", "clause": "5.3", "submittal_page": 1},
+        {"id": "D2", "kind": "defect", "standard": "STD-PUMP-001", "clause": "6.1", "submittal_page": 1},
+    ]}
+    nopage = f("5.3", "MISSING_INFORMATION", std="STD-PUMP-001", submittal_page=None, id="n1")
+    paged = f("6.1", "NON_COMPLIANT", std="STD-PUMP-001", submittal_page=1, id="p1")
+    r = rs.score(k, doc(nopage, paged))
+    assert (r["defects_found"], r["missed_ids"]) == (2, [])
+    assert (r["defects_found_without_page"], r["found_without_page_ids"]) == (1, ["D1"])
+    assert r["unmatched_findings"] == 0
+    # a defect found on its page AND by a pageless finding is not "without a page"
+    both = rs.score(k, doc(nopage, f("5.3", "NON_COMPLIANT", std="STD-PUMP-001", submittal_page=1, id="p2"), paged))
+    assert both["defects_found_without_page"] == 0
+    # a pageless "compliant" on a planted defect is a false compliant like any other
+    wrong = rs.score(k, doc(f("5.3", "COMPLIANT", std="STD-PUMP-001", submittal_page=None, id="n2")))
+    assert (wrong["false_compliant"], wrong["false_compliant_ids"]) == (1, ["D1"])
+
+
+def test_a_finding_without_a_page_never_chooses_between_two_pages():
+    """Two valves, the same clause: a finding that names no page answers neither."""
+    k = {"format": rs.KEY_FORMAT, "name": "two-valves", "source": "invented", "complete_for_flags": False, "items": [
+        {"id": "V1", "kind": "met", "standard": "STD-PUMP-001", "clause": "5.3", "submittal_page": 1},
+        {"id": "V2", "kind": "defect", "standard": "STD-PUMP-001", "clause": "5.3", "submittal_page": 2},
+    ]}
+    nopage = f("5.3", "NON_COMPLIANT", std="STD-PUMP-001", submittal_page=None, id="n1")
+    assert rs.match_item(nopage, k["items"]) is None
+    r = rs.score(k, doc(nopage))
+    assert (r["defects_found"], r["defects_found_without_page"], r["unmatched_findings"]) == (0, 0, 1)
+    # an item without a page takes it
+    anypage = {"id": "ANY", "kind": "defect", "standard": "STD-PUMP-001", "clause": "5.3"}
+    assert rs.match_item(nopage, k["items"] + [anypage])["id"] == "ANY"
+
+
 @pytest.mark.parametrize("bad", [0, -1, "1", 1.5, True])
 def test_a_submittal_page_must_be_a_page_number(bad):
     k = key()
