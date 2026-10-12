@@ -442,6 +442,53 @@ def release(reservation: Reservation, reason: str) -> None:
                  "releases": reservation.id, "step": reservation.step, "reason": reason})
 
 
+#: #872: the one failure the owner must act on, as a closed word and in plain
+#: words. The API answers an empty credit balance with HTTP 400 and the
+#: generic type `invalid_request_error`; only its message says so.
+NO_CREDIT = "no_credit"
+NO_CREDIT_WORDS = "the Claude account has no credit (the owner tops it up in the Anthropic console)"
+_ERROR_TYPE = re.compile(r"[a-z][a-z_]{0,39}")
+
+
+def failure_word(exc: BaseException) -> str:
+    """A CLOSED description of why a call failed, for the ledger and the run:
+    the exception's type, and for an API rejection its HTTP status and the
+    API's error type - `HTTPStatusError:http_400:invalid_request_error`.
+
+    #872, live run of 12 Oct 2026: every call failed with HTTP 400 and the
+    ledger said only "unbilled:HTTPStatusError"; the cause (no credit left)
+    had to be read from the provider's console.
+
+    NEVER THE MESSAGE. The API's message is free text the provider writes
+    and could echo a request field, so it is only TESTED for the one case
+    with a closed answer (`no_credit`) and is not stored, logged or returned.
+    The error type is copied only when it has the shape of the API's own
+    enum (lower-case letters and underscores, at most 40); anything else is
+    dropped. Nothing here can raise."""
+    name = type(exc).__name__
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+    if not isinstance(status, int) or isinstance(status, bool):
+        return name
+    kind, no_credit = "", False
+    try:
+        err = response.json().get("error", {})
+        if isinstance(err, dict):
+            stated = str(err.get("type") or "")
+            kind = stated if _ERROR_TYPE.fullmatch(stated) else ""
+            no_credit = status == 400 and "credit balance" in str(err.get("message") or "").lower()
+    except Exception:  # noqa: BLE001 - a body that is not the API's JSON says nothing more
+        pass
+    if no_credit:
+        return f"{name}:http_{status}:{NO_CREDIT}"
+    return f"{name}:http_{status}" + (f":{kind}" if kind else "")
+
+
+def failure_words(exc: BaseException) -> str | None:
+    """Plain words for the one failure the owner must act on, else None."""
+    return NO_CREDIT_WORDS if failure_word(exc).endswith(":" + NO_CREDIT) else None
+
+
 def settle_failure(reservation: Reservation, exc: BaseException, *, unbilled=None,
                    usage: dict | None = None, model: str | None = None) -> dict | None:
     """Settle a call that raised `exc`. THE SAME RULE AS `metered`: released
@@ -449,9 +496,9 @@ def settle_failure(reservation: Reservation, exc: BaseException, *, unbilled=Non
     work; otherwise charged - at `usage` when the API reported the call's
     final counts, else at the reserved worst case, marked `"estimated": true`."""
     if isinstance(exc, StopRun) or (unbilled is not None and unbilled(exc)):
-        release(reservation, f"unbilled:{type(exc).__name__}")
+        release(reservation, f"unbilled:{failure_word(exc)}")
         return None
-    finish = f"failed:{type(exc).__name__}"
+    finish = f"failed:{failure_word(exc)}"
     if usage:
         return settle(reservation, usage=usage, finish_reason=finish, model=model)
     return settle(reservation, usage=None, finish_reason=finish, model=model,

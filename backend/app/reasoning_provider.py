@@ -652,6 +652,10 @@ class ClaudeProvider:
             # The type and the transport's own message (status + host + error
             # TYPE only - reader_transport never puts headers in it).
             refused = ProviderRefused(f"{self.name}: {type(exc).__name__}: {exc}")
+            # #872: and, for the one failure the owner must act on, plain words.
+            why = claude_spend.failure_words(exc)
+            if why:
+                refused = ProviderRefused(f"{refused} - {why}")
             refused.cost_usd = charged
             raise refused from exc
         return self._answered(payload, packet, key, step, time.time() - started, cacheable=cacheable,
