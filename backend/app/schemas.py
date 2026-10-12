@@ -2486,6 +2486,25 @@ class ReviewJobState(BaseModel):
     cancel_requested: bool = False
 
 
+class EvidenceSide(BaseModel):
+    """#785: one side of a finding in the side-by-side view."""
+    document_id: str | None = None
+    filename: str | None = None
+    page: int | None = None
+    #: quote / value_position / source_line / value_once / label /
+    #: clause_text / clause_heading, or null when no box can be placed.
+    box: str | None = None
+    #: why the side cannot be shown, when it cannot; null otherwise.
+    reason: str | None = None
+
+
+class FindingEvidence(BaseModel):
+    """#785: `GET /api/reviews/findings/{id}/evidence`."""
+    finding_id: str
+    submittal: EvidenceSide
+    standard: EvidenceSide
+
+
 class AiStepNumbers(BaseModel):
     """#845: one AI step of a run, as the run stored it. Every count in
     `lines` is printed with what it is out of (CLAUDE.md rule 4)."""
@@ -2498,6 +2517,9 @@ class AiStepNumbers(BaseModel):
     #: #842: why the local model stood in for the cloud model, or null.
     local_instead: str | None = None
     lines: list[str] = []
+    #: #791: the numbers the lines print, for the pipeline panel's lights. A
+    #: count the record does not hold is absent, never 0.
+    counts: dict[str, int] = {}
 
 
 class AiNumbers(BaseModel):

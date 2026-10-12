@@ -57,6 +57,7 @@ import type {
   CrsCommentHistory,
   CrsPreview,
   ReviewTrace,
+  FindingEvidence,
   CrsTransmittals,
   CrsReplyImport,
   CrsResponseCode,
@@ -394,6 +395,10 @@ export const reviews = {
    *  box was drawn. Fetched with the bearer header (`useAuthedImage`). */
   evidenceImageUrl: (findingId: string, side: "submittal" | "standard") =>
     `${BASE}/reviews/findings/${encodeURIComponent(findingId)}/evidence-image?side=${side}`,
+  /** #785: where each side of a finding sits (document, page) and what kind
+   *  of box the evidence image draws on it, or why the side cannot be shown. */
+  findingEvidence: (findingId: string) =>
+    request<FindingEvidence>(`/reviews/findings/${encodeURIComponent(findingId)}/evidence`),
   /** Which standards a run compared against, and why each one is there. */
   reviewRunStandards: (runId: string) =>
     request<{ standards: ReviewRunStandard[]; missing_references?: ReviewRunMissingReference[] }>(

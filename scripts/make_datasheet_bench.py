@@ -580,12 +580,49 @@ def ds15_vessel_nozzle_schedule():
            expected=expected, ignore=[*TITLE_IGNORE, "Mark"])
 
 
+def ds16_fan_req_off_landscape():
+    """A WIDE Required / Offered sheet filed the usual way: drawn landscape,
+    stored on a portrait page with a rotation flag, so it DISPLAYS upright.
+    Text coordinates and table coordinates then live in two different spaces
+    (R27): before the readers shared one space, the layout reader found the
+    grid and no word in it, and the text reader took the rows out of order."""
+    name = "ds16_fan_req_off_landscape.pdf"
+    pairs = [("Air flow", ("42000", "m3/h"), ("43500", "m3/h")),
+             ("Static pressure", ("35", "mbar"), ("36", "mbar")),
+             ("Shaft power", ("55", "kW"), ("52", "kW")),
+             ("Fan speed", ("1480", "rpm"), ("1480", "rpm")),
+             ("Inlet temperature", ("45", "°C"), ("45", "°C")),
+             ("Sound pressure level", ("85", "dBA"), ("83", "dBA")),
+             ("Impeller diameter", ("1250", "mm"), ("1250", "mm"))]
+    expected = []
+    body = [["Description", "Required", "Offered", "Remarks"]]
+    for field, req, off in pairs:
+        r = row(field, req[0], req[1], kind="required")
+        o = row(field, off[0], off[1], kind="offered")
+        expected += [r, o]
+        body.append([field, printed(r), printed(o), None])
+    body.append(["Bearing life", "40000 h", "By Vendor", None])
+    expected.append(row("Bearing life", "40000", "h", kind="required"))
+    wide = pymupdf.open(); sheet = wide.new_page(width=A4[1], height=A4[0])
+    title_block(sheet, "DS-0016-K", "SYN-K-0001", "CENTRIFUGAL FAN DATASHEET")
+    ruled_table(sheet, 110, [220, 150, 150, 240], body)
+    doc = pymupdf.open(); page = doc.new_page(width=A4[0], height=A4[1])
+    page.show_pdf_page(page.rect, wide, 0, rotate=90)
+    page.set_rotation(90)
+    wide.close()
+    save_pdf(doc, name)
+    record(name, equipment="centrifugal fan",
+           layout="Required / Offered table drawn landscape on a page stored with a rotation flag",
+           expected=expected,
+           cells_not_keyed="the sheet is embedded turned: the drawn boxes are not the stored page's")
+
+
 BUILDERS = (ds01_pump_ruled, ds02_psv_unruled, ds03_hx_two_column_form,
             ds04_control_valve_req_off, ds05_motor_units_grid, ds06_transmitter_odd_headers,
             ds07_gate_valve_free_text, ds08_tank_merged_cells, ds09_rotated_page,
             ds10_compressor_multipage, ds11_flowmeter_scanned, ds12_pump_xlsx,
             ds13_heater_docx, ds14_blanks_by_vendor,
-            ds15_vessel_nozzle_schedule)
+            ds15_vessel_nozzle_schedule, ds16_fan_req_off_landscape)
 
 
 def main() -> int:

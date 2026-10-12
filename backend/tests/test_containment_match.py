@@ -81,6 +81,20 @@ def test_the_longest_field_name_wins():
 
     assert result["matched_phrase"] == "internal design pressure"
 
+    # #861: THE PAIR ABOVE NO LONGER OBSERVES THE RULE. Since the match rules
+    # and the canonical names came in, "design pressure" loses to "internal
+    # design pressure" before lengths are compared, so taking the SHORTEST
+    # name (mutation M114) changed nothing there and the test stayed green.
+    # These pairs are decided by length alone: the more specific field named
+    # in the subject wins over the shorter name it contains.
+    for subject, general, specific in (
+            ("the hydrostatic test pressure shall be at least", "test pressure", "hydrostatic test pressure"),
+            ("the motor rated power shall be at least", "power", "motor rated power"),
+            ("the seal chamber pressure shall be at least", "pressure", "seal chamber pressure")):
+        for order in ([general, specific], [specific, general]):
+            result = comparison.match_by_containment(requirement(subject), [fact(n) for n in order])
+            assert result["matched_phrase"] == specific, (subject, order)
+
 
 def test_a_genuine_tie_returns_no_match_and_names_the_candidates():
     """NEVER PICK ARBITRARILY.

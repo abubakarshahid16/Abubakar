@@ -15,6 +15,7 @@ from . import chunker as chunk_mod
 from . import absence as absence_mod
 from . import ai_engineering_check as ai_engineering_check_mod
 from . import ai_numbers as ai_numbers_mod
+from . import evidence_boxes as evidence_boxes_mod
 from . import applicability as applicability_mod
 from . import comparison as comparison_mod
 from . import crs_export as crs_export_mod
@@ -2606,6 +2607,87 @@ _EVIDENCE_SIDES = {
 }
 
 
+def _evidence_side(current: dict, side: str, scope: access.AccessScope) -> dict:
+    """#785: where one side of a finding sits and the box to draw on it -
+    {document, page, rects, box, reason}. `document` None with `reason`
+    when the side cannot be shown (no page cited, a document the caller may
+    not read, a Word document, a checklist clause not found in the library).
+    A checklist row's standard side is resolved from its clause id
+    (`evidence_boxes.checklist_standard`); nothing is written."""
+    doc_field, page_field, text_field = _EVIDENCE_SIDES[side]
+    document_id, page_no = current.get(doc_field), current.get(page_field)
+    text, how = current.get(text_field) or "", evidence_boxes_mod.QUOTE
+    if side == "standard" and not (document_id and page_no):
+        resolved = evidence_boxes_mod.checklist_standard(current, scope.allowed_document_ids)
+        if resolved is not None:
+            document_id, page_no = resolved["document_id"], resolved["page"]
+            text, how = resolved["text"], resolved["how"]
+        elif current.get("origin") == evidence_boxes_mod.CHECKLIST_ORIGIN and current.get("standard_clause"):
+            return {"document": None, "page": None, "rects": [], "box": None,
+                    "reason": f"{current['standard_clause']}: the standard is not in the library "
+                              "you may read, or the clause was not found in it"}
+    if (side == "submittal" and document_id and not page_no
+            and current.get("origin") == evidence_boxes_mod.CHECKLIST_ORIGIN
+            and not (current.get("contractor_evidence_text") or "").strip()
+            and scope.may_read(document_id)):
+        # #785 point 3: no value found, so no page cited - show where to look.
+        doc = dict(require_document(document_id, scope))
+        if doc.get("pagination") == "flow" or not doc.get("stored_path"):
+            return {"document": None, "page": None, "rects": [], "box": None,
+                    "reason": f"no value was found for {current.get('contractor_section') or 'this field'}"}
+        look = evidence_boxes_mod.where_to_look(current.get("contractor_section"), doc["stored_path"])
+        if look["page"] is None:
+            return {"document": None, "page": None, "rects": [], "box": None, "reason": look["reason"]}
+        return {"document": doc, "page": look["page"], "rects": look["rects"],
+                "box": evidence_boxes_mod.WHERE_TO_LOOK, "reason": None}
+    if not document_id or not page_no:
+        return {"document": None, "page": None, "rects": [], "box": None,
+                "reason": f"this finding cites no {side} page"}
+    if not scope.may_read(document_id):
+        return {"document": None, "page": None, "rects": [], "box": None,
+                "reason": f"this finding cites no {side} page"}
+    doc = dict(require_document(document_id, scope))
+    if doc.get("pagination") == "flow":
+        return {"document": None, "page": None, "rects": [], "box": None,
+                "reason": "a Word document has no printed pages"}
+    if side == "submittal":
+        rects, box = evidence_boxes_mod.submittal_box(current, doc["stored_path"], int(page_no))
+    else:
+        rects, box = evidence_boxes_mod.standard_box(text, doc["stored_path"], int(page_no), how)
+    return {"document": doc, "page": int(page_no), "rects": rects, "box": box, "reason": None}
+
+
+def _finding_for_evidence(finding_id: str, scope: access.AccessScope) -> dict:
+    current = review_mod.get(finding_id)
+    if current is None or not scope.may_read(current["document_id"]):
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no review finding with that id"))
+    return current
+
+
+@app.get("/api/reviews/findings/{finding_id}/evidence",
+         response_model=schemas.FindingEvidence,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def review_finding_evidence(
+    finding_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """#785: for each side of a finding, the document and page the side-by-
+    side view shows and what kind of box is drawn on it (or why the side
+    cannot be shown). Same resolution as the evidence image. Read only."""
+    reject_unknown_params(request, set())
+    current = _finding_for_evidence(finding_id, scope)
+    out = {"finding_id": finding_id}
+    for side in ("submittal", "standard"):
+        found = _evidence_side(current, side, scope)
+        doc = found["document"]
+        out[side] = {"document_id": doc["id"] if doc else None,
+                     "filename": doc.get("filename") if doc else None,
+                     "page": found["page"], "box": found["box"], "reason": found["reason"]}
+    return out
+
+
 @app.get("/api/reviews/findings/{finding_id}/evidence-image",
          response_class=FileResponse,
          responses={200: {"content": {"image/png": {}}, "description": "Cited page"},
@@ -2621,39 +2703,35 @@ def review_finding_evidence_image(
     text boxed on it (R21 side-by-side view, #508).
 
     THE TEXT NEVER TRAVELS IN THE URL: the finding is looked up by id and its
-    stored quote (the value read, or the requirement sentence) is located on
-    its stored page by the same `highlight.locate` the answer path uses - only
-    shorter pieces of the same text, never a looser match. When it cannot be
-    found (too short to place safely, or not on the page) the page comes back
-    WITHOUT a box and `X-Answer-Located: 0` says so; one box in the wrong place
-    and no box is trusted again.
+    stored text is located on its page by `highlight.locate` - only shorter
+    pieces of the same text, never a looser match. #785: when the quote cannot
+    be placed, the submittal side falls back to the value's stored position,
+    the fact's source line, the value when it occurs once on the page, then
+    the field's label; a checklist row's standard side is the clause's page in
+    the held standard. When nothing can be placed the page comes back WITHOUT
+    a box and `X-Answer-Located: 0` says so; `X-Evidence-Box` names the kind
+    of box drawn. One box in the wrong place and no box is trusted again.
 
     Access: the finding follows its submittal's grant, and the standard side
     also needs the standard's own grant - 404 either way, like every route.
     """
     reject_unknown_params(request, {"side", "dpi"})
-    current = review_mod.get(finding_id)
-    if current is None or not scope.may_read(current["document_id"]):
+    current = _finding_for_evidence(finding_id, scope)
+    found = _evidence_side(current, side, scope)
+    if found["document"] is None:
         raise HTTPException(status_code=404, detail=errors.safe_error(
-            errors.NOT_FOUND, "no review finding with that id"))
-    doc_field, page_field, text_field = _EVIDENCE_SIDES[side]
-    document_id, page_no = current.get(doc_field), current.get(page_field)
-    if not document_id or not page_no:
-        raise HTTPException(status_code=404, detail=errors.safe_error(
-            errors.NOT_FOUND, f"this finding cites no {side} page"))
-    doc = dict(require_document(document_id, scope))
-    if doc.get("pagination") == "flow":
-        raise HTTPException(status_code=404, detail=errors.safe_error(
-            errors.NOT_FOUND, "a Word document has no printed pages"))
-    rects, _ = highlight_mod.locate(doc["stored_path"], int(page_no), current.get(text_field) or "")
+            errors.NOT_FOUND, found["reason"]))
+    doc, page_no, rects = found["document"], found["page"], found["rects"]
     try:
-        path = pageimage_mod.render_page_with_highlight(doc, int(page_no), rects, dpi=dpi)
+        path = pageimage_mod.render_page_with_highlight(doc, page_no, rects, dpi=dpi)
     except pageimage_mod.PageOutOfRange as e:
         raise HTTPException(status_code=404, detail=errors.safe_error(
-            errors.NOT_FOUND, str(e), document_id=document_id)) from None
+            errors.NOT_FOUND, str(e), document_id=doc["id"])) from None
     return FileResponse(path, media_type="image/png", headers={
         "Cache-Control": "private, max-age=3600",
         "X-Answer-Located": "1" if rects else "0",
+        "X-Evidence-Box": found["box"] or "none",
+        "X-Evidence-Page": str(page_no),
     })
 
 

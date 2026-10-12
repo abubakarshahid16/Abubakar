@@ -13,6 +13,8 @@ const list = vi.fn();
 vi.mock("../api/client", () => ({
   api: { documents: () => Promise.resolve({ ok: true, data: [] }) },
   reviews: {
+    // #791: the five-step panel's trace; not what these tests are about.
+    reviewTrace: async () => ({ ok: false, error: { message: "not in this test" } }),
     // Section 3's readiness strip; not what these tests are about.
     readiness: async () => ({ ok: false, error: { message: "not in this test" } }),
     reviewRuns: (...a: unknown[]) => reviewRuns(...a),
