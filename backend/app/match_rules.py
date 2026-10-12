@@ -394,6 +394,61 @@ def qualifier_conflict(requirement: dict, field_name: str) -> bool:
 
 
 # ------------------------------------------------------------------ together
+# ------------------------------------------- a model pairing's own doubts
+#: Why a MODEL-proposed pairing that no rule refuses is still not sure enough
+#: to carry a verdict. Each was a FALSE RESULT on the real-model F1 of
+#: 2026-10-11 (three model pairings decided, three wrong):
+FIELD_WORD_ABSENT = "field_word_absent"      # a mounting distance vs "Elevation"
+RELATIVE_LIMIT = "relative_limit"            # "10 C above the pour point" vs a temperature
+SEVERAL_VALUES = "several_values"            # a flattened table band vs a temperature
+
+#: Words that, right after a limit, make it relative to ANOTHER quantity or
+#: place ("at least 10 C ABOVE THE pour point", "7.5 m BEYOND THE edge").
+_RELATIVE_AFTER = (r"(?:above|below|beyond|over|under|higher\s+than|lower\s+than|more\s+than|"
+                   r"less\s+than|greater\s+than|from|outside|inside|within)\s+(?:the|its|that|any|each)\b")
+_BRACKETS = re.compile(r"\([^()]*\)|\[[^\[\]]*\]")
+_LEADING_CLAUSE_NO = re.compile(r"^\s*\d+(?:\.\d+)+\s+")
+
+
+def _clause_text(requirement: dict) -> str:
+    return str(requirement.get("requirement_text") or requirement.get("source_text") or "")
+
+
+def model_pairing_doubt(requirement: dict, fact: dict) -> str | None:
+    """The first doubt about a model-proposed pairing, by name, or None.
+
+    A doubt does not refuse the pairing - it HOLDS its verdict for an
+    engineer (planner decision 2026-10-11: a low-confidence proposal waits).
+    It errs towards holding: a held true pairing costs a look, a decided
+    false one is a false result.
+
+      * a word of the field's own name is not in the clause (the model
+        paired on an idea: "corrosion allowance" with every thickness, the
+        "operating" pressure with the "allowable working" one). EVERY word
+        of four letters or more must be there - one shared word ("pressure",
+        "corrosion") was not enough on F1;
+      * the limit is relative to another quantity or place;
+      * the clause states several values (a table read as one sentence), so
+        which one is the limit is a guess.
+    """
+    text = _clause_text(requirement)
+    folded = _normalise(text)
+    name_words = [w for w in _words(fact.get("field_name")) if len(w) >= 4]
+    if name_words and not all(re.search(rf"(?<!\w){re.escape(w[:5])}", folded) for w in name_words):
+        return FIELD_WORD_ABSENT
+    value = str(requirement.get("raw_value") or "").strip()
+    if value:
+        after = re.search(rf"(?<![\w.]){re.escape(value)}(?![\w.]*\d)(.{{0,40}})", text)
+        if after and re.search(_RELATIVE_AFTER, _BRACKETS.sub(" ", after.group(1)), re.IGNORECASE):
+            return RELATIVE_LIMIT
+    bare = _LEADING_CLAUSE_NO.sub("", _BRACKETS.sub(" ", text))
+    # numbers read by the ONE number reader (`numparse`), never a pattern here
+    from . import numparse
+    if len(numparse.number_keys(bare)) > 1:
+        return SEVERAL_VALUES
+    return None
+
+
 def refusal(requirement: dict, fact: dict, *, sheet: str | None) -> str | None:
     """The first rule that refuses this pairing, by name, or None to allow it."""
     if unit_dimension_conflict(requirement, fact):

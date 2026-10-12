@@ -208,6 +208,40 @@ def _states_a_value_beside_a_label(row: list[str], gutter: set[int]) -> bool:
     return any(_STARTS_WITH_A_NUMBER.match(v) or blank_markers.names_a_marker(v) for v in filled[1:])
 
 
+def _answers_in_every_cell(row: list[str], gutter: set[int]) -> bool:
+    """The STRICT form, for a row above a schedule's first data row: a label,
+    and EVERY filled cell after it states a value. A real header row can
+    carry one number among its column names (a revision, a quantity, a note
+    mark) - found on a real nozzle schedule (F1, 2026-10-11), where "any cell
+    states a value" took the header for an answer and the schedule lost its
+    column names. One number in a row of names is still a row of names."""
+    cells = [v for j, v in enumerate(row) if j not in gutter]
+    filled = [v for v in cells if v]
+    if len(filled) < 2 or _STARTS_WITH_A_NUMBER.match(filled[0]):
+        return False
+    return all(_STARTS_WITH_A_NUMBER.match(v) or blank_markers.names_a_marker(v) for v in filled[1:])
+
+
+def _header_sits_on(row: int, rects: list[list[Any]], texts: list[list[str]], gutter: set[int],
+                    x_left: float, x_right: float) -> bool:
+    """May the body start at answer row `row`? Only when its column names are
+    where a reader expects them: the row DIRECTLY above it is a header row
+    (several filled cells, not a title), or nothing at all is above it.
+
+    Otherwise the answer row is cut off from its header - by a section
+    heading, a title-block row drawn inside the grid - and starting the body
+    there loses the header: a real form page with a clause-reference column
+    was read as a plain label/value table and stored a unit as a value and
+    title-block fragments as fields (F1, 2026-10-11). Then the table is left
+    exactly as it was read before."""
+    above = [r for r in range(row) if not _is_empty(texts[r], gutter)]
+    if not above:
+        return True
+    nearest = above[-1]
+    filled = [v for j, v in enumerate(texts[nearest]) if j not in gutter and v]
+    return len(filled) >= 2 and not _is_title_row(rects[nearest], texts[nearest], gutter, x_left, x_right)
+
+
 def _is_title_row(row_rects: list[Any], row_texts: list[str], gutter: set[int],
                   x_left: float, x_right: float) -> bool:
     """TITLE: one non-empty cell spans >= TITLE_SPAN_SHARE of the table width."""
@@ -349,7 +383,21 @@ def _structure(table: Any, *, page_no: int, table_id: str, strategy: str,
                       None)
     title_rows: list[int] = []
     headerless = False
+    answer_first = False
     if first_data is not None:
+        # THE HEADER STOPS AT THE FIRST ROW THAT ALREADY ANSWERS (R27, #504).
+        # "Data-like" above means a tag or two PLAIN numbers; a row of values
+        # WITH UNITS ("Maximum flow | 150 m3/h | 150 m3/h") is neither, so it
+        # was walked over as a second header row and its values were glued to
+        # every column name ("Valve Cv Required 150 m3/h"): 14 extra fields on
+        # the invented Required/Offered sheet. An answer row above the first
+        # data-like row is where the body starts.
+        earlier = next((i for i in range(first_data)
+                        if not _is_empty(texts[i], gutter)
+                        and not _is_title_row(rects[i], texts[i], gutter, x_left, x_right)
+                        and _answers_in_every_cell(texts[i], gutter)), None)
+        if earlier is not None and _header_sits_on(earlier, rects, texts, gutter, x_left, x_right):
+            first_data, answer_first = earlier, True
         # HEADER = the non-title rows directly above the first data-like row
         # (empty rows on the way are skipped, never kept). Walking up stops at
         # the first title row; it and everything above it is preamble and is
@@ -367,6 +415,10 @@ def _structure(table: Any, *, page_no: int, table_id: str, strategy: str,
             rule = (f"none: {len(header)} rows above the first data-like row "
                     f"exceed MAX_HEADER_ROWS={MAX_HEADER_ROWS}")
             header, title_rows, body_start = [], [], nrows
+        elif answer_first and not header:
+            # No row above the first answer: a label/value table (as below).
+            rule = "none: the first row states a value (a label/value table)"
+            headerless = True
     else:
         # No data-like row: the first non-empty non-title row is the header.
         rule = "fallback: first non-title row"
@@ -981,13 +1033,27 @@ def _merged_from_above(table_rows: list[dict], index: int, column: int) -> str:
     return ""
 
 
+#: A CONTENTS ROW IS LAYOUT, NOT A DATASHEET VALUE. A sheet's index table
+#: ("General data sheet | 4 to 5") has the shape of a label/value table, so
+#: its rows were stored as fields - read faithfully, and not a value of the
+#: equipment (F1 on a real sheet, 2026-10-11; planner's rule on #692). The
+#: label ends on the word for a sheet or a page, and the answer is nothing but
+#: a whole number or a range of two.
+_ENDS_ON_A_SHEET_WORD = re.compile(r"(?:sht|shts|sheet|sheets|page|pages)[\s.:]*$", re.IGNORECASE)
+_ONLY_PAGE_NUMBERS = re.compile(r"^\s*\d{1,4}(?:\s*(?:to|-|\u2013|,|&|and)\s*\d{1,4})?\s*$", re.IGNORECASE)
+
+
+def _is_a_contents_row(label: str, answer: str) -> bool:
+    return bool(_ENDS_ON_A_SHEET_WORD.search(label) and _ONLY_PAGE_NUMBERS.match(answer))
+
+
 def _label_value_rows(table: dict[str, Any], alphabet_violations) -> list[dict[str, Any]]:
     """The rows of a HEADERLESS label/value table (R27): per row, the label is
     every word cell to the left of the answer (a group cell merged from above
     included), and the answer is the first cell that states a value - or,
     when none does, the last filled cell ("Roof type | Fixed cone roof").
     A row with no reliable label (garbled, cut, empty) emits nothing, as for
-    every other table."""
+    every other table - and neither does a contents row (`_is_a_contents_row`)."""
     out: list[dict[str, Any]] = []
     for index, data in enumerate(table["rows"]):
         cells = sorted(data["cells"], key=lambda c: c["column"])
@@ -1007,6 +1073,8 @@ def _label_value_rows(table: dict[str, Any], alphabet_violations) -> list[dict[s
                             or alphabet_violations(t)[0] > 0 for i, t in parts):
             continue
         c = cells[answer]
+        if _is_a_contents_row(" ".join(t for _i, t in parts), c["text"]):
+            continue
         out.append({
             "source": "table", "page": c["page"],
             "label": " ".join(t for _i, t in parts),
@@ -1096,6 +1164,8 @@ def read_page_rows(page: Any, *, form: dict[str, Any] | None = None,
             for c in cells:
                 if c is key_cell or not c["text"]:
                     continue
+                if _is_a_contents_row(c["label"] or "", c["text"]):
+                    continue        # a column of sheet numbers: layout, not a value
                 rows.append({
                     "source": "table", "page": c["page"],
                     "label": f"{key_cell['text']} {c['label']}".strip(),

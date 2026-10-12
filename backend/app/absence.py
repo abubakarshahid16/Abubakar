@@ -161,6 +161,29 @@ def unchecked_share(not_compared: int, checked: int) -> float | None:
     return (not_compared or 0) / applies
 
 
+def reader_summary_line(reader: dict | None) -> str | None:
+    """One plain line on what read the datasheet (owner order 2026-10-11):
+    the AI engine and model with the pages it read, or the code readers only,
+    and the pages the AI left to the code readers, grouped by reason."""
+    if not reader:
+        return None
+    pages = reader.get("pages") or 0
+    if reader.get("engine") == "off":
+        return f"Datasheet read by the code readers only (AI reader off; {pages} page(s))."
+    name = reader.get("engine") + (f" ({reader['model']})" if reader.get("model") else "")
+    if reader.get("unavailable"):
+        return (f"AI reader {name} was not available ({reader['unavailable']}); the datasheet "
+                f"was read by the code readers only ({pages} page(s)).")
+    line = f"AI reader {name} read {reader.get('pages_read', 0)} of {pages} page(s)"
+    by_reason: dict[str, list[str]] = {}
+    for page, why in (reader.get("code_only") or {}).items():
+        by_reason.setdefault(why, []).append(str(page))
+    if by_reason:
+        line += "; code readers only on " + "; ".join(
+            f"page(s) {', '.join(ps)}: {why}" for why, ps in by_reason.items())
+    return line + "."
+
+
 def split_lines(split: dict | None) -> list[str]:
     """The reasons behind the two groups that have one, as plain lines, most
     common first (the CRS prints the top three of each)."""
@@ -174,6 +197,9 @@ def split_lines(split: dict | None) -> list[str]:
         lines.append(f"Reviewed against the {note['type']} checklist ({note['items']} items); "
                      f"{split['not_used']} library requirement(s) of the standard(s) it cites "
                      "were not used one by one.")
+    reader_line = reader_summary_line(split.get("reader"))
+    if reader_line:
+        lines.append(reader_line)
     cov = split.get("checklist_coverage")
     if cov:
         pages = ", ".join(str(p) for p in cov.get("gap_pages") or [])

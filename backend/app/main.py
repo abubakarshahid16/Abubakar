@@ -92,16 +92,15 @@ def _log_match_tier() -> None:
     if settings.match_enabled:
         log.warning(
             "MATCH_ENABLED=true - the model tier of the requirement matcher is "
-            "ON. It FAILED its hard gate on 2026-09-19 (six of seven pairings "
-            "were false friends, three of them reported NON_COMPLIANT against "
-            "the contractor). Every pairing it makes is labelled "
-            "match_method=model and must be confirmed by an engineer.")
+            "ON. It only PROPOSES: a pairing is used only when it passes the "
+            "match refusal rules (it failed its hard gate without them on "
+            "2026-09-19: six of seven pairings were false friends). Every "
+            "pairing it makes is labelled match_method=model.")
     else:
         log.info(
             "MATCH_ENABLED=false - requirement matching is deterministic "
-            "containment only; the model tier is OFF pending redesign (see "
-            "docs/design/model-assisted-matching.md section 10). Findings say "
-            "so in their rationale.")
+            "containment only; the model tier is OFF (it is on by default since "
+            "2026-10-11, proposals only). Findings say so in their rationale.")
 
 
 def _log_hooks_path() -> None:
@@ -2558,6 +2557,64 @@ def review_finding_history(
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "no review finding with that id"))
     return {"events": review_mod.history(finding_id)}
+
+
+#: R21 / #508: which stored page and text each side of a finding cites.
+_EVIDENCE_SIDES = {
+    "submittal": ("document_id", "contractor_page", "contractor_evidence_text"),
+    "standard": ("standard_document_id", "standard_page", "requirement_source_text"),
+}
+
+
+@app.get("/api/reviews/findings/{finding_id}/evidence-image",
+         response_class=FileResponse,
+         responses={200: {"content": {"image/png": {}}, "description": "Cited page"},
+                    **schemas.ERRORS_404, **schemas.ERRORS_422})
+def review_finding_evidence_image(
+    finding_id: str,
+    request: Request,
+    side: str = Query(..., pattern="^(submittal|standard)$"),
+    dpi: int = Query(150, ge=50, le=300),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """The page one side of a finding cites, with the finding's own stored
+    text boxed on it (R21 side-by-side view, #508).
+
+    THE TEXT NEVER TRAVELS IN THE URL: the finding is looked up by id and its
+    stored quote (the value read, or the requirement sentence) is located on
+    its stored page by the same `highlight.locate` the answer path uses - only
+    shorter pieces of the same text, never a looser match. When it cannot be
+    found (too short to place safely, or not on the page) the page comes back
+    WITHOUT a box and `X-Answer-Located: 0` says so; one box in the wrong place
+    and no box is trusted again.
+
+    Access: the finding follows its submittal's grant, and the standard side
+    also needs the standard's own grant - 404 either way, like every route.
+    """
+    reject_unknown_params(request, {"side", "dpi"})
+    current = review_mod.get(finding_id)
+    if current is None or not scope.may_read(current["document_id"]):
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no review finding with that id"))
+    doc_field, page_field, text_field = _EVIDENCE_SIDES[side]
+    document_id, page_no = current.get(doc_field), current.get(page_field)
+    if not document_id or not page_no:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, f"this finding cites no {side} page"))
+    doc = dict(require_document(document_id, scope))
+    if doc.get("pagination") == "flow":
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "a Word document has no printed pages"))
+    rects, _ = highlight_mod.locate(doc["stored_path"], int(page_no), current.get(text_field) or "")
+    try:
+        path = pageimage_mod.render_page_with_highlight(doc, int(page_no), rects, dpi=dpi)
+    except pageimage_mod.PageOutOfRange as e:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, str(e), document_id=document_id)) from None
+    return FileResponse(path, media_type="image/png", headers={
+        "Cache-Control": "private, max-age=3600",
+        "X-Answer-Located": "1" if rects else "0",
+    })
 
 
 # ------------------------------------------------------------- deliverables / WBS

@@ -64,7 +64,7 @@ from pydantic import BaseModel, ConfigDict
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from . import access, errors
-from . import claude_budget, claude_spend
+from . import claude_approved, claude_budget, claude_spend
 from . import claude_datasheet, claude_recheck, claude_selection
 from . import classification as classification_mod
 from . import datasheets, reader_api
@@ -138,6 +138,39 @@ def _model_call_or_409(step: str):
             transport, step, unbilled=reader_transport_mod.unbilled)))
     budget.step = step
     return budget, transport
+
+
+class LocalTimeUp(claude_spend.StopRun):
+    """#838: the local model's time for one re-check run is spent. The
+    findings checked before it stand; the rest are counted as left."""
+
+    count_key = "local_time_budget"
+
+
+def _local_recheck_call():
+    """A `model_call` on the LOCAL model for the re-check (#838), under the
+    same per-run call cap. The local model is slow, and this route answers a
+    waiting request: it stops asking after `claude_recheck_local_max_seconds`
+    in total (`LocalTimeUp`), so a long run ends with what it finished and
+    how many findings it left. Opens no socket itself: `OllamaProvider` goes
+    through `model_transport`, which reaches the local engine only."""
+    import time
+
+    from . import reasoning_provider as rp
+    from .config import settings
+    provider = rp.OllamaProvider(timeout=float(settings.claude_recheck_local_timeout_s))
+    deadline = time.monotonic() + float(settings.claude_recheck_local_max_seconds)
+
+    def model_call(prompt: str) -> str:
+        if time.monotonic() >= deadline:
+            raise LocalTimeUp("the local model's time for this re-check run is spent")
+        return provider.reason(rp.Packet(
+            prompt=prompt, num_ctx=settings.num_ctx, num_predict=600, step=STEP_RECHECK,
+            timeout_s=float(settings.claude_recheck_local_timeout_s))).text
+
+    budget = claude_budget.Budget(model_call)
+    budget.step = STEP_RECHECK
+    return budget
 
 
 def _usage(transport) -> dict:
@@ -339,6 +372,12 @@ def claude_recheck_findings(
     _require_identity_to_write(scope)
     _run_or_404(review_run_id, scope)
     model_call, transport = _model_call_or_409(STEP_RECHECK)
+    # #838: this review's documents are not approved for the cloud model ->
+    # the local model re-checks, nothing leaves, and the answer says so.
+    with claude_approved.carrying(claude_approved.review_documents(review_run_id)):
+        local_instead = claude_approved.local_instead()
+    if local_instead:
+        model_call, transport = _local_recheck_call(), None
     result, exhausted = _capped(model_call, lambda call: claude_recheck.recheck_run(
         review_run_id, call, allowed_document_ids=scope.allowed_document_ids), transport)
     stored = 0
@@ -356,6 +395,8 @@ def claude_recheck_findings(
         "stored": stored,
         "total": result.get("total", 0),
         "findings": result.get("findings"),
+        "local_instead": local_instead,
+        "left_unchecked": (result.get("stopped") or {}).get("left", 0),
     }, exhausted, model_call)
 
 
