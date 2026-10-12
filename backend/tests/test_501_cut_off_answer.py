@@ -115,3 +115,54 @@ def test_the_run_names_the_pages_that_were_cut_off():
     whole = datasheets.reader_summary({**ai_run, "pages": {1: {"accepted": [], "counts": {}}}, "reasons": {}},
                                       {}, pages=[1])
     assert whole["cut_off"] == [] and "cut off" not in absence.reader_summary_line(whole)
+
+
+# ------------------------------------------- #501: values typed on a fill line
+
+FORM = """PUMP DATASHEET                                   Page 2 of 7
+TEMP CLASS _____T3___
+SERVICE: _________CONTINUOUS
+RELATIVE HUMIDITY : MIN/MAX ___6 / __100_ %
+MAX. SOUND LEVEL ______<85_________ (dBA)
+PIPE GRADE ___A_106___
+RATED SPEED ________________ rpm
+"""
+
+
+@pytest.mark.parametrize("text, reads", [
+    ("TEMP CLASS _____T3___", "TEMP CLASS T3"),
+    ("SERVICE: _________CONTINUOUS", "SERVICE: CONTINUOUS"),
+    ("MIN/MAX ___6 / __100_ %", "MIN/MAX 6 / 100 %"),
+    ("PIPE GRADE ___A_106___", "PIPE GRADE A_106"),          # an underscore inside a name stays
+    ("no fill here", "no fill here"),
+    ("________________", ""),
+])
+def test_a_forms_fill_lines_are_not_part_of_what_is_printed(text, reads):
+    assert cd.without_fill(text) == reads
+
+
+def test_a_value_typed_on_a_fill_line_is_found_in_its_quote():
+    """Measured with the cloud reader on a real pump sheet (12 Oct 2026): 62
+    readings were refused as "value not in the quote" although each stood in
+    its quote, glued to the underscores of the line it was typed on."""
+    facts = [_fact("Temp class", "T3", "TEMP CLASS _____T3___"),
+             _fact("Service", "CONTINUOUS", "SERVICE: _________CONTINUOUS"),
+             _fact("Pipe grade", "A_106", "PIPE GRADE ___A_106___"),
+             _fact("Max. sound level", "<85", "MAX. SOUND LEVEL ______<85_________ (dBA)", unit="dBA")]
+    out = cd.read_page(FORM, 2, [], lambda p: _answer(*facts))
+    assert sorted(p["field"] for p in out["accepted"]) == ["Max. sound level", "Pipe grade", "Service", "Temp class"]
+    assert out["counts"] == {}
+
+
+def test_the_fill_line_does_not_make_a_value_that_is_not_there():
+    """Taking the underscores out invents nothing: a value the line does not
+    print, and a field the line does not name, are refused as before - and
+    the quote must still be on the page as it was given."""
+    wrong_value = _fact("Temp class", "T4", "TEMP CLASS _____T3___")
+    wrong_field = _fact("Rated speed", "T3", "TEMP CLASS _____T3___")
+    empty_line = _fact("Rated speed", "1480", "RATED SPEED ________________ rpm", unit="rpm")
+    not_on_page = _fact("Temp class", "T3", "TEMP CLASS T3")            # the page prints it with its fill line
+    out = cd.read_page(FORM, 2, [], lambda p: _answer(wrong_value, wrong_field, empty_line, not_on_page))
+    assert out["accepted"] == []
+    assert out["counts"] == {cd.Reason.VALUE_NOT_IN_QUOTE.value: 2, cd.Reason.FIELD_NOT_IN_QUOTE.value: 1,
+                             cd.Reason.QUOTE_NOT_ON_PAGE.value: 1}

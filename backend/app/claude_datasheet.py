@@ -185,6 +185,25 @@ def _contains(haystack: str, needle: str) -> bool:
     return re.search(r"(?<!\w)" + re.escape(needle) + r"(?!\w)", haystack) is not None
 
 
+#: A fill line: underscores that are not BETWEEN two letters or digits.
+_FILL = re.compile(r"(?<![A-Za-z0-9])_+|_+(?![A-Za-z0-9])")
+
+
+def without_fill(text: str) -> str:
+    """The text with a form's fill lines taken out: "TEMP CLASS _____T3___"
+    reads "TEMP CLASS T3".
+
+    #501, measured with the cloud reader on a real pump sheet (12 Oct 2026):
+    62 readings were refused as "value not in the quote" although each value
+    stood in its quote - glued to the underscores of the line it was typed
+    on. The whole-word check counts an underscore as part of a word, so "T3"
+    was not found inside "_____T3___". The underscores are the form's ruling,
+    not the answer. Only runs at a word's edge are removed: an underscore
+    BETWEEN two letters or digits ("A_106") is part of a name and stays. The
+    quote itself is still checked against the page exactly as it was given."""
+    return re.sub(r"\s+", " ", _FILL.sub(" ", str(text or ""))).strip()
+
+
 def _value_in_quote(value, quote: str) -> bool:
     """Rule 2, tolerant of printing and of nothing else. "8,300" and "8300"
     are the same number; "23.55" and "99.9" are not; 5 is not "-5" and not
@@ -584,10 +603,11 @@ def accept(proposals: list[dict], page_text: str, known_fields: list[str] | None
         if _quote_too_broad(p["quote"], folded_page):
             drop(p, Reason.QUOTE_TOO_BROAD)
             continue
-        if not _value_in_quote(p["value"], quote):
+        printed = without_fill(quote)
+        if not _value_in_quote(p["value"], printed):
             drop(p, Reason.VALUE_NOT_IN_QUOTE)
             continue
-        if not _field_in_quote(p["field"], quote):
+        if not _field_in_quote(p["field"], printed):
             drop(p, Reason.FIELD_NOT_IN_QUOTE)
             continue
         if p.get("unit") and not _unit_recognised(p["unit"]):
