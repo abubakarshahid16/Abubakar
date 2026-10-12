@@ -27,6 +27,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `admin_explorer` | Read-only database explorer for the Administration page. Phase 8 |
 | `ai_applicability` | Choose the standards that apply to a submittal |
 | `ai_engineering_check` | AI engineering check (kind C): observations a reviewer would raise, as DRAFTS |
+| `ai_numbers` | #845: a finished run's AI numbers (reader, matcher, AI check, wording) with their denominators, from stored data |
 | `ai_task_runner` | The AI task runner (#644): small strict model tasks, run from a queue |
 | `analysis` | The three engines joined to retrieval, the model and the access scope |
 | `answer` | Answer a chat question from the documents |
