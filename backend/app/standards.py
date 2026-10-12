@@ -1056,9 +1056,9 @@ def extract_requirements(
                     # #640 the same requirement, met again: the row stays (same
                     # id, so findings keep resolving) with this run's provenance
                     # - and, #904, with THIS run's reading of it.
+                    met_on = sentence_page(chunk, sentence, pages_of_chunk)
                     fields = _reproduced(reproducible[key], chunk, run_id,
-                                         extractor_version, inputs,
-                                         page=sentence_page(chunk, sentence, pages_of_chunk),
+                                         extractor_version, inputs, page=met_on,
                                          reading={**structured, "category": category,
                                                   "confidence": confidence})
                     if fields:
