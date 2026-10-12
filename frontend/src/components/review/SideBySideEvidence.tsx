@@ -124,6 +124,7 @@ function Pane({ side, findingId, resolved, document, name, page, label, text, em
           side={side === "Submittal" ? "submittal" : "standard"}
           page={resolved.page}
           box={resolved.box}
+          reason={resolved.reason}
         />
       ) : resolved ? (
         <p className="rounded-[var(--radius-sm)] border border-dashed border-ink-600 p-3 text-xs text-slateish-500">

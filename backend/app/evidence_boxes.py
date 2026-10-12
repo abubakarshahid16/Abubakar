@@ -25,6 +25,14 @@ the datasheet checklist rows (planner, live PSV run 12 Oct 05:12 UTC):
    words; not printed, words naming the field and the pages to check (a page
    with no text layer is named: the label could be there, read by eye).
 
+4. A SCANNED PAGE (#508). A page with no text layer has nothing for the
+   searches above to find. Its lines are recognised by the project's own OCR
+   (`ocr.page_lines`: the same engine, models and DPI, in a child process)
+   and the recognised line holding the cited text is boxed - only when that
+   text is in EXACTLY ONE line. Otherwise the page is shown unboxed with the
+   reason in words: not found among the recognised lines, or recognition
+   could not run here.
+
 EVERY BOX IS EITHER RIGHT OR ABSENT, and `box` names which kind it is so the
 screen never calls a label box "the value". Nothing here writes; a run made
 before this change is resolved the same way when it is opened.
@@ -45,6 +53,7 @@ LABEL = "label"                 # the field's label (the value sits beside it)
 CLAUSE_TEXT = "clause_text"     # the clause's stored requirement sentence
 CLAUSE_HEADING = "clause_heading"   # the clause number at the start of its line
 WHERE_TO_LOOK = "where_to_look"  # no value found: the field's label, the one place it is printed
+OCR_LINE = "ocr_line"           # #508: a scanned page - the recognised line holding the cited text
 
 CHECKLIST_ORIGIN = "datasheet_check"
 
@@ -258,3 +267,52 @@ def where_to_look(field: str | None, pdf_path: str) -> dict:
 
 def _pages(numbers: list[int]) -> str:
     return ", ".join(str(n) for n in numbers) if numbers else "none"
+
+
+def has_text_layer(pdf_path: str, page_no: int) -> bool:
+    """Does the page carry any text a search can find? A page out of range
+    counts as having one: nothing here is the place to report it."""
+    import pymupdf
+
+    with pymupdf.open(pdf_path) as doc:
+        if not 1 <= page_no <= doc.page_count:
+            return True
+        return bool((doc.load_page(page_no - 1).get_text("text") or "").strip())
+
+
+def _norm(text: str) -> str:
+    return " ".join(str(text or "").split()).casefold()
+
+
+def scanned_box(texts: list[str], pdf_path: str, page_no: int,
+                sha256: str) -> tuple[list, str | None, str | None]:
+    """#508: (rectangles, kind, reason) on a scanned page. Each text is tried
+    whole and then as the same shorter pieces `highlight.locate` tries; a
+    piece is boxed only when exactly one recognised line holds it."""
+    from . import ocr
+
+    try:
+        lines = ocr.page_lines(pdf_path, sha256, page_no)
+    except ocr.PageLinesUnavailable as exc:
+        return [], None, (f"page {page_no} is a scanned image with no text layer and could not "
+                          f"be read here ({exc}), so no box is drawn - read the page itself")
+    recognised = [(_norm(t), box) for t, box in lines if _norm(t)]
+    for text in texts:
+        whole = _norm(text)
+        pieces = ([whole] if len(whole) >= 3 else []) + [
+            _norm(p) for p in highlight._candidates(text or "")]
+        for piece in dict.fromkeys(pieces):
+            hits = [box for line, box in recognised if piece and piece in line]
+            if len(hits) == 1 and _box(hits[0]):
+                return [_box(hits[0])], OCR_LINE, None
+    return [], None, (f"page {page_no} is a scanned image with no text layer; the cited text "
+                      "was not found in exactly one of the lines recognised on it, so no box "
+                      "is drawn - read the page itself")
+
+
+def submittal_texts(finding: dict) -> list[str]:
+    """What a scanned submittal page is searched for: the finding's own text,
+    then the lines its facts were read from."""
+    texts = [finding.get("contractor_evidence_text") or ""]
+    texts += [f.get("source_text") or "" for f in _facts_for(finding)]
+    return [t for t in dict.fromkeys(texts) if t.strip()]

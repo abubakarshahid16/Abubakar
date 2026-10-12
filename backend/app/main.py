@@ -2656,7 +2656,14 @@ def _evidence_side(current: dict, side: str, scope: access.AccessScope) -> dict:
         rects, box = evidence_boxes_mod.submittal_box(current, doc["stored_path"], int(page_no))
     else:
         rects, box = evidence_boxes_mod.standard_box(text, doc["stored_path"], int(page_no), how)
-    return {"document": doc, "page": int(page_no), "rects": rects, "box": box, "reason": None}
+    reason = None
+    if not rects and not evidence_boxes_mod.has_text_layer(doc["stored_path"], int(page_no)):
+        # #508: a scanned page - box the recognised line, or say why not
+        texts = (evidence_boxes_mod.submittal_texts(current) if side == "submittal"
+                 else [t for t in (text,) if (t or "").strip()])
+        rects, box, reason = evidence_boxes_mod.scanned_box(
+            texts, doc["stored_path"], int(page_no), doc["sha256"])
+    return {"document": doc, "page": int(page_no), "rects": rects, "box": box, "reason": reason}
 
 
 def _finding_for_evidence(finding_id: str, scope: access.AccessScope) -> dict:
