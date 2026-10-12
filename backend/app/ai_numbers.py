@@ -158,12 +158,14 @@ def clause_checks(counts: dict | None) -> dict | None:
     from . import ai_requirements
 
     incomplete = counts.get("could_not_read") or counts.get("not_asked_budget")
+    no_limit, refused = ai_requirements.split_refusals(counts)
     return _step("AI clause checks", "incomplete" if incomplete else "ran",
                  [ai_requirements.report_line(counts)],
                  engine="ollama", model=counts.get("model"),
                  counts={"sentences": _n(counts.get("sentences")), "asked": _n(counts.get("asked")),
                          "proposed": _n(counts.get("proposed")),
-                         "refused": sum(_n(v) for v in (counts.get("refused") or {}).values()),
+                         "no_limit": no_limit,
+                         "refused": sum(_n(v) for v in refused.values()),
                          "could_not_read": _n(counts.get("could_not_read")),
                          "not_asked_budget": _n(counts.get("not_asked_budget"))})
 

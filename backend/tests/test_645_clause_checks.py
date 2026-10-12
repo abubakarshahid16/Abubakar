@@ -100,13 +100,15 @@ def _statement(rid, text=SENTENCE):
 
 def test_proposals_are_stored_as_drafts_and_counted_out_of_the_sentences():
     reqs = [_statement("r1"), _statement("r2", "Bolting shall be ASTM A193 B7."),
-            _statement("r3", "Valve bodies shall be cast steel."), _statement("r4")]
+            _statement("r3", "Valve bodies shall be cast steel."),
+            _statement("r4", "The test shall last 30 minutes.")]
     out = air.propose_checks(reqs, review_run_id="run-1", limit=3,
                              provider=Fake(proposal(), {"has_limit": False, "field": None,
                                                         "operator": None, "value": None, "unit": None,
                                                         "condition": None, "quote": None},
                                            "not json", "not json either"))
-    assert out == {"sentences": 4, "asked": 3, "proposed": 1, "refused": {air.NO_LIMIT: 1},
+    # "no limit" is the model's answer, not code refusing a proposal
+    assert out == {"sentences": 4, "asked": 3, "proposed": 1, "no_limit": 1, "refused": {},
                    "could_not_read": 1, "not_asked_budget": 1, "model": "test-model"}
     rows = [dict(r) for r in connect().execute("SELECT * FROM clause_check_drafts")]
     assert len(rows) == 1
@@ -114,7 +116,8 @@ def test_proposals_are_stored_as_drafts_and_counted_out_of_the_sentences():
         "r1", "draft", "12", "barg")
     assert air.report_line(out) == (
         "1 of 4 sentence requirement(s) now have a proposed check (drafts for the engineer); "
-        "1 proposal(s) refused by code, 1 not read by the model, 1 not asked (the per-run cap).")
+        "1 the model read no limit in, 0 proposal(s) refused by code, 1 not read by the model, "
+        "1 not asked (the per-run cap).")
     assert air.report_line(None) is None
 
 
@@ -137,6 +140,7 @@ def test_the_run_card_prints_the_count_line_as_a_local_step():
                                                             "local model")
     assert step["lines"] == [air.report_line(counts)]
     assert step["counts"]["proposed"] == 2 and step["counts"]["sentences"] == 5
+    assert (step["counts"]["refused"], step["counts"]["no_limit"]) == (1, 0)
     # NO RECORD IS NULL, NEVER A ZERO: a run from before #645 has no step
     assert ai_numbers.for_run({"requirement_split": {}}, None, None) is None
 
@@ -181,3 +185,49 @@ def test_the_review_proposes_drafts_and_no_verdict_changes(review_run, monkeypat
     draft = connect().execute("SELECT * FROM clause_check_drafts WHERE requirement_id = ?",
                               (stmt,)).fetchone()
     assert draft["status"] == "draft" and draft["review_run_id"] == run
+
+
+# ------------------------------------------- the live run of 12 Oct (planner)
+
+def test_a_run_stored_before_the_split_reads_its_no_limit_out_of_the_refusals():
+    """Live run 12 Oct: "20 refused by code" counted the model's own "no
+    limit" answers as code refusals. A stored run of that shape now says
+    which is which, and names code's reasons."""
+    stored = {"sentences": 51, "asked": 20, "proposed": 0, "could_not_read": 0,
+              "not_asked_budget": 31, "model": "m",
+              "refused": {air.NO_LIMIT: 17, air.QUOTE_NOT_IN_SOURCE: 2, air.VALUE_NOT_IN_QUOTE: 1}}
+    assert air.split_refusals(stored) == (17, {air.QUOTE_NOT_IN_SOURCE: 2, air.VALUE_NOT_IN_QUOTE: 1})
+    assert air.report_line(stored) == (
+        "0 of 51 sentence requirement(s) now have a proposed check (drafts for the engineer); "
+        "17 the model read no limit in, 3 proposal(s) refused by code "
+        f"({air.QUOTE_NOT_IN_SOURCE}: 2; {air.VALUE_NOT_IN_QUOTE}: 1), 0 not read by the model, "
+        "31 not asked (the per-run cap).")
+    from app import ai_numbers
+    step = ai_numbers.clause_checks(stored)
+    assert (step["counts"]["no_limit"], step["counts"]["refused"]) == (17, 3)
+
+
+def test_the_cap_goes_first_to_sentences_that_print_a_figure():
+    reqs = [_statement("words-1", "Valve bodies shall be cast steel."),
+            _statement("words-2", "Bolting shall be ASTM A-type alloy steel."),
+            _statement("figure", SENTENCE)]
+    asked = []
+
+    class Recording(Fake):
+        def reason(self, packet):
+            asked.append(packet)
+            return super().reason(packet)
+
+    out = air.propose_checks(reqs, limit=1, provider=Recording(proposal()))
+    assert (out["asked"], out["proposed"], out["not_asked_budget"]) == (1, 1, 2)
+    rows = [r["requirement_id"] for r in connect().execute("SELECT requirement_id FROM clause_check_drafts")]
+    assert rows == ["figure"]
+
+
+def test_the_model_is_recorded_when_it_answered_but_nothing_passed():
+    """Live run 12 Oct: 20 answers, all "no limit", and the run said model: null."""
+    out = air.propose_checks([_statement("r1", "Valve bodies shall be cast steel.")], limit=5,
+                             provider=Fake({"has_limit": False, "field": None, "operator": None,
+                                           "value": None, "unit": None, "condition": None,
+                                           "quote": None}, model="local-2b"))
+    assert (out["no_limit"], out["proposed"], out["model"]) == (1, 0, "local-2b")
