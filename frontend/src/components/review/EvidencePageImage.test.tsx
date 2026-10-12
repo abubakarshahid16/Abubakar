@@ -38,6 +38,28 @@ describe("EvidencePageImage", () => {
     expect(screen.getByRole("img", { name: "Standard page 12" })).toHaveAttribute("src", "blob:page");
   });
 
+  it("#785: a label box is named as the label, never as the value", () => {
+    imageFor.mockReturnValue(ready(true));
+    render(<EvidencePageImage findingId="f-1" side="submittal" page={2} box="label" />);
+    expect(screen.getByTestId("evidence-located"))
+      .toHaveTextContent("The field's label is boxed; the value read sits beside it.");
+  });
+
+  it("#785 point 3: a no-value row's label box says no value was found and where to look", () => {
+    imageFor.mockReturnValue(ready(true));
+    render(<EvidencePageImage findingId="f-1" side="submittal" page={2} box="where_to_look" />);
+    expect(screen.getByTestId("evidence-located")).toHaveTextContent(
+      "No value was found. The field's label is boxed - the only place the datasheet prints it; look beside it.");
+  });
+
+  it("#785: the value's stored position and a checklist clause say what they box", () => {
+    imageFor.mockReturnValue(ready(true));
+    const { rerender } = render(<EvidencePageImage findingId="f-1" side="submittal" page={2} box="value_position" />);
+    expect(screen.getByTestId("evidence-located")).toHaveTextContent("The value read is boxed where the reader found it.");
+    rerender(<EvidencePageImage findingId="f-1" side="standard" page={7} box="clause_text" />);
+    expect(screen.getByTestId("evidence-located")).toHaveTextContent("The cited clause is boxed on the page.");
+  });
+
   it("an unboxed page says no box was drawn instead of implying the evidence is shown", () => {
     imageFor.mockReturnValue(ready(false));
     render(<EvidencePageImage findingId="f-1" side="submittal" page={2} />);

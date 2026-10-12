@@ -230,7 +230,13 @@ def parse_page_tables(stored_path: str, page_no: int) -> list[list[list[str]]]:
         with pymupdf.open(stored_path) as doc:
             if not (1 <= page_no <= doc.page_count):
                 return []
-            found = doc[page_no - 1].find_tables()
+            page = doc[page_no - 1]
+            # R27: find the tables with the page turned so its text reads left
+            # to right - a page whose flag shows it sideways was read as one
+            # row of "column names" (really its values) over one row of fields.
+            from . import geometry_reader
+            geometry_reader.upright(page)
+            found = page.find_tables()
             out: list[list[list[str]]] = []
             for table in found.tables:
                 rows = [[_clean(cell) for cell in row] for row in table.extract()]
