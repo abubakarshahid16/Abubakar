@@ -167,7 +167,11 @@ def key_problems(key: dict, bench_dir: Path = BENCH) -> list[str]:
             wanted = _fold_text(item["value"] + (f" {item['unit']}" if item.get("unit") else ""))
             if wanted not in text and not _value_near_unit(item, text):
                 problems.append(f"{name}: expected value {item['field']!r} not in the file")
-            if _fold_text(item["field"]) not in text and not any(
+            # A SCHEDULE CELL IS NAMED BY ITS ROW AND ITS COLUMN ("N1 Size"): the
+            # name is printed nowhere as one string, so the key says which
+            # printed parts compose it (`parts`), and each must be in the file.
+            composed = item.get("parts") and all(_fold_text(part) in text for part in item["parts"])
+            if not composed and _fold_text(item["field"]) not in text and not any(
                     _fold_text(a) in text for a in item.get("aliases", [])):
                 problems.append(f"{name}: expected field {item['field']!r} not in the file")
         for field in entry.get("forbidden", []):

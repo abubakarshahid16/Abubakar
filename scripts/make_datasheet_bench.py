@@ -551,11 +551,41 @@ def ds14_blanks_by_vendor():
            expected=rows, forbidden=[b[0] for b in blanks])
 
 
+def ds15_vessel_nozzle_schedule():
+    """A schedule keyed by a mark (N1, N2, ...), with a row-number ruler in the
+    first column and a HEADER ROW THAT CARRIES A NUMBER among its column names
+    (the shape of a real nozzle schedule; R27, 2026-10-11). Every value is
+    read under "<mark> <column name>"."""
+    name = "ds15_vessel_nozzle_schedule.pdf"
+    nozzles = [("N1", "4", "CL-150", "weld neck", "Feed inlet"),
+               ("N2", "2", "CL-150", "weld neck", "Vent"),
+               ("N3", "6", "CL-300", "long weld neck", "Liquid outlet"),
+               ("N4", "3", "CL-150", "slip on", "Drain")]
+    columns = ["Size", "Rating", "Flange type", "Service"]
+    body = [["1", "Mark", *columns, "2"]]
+    body += [[str(i + 2), *n, ""] for i, n in enumerate(nozzles)]
+    doc = pymupdf.open(); page = doc.new_page(width=A4[0], height=A4[1])
+    title_block(page, "DS-0015-V", "SYN-V-0002", "PRESSURE VESSEL NOZZLE SCHEDULE")
+    widths = [28, 60, 60, 80, 110, 130, 40]
+    ruled_table(page, 110, widths, body)
+    # The row-number ruler (first column) and the mark in the header's last
+    # cell are page furniture, not table content: drawn, but not keyed cells.
+    left, right = 40, 40 + sum(widths)
+    _CELLS[:] = [c for c in _CELLS if c["box"][0] != left and c["box"][2] != right]
+    save_pdf(doc, name)
+    expected = [row(f"{n[0]} {column}", value, aliases=[f"{n[0]} - {column}"], parts=[n[0], column])
+                for n in nozzles for column, value in zip(columns, n[1:])]
+    record(name, equipment="pressure vessel",
+           layout="schedule keyed by a mark, row-number ruler, a number inside the header row",
+           expected=expected, ignore=[*TITLE_IGNORE, "Mark"])
+
+
 BUILDERS = (ds01_pump_ruled, ds02_psv_unruled, ds03_hx_two_column_form,
             ds04_control_valve_req_off, ds05_motor_units_grid, ds06_transmitter_odd_headers,
             ds07_gate_valve_free_text, ds08_tank_merged_cells, ds09_rotated_page,
             ds10_compressor_multipage, ds11_flowmeter_scanned, ds12_pump_xlsx,
-            ds13_heater_docx, ds14_blanks_by_vendor)
+            ds13_heater_docx, ds14_blanks_by_vendor,
+            ds15_vessel_nozzle_schedule)
 
 
 def main() -> int:

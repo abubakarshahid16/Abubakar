@@ -2741,6 +2741,483 @@
     }
    ],
    "cells_not_keyed": null
+  },
+  "ds15_vessel_nozzle_schedule.pdf": {
+   "equipment": "pressure vessel",
+   "layout": "schedule keyed by a mark, row-number ruler, a number inside the header row",
+   "text_layer": true,
+   "expected": [
+    {
+     "field": "N1 Size",
+     "value": "4",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N1 - Size"
+     ],
+     "parts": [
+      "N1",
+      "Size"
+     ]
+    },
+    {
+     "field": "N1 Rating",
+     "value": "CL-150",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N1 - Rating"
+     ],
+     "parts": [
+      "N1",
+      "Rating"
+     ]
+    },
+    {
+     "field": "N1 Flange type",
+     "value": "weld neck",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N1 - Flange type"
+     ],
+     "parts": [
+      "N1",
+      "Flange type"
+     ]
+    },
+    {
+     "field": "N1 Service",
+     "value": "Feed inlet",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N1 - Service"
+     ],
+     "parts": [
+      "N1",
+      "Service"
+     ]
+    },
+    {
+     "field": "N2 Size",
+     "value": "2",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N2 - Size"
+     ],
+     "parts": [
+      "N2",
+      "Size"
+     ]
+    },
+    {
+     "field": "N2 Rating",
+     "value": "CL-150",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N2 - Rating"
+     ],
+     "parts": [
+      "N2",
+      "Rating"
+     ]
+    },
+    {
+     "field": "N2 Flange type",
+     "value": "weld neck",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N2 - Flange type"
+     ],
+     "parts": [
+      "N2",
+      "Flange type"
+     ]
+    },
+    {
+     "field": "N2 Service",
+     "value": "Vent",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N2 - Service"
+     ],
+     "parts": [
+      "N2",
+      "Service"
+     ]
+    },
+    {
+     "field": "N3 Size",
+     "value": "6",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N3 - Size"
+     ],
+     "parts": [
+      "N3",
+      "Size"
+     ]
+    },
+    {
+     "field": "N3 Rating",
+     "value": "CL-300",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N3 - Rating"
+     ],
+     "parts": [
+      "N3",
+      "Rating"
+     ]
+    },
+    {
+     "field": "N3 Flange type",
+     "value": "long weld neck",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N3 - Flange type"
+     ],
+     "parts": [
+      "N3",
+      "Flange type"
+     ]
+    },
+    {
+     "field": "N3 Service",
+     "value": "Liquid outlet",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N3 - Service"
+     ],
+     "parts": [
+      "N3",
+      "Service"
+     ]
+    },
+    {
+     "field": "N4 Size",
+     "value": "3",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N4 - Size"
+     ],
+     "parts": [
+      "N4",
+      "Size"
+     ]
+    },
+    {
+     "field": "N4 Rating",
+     "value": "CL-150",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N4 - Rating"
+     ],
+     "parts": [
+      "N4",
+      "Rating"
+     ]
+    },
+    {
+     "field": "N4 Flange type",
+     "value": "slip on",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N4 - Flange type"
+     ],
+     "parts": [
+      "N4",
+      "Flange type"
+     ]
+    },
+    {
+     "field": "N4 Service",
+     "value": "Drain",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N4 - Service"
+     ],
+     "parts": [
+      "N4",
+      "Service"
+     ]
+    }
+   ],
+   "forbidden": [],
+   "ignore": [
+    "Doc No",
+    "Tag No",
+    "Rev",
+    "Project",
+    "Sheet",
+    "Mark"
+   ],
+   "cells": [
+    {
+     "page": 1,
+     "text": "Mark",
+     "box": [
+      68.0,
+      110.0,
+      128.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Size",
+     "box": [
+      128.0,
+      110.0,
+      188.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Rating",
+     "box": [
+      188.0,
+      110.0,
+      268.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Flange type",
+     "box": [
+      268.0,
+      110.0,
+      378.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Service",
+     "box": [
+      378.0,
+      110.0,
+      508.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "N1",
+     "box": [
+      68.0,
+      128.0,
+      128.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "4",
+     "box": [
+      128.0,
+      128.0,
+      188.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "CL-150",
+     "box": [
+      188.0,
+      128.0,
+      268.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "weld neck",
+     "box": [
+      268.0,
+      128.0,
+      378.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Feed inlet",
+     "box": [
+      378.0,
+      128.0,
+      508.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "N2",
+     "box": [
+      68.0,
+      146.0,
+      128.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "2",
+     "box": [
+      128.0,
+      146.0,
+      188.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "CL-150",
+     "box": [
+      188.0,
+      146.0,
+      268.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "weld neck",
+     "box": [
+      268.0,
+      146.0,
+      378.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Vent",
+     "box": [
+      378.0,
+      146.0,
+      508.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "N3",
+     "box": [
+      68.0,
+      164.0,
+      128.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "6",
+     "box": [
+      128.0,
+      164.0,
+      188.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "CL-300",
+     "box": [
+      188.0,
+      164.0,
+      268.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "long weld neck",
+     "box": [
+      268.0,
+      164.0,
+      378.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Liquid outlet",
+     "box": [
+      378.0,
+      164.0,
+      508.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "N4",
+     "box": [
+      68.0,
+      182.0,
+      128.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "3",
+     "box": [
+      128.0,
+      182.0,
+      188.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "CL-150",
+     "box": [
+      188.0,
+      182.0,
+      268.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "slip on",
+     "box": [
+      268.0,
+      182.0,
+      378.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Drain",
+     "box": [
+      378.0,
+      182.0,
+      508.0,
+      200.0
+     ]
+    }
+   ],
+   "cells_not_keyed": null
   }
  }
 }
