@@ -323,7 +323,7 @@ describe("the download the preview sits beside", () => {
     render(<ReviewRunsView />);
     await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
 
-    await userEvent.click(screen.getByRole("button", { name: "Export CRS - issue to contractor" }));
+    await userEvent.click(screen.getByRole("button", { name: "Issue CRS to contractor" }));
 
     expect(exportCrs).toHaveBeenCalledWith("run-1", "issue");
   });
@@ -337,7 +337,7 @@ describe("the download the preview sits beside", () => {
     render(<ReviewRunsView />);
     await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
 
-    const button = screen.getByRole("button", { name: "Export CRS - issue to contractor" });
+    const button = screen.getByRole("button", { name: "Issue CRS to contractor" });
     expect(button).toBeDisabled();
     expect(screen.getByText(
       "An engineer must record the final code before issue.")).toBeInTheDocument();

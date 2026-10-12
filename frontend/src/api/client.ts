@@ -551,12 +551,15 @@ export const reviews = {
   ): Promise<Result<{ blob: Blob; filename: string }>> => {
     // Owner order 2f: "internal" keeps the AI Review Comments column;
     // "issue" is the contractor's copy, with every unconfirmed AI item removed.
-    const path = `/reviews/runs/${encodeURIComponent(runId)}/crs?copy=${copy}`;
+    // PF5 (#885): the contractor's copy is ISSUED (POST): the server refuses
+    // it while a page is unread or a finding undecided, and keeps the copy.
+    const run = encodeURIComponent(runId);
+    const path = copy === "issue" ? `/reviews/runs/${run}/crs/issue` : `/reviews/runs/${run}/crs?copy=${copy}`;
     let response: Response;
     try {
       const headers = new Headers();
       if (token) headers.set("Authorization", `Bearer ${token}`);
-      response = await fetch(`${BASE}${path}`, { headers });
+      response = await fetch(`${BASE}${path}`, { headers, method: copy === "issue" ? "POST" : "GET" });
     } catch (e) {
       return disconnected(
         e instanceof Error ? e.message : "Network request failed.");

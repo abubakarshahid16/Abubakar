@@ -2327,6 +2327,63 @@ class CrsHeaderField(BaseModel):
     value: str
 
 
+class CrsUnreadPage(BaseModel):
+    page: int
+    reason: str | None = None
+
+
+class CrsOpenFinding(BaseModel):
+    finding_id: str
+    row_kind: str | None = None
+    item: int
+
+
+class CrsIssueGate(BaseModel):
+    """PF5 (#885): what still stands between a run and its contractor copy.
+    `issuable` only when nothing does. Ids, counts and reasons only."""
+    review_run_id: str
+    issuable: bool
+    final_code_recorded: bool
+    blockers: list[str]
+    unread_pages: list[CrsUnreadPage]
+    open_findings: list[CrsOpenFinding]
+
+
+class CrsIssueDecisionRequest(BaseModel):
+    """The engineer's decision on one open item, with their reason. Who and
+    when come from the signed-in caller and the clock, never the body."""
+    reason: str = Field(min_length=3, max_length=2000)
+    #: findings only: accept (the comment goes to the contractor) or reject
+    decision: Literal["accept", "reject"] | None = None
+
+
+class CrsIssueDecision(BaseModel):
+    id: str
+    review_run_id: str
+    kind: str
+    subject: str
+    decision: str
+    reason: str
+    decided_by: str
+    decided_at: str
+
+
+class CrsIssuedCopy(BaseModel):
+    """One contractor copy exactly as issued (#885): its sha256, size, run,
+    who issued it and when."""
+    id: str
+    review_run_id: str
+    filename: str
+    sha256: str
+    size_bytes: int
+    issued_by: str
+    issued_at: str
+
+
+class CrsIssuedCopyList(BaseModel):
+    copies: list[CrsIssuedCopy]
+
+
 class CrsPreviewRow(BaseModel):
     """One comment row of the CRS, exactly as the workbook writes it.
 

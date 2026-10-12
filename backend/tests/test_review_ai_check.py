@@ -349,11 +349,20 @@ def _preview(run, copy="internal"):
 
 
 def _workbook_text(run, copy):
-    response = TestClient(app).get(f"/api/reviews/runs/{run}/crs", params={"copy": copy})
-    assert response.status_code == 200, response.text
-    book = openpyxl.load_workbook(io.BytesIO(response.content))
+    if copy == "issue":
+        # PF5 (#885): the contractor's copy is issued by POST, gated; what
+        # these tests read is its content - the same builder's, read directly.
+        from app import access
+        from app import main as main_mod
+        workbook, name = main_mod._crs_workbook(run, access.unrestricted_scope(), copy)
+        disposition = f'attachment; filename="{name}"'
+    else:
+        response = TestClient(app).get(f"/api/reviews/runs/{run}/crs", params={"copy": copy})
+        assert response.status_code == 200, response.text
+        workbook, disposition = response.content, response.headers["content-disposition"]
+    book = openpyxl.load_workbook(io.BytesIO(workbook))
     cells = [str(c.value) for ws in book for row in ws.iter_rows() for c in row if c.value]
-    return response.headers["content-disposition"], book["CRS"], " ".join(cells)
+    return disposition, book["CRS"], " ".join(cells)
 
 
 def test_an_unconfirmed_item_is_only_in_the_ai_column_of_the_internal_copy(world):

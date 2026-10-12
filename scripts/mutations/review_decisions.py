@@ -55,21 +55,16 @@ MUTATIONS: tuple[Mutation, ...] = (
              description="safety: the issue-to-contractor CRS export no "
                          "longer refuses a run with no engineer's final code",
              path=APP / "main.py",
-             anchor='    reject_unknown_params(request, {"copy"})\n'
-                    '    if copy == "issue":\n'
-                    '        run = submittal_review_mod.get_review_run(\n'
-                    '            review_run_id, allowed_document_ids=scope.allowed_document_ids)\n'
-                    '        if run is None:\n'
-                    '            raise HTTPException(status_code=404, detail=errors.safe_error(\n'
-                    '                errors.NOT_FOUND, "no review run with that id"))\n'
-                    '        if not run.get("engineer_final_code"):\n'
-                    '            raise HTTPException(status_code=409, detail=errors.safe_error(\n'
-                    '                errors.CODE_NOT_DECIDED,\n'
-                    '                "an engineer must record the final code before this run can "\n'
-                    '                "be issued to the contractor"))\n'
-                    '    rows, meta, submittal_name, stamp = _crs_content(review_run_id, scope, copy)',
-             replacement='    reject_unknown_params(request, {"copy"})\n'
-                         '    rows, meta, submittal_name, stamp = _crs_content(review_run_id, scope, copy)',
+             # PF5 (#885): the contractor's copy moved to POST .../crs/issue;
+             # the final-code refusal is there now.
+             anchor='    gate = _crs_issue_gate(review_run_id, scope)\n'
+                    '    if not gate["final_code_recorded"]:\n'
+                    '        raise HTTPException(status_code=409, detail=errors.safe_error(\n'
+                    '            errors.CODE_NOT_DECIDED,\n',
+             replacement='    gate = _crs_issue_gate(review_run_id, scope)\n'
+                         '    if False:\n'
+                         '        raise HTTPException(status_code=409, detail=errors.safe_error(\n'
+                         '            errors.CODE_NOT_DECIDED,\n',
              target="tests/test_crs_endpoint.py",
              keyword="issue_copy_is_refused_until_an_engineer_decides",
              tags=("safety", "critical")),
@@ -80,11 +75,11 @@ MUTATIONS: tuple[Mutation, ...] = (
              anchor='              disabled={exporting || !run.engineer_final_code}\n'
                     '              className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-200 disabled:opacity-50"\n'
                     '            >\n'
-                    '              Export CRS - issue to contractor\n',
+                    '              Issue CRS to contractor\n',
              replacement='              disabled={exporting}\n'
                         '              className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-200 disabled:opacity-50"\n'
                         '            >\n'
-                        '              Export CRS - issue to contractor\n',
+                        '              Issue CRS to contractor\n',
              target="src/views/ReviewRunsView.crsPreview.test.tsx",
              keyword="SAFETY GATE",
              tags=("safety", "ui")),

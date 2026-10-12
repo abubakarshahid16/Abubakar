@@ -19,7 +19,8 @@ import uuid
 
 from openpyxl import load_workbook
 
-from app import db
+from app import access, db
+from app import main as main_mod
 from tests.test_crs_endpoint import (NOW, _client, _finding, _run, _submittal,  # noqa: F401
                                      temp_db)
 
@@ -62,8 +63,10 @@ def test_the_issue_copy_has_no_review_notes_the_internal_copy_does():
                      " WHERE id = ?", (run_id,))
     assert client.get(f"/api/reviews/runs/{run_id}/crs/preview",
                       params={"copy": "issue"}).json()["review_notes"] == []
-    issued = load_workbook(io.BytesIO(client.get(f"/api/reviews/runs/{run_id}/crs",
-                                                 params={"copy": "issue"}).content))
+    # PF5 (#885): issued by POST, gated; the content is the same builder's.
+    workbook, _name = main_mod._crs_workbook(
+        run_id, access.AccessScope(user_id="eng", allowed_document_ids=frozenset({doc})), "issue")
+    issued = load_workbook(io.BytesIO(workbook))
     internal = load_workbook(io.BytesIO(client.get(f"/api/reviews/runs/{run_id}/crs").content))
     assert "Review notes" not in issued.sheetnames
     assert "Review notes" in internal.sheetnames
