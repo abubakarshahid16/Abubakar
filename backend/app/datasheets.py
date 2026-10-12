@@ -1471,6 +1471,28 @@ def unit_column_of(header: list[str], body: list[list[str]], *, first: int = 1) 
     return None
 
 
+def table_header_cells(shape: list[list[str]]) -> frozenset[str]:
+    """The column names of a ruled table three or more columns wide, folded:
+    its row 0 (which `pairs_from_table_shape` always takes as the header at
+    that width), when no cell of it states a number. Empty for a narrower
+    shape - there row 0 is a field like any other."""
+    width = max((len(row) for row in shape), default=0)
+    if width < 3 or not shape:
+        return frozenset()
+    cells = [normalise_field_name(c or "") for c in shape[0] if (c or "").strip()]
+    if len(cells) < 2 or any(re.search(r"\d", c) for c in cells):
+        return frozenset()
+    return frozenset(cells)
+
+
+def is_a_header_row_pair(pair: tuple[str, str], headers: list[frozenset[str]]) -> bool:
+    """Is this text-block pair two column names of one table on the page -
+    "Description" = "Required" - and not a field with a value? Both sides
+    must be whole header cells of the SAME table."""
+    label, value = normalise_field_name(pair[0] or ""), normalise_field_name(pair[1] or "")
+    return bool(label and value) and any(label in cells and value in cells for cells in headers)
+
+
 def pairs_from_table_shape(shape: list[list[str]]) -> list[tuple[str, str]]:
     """Label:value pairs from one RULED table shape, respecting its columns.
 
@@ -3439,6 +3461,7 @@ def _extract_facts(
         from . import vision_reader
     for page in sorted(by_page):
         found: list[tuple[str, str]] = []
+        headers: list[frozenset[str]] = []
         for shape in tables.parse_page_tables(stored_path, page):
             # #175 / parked B58: a ruled shape's rows are column-scoped, not
             # an alternating label/value sequence - see
@@ -3446,7 +3469,11 @@ def _extract_facts(
             # Shapes under three columns wide fall through to
             # split_label_value unchanged inside that function.
             found.extend(pairs_from_table_shape([list(row) for row in shape]))
-        found.extend(_pairs_from_pdf_page(stored_path, page))
+            headers.append(table_header_cells([list(row) for row in shape]))
+        # R27: the text reader re-reads a table's header row as a pair
+        # ("Description" = "Required"); column names are not a field.
+        found.extend(pair for pair in _pairs_from_pdf_page(stored_path, page)
+                     if not is_a_header_row_pair(pair, headers))
         # B4 fix 5: column grids, read by word position (see grid_facts).
         grid_by_page[page] = _grid_facts_from_pdf_page(stored_path, page)
         if geometry_tables:
