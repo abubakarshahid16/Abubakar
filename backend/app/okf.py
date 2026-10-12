@@ -310,3 +310,81 @@ def write(concepts: list[dict], out_dir: Path | None = None) -> dict:
         path.write_text(render(concept), encoding="utf-8")
         written += 1
     return {"written": written, "kinds": {k: sum(1 for c in concepts if c["kind"] == k) for k in KINDS}}
+
+
+# ------------------------------------------------------- #514: the graph
+#
+# A REFERENCE GRAPH BUILT ONLY FROM STORED FACTS, EVERY EDGE CITED. The nodes
+# are concepts; an edge is one concept's link, and it becomes an edge only if
+# its target is a node and its citation resolves AT THE TIME THE GRAPH IS
+# BUILT - a file written last week may cite a chunk that has since been
+# re-read. A link that fails is not an edge; it is counted under its reason.
+# Nothing is inferred: two nodes that "obviously" belong together and have no
+# cited link between them are not connected.
+
+#: Why a link did not become an edge (closed words).
+TARGET_MISSING = "target_not_in_the_graph"
+NOT_OK = "concept_not_ok"
+
+
+def graph(concepts: list[dict], *, conn=None) -> dict:
+    """`{"nodes": {id: {...}}, "edges": [...], "report": {...}}`.
+
+    A node per concept (`kind`, `title`, `state`). An edge
+    `{"from", "rel", "to", "cite"}` per link whose target is a node and whose
+    citation resolves now. Counts only in the report."""
+    conn = conn or connect()
+    nodes = {c["id"]: {"kind": c.get("kind"), "title": c.get("title"), "state": c.get("state")}
+             for c in concepts}
+    edges: list[dict] = []
+    refused: dict[str, int] = {}
+
+    def refuse(why: str) -> None:
+        refused[why] = refused.get(why, 0) + 1
+
+    for concept in concepts:
+        for link in concept.get("links") or []:
+            if concept.get("state") != OK:
+                refuse(NOT_OK)
+            elif link.get("rel") not in RELATIONS or link.get("to") not in nodes:
+                refuse(TARGET_MISSING)
+            else:
+                why = resolve(link.get("cite"), conn=conn)
+                if why is not None:
+                    refuse(why)
+                else:
+                    edges.append({"from": concept["id"], "rel": link["rel"], "to": link["to"],
+                                  "cite": dict(link["cite"])})
+    edges.sort(key=lambda e: (e["from"], e["rel"], e["to"]))
+    return {"nodes": nodes, "edges": edges,
+            "report": {"nodes": len(nodes), "edges": len(edges), "links_refused": refused,
+                       "nodes_by_kind": {k: sum(1 for n in nodes.values() if n["kind"] == k) for k in KINDS},
+                       "edges_by_relation": {r: sum(1 for e in edges if e["rel"] == r) for r in RELATIONS}}}
+
+
+def neighbours(built: dict, concept_id_: str, *, relation: str | None = None,
+               incoming: bool = False) -> list[dict]:
+    """The edges that leave a node (or, with `incoming`, arrive at it),
+    optionally of one relation. Each carries its citation: a step along the
+    graph is never taken without one."""
+    end = "to" if incoming else "from"
+    return [e for e in built["edges"]
+            if e[end] == concept_id_ and (relation is None or e["rel"] == relation)]
+
+
+def load(directory: Path | None = None) -> dict:
+    """The concepts stored as files under `directory` (default: the local
+    OKF folder): `{"concepts": [...], "unreadable": [file names]}`. A file
+    that is not OKF is NAMED, never skipped silently and never read as an
+    empty concept; a folder that does not exist gives no concepts."""
+    base = Path(directory) if directory is not None else root()
+    concepts, unreadable = [], []
+    for path in sorted(base.rglob("*.md")) if base.is_dir() else []:
+        try:
+            concept = parse(path.read_text(encoding="utf-8"))
+            if concept.get("kind") not in KINDS or not concept.get("id"):
+                raise ValueError("not a concept")
+            concepts.append(concept)
+        except (ValueError, OSError):
+            unreadable.append(path.relative_to(base).as_posix())
+    return {"concepts": concepts, "unreadable": unreadable}

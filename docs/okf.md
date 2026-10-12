@@ -82,6 +82,14 @@ The 26 standards applied to the three approved datasheets:
 
 What the numbers say: 574 stored requirements point at a chunk that does not show their words. They are listed by the build, not hidden; most are table values (527 of 996 table readings). No stored requirement of these standards names an equipment type yet, so that kind is empty on real data.
 
+## The graph (#514)
+
+`okf.graph(concepts)` turns the concepts into a reference graph: a node per concept, an edge per link. A link becomes an edge only when its target is a node and its citation resolves **at the time the graph is built** (a file written last week may cite a chunk that has since been re-read). A link that fails is not an edge; it is counted under its closed reason (`target_not_in_the_graph`, `concept_not_ok`, or one of the citation reasons). Nothing is inferred: two nodes with no cited link between them are not connected.
+
+`okf.neighbours` walks one step and returns the edges with their citations. `okf.load` reads the concept files back; a file that is not OKF is named, never skipped silently.
+
+Measured read-only on a backup, counts only (12 Oct 2026): the 26 standards of the three approved datasheets give 9,628 nodes and 8,231 edges, 0 links refused, in 0.4 s. The whole library (280 standards with stored requirements) gives 67,185 nodes and 56,117 edges, 0 refused, in about 4 s.
+
 ## Not in version 1
 
 Named so they are not forgotten: concepts for a datasheet, a revision and a finding; cross-reference links between standards (R8, #772); engineer approval and versions of the map (#833). Each concept already carries `content_sha256`, which is what a version will be made of. The graph (#514), its queries (#515) and the "no uncited answer" check (#516) are built on these files.
