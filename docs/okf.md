@@ -100,6 +100,16 @@ An answer made from the graph is a list of sentences, each with what it rests on
 
 One bad citation refuses the whole sentence; a half-supported sentence is not shown with its good half. A refused sentence comes back as its position and a closed reason (`no_citation`, `concept_not_in_the_graph`, `concept_not_ok`, `edge_not_in_the_graph`, `not_a_citation`, or a citation reason). Its text is not returned and not logged.
 
+## Three queries (#515)
+
+Every step of an answer is an edge with its citation. A question the graph cannot answer gets a named state, never an empty list that reads as "none".
+
+- `okf.applicable(graph, equipment_type)`: which standards apply. Three cited steps: a requirement applies to the type, is in a clause, the clause is part of a standard. States: `answered`, `equipment_type_not_in_the_graph`, `no_cited_path_to_a_standard`.
+- `okf.impact(graph, concept)`: what else is affected when a standard, clause or requirement changes. The walk ends at an equipment type and does not spread through it. States: `answered`, `nothing_reaches_it`, `concept_not_in_the_graph`.
+- `okf.latest_revision(graph, concepts, standard)`: only "of the revisions this library holds", and only from the stored record that one document replaces another, read at the time of asking. Revision labels are never compared to guess an order. States: `superseded`, `latest_of_the_revisions_held`, `only_revision_held`, `order_of_the_revisions_held_is_not_recorded`, `no_document_number_recorded`.
+
+Measured on the whole library, read-only on a backup, counts only (12 Oct 2026; 280 standards with stored requirements): "what else is affected" for all 280 standards takes 0.17 s (largest answer 3,460 concepts, 0 steps that do not resolve). **The other two cannot answer on this library yet, and say so:** 0 of 48,233 stored requirements name an equipment type, and 0 of 280 standards have a recorded document number, revision or "replaced by" record.
+
 ## Not in version 1
 
 Named so they are not forgotten: concepts for a datasheet, a revision and a finding; cross-reference links between standards (R8, #772); engineer approval and versions of the map (#833). Each concept already carries `content_sha256`, which is what a version will be made of. The graph (#514), its queries (#515) and the "no uncited answer" check (#516) are built on these files.
