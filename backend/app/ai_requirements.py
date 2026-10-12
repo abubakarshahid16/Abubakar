@@ -577,6 +577,185 @@ def report_line(counts: dict | None) -> str | None:
     return line + "."
 
 
+# ------------------------------- #882 technique 2: one small exact question
+
+ASK_SCHEMA = {
+    "type": "object",
+    "required": ["stated", "field", "value", "unit", "page", "quote"],
+    "properties": {
+        "stated": {"type": "boolean"},
+        "field": {"type": ["string", "null"]},
+        "value": {"type": ["string", "null"]},
+        "unit": {"type": ["string", "null"]},
+        "page": {"type": ["integer", "null"]},
+        "quote": {"type": ["string", "null"]},
+    },
+}
+
+ASK_INSTRUCTION = """You get ONE requirement of an engineering standard and a
+few lines of a datasheet, each line starting with its page as p<N>:. Say
+whether the datasheet lines STATE the value this requirement is about. If they
+do:
+- field: the datasheet's own label for that value, as printed;
+- value: the figure exactly as printed;
+- unit: the unit exactly as printed next to the figure, or null;
+- page: the page number of the line the value is on;
+- quote: the exact words of that one line, copied character for character,
+  without the p<N>: tag.
+If the lines do not state it, answer stated false and null for the rest. Do
+not judge whether the value meets the requirement."""
+
+ASK_TASK = ai_task_runner.register(ai_task_runner.TaskSpec(
+    name="requirement_value_question",
+    version="v1",
+    instruction=ASK_INSTRUCTION,
+    schema=ASK_SCHEMA,
+    num_predict=200,
+))
+
+#: Datasheet lines sent with one question, and the pages they may come from.
+ASK_MAX_LINES = 8
+ASK_MAX_PAGES = 3
+#: The requirement's own words sent with the question (never its limit).
+_ASK_REQUIREMENT_WORDS = 60
+
+#: What one question ended in - plain words for the run report and the
+#: finding; never document text.
+ASKED_VERIFIED = "verified"
+ASKED_NOT_STATED = "not_stated"
+ASKED_REFUSED = "refused"
+ASKED_COULD_NOT_READ = "could_not_read"
+ASKED_NO_EVIDENCE = "no_evidence"
+PAGE_NOT_SENT = "the page named is not one of the pages sent"
+ANSWERS_DISAGREED = "the two answers to the same question disagreed"
+
+_WORD = re.compile(r"[^\W\d_]{3,}")
+_STOP = frozenset({"the", "and", "for", "shall", "with", "not", "than", "less", "more",
+                   "greater", "minimum", "maximum", "min", "max", "from", "this", "that",
+                   "each", "all", "any", "are", "per", "its", "into", "when", "where"})
+
+
+def _subject_words(requirement: dict) -> set[str]:
+    text = requirement.get("subject") or " ".join(
+        (requirement.get("requirement_text") or _sentence(requirement)).split()[:12])
+    return {w.lower() for w in _WORD.findall(text or "")} - _STOP
+
+
+def evidence_lines(requirement: dict, page_texts: dict[int, str]) -> list[tuple[int, str]]:
+    """Only the datasheet lines that may answer this requirement: the lines
+    naming its subject's words on the (at most `ASK_MAX_PAGES`) pages that
+    name them most, each with its neighbours, at most `ASK_MAX_LINES` lines.
+    Never a whole document. [] when no line names the subject."""
+    words = _subject_words(requirement)
+    if not words:
+        return []
+    scored: dict[int, list[tuple[int, int]]] = {}
+    for page, text in page_texts.items():
+        lines = [ln.strip() for ln in (text or "").splitlines()]
+        for i, line in enumerate(lines):
+            hits = len(words & {w.lower() for w in _WORD.findall(line)})
+            if hits:
+                scored.setdefault(int(page), []).append((i, hits))
+    if not scored:
+        return []
+    pages = sorted(scored, key=lambda p: (-sum(h for _, h in scored[p]), p))[:ASK_MAX_PAGES]
+    picked: list[tuple[int, str]] = []
+    for page in pages:
+        lines = [ln.strip() for ln in (page_texts[page] or "").splitlines()]
+        best = sorted(scored[page], key=lambda ih: (-ih[1], ih[0]))
+        for i, _ in best:
+            for j in (i, i - 1, i + 1):
+                if 0 <= j < len(lines) and lines[j] and (page, lines[j]) not in picked:
+                    picked.append((page, lines[j]))
+                if len(picked) >= ASK_MAX_LINES:
+                    return picked
+    return picked
+
+
+def question_text(requirement: dict, lines: list[tuple[int, str]]) -> str:
+    """The one question: the clause line and the evidence lines. The
+    requirement's LIMIT AND OPERATOR ARE NEVER SENT (the matcher's rule): a
+    model told the limit is a model invited to find a value near it."""
+    words = (requirement.get("subject") or requirement.get("requirement_text")
+             or _sentence(requirement) or "").split()[:_ASK_REQUIREMENT_WORDS]
+    where = " ".join(p for p in (str(requirement.get("clause") or ""),) if p)
+    head = f"Requirement{f' (clause {where})' if where else ''}: {' '.join(words)}"
+    body = "\n".join(f"p{page}: {line}" for page, line in lines)
+    return f"{head}\nDatasheet lines:\n{body}"
+
+
+def _answer_identity(data: dict) -> tuple:
+    return (_squash(data.get("field") or ""), numparse.fold_numbers(data.get("value") or ""),
+            _squash(data.get("unit") or ""), data.get("page"))
+
+
+def ask_value(requirement: dict, page_texts: dict[int, str], *, provider=None) -> dict:
+    """#882 technique 2: ask the local model ONE question about ONE
+    requirement and verify the answer in code. Returns {state, why, model,
+    proposal}; `proposal` (field, value, unit, page, quote, kind) only when
+    `state` is `verified`. Asked twice; the two answers must agree. The
+    caller stores the value and code compares it - the model never judges."""
+    from . import claude_datasheet
+
+    lines = evidence_lines(requirement, page_texts)
+    if not lines:
+        return {"state": ASKED_NO_EVIDENCE, "why": None, "model": None, "proposal": None}
+    text = question_text(requirement, lines)
+    first = ai_task_runner.run_task(ASK_TASK, text, provider=provider)
+    if first.state != ai_task_runner.STATE_OK:
+        return {"state": ASKED_COULD_NOT_READ, "why": first.reason, "model": first.model,
+                "proposal": None}
+    data = first.data or {}
+    if not data.get("stated"):
+        return {"state": ASKED_NOT_STATED, "why": None, "model": first.model, "proposal": None}
+    second = ai_task_runner.run_task(ASK_TASK, text, provider=provider, use_cache=False)
+    if second.state != ai_task_runner.STATE_OK:
+        return {"state": ASKED_COULD_NOT_READ, "why": second.reason, "model": first.model,
+                "proposal": None}
+    if _answer_identity(second.data or {}) != _answer_identity(data):
+        return {"state": ASKED_REFUSED, "why": ANSWERS_DISAGREED, "model": first.model,
+                "proposal": None}
+    sent_pages = {page for page, _ in lines}
+    page = data.get("page")
+    if page not in sent_pages:
+        return {"state": ASKED_REFUSED, "why": PAGE_NOT_SENT, "model": first.model,
+                "proposal": None}
+    proposal = {"field": hint(data.get("field")), "value": hint(data.get("value")),
+                "unit": hint(data.get("unit")), "quote": data.get("quote") or "",
+                "kind": "offered", "page": page}
+    # THE SAME GATE THE AI READER PASSES: the quote is on that page and not
+    # too broad, the value and the field's word are in the quote, the unit is
+    # a unit and printed there, the value is not a blank marker.
+    gate = claude_datasheet.accept([proposal], page_texts.get(page) or "")
+    if not gate["accepted"]:
+        return {"state": ASKED_REFUSED, "why": gate["rejected"][0]["reason"],
+                "model": first.model, "proposal": None}
+    if not numparse.value_in_text(proposal["value"], proposal["quote"]):
+        return {"state": ASKED_REFUSED, "why": VALUE_NOT_IN_QUOTE, "model": first.model,
+                "proposal": None}
+    return {"state": ASKED_VERIFIED, "why": None, "model": first.model,
+            "proposal": {**gate["accepted"][0], "page": page}}
+
+
+def ask_report_line(counts: dict | None) -> str | None:
+    """"N of M requirements without a value were asked ...", or None when the
+    step did not run. Every count is out of `eligible`. Local model result."""
+    if not counts or not counts.get("eligible"):
+        return None
+    refused = counts.get("refused") or {}
+    why = "; ".join(f"{reason}: {n}" for reason, n in
+                    sorted(refused.items(), key=lambda kv: (-kv[1], kv[0])))
+    line = (f"Local model questions: {counts['asked']} of {counts['eligible']} requirement(s) "
+            f"with no value read were asked; {counts['verified']} answer(s) verified on the page "
+            f"(held for the engineer), {counts['not_stated']} not stated, "
+            f"{sum(refused.values())} refused by code{f' ({why})' if why else ''}, "
+            f"{counts['could_not_read']} not read by the model, "
+            f"{counts['no_evidence']} with no datasheet line naming the subject")
+    if counts.get("not_asked_budget"):
+        line += f", {counts['not_asked_budget']} not asked (the per-run cap)"
+    return line + "."
+
+
 # ------------------------------------------- the engineer decides (part 2)
 
 ACCEPTED, REJECTED, DRAFT, REPLACED = "accepted", "rejected", "draft", "replaced"
