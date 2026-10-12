@@ -31,6 +31,7 @@ from . import ingest as ingest_mod
 from . import job_queue as job_queue_mod
 from . import review_jobs as review_jobs_mod
 from . import document_refs, orphan_guard
+from . import okf as okf_mod
 from . import page_ledger as page_ledger_mod
 from . import highlight as highlight_mod
 from . import keyword as keyword_mod
@@ -3697,6 +3698,24 @@ def get_standard_provenance(
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "no such standard"))
     return {"provenance": standards_acquisition_mod.provenance_of(document_id)}
+
+
+@app.get("/api/standards/{document_id}/okf", response_model=schemas.OkfReport,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def standard_okf_report(
+    document_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """#513: the OKF build report for one standard - how many concepts and
+    cited links its stored requirements give, and how many requirements'
+    citations do not resolve, by reason. Counts and ids only; read only
+    (nothing is written, no file is made)."""
+    reject_unknown_params(request, set())
+    require_document(document_id, scope)
+    built = okf_mod.build([document_id], allowed_document_ids=scope.allowed_document_ids)
+    return {"document_id": document_id, **built["report"],
+            "problems": len(okf_mod.problems(built["concepts"]))}
 
 
 @app.get("/api/standards/{document_id}/clauses",
