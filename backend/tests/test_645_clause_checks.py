@@ -166,7 +166,9 @@ def test_the_review_proposes_drafts_and_no_verdict_changes(review_run, monkeypat
     monkeypatch.setattr(settings, "ai_clause_checks_enabled", True)
     monkeypatch.setattr(air.ai_task_runner, "run_task", fake_run_task)
     on = comparison.run_comparison(run, allowed_document_ids=scope)
-    assert SENTENCE in asked
+    # ONLY the sentence this run could not decide is offered: the compared
+    # limit, the definition and the gated clauses are not
+    assert asked == [SENTENCE]
     assert on["clause_checks"]["proposed"] >= 1
     assert comparison.run_outcome(run, allowed_document_ids=scope)[
         "requirement_split"]["clause_checks"] == on["clause_checks"]
