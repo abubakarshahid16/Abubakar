@@ -4091,6 +4091,10 @@ def reader_summary(ai_run: dict | None, ai_stats: dict, *, pages: list[int]) -> 
             "code_only": {str(p): ai_run["reasons"][p] for p in sorted(ai_run["reasons"])},
             "unavailable": ai_run.get("unavailable"), "stopped": ai_run.get("stopped"),
             "timed_out": list(ai_run.get("timed_out") or []), "seconds": ai_run.get("seconds"),
+            # #501: pages whose answer was cut off by the output limit; the
+            # values the model had finished before the cut are used.
+            "cut_off": sorted(p for p, out in ai_run["pages"].items()
+                              if not out.get("error") and out.get("cut_off")),
             "facts_written": ai_stats.get("facts_written", 0), "agreed": ai_stats.get("agreed", 0),
             "conflicts": ai_stats.get("conflicts", 0), "ai_only": ai_stats.get("ai_only", 0),
             # #845: the AI's readings the code gate refused (checks in

@@ -181,6 +181,11 @@ def reader_summary_line(reader: dict | None) -> str | None:
     if by_reason:
         line += "; code readers only on " + "; ".join(
             f"page(s) {', '.join(ps)}: {why}" for why, ps in by_reason.items())
+    if reader.get("cut_off"):
+        # #501: read, and not to its end - never shown as a whole reading.
+        line += ("; on page(s) " + ", ".join(str(p) for p in reader["cut_off"])
+                 + " the AI's answer was cut off by the output limit, and only the values "
+                   "it had finished before the cut are used")
     return line + "."
 
 
