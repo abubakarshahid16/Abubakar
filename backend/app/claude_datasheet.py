@@ -280,7 +280,16 @@ def _unit_recognised(unit: str) -> bool:
     unconverted set knows. `ppm` has no dimension and is still a unit."""
     if claims.unit_dimension(unit) is not None:
         return True
-    return claims.is_unit(unit)
+    if claims.is_unit(unit):
+        return True
+    # #830: A TWO-UNIT CELL IS A UNIT. A sheet prints a quantity in two unit
+    # systems, the second in brackets - "bar (psi)", "m3/h (USGPM)" - and the
+    # model gives the cell as printed. 4 readings on a real pump sheet were
+    # refused for it (12 Oct 2026). The unit outside the brackets is the one
+    # the number is in, and it must itself be a unit `claims` knows
+    # (`datasheets.primary_unit`); a bracket after a word that is not a unit
+    # is still refused.
+    return datasheets.primary_unit(unit) is not None
 
 
 # ------------------------------------------------------- one value, one fact
