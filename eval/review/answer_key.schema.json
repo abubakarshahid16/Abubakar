@@ -7,9 +7,10 @@
   "properties": {
     "format": {"const": "review-answer-key/1"},
     "name": {"type": "string", "description": "Short neutral name; the weekly report matches a run file called <name>.findings.json."},
-    "source": {"enum": ["invented", "engineer_confirmed", "hidden_exam"],
+    "source": {"enum": ["invented", "engineer_confirmed", "gold_lite", "hidden_exam"],
                "description": "invented: written to test the scorer. engineer_confirmed: a named engineer wrote or approved it (approved_by required). hidden_exam: the owner's hidden exam; scored only by the merger session (#650), never by the weekly report."},
-    "approved_by": {"type": "string", "description": "Required when source is engineer_confirmed."},
+    "approved_by": {"type": "string", "description": "Required when source is engineer_confirmed. Not allowed when source is gold_lite."},
+    "read_by": {"type": "string", "description": "Required when source is gold_lite: who read the documents (a named session or person). No engineer has confirmed the key."},
     "complete_for_flags": {"type": "boolean", "default": false,
       "description": "true when every real defect on the sheet is listed, so a flagged finding that matches no item is a false positive. false: such findings are reported as 'not judged by the key' and stay out of precision."},
     "items": {

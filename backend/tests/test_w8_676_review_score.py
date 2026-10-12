@@ -399,3 +399,44 @@ def test_the_weekly_week_label_defaults_to_the_iso_week(tmp_path, capsys):
                      "--baseline", str(tmp_path / "none.json"), "--out", str(tmp_path / "w.md")]) == 0
     import re
     assert re.search(r"week \d{4}-W\d{2}", (tmp_path / "w.md").read_text())
+
+
+# ------------------------------------------------------------- gold-lite keys (#829)
+
+def test_a_gold_lite_key_names_who_read_it_and_is_never_engineer_confirmed():
+    """#829: a key read by a named session from real documents. It must say who
+    read it, and it may not borrow an engineer's name."""
+    lite = key(source="gold_lite", read_by="session 1")
+    assert rs.validate_key(lite)["source"] == "gold_lite"
+    with pytest.raises(rs.KeyError_, match="read_by"):
+        rs.validate_key(key(source="gold_lite"))
+    with pytest.raises(rs.KeyError_, match="read_by"):
+        rs.validate_key(key(source="gold_lite", read_by="   "))
+    with pytest.raises(rs.KeyError_, match="not engineer-confirmed"):
+        rs.validate_key(key(source="gold_lite", read_by="session 1", approved_by="A. Engineer"))
+
+
+def test_every_report_says_a_gold_lite_key_is_not_engineer_confirmed(tmp_path):
+    lite = key(name="lite", source="gold_lite", read_by="session 1")
+    r = rs.score(lite, BASE)
+    assert (r["source"], r["read_by"]) == ("gold_lite", "session 1")
+    assert rs.score(KEY, BASE)["read_by"] is None                    # only a gold-lite key carries a reader
+    line = cli.text_report(r).splitlines()[0]
+    assert "gold_lite: read by session 1, NOT engineer-confirmed" in line
+    assert "(invented)" in cli.text_report(rs.score(KEY, BASE)).splitlines()[0]
+
+    keys, runs = tmp_path / "keys", tmp_path / "runs"
+    keys.mkdir(); runs.mkdir()
+    _write(keys / "lite.json", lite)
+    _write(keys / "invented-pump.json", KEY)
+    _write(runs / "lite.findings.json", BASE)
+    _write(runs / "invented-pump.findings.json", BASE)
+    text, code = cli.weekly_report(keys, runs, rs.load_baseline("/none"), "2026-W42")
+    assert code == 0
+    assert "| lite (gold_lite: read by session 1, NOT engineer-confirmed) | m1 |" in text
+    assert "1 gold-lite key(s): read by a named session from real documents, NOT confirmed by an engineer." in text
+    assert "never counted as engineer_confirmed" in text
+    assert "Answer keys scored: 1 gold_lite, 1 invented." in text       # counted under its own name
+    # a week with no gold-lite key does not print the gold-lite sentence
+    (keys / "lite.json").unlink()
+    assert "gold-lite key(s)" not in cli.weekly_report(keys, runs, rs.load_baseline("/none"), "w")[0]
