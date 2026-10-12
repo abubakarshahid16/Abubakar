@@ -30,7 +30,13 @@ JSON, shape in `answer_key.schema.json`, sample in `keys/invented-pump.json`
 (invented, to test the scorer).
 
 * `source`: `invented`, `engineer_confirmed` (a named engineer wrote or approved
-  it; `approved_by` is required) or `hidden_exam`.
+  it; `approved_by` is required), `gold_lite` or `hidden_exam`.
+* `gold_lite` (#829): read by a named session or person from real documents
+  (`read_by` is required), **not confirmed by an engineer** (`approved_by` is
+  refused). Every report says so beside the key's name. It shows a change
+  between runs (a met item that stops being met, a new false compliant); it
+  does not prove a verdict is right. A gold-lite key built from client
+  documents stays on this machine: only ids and counts are committed.
 * `items[]`: `id`, `kind` (`defect`, `met`, `trap`, `not_applicable`),
   `standard` (file name or document number), `clause`, optional `field`.
 * A finding matches the item whose standard matches and whose clause is equal to

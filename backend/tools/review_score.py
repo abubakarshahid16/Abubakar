@@ -41,7 +41,12 @@ BASELINE_FORMAT = "review-baseline/1"
 
 DEFECT, MET, TRAP, NOT_APPLICABLE_ITEM = "defect", "met", "trap", "not_applicable"
 ITEM_KINDS = (DEFECT, MET, TRAP, NOT_APPLICABLE_ITEM)
-SOURCES = ("invented", "engineer_confirmed", "hidden_exam")
+SOURCES = ("invented", "engineer_confirmed", "gold_lite", "hidden_exam")
+
+#: #829: a key READ BY A NAMED SESSION OR PERSON from real documents, which no
+#: engineer has confirmed. It gives a regression signal (a `met` item that stops
+#: being met, a new false compliant); it is never counted as engineer-confirmed.
+GOLD_LITE = "gold_lite"
 
 #: A finding that asks a human, or says a requirement is not met.
 FLAG_STATUSES = frozenset({"NON_COMPLIANT", "MISSING_INFORMATION", "CONDITIONAL", "NEEDS_ENGINEER_REVIEW"})
@@ -83,6 +88,12 @@ def validate_key(data: object) -> dict:
         raise KeyError_(f"source must be one of {', '.join(SOURCES)}")
     if source == "engineer_confirmed" and not str(data.get("approved_by") or "").strip():
         raise KeyError_("an engineer_confirmed key must name the engineer who approved it (approved_by)")
+    if source == GOLD_LITE:
+        if not str(data.get("read_by") or "").strip():
+            raise KeyError_("a gold_lite key must name who read it (read_by)")
+        if str(data.get("approved_by") or "").strip():
+            raise KeyError_("a gold_lite key is not engineer-confirmed: it may not carry approved_by "
+                            "(an engineer's approval makes it an engineer_confirmed key)")
     items = data.get("items")
     if not isinstance(items, list) or not items:
         raise KeyError_("the answer key has no items")
@@ -313,6 +324,7 @@ def score(key: dict, findings_doc: dict,
 
     return {
         "key": key.get("name"), "source": key["source"], "model": findings_doc.get("model"),
+        "read_by": (str(key.get("read_by")).strip() if key["source"] == GOLD_LITE else None),
         "findings": len(findings), "items": len(items),
         "defects": len(defects), "defects_found": len(found),
         "recall": _ratio(len(found), len(defects)),
