@@ -25,6 +25,9 @@ export interface PipelineStep {
   reason: string;
   /** The numbers behind it, verbatim from the stored records. */
   details: string[];
+  /** #791: counts that open the rows behind them - the findings of one
+   *  status, out of all the run's findings. */
+  links?: { status: string; count: number; total: number }[];
 }
 
 function traceStep(trace: ReviewTrace | null, name: string): ReviewTraceStep | undefined {
@@ -98,7 +101,10 @@ function decideStep(run: ReviewRunSummary, trace: ReviewTrace | null): PipelineS
   const decide = traceStep(trace, "DECIDE");
   const ai = run.ai_numbers?.engineering_check;
   const details = [decide?.summary, ...(ai?.lines ?? [])].filter((l): l is string => Boolean(l));
-  const base = { key: "decide" as const, title: "Decide", details };
+  const links = Object.entries(run.by_status ?? {})
+    .filter(([, count]) => typeof count === "number" && count > 0)
+    .map(([status, count]) => ({ status, count: count as number, total: run.findings_total }));
+  const base = { key: "decide" as const, title: "Decide", details, links };
   if (run.findings_total === 0) return { ...base, light: "red", reason: "the run produced no findings" };
   if (decide?.warning) return { ...base, light: "amber", reason: decide.warning };
   const c = ai?.counts ?? {};

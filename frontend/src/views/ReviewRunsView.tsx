@@ -60,6 +60,9 @@ export function ReviewRunsView(
   const [standardsError, setStandardsError] = useState<string | null>(null);
   const [showStandards, setShowStandards] = useState(false);
   const [selectedFinding, setSelectedFinding] = useState<string | null>(null);
+  // #791: a count in the review steps was clicked - the findings it counts.
+  const [focus, setFocus] = useState<{ runId: string; status: string; n: number } | null>(null);
+  const focusRef = useRef<HTMLDivElement | null>(null);
   const [launch, setLaunch] = useState<{ kind: "idle" } | { kind: "running" } | { kind: "error"; message: string }>({ kind: "idle" });
   const [target, setTarget] = useState("");
   const [exporting, setExporting] = useState(false);
@@ -540,7 +543,15 @@ export function ReviewRunsView(
             <StandardsInScope standards={standards} missing={missingStandards} error={standardsError} />
           )}
           {run?.requirement_split && <RequirementSplitPanel split={run.requirement_split} />}
-          {run && <ReviewStepsPanel key={`steps-${run.review_run_id}`} run={run} />}
+          {run && (
+            <ReviewStepsPanel
+              key={`steps-${run.review_run_id}`} run={run}
+              onShowStatus={(status) => {
+                setFocus((prev) => ({ runId: run.review_run_id, status, n: (prev?.n ?? 0) + 1 }));
+                focusRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+              }}
+            />
+          )}
           {run && <AiNumbersPanel numbers={run.ai_numbers} />}
           {run && (run.requirements_not_applied?.length ?? 0) > 0 && (
             <RequirementsNotAppliedList lines={run.requirements_not_applied ?? []} />
@@ -575,7 +586,17 @@ export function ReviewRunsView(
               comment is about - so ten findings on one field read as one
               group rather than ten unrelated rows. Ungrouped when there is
               only one group (nothing to group), the same table as before. */}
-          {groupFindingsByTopic(findings).length <= 1 ? (
+          <div ref={focusRef} />
+          {focus && focus.runId === run.review_run_id ? (
+            // #791: the findings one count stands for, in one list.
+            <FindingsTable
+              key={`focus-${focus.n}`}
+              findings={findings} selectedId={selectedFinding}
+              standardNames={standardNames}
+              onSelect={(item) => setSelectedFinding(item.id)}
+              initialStatus={focus.status}
+            />
+          ) : groupFindingsByTopic(findings).length <= 1 ? (
             <FindingsTable
               findings={findings} selectedId={selectedFinding}
               standardNames={standardNames}

@@ -2,7 +2,7 @@
  * #791: the five-step panel fetches the run's stored trace and shows a light
  * and a reason per step; a trace that cannot be loaded is said, not hidden.
  */
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ReviewRunSummary } from "../../types/api";
@@ -36,5 +36,24 @@ describe("ReviewStepsPanel", () => {
     render(<ReviewStepsPanel run={RUN} />);
     expect(await screen.findByTestId("review-steps-error")).toHaveTextContent("could not be loaded (not found)");
     expect(screen.getByTestId("step-standards")).toHaveTextContent("Amber: no standards record for this run");
+  });
+
+  it("#791: each count of findings opens the findings it counts", async () => {
+    reviewTrace.mockResolvedValue({ ok: false, error: { message: "not found" } });
+    const onShowStatus = vi.fn();
+    const run = { ...RUN, findings_total: 5,
+      by_status: { COMPLIANT: 3, NEEDS_ENGINEER_REVIEW: 2 } } as unknown as ReviewRunSummary;
+    render(<ReviewStepsPanel run={run} onShowStatus={onShowStatus} />);
+    const links = await screen.findByTestId("step-decide-links");
+    fireEvent.click(screen.getByRole("button", { name: /^Compliant 3 of 5/ }));
+    expect(onShowStatus).toHaveBeenCalledWith("COMPLIANT");
+    expect(links).toHaveTextContent("2 of 5");
+  });
+
+  it("offers no links when the page cannot show findings", async () => {
+    reviewTrace.mockResolvedValue({ ok: false, error: { message: "not found" } });
+    render(<ReviewStepsPanel run={{ ...RUN, by_status: { COMPLIANT: 3 } } as unknown as ReviewRunSummary} />);
+    await screen.findByTestId("step-decide");
+    expect(screen.queryByTestId("step-decide-links")).toBeNull();
   });
 });

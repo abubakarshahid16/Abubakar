@@ -27,19 +27,23 @@ export interface FindingsTableProps {
   /** Standard document id -> filename. An id is not a name. */
   standardNames?: Map<string, string>;
   onSelect: (finding: ReviewFinding) => void;
+  /** #791: open filtered to this status (a count in the review steps was
+   *  clicked). The engineer can change it like any filter. */
+  initialStatus?: string;
 }
 
 const MISSING = "MISSING_INFORMATION";
 const OUT_OF_SCOPE = "NOT_IN_DOCUMENT_SCOPE";
 
 export function FindingsTable(
-  { findings, selectedId, standardNames, onSelect }: FindingsTableProps,
+  { findings, selectedId, standardNames, onSelect, initialStatus }: FindingsTableProps,
 ) {
-  const [status, setStatus] = useState<string>("");
+  const [status, setStatus] = useState<string>(initialStatus ?? "");
   const [tag, setTag] = useState<string>("");
   const [standard, setStandard] = useState<string>("");
-  const [showMissing, setShowMissing] = useState(false);
-  const [showOutOfScope, setShowOutOfScope] = useState(false);
+  // A status asked for by name is shown, even one folded away by default.
+  const [showMissing, setShowMissing] = useState(initialStatus === MISSING);
+  const [showOutOfScope, setShowOutOfScope] = useState(initialStatus === OUT_OF_SCOPE);
 
   const tags = useMemo(
     () => Array.from(new Set(findings.map((f) => f.equipment_tag).filter(Boolean))) as string[],

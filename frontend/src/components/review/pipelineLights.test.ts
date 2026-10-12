@@ -112,4 +112,13 @@ describe("pipeline lights", () => {
     expect(byKey(run({ engineer_final_code: "Code 1" })).crs.details)
       .toContain("Export: ready to issue to the contractor.");
   });
+
+  it("#791: the decide step carries a link per status, each out of all findings", () => {
+    const steps = byKey(run({ findings_total: 7, by_status: { COMPLIANT: 4, MISSING_INFORMATION: 3,
+      NON_COMPLIANT: 0 } } as Partial<ReviewRunSummary>));
+    expect(steps.decide.links).toEqual([
+      { status: "COMPLIANT", count: 4, total: 7 },
+      { status: "MISSING_INFORMATION", count: 3, total: 7 },
+    ]);
+  });
 });
