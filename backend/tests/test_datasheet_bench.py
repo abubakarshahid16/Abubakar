@@ -1,6 +1,6 @@
 """The made-up datasheet benchmark: its answer key, its scorer, its readers.
 
-`scripts/make_datasheet_bench.py` writes 14 invented datasheets (PDF, XLSX,
+`scripts/make_datasheet_bench.py` writes 15 invented datasheets (PDF, XLSX,
 DOCX) and `answer_key.json`; `scripts/datasheet_bench.py` scores a reader
 against them. These tests prove, each against the code that would break it:
 
@@ -51,7 +51,7 @@ def key() -> dict:
 def test_the_key_is_well_formed_and_covers_every_format(key):
     from app import claude_datasheet
     files = key["files"]
-    assert len(files) == 14
+    assert len(files) == 15
     assert {Path(n).suffix for n in files} == {".pdf", ".xlsx", ".docx"}
     assert [n for n, e in files.items() if not e["text_layer"]] == ["ds11_flowmeter_scanned.pdf"]
     for name, entry in files.items():
@@ -309,7 +309,7 @@ def test_the_ai_only_reader_reads_office_files_through_their_page_texts(name, ke
 def test_a_whole_run_with_a_fake_model_counts_unsupported_files_as_misses(key, no_ocr):
     report = bench.run_reader("ai-only:claude", key, model_call=_fake_model())
     t = report["total"]
-    assert t["files"] == 14 and t["files_unsupported"] == 1
+    assert t["files"] == 15 and t["files_unsupported"] == 1
     assert report["files"]["ds11_flowmeter_scanned.pdf"]["status"] == "ocr_unavailable"
     assert report["files"]["ds11_flowmeter_scanned.pdf"]["score"]["found"] == 0
     assert t["expected"] == sum(len(e["expected"]) for e in key["files"].values())

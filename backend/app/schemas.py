@@ -2141,6 +2141,15 @@ class ReviewFindingUpdate(BaseModel):
     confirmed: bool | None = None
 
 
+class ReviewScopeDecision(BaseModel):
+    """R21: one requirement's scope decision from the run's ledger - whether
+    it applies to this submittal and why, in plain words, and who decided."""
+    state: str
+    reason_code: str
+    reason: str
+    decided_by: str
+
+
 class ReviewFinding(BaseModel):
     id: str
     document_id: str
@@ -2210,6 +2219,9 @@ class ReviewFinding(BaseModel):
     #: True when the standard this finding was decided against is one the
     #: caller may not read: the fields above and `requirement` are withheld.
     standard_withheld: bool = False
+    #: R21: the requirement's scope decision (None when the run recorded none,
+    #: or when the standard is withheld from this caller).
+    scope_decision: ReviewScopeDecision | None = None
     contractor_page: int | None = None
     contractor_section: str | None = None
     contractor_evidence_text: str | None = None

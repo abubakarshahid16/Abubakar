@@ -435,6 +435,17 @@ export interface ReviewFinding {
   contractor_page?: number | null;
   contractor_section?: string | null;
   contractor_evidence_text?: string | null;
+  /** R21 (#785): the requirement's own scope decision from the run's ledger -
+   *  whether it applies here, why (plain words) and who decided. Null when the
+   *  run recorded none, or when the standard is withheld from this caller. */
+  scope_decision?: ReviewScopeDecision | null;
+}
+
+export interface ReviewScopeDecision {
+  state: string;
+  reason_code: string;
+  reason: string;
+  decided_by: string;
 }
 
 export type ComplianceStatus =

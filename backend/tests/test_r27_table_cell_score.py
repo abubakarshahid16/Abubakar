@@ -97,13 +97,16 @@ def test_the_layout_readers_cell_score_does_not_fall():
     150 right, 6 real header cells, 6 missed. With the header stopping at the
     first row that already answers: 153 right, 9 header cells (the three
     real header rows of three files, three cells each) and NOTHING missed -
-    every keyed cell is either read right or is a genuine header. Raise the
-    floor when the reader improves; never lower it without saying why."""
+    every keyed cell is either read right or is a genuine header. The set
+    then gained a nozzle schedule (ds15: 25 keyed cells, 5 of them its header
+    row), the real layout an earlier form of that rule broke: 187 keyed
+    cells in 8 files, 173 right, 14 genuine header cells, 0 missed. Raise
+    the floor when the reader improves; never lower it without saying why."""
     total = score.score_all()["total"]
-    assert total["cells"] == 162
+    assert total["cells"] == 187
     assert total["wrong"] == 0, "a cell was read with the wrong text"
-    assert total["right"] >= 153, f"the layout reader's cell score fell: {total}"
-    assert total["header"] <= 9, f"a data row was taken as a header again: {total}"
+    assert total["right"] >= 173, f"the layout reader's cell score fell: {total}"
+    assert total["header"] <= 14, f"a data row was taken as a header again: {total}"
     assert total["missed"] == 0, f"a cell is no longer found: {total}"
     assert total["extra"] == 0
 

@@ -22,10 +22,17 @@ vi.mock("../../api/client", () => ({
   },
 }));
 
-// The preview fetches page images; here it only says which page it shows.
+// The panes fetch the boxed page from the finding's evidence route; here they
+// only say which finding, side and page they would show.
+vi.mock("./EvidencePageImage", () => ({
+  EvidencePageImage: ({ findingId, side, page }: { findingId: string; side: string; page: number }) => (
+    <div data-testid="preview">{`${findingId} ${side} p${page}`}</div>
+  ),
+}));
+// The one-page view (opened from a citation) is not under test here.
 vi.mock("../DocumentPreview", () => ({
   DocumentPreview: ({ doc, page }: { doc: DocumentRecord; page?: number | null }) => (
-    <div data-testid="preview">{`${doc.filename} p${page}`}</div>
+    <div data-testid="single-page">{`${doc.filename} p${page}`}</div>
   ),
 }));
 
@@ -85,10 +92,10 @@ describe("side by side", () => {
     await openSideBySide();
     const sub = screen.getByRole("group", { name: "Submittal" });
     const std = screen.getByRole("group", { name: "Standard" });
-    expect(within(sub).getByTestId("preview")).toHaveTextContent("pump-datasheet.pdf p2");
+    expect(within(sub).getByTestId("preview")).toHaveTextContent("f-1 submittal p2");
     expect(within(sub).getByText("95 dB(A)")).toBeInTheDocument();
     expect(within(sub).getByText("Read: Noise level")).toBeInTheDocument();
-    expect(within(std).getByTestId("preview")).toHaveTextContent("std-noise.pdf p12");
+    expect(within(std).getByTestId("preview")).toHaveTextContent("f-1 standard p12");
     expect(within(std).getByText("Clause 6.1.14")).toBeInTheDocument();
     expect(within(std).getByText("The noise level shall not exceed 90 dB(A) at 1 m.")).toBeInTheDocument();
   });
@@ -121,6 +128,7 @@ describe("side by side", () => {
     await openSideBySide();
     await userEvent.click(screen.getAllByRole("button", { name: /Open at page/ })[0]);
     expect(screen.queryByRole("group", { name: "Standard" })).toBeNull();
+    expect(screen.getByTestId("single-page")).toHaveTextContent("std-noise.pdf p12");
   });
 });
 
@@ -145,5 +153,29 @@ describe("why this standard applies", () => {
   it("a finding with no standard (a checklist item) shows no such section", () => {
     render(<FindingDetail finding={finding({ standard_document_id: null })} documents={[]} whyApplies={null} onChanged={vi.fn()} />);
     expect(screen.queryByTestId("why-standard-applies")).toBeNull();
+  });
+});
+
+describe("why this requirement applies (R21, run ledger)", () => {
+  const decided = { state: "applies", reason_code: "applies", reason: "Applies: the sheet states a pump", decided_by: "code" };
+
+  it("prints the requirement's own reason and who decided, verbatim", () => {
+    render(<FindingDetail finding={finding({ scope_decision: decided } as Partial<ReviewFinding>)}
+      documents={[]} whyApplies={WHY} onChanged={vi.fn()} />);
+    expect(screen.getByTestId("requirement-scope"))
+      .toHaveTextContent("This requirement: Applies: the sheet states a pump(decided by code)");
+  });
+
+  it("is shown even when the run holds no standard-level record", () => {
+    render(<FindingDetail finding={finding({ scope_decision: decided } as Partial<ReviewFinding>)}
+      documents={[]} whyApplies={null} onChanged={vi.fn()} />);
+    expect(screen.getByTestId("why-standard-applies")).toHaveTextContent("holds no record");
+    expect(screen.getByTestId("requirement-scope")).toBeInTheDocument();
+  });
+
+  it("no ledger row shows no line, never an invented reason", () => {
+    render(<FindingDetail finding={finding({ scope_decision: null } as Partial<ReviewFinding>)}
+      documents={[]} whyApplies={WHY} onChanged={vi.fn()} />);
+    expect(screen.queryByTestId("requirement-scope")).toBeNull();
   });
 });

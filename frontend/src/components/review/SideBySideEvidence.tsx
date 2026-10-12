@@ -11,9 +11,12 @@
  * A SIDE THAT CANNOT BE SHOWN SAYS WHY, in its own pane: no cited page, or a
  * document this screen could not open. It is never filled with the other
  * side's page or left blank, because an empty pane reads as "nothing there".
+ *
+ * #508: each page comes from the finding's evidence route, which boxes the
+ * finding's own stored text on it - or says it could not, and draws nothing.
  */
 import type { DocumentRecord, ReviewFinding, ReviewRunStandard } from "../../types/api";
-import { DocumentPreview } from "../DocumentPreview";
+import { EvidencePageImage } from "./EvidencePageImage";
 import { orNothing } from "./reviewFormat";
 
 export interface SideBySideEvidenceProps {
@@ -41,7 +44,7 @@ export function SideBySideEvidence(
       </div>
       <div className="grid gap-3 lg:grid-cols-2">
         <Pane
-          side="Submittal"
+          side="Submittal" findingId={finding.id}
           document={submittal}
           name={submittal?.filename}
           page={finding.contractor_page ?? null}
@@ -50,7 +53,7 @@ export function SideBySideEvidence(
           emptyText="No value was read from the submittal for this requirement."
         />
         <Pane
-          side="Standard"
+          side="Standard" findingId={finding.id}
           document={standard}
           name={standard?.filename ?? standardName}
           page={finding.standard_page ?? null}
@@ -63,8 +66,9 @@ export function SideBySideEvidence(
   );
 }
 
-function Pane({ side, document, name, page, label, text, emptyText }: {
+function Pane({ side, findingId, document, name, page, label, text, emptyText }: {
   side: "Submittal" | "Standard";
+  findingId: string;
   document: DocumentRecord | null;
   name?: string;
   page: number | null;
@@ -83,9 +87,11 @@ function Pane({ side, document, name, page, label, text, emptyText }: {
         <p className="whitespace-pre-wrap text-sm text-slateish-100">{text ?? emptyText}</p>
       </div>
       {document && page ? (
-        <div className="h-[32rem]">
-          <DocumentPreview doc={document} page={page} />
-        </div>
+        <EvidencePageImage
+          findingId={findingId}
+          side={side === "Submittal" ? "submittal" : "standard"}
+          page={page}
+        />
       ) : (
         <p className="rounded-[var(--radius-sm)] border border-dashed border-ink-600 p-3 text-xs text-slateish-500">
           {/* WHY THE PAGE IS MISSING, not a blank box: a pane with nothing
@@ -137,6 +143,21 @@ export function WhyStandardApplies({ finding, entry }: {
           This run holds no record of why this standard was selected.
         </p>
       )}
+      <RequirementScope finding={finding} />
     </div>
+  );
+}
+
+/** R21: why THIS requirement applies (or not) here, from the run's own scope
+ *  ledger, verbatim, with who decided. Nothing when the run recorded none:
+ *  the standard-level reason above is then the only one there is. */
+function RequirementScope({ finding }: { finding: ReviewFinding }) {
+  const decision = finding.scope_decision;
+  if (!decision) return null;
+  return (
+    <p data-testid="requirement-scope" className="text-xs text-slateish-300">
+      This requirement: {decision.reason}
+      <span className="ml-1 text-slateish-500">(decided by {decision.decided_by})</span>
+    </p>
   );
 }

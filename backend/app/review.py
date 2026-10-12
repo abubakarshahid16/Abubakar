@@ -269,7 +269,7 @@ STANDARD_WITHHELD = "standard not available to you"
 
 _STANDARD_NULLED = ("standard_document_id", "standard_clause", "standard_page",
                     "requirement_source_text", "requirement_id", "matched_phrase",
-                    "standard_name")
+                    "standard_name", "scope_decision")
 _STANDARD_LABELLED = ("requirement", "finding", "ai_rationale")
 _STANDARD_EMPTIED = ("governing_sources", "citation_ids", "unresolved_evidence")
 
@@ -589,9 +589,42 @@ def list_findings(*, document_id: str | None = None, status: str | None = None,
         sql += " WHERE " + " AND ".join(clauses)
     sql += (" ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'major' THEN 1 "
             "WHEN 'minor' THEN 2 ELSE 3 END, updated_at DESC")
-    return withhold_unreadable_standards(
-        [_row(row) for row in connect().execute(sql, args).fetchall()],
-        allowed_document_ids)
+    findings = [_row(row) for row in connect().execute(sql, args).fetchall()]
+    attach_scope_decisions(findings)
+    return withhold_unreadable_standards(findings, allowed_document_ids)
+
+
+def attach_scope_decisions(findings: list[dict]) -> list[dict]:
+    """R21 (#785): each finding carries its requirement's own scope decision
+    from the run's ledger (`scope_ledger`, table `review_scope_decisions`):
+    whether the requirement applies here and the plain-words reason, with who
+    decided. In place; `None` when the run recorded none (an older run, or a
+    finding with no requirement) - never an invented reason.
+
+    One query for every run in the list. It quotes nothing from the standard,
+    but it is about the standard's requirement, so a standard the caller may
+    not read withholds it like the clause (`_STANDARD_NULLED`).
+    """
+    for f in findings:
+        f["scope_decision"] = None
+    runs = sorted({f["review_run_id"] for f in findings
+                   if f.get("review_run_id") and f.get("requirement_id")})
+    if not runs:
+        return findings
+    conn = connect()
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table'"
+                    " AND name = 'review_scope_decisions'").fetchone() is None:
+        return findings
+    marks = ",".join("?" for _ in runs)
+    ledger = {(r["review_run_id"], r["requirement_id"]): {
+                  "state": r["state"], "reason_code": r["reason_code"],
+                  "reason": r["reason"], "decided_by": r["decided_by"]}
+              for r in conn.execute(
+                  "SELECT review_run_id, requirement_id, state, reason_code, reason, decided_by"
+                  f" FROM review_scope_decisions WHERE review_run_id IN ({marks})", runs)}
+    for f in findings:
+        f["scope_decision"] = ledger.get((f.get("review_run_id"), f.get("requirement_id")))
+    return findings
 
 
 def history(finding_id: str) -> list[dict]:

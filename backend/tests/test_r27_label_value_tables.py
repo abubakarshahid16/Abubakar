@@ -90,16 +90,25 @@ def test_a_header_row_with_one_number_in_it_is_still_a_header():
     header row can carry one number among its column names (a revision, a
     note mark). The first form of the rule above took "any cell states a
     value" as an answer row: a real nozzle schedule lost its column names and
-    most of its rows, and the invented set had no such table to say so (one
-    is written - `ds15` - and waits for the pre-commit hook to accept invented
-    PDFs under backend/tests/fixtures/synthetic). Above a schedule's data, an
-    answer row is one where EVERY cell after the label answers."""
+    most of its rows, and the invented set had no such table to say so (it
+    has one now: `ds15`, below). Above a schedule's data, an answer row is
+    one where EVERY cell after the label answers."""
     gutter = {0}
     header = ["1", "Mark", "Size", "Rating", "Flange type", "Service", "2"]
     assert g._states_a_value_beside_a_label(header, gutter)          # the loose test is fooled...
     assert not g._answers_in_every_cell(header, gutter)              # ...the strict one is not
     assert g._answers_in_every_cell(["", "Maximum flow", "150 m3/h", "150 m3/h"], gutter)
     assert not g._answers_in_every_cell(["", "Mark", "Size", "Rating"], gutter)
+
+
+def test_the_invented_nozzle_schedule_keeps_its_header_and_every_row():
+    table = _tables("ds15_vessel_nozzle_schedule.pdf")[0]
+    assert table["headerless"] is False and table["header_rows"] == [0]
+    assert table["labels"] == ["Mark", "Size", "Rating", "Flange type", "Service"]
+    rows = dict(_table_rows("ds15_vessel_nozzle_schedule.pdf"))
+    assert len(rows) == 16                                           # 4 marks x 4 columns
+    assert rows["N1 Size"] == "4" and rows["N3 Flange type"] == "long weld neck"
+    assert rows["N4 Service"] == "Drain"
 
 
 def test_an_answer_row_cut_off_from_its_header_does_not_start_the_body():

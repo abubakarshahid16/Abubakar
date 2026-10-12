@@ -388,6 +388,12 @@ export const reviews = {
       undefined,
       hasArrayField("runs"),
     ),
+  /** R21 / #508: the page one side of a finding cites, with the finding's
+   *  own stored text boxed on it. The text is looked up by finding id on the
+   *  server and never travels in this URL. `X-Answer-Located` says whether a
+   *  box was drawn. Fetched with the bearer header (`useAuthedImage`). */
+  evidenceImageUrl: (findingId: string, side: "submittal" | "standard") =>
+    `${BASE}/reviews/findings/${encodeURIComponent(findingId)}/evidence-image?side=${side}`,
   /** Which standards a run compared against, and why each one is there. */
   reviewRunStandards: (runId: string) =>
     request<{ standards: ReviewRunStandard[]; missing_references?: ReviewRunMissingReference[] }>(
