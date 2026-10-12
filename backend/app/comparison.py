@@ -2109,6 +2109,10 @@ def _run_comparison(
     model_held: dict[str, int] = {}
     model_matches = 0
     model_reasons: dict[str, int] = {}
+    #: #845: what the AI matcher did, counted where it happens - the run card
+    #: shows these with their denominators (`ai_numbers`).
+    matcher_counts = {"sent": 0, "no_candidates": 0, "proposed": 0, "refused_by_rule": 0,
+                      "reasons": {}}
     # ONE CACHE AND ONE BUDGET FOR THE WHOLE RUN. The cache answers a repeated
     # question for free; the budget is the stop that keeps a pre-filter defect
     # from turning into a review that calls a model thousands of times.
@@ -2161,6 +2165,15 @@ def _run_comparison(
             else:
                 chosen = match_by_model(
                     requirement, facts, cache=model_cache, budget=budget)
+                matcher_counts["sent"] += 1
+                if chosen["fact"] is not None:
+                    matcher_counts["proposed"] += 1
+                elif chosen.get("reason") is None:
+                    # no candidate field: the model was not asked
+                    matcher_counts["no_candidates"] += 1
+                else:
+                    why = chosen["reason"]
+                    matcher_counts["reasons"][why] = matcher_counts["reasons"].get(why, 0) + 1
                 # OWNER ORDER 2026-10-11 (item 4): THE MODEL ONLY PROPOSES.
                 # Its choice passes the same refusal rules a containment
                 # pairing does (unit dimension, equipment, table input,
@@ -2170,6 +2183,7 @@ def _run_comparison(
                            if chosen["fact"] is not None else None)
                 if refused:
                     rule_refusals[refused] = rule_refusals.get(refused, 0) + 1
+                    matcher_counts["refused_by_rule"] += 1
                     model_reason = f"{MODEL_REFUSED} ({refused})"
                 elif chosen["fact"] is not None:
                     match = chosen
@@ -2445,6 +2459,8 @@ def _run_comparison(
     reader = datasheets.latest_reader_summary(submittal_id)
     if reader:
         split = {**split, "reader": reader}
+    ai_matcher = matcher_summary(matcher_counts, model_matches=model_matches,
+                                 model_held=model_held)
     unchecked_counts = {
         "not_compared": split["applies_not_checked"],
         "not_applied": split["does_not_apply"],
@@ -2463,6 +2479,7 @@ def _run_comparison(
                        requirements_not_applied=requirements_not_applied,
                        applicability=applicability_summary,
                        datasheet_check_not_run=datasheet_check_not_run,
+                       ai_matcher=ai_matcher,
                        unchecked_counts=unchecked_counts,
                        requirement_split=split)
 
@@ -2498,6 +2515,7 @@ def _run_comparison(
         "model_calls": budget.calls,
         "model_reasons": model_reasons,
         "model_held": model_held,
+        "ai_matcher": ai_matcher,
         "sheet_kind": sheet,
         "rule_refusals": rule_refusals,
         "findings": findings,
@@ -3610,6 +3628,41 @@ def attach_crs_context(findings: list[dict]) -> list[dict]:
     return findings
 
 
+def matcher_summary(counts: dict, *, model_matches: int, model_held: dict) -> dict:
+    """#845: the AI matcher's work on one run, as counts with what each is out
+    of. `sent` requirements reached the tier (no rule pairing, not a tie);
+    `asked` is those the model was actually asked about (not `no_candidates`,
+    not stopped by the call budget). Every `proposed` pairing was either
+    `used` (it passed the match rules; `held` of those wait for the engineer)
+    or `refused_by_rule`. Of `asked`, the rest were `declined`, `unavailable`
+    (time-out or model down) or not paired for another named reason.
+    `enabled` false: the tier was off and asked nothing."""
+    if not settings.match_enabled:
+        return {"enabled": False}
+    engine = str(settings.match_engine or "ollama").strip().lower()
+    reasons = dict(counts["reasons"])
+    budget = reasons.pop(MODEL_BUDGET, 0)
+    declined = reasons.pop(MODEL_DECLINED, 0)
+    unavailable = reasons.pop(MODEL_UNAVAILABLE, 0)
+    proposed = counts["proposed"]
+    return {
+        "enabled": True,
+        "engine": engine,
+        "model": "claude" if engine == "claude" else f"ollama:{settings.answer_model}",
+        "sent": counts["sent"],
+        "asked": counts["sent"] - counts["no_candidates"] - budget,
+        "no_candidates": counts["no_candidates"],
+        "not_asked_budget": budget,
+        "proposed": proposed,
+        "used": model_matches,
+        "held": sum(model_held.values()),
+        "refused_by_rule": counts["refused_by_rule"],
+        "declined": declined,
+        "unavailable": unavailable,
+        "other": reasons,
+    }
+
+
 def _store_run_outcome(review_run_id: str, recommendation: dict,
                        coverage: dict, *, page_coverage: dict | None = None,
                        missing_references: list[str] | None = None,
@@ -3620,7 +3673,8 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
                        applicability: dict | None = None,
                        datasheet_check_not_run: str | None = None,
                        unchecked_counts: dict | None = None,
-                       requirement_split: dict | None = None) -> None:
+                       requirement_split: dict | None = None,
+                       ai_matcher: dict | None = None) -> None:
     """Persist the AI recommendation and the completeness it was gated on.
 
     B3: `page_coverage` is the page ledger's summary AT THE TIME OF THE RUN -
@@ -3663,6 +3717,8 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
                 # #633: the counts the unchecked share is taken from.
                 "unchecked_counts": unchecked_counts,
                 "requirement_split": requirement_split,
+                # #845: the AI matcher's counts, as this run made them.
+                "ai_matcher": ai_matcher,
             # completed_at: the readiness strip's "since the last run" is
             # measured from here, not from updated_at (which the engineer's
             # code decision moves later).

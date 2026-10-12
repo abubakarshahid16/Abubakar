@@ -1173,6 +1173,10 @@ class Settings(BaseSettings):
     #: the check stops for the run (recorded). The Claude lane keeps its own.
     #: Env: REVIEW_AI_CHECK_LOCAL_TIMEOUT_S.
     review_ai_check_local_timeout_s: float = 300.0
+    #: #844: seconds the AI engineering check may take in total on the LOCAL
+    #: model (it asks one page per call); pages left are named on the run.
+    #: Env: REVIEW_AI_CHECK_LOCAL_MAX_SECONDS.
+    review_ai_check_local_max_seconds: float = 1200.0
     #: #838: when a review's documents are not approved for the cloud model,
     #: the re-check runs on the LOCAL model. Seconds one such call may take,
     #: and seconds the whole run may take before it stops with what it has

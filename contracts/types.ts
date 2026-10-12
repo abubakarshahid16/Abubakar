@@ -790,6 +790,32 @@ export interface ReviewRunSummary {
     cost_usd: number | null;
     plain: string;
   } | null;
+  /** #845: the run's AI numbers (reader, matcher, AI check, wording), each
+   *  with its denominator and where it ran, from stored data. Null when the
+   *  run holds no record of any AI step; a step with no record is null. */
+  ai_numbers?: AiNumbers | null;
+}
+
+/** #845: one AI step of a run as the run stored it. Every count in `lines`
+ *  is printed with what it is out of. */
+export interface AiStepNumbers {
+  step: string;
+  /** off / ran / incomplete / not run */
+  state: string;
+  /** "local model" / "cloud model", or null when the record names neither. */
+  where: string | null;
+  model: string | null;
+  /** #842: why the local model stood in for the cloud model, or null. */
+  local_instead: string | null;
+  lines: string[];
+}
+
+/** #845: the four AI steps of a run. A step with no record is null. */
+export interface AiNumbers {
+  reader: AiStepNumbers | null;
+  matcher: AiStepNumbers | null;
+  engineering_check: AiStepNumbers | null;
+  wording: AiStepNumbers | null;
 }
 
 /** Which pages of a submittal were read into fields, and why the rest were
