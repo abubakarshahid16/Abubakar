@@ -492,12 +492,17 @@ def provider():
     """The reasoning provider for page images - Claude only. None (and the
     reason) when Claude is not available: the local engine reads no images,
     and a fallback here would be a silent no-op that looks like a reading."""
-    from .reasoning_provider import claude_available, get_provider
+    from .config import settings
+    from .reasoning_provider import CLAUDE, ClaudeProvider, claude_unavailable_for_task
 
-    ok, why = claude_available()
-    if not ok:
+    # #830 / #501: THE PAGE-IMAGE READER IS A STEP WITH ITS OWN SWITCH
+    # (`GEOMETRY_READER_ENABLED`), so under REASONING_PROVIDER=per_task it
+    # may use Claude while every step without a switch of its own stays
+    # local. `ollama` still refuses it; `claude` means what it always meant.
+    code, why = claude_unavailable_for_task(CLAUDE if settings.geometry_reader_enabled else None)
+    if code is not None:
         return None, why
-    return get_provider("reasoning", step=VISION_STEP), None
+    return ClaudeProvider(settings.claude_reasoning_model, step=VISION_STEP), None
 
 
 # ------------------------------------------------------------ reader status
@@ -523,7 +528,8 @@ STATUS_TEXT: dict[str, tuple[str, str]] = {
         "Set GEOMETRY_READER_ENABLED=true in backend/.env and restart the backend."),
     "PROVIDER_OFF": (
         "Claude is not the selected reasoning provider.",
-        "Set REASONING_PROVIDER=claude in backend/.env and restart the backend."),
+        "Set REASONING_PROVIDER=claude (every AI step) or REASONING_PROVIDER=per_task "
+        "(only the steps switched to Claude) in backend/.env and restart the backend."),
     "EGRESS_OFF": (
         "Sending pages to Claude is not permitted in the settings.",
         "Set STANDARDS_READER_ENABLED=true and STANDARDS_READER_ALLOW_PUBLIC_EGRESS=true "
@@ -567,11 +573,11 @@ def _local_status(now: float) -> dict | None:
     """The free checks, in fixing order. None when all pass."""
     from . import claude_spend
     from .config import settings
-    from .reasoning_provider import claude_unavailable
+    from .reasoning_provider import CLAUDE, claude_unavailable_for_task
 
     if not settings.geometry_reader_enabled:
         return _status("GEOMETRY_OFF", now=now)
-    code, _why = claude_unavailable()
+    code, _why = claude_unavailable_for_task(CLAUDE)      # its own switch is on (checked above)
     if code is not None:
         return _status(code, now=now)
     caps = claude_spend.Caps.from_settings()
