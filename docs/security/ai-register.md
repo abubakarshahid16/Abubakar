@@ -36,6 +36,7 @@ A switch is any `*_enabled` flag, or `*_provider` / `*_reader` / `*_engine` sett
 | `answer_judge_enabled` | `False` | Local model or Claude API | Judges whether chat passages answer the question; may only downgrade | Structural checks only |
 | `rule_parse_model_enabled` | `False` | Claude API | Turns a table or formula clause into a structured rule; every number must be on the page | Code parser only |
 | `geometry_reader_enabled` | `False` | Claude API (vision) | The geometry reader's form path and the vision reader for pages no text reader can read | Text readers only |
+| `vision_reader_engine` | `ollama` | Claude API (vision) | Which engine the page-image reader uses under `REASONING_PROVIDER=per_task` (#830). `claude`: page images of approved datasheets go to the Claude API (both egress flags and a key). `ollama` (default): none, since the local model reads no images; `geometry_reader_enabled` alone sends no image under `per_task` | No page image leaves under `per_task` |
 | `geometry_table_reader_enabled` | `True` | No model (code) | The geometry reader's table path, cell by cell. Listed because it shares the reader family; it calls no AI | The rule readers alone |
 
 **Done when:** this register is committed, the owner signs it once (a comment "approved" on #806), and the CI check passes.

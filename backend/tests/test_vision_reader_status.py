@@ -111,16 +111,23 @@ def test_ready_is_cached_so_the_screen_calls_claude_at_most_once_a_minute(monkey
 
 # ------------------------------------------- #830 / #501: the per-task switch
 
-@pytest.mark.parametrize("provider_value, geometry, available", [
-    ("per_task", True, True),        # its own switch is on: Claude for this step only
-    ("per_task", False, False),      # its own switch is off: nothing under per_task
-    ("claude", True, True),          # the whole lane: as before
-    ("ollama", True, False),         # the master switch refuses, whatever the step says
-    ("", True, False),
+@pytest.mark.parametrize("provider_value, engine, available", [
+    ("per_task", "claude", True),        # its own engine line says claude: Claude for this step only
+    ("per_task", "CLAUDE ", True),
+    ("per_task", "ollama", False),       # GEOMETRY_READER_ENABLED alone sends no image under per_task
+    ("per_task", "", False),
+    ("claude", "ollama", True),          # the whole lane: as it always was
+    ("claude", "claude", True),
+    ("ollama", "claude", False),         # the master switch refuses, whatever the step says
+    ("", "claude", False),
 ])
-def test_the_page_image_reader_is_a_step_with_its_own_switch(monkeypatch, provider_value, geometry, available):
+def test_the_page_image_reader_has_its_own_engine_line(monkeypatch, provider_value, engine, available):
+    """CLAUDE.md rule 1: under per_task, Claude only for a step whose OWN
+    engine setting says claude. `GEOMETRY_READER_ENABLED` (on in this file's
+    fixture) is not that line: its first job is a local code reader."""
     monkeypatch.setattr(settings, "reasoning_provider", provider_value)
-    monkeypatch.setattr(settings, "geometry_reader_enabled", geometry)
+    monkeypatch.setattr(settings, "vision_reader_engine", engine)
+    assert settings.geometry_reader_enabled is True
     provider, why = vision_reader.provider()
     assert (provider is not None) is available
     if available:
@@ -129,13 +136,20 @@ def test_the_page_image_reader_is_a_step_with_its_own_switch(monkeypatch, provid
         assert why
 
 
-def test_under_per_task_the_status_is_ready_and_a_step_without_a_switch_stays_local(monkeypatch):
+def test_the_engine_line_ships_local():
+    from app.config import Settings
+    assert Settings.model_fields["vision_reader_engine"].default == "ollama"
+
+
+def test_under_per_task_the_status_names_the_engine_line(monkeypatch):
     from app import reasoning_provider as rp
     monkeypatch.setattr(settings, "reasoning_provider", "per_task")
     monkeypatch.setattr(reader_transport, "list_models", lambda **_kw: ["claude-test"])
-    vision_reader._status_cache.clear()
+    monkeypatch.setattr(settings, "vision_reader_engine", "ollama")
+    status = vision_reader.reader_status(force=True)
+    assert status["state"] == "TASK_ENGINE_LOCAL" and "VISION_READER_ENGINE=claude" in status["fix"]
+    monkeypatch.setattr(settings, "vision_reader_engine", "claude")
     assert vision_reader.reader_status(force=True)["state"] == "READY"
     assert rp.claude_available()[0] is False               # wording, applicability, chat: local
     monkeypatch.setattr(settings, "reasoning_provider", "ollama")
     assert vision_reader.reader_status(force=True)["state"] == "PROVIDER_OFF"
-    assert "per_task" in vision_reader.STATUS_TEXT["PROVIDER_OFF"][1]

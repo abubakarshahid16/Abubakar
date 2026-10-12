@@ -111,6 +111,7 @@ EGRESS_SAFE: dict[str, object] = {
     "review_ai_check_enabled": False,
     "rule_parse_model_enabled": False,
     "geometry_reader_enabled": False,      # also gates the Claude vision reader
+    "vision_reader_engine": "ollama",      # #830: "claude" sends page images out under per_task
     "answer_judge_enabled": False,          # a model call per answer
     "applicability_reasoning_enabled": False,  # a model call per standard per review
     "crs_ai_wording_enabled": False,       # a model call per CRS row per review
