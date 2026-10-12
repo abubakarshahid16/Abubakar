@@ -180,3 +180,15 @@ def test_no_number_and_not_in_the_graph_are_named():
     world = _world()                                           # doc_std has no classification record
     assert _latest(world, STD)["state"] == okf.NO_NUMBER
     assert _latest(world, "okf:standard:doc_nowhere") == {"state": okf.CONCEPT_MISSING}
+
+
+def test_a_walk_reads_one_nodes_edges_not_every_edge():
+    """Measured on a whole library: scanning every edge at each step took
+    over ten minutes; the graph now keeps its edges by node."""
+    _concepts, built = _world()
+    for end, index in (("from", "leaving"), ("to", "arriving")):
+        assert sorted(built[index]) == sorted({edge[end] for edge in built["edges"]})
+        for node, edges in built[index].items():
+            assert edges == [edge for edge in built["edges"] if edge[end] == node]
+    walked = dict(built, edges=[])                    # the walk does not need the flat list
+    assert okf.applicable(walked, PUMP)["state"] == okf.ANSWERED

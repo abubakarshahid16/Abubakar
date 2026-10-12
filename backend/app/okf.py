@@ -356,7 +356,15 @@ def graph(concepts: list[dict], *, conn=None) -> dict:
                     edges.append({"from": concept["id"], "rel": link["rel"], "to": link["to"],
                                   "cite": dict(link["cite"])})
     edges.sort(key=lambda e: (e["from"], e["rel"], e["to"]))
-    return {"nodes": nodes, "edges": edges,
+    # The same edges by the node they leave and the node they arrive at: a
+    # walk asks for one node's edges, and scanning every edge per step made a
+    # question over a whole library take minutes (#515, measured).
+    leaving: dict[str, list[dict]] = {}
+    arriving: dict[str, list[dict]] = {}
+    for edge in edges:
+        leaving.setdefault(edge["from"], []).append(edge)
+        arriving.setdefault(edge["to"], []).append(edge)
+    return {"nodes": nodes, "edges": edges, "leaving": leaving, "arriving": arriving,
             "report": {"nodes": len(nodes), "edges": len(edges), "links_refused": refused,
                        "nodes_by_kind": {k: sum(1 for n in nodes.values() if n["kind"] == k) for k in KINDS},
                        "edges_by_relation": {r: sum(1 for e in edges if e["rel"] == r) for r in RELATIONS}}}
@@ -367,9 +375,8 @@ def neighbours(built: dict, concept_id_: str, *, relation: str | None = None,
     """The edges that leave a node (or, with `incoming`, arrive at it),
     optionally of one relation. Each carries its citation: a step along the
     graph is never taken without one."""
-    end = "to" if incoming else "from"
-    return [e for e in built["edges"]
-            if e[end] == concept_id_ and (relation is None or e["rel"] == relation)]
+    at_node = built["arriving" if incoming else "leaving"].get(concept_id_, ())
+    return [e for e in at_node if relation is None or e["rel"] == relation]
 
 
 def load(directory: Path | None = None) -> dict:
