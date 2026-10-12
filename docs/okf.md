@@ -90,6 +90,16 @@ What the numbers say: 574 stored requirements point at a chunk that does not sho
 
 Measured read-only on a backup, counts only (12 Oct 2026): the 26 standards of the three approved datasheets give 9,628 nodes and 8,231 edges, 0 links refused, in 0.4 s. The whole library (280 standards with stored requirements) gives 67,185 nodes and 56,117 edges, 0 refused, in about 4 s.
 
+## No uncited answer (#516)
+
+An answer made from the graph is a list of sentences, each with what it rests on. `okf.check_answer` is the only way such an answer is released. A sentence is kept only when it names at least one thing and **every** thing it names resolves:
+
+- `{"concept": id}`: a node that is in the graph, is ok, and whose own source resolves now (a standard or an equipment type has no page of its own: it holds only when a cited edge reaches it);
+- `{"edge": {"from", "rel", "to"}}`: an edge that is in the graph;
+- `{"cite": {...}}`: a raw citation that resolves.
+
+One bad citation refuses the whole sentence; a half-supported sentence is not shown with its good half. A refused sentence comes back as its position and a closed reason (`no_citation`, `concept_not_in_the_graph`, `concept_not_ok`, `edge_not_in_the_graph`, `not_a_citation`, or a citation reason). Its text is not returned and not logged.
+
 ## Not in version 1
 
 Named so they are not forgotten: concepts for a datasheet, a revision and a finding; cross-reference links between standards (R8, #772); engineer approval and versions of the map (#833). Each concept already carries `content_sha256`, which is what a version will be made of. The graph (#514), its queries (#515) and the "no uncited answer" check (#516) are built on these files.
