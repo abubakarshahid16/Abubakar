@@ -48,7 +48,8 @@ MUTATIONS: tuple[Mutation, ...] = (
        '    field = item.get("field")\n    if not field:\n        return True\n', "    return True\n",
        "field_words"),
     _m(4449, "the least specific item wins", RS,
-       "    return max(hits, key=_specificity) if hits else None", "    return min(hits, key=_specificity) if hits else None",
+       # re-anchored 2026-10-13 (#881): the empty case returns earlier now
+       "    return max(hits, key=_specificity)\n", "    return min(hits, key=_specificity)\n",
        "most_specific"),
     _m(4450, "a citation need not contain the clause", RS,
        "    return not clause or clause in page\n", "    return True\n", "citation"),

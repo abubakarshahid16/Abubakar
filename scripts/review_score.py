@@ -102,6 +102,8 @@ def text_report(r: dict, bar: dict | None = None) -> str:
         f"Key: {r['key']} ({source_label(r)})   Model: {r['model'] or 'not stated'}",
         f"  findings in the run: {r['findings']}",
         f"  recall:            {pct(r['defects_found'], r['defects'])}   [{mark[status['recall']]} the proposed bar]",
+        *([f"                     ({r['defects_found_without_page']} of the found: the finding names no datasheet page)"]
+          if r.get("defects_found_without_page") else []),
         f"  precision:         {pct(r['correct_findings'], r['judged_findings'])}"
         + ("" if r["complete_for_flags"] else f"   ({r['findings_not_judged_by_key']} flagged finding(s) are not judged by this key)"),
         f"  false compliant:   {r['false_compliant']}   [{mark[status['false_compliant']]}; the limit is 0]",
