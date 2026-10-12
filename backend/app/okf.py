@@ -388,3 +388,82 @@ def load(directory: Path | None = None) -> dict:
         except (ValueError, OSError):
             unreadable.append(path.relative_to(base).as_posix())
     return {"concepts": concepts, "unreadable": unreadable}
+
+
+# ------------------------------------ #516: no uncited answer from the graph
+#
+# AN ANSWER MADE FROM THE GRAPH IS A LIST OF SENTENCES, EACH WITH WHAT IT
+# RESTS ON. A summary across a standard ("these clauses limit noise") is the
+# kind of sentence that sounds right and cites nothing. So the check is per
+# sentence, in code, and it is the only way such an answer is released: a
+# sentence is kept only when it names at least one thing it rests on and
+# EVERY thing it names resolves. One bad citation refuses the sentence - a
+# half-supported sentence is not shown with its good half.
+#
+# What a sentence may rest on:
+#   {"concept": "<id>"}                    a node that is in the graph, is ok,
+#                                          and whose own source resolves;
+#   {"edge": {"from", "rel", "to"}}        an edge that is in the graph (its
+#                                          citation was checked when built);
+#   {"cite": {"document_id", ...}}         a raw citation that resolves.
+
+#: Why a sentence was refused (closed words).
+UNCITED = "no_citation"
+CONCEPT_MISSING = "concept_not_in_the_graph"
+CONCEPT_NOT_OK = "concept_not_ok"
+EDGE_MISSING = "edge_not_in_the_graph"
+BAD_REFERENCE = "not_a_citation"
+
+
+def _support(ref, built: dict, sources: dict[str, dict | None], conn) -> str | None:
+    """None when `ref` holds, else the closed reason."""
+    if not isinstance(ref, dict):
+        return BAD_REFERENCE
+    if "concept" in ref:
+        node = built["nodes"].get(ref["concept"])
+        if node is None:
+            return CONCEPT_MISSING
+        if node.get("state") != OK:
+            return CONCEPT_NOT_OK
+        source = sources.get(ref["concept"])
+        # A standard or an equipment type has no page of its own: it holds
+        # through an edge that reaches it, which was cited when built.
+        if source is None:
+            reached = any(e["to"] == ref["concept"] or e["from"] == ref["concept"] for e in built["edges"])
+            return None if reached else UNCITED
+        return resolve(source, conn=conn)
+    if "edge" in ref:
+        wanted = ref["edge"] if isinstance(ref["edge"], dict) else {}
+        key = (wanted.get("from"), wanted.get("rel"), wanted.get("to"))
+        return None if any((e["from"], e["rel"], e["to"]) == key for e in built["edges"]) else EDGE_MISSING
+    if "cite" in ref:
+        return resolve(ref["cite"] if isinstance(ref["cite"], dict) else None, conn=conn)
+    return BAD_REFERENCE
+
+
+def check_answer(sentences: list[dict], built: dict, concepts: list[dict], *, conn=None) -> dict:
+    """Release only the sentences of a graph answer that are fully cited.
+
+    `sentences` are `{"text", "cites": [...]}`. Returns `{"kept": [...],
+    "refused": [{"index", "reason"}], "counts": {reason: n}}`. A refused
+    sentence's TEXT is not returned: it is not shown, and it is not logged."""
+    conn = conn or connect()
+    sources = {c["id"]: c.get("source") for c in concepts}
+    kept: list[dict] = []
+    refused: list[dict] = []
+    counts: dict[str, int] = {}
+    for index, sentence in enumerate(sentences or []):
+        cites = sentence.get("cites") if isinstance(sentence, dict) else None
+        text = str(sentence.get("text") or "").strip() if isinstance(sentence, dict) else ""
+        reason = None
+        if not text or not isinstance(cites, list) or not cites:
+            reason = UNCITED
+        else:
+            reason = next((why for why in (_support(ref, built, sources, conn) for ref in cites)
+                           if why is not None), None)
+        if reason is None:
+            kept.append({"text": text, "cites": cites})
+        else:
+            refused.append({"index": index, "reason": reason})
+            counts[reason] = counts.get(reason, 0) + 1
+    return {"kept": kept, "refused": refused, "counts": counts}
