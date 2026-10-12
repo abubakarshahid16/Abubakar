@@ -538,6 +538,9 @@ export interface CrsPreviewRow {
    *  `comment` ONLY on an unnumbered row; a numbered row's item_no is the one
    *  ID a contractor quotes back. */
   row_ref: string;
+  /** #892 item 1: the stored finding(s) the row stands on - every finding of
+   *  a grouped row. [] for a row no finding stands on. Never printed. */
+  finding_ids?: string[];
   document_name: string;
   page_section: string;
   comment: string;

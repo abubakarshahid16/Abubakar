@@ -191,6 +191,14 @@ ROW_REF_LABEL = "Ref"
 ROW_REF_DIGITS = 6
 
 
+def row_finding_ids(finding: dict) -> list[str]:
+    """#892 item 1: the finding ids a view row carries."""
+    ids = [str(i) for i in (finding.get("finding_ids") or []) if i]
+    if not ids and finding.get("finding_id"):
+        ids = [str(finding["finding_id"])]
+    return list(dict.fromkeys(ids))
+
+
 def row_reference(review_run_id: str, finding: dict, salt: int = 0) -> str:
     """The stable, system-generated number for one CRS row.
 
@@ -315,6 +323,12 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
             "item_no": crs_ref or n,
             "row_ref": ref,
             "crs_ref": crs_ref,
+            # #892 item 1: the stored finding(s) the row stands on, so every
+            # row of the sheet can be traced back to its evidence record.
+            # Never printed in the workbook. A caller that sends only the
+            # single `finding_id` still gets it listed; a row no finding
+            # stands on (a note, a standards check) lists none.
+            "finding_ids": row_finding_ids(finding),
             "document_name": finding.get("document_name", ""),
             "page_section": finding.get("page_section", ""),
             # The reference is the comment's FIRST LINE rather than an eighth
