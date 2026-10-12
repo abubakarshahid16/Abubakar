@@ -44,7 +44,7 @@ staged=$(git diff --cached --name-only --diff-filter=ACMR)
 
 forbidden=$(printf '%s\n' "$staged" \
   | grep -E '\.(pdf|onnx|gguf|safetensors|bin|sqlite|sqlite3|db|db-wal|db-shm|lance)$' \
-  | grep -v '^tests/fixtures/synthetic/' || true)
+  | grep -v '^backend/tests/fixtures/synthetic/' || true)
 
 if [ -n "$forbidden" ]; then
   echo "${RED}BLOCKED: forbidden file type staged${NC}"
@@ -52,7 +52,7 @@ if [ -n "$forbidden" ]; then
   echo ""
   echo "  Client PDFs, extracted text, embeddings, model weights and databases"
   echo "  must never enter this repository (EXECUTION.md section 6)."
-  echo "  Synthetic fixtures belong in tests/fixtures/synthetic/."
+  echo "  Synthetic fixtures belong in backend/tests/fixtures/synthetic/."
   fail=1
 fi
 
