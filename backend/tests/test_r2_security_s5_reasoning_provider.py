@@ -50,7 +50,7 @@ def _fake_transport(monkeypatch):
     return sent
 
 
-@pytest.mark.parametrize("provider", ["ollama", "", "off"])
+@pytest.mark.parametrize("provider", ["ollama", "", "off", "per_task"])   # #501: per_task opens no route
 @pytest.mark.parametrize("method,path", ROUTES)
 def test_a_review_route_refuses_when_the_provider_is_not_claude(
         method, path, provider, monkeypatch):

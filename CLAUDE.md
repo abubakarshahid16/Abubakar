@@ -42,7 +42,9 @@ carries the client's name; only the owner can rename it.
    `market_transport.py` (market lane, off by default), `model_transport.py`
    (local Ollama only — `ollama_url` validated by `config.check_model_url`),
    `reader_transport.py` (Claude API: the reasoning provider and the reader;
-   off unless `REASONING_PROVIDER=claude` AND both `STANDARDS_READER_*` egress
+   off unless `REASONING_PROVIDER=claude` (or `=per_task`, and then only for a
+   step whose OWN engine setting says claude: `DATASHEET_AI_READER`,
+   `MATCH_ENGINE` - owner decision 2026-10-12, #501) AND both `STANDARDS_READER_*` egress
    flags AND a key - owner decision 2026-09-25, USD caps in `claude_spend`,
    which the three `claude_api` review routes reach via `claude_spend.metered`) and the datasheet AI reader (`datasheet_ai`, with `DATASHEET_AI_READER=claude`) reaches the same way and
    `notifications.py` (SMTP, off by default). Known gap: the socket-containment
