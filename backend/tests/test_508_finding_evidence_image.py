@@ -63,9 +63,15 @@ def test_the_standard_sentence_is_boxed_on_its_page(world, tmp_path):
 
 def test_a_value_too_short_to_place_safely_is_shown_without_a_box(world, tmp_path):
     finding = _reviewed(world, tmp_path)
+    # #785: the label fallback would box "Noise level"; with no label on the
+    # page and the value "95" under the safe length, nothing is placed.
+    with connect() as conn:
+        conn.execute("UPDATE review_findings SET contractor_section = ?, fact_id = NULL WHERE id = ?",
+                     ("Sound pressure", finding["id"]))
     r = _get(finding["id"], world["admin"], side="submittal")
     assert r.status_code == 200 and r.content[:4] == b"\x89PNG"
     assert r.headers["x-answer-located"] == "0"      # the stored value "95" is under the safe length
+    assert r.headers["x-evidence-box"] == "none"
 
 
 def test_text_that_is_not_on_the_page_gets_no_box(world, tmp_path):
