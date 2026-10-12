@@ -30,13 +30,28 @@ JSON, shape in `answer_key.schema.json`, sample in `keys/invented-pump.json`
 (invented, to test the scorer).
 
 * `source`: `invented`, `engineer_confirmed` (a named engineer wrote or approved
-  it; `approved_by` is required) or `hidden_exam`.
+  it; `approved_by` is required), `gold_lite` or `hidden_exam`.
+* `gold_lite` (#829): read by a named session or person from real documents
+  (`read_by` is required), **not confirmed by an engineer** (`approved_by` is
+  refused). Every report says so beside the key's name. It shows a change
+  between runs (a met item that stops being met, a new false compliant); it
+  does not prove a verdict is right. A gold-lite key built from client
+  documents stays on this machine: only ids and counts are committed.
 * `items[]`: `id`, `kind` (`defect`, `met`, `trap`, `not_applicable`),
   `standard` (file name or document number), `clause`, optional `field`.
 * A finding matches the item whose standard matches and whose clause is equal to
   or above the finding's clause (`4.2` matches `4.2.1`, not `4.20`); a `field`
   must have all its words in the finding. The most specific item wins; a finding
   answers one item.
+
+* **Checklist items (#829).** A checklist finding has no standard document: its
+  label carries the standard and the clause together ("API 520-I 5.3"). The
+  export splits it (`standard`, `clause`, `checklist: true`), so a key item
+  names them the usual way. A label that is not "a standard, then a clause
+  number" is left as it is; no standard is guessed.
+* `submittal_page` (optional, on an item): the datasheet page the item is about,
+  for a sheet that covers several valves or tags. A finding answers the item
+  only on that page; an item without it is answered on any page.
 
 ## The findings file (`review-findings/1`)
 
