@@ -1,0 +1,83 @@
+{
+ "meta": {
+  "made_by": "session 2",
+  "made_at": "2026-10-12",
+  "main": "f1848fd (review code of the run: ce57256 + scorer-only changes)",
+  "database": "a copy of the verified backup before-live-review-f9-2026-10-12b",
+  "engineer_confirmed": false,
+  "ai_on": "defaults (AI reader and AI matcher on, local model)"
+ },
+ "sheets": {
+  "psv": {
+   "run_id": "c55f186d-f91e-4325-b2f9-fbc9e4a56a4a",
+   "submittal_document_id": "doc_d30f4c63d481",
+   "run_created_at": "2026-10-12T05:58:31Z",
+   "findings": 243,
+   "by_status": {
+    "COMPLIANT": 94,
+    "MISSING_INFORMATION": 27,
+    "NEEDS_ENGINEER_REVIEW": 74,
+    "NOT_IN_DOCUMENT_SCOPE": 48
+   },
+   "verdict_rows": 94,
+   "key_items": 94,
+   "key_items_by_kind": {
+    "met": 94
+   },
+   "verdict_rows_without_a_standard_or_clause": 0,
+   "every_item_answered_by_exactly_its_own_finding": true,
+   "answer_file_checksum_sha256": "ae7150171f36e6fb038ed4e07e7ac833459cf868fae72692405da82c249ac4a6",
+   "workbook_rows": 151,
+   "engineer_cells_filled": 0,
+   "source": "gold_lite",
+   "engineer_confirmed": false,
+   "read_by": "session 1 hand-checked these rows on copies (11 Oct 2026: 102 checked, 94 remain after #849); assembled by session 2"
+  },
+  "m03": {
+   "run_id": "ebd5ded8-775b-4e16-a152-8358c9f7552a",
+   "submittal_document_id": "doc_da3fcc0aaacc",
+   "run_created_at": "2026-10-12T06:18:45Z",
+   "findings": 4232,
+   "by_status": {
+    "MISSING_INFORMATION": 121,
+    "NEEDS_ENGINEER_REVIEW": 559,
+    "NOT_IN_DOCUMENT_SCOPE": 3552
+   },
+   "verdict_rows": 0,
+   "key_items": 0,
+   "key_items_by_kind": {},
+   "verdict_rows_without_a_standard_or_clause": 0,
+   "every_item_answered_by_exactly_its_own_finding": null,
+   "answer_file_checksum_sha256": null,
+   "workbook_rows": 151,
+   "engineer_cells_filled": 0,
+   "source": "gold_lite",
+   "engineer_confirmed": false,
+   "note": "no verdict rows in the run, so no key; workbook only"
+  },
+  "s0810": {
+   "run_id": "ee2d8860-0879-40e2-b676-9f698eacbd91",
+   "submittal_document_id": "doc_2ec2934f8d3f",
+   "run_created_at": "2026-10-12T07:40:34Z",
+   "findings": 4787,
+   "by_status": {
+    "COMPLIANT": 2,
+    "NEEDS_ENGINEER_REVIEW": 420,
+    "NOT_IN_DOCUMENT_SCOPE": 4363,
+    "(no status)": 2
+   },
+   "verdict_rows": 2,
+   "key_items": 0,
+   "key_items_by_kind": {},
+   "verdict_rows_without_a_standard_or_clause": 0,
+   "every_item_answered_by_exactly_its_own_finding": null,
+   "answer_file_checksum_sha256": null,
+   "workbook_rows": 32,
+   "engineer_cells_filled": 0,
+   "source": "gold_lite",
+   "engineer_confirmed": false,
+   "verdict_rows_left_out_of_the_key": 2,
+   "why_left_out": "session 2 read both COMPLIANT rows on 12 Oct 2026: one is a conditional rule whose conditions were not checked, the other passes by the sign of a negative gauge pressure and cites a table number as its clause. Kept in the workbook for an engineer; not a gold-lite 'met'."
+  }
+ }
+}

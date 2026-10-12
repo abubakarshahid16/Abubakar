@@ -3202,9 +3202,10 @@ def _ask_claude_for_a_pair(prompt: str) -> tuple[str | None, str | None]:
     import dataclasses
 
     from . import claude_spend, reader_api, reader_transport
-    from .reasoning_provider import claude_unavailable
+    from .reasoning_provider import claude_unavailable_for_task
+    # #501: the matcher's own engine setting, under the provider switch.
     try:
-        code, _why = claude_unavailable()
+        code, _why = claude_unavailable_for_task(settings.match_engine)
         if code is not None:
             return None, MODEL_UNAVAILABLE
         transport = reader_transport.transport()
