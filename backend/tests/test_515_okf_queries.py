@@ -101,8 +101,10 @@ def test_the_walk_ends_at_an_equipment_type_and_does_not_spread_through_it():
         conn.execute("UPDATE standard_requirements SET equipment_type = ? WHERE clause = '4.2'", (PUMP,))
     _concepts, built = _world(("doc_std", "doc_other"))
     assert len(okf.applicable(built, PUMP)["standards"]) == 2
-    touched = {a["concept"] for a in okf.impact(built, STD)["affected"]}
-    assert not [c for c in touched if "doc_other" in c]
+    touched = okf.impact(built, STD)["affected"]
+    # doc_std's two requirements and no third: a requirement id does not name its standard, so count them
+    assert sorted(a["kind"] for a in touched) == ["clause", "clause", "equipment_type", "requirement", "requirement"]
+    assert all(edge["cite"]["document_id"] == "doc_std" for a in touched for edge in a["path"])
     assert len(okf.impact(built, okf.concept_id("equipment_type", PUMP))["affected"]) == 2     # asked directly: both
 
 
