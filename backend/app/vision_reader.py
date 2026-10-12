@@ -488,16 +488,29 @@ def read_page(page: Any, page_no: int, provider, *,
     return reading
 
 
+def engine_setting() -> str:
+    """`settings.vision_reader_engine`, folded."""
+    from .config import settings
+    return str(settings.vision_reader_engine or "").strip().lower()
+
+
 def provider():
     """The reasoning provider for page images - Claude only. None (and the
     reason) when Claude is not available: the local engine reads no images,
     and a fallback here would be a silent no-op that looks like a reading."""
-    from .reasoning_provider import claude_available, get_provider
+    from .config import settings
+    from .reasoning_provider import ClaudeProvider, claude_unavailable_for_task
 
-    ok, why = claude_available()
-    if not ok:
+    # #830 / #501: THE PAGE-IMAGE READER HAS ITS OWN ENGINE LINE
+    # (`VISION_READER_ENGINE`), so under REASONING_PROVIDER=per_task it uses
+    # Claude only when that line says claude - CLAUDE.md rule 1 as written.
+    # `GEOMETRY_READER_ENABLED` alone sends nothing under per_task: it also
+    # switches on a local code reader. `ollama` as the provider refuses it;
+    # `claude` as the provider means what it always meant.
+    code, why = claude_unavailable_for_task(engine_setting())
+    if code is not None:
         return None, why
-    return get_provider("reasoning", step=VISION_STEP), None
+    return ClaudeProvider(settings.claude_reasoning_model, step=VISION_STEP), None
 
 
 # ------------------------------------------------------------ reader status
@@ -523,7 +536,13 @@ STATUS_TEXT: dict[str, tuple[str, str]] = {
         "Set GEOMETRY_READER_ENABLED=true in backend/.env and restart the backend."),
     "PROVIDER_OFF": (
         "Claude is not the selected reasoning provider.",
-        "Set REASONING_PROVIDER=claude in backend/.env and restart the backend."),
+        "Set REASONING_PROVIDER=claude (every AI step) or REASONING_PROVIDER=per_task "
+        "with VISION_READER_ENGINE=claude (only the steps switched to Claude) in backend/.env "
+        "and restart the backend."),
+    "TASK_ENGINE_LOCAL": (
+        "The page-image reader is not switched to Claude.",
+        "Set VISION_READER_ENGINE=claude in backend/.env and restart the backend "
+        "(REASONING_PROVIDER=per_task sends page images only when this line says claude)."),
     "EGRESS_OFF": (
         "Sending pages to Claude is not permitted in the settings.",
         "Set STANDARDS_READER_ENABLED=true and STANDARDS_READER_ALLOW_PUBLIC_EGRESS=true "
@@ -567,11 +586,11 @@ def _local_status(now: float) -> dict | None:
     """The free checks, in fixing order. None when all pass."""
     from . import claude_spend
     from .config import settings
-    from .reasoning_provider import claude_unavailable
+    from .reasoning_provider import claude_unavailable_for_task
 
     if not settings.geometry_reader_enabled:
         return _status("GEOMETRY_OFF", now=now)
-    code, _why = claude_unavailable()
+    code, _why = claude_unavailable_for_task(engine_setting())
     if code is not None:
         return _status(code, now=now)
     caps = claude_spend.Caps.from_settings()

@@ -499,6 +499,16 @@ class Settings(BaseSettings):
     #: field naming covers blank fields too.
     #: Env: GEOMETRY_READER_ENABLED. The owner flips it.
     geometry_reader_enabled: bool = False
+    #: #830 / #501: WHICH ENGINE the page-image (vision) reader uses under
+    #: REASONING_PROVIDER=per_task. "ollama" (default): none - the local model
+    #: reads no images, so under per_task no page image leaves. "claude":
+    #: page images of the datasheet go to the Claude API, with both egress
+    #: flags and a key, for documents on the approved list.
+    #: `GEOMETRY_READER_ENABLED` alone never sends an image under per_task:
+    #: its first job is a LOCAL code reader. Under REASONING_PROVIDER=claude
+    #: (every reasoning step) the vision reader behaves as it always has.
+    #: Env: VISION_READER_ENGINE.
+    vision_reader_engine: str = "ollama"
     #: B7: at most this many pages of one datasheet are sent to the vision
     #: reader, and only pages no text-based reader could read (see
     #: datasheets.vision_route). A ceiling on cost and time per document, on
