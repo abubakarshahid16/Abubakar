@@ -144,6 +144,7 @@ class Reason(Enum):
     PASS_FAIL_WORD = "pass_fail_word"
     TOO_LONG = "too_long"
     PAGE_NOT_ASKED = "page_not_the_one_asked"
+    LAYOUT = "layout_not_engineering"
 
 
 SCHEMA = {
@@ -275,8 +276,15 @@ def _local_page_calls(provider, fields: list[dict], pages: dict[int, str], cited
     run's time is spent are named too."""
     import time
     deadline = time.monotonic() + float(settings.review_ai_check_local_max_seconds)
-    asked = [p for p, text in pages.items() if (text or "").strip()]
+    with_text = [p for p, text in pages.items() if (text or "").strip()]
+    # #844: ONLY PAGES THE CODE READERS TOOK A VALUE FROM. A title page, a
+    # contents page and a sketch page carry no value; asking the local model
+    # about them cost 9 of 22 calls on three real sheets and gave 18 of 49
+    # drafts, 13 of them noise. The pages left out are named on the run.
+    has_value = {f.get("page") for f in fields if str(f.get("value") or "").strip()}
+    asked = [p for p in with_text if p in has_value]
     out = {"pages": len(asked), "done": [], "timed_out": [], "failed": [], "not_tried": [],
+           "no_value_read": [p for p in with_text if p not in has_value],
            "calls_made": 0, "proposed": 0, "engine": None}
     for page in asked:
         if time.monotonic() >= deadline:
@@ -572,11 +580,50 @@ def _call(provider, packet) -> tuple[object | None, str | None]:
         return None, f"the model call failed ({exc})"
 
 
+#: #844 A DRAFT ABOUT THE SHEET'S FURNITURE IS NOT AN ENGINEERING OBSERVATION.
+#: On three real sheets the local model raised "the revision number is zero",
+#: "the contract number is present but ..." and "the contents list refers to
+#: pages 4 to 5": the title block, the revision box and the index, not the
+#: equipment. The item's FIELD names such a box - the whole field, never a
+#: word inside a longer engineering name ("Hydrotest date" stays).
+_LAYOUT_FIELD = re.compile(
+    r"^(?:rev(?:ision)?(?:\s*(?:no|number|date))?(?:\s*[a-z]?\d{1,3}[a-z]?)?|issue(?:\s*(?:no|number|date))?"
+    r"|(?:contract|purchase order|po|document|doc|drawing|dwg|project|job|sheet|page|file)"
+    r"\s*(?:no|number|ref|reference|title|name)"
+    r"|title|sheet title|document title|contents|table of contents|index|date"
+    r"|(?:prepared|checked|approved|reviewed|issued)\s*(?:by|for)(?:\s+\w+)?)[\s.:]*$",
+    re.IGNORECASE)
+#: A contents row: the field ends on the word for a sheet or a page and the
+#: value is only page numbers (the same shape the layout reader skips).
+_SHEET_WORD_LAST = re.compile(r"(?:sht|shts|sheet|sheets|page|pages)[\s.:]*$", re.IGNORECASE)
+_PAGE_NUMBERS_ONLY = re.compile(r"^\s*\d{1,4}(?:\s*(?:to|-|\u2013|,|&|and)\s*\d{1,4})?\s*$", re.IGNORECASE)
+
+
+def about_layout(item: dict) -> bool:
+    """Is this item about the title block, the revision box, a document
+    number or a contents table - layout, not the equipment?"""
+    field = re.sub(r"[\s.:#\-]+", " ", str(item.get("field") or "")).strip()
+    if _LAYOUT_FIELD.match(field):
+        return True
+    value = str(item.get("value") or "")
+    if _SHEET_WORD_LAST.search(field) and _PAGE_NUMBERS_ONLY.match(value):
+        return True
+    # the field IS the value: a title line or a number box copied whole
+    return bool(value.strip()) and _fold(value) == _fold(str(item.get("field") or "")) \
+        or bool(re.match(r"^(?:rev|contract|document|doc|drawing|dwg|project|job)\b.*\d", field, re.IGNORECASE)
+                and len(field.split()) <= 5 and _fold(value) and _fold(value) in _fold(field))
+
+
 def _gate_items(items: list, pages: dict[int, str], held: dict[str, list[str]],
                 cited: list[str], all_kept: list[dict], rejected: dict[str, int]) -> None:
     """THE ONE PLACE any call's items are gated - a first call's and a
     retry's alike. There is exactly one call to `accept()` in this module's
     run loop so a retry-sourced item can never take a path that skips it."""
+    # #844: drafts about the sheet's furniture go first, counted under their own reason
+    layout = [item for item in items[:MAX_ITEMS] if isinstance(item, dict) and about_layout(item)]
+    if layout:
+        rejected[Reason.LAYOUT.value] = rejected.get(Reason.LAYOUT.value, 0) + len(layout)
+        items = [item for item in items[:MAX_ITEMS] if not any(item is gone for gone in layout)]
     for item in items[:MAX_ITEMS]:
         gate = accept(item, pages, held, cited)
         if gate["accepted"]:
@@ -753,7 +800,8 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
         # #844: None on the Claude lane; on the local model, pages asked and
         # what became of each (page numbers only).
         "local_pages": None if local_pages is None else {
-            k: local_pages[k] for k in ("pages", "done", "timed_out", "failed", "not_tried")},
+            k: local_pages[k] for k in ("pages", "done", "timed_out", "failed", "not_tried",
+                                        "no_value_read")},
     }
     status["plain"] = _plain_status(status)
     _store_status(review_run_id, status)

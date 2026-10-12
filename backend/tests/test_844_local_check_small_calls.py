@@ -50,15 +50,32 @@ class PageTransport:
                 "done_reason": "stop"}
 
 
-@pytest.fixture
-def two_pages(tmp_path):
-    """Page 1 ruled fields, page 2 a prose note, page 3 blank (never asked)."""
+def _sheet_and_run(tmp_path):
     sub = _sheet(tmp_path, notes_page=True, extra_pages=1)
     datasheets.extract_facts(sub, allowed_document_ids=frozenset({sub}))
     run, scope = _review(sub)
     comparison.run_comparison(run, allowed_document_ids=scope)
     assert [p for p, t in aic.datasheet_pages(sub).items() if t.strip()] == [1, 2]
     return sub, run, scope
+
+
+@pytest.fixture
+def two_pages(tmp_path, monkeypatch):
+    """Page 1 ruled fields, page 2 a prose note the readers took one value
+    from, page 3 blank (never asked)."""
+    world = _sheet_and_run(tmp_path)
+    read = aic.datasheet_fields
+    monkeypatch.setattr(aic, "datasheet_fields", lambda sub: read(sub) + [
+        {"field": "Notes", "value": "subject to inspection", "unit": None, "page": 2}])
+    return world
+
+
+@pytest.fixture
+def note_page_without_a_value(tmp_path):
+    """The same sheet as the readers really leave it: no value from page 2."""
+    world = _sheet_and_run(tmp_path)
+    assert {f["page"] for f in aic.datasheet_fields(world[0]) if f["value"]} == {1}
+    return world
 
 
 def test_each_page_is_asked_in_a_call_of_its_own_and_the_items_are_merged(two_pages, monkeypatch):
@@ -70,13 +87,13 @@ def test_each_page_is_asked_in_a_call_of_its_own_and_the_items_are_merged(two_pa
     first, second = (b["prompt"] for b in transport.bodies)
     assert "--- page 1 ---" in first and "--- page 2 ---" not in first
     assert "--- page 2 ---" in second and "--- page 1 ---" not in second
-    assert "Design pressure" in first and "Design pressure" not in second     # a page's own fields only
+    assert "| Design pressure |" in first and "| Design pressure |" not in second   # a page's own fields only
     assert all(b["options"]["num_predict"] == aic.LOCAL_PAGE_OUTPUT_TOKENS for b in transport.bodies)
     status = aic.ai_check_status(run, allowed_document_ids=scope)
     assert status["complete"] is True and status["calls_made"] == 2
     assert (status["proposed_items"], status["kept_items"]) == (2, 2)
     assert status["local_pages"] == {"pages": 2, "done": [1, 2], "timed_out": [], "failed": [],
-                                     "not_tried": []}
+                                     "not_tried": [], "no_value_read": []}
     assert sorted(r["contractor_page"] for r in _ai_rows(run)) == [1, 2]
 
 
@@ -126,6 +143,73 @@ def test_a_call_keeps_at_most_the_few_items_it_asked_for(two_pages, monkeypatch)
     review_jobs._ai_check(run, scope, ["API 610"])
     status = aic.ai_check_status(run, allowed_document_ids=scope)
     assert status["proposed_items"] == aic.LOCAL_ITEMS_PER_PAGE == status["requested_items"]
+
+
+def test_a_page_the_readers_took_no_value_from_is_not_asked_and_is_named(
+        note_page_without_a_value, monkeypatch):
+    """Planner decision on #846: a title page, a contents page, a sketch page
+    carry no value. On three real sheets they cost 9 of 22 calls and gave 18
+    of 49 drafts, 13 of them noise."""
+    _sub, run, scope = note_page_without_a_value
+    transport = PageTransport({1: [GOOD], 2: [NOTE_ITEM]})
+    _local(monkeypatch, transport)
+    review_jobs._ai_check(run, scope, ["API 610"])
+    assert [transport.page_of(b) for b in transport.bodies] == [1]
+    status = aic.ai_check_status(run, allowed_document_ids=scope)
+    assert status["complete"] is True and status["calls_made"] == 1
+    assert status["local_pages"]["pages"] == 1 and status["local_pages"]["no_value_read"] == [2]
+    assert [r["contractor_page"] for r in _ai_rows(run)] == [1]
+
+
+@pytest.mark.parametrize("field, value", [
+    ("Rev. 00", "Rev. 00"),
+    ("Revision", "B"),
+    ("Contract No: AB123CD45", "AB123CD45"),
+    ("Document No.", "SYN-0001"),
+    ("DRAWING NO", ""),
+    ("REV NO", ""),
+    ("Sheet title", "Mechanical datasheet"),
+    ("Date", "11/00"),
+    ("Checked by", "A.B."),
+    ("Process and mechanical data - Sht", "4 to 5"),
+    ("Nozzle table Sht", "6"),
+    ("MECHANICAL DATASHEET SYNTHETIC PLANT DRUMS (0000-00-V-0001)",
+     "MECHANICAL DATASHEET SYNTHETIC PLANT DRUMS (0000-00-V-0001)"),
+])
+def test_a_draft_about_the_sheets_furniture_is_layout(field, value):
+    assert aic.about_layout({"field": field, "value": value})
+
+
+@pytest.mark.parametrize("field, value", [
+    ("Design pressure", "23.5 barg"),
+    ("Hydrotest date", ""),
+    ("Tube sheet", "25 mm"),
+    ("Revision of design code", "2019"),
+    ("Sheet thickness", "6"),
+    ("Notes", "All valves shall be stamped."),
+    ("N7 Flange Rating", "CL-150"),
+    ("Document control", "By vendor"),
+])
+def test_an_engineering_field_is_not_layout(field, value):
+    assert not aic.about_layout({"field": field, "value": value})
+
+
+def test_a_layout_draft_is_refused_under_its_own_reason_on_either_engine(two_pages, monkeypatch):
+    _sub, run, scope = two_pages
+    revision = dict(GOOD, topic="Revision", field="Rev. 00", value="",
+                    observation="The revision box is not filled in.",
+                    action="Contractor to fill in the revision box.")
+    _local(monkeypatch, PageTransport({1: [GOOD, revision], 2: []}))
+    review_jobs._ai_check(run, scope, ["API 610"])
+    status = aic.ai_check_status(run, allowed_document_ids=scope)
+    assert status["rejected"] == {"layout_not_engineering": 1} and status["kept_items"] == 1
+    # and through the cloud provider's path: the same gate
+    fake = Fake(items=[GOOD, revision])
+    monkeypatch.setattr(rp, "claude_available", lambda: (True, "claude"))
+    monkeypatch.setattr(rp, "get_provider", lambda *a, **k: fake)
+    review_jobs._ai_check(run, scope, ["API 610"])
+    status = aic.ai_check_status(run, allowed_document_ids=scope)
+    assert status["rejected"] == {"layout_not_engineering": 1} and status["kept_items"] == 1
 
 
 def test_the_local_packet_has_a_fixed_ceiling_whatever_the_sheet():
