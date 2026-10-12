@@ -134,7 +134,7 @@ truth  : Publish      el Options    Example_1_Excel_File.xls    Debugger
 
 `small` is clearly better on words, and still cannot read "Debugger" out of an
 anti-aliased menu bar. **Neither model has been tested on the content this
-system is for.** Any accuracy claim before the Aramco documents arrive would
+system is for.** Any accuracy claim before the client's documents arrive would
 be a guess. Stated as a guess, not smuggled in as a measurement.
 
 ## The alphabet question — v5 English against v6 multilingual
@@ -182,7 +182,7 @@ we will never answer from.
 
 ### This is held, not decided
 
-**One question settles it, and it is the client's: do the Aramco documents
+**One question settles it, and it is the client's: do their documents
 contain any Arabic?**
 
 - **If yes** — multilingual is mandatory and the all-v6 configuration stands.

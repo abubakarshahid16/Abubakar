@@ -123,9 +123,14 @@ def test_a_review_reads_the_datasheet_before_anything_compares_it(tmp_path):
 
 def test_a_second_review_extracts_nothing_and_duplicates_nothing(tmp_path):
     doc = _datasheet(tmp_path)
-    _review(doc)
+    run = _review(doc)
     first = _facts(doc)
     assert first, "precondition: the first review read the sheet"
+    # B11: one running review per submittal (the route always refused a
+    # second with 409; the rule now lives where the run is created). The
+    # second review follows a finished first one, as it does in use.
+    with db.connect() as conn:
+        conn.execute("UPDATE review_runs SET status = 'completed' WHERE id = ?", (run,))
 
     _review(doc)
 

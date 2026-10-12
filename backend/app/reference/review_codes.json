@@ -1,0 +1,9 @@
+{
+  "_about": "The four review-code LABELS a CRS prints, by the role each plays in the recommendation policy (comparison._recommend_code). The POLICY is fixed in code; only the words are the client's. Defaults are the labels the system has always used. A client that codes A/B/C/D or 1/2/3/4 edits the four values below, e.g. \"approved\": \"Code A - Approved\", \"approved_with_comments\": \"Code B - Approved with Comments\", \"revise_and_resubmit\": \"Code C - Revise and Resubmit\", \"manual_review\": \"Code D - Engineer to review\". Each value must be non-empty and the four must differ. A run keeps the label it was given; changing this file relabels future recommendations and the engineer's choice list, not stored decisions.",
+  "codes": {
+    "approved": "Approved",
+    "approved_with_comments": "Approved with Comments",
+    "revise_and_resubmit": "Rejected / Revise and Resubmit",
+    "manual_review": "Manual Review Required"
+  }
+}

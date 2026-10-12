@@ -544,7 +544,7 @@ def test_health_exposes_the_same_keys_signed_in_or_not(monkeypatch):
     client = TestClient(app)
     anonymous = client.get("/api/health").json()
     assert set(anonymous) == {"ok", "embed_model_present",
-                              "answer_model_present", "ingestion"}
+                              "answer_model_configured", "ingestion"}
     assert set(anonymous["ingestion"]) == {"alive", "stalled", "busy"}
 
     monkeypatch.setattr(settings, "auth_mode", access.AUTH_DISABLED)

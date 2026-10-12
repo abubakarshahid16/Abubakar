@@ -1,0 +1,75 @@
+"""#653: the figure check compares number AND unit - a label's unit written
+before its number, gauge never absolute, the same quantity converted, one
+shared check for every lane. M1454 and M1996 were re-anchored onto this code.
+M4001 onward (M3701-M3703, M3801-M3818 and M3901-M3908 are taken)."""
+from __future__ import annotations
+
+from ._base import APP, Mutation
+
+_T = "tests/test_w4b_653_unit_aware_figures.py"
+_A = APP / "answer.py"
+
+MUTATIONS: tuple[Mutation, ...] = (
+    Mutation(id="M4001", phase=4001, description="#653 is back: a label's unit before its number is not read",
+             path=_A,
+             anchor="                unit, alt = _leading_unit(text, n.digits_at)\n",
+             replacement="                unit, alt = None, None\n",
+             target=_T, keyword="label_unit or live_case or labelled_row", tags=("honesty", "critical")),
+    Mutation(id="M4002", phase=4002, description="the bracketed alternative after a labelled number is not read",
+             path=_A,
+             anchor="                unit = pending_alt[1]\n",
+             replacement="                unit = None\n",
+             target=_T, keyword="label_unit or labelled_row", tags=("honesty",)),
+    Mutation(id="M4003", phase=4003, description="a short English word before a number is read as its unit",
+             path=_A,
+             anchor="    if len(raw) <= 2 and raw.isalpha() and raw.islower():\n",
+             replacement="    if False:\n",
+             target=_T, keyword="short_english_word", tags=("honesty",)),
+    Mutation(id="M4004", phase=4004, description="gauge matches absolute again",
+             path=_A,
+             anchor="    if ra and rb and ra != rb:\n",
+             replacement="    if False:\n",
+             target=_T, keyword="gauge_read_as_absolute or summary_lane_uses", tags=("honesty", "critical")),
+    Mutation(id="M4005", phase=4005, description="a unit mismatch is reported as a missing figure",
+             path=_A,
+             anchor="                    UNIT_MISMATCH if other_unit else FIGURE_MISSING)\n",
+             replacement="                    FIGURE_MISSING)\n",
+             target=_T, keyword="unit_mismatch or gauge_read or live_case or claude_lane_records or summary_lane_uses",
+             tags=("honesty",)),
+    Mutation(id="M4006", phase=4006, description="a correct conversion to another unit is removed",
+             path=_A,
+             anchor="                               if not _converted_on_page(segment, v, page_text)}\n",
+             replacement="                               if True}\n",
+             target=_T, keyword="correct_conversion", tags=("honesty",)),
+    Mutation(id="M4007", phase=4007, description="the summary lane rejects a correct conversion",
+             path=APP / "synthesis.py",
+             anchor="                           if not answer._converted_on_page(sentence, v, spans)}\n",
+             replacement="                           if True}\n",
+             target=_T, keyword="summary_lane_accepts", tags=("honesty",)),
+    Mutation(id="M4008", phase=4008, description="the summary lane keeps its own unit check (gauge = absolute)",
+             path=APP / "synthesis.py",
+             anchor="    return answer.first_unit_conflict(sentence, spans)\n",
+             replacement="    return None\n",
+             target=_T, keyword="summary_lane_uses", tags=("honesty",)),
+    Mutation(id="M4009", phase=4009, description="the conversion tolerance ignores the printed precision",
+             path=_A,
+             anchor="    half = Decimal(1).scaleb(-(_decimals(cv) if places is None else places)) / 2 \\\n",
+             replacement="    half = Decimal(1).scaleb(-_decimals(cv)) / 2 \\\n",
+             target=_T, keyword="wrong_conversion", tags=("honesty",)),
+    Mutation(id="M4010", phase=4010, description="thousands separators are read as printed decimals",
+             path=_A,
+             anchor="    if whole == whole.to_integral_value() and digits and Decimal(digits) == abs(whole):\n"
+                    "        return 0\n",
+             replacement="",
+             target=_T, keyword="thousands_separators", tags=("honesty",)),
+    Mutation(id="M4011", phase=4011, description="the unit-mismatch notice is never shown",
+             path=_A,
+             anchor='        out.append(UNIT_NOTICE.format(n=n, s="" if n == 1 else "s"))\n',
+             replacement="        pass\n",
+             target=_T, keyword="notice_names", tags=("honesty",)),
+    Mutation(id="M4012", phase=4012, description="the removed record does not carry its reason",
+             path=_A,
+             anchor='                    removed.append({"value": wrong[0], "cited": cited, "reason": wrong[1]})\n',
+             replacement='                    removed.append({"value": wrong[0], "cited": cited})\n',
+             target=_T, keyword="unit_mismatch or gauge_read or live_case", tags=("honesty",)),
+)

@@ -34,6 +34,7 @@ with a library total and never search - the worse failure.
 
 from __future__ import annotations
 
+import difflib
 import re
 from dataclasses import dataclass
 
@@ -113,7 +114,7 @@ _NEUTRAL = frozenset("""
     now currently today loaded uploaded available stored indexed ingested held
     library system corpus collection database repository machine altogether
     overall exist exists existing got company contractor distinct different
-    unique separate individual readable accessible
+    unique separate individual readable accessible and plus also
 """.split())  # noqa: SIM905
 
 
@@ -131,8 +132,31 @@ class CorpusQuestion:
     content: tuple[str, ...] = ()
 
 
+_REPAIRABLE = tuple(sorted(k for k in _NOUN_ROLE if len(k) >= 6))
+
+
+def _repair(word: str) -> str:
+    """One conservative typo repair: "standrds" -> "standards".
+
+    Only a word of 6+ letters, same first letter, length within 1 of a noun
+    and very close to it (difflib ratio >= 0.88) is repaired. Real words
+    ("documented", "standardize") differ by 2+ letters and are left alone.
+    """
+    if len(word) < 6 or word in _NOUN_ROLE or word in _NEUTRAL:
+        return word
+    best, best_ratio = word, 0.0
+    for noun in _REPAIRABLE:
+        if noun[0] != word[0] or abs(len(noun) - len(word)) > 1:
+            continue
+        ratio = difflib.SequenceMatcher(None, word, noun).ratio()
+        if ratio >= 0.88 and ratio > best_ratio:
+            best, best_ratio = noun, ratio
+    return best
+
+
 def _normalise(question: str) -> str:
-    return " ".join(re.sub(r"[^\w'\s-]", " ", (question or "").lower()).split())
+    words = re.sub(r"[^\w'\s-]", " ", (question or "").lower()).split()
+    return " ".join(_repair(w) for w in words)
 
 
 def classify(question: str) -> CorpusQuestion | None:
@@ -166,6 +190,40 @@ def classify(question: str) -> CorpusQuestion | None:
                     and not w.isdigit())
     return CorpusQuestion(kind=kind, role=role, qualified=bool(content),
                           content=content)
+
+
+def named_roles(question: str) -> list[str | None]:
+    """Every DISTINCT role named as a bare noun in `question`, in the order
+    first named. "standards" and "submittals" name two different roles;
+    "standards" and "specifications" name the same one once."""
+    text = _normalise(question)
+    roles: list[str | None] = []
+    for word in text.split():
+        key = word.strip("'-")
+        if key in _NOUN_ROLE:
+            role = _NOUN_ROLE[key]
+            if role not in roles:
+                roles.append(role)
+    return roles
+
+
+def inventory_question(question: str) -> list[str | None] | None:
+    """The roles this question asks the LIBRARY's own count for - possibly
+    more than one ("how many standards do we have and contractor
+    submittals") - or None when it is not a pure inventory question: real
+    content remains beyond the roles and the collection-phrase itself (a
+    content question, for retrieval), or no corpus cue was found at all.
+
+    Built ON `classify`, not a second classifier: a question this reports
+    pure is, by definition, one `classify` itself found `qualified=False`
+    for - this only additionally names every role asked about, since
+    `classify` captures the first one only.
+    """
+    base = classify(question)
+    if base is None or base.qualified:
+        return None
+    roles = named_roles(question)
+    return roles if roles else [base.role]
 
 
 # -------------------------------------------------------------- the count
@@ -251,6 +309,80 @@ def _join(parts: list[str]) -> str:
     return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
 
 
+def _family_counts(*, allowed_document_ids: frozenset[str]) -> dict[str, int]:
+    """Company standards this caller may read and are loaded, grouped by
+    family (SAES, ASME, API, ...) via `standards_inventory.family_from_identifier`
+    - the same classifier the Standards Library page already uses, read
+    from the file name, never from a model."""
+    if not allowed_document_ids:
+        return {}
+    from . import standards_inventory
+
+    marks = ",".join("?" for _ in allowed_document_ids)
+    rows = connect().execute(
+        f"""SELECT d.filename AS filename FROM documents d
+            JOIN document_classification c ON c.document_id = d.id
+            WHERE d.id IN ({marks}) AND c.document_role = 'COMPANY_STANDARD'
+              AND d.status IN ({",".join("?" for _ in _LOADED)})""",
+        sorted(allowed_document_ids) + list(_LOADED)).fetchall()
+    out: dict[str, int] = {}
+    for r in rows:
+        family = standards_inventory.family_from_identifier(r["filename"])
+        out[family] = out.get(family, 0) + 1
+    return out
+
+
+def inventory_statement(roles: list[str | None], *,
+                        allowed_document_ids: frozenset[str]) -> dict:
+    """One statement covering every role in `roles`, each counted from the
+    database - the multi-role sibling of `statement`, for a question that
+    named more than one kind in the same breath ("how many standards do we
+    have and contractor submittals"). Same honesty rules: a role this
+    caller may read none of reads "no X", never a claim about documents
+    outside their own scope; a company-standard count is also broken down
+    by family when there is more than one.
+    """
+    by_role = counts(allowed_document_ids=allowed_document_ids)
+    sentences: list[str] = []
+    breakdown: list[dict] = []
+    for role in roles:
+        if role is None:
+            loaded = sum(v["loaded"] for v in by_role.values())
+            not_loaded = sum(v["not_loaded"] for v in by_role.values())
+        else:
+            slot = by_role.get(role, {"loaded": 0, "not_loaded": 0})
+            loaded, not_loaded = slot["loaded"], slot["not_loaded"]
+        entry: dict = {"role": role, "loaded": loaded, "not_loaded": not_loaded}
+        piece: str
+        if loaded == 0:
+            piece = f"no {_label(role, 0)} are loaded that you can read"
+        else:
+            verb = "is" if loaded == 1 else "are"
+            piece = f"{loaded} {_label(role, loaded)} {verb} loaded and readable by you"
+            if role == "COMPANY_STANDARD":
+                families = _family_counts(allowed_document_ids=allowed_document_ids)
+                if len(families) > 1:
+                    entry["families"] = dict(
+                        sorted(families.items(), key=lambda kv: -kv[1]))
+                    fam_parts = [f"{n} {fam}" for fam, n in entry["families"].items()]
+                    piece += f" ({_join(fam_parts)})"
+        if not_loaded:
+            piece += f"; {not_loaded} more not yet loaded"
+        breakdown.append(entry)
+        sentences.append(piece)
+    text = (". ".join(s[0].upper() + s[1:] for s in sentences) + ".") if sentences else ""
+    # The SAME top-level shape `statement` returns (role/loaded/not_loaded),
+    # so a caller of either function sees one contract: a single named role
+    # reports itself there exactly as `statement` would; more than one
+    # reports the combined total, with `breakdown` naming each role's own.
+    combined_role = roles[0] if len(roles) == 1 else None
+    combined_loaded = sum(b["loaded"] for b in breakdown)
+    combined_not_loaded = sum(b["not_loaded"] for b in breakdown)
+    return {"text": text, "role": combined_role, "loaded": combined_loaded,
+           "not_loaded": combined_not_loaded, "breakdown": breakdown,
+           "kind": "count", "source": "database", "qualified": False}
+
+
 # ------------------------------------------ counts in a GENERATED answer
 
 _NUMBER = (r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|"
@@ -276,6 +408,19 @@ _DOC_KINDS = (r"(?:standards|specifications|specs|documents|files|datasheets|"
 COUNT_CLAIM = re.compile(r"(?<![A-Za-z0-9])" + _NUMBER + _MD + r"\s+" + _MD
                          + _COUNT_ADJ + _DOC_KINDS + r"(?![A-Za-z0-9])",
                          re.IGNORECASE)
+
+#: The same document count, but matching the SINGULAR noun too ("1 standard",
+#: "2 procedures") - bound_counts itself only needs the plural form its own
+#: tests fix (a count of exactly one is vanishingly rare model phrasing and
+#: not worth widening THAT pattern for), but answer.ground_numbers uses this
+#: wider match so a document count is never mistaken for a passage
+#: measurement it must literally contain, whichever way the model wrote it.
+_DOC_KINDS_EITHER = (r"(?:standards?|specifications?|specs?|documents?|files?|"
+                     r"datasheets?|data\s+sheets?|submittals?|drawings?|"
+                     r"procedures?|reports?|manuals?|codes?)")
+DOC_COUNT_CLAIM = re.compile(r"(?<![A-Za-z0-9])" + _NUMBER + _MD + r"\s+" + _MD
+                              + _COUNT_ADJ + _DOC_KINDS_EITHER + r"(?![A-Za-z0-9])",
+                              re.IGNORECASE)
 
 #: The words that make a count honest, required verbatim: the task says any
 #: count "must say so IN THOSE WORDS". A sentence already carrying one is

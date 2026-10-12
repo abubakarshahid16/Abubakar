@@ -234,7 +234,9 @@ unreadable content.
 
 Search all accessible active standards and select applicable ones, in priority
 order: standards explicitly referenced in the datasheet; standards mapped to the
-detected equipment type; discipline matches; service and operating-condition
+detected equipment type; discipline matches (retired 2026-10-09, #212: a
+standard's discipline is its owning committee, a submittal's a category, and
+they do not match); service and operating-condition
 matches; semantically relevant standards via vector retrieval; relevant
 contract/project requirements.
 
@@ -584,7 +586,8 @@ job scheduling; market-intelligence query sanitization.
 
 Do not hard-code expected findings around the sample filenames. Tests must prove
 the generic workflow. Per `CLAUDE.md` rule 6, every test must fail when its
-feature is deleted; prove it by mutation.
+feature is deleted: check it once by reverting the fix, and add a mutation entry
+only for the rule 6 danger zone.
 
 ## 30. Definition of done
 

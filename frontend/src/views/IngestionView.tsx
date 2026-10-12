@@ -26,6 +26,7 @@ import type { WatchEvent, WatchStatus } from "../api/client";
 import type { Connection } from "../components/Shell";
 import { EmptyState, ErrorState, Spinner } from "../components/states";
 import { formatAge, presentStatus } from "../components/documentStatus";
+import { LIST_MAX, totalFromResponse } from "../components/review/reviewFormat";
 import type { ApiError, DocStatus, DocumentRecord, Metrics } from "../types/api";
 
 const nf = new Intl.NumberFormat();
@@ -503,12 +504,19 @@ export function IngestionView({
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [documents, setDocuments] = useState<DocumentRecord[] | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
+  // How many documents the reader can open in all, when the server said.
+  const [documentTotal, setDocumentTotal] = useState<number | null>(null);
 
   const load = useCallback(async () => {
-    const [m, d] = await Promise.all([api.metrics(), api.documents()]);
+    // An explicit limit: without one the server stops at 20 and the three
+    // groups below were counted over 20 rows with no denominator.
+    const [m, d] = await Promise.all([
+      api.metrics(), api.documents({ limit: LIST_MAX }),
+    ]);
     if (m.ok && d.ok) {
       setMetrics(m.data);
       setDocuments(d.data);
+      setDocumentTotal(totalFromResponse(d.response));
       setError(null);
     } else {
       // Dropped rather than kept. A stale queue shown as current is the same
@@ -564,6 +572,18 @@ export function IngestionView({
   );
   const finished = documents.filter((d) => d.status === "ready");
   const trouble = documents.filter((d) => OFF_TRACK.includes(d.status));
+  // THE BOUNDARY OF THE THREE GROUPS BELOW (CLAUDE.md rule 4). They are
+  // counted over the newest documents this screen read, not over everything
+  // the reader can open, and when the list was cut it says so.
+  const cutOff =
+    documentTotal !== null
+      ? documentTotal > documents.length
+      : documents.length >= LIST_MAX;
+  const boundary = cutOff
+    ? documentTotal !== null
+      ? `The groups below cover the newest ${documents.length} of ${documentTotal} documents you can open.`
+      : `The groups below cover the newest ${LIST_MAX} documents you can open; there may be more.`
+    : null;
   const currentName =
     documents.find((d) => d.id === activeWorker?.current_document)?.filename ??
     activeWorker?.current_document ??
@@ -613,6 +633,12 @@ export function IngestionView({
           />
         </div>
       </Section>
+
+      {boundary && (
+        <p className="mt-3 text-xs text-slateish-400" data-testid="ingestion-boundary">
+          {boundary}
+        </p>
+      )}
 
       <WatchedFolderPanel />
 
@@ -669,7 +695,7 @@ export function IngestionView({
       </Section>
 
       {finished.length > 0 && (
-        <Section title="Fully indexed" hint={`${finished.length} document${finished.length === 1 ? "" : "s"}.`}>
+        <Section title="Fully indexed" hint={`${finished.length} document${finished.length === 1 ? "" : "s"}${cutOff ? " among those counted above" : ""}.`}>
           <ul className="space-y-1">
             {finished.map((d) => (
               <li

@@ -330,4 +330,32 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="reprinted_header",
         tags=("honesty",),
     ),
+    # -------------------------------------------------------- 2026-09-27 fix
+    # Fix 3: two equipment categories `datasheet_checks.json`'s mandatory
+    # table now names (Compressor, Heat Exchanger) that the classifier could
+    # not yet recognise at all - a document naming itself with either phrase
+    # got NULL, forever, the same silence an unknown type always gets.
+    Mutation(
+        id="M1128", phase=94,
+        description="the classifier no longer recognises a compressor datasheet",
+        path=APP / "classification.py",
+        anchor='    ("Centrifugal Compressor", re.compile(r"centrifugal\\s+compressors?", re.I), 0.85),\n'
+               '    ("Reciprocating Compressor", re.compile(r"reciprocating\\s+compressors?", re.I), 0.85),\n',
+        replacement="",
+        target=_EQUIPMENT_TYPE_TEST,
+        keyword="test_a_compressor_datasheet_is_classified_as_a_compressor",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M1129", phase=94,
+        description="the classifier no longer recognises a heat exchanger datasheet",
+        path=APP / "classification.py",
+        anchor='    ("Heat Exchanger",\n'
+               '     re.compile(r"heat\\s+exchangers?|shell\\s*(?:-|and)?\\s*(?:-|and)?\\s*tube\\s+exchangers?", re.I),\n'
+               '     0.8),\n',
+        replacement="",
+        target=_EQUIPMENT_TYPE_TEST,
+        keyword="test_an_exchanger_datasheet_is_classified_as_a_heat_exchanger",
+        tags=("honesty",),
+    ),
 )

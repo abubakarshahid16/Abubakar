@@ -225,10 +225,78 @@ def is_admin(user_id: str | None) -> bool:
         ).fetchone() is not None
 
 
+class UploadDisciplineRefused(ValueError):
+    """An upload that names no discipline, or one the uploader may not choose."""
+
+
+def upload_discipline_choices(user_id: str) -> dict[str, list[str]]:
+    """Which disciplines `user_id` may make an upload visible to (#609).
+
+    `default` is the uploader's own disciplines, so their upload stays on
+    their own screen. `choices` is the same list for an engineer, because
+    sharing a document with a discipline you are not in is a grant, and grants
+    belong to an administrator. An administrator may choose any discipline.
+    Capabilities (`admin`) are never a choice: every administrator already
+    holds every document, so it says nothing about who else can see it.
+    """
+    conn = connect()
+    own = [r["name"] for r in conn.execute(
+        """SELECT r.name FROM roles r JOIN user_roles ur ON ur.role_id = r.id
+           WHERE ur.user_id = ? AND r.kind = 'discipline' ORDER BY r.name""",
+        (user_id,))]
+    if is_admin(user_id):
+        choices = [r["name"] for r in conn.execute(
+            "SELECT name FROM roles WHERE kind = 'discipline' ORDER BY name")]
+    else:
+        choices = own
+    return {"choices": choices, "default": own}
+
+
+def resolve_upload_disciplines(user_id: str, requested: list[str] | None) -> list[str]:
+    """The role ids an upload will be granted to, or `UploadDisciplineRefused`.
+
+    Called BEFORE the bytes are stored, so a refused upload leaves nothing
+    behind: no document, no job, and no orphan only an administrator can see.
+    An unknown name and a name the uploader may not choose get the same
+    answer, so the refusal does not confirm which disciplines exist.
+    """
+    names = sorted({n.strip() for n in (requested or []) if n and n.strip()})
+    if not names:
+        raise UploadDisciplineRefused(
+            "choose at least one discipline that may see this document; "
+            "a document no discipline can see is invisible in every search")
+    allowed = set(upload_discipline_choices(user_id)["choices"])
+    if any(n not in allowed for n in names):
+        raise UploadDisciplineRefused(
+            "a chosen discipline is not one you may share uploads with; "
+            "choose from your own disciplines or ask an administrator")
+    rows = connect().execute(
+        "SELECT id FROM roles WHERE kind = 'discipline' AND name IN (%s)"
+        % ",".join("?" * len(names)), names).fetchall()
+    return sorted(str(r["id"]) for r in rows)
+
+
+def grant_uploaded_document_to_disciplines(
+    document_id: str, role_ids: list[str], actor_user_id: str
+) -> None:
+    """Make a new upload readable by the disciplines its uploader chose."""
+    now = datetime.now(UTC).isoformat(timespec="seconds")
+    with connect() as conn:
+        for role_id in role_ids:
+            conn.execute(
+                """INSERT OR IGNORE INTO document_role_access
+                       (document_id, role_id, permission, granted_at, granted_by)
+                   VALUES (?, ?, 'read', ?, ?)""",
+                (document_id, role_id, now, actor_user_id),
+            )
+
+
 def grant_uploaded_document_to_admin(
     document_id: str, admin_role_id: str, actor_user_id: str
 ) -> None:
-    """Make a new upload admin-only until its access is deliberately granted."""
+    """The administrator capability's grant on every new upload, so an
+    administrator can always manage it. Its disciplines come from
+    `grant_uploaded_document_to_disciplines`."""
     now = datetime.now(UTC).isoformat(timespec="seconds")
     with connect() as conn:
         conn.execute(
@@ -238,26 +306,6 @@ def grant_uploaded_document_to_admin(
             (document_id, admin_role_id, now, actor_user_id),
         )
 
-
-def grant_uploaded_document_to_owner(document_id: str, owner_user_id: str) -> list[str]:
-    """Grant a watched upload to the owner's existing roles plus admin."""
-    now = datetime.now(UTC).isoformat(timespec="seconds")
-    with connect() as conn:
-        roles = conn.execute(
-            "SELECT role_id FROM user_roles WHERE user_id = ?", (owner_user_id,)
-        ).fetchall()
-        admin = conn.execute("SELECT id FROM roles WHERE name = 'admin'").fetchone()
-        role_ids = [r["role_id"] for r in roles]
-        if admin is not None and admin["id"] not in role_ids:
-            role_ids.append(admin["id"])
-        for role_id in role_ids:
-            conn.execute(
-                """INSERT OR IGNORE INTO document_role_access
-                   (document_id, role_id, permission, granted_at, granted_by)
-                   VALUES (?, ?, 'read', ?, ?)""",
-                (document_id, role_id, now, owner_user_id),
-            )
-    return [str(role_id) for role_id in role_ids]
 
 
 # --------------------------------------------------------------- the hook
@@ -275,6 +323,15 @@ def set_user_resolver(fn) -> None:
     """Install the identity resolver. Called by the auth layer, or by a test."""
     global _resolve_user_id
     _resolve_user_id = fn
+
+
+def request_identity(request: Request) -> str | None:
+    """Who this request says it is, through the SAME resolver `current_scope`
+    uses - or None. Under `disabled` nobody has to identify, so this is only
+    meaningful where `settings.auth_mode != AUTH_DISABLED`."""
+    if _resolve_user_id is None:
+        return None
+    return _resolve_user_id(request) or None
 
 
 def current_scope(request: Request) -> AccessScope:

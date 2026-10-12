@@ -38,6 +38,8 @@ export interface GapsSlotData {
   clusters: ClaimCluster[];
   gaps: GapAnalysis;
   ledger: EvidenceItem[];
+  /** why the run stopped early (work budget), or null when it ran to the end */
+  truncatedReason: string | null;
 }
 
 export interface RecommendationSlotData {
@@ -310,7 +312,7 @@ export async function runAnalysis(overrideBaseline?: string | null): Promise<voi
     selected: null,
     runStartedAt: Date.now(),
     summarySlot: engines.summary ? { s: "loading" } : { s: "off" },
-    gapsSlot: engines.gaps ? { s: "loading" } : { s: "off" },
+    gapsSlot: engines.gaps || engines.quote ? { s: "loading" } : { s: "off" },
     recSlot: engines.recommendation ? { s: "loading" } : { s: "off" },
     marketSlot: engines.market ? { s: "loading" } : { s: "off" },
   });
@@ -356,7 +358,7 @@ export async function runAnalysis(overrideBaseline?: string | null): Promise<voi
     jobs.push(summaryJob);
   }
 
-  if (engines.gaps) {
+  if (engines.gaps || engines.quote) {
     jobs.push(
       analysisApi.gaps(body).then((r) => {
         if (!mineStill()) return;
@@ -371,6 +373,7 @@ export async function runAnalysis(overrideBaseline?: string | null): Promise<voi
               clusters,
               gaps: toGapAnalysis(d.gaps, items),
               ledger: Array.isArray(d.evidence_ledger) ? d.evidence_ledger : [],
+              truncatedReason: d.truncated ? (d.truncation_reason ?? "the run stopped at its work limit") : null,
             };
           }),
         });
@@ -427,8 +430,33 @@ export async function runAnalysis(overrideBaseline?: string | null): Promise<voi
     );
   }
 
-  await Promise.all(jobs);
-  if (mineStill()) patch({ runStartedAt: null });
+  // A job that REJECTS (a mapper that throws, a body that was not JSON) must
+  // neither leave runStartedAt set - the one-run-at-a-time guard would then
+  // refuse every later run until a reload - nor leave a panel "loading"
+  // forever. Settle all of them, and turn whatever is still loading into a
+  // failure the panel already knows how to draw.
+  try {
+    await Promise.allSettled(jobs);
+  } finally {
+    if (mineStill()) {
+      const unreadable: Slot<never> = {
+        s: "failed",
+        error: {
+          code: "internal",
+          message:
+            "This answer could not be read. Run it again.",
+        },
+      };
+      const stuck = (slot: { s: string }) => slot.s === "loading";
+      patch({
+        runStartedAt: null,
+        ...(stuck(state.summarySlot) ? { summarySlot: unreadable } : {}),
+        ...(stuck(state.gapsSlot) ? { gapsSlot: unreadable } : {}),
+        ...(stuck(state.recSlot) ? { recSlot: unreadable } : {}),
+        ...(stuck(state.marketSlot) ? { marketSlot: unreadable } : {}),
+      });
+    }
+  }
 }
 
 export function nominateBaseline(b: BaselineSelection) {
@@ -455,7 +483,7 @@ export function stillWaitingOn(s: ScreenState): string[] {
   const out: string[] = [];
   if (s.summarySlot.s === "loading") out.push("Summary");
   if (s.recSlot.s === "loading") out.push("AI recommendation");
-  if (s.gapsSlot.s === "loading") out.push("Gap analysis");
+  if (s.gapsSlot.s === "loading") out.push(s.mode === "quote" ? "Quoted evidence" : "Gap analysis");
   if (s.marketSlot.s === "loading") out.push("Public market sample");
   return out;
 }

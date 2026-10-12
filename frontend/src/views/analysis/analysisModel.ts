@@ -305,7 +305,11 @@ export function toRecommendation(
   if (ids.length === 0) return null;
   const checks = (Array.isArray(raw.checks) ? raw.checks : [])
     .filter((c) => c !== null && typeof c === "object" && typeof c.label === "string")
-    .map((c) => ({ label: c.label, fired: c.fired === true }));
+    .map((c) => ({
+      label: c.label,
+      // null stays null: "not checked" is not "checked and clear".
+      fired: c.fired === true ? true : c.fired === false ? false : null,
+    }));
   return {
     text: raw.text,
     citation_ids: ids,
@@ -366,13 +370,17 @@ export function toAnalysisResult(
   };
 }
 
-/** Which routes a mode means. Quote runs the one engine that needs no model,
- *  which is what its own description promises. */
+/** Which routes a mode means. Quote is its OWN engine: the cited words and the
+ *  claim table, no model. It reads from the same mechanical route the Gap
+ *  analysis uses, but it does NOT switch Gap analysis on (#607): the gap items
+ *  and the review workflow belong to the Gap analysis toggle, which stays off
+ *  in Quote mode. The label says what runs. */
 export function enginesFor(mode: AnalysisMode, toggles: AnalysisToggles) {
   const quote = mode === "quote";
   return {
+    quote,
     summary: !quote,
-    gaps: quote || toggles.gaps,
+    gaps: !quote && toggles.gaps,
     recommendation: !quote && toggles.recommendation,
     market: !quote && toggles.market,
   };

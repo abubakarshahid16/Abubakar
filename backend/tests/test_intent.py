@@ -177,32 +177,45 @@ def test_the_examples_are_real_questions_from_the_loaded_documents():
     ).json()
 
     assert body["examples"], "a greeting with no examples is a wasted first impression"
-    for example in body["examples"]:
-        assert "spec.pdf" in example
-    # and they appear in the reply text too, for a caller that reads only `answer`
-    assert body["examples"][0] in body["answer"]
+    # Fix 1 (2026-09-27): the document title, never the raw filename with its
+    # extension in front of a reader who never asked to see one.
+    doc_examples = body["examples"][:-1]
+    assert doc_examples, "the loaded document must still produce examples"
+    for example in doc_examples:
+        assert "spec.pdf" not in example and "spec" in example
+    # plus one general example that names no document
+    assert body["examples"][-1] == intent.GENERAL_EXAMPLE
+    # CHANGED 2026-09-26: offered as suggestion chips, not listed in the reply
+    # Fix 1 (2026-09-27): up to 4 (3 document + 1 general), not 3.
+    assert body["suggestions"] == body["examples"][:4]
 
 
 def test_the_examples_are_answerable():
     """Suggesting a question the corpus cannot answer would be worse than
-    suggesting nothing."""
+    suggesting nothing. The one GENERAL example is exempt by design (Fix 1):
+    it deliberately names no document and is never checked against the
+    corpus."""
     client = TestClient(app)
     upload(client)
     examples = intent.example_questions(allowed_document_ids=_scope())
     assert examples
-    for question in examples:
+    assert examples[-1] == intent.GENERAL_EXAMPLE
+    for question in examples[:-1]:
         from app import answer as answer_mod
 
         assert answer_mod.answer(question, allowed_document_ids=_scope())["answer_type"] == "extract"
 
 
-def test_an_empty_corpus_offers_no_examples_rather_than_inventing_them():
-    assert intent.example_questions(allowed_document_ids=_scope()) == []
+def test_an_empty_corpus_still_offers_the_one_general_example():
+    """Fix 1 (2026-09-27): a corpus with nothing to suggest still offers the
+    one example that names no document, rather than leaving a greeting with
+    nothing to click at all."""
+    assert intent.example_questions(allowed_document_ids=_scope()) == [intent.GENERAL_EXAMPLE]
     from app import answer as answer_mod
 
     result = answer_mod.answer("hi", allowed_document_ids=_scope())
     assert result["answer_type"] == "guidance"
-    assert result["examples"] == []
+    assert result["examples"] == [intent.GENERAL_EXAMPLE]
     assert result["answer"]
 
 
@@ -397,28 +410,32 @@ def test_a_greeting_never_names_a_document_the_caller_cannot_read():
     mine = frozenset({readable})
 
     # Corpus-wide the other document really is suggestible, so this is about
-    # SCOPE rather than about there being nothing to suggest.
+    # SCOPE rather than about there being nothing to suggest. Fix 1: the
+    # example names the document's TITLE, not its filename - these synthetic
+    # uploads carry no title, so the stem ("secret", not "secret.pdf") is
+    # what a real disclosure would look like.
     everything = intent.example_questions(allowed_document_ids=_scope())
-    assert any("secret.pdf" in q for q in everything), "precondition"
+    assert any("secret" in q for q in everything), "precondition"
 
     mine_only = intent.example_questions(allowed_document_ids=mine)
     assert mine_only, "the readable document must still produce examples"
-    assert not any("secret.pdf" in q for q in mine_only), (
+    assert not any("secret" in q for q in mine_only), (
         "a greeting named a document the caller may not read")
 
     # And through the route that actually shows them, including the answer
     # text that gets persisted.
     result = answer_mod.answer("hi", allowed_document_ids=mine)
-    assert "secret.pdf" not in result["answer"]
-    assert not any("secret.pdf" in q for q in result.get("examples") or [])
+    assert "secret" not in result["answer"]
+    assert not any("secret" in q for q in result.get("examples") or [])
 
 
-def test_a_caller_with_no_grants_is_offered_no_examples():
-    """An empty scope is the same answer as an empty corpus: there is nothing
-    this caller can be shown, and inventing one would name a document."""
+def test_a_caller_with_no_grants_is_offered_only_the_general_example():
+    """An empty scope is the same answer as an empty corpus for DOCUMENT
+    examples: there is nothing this caller can be shown, and inventing one
+    would name a document. The one general example still shows (Fix 1)."""
     client = TestClient(app)
     upload(client)
-    assert intent.example_questions(allowed_document_ids=frozenset()) == []
+    assert intent.example_questions(allowed_document_ids=frozenset()) == [intent.GENERAL_EXAMPLE]
 
 
 def _scope():

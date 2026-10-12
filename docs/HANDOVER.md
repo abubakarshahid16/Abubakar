@@ -164,6 +164,41 @@ Retraction 25 is recorded.
 | Architecture document written from the code | ✅ `docs/architecture.md` |
 | Design canvas of the whole system incl. Compare screen | ✅ published artifact "RAG Intelligence System" (Claude Design) |
 
+**Approved documents for the cloud model (#806 S3, 2026-10-11).** A Claude call is refused before it
+leaves unless every document its prompt carries is on the owner's list
+`backend/data/claude_approved_documents.json` (outside git; one entry per file sha256 with
+`status: approved`, `approved_by`, `approved_on`; missing or empty = nothing approved). Every caller
+declares its documents (`claude_approved.carrying`); a caller that declares nothing is refused too
+(fail closed). The check sits in `claude_spend.reserve_all`, which both Claude lanes pass. A refusal
+is in the spend ledger at USD 0 (ids only) and a change to the list is in the audit table. Chat on
+an unapproved document: the Claude-first path answers with the local model and says so; the other
+chat paths say the document is not approved and ask the reader to choose the Local model.
+
+**Datasheet AI reader ("AI reads, code checks"), added 2026-09-30, ON BY
+DEFAULT (local engine) since the owner order of 2026-10-11. Measured on copies
+of the three real datasheets (F1, 2026-10-11, qwen3.5:4b): findings identical
+to AI-off on all three; the model read 1, 3 and 6 pages of 5, 7 and 11 within
+the budget, most other pages timed out, and it added 2 AI-only facts and 1
+agreement in total. Safe, and of little use on this PC. Since the planner
+decision of 2026-10-11 an AI-read value whose quote the code proved on the page
+decides like a code-read one (`comparison.ai_quote_proved`); the verdict says so.** `DATASHEET_AI_READER` (`ollama` default | `off` |
+`claude`; tests pin it off). A model call past `DATASHEET_AI_TIMEOUT_SECONDS`
+(180) and every page after `DATASHEET_AI_MAX_SECONDS` (900) per document keep
+the code readers' reading, and the review says which reader read the sheet
+(`datasheets.latest_reader_summary`, `absence.reader_summary_line`). An owner's
+`backend/.env` that still says `DATASHEET_AI_READER=off` keeps it off.
+makes `datasheets.extract_facts` also read every page with text through
+`claude_datasheet.read_page` (two runs must agree; each fact's quote, value and
+label must be on the page) and merge it with the rule readers
+(`datasheet_ai.merge_readings`): agreement raises the rule fact to confidence
+0.7, disagreement keeps both marked `validation_state='conflict'`, an AI-only
+fact is stored as `extraction_method='model'` with the engine in its
+provenance. `claude` needs `REASONING_PROVIDER=claude` + both egress flags + a
+key and is metered by `claude_spend` (step `datasheet-ai-reader`); `ollama`
+goes through `model_transport`. A failing or unavailable engine leaves the page
+to the rules with a recorded reason. Tested with fake models only
+(`test_datasheet_ai.py`, M1670-M1685); no accuracy claim until it is measured.
+
 Backend `.env` (never committed) currently holds: `WATCH_FOLDER`,
 `WATCH_INTERVAL_SECONDS=60`, `WATCH_OWNER_EMAIL=testcivil@gmail.com`,
 `AUTH_MODE=demo_required`, `AUTH_SECRET` (64 chars), and both market flags ON:
@@ -282,7 +317,8 @@ when the demo interrupted it.
   D) ingestion + retrieval: `upload.py`, `ingest.py`, `chunker.py`, `ocr.py`, `keyword.py`, `lexical.py`, `intent.py`, `search.py` ·
   E) honesty of output: `synthesis.py`, `claims.py`, `reports.py` ·
   Cowork itself: all of `frontend/` and `contracts/types.ts`.
-- Every fix ships with a test proven red-then-green by mutation. No agent runs
+- Every fix ships with a test proven red-then-green (by reverting the fix once;
+  by a mutation entry only in the CLAUDE.md rule 6 danger zone). No agent runs
   the whole backend suite (5 min); Cowork runs it once at the end.
 - Changed files go back to the device via SendUserFile → `device_commit_files`
   (writing into `.claude/` is refused by the bridge; use device_bash `cp`).

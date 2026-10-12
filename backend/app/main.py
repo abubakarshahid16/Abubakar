@@ -1,36 +1,45 @@
 import json
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Literal
 
-from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from . import admin_explorer as explorer_mod
 from . import chat as chat_mod
 from . import classification as classification_mod
 from . import chunker as chunk_mod
+from . import absence as absence_mod
+from . import ai_engineering_check as ai_engineering_check_mod
 from . import applicability as applicability_mod
 from . import comparison as comparison_mod
 from . import crs_export as crs_export_mod
 from . import crs_mapping as crs_mapping_mod
+from . import crs_numbers as crs_numbers_mod
+from . import crs_wording as crs_wording_mod
+from . import review_trace as review_trace_mod
+from . import engineer_feedback as engineer_feedback_mod
 from . import datasheets as datasheets_mod
 from . import disciplines as disciplines_mod
 from . import extract as extract_mod
 from . import ingest as ingest_mod
 from . import job_queue as job_queue_mod
-from . import orphan_guard
+from . import review_jobs as review_jobs_mod
+from . import document_refs, orphan_guard
 from . import page_ledger as page_ledger_mod
 from . import highlight as highlight_mod
 from . import keyword as keyword_mod
 from . import metrics as metrics_mod
-from . import acronyms as acronyms_mod
 from . import answer as answer_mod
 from . import search as search_mod
 from . import pageimage as pageimage_mod
 from . import upload as upload_mod
 from . import watcher as watcher_mod
 from . import watch_api as watch_api_mod
+from . import warmup as warmup_mod
 from .api_utils import (
     DEFAULT_LIMIT,
     MAX_LIMIT,
@@ -41,6 +50,10 @@ from .api_utils import (
 )
 from . import access
 from . import admin as admin_mod
+from . import doc_router as doc_router_mod
+from . import playbooks as playbooks_mod
+from . import requirement_split as requirement_split_mod
+from . import model_memory as model_memory_mod
 from . import auth as auth_mod
 from . import errors
 from . import analysis as analysis_mod
@@ -57,10 +70,12 @@ from . import structured_search as structured_search_mod
 from . import risks as risks_mod
 from . import standards as standards_mod
 from . import standards_inventory as standards_inventory_mod
+from . import standards_acquisition as standards_acquisition_mod
 from . import submittal_review as submittal_review_mod
 from . import workbook as workbook_mod
+from . import vector_store as vector_store_mod
 from . import schemas
-from .config import settings
+from .config import config_version, settings
 from .db import connect, init_db
 
 
@@ -77,16 +92,15 @@ def _log_match_tier() -> None:
     if settings.match_enabled:
         log.warning(
             "MATCH_ENABLED=true - the model tier of the requirement matcher is "
-            "ON. It FAILED its hard gate on 2026-09-19 (six of seven pairings "
-            "were false friends, three of them reported NON_COMPLIANT against "
-            "the contractor). Every pairing it makes is labelled "
-            "match_method=model and must be confirmed by an engineer.")
+            "ON. It only PROPOSES: a pairing is used only when it passes the "
+            "match refusal rules (it failed its hard gate without them on "
+            "2026-09-19: six of seven pairings were false friends). Every "
+            "pairing it makes is labelled match_method=model.")
     else:
         log.info(
             "MATCH_ENABLED=false - requirement matching is deterministic "
-            "containment only; the model tier is OFF pending redesign (see "
-            "docs/design/model-assisted-matching.md section 10). Findings say "
-            "so in their rationale.")
+            "containment only; the model tier is OFF (it is on by default since "
+            "2026-10-11, proposals only). Findings say so in their rationale.")
 
 
 def _log_hooks_path() -> None:
@@ -114,6 +128,18 @@ async def lifespan(app: FastAPI):
     # then rejects everyone looks like a broken deployment.
     auth_mod.install()
     keyword_mod.ensure_schema()
+    # A keyword index written by older indexing code (trailing full stops
+    # glued onto tokens - "MR0175." unsearchable) is rebuilt from `chunks`
+    # here, once, before the worker starts. FTS only: nothing is re-chunked or
+    # re-embedded. See keyword.INDEX_VERSION.
+    _fts = keyword_mod.migrate_index()
+    if _fts["rebuilt"] and _fts["documents"]:
+        import logging as _logging
+
+        _logging.getLogger("uvicorn.error").warning(
+            "keyword index rebuilt to version %s (was %s): %d documents, "
+            "%d chunks, %.1f s", _fts["version"], _fts["from_version"],
+            _fts["documents"], _fts["chunks"], _fts["seconds"])
     review_mod.ensure_schema()
     deliverables_mod.ensure_schema()
     risks_mod.ensure_schema()
@@ -159,8 +185,10 @@ async def lifespan(app: FastAPI):
     # run while one is going.
     try:
         submittal_review_mod.fail_orphaned_review_runs()
-    except Exception:  # noqa: BLE001 - a sweep that fails must not stop boot
-        pass
+    except Exception as exc:  # noqa: BLE001 - a sweep that fails must not stop boot
+        import logging as _logging
+        _logging.getLogger("uvicorn.error").warning("the sweep for review runs left running by a dead process failed (%s); "
+                          "such a run may still look busy", type(exc).__name__)
     # Put back any extraction that was `running` when a previous process died.
     # `next_extraction_job` only ever claims `queued` (or a `retrying` job
     # whose backoff is due, #177), so without this an
@@ -170,23 +198,33 @@ async def lifespan(app: FastAPI):
     # the time the worker first looks at it.
     try:
         standards_mod.recover_stale_extraction_jobs()
-    except Exception:  # noqa: BLE001 - a sweep that fails must not stop boot
-        pass
+        review_jobs_mod.recover_stale()
+    except Exception as exc:  # noqa: BLE001 - a sweep that fails must not stop boot
+        import logging as _logging
+        _logging.getLogger("uvicorn.error").warning("the recovery of stale extraction and review jobs failed (%s); "
+                          "such a job may stay queued", type(exc).__name__)
+    # THE DENSE-SEARCH INDEX: say which backend is active (sqlite-vec, or the
+    # exact numpy fallback and why), and backfill/sync the vec0 index from
+    # chunk_vectors before the first question pays for it. Never raises.
+    vector_store_mod.startup()
     # Drain the upload queue. Without this a document sits at 'queued'
     # forever while the API reports a job id that means nothing.
     ingest_mod.start_worker()
+    # Automatic risk detection, off the request path (#478). No-op in tests.
+    risks_mod.start_background_detection()
     # The watched folder is OFF unless WATCH_FOLDER is set in backend/.env.
     # start_watcher() returns a reason string rather than raising when it does
     # not start, so a machine with no drop folder boots exactly as before.
     watcher_mod.start_watcher()
-    # Harvest acronym expansions once at startup rather than lazily on the
-    # first question. It scans the whole corpus and takes ~2.5s, which is
-    # fine here and is not fine added to a 1.3s answer.
-    try:
-        acronyms_mod.harvest()
-    except Exception:  # noqa: BLE001 - a missing expansion map is not fatal
-        pass
+    # WARM THE FIRST QUESTION'S COSTS IN THE BACKGROUND: the embedder and
+    # reranker sessions and the acronym maps. This used to be
+    # `acronyms_mod.harvest()` inline, which raised TypeError (the scope
+    # argument is required) inside `except Exception: pass`, so nothing was
+    # ever warmed and nothing said so. `warmup` runs in a daemon thread, never
+    # blocks this start, never writes the database, and logs any failure.
+    warmup_mod.start()
     yield
+    risks_mod.stop_background_detection()
     watcher_mod.stop_watcher()
     ingest_mod.stop_worker()
 
@@ -228,6 +266,78 @@ app.include_router(watch_api_mod.router)
 from . import claude_api as claude_api_mod  # noqa: E402
 
 app.include_router(claude_api_mod.router)
+
+
+#: The interactive API description. A map of every route, every parameter and
+#: every error code - useful on a developer's machine, reconnaissance anywhere
+#: else. `docs_url` is fixed when FastAPI() is built, and the auth mode can be
+#: changed afterwards (the tests do), so this is decided per request.
+_API_DOC_PATHS = frozenset({"/docs", "/docs/oauth2-redirect", "/redoc", "/openapi.json"})
+
+
+def _api_docs_served() -> bool:
+    return settings.auth_mode == access.AUTH_DISABLED or settings.api_docs_enabled
+
+
+@app.middleware("http")
+async def api_docs_gate(request: Request, call_next):
+    """404 for /docs, /redoc and /openapi.json unless `_api_docs_served()`.
+
+    The same 404 an unknown route gets, so the answer does not say the
+    description exists. `app.openapi()` in-process is unaffected."""
+    if request.url.path in _API_DOC_PATHS and not _api_docs_served():
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
+    return await call_next(request)
+
+
+#: Routes that expose corpus-derived content (r2 S7). Under any mode but
+#: `disabled` a request that names no identity gets 401 here - it used to get
+#: 200 and an empty or unscoped answer (vocabulary, templates and baseline rules
+#: were not scoped at all). A PREFIX, so a route added under it later is
+#: covered without anyone remembering. NOT in this list on purpose:
+#: `/api/health` (public), `/api/auth/*` (the login screen calls
+#: `/api/auth/me` before it has a token) and `/api/watch/status` (no corpus
+#: content: a flag, and a folder name for an admin only).
+_IDENTITY_REQUIRED_PREFIXES = (
+    "/api/reviews", "/api/classification", "/api/metrics",
+    "/api/management/report", "/api/market/search",
+)
+
+
+@app.middleware("http")
+async def identity_gate(request: Request, call_next):
+    from starlette.concurrency import run_in_threadpool
+
+    path = request.url.path
+    if (settings.auth_mode != access.AUTH_DISABLED
+            and request.method != "OPTIONS"
+            and any(path == p or path.startswith(p + "/") for p in _IDENTITY_REQUIRED_PREFIXES)
+            and not await run_in_threadpool(access.request_identity, request)):
+        return JSONResponse(status_code=401, content={"detail": errors.safe_error(
+            errors.UNAUTHENTICATED, "sign in to continue")})
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def trusted_host_gate(request: Request, call_next):
+    """Refuse any Host header this server was not configured to answer to.
+
+    DNS REBINDING (audit 2026-09-30): a page on a hostile domain re-points its
+    own name at 127.0.0.1 and reads this API as same-origin, so CORS never
+    applies - and under AUTH_MODE=disabled every document is served. The
+    browser still sends the hostile name in `Host`, which is what this checks.
+    The set is read per request (`config.trusted_host_names`), so a test can
+    change it and the Vite dev proxy - which forwards the browser's own
+    `127.0.0.1:5173` / `localhost:5173` - passes unchanged.
+
+    Registered AFTER `api_docs_gate`, so Starlette runs it FIRST.
+    """
+    from .config import host_header_name, trusted_host_names
+
+    if host_header_name(request.headers.get("host", "")) not in trusted_host_names(settings):
+        return JSONResponse(status_code=400, content={"detail": errors.safe_error(
+            errors.INVALID_PARAMETER, "this server does not answer to that host name")})
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -275,7 +385,7 @@ def health():
         # and version is fingerprinting material and is on /api/metrics,
         # which is scoped to the caller's grants as of the commit that
         # added this note - it was not when the field was moved there.
-        "answer_model_present": bool(settings.answer_model),
+        "answer_model_configured": bool(settings.answer_model),
         "ingestion": {
             "alive": worker["alive"],
             "stalled": worker["stalled"],
@@ -307,9 +417,12 @@ def metrics(request: Request,
     this endpoint as "the scoped /api/metrics", and that belief is why fields
     were moved here off /api/health.
 
-    ADMIN SEES CORPUS-WIDE FIGURES, AND THAT IS A NEW CAPABILITY. `access.py`
-    grants an administrator no read bypass - an IT+admin user sees exactly the
-    six documents IT sees - so this is not an existing power being surfaced. It
+    ADMIN SEES CORPUS-WIDE FIGURES, AND THAT IS A NEW CAPABILITY. The document
+    routes build an administrator's scope from grants like anyone else's
+    (`access.scope_for_user`) - an IT+admin user sees exactly the six documents
+    IT sees - so this is not an existing power being surfaced. (The ONE
+    deliberate exception is the read-only database explorer below, which reads
+    every table by owner decision 2026-10-07: "admin can read everything".) It
     is deliberately narrow: aggregate counts only, never document content, and
     `corpus_wide` travels in the payload so the screen can say which kind of
     number it is showing. An admin reading counts for documents they cannot
@@ -340,21 +453,43 @@ def metrics(request: Request,
 # --------------------------------------------------------------- documents
 
 
+@app.get("/api/documents/upload-disciplines", response_model=schemas.UploadDisciplines,
+         responses={**schemas.ERRORS_401})
+def upload_disciplines(scope: access.AccessScope = Depends(access.current_scope)):
+    """The disciplines this caller may make an upload visible to (#609), and
+    the default: their own. Empty and not required with authentication off."""
+    if scope.user_id is None:
+        _require_identity_to_write(scope)
+        return {"required": False, "choices": [], "default": []}
+    return {"required": True, **access.upload_discipline_choices(scope.user_id)}
+
+
 @app.post("/api/documents", response_model=schemas.UploadAccepted,
-          responses={**schemas.ERRORS_400, **schemas.ERRORS_401})
+          responses={**schemas.ERRORS_400, **schemas.ERRORS_401, **schemas.ERRORS_422})
 async def upload_document(
     file: UploadFile = File(...),
+    disciplines: list[str] | None = Form(None),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
-    """Accept an identified upload and place it in admin-only review."""
+    """Accept an identified upload, visible to the disciplines it names (#609).
+
+    With an identity, at least one discipline is required and is checked
+    BEFORE the bytes are stored, so no document is left visible to nobody.
+    With authentication off every caller reads every document and grants
+    decide nothing, so none are asked for or written."""
     _require_identity_to_write(scope)
     admin_role: str | None = None
-    uploader_is_admin = scope.unrestricted
+    discipline_roles: list[str] = []
     if scope.user_id is not None:
         try:
-            admin_role, uploader_is_admin = access.upload_admin_role(scope.user_id)
+            admin_role, _uploader_is_admin = access.upload_admin_role(scope.user_id)
         except RuntimeError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
+        try:
+            discipline_roles = access.resolve_upload_disciplines(scope.user_id, disciplines)
+        except access.UploadDisciplineRefused as exc:
+            raise HTTPException(status_code=422, detail=errors.safe_error(
+                errors.INVALID_PARAMETER, str(exc))) from exc
     try:
         row, job_id, duplicate_of = upload_mod.ingest(file.file, file.filename or "")
     except upload_mod.UploadError as e:
@@ -364,14 +499,18 @@ async def upload_document(
         )
     if duplicate_of is None and admin_role is not None and scope.user_id is not None:
         access.grant_uploaded_document_to_admin(row["id"], admin_role, scope.user_id)
+        access.grant_uploaded_document_to_disciplines(
+            row["id"], discipline_roles, scope.user_id)
     elif duplicate_of is not None and not scope.may_read(duplicate_of):
         return {"document": None, "job_id": "", "duplicate_of": None,
                 "awaiting_grant": True}
+    # A new upload is readable by its uploader at once: an engineer may only
+    # choose their own disciplines, and an administrator holds every document.
     return {
         "document": upload_mod.to_api(row),
         "job_id": job_id or "",
         "duplicate_of": duplicate_of,
-        "awaiting_grant": not uploader_is_admin and duplicate_of is None,
+        "awaiting_grant": False,
     }
 
 
@@ -504,9 +643,19 @@ def list_documents(request: Request, response: Response,
                     FROM document_classification
                     WHERE document_id IN ({marks})""", page_ids)
         }
+    # THE FULL CLASSIFICATION, ON THE LIST. The Documents page used to ask
+    # `GET /documents/{id}/classification` once per document (about 100
+    # requests on every load). The ids here are exactly the rows this caller's
+    # scope already selected above, so nothing is added to what they may read.
+    # A document with no classification row gets the same empty record the
+    # single route returns.
+    classifications = classification_mod.of_documents(page_ids)
     out = []
     for row in rows:
         doc = upload_mod.to_api(row)
+        doc["classification"] = {
+            **(classifications.get(row["id"]) or classification_mod.empty_record(row["id"])),
+            "document_id": row["id"]}
         meta = metadata.get(row["id"], {})
         for field in ("document_role", "document_number", "title", "revision",
                       "equipment_type", "project", "superseded_by"):
@@ -532,8 +681,12 @@ def list_documents(request: Request, response: Response,
 def delete_document(document_id: str, request: Request, confirm: bool = Query(False),
     acknowledge_orphaned_findings: bool = Query(False),
     scope: access.AccessScope = Depends(access.current_scope),
+    _admin: dict | None = Depends(admin_mod.current_admin),
 ):
     """Remove a document and everything derived from it.
+
+    ADMIN ONLY (r2 S1): a READ grant lets a caller see a document, not destroy
+    it. A non-admin gets the admin surface's silent 404.
 
     Requires confirm=true - a destructive endpoint should not fire on a
     mistyped URL. Removes chunks, pages, vectors, exclusions, jobs, cached
@@ -542,6 +695,11 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
     B38: deleting a STANDARD cascades into its requirement rows. If review
     findings cite them, the attempt is recorded and refused (409) unless
     acknowledge_orphaned_findings=true.
+
+    Deleting a SUBMITTAL (a contractor's datasheet) cascades directly over
+    `review_findings.document_id ... ON DELETE CASCADE` (review.py) - every
+    CRS finding ever recorded against it. Same guard, same flag, checked
+    over that column instead of `standard_requirements`.
     """
     reject_unknown_params(request, {"confirm", "acknowledge_orphaned_findings"})
     doc = require_document(document_id, scope)
@@ -561,6 +719,12 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
         params=(document_id,), document_id=document_id,
         acknowledge=acknowledge_orphaned_findings,
         actor={"id": scope.user_id} if scope.user_id else None)
+    # Same guard, the SUBMITTAL side: review_findings.document_id cascades
+    # directly, not through standard_requirements - see orphan_guard.py.
+    orphan_guard.check_submittal_delete(
+        "submittal_delete", document_id=document_id,
+        acknowledge=acknowledge_orphaned_findings,
+        actor={"id": scope.user_id} if scope.user_id else None)
 
     # Reports quote this document. Their FILES go; their ROWS stay, because
     # the record that a report was issued must survive the document.
@@ -575,6 +739,11 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
             removed[table] = cur.rowcount
         cur = conn.execute("DELETE FROM documents WHERE id = ?", (document_id,))
         removed["documents"] = cur.rowcount
+        # The record of the delete commits with the delete (ids and counts only).
+        document_refs.record_document_deleted(
+            conn, document_id, removed,
+            actor={"id": scope.user_id, "email": (_admin or {}).get("email")}
+            if scope.user_id else None)
 
     files_removed = 0
     stored = Path(doc["stored_path"])
@@ -615,6 +784,7 @@ def get_document(document_id: str, request: Request,
           responses=schemas.ERRORS_404)
 def extract(document_id: str,
     scope: access.AccessScope = Depends(access.current_scope),
+    _admin: dict | None = Depends(admin_mod.current_admin),
 ):
     """Extract pages in batches. Resumes from the last completed batch."""
     require_document(document_id, scope)
@@ -626,6 +796,7 @@ def extract(document_id: str,
 def chunk(document_id: str, force: bool = Query(False),
     acknowledge_orphaned_findings: bool = Query(False),
     scope: access.AccessScope = Depends(access.current_scope),
+    _admin: dict | None = Depends(admin_mod.current_admin),
 ):
     """Chunk an extracted document.
 
@@ -645,6 +816,7 @@ def chunk(document_id: str, force: bool = Query(False),
           responses=schemas.ERRORS_404)
 def embed(document_id: str,
     scope: access.AccessScope = Depends(access.current_scope),
+    _admin: dict | None = Depends(admin_mod.current_admin),
 ):
     """Embed any retrievable chunks that do not yet have a vector."""
     require_document(document_id, scope)
@@ -669,6 +841,7 @@ def embed(document_id: str,
           response_model=schemas.KeywordIndexResult, responses=schemas.ERRORS_404)
 def index_keyword(document_id: str,
     scope: access.AccessScope = Depends(access.current_scope),
+    _admin: dict | None = Depends(admin_mod.current_admin),
 ):
     """Build the keyword index for one document. Needs no vectors."""
     require_document(document_id, scope)
@@ -740,13 +913,15 @@ def get_answer(
     q: str = Query(..., min_length=1, max_length=500),
     tier: str = Query("extract"),
     document_id: str | None = Query(None),
-    limit: int = Query(3, ge=1, le=5),
+    # None = settings.answer_top_k, the one top-k (answer.gate_candidates).
+    limit: int | None = Query(None, ge=1, le=5),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """Answer a question against the indexed documents.
 
     tier=extract   (default) the top passage verbatim, no model involved
-    tier=generated             2-3 passages summarised by the local model
+    tier=generated             up to 3 passages summarised by the local model
+                               (CLAUDE_CONTEXT_PASSAGES on the Claude lane)
 
     The response always carries answer_type, so a quotation and generated
     prose can never be confused.
@@ -938,16 +1113,22 @@ def revoke_user_tokens(user_id: str,
 
 
 @app.get("/api/progress/{progress_id}", response_model=schemas.Progress,
-         responses={**schemas.ERRORS_404})
-def read_progress(progress_id: str):
+         responses={**schemas.ERRORS_401, **schemas.ERRORS_404})
+def read_progress(progress_id: str,
+                  scope: access.AccessScope = Depends(access.current_scope)):
     """What the machine is doing, as reported by the work itself.
 
-    Unauthenticated, and carries no document content - a stage name, a count
-    and a clock. The id is chosen by the client; guessing one reveals only
-    that somebody is asking a question, which /api/health already reveals
-    through `busy`.
+    P5: AUTHENTICATED, AND ONLY TO THE ONE WHO ASKED. It carries no document
+    content, but it did say to anyone at all what another user was doing and
+    when; now an entry is read back only by the identity that started it (a
+    stranger gets the same 404 as an unknown id), and with sign-in required
+    an anonymous caller gets 401 - the same rule as every other route.
     """
-    state = progress_mod.read(progress_id)
+    if not scope.unrestricted and not scope.user_id:
+        raise HTTPException(status_code=401, detail=errors.safe_error(
+            errors.UNAUTHENTICATED, "sign in to continue"))
+    state = progress_mod.read(progress_id, reader=scope.user_id,
+                              unrestricted=scope.unrestricted)
     if state is None:
         raise HTTPException(
             status_code=404,
@@ -1134,11 +1315,7 @@ def get_document_classification(
         # In scope but never classified. An empty, honest record rather than a
         # 404: the document exists and the caller may read it, and "not
         # classified yet" is the answer.
-        return {"document_id": document_id, "doc_type": None,
-                "discipline": None, "doc_class": None, "register_id": None,
-                "suggested_by": classification_mod.SOURCE_NONE,
-                "confirmed_by": None, "confirmed_at": None,
-                "confirmed": False, "subjects": []}
+        return classification_mod.empty_record(document_id)
     return {**row, "document_id": document_id}
 
 
@@ -1176,6 +1353,84 @@ def put_document_classification(
         equipment_tags=body.equipment_tags)
     row = classification_mod.of_document(document_id) or {}
     return {**row, "document_id": document_id}
+
+
+@app.get("/api/playbooks", response_model=schemas.PlaybookList, responses={**schemas.ERRORS_404})
+def list_playbooks(scope: access.AccessScope = Depends(access.current_scope)):
+    """The review playbooks (data files): what each expects a document of its
+    kind to contain, the standard clause each element comes from, and whether a
+    discipline engineer has signed it off. A file that cannot be used is listed
+    with the reason, never dropped."""
+    found, broken = playbooks_mod.available()
+    return {"playbooks": [
+        {"id": pb.id, "title": pb.title, "version": pb.version, "document_kind": pb.document_kind,
+         "signed_off": pb.signed_off, "sign_off": pb.sign_off, "clauses_verified": pb.clauses_verified,
+         "notice": playbooks_mod.notice(pb), "elements": len(pb.elements)}
+        for pb in found.values()], "unusable": broken}
+
+
+@app.post("/api/documents/{document_id}/playbook-review", response_model=schemas.PlaybookReport,
+          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def playbook_review(
+    document_id: str,
+    body: schemas.PlaybookReviewRequest,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Review one document the caller may read against a playbook: per element
+    present, unclear, missing, could not be checked, or standard not held (never
+    "met"). Cited by the passage's locator. `use_ai` lets the LOCAL model propose
+    a quote for an element the cue words did not settle; a proposal is kept only
+    when its quote is verbatim in the passage it names."""
+    require_document(document_id, scope)
+    found, _broken = playbooks_mod.available()
+    playbook = found.get(body.playbook_id)
+    if playbook is None:
+        raise HTTPException(status_code=422, detail={
+            "code": "unknown_playbook", "message": f"no usable playbook {body.playbook_id!r}"})
+    proposer = playbooks_mod.task_proposer() if body.use_ai else None
+    return playbooks_mod.review(document_id, playbook, allowed_document_ids=scope.allowed_document_ids,
+                                proposer=proposer)
+
+
+@app.get("/api/document-kinds", response_model=schemas.DocumentKindVocabulary,
+         responses={**schemas.ERRORS_404})
+def get_document_kinds(scope: access.AccessScope = Depends(access.current_scope)):
+    """The document types the router knows, and how many of the caller's OWN
+    documents are in each routing state (rule 5: a count states whose
+    documents it counts)."""
+    allowed = None if scope.unrestricted else scope.allowed_document_ids
+    return {"kinds": doc_router_mod.kinds(), "counts": doc_router_mod.counts(allowed)}
+
+
+@app.put("/api/documents/{document_id}/kind", response_model=schemas.DocumentClassification,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def put_document_kind(
+    document_id: str,
+    body: schemas.DocumentKindUpdate,
+    scope: access.AccessScope = Depends(access.current_scope),
+    actor: dict | None = Depends(admin_mod.current_admin),
+):
+    """A person confirms (or corrects) the document type the router suggested.
+    Admin-gated like the rest of classification; a kind outside the vocabulary
+    is a 422 naming it. Classification is not access control: this changes what
+    the document is called, never who may read it."""
+    require_document(document_id, scope)
+    try:
+        doc_router_mod.confirm(document_id, body.kind, (actor or {}).get("id"))
+    except doc_router_mod.UnknownKind as exc:
+        raise HTTPException(status_code=422, detail={
+            "code": "unknown_document_kind", "message": str(exc)}) from exc
+    row = classification_mod.of_document(document_id) or {}
+    return {**row, "document_id": document_id}
+
+
+@app.post("/api/admin/document-kinds/route", response_model=schemas.DocumentKindRouted,
+          responses={**schemas.ERRORS_404})
+def route_document_kinds(_admin: dict | None = Depends(admin_mod.current_admin)):
+    """Route every document that has no routing yet (or an older router's).
+    Documents already in the library when the router arrived need this once.
+    Confirmed kinds are never touched. Returns counts only."""
+    return doc_router_mod.route_unrouted()
 
 
 @app.post("/api/documents/bulk/role", response_model=schemas.BulkRoleResult,
@@ -1255,9 +1510,17 @@ def bulk_set_document_role(
 
 # ----------------------------------------------------------------- market
 #
-# No network call exists in this build. Both routes are scoped like every
-# other, not because a sample is sensitive, but so that adding a real provider
-# later cannot introduce an unscoped route by inheriting this shape.
+# No network call happens with the market lane's egress flags off (the
+# shipped default) - `market_transport.transport()` below returns None in
+# that state, so `search_all` reports "no transport supplied" rather than
+# silently calling out. With both flags on, `market_search` DOES call a real
+# provider over the phrase the caller previewed and approved. Every route
+# here is scoped like every other, not because a sample is sensitive, but so
+# that this flag-gated provider call inherits that shape rather than
+# introducing an unscoped route the day it is turned on (corrected 2026-09-28,
+# code-review audit finding #45 - the previous comment said no network call
+# "exists in this build" at all, which the gated call below already
+# contradicted).
 
 
 @app.get("/api/market/findings", response_model=schemas.MarketFindings)
@@ -1321,8 +1584,9 @@ def _record_market_audit(rows, scope: access.AccessScope) -> None:
                      row["resource_type"], row["resource_id"], row["outcome"],
                      row["detail"]),
                 )
-    except Exception:  # noqa: BLE001 - an unwritable audit must not fail the request
-        pass
+    except Exception as exc:  # noqa: BLE001 - an unwritable audit must not fail the request
+        # P5: NOT SILENT - the query already left; the missing record is logged.
+        errors.record_failure(exc, stage="market_audit")
 
 
 @app.get("/api/market/preview", response_model=schemas.MarketPreview)
@@ -1514,8 +1778,13 @@ def list_review_templates(
 def create_review_template(
     body: schemas.ReviewTemplateCreate,
     scope: access.AccessScope = Depends(access.current_scope),
+    _actor: dict | None = Depends(admin_mod.current_admin),
 ):
-    """Register a client-approved review template; versions never overwrite."""
+    """Register a client-approved review template; versions never overwrite.
+
+    THE ADMIN CAPABILITY IS REQUIRED: a template governs every reviewer's
+    checklist, not only the author's.
+    """
     _require_identity_to_write(scope)
     return review_mod.create_template(body.model_dump(), created_by=scope.user_id)
 
@@ -1528,7 +1797,11 @@ def list_review_baseline_rules(scope: access.AccessScope = Depends(access.curren
 @app.post("/api/reviews/baseline-rules", response_model=schemas.ReviewBaselineRule,
           responses=schemas.ERRORS_401)
 def create_review_baseline_rule(body: schemas.ReviewBaselineRuleCreate,
-                                scope: access.AccessScope = Depends(access.current_scope)):
+                                scope: access.AccessScope = Depends(access.current_scope),
+                                _actor: dict | None = Depends(admin_mod.current_admin)):
+    # GLOBAL SETTING: the admin capability, via the same gate the admin surface
+    # uses (404 to a non-admin). Identity alone let any signed-in engineer
+    # change it for everyone (audit 2026-09-30).
     _require_identity_to_write(scope)
     payload = body.model_dump()
     return review_mod.create_baseline_rule(payload)
@@ -1537,7 +1810,11 @@ def create_review_baseline_rule(body: schemas.ReviewBaselineRuleCreate,
 @app.patch("/api/reviews/baseline-rules/{rule_id}", response_model=schemas.ReviewBaselineRule,
            responses=schemas.ERRORS_404)
 def update_review_baseline_rule(rule_id: str, body: schemas.ReviewBaselineRuleCreate,
-                                scope: access.AccessScope = Depends(access.current_scope)):
+                                scope: access.AccessScope = Depends(access.current_scope),
+                                _actor: dict | None = Depends(admin_mod.current_admin)):
+    # GLOBAL SETTING: the admin capability, via the same gate the admin surface
+    # uses (404 to a non-admin). Identity alone let any signed-in engineer
+    # change it for everyone (audit 2026-09-30).
     _require_identity_to_write(scope)
     item = review_mod.update_baseline_rule(rule_id, body.model_dump())
     if item is None:
@@ -1569,7 +1846,8 @@ def export_review_report(
     _require_identity_to_write(scope)
     require_document(body.document_id, scope)
     try:
-        path = review_mod.render_report(body.document_id)
+        path = review_mod.render_report(
+            body.document_id, allowed_document_ids=scope.allowed_document_ids)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "review document not found"))
@@ -1622,6 +1900,35 @@ def _missing_references(submittal_id: str, allowed: frozenset[str]) -> list[str]
     return sorted(missing, key=applicability_mod.normalise_identifier)
 
 
+def _standards_change(run: dict, scope: access.AccessScope) -> dict | None:
+    """Owner order 2e: WHY THE IN-SCOPE COUNT MOVED BETWEEN RUNS.
+
+    The applicability decision is stored per run (`review_applicable_standards`),
+    so the change is a diff against the previous run of the same submittal:
+    which standards were added and which removed, by name, under the caller's
+    grants. None when there is no earlier run to compare with.
+    """
+    previous = connect().execute(
+        "SELECT id FROM review_runs WHERE submittal_document_id = ? AND id != ?"
+        " AND created_at < ? ORDER BY created_at DESC LIMIT 1",
+        (run["submittal_document_id"], run["id"], run.get("created_at") or "")).fetchone()
+    if previous is None:
+        return None
+
+    def in_scope(run_id: str) -> dict[str, str]:
+        return {r["standard_document_id"]: r["filename"] or r["standard_document_id"]
+                for r in connect().execute(
+                    "SELECT a.standard_document_id, d.filename FROM review_applicable_standards a"
+                    " LEFT JOIN documents d ON d.id = a.standard_document_id"
+                    " WHERE a.review_run_id = ? AND a.included = 1", (run_id,))
+                if scope.may_read(r["standard_document_id"])}
+
+    now, before = in_scope(run["id"]), in_scope(previous["id"])
+    return {"previous_run_id": previous["id"],
+            "added": sorted(now[k] for k in now.keys() - before.keys()),
+            "removed": sorted(before[k] for k in before.keys() - now.keys())}
+
+
 def _run_summary(run: dict, scope: access.AccessScope) -> dict:
     """One review run as every screen shows it.
 
@@ -1651,6 +1958,7 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
             " WHERE review_run_id = ? AND equipment_tag IS NOT NULL"
             " ORDER BY equipment_tag", (run["id"],))
     ]
+    job = review_jobs_mod.job_for_run(run["id"])
     outcome = comparison_mod.run_outcome(
         run["id"], allowed_document_ids=scope.allowed_document_ids) or {}
     document = connect().execute(
@@ -1671,7 +1979,14 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         "findings_total": findings_total,
         "by_status": by_status,
         "recommended_code": outcome.get("recommended_code"),
-        "recommended_reason": outcome.get("reason"),
+        # 2g: plain words for the engineer; the technical sentence under
+        # "Details". A run stored before 2g gets its plain sentence derived
+        # from the same stored counts.
+        "recommended_reason": comparison_mod.plain_outcome(outcome)[0],
+        "recommended_details": comparison_mod.plain_outcome(outcome)[1],
+        # The client's configured code labels, in policy order, so the screen
+        # offers exactly the labels `record_engineer_code` accepts.
+        "review_codes": list(comparison_mod.review_codes()),
         "failure_reason": outcome.get("error"),
         # THE ENGINEER'S DECISION BESIDE THE MACHINE'S, never instead of it.
         "engineer_final_code": run.get("engineer_final_code"),
@@ -1684,7 +1999,40 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         "decided_at": run.get("decided_at"),
         "completeness": outcome.get("completeness"),
         "page_coverage": outcome.get("page_coverage"),
+        "table_values_not_compared": outcome.get("table_values_not_compared") or [],
+        "requirements_not_applied": outcome.get("requirements_not_applied") or [],
+        # #678: every requirement in scope in one of three groups; a run stored
+        # before this existed has only its counts, so its reasons say so.
+        "requirement_split": (outcome.get("requirement_split")
+                              or requirement_split_mod.from_counts(outcome.get("unchecked_counts"))),
+        "applicability": outcome.get("applicability"),
+        # P3: the background job running this review - progress and cancel.
+        "job": job,
+        # 2e: which standards came into or left scope since the previous run.
+        "standards_change": _standards_change(run, scope),
+        # 2026-09-27: the AI engineering check's own outcome for this run -
+        # null when it never ran (off, or the Claude lane is off), and NEVER
+        # silent when it did: a truncated or budget-refused reply is a fact
+        # on the run, with the plain-English boundary sentence a reviewer
+        # reads directly (`ai_engineering_check._plain_status`).
+        "ai_check_status": ai_engineering_check_mod.ai_check_status(
+            run["id"], allowed_document_ids=scope.allowed_document_ids),
+        # #633: the web standards check's own outcome, same rule.
+        "web_check_status": _json_column(run.get("web_check_status")),
+        # #633: findings written before a failed run stopped are PARTIAL.
+        "partial_findings": outcome.get("partial_findings") or 0,
     }
+
+
+def _json_column(raw) -> dict | None:
+    """A JSON object stored in a TEXT column, or None (never ran, or malformed)."""
+    if not raw:
+        return None
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if isinstance(value, dict) else None
 
 
 @app.post("/api/reviews/runs/{review_run_id}/code",
@@ -1731,6 +2079,9 @@ def decide_review_code(
     except comparison_mod.ComparisonError as exc:
         raise HTTPException(status_code=422, detail=errors.safe_error(
             errors.INVALID_PARAMETER, str(exc))) from exc
+    # The final code is the moment a sheet can be issued: every comment an
+    # engineer has confirmed must carry its permanent number by then.
+    _mint_crs_numbers(review_run_id, scope)
     run = submittal_review_mod.get_review_run(
         review_run_id, allowed_document_ids=scope.allowed_document_ids)
     return _run_summary(run, scope)
@@ -1780,9 +2131,11 @@ def review_dashboard(
         code = run.get("engineer_final_code") or outcome.get("recommended_code")
         if (run.get("status") or "") == "failed":
             reasons["the run failed"] = reasons.get("the run failed", 0) + 1
-        elif code == comparison_mod.CODE_REJECTED:
+        # BY ROLE, not by label: the labels are the client's to configure
+        # (reference/review_codes.json, CRS quick wins 2026-09-27).
+        elif comparison_mod.code_role(code) == "revise_and_resubmit":
             reasons["rejected"] = reasons.get("rejected", 0) + 1
-        elif code == comparison_mod.CODE_MANUAL:
+        elif comparison_mod.code_role(code) == "manual_review":
             key = "not enough was read to recommend a code"
             reasons[key] = reasons.get(key, 0) + 1
 
@@ -1823,6 +2176,52 @@ def review_dashboard(
         "needs_attention_reasons": reasons,
         "recent": recent,
     }
+
+
+@app.get("/api/reviews/runs/{review_run_id}/trace", response_model=schemas.ReviewTrace,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def review_run_trace(
+    review_run_id: str,
+    request: Request,
+    download: bool = Query(False, description="as a JSON file to save (the internal trace export)"),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """#791 parts 1-3: the run step by step - read, clean, equipment,
+    standards, checklist, rules, decide, coverage, CRS, code - each with its
+    status, counts, items and timing, and the run's AI use. The stored trace
+    only for a caller who may read every document it names; any other reader
+    of the run gets the steps built now under their own access. A run the
+    caller may not read is 404. Read only. `download=true` returns the same
+    as a file (internal: it carries document values; never for the contractor)."""
+    reject_unknown_params(request, {"download"})
+    trace = review_trace_mod.for_caller(review_run_id, scope)
+    if trace is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no review run with that id"))
+    trace = {k: v for k, v in trace.items() if k != "document_ids"}
+    if download:
+        return Response(content=json.dumps(trace, indent=2), media_type="application/json",
+                        headers={"Content-Disposition":
+                                 f'attachment; filename="review-trace-{review_run_id}.json"'})
+    return trace
+
+
+@app.get("/api/reviews/feedback", response_model=schemas.EngineerFeedback,
+         responses=schemas.ERRORS_422)
+def review_feedback(
+    request: Request,
+    since: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}",
+                              description="only findings created on or after this ISO date"),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """R26 step 10: engineers' accept / edit / reject decisions on review
+    findings, per standard and per rule, with the rules engineers keep
+    rejecting listed as candidates for a checklist or guard change. Read only;
+    only the findings of documents the caller may read are counted, and a
+    standard they may not read is not named. Nothing changes automatically."""
+    reject_unknown_params(request, {"since"})
+    return engineer_feedback_mod.report(
+        allowed_document_ids=scope.allowed_document_ids, since=since)
 
 
 @app.get("/api/reviews/runs", response_model=schemas.ReviewRunList,
@@ -1870,6 +2269,11 @@ def review_run_standards(
             allowed_document_ids=scope.allowed_document_ids) is None:
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "no review run with that id"))
+    return _run_standards_payload(review_run_id, scope, include_excluded)
+
+
+def _run_standards_payload(review_run_id: str, scope: access.AccessScope,
+                           include_excluded: bool) -> dict:
     rows = submittal_review_mod.list_applicable_standards(
         review_run_id, allowed_document_ids=scope.allowed_document_ids,
         include_excluded=include_excluded)
@@ -1886,8 +2290,78 @@ def review_run_standards(
             "confidence": row.get("confidence"),
             "included": bool(row.get("included", 1)),
             "exclusion_reason": row.get("exclusion_reason"),
+            "evidence_page": row.get("evidence_page"),
+            "evidence_quote": row.get("evidence_quote"),
+            "scope_decision": row.get("scope_decision"),
         })
-    return {"standards": out}
+    outcome = comparison_mod.run_outcome(
+        review_run_id, allowed_document_ids=scope.allowed_document_ids) or {}
+    return {"standards": out,
+            "missing_references": outcome.get("missing_references") or []}
+
+
+@app.post("/api/reviews/runs/{review_run_id}/standards/override",
+          response_model=schemas.ReviewRunStandardList,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_404,
+                     **schemas.ERRORS_409, **schemas.ERRORS_422})
+def override_review_standard(
+    review_run_id: str,
+    body: schemas.StandardOverrideRequest,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """P2: an engineer adds or removes a standard, with a reason, and the run's
+    findings are recomputed from the new list.
+
+    THE ENGINEER'S OWN ACT: a signed-in caller, named in the audit row (written
+    in the same transaction as the selection). Both documents must be readable
+    - a hidden one is the same 404 as a missing one. REFUSED (409) when the
+    run carries an engineer's final code (that decision was made about these
+    findings; start a new review), while it is still running, or when the
+    caller cannot read every standard the run already uses - recomputing under
+    a narrower view would silently drop another engineer's requirements.
+    Cited standards the library does not hold stay MISSING_LOCALLY: adding a
+    different standard does not make a missing one present.
+    """
+    reject_unknown_params(request, set())
+    _require_identity_to_write(scope)
+    if not scope.user_id:
+        raise HTTPException(status_code=401, detail=errors.safe_error(
+            errors.UNAUTHENTICATED, "an override must name the engineer who made it"))
+    run = submittal_review_mod.get_review_run(
+        review_run_id, allowed_document_ids=scope.allowed_document_ids)
+    if run is None or not scope.may_read(body.standard_document_id):
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no review run or standard with that id"))
+    if run.get("engineer_final_code"):
+        raise HTTPException(status_code=409, detail=errors.safe_error(
+            errors.INVALID_PARAMETER,
+            "this run carries an engineer's final code; start a new review to change its standards"))
+    if (run.get("status") or "") == "running":
+        raise HTTPException(status_code=409, detail=errors.safe_error(
+            errors.INVALID_PARAMETER, "this review is still running"))
+    in_use = {r["standard_document_id"] for r in connect().execute(
+        "SELECT standard_document_id FROM review_applicable_standards"
+        " WHERE review_run_id = ? AND included = 1", (review_run_id,))}
+    if not in_use <= scope.allowed_document_ids:
+        raise HTTPException(status_code=409, detail=errors.safe_error(
+            errors.INVALID_PARAMETER,
+            "you cannot read every standard this review uses, so it cannot be recomputed under your view"))
+    outcome = comparison_mod.run_outcome(
+        review_run_id, allowed_document_ids=scope.allowed_document_ids) or {}
+    try:
+        applicability_mod.override(
+            review_run_id, body.standard_document_id, include=body.include,
+            reason=body.reason, allowed_document_ids=scope.allowed_document_ids,
+            actor=_actor_from_scope(scope))
+    except applicability_mod.ApplicabilityError as exc:
+        raise HTTPException(status_code=422, detail=errors.safe_error(
+            errors.INVALID_PARAMETER, str(exc))) from exc
+    comparison_mod.run_comparison(
+        review_run_id, allowed_document_ids=scope.allowed_document_ids,
+        reference_coverage=(outcome.get("completeness") or {}).get("reference_coverage"),
+        missing_references=[m["identifier"] for m in outcome.get("missing_references") or []])
+    return _run_standards_payload(review_run_id, scope, include_excluded=True)
 
 
 @app.post("/api/reviews/run", response_model=schemas.ReviewRunSummary,
@@ -1915,44 +2389,21 @@ def start_review_run(
     reject_unknown_params(request, set())
     document_id = body.submittal_document_id
     require_document(document_id, scope)
-    existing = [
-        run for run in submittal_review_mod.list_review_runs(
-            allowed_document_ids=scope.allowed_document_ids,
-            submittal_document_id=document_id)
-        if (run.get("status") or "") == "running"
-    ]
-    if existing:
+    # P3: QUEUED, NOT RUN HERE. The run and its job are created together under
+    # one write lock (no second active review of this submittal), and the
+    # worker runs it under THIS caller's grants. The response is the queued
+    # run with its job, so the screen can show progress and offer cancel.
+    try:
+        run_id, _job_id = review_jobs_mod.enqueue(
+            document_id, allowed_document_ids=scope.allowed_document_ids,
+            requested_by=scope.user_id)
+    except review_jobs_mod.ReviewAlreadyActive as exc:
         raise HTTPException(status_code=409, detail=errors.safe_error(
             errors.INVALID_PARAMETER,
-            f"a review of this submittal is already running "
-            f"({existing[0]['id']})"))
-
-    try:
-        run_id = submittal_review_mod.create_review_run(
-            submittal_document_id=document_id,
-            started_by=scope.user_id,
-            allowed_document_ids=scope.allowed_document_ids)
-    except submittal_review_mod.FactExtractionFailed as exc:
-        # B19: the run exists and is already marked failed with this reason.
-        raise HTTPException(status_code=422, detail=errors.safe_error(
-            errors.INVALID_PARAMETER, f"the review failed: {exc}")) from exc
-    try:
-        applicability_mod.select(
-            document_id, allowed_document_ids=scope.allowed_document_ids,
-            review_run_id=run_id, persist=True)
-        comparison_mod.run_comparison(
-            run_id, allowed_document_ids=scope.allowed_document_ids)
-    except Exception as exc:  # noqa: BLE001 - recorded on the run, then shown
-        with connect() as conn:
-            conn.execute(
-                "UPDATE review_runs SET status = 'failed', refusal_reason = ?,"
-                " updated_at = ? WHERE id = ?",
-                (json.dumps({"error": str(exc)}), review_mod.now_iso(), run_id))
-        raise HTTPException(status_code=422, detail=errors.safe_error(
-            errors.INVALID_PARAMETER, f"the review failed: {exc}")) from exc
-    return list_review_runs(
+            f"a review of this submittal is already queued or running ({exc.args[0]})")) from exc
+    return next(r for r in list_review_runs(
         request=request, document_id=document_id, scope=scope,
-    )["runs"][0]
+    )["runs"] if r["review_run_id"] == run_id)
 
 
 @app.get("/api/reviews/findings", response_model=schemas.ReviewFindingList,
@@ -2016,6 +2467,11 @@ def update_review_finding(
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "review owner not found"))
     changes = body.model_dump(exclude_unset=True)
+    # Owner order section 3: AN EDITED COMMENT IS THE ENGINEER'S, so saving
+    # it confirms it - and a confirmed finding survives a re-run, where an
+    # unconfirmed edit would silently vanish with the rest.
+    if changes.get("engineer_comment"):
+        changes["confirmed"] = True
     # CONFIRMATION IS THE CALLER'S OWN. `confirmed` is a flag on the body; the
     # NAME comes from the authenticated scope and can never be supplied by the
     # client, because a confirmation that can be attributed to someone else is
@@ -2032,12 +2488,27 @@ def update_review_finding(
                 "a confirmation must name the engineer who made it"))
         changes["confirmed_by"] = scope.user_id
         changes["confirmed_at"] = review_mod.now_iso()
+    # B10: AN APPROVAL OR DISPOSITION IS THE CALLER'S OWN, for the same reason.
+    # The name is never read from the body (the schema has no field for it),
+    # and an anonymous caller cannot decide a finding.
+    if changes.get("approval_status") in ("accepted", "rejected") or changes.get("disposition"):
+        if scope.user_id is None:
+            raise HTTPException(status_code=401, detail=errors.safe_error(
+                errors.UNAUTHENTICATED,
+                "an approval must name the engineer who made it"))
+        changes["approved_by"] = scope.user_id
+        changes["approved_at"] = review_mod.now_iso()
     updated = review_mod.update(
         finding_id, changes, actor_user_id=scope.user_id
     )
     if updated is None:
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "no review finding with that id"))
+    # A confirmed, accepted or re-worded comment is the engineer's: it gets
+    # its permanent CRS number now, not at export (which writes nothing).
+    _mint_crs_numbers(current.get("review_run_id"), scope)
+    # r2 S2: the reply is a read of the finding too.
+    review_mod.withhold_unreadable_standards([updated], scope.allowed_document_ids)
     return updated
 
 
@@ -2088,7 +2559,78 @@ def review_finding_history(
     return {"events": review_mod.history(finding_id)}
 
 
+#: R21 / #508: which stored page and text each side of a finding cites.
+_EVIDENCE_SIDES = {
+    "submittal": ("document_id", "contractor_page", "contractor_evidence_text"),
+    "standard": ("standard_document_id", "standard_page", "requirement_source_text"),
+}
+
+
+@app.get("/api/reviews/findings/{finding_id}/evidence-image",
+         response_class=FileResponse,
+         responses={200: {"content": {"image/png": {}}, "description": "Cited page"},
+                    **schemas.ERRORS_404, **schemas.ERRORS_422})
+def review_finding_evidence_image(
+    finding_id: str,
+    request: Request,
+    side: str = Query(..., pattern="^(submittal|standard)$"),
+    dpi: int = Query(150, ge=50, le=300),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """The page one side of a finding cites, with the finding's own stored
+    text boxed on it (R21 side-by-side view, #508).
+
+    THE TEXT NEVER TRAVELS IN THE URL: the finding is looked up by id and its
+    stored quote (the value read, or the requirement sentence) is located on
+    its stored page by the same `highlight.locate` the answer path uses - only
+    shorter pieces of the same text, never a looser match. When it cannot be
+    found (too short to place safely, or not on the page) the page comes back
+    WITHOUT a box and `X-Answer-Located: 0` says so; one box in the wrong place
+    and no box is trusted again.
+
+    Access: the finding follows its submittal's grant, and the standard side
+    also needs the standard's own grant - 404 either way, like every route.
+    """
+    reject_unknown_params(request, {"side", "dpi"})
+    current = review_mod.get(finding_id)
+    if current is None or not scope.may_read(current["document_id"]):
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no review finding with that id"))
+    doc_field, page_field, text_field = _EVIDENCE_SIDES[side]
+    document_id, page_no = current.get(doc_field), current.get(page_field)
+    if not document_id or not page_no:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, f"this finding cites no {side} page"))
+    doc = dict(require_document(document_id, scope))
+    if doc.get("pagination") == "flow":
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "a Word document has no printed pages"))
+    rects, _ = highlight_mod.locate(doc["stored_path"], int(page_no), current.get(text_field) or "")
+    try:
+        path = pageimage_mod.render_page_with_highlight(doc, int(page_no), rects, dpi=dpi)
+    except pageimage_mod.PageOutOfRange as e:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, str(e), document_id=document_id)) from None
+    return FileResponse(path, media_type="image/png", headers={
+        "Cache-Control": "private, max-age=3600",
+        "X-Answer-Located": "1" if rects else "0",
+    })
+
+
 # ------------------------------------------------------------- deliverables / WBS
+
+def _deliverable_visible(item: dict, scope: access.AccessScope) -> bool:
+    """May this caller touch this deliverable? (r2 S3)
+
+    A deliverable tied to a document follows that document's grant. One with NO
+    document used to be open to every identified caller, including one with no
+    grant at all; it now needs the admin capability or at least one grant.
+    """
+    document_id = item.get("document_id")
+    if document_id:
+        return scope.may_read(document_id)
+    return scope.is_admin or bool(scope.allowed_document_ids)
+
 
 @app.get("/api/deliverables", response_model=schemas.DeliverableList,
          responses=schemas.ERRORS_422)
@@ -2122,8 +2664,18 @@ def list_risks(risk_type: str | None = None,
                scope: access.AccessScope = Depends(access.current_scope)):
     if risk_type is not None and risk_type not in risks_mod.RISK_TYPES:
         raise HTTPException(status_code=422, detail="unsupported risk type")
-    risks_mod.detect_automatic_risks(allowed_document_ids=scope.allowed_document_ids)
+    # READ ONLY (#478, #608). Detection used to run here on every GET, looping
+    # over every finding and emailing per risk. It runs in the background
+    # (`risks_mod.start_background_detection`) and from POST /api/risks/detect.
     return {"risks": risks_mod.list_items(risk_type=risk_type, allowed_document_ids=scope.allowed_document_ids)}
+
+
+@app.post("/api/risks/detect", response_model=schemas.RiskDetectionResult,
+          responses={**schemas.ERRORS_404})
+def detect_risks(_actor: dict | None = Depends(admin_mod.current_admin)):
+    """Run automatic risk detection now. Admin only (404 to anyone else, the
+    admin surface's convention). Single-flight; sends at most one digest."""
+    return risks_mod.run_detection()
 
 
 @app.get("/api/reviews/findings/{finding_id}/traceability", response_model=schemas.ReviewTraceability)
@@ -2134,10 +2686,37 @@ def finding_traceability(finding_id: str, scope: access.AccessScope = Depends(ac
     return item
 
 
-@app.post("/api/risks", response_model=schemas.Risk)
+@app.post("/api/risks", response_model=schemas.Risk,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
 def create_risk(body: schemas.RiskCreate, scope: access.AccessScope = Depends(access.current_scope)):
+    """Record a risk. The same rules as every other writer (audit 2026-09-30):
+
+    an identity is required, anything it points at must be readable by the
+    caller (a risk on a hidden document, deliverable or source finding is a
+    write into somebody else's record), and an ordinary user may only name themselves as
+    owner. Length limits live on `schemas.RiskCreate`.
+    """
+    _require_identity_to_write(scope)
     if body.risk_type not in risks_mod.RISK_TYPES:
         raise HTTPException(status_code=422, detail="unsupported risk type")
+    if body.document_id:
+        require_document(body.document_id, scope)
+    if body.deliverable_id:
+        linked = deliverables_mod.get(body.deliverable_id)
+        if linked is None or not _deliverable_visible(linked, scope):
+            raise HTTPException(status_code=404, detail=errors.safe_error(
+                errors.NOT_FOUND, "no deliverable with that id"))
+    if body.source_finding_id:
+        # The finding a risk cites is read with its document (audit leftover
+        # 2026-09-30): one on a document the caller may not read answers the
+        # same 404 as one that does not exist.
+        source = review_mod.get(body.source_finding_id)
+        if source is None or not scope.may_read(source["document_id"]):
+            raise HTTPException(status_code=404, detail=errors.safe_error(
+                errors.NOT_FOUND, "no finding with that id"))
+    if body.owner_user_id and not scope.is_admin and body.owner_user_id != scope.user_id:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "risk owner not found"))
     return risks_mod.create(body.model_dump())
 
 
@@ -2158,6 +2737,13 @@ def create_deliverable(body: schemas.DeliverableCreate,
 def update_deliverable(deliverable_id: str, body: schemas.DeliverableUpdate,
                        scope: access.AccessScope = Depends(access.current_scope)):
     _require_identity_to_write(scope)
+    # AUTHORISE BEFORE WRITING. The read check used to run on the row
+    # `update` RETURNED, so a caller without a grant on the deliverable's
+    # document got a 404 while their change had already been committed
+    # (audit 2026-09-30). The existing row is checked first, then written.
+    existing = deliverables_mod.get(deliverable_id)
+    if existing is None or not _deliverable_visible(existing, scope):
+        raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no deliverable with that id"))
     changes = body.model_dump(exclude_unset=True)
     if changes.get("document_id"):
         require_document(changes["document_id"], scope)
@@ -2167,7 +2753,7 @@ def update_deliverable(deliverable_id: str, body: schemas.DeliverableUpdate,
         item = deliverables_mod.update(deliverable_id, changes, actor_user_id=scope.user_id)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    if item is None or (item.get("document_id") and not scope.may_read(item["document_id"])):
+    if item is None or not _deliverable_visible(item, scope):
         raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no deliverable with that id"))
     return item
 
@@ -2176,7 +2762,7 @@ def update_deliverable(deliverable_id: str, body: schemas.DeliverableUpdate,
          responses=schemas.ERRORS_404)
 def deliverable_history(deliverable_id: str, scope: access.AccessScope = Depends(access.current_scope)):
     item = deliverables_mod.get(deliverable_id)
-    if item is None or (item.get("document_id") and not scope.may_read(item["document_id"])):
+    if item is None or not _deliverable_visible(item, scope):
         raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no deliverable with that id"))
     return {"events": deliverables_mod.history(deliverable_id)}
 
@@ -2186,7 +2772,7 @@ def deliverable_history(deliverable_id: str, scope: access.AccessScope = Depends
          responses=schemas.ERRORS_404)
 def deliverable_stakeholders(deliverable_id: str, scope: access.AccessScope = Depends(access.current_scope)):
     item = deliverables_mod.get(deliverable_id)
-    if item is None or (item.get("document_id") and not scope.may_read(item["document_id"])):
+    if item is None or not _deliverable_visible(item, scope):
         raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no deliverable with that id"))
     return {"stakeholders": deliverables_mod.stakeholders(deliverable_id)}
 
@@ -2200,7 +2786,7 @@ def replace_deliverable_stakeholders(
 ):
     _require_identity_to_write(scope)
     item = deliverables_mod.get(deliverable_id)
-    if item is None or (item.get("document_id") and not scope.may_read(item["document_id"])):
+    if item is None or not _deliverable_visible(item, scope):
         raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no deliverable with that id"))
     return {"stakeholders": deliverables_mod.replace_stakeholders(
         deliverable_id, [a.model_dump() for a in body.assignments], actor_user_id=scope.user_id)}
@@ -2276,7 +2862,12 @@ def get_summary_schedule(scope: access.AccessScope = Depends(access.current_scop
 
 
 @app.put("/api/management/summary/schedule", response_model=schemas.SummarySchedule)
-def set_summary_schedule(body: schemas.SummarySchedule, scope: access.AccessScope = Depends(access.current_scope)):
+def set_summary_schedule(body: schemas.SummarySchedule,
+                         scope: access.AccessScope = Depends(access.current_scope),
+                         _actor: dict | None = Depends(admin_mod.current_admin)):
+    # GLOBAL SETTING: the admin capability, via the same gate the admin surface
+    # uses (404 to a non-admin). Identity alone let any signed-in engineer
+    # change it for everyone (audit 2026-09-30).
     _require_identity_to_write(scope)
     settings.summary_schedule = body.schedule
     settings.summary_weekday_utc = body.weekday_utc
@@ -2300,7 +2891,11 @@ def management_report(scope: access.AccessScope = Depends(access.current_scope))
 @app.put("/api/management/escalation-rules/{level}", response_model=schemas.EscalationRule,
          responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
 def update_escalation_rule(level: int, body: schemas.EscalationRule,
-                           scope: access.AccessScope = Depends(access.current_scope)):
+                           scope: access.AccessScope = Depends(access.current_scope),
+                           _actor: dict | None = Depends(admin_mod.current_admin)):
+    # GLOBAL SETTING: the admin capability, via the same gate the admin surface
+    # uses (404 to a non-admin). Identity alone let any signed-in engineer
+    # change it for everyone (audit 2026-09-30).
     _require_identity_to_write(scope)
     item = deliverables_mod.update_escalation_rule(level, body.model_dump(exclude={"level"}))
     if item is None:
@@ -2360,7 +2955,9 @@ def get_conversation(conversation_id: str, request: Request,
     answer, so reopening it restores the citations rather than bare text."""
     reject_unknown_params(request, set())
     conversation = _require_owned_conversation(conversation_id, scope)
-    return {"conversation": conversation, "messages": chat_mod.get_messages(conversation_id)}
+    return {"conversation": conversation, "messages": chat_mod.get_messages(
+        conversation_id, allowed_document_ids=scope.allowed_document_ids,
+        user_key=scope.user_id or "")}
 
 
 @app.delete("/api/conversations/{conversation_id}", response_model=schemas.DeletedConversation,
@@ -2398,6 +2995,19 @@ def delete_conversation(conversation_id: str, request: Request, confirm: bool = 
     }
 
 
+@app.get("/api/chat/models", response_model=schemas.ChatModels, responses=schemas.ERRORS_422)
+def chat_models(request: Request, scope: access.AccessScope = Depends(access.current_scope)):
+    """What the composer's Model menu may offer: only engines that can run
+    here, with the reason one cannot (never a key). Signed-in callers only."""
+    reject_unknown_params(request, set())
+    if not scope.unrestricted and not scope.user_id:
+        raise HTTPException(status_code=401, detail=errors.safe_error(
+            errors.UNAUTHENTICATED, "sign in to continue"))
+    from . import chat_model, chat_web
+    web_ok, web_why = chat_web.available()
+    return {**chat_model.available_models(), "web_available": web_ok, "web_reason": web_why}
+
+
 @app.post("/api/conversations/{conversation_id}/ask", response_model=schemas.AskResult,
           responses={**schemas.ERRORS_400, **schemas.ERRORS_404, **schemas.ERRORS_422})
 def ask(conversation_id: str, body: schemas.AskRequest,
@@ -2419,7 +3029,7 @@ def ask(conversation_id: str, body: schemas.AskRequest,
     # It classifies as "empty" and gets the guidance reply, like any other
     # input that was never a document question.
     try:
-        progress_mod.start(body.progress_id)
+        progress_mod.start(body.progress_id, owner=scope.user_id)
         # `finally`, so an answer that raises still closes its record rather
         # than leaving a client polling a stage that will never advance.
         try:
@@ -2432,6 +3042,10 @@ def ask(conversation_id: str, body: schemas.AskRequest,
                 explain_of=body.explain_of,
                 allowed_document_ids=scope.allowed_document_ids,
                 progress_id=body.progress_id,
+                model=body.model,
+                include_unowned_records=scope.is_admin,
+                document_ids=_picked_documents(body, scope),
+                web=body.web,
             )
         finally:
             progress_mod.finish(body.progress_id)
@@ -2441,6 +3055,232 @@ def ask(conversation_id: str, body: schemas.AskRequest,
             detail=errors.safe_error(
                 errors.NOT_FOUND, "no answered message with that id in this conversation"),
         )
+
+
+def _picked_documents(body: schemas.AskRequest, scope: access.AccessScope) -> frozenset[str] | None:
+    """The documents picked with "@ a document", each checked readable - a
+    404 for one that is not, the same answer as for one that does not exist.
+    `chat.ask` then intersects them with the caller's permission anyway."""
+    if not body.document_ids:
+        return None
+    for document_id in body.document_ids:
+        require_document(document_id, scope)
+    return frozenset(body.document_ids)
+
+
+def _chat_action_errors(fn):
+    """chat_actions' refusals, as the API states them."""
+    from . import chat_actions
+    try:
+        return fn()
+    except chat_actions.NotFound:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no such answer or comment in this conversation"))
+    except (chat_actions.NothingToFile, chat_actions.UndoClosed) as exc:
+        raise HTTPException(status_code=409, detail=errors.safe_error(
+            errors.INVALID_PARAMETER, str(exc)))
+
+
+@app.post("/api/conversations/{conversation_id}/messages/{message_id}/feedback",
+          response_model=schemas.ChatFeedback,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
+def chat_feedback(conversation_id: str, message_id: str, body: schemas.ChatFeedbackRequest,
+                  scope: access.AccessScope = Depends(access.current_scope)):
+    """ "Was this right?" on one answer: the caller's own, replaced if they
+    change their mind. Stored on this machine only."""
+    from . import chat_actions
+    _require_identity_to_write(scope)
+    _require_owned_conversation(conversation_id, scope)
+    return _chat_action_errors(lambda: chat_actions.set_feedback(
+        conversation_id, message_id, user_key=scope.user_id or "",
+        helpful=body.helpful, note=body.note))
+
+
+@app.post("/api/conversations/{conversation_id}/messages/{message_id}/web-search",
+          response_model=schemas.Message,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_409,
+                     **schemas.ERRORS_422})
+def chat_web_search(conversation_id: str, message_id: str,
+                    scope: access.AccessScope = Depends(access.current_scope)):
+    """ "Search once": run the one web search a consent turn offered.
+
+    Takes NO text from the client. The phrase sent is exactly the one the
+    consent turn showed and stored, re-checked against the market lane's
+    whitelist before it leaves (chat_web.search), claimed atomically so it
+    runs once, sent through the market transport, audited like every market
+    query, and answered as a new turn citing the web as the web."""
+    from . import chat_web
+    _require_identity_to_write(scope)
+    _require_owned_conversation(conversation_id, scope)
+    try:
+        result, audit = chat_web.search(conversation_id, message_id,
+                                        allowed_document_ids=scope.allowed_document_ids)
+    except chat_web.NotFound:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no web question with that id in this conversation"))
+    except chat_web.Refused as exc:
+        raise HTTPException(status_code=409, detail=errors.safe_error(
+            errors.INVALID_PARAMETER, str(exc)))
+    _record_market_audit(audit, scope)
+    result["route"] = "web"
+    result.update(chat_mod.chat_presentation.present(result))
+    conn = connect()
+    return chat_mod._insert_message(
+        conn, conversation_id, role="assistant", text=result["answer"],
+        answer_type=result["answer_type"], reason=None, payload=chat_mod._payload(result))
+
+
+@app.post("/api/conversations/{conversation_id}/messages/{message_id}/comment",
+          response_model=schemas.FiledComment,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_409,
+                     **schemas.ERRORS_422})
+def file_chat_comment(conversation_id: str, message_id: str, body: schemas.FileCommentRequest,
+                      scope: access.AccessScope = Depends(access.current_scope)):
+    """ "Add to comment sheet": file a drafted comment, as the caller wrote or
+    kept it, as a finding on the submittal the answer drew on. Only a person
+    pressing the button files anything; the model never does."""
+    from . import chat_actions
+    _require_identity_to_write(scope)
+    _require_owned_conversation(conversation_id, scope)
+    filed = _chat_action_errors(lambda: chat_actions.file_comment(
+        conversation_id, message_id, text=body.text, user_id=scope.user_id,
+        allowed_document_ids=scope.allowed_document_ids))
+    # An engineer's own comment: numbered the moment it is filed.
+    _mint_crs_numbers((filed or {}).get("review_run_id"), scope)
+    return filed
+
+
+@app.delete("/api/conversations/{conversation_id}/messages/{message_id}/comment/{finding_id}",
+            response_model=schemas.WithdrawnComment,
+            responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_409,
+                       **schemas.ERRORS_422})
+def withdraw_chat_comment(conversation_id: str, message_id: str, finding_id: str,
+                          scope: access.AccessScope = Depends(access.current_scope)):
+    """Undo a filing - by the person who filed it, within minutes, while
+    nobody has changed the finding. After that it is changed on the review."""
+    from . import chat_actions
+    _require_identity_to_write(scope)
+    _require_owned_conversation(conversation_id, scope)
+    return _chat_action_errors(lambda: chat_actions.withdraw_comment(
+        conversation_id, message_id, finding_id, user_id=scope.user_id))
+
+
+#: A pipeline stage, as the streamed step list shows it. "generating" is not
+#: here: the model call announces itself (chat_model), because a general
+#: answer never passes through the document pipeline's stages.
+_STEP_LABELS = {
+    "retrieving": "Searching your documents",
+    "reranking": "Ranking the closest passages",
+    "reading": "Reading the best sources",
+}
+
+
+def _sse(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+@app.post("/api/conversations/{conversation_id}/ask/stream", response_class=StreamingResponse,
+          responses={200: {"content": {"text/event-stream": {}},
+                           "description": "turn, step, delta, sources, verification, notice, "
+                                          "then done (the full answer) or error"},
+                     **schemas.ERRORS_404, **schemas.ERRORS_422})
+async def ask_stream(conversation_id: str, body: schemas.AskRequest, request: Request,
+                     scope: access.AccessScope = Depends(access.current_scope)):
+    """`ask`, streamed as Server-Sent Events (owner order 2026-09-26, 2e).
+
+    THE SAME ANSWER as the non-streaming route - `chat.ask` builds it - with
+    its progress, its text and its Stop visible while it is written. Events:
+    `turn` {turn_id}, `step` {label, count, done}, `delta` {text} (a document
+    sentence only once its quote verified - chat_stream), `sources`,
+    `verification`, `notice` {text}, then `done` (the full AskResult) or
+    `error`. A reader who closes the page stops the provider call too.
+    """
+    import asyncio
+    import threading
+
+    from . import chat_stream
+
+    _require_owned_conversation(conversation_id, scope)
+    if body.document_id:
+        require_document(body.document_id, scope)
+    picked = _picked_documents(body, scope)
+    turn = chat_stream.open_turn(owner=scope.user_id, conversation_id=conversation_id)
+
+    def work() -> None:
+        token = chat_stream.bind(turn)
+        progress_mod.start(turn.id, owner=scope.user_id)
+
+        def on_stage(name, detail):
+            if name in _STEP_LABELS:
+                count = int(detail.split()[0]) if detail and detail.split()[0].isdigit() else None
+                turn.emit("step", {"label": _STEP_LABELS[name], "count": count, "done": False})
+
+        progress_mod.listen(turn.id, on_stage)
+        try:
+            result = chat_mod.ask(
+                conversation_id, body.question, tier=body.tier, document_id=body.document_id,
+                limit=body.limit, explain_of=body.explain_of,
+                allowed_document_ids=scope.allowed_document_ids, progress_id=turn.id,
+                model=body.model, include_unowned_records=scope.is_admin,
+                document_ids=picked, web=body.web)
+            final = schemas.AskResult.model_validate(result).model_dump(mode="json")
+            if final.get("sources"):
+                turn.emit("sources", {"sources": final["sources"]})
+            if final.get("verification"):
+                turn.emit("verification", final["verification"])
+            for notice in final.get("notices") or []:
+                turn.emit("notice", {"text": notice})
+            turn.emit("done", final)
+        except chat_mod.MessageNotFound:
+            turn.emit("error", errors.safe_error(
+                errors.NOT_FOUND, "no answered message with that id in this conversation"))
+        except Exception as exc:  # noqa: BLE001 - reported on the stream, never a hung client
+            errors.record_failure(exc, stage="chat_stream")
+            turn.emit("error", errors.safe_error(errors.INTERNAL, "the answer could not be completed"))
+        finally:
+            progress_mod.unlisten(turn.id)
+            progress_mod.finish(turn.id)
+            chat_stream.unbind(token)
+            turn.close()
+
+    threading.Thread(target=work, daemon=True, name=f"chat-{turn.id}").start()
+
+    async def events():
+        yield _sse("turn", {"turn_id": turn.id})
+        while True:
+            if await request.is_disconnected():
+                turn.cancel.set()
+            try:
+                item = turn.events.get_nowait()
+            except Exception:  # queue.Empty
+                await asyncio.sleep(0.05)
+                continue
+            if item is None:
+                return
+            yield _sse(*item)
+
+    return StreamingResponse(events(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.post("/api/conversations/{conversation_id}/ask/{turn_id}/cancel",
+          response_model=schemas.CancelledTurn,
+          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def cancel_turn(conversation_id: str, turn_id: str, request: Request,
+                scope: access.AccessScope = Depends(access.current_scope)):
+    """Stop a streamed answer. The provider call is closed, the ledger records
+    what it cost, and the turn is stored as cancelled with what the reader was
+    shown. Only the turn's owner may stop it; any other turn id is 404."""
+    from . import chat_stream
+
+    reject_unknown_params(request, set())
+    _require_owned_conversation(conversation_id, scope)
+    turn = chat_stream.find(turn_id, owner=scope.user_id, unrestricted=scope.unrestricted)
+    if turn is None or turn.conversation_id != conversation_id:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no answer being written with that id"))
+    turn.cancel.set()
+    return {"turn_id": turn_id, "cancelled": True}
 
 
 # ------------------------------------------------------------------ pages
@@ -2665,6 +3505,81 @@ def standards_cited_but_not_held(
         allowed_document_ids=scope.allowed_document_ids)
 
 
+@app.get("/api/standards/missing",
+         response_model=list[schemas.MissingStandard],
+         responses=schemas.ERRORS_422)
+def standards_missing(
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Standards beyond the library - API, ASME, ASTM, ISO, IEC, NFPA, NACE,
+    NORSOK, and the client's own - that a submittal or a SAES requirement
+    cites and the library does not hold, each with the publisher's own
+    catalogue page and whether it has been requested. Nothing is fetched:
+    every one of these is sold under licence (standards_acquisition.py).
+    Scope: exactly the cited-but-not-held list's (CLAUDE.md rule 5)."""
+    reject_unknown_params(request, set())
+    return standards_acquisition_mod.missing_standards(
+        allowed_document_ids=scope.allowed_document_ids)
+
+
+@app.post("/api/standards/missing/request",
+          response_model=schemas.StandardRequestResult,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
+def request_missing_standard(
+    body: schemas.StandardRequestBody,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Record that a missing standard has been asked for, under the signed-in
+    engineer's name. Only a standard on the caller's own missing list."""
+    _require_named_reviewer(scope, "requesting a standard")
+    try:
+        return standards_acquisition_mod.mark_requested(
+            body.identifier, user_id=scope.user_id, note=body.note,
+            allowed_document_ids=scope.allowed_document_ids)
+    except standards_acquisition_mod.AcquisitionError as exc:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, str(exc)))
+
+
+@app.post("/api/standards/{document_id}/provenance",
+          response_model=schemas.StandardProvenance,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
+def record_standard_provenance(
+    document_id: str,
+    body: schemas.ExternalCopyBody,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Mark an uploaded standard as a copy obtained externally - the client's
+    "stored, hashed, cited and marked as externally obtained" - recording
+    where it came from, the file's hash, and who recorded it."""
+    _require_named_reviewer(scope, "recording where a standard came from")
+    try:
+        return standards_acquisition_mod.record_external_copy(
+            document_id, identifier=body.identifier,
+            obtained_from=body.obtained_from, user_id=scope.user_id,
+            allowed_document_ids=scope.allowed_document_ids)
+    except standards_acquisition_mod.AcquisitionError as exc:
+        status = 404 if "no such" in str(exc) else 422
+        raise HTTPException(status_code=status, detail=errors.safe_error(
+            errors.NOT_FOUND if status == 404 else errors.INVALID_PARAMETER, str(exc)))
+
+
+@app.get("/api/standards/{document_id}/provenance",
+         response_model=schemas.StandardProvenanceRead,
+         responses={**schemas.ERRORS_404})
+def get_standard_provenance(
+    document_id: str,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Where a held standard's copy came from, or null when nothing was
+    recorded (not claimed either way)."""
+    if document_id not in scope.allowed_document_ids:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no such standard"))
+    return {"provenance": standards_acquisition_mod.provenance_of(document_id)}
+
+
 @app.get("/api/standards/{document_id}/clauses",
          response_model=list[schemas.StandardClause],
          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
@@ -2829,6 +3744,64 @@ def queue_standard_extraction(
     return {"job_id": job_id, "document_id": document_id, "state": "queued"}
 
 
+@app.get("/api/jobs", response_model=schemas.JobList,
+         responses={**schemas.ERRORS_422})
+def list_jobs(
+    request: Request,
+    document_id: str | None = Query(None),
+    state: str | None = Query(None),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """B11: background jobs on documents the caller may read."""
+    reject_unknown_params(request, {"document_id", "state"})
+    return {"jobs": job_queue_mod.list_jobs(
+        allowed_document_ids=scope.allowed_document_ids,
+        document_id=document_id, state=state)}
+
+
+@app.get("/api/jobs/{job_id}", response_model=schemas.Job,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def get_job(job_id: str, request: Request,
+            scope: access.AccessScope = Depends(access.current_scope)):
+    """B11: one job - 404 when absent or on a document the caller cannot read."""
+    reject_unknown_params(request, set())
+    job = job_queue_mod.get_job(job_id, allowed_document_ids=scope.allowed_document_ids)
+    if job is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no job with that id"))
+    return job
+
+
+@app.post("/api/jobs/{job_id}/cancel", response_model=schemas.Job,
+          responses={**schemas.ERRORS_404, **schemas.ERRORS_409, **schemas.ERRORS_422})
+def cancel_job(
+    job_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+    actor: dict | None = Depends(admin_mod.current_admin),
+):
+    """B11: withdraw a job that has not started. The same administrators who may
+    queue work may withdraw it, and only on documents they can read. A running
+    or finished job is refused with 409 and its state - never reported as
+    cancelled when it was not."""
+    reject_unknown_params(request, set())
+    if job_queue_mod.get_job(job_id, allowed_document_ids=scope.allowed_document_ids) is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no job with that id"))
+    job = job_queue_mod.get_job(job_id, allowed_document_ids=scope.allowed_document_ids)
+    if job["stage"] == review_jobs_mod.STAGE:
+        # P3: a running review stops at its next step; the response says it
+        # is still running with cancellation requested - never "cancelled".
+        cancelled, state = review_jobs_mod.cancel(job_id, actor_user_id=(actor or {}).get("id"))
+    else:
+        cancelled, state = job_queue_mod.cancel(job_id, actor_user_id=(actor or {}).get("id"))
+    if not cancelled:
+        raise HTTPException(status_code=409, detail=errors.safe_error(
+            errors.INVALID_PARAMETER,
+            f"this job can no longer be cancelled; it is {state}"))
+    return job_queue_mod.get_job(job_id, allowed_document_ids=scope.allowed_document_ids)
+
+
 @app.get("/api/standards/{document_id}/extraction-state",
          response_model=schemas.ExtractionJob,
          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
@@ -2953,6 +3926,15 @@ def page_image(
     """
     reject_unknown_params(request, {"dpi", "chunk_id", "q"})
     doc = require_document(document_id, scope)
+    if dict(doc).get("pagination") == "flow":
+        # A Word document has no printed pages: rendering it would show a
+        # layout that matches none of its reading pages or citations.
+        return JSONResponse(
+            status_code=404,
+            content={"detail": errors.safe_error(
+                errors.NOT_FOUND, "a Word document has no printed pages; it is cited by "
+                "heading path and paragraph", document_id=document_id)},
+        )
 
     rects: list[tuple[float, float, float, float]] = []
     if chunk_id and q:
@@ -3009,7 +3991,7 @@ def document_chunks(
     conn = connect()
     rows = conn.execute(
         f"""SELECT id, ordinal, page_start, page_end, section, kind, token_count,
-                   content_hash, retrievable, quality_flags, text
+                   content_hash, retrievable, quality_flags, locator, text
             FROM chunks WHERE document_id = ?{clause}
             ORDER BY ordinal LIMIT ? OFFSET ?""",
         (document_id, limit, offset),
@@ -3086,6 +4068,18 @@ def document_excluded(
 # `current_admin` rather than `current_scope`: the question is not which
 # documents this request may see, it is whether this request may be here at
 # all.
+
+
+@app.post("/api/admin/models/unload", response_model=schemas.AdminModelsFreed,
+          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def admin_free_model_memory(request: Request,
+                            actor: dict | None = Depends(admin_mod.current_admin)):
+    """Give back the memory the local models hold (#666): ask Ollama to unload
+    every resident model (keep_alive 0). A non-admin gets the same 404 as every
+    other route here. Nothing is sent but model names; the next question pays a
+    cold load, which the button's label says."""
+    reject_unknown_params(request, set())
+    return model_memory_mod.free_all()
 
 
 @app.get("/api/admin/users", response_model=schemas.AdminUserList,
@@ -3204,6 +4198,13 @@ def admin_revoke_grant(body: admin_mod.GrantRequest,
 # explorer that could write would be a second, unaudited path into every table
 # the real endpoints guard with scope checks and honesty invariants.
 #
+# THE EXPLORER READS EVERY TABLE, NOT ONLY WHAT THE ADMIN'S GRANTS COVER. That is
+# a decision, not an oversight (owner, 2026-10-07: "admin can read everything").
+# It is why the gate above matters, why credential columns are masked, and why
+# the document routes' grant-based scope is NOT a statement about this screen.
+# If an administrator must one day be limited to granted documents here too,
+# `admin_explorer.read_rows` is where that filter goes.
+#
 # CREDENTIAL MATERIAL IS MASKED IN `admin_explorer`, before it reaches the
 # wire. Not in the UI: a browser's network tab renders a JSON response just
 # fine, so masking on the client would be decoration over a disclosure.
@@ -3271,7 +4272,164 @@ def admin_db_rows(
 # be worse than no preview at all.
 
 
-def _crs_content(review_run_id: str, scope: access.AccessScope
+def _crs_submittal_label(document) -> str:
+    """The CRS header's "Submittal No.": a recorded number if an engineer
+    entered one, else the document's own number with its revision, else ""."""
+    if document is None:
+        return ""
+    recorded = (document["transmittal_number"] or "").strip()
+    if recorded:
+        return recorded
+    number = (document["document_number"] or "").strip()
+    if not number:
+        return ""
+    revision = re.sub(r"(?i)^rev(ision)?\.?\s*", "", (document["revision"] or "").strip())
+    return f"{number} Rev {revision}" if revision else number
+
+
+def _crs_scope_of(submittal_id: str) -> tuple[str, str]:
+    """(crs scope key, printed label) for one submittal: its DOCUMENT NUMBER's
+    sequence (read from its own page by the classifier, stable across
+    revisions), or the sequence it was fixed to when its first comment was
+    numbered. Never the transmittal number, which changes every submission."""
+    row = connect().execute(
+        "SELECT document_number FROM document_classification WHERE document_id = ?",
+        (submittal_id,)).fetchone()
+    number = (row["document_number"] if row is not None else None) or ""
+    return crs_numbers_mod.scope_of_document(submittal_id, number)
+
+
+#: R15 (#779): Final Resolution of a numbered machine draft (internal copy
+#: only; the issue copy never carries an unconfirmed row).
+DRAFT_NOT_ISSUED = "Draft (not issued)"
+
+
+def number_crs_rows(review_run_id: str, scope: access.AccessScope) -> int:
+    """R15 (#779): give every CRS row of a FINISHED review its permanent
+    number, so the Item No column always carries it and a re-run of the same
+    submittal gives the same comment the same number. Machine drafts are
+    numbered NOT ISSUED (`crs_numbers.assign(issued=False)`); a number an
+    engineer already made theirs stays issued. Called by the review job when
+    the run completes - a write path, never the export or preview.
+
+    NEVER FAILS THE REVIEW: the findings are stored when this runs; a failure
+    is logged (ids and counts only) and the rows stay unnumbered until the
+    next write. Returns how many rows carry a number afterwards."""
+    import logging
+    try:
+        run = submittal_review_mod.get_review_run(
+            review_run_id, allowed_document_ids=scope.allowed_document_ids)
+        if run is None:
+            return 0
+        rows, _meta, _name, _stamp = _crs_content(review_run_id, scope, "internal")
+        submittal_id = run["submittal_document_id"]
+        crs_scope, label = _crs_scope_of(submittal_id)
+        mine = [row for row in rows if row.get("crs_row_key")
+                and row.get("row_kind") != crs_mapping_mod.ROW_KIND_CARRIED_FORWARD]
+        if not mine:
+            return 0
+        drafts = [row for row in mine if not row.get("engineer_confirmed")]
+        if drafts:
+            crs_numbers_mod.assign(
+                crs_scope, label, [row["crs_row_key"] for row in drafts],
+                document_id=submittal_id, review_run_id=review_run_id,
+                snapshots={row["crs_row_key"]: row for row in drafts},
+                user_id=None, issued=False)
+        return len(crs_numbers_mod.lookup(crs_scope, [row["crs_row_key"] for row in mine]))
+    except Exception:  # noqa: BLE001 - see docstring: never fail a finished review
+        logging.getLogger(__name__).warning(
+            "crs numbers: numbering run %s failed; rows stay unnumbered", review_run_id,
+            exc_info=True)
+        return 0
+
+
+def _mint_crs_numbers(review_run_id: str | None, scope: access.AccessScope) -> None:
+    """Give every CRS comment an engineer has made their own its permanent
+    number (`crs_numbers`). Called by the WRITE routes that make a comment an
+    engineer's - a finding edited, confirmed or accepted, a comment filed from
+    chat, the final code recorded - never by the export or preview.
+
+    The rows are composed exactly as the export composes them, so the keys
+    minted here are the keys the export looks up. An unconfirmed machine draft
+    is not ISSUED here: it was numbered (not issued) when its review finished
+    (`number_crs_rows`, R15), and confirming it issues that same number.
+
+    NEVER FAILS THE CALLER'S SAVE. The engineer's decision is already stored
+    when this runs; a failure here is logged and the numbers are minted by the
+    next write on the run, rather than answering 500 about a saved decision.
+    """
+    if not review_run_id:
+        return
+    import logging
+    try:
+        run = submittal_review_mod.get_review_run(
+            review_run_id, allowed_document_ids=scope.allowed_document_ids)
+        if run is None:
+            return
+        rows, meta, _name, _stamp = _crs_content(review_run_id, scope, "internal")
+        submittal_id = run["submittal_document_id"]
+        crs_scope, label = _crs_scope_of(submittal_id)
+        # Carried-forward rows are already numbered and are not this run's to
+        # re-snapshot; every other confirmed row is numbered (if new) and its
+        # snapshot refreshed, so a later carry-forward prints what it last said.
+        mine = [row for row in rows
+                if row.get("engineer_confirmed") and row.get("crs_row_key")
+                and row.get("row_kind") != crs_mapping_mod.ROW_KIND_CARRIED_FORWARD]
+        if mine:
+            crs_numbers_mod.assign(
+                crs_scope, label, [row["crs_row_key"] for row in mine],
+                document_id=submittal_id, review_run_id=review_run_id,
+                snapshots={row["crs_row_key"]: row for row in mine},
+                user_id=scope.user_id)
+        # A comment confirmed (so numbered) and then rejected is withdrawn -
+        # never issued, never carried forward (audit 2026-09-30).
+        if meta.get("rejected_row_keys"):
+            crs_numbers_mod.withdraw(crs_scope, meta["rejected_row_keys"],
+                                     user_id=scope.user_id)
+    except HTTPException:
+        return
+    except Exception:  # noqa: BLE001 - see docstring: never fail a saved decision
+        logging.getLogger(__name__).warning(
+            "CRS numbers not minted for run %s; the next write will retry",
+            review_run_id, exc_info=True)
+
+
+def _display_names(user_ids: set[str]) -> dict[str, str]:
+    """{user id: display name} for the ids that have a non-empty display name
+    on record. An id with none is absent - the caller prints the id rather
+    than invent a name."""
+    ids = sorted(i for i in user_ids if i)
+    if not ids:
+        return {}
+    marks = ",".join("?" for _ in ids)
+    return {r["id"]: r["display_name"] for r in connect().execute(
+        f"SELECT id, display_name FROM users WHERE id IN ({marks})", tuple(ids))
+        if r["display_name"]}
+
+
+def _prior_rejections(submittal_id: str, allowed: frozenset[str]
+                      ) -> dict[str, tuple[str | None, str | None]]:
+    """{comment key: (rejected by, rejected at)} for every comment an engineer
+    rejected on ANY run of this submittal the caller may read - the latest
+    rejection per key. Read only; keys as `crs_mapping.finding_comment_key`
+    gives them, over the same CRS context the rows are built from."""
+    runs = [r["id"] for r in connect().execute(
+        "SELECT id FROM review_runs WHERE submittal_document_id = ?", (submittal_id,))]
+    rejected: list[dict] = []
+    for run_id in runs:
+        rejected.extend(f for f in submittal_review_mod.list_run_findings(
+            run_id, allowed_document_ids=allowed)
+            if f.get("approval_status") == "rejected")
+    if not rejected:
+        return {}
+    comparison_mod.attach_crs_context(rejected)
+    out: dict[str, tuple[str | None, str | None]] = {}
+    for f in sorted(rejected, key=lambda f: f.get("approved_at") or ""):
+        out[crs_mapping_mod.finding_comment_key(f)] = (f.get("approved_by"), f.get("approved_at"))
+    return out
+
+
+def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "internal"
                  ) -> tuple[list[dict], dict, str, str]:
     """One run's CRS rows and meta, with the scope question asked once.
 
@@ -3285,13 +4443,16 @@ def _crs_content(review_run_id: str, scope: access.AccessScope
     left BLANK:
 
       document_title          the submittal's own filename
-      submittal_number        the submittal's own transmittal number from
-                              `document_classification`, captured at upload,
+      submittal_number        the submittal's own number: one an engineer
+                              recorded in the metadata editor, else its
+                              document number and revision read from its page
+                              (`_crs_submittal_label`),
                               and BLANK when it carried none
       date_issued             today - the date this file was exported, which
                               is the only date this system actually knows
-      company_transmittal     BLANK. Nobody has issued one.
-      contractor_transmittal  BLANK. The contractor has not responded.
+      company_transmittal     as an engineer ENTERED it on the run (#725 F7,
+                              PUT .../crs/transmittals), else BLANK
+      contractor_transmittal  the same, else BLANK
       recommended_code        the run's recommendation, and its reason, both
                               verbatim - never re-worded here
 
@@ -3310,17 +4471,22 @@ def _crs_content(review_run_id: str, scope: access.AccessScope
     # LEFT JOIN, not an inner one: a submittal that was never classified has
     # no metadata row, and it must still export - with its number blank.
     document = connect().execute(
-        "SELECT d.filename AS filename, c.transmittal_number AS transmittal_number"
+        "SELECT d.filename AS filename, c.transmittal_number AS transmittal_number,"
+        " c.document_number AS document_number, c.revision AS revision"
         " FROM documents d"
         " LEFT JOIN document_classification c ON c.document_id = d.id"
         " WHERE d.id = ?", (submittal_id,)).fetchone()
     submittal_name = document["filename"] if document else submittal_id
-    # THE SUBMITTAL'S OWN NUMBER, as captured on its metadata at upload. Not
-    # the company's transmittal and not the contractor's - those name the
-    # covering transmittals and are blank below. A submittal that carried no
-    # number leaves this blank; it is never filled with a placeholder.
-    submittal_number = (document["transmittal_number"]
-                        if document is not None else None) or ""
+    # THE SUBMITTAL'S OWN NUMBER. Not the company's transmittal and not the
+    # contractor's - those name the covering transmittals and are blank below.
+    # A number an engineer RECORDED for it (the metadata editor's field) wins;
+    # otherwise the document's own number and revision as printed on its page
+    # (read by the classifier, `_document_number_hits`). CORRECTED 2026-09-29:
+    # this used to read the recorded field alone, described as "captured at
+    # upload" - no upload captures it, it was empty on every real submittal,
+    # and the sheet printed a blank while the document number sat unused.
+    # A submittal with neither leaves this blank; never a placeholder.
+    submittal_number = _crs_submittal_label(document)
 
     findings = submittal_review_mod.list_run_findings(
         review_run_id, allowed_document_ids=allowed)
@@ -3335,6 +4501,25 @@ def _crs_content(review_run_id: str, scope: access.AccessScope
     }
     for finding in findings:
         finding["standard_name"] = names.get(finding.get("standard_document_id"))
+    # CRS quick wins: the clause's parsed limit and the field as the datasheet
+    # printed it, for the engineer-voice comment (read-only lookups by id).
+    comparison_mod.attach_crs_context(findings)
+    # Owner order 2d/2f: a confirmed AI engineering check item is printed
+    # "confirmed by <name>" - the engineer's display name, never their id.
+    # Section 3: an edited comment names its editor the same way. 2d-2: a
+    # confirmed web standards check item does too.
+    # Audit 2026-09-30: EVERY confirmed comment, not only AI/web items and
+    # edits - a plain confirmed requirement comment printed the raw user id.
+    confirmers = {f["confirmed_by"] for f in findings if f.get("confirmed_by")}
+    if confirmers:
+        marks = ",".join("?" for _ in confirmers)
+        people = {r["id"]: r["display_name"] for r in connect().execute(
+            f"SELECT id, display_name FROM users WHERE id IN ({marks})", tuple(confirmers))}
+        for finding in findings:
+            # A name only when one is on record - never invented; the id
+            # stays the fallback in `crs_mapping`.
+            if people.get(finding.get("confirmed_by")):
+                finding["confirmed_by_name"] = people[finding["confirmed_by"]]
 
     outcome = comparison_mod.run_outcome(
         review_run_id, allowed_document_ids=allowed) or {}
@@ -3342,9 +4527,117 @@ def _crs_content(review_run_id: str, scope: access.AccessScope
     # so the CRS names the same pages the findings were decided on.
     unread = ((outcome.get("page_coverage") or {})
               .get("pages_not_read_into_fields") or [])
-    rows = crs_mapping_mod.build_crs_rows(
-        findings, _missing_references(submittal_id, allowed), submittal_name,
-        unread_pages=unread)
+    missing = _missing_references(submittal_id, allowed)
+    # #754 F5b: required vs cited, recomputed like `missing` from the
+    # submittal's own text, facts and type (no stored copy to go stale).
+    check = applicability_mod.standards_check(submittal_id, allowed_document_ids=allowed)
+    rows = crs_mapping_mod.build_crs_rows(findings, missing, submittal_name,
+                                          unread_pages=unread, standards_check=check)
+    # PERMANENT COMMENT NUMBERS, READ ONLY. Minted by the write routes that
+    # make a comment an engineer's (`_mint_crs_numbers`); this composition
+    # serves the export and the preview, which write nothing.
+    crs_scope, _crs_label = _crs_scope_of(submittal_id)
+    crs_keys = crs_numbers_mod.row_keys(rows)
+    numbered = crs_numbers_mod.lookup(crs_scope, crs_keys)
+    # A REJECTED COMMENT IS NEVER ISSUED (audit 2026-09-30). Its key is not a
+    # row of this sheet, so the carry-forward below printed it as "carried
+    # forward from an earlier review". Its keys go to `_mint_crs_numbers`
+    # (the write that follows every rejection), which withdraws the number.
+    meta_rejected_keys = sorted(
+        crs_mapping_mod.rejected_comment_keys(findings) - set(crs_keys))
+    for row, key in zip(rows, crs_keys):
+        row["crs_row_key"] = key
+        if key in numbered and numbered[key].get("status") == crs_numbers_mod.WITHDRAWN:
+            # A draft re-raising a comment an engineer rejected: it keeps no
+            # number and is NOT an engineer's confirmation.
+            continue
+        if key in numbered:
+            record = numbered[key]
+            row["crs_ref"] = record["ref"]
+            if not record.get("issued", 1):
+                # R15 (#779): a MACHINE DRAFT'S number - printed in Item No so
+                # the comment is the same comment on every re-run, but not an
+                # engineer's: no confirmation carried, no status, no reply.
+                row["crs_status"] = DRAFT_NOT_ISSUED
+                continue
+            row["crs_status"] = crs_numbers_mod.resolution_cell(record)
+            row["crs_response"] = crs_numbers_mod.response_cell(record)
+            # AN ISSUED NUMBER IS AN ENGINEER'S CONFIRMATION, CARRIED. It is
+            # only ever issued for a comment an engineer made theirs, and the
+            # key is the comment's subject including the value the sheet
+            # states - so the same comment raised again by a re-run or on a
+            # resubmittal is the one already confirmed, and is issued as such.
+            row["engineer_confirmed"] = True
+    # A DRAFT THE ENGINEER ALREADY REJECTED SAYS SO (audit leftover
+    # 2026-09-30). A new run of the same submittal raises the same comment
+    # again as an unconfirmed draft; it is kept (a new run may be right), but
+    # the engineer is never asked twice blind: its byline names who rejected
+    # it and when, from the rejection on record. Never on a confirmed row.
+    rejections = _prior_rejections(submittal_id, allowed)
+    carried = crs_numbers_mod.open_elsewhere(crs_scope, set(crs_keys))
+    people = _display_names(
+        {by for by, _at in rejections.values() if by}
+        | {who for who in (crs_mapping_mod.byline_person(r.get("comment_by"))
+                           for r in carried) if who})
+    for row in rows:
+        seen = rejections.get(row.get("comment_key") or "")
+        if seen is None or row.get("engineer_confirmed"):
+            continue
+        by, at = seen
+        note = "previously rejected" + (
+            f" by {people.get(by) or by}" if by else "") + (
+            f" on {at[:10]}" if at else "")
+        row["previously_rejected"] = note
+        row["comment_by"] = " - ".join(p for p in (row.get("comment_by"), note) if p)
+    # CARRY-FORWARD (industry practice): an Open comment from an earlier run
+    # or revision of this submittal that this run no longer raises stays on
+    # the sheet until a reviewer closes it - never dropped because a later
+    # run stopped producing it. Read only, from what the comment last said.
+    # A comment an engineer rejected before issue is WITHDRAWN (not Open) by
+    # `_mint_crs_numbers`, so `open_elsewhere` never returns it. A byline
+    # snapshotted before bylines printed names ("confirmed by eng-1") is
+    # resolved to the display name here when one is on record (audit
+    # leftover 2026-09-30) - never invented.
+    for record in carried:
+        rows.append({
+            "finding_id": "",
+            "document_name": record.get("document_name") or submittal_name,
+            "page_section": record.get("page_section") or "",
+            "comment": record.get("comment") or "",
+            "comment_by": " - ".join(p for p in (
+                crs_mapping_mod.resolve_byline(record.get("comment_by"), people),
+                "carried forward from an earlier review") if p),
+            "standard_reference": record.get("standard_reference") or "",
+            "row_kind": crs_mapping_mod.ROW_KIND_CARRIED_FORWARD,
+            "engineer_confirmed": True,
+            "crs_row_key": record["row_key"],
+            "crs_ref": record["ref"],
+            "crs_status": crs_numbers_mod.resolution_cell(record),
+            "crs_response": crs_numbers_mod.response_cell(record),
+        })
+    # R26 STEP 8 (#763): THE AI'S WORDING, INTERNAL COPY ONLY. A rewrite the
+    # lock accepted when the review finished (`crs_wording`) prints in the "AI
+    # Review Comments" column beside the template of an UNCONFIRMED machine
+    # row. Never on the issue copy: there a row with AI text is a draft and is
+    # dropped (`crs_export`), and the contractor gets the template until an
+    # engineer makes the comment theirs. Never over an AI/web item's own
+    # draft, and never on a row an engineer confirmed (the words are theirs).
+    if copy == "internal":
+        worded = crs_wording_mod.stored(review_run_id)
+        for row in rows:
+            text = worded.get(row.get("crs_row_key") or "")
+            if (text and not row.get("engineer_confirmed")
+                    and not str(row.get("ai_review_comment") or "").strip()):
+                row["ai_review_comment"] = text
+    # #633: THE PARTS THIS REVIEW COULD NOT CHECK, one list for every export. A
+    # sheet for a run that failed, stopped, or left large parts unchecked must
+    # never look like a complete review.
+    unchecked = absence_mod.unchecked_parts(
+        run_status=run.get("status"), outcome=outcome,
+        partial_findings=int(outcome.get("partial_findings") or 0),
+        ai_status=ai_engineering_check_mod.ai_check_status(
+            review_run_id, allowed_document_ids=allowed),
+        web_status=_json_column(run.get("web_check_status")))
     stamp = _now_date()
     meta = {
         "document_title": submittal_name,
@@ -3354,16 +4647,236 @@ def _crs_content(review_run_id: str, scope: access.AccessScope
         "review_run_id": review_run_id,
         "date_issued": stamp,
         # Left blank on purpose - see above. Absent, not invented.
-        "company_transmittal": "",
-        "contractor_transmittal": "",
+        "company_transmittal": run.get("crs_company_transmittal") or "",
+        "contractor_transmittal": run.get("crs_contractor_transmittal") or "",
         "date_responded": "",
         "recommended_code": run.get("engineer_final_code")
                             or outcome.get("recommended_code") or "",
         "recommended_code_reason": (
             run.get("override_reason") if run.get("engineer_final_code")
-            else outcome.get("reason")) or "",
+            else comparison_mod.plain_outcome(outcome)[0]) or "",
+        # B10: WHO DECIDED IT. The AI recommends; only an engineer decides. A
+        # CRS carrying the AI's code must say it is not yet a decision.
+        "recommended_code_status": (
+            crs_export_mod.CODE_DECIDED_BY_ENGINEER if run.get("engineer_final_code")
+            else crs_export_mod.CODE_NOT_YET_DECIDED if outcome.get("recommended_code")
+            else ""),
+        "applicable_standards": _crs_standards(review_run_id, submittal_id, allowed),
+        # "internal" (with "AI Review Comments") or "issue" (to the contractor).
+        "copy": copy,
+        # 2f: the engineer's internal notes, on their own sheet.
+        "review_notes": crs_mapping_mod.build_review_notes(findings, missing, unread) + [
+            {"note": "Not checked", "standard": "", "count": None, "detail": part["line"]}
+            for part in unchecked],
+        "unchecked_parts": [part["line"] for part in unchecked],
+        "incomplete_notice": absence_mod.notice_for(unchecked),
+        # Never printed: the keys of this run's rejected comments, for
+        # `_mint_crs_numbers` to withdraw.
+        "rejected_row_keys": meta_rejected_keys,
     }
     return rows, meta, submittal_name, stamp
+
+
+def word_crs_rows(review_run_id: str, scope: access.AccessScope) -> dict | None:
+    """R26 step 8 (#763): ask the model to word each machine CRS comment of a
+    FINISHED review like a reviewing engineer (`crs_wording.word_run`, which
+    keeps only rewrites its lock accepts). Called by the review job when the
+    run completes - a write path, never the export or preview.
+
+    NEVER FAILS THE REVIEW: the findings are stored when this runs; a failure
+    is logged (ids only) and the templates stay. Returns the run's AI-use
+    summary, or None when it could not run."""
+    import logging
+    try:
+        rows, _meta, _name, _stamp = _crs_content(review_run_id, scope, "internal")
+        return crs_wording_mod.word_run(review_run_id, rows)
+    except Exception:  # noqa: BLE001 - see docstring: never fail a finished review
+        logging.getLogger(__name__).warning(
+            "crs wording: run %s failed; templates kept", review_run_id, exc_info=True)
+        return None
+
+
+def _crs_standards(review_run_id: str, submittal_id: str,
+                   allowed: frozenset[str]) -> list[dict]:
+    """B5: the CRS's "Applicable standards" sheet - every standard the run
+    considered, under the caller's grants (a standard they may not read is
+    not listed), applied ones first, then the cited standards not held.
+
+    The names come from the scoped rows only, never from an unscoped read of
+    every filename in the database."""
+    rows = submittal_review_mod.list_applicable_standards(
+        review_run_id, allowed_document_ids=allowed, include_excluded=True)
+    ids = [r["standard_document_id"] for r in rows]
+    names = {}
+    if ids:
+        marks = ",".join("?" for _ in ids)
+        names = {r["id"]: r["filename"] for r in connect().execute(
+            f"SELECT id, filename FROM documents WHERE id IN ({marks})", ids)}
+    out = []
+    for row in rows:
+        included = bool(row.get("included", 1))
+        evidence = ""
+        if row.get("evidence_page") is not None:
+            evidence = f"page {row['evidence_page']}"
+            if row.get("evidence_quote"):
+                evidence += f": {row['evidence_quote']}"
+        out.append({
+            "standard": names.get(row["standard_document_id"]) or "",
+            "status": (crs_export_mod.STATUS_APPLIED if included
+                       else crs_export_mod.STATUS_CONSIDERED),
+            "method": row.get("selection_method") or "",
+            "reason": (row.get("selection_reason") or "") + (
+                "" if included else f" - {row.get('exclusion_reason') or ''}"),
+            "evidence": evidence,
+        })
+    for ref in _missing_references(submittal_id, allowed):
+        # 2g: plain words on the sheet the engineer and client read.
+        out.append({"standard": ref, "status": crs_export_mod.STATUS_NOT_IN_LIBRARY,
+                    "method": "referenced",
+                    "reason": "cited by the submittal and not held locally; "
+                              "its requirements were not checked",
+                    "evidence": ""})
+    return out
+
+
+def _readiness_payload(submittal_document_id: str, scope: access.AccessScope) -> dict:
+    """Owner order section 3: the readiness strip's own numbers - shared by
+    the GET route and the re-extraction route below, so "what changed" is
+    computed once and cannot drift into two answers (CLAUDE.md rule 8)."""
+    allowed = scope.allowed_document_ids
+    page_ledger_mod.refresh(submittal_document_id, as_submittal=True)
+    pages = page_ledger_mod.coverage(submittal_document_id)
+    missing = _missing_references(submittal_document_id, allowed)
+    runs = submittal_review_mod.list_review_runs(
+        allowed_document_ids=allowed, submittal_document_id=submittal_document_id)
+    # The latest COMPLETED run: a failed or still-running one produced no
+    # result to compare against.
+    last = next((r for r in runs if r.get("status") == "completed"), None)
+    changes: list[str] = []
+    if last is not None:
+        since = last.get("completed_at") or last.get("updated_at") or ""
+        newer_facts = connect().execute(
+            "SELECT COUNT(*) FROM submittal_facts WHERE submittal_document_id = ?"
+            " AND superseded_at IS NULL AND COALESCE(updated_at, created_at) > ?",
+            (submittal_document_id, since)).fetchone()[0]
+        if newer_facts:
+            changes.append(f"{newer_facts} datasheet value(s) read since the last run")
+        # F-b: a reader change is a change - the next review re-reads the sheet.
+        if datasheets_mod.facts_reader_stale(submittal_document_id):
+            changes.append("the datasheet reader changed since these values were read; "
+                           "the next review reads the sheet again")
+        # Roadmap R5 (#763): the review CODE is an input too. Same sheet, same
+        # library, new code -> a new result (live, 10 Oct: 6,900 -> 3,470).
+        stamped = review_jobs_mod.last_run_versions(last["id"])
+        if not stamped or not stamped.get("code_version"):
+            changes.append("the review code version of the last run is not recorded; "
+                           "the next run uses the current review code")
+        elif stamped["code_version"] != review_jobs_mod.review_code_version():
+            changes.append("the review code was updated since the last run")
+        if stamped and stamped.get("config_version") \
+                and stamped["config_version"] != config_version():
+            changes.append("the review settings changed since the last run")
+        newer_standards = [r["filename"] for r in connect().execute(
+            "SELECT d.id, d.filename FROM documents d JOIN document_classification c"
+            " ON c.document_id = d.id WHERE c.document_role = 'COMPANY_STANDARD'"
+            " AND d.uploaded_at > ?", (since,)) if scope.may_read(r["id"])]
+        if newer_standards:
+            changes.append(f"{len(newer_standards)} standard(s) added to the library since the "
+                           f"last run: {', '.join(newer_standards[:5])}")
+    held = [r["filename"] for r in connect().execute(
+        "SELECT DISTINCT d.id, d.filename FROM review_applicable_standards a"
+        " JOIN documents d ON d.id = a.standard_document_id"
+        " WHERE a.review_run_id = ? AND a.included = 1", ((last or {}).get("id"),))
+        if scope.may_read(r["id"])] if last else []
+    return {
+        "submittal_document_id": submittal_document_id,
+        "pages_total": pages.get("pages_total"),
+        "pages_read": len(pages.get("fact_pages") or []),
+        "unread_pages": pages.get("pages_not_read_into_fields") or [],
+        # HONESTY GROUP (2026-09-27): the ledger has always recorded WHY a
+        # page did not read into fields (`page_ledger.coverage`'s own
+        # `not_read_reasons`, keyed by page); this route simply never carried
+        # it past `unread_pages`, so the strip could say a page was unread
+        # but never say why - the same "not mentioned" silence CLAUDE.md rule
+        # 4 forbids elsewhere. Keyed by the page number AS A STRING because
+        # that is what a JSON object key is.
+        "unread_page_reasons": pages.get("not_read_reasons") or {},
+        "standards_cited": len(held) + len(missing),
+        "standards_held": held,
+        "standards_missing": missing,
+        "last_run_id": (last or {}).get("id"),
+        "nothing_changed": last is not None and not changes,
+        "changes": changes,
+    }
+
+
+@app.get("/api/reviews/readiness/{submittal_document_id}",
+         response_model=schemas.ReviewReadiness,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def review_readiness(
+    submittal_document_id: str, request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Owner order section 3: the readiness strip. Pages read (N of M) and the
+    standards the submittal cites, held and missing, under the caller's
+    grants - and whether anything changed since the last run, so a re-run
+    that cannot say anything new is asked about first.
+
+    404 when the caller may not read the submittal, like every review route.
+    """
+    reject_unknown_params(request, set())
+    require_document(submittal_document_id, scope)
+    return _readiness_payload(submittal_document_id, scope)
+
+
+@app.post("/api/reviews/readiness/{submittal_document_id}/reread-pages",
+          response_model=schemas.ReviewReadiness,
+          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def review_reread_pages(
+    submittal_document_id: str, request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Owner order section 3: "Read unread pages" - re-run extraction on this
+    ONE submittal so a page the ledger says is unread gets another try (the
+    rule/geometry readers first, vision only where B7 says they still fail).
+
+    NOTHING IS DELETED. `datasheets.extract_facts(replace=True)` supersedes a
+    stale fact rather than removing it (#179) - a page that is re-read finds
+    the same value again, or a different one, but a value nobody could
+    re-derive from this run is never simply erased.
+
+    NO PASS/FAIL HERE. This route reads fields; it does not compare them to
+    anything and writes no compliance verdict - that is `run_comparison`'s
+    job, on a later, explicit review run.
+
+    404 when the caller may not read the submittal, like every review route.
+    """
+    reject_unknown_params(request, set())
+    require_document(submittal_document_id, scope)
+    datasheets_mod.extract_facts(
+        submittal_document_id, allowed_document_ids=scope.allowed_document_ids,
+        replace=True)
+    return _readiness_payload(submittal_document_id, scope)
+
+
+@app.get("/api/reviews/vision-reader-status",
+         response_model=schemas.VisionReaderStatus,
+         responses=schemas.ERRORS_422)
+def review_vision_reader_status(
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Can the vision reader (Claude, page images) be used right now, and if
+    not, what to change - the line beside "Read unread pages".
+
+    ABOUT THE SERVICE, NOT ANYBODY'S DOCUMENTS: it names no document and
+    reads none, so it asks only for a resolved scope like every other review
+    route. At most one GET /v1/models a minute (cached in `vision_reader`),
+    which costs no tokens and carries no document content.
+    """
+    reject_unknown_params(request, set())
+    from . import vision_reader
+    return vision_reader.reader_status()
 
 
 @app.get("/api/reviews/runs/{review_run_id}/crs",
@@ -3377,10 +4890,11 @@ def _crs_content(review_run_id: str, scope: access.AccessScope
                               "application/vnd.openxmlformats-officedocument"
                               ".spreadsheetml.sheet": {}},
                           "description": "The Comment Resolution Sheet"},
-                    **schemas.ERRORS_404, **schemas.ERRORS_422})
+                    **schemas.ERRORS_404, **schemas.ERRORS_409, **schemas.ERRORS_422})
 def export_review_crs(
     review_run_id: str,
     request: Request,
+    copy: Literal["internal", "issue"] = "internal",
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """The run's findings as a Comment Resolution Sheet (.xlsx).
@@ -3397,14 +4911,34 @@ def export_review_crs(
     rendering and the filename: `crs_export.build_crs` draws the client's own
     template, and the meta - including the deliberately BLANK transmittal
     numbers - is documented where it is built.
+
+    THE "ISSUE TO CONTRACTOR" COPY IS GATED (safety group, 2026-09-27): a copy
+    meant to leave the building must carry a human's decision, not just the
+    machine's recommendation. `copy=issue` with no `engineer_final_code` on
+    the run is refused with 409 rather than exported with a recommendation
+    dressed up as a decision. The "internal" copy is unaffected - an engineer
+    reviewing their own work in progress needs no gate.
     """
-    reject_unknown_params(request, set())
-    rows, meta, submittal_name, stamp = _crs_content(review_run_id, scope)
+    reject_unknown_params(request, {"copy"})
+    if copy == "issue":
+        run = submittal_review_mod.get_review_run(
+            review_run_id, allowed_document_ids=scope.allowed_document_ids)
+        if run is None:
+            raise HTTPException(status_code=404, detail=errors.safe_error(
+                errors.NOT_FOUND, "no review run with that id"))
+        if not run.get("engineer_final_code"):
+            raise HTTPException(status_code=409, detail=errors.safe_error(
+                errors.CODE_NOT_DECIDED,
+                "an engineer must record the final code before this run can "
+                "be issued to the contractor"))
+    rows, meta, submittal_name, stamp = _crs_content(review_run_id, scope, copy)
     workbook = crs_export_mod.build_crs(rows, meta)
 
     safe = "".join(
         ch for ch in Path(submittal_name).stem if ch.isalnum() or ch in "-_")
-    filename = f"CRS_{safe or 'submittal'}_{stamp}.xlsx"
+    # Owner order 2f: the file name says which copy it is.
+    filename = (f"CRS_{safe or 'submittal'}_{stamp}_"
+                f"{crs_export_mod.COPY_FILE_SUFFIX[copy]}.xlsx")
     return Response(
         content=workbook,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -3418,6 +4952,7 @@ def export_review_crs(
 def preview_review_crs(
     review_run_id: str,
     request: Request,
+    copy: Literal["internal", "issue"] = "internal",
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """The same Comment Resolution Sheet, as JSON a browser can render.
@@ -3434,10 +4969,207 @@ def preview_review_crs(
     the export asks: may this caller read this submittal. A run they may not
     read is 404, indistinguishable from one that is not there.
 
-    The contractor's two columns come back EMPTY rather than missing. They
-    belong to the contractor; the sheet has seven columns whether or not
-    anyone has answered yet, and a reader has to see the space they will fill.
+    Contractor's Response comes back EMPTY rather than missing - it belongs
+    to the contractor. Final Resolution is the company's: "Open"/"Closed" on
+    a numbered comment (`crs_numbers`), empty on an unnumbered draft. The
+    sheet has seven columns whether or not anyone has answered yet.
     """
-    reject_unknown_params(request, set())
-    rows, meta, _submittal_name, _stamp = _crs_content(review_run_id, scope)
+    reject_unknown_params(request, {"copy"})
+    rows, meta, _submittal_name, _stamp = _crs_content(review_run_id, scope, copy)
     return crs_export_mod.build_crs_view(rows, meta)
+
+
+def _crs_run_scope(review_run_id: str, scope: access.AccessScope) -> tuple[str, str, str]:
+    """(crs scope key, printed label, submittal id) for a run the caller may
+    read, or 404 - the same 404 for a run that is not there."""
+    run = submittal_review_mod.get_review_run(
+        review_run_id, allowed_document_ids=scope.allowed_document_ids)
+    if run is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no review run with that id"))
+    submittal_id = run["submittal_document_id"]
+    crs_scope, label = _crs_scope_of(submittal_id)
+    return crs_scope, label, submittal_id
+
+
+def _crs_comment(review_run_id: str, crs_ref: str, scope: access.AccessScope) -> tuple[str, int]:
+    """(crs scope key, seq) of a numbered comment that belongs to THIS run's
+    submittal, or 404. A number from another submittal is 404,
+    indistinguishable from one that is not there, exactly as an unreadable
+    run is."""
+    crs_scope, label, _submittal = _crs_run_scope(review_run_id, scope)
+    parsed = crs_numbers_mod.parse_ref(crs_ref)
+    if parsed is None or parsed[0] != label or crs_numbers_mod.get(crs_scope, parsed[1]) is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no CRS comment with that number on this run"))
+    return crs_scope, parsed[1]
+
+
+def _require_named_reviewer(scope: access.AccessScope, what: str) -> None:
+    """A decision nobody signed is not a decision - the rule the finding route
+    applies to a confirmation."""
+    _require_identity_to_write(scope)
+    if scope.user_id is None:
+        raise HTTPException(status_code=401, detail=errors.safe_error(
+            errors.UNAUTHENTICATED, f"{what} must name the person who did it"))
+
+
+@app.post("/api/reviews/runs/{review_run_id}/crs/comments/{crs_ref}/status",
+          response_model=schemas.CrsComment,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
+def set_crs_comment_status(
+    review_run_id: str,
+    crs_ref: str,
+    body: schemas.CrsCommentStatusUpdate,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Close (or re-open) one numbered CRS comment - its Final Resolution.
+
+    ONLY THE REVIEWER CLOSES A COMMENT (industry practice): a signed-in
+    caller who may read this run's submittal, recorded by name from the
+    session, never from the body, with an optional closing note.
+    """
+    _require_named_reviewer(scope, "closing a comment")
+    reject_unknown_params(request, set())
+    crs_scope, seq = _crs_comment(review_run_id, crs_ref, scope)
+    return crs_numbers_mod.set_status(crs_scope, seq, body.status,
+                                      user_id=scope.user_id, note=body.note)
+
+
+@app.put("/api/reviews/runs/{review_run_id}/crs/transmittals",
+         response_model=schemas.CrsTransmittals,
+         responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
+def set_crs_transmittals(
+    review_run_id: str,
+    body: schemas.CrsTransmittals,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """#725 F7: enter the CRS header's company and contractor transmittal
+    numbers for this run. A signed-in reviewer who may read the run's
+    submittal; "" clears one. The sheet prints exactly what was entered and
+    nothing when nothing was - never an invented number."""
+    _require_named_reviewer(scope, "entering a transmittal number")
+    reject_unknown_params(request, set())
+    saved = submittal_review_mod.set_crs_transmittals(
+        review_run_id, company=body.company_transmittal, contractor=body.contractor_transmittal,
+        allowed_document_ids=scope.allowed_document_ids)
+    if saved is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no review run with that id"))
+    return saved
+
+
+@app.post("/api/reviews/runs/{review_run_id}/crs/comments/{crs_ref}/response",
+          response_model=schemas.CrsComment,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
+def record_crs_comment_response(
+    review_run_id: str,
+    crs_ref: str,
+    body: schemas.CrsCommentResponseUpdate,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Record the contractor's reply to one comment when it arrived some
+    other way than the returned sheet. Recorded as entered by the signed-in
+    engineer, so nobody reads it as the contractor's own entry. A reply with
+    no code keeps none."""
+    _require_named_reviewer(scope, "recording a reply")
+    reject_unknown_params(request, set())
+    crs_scope, seq = _crs_comment(review_run_id, crs_ref, scope)
+    return crs_numbers_mod.set_response(
+        crs_scope, seq, code=body.code, text=body.text, user_id=scope.user_id,
+        source=crs_numbers_mod.SOURCE_RECORDED)
+
+
+@app.get("/api/reviews/runs/{review_run_id}/crs/comments/{crs_ref}/history",
+         response_model=schemas.CrsCommentHistory,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def crs_comment_history(
+    review_run_id: str,
+    crs_ref: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Everything that happened to one numbered comment, oldest first: when
+    it was numbered, every reply recorded or imported, every close and
+    re-open - who and when. READ ONLY; read access suffices."""
+    reject_unknown_params(request, set())
+    crs_scope, seq = _crs_comment(review_run_id, crs_ref, scope)
+    record = crs_numbers_mod.get(crs_scope, seq)
+    events = crs_numbers_mod.history(crs_scope, seq)
+    # A PERSON'S NAME, NEVER THEIR ID - the rule the sheet's "confirmed by"
+    # already follows. An id with no user row left is shown as it is.
+    ids = {e["by"] for e in events if e.get("by")}
+    if ids:
+        marks = ",".join("?" for _ in ids)
+        names = {r["id"]: r["display_name"] for r in connect().execute(
+            f"SELECT id, display_name FROM users WHERE id IN ({marks})", tuple(ids))}
+        for e in events:
+            e["by"] = names.get(e.get("by"), e.get("by"))
+    return {"ref": record["ref"], "events": events}
+
+
+#: A returned CRS is a small spreadsheet; anything larger is not one.
+CRS_REPLY_MAX_BYTES = 10 * 1024 * 1024
+
+
+@app.post("/api/reviews/runs/{review_run_id}/crs/reply",
+          response_model=schemas.CrsReplyImport,
+          responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
+def import_crs_reply(
+    review_run_id: str,
+    request: Request,
+    file: UploadFile = File(...),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Import the contractor's returned Comment Resolution Sheet.
+
+    Each row is matched ONLY by its permanent number ("CRS-<no>-NNN" in Item
+    No) - never by position - and must belong to this run's submittal. Its
+    "Contractor's Response" is stored with the response code it leads with
+    (Accepted / Accepted with comment / Rejected / Clarification needed), or
+    with NO code when it leads with none: a reply is never read as agreement.
+    Every row with an Item No is accounted for in exactly one count.
+
+    Recorded as imported by the signed-in engineer. Statuses are NOT changed:
+    a reply is not a closure - only the reviewer closes a comment.
+    """
+    from . import crs_reply
+    _require_named_reviewer(scope, "importing a reply sheet")
+    reject_unknown_params(request, set())
+    crs_scope, label, _submittal = _crs_run_scope(review_run_id, scope)
+    data = file.file.read(CRS_REPLY_MAX_BYTES + 1)
+    if len(data) > CRS_REPLY_MAX_BYTES:
+        raise HTTPException(status_code=422, detail=errors.safe_error(
+            errors.INVALID_PARAMETER, "the file is larger than 10 MB; a CRS is not"))
+    try:
+        replies = crs_reply.read_replies(data)
+    except crs_reply.ReplySheetError as exc:
+        raise HTTPException(status_code=422, detail=errors.safe_error(
+            errors.INVALID_PARAMETER, str(exc))) from exc
+
+    counts = {"updated": 0, "updated_without_code": 0, "no_response": 0,
+              "not_a_crs_number": 0, "other_submittal": 0, "unknown_number": 0}
+    rows = []
+    for reply in replies:
+        parsed = crs_numbers_mod.parse_ref(reply["item"])
+        if parsed is None:
+            key, outcome = "not_a_crs_number", "not a CRS number"
+        elif parsed[0] != label:
+            key, outcome = "other_submittal", "another submittal's number"
+        elif crs_numbers_mod.get(crs_scope, parsed[1]) is None:
+            key, outcome = "unknown_number", "no such number"
+        elif not reply["response"]:
+            key, outcome = "no_response", "no response"
+        else:
+            code, text = crs_numbers_mod.parse_response(reply["response"])
+            crs_numbers_mod.set_response(
+                crs_scope, parsed[1], code=code, text=text, user_id=scope.user_id,
+                source=crs_numbers_mod.SOURCE_IMPORT)
+            key = "updated" if code else "updated_without_code"
+            outcome = "updated" if code else "updated, no response code stated"
+        counts[key] += 1
+        rows.append({"row": reply["row"], "item": reply["item"][:80], "outcome": outcome})
+    return {"rows_read": len(replies), **counts, "rows": rows}

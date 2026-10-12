@@ -20,7 +20,7 @@ and the tests that must then FAIL. The entries live in `scripts/mutations/`,
 one file per module they mutate (see its `__init__.py`); this file is the
 harness. For every mutation the harness:
 
-  1. copies the file to `<file>.mutbak`,
+  1. copies the file to a temp directory outside the repo (`mutbak-*`),
   2. refuses to continue if the anchor is not found EXACTLY once - an anchor
      that silently stops matching turns a mutation into a no-op, and a no-op
      mutation reports "tests passed" and looks like a vacuous test,
@@ -59,6 +59,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Iterable
 
@@ -246,7 +247,12 @@ def run(mutation: Mutation) -> tuple[str, str]:
         # ran, and a mutation that never ran cannot detect anything.
         return "ERROR", (f"anchor matched {occurrences} times, expected exactly 1 "
                          f"- the mutation was NOT applied")
-    backup = path.with_suffix(path.suffix + ".mutbak")
+    # THE BACKUP LIVES OUTSIDE THE REPOSITORY. Next to the file it was once
+    # swept into a commit (`git add -A` during a run), together with the
+    # half-mutated source. A temp directory cannot be committed; if the process
+    # is killed the original is still there, and its path is printed.
+    backup_dir = Path(tempfile.mkdtemp(prefix="mutbak-"))
+    backup = backup_dir / (path.name + ".mutbak")
     shutil.copyfile(path, backup)
     try:
         path.write_text(source.replace(mutation.anchor, mutation.replacement, 1),
@@ -254,7 +260,7 @@ def run(mutation: Mutation) -> tuple[str, str]:
         code, summary = _run_tests(mutation)
     finally:
         shutil.copyfile(backup, path)
-        os.remove(backup)
+        shutil.rmtree(backup_dir, ignore_errors=True)
     # A VERDICT NEEDS TESTS TO HAVE RUN. Checked before the exit code is read,
     # because a run that executed nothing has no verdict to give - whatever it
     # exited with.
@@ -268,8 +274,29 @@ def run(mutation: Mutation) -> tuple[str, str]:
     return ("DETECTED" if code != 0 else "NOT DETECTED"), summary
 
 
+def select_changed(mutations, changed: Iterable[str]) -> list:
+    """The mutations that guard a CHANGED module: its file changed, or its
+    target test file changed (#680 rule 4: not the full registry for every PR).
+    `changed` are repo-relative paths with forward slashes."""
+    files = {c.replace("\\", "/") for c in changed}
+    out = []
+    for m in mutations:
+        try:
+            mutated = m.path.resolve().relative_to(REPO).as_posix()
+        except ValueError:
+            mutated = ""
+        target = m.target.split("::")[0].replace("\\", "/")
+        tests = {f"backend/{target}", target, f"frontend/{target}"}
+        if mutated in files or files & tests:
+            out.append(m)
+    return out
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__ and __doc__.splitlines()[0])
+    parser.add_argument("--changed", nargs="?", const="origin/main", metavar="BASE",
+                        help="only the mutations of modules (or tests) changed against BASE "
+                             "(default origin/main); not the full registry")
     parser.add_argument("--list", action="store_true", help="list mutations and exit")
     parser.add_argument("--only", nargs="+", metavar="ID", help="run these ids only")
     parser.add_argument("--phase", type=int, help="run one phase's mutations")
@@ -286,6 +313,12 @@ def main() -> int:
             print(f"unknown mutation id(s): {', '.join(sorted(missing))}")
             return 2
 
+    if args.changed:
+        import test_changed
+
+        selected = select_changed(selected, test_changed.changed_files(args.changed))
+        print(f"--changed {args.changed}: {len(selected)} mutation(s) guard the changed files")
+
     if args.list:
         for m in selected:
             print(f"{m.id:>4}  phase {m.phase}  [{','.join(m.tags) or '-'}]  {m.description}")
@@ -295,6 +328,14 @@ def main() -> int:
         print("no mutations selected")
         return 2
 
+    # One heavy job at a time on this machine (#680).
+    sys.path.insert(0, str(REPO / "backend"))
+    from app import heavy_lock
+
+    return heavy_lock.run_locked("mutation", lambda: _run_selected(selected))
+
+
+def _run_selected(selected) -> int:
     print(f"python: {_python()}")
     print(f"running {len(selected)} mutation(s)\n")
     results = []

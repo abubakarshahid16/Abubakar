@@ -55,7 +55,9 @@ re-measured with `scripts/gold_pairs_score.py` before they are quoted again.
 
 from __future__ import annotations
 
+import json
 import re
+from pathlib import Path
 
 from . import claims
 
@@ -66,8 +68,11 @@ from . import claims
 UNIT_DIMENSION = "unit_dimension"
 EQUIPMENT_DOMAIN = "equipment_domain"
 TABLE_LOOKUP_INPUT = "table_lookup_input"
+COMPOUND_TERM = "compound_term"
+QUALIFIER = "qualifier"
 
-REASONS: tuple[str, ...] = (UNIT_DIMENSION, EQUIPMENT_DOMAIN, TABLE_LOOKUP_INPUT)
+REASONS: tuple[str, ...] = (
+    UNIT_DIMENSION, EQUIPMENT_DOMAIN, TABLE_LOOKUP_INPUT, COMPOUND_TERM, QUALIFIER)
 
 # ------------------------------------------------------------------ domains
 #: Ten kinds of equipment a clause names when it applies to one kind only. The
@@ -156,11 +161,6 @@ def sheet_kind(facts: list[dict], equipment_type: str | None = None) -> str | No
 
 
 # ------------------------------------------------------------------ rule 1
-def _unit_of(row: dict) -> str:
-    base, _reference = claims.split_reference(row.get("raw_unit") or row.get("unit"))
-    return base or ""
-
-
 def unit_dimension_conflict(requirement: dict, fact: dict) -> bool:
     """True when the two units cannot be about the same quantity.
 
@@ -169,7 +169,8 @@ def unit_dimension_conflict(requirement: dict, fact: dict) -> bool:
     `ohm-cm`. Everything else is left alone - `compare` has the last word on
     whether two numbers can actually be compared.
     """
-    left, right = _unit_of(requirement), _unit_of(fact)
+    left = claims.base_unit(requirement.get("raw_unit") or requirement.get("unit"))
+    right = claims.base_unit(fact.get("raw_unit") or fact.get("unit"))
     if not left or not right:
         return False
     left_dim, right_dim = claims.unit_dimension(left), claims.unit_dimension(right)
@@ -181,7 +182,7 @@ def unit_dimension_conflict(requirement: dict, fact: dict) -> bool:
     # with no dimension (years, dB, kg - which `compare` will refuse itself)
     # or not a unit `claims` knows. Only the second is refused here.
     unknown = right if left_dim is not None else left
-    return claims._fold_unit(unknown) not in claims._RECOGNISED_UNITS
+    return not claims.is_unit(unknown)
 
 
 # ------------------------------------------------------------------ rule 2
@@ -289,7 +290,166 @@ def table_lookup_input_conflict(requirement: dict, field_name: str) -> bool:
     return header.startswith(name + " ")
 
 
+# ------------------------------------------------------------------ rule 4
+#: A word that IS a real datasheet field on this kind of equipment (a pump's
+#: "Bearing") but that the SAME word also names, as part of a different
+#: compound noun, something in an entirely different domain (a foundation's
+#: "soil bearing pressure"). Whole-word containment cannot tell these apart -
+#: the word is genuinely present either way - and rule 2 (equipment domain)
+#: does not catch it either, because the clause names no equipment at all, so
+#: there is no domain mismatch for it to see.
+#:
+#: FOUND reviewing a real review of EF1975-DAS-M-03 (2026-09-28): a civil
+#: clause on allowable SOIL bearing pressure was paired, whole-word, with a
+#: pump datasheet's blank "Bearing" field - a foundation-loading comment
+#: attached to a mechanical component that has nothing to do with it.
+#:
+#: Deliberately short and hand-picked, the same shape as DOMAIN_NOUNS above:
+#: each entry is a field word mapped to the SPECIFIC OTHER COMPOUND PHRASES
+#: that word forms when it does NOT mean the equipment field - not a general
+#: synonym or fuzzy-match table. This rule refuses ONLY when one of those
+#: exact phrases is present in the requirement's own sentence, never on the
+#: bare word alone - a legitimate mechanical sentence like "the pump bearing
+#: temperature shall be monitored" contains none of these phrases and is
+#: left alone.
+AMBIGUOUS_COMPOUND: dict[str, tuple[str, ...]] = {
+    "bearing": ("soil bearing", "foundation bearing", "bearing capacity",
+               "bearing pressure", "allowable bearing"),
+}
+
+
+def compound_term_conflict(field_name: str, requirement: dict) -> bool:
+    """True when `field_name` is one of `AMBIGUOUS_COMPOUND`'s words and the
+    requirement's own sentence contains one of that word's OTHER, non-
+    equipment compound phrases."""
+    name = _normalise(field_name)
+    others = AMBIGUOUS_COMPOUND.get(name)
+    if not others:
+        return False
+    text = _normalise(" ".join(str(requirement.get(key) or "") for key in
+                               ("requirement_text", "source_text", "subject")))
+    if not text:
+        return False
+    return any(_contains_words(text, phrase) for phrase in others)
+
+
+# ------------------------------------------------------------------ rule 5
+#: The words, as data: `reference/field_qualifiers.json` (see its `_about`).
+QUALIFIERS_PATH = Path(__file__).parent / "reference" / "field_qualifiers.json"
+
+
+def derived_after() -> frozenset[str]:
+    """Words that, right after a field's words, make it a different quantity."""
+    return frozenset(w.lower() for w in json.loads(
+        QUALIFIERS_PATH.read_text(encoding="utf-8")).get("derived_after", []))
+
+
+def qualifiers() -> frozenset[str]:
+    return frozenset(w.lower() for w in json.loads(
+        QUALIFIERS_PATH.read_text(encoding="utf-8"))["qualifiers"])
+
+
+def qualifier_conflict(requirement: dict, field_name: str) -> bool:
+    """True when the requirement's SUBJECT puts a side, part or location word
+    (`qualifiers()`: external, jacket, inlet...) right AT the field's own words
+    and the field name does not carry it: just before them ("the maximum
+    EXTERNAL design pressure") or just after, through "of (the)" ("the
+    operating pressure OF THE JACKET"). FOUND on the real PSV review
+    (2026-10-10): those two were paired with the sheet's plain design and
+    operating pressures by whole-word containment and gave seven false
+    NON_COMPLIANT findings.
+
+    Next to the field's words only, never anywhere in the subject: in "the
+    minimum shell thickness and the maximum allowable working pressure" the
+    word "shell" qualifies the thickness, not the pressure. When the field was
+    matched through a synonym and its words are not in the subject, there is
+    nothing to stand next to, so no conflict."""
+    subject = _normalise(str(requirement.get("subject") or "")).split()
+    field = _normalise(field_name).split()
+    if not subject or not field:
+        return False
+    # BOTH DIRECTIONS (planner, 2026-10-10): a FIELD that names a side or part
+    # the subject does not ("Jacket design pressure" against a plain "design
+    # pressure" rule) is a different quantity too. Same qualifier both sides
+    # still pairs.
+    if (set(field) & qualifiers()) - set(subject):
+        return True
+    words = qualifiers() - set(field)
+    n = len(field)
+    for start in range(len(subject) - n + 1):
+        if subject[start:start + n] != field:
+            continue
+        # "set pressure TOLERANCE": the next word makes it another quantity
+        nxt = subject[start + n:start + n + 1]
+        if nxt and nxt[0] in derived_after() and nxt[0] not in field:
+            return True
+        before = subject[max(0, start - 2):start]
+        after = subject[start + n:start + n + 3]
+        if after[:1] == ["of"]:
+            after = after[2:3] if after[1:2] == ["the"] else after[1:2]
+        else:
+            after = []
+        if words & set(before) or words & set(after):
+            return True
+    return False
+
+
 # ------------------------------------------------------------------ together
+# ------------------------------------------- a model pairing's own doubts
+#: Why a MODEL-proposed pairing that no rule refuses is still not sure enough
+#: to carry a verdict. Each was a FALSE RESULT on the real-model F1 of
+#: 2026-10-11 (three model pairings decided, three wrong):
+FIELD_WORD_ABSENT = "field_word_absent"      # a mounting distance vs "Elevation"
+RELATIVE_LIMIT = "relative_limit"            # "10 C above the pour point" vs a temperature
+SEVERAL_VALUES = "several_values"            # a flattened table band vs a temperature
+
+#: Words that, right after a limit, make it relative to ANOTHER quantity or
+#: place ("at least 10 C ABOVE THE pour point", "7.5 m BEYOND THE edge").
+_RELATIVE_AFTER = (r"(?:above|below|beyond|over|under|higher\s+than|lower\s+than|more\s+than|"
+                   r"less\s+than|greater\s+than|from|outside|inside|within)\s+(?:the|its|that|any|each)\b")
+_BRACKETS = re.compile(r"\([^()]*\)|\[[^\[\]]*\]")
+_LEADING_CLAUSE_NO = re.compile(r"^\s*\d+(?:\.\d+)+\s+")
+
+
+def _clause_text(requirement: dict) -> str:
+    return str(requirement.get("requirement_text") or requirement.get("source_text") or "")
+
+
+def model_pairing_doubt(requirement: dict, fact: dict) -> str | None:
+    """The first doubt about a model-proposed pairing, by name, or None.
+
+    A doubt does not refuse the pairing - it HOLDS its verdict for an
+    engineer (planner decision 2026-10-11: a low-confidence proposal waits).
+    It errs towards holding: a held true pairing costs a look, a decided
+    false one is a false result.
+
+      * a word of the field's own name is not in the clause (the model
+        paired on an idea: "corrosion allowance" with every thickness, the
+        "operating" pressure with the "allowable working" one). EVERY word
+        of four letters or more must be there - one shared word ("pressure",
+        "corrosion") was not enough on F1;
+      * the limit is relative to another quantity or place;
+      * the clause states several values (a table read as one sentence), so
+        which one is the limit is a guess.
+    """
+    text = _clause_text(requirement)
+    folded = _normalise(text)
+    name_words = [w for w in _words(fact.get("field_name")) if len(w) >= 4]
+    if name_words and not all(re.search(rf"(?<!\w){re.escape(w[:5])}", folded) for w in name_words):
+        return FIELD_WORD_ABSENT
+    value = str(requirement.get("raw_value") or "").strip()
+    if value:
+        after = re.search(rf"(?<![\w.]){re.escape(value)}(?![\w.]*\d)(.{{0,40}})", text)
+        if after and re.search(_RELATIVE_AFTER, _BRACKETS.sub(" ", after.group(1)), re.IGNORECASE):
+            return RELATIVE_LIMIT
+    bare = _LEADING_CLAUSE_NO.sub("", _BRACKETS.sub(" ", text))
+    # numbers read by the ONE number reader (`numparse`), never a pattern here
+    from . import numparse
+    if len(numparse.number_keys(bare)) > 1:
+        return SEVERAL_VALUES
+    return None
+
+
 def refusal(requirement: dict, fact: dict, *, sheet: str | None) -> str | None:
     """The first rule that refuses this pairing, by name, or None to allow it."""
     if unit_dimension_conflict(requirement, fact):
@@ -298,4 +458,8 @@ def refusal(requirement: dict, fact: dict, *, sheet: str | None) -> str | None:
         return EQUIPMENT_DOMAIN
     if table_lookup_input_conflict(requirement, fact.get("field_name") or ""):
         return TABLE_LOOKUP_INPUT
+    if compound_term_conflict(fact.get("field_name") or "", requirement):
+        return COMPOUND_TERM
+    if qualifier_conflict(requirement, fact.get("field_name") or ""):
+        return QUALIFIER
     return None

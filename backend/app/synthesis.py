@@ -14,9 +14,12 @@ wrong, restated:
     rather than merely discouraged. `summary.text` is REBUILT from the cited
     sentences, so what the reader sees and what `documented_findings` lists are
     the same sentences by construction.
-  * A number in a sentence must appear in a span that sentence cites. This is
-    what stops the model quietly converting 280 um to 0.28 mm and citing a page
-    that says neither. A numeral that REFERS - "Document 17", "clause 6.1",
+  * A number in a sentence must appear in a span that sentence cites - or be
+    the SAME QUANTITY the span states in another unit of the same kind, equal
+    after conversion to the sentence's own printed precision (#653, owner
+    order: "16 psi matches 110 kPa"). This is what stops the model quietly
+    converting 280 um to 0.30 mm, or reading 11 psi as 11 %, and citing a
+    page that says neither. A numeral that REFERS - "Document 17", "clause 6.1",
     "Table 1", "page 183", "doc17.pdf" - is not a number in this sense and is
     excluded from the sentence's side of the comparison, never from the span's.
   * The rendered prose opens with a sentence that stands alone. "It also
@@ -77,15 +80,14 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Literal, Protocol
 
-from . import assertions, context_budget
+from . import assertions, context_budget, numparse
 
-#: Sources are numbered for the model and cited back by number. Same marker
-#: syntax as answer.py, deliberately re-stated rather than imported: this
-#: module must stay free of the retrieval stack (httpx, search, db) to be a
-#: pure engine, and answer.py may want to import this one later.
-_CITATION = re.compile(r"\[S(\d+)\]")
-#: A marker the output-token cap cut in half at the very end of the text.
-_HALF_CITATION = re.compile(r"\s*\[S?\d*$")
+#: Sources are numbered for the model and cited back by number. Shared with
+#: answer.py via citations.py (zero dependencies beyond re), so this module
+#: stays free of the retrieval stack (httpx, search, db) and remains a pure
+#: engine, without re-stating the same regex twice.
+from .citations import _CITATION, _HALF_CITATION, strip_half_citation, validate_citations
+
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 #: A fragment that is nothing but citation markers belongs to the sentence in
 #: front of it: "...280 um. [S1]" is one cited sentence, not one uncited
@@ -102,18 +104,19 @@ _ABBREVIATION_TAIL = re.compile(
 #: A sentence a reader could read. Anything without a letter or a digit is
 #: stray punctuation from the split, never prose that was removed.
 _HAS_SUBSTANCE = re.compile(r"[^\W_]", re.UNICODE)
-_NUMBER_TOKEN = re.compile(r"\d+(?:[.,]\d+)*")
 
 #: A unit a REAL number is written with. Used only to stop a reference range
 #: ("Sections 4 and 5") from swallowing a measurement that follows the
 #: conjunction ("Section 4 and 50 mm"): the second number is a reference only
 #: when nothing measurable follows it.
-_UNIT_AHEAD = (
-    r"(?!\s*(?:mm|um|µm|μm|cm|km|m|kg|g|t|mpa|kpa|gpa|bar|psi|%|percent|per\s?cent|"
+_UNIT_WORDS = (
+    r"(?:mm|um|µm|μm|cm|km|m|kg|g|t|mpa|kpa|gpa|bar|psi|%|percent|per\s?cent|"
     r"hours?|hrs?|h|minutes?|mins?|seconds?|secs?|days?|weeks?|months?|years?|"
     r"inch(?:es)?|in|ft|feet|foot|degrees?|°|kn|n|nm|kw|w|kv|v|a|hz|l|litres?|"
-    r"liters?|ml|mg|ppm|db|x|times|layers?|coats?|passes?)\b)"
+    r"liters?|ml|mg|ppm|db|x|times|layers?|coats?|passes?)"
 )
+_UNIT_AHEAD = r"(?!\s*" + _UNIT_WORDS + r"\b)"
+
 #: Numerals that REFER rather than MEASURE. "Document 17", "clause 6.1",
 #: "Table 1", "Revision 2", "page 183" and the filename "doc17.pdf" all carry a
 #: digit that names a place in the corpus, not a quantity the cited span must
@@ -121,9 +124,13 @@ _UNIT_AHEAD = (
 #: measurement 17.0, found no span containing it, and deleted a true, cited
 #: sentence - observed live: a Focused summary over two passages reduced to a
 #: single fragment beginning "It also mandates...". The pattern is applied to
-#: the SENTENCE only, never to the spans, so it can only ever remove a claimed
-#: number, and a measurement written next to a reference ("Section 4 requires
-#: 50 mm") is still checked.
+#: BOTH sides - the sentence (`claimed_numbers`) and the cited spans
+#: (`span_numbers`) - so a reference numeral can neither be demanded of a span
+#: nor SUPPLY a figure: "wall is 6 mm [S1]" over a span saying "in accordance
+#: with clause 6" is unsupported (audit 2026-09-30; spans used to be left
+#: whole, and the clause number vouched for the invented 6 mm). A measurement
+#: written next to a reference ("Section 4 requires 50 mm") is still a
+#: measurement on either side.
 _REFERENCE_NUMERAL = re.compile(
     r"""
     (?:
@@ -132,11 +139,10 @@ _REFERENCE_NUMERAL = re.compile(
       | \b[\w.-]*\d[\w.-]*\.(?:pdf|docx?|xlsx?|pptx?|txt|csv|md|dwg)\b  # doc17.pdf
       | \b(?:sections?|sec\.?|clauses?|cl\.?|sub-?clauses?|paragraphs?|paras?\.?|
             articles?|art\.?|chapters?|ch\.?|parts?|annex(?:es)?|appendi(?:x|ces))
-            \s*\#?\s*\d+(?:\.\d+)*                            # Section 4, clause 6.1
+            \s*\#?\s*\d+(?:\.\d+)*(?!\d|\s*(?:mm|cm|km|m|kg|bar|mpa|kpa|psi|%|\u00b0|ppm)\b)  # Section 4, clause 6.1 (not "Part 6 bar")
       | §\s*\d+(?:\.\d+)*                                     # §4.2
       | \b(?:tables?|tbl\.?|figures?|figs?\.?)\s*\d+(?:\.\d+)*  # Table 1, Fig. 3
       | \b(?:revisions?|rev\.?|versions?|ver\.?)\s*\d+(?:\.\d+)*  # Revision 2, rev. 2
-      | \b[rv]\d+\b                                           # r5, v2
       | \b(?:pages?|pp?\.)\s*\d+                              # page 183, p.183, pp. 12
       | \bsources?\s*S?\d+                                    # source 1, source S1
     )
@@ -150,7 +156,7 @@ _REFERENCE_NUMERAL = re.compile(
 #: B34: STANDARD NUMBERS ARE NAMES, NOT MEASUREMENTS - AND ONLY THESE SHAPES
 #: ARE. "SAES-H-004 requires 150 micrometers [S4]" was deleted because "004"
 #: was read as the quantity 4.0, no cited span contains 4, and the check
-#: removed a true sentence. This corpus is Saudi Aramco standards, so the
+#: removed a true sentence. This corpus is the client's own standards, so the
 #: model names one in almost every sentence and almost every good answer was
 #: emptied - while "doc17.pdf" had been exempt all along.
 #:
@@ -352,10 +358,14 @@ class CitedSentence:
 
 @dataclass(frozen=True)
 class ConfidenceCheck:
-    """One countable fact that would undermine the result. `fired` means it did."""
+    """One countable fact that would undermine the result. `fired` True means it
+    did, False means it was checked and did not, and None means NOT CHECKED:
+    nothing in this run computed it. None is shown as "not checked", never as
+    "clear" (review finding 2026-10-02: the "credible passage not used" check
+    was never computed anywhere yet every screen listed it as clear)."""
 
     label: str
-    fired: bool
+    fired: bool | None
 
 
 @dataclass(frozen=True)
@@ -434,23 +444,6 @@ class Recommendation:
 # ------------------------------------------------------------------ citations
 
 
-def strip_half_citation(text: str) -> str:
-    """Remove a citation marker the output cap cut in half.
-
-    Text that stops inside `[S2` reads as a malformed citation system rather
-    than as a length limit. Same rule and same machinery as answer.py.
-    """
-    return _HALF_CITATION.sub("", text).rstrip()
-
-
-def validate_citations(text: str, source_count: int) -> tuple[list[int], list[int]]:
-    """Split cited source numbers into those that exist and those invented."""
-    cited = [int(n) for n in _CITATION.findall(text)]
-    valid = sorted({n for n in cited if 1 <= n <= source_count})
-    invented = sorted({n for n in cited if not 1 <= n <= source_count})
-    return valid, invented
-
-
 def _strip_invented(text: str, invented: Iterable[int]) -> str:
     """A citation the model invented is removed rather than displayed.
 
@@ -492,20 +485,13 @@ def _numbers(text: str) -> set[str]:
     A comma before exactly three digits is a thousands separator; a comma
     anywhere else is a decimal point, because NORSOK writes them that way.
     """
-    return {_normalise_number(token) for token in _NUMBER_TOKEN.findall(text)}
+    return {numparse.canonical(n) for n in numparse.find_numbers(text)}
 
 
 def _normalise_number(token: str) -> str:
-    """One number token in the form `_numbers` compares."""
-    cleaned = token
-    if re.fullmatch(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?", cleaned):
-        cleaned = cleaned.replace(",", "")
-    elif re.fullmatch(r"\d+,\d+", cleaned):
-        cleaned = cleaned.replace(",", ".")
-    try:
-        return repr(float(cleaned))
-    except ValueError:
-        return cleaned  # "5.3.2" is a clause number, compared as written
+    """One number token in the form `_numbers` compares (`numparse`). "5.3.2"
+    is a clause number and is compared as written."""
+    return numparse.canonical_token(token)
 
 
 def first_unsupported_value(sentence: str, span_numbers: set[str]) -> str | None:
@@ -513,10 +499,20 @@ def first_unsupported_value(sentence: str, span_numbers: set[str]) -> str | None
     MODEL WROTE IT - "300", not the normalised "300.0" - so the reason shown to
     a reader names the value they can see in the removed sentence."""
     held = strip_reference_numerals(_CITATION.sub("", sentence))
-    for token in _NUMBER_TOKEN.findall(held):
-        if _normalise_number(token) not in span_numbers:
-            return token
+    for n in numparse.find_numbers(held):
+        if numparse.canonical(n) not in span_numbers:
+            return n.raw
     return None
+
+
+#: "r5 supersedes r4", "v2 replaces v1": a revision NAMED in shorthand. Taken
+#: out only when the sentence is about revisions (audit H07): everywhere else
+#: R10 and V2 are quantities or tags (a rating, a vessel) and are held to the
+#: span like any other figure.
+_REVISION_SHORTHAND = re.compile(r"\b[rv]\d+\b", re.IGNORECASE)
+_REVISION_CONTEXT = re.compile(
+    r"\b(?:revs?|revisions?|versions?|supersed\w*|replac\w*|issues?|editions?)\b",
+    re.IGNORECASE)
 
 
 def strip_reference_numerals(sentence: str) -> str:
@@ -525,16 +521,59 @@ def strip_reference_numerals(sentence: str) -> str:
     table and figure numbers, revisions, pages, source numbers.
 
     Applied to generated prose BEFORE its numbers are compared with the cited
-    spans, and never to the spans themselves. So it can only ever shrink the set
-    of numbers a sentence is held to; a measurement standing next to a
-    reference - "Section 4 requires 50 mm" - is still checked, and still
-    dropped when no cited span contains 50.
+    spans, AND to the spans (`span_numbers`): a clause, table or page number
+    in a span is not a measurement the span states, so it must not support
+    one in the sentence. A measurement standing next to a reference -
+    "Section 4 requires 50 mm" - is still checked, and still dropped when no
+    cited span contains 50.
 
     Standard numbers (B34) are removed by `_STANDARD_IDENTIFIER`, a closed
     grammar, AFTER the reference patterns - so "SAES-H-001.pdf" is taken whole
     as a filename and "SAES-H-001" alone as a standard name.
     """
-    return _STANDARD_IDENTIFIER.sub(" ", _REFERENCE_NUMERAL.sub(" ", sentence))
+    out = _REFERENCE_NUMERAL.sub(" ", sentence)
+    if _REVISION_CONTEXT.search(sentence):
+        out = _REVISION_SHORTHAND.sub(" ", out)
+    return _STANDARD_IDENTIFIER.sub(" ", out)
+
+
+def span_numbers(text: str) -> set[str]:
+    """The numbers a cited span can SUPPORT: its measurements, with reference
+    numerals removed exactly as they are from the sentence (`claimed_numbers`),
+    so both sides of the comparison mean the same thing by "a figure"."""
+    return _numbers(strip_reference_numerals(text))
+
+
+#: Units a figure can be BOUND to for the unit check (audit H07). A closed,
+#: unambiguous list: no "a", "in", "x" or "times", which are also English
+#: words. A compound ("mm/s") or a bracketed form binds nothing, so the check
+#: can only be lenient there, never stricter.
+_BOUND_UNIT = re.compile(
+    r"\s?(mm|um|\u00b5m|\u03bcm|cm|km|m|kg|g|mpa|kpa|gpa|pa|bar|psi|%|\u00b0\s?[cf]|kn|nm|kw|kv|hz|"
+    r"ml|l|mg|ppm|db|hours?|hrs?|minutes?|mins?|seconds?|secs?|percent)(?![A-Za-z0-9/(])",
+    re.IGNORECASE)
+_UNIT_SPELLING = {"\u00b5m": "um", "\u03bcm": "um", "hr": "h", "hrs": "h", "hour": "h",
+                  "hours": "h", "min": "minute", "mins": "minute", "minutes": "minute",
+                  "sec": "second", "secs": "second", "seconds": "second",
+                  "percent": "%"}
+
+
+
+def first_unit_conflict(sentence: str, spans: str) -> str | None:
+    """The first figure in `sentence` that the cited spans state only in
+    ANOTHER unit - "6 bar" over a span that says "6 mm" - else None.
+
+    `claimed_numbers` is a bag of numbers and cannot see this: 6 is on the
+    page, so 6 mm and 6 bar both passed. A figure the spans print with no unit
+    (a table cell, whose unit is a column away) is not a conflict; a figure
+    the spans do not contain at all is not this check's business (the bag
+    check removes that sentence)."""
+    # #653 ONE CHECK, NOT TWO: this lane kept its own copy of the unit
+    # comparison, and it did not know gauge from absolute or a label's unit
+    # written before its number. It now asks the shared one.
+    from . import answer
+
+    return answer.first_unit_conflict(sentence, spans)
 
 
 def claimed_numbers(sentence: str) -> set[str]:
@@ -625,10 +664,11 @@ def _cite(
 
       * it cites nothing - an uncited claim is a defect, not a stylistic
         choice, so it does not reach `documented_findings` OR the prose;
-      * it carries a number that appears in no span it cites. This is the
-        second form the design asks for, and it is the one that catches a
-        silent unit conversion: "0.28 mm [S1]" over a source that says
-        "280 um" cites a real page for a number that page does not contain.
+      * it carries a number that appears in no span it cites, and is not
+        that span's figure correctly converted to another unit of the same
+        kind (#653). This catches a WRONG silent conversion: "0.30 mm [S1]"
+        over a source that says "280 um" cites a real page for a figure that
+        page does not state. "0.28 mm" over it is the same figure and stays.
     """
     kept: list[CitedSentence] = []
     dropped: list[tuple[str, str]] = []
@@ -655,13 +695,25 @@ def _cite(
         spans = " ".join(str(s.get("text") or "") for s in cited)
         # Reference numerals - "Document 17", "clause 6.1", "Table 1", "page
         # 183", "doc17.pdf" - name a place, not a quantity, and are taken out
-        # of the SENTENCE before the comparison. The spans are left whole.
-        span_numbers = _numbers(spans)
-        unsupported = claimed_numbers(sentence) - span_numbers
+        # of BOTH sides before the comparison: a span's "clause 6" must not
+        # vouch for a sentence's "6 mm".
+        supported = span_numbers(spans)
+        unsupported = claimed_numbers(sentence) - supported
+        if unsupported:
+            # #653 the same quantity in another unit, checked by the ONE
+            # shared figure check the answer lanes use.
+            from . import answer
+
+            unsupported = {v for v in unsupported
+                           if not answer._converted_on_page(sentence, v, spans)}
         if unsupported:
             # Named as the reader sees it: "value 300 not in cited passage".
-            value = first_unsupported_value(sentence, span_numbers) or sorted(unsupported)[0]
+            value = first_unsupported_value(sentence, supported) or sorted(unsupported)[0]
             dropped.append((sentence, f"value {value} not in cited passage"))
+            continue
+        wrong_unit = first_unit_conflict(sentence, spans)
+        if wrong_unit:
+            dropped.append((sentence, f"value {wrong_unit} not in cited passage with that unit"))
             continue
         # The third form, and the one an engineering reader is least able to
         # catch: the sentence cites a real page and asserts a compliance,
@@ -1306,8 +1358,11 @@ def confidence_checks(
             bool(labels & {"possible_conflict", "unresolved"}),
         ),
         ConfidenceCheck("evidence came from recognised (OCR) text", "recognised" in sources),
+        # coverage_complete is False or None, never True. None means nobody
+        # computed it, which is NOT the same as "checked and clear".
         ConfidenceCheck(
-            "a credible passage was retrieved and not used", coverage_complete is False
+            "a credible passage was retrieved and not used",
+            True if coverage_complete is False else None,
         ),
         ConfidenceCheck("a generation stopped at its length limit", bool(summary_truncated)),
         ConfidenceCheck(
@@ -1323,7 +1378,7 @@ def confidence_from(checks: Iterable[ConfidenceCheck]) -> Confidence:
     undermine this were detected", which is a checklist result rather than a
     calibration, and is displayable as the checklist.
     """
-    return "low" if any(c.fired for c in checks) else "medium"
+    return "low" if any(c.fired is True for c in checks) else "medium"
 
 
 def _merge_checks(
@@ -1332,9 +1387,17 @@ def _merge_checks(
     """One row per label, fired if it fired anywhere. A check the caller
     supplied and one this module observed are the same fact, and showing it
     twice would read as two problems."""
-    merged: dict[str, bool] = {}
+    merged: dict[str, bool | None] = {}
     for check in (*outer, *inner):
-        merged[check.label] = merged.get(check.label, False) or check.fired
+        before = merged.get(check.label)
+        if before is True or check.fired is True:
+            merged[check.label] = True
+        elif before is False or check.fired is False:
+            # Computed somewhere and clear: a caller that checked outranks one
+            # that did not look.
+            merged[check.label] = False
+        else:
+            merged[check.label] = None
     return tuple(ConfidenceCheck(label, fired) for label, fired in merged.items())
 
 

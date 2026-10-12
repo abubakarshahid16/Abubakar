@@ -270,6 +270,28 @@ describe("AnalysisModeScreen: rules that must hold on screen", () => {
     expect(screen.queryByText("not assessed")).toBeNull();
   });
 
+  it("a confidence check the backend did not run shows as not checked, never as clear", async () => {
+    const user = userEvent.setup();
+    routes({
+      "/analysis/summary": () => Promise.resolve(json(summaryBody())),
+      "/analysis/recommendations": () =>
+        Promise.resolve(json(recommendationBody({
+          recommendation: {
+            ...recommendationBody().recommendation,
+            checks: [
+              { label: "the gap analysis did not apply", fired: false },
+              { label: "a credible passage was retrieved and not used", fired: null },
+            ],
+          },
+        }))),
+    });
+    render(<AnalysisModeScreen />);
+    await user.click(screen.getByRole("checkbox", { name: /generate recommendation/i }));
+    await ask(user);
+    expect(await screen.findByText("? not checked")).toBeInTheDocument();
+    expect(screen.getAllByText("— clear")).toHaveLength(1);
+  });
+
   it("RULE 4: a documented finding that cites nothing is not rendered at all", async () => {
     const user = userEvent.setup();
     routes({
@@ -588,9 +610,11 @@ describe("AnalysisModeScreen: selected work is explicit", () => {
 
     const plan = screen.getByRole("region", { name: "Selected analysis work" });
     expect(within(plan).getByText("Quote: mechanical evidence comparison")).toBeInTheDocument();
-    expect(within(plan).getByText("Gap analysis")).toBeInTheDocument();
+    expect(within(plan).getByText("Quoted evidence")).toBeInTheDocument();
     expect(within(plan).getByText("Summary, recommendation and market")).toBeInTheDocument();
-    expect(within(plan).getByText("Off")).toBeInTheDocument();
+    // #607: Gap analysis is listed, and OFF, in Quote mode - it is not what runs.
+    expect(within(plan).getByText("Gap analysis")).toBeInTheDocument();
+    expect(within(plan).getAllByText("Off")).toHaveLength(2);
     expect(screen.getByText(/Quote mode runs only cited document evidence/)).toBeInTheDocument();
   });
 });

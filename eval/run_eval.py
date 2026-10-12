@@ -631,7 +631,8 @@ def main() -> int:
     ap.add_argument("--questions", type=Path, default=DEFAULT_QUESTIONS)
     ap.add_argument("--tier", choices=("extract", "generated"), default="extract")
     ap.add_argument("--compare", type=Path, help="an earlier results file")
-    ap.add_argument("--limit", type=int, default=3)
+    # The chat's own depth: the one top-k (settings.answer_top_k).
+    ap.add_argument("--limit", type=int, default=None)
     ap.add_argument(
         "--isolated", action="store_true",
         help="ask every question in a vacuum (diagnostic). The default drives "

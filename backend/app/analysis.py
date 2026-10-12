@@ -30,6 +30,7 @@ import hashlib
 import math
 import re
 import sqlite3
+import threading
 
 # Imported for its EXCEPTION TYPES only - `_generate_or_refuse` below turns an
 # httpx error into `ModelUnavailable`. This module no longer constructs a
@@ -37,7 +38,8 @@ import sqlite3
 # only module in `app/` allowed to (tests/test_socket_containment.py).
 import httpx
 
-from . import access, claims, market, model_transport, search as search_mod, synthesis
+from . import access, acronyms, claims, market, model_transport, search as search_mod, synthesis
+from .work_budget import WorkBudget
 from .config import settings
 from .db import connect
 
@@ -47,10 +49,33 @@ from .db import connect
 NOT_IMPLEMENTED = [
     "conflict resolution across revisions (documents carry no revision or "
     "approval status)",
-    "public market research (this machine is offline; the panel shows a "
-    "labelled sample)",
+    # The market line is NOT written here: it states what this build does
+    # about the internet, so it is derived from the same settings that decide
+    # it (`market_line`). It was the literal "this machine is offline",
+    # printed in four API responses whether or not egress was switched on
+    # (review finding, 2026-10-02).
+    None,
     "analysis lifecycle and cancellation (there is no analyses table)",
 ]
+
+
+def market_line() -> str:
+    """The public-market-research gap, worded from the settings that decide it
+    (`market.egress_state`), never from a literal."""
+    state = market.egress_state()
+    if state["web_search_enabled"] and state["allow_public_egress"]:
+        return ("public market research (not part of this analysis; it runs only "
+                "when a search is approved from the market panel)")
+    if state["web_search_enabled"]:
+        return ("public market research (switched on, but this deployment does not "
+                "allow traffic to leave the machine, so nothing is sent; the panel "
+                "shows a labelled sample)")
+    return ("public market research (switched off in this build's settings; the "
+            "panel shows a labelled sample)")
+
+
+def not_implemented_sections() -> list[str]:
+    return [market_line() if item is None else item for item in NOT_IMPLEMENTED]
 
 
 #: WHAT THE TWO MODES MEAN, in the backend rather than in the button.
@@ -213,6 +238,17 @@ def named_document_ids(
         # only thing this function can do is shrink a set it never widens.
         return frozenset()
     return frozenset(r["id"] for r in rows) & scope.allowed_document_ids
+
+
+def unresolved_names(scope: access.AccessScope, filenames: list[str]) -> list[str]:
+    """The named files that resolve to NO document the caller may read
+    (misspelt, absent, not granted, or a lookup that failed). Each is a
+    document the answer did not examine."""
+    unresolved = []
+    for name in filenames:
+        if not named_document_ids(scope, [name]):
+            unresolved.append(name)
+    return unresolved
 
 
 def narrow_to_named(
@@ -624,6 +660,11 @@ def gather(question: str, scope: access.AccessScope, *, limit: int = 8,
     """
     names = named_documents(question, _corpus_filenames(scope))
     allowed, narrowed = narrow_to_named(scope, names)
+    # #633: A NAMED DOCUMENT THAT COULD NOT BE READ IS SAID. Narrowing stands
+    # down when nothing resolves (a broad answer beats an empty one), but the
+    # answer used to read as if the named document had been examined. The names
+    # that resolved to nothing the caller may read are listed on the result.
+    not_read = unresolved_names(scope, names)
     depth = max(limit, limit * ANALYSIS_OVERFETCH)
 
     result = search_mod.search(
@@ -654,6 +695,7 @@ def gather(question: str, scope: access.AccessScope, *, limit: int = 8,
     shares = document_shares(hits)
     result["analysis_named_documents"] = names
     result["analysis_named_scope_applied"] = narrowed
+    result["analysis_named_not_read"] = not_read
     result["analysis_per_document_cap"] = cap
     result["analysis_per_document_cap_lifted"] = bool(
         hits and max(shares.values()) > cap)
@@ -687,7 +729,7 @@ def ollama_generate(system: str, prompt: str) -> synthesis.Generation:
             "num_thread": settings.num_thread,
             "num_batch": settings.num_batch,
         },
-        "keep_alive": "30m",
+        "keep_alive": settings.ollama_keep_alive,
     }
     # THROUGH THE ONE TRANSPORT. `prompt` comes from `synthesis.build_prompt`
     # over the evidence, so this request carries document passages verbatim.
@@ -741,13 +783,14 @@ def summary(question: str, scope: access.AccessScope, *, limit: int = 8,
     why the single pass could not be made to mean "more documents" simply by
     handing it more passages.
     """
-    evidence, _ = gather(question, scope, limit=limit)
+    evidence, raw = gather(question, scope, limit=limit)
     result = _synthesise(question, evidence, limit, generate)
     return {
         "question": question,
         "evidence_ledger": evidence,
+        "named_documents_not_read": raw.get("analysis_named_not_read") or [],
         **synthesis.summary_to_api(result),
-        "not_implemented_sections": list(NOT_IMPLEMENTED),
+        "not_implemented_sections": not_implemented_sections(),
     }
 
 
@@ -769,10 +812,66 @@ def _synthesise(question: str, evidence: list[dict], limit: int,
 # ------------------------------------------------------------------ stage 6
 
 
+class _Flight:
+    """One in-progress gap run that identical concurrent requests wait on."""
+
+    def __init__(self) -> None:
+        self.done = threading.Event()
+        self.result: dict | None = None
+        self.error: BaseException | None = None
+
+
+_flights: dict[tuple, _Flight] = {}
+_flights_lock = threading.Lock()
+
+
 def gaps(question: str, scope: access.AccessScope, *, limit: int = 8,
          baseline_document_id: str | None = None,
          comparison_type: str | None = None) -> dict:
+    """`_gaps` run at most ONCE for identical concurrent requests (#606).
+
+    The dev frontend and a double click send the same request twice; both used
+    to run the whole analysis. The second caller now waits for the first and
+    gets its result, marked `coalesced`. The key includes the caller's allowed
+    documents, so a result is only ever shared between callers who may read
+    exactly the same documents. Nothing is cached after the run finishes.
+    """
+    key = (question, limit, baseline_document_id, comparison_type,
+           scope.allowed_document_ids)
+    with _flights_lock:
+        flight = _flights.get(key)
+        leader = flight is None
+        if leader:
+            flight = _flights[key] = _Flight()
+    if not leader:
+        flight.done.wait()
+        if flight.error is not None:
+            raise flight.error
+        return {**flight.result, "coalesced": True}
+    try:
+        flight.result = _gaps(question, scope, limit=limit,
+                              baseline_document_id=baseline_document_id,
+                              comparison_type=comparison_type)
+        return flight.result
+    except BaseException as exc:
+        flight.error = exc
+        raise
+    finally:
+        with _flights_lock:
+            _flights.pop(key, None)
+        flight.done.set()
+
+
+def _gaps(question: str, scope: access.AccessScope, *, limit: int = 8,
+          baseline_document_id: str | None = None,
+          comparison_type: str | None = None) -> dict:
     """Mechanical claim comparison. No model call, and no baseline invented.
+
+    BOUNDED (#606). A `WorkBudget` (seconds, evidence rows, claims) stops the
+    run and returns a PARTIAL result with `truncated: true` and the reason.
+    The acronym maps are never built inside this request
+    (`acronyms.request_scope`): documents whose map is not ready are skipped,
+    counted in `acronym_map`, and a background build is started.
 
     THE BASELINE MUST COME FROM THE USER. Choosing one here - the oldest
     document, the one with "standard" in its name - would be the system
@@ -781,11 +880,24 @@ def gaps(question: str, scope: access.AccessScope, *, limit: int = 8,
     `not_applicable` and the items are still returned, so the reader sees the
     comparison without being told which side is right.
     """
-    evidence, _ = gather(question, scope, limit=limit)
-    rows = claims.extract_claims(
-        evidence, allowed_document_ids=scope.allowed_document_ids)
-    clusters = claims.cluster(rows, claims.question_terms(
-        question, allowed_document_ids=scope.allowed_document_ids))
+    budget = WorkBudget(settings.analysis_gaps_budget_seconds,
+                        max_claims=settings.analysis_max_claims,
+                        max_evidence=settings.analysis_max_evidence)
+    if limit > budget.max_evidence:
+        budget.note(f"evidence capped at {budget.max_evidence} passages "
+                    f"(asked for {limit})")
+        limit = budget.max_evidence
+    with acronyms.request_scope() as not_ready:
+        evidence, raw = gather(question, scope, limit=limit)
+        rows = claims.extract_claims(
+            evidence, allowed_document_ids=scope.allowed_document_ids,
+            budget=budget)
+        clusters = claims.cluster(rows, claims.question_terms(
+            question, allowed_document_ids=scope.allowed_document_ids),
+            budget=budget)
+    not_ready_documents = sorted(set(not_ready))
+    if not_ready_documents:
+        acronyms.warm_in_background()
     applicability = "applicable" if baseline_document_id else "not_applicable"
     baseline = None
     if baseline_document_id:
@@ -799,6 +911,9 @@ def gaps(question: str, scope: access.AccessScope, *, limit: int = 8,
         "question": question,
         "comparison_type": comparison_type,
         "evidence_ledger": evidence,
+        # #633: documents the question named that could not be read; the
+        # comparison did NOT examine them.
+        "named_documents_not_read": raw.get("analysis_named_not_read") or [],
         "claim_clusters": claims.to_api(clusters),
         "gaps": {
             "applicability": applicability,
@@ -815,7 +930,10 @@ def gaps(question: str, scope: access.AccessScope, *, limit: int = 8,
                 {e["evidence_id"]: e["document_id"] for e in evidence},
             ),
         },
-        "not_implemented_sections": list(NOT_IMPLEMENTED),
+        "not_implemented_sections": not_implemented_sections(),
+        **budget.to_api(),
+        "acronym_map": {"documents_not_ready": len(not_ready_documents),
+                        "complete": not not_ready_documents},
     }
 
 
@@ -1103,7 +1221,7 @@ def recommendation(question: str, scope: access.AccessScope, *, limit: int = 8,
             "recommendation": None,
             "recommendation_refusal": why or REFUSAL_NO_DOCUMENT_LAYER,
             "public_market_findings": market.findings()["findings"],
-            "not_implemented_sections": list(NOT_IMPLEMENTED),
+            "not_implemented_sections": not_implemented_sections(),
         }
 
     removed: list[tuple[str, str]] = []
@@ -1125,5 +1243,5 @@ def recommendation(question: str, scope: access.AccessScope, *, limit: int = 8,
             else why or REFUSAL_NO_ADVICE
         ),
         "public_market_findings": market.findings()["findings"],
-        "not_implemented_sections": list(NOT_IMPLEMENTED),
+        "not_implemented_sections": not_implemented_sections(),
     }

@@ -1,6 +1,6 @@
 # ADR-0006 — Provenance for recognised text
 
-- **Status:** Proposed — awaiting approval. No code written.
+- **Status:** Partially implemented, re-verified 2026-09-28. `text_source` (`extracted` vs `recognised`) is stored on `chunks` and the chat answer path (`answer.py`/`ChatView.tsx`) correctly withholds the verbatim label for recognised text. Two places do not yet branch on it and still ship the plain claim this ADR forbids: the frozen single-answer PDF report's main answer label (`reports.py`, the unconditional `<p class="label">Quoted verbatim from the document</p>` for every `answer_type == "extract"`), and the Analysis screen's claim table, because `claims.Claim` does not carry `text_source` at all (code-review audit findings #15 and #16, both still open).
 - **Date:** 2026-09-05
 - **Decision:** Recognised text is stored in a table extraction cannot touch, is
   carried to `chunks`, and is **never** labelled as a verbatim quotation.

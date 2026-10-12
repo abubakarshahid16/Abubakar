@@ -182,17 +182,52 @@ describe("the recent reviews table", () => {
 });
 
 describe("a result it cannot use", () => {
-  it("renders nothing rather than taking the Dashboard down with it", async () => {
+  it("says the figures failed rather than taking the Dashboard down, and keeps the button", async () => {
     // What the client returns for a body that failed its shape check - and
     // what it used to return as `ok`, which threw inside the first card.
+    // Audit 2026-09-30: the panel then returned null, so the Dashboard's
+    // one review button vanished with no word why.
     dashboard.mockResolvedValue({
       ok: false, disconnected: true, error: { code: "disconnected", message: "offline" },
     });
-    const { container } = render(
-      <ReviewDashboardPanel onOpenReview={vi.fn()} onOpenDocuments={vi.fn()} />,
-    );
+    panel();
 
-    await Promise.resolve();
-    expect(container).toBeEmptyDOMElement();
+    expect(await screen.findByText(/The review figures could not be loaded - offline/))
+      .toBeInTheDocument();
+    expect(screen.getByText(/This is not a count of zero/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Upload Datasheet and Run AI Review/ }))
+      .toBeInTheDocument();
+    expect(screen.queryByText("Needs attention")).toBeNull();
+  });
+
+  it("says the submittal list failed instead of showing an empty picker", async () => {
+    documents.mockResolvedValue({
+      ok: false, disconnected: false, error: { code: "internal_error", message: "list broke" },
+    });
+    panel();
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Upload Datasheet and Run AI Review/ }));
+    expect(await screen.findByText(/contractor submittals could not be loaded - list broke/))
+      .toBeInTheDocument();
+  });
+});
+
+describe("audit 2026-09-30: what the block counts, in plain words", () => {
+  it("states that its counts cover only the documents the reader can open", async () => {
+    panel();
+    expect(await screen.findByTestId("review-boundary"))
+      .toHaveTextContent("These review counts cover only the documents you can open.");
+  });
+
+  it("shows a run's status in plain words, not the database value", async () => {
+    dashboard.mockResolvedValue({
+      ok: true, data: data({ recent: [run({ status: "queued" })] }),
+    });
+    panel();
+
+    const row = (await screen.findByText("drum.pdf")).closest("tr")!;
+    expect(within(row).getByText("Waiting to start")).toBeInTheDocument();
+    expect(within(row).queryByText("queued")).toBeNull();
   });
 });

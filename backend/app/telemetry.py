@@ -23,6 +23,10 @@ from datetime import datetime, timezone
 from .db import connect
 from .rates import rate
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 #: Kept per stage. Enough to be a stable median, small enough that the table
 #: never becomes something that needs managing.
 KEEP_PER_STAGE = 2000
@@ -73,8 +77,8 @@ def record(stage: str, items: int, seconds: float, document_id: str | None = Non
                    )""",
                 (stage, stage, KEEP_PER_STAGE),
             )
-    except Exception:  # noqa: BLE001 - telemetry must never break the pipeline
-        pass
+    except Exception as exc:  # noqa: BLE001 - telemetry must never break the pipeline
+        _log.warning("a stage timing for %r was not recorded (%s)", stage, type(exc).__name__)
 
 
 def _percentile(values: list[float], fraction: float) -> float | None:

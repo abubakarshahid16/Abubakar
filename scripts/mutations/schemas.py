@@ -53,8 +53,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         # mutating the route alone proved nothing, because `getattr` on an
         # absent field is None whatever the client sent.
         path=APP / "schemas.py",
-        anchor="    approved_at: str | None = None\n    #: CONFIRM THE PAIRING.",
-        replacement="    approved_at: str | None = None\n    confirmed_by: str | None = None\n    #: CONFIRM THE PAIRING.",
+        # Re-anchored in B10 (approved_by/approved_at left the schema).
+        anchor="    # authenticated caller, set by the route - the same rule as `confirmed_by`.\n    #: CONFIRM THE PAIRING.",
+        replacement="    # authenticated caller, set by the route - the same rule as `confirmed_by`.\n    confirmed_by: str | None = None\n    #: CONFIRM THE PAIRING.",
         target="tests/test_model_matching.py",
         keyword="body_naming_a_confirmer",
         tags=("permission", "critical"),

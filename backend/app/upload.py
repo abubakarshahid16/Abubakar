@@ -34,7 +34,13 @@ ZIP_MAGIC = b"PK\x03\x04"
 #: from the filename, which is user-supplied text.
 KIND_PDF = "pdf"
 KIND_XLSX = "xlsx"
-_SUFFIX_FOR_KIND = {KIND_PDF: ".pdf", KIND_XLSX: ".xlsx"}
+#: DATASHEET_OFFICE_INPUT (off by default): a Word datasheet. Never produced
+#: while the flag is off - a .docx is then refused as `not_xlsx`, as before.
+KIND_DOCX = "docx"
+_SUFFIX_FOR_KIND = {KIND_PDF: ".pdf", KIND_XLSX: ".xlsx", KIND_DOCX: ".docx"}
+
+#: The entry every real Word document has and no workbook does.
+_DOCX_REQUIRED_ENTRY = "word/document.xml"
 
 #: The entry every real workbook has and no `.docx` or `.pptx` does.
 _XLSX_REQUIRED_ENTRY = "xl/workbook.xml"
@@ -55,6 +61,15 @@ MAX_XLSX_UNCOMPRESSED_BYTES = 256 * 1024 * 1024
 MAX_XLSX_ENTRIES = 5_000
 
 _SAFE = re.compile(r"[^A-Za-z0-9._ -]")
+
+#: The legacy (pre-2007) Office container: .doc, .xls, .ppt share these bytes.
+OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+
+#: Said whenever an Office file we do not read is uploaded. W5b-01: Word
+#: (.docx) is read; the other formats are built later, and the answer says so.
+UNSUPPORTED_OFFICE_HINT = (
+    "This system reads PDF and Word (.docx) files. Save the file as a PDF or, for a "
+    "Word document, as .docx.")
 
 
 class UploadError(Exception):
@@ -88,7 +103,7 @@ def sanitise_filename(raw: str, kind: str = KIND_PDF) -> str:
     return name[:200]
 
 
-def validate_xlsx(temp_path: Path) -> None:
+def validate_xlsx(temp_path: "Path | BinaryIO") -> None:
     """Prove a zip is really a workbook, and that opening it is bounded.
 
     `PK\\x03\\x04` says "zip" and nothing more; `.docx`, `.pptx` and `.jar`
@@ -104,6 +119,11 @@ def validate_xlsx(temp_path: Path) -> None:
 
     Raises `UploadError`; the caller deletes the temp file, so a file that
     fails any check is never partially stored.
+
+    Also accepts an in-memory file (`io.BytesIO`): `crs_reply.read_replies`
+    DOES open the workbook, so it runs these same limits first. There the
+    declared size is what bounds the expansion - CPython's zip reader stops
+    at each entry's declared `file_size` - so checking the sum is sufficient.
     """
     import zipfile
 
@@ -162,8 +182,92 @@ def validate_xlsx(temp_path: Path) -> None:
         ) from exc
 
 
+def is_docx(temp_path: Path) -> bool:
+    """True when a zip has a Word document part and NO workbook part.
+
+    Read from the central directory only. A file with both parts is left to
+    `validate_xlsx`, which is the older, stricter path.
+    """
+    import zipfile
+
+    try:
+        with zipfile.ZipFile(temp_path) as book:
+            names = set(book.namelist())
+    except (OSError, zipfile.BadZipFile):
+        return False
+    return _DOCX_REQUIRED_ENTRY in names and _XLSX_REQUIRED_ENTRY not in names
+
+
+def validate_docx(temp_path: Path) -> None:
+    """Prove a zip is really a Word document, and that reading it is bounded.
+
+    The same rules as `validate_xlsx`, for the same reasons: nothing is
+    decompressed, the declared unpacked size and the entry count are bounded
+    (a zip bomb is refused, not expanded), a macro project (.docm) is refused
+    whatever the file is named, and the part a Word document must have has to
+    be there. The XML itself is checked when it is read
+    (`datasheet_inputs.read_docx` refuses any DOCTYPE).
+    """
+    import zipfile
+
+    try:
+        with zipfile.ZipFile(temp_path) as book:
+            entries = book.infolist()
+    except zipfile.BadZipFile as exc:
+        raise UploadError("not_pdf", "That file is not a PDF",
+                          f"opened as a zip but could not be read: {exc}") from exc
+    if len(entries) > MAX_XLSX_ENTRIES:
+        raise UploadError("not_docx",
+                          "That document has too many internal parts to be genuine",
+                          f"{len(entries)} entries, limit {MAX_XLSX_ENTRIES}")
+    declared = sum(e.file_size for e in entries)
+    if declared > MAX_XLSX_UNCOMPRESSED_BYTES:
+        raise UploadError("not_docx",
+                          "That document expands to more than this system accepts",
+                          f"declared {declared} bytes, limit {MAX_XLSX_UNCOMPRESSED_BYTES}")
+    names = {e.filename for e in entries}
+    if any(n.lower().startswith("word/vbaproject") for n in names):
+        raise UploadError("not_docx", "Macro-enabled documents are not accepted",
+                          "the file contains a VBA project")
+    if _DOCX_REQUIRED_ENTRY not in names:
+        raise UploadError("not_docx", "That file is not a Word document",
+                          f"no {_DOCX_REQUIRED_ENTRY} entry")
+
+
+def docx_accepted() -> bool:
+    """Is a Word upload accepted? W5b-01: `DOCX_INPUT_ENABLED` (ON by default),
+    or the older datasheet seam `DATASHEET_OFFICE_INPUT`."""
+    return bool(settings.docx_input_enabled or settings.datasheet_office_input)
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def zip_office_type(temp_path: Path) -> str:
+    """What a zip upload claims to be, from its central directory only:
+    `docx`, `pptx`, `odf` (OpenDocument), or `xlsx` (everything else, which
+    `validate_xlsx` then proves or refuses)."""
+    import zipfile
+
+    try:
+        with zipfile.ZipFile(temp_path) as book:
+            names = set(book.namelist())
+            mimetype = ""
+            if "mimetype" in names:
+                with book.open("mimetype") as fh:
+                    mimetype = fh.read(128).decode("ascii", "ignore")
+    except (OSError, zipfile.BadZipFile):
+        return KIND_XLSX
+    if _XLSX_REQUIRED_ENTRY in names:
+        return KIND_XLSX
+    if _DOCX_REQUIRED_ENTRY in names:
+        return KIND_DOCX
+    if "ppt/presentation.xml" in names:
+        return "pptx"
+    if mimetype.startswith("application/vnd.oasis.opendocument"):
+        return "odf"
+    return KIND_XLSX
 
 
 def detect_kind(temp_path: Path) -> str:
@@ -207,6 +311,12 @@ def stream_to_temp(src: BinaryIO, temp_path: Path) -> tuple[str, int]:
             if not block:
                 break
             if first:
+                if block.startswith(OLE_MAGIC):
+                    raise UploadError(
+                        "unsupported_office",
+                        "Old Office files (.doc, .xls, .ppt) are not supported. "
+                        + UNSUPPORTED_OFFICE_HINT,
+                        "legacy Office container")
                 if not (block.startswith(PDF_MAGIC) or block.startswith(ZIP_MAGIC)):
                     raise UploadError(
                         "not_pdf",
@@ -257,6 +367,24 @@ def ingest(src: BinaryIO, raw_filename: str, *,
     try:
         sha256, size = stream_to_temp(src, temp_path)
         kind = detect_kind(temp_path)
+        # DATASHEET_OFFICE_INPUT seam (off by default): a zip that is a Word
+        # document is a datasheet input. Flag off: it stays `xlsx` here and
+        # `validate_xlsx` refuses it as `not_xlsx`, exactly as before.
+        if kind == KIND_XLSX:
+            office = zip_office_type(temp_path)
+            if office == "pptx":
+                raise UploadError(
+                    "unsupported_office",
+                    "PowerPoint files (.pptx) are not supported yet. " + UNSUPPORTED_OFFICE_HINT,
+                    "ppt/presentation.xml present")
+            if office == "odf":
+                raise UploadError(
+                    "unsupported_office",
+                    "OpenDocument files (.odt, .ods, .odp) are not supported yet. "
+                    + UNSUPPORTED_OFFICE_HINT, "OpenDocument mimetype")
+        if (kind == KIND_XLSX and docx_accepted() and is_docx(temp_path)):
+            kind = KIND_DOCX
+            validate_docx(temp_path)
         if kind == KIND_XLSX:
             # Run on the COMPLETED temp file, before anything is stored. A
             # file that fails here is deleted by the except below and never
@@ -314,7 +442,12 @@ def ingest(src: BinaryIO, raw_filename: str, *,
     # `job_id` is None for the same reason: a job id is a promise that work is
     # happening, and none is.
     # ---------------------------------------------------------------------
-    indexed = kind != KIND_XLSX
+    # DATASHEET_OFFICE_INPUT seam (off by default): with the flag on a
+    # workbook or Word document IS indexed - its pages are rendered by
+    # `datasheet_inputs` in the extract stage - so a datasheet sent as one can
+    # be reviewed. Off: a workbook is stored and never indexed, as above.
+    indexed = (kind == KIND_PDF or (kind == KIND_DOCX and docx_accepted())
+               or bool(settings.datasheet_office_input))
     status = states.QUEUED if indexed else states.STORED_NOT_INDEXED
 
     with conn:
@@ -419,6 +552,20 @@ def _first_page_text(pdf_path: Path) -> str:
     single page parse and not a document.
     """
     try:
+        if settings.docx_input_enabled and is_docx(Path(pdf_path)):
+            # A Word document's first reading page, never MuPDF's flattening.
+            from . import docx_reader
+
+            pages = docx_reader.read_structure(pdf_path).pages
+            return pages[0] if pages else ""
+        if settings.datasheet_office_input:
+            # DATASHEET_OFFICE_INPUT seam: an office file's page 1 is its
+            # first rendered sheet / page, never PyMuPDF's reading of it.
+            from . import datasheet_inputs
+
+            if datasheet_inputs.office_kind(pdf_path) is not None:
+                pages = datasheet_inputs.page_texts(pdf_path)
+                return pages[0].text if pages else ""
         import pymupdf
 
         with pymupdf.open(pdf_path) as document:
@@ -443,6 +590,7 @@ def to_api(row: sqlite3.Row) -> dict:
         "status": row["status"],
         "needs_ocr_pages": row["needs_ocr_pages"],
         "recognised_pages": row["recognised_pages"] if "recognised_pages" in row.keys() else 0,
+        "pagination": row["pagination"] if "pagination" in row.keys() else None,
         "equation_pages": row["equation_pages"],
         "error": (
             {

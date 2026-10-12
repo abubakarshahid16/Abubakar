@@ -22,7 +22,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { setToken } from "../api/client";
+import { analysis as analysisApi, setToken } from "../api/client";
 import type { EvidenceItem } from "../types/api";
 import { AnalysisModeScreen, resetAnalysisScreen, runAnalysis } from "./AnalysisModeScreen";
 
@@ -371,5 +371,21 @@ describe("AnalysisModeScreen: nothing survives a sign-out", () => {
 
     render(<AnalysisModeScreen />);
     expect(screen.getByText(/Discharge pressure floor is 250 kPa/)).toBeInTheDocument();
+  });
+});
+
+// ------------------------------------------- a rejected run must not wedge
+
+describe("AnalysisModeScreen: a run whose job rejects", () => {
+  it("clears the in-flight flag so the next run is accepted", async () => {
+    const fetch = mockSummary(() => Promise.resolve(json(summaryBody())));
+    // The first call rejects outright (anything the client does not catch).
+    vi.spyOn(analysisApi, "summary").mockRejectedValueOnce(new Error("boom"));
+    render(<AnalysisModeScreen />);
+    fireEvent.change(screen.getByLabelText("Question"), { target: { value: "what is the pressure floor" } });
+    await act(async () => { await runAnalysis(); });
+    expect(runButton()).toBeEnabled();
+    await act(async () => { await runAnalysis(); });
+    expect(summaryCalls(fetch)).toBe(1);
   });
 });

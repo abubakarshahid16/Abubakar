@@ -99,11 +99,25 @@ def identities(monkeypatch):
     return TestClient(app)
 
 
+_OWN = object()
+
+
+def _own_disciplines(user: str) -> list[str]:
+    return [r["name"] for r in connect().execute(
+        """SELECT r.name FROM roles r JOIN user_roles ur ON ur.role_id = r.id
+           WHERE ur.user_id = ? AND r.kind = 'discipline'""", (user,))]
+
+
 def _upload(client, user: str | None, name: str = "spec.pdf",
-            data: bytes | None = None):
+            data: bytes | None = None, disciplines=_OWN):
+    """An upload as the screen sends it (#609): naming the uploader's own
+    disciplines unless the test says otherwise."""
+    if disciplines is _OWN:
+        disciplines = _own_disciplines(user) if user else []
     return client.post(
         "/api/documents",
         headers={"x-test-user": user} if user else {},
+        data={"disciplines": disciplines} if disciplines else None,
         files={"file": (name, io.BytesIO(data or pdf_bytes()),
                         "application/pdf")},
     )
@@ -170,15 +184,19 @@ def test_the_refusal_says_nothing_about_the_corpus(identities):
 
 # ------------------------------------- the upload that is allowed to happen
 
-def test_an_engineers_upload_is_admin_only_until_granted(identities):
-    """A submitted document stays in admin review until deliberately granted."""
+def test_an_engineers_upload_is_visible_to_their_own_discipline(identities):
+    """#609: an upload names the disciplines that may see it, by default the
+    uploader's own, so it stays on their screen. Before, it was admin-only
+    until granted, and a document visible to no discipline is invisible to
+    every engineer's review and chat."""
     response = _upload(identities, "engineer")
     assert response.status_code == 200, response.text
     document_id = response.json()["document"]["id"]
+    assert response.json()["awaiting_grant"] is False
 
     listed = identities.get(
         "/api/documents", headers={"x-test-user": "engineer"}).json()
-    assert listed == []
+    assert document_id in [d["id"] for d in listed]
 
 
 def test_an_engineers_upload_is_also_readable_by_an_administrator(identities):
@@ -201,20 +219,24 @@ def test_the_grant_names_the_admin_capability_and_the_uploaders_discipline(
     read side."""
     document_id = _upload(identities, "engineer").json()["document"]["id"]
 
-    assert _grants(document_id) == {admin.ADMIN_ROLE}, (
+    assert _grants(document_id) == {admin.ADMIN_ROLE, "Civil-Engineering"}, (
         f"unexpected grants for an engineer's upload: {_grants(document_id)}")
 
 
-def test_an_administrator_with_no_discipline_grants_only_the_capability(
-        identities):
+def test_an_administrator_with_no_discipline_must_name_one(identities):
     """The admin in this fixture holds no discipline, which is the real shape
     of the thing - `access.py` gives an administrator no read bypass. Their
-    upload must not invent a discipline row, and must still be readable by
-    them through the capability."""
-    document_id = _upload(identities, "admin_user").json()["document"]["id"]
+    upload has no default, so it must name a discipline (#609) rather than
+    be left visible to no discipline; it gets exactly that one and the
+    capability, and stays readable by them through the capability."""
+    refused = _upload(identities, "admin_user")
+    assert refused.status_code == 422, refused.text
 
-    assert _grants(document_id) == {admin.ADMIN_ROLE}, (
-        f"an administrator's upload granted more than the capability: "
+    document_id = _upload(identities, "admin_user", disciplines=[
+        "Civil-Engineering"]).json()["document"]["id"]
+
+    assert _grants(document_id) == {admin.ADMIN_ROLE, "Civil-Engineering"}, (
+        f"an administrator's upload granted something unexpected: "
         f"{_grants(document_id)}")
     listed = identities.get(
         "/api/documents", headers={"x-test-user": "admin_user"}).json()
@@ -285,7 +307,7 @@ def test_a_capability_that_is_not_admin_is_never_granted_a_document(
     assert "Reviewer" not in granted, (
         f"a non-admin capability was granted a document: {granted}. A "
         f"capability is what someone may DO; a grant is what they may READ.")
-    assert granted == {admin.ADMIN_ROLE}, granted
+    assert granted == {admin.ADMIN_ROLE, "Civil-Engineering"}, granted
 
 
 def test_re_uploading_an_existing_document_does_not_widen_access_to_it(
@@ -389,16 +411,18 @@ def test_that_duplicate_changes_no_grant_and_no_row(identities):
     assert hidden not in [d["id"] for d in listed]
 
 
-def test_a_duplicate_the_caller_cannot_read_is_not_disclosed(
-        identities):
-    """A caller without a deliberate grant cannot learn an existing match."""
+def test_a_duplicate_of_your_own_upload_is_reported(identities):
+    """Since #609 the uploader can read their own upload, so a second copy of
+    it is named as a duplicate: nothing is disclosed that they could not
+    already read. The non-disclosure rule for someone else's document is
+    `test_a_duplicate_the_caller_cannot_read_discloses_nothing`."""
     data = pdf_bytes(b"mine" * 1200)
-    _upload(identities, "engineer", name="mine.pdf", data=data)
+    first = _upload(identities, "engineer", name="mine.pdf",
+                    data=data).json()["document"]["id"]
 
     body = _upload(identities, "engineer", name="mine-again.pdf",
                    data=data).json()
 
-    assert body["duplicate_of"] is None
-    assert body["document"] is None
+    assert body["duplicate_of"] == first
     assert body["job_id"] == ""
-    assert body["awaiting_grant"] is True
+    assert body["awaiting_grant"] is False

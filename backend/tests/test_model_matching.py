@@ -124,12 +124,15 @@ CANDIDATES = [fact("shell design pressure"), fact("hydrotest pressure")]
 
 # ============================================== what a deployment gets
 
-def test_the_shipped_default_is_off():
-    """THE TIER FAILED ITS HARD GATE AND MUST NOT RUN UNTIL IT IS REDESIGNED.
+def test_the_shipped_default_is_on_and_the_tier_only_proposes():
+    """THE TIER FAILED ITS HARD GATE ON 2026-09-19 and was off until the owner
+    order of 2026-10-11 (item 4) turned it on REDESIGNED: its pairing is used
+    only when it passes the match refusal rules
+    (`test_a_model_proposal_a_refusal_rule_refuses_is_not_used`).
 
     Measured on datasheet 1: 7 pairings proposed, SIX false friends, three of
     them reporting NON_COMPLIANT against the contractor with both citations
-    resolving. The design's gate is zero false pairings.
+    resolving. That is why a model pairing must pass the refusal rules.
 
     A fresh `Settings()` is the claim, not the module singleton: this file's
     own fixture turns the tier ON, and `conftest` pins it off for every other
@@ -140,9 +143,8 @@ def test_the_shipped_default_is_off():
     """
     from app.config import Settings
 
-    assert Settings(_env_file=None).match_enabled is False, (
-        "the model tier ships ON again - it failed its hard gate on "
-        "2026-09-19 and no redesign has been evaluated since")
+    assert Settings(_env_file=None).match_enabled is True, (
+        "the model tier ships off - the owner order of 2026-10-11 turned it on")
 
 
 def test_the_startup_line_names_the_tier_and_its_state(caplog):
@@ -165,10 +167,10 @@ def test_the_startup_line_names_the_tier_and_its_state(caplog):
         finally:
             settings.match_enabled = monkey
 
-    assert "MATCH_ENABLED=false" in off and "OFF pending redesign" in off
+    assert "MATCH_ENABLED=false" in off and "model tier is OFF" in off
     # AND THE OTHER STATE SAYS THE OPPOSITE, so this cannot pass against a
     # line that prints the same words whatever the setting is.
-    assert "MATCH_ENABLED=true" in on and "FAILED its hard gate" in on
+    assert "MATCH_ENABLED=true" in on and "only PROPOSES" in on
 
 
 # ================================================= what the model may see
@@ -502,6 +504,15 @@ def test_the_budget_stops_the_tier_and_says_so(stub):
 
 # =========================================== the tier inside a whole run
 
+#: A subject containment cannot pair with "Shell design pressure" (the words
+#: are there, not side by side) and the match refusal rules allow; every word
+#: of the field's name is in it, so the pairing is not doubted either. Until 2026-10-11 these tests used "the maximum
+#: allowable working pressure" - a false friend of design pressure, which the
+#: qualifier rule now refuses even when the model proposes it (owner order
+#: item 4; `test_a_model_proposal_a_refusal_rule_refuses_is_not_used`).
+MODEL_SUBJECT = "the pressure for the design of the shell"
+
+
 def _world(monkeypatch, *, subject: str, field_label: str,
            raw_value: str = "8.5 bar") -> tuple[str, str, str, frozenset]:
     """A standard, a submittal, one requirement, one fact, one run."""
@@ -528,8 +539,8 @@ def _world(monkeypatch, *, subject: str, field_label: str,
         chunks[doc_id] = chunk_id
     standards.create_requirement(
         standard_document_id=std, chunk_id="sc",
-        requirement_text="The maximum allowable working pressure shall be 10 bar.",
-        source_text="The maximum allowable working pressure shall be 10 bar.",
+        requirement_text=f"{subject[0].upper()}{subject[1:]} shall be 10 bar.",
+        source_text=f"{subject[0].upper()}{subject[1:]} shall be 10 bar.",
         clause="6.4.1", page=1,
         structured={"subject": subject, "operator": "<=", "raw_value": "10",
                     "raw_unit": "bar", "requirement_type": "numeric_limit"})
@@ -559,7 +570,7 @@ def test_a_model_paired_finding_is_labelled_medium_and_says_who_paired_it(
     """
     stub((0, "both describe the vessel working pressure"))
     _std, _sub, run, scope = _world(
-        monkeypatch, subject="the maximum allowable working pressure",
+        monkeypatch, subject=MODEL_SUBJECT,
         field_label="Shell design pressure")
 
     result = comparison.run_comparison(run, allowed_document_ids=scope)
@@ -571,8 +582,36 @@ def test_a_model_paired_finding_is_labelled_medium_and_says_who_paired_it(
     assert found["confidence"] == "medium"
     assert found["ai_rationale"].startswith(comparison.MODEL_PAIR_PREFIX)
     assert "both describe the vessel working pressure" in found["ai_rationale"]
-    # THE MODEL DID NOT SET THE STATUS. 8.5 <= 10 is arithmetic.
+    # THE MODEL DID NOT SET THE STATUS. 8.5 <= 10 is arithmetic, and a
+    # pairing that passed every refusal rule decides like any other (planner
+    # decision 2026-10-11).
     assert found["compliance_status"] == comparison.COMPLIANT
+
+
+def test_a_model_proposal_a_refusal_rule_refuses_is_not_used(stub, monkeypatch):
+    """Owner order 2026-10-11, item 4: the model only proposes. Its choice
+    passes the same refusal rules a containment pairing does; a refused
+    proposal is counted by rule and said on the finding."""
+    from app import match_rules
+    stub((0, "both describe the vessel working pressure"))
+    _std, _sub, run, scope = _world(
+        monkeypatch, subject=MODEL_SUBJECT,
+        field_label="Shell design pressure")
+    seen = []
+
+    def refuse(requirement, fact, *, sheet):
+        seen.append(fact["field_name"])
+        return match_rules.QUALIFIER
+    monkeypatch.setattr(match_rules, "refusal", refuse)
+
+    result = comparison.run_comparison(run, allowed_document_ids=scope)
+
+    assert "shell design pressure" in seen                 # the proposal was checked
+    assert result["model_matches"] == 0
+    assert result["rule_refusals"].get(match_rules.QUALIFIER) == 1      # counted by rule
+    found = result["findings"][0]
+    assert found["match_method"] != comparison.METHOD_MODEL_CHOICE
+    assert f"{comparison.MODEL_REFUSED} ({match_rules.QUALIFIER})" in found["ai_rationale"]
 
 
 def test_containment_takes_precedence_and_the_model_is_not_asked(
@@ -618,7 +657,7 @@ def test_a_declined_pairing_leaves_missing_information_and_says_why(
         stub, monkeypatch):
     stub((None, "no candidate is that quantity"))
     _std, _sub, run, scope = _world(
-        monkeypatch, subject="the maximum allowable working pressure",
+        monkeypatch, subject=MODEL_SUBJECT,
         field_label="Shell design pressure")
 
     result = comparison.run_comparison(run, allowed_document_ids=scope)
@@ -634,13 +673,17 @@ def test_an_unavailable_model_says_so_on_the_finding(stub, monkeypatch):
     answer" must not read alike."""
     stub(raises=RuntimeError("connection refused"))
     _std, _sub, run, scope = _world(
-        monkeypatch, subject="the maximum allowable working pressure",
+        monkeypatch, subject=MODEL_SUBJECT,
         field_label="Shell design pressure")
 
     result = comparison.run_comparison(run, allowed_document_ids=scope)
 
     found = result["findings"][0]
-    assert found["compliance_status"] == comparison.MISSING_INFORMATION
+    # #450: a model that was asked and could not answer is NOT the contractor's
+    # omission. It was MISSING_INFORMATION here before; it is now an engineer's
+    # question that says the check could not be completed.
+    assert found["compliance_status"] == comparison.NEEDS_ENGINEER_REVIEW
+    assert "could not be checked" in found["ai_rationale"]
     assert comparison.MODEL_UNAVAILABLE in found["ai_rationale"]
 
 
@@ -654,7 +697,7 @@ def test_the_tier_can_be_turned_off_and_the_finding_says_it_was(
     asked = stub((0, "should never be asked"))
     monkeypatch.setattr(settings, "match_enabled", False)
     _std, _sub, run, scope = _world(
-        monkeypatch, subject="the maximum allowable working pressure",
+        monkeypatch, subject=MODEL_SUBJECT,
         field_label="Shell design pressure")
 
     result = comparison.run_comparison(run, allowed_document_ids=scope)
@@ -672,7 +715,7 @@ def test_the_budget_stops_a_whole_run_and_marks_the_rest(stub, monkeypatch):
     asked = stub((0, "same quantity"))
     monkeypatch.setattr(settings, "match_max_calls_per_run", 0)
     _std, _sub, run, scope = _world(
-        monkeypatch, subject="the maximum allowable working pressure",
+        monkeypatch, subject=MODEL_SUBJECT,
         field_label="Shell design pressure")
 
     result = comparison.run_comparison(run, allowed_document_ids=scope)
@@ -692,7 +735,7 @@ def test_a_model_paired_table_row_is_still_refused_and_quoted(
     """
     stub((0, "the row is about this field"))
     _std, _sub, run, scope = _world(
-        monkeypatch, subject="the maximum allowable working pressure",
+        monkeypatch, subject=MODEL_SUBJECT,
         field_label="Shell design pressure")
     with db.connect() as conn:
         conn.execute("UPDATE standard_requirements SET requirement_type = ?",
@@ -746,7 +789,7 @@ def test_confirming_through_the_patch_route_names_the_caller_not_the_body(
     """
     stub((0, "both describe the vessel working pressure"))
     _std, _sub, run, scope = _world(
-        monkeypatch, subject="the maximum allowable working pressure",
+        monkeypatch, subject=MODEL_SUBJECT,
         field_label="Shell design pressure")
     finding_id = comparison.run_comparison(
         run, allowed_document_ids=scope)["findings"][0]["id"]
@@ -775,7 +818,7 @@ def test_a_body_naming_a_confirmer_cannot_set_one(stub, monkeypatch):
     """
     stub((0, "both describe the vessel working pressure"))
     _std, _sub, run, scope = _world(
-        monkeypatch, subject="the maximum allowable working pressure",
+        monkeypatch, subject=MODEL_SUBJECT,
         field_label="Shell design pressure")
     finding_id = comparison.run_comparison(
         run, allowed_document_ids=scope)["findings"][0]["id"]
@@ -800,7 +843,7 @@ def test_a_confirmation_with_no_identity_is_refused(stub, monkeypatch):
     """
     stub((0, "both describe the vessel working pressure"))
     _std, _sub, run, scope = _world(
-        monkeypatch, subject="the maximum allowable working pressure",
+        monkeypatch, subject=MODEL_SUBJECT,
         field_label="Shell design pressure")
     finding_id = comparison.run_comparison(
         run, allowed_document_ids=scope)["findings"][0]["id"]
@@ -822,7 +865,7 @@ def test_a_confirmed_model_pairing_survives_a_re_run(stub, monkeypatch):
     """THROUGH `run_comparison`, WHICH IS WHERE `replace` ACTUALLY DELETES."""
     stub((0, "both describe the vessel working pressure"))
     _std, _sub, run, scope = _world(
-        monkeypatch, subject="the maximum allowable working pressure",
+        monkeypatch, subject=MODEL_SUBJECT,
         field_label="Shell design pressure")
     kept = comparison.run_comparison(
         run, allowed_document_ids=scope)["findings"][0]["id"]
@@ -850,7 +893,7 @@ def test_rejecting_a_pair_through_the_route_stops_it_being_proposed_again(
     """
     stub((0, "both describe the vessel working pressure"))
     _std, _sub, run, scope = _world(
-        monkeypatch, subject="the maximum allowable working pressure",
+        monkeypatch, subject=MODEL_SUBJECT,
         field_label="Shell design pressure")
     first = comparison.run_comparison(run, allowed_document_ids=scope)
     assert first["model_matches"] == 1
@@ -871,7 +914,7 @@ def test_rejecting_a_finding_with_no_pairing_is_refused(stub, monkeypatch):
     pair, and the engineer would believe a correction had been recorded."""
     stub((None, "no candidate is that quantity"))
     _std, _sub, run, scope = _world(
-        monkeypatch, subject="the maximum allowable working pressure",
+        monkeypatch, subject=MODEL_SUBJECT,
         field_label="Shell design pressure")
     unpaired = comparison.run_comparison(
         run, allowed_document_ids=scope)["findings"][0]
@@ -889,7 +932,7 @@ def test_an_out_of_scope_caller_gets_the_same_answer_as_a_missing_finding(
     to learn it exists by being told they may not touch it."""
     stub((0, "both describe the vessel working pressure"))
     _std, _sub, run, scope = _world(
-        monkeypatch, subject="the maximum allowable working pressure",
+        monkeypatch, subject=MODEL_SUBJECT,
         field_label="Shell design pressure")
     finding_id = comparison.run_comparison(
         run, allowed_document_ids=scope)["findings"][0]["id"]
@@ -916,3 +959,140 @@ def test_an_unknown_field_in_the_rejection_body_is_refused():
     assert TestClient(app).post(
         "/api/reviews/pairs/reject",
         json={"finding_id": "x", "requirement_id": "y"}).status_code == 422
+
+
+# ================================================== the claude engine (R32)
+
+def _claude_matcher(monkeypatch, tmp_path, text):
+    """MATCH_ENGINE=claude with a fake transport; what was sent is returned."""
+    from app import reader_transport
+    monkeypatch.setattr(settings, "match_engine", "claude")
+    monkeypatch.setattr(settings, "reasoning_provider", "claude")
+    monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
+    monkeypatch.setenv("STANDARDS_READER_ENABLED", "true")
+    monkeypatch.setenv("STANDARDS_READER_ALLOW_PUBLIC_EGRESS", "true")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-NEVER-IN-A-LOG-0000")
+    sent: list[dict] = []
+
+    def send(url, *, headers, body, timeout):
+        sent.append(body)
+        return {"model": body["model"], "stop_reason": "end_turn",
+                "content": [{"type": "text", "text": text}],
+                "usage": {"input_tokens": 100, "output_tokens": 10}}
+    send.usage = {"calls": 0, "input_tokens": 0, "output_tokens": 0}
+    monkeypatch.setattr(reader_transport, "transport", lambda: send)
+    return sent
+
+
+def test_the_matcher_engine_is_local_by_default():
+    from app.config import Settings
+    assert Settings(_env_file=None).match_engine == "ollama"
+
+
+def test_the_claude_matcher_goes_through_the_metered_lane(stub, monkeypatch, tmp_path):
+    from app import claude_spend
+    local = stub((0, "should never be asked"))
+    sent = _claude_matcher(monkeypatch, tmp_path,
+                           '```json\n{"choice": 0, "reason": "both are the shell pressure"}\n```')
+    got = comparison.match_by_model(requirement(subject=MODEL_SUBJECT), CANDIDATES)
+    assert got["fact"] is CANDIDATES[0] and got["method"] == comparison.METHOD_MODEL_CHOICE
+    assert local.calls == 0                                # the local model was not asked
+    assert len(sent) == 2                                  # asked twice, as always
+    assert [e["step"] for e in claude_spend.entries()] == [comparison.MATCH_STEP] * 2
+
+
+def test_the_claude_matcher_is_refused_unless_claude_may_be_used(stub, monkeypatch, tmp_path):
+    sent = _claude_matcher(monkeypatch, tmp_path, '{"choice": 0, "reason": "x"}')
+    monkeypatch.setattr(settings, "reasoning_provider", "ollama")
+    got = comparison.match_by_model(requirement(subject=MODEL_SUBJECT), CANDIDATES)
+    assert got["fact"] is None and got["reason"] == comparison.MODEL_UNAVAILABLE
+    assert sent == []                                      # nothing left the machine
+
+
+def test_a_spend_cap_stops_the_claude_matcher(stub, monkeypatch, tmp_path):
+    sent = _claude_matcher(monkeypatch, tmp_path, '{"choice": 0, "reason": "x"}')
+    monkeypatch.setattr(settings, "claude_budget_usd_per_step", 0.000001)
+    got = comparison.match_by_model(requirement(subject=MODEL_SUBJECT), CANDIDATES)
+    assert got["fact"] is None and got["reason"] == comparison.MODEL_BUDGET
+    assert sent == []
+
+
+# ============================== a low-confidence model pairing waits (F1 2026-10-11)
+
+def _req(text, value):
+    return {"requirement_text": text, "raw_value": value}
+
+
+def test_a_model_pairing_is_doubted_for_the_three_reasons_f1_found():
+    """The first three model pairings to carry a verdict on the real-model F1
+    were all false. Invented sentences of the same three shapes."""
+    from app import match_rules as m
+    field = {"field_name": "pumping temperature"}
+    # a word of the field's name is not in the clause (one shared word is not enough)
+    assert m.model_pairing_doubt(
+        _req("The maximum allowable working pressure shall not exceed 10 bar.", "10"),
+        {"field_name": "maximum operating pressure"}) == m.FIELD_WORD_ABSENT
+    assert m.model_pairing_doubt(
+        _req("The push button shall be mounted at least 7.5 m beyond the edge of the zone.", "7.5"),
+        {"field_name": "elevation msl"}) == m.FIELD_WORD_ABSENT
+    # the limit is relative to another quantity
+    assert m.model_pairing_doubt(
+        _req("The pumping temperature shall be at least 10 C (18 F) above the pour point.", "10"),
+        field) == m.RELATIVE_LIMIT
+    # a table read as one sentence: which value is the limit is a guess
+    assert m.model_pairing_doubt(
+        _req("Maximum pumping temperature up to 70 above 70 vapour pressure 100 kPa seal code A", "70"),
+        field) == m.SEVERAL_VALUES
+
+
+def test_a_plain_single_limit_sentence_is_not_doubted():
+    from app import match_rules as m
+    field = {"field_name": "shell design pressure"}
+    assert m.model_pairing_doubt(
+        _req("The pressure for the design of the shell shall be 10 bar.", "10"), field) is None
+    # a clause number and a bracketed conversion are not second values
+    assert m.model_pairing_doubt(
+        _req("6.4.1 The design value of the shell pressure shall not exceed 10 bar (145 psi).", "10"),
+        field) is None
+
+
+def test_a_doubted_model_pairing_shows_its_numbers_and_waits(stub, monkeypatch):
+    from app import match_rules
+    stub((0, "both describe the shell pressure"))
+    _std, _sub, run, scope = _world(monkeypatch, subject=MODEL_SUBJECT,
+                                    field_label="Shell design pressure")
+    monkeypatch.setattr(match_rules, "model_pairing_doubt",
+                        lambda requirement, fact: match_rules.RELATIVE_LIMIT)
+
+    result = comparison.run_comparison(run, allowed_document_ids=scope)
+
+    found = result["findings"][0]
+    assert found["match_method"] == comparison.METHOD_MODEL_CHOICE
+    assert found["compliance_status"] == comparison.NEEDS_ENGINEER_REVIEW
+    assert "The numbers read COMPLIANT, held for an engineer" in found["ai_rationale"]
+    assert f"low-confidence ({match_rules.RELATIVE_LIMIT})" in found["ai_rationale"]
+    assert result["model_held"] == {match_rules.RELATIVE_LIMIT: 1}
+
+
+def test_the_claude_matcher_sends_no_temperature_to_a_model_that_rejects_it(stub, monkeypatch, tmp_path):
+    """R32, 2026-10-11: every matcher call to the reasoning model failed with
+    an HTTP error because the request carried `temperature`."""
+    sent = _claude_matcher(monkeypatch, tmp_path, '{"choice": null, "reason": "none"}')
+    monkeypatch.setattr(settings, "claude_reasoning_model", "claude-sonnet-5")
+    comparison.match_by_model(requirement(subject=MODEL_SUBJECT), CANDIDATES)
+    assert sent and all("temperature" not in body for body in sent)
+    assert {body["model"] for body in sent} == {"claude-sonnet-5"}
+
+
+def test_the_claude_matcher_obeys_the_approved_document_guard(stub, monkeypatch, tmp_path):
+    """#806 S3: the matcher's Claude call reserves like every other, so an
+    undeclared or unapproved prompt is stopped before it leaves; a comparison
+    declares the review's documents (`run_comparison`)."""
+    from app import claude_approved
+    sent = _claude_matcher(monkeypatch, tmp_path, '{"choice": 0, "reason": "x"}')
+    monkeypatch.setattr(settings, "claude_approved_list_enforced", True)
+    got = comparison.match_by_model(requirement(subject=MODEL_SUBJECT), CANDIDATES)     # nothing declared
+    assert got["fact"] is None and got["reason"] == comparison.MODEL_BUDGET and sent == []
+    with claude_approved.carrying(()):                                                  # declared, no documents
+        got = comparison.match_by_model(requirement(subject=MODEL_SUBJECT), CANDIDATES)
+    assert got["fact"] is CANDIDATES[0] and len(sent) == 2

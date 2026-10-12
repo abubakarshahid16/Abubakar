@@ -74,9 +74,11 @@ from __future__ import annotations
 import json
 from enum import Enum
 
-from . import comparison
+from . import claude_approved
+from . import comparison, numparse
+from .claude_spend import StopRun
 from .db import connect
-from .reader_api import _NUMBER, _contains, _fold, _fold_numbers
+from .reader_api import _contains, _fold
 
 # --------------------------------------------------------------- vocabulary
 
@@ -172,7 +174,7 @@ def requirement_state(finding: dict) -> str:
     rationale = _fold(finding.get("ai_rationale") or "")
     if any(rationale.startswith(f"{marker}:") for marker in _BLOCKING_REASONS):
         return BLOCKED
-    if _NO_CONVERSION_PHRASE in rationale:
+    if _NO_CONVERSION_PHRASE in rationale or comparison.UNIT_NOT_GUESSED_PHRASE in rationale:
         return BLOCKED
     return {
         comparison.COMPLIANT: EVALUATED,
@@ -269,13 +271,13 @@ def parse_response(raw: str) -> tuple[dict | None, str | None]:
 
 # --------------------------------------------------------------- the gate
 
-def _numbers(text) -> set[float]:
-    return {float(n) for n in _NUMBER.findall(_fold_numbers(text or ""))}
+def _numbers(text) -> set[float | str]:
+    return numparse.number_keys(str(text or ""))
 
 
 def _input_numbers(finding: dict) -> set[float]:
     """Every number the inputs carry (hard rule 3's allowed set)."""
-    out: set[float] = set()
+    out: set[float | str] = set()
     for text in (
         _sentence(finding), finding.get("requirement"),
         _value(finding), _unit(finding), finding.get("standard_clause"),
@@ -367,6 +369,7 @@ def recheck_finding(finding: dict, model_call, second_call=None) -> dict:
     }
 
 
+@claude_approved.for_review      # #806 S3: a finding is the review's submittal and standards
 def recheck_run(review_run_id: str, model_call, *,
                 allowed_document_ids: frozenset[str],
                 findings: list[dict] | None = None,
@@ -377,6 +380,12 @@ def recheck_run(review_run_id: str, model_call, *,
     database; by default it is `comparison.list_findings`, under the caller's
     grants. Nothing is stored here - `store_recheck` is a separate, thin step
     so a caller can look before writing.
+
+    A LIMIT THAT STOPS THE RUN (`claude_spend.StopRun`: the call cap or a USD
+    cap) ends the loop, not the result: the findings finished before it are
+    returned - they were paid for - with `stopped` naming the limit and how
+    many findings were left unchecked. Nothing is re-asked on a re-run's
+    behalf; the half-checked finding is dropped, as rule 5 needs both answers.
     """
     if findings is None:
         findings = comparison.list_findings(
@@ -385,8 +394,13 @@ def recheck_run(review_run_id: str, model_call, *,
     agreed = disagreed = raised = 0
     rejected_by_reason: dict[str, int] = {}
     states = {state: 0 for state in STATES}
-    for finding in findings:
-        result = recheck_finding(finding, model_call, second_call)
+    stopped = None
+    for done, finding in enumerate(findings):
+        try:
+            result = recheck_finding(finding, model_call, second_call)
+        except StopRun as exc:
+            stopped = {"reason": exc.count_key, "done": done, "left": len(findings) - done}
+            break
         results[finding.get("id")] = result
         states[result["state"]] += 1
         if result.get("error"):
@@ -401,7 +415,7 @@ def recheck_run(review_run_id: str, model_call, *,
     return {"review_run_id": review_run_id, "findings": results,
             "agreed": agreed, "disagreed": disagreed, "raised": raised,
             "rejected": rejected_by_reason, "states": states,
-            "total": len(findings)}
+            "total": len(findings), "stopped": stopped}
 
 
 # ------------------------------------------------------------------- store

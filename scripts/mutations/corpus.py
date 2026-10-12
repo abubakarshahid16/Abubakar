@@ -35,8 +35,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="COUNT DOCUMENTS OUTSIDE THE GRANT SET, so a corpus "
                     "answer reveals how many standards you may not read",
         path=APP / "corpus.py",
-        anchor="            WHERE d.id IN ({marks})",
-        replacement="            WHERE 1 = 1 OR d.id IN ({marks})",
+        anchor="            WHERE d.id IN ({marks})\n            GROUP BY c.document_role",
+        replacement="            WHERE 1 = 1 OR d.id IN ({marks})\n            GROUP BY c.document_role",
         target="tests/test_corpus_questions.py",
         keyword="outside_the_grant_set",
         tags=("permission", "critical"),
@@ -67,8 +67,8 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "the REAL model's '**five** distinct standards' slipped "
                     "past the first version of the guard",
         path=APP / "corpus.py",
-        anchor='COUNT_CLAIM = re.compile(r"(?<![A-Za-z0-9])" + _NUMBER + _MD + r"\\s+" + _MD',
-        replacement='COUNT_CLAIM = re.compile(r"(?<![A-Za-z0-9])" + _NUMBER + r"\\s+" + _MD',
+        anchor='\nCOUNT_CLAIM = re.compile(r"(?<![A-Za-z0-9])" + _NUMBER + _MD + r"\\s+" + _MD',
+        replacement='\nCOUNT_CLAIM = re.compile(r"(?<![A-Za-z0-9])" + _NUMBER + r"\\s+" + _MD',
         target="tests/test_corpus_questions.py",
         keyword="real_models_own_words or markdown_around_the_count",
         tags=("honesty",),

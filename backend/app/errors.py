@@ -66,11 +66,16 @@ WEAK_PASSWORD = "weak_password"
 #: otherwise coerce it to `internal` and it would read as a crash.
 ORPHANING_REFUSED = "orphaning_refused"
 
+#: The contractor's copy of the CRS was requested before an engineer recorded
+#: `engineer_final_code` on the run. A deliberate refusal, not a crash - see
+#: `export_review_crs` - so it MUST be a client code.
+CODE_NOT_DECIDED = "code_not_decided"
+
 CLIENT_ERROR_CODES = frozenset(
     {NOT_FOUND, INVALID_PARAMETER, UNKNOWN_PARAMETER, CONFIRM_REQUIRED,
      NOT_PDF, ENCRYPTED_PDF, TOO_LARGE, DUPLICATE,
      UNAUTHENTICATED, INVALID_CREDENTIALS, RATE_LIMITED,
-     INVALID_RESET_TOKEN, WEAK_PASSWORD, ORPHANING_REFUSED}
+     INVALID_RESET_TOKEN, WEAK_PASSWORD, ORPHANING_REFUSED, CODE_NOT_DECIDED}
 )
 
 ALL_CODES = CLIENT_ERROR_CODES | {

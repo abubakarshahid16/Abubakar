@@ -36,22 +36,12 @@ import uuid
 from datetime import datetime, timezone
 
 from . import review
-from .db import add_column_if_missing, connect
+from .db import add_column_if_missing, connect, schema_once
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
-
-def _new_id() -> str:
-    """A random uuid4, matching review.py:317 and deliverables.py:122.
-
-    NOT the `doc_{sha256[:12]}` content hash. That identifier exists so that
-    re-uploading the same bytes is recognised as the same document; a review
-    run, a fact and a requirement are events, and two of them with identical
-    contents are two different things that must not collide.
-    """
-    return str(uuid.uuid4())
 
 
 def _scope_clause(
@@ -74,6 +64,7 @@ def _scope_clause(
     return f" WHERE {column} IN ({marks})", sorted(allowed_document_ids)
 
 
+@schema_once
 def ensure_schema() -> None:
     """Create this module's tables. Idempotent, and safe to call repeatedly.
 
@@ -214,6 +205,49 @@ def ensure_schema() -> None:
             # it then, and nothing here back-fills a guess.
             ("extractor_version", "TEXT"),
             ("input_hash", "TEXT"),
+            # OWNER ORDER 2a: a table or formula rule, parsed ONCE into the
+            # structured form `rule_eval` evaluates, and HOW it was parsed:
+            # 'code' (rule_eval.parse_rule) or 'model_parsed_verified' (the
+            # model's parse, accepted only because every number in it is on
+            # the clause's page). NULL: not a rule, or not parseable - it
+            # stays with an engineer. Additive; NULL on every existing row.
+            ("rule_json", "TEXT"),
+            ("rule_source", "TEXT"),
+            # #594 STABLE IDENTITY of a table cell: standard + table + row key +
+            # column (+ the cell's written value). NULL on every row that is
+            # not a table cell and on rows written before this column existed
+            # (nothing back-fills it; re-extraction is #599 and needs the
+            # owner's go). Not UNIQUE on purpose: an existing database holds
+            # duplicates, so the upsert lives in `standards.create_requirement`.
+            ("identity_key", "TEXT"),
+            # #617 A RANGE CELL ("5-10", "5 to 10 mm"): the low and high bound,
+            # each parsed by numparse; `raw_value` keeps the cell as written.
+            # NULL on every other row, and on an AMBIGUOUS range ("5 -10":
+            # five to ten, or five and minus ten?), which goes to an engineer.
+            ("value_low", "REAL"),
+            ("value_high", "REAL"),
+            # #594 EVERY page a repeated table cell was read from, a JSON list
+            # of {"page", "chunk_id"}. `page`/`chunk_id` stay the first one.
+            ("evidence_pages", "TEXT"),
+            # #595 where the unit came from: 'column_header' when the cell
+            # carried none and the table's header did. NULL otherwise.
+            ("unit_from", "TEXT"),
+            # #597 why a row is held for a human beyond its confidence:
+            # 'text_quality' (garbled or mirrored text). NULL otherwise.
+            ("quality_reason", "TEXT"),
+            # #640 SUPERSESSION, as #179 did for facts. A re-extraction used
+            # to DELETE every unconfirmed requirement of the standard, and
+            # `review_findings.requirement_id` (no foreign key) was left
+            # pointing at nothing. Now a row the new run no longer produces
+            # STAYS and carries when and by which run it was replaced. NULL =
+            # an ACTIVE requirement. Every reader of current requirements
+            # filters on it; a by-id lookup (a finding resolving the row it
+            # cited) does not. A CONFIRMED row is never superseded.
+            ("superseded_at", "TEXT"),
+            ("superseded_by_run", "TEXT"),
+            # The extraction run that wrote (or last re-produced) the row.
+            # NULL on rows written before the column existed - not guessed.
+            ("extraction_run_id", "TEXT"),
         ):
             # RACE-SAFE, because this runs on read paths. See
             # `db.add_column_if_missing`.
@@ -232,6 +266,9 @@ def ensure_schema() -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_standard_requirements_chunk "
             "ON standard_requirements(chunk_id)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_standard_requirements_identity "
+            "ON standard_requirements(standard_document_id, identity_key)")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_standard_requirements_unconfirmed "
             "ON standard_requirements(confirmed_by, standard_document_id)")
@@ -276,6 +313,21 @@ def ensure_schema() -> None:
             ("override_reason", "TEXT"),
             ("decided_by", "TEXT REFERENCES users(id) ON DELETE SET NULL"),
             ("decided_at", "TEXT"),
+            # 2026-09-27, AI-check truncation fix: the AI engineering check's
+            # own outcome for this run - JSON, same style as `refusal_reason`
+            # above. NULL when the check never ran (off, or the Claude lane is
+            # off). Set whether the check finished cleanly, was completed
+            # after a capped retry, or is still incomplete - so a truncated
+            # reply is a fact on the run a reviewer can see, never a run that
+            # silently looks like it raised nothing to say.
+            ("ai_check_status", "TEXT"),
+            # #633: the web standards check's own outcome, stored the same way.
+            ("web_check_status", "TEXT"),
+            # #725 F7: the two transmittal numbers the CRS header names, as an
+            # engineer ENTERED them (`set_crs_transmittals`). NULL = nobody
+            # entered one, and the sheet prints nothing - never a placeholder.
+            ("crs_company_transmittal", "TEXT"),
+            ("crs_contractor_transmittal", "TEXT"),
         ):
             add_column_if_missing(conn, "review_runs", _column, _type)
         conn.execute(
@@ -332,6 +384,9 @@ def ensure_schema() -> None:
             # NON_COMPLIANT and never a zero.
             ("is_blank", "INTEGER"),
             ("blank_marker", "TEXT"),
+            # #725 F3: the "not provided" phrase printed BESIDE a value
+            # ("340 psig (By Contractor)"): the value is real, this is its note.
+            ("value_note", "TEXT"),
             ("field_label", "TEXT"),
             ("bbox", "TEXT"),
             # A PAIRING AN ENGINEER HAS REJECTED. See
@@ -486,6 +541,62 @@ def ensure_schema() -> None:
                 UNIQUE(review_run_id, standard_document_id)
             )"""
         )
+        # B5 (live wiring, 2026-09-25): THE EVIDENCE FOR A SELECTION, not
+        # only its reason. Where the submittal cites the standard (page and
+        # the line it is cited on), or the scope clause that decided it; and
+        # the scope decision itself (applicability_v2) when one was made.
+        # NULL when there is no such evidence - never a placeholder.
+        for _column, _type in (("evidence_page", "INTEGER"),
+                               ("evidence_quote", "TEXT"),
+                               ("scope_decision", "TEXT")):
+            add_column_if_missing(conn, "review_applicable_standards", _column, _type)
+        # B5: a standard's SCOPE RECORD (tools/scope_records.py), stored once so the
+        # live review can use it without calling a model. Written only by an
+        # explicit reading step; the review route only reads it.
+        # `not_applicable_confirmed` is 1 only when the reader's three
+        # re-reads agreed (scope_records.decide_with_confirmation) - without
+        # it a NOT_APPLICABLE is treated as UNKNOWN and excludes nothing.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS standard_scope_records (
+                standard_document_id TEXT PRIMARY KEY
+                    REFERENCES documents(id) ON DELETE CASCADE,
+                record_json TEXT NOT NULL,
+                prompt_version TEXT,
+                not_applicable_confirmed INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            )""")
+        # B5 cost fix (owner request 2026-09-28, `docs/code-review/`
+        # applicability-reasoning-cost finding). Before this table,
+        # `applicability.scope_decisions_by_reasoning` asked the reasoning
+        # model "does this standard apply to a Pump" FRESH on every single
+        # review - once per standard in the WHOLE library that has a scope
+        # record (hundreds), even though the same standard/equipment-type
+        # pair had already been answered on a previous review. That made a
+        # review's cost and latency scale with library size, not with how
+        # many standards the submittal actually cites, and blocked the
+        # server's other background work (ingestion) while it ran.
+        #
+        # This is the answer, memoised. `record_hash` ties a cached answer to
+        # the EXACT scope-record content it was computed from - if a standard
+        # is re-read (`generate_scope_records.py` run again) and its record
+        # changes, the hash changes, the old row simply never matches, and a
+        # fresh decision is computed and stored. Likewise `prompt_version`:
+        # ship a new reasoning prompt and every old row stops matching. A row
+        # is never edited to "fix" a stale answer - it is only ever replaced
+        # by a fresh (hash, prompt_version) pair that matches what is asked
+        # now. So this can never serve a stale answer silently; it can only
+        # ever skip asking again when nothing has changed.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS applicability_scope_decision_cache (
+                standard_document_id TEXT NOT NULL
+                    REFERENCES documents(id) ON DELETE CASCADE,
+                equipment_type TEXT NOT NULL,
+                record_hash TEXT NOT NULL,
+                prompt_version TEXT NOT NULL,
+                decision_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (standard_document_id, equipment_type)
+            )""")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_review_applicable_standards_run "
             "ON review_applicable_standards(review_run_id, included, created_at DESC)")
@@ -517,10 +628,19 @@ def create_review_run(
         [*args, submittal_document_id]).fetchone()
     if readable is None:
         raise ValueError("no submittal with that id")
+    from . import job_queue
     run_id = str(uuid.uuid4())
     now = _now()
     conn = connect()
-    with conn:
+    # B11: ONE RUNNING REVIEW PER SUBMITTAL, decided under the write lock. The
+    # route's own check ran before this insert in a separate read, so two
+    # clicks together could both pass it and start two reviews.
+    with job_queue.immediate(conn):
+        running = conn.execute(
+            "SELECT id FROM review_runs WHERE submittal_document_id = ?"
+            " AND status IN ('queued', 'running') LIMIT 1", (submittal_document_id,)).fetchone()
+        if running is not None:
+            raise ReviewAlreadyRunning(running["id"])
         conn.execute(
             "INSERT INTO review_runs (id, submittal_document_id, template_id,"
             " status, started_by, started_at, created_at, updated_at)"
@@ -529,6 +649,10 @@ def create_review_run(
              now, now))
     _extract_facts_if_none(run_id, submittal_document_id, allowed_document_ids)
     return run_id
+
+
+class ReviewAlreadyRunning(RuntimeError):
+    """A review of this submittal is already running; `args[0]` is its id."""
 
 
 class FactExtractionFailed(RuntimeError):
@@ -543,8 +667,11 @@ def ensure_facts_extracted(document_id: str, allowed_document_ids: frozenset[str
     (master plan section 24), so a second call over the same sheet extracts
     nothing and cannot duplicate them. Any existing fact - confirmed by an
     engineer or not - means the sheet has been read; re-reading it is the
-    explicit re-extraction route's job, never a side effect of a review or of
-    ingestion.
+    explicit re-extraction route's job, with ONE exception (F-b, planner
+    2026-10-10): when the current rule-read facts were written by another
+    reader version (`datasheets.facts_reader_stale`), the sheet is read again
+    with `replace=True` (supersede, never delete; confirmed facts survive), so
+    a fix to the reader reaches the next review instead of never.
 
     Returns `extract_facts`'s result dict, or None when nothing ran because
     facts already existed. Raises whatever `extract_facts` raises; callers
@@ -572,6 +699,13 @@ def ensure_facts_extracted(document_id: str, allowed_document_ids: frozenset[str
         " AND superseded_at IS NULL LIMIT 1",
         (document_id,)).fetchone()
     if has_facts is not None:
+        # F-b (planner 2026-10-10): the facts were read by an OLDER reader -
+        # read the sheet again (replace=True supersedes, never deletes; an
+        # engineer-confirmed fact survives), so a reader fix reaches reviews.
+        if datasheets.facts_reader_stale(document_id):
+            return datasheets.extract_facts(
+                document_id, allowed_document_ids=allowed_document_ids,
+                review_run_id=review_run_id, replace=True)
         return
     return datasheets.extract_facts(
         document_id, allowed_document_ids=allowed_document_ids,
@@ -638,7 +772,11 @@ def fail_orphaned_review_runs() -> int:
     with conn:
         cur = conn.execute(
             "UPDATE review_runs SET status = 'failed', refusal_reason = ?,"
-            " updated_at = ? WHERE status = 'running'",
+            " updated_at = ? WHERE status = 'running'"
+            # P3: a run whose review job is still active belongs to the queue,
+            # which re-queues it (`review_jobs.recover_stale`) - not to this.
+            " AND id NOT IN (SELECT review_run_id FROM jobs WHERE review_run_id IS NOT NULL"
+            " AND state IN ('queued', 'running', 'retrying'))",
             (json.dumps({"error": ORPHANED_RUN_REASON}), _now()))
         return cur.rowcount
 
@@ -759,10 +897,12 @@ def list_applicable_standards(
 def list_standard_requirements(
     *, allowed_document_ids: frozenset[str], standard_document_id: str | None = None,
 ) -> list[dict]:
-    """Requirements from standards the caller may read."""
+    """ACTIVE requirements from standards the caller may read (#640: a row a
+    re-extraction superseded is kept for the findings that cite it, by id,
+    and is not listed)."""
     ensure_schema()
     where, args = _scope_clause(allowed_document_ids, "standard_document_id")
-    sql = "SELECT * FROM standard_requirements" + where
+    sql = "SELECT * FROM standard_requirements" + where + " AND superseded_at IS NULL"
     if standard_document_id is not None:
         sql += " AND standard_document_id = ?"
         args = [*args, standard_document_id]
@@ -844,7 +984,8 @@ def list_run_findings(
             except (TypeError, ValueError):
                 item[field] = []
         out.append(item)
-    return out
+    # r2 S2: a submittal grant is not a grant on the standard it was compared with.
+    return review.withhold_unreadable_standards(out, allowed_document_ids)
 
 
 def migrate_pair_rejections_to_stable_keys() -> None:
@@ -936,3 +1077,22 @@ def migrate_facts_to_per_document() -> None:
     # The added columns are re-applied by ensure_schema, which is additive and
     # safe to call again.
     ensure_schema()
+
+
+def set_crs_transmittals(review_run_id: str, *, company: str | None, contractor: str | None,
+                         allowed_document_ids: frozenset[str]) -> dict | None:
+    """#725 F7: record the CRS header's two transmittal numbers for a run the
+    caller may read (None when it cannot, the caller's 404). An empty string
+    clears a number. Returns {"company_transmittal", "contractor_transmittal"}."""
+    run = get_review_run(review_run_id, allowed_document_ids=allowed_document_ids)
+    if run is None:
+        return None
+    clean = lambda v: (" ".join(v.split()) or None) if isinstance(v, str) else None  # noqa: E731
+    conn = connect()
+    with conn:
+        conn.execute("UPDATE review_runs SET crs_company_transmittal = ?, crs_contractor_transmittal = ?"
+                     " WHERE id = ?", (clean(company), clean(contractor), review_run_id))
+    row = conn.execute("SELECT crs_company_transmittal, crs_contractor_transmittal FROM review_runs"
+                       " WHERE id = ?", (review_run_id,)).fetchone()
+    return {"company_transmittal": row["crs_company_transmittal"] or "",
+            "contractor_transmittal": row["crs_contractor_transmittal"] or ""}

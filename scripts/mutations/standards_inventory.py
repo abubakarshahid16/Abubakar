@@ -77,7 +77,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="mark every standard as cited by a submittal regardless "
                     "of whether any readable submittal actually names it",
         path=APP / "standards_inventory.py",
-        anchor='            "cited_by_submittal": bool(key) and key in cited,',
+        anchor='            "cited_by_submittal": any(find_standard([row], c) is not None for c in cited),',
         replacement='            "cited_by_submittal": True,',
         target="tests/test_standards_inventory.py",
         keyword="a_standard_not_cited_by_any_readable_submittal_is_not_flagged",
@@ -163,11 +163,9 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "gaps the way the pre-existing bug this rule was built "
                     "to prevent once did",
         path=APP / "standards_inventory.py",
-        anchor="        matched = _match_referenced(library, [identifier])\n"
-               "        if matched:\n"
+        anchor="        if find_standard(library, identifier) is not None:\n"
                "            continue  # held - not a gap",
-        replacement="        matched = _match_referenced(library, [identifier])\n"
-                    "        if False:\n"
+        replacement="        if False:\n"
                     "            continue  # held - not a gap",
         target="tests/test_standards_inventory.py",
         keyword="a_standard_cited_by_a_submittal_and_actually_held_is_not_reported",
@@ -196,9 +194,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         path=APP / "standards_inventory.py",
         anchor="              AND c.document_role = 'COMPANY_STANDARD'\n"
                "              AND c.superseded_by IS NULL\n"
-               "              AND r.requirement_type = ?\"\"\",",
+               "              AND r.superseded_at IS NULL\n",
         replacement="              AND c.document_role = 'COMPANY_STANDARD'\n"
-                    "              AND r.requirement_type = ?\"\"\",",
+                    "              AND r.superseded_at IS NULL\n",
         target="tests/test_standards_inventory.py",
         keyword="a_superseded_standards_requirement_citations_are_not_reported",
         tags=("honesty", "inventory"),

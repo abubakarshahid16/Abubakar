@@ -1,0 +1,99 @@
+{
+  "_comment": [
+    "Editable vocabulary for backend/app/standard_ids.py, the one matcher for",
+    "standard identifiers (#452). Code holds only the SHAPE of an identifier",
+    "(issuing body, optional series, whole number, optional part or division,",
+    "year ignored). Every equivalence between names lives here, so an engineer",
+    "can add one without a code change. Entries are read once and cached.",
+    "",
+    "equivalent: each list names ONE standard several ways. Every entry is",
+    "written as an identifier the matcher itself can read; the first entry is",
+    "the canonical name. A part or year written here is ignored - the whole",
+    "standard is equivalent, and its parts must still agree.",
+    "",
+    "body_aliases: an issuing-body prefix (as the general pattern reads it,",
+    "upper case) mapped to the body it adopts. A national adoption of a",
+    "European standard is the same standard: BS EN 13445 is EN 13445.",
+    "",
+    "api_document_words: words written between \"API\" and the number that are",
+    "not part of the identity: API RP 520, API Std 520, API Spec 520 are all",
+    "API 520.",
+    "",
+    "citation_bodies: issuing bodies the CITATION READER accepts for the general",
+    "shape when it scans running text (datasheet text, a requirement). A list of",
+    "BODIES, never of standards: any number from a listed body is read. Without",
+    "it every tag (21-PV-1234) and label (LINE 12, DWG 4501) would look like a",
+    "citation. API, ASME, ISO, NACE, SAES and SAMSS have their own shapes and need",
+    "no entry. IP is deliberately absent: in a datasheet \"IP 66\" is an ingress",
+    "rating, not the Energy Institute; nor are AS, SS and ABS (\"as 25 mm\", \"SS 316\" stainless, \"ABS\" plastic). A body is read only when written in upper case.",
+    "",
+    "class_designations: bodies whose documents are named by a class LETTER, not",
+    "a number (\"TEMA Class R\"). Body -> the letters that are real classes."
+  ],
+  "equivalent": [
+    [
+      "ISO 15156",
+      "NACE MR0175"
+    ]
+  ],
+  "body_aliases": {
+    "BS EN": "EN",
+    "DIN EN": "EN",
+    "NF EN": "EN",
+    "UNE EN": "EN",
+    "NEN EN": "EN",
+    "SS EN": "EN",
+    "ANSI/ISA": "ISA",
+    "ANSI/IEEE": "IEEE",
+    "ANSI/NFPA": "NFPA",
+    "ANSI/UL": "UL"
+  },
+  "api_document_words": [
+    "RP",
+    "STD",
+    "STANDARD",
+    "SPEC",
+    "PUBL",
+    "MPMS",
+    "BULL",
+    "TR"
+  ],
+  "citation_bodies": [
+    "NFPA",
+    "IEEE",
+    "IEC",
+    "EN",
+    "BS",
+    "DIN",
+    "ISA",
+    "ANSI",
+    "ASTM",
+    "MSS",
+    "UL",
+    "PIP",
+    "KOC",
+    "AWS",
+    "CSA",
+    "JIS",
+    "NEMA",
+    "EEMUA",
+    "DNV",
+    "AMPP",
+    "AGA",
+    "ASCE",
+    "ACI",
+    "AISC",
+    "NORSOK",
+    "CENELEC",
+    "NF",
+    "UNE",
+    "NEN"
+  ],
+  "class_designations": {
+    "TEMA": [
+      "R",
+      "C",
+      "B"
+    ]
+  }
+}

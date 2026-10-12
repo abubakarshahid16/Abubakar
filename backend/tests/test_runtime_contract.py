@@ -41,6 +41,20 @@ def test_the_documented_entrypoint_actually_suppresses_the_banner():
     assert "server_header=False" in source
 
 
+def test_one_ctrl_c_stops_the_server_within_a_bounded_time(monkeypatch):
+    # Without a graceful-shutdown limit uvicorn waits forever for requests the
+    # browser holds open, and Ctrl+C appears not to work.
+    from app import live_guard
+
+    seen = {}
+    monkeypatch.setattr(live_guard, "mark_server_process", lambda: None)
+    monkeypatch.setattr(run.uvicorn, "run", lambda *a, **kw: seen.update(kw))
+    run.main()
+    timeout = seen.get("timeout_graceful_shutdown")
+    assert timeout is not None, "no shutdown limit: Ctrl+C waits on open requests forever"
+    assert 0 < timeout <= 10
+
+
 def test_the_documented_api_origin_matches_the_configured_bind():
     text = RUNTIME_TS.read_text(encoding="utf-8")
     m = re.search(r'export const API_ORIGIN = "([^"]*)"', text)

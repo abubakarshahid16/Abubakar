@@ -67,6 +67,25 @@ _FAMILIES: dict[str, tuple[str, ...]] = {
         r"\bshall not\b", r"\bmust not\b", r"\bprohibit\w*", r"\bforbidden\b",
         r"\bnot permitted\b",
     ),
+    # POLARITY (audit A14). A sentence that says "not required" must not be
+    # supported by a span that says "required", and the reverse: each negated
+    # form is its own family, checked before the plain one it contains.
+    "waiver": (
+        r"\b(?:is|are|be|was|were)\s+not\s+(?:required|mandatory|necessary|needed)\b",
+        r"\bnot\s+(?:a\s+)?(?:required|mandatory|requirement)\b",
+        r"\bneed(?:s)?\s+not\b", r"\bno\s+(?:requirement|obligation)\b",
+        r"\boptional\b",
+    ),
+    "nonconformance": (
+        r"\bnon-?\s?complian\w*", r"\bnot\s+(?:in\s+)?complian\w*",
+        r"\b(?:does|do|did)\s+not\s+(?:comply|conform|meet)\b",
+        r"\bfail(?:s|ed)?\s+to\s+(?:comply|conform|meet)\b",
+        r"\bnon-?\s?conform\w*", r"\bdeviat\w*",
+    ),
+    "disapproval": (
+        r"\bnot\s+(?:approved|authori[sz]ed|accredited|certified)\b",
+        r"\bunapproved\b", r"\bdisapprov\w*", r"\brejected\b",
+    ),
 }
 
 _COMPILED = {
@@ -77,7 +96,8 @@ _COMPILED = {
 #: Prohibition is checked BEFORE obligation. "shall not" contains "shall", and
 #: reporting a prohibition as an obligation would invert the claim - the worst
 #: possible way to be wrong about a specification.
-_ORDER = ("prohibition", "conformance", "approval", "obligation")
+_ORDER = ("prohibition", "waiver", "nonconformance", "disapproval",
+          "conformance", "approval", "obligation")
 
 
 def families(text: str) -> frozenset[str]:
@@ -92,6 +112,15 @@ def families(text: str) -> frozenset[str]:
             found.add(family)
     if "prohibition" in found:
         found.discard("obligation")
+    # A negated form owns the words it contains: "not required" is a waiver,
+    # not an obligation; "non-compliant" is not a conformance; "not approved"
+    # is not an approval.
+    if "waiver" in found:
+        found.discard("obligation")
+    if "nonconformance" in found:
+        found.discard("conformance")
+    if "disapproval" in found:
+        found.discard("approval")
     return frozenset(found)
 
 
@@ -111,6 +140,9 @@ REASONS: dict[str, str] = {
     "approval": "claims an approval that no cited span records",
     "obligation": "states a requirement that no cited span states",
     "prohibition": "states a prohibition that no cited span states",
+    "waiver": "states that something is not required, which no cited span states",
+    "nonconformance": "states non-compliance that no cited span states",
+    "disapproval": "states that something is not approved, which no cited span states",
 }
 
 

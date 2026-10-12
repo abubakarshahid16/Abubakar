@@ -15,7 +15,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, waitFor } from "@testing-library/react";
 
 import { Uploader } from "./Uploader";
-import { setToken } from "../api/client";
+import { isSignedIn, onSignedOut, setToken } from "../api/client";
 
 interface SentRequest {
   headers: Record<string, string>;
@@ -24,11 +24,14 @@ interface SentRequest {
 
 const sent: SentRequest[] = [];
 
+/** What the next FakeXHR answers; reset before every test. */
+let answer = { status: 200, body: JSON.stringify({ document: { id: "doc_1" }, duplicate_of: null }) };
+
 class FakeXHR {
   headers: Record<string, string> = {};
   url = "";
-  status = 200;
-  responseText = JSON.stringify({ document: { id: "doc_1" }, duplicate_of: null });
+  status = answer.status;
+  responseText = answer.body;
   upload = { onprogress: null as ((e: ProgressEvent) => void) | null };
   onload: (() => void) | null = null;
   onerror: (() => void) | null = null;
@@ -48,12 +51,21 @@ class FakeXHR {
 }
 
 beforeEach(() => {
+  // The uploader first asks who an upload may be shared with (#609); these
+  // tests are about the transport, so the answer is "sign-in off".
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(
+    JSON.stringify({ required: false, choices: [], default: [] }),
+    { status: 200, headers: { "Content-Type": "application/json" } },
+  )));
   sent.length = 0;
+  answer = { status: 200, body: JSON.stringify({ document: { id: "doc_1" }, duplicate_of: null }) };
+  onSignedOut(null);
   vi.stubGlobal("XMLHttpRequest", FakeXHR as unknown as typeof XMLHttpRequest);
 });
 
-function drop(file: File) {
-  const { container } = render(<Uploader onUploaded={() => {}} />);
+async function drop(file: File) {
+  const { container, getByRole } = render(<Uploader onUploaded={() => {}} />);
+  await waitFor(() => expect(getByRole("button", { name: "choose files" })).not.toBeDisabled());
   const input = container.querySelector('input[type="file"]');
   if (!input) throw new Error("the uploader rendered no file input");
   fireEvent.change(input, { target: { files: [file] } });
@@ -62,14 +74,14 @@ function drop(file: File) {
 describe("Uploader authorization", () => {
   it("sends the bearer token on the upload request", async () => {
     setToken("test-token-abc");
-    drop(new File([new Uint8Array([37, 80, 68, 70])], "spec.pdf", { type: "application/pdf" }));
+    await drop(new File([new Uint8Array([37, 80, 68, 70])], "spec.pdf", { type: "application/pdf" }));
     await waitFor(() => expect(sent.length).toBe(1));
     expect(sent[0].headers.Authorization).toBe("Bearer test-token-abc");
   });
 
   it("never puts the token in the URL", async () => {
     setToken("test-token-abc");
-    drop(new File([new Uint8Array([37, 80, 68, 70])], "spec.pdf", { type: "application/pdf" }));
+    await drop(new File([new Uint8Array([37, 80, 68, 70])], "spec.pdf", { type: "application/pdf" }));
     await waitFor(() => expect(sent.length).toBe(1));
     expect(sent[0].url).not.toContain("test-token-abc");
     expect(sent[0].url).toBe("/api/documents");
@@ -77,10 +89,35 @@ describe("Uploader authorization", () => {
 
   it("sends no Authorization header when signed out", async () => {
     setToken(null);
-    drop(new File([new Uint8Array([37, 80, 68, 70])], "spec.pdf", { type: "application/pdf" }));
+    await drop(new File([new Uint8Array([37, 80, 68, 70])], "spec.pdf", { type: "application/pdf" }));
     await waitFor(() => expect(sent.length).toBe(1));
     // Absent, not an empty "Bearer ": a header saying nothing is worse than no
     // header, because the server cannot tell it from a malformed token.
     expect(sent[0].headers.Authorization).toBeUndefined();
+  });
+});
+
+describe("audit 2026-09-30: a 401 on the upload signs out like every other request", () => {
+  it("clears the token and tells the app", async () => {
+    const signedOut = vi.fn();
+    onSignedOut(signedOut);
+    setToken("expired-token");
+    answer = { status: 401, body: JSON.stringify({ detail: { code: "unauthenticated", message: "sign in" } }) };
+    await drop(new File([new Uint8Array([37, 80, 68, 70])], "spec.pdf", { type: "application/pdf" }));
+    await waitFor(() => expect(signedOut).toHaveBeenCalledTimes(1));
+    expect(isSignedIn()).toBe(false);
+    onSignedOut(null);
+  });
+
+  it("does not sign out on a refusal that is not a 401", async () => {
+    const signedOut = vi.fn();
+    onSignedOut(signedOut);
+    setToken("good-token");
+    answer = { status: 413, body: JSON.stringify({ detail: { code: "too_large", message: "big" } }) };
+    await drop(new File([new Uint8Array([37, 80, 68, 70])], "spec.pdf", { type: "application/pdf" }));
+    await waitFor(() => expect(sent.length).toBe(1));
+    expect(signedOut).not.toHaveBeenCalled();
+    expect(isSignedIn()).toBe(true);
+    onSignedOut(null);
   });
 });

@@ -81,10 +81,12 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="DELETE the orphaned run instead of marking it failed, "
                     "erasing the only record that anybody ever started it",
         path=APP / "submittal_review.py",
+        # Re-anchored in P3: the line lost its trailing comma to the clause
+        # that keeps a run whose review job is still active.
         anchor='            "UPDATE review_runs SET status = \'failed\', refusal_reason = ?,"\n'
-               '            " updated_at = ? WHERE status = \'running\'",',
+               '            " updated_at = ? WHERE status = \'running\'"\n',
         replacement='            "DELETE FROM review_runs WHERE ? IS NOT NULL"\n'
-                    '            " AND ? IS NOT NULL AND status = \'running\'",',
+                    '            " AND ? IS NOT NULL AND status = \'running\'"\n',
         target="tests/test_orphaned_review_runs.py",
         keyword="kept_because_a_crashed_run_is_history",
         tags=("honesty", "critical"),
@@ -94,8 +96,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="sweep every run, not only the running ones, rewriting "
                     "the outcome of every review ever done at each startup",
         path=APP / "submittal_review.py",
-        anchor='            " updated_at = ? WHERE status = \'running\'",',
-        replacement='            " updated_at = ? WHERE 1 = 1 OR status = \'running\'",',
+        anchor='            " updated_at = ? WHERE status = \'running\'"\n',
+        replacement='            " updated_at = ? WHERE 1 = 1 OR status = \'running\'"\n',
         target="tests/test_orphaned_review_runs.py",
         keyword="not_running_is_left_alone or completed_runs_outcome_survives",
         tags=("critical",),
@@ -132,8 +134,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="drop the 'has no facts' guard: every review re-reads the "
                     "sheet and, with replace=False, duplicates it",
         path=APP / "submittal_review.py",
-        anchor="    if has_facts is not None:\n        return",
-        replacement="    if False:\n        return",
+        # re-anchored 2026-10-10 (F-b): the guard's block now also re-reads stale facts
+        anchor="    if has_facts is not None:\n        # F-b",
+        replacement="    if False:\n        # F-b",
         target=_B19_TEST,
         keyword="second_review or confirmed_fact",
         tags=("critical",),
@@ -200,8 +203,9 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "ingestion path, so re-ingesting a submittal with facts "
                     "already extracted duplicates them",
         path=APP / "submittal_review.py",
-        anchor="    if has_facts is not None:\n        return",
-        replacement="    if False:\n        return",
+        # re-anchored 2026-10-10 (F-b): the guard's block now also re-reads stale facts
+        anchor="    if has_facts is not None:\n        # F-b",
+        replacement="    if False:\n        # F-b",
         target=_INGEST_FACTS_TEST,
         keyword="does_not_duplicate_them",
         tags=("critical",),

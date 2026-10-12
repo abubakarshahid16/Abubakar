@@ -21,6 +21,8 @@ export interface StatusPresentation {
   answerable: boolean;
 }
 
+const nf = new Intl.NumberFormat("en-GB");
+
 export function presentStatus(doc: DocumentRecord): StatusPresentation {
   switch (doc.status) {
     case "queued":
@@ -40,9 +42,14 @@ export function presentStatus(doc: DocumentRecord): StatusPresentation {
       // unread - recognition runs after the keyword index - so the screen
       // resolves the contradiction rather than displaying both halves of it.
       if (doc.needs_ocr_pages > doc.recognised_pages) {
+        // #611: THE LIST CANNOT SAY THE OCR WORKER IS BUSY, so the label must
+        // not either. "reading scanned pages" claimed work in progress on
+        // documents whose worker was idle. What the record does say: the
+        // document is finished and N pages are still waiting for OCR.
+        const waiting = doc.needs_ocr_pages - doc.recognised_pages;
         return {
-          label: "reading scanned pages",
-          tone: "progress",
+          label: `finished, ${nf.format(waiting)} page${waiting === 1 ? "" : "s"} waiting for OCR`,
+          tone: "neutral",
           answerable: true,
         };
       }
@@ -57,8 +64,6 @@ export function presentStatus(doc: DocumentRecord): StatusPresentation {
       return { label: String(doc.status), tone: "neutral", answerable: false };
   }
 }
-
-const nf = new Intl.NumberFormat("en-GB");
 
 /**
  * The progress line, e.g.

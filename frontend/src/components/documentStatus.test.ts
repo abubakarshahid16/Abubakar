@@ -129,9 +129,18 @@ describe("a partially-processed document never reads as ready", () => {
       status: "ready", page_count: 89, needs_ocr_pages: 12, recognised_pages: 10,
     }));
     expect(s.label).not.toBe("ready");
-    expect(s.label).toBe("reading scanned pages");
+    expect(s.label).toBe("finished, 2 pages waiting for OCR");
+    expect(s.label).not.toMatch(/reading/);
     // Still answerable: the pages that ARE indexed can be searched.
     expect(s.answerable).toBe(true);
+  });
+
+  it("says 1 page, not 1 pages, and never claims the worker is reading", () => {
+    const s = presentStatus(doc({
+      status: "ready", page_count: 3, needs_ocr_pages: 1, recognised_pages: 0,
+    }));
+    expect(s.label).toBe("finished, 1 page waiting for OCR");
+    expect(s.tone).toBe("neutral");
   });
 
   it("says ready once recognition has caught up", () => {

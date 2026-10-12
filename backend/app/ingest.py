@@ -18,14 +18,19 @@ import time
 import uuid
 from datetime import datetime, timezone
 
-from . import errors, job_queue, page_ledger, states
+from . import acronyms as acronyms_mod
+from . import doc_router, errors, job_queue, page_ledger, states
 from .chunker import chunk_document
 from . import telemetry
 from .db import connect
 from . import keyword
 from . import ocr
 from .extract import extract_document
-from .embedder import Embedder, EmbedderConfig
+from .embedder import Embedder, EmbedderConfig, embedding_tag, searchable_tags
+
+import logging
+
+_log = logging.getLogger(__name__)
 
 # A worker with no heartbeat for this long has died or hung.
 STALL_AFTER_SECONDS = 120
@@ -82,9 +87,47 @@ def _stuck_reason(conn, doc_id: str, row, status: str) -> str:
                       f"{row['chunk_count']} chunks still have no vector")
         elif not row["chunk_count_total"]:
             detail = (f"stalled in {status!r}: the document produced no chunks")
-    except Exception:  # noqa: BLE001 - a diagnostic must never mask the failure
-        pass
+    except Exception as exc:  # noqa: BLE001 - a diagnostic must never mask the failure
+        _log.warning("the stall diagnosis for %s could not be worked out (%s)",
+                     doc_id, type(exc).__name__)
     return detail
+
+
+def _tag_marks() -> str:
+    """SQL placeholders for `searchable_tags()` - one per tag."""
+    return ",".join("?" * len(searchable_tags()))
+
+
+#: A retrievable chunk of document ? whose vector is missing or not in
+#: today's tag (?). Read by `embed_pending` and by its gate `_needs_embedding`.
+_NOT_CURRENT = ("c.document_id = ? AND c.retrievable = 1"
+                " AND (v.chunk_id IS NULL OR v.model IS NOT ?)")
+
+
+def _passage_text(embedder, row) -> str:
+    """What one chunk is embedded from (context-v1): its heading chain and
+    body; the section and body when the chain would push the input over the
+    model's limit; the body alone when even that would. Never a cut body."""
+    body = row["text"]
+    chain = row["context"] if "context" in row.keys() else None
+    if chain:
+        text = embedder.passage_input(chain, body)
+        if text != body:
+            return text
+    return embedder.passage_input(row["section"], body)
+
+
+def _route_document_kind(doc_id: str, result: dict) -> None:
+    """Suggest a document type once the text is chunked. A routing failure must
+    never fail ingestion (the type is advice), but it is not silent: it is
+    logged and recorded in the result, and the document stays unrouted."""
+    try:
+        routing = doc_router.route_document(doc_id)
+        if routing is not None:
+            result["route_kind"] = routing.state
+    except Exception as exc:  # noqa: BLE001 - advice must not block ingestion
+        _log.warning("document type routing failed for %s: %s", doc_id, type(exc).__name__)
+        result["route_kind_error"] = type(exc).__name__
 
 
 class IngestionWorker:
@@ -320,6 +363,31 @@ class IngestionWorker:
             self.last_error = errors.record_failure(exc, stage="standard_extraction")
             return False
 
+    def _beat(self) -> None:
+        """Bump this worker's own heartbeat mid-job, not just between jobs.
+
+        Exists for one caller: a review job's scope-reasoning pass, which can
+        run for many minutes on this same thread (see `_drain_review_jobs`
+        below). Without it, `self.last_beat` only advances at the outer
+        `_run` loop boundary, so a long single job reads as a hung worker on
+        the Documents page even while it is actively working.
+        """
+        self.last_beat = time.time()
+
+    def _drain_review_jobs(self) -> bool:
+        """Run one queued review, if any. True when one was run."""
+        from . import job_queue, review_jobs
+        try:
+            review_jobs.recover_stale()
+            job_id = review_jobs.claim_next(job_queue.worker_id())
+            if job_id is None:
+                return False
+            review_jobs.run(job_id, job_queue.worker_id(), heartbeat=self._beat)
+            return True
+        except Exception as exc:  # noqa: BLE001
+            self.last_error = errors.record_failure(exc, stage="review_run")
+            return False
+
     def _run(self) -> None:
         while not self._stop.is_set():
             self.last_beat = time.time()
@@ -333,6 +401,10 @@ class IngestionWorker:
                     # so standards extraction is drained HERE - only when no
                     # document needs work - rather than from a second thread
                     # that would compete for the same 16 GB.
+                    # P3: A REVIEW BEFORE STANDARDS EXTRACTION - a person is
+                    # waiting on it; extraction is backfill.
+                    if self._drain_review_jobs():
+                        continue
                     if self._drain_standard_extraction():
                         continue
                     self._stop.wait(self.poll_seconds)
@@ -449,6 +521,7 @@ class IngestionWorker:
 
                 if status == states.CHUNKING:
                     result["chunk"] = chunk_document(doc_id)
+                    _route_document_kind(doc_id, result)
                     telemetry.record(
                         telemetry.CHUNK,
                         result["chunk"].get("chunks_this_run", 0),
@@ -524,9 +597,13 @@ class IngestionWorker:
                             # still unread.
                             continue
 
-                    # never trust the stored count as the gate on its own repair
-                    embedded = self._recount_embedded(doc_id)
-                    if embedded < row["chunk_count"]:
+                    # never trust the stored count as the gate on its own repair.
+                    # The gate is "a retrievable chunk has no CURRENT vector",
+                    # not "embedded < chunk_count": a legacy-format vector
+                    # (heading-v1) counts as embedded, so the count gate never
+                    # upgraded it unless some other chunk had no vector at all.
+                    self._recount_embedded(doc_id)
+                    if self._needs_embedding(doc_id):
                         result["embedded"] = self.embed_pending(doc_id)
                         result["stages"].append("embed")
                         if self._stop.is_set():
@@ -576,18 +653,29 @@ class IngestionWorker:
             return result
 
     def embed_pending(self, doc_id: str, batch: int = 64) -> int:
-        """Embed retrievable chunks that have no vector yet.
+        """Embed retrievable chunks that have no CURRENT vector yet.
 
         Runs AFTER the document is already answerable, and updates
         embedded_count as it goes so the UI can show honest progress.
+
+        A vector whose `model` tag is not today's `embedding_tag()` is STALE
+        (another model, or another input format) and is re-embedded here: the
+        vector store already leaves it out of dense search, so without this
+        the chunk would be keyword-only for ever (P2-11). A LEGACY input
+        format of the same model (`searchable_tags`) is still searched, and
+        is upgraded here too - the only place it ever is - whenever the
+        document is processed: `process` calls this whenever
+        `_needs_embedding` says any retrievable chunk lacks a CURRENT vector,
+        a legacy one included. A READY document is not processed again on its
+        own; re-processing it (scripts/reindex_chunking.py) is what upgrades it.
         """
         conn = connect()
         rows = conn.execute(
-            """SELECT c.id, c.text FROM chunks c
+            f"""SELECT c.id, c.section, c.context, c.text FROM chunks c
                LEFT JOIN chunk_vectors v ON v.chunk_id = c.id
-               WHERE c.document_id = ? AND c.retrievable = 1 AND v.chunk_id IS NULL
+               WHERE {_NOT_CURRENT}
                ORDER BY c.ordinal""",
-            (doc_id,),
+            (doc_id, embedding_tag()),
         ).fetchall()
         if not rows:
             return 0
@@ -602,7 +690,12 @@ class IngestionWorker:
             if self._stop.is_set():
                 break
             window = rows[start:start + batch]
-            vectors = embedder.embed_passages([r["text"] for r in window])
+            # B6B E1: heading + body, never the body cut for the heading -
+            # see Embedder.passage_input. The stored chunk text is untouched.
+            # context-v1: the heading is the chunk's heading chain when it has
+            # one; if the chain would not fit, the section alone, as before.
+            vectors = embedder.embed_passages(
+                [_passage_text(embedder, r) for r in window])
             with conn:
                 conn.executemany(
                     """INSERT OR REPLACE INTO chunk_vectors
@@ -610,17 +703,17 @@ class IngestionWorker:
                        VALUES (?, ?, ?, ?, ?, ?)""",
                     [
                         (r["id"], doc_id, int(v.shape[0]), v.astype("float32").tobytes(),
-                         embedder.config.model_file, _now())
+                         embedding_tag(embedder.config.model_file), _now())
                         for r, v in zip(window, vectors)
                     ],
                 )
                 conn.execute(
-                    """UPDATE documents SET embedded_count =
+                    f"""UPDATE documents SET embedded_count =
                        (SELECT COUNT(*) FROM chunk_vectors v
-                        JOIN chunks c ON c.id = v.chunk_id
-                        WHERE v.document_id = ?)
+                        JOIN chunks c ON c.id = v.chunk_id AND c.retrievable = 1
+                        WHERE v.document_id = ? AND v.model IN ({_tag_marks()}))
                        WHERE id = ?""",
-                    (doc_id, doc_id),
+                    (doc_id, *searchable_tags(), doc_id),
                 )
             done += len(window)
             now = time.time()
@@ -692,6 +785,17 @@ class IngestionWorker:
         with conn:
             conn.execute("UPDATE documents SET status = ? WHERE id = ?", (nxt, doc_id))
 
+    def _needs_embedding(self, doc_id: str) -> bool:
+        """Does any retrievable chunk lack a vector in TODAY's tag? The same
+        predicate `embed_pending` selects on, so the gate and the work can
+        never disagree about what is pending."""
+        return connect().execute(
+            f"""SELECT 1 FROM chunks c
+               LEFT JOIN chunk_vectors v ON v.chunk_id = c.id
+               WHERE {_NOT_CURRENT} LIMIT 1""",
+            (doc_id, embedding_tag()),
+        ).fetchone() is not None
+
     def _recount_embedded(self, doc_id: str) -> int:
         """Recompute embedded_count from the vectors that actually exist.
 
@@ -699,13 +803,19 @@ class IngestionWorker:
         by new chunk ids), and because it is itself the gate on whether
         embedding re-runs, a stale-high value permanently blocks its own
         correction. Derive it from the join before trusting it.
+
+        Only vectors of RETRIEVABLE chunks count: `chunk_count` (what this is
+        compared against) is the retrievable count, so a vector kept for a
+        chunk that is no longer retrievable must not stand in for one a
+        retrievable chunk is missing - that would mark a document READY with a
+        searchable chunk that dense search cannot see.
         """
         conn = connect()
         actual = conn.execute(
-            """SELECT COUNT(*) FROM chunk_vectors v
-               JOIN chunks c ON c.id = v.chunk_id
-               WHERE v.document_id = ?""",
-            (doc_id,),
+            f"""SELECT COUNT(*) FROM chunk_vectors v
+               JOIN chunks c ON c.id = v.chunk_id AND c.retrievable = 1
+               WHERE v.document_id = ? AND v.model IN ({_tag_marks()})""",
+            (doc_id, *searchable_tags()),
         ).fetchone()[0]
         with conn:
             conn.execute(
@@ -737,10 +847,7 @@ class IngestionWorker:
                      errors.NO_SEARCHABLE_CONTENT, reason, doc_id,
                      states.PARTIALLY_SEARCHABLE),
                 )
-                conn.execute(
-                    "UPDATE jobs SET state = 'done', updated_at = ? WHERE document_id = ?",
-                    (_now(), doc_id),
-                )
+                _finish_ingestion_jobs(conn, doc_id)
             _refresh_page_ledger(doc_id)
             return
 
@@ -750,24 +857,41 @@ class IngestionWorker:
                 # we expect, so the terminal stamp can never be applied on the
                 # strength of a count that changed underneath it.
                 conn.execute(
-                    """UPDATE documents SET
+                    f"""UPDATE documents SET
                          embedded_count = (SELECT COUNT(*) FROM chunk_vectors v
                                            JOIN chunks c ON c.id = v.chunk_id
-                                           WHERE v.document_id = ?),
+                                                AND c.retrievable = 1
+                                           WHERE v.document_id = ? AND v.model IN ({_tag_marks()})),
                          status = ?, indexed_at = ?
                        WHERE id = ? AND status = ?""",
-                    (doc_id, states.READY, _now(), doc_id, states.PARTIALLY_SEARCHABLE),
+                    (doc_id, *searchable_tags(), states.READY, _now(), doc_id,
+                     states.PARTIALLY_SEARCHABLE),
                 )
-                conn.execute(
-                    "UPDATE jobs SET state = 'done', updated_at = ? WHERE document_id = ?",
-                    (_now(), doc_id),
-                )
+                _finish_ingestion_jobs(conn, doc_id)
+            # The document's text is now searchable, so its acronym map changed:
+            # rebuild it in the background, never inside the next request.
+            acronyms_mod.warm_in_background()
             _queue_extraction_if_standard(doc_id)
             _extract_facts_if_contractor_submittal(doc_id)
             _classify_equipment_type_if_contractor_submittal(doc_id)
             _classify_metadata_if_contractor_submittal(doc_id)
             # LAST, after fact extraction, so the ledger carries its outcome.
             _refresh_page_ledger(doc_id)
+
+
+def _finish_ingestion_jobs(conn, doc_id: str) -> None:
+    """Mark the document's INGESTION job(s) done - and nothing else.
+
+    This used to be `UPDATE jobs SET state='done' WHERE document_id = ?`,
+    which also stamped `done` on every other job of the document: a failed
+    `extract_facts`, a queued or retrying `extract_requirements`. The failure
+    path (`process`) already scopes to these stages; finishing now matches.
+    """
+    conn.execute(
+        "UPDATE jobs SET state = 'done', updated_at = ?"
+        " WHERE document_id = ? AND stage IN ('extract', 'chunk')",
+        (_now(), doc_id),
+    )
 
 
 def _refresh_page_ledger(document_id: str) -> None:

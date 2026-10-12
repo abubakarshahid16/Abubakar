@@ -55,7 +55,7 @@ from __future__ import annotations
 
 import re
 
-from . import claims
+from . import claims, condition_choice, field_links
 
 #: The condition is established and holds — the comparison may proceed.
 SATISFIED = "SATISFIED"
@@ -281,6 +281,14 @@ def _evaluate_terms(shape: str, condition: str, facts: list[dict]) -> dict:
             UNKNOWN, shape, condition,
             f"{len(candidates)} candidate field(s) exist but none states a value "
             f"(all blank or placeholder), so the condition is not established")
+    # A LOW-TRUST VALUE IS NOT EVIDENCE (review conditions, 2026-09-30): an
+    # OCR-fallback or model-read material may neither apply nor excuse a clause.
+    untrusted = [f for f in stated if _low_trust(f)]
+    if untrusted:
+        return _result(
+            UNKNOWN, shape, condition,
+            f"{_where(untrusted[0])}, and {_low_trust(untrusted[0])}; the "
+            f"condition is not decided on a value not yet trusted")
     for fact in stated:
         value = _fold(fact.get("field_value"))
         for term in terms:
@@ -335,6 +343,11 @@ def _evaluate_numeric(condition: str, facts: list[dict]) -> dict:
             str(fact.get("raw_unit") or fact.get("unit") or ""))
         if observed.normalized_value is None:
             continue
+        if _low_trust(fact):
+            return _result(
+                UNKNOWN, SHAPE_NUMERIC, condition,
+                f"{_where(fact)}, and {_low_trust(fact)}; the condition is not "
+                f"decided on a value not yet trusted")
         # Routed through claims, so the B20 dimension guard applies: a length
         # against a temperature is undecidable, never a pass.
         verdict = claims._compatible(
@@ -357,7 +370,492 @@ def _evaluate_numeric(condition: str, facts: list[dict]) -> dict:
                    "no submitted field speaks to this threshold")
 
 
-def evaluate(requirement: dict, facts: list[dict] | None) -> dict | None:
+# ============================================================================
+# THE CONDITION READER (review conditions, 2026-09-30)
+# ============================================================================
+#
+# The v1 gate above reads a condition as a bag of words: a material or service
+# term, or a threshold whose subject words must appear in a field NAME. That
+# cannot read the conditions standards actually write most often - "for pipes
+# larger than 2 inch", "Class 600 and above", "above 60 °C" - because the size,
+# class or temperature a datasheet states sits in a field whose name shares no
+# word with the condition ("nominal size", "flange rating", "design
+# temperature"). Those requirements were compared as if unconditional or sent
+# to an engineer, never excused on the datasheet's own facts.
+#
+# The reader below closes that, in the same module and under the same rules:
+#
+#   * THE CONDITION IS PARSED BY `condition_choice.extract`, the deterministic
+#     reader the chat already uses for sizes, temperatures, pressures, ASME
+#     class / PN, service and material. No second set of patterns.
+#   * THE DATASHEET FACT IS CHOSEN BY ROLE. A size condition is established
+#     only by a field that IS a nominal size (NPS, DN, nominal size, line /
+#     nozzle / pipe / valve size) and never by a wall thickness or any other
+#     length; a temperature only by the design temperature (or the operating
+#     temperature when the condition says "operating"); a class only by a
+#     flange / pressure rating whose value reads as an ASME class or PN.
+#   * THE WHOLE CONDITION MUST BE READ. Words left over after the read parts
+#     and plain connectives are removed ("for critical service", "unless ...")
+#     make the condition UNKNOWN - a condition read in part is not a condition
+#     read. The one allowance: extra ALTERNATIVES of the same kind ("carbon
+#     steel, low-alloy steel and alloy steel") may still let a matching fact
+#     SATISFY the condition, but can never prove it does not hold.
+#   * A LOW-TRUST VALUE IS NOT EVIDENCE ON ITS OWN, and the answer may not
+#     change depending on whether low-trust values are counted
+#     (`comparison.low_trust_reason` - the same test the breach guard uses).
+#   * ONLY A FACT CLEARLY OUTSIDE THE CONDITION EXCUSES THE REQUIREMENT. A
+#     value straddling the bound, a value in a unit the reader does not know,
+#     a service or material outside the closed vocabulary: all UNKNOWN.
+#
+# Nothing read here reaches the old path. When `condition_choice` reads
+# nothing at all in the condition, `evaluate` behaves exactly as before.
+
+#: Kinds the reader decides. A condition that also names a kind outside this
+#: set (a location, say) is treated as read only in part.
+READER_KINDS = frozenset({"size", "temperature", "pressure", "class", "pn",
+                          "service", "material"})
+
+#: Connectives and generic nouns that carry no condition of their own. A word
+#: NOT here, left over after the read parts are removed, makes the condition
+#: read only in part. Deliberately short: adding a word here widens what the
+#: reader claims to have understood.
+_FILLER = frozenset({
+    "for", "and", "or", "in", "of", "the", "a", "an", "with", "to", "on", "at",
+    "all", "any", "where", "when", "is", "are", "be", "only", "applies",
+    "service", "services", "system", "systems", "piping", "pipe", "pipes",
+    "pipework", "line", "lines", "equipment", "application", "applications",
+    "component", "components", "size", "sizes", "nominal", "design",
+    "operating", "temperature", "temperatures", "pressure", "pressures",
+    "rated", "rating", "ratings", "flange", "flanges", "valve", "valves",
+    "nozzle", "nozzles", "material", "materials", "construction", "fluid",
+    "fluids", "condition", "conditions", "environment", "environments",
+})
+
+#: "Class 600 and above" / "above Class 600": the bound around a class read.
+_CLASS_AFTER = re.compile(
+    r"^\s*(?:and|or)\s+(?P<dir>above|higher|greater|over|larger|more|below|lower|less|smaller|under)\b")
+_CLASS_BEFORE = re.compile(
+    r"(?P<dir>greater than|higher than|more than|above|over|exceeding|less than|"
+    r"lower than|below|under|up to|not exceeding)\s*$")
+_UP = frozenset({"above", "higher", "greater", "over", "larger", "more",
+                 "greater than", "higher than", "more than", "exceeding"})
+_STRICT = frozenset({"greater than", "higher than", "more than", "above", "over",
+                     "exceeding", "less than", "lower than", "below", "under"})
+
+#: Base-metal families. Two materials in different families exclude each other;
+#: a material with no family here (galvanized - a coating) never proves
+#: "outside".
+_MATERIAL_FAMILY = {
+    "carbon steel": "carbon steel", "low-alloy steel": "low-alloy steel",
+    "stainless steel": "stainless", "duplex": "stainless",
+    "super duplex": "stainless", "copper-nickel": "copper-nickel",
+    "cast iron": "cast iron",
+}
+#: A material that IS also the listed ones: super duplex is a duplex, and both
+#: are stainless steels. The reverse is not true - "stainless steel" does not
+#: establish duplex.
+_MATERIAL_IS_ALSO = {"duplex": {"stainless steel"},
+                     "super duplex": {"duplex", "stainless steel"}}
+
+#: Field roles, matched against `field_links.field_of`'s canonical name.
+_SIZE_ROLE = re.compile(
+    r"\b(?:nps|dn|nb|nominal (?:pipe )?size|nominal (?:bore|diameter)|"
+    r"(?:line|nozzle|pipe|valve) size)\b")
+_CLASS_ROLE = re.compile(
+    r"(?:(?:asme|ansi|pressure|flange|nozzle|valve|body|end)\s+)*(?:class|rating)")
+_SERVICE_ROLE = re.compile(r"\b(?:service|fluid|medium|contents|sour|h2s|nace)\b")
+_PN_VALUE = re.compile(r"pn\s*(\d{1,3})", re.IGNORECASE)
+#: A service stated as NOT the named one. Read BEFORE `extract`, which would
+#: otherwise find "sour" inside "non-sour".
+_NOT_SOUR = re.compile(r"\bnon[- ]?sour\b|\bnot sour\b|\bsweet\b", re.IGNORECASE)
+_YES_WORDS = frozenset({"yes", "y"})
+_NO_WORDS = frozenset({"no", "n"})
+
+_ANY_INSIDE = "any_inside"       # material: one component in scope is enough
+_UNANIMOUS = "unanimous"         # size, temperature, pressure, class
+_EXPLICIT = "explicit"           # service: only a stated yes/no decides
+
+
+class _Reading:
+    """What the reader made of one condition text."""
+
+    def __init__(self, needs, unread, alternatives_unread, problem):
+        self.needs = needs                      # list[Condition]
+        self.unread = unread                    # words not understood
+        self.alternatives_unread = alternatives_unread  # same-kind options left
+        self.problem = problem                  # why it cannot be decided, or None
+
+
+def _class_need(cond, plain: str):
+    """A class/PN condition as an interval on its number, with the bound the
+    text puts round it ("Class 600 and above" -> [600, inf)). Returns the
+    Condition (labelled as the standard writes it) and the folded text
+    consumed. `plain` is the condition whitespace-collapsed, case kept."""
+    folded = plain.lower()
+    number = int(re.search(r"\d+", cond.value).group(0))
+    kind = "pn" if cond.value.lower().startswith("pn") else "class"
+    text = _fold(cond.text)
+    at = folded.find(text)
+    low = high = float(number)
+    low_open = high_open = False
+    consumed = text
+    start, end = at, at + len(text)
+    if at >= 0:
+        after = _CLASS_AFTER.match(folded[at + len(text):])
+        before = _CLASS_BEFORE.search(folded[:at])
+        if after:
+            consumed = text + folded[at + len(text):at + len(text) + after.end()]
+            end = at + len(text) + after.end()
+            if after.group("dir") in _UP:
+                high = None
+            else:
+                low = None
+        elif before:
+            consumed = before.group(0) + folded[at:at + len(text)]
+            start = before.start()
+            word = before.group("dir")
+            if word in _UP:
+                high, low_open = None, word in _STRICT
+            else:
+                low, high_open = None, word in _STRICT
+    label = plain[start:end].strip() if at >= 0 else cond.text
+    return (condition_choice.Condition(kind, label, low=low, high=high,
+                                       low_open=low_open, high_open=high_open),
+            consumed)
+
+
+def read_condition(condition: str | None) -> _Reading | None:
+    """Parse a condition with `condition_choice.extract`. None when nothing in
+    it is read - the caller then falls back to the v1 gate unchanged."""
+    plain = " ".join(str(condition or "").split())
+    folded = plain.lower()
+    found = condition_choice.extract(plain)
+    if not found:
+        return None
+    needs = []
+    residue = folded
+    for cond in found:
+        if cond.kind == "class":
+            need, consumed = _class_need(cond, plain)
+        else:
+            need, consumed = cond, _fold(cond.text)
+        needs.append(need)
+        residue = residue.replace(consumed, " ", 1)
+    kinds = {n.kind for n in needs}
+    unread = [w for w in (t.strip(".-/") for t in _WORD.findall(residue))
+              if w and w not in _FILLER]
+    problem = None
+    alternatives_unread = False
+    if kinds - READER_KINDS:
+        problem = (f"it names {', '.join(sorted(kinds - READER_KINDS))}, which "
+                   f"this reader does not decide")
+    elif unread:
+        table = {"material": _MATERIAL_TERMS, "service": _SERVICE_TERMS}.get(
+            next(iter(kinds))) if len(kinds) == 1 else None
+        covered = set()
+        leftover = " ".join(unread)
+        for term in table or ():
+            if _contains_term(leftover, term):
+                covered.update(_WORD.findall(term))
+        if table and set(unread) <= covered:
+            alternatives_unread = True
+        else:
+            problem = (f"part of it was not read ({' '.join(unread)!r}), so "
+                       f"whether it holds cannot be decided")
+    if problem is None:
+        numeric = [n for n in needs if n.value is None and n.kind in
+                   ("size", "temperature", "pressure")]
+        if len(numeric) != len({n.kind for n in numeric}):
+            problem = ("it states more than one bound of the same kind and the "
+                       "reader does not decide how they combine")
+        elif len(kinds) > 1 and _contains_term(folded, "or"):
+            problem = ("it joins different kinds of condition with 'or', and the "
+                       "reader decides only conditions that must all hold")
+    return _Reading(needs, unread, alternatives_unread, problem)
+
+
+def _canonical(fact: dict) -> tuple[str, str | None]:
+    return field_links.field_of(fact.get("field_name"))
+
+
+def _low_trust(fact: dict) -> str | None:
+    # Late import: `comparison` imports this module.
+    from .comparison import low_trust_reason
+    return low_trust_reason(fact)
+
+
+def _where(fact: dict) -> str:
+    page = fact.get("page")
+    return (f"{fact.get('field_name')!r}" + (f" (page {page})" if page else "")
+            + f" states {fact.get('field_value')!r}")
+
+
+def _value_texts(fact: dict, prefix: str | None = None) -> list[str]:
+    """The texts a value may be read from: the value as printed, then the
+    stored number with its unit. A bare number in an NPS or DN field is read
+    with that prefix - the field's ROLE supplies it, never a guess."""
+    out = []
+    value = " ".join(str(fact.get("field_value") or "").split())
+    raw, unit = fact.get("raw_value"), (fact.get("raw_unit") or fact.get("unit") or "")
+    if value:
+        out.append(value)
+    if raw not in (None, ""):
+        if str(unit).strip().lower() in ("in", "inch", "inches", '"'):
+            unit = "inch"
+        out.append(f"{raw} {unit}".strip())
+    if prefix:
+        for text in list(out):
+            if re.fullmatch(r"\d+(?:[./]\d+)?(?:\s+\d+/\d+)?", text):
+                out.append(f"{prefix} {text}")
+    return out
+
+
+def _read_interval(kind: str, fact: dict, prefix: str | None = None):
+    """ONE interval of `kind` that accounts for every number in the text,
+    else None. "6 x 4 inch", "95 °C / 203 °F" and "about 60" are not one
+    reading and are never read as one."""
+    for text in _value_texts(fact, prefix):
+        got = [c for c in condition_choice.extract(text, question=True) if c.kind == kind]
+        if len(got) != 1:
+            continue
+        numbers = condition_choice.stated_values(text)
+        if numbers <= condition_choice.stated_values(got[0].text):
+            return got[0]
+    return None
+
+
+def _read_class(fact: dict):
+    value = " ".join(str(fact.get("field_value") or "").split())
+    number = field_links.read_categorical("flange_rating", value)
+    if number is not None:
+        return condition_choice.Condition("class", value, low=float(number), high=float(number))
+    pn = _PN_VALUE.fullmatch(value)
+    if pn:
+        return condition_choice.Condition("pn", value, low=float(pn.group(1)),
+                                          high=float(pn.group(1)))
+    return None
+
+
+def _disjoint(a, b) -> bool:
+    """Do two intervals share no point? Open ends respected."""
+    def apart(left, right):      # left entirely below right?
+        if left.high is None or right.low is None:
+            return False
+        if right.low > left.high + condition_choice._EPS:
+            return True
+        return (abs(right.low - left.high) <= condition_choice._EPS
+                and (left.high_open or right.low_open))
+    return apart(a, b) or apart(b, a)
+
+
+def _interval_verdict(needs, observed) -> bool | None:
+    if observed is None:
+        return None
+    if any(n.kind == observed.kind and n.holds_for(observed) for n in needs):
+        return True
+    if all(n.kind == observed.kind and _disjoint(n, observed) for n in needs):
+        return False
+    return None
+
+
+def _material_verdict(needs, fact) -> bool | None:
+    said = {c.value for c in condition_choice.extract(_fold(fact.get("field_value")))
+            if c.kind == "material"}
+    if not said:
+        return None
+    wanted = {n.value for n in needs}
+    if any(s in wanted or wanted & _MATERIAL_IS_ALSO.get(s, set()) for s in said):
+        return True
+    families = {_MATERIAL_FAMILY.get(w) for w in wanted}
+    if all(_MATERIAL_FAMILY.get(s) and _MATERIAL_FAMILY.get(s) not in families
+           and None not in families for s in said):
+        return False
+    return None
+
+
+def _service_verdict(needs, fact) -> bool | None:
+    wanted = {n.value for n in needs}
+    value = _fold(fact.get("field_value"))
+    named = {c.value for c in condition_choice.extract(_fold(fact.get("field_name")))
+             if c.kind == "service"}
+    if named & wanted:
+        # A field ABOUT the service ("Sour service", "H2S service"): yes / no.
+        if value in _YES_WORDS:
+            return True
+        if value in _NO_WORDS:
+            return False
+    absent = set()
+    if _NOT_SOUR.search(value):
+        absent.add("sour")
+        value = _NOT_SOUR.sub(" ", value)
+    present = {c.value for c in condition_choice.extract(value) if c.kind == "service"}
+    if present & wanted:
+        return True
+    if wanted and wanted <= absent:
+        return False
+    return None
+
+
+def _roles(kind: str, needs, facts: list[dict], condition: str) -> list[tuple[dict, str | None]]:
+    """(fact, NPS/DN prefix) for every fact whose ROLE can establish `kind`."""
+    out = []
+    folded = _fold(condition)
+    which = ("operating" if _contains_term(folded, "operating")
+             and not _contains_term(folded, "design") else "design")
+    for fact in facts:
+        name, _item = _canonical(fact)
+        if kind == "size":
+            if _SIZE_ROLE.search(name) and not condition_choice._MEASURE_WORD.search(name):
+                prefix = "NPS" if re.search(r"\bnps\b", name) else \
+                    "DN" if re.search(r"\bdn\b", name) else None
+                out.append((fact, prefix))
+        elif kind in ("temperature", "pressure"):
+            if f"{which} {kind}" in name:
+                out.append((fact, None))
+        elif kind in ("class", "pn"):
+            if name == "flange rating" or _CLASS_ROLE.fullmatch(name):
+                out.append((fact, None))
+        elif kind == "service":
+            if _SERVICE_ROLE.search(name):
+                out.append((fact, None))
+        elif kind == "material":
+            out.extend((f, None) for f in _candidate_facts(SHAPE_MATERIAL, [fact]))
+    return out
+
+
+def _same_item(facts: list[dict], about: dict | None) -> list[dict]:
+    """Facts that can speak for the item `about` is about: the same equipment
+    tag or nozzle mark, or no item at all (a sheet-wide field). N1's size says
+    nothing about N3's flange."""
+    if not about:
+        return list(facts)
+    tag = about.get("equipment_tag")
+    item = _canonical(about)[1]
+    out = []
+    for fact in facts:
+        if tag and fact.get("equipment_tag") and fact.get("equipment_tag") != tag:
+            continue
+        other = _canonical(fact)[1]
+        if item and other and other != item:
+            continue
+        out.append(fact)
+    return out
+
+
+def _aggregate(rule: str, verdicts: list[bool | None]) -> bool | None:
+    if not verdicts:
+        return None
+    if rule == _UNANIMOUS:
+        if all(v is True for v in verdicts):
+            return True
+        if all(v is False for v in verdicts):
+            return False
+        return None
+    if rule == _ANY_INSIDE:
+        if any(v is True for v in verdicts):
+            return True
+        if all(v is False for v in verdicts):
+            return False
+        return None
+    # _EXPLICIT: a stated yes or no decides; both stated is a conflict.
+    if True in verdicts and False not in verdicts:
+        return True
+    if False in verdicts and True not in verdicts:
+        return False
+    return None
+
+
+def _judge_kind(kind: str, needs, facts, condition: str) -> dict:
+    """{verdict, fact, reason} for one kind of the condition."""
+    label = " or ".join(repr(n.text) for n in needs)
+    shown = "size" if kind == "size" else "class/PN rating" if kind in ("class", "pn") \
+        else kind
+    candidates = _roles(kind, needs, facts, condition)
+    stated = [(f, p) for f, p in candidates if not _is_empty(f.get("field_value"))]
+    if not candidates:
+        return {"verdict": None, "fact": None,
+                "reason": f"no datasheet field states the {shown} by role, so "
+                          f"{label} is not established"}
+    if not stated:
+        return {"verdict": None, "fact": None,
+                "reason": f"{len(candidates)} field(s) that could state the {shown} "
+                          f"are blank or placeholders, so {label} is not established"}
+    rule = _ANY_INSIDE if kind == "material" else _EXPLICIT if kind == "service" \
+        else _UNANIMOUS
+    judged = []
+    for fact, prefix in stated:
+        if kind == "material":
+            v = _material_verdict(needs, fact)
+        elif kind == "service":
+            v = _service_verdict(needs, fact)
+        elif kind in ("class", "pn"):
+            v = _interval_verdict(needs, _read_class(fact))
+        else:
+            v = _interval_verdict(needs, _read_interval(kind, fact, prefix))
+        judged.append((fact, v, _low_trust(fact)))
+    trusted = [(f, v) for f, v, why in judged if why is None]
+    untrusted = [(f, why) for f, v, why in judged if why is not None]
+    decided = _aggregate(rule, [v for _f, v in trusted])
+    if not trusted:
+        f, why = untrusted[0]
+        return {"verdict": None, "fact": f,
+                "reason": f"the only field(s) stating the {shown} are not yet "
+                          f"trusted - {_where(f)}, and {why}"}
+    if untrusted and _aggregate(rule, [v for _f, v, _w in judged]) != decided:
+        f, why = untrusted[0]
+        return {"verdict": None, "fact": f,
+                "reason": f"the answer would change with an untrusted reading - "
+                          f"{_where(f)}, and {why}"}
+    if decided is True:
+        f = next(f for f, v in trusted if v is True)
+        return {"verdict": True, "fact": f, "reason": f"{_where(f)}, inside {label}"}
+    if decided is False:
+        outside = [f for f, v in trusted if v is False]
+        more = f" ({len(outside)} field(s) read, all outside)" if len(outside) > 1 else ""
+        return {"verdict": False, "fact": outside[0],
+                "reason": f"{_where(outside[0])}, which is outside {label}{more}"}
+    unread = [f for f, v in trusted if v is None]
+    if unread:
+        return {"verdict": None, "fact": unread[0],
+                "reason": f"{_where(unread[0])}, which the reader cannot place "
+                          f"inside or outside {label}"}
+    f = trusted[0][0]
+    return {"verdict": None, "fact": f,
+            "reason": f"the fields stating the {shown} disagree about {label} "
+                      f"(for one, {_where(f)})"}
+
+
+def _evaluate_read(reading: _Reading, condition: str, facts: list[dict]) -> dict:
+    shape = "read:" + "+".join(sorted({n.kind for n in reading.needs}))
+    if reading.problem:
+        return _result(UNKNOWN, shape, condition,
+                       f"the condition {condition!r} cannot be decided: "
+                       f"{reading.problem}")
+    by_kind: dict[str, list] = {}
+    for need in reading.needs:
+        by_kind.setdefault(need.kind, []).append(need)
+    judged = {k: _judge_kind(k, v, facts, condition) for k, v in by_kind.items()}
+    # ALL MUST HOLD. One kind clearly outside is enough to show the condition
+    # does not hold - unless same-kind alternatives were left unread, in which
+    # case "outside the ones read" is not "outside the condition".
+    for kind, got in judged.items():
+        if got["verdict"] is False and not reading.alternatives_unread:
+            return _result(NOT_SATISFIED, shape, condition, got["reason"],
+                           {**_evidence_of(got["fact"]), "match_kind": "condition_reader"})
+    if all(got["verdict"] is True for got in judged.values()):
+        first = next(iter(judged.values()))
+        return _result(SATISFIED, shape, condition,
+                       "; ".join(g["reason"] for g in judged.values()),
+                       {**_evidence_of(first["fact"]), "match_kind": "condition_reader"})
+    reasons = [g["reason"] for g in judged.values() if g["verdict"] is not True]
+    if reading.alternatives_unread and any(g["verdict"] is False for g in judged.values()):
+        reasons.append(f"the condition also lists {' '.join(reading.unread)!r}, "
+                       f"which the reader does not decide")
+    return _result(UNKNOWN, shape, condition, "; ".join(reasons))
+
+
+def evaluate(requirement: dict, facts: list[dict] | None,
+             about: dict | None = None) -> dict | None:
     """Is this requirement's condition established, and does it hold?
 
     Returns None when there is no condition to evaluate — the caller then
@@ -369,12 +867,26 @@ def evaluate(requirement: dict, facts: list[dict] | None) -> dict | None:
     SATISFIED.** A caller that does not supply the evidence does not get a
     verdict; that is what makes this safe at every call site rather than only on
     the one path that remembers to pass it.
+
+    `about` is the datasheet fact being compared, when there is one. Only facts
+    about the same equipment tag or nozzle mark (or about no item) may then
+    establish the condition - see `_same_item`.
+
+    Order: the condition READER first (`read_condition`); when it reads nothing
+    in the condition, the v1 shape gate below, exactly as before.
     """
     if (requirement or {}).get("requirement_type") != GATED_TYPE:
         return None
     condition = (requirement or {}).get("condition")
     if not _fold(condition):
         return None
+    reading = read_condition(condition)
+    if reading is not None:
+        shape = "read:" + "+".join(sorted({n.kind for n in reading.needs}))
+        if facts is None:
+            return _result(UNKNOWN, shape, condition,
+                           "no submittal facts were supplied to evaluate against")
+        return _evaluate_read(reading, condition, _same_item(list(facts), about))
     shape = classify(condition)
     if shape == SHAPE_UNRECOGNISED:
         return _result(UNKNOWN, shape, condition,

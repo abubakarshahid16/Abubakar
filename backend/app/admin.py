@@ -52,7 +52,7 @@ from pydantic import BaseModel, Field
 from . import auth as auth_mod
 from . import errors
 from .config import settings
-from .db import connect
+from .db import connect, schema_once
 
 # ------------------------------------------------------------- error codes
 #
@@ -96,6 +96,7 @@ _EMAIL = re.compile(r"^[^@\s]+@[^@\s.]+(\.[^@\s.]+)+$")
 # ------------------------------------------------------------------ storage
 
 
+@schema_once
 def ensure_schema() -> None:
     """Create the setup-token table if it is not there yet.
 
@@ -148,26 +149,31 @@ def _iso(value: str | None) -> str | None:
 
 def _audit(action: str, actor: dict | None, resource_type: str,
            resource_id: str | None, outcome: str = "ok",
-           detail: str | None = None) -> None:
+           detail: str | None = None, *, conn=None) -> None:
     """Durable record of an administrative change.
 
     `detail` carries ids and role names only. Never an email body, a document
     title or a token - the audit table is the one most likely to be exported.
+
+    P5: NEVER SWALLOWED. It used to catch every error so "an unwritable audit
+    must not block the change" - which meant a grant, a revoke or a new user
+    could stand with no record of who did it. Given `conn`, it is written in
+    the change's own transaction and they commit or roll back together;
+    without one, a failure raises instead of passing silently.
     """
-    conn = connect()
-    try:
-        with conn:
-            conn.execute(
-                """INSERT INTO audit_events
-                       (at, actor_user_id, actor_username, action,
-                        resource_type, resource_id, outcome, detail)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (_now(), (actor or {}).get("id"),
-                 ((actor or {}).get("email") or "unauthenticated")[:200],
-                 action, resource_type, resource_id, outcome, detail),
-            )
-    except Exception:  # noqa: BLE001 - an unwritable audit must not block the change
-        pass
+    args = (_now(), (actor or {}).get("id"),
+            ((actor or {}).get("email") or "unauthenticated")[:200],
+            action, resource_type, resource_id, outcome, detail)
+    sql = """INSERT INTO audit_events
+                 (at, actor_user_id, actor_username, action,
+                  resource_type, resource_id, outcome, detail)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)"""
+    if conn is not None:
+        conn.execute(sql, args)
+        return
+    own = connect()
+    with own:
+        own.execute(sql, args)
 
 
 # ------------------------------------------------------------- the guard
@@ -506,6 +512,13 @@ def issue_password_reset(user_id: str, actor: dict | None) -> dict:
             (user_id, hashlib.sha256(token.encode("utf-8")).hexdigest(),
              now, expires.isoformat(timespec="seconds")),
         )
+        # An administrator resets a password because the old one is lost OR
+        # known to somebody else. In the second case the sessions already
+        # issued are the exposure, so they end now rather than when the user
+        # gets round to redeeming the token (or in 8 hours).
+        conn.execute(
+            "UPDATE users SET token_epoch = token_epoch + 1 WHERE id = ?",
+            (user_id,))
     _audit("admin_password_reset_issued", actor, "user", user_id)
     return {
         "user_id": user_id,
@@ -552,8 +565,15 @@ def redeem_password_token(token: str, password: str) -> dict:
         if consumed.rowcount != 1:
             raise auth_mod.AuthError(
                 errors.INVALID_RESET_TOKEN, "That reset token is invalid or has expired.")
-        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?",
-                     (password_hash, row["user_id"]))
+        # AND EVERY SESSION ISSUED UNDER THE OLD PASSWORD ENDS HERE. A reset
+        # is what an owner does when the old password may be known to someone
+        # else; leaving that someone's 8-hour token valid made the reset
+        # cosmetic. `token_epoch` is the forced-logout counter every token
+        # carries and `auth.resolve_user_id` compares on each request.
+        conn.execute(
+            "UPDATE users SET password_hash = ?, token_epoch = token_epoch + 1 "
+            "WHERE id = ?",
+            (password_hash, row["user_id"]))
     _audit("password_reset", {"id": row["user_id"], "email": row["email"]},
            "session", None)
     return {"reset": True}
@@ -675,8 +695,8 @@ def grant(body: GrantRequest, actor: dict | None) -> dict:
                VALUES (?, ?, 'read', ?, ?)""",
             (body.document_id, role["id"], _now(), (actor or {}).get("id")),
         )
-    _audit("admin_grant", actor, "document", body.document_id,
-           detail=role["name"])
+        _audit("admin_grant", actor, "document", body.document_id,
+               detail=role["name"], conn=conn)
     return {"document_id": body.document_id, "discipline": role["name"],
             "granted": True}
 
@@ -703,8 +723,8 @@ def revoke_grant(body: GrantRequest, actor: dict | None) -> dict:
             "WHERE document_id = ? AND role_id = ? AND permission = 'read'",
             (body.document_id, role["id"]),
         )
-    _audit("admin_revoke", actor, "document", body.document_id,
-           detail=role["name"])
+        _audit("admin_revoke", actor, "document", body.document_id,
+               detail=role["name"], conn=conn)
     return {"document_id": body.document_id, "discipline": role["name"],
             "granted": False}
 

@@ -80,6 +80,12 @@ details:not([open]) > :not(summary) {
 }
 
 @theme {
+  /* 2g: STATUS PILLS, measured (WCAG AA, text on its own fill): review
+     9.4:1, fail 9.9:1, pass 11.1:1, conditional 10.8:1 on the dark theme. */
+  --color-pill-review-fg: #FCD58A; --color-pill-review-bg: #3B2F14; --color-pill-review-border: #8A6A22;
+  --color-pill-fail-fg: #FFC2C2; --color-pill-fail-bg: #3D1C1F; --color-pill-fail-border: #9B3B42;
+  --color-pill-pass-fg: #A7F3D0; --color-pill-pass-bg: #10302A; --color-pill-pass-border: #2F7A62;
+  --color-pill-cond-fg: #BAE0FD; --color-pill-cond-bg: #12293D; --color-pill-cond-border: #3D6E99;
   /* Phase 2 foundations: every spacing step is a 4px multiple, shared motion
      timings keep feedback predictable, and the radius scale is reusable. */
   --spacing-1: 0.25rem;
@@ -147,6 +153,12 @@ details:not([open]) > :not(summary) {
    build nobody has reviewed. Wire the toggle first, then decide whether to
    honour the OS preference.                                             */
 :root[data-theme="dark"] {
+  /* 2g: STATUS PILLS, measured (WCAG AA, text on its own fill): review
+     9.4:1, fail 9.9:1, pass 11.1:1, conditional 10.8:1 on the dark theme. */
+  --color-pill-review-fg: #FCD58A; --color-pill-review-bg: #3B2F14; --color-pill-review-border: #8A6A22;
+  --color-pill-fail-fg: #FFC2C2; --color-pill-fail-bg: #3D1C1F; --color-pill-fail-border: #9B3B42;
+  --color-pill-pass-fg: #A7F3D0; --color-pill-pass-bg: #10302A; --color-pill-pass-border: #2F7A62;
+  --color-pill-cond-fg: #BAE0FD; --color-pill-cond-bg: #12293D; --color-pill-cond-border: #3D6E99;
   --color-ink-950: #101315;
   --color-ink-900: #16191C;
   --color-ink-850: #1A1F23;
@@ -174,6 +186,13 @@ details:not([open]) > :not(summary) {
 }
 
 :root[data-theme="light"] {
+  /* 2g: STATUS PILLS on the light theme. The old pale "-200" text on a
+     white card was the unreadable yellow pill. Measured: review 7.8:1,
+     fail 7.7:1, pass 7.2:1, conditional 7.8:1. */
+  --color-pill-review-fg: #6B4200; --color-pill-review-bg: #FFF1CC; --color-pill-review-border: #D9A93B;
+  --color-pill-fail-fg: #8A1C24; --color-pill-fail-bg: #FDE4E4; --color-pill-fail-border: #E08A90;
+  --color-pill-pass-fg: #0B5A3E; --color-pill-pass-bg: #DDF5EA; --color-pill-pass-border: #7CC6A5;
+  --color-pill-cond-fg: #0B4A7A; --color-pill-cond-bg: #DDEEFB; --color-pill-cond-border: #86B8E0;
   --color-ink-950: #e8eaec;
   --color-ink-900: #f4f5f6;
   --color-ink-850: #eef0f2;

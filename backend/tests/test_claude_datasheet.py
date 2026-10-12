@@ -127,10 +127,13 @@ def test_a_thousands_separator_is_not_a_different_number():
     quote = "Required flow      Offered flow\n9,970 kg/hr"
     out = _gate(_fact("Required flow", "9970", quote, kind="required"))
     assert len(out["accepted"]) == 1
-    # The same row with its printed unit: `claims` does not know "kg/hr"
-    # (measured, see `datasheets.measure_value`), so the gate names THAT and
-    # not the number.
+    # The same row with its printed unit: `claims` knows "kg/hr" since the
+    # compound-rate grammar (2026-09-30; it used not to, which is what this
+    # test once asserted), so it is kept.
     out = _gate(_fact("Required flow", "9970", quote, unit="kg/hr", kind="required"))
+    assert len(out["accepted"]) == 1
+    # A unit `claims` does not know is still named as THAT, not as the number.
+    out = _gate(_fact("Required flow", "9970", quote, unit="kg/batch", kind="required"))
     assert out["counts"] == {cd.Reason.UNIT_UNRECOGNISED.value: 1}
 
 
@@ -342,3 +345,32 @@ def test_the_module_imports_no_http_library():
     source = pathlib.Path(cd.__file__).read_text()
     for name in ("httpx", "requests", "urllib", "aiohttp", "socket"):
         assert f"import {name}" not in source and f"from {name}" not in source
+
+
+# ------------------------------------ a limit stops the run (M1165)
+
+def test_read_datasheet_keeps_the_pages_read_before_a_usd_limit():
+    """Page 1's two calls were made and paid for; the limit refuses page 3's
+    first. Page 1's accepted facts are kept, and the stop is reported."""
+    from app import claude_spend
+    texts = {1: PAGE, 2: "   ", 3: PAGE}
+    doc = _ingest_page(pathlib.Path(settings.data_dir) / "d.pdf")
+    good = _fake(*THREE)
+    n = {"n": 0}
+
+    def call(prompt):
+        if n["n"] >= 2:
+            raise claude_spend.BudgetExceeded("cap")
+        n["n"] += 1
+        return good(prompt)
+    out = cd.read_datasheet(doc, allowed_document_ids=_scope(doc), model_call=call,
+                            page_text_of=texts.__getitem__, pages=[1, 2, 3])
+    assert len(out["accepted"]) == 3 and {f["page"] for f in out["accepted"]} == {1}
+    assert out["stopped"] == {"reason": "usd_cap_reached", "done": 2, "left": 1}
+
+
+def test_read_datasheet_that_finishes_is_not_stopped():
+    doc = _ingest_page(pathlib.Path(settings.data_dir) / "d.pdf")
+    out = cd.read_datasheet(doc, allowed_document_ids=_scope(doc), model_call=_fake(*THREE),
+                            page_text_of={1: PAGE}.__getitem__, pages=[1])
+    assert out["stopped"] is None

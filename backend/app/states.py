@@ -62,6 +62,41 @@ TERMINAL_STATES = frozenset({READY, NO_SEARCHABLE_CONTENT, STORED_NOT_INDEXED, F
 #: States in which the document can already answer questions.
 ANSWERABLE_STATES = frozenset({PARTIALLY_SEARCHABLE, READY})
 
+#: FINISHED AND NOT ANSWERABLE: `failed`, `no_searchable_content`,
+#: `stored_not_indexed`. Search never returns a chunk of a document in one of
+#: these (`searchable_scope`, read by keyword.search and vector_store.search).
+#: A `failed` document used to keep answering from the chunks an earlier pass
+#: had indexed while the Documents page called it failed - two contradictory
+#: statements about one document (audit 2026-09-30).
+#:
+#: THE DECISION, and why it is not simply "only ANSWERABLE_STATES". A document
+#: IN PROGRESS (queued, extracting, chunking, indexing_keyword) that already
+#: has chunks is being RE-processed; those chunks are its last complete build,
+#: replaced atomically by `chunk_document`, and hiding them would take a
+#: document out of search for the length of every re-process. So in-progress
+#: documents keep their last build; only a document that has STOPPED without
+#: being answerable is excluded. A first-time in-progress document has no
+#: chunks, so it is unaffected either way.
+NOT_SEARCHABLE_STATES = TERMINAL_STATES - ANSWERABLE_STATES
+
+
+def searchable_scope(allowed_document_ids: frozenset[str]) -> frozenset[str]:
+    """Narrow a caller's scope to documents search may answer from.
+
+    Only ever NARROWS (CLAUDE.md rule 5): the result is a subset of what was
+    passed in. Applied before ranking, like the access scope, so a failed
+    document cannot take a candidate slot either.
+    """
+    if not allowed_document_ids:
+        return frozenset()
+    from .db import connect   # lazy: this module stays importable without a DB
+
+    marks = ",".join("?" * len(NOT_SEARCHABLE_STATES))
+    stopped = {r[0] for r in connect().execute(
+        f"SELECT id FROM documents WHERE status IN ({marks})",
+        tuple(sorted(NOT_SEARCHABLE_STATES)))}
+    return frozenset(allowed_document_ids) - stopped
+
 #: A document is only "ready" when embedding has finished. Anything earlier
 #: that can answer is "partially searchable" - never labelled ready.
 LEGAL_TRANSITIONS: dict[str, frozenset[str]] = {

@@ -10,6 +10,9 @@ cannot be applied from inside the ASGI application:
     it was reported fixed while still being sent.
   * `host` - bound to loopback so document text is never reachable from the
     network.
+  * `timeout_graceful_shutdown` - without it, Ctrl+C waits forever for any
+    request the browser still holds open, and the operator has to press it
+    a second time to force quit. Five seconds, then open requests are cut.
 
     python run.py
 """
@@ -50,6 +53,10 @@ import uvicorn  # noqa: E402 - after the version check, deliberately
 from app.config import settings  # noqa: E402
 
 
+#: How long one Ctrl+C waits for open requests before stopping anyway.
+GRACEFUL_SHUTDOWN_SECONDS = 5
+
+
 def main() -> None:
     # THE SERVER OWNS THE LIVE DATABASE. Marked here and only here, before the
     # app is imported, so `db.connect()` lets this process - and the worker
@@ -64,6 +71,7 @@ def main() -> None:
         server_header=False,
         date_header=True,
         log_level="info",
+        timeout_graceful_shutdown=GRACEFUL_SHUTDOWN_SECONDS,
     )
 
 

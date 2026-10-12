@@ -145,3 +145,225 @@ def test_an_unrelated_operational_error_still_raises():
 
     with pytest.raises(sqlite3.OperationalError):
         db.add_column_if_missing(conn, "t", "extra", "NOT A REAL TYPE(")
+
+
+class _SchemaChangedOnce:
+    """A connection whose first ALTER fails as SQLite fails it when another
+    connection changed the schema between prepare and step."""
+
+    def __init__(self, conn, failures: int = 1):
+        self._conn, self.failures = conn, failures
+
+    def execute(self, sql, *args):
+        if sql.startswith("ALTER TABLE") and self.failures:
+            self.failures -= 1
+            raise sqlite3.OperationalError("database schema has changed")
+        return self._conn.execute(sql, *args)
+
+
+def test_a_schema_changed_answer_is_retried_not_raised(fresh_db):
+    """THE MUTATION TARGET (M1055). Seen once in CI (2026-09-26): the race's
+    loser can be told "database schema has changed" rather than "duplicate
+    column". It re-reads and retries; the column ends up there."""
+    db.init_db()
+    conn = db.connect()
+    conn.execute("CREATE TABLE t_race (id TEXT)")
+    assert db.add_column_if_missing(_SchemaChangedOnce(conn), "t_race", "extra", "TEXT") is True
+    assert "extra" in db.columns_of(conn, "t_race")
+
+
+def test_a_schema_that_never_settles_still_fails_loudly(fresh_db):
+    """Bounded: a schema that keeps changing is an error, never a silent pass."""
+    db.init_db()
+    conn = db.connect()
+    conn.execute("CREATE TABLE t_race2 (id TEXT)")
+    with pytest.raises(sqlite3.OperationalError, match="kept changing"):
+        db.add_column_if_missing(_SchemaChangedOnce(conn, failures=99), "t_race2", "extra", "TEXT")
+    assert "extra" not in db.columns_of(conn, "t_race2")
+
+
+class _SchemaVersionChangedOnce:
+    """A connection whose first PRAGMA schema_version read fails as SQLite
+    fails it when another connection's ALTER lands between this statement's
+    prepare and its step."""
+
+    def __init__(self, conn, failures: int = 1):
+        self._conn, self.failures = conn, failures
+
+    def execute(self, sql, *args):
+        if sql.startswith("PRAGMA schema_version") and self.failures:
+            self.failures -= 1
+            raise sqlite3.OperationalError("database schema has changed")
+        return self._conn.execute(sql, *args)
+
+
+def test_schema_version_itself_is_retried_not_raised(fresh_db):
+    """THE MUTATION TARGET (M1056). Found 2026-09-28: `schema_once` reads
+    `db._schema_version` around every migration it memoises, at a call site
+    `add_column_if_missing`'s own retry does not cover - the exact race
+    M1055 already fixed, at a new call site. `test_two_threads_can_migrate_
+    the_same_database` and `test_access_routes` both failed on this in CI
+    before the fix."""
+    db.init_db()
+    conn = db.connect()
+    assert db._schema_version(_SchemaVersionChangedOnce(conn)) == db._schema_version(conn)
+
+
+def test_schema_version_that_never_settles_still_fails_loudly(fresh_db):
+    """Bounded here too: never an infinite retry, never a silent wrong answer."""
+    db.init_db()
+    conn = db.connect()
+    with pytest.raises(sqlite3.OperationalError, match="kept changing"):
+        db._schema_version(_SchemaVersionChangedOnce(conn, failures=99))
+
+
+
+# ---------------------------------------------------------------------------
+# ISSUE #325: ONE MIGRATOR AT A TIME, AND A WHOLE-MIGRATION RETRY.
+#
+# Each retry above guards ONE statement, and the race kept moving to the next
+# one: on 2026-09-29 CI failed on a plain `CREATE TABLE IF NOT EXISTS` inside
+# `review.ensure_schema` (1, then 2, of 24 calls). Reproduced here with
+# `sys.setswitchinterval(1e-6)` and 150 rounds: 1 failure in 300 calls, three
+# runs out of three, on main. With the lock: 0 in 1,500. The two tests below
+# pin the two halves of the fix deterministically, because the race itself
+# only fires under a scheduler that interleaves at the wrong instant.
+
+
+def test_only_one_thread_runs_a_migration_and_the_second_finds_it_done(fresh_db):
+    """Two threads miss the memo together. Without the lock both run the
+    migration at the same time - exactly the concurrent DDL that makes SQLite
+    answer 'schema has changed'. With it, one runs and the other, re-checking
+    under the lock, finds the work done and runs nothing."""
+    import time
+
+    db.init_db()
+    db.reset_schema_memo()
+    state = {"active": 0, "most": 0, "runs": 0}
+    guard = threading.Lock()
+
+    @db.schema_once
+    def migrate():
+        with guard:
+            state["active"] += 1
+            state["runs"] += 1
+            state["most"] = max(state["most"], state["active"])
+        time.sleep(0.2)
+        db.connect().execute("CREATE TABLE IF NOT EXISTS t_once (id TEXT)")
+        with guard:
+            state["active"] -= 1
+
+    failures = _race(migrate, rounds=1)
+
+    assert not failures
+    assert state["most"] == 1, "two threads ran the same migration at once"
+    assert state["runs"] == 1, "the second thread re-ran a migration already done"
+
+
+def test_schema_changed_from_any_statement_reruns_the_whole_migration(fresh_db):
+    """Not only the ALTER: any statement in a migration can be told the schema
+    changed (a second PROCESS is not stopped by the lock). The migration is
+    idempotent, so it is run again - bounded, and never swallowed."""
+    db.init_db()
+    db.reset_schema_memo()
+    calls = {"n": 0}
+
+    @db.schema_once
+    def flaky():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise sqlite3.OperationalError("database schema has changed")
+        db.connect().execute("CREATE TABLE IF NOT EXISTS t_rerun (id TEXT)")
+        return "done"
+
+    assert flaky() == "done"
+    assert calls["n"] == 2
+    assert "id" in db.columns_of(db.connect(), "t_rerun")
+
+
+def test_a_migration_whose_schema_never_settles_fails_loudly(fresh_db):
+    db.init_db()
+    db.reset_schema_memo()
+
+    @db.schema_once
+    def never():
+        raise sqlite3.OperationalError("database schema has changed")
+
+    with pytest.raises(sqlite3.OperationalError, match="kept changing while running"):
+        never()
+
+
+def test_other_migration_errors_are_not_retried(fresh_db):
+    db.init_db()
+    db.reset_schema_memo()
+    calls = {"n": 0}
+
+    @db.schema_once
+    def broken():
+        calls["n"] += 1
+        raise sqlite3.OperationalError("near \"TABEL\": syntax error")
+
+    with pytest.raises(sqlite3.OperationalError, match="syntax error"):
+        broken()
+    assert calls["n"] == 1
+
+
+# ---------------------------------------------------------------------------
+# ISSUE #325, THE READER HALF (honesty audit entry 80). PR #332's lock stops
+# two migrators overlapping; it does not protect a READER. On main 35e4c2c a
+# plain SELECT in access.scope_for_user (access.py:147) was told "database
+# schema has changed" while the other request thread ran a first-time
+# migration. Every statement now gets the retry SQLite asks for, once, at the
+# connection.
+
+
+class _FailsFirst(sqlite3.Connection):
+    """Below SchemaRetryConnection in the MRO: its first `n` executes answer
+    as SQLite does when another connection's DDL lands before the step."""
+
+    fail = 1
+    calls = 0
+
+    def execute(self, sql, parameters=(), /):
+        _FailsFirst.calls += 1
+        if _FailsFirst.fail:
+            _FailsFirst.fail -= 1
+            raise sqlite3.OperationalError("database schema has changed")
+        return super().execute(sql, parameters)
+
+
+class _Probe(db.SchemaRetryConnection, _FailsFirst):
+    pass
+
+
+def test_every_connection_the_app_opens_retries_a_schema_change(fresh_db):
+    db.init_db()
+    assert isinstance(db.connect(), db.SchemaRetryConnection)
+
+
+def test_a_reader_told_the_schema_changed_runs_its_statement_again():
+    _FailsFirst.fail = 1
+    conn = sqlite3.connect(":memory:", factory=_Probe)
+    conn.execute("CREATE TABLE t (id TEXT)")          # the retried statement
+    conn.execute("INSERT INTO t VALUES ('a')")
+    assert conn.execute("SELECT id FROM t").fetchall() == [("a",)]
+
+
+def test_a_schema_that_never_settles_still_raises_for_a_reader():
+    _FailsFirst.fail = 99
+    conn = sqlite3.connect(":memory:", factory=_Probe)
+    with pytest.raises(sqlite3.OperationalError, match="schema has changed"):
+        conn.execute("SELECT 1")
+    _FailsFirst.fail = 0
+
+
+def test_a_reader_is_not_retried_on_any_other_error():
+    """A locked database or a missing table is not a schema change: one
+    attempt, raised at once. Retrying "database is locked" would multiply the
+    30-second busy timeout."""
+    _FailsFirst.fail = 0
+    conn = sqlite3.connect(":memory:", factory=_Probe)
+    _FailsFirst.calls = 0
+    with pytest.raises(sqlite3.OperationalError, match="no such table"):
+        conn.execute("SELECT * FROM missing")
+    assert _FailsFirst.calls == 1

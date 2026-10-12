@@ -15,7 +15,7 @@ import type { Health } from "../api/client";
 const healthOnline: Health = {
   ok: true,
   embed_model_present: true,
-  answer_model_present: true,
+  answer_model_configured: true,
   ingestion: {
     // /api/health is unauthenticated and carries only
     // these three. The full worker status is on /api/metrics.
@@ -50,15 +50,22 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-beforeEach(() => vi.useRealTimers());
-afterEach(() => vi.unstubAllGlobals());
+beforeEach(() => {
+  vi.useRealTimers();
+  // the production poll is 15 s; these tests wait for several polls
+  vi.stubEnv("VITE_HEALTH_POLL_MS", "400");
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
 
 describe("shell navigation", () => {
   it("lists all four views and marks the unbuilt ones", async () => {
     mockFetch(() => json(healthOnline));
     render(<App />);
 
-    for (const label of ["Documents", "Document Q&A", "Ingestion", "Dashboard"]) {
+    for (const label of ["Documents", "Chat", "Ingestion", "Dashboard"]) {
       expect(screen.getByRole("button", { name: new RegExp(label) })).toBeInTheDocument();
     }
     // All four are built now. Ingestion was the last placeholder; the badge
@@ -164,5 +171,57 @@ describe("connection state", () => {
     const before = attempts;
     await user.click(screen.getByRole("button", { name: /retry connection/i }));
     await waitFor(() => expect(attempts).toBeGreaterThan(before));
+  });
+});
+
+describe("connection stability", () => {
+  it("does not hand the screen to the outage banner for one failed poll", async () => {
+    let polls = 0;
+    let failOn = -1;
+    mockFetch((url) => {
+      if (!url.includes("/health")) return json([]);
+      polls += 1;
+      return polls === failOn ? Promise.reject(new TypeError("blip")) : json(healthOnline);
+    });
+    render(<App />);
+    expect(await screen.findByText(/answer model configured/i)).toBeInTheDocument();
+
+    failOn = polls + 1;
+    // Wait until the poll AFTER the failed one has been sent: with a single
+    // failure treated as an outage, the banner is on screen at this moment
+    // and the view beneath it has been unmounted.
+    await waitFor(() => expect(polls).toBeGreaterThan(failOn), { timeout: 9000 });
+    expect(screen.queryByText(/backend is not running/i)).toBeNull();
+    expect(screen.queryByText(/Backend offline/i)).toBeNull();
+  }, 15000);
+
+  it("does not say the backend is not running when health ANSWERS with an error", async () => {
+    let polls = 0;
+    let failing = false;
+    mockFetch((url) => {
+      if (!url.includes("/health")) return json([]);
+      polls += 1;
+      return failing
+        ? new Response(JSON.stringify({ detail: "database is locked" }), {
+            status: 500, headers: { "Content-Type": "application/json" },
+          })
+        : json(healthOnline);
+    });
+    render(<App />);
+    expect(await screen.findByText(/answer model configured/i)).toBeInTheDocument();
+
+    failing = true;
+    const from = polls;
+    await waitFor(() => expect(polls).toBeGreaterThan(from + 1), { timeout: 12000 });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText(/backend is not running/i)).toBeNull();
+  }, 20000);
+});
+
+describe("answer model badge (#656)", () => {
+  it("says no answer model is configured when the health field is false", async () => {
+    mockFetch(() => json({ ...healthOnline, answer_model_configured: false }));
+    render(<App />);
+    expect(await screen.findByText(/no answer model configured/i)).toBeInTheDocument();
   });
 });

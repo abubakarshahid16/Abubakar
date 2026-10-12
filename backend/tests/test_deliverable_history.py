@@ -32,6 +32,9 @@ def test_overdue_deliverable_creates_acknowledgeable_reminder():
         {"wbs_code": "2.1", "title": "Late submittal", "deliverable_type": "drawing",
          "due_date": "2020-01-01", "status": "under_review"}, created_by="owner-1",
     )
+    # W7 (#478): reading never creates; the background job does.
+    assert deliverables.reminder_events() == []
+    assert deliverables.generate_reminders() == 1
     reminders = deliverables.reminder_events()
     assert len(reminders) == 1
     assert reminders[0]["deliverable_id"] == item["id"]
@@ -88,7 +91,9 @@ def test_wbs_parent_child_workspace_and_cycle_guard():
         {"wbs_code": "5.1", "parent_id": parent["id"], "title": "Structural submittal",
          "deliverable_type": "drawing"}, created_by="owner",
     )
-    view = deliverables.workspace(parent["id"], allowed_document_ids=frozenset())
+    # A caller with at least one grant: since r2 S3 a document-less node is
+    # not open to a caller who holds none.
+    view = deliverables.workspace(parent["id"], allowed_document_ids=frozenset({"doc_any"}))
     assert view is not None
     assert [row["id"] for row in view["children"]] == [child["id"]]
     with pytest.raises(ValueError, match="cycle"):

@@ -1,9 +1,14 @@
 """Geometry reader: tables and forms read from PDF positions (#193 section 5.1).
 
-PROPOSAL-STAGE CODE. Nothing in the running application imports this module;
-it is not wired into any live route, ingest step or review. It exists so the
-owner can measure what a geometry-only reader gets right on real submittal
-pages before anything depends on it.
+BEHIND FLAGS (#193 plan B4, order 5.5): the full reader OFF by default, its
+TABLE path alone ON by default (owner decision 2026-09-25). The only caller is
+`datasheets.extract_facts`, and only when `settings.geometry_reader_enabled`
+(env GEOMETRY_READER_ENABLED) is on: it then writes `read_page_rows` as
+`extraction_method='geometry'` facts beside the rule readers' facts, which
+always win. `settings.geometry_table_reader_enabled` (env
+GEOMETRY_TABLE_READER_ENABLED) writes the TABLE rows alone - schedules such
+as a nozzle table - without the form path. With both off nothing calls this
+module.
 
 Pure functions over one `pymupdf.Page`. No model, no network, no database.
 
@@ -30,6 +35,8 @@ from __future__ import annotations
 import re
 import statistics
 from typing import Any
+
+from . import blank_markers, claims
 
 # --------------------------------------------------------------------------
 # Units
@@ -186,6 +193,55 @@ def _is_data_like(row: list[str], gutter: set[int]) -> bool:
     return sum(1 for v in cells if v and _NUMERIC.match(v)) >= 2
 
 
+_STARTS_WITH_A_NUMBER = re.compile(r"^[<>=~\u2264\u2265\u00b1+\-\u2212]?\s*\d")
+
+
+def _states_a_value_beside_a_label(row: list[str], gutter: set[int]) -> bool:
+    """A row that is already an ANSWER, not a header: its leftmost cell is
+    words (a label) and a cell after it states a value - it starts with a
+    number, or it is one of the "not filled in" markers (`blank_markers`).
+    A header names columns; it does neither."""
+    cells = [v for j, v in enumerate(row) if j not in gutter]
+    filled = [v for v in cells if v]
+    if len(filled) < 2 or _STARTS_WITH_A_NUMBER.match(filled[0]):
+        return False
+    return any(_STARTS_WITH_A_NUMBER.match(v) or blank_markers.names_a_marker(v) for v in filled[1:])
+
+
+def _answers_in_every_cell(row: list[str], gutter: set[int]) -> bool:
+    """The STRICT form, for a row above a schedule's first data row: a label,
+    and EVERY filled cell after it states a value. A real header row can
+    carry one number among its column names (a revision, a quantity, a note
+    mark) - found on a real nozzle schedule (F1, 2026-10-11), where "any cell
+    states a value" took the header for an answer and the schedule lost its
+    column names. One number in a row of names is still a row of names."""
+    cells = [v for j, v in enumerate(row) if j not in gutter]
+    filled = [v for v in cells if v]
+    if len(filled) < 2 or _STARTS_WITH_A_NUMBER.match(filled[0]):
+        return False
+    return all(_STARTS_WITH_A_NUMBER.match(v) or blank_markers.names_a_marker(v) for v in filled[1:])
+
+
+def _header_sits_on(row: int, rects: list[list[Any]], texts: list[list[str]], gutter: set[int],
+                    x_left: float, x_right: float) -> bool:
+    """May the body start at answer row `row`? Only when its column names are
+    where a reader expects them: the row DIRECTLY above it is a header row
+    (several filled cells, not a title), or nothing at all is above it.
+
+    Otherwise the answer row is cut off from its header - by a section
+    heading, a title-block row drawn inside the grid - and starting the body
+    there loses the header: a real form page with a clause-reference column
+    was read as a plain label/value table and stored a unit as a value and
+    title-block fragments as fields (F1, 2026-10-11). Then the table is left
+    exactly as it was read before."""
+    above = [r for r in range(row) if not _is_empty(texts[r], gutter)]
+    if not above:
+        return True
+    nearest = above[-1]
+    filled = [v for j, v in enumerate(texts[nearest]) if j not in gutter and v]
+    return len(filled) >= 2 and not _is_title_row(rects[nearest], texts[nearest], gutter, x_left, x_right)
+
+
 def _is_title_row(row_rects: list[Any], row_texts: list[str], gutter: set[int],
                   x_left: float, x_right: float) -> bool:
     """TITLE: one non-empty cell spans >= TITLE_SPAN_SHARE of the table width."""
@@ -284,10 +340,38 @@ def table_score(table: Any, words: list[tuple], grid: tuple | None = None) -> di
             "score": round(clean * consistency ** 2, 3)}
 
 
+def _table_cell_value(text: str) -> dict[str, Any]:
+    """A table cell's value, cleaned EXACTLY as a form value is (B4 fix 3).
+
+    "___@ X__" in a cell used to reach the value with its underscore runs;
+    a run, "*", "By <party>" or "TBA" in a cell is a blank with its marker,
+    the same evidence rule `_parse_form_value` applies to forms. An EMPTY
+    cell keeps `is_blank=True` with NO marker - it is not evidence of a
+    blank field, and `read_page_rows` does not emit it. A cell that is only
+    a printed unit keeps the plain unit split it always had.
+    """
+    if not text:
+        return {"value": None, "unit": None, "is_blank": True, "blank_marker": None}
+    parsed = _parse_form_value(text)
+    if parsed["unit_only"]:
+        plain = split_value_unit(text)
+        return {"value": plain["value"], "unit": plain["unit"], "is_blank": False,
+                "blank_marker": None}
+    return {"value": parsed["value"], "unit": parsed["unit"],
+            "is_blank": parsed["is_blank"], "blank_marker": parsed["blank_marker"],
+            "condition": parsed.get("condition"), "note": parsed.get("note")}
+
+
 def _structure(table: Any, *, page_no: int, table_id: str, strategy: str,
-               grid: tuple | None = None) -> dict[str, Any]:
+               grid: tuple | None = None, words: list[tuple] | None = None) -> dict[str, Any]:
     texts, rects = grid or _grid(table)
     nrows, ncols = len(texts), (len(texts[0]) if texts else 0)
+    # A word whose box is ambiguously split across two cells (an imprecise
+    # scanned/OCR text layer) is a quality signal already used to penalise a
+    # whole page's `table_score`; it must ALSO reach the per-cell text that
+    # ends up used downstream, not just the aggregate score, so a cell built
+    # from a cut word is flagged rather than silently trusted.
+    cut_cells: set[tuple[int, int]] = _split_words(table, rects, words)[2] if words else set()
     spans = _column_spans(rects, ncols)
     gutter = _gutter_columns(texts)
     usable = [spans[j] for j in range(ncols) if j not in gutter and spans[j][1] > spans[j][0]]
@@ -298,7 +382,22 @@ def _structure(table: Any, *, page_no: int, table_id: str, strategy: str,
                        if not _is_empty(texts[i], gutter) and _is_data_like(texts[i], gutter)),
                       None)
     title_rows: list[int] = []
+    headerless = False
+    answer_first = False
     if first_data is not None:
+        # THE HEADER STOPS AT THE FIRST ROW THAT ALREADY ANSWERS (R27, #504).
+        # "Data-like" above means a tag or two PLAIN numbers; a row of values
+        # WITH UNITS ("Maximum flow | 150 m3/h | 150 m3/h") is neither, so it
+        # was walked over as a second header row and its values were glued to
+        # every column name ("Valve Cv Required 150 m3/h"): 14 extra fields on
+        # the invented Required/Offered sheet. An answer row above the first
+        # data-like row is where the body starts.
+        earlier = next((i for i in range(first_data)
+                        if not _is_empty(texts[i], gutter)
+                        and not _is_title_row(rects[i], texts[i], gutter, x_left, x_right)
+                        and _answers_in_every_cell(texts[i], gutter)), None)
+        if earlier is not None and _header_sits_on(earlier, rects, texts, gutter, x_left, x_right):
+            first_data, answer_first = earlier, True
         # HEADER = the non-title rows directly above the first data-like row
         # (empty rows on the way are skipped, never kept). Walking up stops at
         # the first title row; it and everything above it is preamble and is
@@ -316,6 +415,10 @@ def _structure(table: Any, *, page_no: int, table_id: str, strategy: str,
             rule = (f"none: {len(header)} rows above the first data-like row "
                     f"exceed MAX_HEADER_ROWS={MAX_HEADER_ROWS}")
             header, title_rows, body_start = [], [], nrows
+        elif answer_first and not header:
+            # No row above the first answer: a label/value table (as below).
+            rule = "none: the first row states a value (a label/value table)"
+            headerless = True
     else:
         # No data-like row: the first non-empty non-title row is the header.
         rule = "fallback: first non-title row"
@@ -327,11 +430,25 @@ def _structure(table: Any, *, page_no: int, table_id: str, strategy: str,
             if not header and _is_title_row(rects[i], texts[i], gutter, x_left, x_right):
                 title_rows.append(i)
                 continue
+            if _states_a_value_beside_a_label(texts[i], gutter):
+                # A LABEL/VALUE TABLE HAS NO HEADER ROW (R27, 2026-10-11). Its
+                # first row is already an answer ("Rated capacity | 125 m3/h").
+                # Taking it as the header lost that row and named every other
+                # row after its value ("Differential head 125 m3/h"): measured
+                # by `scripts/table_cell_score.py`, 16 of 162 keyed cells.
+                rule = "none: the first row states a value (a label/value table)"
+                headerless = True
+                body_start = i
+                break
             header = [i]
             body_start = i + 1
             break
 
     labels = _header_labels(header, rects, texts, spans, gutter)
+    if headerless:
+        # Every column is a cell of its row; a value column carries no header
+        # of its own, so a row's label is its leftmost cell alone.
+        labels = {j: "" for j in range(ncols) if j not in gutter}
 
     data_rows: list[dict[str, Any]] = []
     empty_rows = 0
@@ -351,12 +468,11 @@ def _structure(table: Any, *, page_no: int, table_id: str, strategy: str,
         cells = []
         for j, label in labels.items():
             text = texts[r][j]
-            parsed = split_value_unit(text)
             cells.append({
                 "source": "table", "page": page_no, "table_id": table_id,
                 "row": r, "column": j, "label": label, "text": text,
-                "value": parsed["value"], "unit": parsed["unit"],
-                "is_blank": not text, "bbox": _bbox(rects[r][j]),
+                **_table_cell_value(text), "bbox": _bbox(rects[r][j]),
+                "cut_word": (r, j) in cut_cells,
             })
         data_rows.append({"row": r, "cells": cells})
 
@@ -370,6 +486,7 @@ def _structure(table: Any, *, page_no: int, table_id: str, strategy: str,
         "title_rows": [" | ".join(v for v in texts[r] if v) for r in title_rows],
         "dropped_empty_rows": empty_rows,
         "trailing_rows": len(trailing_rows),
+        "headerless": headerless,
         "rows": data_rows,
     }
 
@@ -403,7 +520,7 @@ def read_tables(page: Any) -> dict[str, Any]:
                             "tables": len(tables), "per_table": per}
     winner = max(STRATEGIES, key=lambda s: (scores[s]["score"], s == "lines"))
     tables = [_structure(t, page_no=page_no, table_id=f"p{page_no}-t{i + 1}",
-                         strategy=winner, grid=g)
+                         strategy=winner, grid=g, words=words)
               for i, (t, g) in enumerate(found[winner])]
     return {"source": "table", "page": page_no, "strategy": winner,
             "score": scores[winner]["score"], "scores": scores, "tables": tables}
@@ -512,13 +629,18 @@ m2 m3 mm2 cm3 ft2 ft3 nm3 sm3
 """.split())
 #: A printed marker meaning "not filled here": the API legend's "*" (to be
 #: advised), "By <party>", "(Note 3)" / "[Note - 3]", TBA / TBC / TBD.
-_BLANK_MARKER = re.compile(
-    r"^(?:\*|by\s+[a-z][\w\s/&.-]*|[\[(]?\s*note\s*[-–—]?\s*\d+\s*[\])]?|tb[acd]|later)$",
-    re.IGNORECASE)
+#: CRS quick wins (2026-09-27): the "not provided" markers live in ONE home,
+#: `blank_markers`, which the text reader and the datasheet self-checks read
+#: too - "VENDOR TO ADVISE" and "TBD" are blanks here now, as they are there.
 _DASHES = str.maketrans({"–": "-", "—": "-", "−": "-"})
 _RANGE = re.compile(rf"^(?P<a>{_NUM})\s*-\s*(?P<b>{_NUM})\s*(?P<u>.*)$")
 _PAREN_UNIT = re.compile(r"^(?P<v>.*?\S)\s*\((?P<u>[^()]+)\)$")
 _NUM_REST = re.compile(rf"^(?P<n>[<>~]?\s*{_NUM})\s+(?P<u>\S.*)$")
+#: A drawn field with its answer inside and text AFTER the closing run:
+#: "_ YES_ <HRC 25" -> inside "YES", after "<HRC 25". The text must open with
+#: a run; "10 barg" or "__ISO 15156 -1" (no closing run) never match.
+_ENCLOSED_FIELD = re.compile(
+    r"^\s*_+\s*(?P<inside>[^_]*[^\W_][^_]*?)\s*_+\s*(?P<after>[^_]*?)\s*_*\s*$")
 
 
 #: Alone, these are a letter or an English word ("GRADE: C", "A", "in").
@@ -530,9 +652,16 @@ def is_unit_label(text: str | None, *, allow_single: bool = False) -> bool:
     made only of ambiguous single letters ("C", "A") is NOT a unit label
     unless `allow_single` (e.g. right after a '*' marker: "* m")."""
     words = [w for w in re.split(r"[\s()/\-·.,°º\[\]]+", (text or "").lower()) if w]
-    if not words or not all(w in _UNIT_WORDS for w in words):
+    if words and all(w in _UNIT_WORDS for w in words):
+        return allow_single or not all(w in _AMBIGUOUS_UNIT_WORDS for w in words)
+    # THE SHARED VOCABULARY TOO (`claims.is_unit`, rule 8): the word list above
+    # is this reader's own and does not know "ms", "weeks" or a rate such as
+    # "kg/h" that the claims grammar accepts. A single letter still needs
+    # `allow_single` - alone it is a letter, whichever table knows it.
+    stripped = (text or "").strip()
+    if not stripped or not claims.is_unit(stripped):
         return False
-    return allow_single or not all(w in _AMBIGUOUS_UNIT_WORDS for w in words)
+    return allow_single or sum(ch.isalpha() for ch in stripped) > 1
 
 
 def _unit_of(text: str) -> str:
@@ -580,7 +709,7 @@ def _parse_form_value(text: str) -> dict[str, Any]:
         rest = star.group("rest")
         return {"value": None, "unit": None, "expected_units": [_unit_of(rest)] if rest else [],
                 "is_blank": True, "blank_marker": "*", "unit_only": False, "condition": None}
-    if residue and _BLANK_MARKER.match(residue):
+    if residue and blank_markers.is_marker(residue):
         return {"value": None, "unit": None, "expected_units": [], "is_blank": True,
                 "blank_marker": residue, "unit_only": False, "condition": None}
     parts = [x.strip() for x in residue.split("@")]
@@ -599,9 +728,24 @@ def _parse_form_value(text: str) -> dict[str, Any]:
                     "unit_only": False, "condition": None}
         return {"value": None, "unit": None, "expected_units": expected, "is_blank": False,
                 "blank_marker": None, "unit_only": True, "condition": None}
+    note = None
+    enclosed = _ENCLOSED_FIELD.match(text)
+    if (enclosed and enclosed.group("after") and "@" not in enclosed.group("after")
+            and not is_unit_label(enclosed.group("after"), allow_single=True)):
+        # B4 FIX 2: THE FIELD IS WHAT THE RUNS ENCLOSE. "_ YES_ <HRC 25" is the
+        # answer "YES" written inside its drawn field, then a note printed
+        # after the field closes. The note is kept, apart - it is not the
+        # value. A unit after the closing run ("_ -3__ OC") is still the
+        # value's unit and never takes this branch.
+        residue, note = enclosed.group("inside").strip(), enclosed.group("after").strip()
     parsed = _parse_value(residue)
+    if parsed["value"] is None:
+        # B4 FIX 3: a value that is ONLY a condition ("___@ SUPPLIERS__") is
+        # still what the field says; before, the caller fell back to the raw
+        # text with its underscore runs.
+        parsed = {**parsed, "value": residue, "condition": None}
     return {**parsed, "expected_units": [], "is_blank": False, "blank_marker": None,
-            "unit_only": False}
+            "unit_only": False, "note": note}
 
 
 def _label_name(text: str) -> str:
@@ -615,14 +759,109 @@ def _label_like(seg: dict[str, Any]) -> bool:
     return bool(re.search(r"\(\s*[\d.]+[a-z.]*\s*\)\s*$", seg["text"]))
 
 
+_DRAWN_RUN = re.compile(r"_{2,}")
+
+
+def _label_line_has_run(segs: list[dict[str, Any]], lab: dict[str, Any]) -> bool:
+    """The label's own line carries a drawn underscore field to its right,
+    before any other label: this form draws its fields as runs."""
+    tol = 0.6 * lab["h"]
+    right = sorted((s for s in segs if s is not lab and abs(s["yc"] - lab["yc"]) <= tol
+                    and s["bbox"][0] >= lab["bbox"][2] - 1.0),
+                   key=lambda s: s["bbox"][0])
+    for s in right:
+        if s["kind"] == "label":
+            return False
+        if _DRAWN_RUN.search(s["text"]):
+            return True
+    return False
+
+
+def _heads_a_field(segs: list[dict[str, Any]], cand: dict[str, Any]) -> bool:
+    """`cand` has a drawn field (a segment opening with "_") on the NEXT line,
+    left-aligned with it: `cand` is that field's label, not a value."""
+    if _DRAWN_RUN.search(cand["text"]):
+        return False  # a drawn field is a field, not a label
+    return any(s is not cand and s["text"].startswith("_")
+               and 0.6 * cand["h"] < s["yc"] - cand["yc"] <= 1.8 * cand["h"]
+               and abs(s["bbox"][0] - cand["bbox"][0]) <= cand["h"]
+               for s in segs)
+
+
 def _below_candidates(segs: list[dict[str, Any]], lab: dict[str, Any], used: set[int]) -> list[int]:
+    """Text directly under the label that can be its value.
+
+    B4 FIX 4 - a heading, a section title or the next field's label is not a
+    value. Two generic, geometric proofs:
+
+    * RUN FORM: when the label's own line draws its field as an underscore
+      run, a value below must itself be a filled run ("___BEARING HOUSING___").
+      Plain text under such a label is the next row's label or a heading.
+    * FIELD HEAD: text that has its own drawn field directly beneath it is
+      that field's label.
+    """
     lx0 = lab["bbox"][0]
-    return sorted((k for k, s in enumerate(segs)
-                   if s["kind"] == "text" and k not in used
-                   and 0.6 * lab["h"] < s["yc"] - lab["yc"] <= 2.2 * lab["h"]
-                   and abs(s["bbox"][0] - lx0) <= lab["h"]
-                   and not _label_like(s)),
-                  key=lambda k: segs[k]["yc"])
+    run_form = _label_line_has_run(segs, lab)
+    aligned = sorted((k for k, s in enumerate(segs)
+                      if s is not lab
+                      and 0.6 * lab["h"] < s["yc"] - lab["yc"] <= 2.2 * lab["h"]
+                      and abs(s["bbox"][0] - lx0) <= lab["h"]),
+                     key=lambda k: segs[k]["yc"])
+    # ONLY THE NEAREST aligned segment can be the value: a label or heading
+    # between the label and a lower field means that field is someone else's.
+    return [k for k in aligned[:1]
+            if segs[k]["kind"] == "text" and k not in used
+            and not _label_like(segs[k])
+            and (not run_form or _DRAWN_RUN.search(segs[k]["text"]))
+            and not _heads_a_field(segs, segs[k])]
+
+
+#: B4 FIX 1: a value ending with a connector, or with a word that cannot end a
+#: phrase, is cut by a line wrap. English function words and list connectors -
+#: generic, not document vocabulary.
+_OPEN_ENDING = re.compile(
+    r"(?:[&,/+]|\b(?:and|or|of|the|a|an|to|on|in|for|with|at|by|from|per|as|than))\s*$",
+    re.IGNORECASE)
+#: How many wrapped lines one value may continue onto.
+MAX_CONTINUATION_LINES = 3
+
+
+def _continuation(segs: list[dict[str, Any]], lab: dict[str, Any], val: dict[str, Any],
+                  used: set[int], text: str) -> int | None:
+    """The segment on the next line that continues `val`, or None.
+
+    B4 FIX 1 - A WRAPPED VALUE. Taken only when ALL hold:
+    * it is on the next visual line (0.6-1.8 x the value's height below);
+    * it lies in this field's band: starts at or right of the label's left
+      edge, not right of the value's right edge, and nothing else on its line
+      sits between the label's left edge and it (else it belongs to its own
+      label);
+    * it is plain text, not a label, not a blank run, not a unit alone;
+    * AND the value is visibly unfinished (ends with "&", ",", "/", "+" or a
+      function word), OR the segment is indented wholly under the value.
+    """
+    h = val["h"]
+    band_x0 = lab["bbox"][0] - 1.0
+    open_end = bool(_OPEN_ENDING.search(text))
+    for k, s in sorted(enumerate(segs), key=lambda ks: ks[1]["yc"]):
+        if k in used or s is val or s["kind"] != "text" or _label_like(s):
+            continue
+        if not 0.6 * h < s["yc"] - val["yc"] <= 1.8 * h:
+            continue
+        x0, x1 = s["bbox"][0], s["bbox"][2]
+        if x0 < band_x0 or x0 > val["bbox"][2] or x1 > val["bbox"][2] + 2 * h:
+            continue
+        if any(o is not s and abs(o["yc"] - s["yc"]) <= 0.6 * h
+               and o["bbox"][2] > band_x0 and o["bbox"][0] < val["bbox"][2] + 2 * h
+               for o in segs):
+            continue  # its line has something else in this band: its own field
+        parsed = _parse_form_value(s["text"])
+        if parsed["is_blank"] or parsed["unit_only"]:
+            continue
+        indented = x0 >= val["bbox"][0] - 1.0 and x1 <= val["bbox"][2] + 1.0
+        if open_end or indented:
+            return k
+    return None
 
 
 def _filled_below(segs: list[dict[str, Any]], lab: dict[str, Any], used: set[int]) -> bool:
@@ -707,7 +946,29 @@ def read_form(page: Any) -> dict[str, Any]:
                              "label_bbox": _bbox(lab["bbox"])})
             continue
         val = segs[value_k]
-        parsed = _parse_form_value(val["text"])
+        val_text = val["text"]
+        val_box = val["bbox"]
+        parsed = _parse_form_value(val_text)
+        if unit_k is None and not parsed["is_blank"] and not parsed["unit_only"]:
+            # B4 FIX 1: a value wrapped onto the next line(s) of its band.
+            tail = val
+            for _n in range(MAX_CONTINUATION_LINES):
+                cont_k = _continuation(
+                    # The band is the FIRST line's x-range, every time: a
+                    # wide wrapped line must not widen what "indented under
+                    # the value" means for the line after it.
+                    segs, lab, {**tail, "bbox": (val["bbox"][0], tail["bbox"][1],
+                                                 val["bbox"][2], tail["bbox"][3])},
+                    used | {value_k}, val_text)
+                if cont_k is None:
+                    break
+                used.add(cont_k)
+                tail = segs[cont_k]
+                val_text = f"{val_text} {tail['text']}"
+                val_box = (min(val_box[0], tail["bbox"][0]), val_box[1],
+                           max(val_box[2], tail["bbox"][2]), tail["bbox"][3])
+            if val_text != val["text"]:
+                parsed = _parse_form_value(val_text)
         if parsed["unit_only"] and unit_k is None:
             # The printed unit column: neither a value nor proof of blank.
             unpaired.append({"source": "form", "page": page_no, "label": lab["text"],
@@ -725,14 +986,202 @@ def read_form(page: Any) -> dict[str, Any]:
             "label": _label_name(lab["text"]),
             "label_text": lab["text"], "label_cue": lab["cue"],
             "label_bbox": _bbox(lab["bbox"]),
-            "value_text": val["text"] if unit_text is None else f"{val['text']} {unit_text}",
+            "value_text": val_text if unit_text is None else f"{val_text} {unit_text}",
             "value": parsed["value"], "unit": parsed["unit"],
             "is_blank": parsed["is_blank"], "blank_marker": parsed["blank_marker"],
-            "condition": parsed["condition"],
+            "condition": parsed["condition"], "note": parsed.get("note"),
             "expected_units": parsed["expected_units"], "position": position,
-            "value_bbox": _bbox(val["bbox"] if unit_k is None else (
+            "value_bbox": _bbox(val_box if unit_k is None else (
                 val["bbox"][0], min(val["bbox"][1], segs[unit_k]["bbox"][1]),
                 segs[unit_k]["bbox"][2], max(val["bbox"][3], segs[unit_k]["bbox"][3]))),
         })
     return {"source": "form", "page": page_no, "pairs": pairs,
             "unpaired_labels": unpaired}
+
+
+# --------------------------------------------------------------------------
+# One page, as rows (the shape `datasheets.extract_facts` writes when the
+# `geometry_reader_enabled` flag is on)
+# --------------------------------------------------------------------------
+
+def _row_key(row: dict[str, Any]) -> tuple:
+    """Two rows are ONE reading when page, label and answer agree: the label
+    lowercased with punctuation and spacing folded, the value folded, and a
+    blank keyed by being blank."""
+    label = re.sub(r"\s+", " ", re.sub(r"[^\w\s/]", " ", row["label"] or "")).strip().lower()
+    answer = ("<blank>" if row["is_blank"]
+              else re.sub(r"\s+", " ", f"{row['value'] or ''} {row['unit'] or ''}").strip().lower())
+    return row["page"], label, answer
+
+
+def _merged_from_above(table_rows: list[dict], index: int, column: int) -> str:
+    """The text of a cell MERGED DOWN into row `index`: the nearest cell above
+    in the same column whose drawn box reaches this row's own height. A group
+    cell drawn once over two rows ("DESIGN" beside "Pressure" and
+    "Temperature") names both. Decided by the box, never by "the cell above
+    happened to be filled": a cell merged SIDEWAYS has no cell above that
+    reaches down, and gets nothing."""
+    here = [c["bbox"] for c in table_rows[index]["cells"] if c.get("bbox")]
+    if not here:
+        return ""
+    middle = (min(b[1] for b in here) + max(b[3] for b in here)) / 2
+    for above in range(index - 1, -1, -1):
+        cell = next((c for c in table_rows[above]["cells"] if c["column"] == column), None)
+        if cell is None or not cell.get("bbox"):
+            continue
+        return cell["text"] if cell["text"] and cell["bbox"][3] > middle else ""
+    return ""
+
+
+#: A CONTENTS ROW IS LAYOUT, NOT A DATASHEET VALUE. A sheet's index table
+#: ("General data sheet | 4 to 5") has the shape of a label/value table, so
+#: its rows were stored as fields - read faithfully, and not a value of the
+#: equipment (F1 on a real sheet, 2026-10-11; planner's rule on #692). The
+#: label ends on the word for a sheet or a page, and the answer is nothing but
+#: a whole number or a range of two.
+_ENDS_ON_A_SHEET_WORD = re.compile(r"(?:sht|shts|sheet|sheets|page|pages)[\s.:]*$", re.IGNORECASE)
+_ONLY_PAGE_NUMBERS = re.compile(r"^\s*\d{1,4}(?:\s*(?:to|-|\u2013|,|&|and)\s*\d{1,4})?\s*$", re.IGNORECASE)
+
+
+def _is_a_contents_row(label: str, answer: str) -> bool:
+    return bool(_ENDS_ON_A_SHEET_WORD.search(label) and _ONLY_PAGE_NUMBERS.match(answer))
+
+
+def _label_value_rows(table: dict[str, Any], alphabet_violations) -> list[dict[str, Any]]:
+    """The rows of a HEADERLESS label/value table (R27): per row, the label is
+    every word cell to the left of the answer (a group cell merged from above
+    included), and the answer is the first cell that states a value - or,
+    when none does, the last filled cell ("Roof type | Fixed cone roof").
+    A row with no reliable label (garbled, cut, empty) emits nothing, as for
+    every other table - and neither does a contents row (`_is_a_contents_row`)."""
+    out: list[dict[str, Any]] = []
+    for index, data in enumerate(table["rows"]):
+        cells = sorted(data["cells"], key=lambda c: c["column"])
+        texts = [c["text"] or (_merged_from_above(table["rows"], index, c["column"])
+                               if c.get("bbox") is None else "") for c in cells]
+        filled = [i for i, t in enumerate(texts) if t]
+        if len(filled) < 2:
+            continue
+        answer = next((i for i in filled[1:] if cells[i]["text"] and (
+            _STARTS_WITH_A_NUMBER.match(texts[i]) or blank_markers.names_a_marker(texts[i]))), None)
+        if answer is None:
+            answer = filled[-1]
+        if not cells[answer]["text"]:
+            continue
+        parts = [(i, texts[i]) for i in filled if i < answer]
+        if not parts or any(not re.search(r"[^\W_]", t) or cells[i].get("cut_word", False)
+                            or alphabet_violations(t)[0] > 0 for i, t in parts):
+            continue
+        c = cells[answer]
+        if _is_a_contents_row(" ".join(t for _i, t in parts), c["text"]):
+            continue
+        out.append({
+            "source": "table", "page": c["page"],
+            "label": " ".join(t for _i, t in parts),
+            "label_text": "", "value_text": c["text"],
+            "value": c["value"], "unit": c["unit"], "is_blank": c["is_blank"],
+            "blank_marker": c["blank_marker"], "condition": c.get("condition"),
+            "note": c.get("note"), "bbox": c["bbox"], "label_bbox": cells[parts[-1][0]].get("bbox"),
+            "position": None, "table_id": c["table_id"], "row": c["row"],
+            "column": c["column"], "column_label": "",
+        })
+    return out
+
+
+def read_page_rows(page: Any, *, form: dict[str, Any] | None = None,
+                   tables: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """Every label/value the two readers found on `page`, one row each.
+
+    FORM pairs as `read_form` pairs them. TABLE cells labelled "<row key>
+    <column label>", the row key being the row's LEFTMOST LABELLED cell (a
+    tag or mark such as N1) - which is itself not emitted. That key column is
+    fixed by position, never "whichever cell has text first": if the row's
+    own key cell is blank, unreadable, built from a word too ambiguously
+    split across cells to trust (`cut_word`), OR holds characters implausible
+    for the expected script (a CJK-lookalike substituted for a Latin letter -
+    the same `ocr.alphabet_violations` check the OCR pipeline already runs on
+    its own output, reused here rather than duplicated), the row has NO
+    reliable key and none of its cells are emitted - a neighbouring data
+    column is NEVER substituted as the key, which would silently mislabel
+    every other cell in that row under the wrong tag. This catches a
+    different class of garbled text than the blank/cut-word checks: text that
+    IS present and IS fully inside one cell, but is not what it appears to
+    be. An EMPTY table cell is not emitted: an empty cell is not evidence of
+    a blank field (addendum 3.7; `datasheets.extract_facts` makes the same
+    rule for its readers).
+
+    DE-DUPLICATED (B4): a second row with the same page, label and answer as
+    an earlier one is the same reading twice and is dropped - the first one,
+    in reading order, keeps its provenance.
+
+    Every row keeps where it came from: `source` ("form" / "table"), the
+    value's box and the label's box (forms), and table id / row / column /
+    column label (tables).
+    """
+    # Lazy import: geometry_reader is documented as pure/no-database, and
+    # `ocr` pulls in `db.connect`; only the one function needed is used, and
+    # only when a table is actually being keyed.
+    from .ocr import alphabet_violations
+
+    form = form if form is not None else read_form(page)
+    tables = tables if tables is not None else read_tables(page)
+    rows: list[dict[str, Any]] = []
+    for p in form["pairs"]:
+        rows.append({
+            "source": "form", "page": p["page"], "label": p["label"],
+            "label_text": p["label_text"], "value_text": p["value_text"],
+            "value": p["value"], "unit": p["unit"], "is_blank": p["is_blank"],
+            "blank_marker": p["blank_marker"], "condition": p["condition"],
+            "note": p.get("note"), "bbox": p["value_bbox"],
+            "label_bbox": p["label_bbox"], "position": p["position"],
+            "table_id": None, "row": None, "column": None, "column_label": None,
+        })
+    for table in tables["tables"]:
+        if table.get("headerless"):
+            rows.extend(_label_value_rows(table, alphabet_violations))
+            continue
+        for data in table["rows"]:
+            cells = sorted(data["cells"], key=lambda c: c["column"])
+            if not cells:
+                continue
+            # THE KEY COLUMN IS THE ROW'S LEFTMOST LABELLED CELL - the tag/mark
+            # column this table format uses (see `gr._TAG`, `_is_data_like`),
+            # NEVER "whichever cell happens to be filled first in column
+            # order". If that column's own cell is blank or unreadable
+            # (garbled OCR, a dropped text layer, or a word so ambiguously
+            # split across cells - `cut_word` - that its text cannot be
+            # trusted), the row is FLAGGED as having no reliable key and its
+            # cells are skipped - never silently keyed off a neighbouring
+            # data column instead (that would mislabel every cell in the row
+            # under the wrong tag, e.g. a value pairing under "Fittings").
+            key_cell = cells[0]
+            is_ambiguous_key = (not key_cell["text"]
+                                or not re.search(r"[^\W_]", key_cell["text"])
+                                or key_cell.get("cut_word", False)
+                                or alphabet_violations(key_cell["text"])[0] > 0)
+            if is_ambiguous_key:
+                continue
+            for c in cells:
+                if c is key_cell or not c["text"]:
+                    continue
+                if _is_a_contents_row(c["label"] or "", c["text"]):
+                    continue        # a column of sheet numbers: layout, not a value
+                rows.append({
+                    "source": "table", "page": c["page"],
+                    "label": f"{key_cell['text']} {c['label']}".strip(),
+                    "label_text": c["label"], "value_text": c["text"],
+                    "value": c["value"], "unit": c["unit"], "is_blank": c["is_blank"],
+                    "blank_marker": c["blank_marker"], "condition": c.get("condition"),
+                    "note": c.get("note"), "bbox": c["bbox"], "label_bbox": None,
+                    "position": None, "table_id": c["table_id"], "row": c["row"],
+                    "column": c["column"], "column_label": c["label"],
+                })
+    out: list[dict[str, Any]] = []
+    seen: set[tuple] = set()
+    for row in rows:
+        key = _row_key(row)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+    return out

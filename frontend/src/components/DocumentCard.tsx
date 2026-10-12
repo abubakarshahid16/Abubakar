@@ -10,7 +10,8 @@
  */
 import { useState } from "react";
 
-import type { ClassificationSource, DocumentClassification, DocumentRecord } from "../types/api";
+import type { ClassificationSource, DocumentClassification, DocumentKindOption, DocumentRecord } from "../types/api";
+import { DocumentKindChip } from "./DocumentKindChip";
 import {
   LOW_RETRIEVABLE_THRESHOLD,
   embedProgress,
@@ -53,6 +54,8 @@ export function DocumentCard({
   types,
   isAdmin = false,
   onConfirmType,
+  kinds,
+  onConfirmKind,
   selected,
   onToggleSelected,
 }: {
@@ -72,6 +75,9 @@ export function DocumentCard({
   /** Confirms (or changes) this document's type. Absent classification or no
    *  admin means this is never called - see the render logic below. */
   onConfirmType?: (doc: DocumentRecord, docType: string) => void;
+  /** The router's document kinds, and the admin's confirm of one (W5b-02). */
+  kinds?: DocumentKindOption[];
+  onConfirmKind?: (doc: DocumentRecord, kind: string) => void;
   /** Whether this row is in the bulk selection. `undefined` means the page is
    *  not offering selection at all and NO checkbox renders - a non-admin must
    *  not be given a control whose only endpoint 404s them. */
@@ -139,6 +145,12 @@ export function DocumentCard({
                   {`${classification.doc_type}? \u00b7 guessed from ${sourceLabel(classification.suggested_by)}`}
                 </span>
               ))}
+            <DocumentKindChip
+              classification={classification}
+              kinds={kinds}
+              isAdmin={isAdmin}
+              onConfirm={onConfirmKind ? (kind) => onConfirmKind(doc, kind) : undefined}
+            />
             {/* THE CATEGORY. It is the access grant - plan line 1010 makes
                 discipline the grant rather than a tag - so this reads the
                 grant tables through the API and never infers from the

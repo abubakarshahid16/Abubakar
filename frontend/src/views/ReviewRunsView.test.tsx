@@ -1,6 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ReviewRunSummary } from "../types/api";
 import { ReviewRunsView } from "./ReviewRunsView";
@@ -10,12 +10,20 @@ const reviewRuns = vi.fn();
 const list = vi.fn();
 const reviewRunStandards = vi.fn();
 
+const documentApi = vi.fn();
 vi.mock("../api/client", () => ({
-  api: { documents: (...args: unknown[]) => documents(...args) },
+  api: {
+    documents: (...args: unknown[]) => documents(...args),
+    document: (...args: unknown[]) => documentApi(...args),
+  },
   reviews: {
+    // Section 3's readiness strip; not what these tests are about.
+    readiness: async () => ({ ok: false, error: { message: "not in this test" } }),
     reviewRuns: (...args: unknown[]) => reviewRuns(...args),
     list: (...args: unknown[]) => list(...args),
     reviewRunStandards: (...args: unknown[]) => reviewRunStandards(...args),
+    reviewRunStandardsAll: (...args: unknown[]) => reviewRunStandards(...args),
+    overrideRunStandard: vi.fn(),
     startReviewRun: vi.fn(),
     exportCrs: vi.fn(),
     decideCode: vi.fn(),
@@ -54,6 +62,8 @@ beforeEach(() => {
   reviewRuns.mockReset();
   list.mockReset();
   reviewRunStandards.mockReset();
+  documentApi.mockReset();
+  documentApi.mockResolvedValue({ ok: false, error: { message: "not in this test" } });
   documents.mockResolvedValue({ ok: true, data: [] });
   reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run()] } });
   list.mockResolvedValue({ ok: true, data: { findings: [] } });
@@ -82,45 +92,32 @@ describe("selected review run placement", () => {
   });
 });
 
-describe("nominal-estimate reason on a run card", () => {
-  it("renders the existing NOMINAL ESTIMATE sentence exactly once", async () => {
+describe("2g: a run card speaks plain words", () => {
+  it("shows the plain reason and no developer word", async () => {
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({
+      recommended_reason: "Checked 4 datasheet fields. That is not enough of the datasheet to suggest a review code yet.",
+      recommended_details: NOMINAL_REASON,
+    })] } });
     render(<ReviewRunsView />);
 
     const runButton = await screen.findByRole("button", { name: /drum\.pdf/i });
     const card = within(runButton);
-    // Positive branch proofs: the card and its recommendation rendered, so
-    // the absence below is an absence FROM something that exists.
     expect(card.getByText("Manual Review Required")).toBeInTheDocument();
-    expect(card.getByText(/The review used a NOMINAL ESTIMATE denominator/))
-      .toBeInTheDocument();
-    expect(card.getAllByText(/NOMINAL ESTIMATE/i)).toHaveLength(1);
-    // THE COMPLETENESS LINE'S OWN WORDS, which `completenessLine` emits as
-    // "4 of approximately 35 fields (a NOMINAL estimate: ...)".
-    //
-    // This asserted `queryByText(/fields read/i)` and was VACUOUS: with
-    // `fields_estimated` set, that line never says "fields read" - it says
-    // "of approximately" - so the assertion held whether or not the branch
-    // rendered. The test below renders the branch, which is what makes this
-    // absence mean something.
-    expect(card.queryByText(/of approximately/i)).toBeNull();
+    expect(card.getByText(/Checked 4 datasheet fields/)).toBeInTheDocument();
+    expect(card.getAllByText(/Checked 4 datasheet fields/)).toHaveLength(1);
+    expect(card.queryByText(/NOMINAL|denominator|MISSING_LOCALLY/i)).toBeNull();
   });
 
-  it("still shows the completeness line when the reason does NOT state the denominator", async () => {
-    // THE POSITIVE CONTROL FOR THE ABSENCE ABOVE. Same component, same
-    // completeness input, one field changed: the denominator is never
-    // dropped, only never repeated. Without this, "the line is absent" could
-    // mean the line does not exist at all.
+  it("still states the fields checked when the reason does not", async () => {
     reviewRuns.mockResolvedValue({
       ok: true,
       data: { runs: [run({ recommended_reason: "Not enough was read to recommend a code." })] },
     });
     render(<ReviewRunsView />);
 
-    const runButton = await screen.findByRole("button", { name: /drum\.pdf/i });
-    const card = within(runButton);
-
-    expect(card.getByText(/of approximately 35 fields/i)).toBeInTheDocument();
-    expect(card.getAllByText(/NOMINAL/i)).toHaveLength(1);
+    const card = within(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    expect(card.getByText("Checked 4 datasheet fields.")).toBeInTheDocument();
+    expect(card.queryByText(/NOMINAL/i)).toBeNull();
   });
 });
 
@@ -147,5 +144,286 @@ describe("B3: the pages a run read into fields", () => {
 
     const runButton = await screen.findByRole("button", { name: /drum\.pdf/i });
     expect(within(runButton).queryByTestId("page-coverage")).toBeNull();
+  });
+});
+
+describe("#633: a run that could not check everything says so on its card", () => {
+  it("shows a web check that could not be checked, and findings that are only partial", async () => {
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({
+      web_check_status: { ran: false, complete: false, reason: "it failed (RuntimeError)",
+                          plain: "Web standards check could not be checked: it failed (RuntimeError)." },
+      partial_findings: 3,
+    })] } });
+    render(<ReviewRunsView />);
+    const card = within(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    expect(card.getByTestId("web-check-incomplete")).toHaveTextContent("could not be checked");
+    expect(card.getByTestId("partial-findings")).toHaveTextContent("3 finding(s) were written before this review stopped");
+  });
+
+  it("shows neither line for a run with nothing unchecked", async () => {
+    render(<ReviewRunsView />);
+    const card = within(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    expect(card.queryByTestId("web-check-incomplete")).toBeNull();
+    expect(card.queryByTestId("partial-findings")).toBeNull();
+  });
+});
+
+describe("#453: requirements about a different kind of equipment", () => {
+  it("shows one expandable line per subject, never dropping them silently", async () => {
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({
+      requirements_not_applied: [{
+        subject: "steam turbine", submittal_equipment: "relief valve", count: 12,
+        line: "12 requirements not applied: they are about steam turbine, this submittal is relief valve",
+        standards: [{ standard_document_id: "s1", standard_name: "SAES-J-600.pdf",
+                      count: 12, clauses: ["8.7", "8.8", "8.9.3"] }],
+      }],
+    })] } });
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+
+    const block = await screen.findByTestId("requirements-not-applied");
+    expect(within(block).getByText(/12 requirements not applied: they are about steam turbine/))
+      .toBeInTheDocument();
+    expect(within(block).getByText(/12 in SAES-J-600\.pdf, clauses 8\.7, 8\.8, 8\.9\.3/))
+      .toBeInTheDocument();
+  });
+
+  it("shows nothing when every requirement applied", async () => {
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    await screen.findByRole("heading", { name: "drum.pdf", level: 2 });
+    expect(screen.queryByTestId("requirements-not-applied")).toBeNull();
+  });
+});
+
+describe("#598: table values that were not compared", () => {
+  it("shows one expandable line per standard, never dropping them silently", async () => {
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({
+      table_values_not_compared: [{
+        standard_document_id: "std-1", standard_name: "NACE-X.pdf", count: 57,
+        table_count: 2,
+        line: "57 table values in 2 tables of NACE-X.pdf not compared: no matching field on this submittal",
+        tables: [{ page: 4, count: 30, examples: ["UNS S32205"] },
+                 { page: 9, count: 27, examples: [] }],
+      }],
+    })] } });
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+
+    const block = await screen.findByTestId("table-values-not-compared");
+    expect(within(block).getByText(/57 table values in 2 tables of NACE-X\.pdf not compared/))
+      .toBeInTheDocument();
+    expect(within(block).getByText(/30 on page 4, for example UNS S32205/)).toBeInTheDocument();
+  });
+
+  it("shows nothing for a run with no unmatched table values", async () => {
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    await screen.findByRole("heading", { name: "drum.pdf", level: 2 });
+    expect(screen.queryByTestId("table-values-not-compared")).toBeNull();
+  });
+});
+
+describe("B5: the standards in scope carry their evidence and the missing ones", () => {
+  it("shows the citation line and the cited standards not held", async () => {
+    reviewRunStandards.mockResolvedValue({
+      ok: true,
+      data: {
+        standards: [{
+          standard_document_id: "std-610", filename: "API-610.pdf",
+          selection_method: "referenced",
+          selection_reason: "named in the submittal as API 610 (page 1)",
+          confidence: 0.9, included: true, exclusion_reason: null,
+          evidence_page: 1, evidence_quote: "Pump shall comply with API 610 and API 682.",
+          scope_decision: null,
+        }],
+        missing_references: [{ identifier: "API 682", status: "MISSING_LOCALLY" }],
+      },
+    });
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /standards in scope — why\?/i }));
+
+    // Positive first: the applied standard and its reason rendered.
+    expect(await screen.findByText("API-610.pdf")).toBeInTheDocument();
+    expect(screen.getByText(/Evidence, page 1: “Pump shall comply with API 610 and API 682\.”/))
+      .toBeInTheDocument();
+    const note = screen.getByRole("note");
+    expect(within(note).getByText(/not held locally - not checked \(1\)/)).toBeInTheDocument();
+    expect(within(note).getByText("API 682")).toBeInTheDocument();
+  });
+
+  it("names the missing standards even when nothing was selected", async () => {
+    reviewRunStandards.mockResolvedValue({
+      ok: true,
+      data: { standards: [], missing_references: [{ identifier: "API 682", status: "MISSING_LOCALLY" }] },
+    });
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /standards in scope — why\?/i }));
+
+    expect(await screen.findByText("No standards were selected for this run.")).toBeInTheDocument();
+    expect(within(screen.getByRole("note")).getByText("API 682")).toBeInTheDocument();
+  });
+});
+
+describe("2g: the picker and the panel always name the same document", () => {
+  const docs = [
+    { id: "doc-sub", filename: "drum.pdf", document_role: "CONTRACTOR_SUBMITTAL" },
+    { id: "doc-pump", filename: "pump.pdf", document_role: "CONTRACTOR_SUBMITTAL" },
+    { id: "doc-new", filename: "new.pdf", document_role: "CONTRACTOR_SUBMITTAL" },
+  ];
+
+  beforeEach(() => {
+    documents.mockImplementation(async (params: { document_role?: string[] }) => ({
+      ok: true,
+      data: params?.document_role?.includes("CONTRACTOR_SUBMITTAL") ? docs : [],
+    }));
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [
+      run(),
+      run({ review_run_id: "run-2", submittal_document_id: "doc-pump",
+            submittal_filename: "pump.pdf", created_at: "2026-09-21T00:00:00Z" }),
+    ] } });
+  });
+
+  it("opening a run sets the picker to its submittal", async () => {
+    render(<ReviewRunsView />);
+    await screen.findByRole("option", { name: "pump.pdf" });
+    await userEvent.click(await screen.findByRole("button", { name: /pump\.pdf/i }));
+    expect(await screen.findByRole("heading", { name: "pump.pdf", level: 2 })).toBeInTheDocument();
+    expect(screen.getByLabelText("Submittal")).toHaveValue("doc-pump");
+  });
+
+  it("choosing a submittal opens its latest run, and one with no run closes the panel", async () => {
+    render(<ReviewRunsView />);
+    await screen.findByRole("option", { name: "drum.pdf" });
+    await userEvent.click(await screen.findByRole("button", { name: /pump\.pdf/i }));
+    await screen.findByRole("heading", { name: "pump.pdf", level: 2 });
+
+    await userEvent.selectOptions(screen.getByLabelText("Submittal"), "doc-sub");
+    expect(await screen.findByRole("heading", { name: "drum.pdf", level: 2 })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "pump.pdf", level: 2 })).toBeNull();
+
+    await userEvent.selectOptions(screen.getByLabelText("Submittal"), "doc-new");
+    expect(screen.queryByRole("heading", { name: "drum.pdf", level: 2 })).toBeNull();
+    expect(screen.getByLabelText("Submittal")).toHaveValue("doc-new");
+  });
+});
+
+describe("UX GROUP (2026-09-27): the finding detail panel", () => {
+  // jsdom implements no scrollIntoView; installed per-test so this test
+  // cannot pass on some other test's leftover spy, and removed after so it
+  // cannot leave one behind either.
+  afterEach(() => {
+    delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView;
+  });
+
+  it("scrolls into view when a finding is selected, wherever the table put it", async () => {
+    list.mockResolvedValue({
+      ok: true,
+      data: { findings: [{ id: "f1", document_id: "doc-sub", finding: "x",
+        compliance_status: "NON_COMPLIANT", requirement: "A requirement." }] },
+    });
+    const spy = vi.fn();
+    Object.defineProperty(Element.prototype, "scrollIntoView", {
+      value: spy, writable: true, configurable: true,
+    });
+
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    await userEvent.click(await screen.findByText("A requirement."));
+
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ block: "nearest" }));
+  });
+});
+
+describe("audit 2026-09-30: the review screen does not turn a failure into an empty answer", () => {
+  it("says the standards could not be loaded, not that none were selected", async () => {
+    reviewRunStandards.mockResolvedValue({
+      ok: false, disconnected: false,
+      error: { code: "internal_error", message: "the standards list failed" },
+    });
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /standards in scope — why\?/i }));
+
+    const alert = await screen.findByText(/The standards for this run could not be loaded/);
+    expect(alert).toHaveTextContent("the standards list failed");
+    expect(screen.queryByText("No standards were selected for this run.")).toBeNull();
+    expect(screen.queryByText(/Loading standards/)).toBeNull();
+  });
+
+  it("labels the run card's code as the AI's and unconfirmed", async () => {
+    render(<ReviewRunsView />);
+    const card = await screen.findByRole("button", { name: /drum\.pdf/i });
+    const line = within(card).getByTestId("run-card-recommended");
+    expect(line).toHaveTextContent(/AI recommended: Manual Review Required/);
+    expect(line).toHaveTextContent("Not confirmed by an engineer yet.");
+    expect(within(card).queryByTestId("run-card-final")).toBeNull();
+  });
+
+  it("shows the engineer's final code beside the AI's, never instead", async () => {
+    reviewRuns.mockResolvedValue({
+      ok: true, data: { runs: [run({ engineer_final_code: "Approved with Comments" })] },
+    });
+    render(<ReviewRunsView />);
+    const card = await screen.findByRole("button", { name: /drum\.pdf/i });
+    expect(within(card).getByTestId("run-card-recommended"))
+      .toHaveTextContent(/AI recommended: Manual Review Required/);
+    expect(within(card).getByTestId("run-card-recommended"))
+      .not.toHaveTextContent("Not confirmed");
+    expect(within(card).getByTestId("run-card-final"))
+      .toHaveTextContent("Engineer's final code: Approved with Comments");
+  });
+
+  it("shows the run's status in plain words, not the database value", async () => {
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({ status: "cancelled" })] } });
+    render(<ReviewRunsView />);
+    const card = await screen.findByRole("button", { name: /drum\.pdf/i });
+    expect(card).toHaveTextContent("standards in scope · Cancelled");
+    expect(card).not.toHaveTextContent(/status cancelled/);
+  });
+});
+
+describe("#678: the three groups of requirements", () => {
+  const split = {
+    checked: 40, applies_not_checked: 30, does_not_apply: 10, total: 80,
+    applies_not_checked_reasons: [
+      { reason: "the column name matches no field on this submittal", count: 25 },
+      { reason: "no reason recorded", count: 5 }],
+    does_not_apply_reasons: [{ reason: "about steam turbine, this submittal is relief valve", count: 10 }],
+    repeats_ignored: 4, unchecked_share: 30 / 70,
+  };
+
+  it("shows checked, apply-but-not-checked and do-not-apply as three numbers with their reasons", async () => {
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({ requirement_split: split })] } });
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    const panel = await screen.findByTestId("requirement-split");
+    expect(within(panel).getByTestId("split-checked")).toHaveTextContent("40 checked");
+    const notChecked = within(panel).getByTestId("split-not-checked");
+    expect(notChecked).toHaveTextContent("30 apply but were not checked");
+    expect(notChecked).toHaveTextContent("the column name matches no field on this submittal (25)");
+    expect(notChecked).toHaveTextContent("no reason recorded (5)");
+    expect(within(panel).getByTestId("split-not-apply")).toHaveTextContent("10 do not apply");
+    // The share is of the requirements that APPLY (70), never of all 80.
+    expect(panel).toHaveTextContent("30 of 70 (43%) of those that apply were not checked");
+  });
+
+  it("shows no share when no requirement applies, never 0%", async () => {
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({ requirement_split: {
+      ...split, checked: 0, applies_not_checked: 0, does_not_apply: 5, total: 5,
+      applies_not_checked_reasons: [], unchecked_share: null } })] } });
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    const panel = await screen.findByTestId("requirement-split");
+    expect(panel.textContent).not.toMatch(/%/);
+  });
+
+  it("shows nothing for a run with no counts", async () => {
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    await screen.findByRole("heading", { name: "drum.pdf", level: 2 });
+    expect(screen.queryByTestId("requirement-split")).toBeNull();
   });
 });

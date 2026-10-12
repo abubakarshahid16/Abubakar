@@ -66,7 +66,7 @@ def discipline_of(doc_id: str) -> str | None:
 
 def test_the_ordinary_header_yields_the_committee():
     assert standards.responsibility_in(
-        "Saudi Aramco: Company General Use Engineering Standard 16 February 2021"
+        "The Client: Company General Use Engineering Standard 16 February 2021"
         " SAES-A-105 Noise Control"
         " Document Responsibility: Health Protection Standards Committee"
     ) == ["Health Protection Standards Committee"]

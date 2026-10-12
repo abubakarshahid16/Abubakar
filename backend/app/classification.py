@@ -60,6 +60,10 @@ from . import schemas
 from . import disciplines as disciplines_mod
 from .db import connect
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 # ------------------------------------------------------------------- types
 
 #: The register's own three. Not a database CHECK constraint - the importer
@@ -379,8 +383,27 @@ _EQUIPMENT_TYPE_PATTERNS: tuple[tuple[str, "re.Pattern[str]", float], ...] = (
      0.85),
     ("Centrifugal Pump", re.compile(r"centrifugal\s+pumps?", re.I), 0.85),
     ("Pump", re.compile(r"pumps?\s+data\s*sheet", re.I), 0.75),
+    # 2026-09-27: two categories `datasheet_checks.json`'s mandatory table
+    # names but the classifier never recognised - measured the same way as
+    # the patterns above, the exact wording a real cover sheet uses to name
+    # itself, never a generic word alone (a "compressor" mentioned in a
+    # pump sheet's utility air supply is not a compressor datasheet).
+    ("Centrifugal Compressor", re.compile(r"centrifugal\s+compressors?", re.I), 0.85),
+    ("Reciprocating Compressor", re.compile(r"reciprocating\s+compressors?", re.I), 0.85),
+    ("Compressor", re.compile(r"compressors?\s+data\s*sheet", re.I), 0.75),
+    ("Heat Exchanger",
+     re.compile(r"heat\s+exchangers?|shell\s*(?:-|and)?\s*(?:-|and)?\s*tube\s+exchangers?", re.I),
+     0.8),
     ("Pressure Vessel", re.compile(r"pressure\s+vessels?", re.I), 0.8),
 )
+
+#: Every `equipment_type` value the classifier above can write - the label
+#: vocabulary other modules must be able to resolve (datasheet_checks looks
+#: each one up in its mandatory-fields table; a test enumerates this tuple so
+#: a new label that falls through to the generic list fails loudly instead
+#: of silently checking less).
+EQUIPMENT_TYPE_LABELS: tuple[str, ...] = tuple(
+    label for label, _pattern, _confidence in _EQUIPMENT_TYPE_PATTERNS)
 
 
 @dataclass(frozen=True)
@@ -550,8 +573,9 @@ def _audit_equipment_type_change(document_id: str, *, old_value: str | None,
                      "confidence": evidence.confidence,
                      "classifier_version": evidence.classifier_version,
                  })))
-    except Exception:  # noqa: BLE001 - see docstring
-        pass
+    except Exception as exc:  # noqa: BLE001 - see docstring
+        _log.warning("the equipment-type audit event for %s was not written (%s)",
+                     document_id, type(exc).__name__)
 
 
 def classify_equipment_type_for_submittal(
@@ -1049,8 +1073,9 @@ def _audit_field_change(document_id: str, *, field_name: str, old_value,
                 " VALUES (?, NULL, ?, ?, 'document_classification', ?, 'ok', ?)",
                 (_now(), classified_by, FIELD_RECLASSIFIED_ACTION, document_id,
                  json.dumps(detail)))
-    except Exception:  # noqa: BLE001 - see docstring
-        pass
+    except Exception as exc:  # noqa: BLE001 - see docstring
+        _log.warning("the field-reclassified audit event for %s was not written (%s)",
+                     document_id, type(exc).__name__)
 
 
 def classify_metadata_for_submittal(
@@ -1320,7 +1345,7 @@ def set_discipline(document_id: str, discipline: str, *,
     role column has five legal values; `discipline` holds whatever the client's
     register and the standards' own covers say, which measured 52 distinct
     committee names across this corpus and will grow. An allowlist here would
-    have to be edited every time Saudi Aramco renames a committee, and the
+    have to be edited every time the client renames a committee, and the
     failure mode would be a standard silently left unclassified.
     """
     if not (discipline or "").strip():
@@ -1472,16 +1497,24 @@ def confirm(document_id: str, *, doc_type: str | None,
                 "INSERT OR IGNORE INTO document_subjects (document_id,"
                 " subject_id, suggested_by, confirmed_by) VALUES (?,?,?,?)",
                 (document_id, subject_id, SOURCE_NONE, confirmed_by))
+    # THE OTHER HOME OF THE SAME CLAIM (rule 8, CLAUDE.md). `set_role` queues
+    # extraction the moment a document BECOMES a COMPANY_STANDARD via the bulk
+    # role action; this PUT is the other place `document_role` can become
+    # COMPANY_STANDARD - the per-document "Details" form an administrator uses
+    # one document at a time - and it had no such hook. Found 2026-09-28: a
+    # document confirmed here as COMPANY_STANDARD after it finished ingesting
+    # sat fully indexed with zero requirements extracted, forever, with
+    # nothing on screen to say why. `_queue_extraction_if_ready` is the same
+    # helper `set_role` already calls; it is READY-gated and idempotent, so
+    # calling it again here for a document already queued costs nothing.
+    if metadata is not None and metadata.get("document_role") == "COMPANY_STANDARD":
+        _queue_extraction_if_ready(document_id)
     return of_document(document_id) or {}
 
 
-def of_document(document_id: str) -> dict | None:
-    """The stored classification, or None. No scope check - the ROUTE scopes."""
-    row = connect().execute(
-        "SELECT * FROM document_classification WHERE document_id = ?",
-        (document_id,)).fetchone()
-    if row is None:
-        return None
+def _decode(row, subjects: list[dict]) -> dict:
+    """One stored row as the API shape. Shared by `of_document` and
+    `of_documents` so the list and the single read can never disagree."""
     out = dict(row)
     # Stored as a JSON array in one TEXT column; decoded here so no caller has
     # to know that. A row written before this column existed holds NULL, and a
@@ -1501,11 +1534,61 @@ def of_document(document_id: str) -> dict | None:
     out["equipment_type_evidence"] = evidence if isinstance(evidence, dict) else None
     # #176's per-field provenance map, same tolerance. NULL/malformed -> None.
     out["field_evidence"] = _load_evidence(out.get("field_evidence")) or None
-    out["subjects"] = [dict(r) for r in connect().execute(
-        "SELECT s.id, s.name, s.kind, ds.suggested_by, ds.confirmed_by"
-        " FROM document_subjects ds JOIN subjects s ON s.id = ds.subject_id"
-        " WHERE ds.document_id = ? ORDER BY s.kind, s.name", (document_id,))]
+    out["subjects"] = subjects
     out["confirmed"] = row["confirmed_by"] is not None
+    return out
+
+
+def empty_record(document_id: str) -> dict:
+    """In scope but never classified: an empty, honest record, not a 404."""
+    return {"document_id": document_id, "doc_type": None,
+            "discipline": None, "doc_class": None, "register_id": None,
+            "suggested_by": SOURCE_NONE,
+            "confirmed_by": None, "confirmed_at": None,
+            "confirmed": False, "subjects": [],
+            "document_kind": None, "document_kind_state": None,
+            "document_kind_evidence": None}
+
+
+def of_document(document_id: str) -> dict | None:
+    """The stored classification, or None. No scope check - the ROUTE scopes."""
+    return of_documents([document_id]).get(document_id)
+
+
+def of_documents(document_ids: list[str]) -> dict[str, dict]:
+    """The stored classification of every given document that has one, in TWO
+    queries however many ids (the Documents page used to make one request per
+    document). No scope check - the CALLER passes ids it has already scoped.
+    A document with no row is absent from the result, as `of_document` says
+    None for it."""
+    ids = list(dict.fromkeys(document_ids))
+    out: dict[str, dict] = {}
+    conn = connect()
+    for start in range(0, len(ids), 500):
+        chunk = ids[start:start + 500]
+        marks = ",".join("?" * len(chunk))
+        rows = conn.execute(
+            f"SELECT * FROM document_classification WHERE document_id IN ({marks})",
+            chunk).fetchall()
+        subjects: dict[str, list[dict]] = {}
+        for r in conn.execute(
+                "SELECT ds.document_id, s.id, s.name, s.kind, ds.suggested_by,"
+                " ds.confirmed_by FROM document_subjects ds"
+                f" JOIN subjects s ON s.id = ds.subject_id"
+                f" WHERE ds.document_id IN ({marks}) ORDER BY s.kind, s.name", chunk):
+            item = dict(r)
+            subjects.setdefault(item.pop("document_id"), []).append(item)
+        for row in rows:
+            out[row["document_id"]] = _decode(row, subjects.get(row["document_id"], []))
+    # W5b-02: what SORT of document each is (datasheet, procedure, ...), from the
+    # document-type router. A document routed but never classified still gets a
+    # record (empty apart from its kind), so the list shows it.
+    from . import doc_router
+
+    for record in out.values():
+        record.update(document_kind=None, document_kind_state=None, document_kind_evidence=None)
+    for document_id, kind in doc_router.of_documents(ids).items():
+        out.setdefault(document_id, empty_record(document_id)).update(kind)
     return out
 
 

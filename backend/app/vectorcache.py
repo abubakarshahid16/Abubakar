@@ -1,243 +1,249 @@
-"""Memory-mapped cache for the dense-search matrix.
+"""The exact numpy backend of the vector store: one memory-mapped matrix.
 
-`_load_vectors` used to re-read every stored vector blob out of SQLite on
-every single query, join it against `chunks`, concatenate the blobs and
-reshape. Measured across a corpus doubling (2,670 -> 4,780 retrievable
-chunks):
+`vector_store.py` is the interface search calls; this module is the backend
+it uses when the sqlite-vec extension cannot load (or VECTOR_BACKEND=numpy).
+Both backends are exact brute-force cosine and rank identically.
 
-    vector load    39.1 ms -> 82.6 ms   x2.11
-    matmul         48.1 ms -> 50.7 ms   x1.05
+WHY A MAPPED FILE. `_load_vectors` used to re-read every stored vector blob out
+of SQLite on every single query (x2.11 across a corpus doubling while the
+matmul grew x1.05). The matrix is written once to a file and mapped with
+np.memmap, NOT read into the heap: this machine demos at 92% RAM, so a mapped
+file is pages the OS can evict and share, while a heap array is pages it
+cannot.
 
-It was the ONLY component of retrieval that grew with the corpus. Small today,
-dominant at ten documents.
+WHAT A QUERY NO LONGER PAYS (retrieval audit 2026-09-27, 2.3 / L3). At the
+full library (22,784 vectors) 98% of the dense stage was bookkeeping, not
+vector math: `signature()` ran three aggregate queries, one a full scan of
+`chunks`, and search rebuilt a chunk->document dict from every `chunks` row
+and a Python-list mask, per query. Now:
 
-The matrix is written once to a file and mapped with np.memmap, NOT read into
-the heap. That choice is about memory, not elegance: this machine demos at 92%
-RAM, so a mapped file is pages the OS can evict and share, while a heap array
-is pages it cannot.
+  * validity is ONE indexed read of the corpus generation token that the
+    `vector_generation` triggers replace on every relevant write (db.py);
+  * each row's document is stored WITH the matrix as an int32 index built in
+    the same read, so the scope mask is a vectorised lookup, never a dict;
+  * top-k is `np.argpartition`, not a full sort.
 
-VALIDITY. Rebuilding when nothing changed would give back the saving, and
-serving a stale matrix would be a correctness bug, so the signature has to be
-both cheap and sufficient. Measured: 0.19 ms against an 83 ms load.
+SAFETY OF A STALE MATRIX, unchanged: `search()` hydrates every candidate and
+drops any row that is gone or not retrievable, so a stale matrix could only
+cost ranking quality, never surface an excluded chunk. The scope mask is
+applied BEFORE top-k (CLAUDE.md rule 5): an out-of-scope row can never take a
+slot or be returned.
 
-    vector count + max vector rowid   catches additions, deletions, re-chunks
-    excluded count + sum of rowids    catches retrievability changes, including
-                                      one chunk excluded as another is restored
-
-The residual risk is two simultaneous retrievability flips whose rowids happen
-to sum equal. That cannot surface excluded content: `search()` hydrates every
-candidate and drops any row where `retrievable` is false, so a stale matrix can
-only cost a little ranking quality, never leak an excluded chunk. Stated here
-because a cache whose failure mode is unexamined is worse than no cache.
+THE SEGFAULT (code-review audit 2026-09-25 #8). The old `_close()` closed a
+mapping another thread could still be multiplying against (exit 139). Files
+are now VERSIONED by generation token and a mapping is never closed while
+held: a rebuild writes a new file and drops the reference; the old file is
+unlinked when the OS allows (Windows refuses while mapped - it is retried at
+the next build).
 """
 
 from __future__ import annotations
 
 import json
+import sqlite3
 import threading
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 
 from .config import settings
 from .db import connect
-from .embedder import EMBEDDING_DIM
+from .embedder import EMBEDDING_DIM, embedding_tag, searchable_tags
 
 _lock = threading.Lock()
-#: document_id (or "" for the whole corpus) -> (signature, ids, mapped matrix)
-_live: dict[str, tuple[tuple, list[str], np.ndarray]] = {}
+
+
+class Matrix(NamedTuple):
+    """Every current vector of a retrievable chunk, and whose it is."""
+
+    ids: list[str]
+    #: row -> index into `documents`, aligned with `ids`
+    doc_index: np.ndarray
+    documents: list[str]
+    matrix: np.ndarray
+    #: the corpus generation token this was built at (None: no token table)
+    token: int | None
+
+
+#: (index path, tag) -> the Matrix currently served
+_live: dict[tuple[str, str], Matrix] = {}
 
 
 def cache_dir() -> Path:
     return settings.data_dir / "vector_cache"
 
 
-def _key(document_id: str | None) -> str:
-    return document_id or ""
-
-
-def signature(document_id: str | None = None) -> tuple:
-    """Cheap fingerprint of everything the matrix depends on.
-
-    Measured at 1.2 ms against an 83 ms load. Each term earns its place by a
-    test that fails without it:
-
-      documents.chunk_signature   a re-chunk that produces the same number of
-                                  chunks with different content
-      embedded_count              a re-embed of unchanged chunking
-      MIN/MAX chunk_id            SQLite REUSES rowids after a full delete, so
-                                  deleting every vector and reinserting the
-                                  same number gives an identical count AND an
-                                  identical max rowid. Found by the re-chunk
-                                  test, not by reasoning.
-      COUNT + MAX(rowid)          additions, deletions, partial writes
-      excluded COUNT + SUM(rowid) retrievability changes, including one chunk
-                                  excluded as another is restored
-    """
-    conn = connect()
-    if document_id:
-        docs = conn.execute(
-            "SELECT COUNT(*), COALESCE(SUM(chunk_count), 0),"
-            " COALESCE(SUM(embedded_count), 0),"
-            " COALESCE(GROUP_CONCAT(chunk_signature), '')"
-            " FROM documents WHERE id = ?",
-            (document_id,),
-        ).fetchone()
-        vec = conn.execute(
-            "SELECT COUNT(*), COALESCE(MAX(rowid), 0), MIN(chunk_id), MAX(chunk_id)"
-            " FROM chunk_vectors WHERE document_id = ?",
-            (document_id,),
-        ).fetchone()
-        exc = conn.execute(
-            "SELECT COUNT(*), COALESCE(SUM(rowid), 0) FROM chunks"
-            " WHERE retrievable = 0 AND document_id = ?",
-            (document_id,),
-        ).fetchone()
-    else:
-        docs = conn.execute(
-            "SELECT COUNT(*), COALESCE(SUM(chunk_count), 0),"
-            " COALESCE(SUM(embedded_count), 0),"
-            " COALESCE(GROUP_CONCAT(chunk_signature), '') FROM documents"
-        ).fetchone()
-        vec = conn.execute(
-            "SELECT COUNT(*), COALESCE(MAX(rowid), 0), MIN(chunk_id), MAX(chunk_id)"
-            " FROM chunk_vectors"
-        ).fetchone()
-        exc = conn.execute(
-            "SELECT COUNT(*), COALESCE(SUM(rowid), 0) FROM chunks WHERE retrievable = 0"
-        ).fetchone()
-    return tuple(docs) + tuple(vec) + tuple(exc)
-
-
-def _read_from_db(document_id: str | None) -> tuple[list[str], np.ndarray]:
-    conn = connect()
-    sql = """SELECT v.chunk_id, v.vector FROM chunk_vectors v
-             JOIN chunks c ON c.id = v.chunk_id
-             WHERE c.retrievable = 1"""
-    params: list[object] = []
-    if document_id:
-        sql += " AND v.document_id = ?"
-        params.append(document_id)
-    rows = conn.execute(sql, params).fetchall()
-    if not rows:
-        return [], np.zeros((0, EMBEDDING_DIM), dtype=np.float32)
-    ids = [r["chunk_id"] for r in rows]
-    matrix = np.frombuffer(b"".join(r["vector"] for r in rows), dtype=np.float32)
-    return ids, matrix.reshape(len(ids), EMBEDDING_DIM)
-
-
-def _paths(key: str) -> tuple[Path, Path]:
-    stem = key or "corpus"
-    # a document id is a hex digest, so this is already filesystem-safe; the
-    # replace is for the corpus-wide case and any future non-hex id
-    safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in stem)
-    d = cache_dir()
-    return d / f"{safe}.f32", d / f"{safe}.json"
-
-
-def _build(key: str, document_id: str | None) -> tuple[list[str], np.ndarray]:
-    ids, matrix = _read_from_db(document_id)
-    data_path, meta_path = _paths(key)
-    # release any mapping of the file about to be replaced (see _close)
-    _close(key)
-    cache_dir().mkdir(parents=True, exist_ok=True)
-    # written to a temporary name and moved, so a crash mid-write cannot leave
-    # a truncated matrix that would be mapped as though it were complete
-    tmp = data_path.with_suffix(".f32.tmp")
-    tmp.write_bytes(matrix.tobytes(order="C"))
-    tmp.replace(data_path)
-    meta_path.write_text(
-        json.dumps({"signature": list(signature(document_id)), "ids": ids}),
-        encoding="utf-8",
-    )
-    # Map the file we just wrote rather than returning the heap array we built
-    # it from. Otherwise the process that performs the build - the one that has
-    # just finished ingesting, and is therefore the one under most memory
-    # pressure - is the only process that never gets the mapping.
-    if not ids:
-        return ids, matrix
+def generation(conn: sqlite3.Connection | None = None) -> int | None:
+    """The corpus-wide generation token, or None on a database without the
+    `vector_generation` table (then nothing is cached: always rebuilt)."""
     try:
-        return ids, np.memmap(
-            data_path, dtype=np.float32, mode="r", shape=(len(ids), EMBEDDING_DIM)
-        )
+        row = (conn or connect()).execute(
+            "SELECT token FROM vector_generation WHERE document_id = ''").fetchone()
+    except sqlite3.OperationalError:
+        return None
+    return None if row is None else int(row[0])
+
+
+def _read_from_db(token: int | None = None) -> Matrix:
+    """The direct read: current vectors of retrievable chunks only.
+
+    Joined to `chunks` on id AND document, so an orphaned vector (its chunk
+    re-chunked away) or one filed under another document is never served. A
+    vector whose `model` tag is not one of `searchable_tags()` is STALE and
+    is left out: its cosine against a query embedded by the current model
+    means nothing (P2-11). `vector_store.status()` counts those.
+    """
+    tags = searchable_tags()
+    rows = connect().execute(
+        f"""SELECT v.chunk_id, v.document_id, v.vector FROM chunk_vectors v
+           JOIN chunks c ON c.id = v.chunk_id AND c.document_id = v.document_id
+           WHERE c.retrievable = 1 AND v.model IN ({",".join("?" * len(tags))})
+             AND length(v.vector) = ?
+           ORDER BY v.rowid""",
+        (*tags, EMBEDDING_DIM * 4),
+    ).fetchall()
+    if not rows:
+        return Matrix([], np.zeros(0, dtype=np.int32), [],
+                      np.zeros((0, EMBEDDING_DIM), dtype=np.float32), token)
+    documents: list[str] = []
+    position: dict[str, int] = {}
+    doc_index = np.empty(len(rows), dtype=np.int32)
+    for i, r in enumerate(rows):
+        d = r[1]
+        if d not in position:
+            position[d] = len(documents)
+            documents.append(d)
+        doc_index[i] = position[d]
+    matrix = np.frombuffer(b"".join(r[2] for r in rows), dtype=np.float32)
+    return Matrix([r[0] for r in rows], doc_index, documents,
+                  matrix.reshape(len(rows), EMBEDDING_DIM), token)
+
+
+def _stem(token: int | None) -> str:
+    return f"corpus-{(token or 0) & 0xFFFFFFFFFFFFFFFF:016x}"
+
+
+def _paths(token: int | None) -> tuple[Path, Path]:
+    d = cache_dir()
+    return d / f"{_stem(token)}.f32", d / f"{_stem(token)}.json"
+
+
+def _sweep(keep: str) -> None:
+    """Remove superseded cache files, including the unversioned per-document
+    and `corpus.f32` files of the earlier layout - only this module writes
+    here. Best effort: a file still mapped (here or by another process)
+    cannot be unlinked on Windows, and is retried at the next build instead
+    of being closed underneath its reader."""
+    for path in cache_dir().iterdir():
+        if path.is_file() and not path.name.startswith(keep):
+            try:
+                path.unlink()
+            except OSError:
+                pass
+
+
+def _map(data_path: Path, rows: int) -> np.ndarray:
+    return np.memmap(data_path, dtype=np.float32, mode="r", shape=(rows, EMBEDDING_DIM))
+
+
+def _build(token: int | None) -> Matrix:
+    m = _read_from_db(token)
+    if token is None:
+        return m  # nothing to key a file on: served from the heap, uncached
+    data_path, meta_path = _paths(token)
+    cache_dir().mkdir(parents=True, exist_ok=True)
+    # temporary name then move, so a crash mid-write cannot leave a truncated
+    # matrix that would be mapped as though it were complete
+    tmp = data_path.with_suffix(".f32.tmp")
+    tmp.write_bytes(np.ascontiguousarray(m.matrix).tobytes())
+    tmp.replace(data_path)
+    meta_path.write_text(json.dumps({
+        "token": token, "tag": embedding_tag(), "ids": m.ids,
+        "documents": m.documents, "doc_index": m.doc_index.tolist(),
+    }), encoding="utf-8")
+    _sweep(_stem(token))
+    if not m.ids:
+        return m
+    try:
+        # map what was just written, so the process that just ingested - the
+        # one under most memory pressure - also gets the mapping
+        return m._replace(matrix=_map(data_path, len(m.ids)))
     except OSError:
-        # the matrix we just built is correct either way; only the memory
-        # benefit is lost, and losing it must not lose the query
-        return ids, matrix
+        return m  # the heap copy is correct; only the memory saving is lost
 
 
-def load(document_id: str | None = None) -> tuple[list[str], np.ndarray]:
-    """The vectors for retrievable chunks, mapped rather than copied."""
-    key = _key(document_id)
-    sig = signature(document_id)
+def _from_disk(token: int) -> Matrix | None:
+    data_path, meta_path = _paths(token)
+    if not (data_path.exists() and meta_path.exists()):
+        return None
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    if meta.get("token") != token or meta.get("tag") != embedding_tag():
+        return None
+    ids = list(meta["ids"])
+    doc_index = np.asarray(meta["doc_index"], dtype=np.int32)
+    if len(doc_index) != len(ids) or data_path.stat().st_size != len(ids) * EMBEDDING_DIM * 4:
+        return None  # truncated or torn: rebuild, never map a short file
+    matrix = (_map(data_path, len(ids)) if ids
+              else np.zeros((0, EMBEDDING_DIM), dtype=np.float32))
+    return Matrix(ids, doc_index, list(meta["documents"]), matrix, token)
 
+
+def load() -> Matrix:
+    """The corpus matrix, mapped rather than copied; one indexed read to
+    validate when nothing has changed."""
+    token = generation()
+    key = (str(cache_dir()), embedding_tag())
     cached = _live.get(key)
-    if cached is not None and cached[0] == sig:
-        return cached[1], cached[2]
-
+    if cached is not None and token is not None and cached.token == token:
+        return cached
     with _lock:
         cached = _live.get(key)
-        if cached is not None and cached[0] == sig:
-            return cached[1], cached[2]
-
-        data_path, meta_path = _paths(key)
-        ids: list[str] | None = None
-        matrix: np.ndarray | None = None
-
-        if data_path.exists() and meta_path.exists():
+        if cached is not None and token is not None and cached.token == token:
+            return cached
+        m = None
+        if token is not None:
             try:
-                meta = json.loads(meta_path.read_text(encoding="utf-8"))
-                if tuple(meta["signature"]) == sig:
-                    ids = list(meta["ids"])
-                    expected = len(ids) * EMBEDDING_DIM * 4
-                    if data_path.stat().st_size == expected:
-                        matrix = (
-                            np.memmap(
-                                data_path, dtype=np.float32, mode="r",
-                                shape=(len(ids), EMBEDDING_DIM),
-                            )
-                            if ids
-                            else np.zeros((0, EMBEDDING_DIM), dtype=np.float32)
-                        )
-            except Exception:  # noqa: BLE001 - a bad cache must never break search
-                ids = matrix = None
-
-        if ids is None or matrix is None:
-            ids, matrix = _build(key, document_id)
-
-        _live[key] = (sig, ids, matrix)
-        return ids, matrix
+                m = _from_disk(token)
+            except Exception:  # noqa: BLE001 - a bad cache file must never break search
+                m = None
+        if m is None:
+            m = _build(token)
+        # the previous Matrix is DROPPED, never closed: a thread still
+        # multiplying against it keeps it alive until it finishes (#8)
+        _live[key] = m
+        return m
 
 
-def _close(key: str) -> None:
-    """Release a mapping so the file underneath it can be replaced.
-
-    WINDOWS-SPECIFIC AND LOAD-BEARING. A mapped file cannot be replaced while
-    the mapping is open: `Path.replace` fails with WinError 5. On POSIX the
-    rebuild would succeed silently, the old inode staying mapped, so this
-    defect could only ever appear on the platform this actually ships on.
-
-    Dropping the Python reference is not enough - numpy keeps the underlying
-    mmap alive until it is closed explicitly.
-    """
-    entry = _live.pop(key, None)
-    if entry is None:
-        return
-    mapping = getattr(entry[2], "_mmap", None)
-    if mapping is not None:
-        try:
-            mapping.close()
-        except (BufferError, ValueError):
-            # still referenced by a caller mid-query; the rebuild will write to
-            # a new temporary file and the next process will map the new one
-            pass
+def search(query_vec: np.ndarray, limit: int, scope: frozenset[str]) -> list[dict]:
+    """Exact cosine, masked by scope BEFORE top-k. `scope` is the final set of
+    documents the caller may search (already intersected by the caller)."""
+    try:
+        m = load()
+    except Exception:  # noqa: BLE001 - never let a cache fault break retrieval
+        m = _read_from_db()
+    if not m.ids or not scope or limit <= 0:
+        return []
+    allowed = np.fromiter((d in scope for d in m.documents), dtype=bool,
+                          count=len(m.documents))
+    mask = allowed[m.doc_index]
+    n_in = int(mask.sum())
+    if n_in == 0:
+        return []
+    scores = np.asarray(m.matrix @ np.asarray(query_vec, dtype=np.float32))
+    # -inf rather than deletion keeps positions aligned with `ids`; an
+    # out-of-scope row can never be selected however high it scored
+    scores = np.where(mask, scores, -np.inf)
+    k = min(limit, n_in)
+    top = np.argpartition(-scores, k - 1)[:k] if k < len(scores) else np.arange(len(scores))
+    # score descending, then row order: deterministic under ties
+    top = top[np.lexsort((top, -scores[top]))]
+    return [{"chunk_id": m.ids[i], "cosine": float(scores[i])}
+            for i in top if np.isfinite(scores[i])]
 
 
 def invalidate() -> None:
-    """Drop the in-process handles, closing any mappings so their files can be
-    replaced. The signature check makes calling this optional, but the
-    ingestion path and the tests are clearer for being explicit."""
+    """Drop the in-process matrices (tests; a new data_dir). Mappings are
+    released by reference, never closed underneath a reader (#8)."""
     with _lock:
-        for key in list(_live):
-            _close(key)
         _live.clear()

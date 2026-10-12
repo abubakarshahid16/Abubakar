@@ -204,3 +204,119 @@ def test_reader_api_runs_end_to_end_through_this_transport(lane_open, monkeypatc
         reader_api.model_call_via(send, cfg=cfg))
     assert [p["value"] for p in out["accepted"]] == ["90"]
     assert send.usage["calls"] == 2, "rule 5 asks the model twice"
+
+
+# ------------------------------------------------------ Message Batches API
+
+class FakeBatchClient:
+    """Records every request; answers from `replies` by method."""
+    seen: ClassVar[list] = []
+    replies: ClassVar[dict] = {}
+
+    def __init__(self, **kwargs):
+        FakeBatchClient.seen.append({"client_kwargs": kwargs})
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def _reply(self, method, url):
+        payload, text = FakeBatchClient.replies[method]
+        r = FakeResponse(payload=payload, content=(text or "x").encode())
+        r.text = text or ""
+        r.request = httpx.Request(method, url)
+        return r
+
+    def post(self, url, headers=None, content=None):
+        FakeBatchClient.seen.append({"method": "POST", "url": url, "content": content})
+        return self._reply("POST", url)
+
+    def get(self, url, headers=None):
+        FakeBatchClient.seen.append({"method": "GET", "url": url})
+        return self._reply("GET", url)
+
+
+@pytest.fixture
+def batch_lane(monkeypatch):
+    monkeypatch.setenv("STANDARDS_READER_ENABLED", "1")
+    monkeypatch.setenv("STANDARDS_READER_ALLOW_PUBLIC_EGRESS", "1")
+    monkeypatch.setattr(httpx, "Client", FakeBatchClient)
+    FakeBatchClient.seen = []
+    FakeBatchClient.replies = {"POST": ({"id": "msgbatch_1", "processing_status": "in_progress"}, None)}
+
+
+def test_a_batch_is_created_beside_the_messages_url_and_logged_without_text(batch_lane, caplog):
+    with caplog.at_level(logging.WARNING):
+        out = reader_transport.batch_create(URL, headers=HEADERS, requests=[
+            {"custom_id": "r0", "params": {**BODY, "messages": [{"role": "user", "content": "CLIENT TEXT"}]}}])
+    posted = [s for s in FakeBatchClient.seen if s.get("method") == "POST"]
+    assert out["id"] == "msgbatch_1" and posted[0]["url"] == URL + "/batches"
+    assert b"CLIENT TEXT" in posted[0]["content"]          # it IS the payload ...
+    assert "CLIENT TEXT" not in caplog.text and "sk-test" not in caplog.text   # ... never the log
+    assert "1 requests" in caplog.text
+
+
+def test_with_the_flags_off_no_batch_is_sent(lane_shut, monkeypatch):
+    """THE MUTATION TARGET (M672): the batch calls skip gate 1."""
+    monkeypatch.setattr(httpx, "Client", FakeBatchClient)
+    FakeBatchClient.seen = []
+    with pytest.raises(reader_transport.TransportRefused):
+        reader_transport.batch_create(URL, headers=HEADERS, requests=[])
+    assert FakeBatchClient.seen == []
+
+
+@pytest.mark.parametrize("url", ["https://files.evil.test/results", "http://api.anthropic.com/v1/x"])
+def test_a_results_url_from_the_answer_is_held_to_the_host_gate(batch_lane, url):
+    """THE MUTATION TARGET (M673): `results_url` comes from the provider's
+    answer, so it is checked like any other URL before a request."""
+    with pytest.raises(ReaderRefused):
+        reader_transport.batch_results(url, headers=HEADERS)
+    assert FakeBatchClient.seen == []
+
+
+def test_results_are_read_as_jsonl_and_logged_as_counts(batch_lane, caplog):
+    line = ('{"custom_id": "r0", "result": {"type": "succeeded", "message": {"content": '
+            '[{"type": "text", "text": "ANSWER TEXT"}], "usage": {"input_tokens": 5, "output_tokens": 2}}}}')
+    FakeBatchClient.replies["GET"] = ({}, line + "\n")
+    with caplog.at_level(logging.WARNING):
+        rows = reader_transport.batch_results("https://api.anthropic.com/v1/messages/batches/b/results",
+                                              headers=HEADERS)
+    assert rows[0]["custom_id"] == "r0"
+    assert "ANSWER TEXT" not in caplog.text and '"succeeded": 1' in caplog.text
+
+
+def test_a_batch_id_that_is_not_an_identifier_is_refused(batch_lane):
+    with pytest.raises(reader_transport.TransportRefused):
+        reader_transport.batch_retrieve(URL, "../../elsewhere", headers=HEADERS)
+    assert FakeBatchClient.seen == []
+
+
+# ------------------------------------------------- billed or not (M1167)
+
+def test_an_oversized_answer_is_marked_as_sent(lane_open):
+    """The request happened and may have been billed; `unbilled` must not
+    excuse it from the USD ledger."""
+    FakeClient.response = FakeResponse(content=b"x" * (reader_transport.MAX_RESPONSE_BYTES + 1))
+    send = reader_transport.transport()
+    with pytest.raises(reader_transport.TransportRefused) as caught:
+        send(URL, headers=HEADERS, body=BODY, timeout=5.0)
+    assert caught.value.sent is True
+    assert reader_transport.unbilled(caught.value) is False
+
+
+def test_unbilled_is_true_only_for_provably_unbilled_failures():
+    request = httpx.Request("POST", URL)
+
+    def status(code):
+        return httpx.HTTPStatusError(str(code), request=request,
+                                     response=httpx.Response(code, request=request))
+    assert reader_transport.unbilled(ReaderRefused("host"))
+    assert reader_transport.unbilled(reader_transport.TransportRefused("off"))
+    assert reader_transport.unbilled(httpx.ConnectError("no route"))
+    assert reader_transport.unbilled(status(400)) and reader_transport.unbilled(status(429))
+    assert not reader_transport.unbilled(status(500))
+    assert not reader_transport.unbilled(httpx.ReadTimeout("slow"))
+    assert not reader_transport.unbilled(reader_transport.TransportRefused("big", sent=True))
+    assert not reader_transport.unbilled(RuntimeError("anything else"))

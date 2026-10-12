@@ -77,6 +77,21 @@ def search(query: str, *, allowed_document_ids: frozenset[str],
         # in the schema, so there is no unowned row for the admin rule to reach.
         # Passing False rather than `include_unowned` states that in code.
         where, scope_args = _scope_sql("document_id", allowed_document_ids, False)
+        # A grant on the SUBMITTAL is not a grant on the STANDARD the finding
+        # was compared against. `requirement` and `required_action` carry the
+        # standard's wording, and the label is returned verbatim, so a caller
+        # without a grant on the standard must not match on or read them. The
+        # same rule `review.withhold_unreadable_standards` applies to a read,
+        # applied here in SQL so a LIKE cannot probe the withheld text. A
+        # standard that no longer exists as a document is left visible, as
+        # there it has no grant to test.
+        where += (" AND (standard_document_id IS NULL"
+                  " OR standard_document_id NOT IN (SELECT id FROM documents)")
+        if allowed_document_ids:
+            marks = ",".join("?" for _ in allowed_document_ids)
+            where += f" OR standard_document_id IN ({marks})"
+            scope_args = [*scope_args, *sorted(allowed_document_ids)]
+        where += ")"
         sql = ("SELECT id, 'finding' AS kind, finding AS label,"
                " NULL AS wbs_code, document_id FROM review_findings"
                " WHERE (finding LIKE ? OR requirement LIKE ?"

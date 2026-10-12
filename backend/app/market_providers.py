@@ -348,6 +348,7 @@ def check_rate(tier: str, *, now: Callable[[], float] = time.monotonic) -> None:
     _last_call[tier] = current
 
 
+# TEST HOOK (#661): called by the tests to start from a clean state; the app does not call it.
 def reset_rate_limits() -> None:
     """For tests. Module state has to be clearable or tests couple to order."""
     _last_call.clear()

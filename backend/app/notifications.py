@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import smtplib
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from email.message import EmailMessage
 
 from .config import NotificationConfigError, settings
@@ -77,6 +77,55 @@ def send_email(*, subject: str, body: str, trigger: str,
            resource_id=resource_id, recipient=recipient, outcome="sent",
            actor_user_id=actor_user_id)
     return True
+
+
+def send_risk_digest(created: list[dict], *, now: datetime | None = None) -> str:
+    """ONE email for a whole detection run, never one per risk (#478).
+
+    Returns "none" (nothing new), "disabled" (SMTP off: a deliberate no-op),
+    "rate_limited" (a digest went out less than `risk_digest_min_interval_seconds`
+    ago; the risks are in the register, only the email is skipped) or "sent".
+    The body has counts and risk titles of the new risks, nothing else.
+    """
+    if not created:
+        return "none"
+    if not settings.smtp_enabled:
+        return "disabled"
+    current = (now or datetime.now(UTC)).astimezone(UTC)
+    key = "risk_digest"
+    with connect() as conn:
+        conn.execute("""CREATE TABLE IF NOT EXISTS notification_schedule_runs (
+            key TEXT PRIMARY KEY, sent_at TEXT NOT NULL)""")
+        row = conn.execute("SELECT sent_at FROM notification_schedule_runs WHERE key = ?",
+                           (key,)).fetchone()
+        if row is not None:
+            try:
+                last = datetime.fromisoformat(row["sent_at"].replace("Z", "+00:00"))
+            except ValueError:
+                last = None
+            if last is not None and (current - last).total_seconds() < int(
+                    settings.risk_digest_min_interval_seconds):
+                return "rate_limited"
+        # Reserve before sending, so two ticks cannot both send.
+        conn.execute("INSERT OR REPLACE INTO notification_schedule_runs(key, sent_at) VALUES (?, ?)",
+                     (key, current.isoformat(timespec="seconds").replace("+00:00", "Z")))
+    counts: dict[str, int] = {}
+    for item in created:
+        counts[item["risk_type"]] = counts.get(item["risk_type"], 0) + 1
+    lines = [f"EPC risk detection: {len(created)} new risk(s)"]
+    lines += [f"{kind}: {n}" for kind, n in sorted(counts.items())]
+    lines += ["", *[f"- {item['title']}" for item in created[:20]]]
+    if len(created) > 20:
+        lines.append(f"... and {len(created) - 20} more in the risk register")
+    try:
+        sent = send_email(subject=f"EPC risk digest: {len(created)} new", body="\n".join(lines),
+                          trigger="automatic_risk_digest", resource_type="risk_digest",
+                          resource_id=None)
+    except Exception:
+        with connect() as conn:
+            conn.execute("DELETE FROM notification_schedule_runs WHERE key = ?", (key,))
+        raise
+    return "sent" if sent else "disabled"
 
 
 def send_daily_summary(summary: dict, *, actor_user_id: str | None = None) -> bool:

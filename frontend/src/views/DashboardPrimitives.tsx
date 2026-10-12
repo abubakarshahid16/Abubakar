@@ -36,6 +36,18 @@ export function bytes(n: number): string {
 
 export const nf = new Intl.NumberFormat();
 
+/** The one way this screen says a value has not been measured. Shared by
+ *  `Stat`, the CPU card and the Disk card so the wording and style cannot drift
+ *  between them - the Disk card once had no such branch at all and rendered
+ *  an unmeasured disk as a 0%-used bar in the healthy tone. */
+export function NotMeasured() {
+  return (
+    <p className="mt-1 text-sm italic leading-tight text-slateish-500">
+      not measured yet
+    </p>
+  );
+}
+
 /** A measured value, or an explicit statement that it has not been measured. */
 export function Stat({
   label,
@@ -65,9 +77,7 @@ export function Stat({
           {typeof value === "number" ? nf.format(value) : value}
         </p>
       ) : (
-        <p className="mt-1 text-sm italic leading-tight text-slateish-500">
-          not measured yet
-        </p>
+        <NotMeasured />
       )}
       {hint && <p className="mt-1 text-xs text-slateish-500">{hint}</p>}
     </div>

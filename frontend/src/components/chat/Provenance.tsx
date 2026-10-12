@@ -14,6 +14,7 @@
  * `provenance.enumerated.test.tsx` walks the source for every component that
  * renders a passage and fails until each one complies.
  */
+import { citationWhere } from "./citationWhere";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { AnswerPassage } from "../../types/api";
 
@@ -24,6 +25,17 @@ export const VERBATIM_STRINGS = [
   "Quoted verbatim from the document",
   "quoted directly, no AI rewriting",
 ] as const;
+
+/** Taken from the PDF's own text layer - the ONLY source that may be called
+ *  verbatim (audit 2026-09-30: every value that was not 'recognised', a
+ *  missing or "mixed" one included, used to read "Verbatim from PDF"). */
+export function isExtracted(p: ProvenanceSource | null | undefined): boolean {
+  return p?.text_source === "extracted";
+}
+
+/** What the screen says when the source of a passage's text is not recorded
+ *  as either the text layer or OCR. Unknown says unknown. */
+export const PROVENANCE_UNKNOWN = "How this text was read is not recorded";
 
 /** Read off a page image rather than out of the text layer. */
 export function isRecognised(p: ProvenanceSource | null | undefined): boolean {
@@ -117,11 +129,11 @@ export function provenanceLabel(passage: ProvenanceSource): string {
       ? "Read by OCR"
       : `Read by OCR, lowest confidence ${passage.ocr_min_conf.toFixed(2)}`;
   }
-  return "Verbatim from PDF";
+  return isExtracted(passage) ? "Verbatim from PDF" : PROVENANCE_UNKNOWN;
 }
 
 /** Keyboard-accessible source inspection without inventing a second evidence model. */
-type CitationSource = { filename: string; page_start: number; page_end: number; section: string | null; text: string; text_source: "extracted" | "recognised"; ocr_min_conf: number | null; ocr_alphabet_violations: number; ocr_alphabet_sample: string | null };
+type CitationSource = { filename: string; page_start: number; page_end: number; locator?: string | null; section: string | null; text: string; text_source: "extracted" | "recognised"; ocr_min_conf: number | null; ocr_alphabet_violations: number; ocr_alphabet_sample: string | null };
 export function CitationInspector({ passage, children }: { passage: CitationSource; children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -142,7 +154,7 @@ export function CitationInspector({ passage, children }: { passage: CitationSour
         ref={trigger}
         type="button"
         aria-expanded={open}
-        aria-label={`Inspect citation for ${passage.filename}, page ${passage.page_start}`}
+        aria-label={`Inspect citation for ${passage.filename}, ${citationWhere(passage)}`}
         onClick={() => setOpen((value) => !value)}
         className="rounded-[var(--radius-xs)] text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal-400"
       >
@@ -152,7 +164,7 @@ export function CitationInspector({ passage, children }: { passage: CitationSour
         <span role="dialog" aria-label="Citation details" className="absolute start-0 top-full z-30 mt-2 w-[min(28rem,calc(100vw-2rem))] rounded-[var(--radius-sm)] border border-signal-500/40 bg-ink-900 p-3 text-left shadow-[var(--shadow-floating)]">
           <span className="block text-xs font-semibold text-slateish-100">{provenanceLabel(passage)}</span>
           <span className="mt-1 block text-xs text-slateish-400">
-            {passage.filename} · {passage.page_start === passage.page_end ? `page ${passage.page_start}` : `pages ${passage.page_start}–${passage.page_end}`}
+            {passage.filename} · {citationWhere(passage)}
             {passage.section ? ` · section ${passage.section}` : ""}
           </span>
           <span className="mt-2 block max-h-32 overflow-auto whitespace-pre-wrap border-l-2 border-signal-500/50 ps-2 text-xs text-slateish-200">{passage.text}</span>
@@ -164,7 +176,10 @@ export function CitationInspector({ passage, children }: { passage: CitationSour
 
 /** The line beside the duration, stating what the reader should do. */
 export function provenanceDetail(passage: AnswerPassage): string {
-  if (!isRecognised(passage)) return "quoted directly, no AI rewriting";
+  if (isExtracted(passage)) return "quoted directly, no AI rewriting";
+  if (!isRecognised(passage)) {
+    return `${PROVENANCE_UNKNOWN.toLowerCase()} — check it against the page below`;
+  }
   if (hasAlphabetViolation(passage)) {
     const n = passage.ocr_alphabet_violations ?? 0;
     const sample = passage.ocr_alphabet_sample ?? "";

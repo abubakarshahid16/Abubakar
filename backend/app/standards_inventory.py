@@ -38,10 +38,15 @@ the owner asked for to take to the standards body - the CRS's own
 per-submittal rows are unchanged and remain accurate to what that one
 submittal actually cites.
 
-NOT YET BUILT (tracked, not silently skipped):
-  - the licensed-lookup transport (never fetches copyrighted text; records
-    provenance only for freely published, authorized sources).
-  - the Standards Library page addition.
+BUILT SINCE (2026-09-29, `standards_acquisition.py`): the lookup, as the
+publisher's own catalogue page for each missing standard (every family here
+is sold under licence, NORSOK included, so nothing is fetched), a request
+recorded under an engineer's name, and an uploaded copy marked as obtained
+externally with its hash; shown on the Standards Library page.
+
+NOT BUILT (the client's open decision 3, "Is online lookup permitted, and who
+approves retrieved documents?"): automatically fetching a FREELY published
+source. Nothing in this system downloads a standard.
 """
 from __future__ import annotations
 
@@ -49,8 +54,8 @@ import re
 from dataclasses import dataclass
 from typing import Sequence
 
-from . import datasheets, db, standards
-from .db import connect
+from . import datasheets, db, standard_ids, standards
+from .db import connect, schema_once
 
 # --------------------------------------------------------------- vocabulary
 
@@ -71,7 +76,7 @@ FAMILIES = (FAMILY_SAES, FAMILY_SAMSS, FAMILY_API, FAMILY_ASME, FAMILY_ASTM,
             FAMILY_OTHER)
 
 #: Families this project's own client issues - present in the library
-#: because Saudi Aramco (or KOC) wrote them, not because a third party's
+#: because the client (or KOC) wrote them, not because a third party's
 #: copyrighted text was licensed.
 _OWN_STANDARD_FAMILIES = frozenset({FAMILY_SAES, FAMILY_SAMSS, FAMILY_KOC})
 
@@ -135,6 +140,7 @@ def default_licence_status(family: str, *, held: bool) -> str:
 
 # ------------------------------------------------------------------ schema
 
+@schema_once
 def ensure_schema() -> None:
     """Additive columns on `document_classification`. Safe to call every
     request; `add_column_if_missing` is the project's own race-safe helper.
@@ -176,7 +182,7 @@ class CoverMetadata:
     effective_date: CoverField | None
 
 
-#: A Saudi Aramco standard's own number, as its cover page prints it. NOT
+#: A client standard's own number, as its cover page prints it. NOT
 #: zero-padded here - `applicability.library_identifier` reads FILENAMES and
 #: normalises for matching; this reads the document's own printed text and
 #: keeps it as printed, because a backfilled field is a transcription, not a
@@ -218,7 +224,7 @@ _COVER_REVISION = re.compile(
 #: older-format "Effective Date: ...". Deliberately NOT "Previous Issue"
 #: (the date the PRIOR revision took effect - a real date, but the wrong
 #: one) and NOT "Next Planned Update" (a future date that has not happened
-#: yet). A newer Aramco cover format states Issue Date/Previous Issue/Next
+#: yet). A newer client cover format states Issue Date/Previous Issue/Next
 #: Planned Update instead of a bare "Revision: N" (found while sampling the
 #: real corpus's UNKNOWN revisions - these covers are not missing wording a
 #: reader failed to catch; they are a genuinely different, date-based
@@ -385,14 +391,18 @@ def _evidence_json(field: CoverField, *, method: str) -> str:
 
 # ------------------------------------------------------------- inventory read
 
-def _cited_identifiers(*, allowed_document_ids: frozenset[str]) -> set[str]:
-    """Every standard identifier's NORMALISED key cited by any
-    CONTRACTOR_SUBMITTAL the caller may read - the union `applicability.py`
-    computes per submittal, taken here across every submittal at once."""
-    from .applicability import normalise_identifier
+def _cited_identifiers(*, allowed_document_ids: frozenset[str]) -> list[str]:
+    """Every standard identifier cited by any CONTRACTOR_SUBMITTAL the caller
+    may read, one per standard, as written - the union `applicability.py`
+    computes per submittal, taken here across every submittal at once.
+
+    The identifiers themselves, not exact keys: whether one names a held
+    standard is `applicability.find_standard`'s question (#452), so "API RP
+    520 Pt-1" counts as citing the API 520 Part I document."""
+    from . import standard_ids
 
     if not allowed_document_ids:
-        return set()
+        return []
     marks = ",".join("?" for _ in allowed_document_ids)
     rows = connect().execute(
         f"""SELECT ch.text FROM chunks ch
@@ -401,8 +411,10 @@ def _cited_identifiers(*, allowed_document_ids: frozenset[str]) -> set[str]:
               AND c.document_role = 'CONTRACTOR_SUBMITTAL'""",
         sorted(allowed_document_ids)).fetchall()
     text = " ".join(r["text"] or "" for r in rows)
-    return {normalise_identifier(ident)
-            for ident in datasheets.referenced_standards(text)}
+    out: dict[str, str] = {}
+    for ident in datasheets.referenced_standards(text):
+        out.setdefault(standard_ids.key(ident), ident)
+    return list(out.values())
 
 
 def inventory_rows(*, allowed_document_ids: frozenset[str],
@@ -416,7 +428,7 @@ def inventory_rows(*, allowed_document_ids: frozenset[str],
     re-deriving the scope query, so the two can never disagree about which
     documents are in scope.
     """
-    from .applicability import normalise_identifier, library_identifier
+    from .applicability import find_standard, library_identifier
 
     ensure_schema()
     base = standards.list_standards(
@@ -442,13 +454,12 @@ def inventory_rows(*, allowed_document_ids: frozenset[str],
         family = info.get("standard_family") or family_from_identifier(identifier)
         licence = info.get("licence_status") or default_licence_status(
             family, held=True)  # a row here is, by construction, held
-        key = normalise_identifier(identifier)
         out.append({
             **row,
             "standard_family": family,
             "licence_status": licence,
             "source_file_sha256": info.get("sha256"),
-            "cited_by_submittal": bool(key) and key in cited,
+            "cited_by_submittal": any(find_standard([row], c) is not None for c in cited),
         })
     return out
 
@@ -509,6 +520,7 @@ def _requirement_citations(*, allowed_document_ids: frozenset[str]) -> list[dict
             WHERE r.standard_document_id IN ({marks})
               AND c.document_role = 'COMPANY_STANDARD'
               AND c.superseded_by IS NULL
+              AND r.superseded_at IS NULL
               AND r.requirement_type = ?""",
         [*sorted(allowed_document_ids), APPLICABILITY_TRIGGER]).fetchall()
 
@@ -517,6 +529,16 @@ def _requirement_citations(*, allowed_document_ids: frozenset[str]) -> list[dict
         identifier = cited_document(row["text"] or "")
         if identifier is None:
             continue
+        # A deferral names A DOCUMENT; only one the citation reader recognises
+        # as a standard - an issuing body and a number (#623) - can be held or
+        # missing. `cited_document` takes any upper-case designation, so "HVAC"
+        # or "CMP" after "in accordance with" was listed as a missing standard.
+        # The designation itself first, else the first standard the sentence
+        # names ("per the HVAC design guide, SAES-K-001" names SAES-K-001).
+        found = standard_ids.find_citations(identifier) or standard_ids.find_citations(row["text"] or "")
+        if not found:
+            continue
+        identifier = found[0][0]
         out.append({
             "identifier": identifier, "source_type": "requirement",
             "document_id": row["standard_document_id"],
@@ -531,8 +553,8 @@ def cited_but_not_held(*, allowed_document_ids: frozenset[str]) -> list[dict]:
     in the local library, with where it was cited - the missing list for
     the CRS and for the owner to take to the standards body.
 
-    ONE HOME FOR THE MATCHING RULE, reusing `applicability._match_referenced`
-    exactly as `applicability.missing_references` does (that function's own
+    ONE HOME FOR THE MATCHING RULE, reusing `applicability.find_standard`
+    exactly as `applicability.missing_references` does (#452; that function's own
     docstring: two independent copies of this rule disagreed about whether a
     submittal citation was a document id or an identifier, and one of them
     reported six held standards as missing). Matching here is by-name against
@@ -544,9 +566,11 @@ def cited_but_not_held(*, allowed_document_ids: frozenset[str]) -> list[dict]:
     (a standard can be cited by more than one submittal, or by more than one
     requirement) under one entry, listing every place it was cited - never
     one row per citation, which would make "3 mentions of API 610" look like
-    three different missing standards.
+    three different missing standards. "The same" is `standard_ids.key`: two
+    spellings of one standard ("API RP 520 Pt-1", "API 520 Part 1") are one row.
     """
-    from .applicability import _match_referenced, normalise_identifier
+    from . import standard_ids
+    from .applicability import find_standard
 
     library = standards.list_standards(
         allowed_document_ids=allowed_document_ids, include_superseded=True)
@@ -557,11 +581,10 @@ def cited_but_not_held(*, allowed_document_ids: frozenset[str]) -> list[dict]:
     by_key: dict[str, dict] = {}
     for citation in citations:
         identifier = citation["identifier"]
-        key = normalise_identifier(identifier)
+        key = standard_ids.key(identifier)
         if not key:
             continue
-        matched = _match_referenced(library, [identifier])
-        if matched:
+        if find_standard(library, identifier) is not None:
             continue  # held - not a gap
         entry = by_key.setdefault(key, {
             "identifier": identifier,

@@ -34,7 +34,7 @@ afterEach(() => {
 const health: Health = {
   ok: true,
   embed_model_present: true,
-  answer_model_present: true,
+  answer_model_configured: true,
   ingestion: { alive: true, stalled: false, busy: false },
 };
 

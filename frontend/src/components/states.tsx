@@ -74,6 +74,8 @@ const ERROR_TITLES: Record<string, string> = {
   confirm_required: "Confirmation needed",
   not_pdf: "That file is not a PDF",
   encrypted_pdf: "That PDF is password protected",
+  unsupported_office: "That file type is not supported yet",
+  not_docx: "That is not a Word document",
   too_large: "That file is too large",
   duplicate: "Already uploaded",
   extract_failed: "This document could not be read",

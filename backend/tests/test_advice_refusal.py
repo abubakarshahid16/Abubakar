@@ -124,24 +124,35 @@ def test_advice_requests_are_recognised(text):
     assert intent.classify(text) == intent.ADVICE_REQUEST
 
 
-def test_the_advice_reply_says_what_actually_happened():
-    """Not "the documents do not answer this" - the corpus was never asked."""
+def _general_model(monkeypatch, text="Start with a FEED deliverables list, then a schedule."):
+    """A fake model for the GENERAL lane - never the document lane."""
+    from app import chat_model
+
+    seen = []
+
+    def post_json(path, body, timeout):
+        seen.append(body)
+        return {"response": text, "model": "qwen3.5:4b", "done_reason": "stop"}
+
+    monkeypatch.setattr(chat_model.model_transport, "post_json", post_json)
+    monkeypatch.setattr(settings, "reasoning_provider", "ollama")
+    return seen
+
+
+def test_the_advice_reply_is_general_knowledge_and_says_so(monkeypatch):
+    """CHANGED 2026-09-26 (owner order, chat redesign 2c): a request for help
+    with a task is answered - from general knowledge, LABELLED as such - not
+    refused. What must still hold: it is never described as a failed search."""
+    seen = _general_model(monkeypatch)
     client = TestClient(app)
     upload(client)
     body = ask(client, ADVICE)
-
-    # `guidance`, not `insufficient_evidence`. The frontend prints "The
-    # documents do not answer this" for insufficient_evidence and nothing of
-    # the kind for guidance, so the answer_type IS the wording.
-    assert body["answer_type"] == "guidance"
-    assert body["input_kind"] == "advice_request"
-
-    text = body["answer"]
-    assert "request for help with a task" in text
-    assert "not a question about what the documents say" in text
-    # the old, false description must not appear in any form
-    assert "credible match" not in text.lower()
-    assert "do not answer" not in text.lower()
+    assert seen, "the general lane was never asked"
+    assert body["answer_type"] == "general"
+    assert body["answer_kind"] == "general"
+    assert body["used_line"].startswith("General knowledge, not from your documents")
+    assert "credible match" not in body["answer"].lower()
+    assert "do not answer" not in body["answer"].lower()
 
 
 def test_the_advice_request_is_never_searched():
@@ -163,35 +174,22 @@ def test_the_advice_request_is_never_searched():
     assert result["reason"] is None
 
 
-def test_the_advice_reply_answers_nothing_and_invents_nothing():
-    """The worst possible fix for this defect is one that starts helping."""
+def test_the_advice_reply_carries_no_document_evidence(monkeypatch):
+    """General knowledge is never dressed as a document answer: no passages,
+    no citations, no coverage, nothing that could read as a finding - even if
+    the model writes a citation marker, it is removed."""
+    _general_model(monkeypatch, text="Plan the FEED deliverables first [S1].")
     client = TestClient(app)
     upload(client)
     body = ask(client, ADVICE)
-    text = body["answer"].lower()
-
-    # No content about the subject the reader raised. If any of these appears,
-    # the reply has begun to answer from the model rather than from documents.
-    for word in ("feed", "epc", "front end engineering", "deliverable",
-                 "basis of design", "hazop", "p&id", "workflow", "stage gate"):
-        assert word not in text, f"the reply started answering: {word!r}"
-
-    # No invented procedure: a numbered or bulleted set of steps is the shape
-    # advice takes, and the only bullets allowed here are the example
-    # questions, which are drawn from documents that are actually loaded.
-    lead = body["answer"].split("Try one of these:")[0]
-    assert "1." not in lead and "•" not in lead and "\n-" not in lead
-    for example in body["examples"]:
-        assert "spec.pdf" in example
-
-    # No evidence, no coverage table, no score, nothing that could read as a
-    # finding. A coverage report under a non-search would invite the reader to
-    # read it as evidence the corpus could have answered.
+    assert "[S1]" not in body["answer"]
     assert body["passages"] == []
     assert body["passage"] is None
+    assert body["sources"] == []
     assert body.get("coverage") is None
     assert body.get("cited") in (None, [])
-    assert body.get("complete") is not True
+    assert body["verification"] is None
+    assert body["retrieval_mode"] == "not_searched"
 
 
 # --------------------------------------------- what must NOT change
@@ -230,9 +228,28 @@ def test_a_real_question_is_never_classified_as_advice(text):
     assert intent.classify(text) == intent.DOCUMENT_QUESTION
 
 
-def test_the_unknown_term_refusal_is_unchanged():
+def _no_model_reachable(monkeypatch):
+    """Simulate a machine with no reachable model, so a definitional EITHER
+    question ("what is ABAP") cannot be answered as general knowledge.
+
+    Without this the two ABAP tests below pass only where no model happens to
+    be reachable (a clean sandbox, CI) and fail - while spending real API
+    money - on a machine with Ollama up or Claude configured, where the
+    documents-first refusal is correctly followed by a labelled
+    general-knowledge answer (2026-09-24 requirement)."""
+    from app import chat_answers, chat_claude_first
+
+    monkeypatch.setattr(chat_claude_first, "answer", lambda *a, **k: None)
+    monkeypatch.setattr(
+        chat_answers, "general",
+        lambda question, **k: {"answer_type": "model_unavailable", "answer": None,
+                               "reason": "no model reachable in this test"})
+
+
+def test_the_unknown_term_refusal_is_unchanged(monkeypatch):
     """The refusal this fix is modelled on must still fire for its own case,
     with its own wording and its own answer_type."""
+    _no_model_reachable(monkeypatch)
     client = TestClient(app)
     upload(client)
     body = ask(client, "what is ABAP")
@@ -246,10 +263,109 @@ def test_the_unknown_term_refusal_is_unchanged():
     assert "If it is an abbreviation, try the full term" in reason
 
 
-def test_the_greeting_reply_is_unchanged():
+def test_a_spec_shaped_either_question_never_reaches_general_knowledge(monkeypatch):
+    """FOUND 2026-09-28, on a real machine with Claude actually configured:
+    "what is the hafnium concentration limit" was classified `either`,
+    reached Claude-first, and came back answered from the model's own
+    training data - honestly labelled, but still a guess about a real
+    engineering limit. NORTH-STAR: "never reconstruct requirements from
+    model memory". See intent.is_spec_shaped.
+
+    Must hold even when chat_claude_first is fully willing to answer -
+    monkeypatched to prove it, so the test fails if the gate is ever removed
+    rather than only when a real Claude key is absent."""
+    from app import chat_answers, chat_claude_first
+
+    called = []
+
+    def _claude_first_would_have_guessed(*args, **kwargs):
+        called.append("claude_first")
+        return None  # the assertion below must be what fails, not a schema error
+
+    def _general_would_have_guessed(question, **kwargs):
+        called.append("general_fallback")
+        return {"answer_type": "model_unavailable", "answer": None,
+                "reason": "test double"}
+
+    monkeypatch.setattr(chat_claude_first, "answer", _claude_first_would_have_guessed)
+    monkeypatch.setattr(chat_answers, "general", _general_would_have_guessed)
+
+    client = TestClient(app)
+    upload(client)
+    body = ask(client, "what is the hafnium concentration limit")
+
+    assert called == [], (
+        f"a spec-shaped question absent from the corpus reached {called} - "
+        "the gate should have kept it on the document pipeline"
+    )
+    assert body["answer_type"] == "insufficient_evidence"
+    assert body["answer"] is None
+
+
+def test_a_spec_shaped_document_question_never_reaches_general_knowledge(monkeypatch):
+    """FOUND 2026-09-29: the gate above only checked route_kind == EITHER. A
+    spec-shaped question that ALSO carries a document signal ("what is the
+    hafnium concentration limit in our spec" - "our spec" routes it DOCUMENT
+    per intent.route rule 6, not EITHER) skipped the gate entirely and
+    reached Claude-first on its own judgement whether to search - the exact
+    guess the EITHER gate exists to stop, reached through the one route
+    intent.py itself says must "never" be answered from general knowledge.
+
+    Must hold even when chat_claude_first is fully willing to answer -
+    monkeypatched to prove it, so the test fails if the DOCUMENT half of the
+    gate is ever removed rather than only when a real Claude key is absent."""
+    from app import chat_answers, chat_claude_first
+
+    called = []
+
+    def _claude_first_would_have_guessed(*args, **kwargs):
+        called.append("claude_first")
+        return None  # the assertion below must be what fails, not a schema error
+
+    def _general_would_have_guessed(question, **kwargs):
+        called.append("general_fallback")
+        return {"answer_type": "model_unavailable", "answer": None,
+                "reason": "test double"}
+
+    monkeypatch.setattr(chat_claude_first, "answer", _claude_first_would_have_guessed)
+    monkeypatch.setattr(chat_answers, "general", _general_would_have_guessed)
+
+    client = TestClient(app)
+    upload(client)
+    question = "what is the hafnium concentration limit in our spec"
+    assert intent.route(question)["kind"] == intent.DOCUMENT  # confirms this IS the DOCUMENT route
+    body = ask(client, question)
+
+    assert called == [], (
+        f"a spec-shaped DOCUMENT question absent from the corpus reached {called} - "
+        "the gate should have kept it on the document pipeline"
+    )
+    assert body["answer_type"] == "insufficient_evidence"
+    assert body["answer"] is None
+
+
+def test_a_definitional_either_question_is_unaffected(monkeypatch):
+    """The gate above must not become a blanket EITHER refusal. "what is
+    ABAP" carries no spec-shaped cue and must still reach the normal
+    Claude-first / general-knowledge path exactly as before."""
+    _no_model_reachable(monkeypatch)
+
+    client = TestClient(app)
+    upload(client)
+    body = ask(client, "what is ABAP")
+
+    assert body["answer_type"] == "insufficient_evidence"
+    assert "ABAP" in body["reason"]
+
+
+def test_the_greeting_reply_is_natural():
+    """CHANGED 2026-09-26: "hi" gets a natural reply, not the old guidance
+    card - and is still never searched."""
     client = TestClient(app)
     upload(client)
     body = ask(client, "hi")
     assert body["answer_type"] == "guidance"
     assert body["input_kind"] == "greeting"
-    assert "Hello." in body["answer"]
+    assert body["answer"].startswith("Hi!")
+    assert "I answer questions about your documents" not in body["answer"]
+    assert body["passages"] == []

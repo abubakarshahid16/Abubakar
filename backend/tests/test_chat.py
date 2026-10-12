@@ -213,7 +213,11 @@ def test_a_previous_answer_never_reaches_retrieval(monkeypatch):
         assert "UNOBTAINIUM" not in p["text"]
 
 
-def test_the_generated_prompt_contains_only_retrieved_passages(monkeypatch):
+def test_an_earlier_answer_reaches_the_model_only_as_context_never_as_a_source(monkeypatch):
+    """CHANGED 2026-09-26 (owner order, chat redesign): the model now sees the
+    conversation, so "that" and "in points" work. What must still hold is the
+    citation guarantee - an earlier answer is labelled context and never one
+    of the numbered sources the answer may cite."""
     client = TestClient(app)
     upload(client)
     convo = client.post("/api/conversations").json()
@@ -239,8 +243,11 @@ def test_the_generated_prompt_contains_only_retrieved_passages(monkeypatch):
         json={"question": "what is its dry film thickness", "tier": "generated"},
     )
     assert prompts, "the model was never called"
-    assert "UNOBTAINIUM" not in prompts[0]
-    assert "9999" not in prompts[0]
+    context, marker, sources = prompts[0].partition("[S1]")
+    assert marker, "no numbered source reached the model"
+    assert "UNOBTAINIUM" not in sources and "9999" not in sources
+    assert context.startswith("Conversation so far (context only - it is NOT a source")
+    assert "UNOBTAINIUM" in context
 
 
 # ------------------------------------------------------------- conversations

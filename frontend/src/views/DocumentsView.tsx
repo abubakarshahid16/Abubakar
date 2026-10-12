@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef, useMemo } from "react";
 
 import { usePoll } from "../hooks/usePoll";
 
@@ -18,7 +18,7 @@ import { WorkerPanel } from "../components/WorkerPanel";
 import { useDocumentClassifications } from "../components/classification/useDocumentClassifications";
 import { useTypeVocabularyLoad } from "../components/classification/TypeFilter";
 import { EmptyState, ErrorState, Spinner } from "../components/states";
-import type { ApiError, DocumentClassification, DocumentRecord, DocumentRole, WorkerStatus } from "../types/api";
+import type { ApiError, DocumentClassification, DocumentKindOption, DocumentRecord, DocumentRole, WorkerStatus } from "../types/api";
 
 type Load =
   | { state: "loading" }
@@ -200,7 +200,21 @@ export function DocumentsView({
     };
   })();
 
+  // How many rows the operator has loaded for the CURRENT query, read by
+  // `refresh` without depending on it. Reset when the query changes, so a new
+  // search starts at the first page instead of re-reading the old depth.
+  const loadedCount = useRef(0);
+  const loadedKey = useRef("");
+  // REQUEST SEQUENCE. A search, sort or filter change starts a read while an
+  // earlier one (a poll, the previous keystroke) may still be in flight; only
+  // the newest read is allowed to write to the screen, so a slow older answer
+  // can never overwrite a newer one.
+  const readSeq = useRef(0);
+  const queryKey = useRef("");
+  queryKey.current = JSON.stringify([listQuery, sort, direction, filters]);
+
   const refresh = useCallback(async () => {
+    const seq = ++readSeq.current;
     // These reads are independent. Start both before yielding so a slow
     // metrics snapshot never delays the document list (and teardown cannot
     // leave a later document request behind after the view is gone).
@@ -208,10 +222,37 @@ export function DocumentsView({
       api.metrics(),
       api.documents({ limit: 100, q: listQuery, sort, direction, ...filters }),
     ]);
+    if (seq !== readSeq.current) return;
     setWorker(m.ok ? m.data.worker : null);
     if (result.ok) {
-      setLoad({ state: "ready", documents: result.data });
-      setTotalMatching(Number(result.response?.headers?.get?.("X-Total-Count") ?? result.data.length));
+      const total = Number(result.response?.headers?.get?.("X-Total-Count") ?? result.data.length);
+      // KEEP WHAT THE OPERATOR ALREADY LOADED. The poll used to replace the
+      // list with the first page, so "Load next 100" was undone every few
+      // seconds. The endpoint caps one page, so re-read the further pages
+      // one at a time until the list is as long as it was (or the server
+      // has no more). A failed further page keeps what was read so far.
+      const key = JSON.stringify([listQuery, sort, direction, filters]);
+      if (key !== loadedKey.current) {
+        loadedKey.current = key;
+        loadedCount.current = 0;
+      }
+      let documents = result.data;
+      while (
+        documents.length < loadedCount.current &&
+        documents.length < total &&
+        result.data.length > 0
+      ) {
+        const next = await api.documents({
+          limit: 100, offset: documents.length, q: listQuery, sort, direction,
+          ...filters,
+        });
+        if (seq !== readSeq.current) return;
+        if (!next.ok || next.data.length === 0) break;
+        documents = [...documents, ...next.data];
+      }
+      loadedCount.current = documents.length;
+      setLoad({ state: "ready", documents });
+      setTotalMatching(total);
     } else {
       setLoad({
         state: "error",
@@ -221,17 +262,32 @@ export function DocumentsView({
     }
   }, [direction, filters, listQuery, sort]);
 
+  // Search, sort and filter changes read at once instead of waiting for the
+  // next poll (30 s when idle). Skipped on mount: the poll makes that read.
+  // Debounced briefly so typing does not send one request per keystroke.
+  const firstRun = useRef(true);
+  useEffect(() => {
+    if (firstRun.current) { firstRun.current = false; return; }
+    const timer = window.setTimeout(() => { void refresh(); }, 200);
+    return () => window.clearTimeout(timer);
+  }, [refresh]);
+
   const loadMore = useCallback(async () => {
     if (load.state !== "ready") return;
+    const askedKey = queryKey.current;
     const result = await api.documents({
       limit: 100, offset: load.documents.length, q: listQuery, sort, direction,
       ...filters,
     });
+    // The query changed while this page was loading: it belongs to a list
+    // that is no longer on screen.
+    if (askedKey !== queryKey.current) return;
     if (result.ok) {
+      loadedCount.current = load.documents.length + result.data.length;
       setLoad({ state: "ready", documents: [...load.documents, ...result.data] });
       setTotalMatching(Number(result.response?.headers?.get?.("X-Total-Count") ?? load.documents.length + result.data.length));
     }
-  }, [direction, listQuery, load, sort]);
+  }, [direction, filters, listQuery, load, sort]);
 
   // Poll so ingestion progress is live without the operator refreshing - but
   // only FAST while there is progress to be live about. On an idle corpus the
@@ -249,13 +305,18 @@ export function DocumentsView({
 
   usePoll(refresh, working, polling);
 
-  const documentIds = load.state === "ready" ? load.documents.map((d) => d.id) : [];
+  // The classifications come WITH the list (one request per page load), so the
+  // hook reads them from the documents instead of fetching one by one.
+  const listedDocuments = useMemo(
+    () => (load.state === "ready" ? load.documents : []),
+    [load],
+  );
   const {
     byId: classifications,
     setOne: setOneClassification,
     settled: classificationsSettled,
   } =
-    useDocumentClassifications(documentIds);
+    useDocumentClassifications(listedDocuments);
   const classificationsReady = vocabularySettled && classificationsSettled;
   // READ THROUGH A REF in `confirmType`. Depending on `classifications`
   // directly would rebuild the callback on every confirm - the same reason the
@@ -368,6 +429,34 @@ export function DocumentsView({
       }
     },
     [setOneClassification],
+  );
+
+  // The document kinds the router knows (W5b-02). A failed load simply means
+  // no picker is offered; the chips still show what the router stored.
+  const [kinds, setKinds] = useState<DocumentKindOption[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    void classification.kinds().then((r) => {
+      if (!cancelled && r.ok && Array.isArray(r.data.kinds)) setKinds(r.data.kinds);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const confirmKind = useCallback(
+    async (doc: DocumentRecord, kind: string) => {
+      const result = await classification.confirmKind(doc.id, kind);
+      if (result.ok) {
+        setOneClassification(doc.id, result.data);
+        setNotice(`Confirmed ${doc.filename} as ${kinds.find((k) => k.id === kind)?.label ?? kind}`);
+      } else if (!result.disconnected && result.error.code === "not_found") {
+        setNotice("You do not have permission to confirm this document's kind.");
+      } else {
+        setNotice(`Could not confirm the kind for ${doc.filename}. Try again.`);
+      }
+    },
+    [setOneClassification, kinds],
   );
 
   const run = useCallback(
@@ -641,6 +730,8 @@ export function DocumentsView({
                                 types={types}
                                 isAdmin={isAdmin}
                                 onConfirmType={confirmType}
+                                kinds={kinds}
+                                onConfirmKind={confirmKind}
                                 selected={isAdmin ? selectedIds.includes(doc.id) : undefined}
                                 onToggleSelected={isAdmin ? toggleSelected : undefined}
                               />
@@ -671,6 +762,8 @@ export function DocumentsView({
                             types={types}
                             isAdmin={isAdmin}
                             onConfirmType={confirmType}
+                            kinds={kinds}
+                            onConfirmKind={confirmKind}
                             selected={isAdmin ? selectedIds.includes(doc.id) : undefined}
                             onToggleSelected={isAdmin ? toggleSelected : undefined}
                           />

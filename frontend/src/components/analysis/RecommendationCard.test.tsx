@@ -82,3 +82,19 @@ describe("RecommendationCard: confidence is a word", () => {
     }
   });
 });
+
+describe("RecommendationCard: a check nobody ran is not a check that cleared", () => {
+  it("says 'not checked' for a null check and 'clear' only for false", () => {
+    const rec = makeRec({
+      checks: [
+        { label: "Fewer than two documents contributed evidence", fired: true },
+        { label: "Evidence contains recognised (OCR) text", fired: false },
+        { label: "A credible passage was retrieved and not used", fired: null },
+      ],
+    });
+    render(<RecommendationCard recommendation={rec} onCite={vi.fn()} />);
+    expect(screen.getByText("? not checked")).toBeInTheDocument();
+    expect(screen.getAllByText("— clear")).toHaveLength(1);
+    expect(screen.getAllByText("▲ fired")).toHaveLength(1);
+  });
+});

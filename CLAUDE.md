@@ -1,5 +1,17 @@
 # CLAUDE.md — RAG Intelligence System
 
+> **#805 overrides this file and every other file, except the privacy and
+> safety rules 1 to 5 in CLAUDE.md and the security controls in #806.** No
+> issue, comment or plan overrides those; changing them needs the owner's
+> written approval on #692. #805 (PLAN ONE) is the only plan; where anything
+> else here, in `docs/` or in `.cowork/` differs from it, #805 wins.
+>
+> **Top rule - AI-first (owner, 11 Oct 2026; #805 rule 1):** the review is
+> AI-first. AI reads, understands and proposes; code verifies and decides
+> pass/fail; the engineer decides. Switching any AI step off by default, or
+> replacing an AI step with a rules-only path, needs the owner's written
+> approval on #692.
+
 Read this first, every session. It is short on purpose; the long version is
 `docs/HANDOVER.md`, and the current defect list is `docs/code-review/README.md`.
 
@@ -31,9 +43,12 @@ carries the client's name; only the owner can rename it.
    (local Ollama only — `ollama_url` validated by `config.check_model_url`),
    `reader_transport.py` (Claude API: the reasoning provider and the reader;
    off unless `REASONING_PROVIDER=claude` AND both `STANDARDS_READER_*` egress
-   flags AND a key - owner decision 2026-09-25, USD caps in `claude_spend`) and
+   flags AND a key - owner decision 2026-09-25, USD caps in `claude_spend`,
+   which the three `claude_api` review routes reach via `claude_spend.metered`) and the datasheet AI reader (`datasheet_ai`, with `DATASHEET_AI_READER=claude`) reaches the same way and
    `notifications.py` (SMTP, off by default). Known gap: the socket-containment
-   test does not yet cover `smtplib` (honesty audit entry 49). Call graph:
+   test does not yet cover `smtplib` (honesty audit entry 49). Known gap: the
+   `claude_api` review routes check the two egress flags but not
+   `REASONING_PROVIDER` (audit 2026-09-25 finding 1). Call graph:
    `docs/architecture-call-graph.md`.
 2. **Never** commit `backend/.env`. Never print, log, paste or commit a secret.
    Never put a token in a URL. Keys live only in `backend/.env`.
@@ -48,11 +63,26 @@ carries the client's name; only the owner can rename it.
 5. **Classification is NOT access control.** `document_classification` says what
    a document is about; the grant tables say who may read it. A filter may only
    NARROW what a caller may already read — intersection, never union.
-6. **Tests are non-negotiable and must not be vacuous.** Every new test must fail
-   when its feature is deleted — prove it by mutation. Vacuous tests are this
-   project's documented recurring defect (`docs/status-honesty-audit.md`).
-7. **When something this project stated turns out false, record the retraction**
-   in `docs/status-honesty-audit.md`. It is at 53 entries. Several findings in
+6. **Tests are non-negotiable and must not be vacuous.** Every change ships with
+   a test that fails without it (check it once by hand: revert the fix, see the
+   test fail). **Mutation entries are required only in the danger zone**, where a
+   wrong answer reaches an engineer, the live data, the network or the budget:
+   `comparison.py`, `numparse.py` and the unit code in `claims.py`,
+   `datasheet_checks.py` and `reference/datasheet_checks.json` (the #746
+   checklist), `crs_mapping.py`, `crs_export.py` and `crs_numbers.py`,
+   `live_guard.py`, `heavy_lock.py` and the live guards in
+   `scripts/rehearse_requirement_reextraction.py`, the four socket modules of
+   rule 1 (`market_transport.py`, `model_transport.py`, `reader_transport.py`,
+   `notifications.py`) and `claude_spend.py`. Everywhere else ordinary tests are
+   enough; do not add mutation entries. Existing entries stay and keep running.
+   Vacuous tests are this project's documented recurring defect
+   (`docs/status-honesty-audit.md`).
+7. **When something the user sees turns out false, record the retraction** in
+   `docs/status-honesty-audit.md`: screen text, CRS wording, reports, exports,
+   and claims made to the owner in issues or PRs. Internal refactors, test-only
+   changes and renamed helpers get no entry. Name a new entry after its PR:
+   `- **A-<PR number> - ...**` (a second one in the same PR: `A-<PR number>b`).
+   Existing numbered entries stay as they are. Several findings in
    `docs/code-review/` belong there.
 8. **Fix a claim in every home it lives in.** A third of the review findings are
    "fixed in one of two places" (a flag read in one file, a literal left in
@@ -72,6 +102,10 @@ carries the client's name; only the owner can rename it.
     without updating this rule first.
 11. Merge commits, not squash. Conventional prefixes (`feat:`, `fix:`, `test:`,
     `docs:`). Issues, milestones, PRs with `Closes #N`. Free tools only.
+12. **IDs are named after the PR, never "the next free number".** Mutation ids:
+    `M<PR number>-01`, `M<PR number>-02`, ... with `phase=<PR number>`. Audit
+    entries: `A-<PR number>`. Existing ids are never renumbered. A merge that
+    only renumbers ids is not allowed.
 
 ## Who does what
 
@@ -106,6 +140,27 @@ carries the client's name; only the owner can rename it.
 - `AUTH_MODE=demo_required` is on. `<img src>` cannot send the bearer token —
   page images are now fetched with the header (`useAuthedImage`).
 
+## Heavy checks: one lock, batched (#680)
+
+P1, the changed-test run, the mutation run and the AI task batch each need most
+of the machine's memory. They share ONE lock file, `D:\project\.heavy-job.lock`
+on the Windows PC (elsewhere the temp folder; `HEAVY_JOB_LOCK=<path>` moves it,
+`HEAVY_JOB_LOCK=off` disables it, CI does). It names owner, kind and start time;
+it is stale after 3 hours or when its process is gone. `run_p1.py`,
+`scripts/test_changed.py`, `scripts/mutation_check.py` and the AI batch
+(`backend/app/ai_task_runner.py`) take it themselves through
+`backend/app/heavy_lock.py`; a job waits up to 30 minutes
+(`HEAVY_JOB_WAIT_MINUTES`), then exits with code 75 and says who holds it.
+Never write a second waiter.
+
+1. GitHub CI is the first gate for every PR.
+2. P1 on the PC runs ONCE per merge round on the merged result of a small batch
+   of green PRs, plus per PR only when it touches retrieval, answer, review or
+   eval code.
+3. Every P1, test run and AI batch unloads its models at the end (#666).
+4. Mutation runs are for changed danger-zone modules only (rule 6):
+   `python scripts/mutation_check.py --changed`, not the full registry.
+
 ## Where to look
 
 | Need | File |
@@ -113,7 +168,10 @@ carries the client's name; only the owner can rename it.
 | Full state, decisions, what's next | `docs/HANDOVER.md` |
 | Architecture as the code actually is | `docs/architecture-call-graph.md` (current); `docs/architecture.md` (older, stale line refs) |
 | The 134 review findings, prioritised | `docs/code-review/README.md` |
-| Recorded false claims (53) | `docs/status-honesty-audit.md` |
+| Recorded false claims | `docs/status-honesty-audit.md` |
+| The review score (recall, precision, false compliant, citations; answer-key format) | `eval/review/README.md`, `scripts/review_score.py` |
+| Review playbooks (HAZOP, SIL procedures; data files, clause-cited, standard not held is never met) | `docs/playbooks.md` |
+| The scored model tier of P1 (figures, clause, could-not-read; PC only) | `eval/p1ai/README.md` |
 | Review any change against the project's own failure modes | `/review` (`.claude/commands/review.md`) |
 | Demo script and safe questions | `docs/HANDOVER.md` § Demo |
 | Run it | `backend`: `python run.py` · `frontend`: `npm run dev` · Ollama must be up |

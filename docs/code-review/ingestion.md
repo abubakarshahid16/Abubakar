@@ -861,7 +861,10 @@ Checked, and I found nothing wrong with them:
   transaction with a compare-and-set (`keyword.py:134-152`), and so are the
   `ready` / `no_searchable_content` stamps (`ingest.py:590-621`). Extraction and
   recognition both commit batches in order with a contiguous
-  `last_completed_batch` (`extract.py:111`, `ocr.py:222`). Chunking's
+  `last_completed_batch` (`extract.py:111`, `ocr.py:222`). [Corrected
+  2026-09-30: recognition never wrote `last_completed_batch` - `ocr._commit_batch`
+  was always called with `job_id=None`. Recognition resumes from `page_ocr`
+  (`pending_pages`); the claim and the dead parameter were removed.] Chunking's
   delete-and-reinsert of `chunks`, `chunks_fts`, `exclusions` and orphaned
   `chunk_vectors` is a single transaction (`chunker.py:1566-1605`).
 - **The OCR ordering test now asserts the outcome.** `test_ocr.py:356-365`

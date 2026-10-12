@@ -50,6 +50,44 @@ def unavailable_reason() -> str | None:
     return _unavailable_reason
 
 
+#: Upper bound on the DERIVED default. 12 is what the owner's 12-thread laptop
+#: was measured at (docs/benchmarks.md), so that machine keeps exactly the
+#: setting it was tuned with; a bigger box gains little from more threads on a
+#: 16-pair batch and would starve the embedder and Ollama running beside it.
+MAX_DEFAULT_THREADS = 12
+
+
+def _usable_cpus() -> int:
+    """CPUs this process may actually run on.
+
+    `os.cpu_count()` counts the machine; a container or an affinity mask can
+    grant fewer (this sandbox: 2 of them). `sched_getaffinity` is the count
+    that matters where the platform has it (Linux); elsewhere (Windows, the
+    owner's laptop) it is `os.cpu_count()`.
+    """
+    import os
+
+    try:
+        return max(1, len(os.sched_getaffinity(0)))
+    except (AttributeError, OSError):
+        return max(1, os.cpu_count() or 1)
+
+
+def thread_count() -> int:
+    """The reranker session's intra-op threads: `rerank_threads` when set,
+    else one per usable CPU, capped at MAX_DEFAULT_THREADS.
+
+    Hard-set to 12 before, which oversubscribed any machine with fewer cores:
+    a 16-passage rerank took 8,979 ms at 12 threads against 946 ms at 2 on a
+    2-vCPU box (retrieval audit L1). Threads change scheduling, not
+    arithmetic, so scores do not depend on this value.
+    """
+    configured = int(settings.rerank_threads or 0)
+    if configured > 0:
+        return configured
+    return min(_usable_cpus(), MAX_DEFAULT_THREADS)
+
+
 def _load():
     """Load once, and remember a failure rather than retrying on every query."""
     global _session, _tokenizer, _unavailable_reason
@@ -69,7 +107,7 @@ def _load():
                 return None, None
 
             opts = ort.SessionOptions()
-            opts.intra_op_num_threads = settings.num_thread
+            opts.intra_op_num_threads = thread_count()
             opts.inter_op_num_threads = 1
             opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
             # The arena reserves per-thread blocks sized for the worst-case

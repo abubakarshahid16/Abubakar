@@ -256,12 +256,12 @@ def test_an_unauthenticated_caller_receives_no_host_telemetry(
     caller resolves to `empty_scope()`, which is not an error and not
     everything - and it is certainly not an administrator."""
     client, _, _ = corpus_and_identities
-    payload = _metrics(client, None)
-
-    leaked = _leaked(payload)
-    assert leaked == [], (
-        "an UNAUTHENTICATED caller was served host telemetry: "
-        + ", ".join(leaked))
+    # r2 S7: it is now refused outright (401, no payload), which is stricter
+    # than an empty scope. The body is still checked for host fields.
+    response = client.get("/api/metrics")
+    assert response.status_code == 401, response.text[:300]
+    assert _leaked(response.json()) == [], (
+        "an UNAUTHENTICATED caller was served host telemetry")
 
 
 def test_disabled_auth_does_not_turn_unrestricted_reads_into_host_access(
@@ -284,7 +284,7 @@ def test_disabled_auth_does_not_turn_unrestricted_reads_into_host_access(
 @pytest.mark.parametrize("user,expected_allowed", [
     ("admin_user", None),
     ("engineer", ["doc_first"]),
-    (None, []),
+    ("no_grants", []),
 ])
 def test_the_corpus_figures_are_unchanged_for_every_caller_class(
         corpus_and_identities, user, expected_allowed):
@@ -300,6 +300,10 @@ def test_the_corpus_figures_are_unchanged_for_every_caller_class(
     that must never be conflated: corpus-wide versus granted nothing.
     """
     client, _, _ = corpus_and_identities
+    if user == "no_grants":
+        # Identified but granted nothing: the `[]` end. (An UNIDENTIFIED caller
+        # is a 401 since r2 S7 and has no figures to compare.)
+        _user("no_grants", "NoGrants", "discipline", ())
     payload = _metrics(client, user)
 
     assert payload["corpus"] == metrics.corpus(expected_allowed), (

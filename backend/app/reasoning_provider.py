@@ -60,7 +60,48 @@ class ProviderRefused(RuntimeError):
     for an unreadable file and B50 for an unparseable response: "it did not
     happen, here is the reason" and "it happened and produced nothing" are
     different facts, and only one of them is about the model.
+
+    `cost_usd` is what the failed call was charged in the spend ledger: 0
+    when it provably cost nothing, otherwise its reported usage or its worst
+    case (`claude_spend.settle_failure`) - a caller adding up a turn's cost
+    must count it.
     """
+
+    cost_usd: float = 0.0
+
+
+def _unbilled(exc: BaseException) -> bool:
+    """`reader_transport.unbilled`: only a failure that PROVES the API did no
+    billable work releases a reservation; everything else is charged."""
+    from . import reader_transport
+
+    return reader_transport.unbilled(exc)
+
+
+def _charged(entry: dict | None) -> float:
+    return float(entry["cost_usd"]) if entry else 0.0
+
+
+@dataclass(frozen=True)
+class PageImage:
+    """One image sent WITH a packet (B4 vision reader): a rendered datasheet
+    page. Only the Claude provider can carry it, through the one request
+    builder (`reader_api.build_request`) and the one transport. `data` is
+    base64; `width`/`height` are pixels, used only for the worst-case cost."""
+
+    media_type: str
+    data: str
+    width: int
+    height: int
+
+    @property
+    def sha256(self) -> str:
+        return hashlib.sha256(self.data.encode("ascii")).hexdigest()
+
+    @property
+    def tokens(self) -> int:
+        """Anthropic's published estimate: width x height / 750."""
+        return self.width * self.height // 750 + 1
 
 
 @dataclass(frozen=True)
@@ -95,11 +136,45 @@ class Packet:
     think: bool = False
     seed: int | None = None
     options: dict[str, object] = field(default_factory=dict)
+    #: B4 vision reader: page images sent with the prompt. Empty for every
+    #: text-only caller, whose digest and cache key are unchanged by it.
+    images: tuple[PageImage, ...] = ()
+    #: Seconds for the Claude call; None keeps the 120 s default. A page read
+    #: from an image answers at length and needs longer.
+    timeout_s: float | None = None
+    #: Claude `output_config.effort` ("low" ... "max"); None sends nothing and
+    #: keeps the model's default. Measured 2026-09-25 on a datasheet page:
+    #: default effort spent ~6,300 output tokens to write ~1,500 of answer.
+    effort: str | None = None
+    #: Chat tool-use loop (2026-09-27): a FULL Anthropic Messages array
+    #: (system/user/assistant/tool_result turns), replacing the single
+    #: `prompt` string. None (the default) keeps every existing caller on the
+    #: one-prompt path unchanged. When set, `.prompt` is ignored by the
+    #: request builder and the response cache is skipped entirely (a
+    #: multi-turn tool conversation is never the same call twice, and hashing
+    #: only `prompt`+`system` would collide two different conversations onto
+    #: one cached answer - see `ClaudeProvider.reason`).
+    messages: tuple[dict, ...] | None = None
+    #: Anthropic tool definitions offered on this call. Empty for every
+    #: existing caller.
+    tools: tuple[dict, ...] = ()
+    #: Extended-thinking budget in tokens; None keeps thinking off (today's
+    #: behaviour). Anthropic requires `max_tokens` (`num_predict`) to exceed
+    #: this, and rejects `temperature` while thinking is on - both handled in
+    #: `ClaudeProvider._request`.
+    thinking_budget: int | None = None
+    #: Messages API `tool_choice` (e.g. {"type": "none"} once the chat tool cap
+    #: is reached: the tools stay defined, because the history holds tool
+    #: blocks, but none may be called). None leaves the API default.
+    tool_choice: dict | None = None
 
     @property
     def sha256(self) -> str:
-        """What was actually sent, so a result can be tied to its input."""
+        """What was actually sent, so a result can be tied to its input -
+        every image included, so two pages never share one cached answer."""
         text = self.prompt if not self.system else self.system + "\x00" + self.prompt
+        if self.images:
+            text += "".join("\x00image:" + image.sha256 for image in self.images)
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
@@ -131,6 +206,10 @@ class Response:
     #: why not. A caller treats a non-empty tuple exactly like invalid JSON.
     schema_errors: tuple = ()
     cost_usd: float | None = None
+    #: Raw Messages API content blocks (text, tool_use, thinking), in order -
+    #: empty for every text-only caller. The chat tool loop reads `tool_use`
+    #: blocks from here; `.text` above stays the flattened text, unchanged.
+    content_blocks: tuple[dict, ...] = ()
 
     def __post_init__(self) -> None:
         if self.provider not in PROVIDERS:
@@ -174,7 +253,16 @@ class OllamaProvider:
         #: packet; model_transport requires the caller to choose.
         self.timeout = timeout
 
+    def stream(self, packet: Packet, on_text, cancel=None) -> Response:
+        """`reason`, streamed: `on_text(piece)` as text arrives; `cancel`
+        (threading.Event) stops the engine and closes the connection."""
+        return _ollama_stream(self, packet, on_text, cancel)
+
     def reason(self, packet: Packet) -> Response:
+        if packet.images:
+            # The local engine is not a vision reader here; an image packet is
+            # refused rather than sent as text that silently lost its page.
+            raise ProviderRefused(f"{self.name}: this provider does not read images")
         options: dict[str, object] = {
             "temperature": packet.temperature,
             "num_ctx": packet.num_ctx,
@@ -222,6 +310,37 @@ class OllamaProvider:
             thinking=str(raw.get("thinking") or ""),
             schema_errors=schema_errors(text, packet.json_schema),
         )
+
+
+def _ollama_stream(provider: "OllamaProvider", packet: Packet, on_text, cancel) -> Response:
+    """The local engine, streamed through `model_transport.stream_json`."""
+    options: dict[str, object] = {"temperature": packet.temperature, "num_ctx": packet.num_ctx,
+                                  "num_predict": packet.num_predict, **packet.options}
+    body = {"model": provider.requested_model,
+            "prompt": (packet.system + "\n\n" + packet.prompt) if packet.system else packet.prompt,
+            "think": packet.think, "options": options}
+    started = time.time()
+    parts: list[str] = []
+    last: dict = {}
+    try:
+        for chunk in model_transport.stream_json("/api/generate", body, timeout=provider.timeout,
+                                                 cancel=cancel):
+            piece = str(chunk.get("response") or "")
+            if piece:
+                parts.append(piece)
+                on_text(piece)
+            last = chunk
+    except Exception as exc:
+        raise ProviderRefused(f"{provider.name}: {type(exc).__name__}: {exc}") from exc
+    text = "".join(parts).strip()
+    stopped = cancel is not None and cancel.is_set()
+    return Response(
+        text=text, provider=provider.name,
+        model_tag=str(last.get("model") or "") or f"{provider.requested_model} (unreported)",
+        digest=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        finish_reason="cancelled" if stopped else str(last.get("done_reason") or ""),
+        prompt_sha256=packet.sha256, tokens_in=last.get("prompt_eval_count"),
+        tokens_out=last.get("eval_count"), wall_time_s=round(time.time() - started, 3))
 
 
 # ------------------------------------------------------------ JSON schema gate
@@ -285,17 +404,28 @@ class ClaudeProvider:
     The request is built by `reader_api.build_request` - both egress flags,
     https, allowed host and key are checked there - and this class only adds
     the model (from configuration), max_tokens, a CACHED system block and the
-    schema instruction. Before the call leaves, `claude_spend.ensure_affordable`
-    refuses it if its worst case could cross a USD cap; after it returns, the
-    ledger records tokens and cost (never text, never the key).
+    schema instruction. Before the call leaves, `claude_spend.reserve` holds
+    its worst case in the ledger, or refuses it if that could cross a USD cap;
+    after it returns - or fails - the reservation is settled to tokens and
+    cost (never text, never the key), and a failure that may have been billed
+    is charged, never dropped.
     """
 
     name = CLAUDE
 
-    def __init__(self, model: str | None = None, *, transport=None, step: str | None = None) -> None:
+    def __init__(self, model: str | None = None, *, transport=None, step: str | None = None,
+                 stream_transport=None) -> None:
         self.requested_model = model or settings.claude_reasoning_model
         self._transport = transport
         self._step = step
+        #: `reader_transport.stream`, or a test's fake with the same shape.
+        self._stream_transport = stream_transport
+
+    def stream(self, packet: Packet, on_text, cancel=None) -> Response:
+        """`reason`, streamed. `on_text(piece)` as text arrives; `cancel`
+        (threading.Event) closes the connection and the call is recorded as
+        cancelled - with what it cost."""
+        return _claude_stream(self, packet, on_text, cancel)
 
     def _send(self):
         if self._transport is None:
@@ -306,69 +436,98 @@ class ClaudeProvider:
                                       "STANDARDS_READER_ALLOW_PUBLIC_EGRESS)")
         return self._transport
 
-    def reason(self, packet: Packet) -> Response:
+    def _request(self, packet: Packet) -> tuple[dict, dict, str]:
+        """(request from `reader_api.build_request`, final body, prompt) -
+        one builder for a single call and a batch request alike."""
         from dataclasses import replace
 
-        from . import claude_spend, reader_api
+        from . import reader_api
 
-        step = self._step or packet.step
         prompt = packet.prompt
         if packet.json_schema is not None:
             prompt += ("\n\nReturn ONLY one JSON value that satisfies this JSON schema, with no "
                        "other text:\n" + json.dumps(packet.json_schema, separators=(",", ":")))
         cfg = replace(reader_api.ReaderSettings.from_env(), model=self.requested_model,
-                      max_tokens=packet.num_predict, timeout_seconds=120.0)
+                      max_tokens=packet.num_predict,
+                      timeout_seconds=float(packet.timeout_s or 120.0))
+        # `packet.images` builds the single-content-block request below; in
+        # the chat tool loop (`packet.messages` set) any image already rides
+        # inside `messages`'s own tool_result blocks, and `packet.images` is
+        # only a cost-accounting placeholder (`chat_claude_first.
+        # _images_for_accounting`) - never real image data, so it must never
+        # reach the real image validator here.
+        images = () if packet.messages is not None else packet.images
         try:
-            request = reader_api.build_request(prompt, cfg=cfg)
+            request = reader_api.build_request(
+                prompt, cfg=cfg,
+                images=[(image.media_type, image.data) for image in images])
         except reader_api.ReaderRefused as exc:
             raise ProviderRefused(f"{self.name}: {exc}") from exc
         body = dict(request["body"])
-        if no_temperature(self.requested_model):
+        if packet.messages is not None:
+            # Chat tool loop: the caller's own turns replace the single user
+            # message `build_request` made from `prompt` above.
+            body["messages"] = list(packet.messages)
+        if packet.tools:
+            body["tools"] = list(packet.tools)
+            if packet.tool_choice:
+                body["tool_choice"] = dict(packet.tool_choice)
+        if no_temperature(self.requested_model) or packet.thinking_budget:
             # MEASURED 2026-09-25: Sonnet 5 answers 400 "`temperature` is
             # deprecated for this model". Sampling cannot be pinned there, so
             # repeatability rests on the response cache and the code gates.
+            # Anthropic also refuses `temperature` while thinking is enabled.
             body.pop("temperature", None)
         else:
             body["temperature"] = packet.temperature
+        if packet.thinking_budget:
+            body["thinking"] = {"type": "enabled", "budget_tokens": int(packet.thinking_budget)}
+        if packet.effort:
+            body["output_config"] = {"effort": packet.effort}
         if packet.system:
             body["system"] = [{"type": "text", "text": packet.system,
                                "cache_control": {"type": "ephemeral"}}]
-        # RESPONSE CACHE (owner rule 2026-09-25): the same (model, prompt
-        # version, input) is answered from disk at USD 0, never re-bought.
-        key = cache_key(self.requested_model, packet)
+        return request, body, prompt
+
+    def _cached(self, key: str, packet: Packet, step: str) -> Response | None:
+        from . import claude_spend
+
         cached = _cache_read(key)
-        if cached is not None:
-            claude_spend.record(step=step, model=cached["model_tag"], usage={},
-                                prompt_sha256=packet.sha256, wall_time_s=0.0,
-                                finish_reason="cache_hit")
-            return Response(
-                text=cached["text"], provider=self.name, model_tag=cached["model_tag"],
-                digest=hashlib.sha256(cached["text"].encode("utf-8")).hexdigest(),
-                finish_reason=cached["finish_reason"], prompt_sha256=packet.sha256,
-                tokens_in=cached.get("tokens_in"), tokens_out=cached.get("tokens_out"),
-                wall_time_s=0.0, schema_errors=schema_errors(cached["text"], packet.json_schema),
-                cost_usd=0.0)
-        claude_spend.ensure_affordable(
-            step, claude_spend.worst_case_usd(self.requested_model, len(packet.system) + len(prompt),
-                                              packet.num_predict))
-        started = time.time()
-        try:
-            payload = self._send()(request["url"], headers=request["headers"], body=body,
-                                   timeout=request["timeout"])
-        except ProviderRefused:
-            raise
-        except Exception as exc:
-            # The type and the transport's own message (status + host + error
-            # TYPE only - reader_transport never puts headers in it).
-            raise ProviderRefused(f"{self.name}: {type(exc).__name__}: {exc}") from exc
-        wall = time.time() - started
-        text = reader_api.response_text(payload).strip()
+        if cached is None:
+            return None
+        claude_spend.record(step=step, model=cached["model_tag"], usage={},
+                            prompt_sha256=packet.sha256, wall_time_s=0.0,
+                            finish_reason="cache_hit")
+        return Response(
+            text=cached["text"], provider=self.name, model_tag=cached["model_tag"],
+            digest=hashlib.sha256(cached["text"].encode("utf-8")).hexdigest(),
+            finish_reason=cached["finish_reason"], prompt_sha256=packet.sha256,
+            tokens_in=cached.get("tokens_in"), tokens_out=cached.get("tokens_out"),
+            wall_time_s=0.0, schema_errors=schema_errors(cached["text"], packet.json_schema),
+            cost_usd=0.0)
+
+    def _answered(self, payload: dict | None, packet: Packet, key: str, step: str, wall: float,
+                  *, batch: bool = False, cacheable: bool = True, reservation=None) -> Response:
+        """Ledger, cache and Response for one Messages answer."""
+        from . import claude_spend, reader_api
+
+        text = reader_api.response_text(payload).strip() if payload else ""
+        blocks = tuple((payload or {}).get("content") or []) if isinstance(payload, dict) else ()
+        thinking_text = "".join(
+            str(b.get("thinking") or "") for b in blocks
+            if isinstance(b, dict) and b.get("type") == "thinking")
         usage = payload.get("usage") if isinstance(payload, dict) else None
         reported = str((payload or {}).get("model") or "")
-        finish = _STOP.get(str((payload or {}).get("stop_reason") or ""), str((payload or {}).get("stop_reason") or ""))
-        entry = claude_spend.record(step=step, model=reported or self.requested_model, usage=usage,
-                                    prompt_sha256=packet.sha256, wall_time_s=wall, finish_reason=finish)
-        if finish == "stop":   # a truncated answer is not worth keeping
+        stop = str((payload or {}).get("stop_reason") or "")
+        finish = _STOP.get(stop, stop or "error")
+        if reservation is not None:
+            entry = claude_spend.settle(reservation, model=reported or self.requested_model,
+                                        usage=usage, wall_time_s=wall, finish_reason=finish)
+        else:
+            entry = claude_spend.record(step=step, model=reported or self.requested_model, usage=usage,
+                                        prompt_sha256=packet.sha256, wall_time_s=wall,
+                                        finish_reason=finish, batch=batch)
+        if cacheable and finish == "stop":   # a truncated answer is not worth keeping
             _cache_write(key, {"text": text, "model_tag": reported or self.requested_model,
                                "finish_reason": finish, "tokens_in": (usage or {}).get("input_tokens"),
                                "tokens_out": (usage or {}).get("output_tokens")})
@@ -379,8 +538,247 @@ class ClaudeProvider:
             finish_reason=finish, prompt_sha256=packet.sha256,
             tokens_in=(usage or {}).get("input_tokens"), tokens_out=(usage or {}).get("output_tokens"),
             wall_time_s=round(wall, 3), schema_errors=schema_errors(text, packet.json_schema),
-            cost_usd=entry["cost_usd"],
+            cost_usd=entry["cost_usd"], thinking=thinking_text, content_blocks=blocks,
         )
+
+    def reason_batch(self, packets: list[Packet], *, poll_seconds: float = 30.0, max_wait_s: float = 86400.0,
+                     sleep=time.sleep, client=None) -> list[Response]:
+        """Many packets through the Message Batches API at half price, one
+        Response per packet in order. Cached packets are answered from disk
+        and never sent. Before the batch is created, the WORST CASE of every
+        uncached request together (batch-priced) must fit the caps, and is
+        reserved in one locked step (`claude_spend.reserve_all`) - one
+        refusal, nothing sent. A failure to create or finish the batch is
+        charged by `claude_spend.settle_failure`. A
+        request that errored or expired comes back as an empty "error"
+        Response, which a caller's validity check rejects."""
+        from . import claude_spend
+
+        if client is None:
+            from . import reader_transport
+            if not reader_transport.available():
+                raise ProviderRefused("claude: egress is disabled (STANDARDS_READER_ENABLED / "
+                                      "STANDARDS_READER_ALLOW_PUBLIC_EGRESS)")
+            client = reader_transport
+        out: list[Response | None] = [None] * len(packets)
+        todo: dict[str, tuple[int, Packet, str, str]] = {}
+        batch_requests, worsts, request = [], [], None
+        for i, packet in enumerate(packets):
+            step = self._step or packet.step
+            key = cache_key(self.requested_model, packet)
+            hit = self._cached(key, packet, step)
+            if hit is not None:
+                out[i] = hit
+                continue
+            request, body, prompt = self._request(packet)
+            worsts.append((step, claude_spend.worst_case_usd(
+                self.requested_model, len(packet.system) + len(prompt), packet.num_predict,
+                image_tokens=sum(i.tokens for i in packet.images), batch=True)))
+            todo[f"r{i}"] = (i, packet, key, step)
+            batch_requests.append({"custom_id": f"r{i}", "params": body})
+        if batch_requests:
+            held = dict(zip(todo, claude_spend.reserve_all(
+                worsts, model=self.requested_model, batch=True)))
+            started = time.time()
+            try:
+                batch = client.batch_create(request["url"], headers=request["headers"],
+                                            requests=batch_requests)
+                while batch.get("processing_status") != "ended":
+                    if time.time() - started > max_wait_s:
+                        # Still running at the API, so still billable.
+                        raise ProviderRefused(f"{self.name}: batch not ended after {max_wait_s:.0f} s")
+                    sleep(poll_seconds)
+                    batch = client.batch_retrieve(request["url"], str(batch.get("id")),
+                                                  headers=request["headers"])
+            except BaseException as exc:
+                for reservation in held.values():
+                    claude_spend.settle_failure(reservation, exc, unbilled=_unbilled)
+                raise
+            wall = time.time() - started
+            for row in client.batch_results(str(batch.get("results_url")), headers=request["headers"]):
+                slot = todo.pop(str(row.get("custom_id")), None)
+                if slot is None:
+                    continue
+                i, packet, key, step = slot
+                result = row.get("result") or {}
+                message = result.get("message") if result.get("type") == "succeeded" else None
+                out[i] = self._answered(message, packet, key, step, wall, batch=True,
+                                        reservation=held[str(row.get("custom_id"))])
+            for cid, (i, packet, key, step) in todo.items():      # no result row at all
+                # Errored and expired batch requests are not billed.
+                out[i] = self._answered(None, packet, key, step, wall, batch=True,
+                                        reservation=held[cid])
+        return out  # type: ignore[return-value]
+
+    def reason(self, packet: Packet) -> Response:
+        from . import claude_spend
+
+        step = self._step or packet.step
+        request, body, prompt = self._request(packet)
+        # RESPONSE CACHE (owner rule 2026-09-25): the same (model, prompt
+        # version, input) is answered from disk at USD 0, never re-bought.
+        # SKIPPED for a tool-loop turn (`packet.messages` set): the cache key
+        # hashes `prompt`+`system` only, so a multi-turn conversation carried
+        # in `messages` with an empty `prompt` would collide with every other
+        # tool-loop call on the same system prompt - a wrong answer served
+        # from someone else's turn, not just a missed optimisation.
+        cacheable = packet.messages is None
+        key = cache_key(self.requested_model, packet) if cacheable else ""
+        if cacheable:
+            hit = self._cached(key, packet, step)
+            if hit is not None:
+                return hit
+        image_tokens = sum(i.tokens for i in packet.images)
+        prompt_chars = len(packet.system) + len(prompt) + sum(
+            len(json.dumps(m, default=str)) for m in (packet.messages or ()))
+        max_tokens = packet.num_predict + (packet.thinking_budget or 0)
+        send = self._send()     # egress off refuses here, before anything is held
+        held = claude_spend.reserve(
+            step, claude_spend.worst_case_usd(self.requested_model, prompt_chars,
+                                              max_tokens, image_tokens=image_tokens),
+            model=self.requested_model, prompt_sha256=packet.sha256)
+        started = time.time()
+        try:
+            payload = send(request["url"], headers=request["headers"], body=body,
+                           timeout=request["timeout"])
+        except BaseException as exc:
+            # MAY HAVE BEEN BILLED (a read timeout after the API did the
+            # work): charged its worst case unless it provably was not.
+            charged = _charged(claude_spend.settle_failure(held, exc, unbilled=_unbilled))
+            if isinstance(exc, (ProviderRefused, claude_spend.StopRun)) or not isinstance(exc, Exception):
+                if isinstance(exc, ProviderRefused):
+                    exc.cost_usd = charged
+                raise
+            # The type and the transport's own message (status + host + error
+            # TYPE only - reader_transport never puts headers in it).
+            refused = ProviderRefused(f"{self.name}: {type(exc).__name__}: {exc}")
+            refused.cost_usd = charged
+            raise refused from exc
+        return self._answered(payload, packet, key, step, time.time() - started, cacheable=cacheable,
+                              reservation=held)
+
+
+def _claude_stream(provider: "ClaudeProvider", packet: Packet, on_text, cancel) -> Response:
+    """The Messages API, streamed through `reader_transport.stream` - the
+    same gates, the same worst-case RESERVATION before the call, and that
+    reservation settled AFTER it whether it finished, was stopped (a stopped
+    call still cost what it produced) or failed (a dropped stream, or one cut
+    at the 1 MB cap, may have been billed: charged its reported final usage,
+    else its worst case). Never cached: a stream is a conversation turn."""
+    from . import claude_spend
+
+    step = provider._step or packet.step
+    request, body, prompt = provider._request(packet)
+    prompt_chars = len(packet.system) + len(prompt) + sum(
+        len(json.dumps(m, default=str)) for m in (packet.messages or ()))
+    max_tokens = packet.num_predict + (packet.thinking_budget or 0)
+    send = provider._stream_transport
+    if send is None:
+        from . import reader_transport
+        if not reader_transport.available():
+            raise ProviderRefused("claude: egress is disabled (STANDARDS_READER_ENABLED / "
+                                  "STANDARDS_READER_ALLOW_PUBLIC_EGRESS)")
+        send = reader_transport.stream
+    held = claude_spend.reserve(
+        step, claude_spend.worst_case_usd(provider.requested_model, prompt_chars, max_tokens),
+        model=provider.requested_model, prompt_sha256=packet.sha256)
+    started = time.time()
+    parts: list[str] = []
+    usage: dict = {}
+    #: True once `message_delta` has reported the call's final output count -
+    #: only then is `usage` the whole bill rather than a partial one.
+    final_usage = False
+    model = provider.requested_model
+    stop = ""
+    #: Tool-loop streaming (2026-09-27): `content_block_start`/`_delta`/`_stop`
+    #: for a `tool_use` or `thinking` block arrive as separate events; a block
+    #: is assembled here by its index and only finished (`input` parsed from
+    #: the accumulated JSON) at `content_block_stop`.
+    blocks: dict[int, dict] = {}
+    order: list[int] = []
+    try:
+        for event in send(request["url"], headers=request["headers"], body=body,
+                          timeout=request["timeout"], cancel=cancel):
+            kind = event.get("type")
+            if kind == "message_start":
+                message = event.get("message") or {}
+                model = str(message.get("model") or model)
+                usage.update(message.get("usage") or {})
+            elif kind == "content_block_start":
+                idx = event.get("index")
+                block = dict(event.get("content_block") or {})
+                if block.get("type") == "tool_use":
+                    block["_input_json"] = ""
+                blocks[idx] = block
+                if idx not in order:
+                    order.append(idx)
+            elif kind == "content_block_delta":
+                idx = event.get("index")
+                delta = event.get("delta") or {}
+                dtype = delta.get("type")
+                if dtype == "input_json_delta":
+                    block = blocks.get(idx)
+                    if block is not None:
+                        block["_input_json"] = block.get("_input_json", "") + str(
+                            delta.get("partial_json") or "")
+                elif dtype == "thinking_delta":
+                    block = blocks.get(idx)
+                    if block is not None:
+                        block["thinking"] = block.get("thinking", "") + str(delta.get("thinking") or "")
+                elif dtype == "signature_delta":
+                    # A thinking block is only valid when sent back WITH its
+                    # signature (2026-09-30: it was dropped, so round 2 of a
+                    # thinking turn with a tool call was refused).
+                    block = blocks.get(idx)
+                    if block is not None:
+                        block["signature"] = str(delta.get("signature") or "")
+                else:
+                    piece = str(delta.get("text") or "")
+                    if piece:
+                        parts.append(piece)
+                        on_text(piece)
+                        block = blocks.get(idx)
+                        if block is not None and block.get("type") == "text":
+                            block["text"] = block.get("text", "") + piece
+            elif kind == "content_block_stop":
+                block = blocks.get(event.get("index"))
+                if block is not None and block.get("type") == "tool_use":
+                    try:
+                        block["input"] = json.loads(block.pop("_input_json", "") or "{}")
+                    except json.JSONDecodeError:
+                        block["input"] = {}
+            elif kind == "message_delta":
+                usage.update(event.get("usage") or {})
+                final_usage = final_usage or "output_tokens" in (event.get("usage") or {})
+                stop = str((event.get("delta") or {}).get("stop_reason") or stop)
+    except BaseException as exc:
+        charged = _charged(claude_spend.settle_failure(
+            held, exc, unbilled=_unbilled, usage=usage if final_usage else None, model=model))
+        if isinstance(exc, (ProviderRefused, claude_spend.StopRun)) or not isinstance(exc, Exception):
+            if isinstance(exc, ProviderRefused):
+                exc.cost_usd = charged
+            raise
+        refused = ProviderRefused(f"{provider.name}: {type(exc).__name__}: {exc}")
+        refused.cost_usd = charged
+        raise refused from exc
+    text = "".join(parts).strip()
+    stopped = cancel is not None and cancel.is_set()
+    if stopped and not usage.get("output_tokens"):
+        # Stopped before the provider reported its count: charge a generous
+        # estimate of what was produced, so the ledger errs towards spent.
+        usage["output_tokens"] = len(text) // 3 + 1
+    finish = "cancelled" if stopped else _STOP.get(stop, stop or "error")
+    entry = claude_spend.settle(held, model=model, usage=usage,
+                                wall_time_s=time.time() - started, finish_reason=finish)
+    content_blocks = tuple(blocks[i] for i in order if i in blocks)
+    thinking_text = "".join(
+        str(b.get("thinking") or "") for b in content_blocks if b.get("type") == "thinking")
+    return Response(
+        text=text, provider=provider.name, model_tag=model or f"{provider.requested_model} (unreported)",
+        digest=hashlib.sha256(text.encode("utf-8")).hexdigest(), finish_reason=finish,
+        prompt_sha256=packet.sha256, tokens_in=usage.get("input_tokens"),
+        tokens_out=usage.get("output_tokens"), wall_time_s=round(time.time() - started, 3),
+        cost_usd=entry["cost_usd"], thinking=thinking_text, content_blocks=content_blocks)
 
 
 def no_temperature(model: str) -> bool:
@@ -398,6 +796,9 @@ def cache_key(model: str, packet: Packet) -> str:
     parts = [model, packet.prompt_version, packet.sha256,
              json.dumps(packet.json_schema, sort_keys=True), str(packet.temperature),
              str(packet.seed), str(packet.num_predict)]
+    if packet.effort:
+        # Appended only when set, so every key cached before it existed holds.
+        parts.append("effort=" + packet.effort)
     return hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
 
 
@@ -424,20 +825,35 @@ def _cache_write(key: str, value: dict) -> None:
 
 # ------------------------------------------------------------------- selection
 
-def claude_available() -> tuple[bool, str]:
-    """Whether Claude may be used, and if not, why (never the key itself)."""
+#: Why Claude may not be used - a closed list, so a screen can say it in
+#: plain words without parsing `claude_available`'s message.
+UNAVAILABLE_PROVIDER_OFF = "PROVIDER_OFF"
+UNAVAILABLE_EGRESS_OFF = "EGRESS_OFF"
+UNAVAILABLE_KEY_MISSING = "KEY_MISSING"
+
+
+def claude_unavailable() -> tuple[str | None, str]:
+    """(code, why) - code is None when Claude may be used. The ONE place the
+    three local conditions are checked; `claude_available` is a view of it.
+    Never the key itself, only whether one is present."""
     from . import reader_api
 
     if (settings.reasoning_provider or "").strip().lower() != CLAUDE:
-        return False, f"REASONING_PROVIDER={settings.reasoning_provider!r}"
+        return UNAVAILABLE_PROVIDER_OFF, f"REASONING_PROVIDER={settings.reasoning_provider!r}"
     cfg = reader_api.ReaderSettings.from_env()
     if not (cfg.enabled and cfg.allow_public_egress):
-        return False, "standards-reader egress flags are off"
+        return UNAVAILABLE_EGRESS_OFF, "standards-reader egress flags are off"
     import os
     if not (str(os.environ.get(reader_api.API_KEY_ENV) or "").strip()
             or str(settings.anthropic_api_key or "").strip()):
-        return False, "no ANTHROPIC_API_KEY"
-    return True, "claude"
+        return UNAVAILABLE_KEY_MISSING, "no ANTHROPIC_API_KEY"
+    return None, "claude"
+
+
+def claude_available() -> tuple[bool, str]:
+    """Whether Claude may be used, and if not, why (never the key itself)."""
+    code, why = claude_unavailable()
+    return code is None, why
 
 
 def get_provider(role: str = "reasoning", *, step: str | None = None) -> ReasoningProvider:

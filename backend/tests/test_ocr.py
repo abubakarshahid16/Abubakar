@@ -297,6 +297,7 @@ def test_a_real_engine_loads_from_the_vendored_weights_and_reads_a_page():
     assert engine is not None
 
 
+@pytest.mark.slow
 def test_ocr_runs_after_the_keyword_index_never_before_it(tmp_path, monkeypatch):
     """Ordering, asserted rather than assumed.
 
@@ -371,11 +372,12 @@ def _fake_recognition(stored_path, sha256, page_nos):
         (p,
          "Coating system no. 1 shall achieve a nominal dry film thickness of "
          "80 micrometres measured in accordance with the referenced standard.",
-         0.95, 0.91, 6, 0.8, 0, "", None)
+         0.95, 0.91, 6, 0, 0.8, 0, "", None)
         for p in page_nos
     ]
 
 
+@pytest.mark.slow
 def test_recognised_text_reaches_a_chunk_labelled_recognised(tmp_path, monkeypatch):
     """The whole path, with the ONNX session faked out.
 

@@ -91,8 +91,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="accept an anonymous confirmation, which records nothing "
                     "and answers 200",
         path=APP / "main.py",
-        anchor="        if scope.user_id is None:",
-        replacement="        if False:",
+        # B10 added a second `if scope.user_id is None:` (approvals); the
+        # confirmation's own comment line keeps this anchor unique.
+        anchor="        if scope.user_id is None:\n            # AN ANONYMOUS CONFIRMATION",
+        replacement="        if False:\n            # AN ANONYMOUS CONFIRMATION",
         target="tests/test_model_matching.py",
         keyword="confirmation_with_no_identity",
         tags=("honesty",),
@@ -261,8 +263,11 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "an empty sheet reading 'nothing to report'",
         path=APP / "main.py",
         # Re-anchored by B3: the call gained `unread_pages=` on the next line.
-        anchor="        findings, _missing_references(submittal_id, allowed), submittal_name,\n",
-        replacement="        findings, [], submittal_name,\n",
+        # Re-anchored 2026-09-26 (order 2f): the gaps are Review notes now.
+        # Re-anchored 2026-10-08 (#633): the notes list also carries the
+        # "Not checked" lines after this call.
+        anchor='        "review_notes": crs_mapping_mod.build_review_notes(findings, missing, unread) + [\n',
+        replacement='        "review_notes": crs_mapping_mod.build_review_notes(findings, [], unread) + [\n',
         target="tests/test_crs_endpoint.py",
         keyword="no_includable_findings_still_exports_its_gap_rows",
         tags=("honesty", "critical"),
@@ -272,8 +277,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="INVENT A TRANSMITTAL NUMBER, so the CRS lies about its "
                     "own provenance to whoever receives it",
         path=APP / "main.py",
-        anchor='        "company_transmittal": "",',
-        replacement='        "company_transmittal": "EOC-TRX-0001",',
+        # Re-anchored 2026-10-09 (#725 F7): the cell now prints what an engineer
+        # entered, else blank; the mutation still invents one when none was.
+        anchor='        "company_transmittal": run.get("crs_company_transmittal") or "",',
+        replacement='        "company_transmittal": run.get("crs_company_transmittal") or "EOC-TRX-0001",',
         target="tests/test_crs_endpoint.py",
         keyword="transmittal_numbers_are_blank_rather_than_invented",
         tags=("honesty", "critical"),
@@ -353,8 +360,13 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="the CRS export stops passing the run's stored unread "
                     "pages, so the summary names no page (B3)",
         path=APP / "main.py",
-        anchor="        unread_pages=unread)\n",
-        replacement="        unread_pages=[])\n",
+        # Re-anchored 2026-10-01: `build_crs_rows` ignores `unread_pages` (the
+        # old anchor was a dead argument, so the mutation proved nothing); the
+        # pages are named by the Review notes, built a few lines further on.
+        # Re-anchored 2026-10-08 (#633): the notes list now also carries the
+        # "Not checked" lines after this call.
+        anchor="        \"review_notes\": crs_mapping_mod.build_review_notes(findings, missing, unread) + [",
+        replacement="        \"review_notes\": crs_mapping_mod.build_review_notes(findings, missing, []) + [",
         target=_B3_TEST, keyword="crs_names_the_unread_pages",
         tags=("honesty",),
     ),
@@ -390,5 +402,17 @@ MUTATIONS: tuple[Mutation, ...] = (
         target="tests/test_claude_api.py",
         keyword="the_four_routes_are_registered",
         tags=("gate",),
+    ),
+    # ---- from KEYWORD_TOKENIZER (2026-09-27) ------------------------------
+    Mutation(
+        id="M1215", phase=97,
+        description="skip the startup keyword-index migration, so a live DB "
+                    "indexed by older code is never rebuilt",
+        path=APP / "main.py",
+        anchor="    _fts = keyword_mod.migrate_index()\n",
+        replacement='    _fts = {"rebuilt": False}\n',
+        target="tests/test_keyword_tokenizer.py",
+        keyword="startup",
+        tags=("honesty",),
     ),
 )

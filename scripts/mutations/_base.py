@@ -48,9 +48,11 @@ class Mutation:
 
 #: The guard `db.add_column_if_missing` puts round a concurrent
 #: migrator, quoted once so two mutations can share it.
+# Re-anchored 2026-09-26: the guard moved into a bounded retry loop that
+# also re-reads after "database schema has changed" (M1055).
 DUPLICATE_GUARD = (
-    '        if "duplicate column" not in str(exc).lower():\n'
-    "            raise")
+    '            if "duplicate column" not in message:\n'
+    "                raise")
 
 #: Anchors whose text carries double quotes, quoted once here.
 TAG_SCOPED = (
@@ -120,7 +122,6 @@ _B44_TEST = "tests/test_datasheets.py"
 #: B50: a model row that fails its schema is refused, never coerced. The two
 #: malformations these protect against are real - a 9B returned them on the
 #: frozen packet.
-_B50_TEST = "tests/test_extraction_schema.py"
 
 #: Feature 1 section 5a + B54: one interface, and provenance that cannot be
 #: omitted. Before it, nothing in the system could say which model answered.

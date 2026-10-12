@@ -1,0 +1,323 @@
+{
+ "format": "review-playbook/1",
+ "id": "sil_procedure",
+ "title": "SIL assessment procedure",
+ "version": "1",
+ "document_kind": "procedure",
+ "sign_off": {
+  "status": "draft",
+  "by": null,
+  "date": null
+ },
+ "clauses_verified": false,
+ "note": "DRAFT. Written as a starting point for a client discipline engineer to confirm or change (W5b-10, #547). The source standards are not held, so no clause number below has been checked against the standard's text; each is the author's reading of its table of contents. Nothing here is a finding until a signed-off playbook says so.",
+ "elements": [
+  {
+   "id": "S01",
+   "title": "Purpose, scope and applicable standards",
+   "expects": "The procedure says what the assessment covers and names the standards it follows.",
+   "source": {
+    "standard": "IEC 61511-1",
+    "clause": "5"
+   },
+   "evidence": [
+    {
+     "label": "SIL or functional safety",
+     "any": [
+      "sil",
+      "safety integrity level*",
+      "functional safety"
+     ]
+    },
+    {
+     "label": "scope or purpose",
+     "any": [
+      "scope",
+      "purpose",
+      "objective*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "S02",
+   "title": "Roles and competence",
+   "expects": "The roles in the assessment and the competence expected of the people are stated.",
+   "source": {
+    "standard": "IEC 61511-1",
+    "clause": "5.2"
+   },
+   "evidence": [
+    {
+     "label": "roles",
+     "any": [
+      "role*",
+      "responsib*",
+      "facilitator",
+      "team"
+     ]
+    },
+    {
+     "label": "competence",
+     "any": [
+      "competen*",
+      "qualif*",
+      "training"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "S03",
+   "title": "Input from the hazard and risk assessment",
+   "expects": "The assessment starts from the results of the hazard and risk assessment (HAZOP).",
+   "source": {
+    "standard": "IEC 61511-1",
+    "clause": "8"
+   },
+   "evidence": [
+    {
+     "label": "hazard assessment",
+     "any": [
+      "hazop",
+      "hazard and risk assessment",
+      "process hazard analysis",
+      "pha"
+     ]
+    },
+    {
+     "label": "used as input",
+     "any": [
+      "input*",
+      "basis",
+      "results of",
+      "outcome*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "S04",
+   "title": "Tolerable risk criteria",
+   "expects": "The tolerable risk (the target) is defined.",
+   "source": {
+    "standard": "IEC 61511-1",
+    "clause": "8.2"
+   },
+   "evidence": [
+    {
+     "label": "tolerable risk",
+     "any": [
+      "tolerable risk",
+      "risk criteria",
+      "risk tolerance",
+      "target risk",
+      "acceptable risk"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "S05",
+   "title": "SIL determination method",
+   "expects": "The method used to determine the SIL is named and described (LOPA, risk graph, ...).",
+   "source": {
+    "standard": "IEC 61511-1",
+    "clause": "9"
+   },
+   "evidence": [
+    {
+     "label": "method named",
+     "any": [
+      "lopa",
+      "layer of protection analysis",
+      "risk graph",
+      "calibrated risk graph",
+      "risk matrix",
+      "hazard matrix"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "S06",
+   "title": "Independent protection layers and their credit",
+   "expects": "The independent protection layers and the credit given to each are addressed.",
+   "source": {
+    "standard": "IEC 61511-1",
+    "clause": "9"
+   },
+   "evidence": [
+    {
+     "label": "protection layers",
+     "any": [
+      "independent protection layer*",
+      "ipl",
+      "ipls",
+      "protection layer*"
+     ]
+    },
+    {
+     "label": "credit or pfd",
+     "any": [
+      "credit*",
+      "pfd",
+      "probability of failure"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "S07",
+   "title": "Safety instrumented functions and their target SIL",
+   "expects": "Each safety instrumented function (SIF) is identified and its target SIL recorded.",
+   "source": {
+    "standard": "IEC 61511-1",
+    "clause": "9"
+   },
+   "evidence": [
+    {
+     "label": "SIF",
+     "any": [
+      "sif",
+      "sifs",
+      "safety instrumented function*"
+     ]
+    },
+    {
+     "label": "target SIL",
+     "any": [
+      "target sil",
+      "required sil",
+      "sil level",
+      "sil rating",
+      "sil target",
+      "determined sil"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "S08",
+   "title": "Demand mode, proof test and PFD",
+   "expects": "The demand mode, proof-test interval and the PFD calculation are addressed.",
+   "source": {
+    "standard": "IEC 61511-1",
+    "clause": "11.9"
+   },
+   "evidence": [
+    {
+     "label": "PFD",
+     "any": [
+      "pfd",
+      "pfdavg",
+      "probability of failure on demand"
+     ]
+    },
+    {
+     "label": "proof test",
+     "any": [
+      "proof test*",
+      "proof-test*",
+      "test interval*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "S09",
+   "title": "Verification and independent review",
+   "expects": "The assessment is verified or independently reviewed.",
+   "source": {
+    "standard": "IEC 61511-1",
+    "clause": "7"
+   },
+   "evidence": [
+    {
+     "label": "verification or review",
+     "any": [
+      "verif*",
+      "independent review",
+      "functional safety assessment",
+      "fsa",
+      "peer review"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "S10",
+   "title": "Safety requirements specification and records",
+   "expects": "The result feeds a safety requirements specification and the records are kept.",
+   "source": {
+    "standard": "IEC 61511-1",
+    "clause": "10"
+   },
+   "evidence": [
+    {
+     "label": "SRS",
+     "any": [
+      "safety requirements specification",
+      "srs"
+     ]
+    },
+    {
+     "label": "records",
+     "any": [
+      "record*",
+      "document*",
+      "report*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "S11",
+   "title": "Data and assumptions",
+   "expects": "The failure-rate data and the assumptions behind the numbers are stated.",
+   "source": {
+    "standard": "IEC 61511-1",
+    "clause": "11"
+   },
+   "evidence": [
+    {
+     "label": "data",
+     "any": [
+      "failure rate*",
+      "failure data",
+      "reliability data",
+      "data source*"
+     ]
+    },
+    {
+     "label": "assumptions",
+     "any": [
+      "assumption*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "S12",
+   "title": "Revalidation and management of change",
+   "expects": "The procedure says when the assessment is repeated or reviewed.",
+   "source": {
+    "standard": "IEC 61511-1",
+    "clause": "16"
+   },
+   "evidence": [
+    {
+     "label": "revalidation or change",
+     "any": [
+      "revalidat*",
+      "management of change",
+      "moc",
+      "periodic review",
+      "re-assess*",
+      "reassess*"
+     ]
+    }
+   ]
+  }
+ ]
+}

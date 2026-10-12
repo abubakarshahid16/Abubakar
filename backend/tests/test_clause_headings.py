@@ -171,7 +171,10 @@ def test_designator_spellings_are_all_matched():
 
 def test_a_designator_is_required_in_the_match_expression():
     expr = keyword.build_match_query("NDFT for coating system no. 1")
-    assert '"system no. 1"' in expr
+    # "no." is asked for as `no`: the index strips a full stop that is not
+    # between two letters/digits, and the query phrase must match what the
+    # index holds (keyword.strip_edge_punctuation).
+    assert '"system no 1"' in expr
     assert " AND " in expr
 
 

@@ -1,4 +1,4 @@
-"""The four Claude routes are wired, gated on the reader's flags, and write
+"""The three Claude routes are wired, gated on the reader's flags, and write
 nothing when the flags are off."""
 
 from __future__ import annotations
@@ -28,12 +28,11 @@ ROUTES = [
     ("post", "/api/reviews/runs/run-x/claude/select-standards"),
     ("post", "/api/reviews/runs/run-x/claude/read-datasheet"),
     ("post", "/api/reviews/runs/run-x/claude/recheck"),
-    ("get", "/api/reviews/runs/run-x/claude/crs-draft"),
 ]
 
 
 
-def test_the_four_routes_are_registered():
+def test_the_three_routes_are_registered():
     paths = set(app.openapi()["paths"])
     for _method, path in ROUTES:
         assert path.replace("run-x", "{review_run_id}") in paths
@@ -52,7 +51,7 @@ def test_an_unknown_run_is_404_before_the_model_is_asked(method, path, monkeypat
 def test_the_flags_off_answer_409_model_disabled(monkeypatch):
     monkeypatch.setattr(claude_api.reader_transport_mod, "transport", lambda: None)
     with pytest.raises(Exception) as caught:
-        claude_api._model_call_or_409()
+        claude_api._model_call_or_409(claude_api.STEP_RECHECK)
     assert caught.value.status_code == 409
     assert caught.value.detail["code"] == claude_api.MODEL_DISABLED
 

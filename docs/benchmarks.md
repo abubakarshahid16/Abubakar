@@ -64,7 +64,7 @@ Answer was correct and cited a source. **The problem is throughput, not quality.
 | Model load (cold) | 23.6 s |
 | Model load (warm) | 0.01 s |
 
-Implication: `keep_alive` must hold the model resident for the demo.
+Implication: `keep_alive` must hold the model resident for the demo. The default is "5m" since #666 (it was "30m" and held the memory after every call); for a demo, set `OLLAMA_KEEP_ALIVE` longer for that session and set it back after.
 
 ### Thinking mode
 
@@ -113,6 +113,19 @@ failed:
 Left configurable as `onnx_cpu_arena_rerank` / `onnx_cpu_arena_embed`, because
 503 MB against 3,247 MB is a real option on a machine that demos at 92% RAM —
 but it buys headroom, not speed.
+
+**Update 2026-09-28 (perf quick wins): the EMBEDDER's arena is now OFF by
+default; the reranker's stays on.** The reasoning above is about the reranker,
+whose arena buys the ~575 ms. The embedder serves queries with one 8 ms
+single-text embed, and the arena it grows while ingesting was held for the
+life of the process. Measured on a shared 2-vCPU container (`bench_embed2.py`,
+batch 16, 1 thread): arena on peaks at 1,466 MB and 4.00 passages/s, arena off
+at 958 MB and 3.86 passages/s; batch 32 with the arena on (the old hard-coded
+value) peaks at 2,203 MB. The embedder also now reads `embed_batch_size` (16)
+and `embed_threads` (0 = half the logical cores) instead of hard-coded 32 and
+12. **Not yet re-measured on the i7-1255U** - the 6.9 -> 5.7 chunks/s row above
+had BOTH arenas off at 12 threads. `ONNX_CPU_ARENA_EMBED=true` restores the old
+behaviour.
 
 ## Not yet measured
 

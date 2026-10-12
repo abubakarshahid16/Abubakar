@@ -1,0 +1,3223 @@
+{
+ "version": 1,
+ "note": "MADE-UP datasheets for measuring datasheet readers. Every field and value is invented. Written by scripts/make_datasheet_bench.py - edit that script and re-run it, never this file.",
+ "files": {
+  "ds01_pump_ruled.pdf": {
+   "equipment": "centrifugal pump",
+   "layout": "ruled two-column table",
+   "text_layer": true,
+   "expected": [
+    {
+     "field": "Rated capacity",
+     "value": "125",
+     "unit": "m3/h",
+     "kind": "offered"
+    },
+    {
+     "field": "Differential head",
+     "value": "85",
+     "unit": "m",
+     "kind": "offered"
+    },
+    {
+     "field": "Suction pressure",
+     "value": "1.5",
+     "unit": "barg",
+     "kind": "offered"
+    },
+    {
+     "field": "Discharge pressure",
+     "value": "9.8",
+     "unit": "barg",
+     "kind": "offered"
+    },
+    {
+     "field": "Pumping temperature",
+     "value": "45",
+     "unit": "°C",
+     "kind": "offered"
+    },
+    {
+     "field": "Speed",
+     "value": "2950",
+     "unit": "rpm",
+     "kind": "offered"
+    },
+    {
+     "field": "Driver power",
+     "value": "55",
+     "unit": "kW",
+     "kind": "offered"
+    },
+    {
+     "field": "Impeller diameter",
+     "value": "310",
+     "unit": "mm",
+     "kind": "offered"
+    },
+    {
+     "field": "NPSH required",
+     "value": "3.2",
+     "unit": "m",
+     "kind": "offered"
+    },
+    {
+     "field": "Casing material",
+     "value": "Carbon steel",
+     "unit": null,
+     "kind": "offered"
+    }
+   ],
+   "forbidden": [
+    "Coupling type"
+   ],
+   "ignore": [
+    "Doc No",
+    "Tag No",
+    "Rev",
+    "Project",
+    "Sheet"
+   ],
+   "cells": [
+    {
+     "page": 1,
+     "text": "Rated capacity",
+     "box": [
+      40.0,
+      110.0,
+      280.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "125 m3/h",
+     "box": [
+      280.0,
+      110.0,
+      520.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Differential head",
+     "box": [
+      40.0,
+      128.0,
+      280.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "85 m",
+     "box": [
+      280.0,
+      128.0,
+      520.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Suction pressure",
+     "box": [
+      40.0,
+      146.0,
+      280.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "1.5 barg",
+     "box": [
+      280.0,
+      146.0,
+      520.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Discharge pressure",
+     "box": [
+      40.0,
+      164.0,
+      280.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "9.8 barg",
+     "box": [
+      280.0,
+      164.0,
+      520.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Pumping temperature",
+     "box": [
+      40.0,
+      182.0,
+      280.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "45 °C",
+     "box": [
+      280.0,
+      182.0,
+      520.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Speed",
+     "box": [
+      40.0,
+      200.0,
+      280.0,
+      218.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "2950 rpm",
+     "box": [
+      280.0,
+      200.0,
+      520.0,
+      218.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Driver power",
+     "box": [
+      40.0,
+      218.0,
+      280.0,
+      236.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "55 kW",
+     "box": [
+      280.0,
+      218.0,
+      520.0,
+      236.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Impeller diameter",
+     "box": [
+      40.0,
+      236.0,
+      280.0,
+      254.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "310 mm",
+     "box": [
+      280.0,
+      236.0,
+      520.0,
+      254.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "NPSH required",
+     "box": [
+      40.0,
+      254.0,
+      280.0,
+      272.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "3.2 m",
+     "box": [
+      280.0,
+      254.0,
+      520.0,
+      272.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Casing material",
+     "box": [
+      40.0,
+      272.0,
+      280.0,
+      290.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Carbon steel",
+     "box": [
+      280.0,
+      272.0,
+      520.0,
+      290.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Coupling type",
+     "box": [
+      40.0,
+      290.0,
+      280.0,
+      308.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "By Vendor",
+     "box": [
+      280.0,
+      290.0,
+      520.0,
+      308.0
+     ]
+    }
+   ],
+   "cells_not_keyed": null
+  },
+  "ds02_psv_unruled.pdf": {
+   "equipment": "pressure safety valve",
+   "layout": "unruled 'Label : value' lines",
+   "text_layer": true,
+   "expected": [
+    {
+     "field": "Set pressure",
+     "value": "12.5",
+     "unit": "barg",
+     "kind": "offered"
+    },
+    {
+     "field": "Relieving temperature",
+     "value": "180",
+     "unit": "°C",
+     "kind": "offered"
+    },
+    {
+     "field": "Required capacity",
+     "value": "5400",
+     "unit": "kg/h",
+     "kind": "offered"
+    },
+    {
+     "field": "Inlet size",
+     "value": "3",
+     "unit": "in",
+     "kind": "offered"
+    },
+    {
+     "field": "Outlet size",
+     "value": "4",
+     "unit": "in",
+     "kind": "offered"
+    },
+    {
+     "field": "Back pressure",
+     "value": "1.2",
+     "unit": "barg",
+     "kind": "offered"
+    },
+    {
+     "field": "Overpressure",
+     "value": "10",
+     "unit": "%",
+     "kind": "offered"
+    },
+    {
+     "field": "Orifice designation",
+     "value": "J",
+     "unit": null,
+     "kind": "offered"
+    },
+    {
+     "field": "Body material",
+     "value": "Carbon steel",
+     "unit": null,
+     "kind": "offered"
+    },
+    {
+     "field": "Valve type",
+     "value": "Conventional spring loaded",
+     "unit": null,
+     "kind": "offered"
+    }
+   ],
+   "forbidden": [
+    "Bellows material"
+   ],
+   "ignore": [
+    "Doc No",
+    "Tag No",
+    "Rev",
+    "Project",
+    "Sheet"
+   ],
+   "cells": [],
+   "cells_not_keyed": null
+  },
+  "ds03_hx_two_column_form.pdf": {
+   "equipment": "shell and tube heat exchanger",
+   "layout": "two-column form (two label/value pairs per line, unruled inside a frame)",
+   "text_layer": true,
+   "expected": [
+    {
+     "field": "Heat duty",
+     "value": "2.45",
+     "unit": "MW",
+     "kind": "offered"
+    },
+    {
+     "field": "Shell design pressure",
+     "value": "16",
+     "unit": "barg",
+     "kind": "offered"
+    },
+    {
+     "field": "Shell design temperature",
+     "value": "250",
+     "unit": "°C",
+     "kind": "offered"
+    },
+    {
+     "field": "Surface area",
+     "value": "185",
+     "unit": "m2",
+     "kind": "offered"
+    },
+    {
+     "field": "Tube OD",
+     "value": "19.05",
+     "unit": "mm",
+     "kind": "offered"
+    },
+    {
+     "field": "Corrosion allowance",
+     "value": "3",
+     "unit": "mm",
+     "kind": "offered"
+    },
+    {
+     "field": "TEMA type",
+     "value": "AES",
+     "unit": null,
+     "kind": "offered"
+    },
+    {
+     "field": "Tube design pressure",
+     "value": "25",
+     "unit": "barg",
+     "kind": "offered"
+    },
+    {
+     "field": "Tube design temperature",
+     "value": "200",
+     "unit": "°C",
+     "kind": "offered"
+    },
+    {
+     "field": "Number of passes",
+     "value": "2",
+     "unit": null,
+     "kind": "offered"
+    },
+    {
+     "field": "Tube length",
+     "value": "6100",
+     "unit": "mm",
+     "kind": "offered"
+    },
+    {
+     "field": "Baffle cut",
+     "value": "25",
+     "unit": "%",
+     "kind": "offered"
+    }
+   ],
+   "forbidden": [],
+   "ignore": [
+    "Doc No",
+    "Tag No",
+    "Rev",
+    "Project",
+    "Sheet"
+   ],
+   "cells": [],
+   "cells_not_keyed": null
+  },
+  "ds04_control_valve_req_off.pdf": {
+   "equipment": "control valve",
+   "layout": "ruled table with Required / Offered columns",
+   "text_layer": true,
+   "expected": [
+    {
+     "field": "Maximum flow",
+     "value": "150",
+     "unit": "m3/h",
+     "kind": "required"
+    },
+    {
+     "field": "Maximum flow",
+     "value": "150",
+     "unit": "m3/h",
+     "kind": "offered"
+    },
+    {
+     "field": "Valve Cv",
+     "value": "180",
+     "unit": null,
+     "kind": "required"
+    },
+    {
+     "field": "Valve Cv",
+     "value": "210",
+     "unit": null,
+     "kind": "offered"
+    },
+    {
+     "field": "Body size",
+     "value": "6",
+     "unit": "in",
+     "kind": "required"
+    },
+    {
+     "field": "Body size",
+     "value": "6",
+     "unit": "in",
+     "kind": "offered"
+    },
+    {
+     "field": "Shutoff pressure",
+     "value": "20",
+     "unit": "barg",
+     "kind": "required"
+    },
+    {
+     "field": "Shutoff pressure",
+     "value": "25",
+     "unit": "barg",
+     "kind": "offered"
+    },
+    {
+     "field": "Noise level",
+     "value": "85",
+     "unit": "dBA",
+     "kind": "required"
+    },
+    {
+     "field": "Noise level",
+     "value": "82",
+     "unit": "dBA",
+     "kind": "offered"
+    },
+    {
+     "field": "Stroke time",
+     "value": "10",
+     "unit": "s",
+     "kind": "required"
+    },
+    {
+     "field": "Stroke time",
+     "value": "8",
+     "unit": "s",
+     "kind": "offered"
+    },
+    {
+     "field": "Leakage class",
+     "value": "Class IV",
+     "unit": null,
+     "kind": "required"
+    },
+    {
+     "field": "Leakage class",
+     "value": "Class V",
+     "unit": null,
+     "kind": "offered"
+    },
+    {
+     "field": "Actuator air supply",
+     "value": "5.5",
+     "unit": "barg",
+     "kind": "required"
+    }
+   ],
+   "forbidden": [],
+   "ignore": [
+    "Doc No",
+    "Tag No",
+    "Rev",
+    "Project",
+    "Sheet"
+   ],
+   "cells": [
+    {
+     "page": 1,
+     "text": "Description",
+     "box": [
+      40.0,
+      110.0,
+      240.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Required",
+     "box": [
+      240.0,
+      110.0,
+      380.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Offered",
+     "box": [
+      380.0,
+      110.0,
+      520.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Maximum flow",
+     "box": [
+      40.0,
+      128.0,
+      240.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "150 m3/h",
+     "box": [
+      240.0,
+      128.0,
+      380.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "150 m3/h",
+     "box": [
+      380.0,
+      128.0,
+      520.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Valve Cv",
+     "box": [
+      40.0,
+      146.0,
+      240.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "180",
+     "box": [
+      240.0,
+      146.0,
+      380.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "210",
+     "box": [
+      380.0,
+      146.0,
+      520.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Body size",
+     "box": [
+      40.0,
+      164.0,
+      240.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "6 in",
+     "box": [
+      240.0,
+      164.0,
+      380.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "6 in",
+     "box": [
+      380.0,
+      164.0,
+      520.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Shutoff pressure",
+     "box": [
+      40.0,
+      182.0,
+      240.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "20 barg",
+     "box": [
+      240.0,
+      182.0,
+      380.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "25 barg",
+     "box": [
+      380.0,
+      182.0,
+      520.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Noise level",
+     "box": [
+      40.0,
+      200.0,
+      240.0,
+      218.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "85 dBA",
+     "box": [
+      240.0,
+      200.0,
+      380.0,
+      218.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "82 dBA",
+     "box": [
+      380.0,
+      200.0,
+      520.0,
+      218.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Stroke time",
+     "box": [
+      40.0,
+      218.0,
+      240.0,
+      236.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "10 s",
+     "box": [
+      240.0,
+      218.0,
+      380.0,
+      236.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "8 s",
+     "box": [
+      380.0,
+      218.0,
+      520.0,
+      236.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Leakage class",
+     "box": [
+      40.0,
+      236.0,
+      240.0,
+      254.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Class IV",
+     "box": [
+      240.0,
+      236.0,
+      380.0,
+      254.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Class V",
+     "box": [
+      380.0,
+      236.0,
+      520.0,
+      254.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Actuator air supply",
+     "box": [
+      40.0,
+      254.0,
+      240.0,
+      272.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "5.5 barg",
+     "box": [
+      240.0,
+      254.0,
+      380.0,
+      272.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "By Vendor",
+     "box": [
+      380.0,
+      254.0,
+      520.0,
+      272.0
+     ]
+    }
+   ],
+   "cells_not_keyed": null
+  },
+  "ds05_motor_units_grid.pdf": {
+   "equipment": "electric motor",
+   "layout": "ruled grid with a Units column",
+   "text_layer": true,
+   "expected": [
+    {
+     "field": "Rated power",
+     "value": "75",
+     "unit": "kW",
+     "kind": "offered"
+    },
+    {
+     "field": "Rated voltage",
+     "value": "400",
+     "unit": "V",
+     "kind": "offered"
+    },
+    {
+     "field": "Frequency",
+     "value": "50",
+     "unit": "Hz",
+     "kind": "offered"
+    },
+    {
+     "field": "Speed",
+     "value": "1485",
+     "unit": "rpm",
+     "kind": "offered"
+    },
+    {
+     "field": "Full load current",
+     "value": "132",
+     "unit": "A",
+     "kind": "offered"
+    },
+    {
+     "field": "Efficiency",
+     "value": "95.2",
+     "unit": "%",
+     "kind": "offered"
+    },
+    {
+     "field": "Power factor",
+     "value": "0.87",
+     "unit": null,
+     "kind": "offered"
+    },
+    {
+     "field": "Weight",
+     "value": "520",
+     "unit": "kg",
+     "kind": "offered"
+    },
+    {
+     "field": "Insulation class",
+     "value": "F",
+     "unit": null,
+     "kind": "offered"
+    },
+    {
+     "field": "Enclosure",
+     "value": "IP55",
+     "unit": null,
+     "kind": "offered"
+    }
+   ],
+   "forbidden": [],
+   "ignore": [
+    "Doc No",
+    "Tag No",
+    "Rev",
+    "Project",
+    "Sheet"
+   ],
+   "cells": [
+    {
+     "page": 1,
+     "text": "Parameter",
+     "box": [
+      40.0,
+      110.0,
+      260.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Units",
+     "box": [
+      260.0,
+      110.0,
+      350.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Value",
+     "box": [
+      350.0,
+      110.0,
+      500.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Rated power",
+     "box": [
+      40.0,
+      128.0,
+      260.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "kW",
+     "box": [
+      260.0,
+      128.0,
+      350.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "75",
+     "box": [
+      350.0,
+      128.0,
+      500.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Rated voltage",
+     "box": [
+      40.0,
+      146.0,
+      260.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "V",
+     "box": [
+      260.0,
+      146.0,
+      350.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "400",
+     "box": [
+      350.0,
+      146.0,
+      500.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Frequency",
+     "box": [
+      40.0,
+      164.0,
+      260.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Hz",
+     "box": [
+      260.0,
+      164.0,
+      350.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "50",
+     "box": [
+      350.0,
+      164.0,
+      500.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Speed",
+     "box": [
+      40.0,
+      182.0,
+      260.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "rpm",
+     "box": [
+      260.0,
+      182.0,
+      350.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "1485",
+     "box": [
+      350.0,
+      182.0,
+      500.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Full load current",
+     "box": [
+      40.0,
+      200.0,
+      260.0,
+      218.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "A",
+     "box": [
+      260.0,
+      200.0,
+      350.0,
+      218.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "132",
+     "box": [
+      350.0,
+      200.0,
+      500.0,
+      218.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Efficiency",
+     "box": [
+      40.0,
+      218.0,
+      260.0,
+      236.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "%",
+     "box": [
+      260.0,
+      218.0,
+      350.0,
+      236.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "95.2",
+     "box": [
+      350.0,
+      218.0,
+      500.0,
+      236.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Power factor",
+     "box": [
+      40.0,
+      236.0,
+      260.0,
+      254.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "-",
+     "box": [
+      260.0,
+      236.0,
+      350.0,
+      254.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "0.87",
+     "box": [
+      350.0,
+      236.0,
+      500.0,
+      254.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Weight",
+     "box": [
+      40.0,
+      254.0,
+      260.0,
+      272.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "kg",
+     "box": [
+      260.0,
+      254.0,
+      350.0,
+      272.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "520",
+     "box": [
+      350.0,
+      254.0,
+      500.0,
+      272.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Insulation class",
+     "box": [
+      40.0,
+      272.0,
+      260.0,
+      290.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "-",
+     "box": [
+      260.0,
+      272.0,
+      350.0,
+      290.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "F",
+     "box": [
+      350.0,
+      272.0,
+      500.0,
+      290.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Enclosure",
+     "box": [
+      40.0,
+      290.0,
+      260.0,
+      308.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "-",
+     "box": [
+      260.0,
+      290.0,
+      350.0,
+      308.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "IP55",
+     "box": [
+      350.0,
+      290.0,
+      500.0,
+      308.0
+     ]
+    }
+   ],
+   "cells_not_keyed": null
+  },
+  "ds06_transmitter_odd_headers.pdf": {
+   "equipment": "pressure transmitter",
+   "layout": "ruled grid with unusual header words (Attribute / Measure / Figure)",
+   "text_layer": true,
+   "expected": [
+    {
+     "field": "Range lower limit",
+     "value": "0",
+     "unit": "bar",
+     "kind": "offered"
+    },
+    {
+     "field": "Range upper limit",
+     "value": "40",
+     "unit": "bar",
+     "kind": "offered"
+    },
+    {
+     "field": "Accuracy",
+     "value": "0.075",
+     "unit": "%",
+     "kind": "offered"
+    },
+    {
+     "field": "Supply voltage",
+     "value": "24",
+     "unit": "V",
+     "kind": "offered"
+    },
+    {
+     "field": "Maximum ambient temperature",
+     "value": "85",
+     "unit": "°C",
+     "kind": "offered"
+    },
+    {
+     "field": "Response time",
+     "value": "100",
+     "unit": "ms",
+     "kind": "offered"
+    },
+    {
+     "field": "Communication protocol",
+     "value": "HART",
+     "unit": null,
+     "kind": "offered"
+    },
+    {
+     "field": "Wetted parts material",
+     "value": "316L SS",
+     "unit": null,
+     "kind": "offered"
+    }
+   ],
+   "forbidden": [],
+   "ignore": [
+    "Doc No",
+    "Tag No",
+    "Rev",
+    "Project",
+    "Sheet"
+   ],
+   "cells": [
+    {
+     "page": 1,
+     "text": "Attribute",
+     "box": [
+      40.0,
+      110.0,
+      260.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Measure",
+     "box": [
+      260.0,
+      110.0,
+      350.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Figure",
+     "box": [
+      350.0,
+      110.0,
+      500.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Range lower limit",
+     "box": [
+      40.0,
+      128.0,
+      260.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "bar",
+     "box": [
+      260.0,
+      128.0,
+      350.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "0",
+     "box": [
+      350.0,
+      128.0,
+      500.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Range upper limit",
+     "box": [
+      40.0,
+      146.0,
+      260.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "bar",
+     "box": [
+      260.0,
+      146.0,
+      350.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "40",
+     "box": [
+      350.0,
+      146.0,
+      500.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Accuracy",
+     "box": [
+      40.0,
+      164.0,
+      260.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "%",
+     "box": [
+      260.0,
+      164.0,
+      350.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "0.075",
+     "box": [
+      350.0,
+      164.0,
+      500.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Supply voltage",
+     "box": [
+      40.0,
+      182.0,
+      260.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "V",
+     "box": [
+      260.0,
+      182.0,
+      350.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "24",
+     "box": [
+      350.0,
+      182.0,
+      500.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Maximum ambient temperature",
+     "box": [
+      40.0,
+      200.0,
+      260.0,
+      218.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "°C",
+     "box": [
+      260.0,
+      200.0,
+      350.0,
+      218.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "85",
+     "box": [
+      350.0,
+      200.0,
+      500.0,
+      218.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Response time",
+     "box": [
+      40.0,
+      218.0,
+      260.0,
+      236.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "ms",
+     "box": [
+      260.0,
+      218.0,
+      350.0,
+      236.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "100",
+     "box": [
+      350.0,
+      218.0,
+      500.0,
+      236.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Communication protocol",
+     "box": [
+      40.0,
+      236.0,
+      260.0,
+      254.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "HART",
+     "box": [
+      350.0,
+      236.0,
+      500.0,
+      254.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Wetted parts material",
+     "box": [
+      40.0,
+      254.0,
+      260.0,
+      272.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "316L SS",
+     "box": [
+      350.0,
+      254.0,
+      500.0,
+      272.0
+     ]
+    }
+   ],
+   "cells_not_keyed": null
+  },
+  "ds07_gate_valve_free_text.pdf": {
+   "equipment": "gate valve",
+   "layout": "free-text answers (values written inside sentences, vendor terms)",
+   "text_layer": true,
+   "expected": [
+    {
+     "field": "Nominal size",
+     "value": "6",
+     "unit": "in",
+     "kind": "offered"
+    },
+    {
+     "field": "Pressure class",
+     "value": "Class 600",
+     "unit": null,
+     "kind": "offered"
+    },
+    {
+     "field": "Body material",
+     "value": "forged carbon steel to ASTM A105",
+     "unit": null,
+     "kind": "offered"
+    },
+    {
+     "field": "Trim material",
+     "value": "thirteen percent chromium stainless steel",
+     "unit": null,
+     "kind": "offered"
+    },
+    {
+     "field": "Hydrostatic shell test pressure",
+     "value": "153",
+     "unit": "barg",
+     "kind": "measured"
+    },
+    {
+     "field": "Face to face dimension",
+     "value": "787",
+     "unit": "mm",
+     "kind": "offered"
+    },
+    {
+     "field": "Delivery",
+     "value": "16",
+     "unit": "weeks",
+     "kind": "offered"
+    },
+    {
+     "field": "Warranty",
+     "value": "18",
+     "unit": "months",
+     "kind": "offered"
+    },
+    {
+     "field": "Operator",
+     "value": "handwheel with bevel gearbox",
+     "unit": null,
+     "kind": "offered"
+    },
+    {
+     "field": "Warranty",
+     "value": "12",
+     "unit": "months",
+     "kind": "offered"
+    }
+   ],
+   "forbidden": [],
+   "ignore": [
+    "Doc No",
+    "Tag No",
+    "Rev",
+    "Project",
+    "Sheet"
+   ],
+   "cells": [],
+   "cells_not_keyed": null
+  },
+  "ds08_tank_merged_cells.pdf": {
+   "equipment": "storage tank",
+   "layout": "ruled table with merged group cells, merged label cells and a split value cell",
+   "text_layer": true,
+   "expected": [
+    {
+     "field": "Design pressure",
+     "value": "0.05",
+     "unit": "barg",
+     "kind": "offered",
+     "aliases": [
+      "Pressure"
+     ]
+    },
+    {
+     "field": "Design temperature",
+     "value": "85",
+     "unit": "°C",
+     "kind": "offered",
+     "aliases": [
+      "Temperature"
+     ]
+    },
+    {
+     "field": "Diameter",
+     "value": "12000",
+     "unit": "mm",
+     "kind": "offered",
+     "aliases": [
+      "Geometry diameter"
+     ]
+    },
+    {
+     "field": "Height",
+     "value": "14500",
+     "unit": "mm",
+     "kind": "offered",
+     "aliases": [
+      "Geometry height"
+     ]
+    },
+    {
+     "field": "Nominal capacity",
+     "value": "1500",
+     "unit": "m3",
+     "kind": "offered"
+    },
+    {
+     "field": "Corrosion allowance",
+     "value": "3",
+     "unit": "mm",
+     "kind": "offered"
+    },
+    {
+     "field": "Roof type",
+     "value": "Fixed cone roof",
+     "unit": null,
+     "kind": "offered"
+    },
+    {
+     "field": "Design code",
+     "value": "API 650",
+     "unit": null,
+     "kind": "offered"
+    },
+    {
+     "field": "Shell plate thickness bottom course",
+     "value": "14",
+     "unit": "mm",
+     "kind": "offered",
+     "aliases": [
+      "Bottom course"
+     ]
+    },
+    {
+     "field": "Shell plate thickness top course",
+     "value": "8",
+     "unit": "mm",
+     "kind": "offered",
+     "aliases": [
+      "Top course"
+     ]
+    }
+   ],
+   "forbidden": [],
+   "ignore": [
+    "Doc No",
+    "Tag No",
+    "Rev",
+    "Project",
+    "Sheet"
+   ],
+   "cells": [
+    {
+     "page": 1,
+     "text": "DESIGN",
+     "box": [
+      40.0,
+      110.0,
+      160.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Pressure",
+     "box": [
+      160.0,
+      110.0,
+      320.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "0.05 barg",
+     "box": [
+      320.0,
+      110.0,
+      520.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Temperature",
+     "box": [
+      160.0,
+      128.0,
+      320.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "85 °C",
+     "box": [
+      320.0,
+      128.0,
+      520.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "GEOMETRY",
+     "box": [
+      40.0,
+      146.0,
+      160.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Diameter",
+     "box": [
+      160.0,
+      146.0,
+      320.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "12000 mm",
+     "box": [
+      320.0,
+      146.0,
+      520.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Height",
+     "box": [
+      160.0,
+      164.0,
+      320.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "14500 mm",
+     "box": [
+      320.0,
+      164.0,
+      520.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Nominal capacity",
+     "box": [
+      40.0,
+      182.0,
+      320.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "1500 m3",
+     "box": [
+      320.0,
+      182.0,
+      520.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Corrosion allowance",
+     "box": [
+      40.0,
+      200.0,
+      320.0,
+      218.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "3 mm",
+     "box": [
+      320.0,
+      200.0,
+      520.0,
+      218.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Roof type",
+     "box": [
+      40.0,
+      218.0,
+      320.0,
+      236.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Fixed cone roof",
+     "box": [
+      320.0,
+      218.0,
+      520.0,
+      236.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Design code",
+     "box": [
+      40.0,
+      236.0,
+      320.0,
+      254.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "API 650",
+     "box": [
+      320.0,
+      236.0,
+      520.0,
+      254.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Shell plate thickness",
+     "box": [
+      40.0,
+      254.0,
+      320.0,
+      290.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Bottom course: 14 mm",
+     "box": [
+      320.0,
+      254.0,
+      520.0,
+      272.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Top course: 8 mm",
+     "box": [
+      320.0,
+      272.0,
+      520.0,
+      290.0
+     ]
+    }
+   ],
+   "cells_not_keyed": null
+  },
+  "ds09_rotated_page.pdf": {
+   "equipment": "basket strainer",
+   "layout": "ruled table on a page rotated 90 degrees",
+   "text_layer": true,
+   "expected": [
+    {
+     "field": "Design pressure",
+     "value": "19",
+     "unit": "barg",
+     "kind": "offered"
+    },
+    {
+     "field": "Design temperature",
+     "value": "120",
+     "unit": "°C",
+     "kind": "offered"
+    },
+    {
+     "field": "Flow rate",
+     "value": "60",
+     "unit": "m3/h",
+     "kind": "offered"
+    },
+    {
+     "field": "Filtration rating",
+     "value": "25",
+     "unit": "micron",
+     "kind": "offered"
+    },
+    {
+     "field": "Clean pressure drop",
+     "value": "0.2",
+     "unit": "bar",
+     "kind": "offered"
+    },
+    {
+     "field": "Connection size",
+     "value": "4",
+     "unit": "in",
+     "kind": "offered"
+    },
+    {
+     "field": "Element material",
+     "value": "Stainless steel 316",
+     "unit": null,
+     "kind": "offered"
+    }
+   ],
+   "forbidden": [],
+   "ignore": [
+    "Doc No",
+    "Tag No",
+    "Rev",
+    "Project",
+    "Sheet"
+   ],
+   "cells": null,
+   "cells_not_keyed": "the page is rotated after drawing: the drawn boxes are not the page's"
+  },
+  "ds10_compressor_multipage.pdf": {
+   "equipment": "centrifugal compressor",
+   "layout": "three pages: an unruled Units/Minimum/Normal/Rated grid, ruled tables, a title block repeated on every page",
+   "text_layer": true,
+   "expected": [
+    {
+     "field": "Inlet flow",
+     "value": "8000",
+     "unit": "Nm3/h",
+     "kind": "offered",
+     "column": "Minimum"
+    },
+    {
+     "field": "Inlet flow",
+     "value": "9500",
+     "unit": "Nm3/h",
+     "kind": "offered",
+     "column": "Normal"
+    },
+    {
+     "field": "Inlet flow",
+     "value": "11000",
+     "unit": "Nm3/h",
+     "kind": "offered",
+     "column": "Rated"
+    },
+    {
+     "field": "Suction pressure",
+     "value": "2.0",
+     "unit": "barg",
+     "kind": "offered",
+     "column": "Minimum"
+    },
+    {
+     "field": "Suction pressure",
+     "value": "2.5",
+     "unit": "barg",
+     "kind": "offered",
+     "column": "Normal"
+    },
+    {
+     "field": "Suction pressure",
+     "value": "2.8",
+     "unit": "barg",
+     "kind": "offered",
+     "column": "Rated"
+    },
+    {
+     "field": "Discharge pressure",
+     "value": "18.0",
+     "unit": "barg",
+     "kind": "offered",
+     "column": "Minimum"
+    },
+    {
+     "field": "Discharge pressure",
+     "value": "19.0",
+     "unit": "barg",
+     "kind": "offered",
+     "column": "Normal"
+    },
+    {
+     "field": "Discharge pressure",
+     "value": "19.5",
+     "unit": "barg",
+     "kind": "offered",
+     "column": "Rated"
+    },
+    {
+     "field": "Suction temperature",
+     "value": "30",
+     "unit": "°C",
+     "kind": "offered",
+     "column": "Minimum"
+    },
+    {
+     "field": "Suction temperature",
+     "value": "35",
+     "unit": "°C",
+     "kind": "offered",
+     "column": "Normal"
+    },
+    {
+     "field": "Suction temperature",
+     "value": "40",
+     "unit": "°C",
+     "kind": "offered",
+     "column": "Rated"
+    },
+    {
+     "field": "Number of stages",
+     "value": "2",
+     "unit": null,
+     "kind": "offered"
+    },
+    {
+     "field": "Impeller diameter",
+     "value": "540",
+     "unit": "mm",
+     "kind": "offered"
+    },
+    {
+     "field": "Maximum continuous speed",
+     "value": "11200",
+     "unit": "rpm",
+     "kind": "offered"
+    },
+    {
+     "field": "Driver rated power",
+     "value": "2400",
+     "unit": "kW",
+     "kind": "offered"
+    },
+    {
+     "field": "Casing split",
+     "value": "Horizontal",
+     "unit": null,
+     "kind": "offered"
+    },
+    {
+     "field": "Lube oil cooling water flow",
+     "value": "12",
+     "unit": "m3/h",
+     "kind": "offered"
+    },
+    {
+     "field": "Noise level",
+     "value": "85",
+     "unit": "dBA",
+     "kind": "offered"
+    }
+   ],
+   "forbidden": [
+    "Seal gas consumption"
+   ],
+   "ignore": [
+    "Doc No",
+    "Tag No",
+    "Rev",
+    "Project",
+    "Sheet"
+   ],
+   "cells": [
+    {
+     "page": 2,
+     "text": "Number of stages",
+     "box": [
+      40.0,
+      120.0,
+      280.0,
+      138.0
+     ]
+    },
+    {
+     "page": 2,
+     "text": "2",
+     "box": [
+      280.0,
+      120.0,
+      480.0,
+      138.0
+     ]
+    },
+    {
+     "page": 2,
+     "text": "Impeller diameter",
+     "box": [
+      40.0,
+      138.0,
+      280.0,
+      156.0
+     ]
+    },
+    {
+     "page": 2,
+     "text": "540 mm",
+     "box": [
+      280.0,
+      138.0,
+      480.0,
+      156.0
+     ]
+    },
+    {
+     "page": 2,
+     "text": "Maximum continuous speed",
+     "box": [
+      40.0,
+      156.0,
+      280.0,
+      174.0
+     ]
+    },
+    {
+     "page": 2,
+     "text": "11200 rpm",
+     "box": [
+      280.0,
+      156.0,
+      480.0,
+      174.0
+     ]
+    },
+    {
+     "page": 2,
+     "text": "Driver rated power",
+     "box": [
+      40.0,
+      174.0,
+      280.0,
+      192.0
+     ]
+    },
+    {
+     "page": 2,
+     "text": "2400 kW",
+     "box": [
+      280.0,
+      174.0,
+      480.0,
+      192.0
+     ]
+    },
+    {
+     "page": 2,
+     "text": "Casing split",
+     "box": [
+      40.0,
+      192.0,
+      280.0,
+      210.0
+     ]
+    },
+    {
+     "page": 2,
+     "text": "Horizontal",
+     "box": [
+      280.0,
+      192.0,
+      480.0,
+      210.0
+     ]
+    },
+    {
+     "page": 3,
+     "text": "Lube oil cooling water flow",
+     "box": [
+      40.0,
+      120.0,
+      280.0,
+      138.0
+     ]
+    },
+    {
+     "page": 3,
+     "text": "12 m3/h",
+     "box": [
+      280.0,
+      120.0,
+      480.0,
+      138.0
+     ]
+    },
+    {
+     "page": 3,
+     "text": "Noise level",
+     "box": [
+      40.0,
+      138.0,
+      280.0,
+      156.0
+     ]
+    },
+    {
+     "page": 3,
+     "text": "85 dBA",
+     "box": [
+      280.0,
+      138.0,
+      480.0,
+      156.0
+     ]
+    },
+    {
+     "page": 3,
+     "text": "Seal gas consumption",
+     "box": [
+      40.0,
+      156.0,
+      280.0,
+      174.0
+     ]
+    },
+    {
+     "page": 3,
+     "text": "By Vendor",
+     "box": [
+      280.0,
+      156.0,
+      480.0,
+      174.0
+     ]
+    }
+   ],
+   "cells_not_keyed": null
+  },
+  "ds11_flowmeter_scanned.pdf": {
+   "equipment": "flow meter",
+   "layout": "image-only scanned page (no text layer)",
+   "text_layer": false,
+   "expected": [
+    {
+     "field": "Line size",
+     "value": "3",
+     "unit": "in",
+     "kind": "offered"
+    },
+    {
+     "field": "Maximum flow",
+     "value": "45",
+     "unit": "m3/h",
+     "kind": "offered"
+    },
+    {
+     "field": "Accuracy",
+     "value": "0.1",
+     "unit": "%",
+     "kind": "offered"
+    },
+    {
+     "field": "Design pressure",
+     "value": "40",
+     "unit": "barg",
+     "kind": "offered"
+    },
+    {
+     "field": "Design temperature",
+     "value": "150",
+     "unit": "°C",
+     "kind": "offered"
+    },
+    {
+     "field": "Power supply",
+     "value": "24",
+     "unit": "V",
+     "kind": "offered"
+    },
+    {
+     "field": "Meter type",
+     "value": "Coriolis",
+     "unit": null,
+     "kind": "offered"
+    }
+   ],
+   "forbidden": [],
+   "ignore": [
+    "Doc No",
+    "Tag No",
+    "Rev",
+    "Project",
+    "Sheet"
+   ],
+   "cells": null,
+   "cells_not_keyed": "a scan with no text layer: the cells exist only as pixels"
+  },
+  "ds12_pump.xlsx": {
+   "equipment": "end suction pump",
+   "layout": "Excel workbook: Item | Unit | Value",
+   "text_layer": true,
+   "expected": [
+    {
+     "field": "Capacity",
+     "value": "42",
+     "unit": "m3/h",
+     "kind": "offered"
+    },
+    {
+     "field": "Head",
+     "value": "60",
+     "unit": "m",
+     "kind": "offered"
+    },
+    {
+     "field": "Speed",
+     "value": "2900",
+     "unit": "rpm",
+     "kind": "offered"
+    },
+    {
+     "field": "Motor power",
+     "value": "15",
+     "unit": "kW",
+     "kind": "offered"
+    },
+    {
+     "field": "Suction pressure",
+     "value": "0.8",
+     "unit": "barg",
+     "kind": "offered"
+    },
+    {
+     "field": "Pumped fluid",
+     "value": "Water",
+     "unit": null,
+     "kind": "offered"
+    },
+    {
+     "field": "Casing material",
+     "value": "Cast iron",
+     "unit": null,
+     "kind": "offered"
+    },
+    {
+     "field": "Shaft seal",
+     "value": "Mechanical seal",
+     "unit": null,
+     "kind": "offered"
+    }
+   ],
+   "forbidden": [
+    "Impeller diameter"
+   ],
+   "ignore": [
+    "Doc No",
+    "Tag No",
+    "Rev",
+    "Project",
+    "Sheet"
+   ],
+   "cells": [],
+   "cells_not_keyed": null
+  },
+  "ds13_heater.docx": {
+   "equipment": "electric heater",
+   "layout": "Word document with a two-column table",
+   "text_layer": true,
+   "expected": [
+    {
+     "field": "Rated power",
+     "value": "36",
+     "unit": "kW",
+     "kind": "offered"
+    },
+    {
+     "field": "Supply voltage",
+     "value": "400",
+     "unit": "V",
+     "kind": "offered"
+    },
+    {
+     "field": "Number of phases",
+     "value": "3",
+     "unit": null,
+     "kind": "offered"
+    },
+    {
+     "field": "Design pressure",
+     "value": "10",
+     "unit": "barg",
+     "kind": "offered"
+    },
+    {
+     "field": "Design temperature",
+     "value": "250",
+     "unit": "°C",
+     "kind": "offered"
+    },
+    {
+     "field": "Watt density",
+     "value": "3.5",
+     "unit": "W/cm2",
+     "kind": "offered"
+    },
+    {
+     "field": "Element sheath material",
+     "value": "Incoloy 800",
+     "unit": null,
+     "kind": "offered"
+    },
+    {
+     "field": "Terminal box protection",
+     "value": "IP66",
+     "unit": null,
+     "kind": "offered"
+    }
+   ],
+   "forbidden": [
+    "Thermostat setting"
+   ],
+   "ignore": [
+    "Doc No",
+    "Tag No",
+    "Rev",
+    "Project",
+    "Sheet"
+   ],
+   "cells": [],
+   "cells_not_keyed": null
+  },
+  "ds14_blanks_by_vendor.pdf": {
+   "equipment": "centrifugal fan",
+   "layout": "ruled table where most fields are 'By Vendor', 'TBA' or empty",
+   "text_layer": true,
+   "expected": [
+    {
+     "field": "Air flow",
+     "value": "36000",
+     "unit": "m3/h",
+     "kind": "offered"
+    },
+    {
+     "field": "Static pressure",
+     "value": "2.5",
+     "unit": "kPa",
+     "kind": "offered"
+    },
+    {
+     "field": "Fan speed",
+     "value": "1450",
+     "unit": "rpm",
+     "kind": "offered"
+    },
+    {
+     "field": "Casing material",
+     "value": "Galvanised steel",
+     "unit": null,
+     "kind": "offered"
+    }
+   ],
+   "forbidden": [
+    "Motor power",
+    "Impeller diameter",
+    "Bearing type",
+    "Blade material",
+    "Sound power level",
+    "Weight"
+   ],
+   "ignore": [
+    "Doc No",
+    "Tag No",
+    "Rev",
+    "Project",
+    "Sheet"
+   ],
+   "cells": [
+    {
+     "page": 1,
+     "text": "Air flow",
+     "box": [
+      40.0,
+      110.0,
+      280.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "36000 m3/h",
+     "box": [
+      280.0,
+      110.0,
+      480.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Motor power",
+     "box": [
+      40.0,
+      128.0,
+      280.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "By Vendor",
+     "box": [
+      280.0,
+      128.0,
+      480.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Static pressure",
+     "box": [
+      40.0,
+      146.0,
+      280.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "2.5 kPa",
+     "box": [
+      280.0,
+      146.0,
+      480.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Impeller diameter",
+     "box": [
+      40.0,
+      164.0,
+      280.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "By Vendor",
+     "box": [
+      280.0,
+      164.0,
+      480.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Fan speed",
+     "box": [
+      40.0,
+      182.0,
+      280.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "1450 rpm",
+     "box": [
+      280.0,
+      182.0,
+      480.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Bearing type",
+     "box": [
+      40.0,
+      200.0,
+      280.0,
+      218.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "BY VENDOR",
+     "box": [
+      280.0,
+      200.0,
+      480.0,
+      218.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Casing material",
+     "box": [
+      40.0,
+      218.0,
+      280.0,
+      236.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Galvanised steel",
+     "box": [
+      280.0,
+      218.0,
+      480.0,
+      236.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Blade material",
+     "box": [
+      40.0,
+      236.0,
+      280.0,
+      254.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "TBA",
+     "box": [
+      280.0,
+      236.0,
+      480.0,
+      254.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Sound power level",
+     "box": [
+      40.0,
+      254.0,
+      280.0,
+      272.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Weight",
+     "box": [
+      40.0,
+      272.0,
+      280.0,
+      290.0
+     ]
+    }
+   ],
+   "cells_not_keyed": null
+  },
+  "ds15_vessel_nozzle_schedule.pdf": {
+   "equipment": "pressure vessel",
+   "layout": "schedule keyed by a mark, row-number ruler, a number inside the header row",
+   "text_layer": true,
+   "expected": [
+    {
+     "field": "N1 Size",
+     "value": "4",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N1 - Size"
+     ],
+     "parts": [
+      "N1",
+      "Size"
+     ]
+    },
+    {
+     "field": "N1 Rating",
+     "value": "CL-150",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N1 - Rating"
+     ],
+     "parts": [
+      "N1",
+      "Rating"
+     ]
+    },
+    {
+     "field": "N1 Flange type",
+     "value": "weld neck",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N1 - Flange type"
+     ],
+     "parts": [
+      "N1",
+      "Flange type"
+     ]
+    },
+    {
+     "field": "N1 Service",
+     "value": "Feed inlet",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N1 - Service"
+     ],
+     "parts": [
+      "N1",
+      "Service"
+     ]
+    },
+    {
+     "field": "N2 Size",
+     "value": "2",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N2 - Size"
+     ],
+     "parts": [
+      "N2",
+      "Size"
+     ]
+    },
+    {
+     "field": "N2 Rating",
+     "value": "CL-150",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N2 - Rating"
+     ],
+     "parts": [
+      "N2",
+      "Rating"
+     ]
+    },
+    {
+     "field": "N2 Flange type",
+     "value": "weld neck",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N2 - Flange type"
+     ],
+     "parts": [
+      "N2",
+      "Flange type"
+     ]
+    },
+    {
+     "field": "N2 Service",
+     "value": "Vent",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N2 - Service"
+     ],
+     "parts": [
+      "N2",
+      "Service"
+     ]
+    },
+    {
+     "field": "N3 Size",
+     "value": "6",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N3 - Size"
+     ],
+     "parts": [
+      "N3",
+      "Size"
+     ]
+    },
+    {
+     "field": "N3 Rating",
+     "value": "CL-300",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N3 - Rating"
+     ],
+     "parts": [
+      "N3",
+      "Rating"
+     ]
+    },
+    {
+     "field": "N3 Flange type",
+     "value": "long weld neck",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N3 - Flange type"
+     ],
+     "parts": [
+      "N3",
+      "Flange type"
+     ]
+    },
+    {
+     "field": "N3 Service",
+     "value": "Liquid outlet",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N3 - Service"
+     ],
+     "parts": [
+      "N3",
+      "Service"
+     ]
+    },
+    {
+     "field": "N4 Size",
+     "value": "3",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N4 - Size"
+     ],
+     "parts": [
+      "N4",
+      "Size"
+     ]
+    },
+    {
+     "field": "N4 Rating",
+     "value": "CL-150",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N4 - Rating"
+     ],
+     "parts": [
+      "N4",
+      "Rating"
+     ]
+    },
+    {
+     "field": "N4 Flange type",
+     "value": "slip on",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N4 - Flange type"
+     ],
+     "parts": [
+      "N4",
+      "Flange type"
+     ]
+    },
+    {
+     "field": "N4 Service",
+     "value": "Drain",
+     "unit": null,
+     "kind": "offered",
+     "aliases": [
+      "N4 - Service"
+     ],
+     "parts": [
+      "N4",
+      "Service"
+     ]
+    }
+   ],
+   "forbidden": [],
+   "ignore": [
+    "Doc No",
+    "Tag No",
+    "Rev",
+    "Project",
+    "Sheet",
+    "Mark"
+   ],
+   "cells": [
+    {
+     "page": 1,
+     "text": "Mark",
+     "box": [
+      68.0,
+      110.0,
+      128.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Size",
+     "box": [
+      128.0,
+      110.0,
+      188.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Rating",
+     "box": [
+      188.0,
+      110.0,
+      268.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Flange type",
+     "box": [
+      268.0,
+      110.0,
+      378.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Service",
+     "box": [
+      378.0,
+      110.0,
+      508.0,
+      128.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "N1",
+     "box": [
+      68.0,
+      128.0,
+      128.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "4",
+     "box": [
+      128.0,
+      128.0,
+      188.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "CL-150",
+     "box": [
+      188.0,
+      128.0,
+      268.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "weld neck",
+     "box": [
+      268.0,
+      128.0,
+      378.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Feed inlet",
+     "box": [
+      378.0,
+      128.0,
+      508.0,
+      146.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "N2",
+     "box": [
+      68.0,
+      146.0,
+      128.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "2",
+     "box": [
+      128.0,
+      146.0,
+      188.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "CL-150",
+     "box": [
+      188.0,
+      146.0,
+      268.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "weld neck",
+     "box": [
+      268.0,
+      146.0,
+      378.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Vent",
+     "box": [
+      378.0,
+      146.0,
+      508.0,
+      164.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "N3",
+     "box": [
+      68.0,
+      164.0,
+      128.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "6",
+     "box": [
+      128.0,
+      164.0,
+      188.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "CL-300",
+     "box": [
+      188.0,
+      164.0,
+      268.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "long weld neck",
+     "box": [
+      268.0,
+      164.0,
+      378.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Liquid outlet",
+     "box": [
+      378.0,
+      164.0,
+      508.0,
+      182.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "N4",
+     "box": [
+      68.0,
+      182.0,
+      128.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "3",
+     "box": [
+      128.0,
+      182.0,
+      188.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "CL-150",
+     "box": [
+      188.0,
+      182.0,
+      268.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "slip on",
+     "box": [
+      268.0,
+      182.0,
+      378.0,
+      200.0
+     ]
+    },
+    {
+     "page": 1,
+     "text": "Drain",
+     "box": [
+      378.0,
+      182.0,
+      508.0,
+      200.0
+     ]
+    }
+   ],
+   "cells_not_keyed": null
+  }
+ }
+}

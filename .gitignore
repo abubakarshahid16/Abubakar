@@ -38,6 +38,9 @@ test-results/
 # --- additions (not in section 9; required for this environment) ---
 # Synthetic CI fixtures are the ONLY PDFs allowed in Git. Re-include explicitly.
 !tests/fixtures/synthetic/*.pdf
+# The made-up datasheet benchmark (scripts/make_datasheet_bench.py): every
+# value invented. Anchored at the repository root, where the tests live.
+!backend/tests/fixtures/synthetic/datasheets/*.pdf
 
 # Scratch folders left by audit runs (pytest basetemp and similar). Ignored
 # explicitly because their subfolders can be permission-denied, which makes git
@@ -109,14 +112,23 @@ Claude outputs/
 # Claude Code per-machine permissions (never shared)
 .claude/settings.local.json
 
+# Per-machine local config (e.g. backend/client_profile.local.json) - never shared
+*.local.json
+
 # Filled gold sheets describe client standards - template only (gold/README.md)
 gold/*.csv
 !gold/TEMPLATE.csv
 !gold/PAIRS-TEMPLATE.csv
-# The two filled sheets that used to be tracked as an EXCEPTION here (B27,
-# owner-accepted 2026-09-21 while the repository was private) were untracked
-# on 2026-09-25 when the repository went public. No exception remains: every
-# filled sheet stays ignored, kept locally beside the database.
+!gold/FINDINGS-TEMPLATE.csv
+!gold/QUESTIONS-TEMPLATE.csv
+# The question sets built from those sheets quote the same client documents.
+gold/*.json
+# Per-question calibration logs (eval/refusal_calibration.py) - scores/ids only,
+# but kept out of git the same as every other gold/ artifact.
+gold/*.jsonl
+# No exceptions: the two filled sheets once tracked here were untracked on
+# 2026-10-08 (the repository is public now). They stay on the owner's disk.
+# backend/tests/test_gold_sheets_untracked.py fails if one is tracked again.
 
 # Client identifiers the pre-commit hook blocks in added lines. LOCAL ONLY:
 # the list is itself a list of client identifiers, so it never enters git.
@@ -135,3 +147,9 @@ scripts/register_facilities.local.json
 # 2026-09-25 when the repository went public; kept locally.
 docs/screenshots/
 docs/ui-redesign/**/*.png
+
+# Eval output lists corpus file names and passage text. Local only (privacy rule 3).
+eval/results/
+
+# Mutation harness backups (never commit a half-mutated source file).
+*.mutbak

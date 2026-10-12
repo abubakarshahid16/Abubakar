@@ -46,7 +46,8 @@ import json
 import re
 from enum import Enum
 
-from . import claims, datasheets, submittal_review
+from . import blank_markers, claims, datasheets, numparse, submittal_review
+from .claude_spend import StopRun
 from .db import connect
 
 # --------------------------------------------------------------- vocabulary
@@ -75,6 +76,12 @@ class Reason(Enum):
     #: Rule 1. The quote does not appear on the page, whitespace-folded. The
     #: fabrication catch: an imagined row has no true quote.
     QUOTE_NOT_ON_PAGE = "quote_not_on_page"
+    #: Audit M2. The quote is on the page but is not a ROW: it is most of the
+    #: page, or several lines. A whole-page quote contains every value, so
+    #: rules 2 and 3 prove nothing against it.
+    QUOTE_TOO_BROAD = "quote_too_broad"
+    #: Audit M2. The unit the model reports is not in its own quote.
+    UNIT_NOT_IN_QUOTE = "unit_not_in_quote"
     #: Rule 2. The value is not inside the words the model says it read it
     #: from.
     VALUE_NOT_IN_QUOTE = "value_not_in_quote"
@@ -83,6 +90,11 @@ class Reason(Enum):
     FIELD_NOT_IN_QUOTE = "field_not_in_quote"
     FIELD_MISSING = "field_missing"
     VALUE_MISSING = "value_missing"
+    #: The value IS a printed "not provided" marker ("By Vendor", "TBD", "-",
+    #: "to be confirmed"). Decided by `blank_markers`, the project's one list,
+    #: whatever the model was told: a blank cell is not a fact, and the
+    #: protection must not depend on the model obeying its prompt.
+    VALUE_IS_BLANK_MARKER = "value_is_blank_marker"
     KIND_UNKNOWN = "kind_unknown"
     #: A unit was given and `claims` has never heard of it. A null unit is
     #: fine - a categorical value has none - but a spelling no table knows is
@@ -163,14 +175,6 @@ def _fold(text: str) -> str:
     return re.sub(r"\s+", " ", str(text)).strip().lower()
 
 
-_THOUSANDS = re.compile(r"(?<=\d),(?=\d{3}(?!\d))")
-_NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
-
-
-def _fold_numbers(text: str) -> str:
-    return _THOUSANDS.sub("", _fold(text))
-
-
 def _contains(haystack: str, needle: str) -> bool:
     """Whole-word containment on already-folded text. `reader_api._contains`,
     with the same lookarounds, for the same reason: "design pressure" must
@@ -183,16 +187,9 @@ def _contains(haystack: str, needle: str) -> bool:
 
 def _value_in_quote(value, quote: str) -> bool:
     """Rule 2, tolerant of printing and of nothing else. "8,300" and "8300"
-    are the same number; "23.55" and "99.9" are not."""
-    quote_folded = _fold_numbers(quote)
-    value_folded = _fold_numbers(value)
-    if _contains(quote_folded, value_folded):
-        return True
-    try:
-        wanted = float(value_folded)
-    except ValueError:
-        return False
-    return any(float(found) == wanted for found in _NUMBER.findall(quote_folded))
+    are the same number; "23.55" and "99.9" are not; 5 is not "-5" and not
+    the 5 of "2.5" (audit F01-F03). `numparse.value_in_text`."""
+    return numparse.value_in_text(value, quote)
 
 
 #: Words in a field label that carry its meaning. Four letters or more, so
@@ -212,10 +209,70 @@ def _field_in_quote(field: str, quote: str) -> bool:
     """
     quote_folded = _fold(quote)
     field_folded = _fold(field)
-    words = _FIELD_WORD.findall(field_folded)
+    words = list(dict.fromkeys(_FIELD_WORD.findall(field_folded)))
     if not words:
         return _contains(quote_folded, field_folded)
-    return any(_contains(quote_folded, w) for w in words)
+    # Audit M2: ONE four-letter word was enough, so "Casing material" was
+    # satisfied by a quote that held only "material". Half of the label's
+    # words are needed, and at least two when it has two or more.
+    needed = min(len(words), max(2, (len(words) + 1) // 2)) if len(words) > 1 else 1
+    return sum(1 for w in words if _contains(quote_folded, w)) >= needed
+
+
+#: A quote is a few cells, not the page: at most this many characters and not
+#: most of the page. NOT a line limit - a sheet that prints each label and
+#: value on its own line has a two-line row, and a quote that reaches across
+#: two rows is a reading the gate must see (and flag), not refuse.
+MAX_QUOTE_CHARS = 240
+MAX_QUOTE_SHARE_OF_PAGE = 0.5
+
+
+def _quote_too_broad(raw_quote: str, folded_page: str) -> bool:
+    text = str(raw_quote or "")
+    if len(text.strip()) > MAX_QUOTE_CHARS:
+        return True
+    return len(folded_page) > 80 and len(_fold(text)) > MAX_QUOTE_SHARE_OF_PAGE * len(folded_page)
+
+
+#: How far above a value to look for the header that names its column.
+HEADER_LOOKBACK_LINES = 30
+
+
+def _header_like(line: str, unit: str) -> bool:
+    """A line that names columns: it holds the unit and no number of its own
+    once the unit's own digits ("m3/h") are taken out."""
+    rest = re.sub(re.escape(unit), " ", line, flags=re.IGNORECASE)
+    return not re.search(r"\d", rest)
+
+
+def _unit_in_column_header(unit: str, raw_quote: str, value: str, page_text: str) -> bool:
+    """True when `unit` is printed only in the header of the column the value
+    sits in. Pipe-delimited rows: the header line above must carry the unit in
+    the SAME column as the value. Any other layout: a header-like line within
+    `HEADER_LOOKBACK_LINES` lines above the quote carries it (a guess about
+    layout, so the fact says `unit_from: column_header`)."""
+    lines = str(page_text or "").splitlines()
+    first = next((_fold(ln) for ln in str(raw_quote or "").splitlines() if ln.strip()), "")
+    at = next((i for i, ln in enumerate(lines) if first and first in _fold(ln)), None)
+    if at is None:
+        return False
+    cells = [c.strip() for c in lines[at].split("|")]
+    column = None
+    if len(cells) > 1:
+        column = next((i for i, c in enumerate(cells) if numparse.value_in_text(value, c)), None)
+        if column is None:
+            return False
+    for line in reversed(lines[max(0, at - HEADER_LOOKBACK_LINES):at]):
+        if not line.strip() or not _header_like(line, unit):
+            continue
+        if column is None:
+            if "|" not in line and _contains(_fold(line), _fold(unit)):
+                return True
+        else:
+            head = [c.strip() for c in line.split("|")]
+            if column < len(head) and _contains(_fold(head[column]), _fold(unit)):
+                return True
+    return False
 
 
 def _unit_recognised(unit: str) -> bool:
@@ -226,7 +283,123 @@ def _unit_recognised(unit: str) -> bool:
     return claims.is_unit(unit)
 
 
+# ------------------------------------------------------- one value, one fact
+
+#: A leading quantity: a number, then a unit word when one is printed.
+_QUANTITY = re.compile(r"^\s*([-+]?\d[\d.,]*)(\s*)([A-Za-z%µμ°][A-Za-z0-9/%()µμ°.\-]{0,12})?")
+#: Two quantities joined by a word or a semicolon are two facts.
+_SECOND_VALUE = re.compile(r"\s+(?:or|and)\s+(?=[-+]?\d)|\s*;\s*(?=[-+]?\d)", re.IGNORECASE)
+
+
+def _one_quantity(text: str):
+    """`(value, unit, qualifier)` when `text` is ONE quantity followed by words,
+    else None (leave it exactly as the page printed it). Conservative on
+    purpose: a range ("10-20 bar"), a comparator, a bare number or a value
+    whose unit the system does not know is never split, because a wrong split
+    would change a value and not only trim it."""
+    m = _QUANTITY.match(text)
+    if not m:
+        return None
+    number, gap, unit = m.group(1), m.group(2), m.group(3)
+    rest = text[m.end():]
+    if not rest.strip():
+        return None
+    if unit and not _unit_recognised(unit):
+        return None
+    if unit and not gap and len(unit) == 1:
+        return None  # "316L SS" is a steel grade, not 316 litres with a note
+    if not re.match(r"\s*[,;(]|\s+[A-Za-z]", rest):
+        return None
+    qualifier = rest.strip(" ,;()").strip() or None
+    return number, unit, qualifier
+
+
+def _bare_quantity(text: str):
+    m = _QUANTITY.match(text)
+    if not m or (m.group(3) and not _unit_recognised(m.group(3))):
+        return None
+    if text[m.end():].strip():
+        return None
+    if m.group(3) and not m.group(2) and len(m.group(3)) == 1:
+        return None
+    return m.group(1), m.group(3), None
+
+
+#: A pressure-class value with a standards-body acronym in front of it:
+#: "ASME Class 600". The acronym (two to six capitals, nothing else) names who
+#: defines the class; it is context, not part of the value. Deliberately
+#: narrow: nothing may follow the number, so "ASME B16.5 Class 600", "Class 600
+#: RF" and "Class 600 or 900" are never touched.
+_CLASS_WITH_BODY = re.compile(r"^\s*([A-Z]{2,6})\s+((?:Class|Cl\.?)\s*\d{2,4})\s*$", re.IGNORECASE)
+
+
+def _strip_standards_body(value: str):
+    """`(value, body)` for "ASME Class 600" -> ("Class 600", "ASME"), else None.
+    The acronym must be written in capitals (so a lower-case word is never
+    mistaken for one) and is returned as the qualifier."""
+    m = _CLASS_WITH_BODY.match(value)
+    if not m or not m.group(1).isupper():
+        return None
+    return m.group(2), m.group(1)
+
+
+def atomise(proposals: list[dict]) -> list[dict]:
+    """One fact, one value. Code, not the model, enforces it.
+
+    "16 weeks from purchase order, ex works" becomes value 16, unit weeks,
+    qualifier "from purchase order, ex works". "18 months from delivery or 12
+    months from start-up" becomes TWO facts, one per condition, so a
+    comparison never has to guess which number it is reading. The quote is
+    unchanged and stays the evidence for every piece. Idempotent."""
+    out: list[dict] = []
+    for p in proposals:
+        value = p.get("value")
+        if not value or not isinstance(value, str):
+            out.append(p)
+            continue
+        trimmed = _strip_standards_body(value)
+        if trimmed is not None:
+            out.append({**p, "value": trimmed[0],
+                        "qualifier": p.get("qualifier") or trimmed[1]})
+            continue
+        pieces = [x for x in _SECOND_VALUE.split(value) if x and x.strip()]
+        if len(pieces) < 2:
+            pieces = [value]
+        parts = [_one_quantity(x) or (_bare_quantity(x) if len(pieces) > 1 else None)
+                 for x in pieces]
+        if any(x is None for x in parts):
+            out.append(p)
+            continue
+        if len(parts) > 1 and all(
+                datasheets.same_quantity_twice(parts[0][0], parts[0][1] or "", n, u or "")
+                for n, u, _q in parts[1:]):
+            parts = parts[:1]  # "75 kW or 100 hp": one quantity printed twice
+        for number, unit, qualifier in parts:
+            if qualifier and re.match(r"(?:note|see|ref)\b", qualifier, re.IGNORECASE):
+                qualifier = None  # a note reference is not a condition
+            out.append({**p, "value": number, "unit": p.get("unit") or unit,
+                        "qualifier": qualifier or p.get("qualifier")})
+    return out
+
+
 # -------------------------------------------------------------------- parse
+
+_FENCE = re.compile(r"^\s*```[A-Za-z0-9_-]*\s*\n(?P<body>.*?)\n?\s*```\s*$", re.DOTALL)
+
+
+def _unfenced(raw):
+    """The answer without ONE surrounding Markdown code fence.
+
+    R32, 2026-10-11: the cloud model answered four of five pages as a fenced
+    block and every one was thrown away as malformed. Taking the fence off is
+    not repairing the answer: what is inside must still be the whole, valid
+    JSON, and a cut-off answer (no closing fence, or half an object) still
+    fails the strict parse below."""
+    if not isinstance(raw, str):
+        return raw
+    fenced = _FENCE.match(raw)
+    return fenced.group("body") if fenced else raw
+
 
 def parse_response(raw: str) -> tuple[list[dict], str | None]:
     """Strict parse. Anything malformed yields no proposals AND A REASON.
@@ -237,7 +410,7 @@ def parse_response(raw: str) -> tuple[list[dict], str | None]:
     to be worth not losing.
     """
     try:
-        body = json.loads(raw)
+        body = json.loads(_unfenced(raw))
     except (json.JSONDecodeError, TypeError):
         return [], Reason.MODEL_MALFORMED.value
     if isinstance(body, dict) and "facts" not in body and "field" in body:
@@ -259,6 +432,8 @@ def parse_response(raw: str) -> tuple[list[dict], str | None]:
                      if p.get("unit") not in (None, "") else None),
             "quote": str(p["quote"]),
             "kind": str(p.get("kind") or "").strip().lower(),
+            **({"qualifier": str(p["qualifier"]).strip()}
+               if p.get("qualifier") not in (None, "") else {}),
         })
     return out, None
 
@@ -276,6 +451,7 @@ def accept(proposals: list[dict], page_text: str, known_fields: list[str] | None
       1. the quote appears on the page, whitespace-folded
       2. the value appears inside the quote
       3. the field's main word appears inside the quote
+      0. the value is not a blank marker (`blank_markers.classify`)
       4. the unit, when given, is one `claims` recognises
       5. the field is not one the deterministic extractor already found
       6. (in `read_page`) two runs of the page agreed
@@ -298,12 +474,15 @@ def accept(proposals: list[dict], page_text: str, known_fields: list[str] | None
     def drop(proposal: dict, reason: Reason) -> None:
         rejected.append({**proposal, "reason": reason.value})
 
-    for p in proposals:
+    for p in atomise(proposals):
         if not p.get("field"):
             drop(p, Reason.FIELD_MISSING)
             continue
         if not p.get("value"):
             drop(p, Reason.VALUE_MISSING)
+            continue
+        if blank_markers.classify(p["value"])[0]:
+            drop(p, Reason.VALUE_IS_BLANK_MARKER)
             continue
         if p.get("kind") not in KINDS:
             drop(p, Reason.KIND_UNKNOWN)
@@ -311,6 +490,9 @@ def accept(proposals: list[dict], page_text: str, known_fields: list[str] | None
         quote = _fold(p["quote"])
         if not quote or not _contains(folded_page, quote):
             drop(p, Reason.QUOTE_NOT_ON_PAGE)
+            continue
+        if _quote_too_broad(p["quote"], folded_page):
+            drop(p, Reason.QUOTE_TOO_BROAD)
             continue
         if not _value_in_quote(p["value"], quote):
             drop(p, Reason.VALUE_NOT_IN_QUOTE)
@@ -321,11 +503,21 @@ def accept(proposals: list[dict], page_text: str, known_fields: list[str] | None
         if p.get("unit") and not _unit_recognised(p["unit"]):
             drop(p, Reason.UNIT_UNRECOGNISED)
             continue
+        unit_from = None
+        if p.get("unit"):
+            if _contains(quote, _fold(p["unit"])):
+                unit_from = "quote"
+            elif _unit_in_column_header(p["unit"], p["quote"], p["value"], page_text):
+                unit_from = "column_header"
+            else:
+                drop(p, Reason.UNIT_NOT_IN_QUOTE)
+                continue
         field_name = datasheets.normalise_field_name(p["field"])
         if field_name in known:
             drop(p, Reason.ALREADY_EXTRACTED)
             continue
-        accepted.append({**p, "field_name": field_name})
+        accepted.append({**p, "field_name": field_name,
+                         **({"unit_from": unit_from} if unit_from else {})})
     return {"accepted": accepted, "rejected": rejected,
             "counts": rejection_counts(rejected)}
 
@@ -350,7 +542,7 @@ def _identity(p: dict) -> tuple:
     the row is imagined."""
     return (
         datasheets.normalise_field_name(p.get("field") or ""),
-        _fold_numbers(p.get("value") or ""),
+        numparse.fold_numbers(p.get("value") or ""),
         _fold(p.get("unit") or ""),
     )
 
@@ -370,12 +562,15 @@ def read_page(page_text: str, page_no: int, known_fields: list[str] | None,
     known_fields = list(known_fields or [])
     prompt = build_prompt(page_text, page_no, known_fields)
     first, err = parse_response(model_call(prompt))
+    if not err:
+        first = atomise(first)
     if err:
         return {"page": page_no, "accepted": [], "rejected": [], "counts": {}, "error": err}
     again = second_call if second_call is not None else model_call
     second, err2 = parse_response(again(prompt))
     if err2:
         return {"page": page_no, "accepted": [], "rejected": [], "counts": {}, "error": err2}
+    second = atomise(second)
     seen = {_identity(p) for p in second}
     stable = [p for p in first if _identity(p) in seen]
     unstable = [{**p, "reason": Reason.MODEL_UNSTABLE.value}
@@ -457,7 +652,10 @@ def read_datasheet(document_id: str, *, allowed_document_ids: frozenset[str],
     Returns `{"document_id", "pages": [per-page read_page results],
     "accepted", "rejected", "counts", "errors"}`. Accepted and rejected
     proposals carry `page`, because a reason without the page it belongs to
-    cannot be acted on.
+    cannot be acted on. `stopped` is None, or - when a limit
+    (`claude_spend.StopRun`: call cap or USD cap) refused a call - the limit
+    and how many pages were left: pages read before it are kept, because they
+    were paid for.
     """
     by_page = _page_chunks(document_id, allowed_document_ids)
     if pages is None:
@@ -475,14 +673,22 @@ def read_datasheet(document_id: str, *, allowed_document_ids: frozenset[str],
     accepted: list[dict] = []
     rejected: list[dict] = []
     errors: list[dict] = []
-    for page_no in pages:
+    stopped = None
+    for done, page_no in enumerate(pages):
         text = page_text_of(page_no) or ""
         if not text.strip():
             per_page.append({"page": page_no, "accepted": [], "rejected": [],
                              "counts": {}, "skipped": "no text"})
             continue
-        out = read_page(text, page_no, known_by_page.get(page_no, []),
-                        model_call, second_call)
+        try:
+            # #806 S3: the prompt carries this datasheet's page text and labels.
+            from . import claude_approved
+            with claude_approved.carrying([document_id]):
+                out = read_page(text, page_no, known_by_page.get(page_no, []),
+                                model_call, second_call)
+        except StopRun as exc:
+            stopped = {"reason": exc.count_key, "done": done, "left": len(pages) - done}
+            break
         per_page.append({"page": page_no, "accepted": len(out["accepted"]),
                          "rejected": len(out["rejected"]), "counts": out["counts"],
                          **({"error": out["error"]} if out.get("error") else {})})
@@ -494,7 +700,8 @@ def read_datasheet(document_id: str, *, allowed_document_ids: frozenset[str],
     return {"document_id": document_id, "pages": per_page,
             "accepted": accepted, "rejected": rejected,
             "counts": rejection_counts(rejected),
-            "rejection_counts": rejection_counts(rejected), "errors": errors}
+            "rejection_counts": rejection_counts(rejected), "errors": errors,
+            "stopped": stopped}
 
 
 # ---------------------------------------------------------------- storage

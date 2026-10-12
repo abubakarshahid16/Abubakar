@@ -16,8 +16,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M288", phase=31,
         description="remove the grammar from the stripper - the original bug: SAES-H-004 read as the quantity 4",
         path=_SYNTH,
-        anchor='    return _STANDARD_IDENTIFIER.sub(" ", _REFERENCE_NUMERAL.sub(" ", sentence))',
-        replacement='    return _REFERENCE_NUMERAL.sub(" ", sentence)',
+        anchor='    return _STANDARD_IDENTIFIER.sub(" ", out)',
+        replacement='    return out',
         target=_B34_TEST, keyword="naming_a_real_standard_survives",
         tags=("honesty", "answer_path"),
     ),
@@ -25,9 +25,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M289", phase=31,
         description="LOOSEN BY VALUE: exempt the identifier's digits wherever they appear - lets 'per SAES-H-150, apply 150' through",
         path=_SYNTH,
-        anchor='    return _STANDARD_IDENTIFIER.sub(" ", _REFERENCE_NUMERAL.sub(" ", sentence))',
+        anchor='    return _STANDARD_IDENTIFIER.sub(" ", out)',
         replacement=(
-            '    stripped = _STANDARD_IDENTIFIER.sub(" ", _REFERENCE_NUMERAL.sub(" ", sentence))\n'
+            '    stripped = _STANDARD_IDENTIFIER.sub(" ", out)\n'
             '    for ident in _STANDARD_IDENTIFIER.findall(sentence):\n'
             '        for digits in re.findall(r"\\d+", ident):\n'
             '            stripped = re.sub(r"(?<![\\d.])" + digits + r"(?![\\d.])", " ", stripped)\n'

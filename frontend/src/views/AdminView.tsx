@@ -72,6 +72,16 @@ export function summarise(
   return lines;
 }
 
+/**
+ * Documents no discipline can see come first (#609), each with its Grant
+ * buttons, so an administrator finds them without scrolling a long list.
+ * Stable: within each group the server's order is kept.
+ */
+export function orphansFirst(documents: AdminGrantDocument[]): AdminGrantDocument[] {
+  const unseen = (d: AdminGrantDocument) => d.warning === "no_discipline_can_see_this";
+  return [...documents.filter(unseen), ...documents.filter((d) => !unseen(d))];
+}
+
 /** Failure states, kept visually distinct on purpose. An unbuilt route, a
  *  dead backend and a rejected request are three different facts and an
  *  operator acts differently on each. */
@@ -591,7 +601,7 @@ export function AdminView(props: AdminViewProps) {
 
         {!documentsFailure && documents !== null && documents.length > 0 && (
           <ul className="space-y-2">
-            {documents.map((doc) => (
+            {orphansFirst(documents).map((doc) => (
               <li
                 key={doc.document_id}
                 className="rounded-[var(--radius-md)] border border-ink-600 bg-ink-800 p-3"

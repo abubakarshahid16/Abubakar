@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ._base import APP, _B18_GUARD, Mutation
+from ._base import APP, Mutation
 
 
 MUTATIONS: tuple[Mutation, ...] = (
@@ -23,8 +23,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M58", phase=6,
         description="silently drop a referenced standard the library lacks",
         path=APP / "applicability.py",
-        anchor="        if normalise_identifier(identifier) not in matched_keys",
-        replacement="        if False",
+        anchor="        for identifier in missing_references(library, referenced)\n",
+        replacement="        for identifier in []\n",
         target="tests/test_applicability.py",
         keyword="absent_from_the_library_is_reported_missing",
         tags=("honesty", "missing"),
@@ -70,11 +70,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         # honesty-audit entries 10 and 12, and this is the third time the
         # same shortcut has been reached for, so the reasoning lives here at
         # the mutation rather than only in the audit file.
-        anchor='    """Durable record of a selection decision. Ids and counts only."""\n'
-               '    conn = connect()',
-        replacement='    """Durable record of a selection decision. Ids and counts only."""\n'
-                    '    return\n'
-                    '    conn = connect()',
+        # Re-anchored in B10: the override's audit row is now written inside
+        # `record_selection`'s transaction.
+        anchor="        if audit is not None:\n            _audit(*audit, conn=conn)\n",
+        replacement="        if audit is not None:\n            pass\n",
         target="tests/test_applicability.py",
         keyword="override_writes_an_audit_row",
         tags=("audit",),
@@ -126,7 +125,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="PUT THE DEFECT BACK: call every cited standard missing, "
                     "so the CRS tells a contractor held standards are absent",
         path=APP / "applicability.py",
-        anchor="        if not _match_referenced(library, [name]):",
+        anchor="        if find_standard(library, name) is None:",
         replacement="        if True:",
         target="tests/test_crs_endpoint.py",
         keyword="library_holds_gets_no_gap_row",
@@ -137,7 +136,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="the same defect, seen from the Dashboard tile that read "
                     "'21 of 21 cited standards are not in the library'",
         path=APP / "applicability.py",
-        anchor="        if not _match_referenced(library, [name]):",
+        anchor="        if find_standard(library, name) is None:",
         replacement="        if True:",
         target="tests/test_review_dashboard.py",
         keyword="library_holds_is_not_counted_missing",
@@ -149,38 +148,19 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "by document - so two spellings of a held standard collide "
                     "and the loser is reported missing",
         path=APP / "applicability.py",
-        anchor="        if not _match_referenced(library, [name]):\n"
+        anchor="        if find_standard(library, name) is None:\n"
                "            missing.append(name.strip())",
         replacement="        held = {normalise_identifier(v[\"identifier\"])\n"
                     "                for v in _match_referenced(library, referenced).values()}\n"
-                    "        if key not in held:\n"
+                    "        if normalise_identifier(name) not in held:\n"
                     "            missing.append(name.strip())",
         target="tests/test_applicability.py",
         keyword="two_spellings_of_one_held_standard",
     ),
-    # ---- from B18_UNMEASURED_FACTOR ---------------------------------------
-    #: B18: completeness dropped an UNMEASURED extraction factor and reported the
-    #: other half alone - 1.0 and "sufficient" with the datasheet never measured.
-    Mutation(
-        id="M313", phase=35,
-        description="applicability: the same, in the other home",
-        path=APP / "applicability.py",
-        anchor=_B18_GUARD,
-        replacement="    if False:\n        overall = None",
-        target="tests/test_comparison.py",
-        keyword="extraction_was_never_measured",
-        tags=("honesty", "critical"),
-    ),
-    Mutation(
-        id="M315", phase=35,
-        description="applicability: hide M-03's determinate 0.0 behind None",
-        path=APP / "applicability.py",
-        anchor=_B18_GUARD,
-        replacement="    if extraction is None:\n        overall = None",
-        target="tests/test_comparison.py",
-        keyword="keeps_m03",
-        tags=("honesty",),
-    ),
+    # ---- B18_UNMEASURED_FACTOR: M313 and M315 RETIRED in B10 ----------------
+    #: `applicability.completeness` no longer carries its own formula - it
+    #: delegates to `comparison.completeness_for_run`, whose B18 guard is
+    #: mutated by that module's entries. The delegation itself is M847.
     # ---- from B5_STANDARDS_INVENTORY --------------------------------------
     #: B5 part 2: standard family, licence status, cover-page backfill, and the
     #: "cited by a submittal" flag on the inventory.

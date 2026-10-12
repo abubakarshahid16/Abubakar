@@ -1,0 +1,17 @@
+{
+  "format": "review-answer-key/1",
+  "name": "invented-pump",
+  "source": "invented",
+  "complete_for_flags": true,
+  "items": [
+    {"id": "D1", "kind": "defect", "standard": "STD-PUMP-001", "clause": "4.2", "field": "design pressure",
+     "note": "invented: the sheet says 9 bar, the standard asks for at least 12 bar"},
+    {"id": "D2", "kind": "defect", "standard": "STD-PUMP-001", "clause": "5.1", "field": "material",
+     "note": "invented: no material stated"},
+    {"id": "M1", "kind": "met", "standard": "STD-PUMP-001", "clause": "6.3", "field": "flow"},
+    {"id": "T1", "kind": "trap", "standard": "STD-PUMP-001", "clause": "7.1", "field": "head",
+     "note": "invented: 4.5 bar is the same as 45 m of water; a unit conversion, not a breach"},
+    {"id": "N1", "kind": "not_applicable", "standard": "STD-PUMP-001", "clause": "9.4",
+     "note": "invented: about steam turbines"}
+  ]
+}

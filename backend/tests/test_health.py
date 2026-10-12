@@ -53,7 +53,7 @@ def test_health_works_on_a_completely_empty_install():
     assert "answer_model" not in body, (
         "the exact model name and version is fingerprinting material and "
         "must not be readable without a login")
-    assert body["answer_model_present"] is True
+    assert body["answer_model_configured"] is True
     # documents_completed is a document COUNT and has moved to the scoped
     # /api/metrics with everything else that was about somebody's corpus.
     assert "documents_completed" not in body["ingestion"]
@@ -66,3 +66,16 @@ def test_embedding_model_is_staged():
 
 def test_binds_loopback_only():
     assert settings.host == "127.0.0.1"
+
+
+def test_health_says_configured_not_present_and_follows_the_setting(monkeypatch):
+    """#656: the field was `answer_model_present` but only checked that a name is
+    set; it said nothing about whether Ollama is running or holds the model. The
+    name now says what is checked, and the value follows the setting."""
+    client = TestClient(app)
+    monkeypatch.setattr(settings, "answer_model", "some-model:1b")
+    on = client.get("/api/health").json()
+    assert on["answer_model_configured"] is True
+    assert "answer_model_present" not in on
+    monkeypatch.setattr(settings, "answer_model", "")
+    assert client.get("/api/health").json()["answer_model_configured"] is False

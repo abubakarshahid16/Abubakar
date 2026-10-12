@@ -31,6 +31,10 @@ import threading
 import time
 from dataclasses import dataclass, field
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 #: How long a finished or abandoned entry survives. Long enough for a client
 #: polling once a second to collect the final stage, short enough that an
 #: abandoned request is forgotten.
@@ -54,6 +58,8 @@ STAGES = (
 @dataclass
 class _Entry:
     started: float
+    #: P5: who started it. Only the same identity may read it back.
+    owner: str | None = None
     stage: str = "retrieving"
     detail: str | None = None
     #: (stage, seconds since start) for every transition that HAPPENED.
@@ -63,6 +69,19 @@ class _Entry:
 
 _lock = threading.Lock()
 _entries: dict[str, _Entry] = {}
+#: A streamed chat turn listens to its own request's stages (chat_stream).
+_listeners: dict[str, object] = {}
+
+
+def listen(request_id: str, fn) -> None:
+    """Call `fn(stage, detail)` on every stage this request reaches."""
+    with _lock:
+        _listeners[request_id] = fn
+
+
+def unlisten(request_id: str) -> None:
+    with _lock:
+        _listeners.pop(request_id, None)
 
 
 def _evict(now: float) -> None:
@@ -78,12 +97,12 @@ def _evict(now: float) -> None:
         _entries.pop(oldest, None)
 
 
-def start(request_id: str | None) -> None:
+def start(request_id: str | None, owner: str | None = None) -> None:
     if not request_id:
         return
     now = time.time()
     with _lock:
-        _entries[request_id] = _Entry(started=now, updated=now,
+        _entries[request_id] = _Entry(started=now, updated=now, owner=owner,
                                       history=[("retrieving", 0.0)])
         # AFTER the insert. Evicting first leaves MAX_ENTRIES + 1 in the map,
         # which is not a cap.
@@ -109,17 +128,28 @@ def stage(request_id: str | None, name: str, detail: str | None = None) -> None:
         entry.detail = detail
         entry.updated = now
         entry.history.append((name, round(now - entry.started, 3)))
+        listener = _listeners.get(request_id)
+    if listener is not None:
+        try:
+            listener(name, detail)
+        except Exception as exc:  # noqa: BLE001 - a listener never fails the answer it describes
+            _log.warning("a progress listener failed at stage %r (%s)", name, type(exc).__name__)
 
 
 def finish(request_id: str | None) -> None:
     stage(request_id, "done")
 
 
-def read(request_id: str) -> dict | None:
+def read(request_id: str, *, reader: str | None = None,
+         unrestricted: bool = False) -> dict | None:
+    """The entry, or None when it does not exist OR belongs to someone else -
+    the same answer, so an id cannot be probed for another user's activity."""
     now = time.time()
     with _lock:
         entry = _entries.get(request_id)
         if entry is None:
+            return None
+        if not unrestricted and entry.owner != reader:
             return None
         return {
             "stage": entry.stage,
@@ -127,6 +157,17 @@ def read(request_id: str) -> dict | None:
             "seconds": round(now - entry.started, 1),
             "history": [{"stage": s, "at_seconds": t} for s, t in entry.history],
         }
+
+
+def active_count() -> int:
+    """Requests still being answered right now (any stage but `done`, and
+    updated within the TTL). The AI task runner (#644) reads it so background
+    work yields to a person waiting for a chat answer. A number only: no
+    request id, owner or text leaves this function."""
+    now = time.time()
+    with _lock:
+        return sum(1 for e in _entries.values()
+                   if e.stage != "done" and now - e.updated < TTL_SECONDS)
 
 
 def clear() -> None:

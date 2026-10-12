@@ -174,7 +174,7 @@ frontend by `tsc`, and on the backend by nothing but review.
 ```bash
 # backend - from backend/, where pytest.ini lives
 cd backend && python -m pytest -q            # 504 passed, 1 deselected, ~3m30s
-python -m pytest -m slow                     # the deselected one: builds a real ONNX session
+python -m pytest -m slow                     # the deselected slow tests (real OCR/ONNX, production bench)
 
 # frontend - from frontend/
 npm run test                                 # 123 passed, ~15s

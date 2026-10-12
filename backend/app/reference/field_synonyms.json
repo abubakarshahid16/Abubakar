@@ -1,0 +1,28 @@
+{
+  "_about": "CRS quick wins (2026-09-27, audit crs.md defect 3). The words a datasheet field and a standard's clause use for THE SAME quantity. Read by app/field_links.py and used by comparison.match_by_containment on BOTH sides (the clause's subject and the field's name) before the whole-word containment test, so 'hydrostatic test pressure' in a clause meets 'HYDROTEST PRESSURE' on a sheet. Each group maps every spelling to its canonical phrase; the longest spelling wins where two overlap. Edit here, not in code. A pairing made through this table says so on the finding.",
+  "groups": {
+    "hydrotest": ["hydrostatic test", "hydrostatic testing", "hydro test", "hydro-test", "hydrotest", "hydro static test"],
+    "mawp": ["maximum allowable working pressure", "max allowable working pressure", "max. allowable working pressure", "maximum allowable pressure", "mawp"],
+    "npsh available": ["net positive suction head available", "npsh available", "npsha", "npsh a", "npsh avail"],
+    "npsh required": ["net positive suction head required", "npsh required", "npshr", "npsh r", "npsh req", "npsh reqd"],
+    "npsh": ["net positive suction head", "npsh"],
+    "pwht": ["post weld heat treatment", "post-weld heat treatment", "postweld heat treatment", "post weld heat treated", "pwht"],
+    "minimum continuous flow": ["minimum continuous stable flow", "min continuous stable flow", "min. continuous stable flow", "minimum continuous flow", "min continuous flow", "min. continuous flow", "minimum stable flow", "min stable flow", "mcsf"],
+    "design pressure": ["design pressure", "design press"],
+    "design temperature": ["design temperature", "design temp"],
+    "operating pressure": ["operating pressure", "operating press", "normal operating pressure"],
+    "operating temperature": ["operating temperature", "operating temp", "normal operating temperature"],
+    "corrosion allowance": ["corrosion allowance", "corr allowance", "corrosion allow"],
+    "flange rating": ["flange rating", "flange class", "flange pressure rating", "pressure rating", "nozzle rating", "nozzle class", "nozzle flange rating"],
+    "radiography": ["radiographic examination", "radiographic testing", "radiographic inspection", "extent of radiography", "radiography extent", "radiography"],
+    "mechanical seal": ["mechanical seals", "mechanical seal", "seal type", "shaft seal", "shaft seal type", "shaft seals"],
+    "motor rating": ["motor rating", "motor rated power", "motor power", "driver rating", "driver rated power"],
+    "manway size": ["manway size", "manway diameter", "manway", "manways", "manhole size", "manhole"],
+    "empty weight": ["empty weight", "tare weight"],
+    "rated speed": ["rated speed", "speed rated"],
+    "noise level": ["noise level", "sound pressure level", "sound level"],
+    "vibration": ["overall vibration", "vibration level", "vibration"]
+  },
+  "_nozzle_marks": "A field named after a nozzle mark ('N1 SIZE', 'N3 RATING') is read as the NOZZLE's field ('nozzle size', 'nozzle rating') with the mark kept as the item it is about. Only 'N' + digits: other marks (M1, K2) mean different things on different sheets.",
+  "nozzle_attributes": ["size", "rating", "class", "facing", "schedule", "service", "qty"]
+}

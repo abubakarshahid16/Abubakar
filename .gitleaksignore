@@ -1,0 +1,4 @@
+# reviewed 2026-09-29: standard identifier in a test fixture, not a secret
+474926ccd4324fc0c2213696ec7b5a984c9bc560:backend/tests/test_standards_acquisition.py:generic-api-key:139
+# reviewed 2026-10-11 (PR #798): a dict of calculation names to functions ("api520_gas_area": api520_gas_area), not a secret
+991cc9a788e20ed0e3bc54c5453ef92e3fb20383:backend/app/datasheet_checks.py:generic-api-key:994

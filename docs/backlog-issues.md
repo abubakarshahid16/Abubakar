@@ -72,6 +72,15 @@ number and the others were optimistic.
 
 ## 3. Chapter-opener subsection lists are consumed and kept nowhere
 
+> **Status 2026-09-29: fixed in CHUNKER_VERSION 6** (branch `fix/chunking-lost-headings`).
+> Measured on the owner's corpus (counts only): heading lines in no chunk and no
+> exclusion fell from about 170 to 5 across 282 documents. A heading with no body is
+> carried into the next block's text; a contents page keeps its heading lines as text.
+> **v7 (2026-09-29):** a ruled table read as all header (no data rows) was dropped whole, and a
+> note inside a table's border in no cell was lost with it. Both kept now. Measured on the owner's
+> corpus with a stricter check: lines in no chunk fell from 341 to 3. Existing documents change
+> only after `reindex_chunking.py --apply`.
+
 **What is wrong.** On a chapter-opening page, the list of subsections is eaten
 during chunking and stored in no chunk. The content is neither indexed nor
 recorded as excluded — it simply is not there.

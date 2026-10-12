@@ -1,0 +1,316 @@
+{
+ "format": "review-playbook/1",
+ "id": "hazop_procedure",
+ "title": "HAZOP procedure",
+ "version": "1",
+ "document_kind": "procedure",
+ "sign_off": {
+  "status": "draft",
+  "by": null,
+  "date": null
+ },
+ "clauses_verified": false,
+ "note": "DRAFT. Written as a starting point for a client discipline engineer to confirm or change (W5b-10, #547). The source standards are not held, so no clause number below has been checked against the standard's text; each is the author's reading of its table of contents. Nothing here is a finding until a signed-off playbook says so.",
+ "elements": [
+  {
+   "id": "H01",
+   "title": "Scope and objectives of the study",
+   "expects": "The procedure says what a HAZOP study covers and what it is for.",
+   "source": {
+    "standard": "IEC 61882",
+    "clause": "6.1"
+   },
+   "evidence": [
+    {
+     "label": "HAZOP named",
+     "any": [
+      "hazop",
+      "hazard and operability"
+     ]
+    },
+    {
+     "label": "scope or objective",
+     "any": [
+      "scope",
+      "objective*",
+      "purpose"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "H02",
+   "title": "Team and roles",
+   "expects": "The procedure names the study leader, the scribe and the discipline members.",
+   "source": {
+    "standard": "IEC 61882",
+    "clause": "6.2"
+   },
+   "evidence": [
+    {
+     "label": "study leader",
+     "any": [
+      "leader",
+      "chairman",
+      "facilitator",
+      "chair"
+     ]
+    },
+    {
+     "label": "scribe or secretary",
+     "any": [
+      "scribe",
+      "secretary",
+      "recorder"
+     ]
+    },
+    {
+     "label": "team members or disciplines",
+     "any": [
+      "team member*",
+      "discipline*",
+      "participant*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "H03",
+   "title": "Preparation and input documents",
+   "expects": "The procedure lists what must be ready before the study (P&IDs, data).",
+   "source": {
+    "standard": "IEC 61882",
+    "clause": "6.3"
+   },
+   "evidence": [
+    {
+     "label": "drawings",
+     "any": [
+      "p&id*",
+      "piping and instrumentation",
+      "process flow"
+     ]
+    },
+    {
+     "label": "preparation",
+     "any": [
+      "prepar*",
+      "prior to the study",
+      "before the study"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "H04",
+   "title": "Division of the plant into nodes",
+   "expects": "The procedure says how the plant is divided into nodes or study parts.",
+   "source": {
+    "standard": "IEC 61882",
+    "clause": "6.4"
+   },
+   "evidence": [
+    {
+     "label": "nodes",
+     "any": [
+      "node",
+      "nodes",
+      "study node*",
+      "study part*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "H05",
+   "title": "Guidewords and deviations",
+   "expects": "The procedure uses guidewords to generate deviations.",
+   "source": {
+    "standard": "IEC 61882",
+    "clause": "5"
+   },
+   "evidence": [
+    {
+     "label": "guidewords",
+     "any": [
+      "guide word*",
+      "guideword*"
+     ]
+    },
+    {
+     "label": "deviations",
+     "any": [
+      "deviation*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "H06",
+   "title": "Causes, consequences and safeguards",
+   "expects": "Each deviation is analysed for causes, consequences and existing safeguards.",
+   "source": {
+    "standard": "IEC 61882",
+    "clause": "6.5"
+   },
+   "evidence": [
+    {
+     "label": "causes",
+     "any": [
+      "cause*"
+     ]
+    },
+    {
+     "label": "consequences",
+     "any": [
+      "consequence*"
+     ]
+    },
+    {
+     "label": "safeguards",
+     "any": [
+      "safeguard*",
+      "protection layer*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "H07",
+   "title": "Risk ranking method",
+   "expects": "The procedure states how risk is ranked (severity and likelihood, a matrix).",
+   "source": {
+    "standard": "IEC 61882",
+    "clause": "6.5"
+   },
+   "evidence": [
+    {
+     "label": "risk ranking",
+     "any": [
+      "risk matrix",
+      "risk rank*",
+      "risk assessment matrix"
+     ]
+    },
+    {
+     "label": "severity or likelihood",
+     "any": [
+      "severity",
+      "likelihood",
+      "frequency"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "H08",
+   "title": "Worksheet fields",
+   "expects": "The study worksheet is described with its columns (node, deviation, cause, consequence, safeguards, action).",
+   "source": {
+    "standard": "IEC 61882",
+    "clause": "7"
+   },
+   "evidence": [
+    {
+     "label": "worksheet",
+     "any": [
+      "worksheet*",
+      "work sheet*",
+      "template"
+     ]
+    },
+    {
+     "label": "action column",
+     "any": [
+      "action*",
+      "recommendation*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "H09",
+   "title": "Recommendations and their follow-up",
+   "expects": "Recommendations get an owner and a due date and are tracked to closure.",
+   "source": {
+    "standard": "IEC 61882",
+    "clause": "7"
+   },
+   "evidence": [
+    {
+     "label": "recommendations",
+     "any": [
+      "recommendation*",
+      "action item*",
+      "actions"
+     ]
+    },
+    {
+     "label": "owner",
+     "any": [
+      "responsible",
+      "owner",
+      "assigned"
+     ]
+    },
+    {
+     "label": "tracking",
+     "any": [
+      "due date*",
+      "close out",
+      "closed out",
+      "closure",
+      "track*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "H10",
+   "title": "Report and records",
+   "expects": "The procedure says what report is issued and what records are kept.",
+   "source": {
+    "standard": "IEC 61882",
+    "clause": "7"
+   },
+   "evidence": [
+    {
+     "label": "report",
+     "any": [
+      "report"
+     ]
+    },
+    {
+     "label": "records kept",
+     "any": [
+      "record*",
+      "retain*",
+      "retention",
+      "archive*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "H11",
+   "title": "Revalidation and management of change",
+   "expects": "The procedure says when the study is repeated or reviewed (periodic, after a change).",
+   "source": {
+    "standard": "IEC 61882",
+    "clause": "8"
+   },
+   "evidence": [
+    {
+     "label": "revalidation or change",
+     "any": [
+      "revalidat*",
+      "management of change",
+      "re-hazop",
+      "periodic review",
+      "moc"
+     ]
+    }
+   ]
+  }
+ ]
+}

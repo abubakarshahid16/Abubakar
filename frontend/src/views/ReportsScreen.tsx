@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from "react";
 import { reports as reportsApi, type DownloadFailure } from "../api/client";
 import type { ReportRecord, ReportVerification } from "../types/api";
 import { ReportsView } from "./ReportsView";
+import { ReviewCrsList } from "./ReviewCrsList";
 
 /** What the reader is told when a download does not produce a file.
  *
@@ -72,19 +73,23 @@ export function ReportsScreen() {
   const [query, setQuery] = useState("");
   const [offset, setOffset] = useState(0);
   const [total, setTotal] = useState<number | null>(null);
+  // A FAILED LOAD IS NOT AN EMPTY LIST. It used to set reports to [] and the
+  // view said "No reports yet" - and a failed "Load next 100" wiped the rows
+  // already on screen.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [downloadState, setDownloadState] = useState<DownloadState>({ state: "idle" });
 
   const load = useCallback(async () => {
     const r = await reportsApi.list({ limit: 100, offset, q: query, sort: "created_at", direction: "desc" });
     if (r.ok) {
+      setLoadError(null);
       setReports((previous) => offset === 0 ? r.data.reports : [...(previous ?? []), ...r.data.reports]);
       setSuppressed(r.data.suppressed_count);
       setTotal(r.data.total_matching ?? r.data.reports.length);
     } else {
-      // An empty list is a real state and a failed request is not the same
-      // state; the view shows "still loading" for null and the shell owns a
-      // disconnected backend.
-      setReports([]);
+      // Keep whatever was loaded before; say what failed. The shell owns a
+      // disconnected backend banner, this says the list itself is unknown.
+      setLoadError(r.error.message);
     }
   }, [offset, query]);
 
@@ -145,6 +150,8 @@ export function ReportsScreen() {
 
   return (
     <div className="space-y-4">
+      {/* #725 F7: the review runs' CRSs, on the page named after them. */}
+      <ReviewCrsList />
       {downloadState.state === "failed" && (
         // Same shape and palette as ReportsView's "Verification could not be
         // completed" panel: role=alert, a danger-coloured heading, and the
@@ -160,12 +167,32 @@ export function ReportsScreen() {
         </div>
       )}
 
-      <ReportsView
+      {loadError !== null && (
+        <div
+          role="alert"
+          className="rounded-[var(--radius-md)] border border-danger-500/30 bg-danger-500/10 px-4 py-3 text-sm"
+        >
+          <p className="font-medium text-danger-500">
+            {reports === null
+              ? "The reports could not be loaded"
+              : "More reports could not be loaded"}
+          </p>
+          <p className="mt-1 text-slateish-300">
+            {loadError}. This is not an empty list
+            {reports !== null ? "; the reports already shown are unchanged" : ""}.{" "}
+            <button type="button" onClick={() => void load()} className="font-medium underline">
+              Try again
+            </button>
+          </p>
+        </div>
+      )}
+
+      {(reports !== null || loadError === null) && <ReportsView
         reports={reports}
         onDownload={download}
         onVerify={verify}
         suppressedCount={suppressed}
-      />
+      />}
       <div className="flex flex-wrap items-end gap-3 rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 p-3">
         <label className="min-w-56 flex-1 text-xs font-semibold uppercase tracking-wide text-slateish-400">Find reports
           <input value={query} onChange={(e) => { setQuery(e.target.value); setOffset(0); }} placeholder="Question contains…" className="mt-1 w-full rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm font-normal text-slateish-200" />

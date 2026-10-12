@@ -1408,7 +1408,7 @@ are NATIVE TEXT (not scanned):
 |---|---|---|
 | `DS-0000-DAS-M-01.pdf` | 7 | client centrifugal pump datasheet (recycle brine pumps) |
 | `DS-0000-DAS-I-01.pdf` | 5 | client pressure safety valve datasheet |
-| `SAES-A-105.pdf` | 14 | Saudi Aramco standard |
+| `SAES-A-105.pdf` | 14 | the client's own standard |
 
 **`SAES-A-105.pdf` exists after all.** Phase 3B reported it absent from the
 corpus, which was true of the corpus and is still true - it has never been

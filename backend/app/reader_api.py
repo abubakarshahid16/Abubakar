@@ -58,6 +58,7 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 
+from . import numparse
 from .config import model_host_of, settings
 
 # --------------------------------------------------------------- vocabulary
@@ -205,20 +206,6 @@ def _fold(text: str) -> str:
     return re.sub(r"\s+", " ", str(text)).strip().lower()
 
 
-#: A thousands separator INSIDE a number: the 8,300 of "shall be 8,300 kPa".
-#: The bare-equality worked case is written that way in the standard and the
-#: model habitually answers "8300", so without this rule 2 rejects a true
-#: reading of a real clause.
-_THOUSANDS = re.compile(r"(?<=\d),(?=\d{3}(?!\d))")
-
-#: Any number in a piece of text, comma-separators already removed.
-_NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
-
-
-def _fold_numbers(text: str) -> str:
-    return _THOUSANDS.sub("", _fold(text))
-
-
 def _contains(haystack: str, needle: str) -> bool:
     """Whole-word containment on already-folded text.
 
@@ -238,20 +225,11 @@ def _value_in_quote(value, quote: str) -> bool:
     Two spellings of the same number are the same number: "8,300" in the
     standard and "8300" from the model. A DIFFERENT number is a different
     number, and that is the case this rule exists to catch - the model that
-    quoted a 23.55 row and reported 99.9.
+    quoted a 23.55 row and reported 99.9. The sign is part of the number
+    (audit F01-F03): 5 is not -5, and 5 is not the 5 of "2.5". The comparison
+    is `numparse.value_in_text`, the same one every gate uses.
     """
-    quote_folded = _fold_numbers(quote)
-    value_folded = _fold_numbers(value)
-    if _contains(quote_folded, value_folded):
-        return True
-    # Numeric equality as a last resort, so "370.0" against "370" is not read
-    # as an invention. Only for values that are a bare number: a comparison
-    # this module cannot do arithmetic on stays a string comparison.
-    try:
-        wanted = float(value_folded)
-    except ValueError:
-        return False
-    return any(float(found) == wanted for found in _NUMBER.findall(quote_folded))
+    return numparse.value_in_text(value, quote)
 
 
 # ------------------------------------------------------- direction and shape
@@ -523,7 +501,7 @@ def _identity(p: dict) -> tuple:
     return (
         p.get("kind"),
         p.get("operator"),
-        _fold_numbers(value) if value not in (None, "") else "",
+        numparse.fold_numbers(value) if value not in (None, "") else "",
         _fold(p.get("unit") or ""),
         _fold(p.get("subject") or ""),
     )
@@ -705,7 +683,20 @@ class ReaderSettings:
         )
 
 
-def build_request(prompt: str, *, cfg: ReaderSettings | None = None, env=None) -> dict:
+#: The only image types a request may carry (B4 vision reader: rendered
+#: datasheet pages). Anything else is refused before a request exists.
+IMAGE_MEDIA_TYPES = ("image/png", "image/jpeg")
+
+
+def _rejects_temperature(model: str | None) -> bool:
+    from .config import settings
+    name = (model or "").lower()
+    return any(name == p or name.startswith(p + "-")
+               for p in settings.claude_models_without_temperature)
+
+
+def build_request(prompt: str, *, cfg: ReaderSettings | None = None, env=None,
+                  images=()) -> dict:
     """The whole outbound request, built and CHECKED, but not sent.
 
     Returns `{"url", "headers", "body", "timeout"}`. Raises `ReaderRefused`
@@ -748,12 +739,31 @@ def build_request(prompt: str, *, cfg: ReaderSettings | None = None, env=None) -
         "content-type": "application/json",
         **cfg.extra_headers,
     }
+    content: str | list = prompt
+    if images:
+        # B4 VISION: page images ride in the SAME request, through the same
+        # gates above - there is no second builder and no second socket. The
+        # images come first, then the instruction (Anthropic's guidance).
+        blocks = []
+        for media_type, data in images:
+            if media_type not in IMAGE_MEDIA_TYPES or not isinstance(data, str) or not data:
+                raise ReaderRefused(f"image refused: type {media_type!r} is not one of "
+                                    f"{IMAGE_MEDIA_TYPES!r} or it carries no data")
+            blocks.append({"type": "image", "source": {
+                "type": "base64", "media_type": media_type, "data": data}})
+        content = [*blocks, {"type": "text", "text": prompt}]
     body = {
         "model": cfg.model,
         "max_tokens": cfg.max_tokens,
-        "temperature": 0,
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": [{"role": "user", "content": content}],
     }
+    # SOME MODELS REJECT `temperature` (config `claude_models_without_temperature`,
+    # the list `reasoning_provider.no_temperature` reads). R32, 2026-10-11:
+    # the datasheet reader and the matcher were pointed at the reasoning
+    # model, this function still sent temperature 0, and EVERY call came back
+    # an HTTP error (unbilled, nothing read). Sent wherever it is accepted.
+    if not _rejects_temperature(cfg.model):
+        body["temperature"] = 0
     return {"url": cfg.base_url.rstrip("/") + MESSAGES_PATH,
             "headers": headers, "body": body, "timeout": cfg.timeout_seconds}
 

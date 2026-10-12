@@ -41,12 +41,13 @@ statement.
 
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from . import claims, classification, orphan_guard, provenance, requirements_3b
+from . import chunker, claims, classification, numparse, orphan_guard, provenance, requirement_quality, requirements_3b
 from . import submittal_review
 from . import tables as tables_mod
 from .db import connect
@@ -335,23 +336,22 @@ def _audit(action: str, actor: dict | None, resource_id: str | None,
     `detail` carries IDS AND CLAUSE NUMBERS ONLY. Never requirement text, never
     a document title - the audit table is the one most likely to be exported.
 
-    An unwritable audit must not block the change it describes, so the failure
-    is swallowed, exactly as the admin helper does.
+    P5: NO LONGER SWALLOWED. It used to be "an unwritable audit must not block
+    the change it describes", which let a supersession or an engineer's
+    requirement decision stand with no record of who made it. A failure now
+    raises; the caller's request fails loudly instead of succeeding silently.
     """
     conn = connect()
-    try:
-        with conn:
-            conn.execute(
-                """INSERT INTO audit_events
-                       (at, actor_user_id, actor_username, action,
-                        resource_type, resource_id, outcome, detail)
-                   VALUES (?, ?, ?, ?, 'standard', ?, ?, ?)""",
-                (_now(), (actor or {}).get("id"),
-                 ((actor or {}).get("email") or "unauthenticated")[:200],
-                 action, resource_id, outcome, detail),
-            )
-    except Exception:  # noqa: BLE001 - an unwritable audit must not block the change
-        pass
+    with conn:
+        conn.execute(
+            """INSERT INTO audit_events
+                   (at, actor_user_id, actor_username, action,
+                    resource_type, resource_id, outcome, detail)
+               VALUES (?, ?, ?, ?, 'standard', ?, ?, ?)""",
+            (_now(), (actor or {}).get("id"),
+             ((actor or {}).get("email") or "unauthenticated")[:200],
+             action, resource_id, outcome, detail),
+        )
 
 
 def _scope_clause(allowed_document_ids: frozenset[str], column: str) -> tuple[str, list[str]]:
@@ -514,8 +514,39 @@ def needs_verification(row: dict | sqlite3.Row) -> bool:
     """
     if row["confirmed_by"]:
         return False
+    # #597: unreadable text is held whatever its confidence says.
+    if _column(row, "quality_reason"):
+        return True
     confidence = row["confidence"]
     return confidence is None or confidence < VERIFICATION_THRESHOLD
+
+
+def _column(row, name: str):
+    """A column of a row that may predate it (dict or sqlite3.Row), else None."""
+    try:
+        return row[name]
+    except (KeyError, IndexError):
+        return None
+
+
+#: Confidence a row is capped at when its text fails the quality gate. Below
+#: `VERIFICATION_THRESHOLD`, so it also lands in the verification queue.
+TEXT_QUALITY_CONFIDENCE = 0.1
+
+
+def is_reviewable(row) -> bool:
+    """May a review compare against this requirement?
+
+    #596/#597: a definition never, and unreadable text never until a human has
+    confirmed it. A human's confirmation outranks the extractor's doubt about
+    the text, but it cannot turn a definition into a requirement: for that the
+    engineer edits the type. Used by every review that loads requirements.
+    """
+    if _column(row, "requirement_type") == requirement_quality.DEFINITION:
+        return False
+    if _column(row, "quality_reason") and not _column(row, "confirmed_by"):
+        return False
+    return True
 
 
 def create_requirement(
@@ -524,6 +555,7 @@ def create_requirement(
     extraction_method: str = "extracted", confidence: float | None = None,
     category: str | None = None, structured: dict | None = None,
     extractor_version: str | None = None, input_hash: str | None = None,
+    extraction_run_id: str | None = None,
 ) -> dict:
     """Write one requirement. REFUSES a row whose citation does not resolve.
 
@@ -555,6 +587,26 @@ def create_requirement(
             f"page {page} is outside the cited chunk "
             f"({chunk['page_start']}-{chunk['page_end']})")
 
+    structured = structured or {}
+    identity_key = structured.get("identity_key")
+    if identity_key:
+        # #594 UPSERT, NOT INSERT. A table cell is identified by standard +
+        # table + row key + column (+ written value). Meeting it again - the
+        # same table repeated on another page, or the same page read twice -
+        # adds the page as evidence to the row that exists instead of writing a
+        # second requirement with the same text.
+        existing = connect().execute(
+            "SELECT * FROM standard_requirements"
+            " WHERE standard_document_id = ? AND identity_key = ?"
+            " AND superseded_at IS NULL"
+            " ORDER BY created_at, id LIMIT 1",
+            (standard_document_id, identity_key)).fetchone()
+        if existing is not None:
+            return _add_evidence(
+                existing, chunk_id=chunk_id,
+                page=page if page is not None else chunk["page_start"],
+                run_id=extraction_run_id)
+
     now = _now()
     row = {
         "id": str(uuid.uuid4()),
@@ -571,17 +623,31 @@ def create_requirement(
         # wrote (a human's, or a test's).
         "extractor_version": extractor_version,
         "input_hash": input_hash,
+        "extraction_run_id": extraction_run_id,
         "created_at": now,
         "updated_at": now,
     }
     # Phase 3B's structured shape. Absent keys stay NULL, which is what an
     # unrecognised limit looks like - never 0, and never a requirement_type
     # invented for text the parser did not understand.
-    structured = structured or {}
     for key in ("requirement_type", "field", "operator", "value", "unit",
                 "raw_value", "raw_unit", "condition", "exceptions",
-                "discipline", "table_row", "subject", "required_evidence_type"):
+                "discipline", "table_row", "subject", "required_evidence_type",
+                "unit_from", "identity_key", "value_low", "value_high"):
         row[key] = structured.get(key)
+    row["evidence_pages"] = json.dumps(
+        [{"page": row["page"], "chunk_id": chunk_id}]) if identity_key else None
+    # #597 THE TEXT-QUALITY GATE, at the one place every extracted row passes.
+    # A human's own row is never gated; an extractor's is, and the row is KEPT
+    # with its reason rather than dropped, so nothing disappears silently.
+    row["quality_reason"] = None
+    if extraction_method == "extracted":
+        row["quality_reason"] = requirement_quality.text_quality(
+            f"{row['requirement_text']} {row['source_text'] or ''}")
+        if row["quality_reason"] and (
+                row["confidence"] is None
+                or row["confidence"] > TEXT_QUALITY_CONFIDENCE):
+            row["confidence"] = TEXT_QUALITY_CONFIDENCE
     conn = connect()
     with conn:
         conn.execute(
@@ -590,19 +656,169 @@ def create_requirement(
                 requirement_text, source_text, category, extraction_method,
                 confidence, created_at, updated_at,
                 requirement_type, field, operator, value, unit,
+                value_low, value_high,
                 raw_value, raw_unit, condition, exceptions, discipline,
                 table_row, subject, required_evidence_type,
-                extractor_version, input_hash)
+                extractor_version, input_hash,
+                identity_key, evidence_pages, unit_from, quality_reason,
+                extraction_run_id)
                VALUES (:id, :standard_document_id, :clause, :page, :chunk_id,
                        :requirement_text, :source_text, :category,
                        :extraction_method, :confidence, :created_at,
                        :updated_at,
                        :requirement_type, :field, :operator, :value, :unit,
+                       :value_low, :value_high,
                        :raw_value, :raw_unit, :condition, :exceptions,
                        :discipline, :table_row, :subject,
                        :required_evidence_type,
-                       :extractor_version, :input_hash)""", row)
+                       :extractor_version, :input_hash,
+                       :identity_key, :evidence_pages, :unit_from,
+                       :quality_reason, :extraction_run_id)""", row)
+    row["upserted"] = "created"
     return row
+
+
+def _decode_evidence(raw) -> list[dict]:
+    """The evidence pages of a requirement; a malformed value reads as none."""
+    try:
+        value = json.loads(raw) if raw else []
+    except ValueError:
+        return []
+    return value if isinstance(value, list) else []
+
+
+def _add_evidence(existing, *, chunk_id: str, page: int | None,
+                  run_id: str | None = None) -> dict:
+    """Record one more page a requirement was read from; return the row.
+    `run_id`: the extraction run that met it again (#640), stamped on it."""
+    row = dict(existing)
+    if run_id and row.get("extraction_run_id") != run_id:
+        row["extraction_run_id"] = run_id
+        conn = connect()
+        with conn:
+            conn.execute(
+                "UPDATE standard_requirements SET extraction_run_id = ?,"
+                " updated_at = ? WHERE id = ?", (run_id, _now(), row["id"]))
+    try:
+        pages = json.loads(row.get("evidence_pages") or "[]")
+    except ValueError:
+        pages = []
+    if not pages:
+        pages = [{"page": row["page"], "chunk_id": row["chunk_id"]}]
+    entry = {"page": page, "chunk_id": chunk_id}
+    if entry not in pages:
+        pages.append(entry)
+        row["evidence_pages"] = json.dumps(pages)
+        conn = connect()
+        with conn:
+            conn.execute(
+                "UPDATE standard_requirements SET evidence_pages = ?,"
+                " updated_at = ? WHERE id = ?",
+                (row["evidence_pages"], _now(), row["id"]))
+    row["upserted"] = "merged"
+    return row
+
+
+#: #640 the rows `extract_requirements` owns (sentences) and the rows
+#: `extract_table_values` owns (table cells). Each extractor supersedes only
+#: its own, so a sentence run never marks a table cell it does not produce.
+_SENTENCE_ROWS = "COALESCE(requirement_type, '') != 'table_value'"
+_TABLE_ROWS = "requirement_type = 'table_value'"
+#: What a re-extraction may supersede: active and not confirmed by a human.
+_SUPERSEDABLE = "confirmed_by IS NULL AND superseded_at IS NULL"
+
+
+def new_extraction_run_id() -> str:
+    """One id per extraction run, stamped on what it writes and supersedes."""
+    return f"xrun_{uuid.uuid4().hex[:16]}"
+
+
+_ALNUM = re.compile(r"[\W_]+", re.UNICODE)
+#: How much of a sentence is looked for on a page. Long enough to be this
+#: sentence and not a phrase every page repeats, short enough to survive a
+#: line-break hyphen or a running footer later in the sentence.
+_PAGE_PROBE_CHARS = 48
+
+
+def _fold_for_page(text: str) -> str:
+    return _ALNUM.sub("", (text or "").lower())
+
+
+def sentence_page(chunk, sentence: str, page_texts: dict[int, str] | None) -> int:
+    """The page a requirement sentence is ON, for a chunk that spans pages.
+
+    #660: a requirement recorded `page_start` of its chunk, so a clause that
+    began on the next page cited the wrong one and "found on the page" could
+    call a correct quote missing. The chunk's pages are searched for the start
+    of the sentence (letters and digits only, so line breaks, hyphens and
+    spacing do not matter). A sentence found nowhere (the chunk text was
+    cleaned after the page was read) keeps `page_start`: the old, still
+    resolving citation, never an invented page. A sentence that runs over the
+    page break cites the page it STARTS on.
+    """
+    first, last = chunk["page_start"], chunk["page_end"]
+    if not page_texts or last <= first:
+        return first
+    probe = _fold_for_page(sentence)[:_PAGE_PROBE_CHARS]
+    if len(probe) < 12:
+        return first
+    for page_no in range(first, last + 1):
+        if probe in page_texts.get(page_no, ""):
+            return page_no
+    return first
+
+
+def _page_texts(document_id: str, chunk) -> dict[int, str] | None:
+    """Folded text of each page a chunk spans, or None for a one-page chunk."""
+    if chunk["page_end"] <= chunk["page_start"]:
+        return None
+    rows = connect().execute(
+        "SELECT page_no, text FROM pages WHERE document_id = ? AND page_no BETWEEN ? AND ?",
+        (document_id, chunk["page_start"], chunk["page_end"])).fetchall()
+    return {r["page_no"]: _fold_for_page(r["text"]) for r in rows}
+
+
+def _reproduced(requirement_id: str, chunk, run_id: str,
+                extractor_version: str | None, inputs: str | None, *,
+                page: int | None = None) -> None:
+    """A requirement met again by a re-extraction: same row, new provenance.
+    The text is not touched - it is the same text, which is why it matched."""
+    conn = connect()
+    with conn:
+        conn.execute(
+            "UPDATE standard_requirements SET chunk_id = ?, page = ?,"
+            " extraction_run_id = ?, extractor_version = ?, input_hash = ?,"
+            " updated_at = ? WHERE id = ? AND " + _SUPERSEDABLE,
+            (chunk["id"], page if page is not None else chunk["page_start"], run_id,
+             extractor_version, inputs, _now(), requirement_id))
+
+
+def _supersede(document_id: str, ids: list[str], run_id: str, *, action: str) -> int:
+    """Mark these rows superseded by `run_id`. Never a confirmed row, never
+    a row already superseded (the WHERE says so, whatever the caller passed).
+    The audit row, with the count of findings that cite them, is written in
+    the same transaction - they keep resolving, by id."""
+    if not ids:
+        return 0
+    conn = connect()
+    marked = 0
+    with conn:
+        for start in range(0, len(ids), 500):
+            part = ids[start:start + 500]
+            marks = ",".join("?" for _ in part)
+            where = f"id IN ({marks}) AND " + _SUPERSEDABLE
+            citing = orphan_guard.findings_orphaned_by(where, part)
+            now = _now()
+            marked_now = conn.execute(
+                "UPDATE standard_requirements SET superseded_at = ?,"
+                " superseded_by_run = ?, updated_at = ? WHERE " + where,
+                (now, run_id, now, *part)).rowcount
+            if marked_now:
+                orphan_guard.record_requirements_superseded(
+                    conn, action, document_id, superseded=marked_now,
+                    findings_citing=citing, run_id=run_id)
+            marked += marked_now
+    return marked
 
 
 def extract_requirements(
@@ -625,10 +841,18 @@ def extract_requirements(
     passage. Chunks are read under the caller's grants like every other read
     in this module.
 
-    `replace` re-runs cleanly: a standard's previous extraction is deleted
-    first, because running it twice must not double every requirement.
-    CONFIRMED ROWS ARE NEVER DELETED - once 3B lets a human confirm one,
-    re-extracting must not silently discard their decision.
+    `replace` re-runs cleanly, and since #640 DELETES NOTHING. A sentence
+    this run produces again keeps its row - same id, so every finding citing
+    it still points at the live requirement - and gets this run's provenance.
+    An unconfirmed sentence row it no longer produces is marked
+    `superseded_at` / `superseded_by_run` and stays: findings that cited it
+    still resolve it by id, and no reader of CURRENT requirements lists it.
+    CONFIRMED ROWS ARE NEVER SUPERSEDED OR DELETED - a human's decision
+    outranks a re-parse. Table cells are `extract_table_values`'s own rows
+    and are superseded there, by the same rule.
+
+    `acknowledge_orphaned_findings` is kept for callers; a re-extraction no
+    longer orphans anything, so it is not needed.
     """
     submittal_review.ensure_schema()
     where, args = _scope_clause(allowed_document_ids, "document_id")
@@ -655,18 +879,19 @@ def extract_requirements(
     inputs = provenance.input_hash(
         stored["sha256"] if stored else None, *(c["text"] for c in chunks))
 
+    run_id = new_extraction_run_id()
+    #: #640 the ACTIVE unconfirmed sentence rows this run may re-produce, by
+    #: (clause, sentence). Met again: kept (same id). Not met: superseded.
+    reproducible: dict[tuple[str | None, str], str] = {}
     if replace:
-        orphan_guard.check(
-            "re_extraction",
-            requirement_where="standard_document_id = ? AND confirmed_by IS NULL",
-            params=(document_id,), document_id=document_id,
-            acknowledge=acknowledge_orphaned_findings, actor=actor)
-        conn = connect()
-        with conn:
-            conn.execute(
-                "DELETE FROM standard_requirements"
-                " WHERE standard_document_id = ? AND confirmed_by IS NULL",
-                (document_id,))
+        reproducible = {
+            (r["clause"], r["requirement_text"]): r["id"]
+            for r in connect().execute(
+                "SELECT id, clause, requirement_text FROM standard_requirements"
+                " WHERE standard_document_id = ? AND " + _SENTENCE_ROWS +
+                " AND " + _SUPERSEDABLE + " ORDER BY created_at DESC, id DESC",
+                (document_id,))}
+    kept: set[str] = set()
 
     written = 0
     low_confidence = 0
@@ -694,9 +919,35 @@ def extract_requirements(
         (r["clause"], r["requirement_text"])
         for r in connect().execute(
             "SELECT clause, requirement_text FROM standard_requirements"
-            " WHERE standard_document_id = ?", (document_id,)))
+            " WHERE standard_document_id = ? AND superseded_at IS NULL",
+            (document_id,))
+        if (r["clause"], r["requirement_text"]) not in reproducible)
+    # #596 WHERE THE DEFINITIONS SECTION IS. A heading titled "Terms and
+    # definitions" opens it; it runs over the chunks filed under that clause
+    # (3, 3.1, 3.2.1 ...) and closes at the first chunk filed elsewhere.
+    in_definitions = False
+    definitions_clause: str | None = None
     for chunk in chunks:
+        if requirement_quality.is_definitions_heading(chunk["section"]):
+            in_definitions = True
+            definitions_clause = clause_number(chunk["section"])
+        elif in_definitions:
+            section_clause = clause_number(chunk["section"])
+            under = (
+                section_clause is None if definitions_clause is None
+                else section_clause is None
+                or section_clause == definitions_clause
+                or section_clause.startswith(definitions_clause + "."))
+            if not under:
+                in_definitions = False
+        if chunker.is_revision_history(chunk["section"]):
+            # A record of what changed between revisions states no obligation:
+            # "No CSD recommendation is required to conduct retroactive PMI
+            # testing" in a Summary of Changes describes a deleted paragraph,
+            # and read as a requirement it said the opposite of the standard.
+            continue
         clause = clause_number(chunk["section"])
+        pages_of_chunk = _page_texts(document_id, chunk)    # #660
         # The running footer is removed BEFORE splitting. After the split it is
         # already inside a sentence, having joined the tail of one page to the
         # head of the next.
@@ -718,6 +969,15 @@ def extract_requirements(
                 if key in seen:
                     continue
                 seen.add(key)
+                if key in reproducible:
+                    # #640 the same requirement, met again: the row stays,
+                    # with this run's provenance, and nothing is written.
+                    _reproduced(reproducible[key], chunk, run_id,
+                                extractor_version, inputs,
+                                page=sentence_page(chunk, sentence, pages_of_chunk))
+                    kept.add(reproducible[key])
+                    written += 1
+                    continue
                 confidence = _confidence(clause, sentence)
                 # Phase 3B: the structured shape, parsed deterministically. A
                 # sentence with no recognisable limit becomes a `statement`, which
@@ -735,8 +995,15 @@ def extract_requirements(
                     confidence = min(confidence, CONTRADICTED_CONFIDENCE)
                     contradicted += 1
                 exceptions = requirements_3b.parse_exceptions(sentence)
+                # #596 A definition states what a word means, not what anyone
+                # must do. Its number (if any) is not a limit, so none is kept.
+                is_definition = in_definitions or requirement_quality.is_defining_sentence(sentence)
+                if is_definition:
+                    limit = None
                 structured = {
-                    "requirement_type": requirements_3b.classify(sentence, limit),
+                    "requirement_type": (
+                        requirements_3b.DEFINITION if is_definition
+                        else requirements_3b.classify(sentence, limit)),
                     "condition": requirements_3b.parse_condition(sentence),
                     "exceptions": requirements_3b.encode_exceptions(exceptions),
                     "discipline": discipline,
@@ -759,12 +1026,13 @@ def extract_requirements(
                         requirement_text=sentence,
                         source_text=sentence,
                         clause=clause,
-                        page=chunk["page_start"],
+                        page=sentence_page(chunk, sentence, pages_of_chunk),
                         extraction_method="extracted",
                         confidence=confidence,
                         category="prohibition" if _PROHIBITION.search(sentence) else None,
                         extractor_version=extractor_version,
                         input_hash=inputs,
+                        extraction_run_id=run_id,
                     )
                 except RequirementError:
                     # A chunk that vanished between the read and the write. Skipped
@@ -774,11 +1042,20 @@ def extract_requirements(
                 if confidence < VERIFICATION_THRESHOLD:
                     low_confidence += 1
 
+    superseded = _supersede(
+        document_id, [i for i in reproducible.values() if i not in kept],
+        run_id, action="re_extraction")
     _audit("standard.requirements_extracted", actor, document_id,
-           detail=f"chunks={len(chunks)} requirements={written} "
+           detail=f"run={run_id} chunks={len(chunks)} requirements={written} "
+                  f"kept={len(kept)} superseded={superseded} "
                   f"awaiting_verification={low_confidence} "
                   f"contradicted_source={contradicted}")
     return {
+        "extraction_run_id": run_id,
+        # #640: of `requirements`, how many were the same rows met again, and
+        # how many unconfirmed rows this run no longer produced (kept, marked).
+        "kept": len(kept),
+        "superseded": superseded,
         "document_id": document_id,
         "chunks_read": len(chunks),
         "requirements": written,
@@ -793,7 +1070,7 @@ def extract_requirements(
 
 def extract_table_values(
     document_id: str, *, allowed_document_ids: frozenset[str],
-    actor: dict | None = None,
+    actor: dict | None = None, replace: bool = True,
 ) -> dict:
     """Record one requirement per numeric cell of every parsed table.
 
@@ -810,7 +1087,14 @@ def extract_table_values(
 
     AN UNPARSED TABLE PRODUCES NOTHING AND IS COUNTED. It lowers completeness
     rather than passing silently - see `tables.completeness`.
+
+    #640 `replace`: an unconfirmed table cell this run neither wrote nor met
+    again is marked superseded (by this run), never deleted - the twin of
+    `extract_requirements`, which supersedes only sentence rows. Before #640
+    that function's DELETE removed every unconfirmed cell first.
     """
+    run_id = new_extraction_run_id()
+    touched: set[str] = set()
     submittal_review.ensure_schema()
     parses = tables_mod.parse_document_tables(
         document_id, allowed_document_ids=allowed_document_ids)
@@ -824,13 +1108,18 @@ def extract_table_values(
         *("\x1e".join("\x1f".join(c or "" for c in row) for row in (p.rows or []))
           for p in parses))
     written = 0
+    merged = 0
+    # #695: where a table's cells go that are NOT recorded, by reason.
+    skipped = {"no_row_label": 0, "empty": 0, "not_a_number": 0}
     for parse in parses:
         if not parse.parsed or len(parse.rows) < 2:
             continue
         header = parse.columns
+        signature = requirements_3b.table_signature(header)
         for row_index, row in enumerate(parse.rows[1:], start=1):
             label = (row[0] if row else "").strip()
             if not label:
+                skipped["no_row_label"] += sum(1 for c in row[1:] if (c or "").strip())
                 continue
             for column_index, cell in enumerate(row[1:], start=1):
                 if column_index >= len(header):
@@ -839,15 +1128,60 @@ def extract_table_values(
                 # A cell that is not a number is not a value. A label repeated
                 # in a data column, an empty cell, a footnote marker - none of
                 # them is a limit, and recording one would invent a
-                # requirement out of formatting.
-                if requirements_3b.cell_value(raw_value) is None:
+                # requirement out of formatting. A number that carries its own
+                # unit ("50 mm") IS a value (#695); every cell skipped is
+                # counted by reason, not lost.
+                reading = requirements_3b.cell_reading(raw_value)
+                span = requirements_3b.cell_range(raw_value) if reading is None else None
+                if reading is None and span is None:
+                    skipped["empty" if not raw_value else "not_a_number"] += 1
                     continue
+                number_text, cell_unit = reading if reading is not None else ("", span.unit)
                 column = header[column_index]
-                unit = requirements_3b.header_unit(column)
-                measurement = requirements_3b.measure(raw_value, unit)
+                unit = cell_unit or requirements_3b.header_unit(column)
+                # #595 THE NUMBER COMES FROM numparse (decimal comma, sign,
+                # thousands). A unit the table does not know leaves the value
+                # NULL (never 0); a cell with no unit anywhere keeps the
+                # number as written, with no unit.
+                number, cell_operator = (requirements_3b.cell_number(number_text)
+                                         if span is None else (None, None))
+                if span is not None:
+                    # #617: a range is ONE requirement with two bounds, never
+                    # one number. In the table's unit only when the unit is
+                    # known; an ambiguous dash keeps no bounds at all.
+                    low, high = span.low, span.high
+                    if unit and low is not None and high is not None:
+                        lo = requirements_3b.measure(f"{low:.12f}".rstrip("0").rstrip("."), unit)
+                        hi = requirements_3b.measure(f"{high:.12f}".rstrip("0").rstrip("."), unit)
+                        low, high = lo.normalized_value, hi.normalized_value
+                        normal_unit = lo.normalized_unit if lo.normalized_value is not None else None
+                        if low is None or high is None:
+                            low = high = None
+                    else:
+                        normal_unit = None
+                    value = None
+                elif unit:
+                    # The parsed number goes in, not the cell's text: the unit
+                    # table reads the text with its own rules, numparse's
+                    # answer for a decimal comma is the one recorded here.
+                    measurement = requirements_3b.measure(
+                        "" if number is None else f"{number:.12f}".rstrip("0").rstrip("."),
+                        unit)
+                    value, normal_unit = (measurement.normalized_value,
+                                          measurement.normalized_unit)
+                else:
+                    value, normal_unit = number, None
+                operator = (cell_operator or requirements_3b.header_operator(column)
+                            if span is None else
+                            (requirements_3b.RANGE_OPERATOR if span.low is not None else None))
                 field = requirements_3b.field_name("", column)
+                # #594 IDENTITY: standard (the column below) + table (its
+                # header) + row key + column + the value as written.
+                identity = "\x1f".join((
+                    signature, numparse.fold(label), numparse.fold(column),
+                    numparse.normalise_text(raw_value)))
                 try:
-                    create_requirement(
+                    stored = create_requirement(
                         standard_document_id=document_id,
                         chunk_id=parse.chunk_id,
                         requirement_text=f"{label} - {column}: {raw_value}",
@@ -860,25 +1194,48 @@ def extract_table_values(
                         # reference value. It is never presented as confirmed.
                         confidence=0.5,
                         structured={
-                            "requirement_type": "table_value",
+                            "requirement_type": ("table_value" if span is None
+                                                 else requirements_3b.TABLE_RANGE),
                             "field": field,
                             "condition": label,
+                            "operator": operator,
                             "raw_value": raw_value,
                             "raw_unit": unit,
-                            "value": measurement.normalized_value,
-                            "unit": measurement.normalized_unit,
+                            "unit_from": (("cell" if cell_unit else "column_header")
+                                          if unit else None),
+                            "value": value,
+                            "unit": normal_unit,
+                            "value_low": low if span is not None else None,
+                            "value_high": high if span is not None else None,
                             "table_row": row_index,
+                            "identity_key": identity,
                         },
                         extractor_version=extractor_version,
-                        input_hash=inputs)
+                        input_hash=inputs,
+                        extraction_run_id=run_id)
                 except RequirementError:
                     continue
-                written += 1
+                touched.add(stored["id"])
+                if stored.get("upserted") == "merged":
+                    merged += 1
+                else:
+                    written += 1
+    superseded = 0
+    if replace:
+        stale = [r["id"] for r in connect().execute(
+            "SELECT id FROM standard_requirements WHERE standard_document_id = ?"
+            " AND " + _TABLE_ROWS + " AND " + _SUPERSEDABLE, (document_id,))
+            if r["id"] not in touched]
+        superseded = _supersede(document_id, stale, run_id,
+                                action="re_extraction_tables")
     stats = tables_mod.completeness(parses)
     _audit("standard.table_values_extracted", actor, document_id,
-           detail=f"tables={stats['tables_total']} parsed={stats['tables_parsed']} "
-                  f"values={written}")
-    return {"document_id": document_id, "values": written, **stats}
+           detail=f"run={run_id} tables={stats['tables_total']} "
+                  f"parsed={stats['tables_parsed']} values={written} "
+                  f"merged_repeats={merged} superseded={superseded}")
+    return {"document_id": document_id, "values": written,
+            "merged_repeats": merged, "extraction_run_id": run_id,
+            "superseded": superseded, "cells_skipped": skipped, **stats}
 
 
 def table_report(document_id: str, *,
@@ -913,12 +1270,16 @@ def verification_queue(*, allowed_document_ids: frozenset[str],
     rows = connect().execute(
         "SELECT r.*, c.page_start AS chunk_page FROM standard_requirements r"
         " LEFT JOIN chunks c ON c.id = r.chunk_id" + where +
-        " AND r.confirmed_by IS NULL"
-        " AND (r.confidence IS NULL OR r.confidence < ?)"
+        " AND r.confirmed_by IS NULL AND r.superseded_at IS NULL"
+        " AND COALESCE(r.requirement_type, '') != 'definition'"
+        " AND (r.confidence IS NULL OR r.confidence < ?"
+        "      OR r.quality_reason IS NOT NULL)"
         " ORDER BY r.confidence, r.created_at LIMIT ?",
         [*args, VERIFICATION_THRESHOLD, limit],
     ).fetchall()
     return [{**dict(r), "needs_verification": True,
+             "needs_verification_reason": r["quality_reason"],
+             "evidence_pages": _decode_evidence(r["evidence_pages"]),
              "citation_resolves": r["chunk_page"] is not None} for r in rows]
 
 
@@ -1043,22 +1404,34 @@ def enqueue_extraction(document_id: str, *, actor: dict | None = None,
     from . import job_queue
     if priority is None:
         priority = job_queue.PRIORITY_BACKFILL
+    from .config import config_version
     submittal_review.ensure_schema()
     conn = connect()
-    existing = conn.execute(
-        "SELECT id FROM jobs WHERE document_id = ? AND stage = ?"
-        " AND state IN ('queued','running','retrying')", (document_id, EXTRACTION_STAGE)
-    ).fetchone()
-    if existing is not None:
-        return existing["id"]
     job_id = f"job_{_uuid.uuid4().hex[:12]}"
     now = _now()
-    with conn:
+    # B11: THE CHECK AND THE INSERT UNDER ONE WRITE LOCK. They were two steps,
+    # so two concurrent requests both saw nothing pending and queued two jobs.
+    with job_queue.immediate(conn):
+        existing = conn.execute(
+            "SELECT id FROM jobs WHERE document_id = ? AND stage = ?"
+            " AND state IN ('queued','running','retrying')", (document_id, EXTRACTION_STAGE)
+        ).fetchone()
+        if existing is not None:
+            return existing["id"]
+        # PROVENANCE AT ENQUEUE: which extractor code and which settings this
+        # job's output will come from, on the job row itself.
         conn.execute(
             """INSERT INTO jobs (id, document_id, stage, state, started_at,
-                                 updated_at, priority)
-               VALUES (?, ?, ?, 'queued', ?, ?, ?)""",
-            (job_id, document_id, EXTRACTION_STAGE, now, now, priority))
+                                 updated_at, priority, created_by, code_version,
+                                 config_version)
+               VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)""",
+            (job_id, document_id, EXTRACTION_STAGE, now, now, priority,
+             (actor or {}).get("id"),
+             provenance.code_version("standards", "tables", "requirements_3b"),
+             config_version()))
+        job_queue.audit(conn, "job.queued", job_id,
+                        actor_user_id=(actor or {}).get("id"),
+                        detail=f"stage={EXTRACTION_STAGE}")
     _audit("standard.extraction_queued", actor, document_id, detail=f"job={job_id}")
     return job_id
 
@@ -1133,6 +1506,7 @@ def next_extraction_job(worker_id: str | None = None) -> str | None:
     asked for runs ahead of the backfill the ingestion hook queued.
     """
     from . import job_queue
+    from .config import settings
     me = worker_id or job_queue.worker_id()
     now = _now()
     conn = connect()
@@ -1144,8 +1518,11 @@ def next_extraction_job(worker_id: str | None = None) -> str | None:
                               AND {_CLAIMABLE}
                             ORDER BY priority DESC, started_at LIMIT 1)
                   AND {_CLAIMABLE}
+                  AND {job_queue.under_limit_sql()}
                 RETURNING document_id""",
-            {"me": me, "now": now, "stage": EXTRACTION_STAGE}).fetchone()
+            {"me": me, "now": now, "stage": EXTRACTION_STAGE,
+             "stale": job_queue.stale_cutoff(),
+             "limit": settings.job_max_running}).fetchone()
     return row["document_id"] if row else None
 
 
@@ -1171,6 +1548,7 @@ def run_extraction_job(document_id: str, worker_id: str | None = None) -> dict:
     parameter; nothing here relaxes them.
     """
     from . import errors, job_queue
+    from .config import settings
     me = worker_id or job_queue.worker_id()
     conn = connect()
     now = _now()
@@ -1188,9 +1566,11 @@ def run_extraction_job(document_id: str, worker_id: str | None = None) -> dict:
                                   AND stage = :stage AND {_CLAIMABLE}
                                 ORDER BY started_at DESC LIMIT 1)
                       AND {_CLAIMABLE}
+                      AND {job_queue.under_limit_sql()}
                     RETURNING id""",
                 {"me": me, "now": now, "doc": document_id,
-                 "stage": EXTRACTION_STAGE}).fetchone()
+                 "stage": EXTRACTION_STAGE, "stale": job_queue.stale_cutoff(),
+                 "limit": settings.job_max_running}).fetchone()
     if job is None:
         return {"document_id": document_id, "state": "not_claimed",
                 "requirements": 0, "table_values": 0}
@@ -1219,6 +1599,7 @@ def run_extraction_job(document_id: str, worker_id: str | None = None) -> dict:
             "UPDATE jobs SET state = 'done', error_code = NULL,"
             " error_message = NULL, next_attempt_at = NULL, updated_at = ?"
             " WHERE id = ?", (_now(), job_id))
+        job_queue.audit(conn, "job.done", job_id, detail=f"stage={EXTRACTION_STAGE}")
     return {"document_id": document_id, "state": "done",
             "requirements": sentences.get("requirements", 0),
             "table_values": tabular.get("values", 0)}
@@ -1247,7 +1628,8 @@ def conflicts(*, allowed_document_ids: frozenset[str]) -> list[dict]:
     where, args = _scope_clause(allowed_document_ids, "standard_document_id")
     rows = connect().execute(
         "SELECT * FROM standard_requirements" + where +
-        " AND value IS NOT NULL AND field IS NOT NULL", args).fetchall()
+        " AND value IS NOT NULL AND field IS NOT NULL"
+        " AND superseded_at IS NULL", args).fetchall()
     return requirements_3b.find_conflicts([dict(r) for r in rows])
 
 
@@ -1267,12 +1649,18 @@ def list_requirements(
         " FROM standard_requirements r"
         " LEFT JOIN chunks c ON c.id = r.chunk_id" + where +
         " AND r.standard_document_id = ?"
+        # #640: active rows only. A superseded row is kept for the findings
+        # that cite it (resolved by id) and is never compared again.
+        " AND r.superseded_at IS NULL"
         " ORDER BY r.page, r.clause, r.created_at", [*args, document_id],
     ).fetchall()
     out = []
     for row in rows:
         item = dict(row)
         item["needs_verification"] = needs_verification(row)
+        # #597: WHY, when it is not simply a low confidence.
+        item["needs_verification_reason"] = item.get("quality_reason")
+        item["evidence_pages"] = _decode_evidence(item.get("evidence_pages"))
         item["citation_resolves"] = row["chunk_page"] is not None
         # Decoded here so no caller has to know it is JSON in one column, and
         # a malformed value reads as "none recorded" rather than raising.
@@ -1362,7 +1750,7 @@ def search_requirements(
             break
         rows = connect().execute(
             "SELECT r.* FROM standard_requirements r" + where +
-            " AND r.chunk_id = ? ORDER BY r.created_at",
+            " AND r.chunk_id = ? AND r.superseded_at IS NULL ORDER BY r.created_at",
             [*args, hit["chunk_id"]],
         ).fetchall()
         for row in rows:
@@ -1406,12 +1794,18 @@ def list_standards(*, allowed_document_ids: frozenset[str],
         "SELECT d.id, d.filename, d.status, d.page_count, d.uploaded_at,"
         "       c.title, c.document_number, c.revision, c.effective_date,"
         "       c.discipline, c.discipline_canonical, c.superseded_by,"
-        "       (SELECT COUNT(*) FROM standard_requirements r"
-        "         WHERE r.standard_document_id = d.id) AS requirement_count,"
+        # #596: a definition is not a requirement, so it is not counted as one.
         "       (SELECT COUNT(*) FROM standard_requirements r"
         "         WHERE r.standard_document_id = d.id"
-        "           AND r.confirmed_by IS NULL"
-        "           AND (r.confidence IS NULL OR r.confidence < ?)"
+        "           AND r.superseded_at IS NULL"
+        "           AND COALESCE(r.requirement_type, '') != 'definition'"
+        "       ) AS requirement_count,"
+        "       (SELECT COUNT(*) FROM standard_requirements r"
+        "         WHERE r.standard_document_id = d.id"
+        "           AND r.confirmed_by IS NULL AND r.superseded_at IS NULL"
+        "           AND COALESCE(r.requirement_type, '') != 'definition'"
+        "           AND (r.confidence IS NULL OR r.confidence < ?"
+        "                OR r.quality_reason IS NOT NULL)"
         "       ) AS awaiting_verification"
         " FROM documents d"
         " JOIN document_classification c ON c.document_id = d.id" + where +
@@ -1515,3 +1909,33 @@ def supersede(document_id: str, superseded_by: str | None, *,
     _audit("standard.superseded" if superseded_by else "standard.supersession_cleared",
            actor, document_id, detail=f"superseded_by={superseded_by}")
     return {"document_id": document_id, "superseded_by": superseded_by}
+
+
+#: A standard whose non-blank clause values are fewer than this share distinct
+#: (with at least `PARAGRAPH_IDS_MIN` of them) does not carry paragraph ids:
+#: its "clauses" are numbers read from its tables. Measured on the library
+#: copy (2026-10-10): ASME VIII Div 1 0.6% (3,456 clause values, 21 distinct),
+#: one other standard 2.6%, every other standard 15% or more (median 59%).
+PARAGRAPH_IDS_MIN_DISTINCT_SHARE = 0.05
+PARAGRAPH_IDS_MIN = 20
+
+
+def paragraph_ids_known(standard_ids: list[str] | set[str]) -> dict[str, bool]:
+    """{standard id: whether its requirements' clause values are paragraph
+    ids}. False when they are table numbers (audit A-761b): a CRS then says
+    "paragraph not identified" instead of printing "cl. 0.3". A standard with
+    too few clause values to tell is trusted (True), as before."""
+    ids = sorted({i for i in standard_ids if i})
+    if not ids:
+        return {}
+    marks = ",".join("?" for _ in ids)
+    rows = connect().execute(
+        "SELECT standard_document_id, count(*) AS n, count(DISTINCT clause) AS k"
+        " FROM standard_requirements WHERE standard_document_id IN (%s)"
+        " AND superseded_at IS NULL AND clause IS NOT NULL AND trim(clause) != ''"
+        " GROUP BY standard_document_id" % marks, ids).fetchall()
+    out = {i: True for i in ids}
+    for r in rows:
+        if r["n"] >= PARAGRAPH_IDS_MIN and r["k"] / r["n"] < PARAGRAPH_IDS_MIN_DISTINCT_SHARE:
+            out[r["standard_document_id"]] = False
+    return out

@@ -120,7 +120,7 @@ def _page(page_no: int, text: str) -> dict:
 
 def test_a_document_number_and_revision_are_read_with_their_page_and_quote():
     pages = [
-        _page(1, "SAUDI ARAMCO\nENGINEERING STANDARD\nSAES-D-001\n"
+        _page(1, "THE CLIENT\nENGINEERING STANDARD\nSAES-D-001\n"
                  "Design Criteria - Piping Systems"),
         _page(2, "Revision: 03\nEffective Date: 15 March 2023"),
     ]

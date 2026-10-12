@@ -97,7 +97,16 @@ def test_the_suffix_comes_from_the_bytes_not_the_filename():
 
 # ------------------------------------------------------------- refusals
 
-def test_a_docx_is_refused_although_its_magic_bytes_are_a_zip():
+@pytest.fixture
+def docx_off(monkeypatch):
+    """Word input is ON by default since W5b-01 (#525); these tests are about
+    the WORKBOOK validator refusing a zip that is not a workbook, so they run
+    with the Word setting off, as the system was when they were written."""
+    monkeypatch.setattr(settings, "docx_input_enabled", False)
+    monkeypatch.setattr(settings, "datasheet_office_input", False)
+
+
+def test_a_docx_is_refused_although_its_magic_bytes_are_a_zip(docx_off):
     """THE MUTATION TARGET (M16): the xl/workbook.xml requirement."""
     with pytest.raises(upload.UploadError) as exc:
         upload.ingest(io.BytesIO(_docx()), "notes.docx")
@@ -151,14 +160,14 @@ def test_a_corrupt_zip_is_refused_as_not_a_file_we_accept():
     assert exc.value.code == "not_pdf"
 
 
-def test_a_readable_zip_that_is_not_a_workbook_says_so_precisely():
+def test_a_readable_zip_that_is_not_a_workbook_says_so_precisely(docx_off):
     """The other half: here the intent IS clear, so the precise code is used."""
     with pytest.raises(upload.UploadError) as exc:
         upload.ingest(io.BytesIO(_docx()), "notes.docx")
     assert exc.value.code == "not_xlsx"
 
 
-def test_a_refused_upload_stores_nothing():
+def test_a_refused_upload_stores_nothing(docx_off):
     """Never partially stored: no temp file, no final file, no row."""
     with pytest.raises(upload.UploadError):
         upload.ingest(io.BytesIO(_docx()), "notes.docx")
@@ -167,8 +176,16 @@ def test_a_refused_upload_stores_nothing():
     assert db.connect().execute("SELECT COUNT(*) FROM documents").fetchone()[0] == 0
 
 
+def test_a_legacy_office_file_is_refused_with_a_clear_message():
+    """W5b-01: an old .xls/.doc/.ppt used to be `not_pdf` ("not a PDF"); it now
+    says what it is and what to do (`unsupported_office`)."""
+    with pytest.raises(upload.UploadError) as exc:
+        upload.ingest(io.BytesIO(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1 old excel"), "legacy.xls")
+    assert exc.value.code == "unsupported_office"
+    assert ".docx" in exc.value.message
+
+
 @pytest.mark.parametrize("payload,name", [
-    (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1 old excel", "legacy.xls"),
     (b"name,value\n1,2\n", "data.csv"),
     (b"\x7fELF binary", "thing.bin"),
 ])

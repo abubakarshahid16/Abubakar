@@ -259,3 +259,18 @@ describe("engineering review controls", () => {
     vi.restoreAllMocks();
   });
 });
+
+describe("#609: documents no discipline can see are listed first", () => {
+  // MUTATION PROOF (run 2026-10-08): map `documents` instead of
+  // `orphansFirst(documents)` in AdminView.tsx and this test fails.
+  it("puts the orphan at the top, with its Grant buttons", () => {
+    render(<AdminView {...props()} />);
+    const section = screen.getByRole("heading", { name: "Documents and who can see them" })
+      .closest("section") as HTMLElement;
+    const items = within(section).getAllByRole("listitem");
+    expect(items[0]).toHaveTextContent("doc13.pdf");
+    expect(items[0]).toHaveTextContent("No discipline can see this");
+    expect(within(items[0]).getAllByRole("button", { name: /^Grant / }).length).toBeGreaterThan(0);
+    expect(items[1]).toHaveTextContent("NORSOKM501Rev5.pdf");
+  });
+});

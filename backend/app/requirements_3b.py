@@ -28,8 +28,9 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 
-from . import claims
+from . import claims, numparse
 
 #: What kind of thing a requirement states. Enforced in Pydantic
 #: (`schemas.RequirementType`), stored as plain TEXT.
@@ -207,16 +208,24 @@ _EXCEPTION = re.compile(
     r"\s*(?P<rest>.+)", re.IGNORECASE)
 
 #: A condition the requirement only holds under. "for new equipment",
-#: "where the service is sour", "in marine environments".
-#: The clause STOPS AT THE COMMA. "For new equipment, the noise level shall
-#: not exceed 90 dB(A)" conditions on "new equipment", not on "new equipment,
-#: the noise level" - the comma is where the circumstance ends and the subject
-#: begins. Running past it produced a condition containing the thing being
-#: limited, which would never match anything and would silently narrow the
-#: requirement to nothing.
+#: "where the service is sour", "if the service is sour", "when ...",
+#: "unless ...". The leading keyword only OPENS the circumstance; where it ends
+#: is decided by `parse_condition` (the comma that separates it from the
+#: subject), not by this pattern. Ending it at the FIRST comma lost the rest of
+#: "For carbon steel, low-alloy steel and alloy steel systems, a minimum ..."
+#: and capping it at 80 characters truncated a long one: a fragment of a
+#: condition is a wrong condition.
 _CONDITION = re.compile(
-    r"\b(?:for|where|when|in\s+the\s+case\s+of|applicable\s+to)\b\s+"
-    r"(?P<rest>[^.;,]{3,80})", re.IGNORECASE)
+    r"\b(?P<kw>for|where|when|if|unless|in\s+the\s+case\s+of|applicable\s+to)\b\s+"
+    r"(?P<rest>.+)", re.IGNORECASE | re.DOTALL)
+
+#: Where the main clause begins: an obligation phrase.
+_MAIN_CLAUSE = re.compile(
+    r"\b(?:shall|must|should|(?:is|are)\s+(?:required|to\s+be|not\s+permitted|"
+    r"prohibited))\b", re.IGNORECASE)
+
+#: A circumstance longer than this is not read as one: refuse, never truncate.
+_CONDITION_MAX = 240
 
 
 #: A table cell that IS a number, rather than prose containing one.
@@ -234,9 +243,158 @@ _CELL_VALUE = re.compile(r"^\s*[<>=≤≥±]{0,2}\s*[-+]?\d[\d.,]*\s*[*†‡]?\
 
 def cell_value(cell: str) -> str | None:
     """The number in a table cell, or None when the cell is not a number."""
-    if not cell or not _CELL_VALUE.match(cell):
+    if not cell:
+        return None
+    # A Unicode minus (U+2212) is a sign, not a word: fold it first so "\u22125"
+    # is the value -5 and not a dropped cell (#595).
+    cell = numparse.normalise_text(cell)
+    if not _CELL_VALUE.match(cell):
         return None
     return cell.strip()
+
+
+#: A cell that is a number WITH ITS OWN UNIT: "50 mm", "0.5 %", ">= 5 mm",
+#: "12.5 \u00b0C", "90 dB(A)". #695: `cell_value` accepted only a bare number, so
+#: every cell of a table that writes the unit in the cell (rather than in the
+#: column header) was dropped without a trace - the commonest layout of a
+#: limits table. The unit token is shaped like a unit (letters, %, a degree
+#: sign, "/" and a bracketed qualifier), never a sentence; words that join the
+#: two ends of a range are not units.
+_CELL_WITH_UNIT = re.compile(
+    r"^\s*(?P<num>[<>=\u2264\u2265\u00b1]{0,2}\s*[-+]?\d[\d.,]*)\s*"
+    r"(?P<unit>%|\u00b0\s?[A-Za-z]|[A-Za-z][A-Za-z0-9/\u00b2\u00b3\u00b5\u00b7.\-]{0,11}"
+    r"(?:\([A-Za-z]{1,4}\))?)\s*[*\u2020\u2021]?\s*$")
+_NOT_A_UNIT = frozenset({"x", "to", "and", "or", "of", "no", "na", "nil"})
+
+
+def cell_reading(cell: str) -> tuple[str, str | None] | None:
+    """(the number as written, the unit written in the same cell) for a cell
+    that holds a number, or None for a cell that does not.
+
+    A bare number gives (cell, None). The unit, when there is one, is the
+    SPELLING the cell used; whether it means anything is `claims`' decision
+    (an unknown unit leaves the value NULL, never 0 - the same rule as a unit
+    taken from a column header).
+    """
+    if cell_value(cell) is not None:
+        return cell, None
+    text = numparse.normalise_text(cell or "")
+    match = _CELL_WITH_UNIT.match(text)
+    if match is None:
+        return None
+    unit = re.sub(r"\s+", "", match.group("unit"))
+    if unit.lower() in _NOT_A_UNIT:
+        return None
+    return match.group("num").strip(), unit
+
+
+#: #617: a table cell holding a RANGE ("5-10", "5 - 10", "5 to 10 mm",
+#: "5–10"). Recorded as ONE requirement of this type with a low and a high
+#: bound; it is not a single number, so no matcher pairs it as one
+#: (`comparison.MATCHABLE_TYPES` does not list it).
+TABLE_RANGE = "table_range"
+RANGE_OPERATOR = "between"
+_RANGE_CELL = re.compile(
+    r"^\s*(?P<low>[-+]?\d[\d.,]*)(?P<sep>\s*(?:to|[-\u2012\u2013\u2014\u2015])\s*)"
+    r"(?P<high>[-+]?\d[\d.,]*)\s*"
+    r"(?P<unit>%|\u00b0\s?[A-Za-z]|[A-Za-z][A-Za-z0-9/\u00b2\u00b3\u00b5\u00b7.\-]{0,11}"
+    r"(?:\([A-Za-z]{1,4}\))?)?\s*$", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class CellRange:
+    low: float | None        # None for an ambiguous range
+    high: float | None
+    unit: str | None         # the unit written in the cell, if any
+    ambiguous: bool
+
+
+def cell_range(cell: str) -> CellRange | None:
+    """A range cell, or None for anything else.
+
+    "5-10", "5 - 10", "5 to 10" and an en dash are ranges. "5 -10" (a space
+    before the dash and none after) could be five and minus ten: AMBIGUOUS,
+    no bounds, an engineer decides. So is a range whose low end is above its
+    high end, and one whose ends numparse cannot read as single numbers.
+    """
+    text = numparse.normalise_text(cell or "")
+    match = _RANGE_CELL.match(text)
+    if match is None:
+        return None
+    unit = match.group("unit")
+    if unit is not None:
+        unit = re.sub(r"\s+", "", unit)
+        if unit.lower() in _NOT_A_UNIT:
+            return None
+    sep = match.group("sep")
+    # A dash with a space before it and none after reads as a sign on the
+    # second number; a signed second number is ambiguous either way.
+    ambiguous = ((sep.strip().lower() != "to" and sep[:1].isspace() and not sep[-1:].isspace())
+                 or match.group("high").startswith(("-", "+")))
+    low = numparse.parse_value(match.group("low"))
+    high = numparse.parse_value(match.group("high"))
+    if ambiguous or low is None or high is None or low > high:
+        return CellRange(None, None, unit, True)
+    return CellRange(low, high, unit, False)
+
+
+#: "Max.", "Maximum", "Min", "Minimum" as a WORD of a column header. A header
+#: naming both ("Min/Max") says nothing about one cell and gives no operator.
+_HEADER_MAX = re.compile(r"\bmax(?:imum)?\b", re.IGNORECASE)
+_HEADER_MIN = re.compile(r"\bmin(?:imum)?\b", re.IGNORECASE)
+
+
+def header_operator(header: str | None) -> str | None:
+    """`<=` for a "max" column, `>=` for a "min" column, else None (#595).
+
+    "max" means not more than and "min" means not less than. A header that
+    names both, or neither, gives no operator: None, never a guess.
+    """
+    has_max = bool(_HEADER_MAX.search(header or ""))
+    has_min = bool(_HEADER_MIN.search(header or ""))
+    if has_max == has_min:
+        return None
+    return "<=" if has_max else ">="
+
+
+_CELL_COMPARATOR = re.compile(r"^\s*([<>=\u2264\u2265]{1,2})")
+_CELL_OPERATOR = {"<": "<", ">": ">", "=": "=", "<=": "<=", ">=": ">=",
+                  "\u2264": "<=", "\u2265": ">=", "=<": "<=", "=>": ">="}
+
+#: A zero followed by a comma and exactly three digits: "0,030". A thousands
+#: group never starts with a zero, so this is a decimal comma. numparse reads
+#: it as 30 (its thousands rule has no leading-zero exclusion, unlike its dot
+#: rule), and numparse is not changed here - the cell reader fixes the one
+#: shape it knows is wrong. Recorded in the honesty audit.
+_ZERO_COMMA_DECIMAL = re.compile(r"^(?P<lead>[^\d]*[-+]?)0,(?P<frac>\d{3})(?!\d)")
+
+
+def cell_number(raw_cell: str, *, decimal_comma_document: bool | None = None
+                ) -> tuple[float | None, str | None]:
+    """(number, operator written in the cell) for a table cell, via numparse.
+
+    Signs (a Unicode minus included), a decimal comma and thousands groups are
+    numparse's rules. A range, an ambiguous dash or an ambiguous three-decimal
+    value comes back as (None, ...): the cell is kept as written and no number
+    is invented (#595).
+    """
+    text = numparse.normalise_text(raw_cell or "")
+    comparator = _CELL_COMPARATOR.match(text)
+    operator = _CELL_OPERATOR.get(comparator.group(1)) if comparator else None
+    text = re.sub(r"[*\u2020\u2021\u00b1]", "", text).strip()
+    text = _CELL_COMPARATOR.sub("", text).strip()
+    text = _ZERO_COMMA_DECIMAL.sub(lambda m: f"{m.group('lead')}0.{m.group('frac')}", text)
+    return numparse.parse_value(
+        text, decimal_comma_document=decimal_comma_document), operator
+
+
+def table_signature(columns: list[str]) -> str:
+    """A table's identity across pages: its header, folded (#594).
+
+    The same table printed again on the next page, or read again on a re-run,
+    has the same header, so its cells land on the same identity.
+    """
+    return "|".join(numparse.fold(c or "") for c in columns)
 
 
 def header_unit(header: str) -> str | None:
@@ -420,6 +578,48 @@ def is_relative_limit(sentence: str) -> bool:
     return bool(_RELATIVE_TAIL.match(text[match.start("value"):]))
 
 
+#: What follows the verb in a selection sentence: "be used", "be specified",
+#: "be installed" and nothing else - no digit, so no quantity of its own.
+_SELECTION_TAIL = re.compile(
+    r"\s*(?:be\s+)?(?:used|specified|installed|selected|applied|provided|supplied)"
+    r"\b[^\d]*", re.IGNORECASE)
+
+
+def _material_selection_subject(text: str, verb: re.Match) -> str | None:
+    """The text before the verb when the sentence is a MATERIAL-SELECTION
+    threshold, else None (issue #203).
+
+    "For studs greater than 25 mm, ASTM A320 L7 material shall be used" names
+    the other document as the SUBJECT of "shall be used" instead of after a
+    deferral verb, so the `_DEFERRAL` search never fired and the 25 mm was
+    stored as a size limit on the stud. It is a threshold: above 25 mm the
+    material changes. Three things must all hold:
+
+      * after the verb comes only a selection verb ("be used", "be specified")
+        and no digit - a number after the verb is the sentence's own quantity
+        and keeps it a limit, however the sentence opens;
+      * the text before the verb names a DESIGNATION THAT CARRIES A DIGIT
+        (ASTM A320, SAES-D-001, UNS S31803). A capitalised word alone (ESD,
+        PSV) is not a document, so "ESD valves shall be used above 50 bar"
+        is not a trigger;
+      * the text before the verb still has a digit of its own once the
+        designations are removed: that is the threshold. Without one the
+        sentence is a plain "use this", not a condition.
+
+    "shall not exceed 25 mm" has none of these and stays `numeric_limit`.
+    """
+    if not _SELECTION_TAIL.fullmatch(text[verb.end():]):
+        return None
+    subject = text[:verb.start()]
+    designations = [m for m in _DOCUMENT_DESIGNATION.finditer(subject)
+                    if _BARE_NUMBER.search(m.group(0))]
+    if not designations:
+        return None
+    if not _BARE_NUMBER.search(_DOCUMENT_REF.sub(" ", subject)):
+        return None
+    return subject
+
+
 def _applicability_remainder(sentence: str) -> str | None:
     """The deferral remainder when `sentence` passes every applicability-
     trigger gate, else None. THE ONE PLACE THE THREE GATES ARE CHECKED -
@@ -450,7 +650,7 @@ def _applicability_remainder(sentence: str) -> str | None:
         return None
     remainder = text[verb.end():]
     if not _DEFERRAL.search(remainder):
-        return None
+        return _material_selection_subject(text, verb)
     if _TABLE_REFERENCE.search(remainder):
         # A table is not another document. `table_row` is that case and is
         # decided before this one.
@@ -624,6 +824,10 @@ def unit_token(candidate: str | None) -> str | None:
     if not text:
         return None
     cleaned = text.rstrip(".,;:")
+    # #193: A BRACKET FOLLOWED BY A DIGIT OPENS THE SAME QUANTITY IN A SECOND
+    # UNIT - "1,800 m2(20,000 ft2)" - so it ends this one. A bracket followed
+    # by a letter is part of the unit ("dB(A)", "L/(m2s)") and is kept.
+    cleaned = re.split(r"\((?=\s*\d)", cleaned, maxsplit=1)[0].rstrip()
     # PDF extraction commonly separates an acoustic weighting suffix from its
     # unit: `dB (A)`. It is still the single recognised unit `dB(A)`, not a dB
     # value followed by unrelated prose. Collapse only this terminal,
@@ -783,23 +987,60 @@ def parse_condition(sentence: str) -> str | None:
     Deliberately conservative. A wrong condition NARROWS a requirement, which
     silently excuses a real deviation - the opposite failure from a wrong
     limit, and harder to notice. When the sentence opens with the obligation
-    rather than the circumstance, there is no condition.
+    rather than the circumstance, there is no condition; when the circumstance
+    cannot be separated from the subject, there is no condition either.
+
+    Only a LEADING circumstance counts. "For new equipment, the noise level
+    shall not exceed..." is conditional; "...shall be applied for corrosion
+    protection" is a purpose. The circumstance ends at the last comma before
+    the main clause, so commas INSIDE it ("carbon steel, low-alloy steel and
+    alloy steel systems") are kept. A subject that itself contains commas
+    leaves extra words in the condition; the downstream reader
+    (`conditions.read_condition`) then abstains on the unread words, which is
+    the safe direction. "unless" is kept as the first word of the condition,
+    never dropped: dropping it would invert the meaning.
     """
-    # Only a LEADING circumstance counts. "For new equipment, the noise level
-    # shall not exceed..." is conditional; "...shall be applied for corrosion
-    # protection" is a purpose, not a condition.
-    head = sentence.split(" shall")[0].split(" must")[0]
-    if head == sentence:
-        return None
-    match = _CONDITION.match(head.strip())
+    text = " ".join((sentence or "").split()).rstrip(".;").strip()
+    match = _CONDITION.match(text)
     if not match:
         return None
-    condition = match.group("rest").strip().rstrip(",").strip()
-    return condition or None
+    keyword = match.group("kw").lower()
+    rest = match.group("rest")
+    commas = [i for i, ch in enumerate(rest) if ch == ","]
+    cut = None
+    if commas:
+        main = _MAIN_CLAUSE.search(rest, commas[0])
+        if main:
+            cut = max(i for i in commas if i < main.start())
+        elif keyword in ("where", "when", "if", "unless") and len(commas) == 1:
+            # No obligation phrase: "If the service is sour, PWHT applies."
+            cut = commas[0]
+    else:
+        main = _MAIN_CLAUSE.search(rest)
+        if main:
+            cut = main.start()
+    if cut is None:
+        return None
+    condition = rest[:cut].strip().rstrip(",").strip()
+    if keyword == "unless" and condition:
+        condition = f"unless {condition}"
+    if len(condition) < 3 or len(condition) > _CONDITION_MAX:
+        return None
+    return condition
 
 
 #: A requirement whose number belongs to a LOOKUP TABLE, not to a limit.
 TABLE_ROW = "table_row"
+
+#: #596: a clause that only defines a word. Stored, shown, never reviewed and
+#: never counted as a requirement.
+DEFINITION = "definition"
+
+#: EVERY requirement_type this module writes - what the API must be able to
+#: return (`schemas.RequirementType`). `REQUIREMENT_TYPES` above is the core
+#: three the parser may classify an obligation as; these are all of them.
+STORED_REQUIREMENT_TYPES = (*REQUIREMENT_TYPES, APPLICABILITY_TRIGGER, RELATIVE_LIMIT, TABLE_ROW,
+                           DEFINITION)
 
 
 def classify(sentence: str, limit: dict | None) -> str:

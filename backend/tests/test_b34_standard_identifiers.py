@@ -5,8 +5,8 @@ The defect, reproduced live on 2026-09-21: a Focused summary over the right
 coatings passages came back EMPTY, because "SAES-H-004 outlines a total system
 minimum of 150 micrometers [S4]" was deleted as "carries a number no cited span
 contains: 4.0" - the "004" of the standard's name read as the quantity 4. The
-same answer path had always exempted "doc17.pdf". This corpus is Saudi Aramco
-standards, so nearly every good sentence names one.
+same answer path had always exempted "doc17.pdf". This corpus is the client's
+own standards, so nearly every good sentence names one.
 
 The fix is a CLOSED grammar (synthesis._STANDARD_IDENTIFIER), built from the
 identifier shapes that occur in the indexed text. These tests pin both halves:

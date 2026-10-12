@@ -310,7 +310,7 @@ identical to one for a real email** (the limiter must not become the oracle the
 constant-time verify just closed); user B is not blocked by A's exhausted budget.
 
 **Health parity** — under `demo_required` with no token, key set is **exactly**
-`{ok, embed_model_present, answer_model_present, ingestion}` and ingestion's is
+`{ok, embed_model_present, answer_model_configured, ingestion}` and ingestion's is
 exactly `{alive, stalled, busy}`. **Set equality, not `in`** — an `in` check
 passes when a field is added. Same key set under both modes.
 

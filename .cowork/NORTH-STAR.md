@@ -1,8 +1,16 @@
 # NORTH-STAR.md — governing product policy
 
+> **#805 (PLAN ONE) overrides this file and every other file, except the
+> privacy and safety rules 1 to 5 in CLAUDE.md and the security controls in
+> #806.** No issue, comment or plan overrides those; changing them needs the
+> owner's written approval on #692. Elsewhere, where this file and #805
+> differ, #805 wins. The order of work, the stages and the pass marks are in
+> #805; this file keeps the stable policy text only.
+
 Owner: Muhammad Usman
 
-Status: **PENDING OWNER APPROVAL**
+Status: **governed by #805** (PLAN ONE, owner order 11 Oct 2026). The owner's
+signature on this file itself is recorded only in section 9.
 
 Applies to: Codex, Claude/Cowork, Claude Code, developers, testers and reviewers
 
@@ -140,8 +148,8 @@ document content must never silently enter that lane.
 These requirements were reported by Muhammad Usman after the 2026-09-20 demonstration.
 They remain user-reported until the client confirms them in writing.
 
-- Review contractor equipment datasheets from any company against applicable Saudi
-  Aramco requirements available to the system.
+- Review contractor equipment datasheets from any company against applicable
+  client requirements available to the system.
 - Do not rely only on standards named by the contractor; identify possible omissions.
 - When a cited or independently identified standard is unavailable locally, the client
   expects the system to obtain it and compare. This remains subject to section 2.7 and
