@@ -18,6 +18,7 @@ from . import ai_numbers as ai_numbers_mod
 from . import evidence_boxes as evidence_boxes_mod
 from . import applicability as applicability_mod
 from . import comparison as comparison_mod
+from . import clause_coverage as clause_coverage_mod
 from . import crs_export as crs_export_mod
 from . import crs_issue as crs_issue_mod
 from . import crs_mapping as crs_mapping_mod
@@ -5327,6 +5328,27 @@ def get_issued_crs(
             errors.NOT_FOUND, "no issued copy with that id"))
     record, data = found
     return _xlsx_response(data, record["filename"], {"X-Issued-Sha256": record["sha256"]})
+
+
+@app.get("/api/reviews/runs/{review_run_id}/coverage",
+         response_model=schemas.ClauseCoverage,
+         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def review_run_coverage(
+    review_run_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """PF4 (#884): the run's applicable requirements, each in exactly one
+    state - checked, sent to the engineer, not checked - with the checklist-
+    covered ones apart, read from the run's own scope ledger. Clause and
+    standard only where the caller may read the standard. Read only."""
+    reject_unknown_params(request, set())
+    if submittal_review_mod.get_review_run(
+            review_run_id, allowed_document_ids=scope.allowed_document_ids) is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no review run with that id"))
+    return clause_coverage_mod.for_run(review_run_id,
+                                       allowed_document_ids=scope.allowed_document_ids)
 
 
 @app.get("/api/reviews/runs/{review_run_id}/crs/preview",

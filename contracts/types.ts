@@ -817,6 +817,22 @@ export interface ClauseCheckDraft {
   new_requirement_id: string | null;
 }
 
+/** PF4 (#884): a run's applicable rules, each in exactly one state. */
+export interface ClauseCoverage {
+  review_run_id: string;
+  recorded: boolean;
+  note: string | null;
+  applicable: number | null;
+  counts: Record<string, number> | null;
+  checked_share: number | null;
+  adds_up: boolean | null;
+  line: string;
+  rows: {
+    requirement_id: string; state: string; reason_code: string; reason: string;
+    note: string | null; standard_document_id: string | null; clause: string | null;
+  }[];
+}
+
 export interface ClauseCheckDecisionResult {
   id: string;
   decision: string;

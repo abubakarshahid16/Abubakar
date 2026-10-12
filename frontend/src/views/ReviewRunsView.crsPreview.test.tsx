@@ -43,6 +43,8 @@ vi.mock("../api/client", () => ({
     exportCrs: (...args: unknown[]) => exportCrs(...args),
     startReviewRun: vi.fn(),
     decideCode: vi.fn(),
+    // PF4 (#884): the run's coverage line.
+    runCoverage: async () => ({ ok: true, data: { line: "4 of 9 applicable requirement(s) checked (44.4%)" } }),
   },
 }));
 
@@ -359,5 +361,11 @@ describe("2f: the engineer's internal notes are their own table, not comments", 
     expect(within(notes).getByText("12")).toBeInTheDocument();
     const table = panel.getAllByRole("table")[0];
     expect(within(table).queryByText(/name their own evidence/)).toBeNull();
+  });
+
+  it("PF4: shows the run's clause coverage line", async () => {
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    expect(await screen.findByTestId("run-coverage")).toHaveTextContent("4 of 9 applicable requirement(s) checked (44.4%)");
   });
 });
