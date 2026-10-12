@@ -32,7 +32,21 @@ NOTHING THE MODEL SAYS IS KEPT ON ITS WORD. The model LOCATES a requirement
     bracketed conversion ("16 psi (110 kPa)") is one quantity.
 
 Duplicates (the same figures from the same words, met again in an
-overlapping passage) are merged in code. The model is the runner's setting
+overlapping passage) are merged in code.
+
+CLAUSE TO CHECK (#645 in the review, Stage C, planner 12 Oct). A clause
+sentence the requirement parser stored with no limit (`requirement_type`
+"statement") that the review then could not decide is given to the model
+ONE SENTENCE AT A TIME, and the model proposes a check: field, operator,
+value, unit, condition and the exact words. CODE VERIFIES EVERY PART against
+the sentence (`verify_proposal`): the quote is in the sentence; the value is
+in the quote, read as a number with its sign (`numparse.value_in_text`); a
+unit is a unit and stands whole in the quote; code's own reading of the
+quote's figures agrees; a condition is in the sentence, and a sentence that
+is conditional with no condition proposed is refused (the #858 lesson). What
+passes is stored as a DRAFT for the engineer (`clause_check_drafts`), never as
+a requirement: no verdict is ever decided on an unapproved proposal. The
+model is the runner's local model - standards text never leaves the machine. The model is the runner's setting
 (`settings.ai_task_model`, qwen3.5:2b by default). No rule here names a
 document, a standard or a clause.
 """
@@ -40,7 +54,7 @@ from __future__ import annotations
 
 import re
 
-from app import ai_task_runner, numparse, standard_ids
+from . import ai_task_runner, numparse, standard_ids
 
 #: Words per task. Under the runner's 300-word limit, so a passage split at a
 #: sentence never crosses it (#644 decision b).
@@ -173,6 +187,11 @@ def _standard_hint_agrees(item: dict, standards: list[str]) -> bool:
 #: Words before a figure that say which way the limit points. Generic English
 #: of requirements, longest first; nothing here names a standard.
 _OPERATOR_WORDS = (
+    # "shall not be less than 3 mm" is a minimum: without these the shorter
+    # "less than" below read it as "<", the opposite (#645).
+    ("not be more than", "<="), ("not be greater than", "<="), ("not be higher than", "<="),
+    ("not be above", "<="), ("not be less than", ">="), ("not be lower than", ">="),
+    ("not be below", ">="),
     ("not more than", "<="), ("not to exceed", "<="), ("not exceed", "<="),
     ("no more than", "<="), ("not greater than", "<="), ("maximum of", "<="),
     ("maximum", "<="), ("max.", "<="), ("max", "<="), ("up to", "<="),
@@ -212,7 +231,7 @@ def read_figures(quote: str) -> list[dict]:
     operator its wording states. A bracketed figure that is the same quantity
     as the figure before it ("16 psi (110 kPa)") is that figure again, not a
     second limit. A reference numeral (clause, table, page) is not a figure."""
-    from app import answer, synthesis
+    from . import answer, synthesis
 
     held = synthesis.strip_reference_numerals(quote)
     every = answer._figure_occurrences(held)
@@ -244,7 +263,7 @@ MODEL_VALUE_DISAGREED = "model value disagreed"
 
 def _hints_agree(item: dict, figures: list[dict]) -> bool:
     """Do the model's own value fields (hints) agree with what code read?"""
-    from app import answer
+    from . import answer
 
     unit = hint(item.get("unit")) or ""
     read = [answer._figure_occurrences(f"{f['value']} {f['unit']}")[0] for f in figures]
@@ -310,3 +329,203 @@ def extract(text: str, *, provider=None, use_cache: bool = True) -> dict:
                          "flags": flags, "passage": index})
     return {"requirements": kept, "could_not_read": unread,
             "passages": len(passages), "merged": merged}
+
+
+# ------------------------------------------------------------ clause to check
+
+CLAUSE_SCHEMA = {
+    "type": "object",
+    "required": ["has_limit", "field", "operator", "value", "unit", "condition", "quote"],
+    "properties": {
+        "has_limit": {"type": "boolean"},
+        "field": {"type": ["string", "null"]},
+        "operator": {"type": ["string", "null"], "enum": [*OPERATORS, None]},
+        "value": {"type": ["string", "null"]},
+        "unit": {"type": ["string", "null"]},
+        "condition": {"type": ["string", "null"]},
+        "quote": {"type": ["string", "null"]},
+    },
+}
+
+CLAUSE_INSTRUCTION = """You read ONE sentence of an engineering standard. Say
+whether it sets a limit a datasheet value can be checked against. If it does:
+- field: the datasheet quantity it limits, in a few words;
+- operator: one of <=, <, >=, >, =;
+- value: the figure exactly as printed;
+- unit: the unit exactly as printed next to the figure, or null;
+- condition: the words saying when the limit applies, copied exactly, or null;
+- quote: the exact words of the sentence the limit stands on, copied
+  character for character.
+If it sets no limit, answer has_limit false and null for the rest. Clause,
+table and page numbers are not limits."""
+
+CLAUSE_TASK = ai_task_runner.register(ai_task_runner.TaskSpec(
+    name="clause_check_proposal",
+    version="v1",
+    instruction=CLAUSE_INSTRUCTION,
+    schema=CLAUSE_SCHEMA,
+    num_predict=300,
+))
+
+#: Why a proposed check was refused - plain words for the run report; never
+#: the clause text.
+NO_LIMIT = "the model found no limit in the sentence"
+FIELD_MISSING = "no field was proposed"
+VALUE_MISSING = "no value was proposed"
+VALUE_NOT_IN_QUOTE = "the value is not in the quoted words"
+UNIT_UNRECOGNISED = "the unit is not a unit"
+UNIT_NOT_IN_QUOTE = "the unit is not in the quoted words"
+OPERATOR_DISAGREED = "the operator is not the one the words state"
+CONDITION_MISSING = "the sentence is conditional and no condition was proposed"
+CONDITION_NOT_IN_SOURCE = "the condition is not in the sentence"
+#: A sentence the review could not decide and the model was asked about.
+STATEMENT = "statement"
+
+
+def _whole(needle: str, text: str) -> bool:
+    """`needle` stands whole in `text`: no LETTER either side, so "m3/h" is
+    not found inside "Nm3/h", while "10%" and "50mm" still hold their unit."""
+    needle = _squash(needle)
+    return bool(needle) and re.search(
+        r"(?<![^\W\d_])" + re.escape(needle) + r"(?![^\W\d_])", _squash(text)) is not None
+
+
+def _is_conditional(sentence: str) -> bool:
+    """Does the sentence hold only under a circumstance? Errs towards YES: a
+    refused proposal costs a look; a condition dropped decides a case the
+    clause does not cover."""
+    from . import field_links, requirements_3b
+
+    return bool(requirements_3b.parse_condition(sentence)
+                or field_links._CONDITION.search(sentence or ""))
+
+
+def verify_proposal(proposal: dict, sentence: str) -> tuple[dict | None, str | None]:
+    """(check, None) when CODE confirms every part of the model's proposal
+    against the sentence, else (None, why). A check is
+    {field, operator, value, unit, condition, quote}; its value, unit and
+    operator are the ones code read from the quote."""
+    from . import claims
+
+    if not proposal.get("has_limit"):
+        return None, NO_LIMIT
+    field, value = hint(proposal.get("field")), hint(proposal.get("value"))
+    unit, condition = hint(proposal.get("unit")), hint(proposal.get("condition"))
+    quote = proposal.get("quote") or ""
+    if not quote.strip() or _squash(quote) not in _squash(sentence):
+        return None, QUOTE_NOT_IN_SOURCE
+    if field is None:
+        return None, FIELD_MISSING
+    if value is None:
+        return None, VALUE_MISSING
+    if not numparse.value_in_text(value, quote):
+        return None, VALUE_NOT_IN_QUOTE
+    if unit is not None:
+        if claims.unit_dimension(unit) is None and not claims.is_unit(unit):
+            return None, UNIT_UNRECOGNISED
+        if not _whole(unit, quote):
+            return None, UNIT_NOT_IN_QUOTE
+    figures = read_figures(quote)
+    if figures and not _hints_agree({"value": value, "unit": unit}, figures):
+        return None, MODEL_VALUE_DISAGREED
+    read = next((f for f in figures if numparse.value_in_text(value, f"{f['value']} {f['unit']}")), None)
+    operator = hint(proposal.get("operator"))
+    if read is not None and read["operator"] and operator and operator != read["operator"]:
+        return None, OPERATOR_DISAGREED
+    if condition is not None and _squash(condition) not in _squash(sentence):
+        return None, CONDITION_NOT_IN_SOURCE
+    if condition is None and _is_conditional(sentence):
+        return None, CONDITION_MISSING
+    return {"field": field, "operator": (read or {}).get("operator") or operator,
+            "value": (read or {}).get("value") or value, "unit": (read or {}).get("unit") or unit,
+            "condition": condition, "quote": quote.strip()}, None
+
+
+def undecided_statements(requirements: list[dict], status_of: dict) -> list[dict]:
+    """The clause sentences of this run the review could not turn into a
+    decision: stored with no limit (`statement`) and left with no finding, or
+    with one that only says no field matched or an engineer must look."""
+    from . import comparison
+
+    open_states = {None, comparison.NOT_IN_DOCUMENT_SCOPE, comparison.NEEDS_ENGINEER_REVIEW}
+    return [r for r in requirements
+            if r.get("requirement_type") == STATEMENT and status_of.get(r.get("id")) in open_states]
+
+
+def ensure_schema() -> None:
+    """Drafts only. A proposed check is never a requirement: the engineer
+    approves it into one, or rejects it (#645)."""
+    from .db import connect
+
+    conn = connect()
+    with conn:
+        conn.execute("""CREATE TABLE IF NOT EXISTS clause_check_drafts (
+            requirement_id TEXT NOT NULL,
+            field TEXT NOT NULL,
+            operator TEXT,
+            value TEXT NOT NULL,
+            unit TEXT,
+            condition TEXT,
+            quote TEXT NOT NULL,
+            model TEXT,
+            review_run_id TEXT,
+            status TEXT NOT NULL DEFAULT 'draft',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (requirement_id, field, value, unit))""")
+
+
+def propose_checks(requirements: list[dict], *, review_run_id: str | None = None,
+                   limit: int, provider=None) -> dict:
+    """Ask the local model for a check per undecided clause sentence (at most
+    `limit` per run), verify each in code, store what passes as a draft.
+    Returns the run report's counts: {sentences, asked, proposed, refused
+    {why: n}, could_not_read, not_asked_budget}. Every count is out of
+    `sentences`."""
+    from .db import connect
+
+    asked = proposed = unread = 0
+    model = None
+    refused: dict[str, int] = {}
+    drafts = []
+    for requirement in requirements[:max(limit, 0)]:
+        sentence = requirement.get("source_text") or requirement.get("requirement_text") or ""
+        asked += 1
+        result = ai_task_runner.run_task(CLAUSE_TASK, sentence, provider=provider)
+        if result.state != ai_task_runner.STATE_OK:
+            unread += 1
+            continue
+        check, why = verify_proposal(result.data, sentence)
+        if check is None:
+            refused[why] = refused.get(why, 0) + 1
+            continue
+        proposed += 1
+        drafts.append((requirement["id"], check, result.model))
+        model = model or result.model
+    if drafts:
+        ensure_schema()
+        conn = connect()
+        with conn:
+            conn.executemany(
+                "INSERT OR IGNORE INTO clause_check_drafts (requirement_id, field, operator, value,"
+                " unit, condition, quote, model, review_run_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [(rid, c["field"], c["operator"], c["value"], c["unit"] or "", c["condition"],
+                  c["quote"], model, review_run_id) for rid, c, model in drafts])
+    return {"sentences": len(requirements), "asked": asked, "proposed": proposed,
+            "refused": refused, "could_not_read": unread,
+            "not_asked_budget": max(len(requirements) - max(limit, 0), 0),
+            # the local runner's model (`ai_task_runner`); None when none answered
+            "model": model}
+
+
+def report_line(counts: dict | None) -> str | None:
+    """"N of M sentence requirements now have a proposed check", with what
+    happened to the rest - or None when the step did not run."""
+    if not counts:
+        return None
+    refused = sum(counts.get("refused", {}).values())
+    line = (f"{counts['proposed']} of {counts['sentences']} sentence requirement(s) now have a "
+            f"proposed check (drafts for the engineer); {refused} proposal(s) refused by code, "
+            f"{counts['could_not_read']} not read by the model")
+    if counts.get("not_asked_budget"):
+        line += f", {counts['not_asked_budget']} not asked (the per-run cap)"
+    return line + "."

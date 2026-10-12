@@ -90,6 +90,9 @@ TEST_PINS: dict[str, object] = {
     # On by default since #763 R26 step 8 (owner rule "AI-first", 11 Oct);
     # in tests it would be a model call per CRS row per review.
     "crs_ai_wording_enabled": False,
+    # On by default since #645 (owner rule "AI-first", 11 Oct); in tests it
+    # would be a model call per undecided clause sentence per review.
+    "ai_clause_checks_enabled": False,
 }
 
 #: The only values these fields may hold when a test session starts. A test
@@ -134,6 +137,9 @@ EGRESS_SAFE: dict[str, object] = {
     # #647: the review's AI applicability tier calls the local model once per
     # requirement - off, like the model matcher above.
     "ai_applicability_enabled": False,
+    # #645: one local model call per undecided clause sentence - off, like
+    # the applicability tier; its own tests switch it on with a fake model.
+    "ai_clause_checks_enabled": False,
     # --- notifications (SMTP)
     "smtp_enabled": False,
     "smtp_host": "",

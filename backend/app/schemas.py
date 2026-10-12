@@ -2528,6 +2528,8 @@ class AiNumbers(BaseModel):
     matcher: AiStepNumbers | None = None
     engineering_check: AiStepNumbers | None = None
     wording: AiStepNumbers | None = None
+    #: #645: proposed checks for the clause sentences the run could not decide.
+    clause_checks: AiStepNumbers | None = None
 
 
 class ReviewRunSummary(BaseModel):

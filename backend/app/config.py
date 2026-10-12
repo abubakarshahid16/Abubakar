@@ -400,6 +400,15 @@ class Settings(BaseSettings):
     #: `ai_task_model`. At most this many requirements per run are asked.
     ai_applicability_enabled: bool = False
     ai_applicability_max_per_run: int = 200
+    #: #645 clause to check: for each clause sentence stored with no limit
+    #: that the review could not decide, the local model PROPOSES a check
+    #: (field, limit, unit, condition, quote); code verifies every part
+    #: against the sentence and keeps what passes as a DRAFT for the engineer
+    #: - never a verdict. ON by default (#805 rule 1, AI-first); the model is
+    #: `ai_task_model`, so standards text stays on this machine. At most this
+    #: many sentences per run are asked (one model call each).
+    ai_clause_checks_enabled: bool = True
+    ai_clause_checks_max_per_run: int = 20
 
     # Measured on the target CPU - see docs/benchmarks.md
     num_thread: int = 12

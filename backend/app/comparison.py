@@ -2472,6 +2472,18 @@ def _run_comparison(
     scope_counts = scope_ledger.check_complete(in_scope_all, decisions)
     scope_ledger.store(review_run_id, decisions)
 
+    # #645 CLAUSE TO CHECK: a clause sentence stored with no limit that this
+    # run could not decide is offered to the local model, which proposes a
+    # check; code verifies it against the sentence and keeps it as a DRAFT for
+    # the engineer. After the findings are written: nothing here changes a
+    # verdict of this run or any other. See `ai_requirements.propose_checks`.
+    clause_checks = None
+    if settings.ai_clause_checks_enabled:
+        from . import ai_requirements
+        clause_checks = ai_requirements.propose_checks(
+            ai_requirements.undecided_statements(requirements, status_of),
+            review_run_id=review_run_id, limit=settings.ai_clause_checks_max_per_run)
+
     # OWNER ORDER 2c: DATASHEET SELF-CHECKS (kind B) - the sheet against
     # itself, pure arithmetic, no standard needed. Written before the code is
     # recommended, so a design pressure below the operating pressure counts
@@ -2502,6 +2514,8 @@ def _run_comparison(
         # per-requirement ledger above is built from
         scoped["not_applied_items"] + extra_not_applied,
         covered_items)
+    if clause_checks is not None:
+        split = {**split, "clause_checks": clause_checks}
     if checklist_note:
         split = {**split, "checklist": checklist_note}
     if checklist_coverage:
@@ -2550,6 +2564,7 @@ def _run_comparison(
         "requirement_split": split,
         "service_declarations": service_declarations,
         "ai_applicability": ai_applicability_summary,
+        "clause_checks": clause_checks,
         "requirements_held_back": held_back,
         "standards_not_checked": unchecked_standards,
         "requirements_after_table_gate": in_scope,

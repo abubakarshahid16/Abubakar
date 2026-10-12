@@ -31,6 +31,16 @@ describe("AiNumbersPanel", () => {
     expect(within(wording).getByText("incomplete, cloud model")).toBeInTheDocument();
   });
 
+  it("#645: prints the AI clause checks line after the other steps", () => {
+    const line = "2 of 5 sentence requirement(s) now have a proposed check (drafts for the engineer); "
+      + "1 proposal(s) refused by code, 2 not read by the model.";
+    render(<AiNumbersPanel numbers={{ ...NUMBERS,
+      clause_checks: step({ step: "AI clause checks", state: "incomplete", lines: [line] }) }} />);
+    const checks = screen.getByTestId("ai-step-AI clause checks");
+    expect(within(checks).getByText(line)).toBeInTheDocument();
+    expect(within(checks).getByText("incomplete, local model")).toBeInTheDocument();
+  });
+
   it("leaves out a step with no record instead of showing a zero", () => {
     render(<AiNumbersPanel numbers={NUMBERS} />);
     expect(screen.queryByTestId("ai-step-AI engineering check")).toBeNull();
