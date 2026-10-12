@@ -365,6 +365,42 @@ class RequirementDecisionRequest(BaseModel):
                           "person's statement, not a machine's guess")
 
 
+class ClauseCheckDraft(BaseModel):
+    """#645: a check the AI proposed for a clause sentence and code verified,
+    waiting for the engineer. Never used for a verdict until accepted."""
+    id: str
+    requirement_id: str
+    standard_document_id: str
+    clause: str | None = None
+    page: int | None = None
+    #: the clause sentence the draft stands on
+    source_text: str | None = None
+    field: str
+    operator: str | None = None
+    value: str
+    unit: str | None = None
+    condition: str | None = None
+    #: the exact words of the sentence the limit stands on
+    quote: str
+    model: str | None = None
+    #: draft / accepted / rejected / replaced
+    status: str
+    decided_at: str | None = None
+    new_requirement_id: str | None = None
+
+
+class ClauseCheckDecisionRequest(BaseModel):
+    decision: Literal["accept", "reject"]
+
+
+class ClauseCheckDecisionResult(BaseModel):
+    id: str
+    decision: str
+    status: str
+    #: the confirmed requirement an accepted draft became
+    new_requirement_id: str | None = None
+
+
 class Job(BaseModel):
     """B11: one background job, as its caller may see it.
 

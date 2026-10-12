@@ -53,6 +53,7 @@ document, a standard or a clause.
 from __future__ import annotations
 
 import re
+import uuid
 
 from . import ai_task_runner, numparse, standard_ids
 
@@ -472,6 +473,15 @@ def ensure_schema() -> None:
             status TEXT NOT NULL DEFAULT 'draft',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (requirement_id, field, value, unit))""")
+    # #645 part 2: the engineer's decision on a draft. `id` names a draft in
+    # a URL; `new_requirement_id` is the confirmed row an accepted draft became.
+    from .db import add_column_if_missing
+    for column, kind in (("id", "TEXT"), ("decided_by", "TEXT"), ("decided_at", "TEXT"),
+                         ("new_requirement_id", "TEXT")):
+        add_column_if_missing(conn, "clause_check_drafts", column, kind)
+    with conn:
+        conn.execute("UPDATE clause_check_drafts SET id = lower(hex(randomblob(16)))"
+                     " WHERE id IS NULL")
 
 
 def propose_checks(requirements: list[dict], *, review_run_id: str | None = None,
@@ -505,11 +515,15 @@ def propose_checks(requirements: list[dict], *, review_run_id: str | None = None
         ensure_schema()
         conn = connect()
         with conn:
+            # INSERT OR IGNORE: a proposal the engineer already rejected (or
+            # accepted) for the same words is not offered again.
             conn.executemany(
-                "INSERT OR IGNORE INTO clause_check_drafts (requirement_id, field, operator, value,"
-                " unit, condition, quote, model, review_run_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [(rid, c["field"], c["operator"], c["value"], c["unit"] or "", c["condition"],
-                  c["quote"], model, review_run_id) for rid, c, model in drafts])
+                "INSERT OR IGNORE INTO clause_check_drafts (id, requirement_id, field, operator,"
+                " value, unit, condition, quote, model, review_run_id)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [(uuid.uuid4().hex, rid, c["field"], c["operator"], c["value"], c["unit"] or "",
+                  c["condition"], c["quote"], model, review_run_id)
+                 for rid, c, model in drafts])
     return {"sentences": len(requirements), "asked": asked, "proposed": proposed,
             "refused": refused, "could_not_read": unread,
             "not_asked_budget": max(len(requirements) - max(limit, 0), 0),
@@ -529,3 +543,131 @@ def report_line(counts: dict | None) -> str | None:
     if counts.get("not_asked_budget"):
         line += f", {counts['not_asked_budget']} not asked (the per-run cap)"
     return line + "."
+
+
+# ------------------------------------------- the engineer decides (part 2)
+
+ACCEPTED, REJECTED, DRAFT, REPLACED = "accepted", "rejected", "draft", "replaced"
+
+
+class DraftError(ValueError):
+    """A draft that cannot be decided, with why (plain words, no clause text)."""
+
+
+def list_drafts(*, allowed_document_ids: frozenset[str], status: str = DRAFT,
+                limit: int = 200) -> list[dict]:
+    """Drafts of the standards the caller may read, with the clause sentence
+    they stand on and where it is. Read only."""
+    from .db import connect
+
+    # READ ONLY (a GET): no schema work here. Before the first draft is
+    # written - or before part 2's columns exist - there is nothing to list.
+    columns = {r["name"] for r in connect().execute("PRAGMA table_info(clause_check_drafts)")}
+    if not allowed_document_ids or "id" not in columns:
+        return []
+    marks = ",".join("?" * len(allowed_document_ids))
+    rows = connect().execute(
+        "SELECT d.id, d.requirement_id, d.field, d.operator, d.value, d.unit, d.condition,"
+        " d.quote, d.model, d.status, d.decided_at, d.new_requirement_id,"
+        " r.standard_document_id, r.clause, r.page, r.source_text"
+        " FROM clause_check_drafts d JOIN standard_requirements r ON r.id = d.requirement_id"
+        f" WHERE r.standard_document_id IN ({marks}) AND d.status = ?"
+        " ORDER BY r.standard_document_id, r.clause, d.created_at LIMIT ?",
+        [*sorted(allowed_document_ids), status, limit]).fetchall()
+    return [{**dict(r), "unit": r["unit"] or None} for r in rows]
+
+
+def _draft(conn, draft_id: str, allowed_document_ids: frozenset[str]):
+    row = conn.execute(
+        "SELECT d.*, r.standard_document_id, r.chunk_id, r.clause, r.page, r.requirement_text,"
+        " r.source_text, r.requirement_type, r.superseded_at"
+        " FROM clause_check_drafts d JOIN standard_requirements r ON r.id = d.requirement_id"
+        " WHERE d.id = ?", (draft_id,)).fetchone()
+    # "not found" is the same answer as "not yours"
+    if row is None or row["standard_document_id"] not in allowed_document_ids:
+        raise DraftError("no clause-check draft with that id")
+    return row
+
+
+def decide_draft(draft_id: str, *, decision: str, allowed_document_ids: frozenset[str],
+                 actor: dict | None = None) -> dict:
+    """The engineer accepts or rejects one draft (#645 part 2).
+
+    ACCEPT IS CHECKED BY CODE AGAIN, then VERSIONED, never edited in place:
+    the proposal is verified against the sentence once more
+    (`verify_proposal`), its operator must not point the opposite way to the
+    sentence (`requirements_3b.contradicts_source`), and its value and unit
+    are normalised by the parser's own `measure`. A NEW requirement row is
+    written - a numeric limit, `extraction_method='human'`, confirmed by the
+    engineer - and the sentence row it came from is SUPERSEDED, not deleted:
+    findings that cited it keep their citation. Reviews use the new row from
+    the next run. The draft keeps the decision, who made it and the new row.
+
+    REJECT keeps the draft, marked rejected with the engineer's name, so the
+    same proposal for the same words is not offered again.
+    """
+    from . import requirements_3b, standards
+    from .db import connect
+
+    if decision not in {"accept", "reject"}:
+        raise DraftError(f"unknown decision {decision!r}")
+    ensure_schema()
+    conn = connect()
+    row = _draft(conn, draft_id, allowed_document_ids)
+    if row["status"] != DRAFT:
+        raise DraftError(f"this draft was already {row['status']}")
+    now = standards._now()
+    who = (actor or {}).get("id")
+    if decision == "reject":
+        with conn:
+            conn.execute("UPDATE clause_check_drafts SET status = ?, decided_by = ?, decided_at = ?"
+                         " WHERE id = ?", (REJECTED, who, now, draft_id))
+        standards._audit("standard.clause_check_rejected", actor, row["standard_document_id"],
+                         detail=f"draft={draft_id} requirement={row['requirement_id']}"
+                                f" clause={row['clause']}")
+        return {"id": draft_id, "decision": "reject", "status": REJECTED,
+                "new_requirement_id": None}
+
+    if row["superseded_at"] or row["requirement_type"] != STATEMENT:
+        raise DraftError("the clause sentence has changed since this draft was proposed")
+    sentence = row["source_text"] or row["requirement_text"] or ""
+    check, why = verify_proposal(
+        {"has_limit": True, "field": row["field"], "operator": row["operator"],
+         "value": row["value"], "unit": row["unit"] or None, "condition": row["condition"],
+         "quote": row["quote"]}, sentence)
+    if check is None:
+        raise DraftError(f"code refused the draft: {why}")
+    if check["operator"] is None:
+        raise DraftError("code refused the draft: no operator could be read")
+    raw_unit = requirements_3b.unit_token(check["unit"]) if check["unit"] else None
+    measured = requirements_3b.measure(check["value"], raw_unit)
+    limit = {"operator": check["operator"], "raw_value": check["value"], "raw_unit": raw_unit,
+             "value": measured.normalized_value, "unit": measured.normalized_unit}
+    if limit["value"] is None:
+        raise DraftError("code refused the draft: the value is not a number")
+    if requirements_3b.contradicts_source(limit, sentence):
+        raise DraftError("code refused the draft: the operator points the opposite way to "
+                         "the sentence")
+    new = standards.create_requirement(
+        standard_document_id=row["standard_document_id"], chunk_id=row["chunk_id"],
+        requirement_text=row["requirement_text"], source_text=row["source_text"] or sentence,
+        clause=row["clause"], page=row["page"], extraction_method="human",
+        structured={"requirement_type": "numeric_limit", "field": check["field"],
+                    "subject": check["field"], "condition": check["condition"], **limit})
+    with conn:
+        conn.execute("UPDATE standard_requirements SET confirmed_by = ?, confirmed_at = ?,"
+                     " updated_at = ? WHERE id = ?", (who, now, now, new["id"]))
+        conn.execute("UPDATE standard_requirements SET superseded_at = ?, updated_at = ?"
+                     " WHERE id = ?", (now, now, row["requirement_id"]))
+        conn.execute("UPDATE clause_check_drafts SET status = ?, decided_by = ?, decided_at = ?,"
+                     " new_requirement_id = ? WHERE id = ?",
+                     (ACCEPTED, who, now, new["id"], draft_id))
+        # the sentence has its check now: its other drafts are moot
+        conn.execute("UPDATE clause_check_drafts SET status = ?, decided_at = ?"
+                     " WHERE requirement_id = ? AND status = ?",
+                     (REPLACED, now, row["requirement_id"], DRAFT))
+    standards._audit("standard.clause_check_accepted", actor, row["standard_document_id"],
+                     detail=f"draft={draft_id} requirement={row['requirement_id']}"
+                            f" new={new['id']} clause={row['clause']}")
+    return {"id": draft_id, "decision": "accept", "status": ACCEPTED,
+            "new_requirement_id": new["id"]}
