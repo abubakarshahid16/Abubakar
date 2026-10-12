@@ -30,7 +30,7 @@ PATCH /repos/... secret_scanning -> HTTP 422  "Secret scanning is not available 
 
 - **`.githooks/pre-commit`** — blocks secrets and client documents *before* they enter git history. This is **stronger than GHAS**, which only alerts after a push.
 - **`secret-scan` workflow** — gitleaks 8.30.1 pinned by version **and** verified by SHA-256 checksum, rather than a wrapper action. `actions/checkout` pinned to full commit SHA. `permissions: contents: read`.
-- **`no-client-data` CI job** — not required by the plan. Fails any PR tracking `.pdf`, `.onnx`, `.gguf`, `.safetensors`, `.sqlite`, `.db`, `.lance` or `.env` outside `tests/fixtures/synthetic/`. The highest-consequence leak here is a committed client PDF, not an API key.
+- **`no-client-data` CI job** — not required by the plan. Fails any PR tracking `.pdf`, `.onnx`, `.gguf`, `.safetensors`, `.sqlite`, `.db`, `.lance` or `.env` outside `backend/tests/fixtures/synthetic/`. The highest-consequence leak here is a committed client PDF, not an API key.
 - **`.gitignore`** reproducing §9 verbatim plus platform additions.
 - **CODEOWNERS** — retained, annotated as advisory-only on this tier.
 
@@ -38,7 +38,7 @@ PATCH /repos/... secret_scanning -> HTTP 422  "Secret scanning is not available 
 
 - Fake AWS key + RSA private key staged → `leaks found: 1`, commit rejected, `git log` unchanged.
 - Client PDF staged at repo root → `BLOCKED: forbidden file type staged`, commit rejected.
-- Synthetic fixture under `tests/fixtures/synthetic/` → correctly allowed.
+- Synthetic fixture under `backend/tests/fixtures/synthetic/` → correctly allowed.
 - CI run `33796984643` → both jobs `success`.
 
 ## Consequences
