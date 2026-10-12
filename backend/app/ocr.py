@@ -748,3 +748,79 @@ def recognise_document(doc_id: str, progress=None, max_pages: int | None = None)
         "seconds": timer.seconds(), "batches": len(batches),
         "model": model,
     }
+
+
+# ------------------------------------------------------- one page, at view time
+
+#: #508: how long the side-by-side view waits for one scanned page's lines.
+PAGE_LINES_TIMEOUT_S = 60
+
+#: (stored_path, sha256, page_no) -> lines. Only successes are kept: an engine
+#: that failed once is asked again next time, not remembered as "no text".
+_PAGE_LINES: dict[tuple[str, str, int], list[tuple[str, tuple[float, float, float, float]]]] = {}
+_PAGE_LINES_MAX = 32
+
+
+class PageLinesUnavailable(RuntimeError):
+    """The page could not be recognised here (no engine, a failed page, a
+    worker that died or took too long). The message names the cause in
+    words; it never carries document text."""
+
+
+def recognise_page_lines(stored_path: str, sha256: str, page_no: int) -> list[tuple]:
+    """One page's recognised lines as (text, (x0, y0, x1, y1)) in PDF user
+    space - the coordinates `highlight.locate` returns, so a box drawn from a
+    recognised line lands where one drawn from the text layer would. Runs in
+    a WORKER PROCESS, like `recognise_batch`, with the same engine, models
+    and DPI."""
+    import pymupdf
+
+    from .pageimage import render_page
+
+    ocr = _build_engine()
+    image = render_page({"sha256": sha256, "stored_path": stored_path}, page_no,
+                        dpi=settings.ocr_dpi)
+    res = ocr(str(image))
+    texts = list(res.txts) if res.txts else []
+    boxes = getattr(res, "boxes", None)
+    boxes = list(boxes) if boxes is not None else []
+    scale = settings.ocr_dpi / 72.0
+    with pymupdf.open(stored_path) as doc:
+        derotate = doc.load_page(page_no - 1).derotation_matrix
+    out: list[tuple] = []
+    for text, box in zip(texts, boxes):
+        try:
+            xs = [float(pt[0]) / scale for pt in box]
+            ys = [float(pt[1]) / scale for pt in box]
+        except (TypeError, ValueError, IndexError):
+            continue
+        r = pymupdf.Rect(min(xs), min(ys), max(xs), max(ys)) * derotate
+        out.append((normalise_text(str(text)), (r.x0, r.y0, r.x1, r.y1)))
+    return out
+
+
+def page_lines(stored_path: str, sha256: str, page_no: int) -> list[tuple]:
+    """#508: the recognised lines of one scanned page, for placing a box on
+    it. In a child process (the module docstring says why), one page, and
+    remembered for the next request - the evidence route and the evidence
+    image both ask. Raises `PageLinesUnavailable` when it cannot be done."""
+    key = (stored_path, sha256, int(page_no))
+    if key in _PAGE_LINES:
+        return _PAGE_LINES[key]
+    pool = cf.ProcessPoolExecutor(max_workers=1)
+    try:
+        lines = pool.submit(recognise_page_lines, stored_path, sha256,
+                            int(page_no)).result(timeout=PAGE_LINES_TIMEOUT_S)
+    except cf.TimeoutError:
+        # the child is stopped, not left recognising behind the request
+        for proc in list(getattr(pool, "_processes", {}).values()):
+            proc.kill()
+        raise PageLinesUnavailable("recognition took too long") from None
+    except Exception as exc:  # noqa: BLE001 - a missing model or dead worker is "could not read", named
+        raise PageLinesUnavailable(f"recognition could not run: {type(exc).__name__}") from None
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+    if len(_PAGE_LINES) >= _PAGE_LINES_MAX:
+        _PAGE_LINES.pop(next(iter(_PAGE_LINES)))
+    _PAGE_LINES[key] = lines
+    return lines

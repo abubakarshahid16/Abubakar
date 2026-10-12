@@ -22,14 +22,25 @@ const BOXED: Record<string, string> = {
   value_once: "The value read is boxed (it appears once on this page).",
   label: "The field's label is boxed; the value read sits beside it.",
   where_to_look: "No value was found. The field's label is boxed - the only place the datasheet prints it; look beside it.",
+  ocr_line: "A scanned page: the line holding the cited text is boxed, as the OCR read it - check the words on the page.",
 };
 
-export function EvidencePageImage({ findingId, side, page, box }: {
+const UNPLACED = "The cited text could not be placed on this page, so no box is drawn - read the page itself.";
+
+/** #508: the server's reason, as a sentence. */
+function sentence(text: string): string {
+  const t = text.trim();
+  return t ? `${t[0].toUpperCase()}${t.slice(1)}${/[.!?]$/.test(t) ? "" : "."}` : t;
+}
+
+export function EvidencePageImage({ findingId, side, page, box, reason }: {
   findingId: string;
   side: "submittal" | "standard";
   page: number;
   /** #785: the kind of box the server draws, from the evidence route. */
   box?: string | null;
+  /** #508: why the page has no box, when the server knows (a scanned page). */
+  reason?: string | null;
 }) {
   const image = useAuthedImage(reviewsApi.evidenceImageUrl(findingId, side));
   if (image.loading) {
@@ -47,7 +58,7 @@ export function EvidencePageImage({ findingId, side, page, box }: {
       <p data-testid="evidence-located" className="text-xs text-slateish-400">
         {image.answerLocated === true
           ? (box && BOXED[box]) || BOXED.quote
-          : "The cited text could not be placed on this page, so no box is drawn - read the page itself."}
+          : reason ? sentence(reason) : UNPLACED}
       </p>
       <img
         src={image.src}
