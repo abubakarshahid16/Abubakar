@@ -153,3 +153,81 @@ def test_resolving_the_evidence_writes_nothing(world, tmp_path):
     _get(finding["id"], world["admin"], side="submittal")
     after = dict(connect().execute("SELECT * FROM review_findings WHERE id = ?", (finding["id"],)).fetchone())
     assert after == before
+
+
+# ------------------------------------------- no value found: where to look
+
+def _pages_pdf(path, *texts):
+    import pymupdf
+    with pymupdf.open() as doc:
+        for text in texts:
+            page = doc.new_page()
+            if text:
+                page.insert_text((72, 100), text, fontsize=11)
+        doc.save(str(path))
+    return str(path)
+
+
+def _no_value_row(world, finding, tmp_path, *pages, field="Noise level"):
+    """A checklist row the reader found no value for (like PSV-11): no page,
+    no value, no fact - only the field's name."""
+    _set(finding["id"], origin="datasheet_check", contractor_page=None, contractor_evidence_text=None,
+         fact_id=None, contractor_section=field, compliance_status="MISSING_INFORMATION")
+    with connect() as conn:
+        conn.execute("UPDATE documents SET stored_path = ? WHERE id = ?",
+                     (_pages_pdf(tmp_path / "sheet.pdf", *pages), world["sub"]))
+
+
+def test_no_value_found_boxes_the_label_printed_once_as_where_to_look(world, tmp_path):
+    finding = _reviewed(world, tmp_path)
+    _no_value_row(world, finding, tmp_path, "Service: water", "Noise level:      Tag: P-101")
+    side = _evidence(finding["id"], world["admin"]).json()["submittal"]
+    assert (side["page"], side["box"], side["reason"]) == (2, "where_to_look", None)
+    r = _get(finding["id"], world["admin"], side="submittal")
+    assert (r.status_code, r.headers["x-answer-located"], r.headers["x-evidence-box"],
+            r.headers["x-evidence-page"]) == (200, "1", "where_to_look", "2")
+
+
+def test_no_value_found_with_the_label_printed_twice_draws_no_box_and_names_the_pages(world, tmp_path):
+    finding = _reviewed(world, tmp_path)
+    _no_value_row(world, finding, tmp_path, "Noise level:", "Service: water", "Noise level at 1 m:")
+    side = _evidence(finding["id"], world["admin"]).json()["submittal"]
+    assert (side["page"], side["box"], side["document_id"]) == (None, None, None)
+    assert "printed 2 times (pages 1, 3), so no box is drawn" in side["reason"]
+    assert _get(finding["id"], world["admin"], side="submittal").status_code == 404
+
+
+def test_no_value_found_with_the_label_not_printed_says_where_to_check_in_words(world, tmp_path):
+    finding = _reviewed(world, tmp_path)
+    _no_value_row(world, finding, tmp_path, "Service: water", "Tag: P-101")
+    side = _evidence(finding["id"], world["admin"]).json()["submittal"]
+    assert (side["page"], side["box"]) == (None, None)
+    assert side["reason"] == ("no value was found for Noise level, and its label is not printed on the "
+                              "datasheet (pages 1, 2 searched) - check the section where Noise level "
+                              "would be given, or ask the contractor for it")
+
+
+def test_a_page_with_no_text_layer_means_the_label_found_once_is_not_proven_once(world, tmp_path):
+    finding = _reviewed(world, tmp_path)
+    _no_value_row(world, finding, tmp_path, "Noise level:", "")
+    side = _evidence(finding["id"], world["admin"]).json()["submittal"]
+    assert (side["page"], side["box"]) == (None, None)
+    assert "page 2 has no text layer, so check it by eye" in side["reason"]
+
+
+def test_a_row_that_is_not_a_checklist_row_still_cites_no_page(world, tmp_path):
+    finding = _reviewed(world, tmp_path)
+    _no_value_row(world, finding, tmp_path, "Noise level:")
+    _set(finding["id"], origin="comparison")
+    side = _evidence(finding["id"], world["admin"]).json()["submittal"]
+    assert (side["page"], side["reason"]) == (None, "this finding cites no submittal page")
+
+
+def test_showing_where_to_look_writes_nothing(world, tmp_path):
+    finding = _reviewed(world, tmp_path)
+    _no_value_row(world, finding, tmp_path, "Noise level:")
+    before = dict(connect().execute("SELECT * FROM review_findings WHERE id = ?", (finding["id"],)).fetchone())
+    _evidence(finding["id"], world["admin"])
+    _get(finding["id"], world["admin"], side="submittal")
+    after = dict(connect().execute("SELECT * FROM review_findings WHERE id = ?", (finding["id"],)).fetchone())
+    assert after == before

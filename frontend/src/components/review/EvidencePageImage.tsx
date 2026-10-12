@@ -21,6 +21,7 @@ const BOXED: Record<string, string> = {
   source_line: "The line the value was read from is boxed.",
   value_once: "The value read is boxed (it appears once on this page).",
   label: "The field's label is boxed; the value read sits beside it.",
+  where_to_look: "No value was found. The field's label is boxed - the only place the datasheet prints it; look beside it.",
 };
 
 export function EvidencePageImage({ findingId, side, page, box }: {
