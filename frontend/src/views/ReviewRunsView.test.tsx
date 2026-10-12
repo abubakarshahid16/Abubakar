@@ -429,3 +429,23 @@ describe("#678: the three groups of requirements", () => {
     expect(screen.queryByTestId("requirement-split")).toBeNull();
   });
 });
+
+describe("#791: a count in the review steps opens the findings it counts", () => {
+  it("clicking a status count shows only that status in the findings", async () => {
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({
+      findings_total: 2, by_status: { COMPLIANT: 1, NON_COMPLIANT: 1 } })] } });
+    list.mockResolvedValue({ ok: true, data: { findings: [
+      { id: "f1", document_id: "doc-sub", finding: "x", compliance_status: "COMPLIANT",
+        requirement: "Met requirement." },
+      { id: "f2", document_id: "doc-sub", finding: "y", compliance_status: "NON_COMPLIANT",
+        requirement: "Breached requirement." },
+    ] } });
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    expect(await screen.findByText("Breached requirement.")).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("button", { name: /^Compliant 1 of 2/ }));
+    expect(screen.getByText("Met requirement.")).toBeInTheDocument();
+    expect(screen.queryByText("Breached requirement.")).toBeNull();
+    expect(screen.getByLabelText("Filter by status")).toHaveValue("COMPLIANT");
+  });
+});

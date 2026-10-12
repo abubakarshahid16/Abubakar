@@ -174,6 +174,15 @@ describe("B9: a requirement that needs another document", () => {
     return rows;
   }
 
+  it("#791: opened from a count, it shows that status - folded rows included", () => {
+    render(<FindingsTable findings={mixedRun()} selectedId={null} onSelect={vi.fn()}
+                          initialStatus="NOT_IN_DOCUMENT_SCOPE" />);
+    expect(screen.getByLabelText("Filter by status")).toHaveValue("NOT_IN_DOCUMENT_SCOPE");
+    expect(screen.getByText(/40 of 44/)).toBeInTheDocument();
+    // asked for by name, so not folded away
+    expect(screen.getByText("Statement 0")).toBeInTheDocument();
+  });
+
   it("is collapsed behind its OWN count, never inside 'no evidence'", () => {
     render(<FindingsTable findings={mixedRun()} selectedId={null} onSelect={vi.fn()} />);
 
