@@ -907,9 +907,144 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
                  (f"{UNVERIFIED_LABEL}. {LABEL}. Relates to: {relates}." if unverified
                   else f"{LABEL}. Relates to: {relates or 'no standard named'}."),
                  finding["id"]))
+    # #501: every draft says which engine wrote it.
+    with conn:
+        conn.execute(
+            "UPDATE review_findings SET ai_rationale = ai_rationale || ? WHERE review_run_id = ?"
+            f" AND origin = ? AND ai_rationale NOT LIKE '%Written by %' AND {review_mod.UNDECIDED_SQL}",
+            (_written_by(engine), review_run_id, ORIGIN))
     return {"ran": True, "reason": reason, "proposed": proposed_total, "kept": len(all_kept),
             "rejected": rejected, "cost_usd": round(cost_total, 6), "complete": complete,
             "calls_made": calls_made, "local_instead": local_instead}
+
+
+# ------------------------------------- #501: the datasheet-only opinion
+#
+# OWNER DECISION 2026-10-12: Claude may be used for the AI engineering check
+# on datasheets the owner approved - and standards text may not go. The check
+# above lists the held standards and their clauses, so the approved-document
+# lock refuses it on the cloud lane (and #838 runs it locally). This is a
+# SECOND opinion beside it, not a replacement: the same instructions and the
+# same gate, a packet that carries THE DATASHEET ALONE (its pages, its fields,
+# the standard names the datasheet itself cites), declared as carrying only
+# the submittal. With no clause list it can cite no clause: the gate refuses
+# one. Every draft it writes says which engine wrote it and from what.
+
+#: Marks a draft of the datasheet-only opinion in `ai_rationale`.
+DATASHEET_ONLY = "from the datasheet alone - no standard's text was sent"
+
+
+def opinion_engine() -> str:
+    return str(settings.review_ai_check_engine or "ollama").strip().lower() or "ollama"
+
+
+def _written_by(engine: str | None) -> str:
+    return f" Written by {engine or 'an unnamed engine'}."
+
+
+def run_datasheet_opinion(review_run_id: str, *, allowed_document_ids: frozenset[str],
+                          cited: list[str], provider=None) -> dict:
+    """Ask the Claude lane for a datasheet-only opinion and store the kept
+    items as pending drafts beside the check's own. Returns counts, never
+    text, and records the outcome under `claude_datasheet` in the run's
+    `ai_check_status` - asked and refused is a fact on the run.
+
+    NOT under `claude_approved.for_review`: that declares the review's
+    standards. This declares the SUBMITTAL ONLY, which is all its packet
+    carries - so it must be called on its own, never from inside `run_check`."""
+    from . import review as review_mod
+    from . import reasoning_provider as rp
+    from . import submittal_review
+
+    outcome = {"ran": False, "reason": None, "engine": None, "calls_made": 0, "proposed": 0,
+               "kept": 0, "stored": 0, "rejected": {}, "cost_usd": 0.0}
+    if not settings.review_ai_check_enabled or (provider is None and opinion_engine() != rp.CLAUDE):
+        return outcome                      # not asked for: nothing to record
+    run = submittal_review.get_review_run(review_run_id, allowed_document_ids=allowed_document_ids)
+    if run is None:
+        return {**outcome, "reason": "no review run with that id"}
+    submittal = run["submittal_document_id"]
+    if provider is None:
+        code, why = rp.claude_unavailable_for_task(opinion_engine())
+        if code is not None:
+            return _store_opinion(review_run_id, allowed_document_ids,
+                                  {**outcome, "reason": f"the cloud model may not be used ({code})"})
+        provider = rp.ClaudeProvider(settings.claude_reasoning_model, step=STEP)
+    pages = datasheet_pages(submittal)
+    fields = datasheet_fields(submittal)
+    kept: list[dict] = []
+    rejected: dict[str, int] = {}
+    with claude_approved.carrying([submittal]):
+        response, call_failed = _call(provider, _opinion_packet(fields, pages, cited))
+    outcome["calls_made"] = 1
+    if call_failed is not None:
+        return _store_opinion(review_run_id, allowed_document_ids, {**outcome, "reason": call_failed})
+    outcome["engine"] = f"{response.provider}:{response.model_tag}"
+    outcome["cost_usd"] = round(response.cost_usd or 0.0, 6)
+    items = None if response.schema_errors else parse(response.text)
+    if items is None and response.truncated:
+        items = parse_partial(response.text or "")
+        outcome["reason"] = "the reply was cut off by the output limit before it finished"
+    if items is None:
+        rejected[Reason.MALFORMED.value] = 1
+        return _store_opinion(review_run_id, allowed_document_ids,
+                              {**outcome, "reason": Reason.MALFORMED.value, "rejected": rejected})
+    outcome["proposed"] = len(items)
+    # THE SAME GATE, with no held clause: a cited clause cannot be verified and is refused.
+    _gate_items(items, pages, {}, cited, kept, rejected)
+    outcome.update(ran=True, kept=len(kept), rejected=dict(rejected))
+
+    conn = connect()
+    known = {_item_identity(r["finding"], r["required_action"], r["contractor_page"], r["contractor_section"])
+             for r in conn.execute(
+                 "SELECT finding, required_action, contractor_page, contractor_section"
+                 " FROM review_findings WHERE review_run_id = ? AND origin = ?", (review_run_id, ORIGIN))}
+    for item in kept:
+        identity = _item_identity(str(item["observation"])[:4000], str(item["action"])[:4000],
+                                  item["page"], str(item["field"])[:400])
+        if identity in known:               # already raised (or rejected by an engineer): not twice
+            continue
+        known.add(identity)
+        relates = str(item.get("relates_to") or "").strip()
+        finding = review_mod.create({
+            "document_id": submittal, "category": "technical_query", "severity": "minor",
+            "confidence": "low" if from_memory(item, {}) else item["confidence"],
+            "requirement": str(item["topic"])[:4000], "finding": str(item["observation"])[:4000],
+            "required_action": str(item["action"])[:4000], "status": "open",
+            "approval_status": "pending"}, created_by=None)
+        with conn:
+            conn.execute(
+                """UPDATE review_findings SET review_run_id = ?, origin = ?, contractor_page = ?,
+                       contractor_section = ?, contractor_evidence_text = ?, ai_rationale = ?
+                   WHERE id = ?""",
+                (review_run_id, ORIGIN, item["page"], str(item["field"])[:400],
+                 str(item.get("value") or "")[:400] or None,
+                 f"{LABEL}. Relates to: {relates or 'no standard named'}."
+                 f"{_written_by(outcome['engine'])[:-1]}, {DATASHEET_ONLY}.",
+                 finding["id"]))
+        outcome["stored"] += 1
+    return _store_opinion(review_run_id, allowed_document_ids, outcome)
+
+
+def _opinion_packet(fields: list[dict], pages: dict[int, str], cited: list[str]):
+    from . import reasoning_provider as rp
+    return rp.Packet(
+        prompt=build_prompt(fields, pages, cited, {}), system=SYSTEM, num_ctx=settings.num_ctx,
+        num_predict=settings.review_ai_check_max_output_tokens, json_schema=SCHEMA, step=STEP,
+        prompt_version=PROMPT_VERSION + "+datasheet-only", timeout_s=240.0)
+
+
+def _store_opinion(review_run_id: str, allowed_document_ids: frozenset[str], outcome: dict) -> dict:
+    """Record the opinion's outcome on the run, beside the check's own."""
+    status = ai_check_status(review_run_id, allowed_document_ids=allowed_document_ids) or {}
+    status["claude_datasheet"] = outcome
+    said = (f" Datasheet-only opinion by {outcome['engine']}: {outcome['kept']} of "
+            f"{outcome['proposed']} proposed item(s) kept." if outcome["ran"]
+            else f" Datasheet-only opinion by the cloud model did not run - {outcome['reason']}.")
+    base = str(status.get("plain") or "").split(" Datasheet-only opinion by ")[0]
+    status["plain"] = (base + said).strip()
+    _store_status(review_run_id, status)
+    return outcome
 
 
 def _item_identity(finding, action, page, section) -> tuple:

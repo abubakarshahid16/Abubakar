@@ -197,6 +197,9 @@ def _ai_check(run_id: str, scope: frozenset[str], missing: list[str]) -> None:
         return
     try:
         result = ai_engineering_check.run_check(run_id, allowed_document_ids=scope, cited=missing)
+        # #501: the datasheet-only opinion of the cloud model, when its own
+        # engine setting asks for one. Its own declaration: the submittal only.
+        ai_engineering_check.run_datasheet_opinion(run_id, allowed_document_ids=scope, cited=missing)
         # `run_check` already stores `ai_check_status` on the run itself - the
         # reviewer's view of this. This is only the operator's log line, by
         # kind and never with text, same as the except below.
