@@ -458,12 +458,28 @@ class _Transport:
         self.calls.append((body, timeout))
         if self.raises:
             raise self.raises
-        return {"response": json.dumps({"items": [GOOD]}), "model": "local-test:1b",
+        return {"response": json.dumps({"items": [ASKS_A_BLANK]}), "model": "local-test:1b",
                 "done_reason": "stop"}
 
 
-def _local(monkeypatch, transport):
+#: #844: the local model is asked only about fields read as blank.
+BLANK_FIELD = "Hydrotest pressure"
+ASKS_A_BLANK = {**GOOD, "field": BLANK_FIELD, "value": "",
+                "observation": "The hydrotest pressure is not stated.",
+                "action": "Contractor to state the hydrotest pressure."}
+
+
+def _blank_fields(monkeypatch, by_page: dict[int, list[str]]) -> None:
+    """Add fields the code readers read as blank (the synthetic sheet has none)."""
+    read = aic.datasheet_fields
+    extra = [{"field": name, "value": "By vendor", "unit": None, "page": page, "is_blank": True}
+             for page, names in by_page.items() for name in names]
+    monkeypatch.setattr(aic, "datasheet_fields", lambda sub: read(sub) + extra)
+
+
+def _local(monkeypatch, transport, blank=None):
     from app import model_transport
+    _blank_fields(monkeypatch, {1: [BLANK_FIELD]} if blank is None else blank)
     monkeypatch.setattr(settings, "review_ai_check_enabled", True)
     monkeypatch.setattr(rp, "claude_available", lambda: (False, "off in tests"))
     monkeypatch.setattr(model_transport, "post_json", transport)
@@ -478,8 +494,8 @@ def test_with_the_claude_lane_off_it_runs_on_the_local_model(world, monkeypatch)
     review_jobs._ai_check(run, scope, ["API 610"])
     assert len(transport.calls) == 1
     body, timeout = transport.calls[0]
-    # its own timeout and the smaller output cap: a review is never held long
-    assert timeout == 77.0 and body["options"]["num_predict"] == aic.LOCAL_MAX_OUTPUT_TOKENS
+    # its own timeout and a small output cap per page (#844): a review is never held long
+    assert timeout == 77.0 and body["options"]["num_predict"] == aic.LOCAL_PAGE_OUTPUT_TOKENS
     assert len(_ai_rows(run)) == 1
     status = aic.ai_check_status(run, allowed_document_ids=scope)
     assert status["model"] == "ollama:local-test:1b" and status["complete"] is True
@@ -491,7 +507,10 @@ def test_a_local_model_that_times_out_is_a_warning_on_the_run_not_a_failed_revie
     _local(monkeypatch, _Transport(raises=TimeoutError("slow")))
     review_jobs._ai_check(run, scope, [])
     status = aic.ai_check_status(run, allowed_document_ids=scope)
-    assert status["complete"] is False and "the model call failed" in status["reason"]
+    # #844: the page that timed out is counted against the pages asked, and named
+    assert status["complete"] is False and status["reason"].startswith(
+        "1 of 1 page(s) were not checked on the local model: 1 timed out after ")
+    assert status["local_pages"]["timed_out"] == [1]
     assert _ai_rows(run) == []
 
 

@@ -31,7 +31,8 @@ from app.main import app
 from tests.test_763_crs_ai_wording import GOOD as GOOD_WORDING
 from tests.test_763_crs_ai_wording import ROW
 from tests.test_b3_page_ledger import temp_storage  # noqa: F401 - autouse
-from tests.test_review_ai_check import GOOD, _ai_rows, _resolver, world  # noqa: F401 - fixtures
+from tests.test_review_ai_check import ASKS_A_BLANK, BLANK_FIELD, GOOD, _ai_rows, _blank_fields  # noqa: F401
+from tests.test_review_ai_check import _resolver, world  # noqa: F401 - fixtures
 
 SHEET, STANDARD = "sha-doc_sheet", "sha-std"      # the hashes test_b3_page_ledger gives its documents
 
@@ -88,7 +89,8 @@ def lane(monkeypatch):
     monkeypatch.setattr(settings, "review_ai_check_enabled", True)
     monkeypatch.setattr(settings, "crs_ai_wording_enabled", True)
     monkeypatch.setattr(rp, "OllamaProvider", Local)
-    Local.made, Local.answer = [], json.dumps({"items": [GOOD]})
+    _blank_fields(monkeypatch, {1: [BLANK_FIELD]})          # #844: the local model asks about blank fields
+    Local.made, Local.answer = [], json.dumps({"items": [ASKS_A_BLANK]})
 
     def install(cloud):
         monkeypatch.setattr(rp, "get_provider", lambda *a, **k: cloud)
@@ -145,7 +147,7 @@ def test_the_ai_check_runs_locally_and_says_so_when_a_standard_is_not_approved(w
     assert status["local_instead"] == result["local_instead"] == (
         "ran on the local model: 1 of 2 document(s) in its prompt are not approved for the cloud model")
     assert status["model"].startswith(rp.OLLAMA + ":")
-    assert status["plain"].endswith("The check " + status["local_instead"] + ".")
+    assert ("The check " + status["local_instead"] + ".") in status["plain"]
 
 
 def test_the_ai_check_uses_the_cloud_model_when_every_document_is_approved(world, lane):
