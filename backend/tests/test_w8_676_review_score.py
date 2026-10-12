@@ -399,3 +399,107 @@ def test_the_weekly_week_label_defaults_to_the_iso_week(tmp_path, capsys):
                      "--baseline", str(tmp_path / "none.json"), "--out", str(tmp_path / "w.md")]) == 0
     import re
     assert re.search(r"week \d{4}-W\d{2}", (tmp_path / "w.md").read_text())
+
+
+# ------------------------------------------------------------- gold-lite keys (#829)
+
+def test_a_gold_lite_key_names_who_read_it_and_is_never_engineer_confirmed():
+    """#829: a key read by a named session from real documents. It must say who
+    read it, and it may not borrow an engineer's name."""
+    lite = key(source="gold_lite", read_by="session 1")
+    assert rs.validate_key(lite)["source"] == "gold_lite"
+    with pytest.raises(rs.KeyError_, match="read_by"):
+        rs.validate_key(key(source="gold_lite"))
+    with pytest.raises(rs.KeyError_, match="read_by"):
+        rs.validate_key(key(source="gold_lite", read_by="   "))
+    with pytest.raises(rs.KeyError_, match="not engineer-confirmed"):
+        rs.validate_key(key(source="gold_lite", read_by="session 1", approved_by="A. Engineer"))
+
+
+def test_every_report_says_a_gold_lite_key_is_not_engineer_confirmed(tmp_path):
+    lite = key(name="lite", source="gold_lite", read_by="session 1")
+    r = rs.score(lite, BASE)
+    assert (r["source"], r["read_by"]) == ("gold_lite", "session 1")
+    assert rs.score(KEY, BASE)["read_by"] is None                    # only a gold-lite key carries a reader
+    line = cli.text_report(r).splitlines()[0]
+    assert "gold_lite: read by session 1, NOT engineer-confirmed" in line
+    assert "(invented)" in cli.text_report(rs.score(KEY, BASE)).splitlines()[0]
+
+    keys, runs = tmp_path / "keys", tmp_path / "runs"
+    keys.mkdir(); runs.mkdir()
+    _write(keys / "lite.json", lite)
+    _write(keys / "invented-pump.json", KEY)
+    _write(runs / "lite.findings.json", BASE)
+    _write(runs / "invented-pump.findings.json", BASE)
+    text, code = cli.weekly_report(keys, runs, rs.load_baseline("/none"), "2026-W42")
+    assert code == 0
+    assert "| lite (gold_lite: read by session 1, NOT engineer-confirmed) | m1 |" in text
+    assert "1 gold-lite key(s): read by a named session from real documents, NOT confirmed by an engineer." in text
+    assert "never counted as engineer_confirmed" in text
+    assert "Answer keys scored: 1 gold_lite, 1 invented." in text       # counted under its own name
+    # a week with no gold-lite key does not print the gold-lite sentence
+    (keys / "lite.json").unlink()
+    assert "gold-lite key(s)" not in cli.weekly_report(keys, runs, rs.load_baseline("/none"), "w")[0]
+
+
+# ------------------------------------------------- checklist findings (#829)
+
+@pytest.mark.parametrize("label,expected", [
+    ("API 520-I 5.3", ("API 520-I", "5.3")),
+    ("API 520-I 5.3.2.1", ("API 520-I", "5.3.2.1")),
+    ("STD-PUMP-001 8", ("STD-PUMP-001", "8")),
+    ("9.5", (None, "9.5")),                      # a clause alone: no standard is guessed
+    ("Foreword", (None, "Foreword")),
+    ("STD-PUMP-001 UG-125", (None, "STD-PUMP-001 UG-125")),   # not a dotted number: left whole
+    ("", (None, None)), (None, (None, None)),
+])
+def test_a_checklist_label_is_split_into_its_standard_and_clause_or_left_alone(label, expected):
+    assert rs.split_checklist_label(label) == expected
+
+
+def test_an_item_that_names_its_datasheet_page_is_answered_only_on_that_page():
+    """One sheet, two valves (pages 1 and 2), the same checklist clause on each."""
+    k = {"format": rs.KEY_FORMAT, "name": "two-valves", "source": "invented", "complete_for_flags": False, "items": [
+        {"id": "V1", "kind": "met", "standard": "STD-PUMP-001", "clause": "5.3", "submittal_page": 1},
+        {"id": "V2", "kind": "defect", "standard": "STD-PUMP-001", "clause": "5.3", "submittal_page": 2},
+    ]}
+    on = lambda page, status: f("5.3", status, std="STD-PUMP-001", submittal_page=page, id=f"p{page}")  # noqa: E731
+    r = rs.score(k, doc(on(1, "COMPLIANT"), on(2, "NON_COMPLIANT")))
+    assert (r["defects_found"], r["false_compliant"], r["correct_findings"], r["judged_findings"]) == (1, 0, 2, 2)
+    # the verdicts swapped between the valves: the defect on page 2 is now called compliant
+    r = rs.score(k, doc(on(1, "NON_COMPLIANT"), on(2, "COMPLIANT")))
+    assert (r["defects_found"], r["false_compliant"], r["false_compliant_ids"]) == (0, 1, ["V2"])
+    # a finding on a page no item names answers no item
+    assert rs.match_item(on(3, "COMPLIANT"), k["items"]) is None
+    # an item without a page is answered on any page, and the page-specific item wins when both fit
+    anypage = {"id": "ANY", "kind": "met", "standard": "STD-PUMP-001", "clause": "5.3"}
+    assert rs.match_item(on(3, "COMPLIANT"), k["items"] + [anypage])["id"] == "ANY"
+    assert rs.match_item(on(1, "COMPLIANT"), k["items"] + [anypage])["id"] == "V1"
+
+
+@pytest.mark.parametrize("bad", [0, -1, "1", 1.5, True])
+def test_a_submittal_page_must_be_a_page_number(bad):
+    k = key()
+    k["items"][0]["submittal_page"] = bad
+    with pytest.raises(rs.KeyError_, match="submittal_page"):
+        rs.validate_key(k)
+
+
+def test_export_gives_a_checklist_finding_its_standard_clause_and_datasheet_page(live_like_db, tmp_path):
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO review_findings (id,document_id,category,severity,requirement,finding,required_action,"
+            "created_at,updated_at,review_run_id,compliance_status,standard_clause,contractor_page,"
+            "requirement_source_text) VALUES ('chk','std','c','s','r','f','a','2026-10-09T00:00:01Z',"
+            "'2026-10-09T00:00:01Z','run1','COMPLIANT','STD-PUMP-001 5.3',2,'the set pressure shall be stated')")
+    db.reset_connection()
+    out = tmp_path / "run.findings.json"
+    assert cli.main(["export", "--db", str(live_like_db), "--run", "run1", "--out", str(out)]) == 0
+    by_id = {x["id"]: x for x in json.loads(out.read_text(encoding="utf-8"))["findings"]}
+    chk = by_id["chk"]
+    assert (chk["standard"], chk["clause"], chk["submittal_page"], chk["checklist"]) == ("STD-PUMP-001", "5.3", 2, True)
+    assert chk["citation_valid"] is None                       # no standard page to check: not checked, never valid
+    assert by_id["a"]["clause"] == "4.2" and "checklist" not in by_id["a"]      # a standard finding is untouched
+    item = {"id": "C", "kind": "met", "standard": "STD-PUMP-001", "clause": "5.3", "field": "set pressure",
+            "submittal_page": 2}
+    assert rs.match_item(chk, [item])["id"] == "C"

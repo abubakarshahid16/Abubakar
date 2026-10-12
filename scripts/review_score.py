@@ -53,6 +53,7 @@ def export_findings(conn: sqlite3.Connection, run_id: str, model: str | None = N
     here against the stored page text (a boolean; null when the page is absent)."""
     rows = conn.execute(
         "SELECT f.id, f.standard_document_id, f.standard_clause, f.standard_page, f.matched_phrase,"
+        " f.contractor_page,"
         " f.compliance_status, f.requirement_source_text, d.filename AS std_name,"
         " c.document_number AS std_number"
         " FROM review_findings f LEFT JOIN documents d ON d.id = f.standard_document_id"
@@ -71,7 +72,14 @@ def export_findings(conn: sqlite3.Connection, run_id: str, model: str | None = N
         f = {"id": r["id"], "standard": r["std_name"], "standard_number": r["std_number"],
              "standard_document_id": r["standard_document_id"], "clause": r["standard_clause"],
              "page": r["standard_page"], "field": r["matched_phrase"],
-             "compliance_status": r["compliance_status"], "requirement_text": r["requirement_source_text"]}
+             "compliance_status": r["compliance_status"], "requirement_text": r["requirement_source_text"],
+             "submittal_page": r["contractor_page"]}
+        if not r["standard_document_id"]:
+            # #829: a checklist finding names its standard inside its clause
+            # label and has no standard document (so no page to check).
+            standard, clause = rs.split_checklist_label(r["standard_clause"])
+            if standard:
+                f.update(standard=standard, clause=clause, checklist=True)
         f["citation_valid"] = rs.citation_valid(f, page_text(r["standard_document_id"], r["standard_page"]))
         findings.append(f)
     return {"format": rs.FINDINGS_FORMAT, "model": model, "run_id": run_id, "findings": findings}
@@ -79,11 +87,19 @@ def export_findings(conn: sqlite3.Connection, run_id: str, model: str | None = N
 
 # ---------------------------------------------------------------------- reporting
 
+def source_label(r: dict) -> str:
+    """How a result names its key's source. A gold-lite key (#829) always says
+    who read it and that no engineer confirmed it."""
+    if r.get("source") == rs.GOLD_LITE:
+        return f"gold_lite: read by {r.get('read_by') or 'not stated'}, NOT engineer-confirmed"
+    return str(r.get("source"))
+
+
 def text_report(r: dict, bar: dict | None = None) -> str:
     status = rs.bar_status(r, bar)
     mark = {True: "meets", False: "BELOW", None: "cannot tell"}
     lines = [
-        f"Key: {r['key']} ({r['source']})   Model: {r['model'] or 'not stated'}",
+        f"Key: {r['key']} ({source_label(r)})   Model: {r['model'] or 'not stated'}",
         f"  findings in the run: {r['findings']}",
         f"  recall:            {pct(r['defects_found'], r['defects'])}   [{mark[status['recall']]} the proposed bar]",
         f"  precision:         {pct(r['correct_findings'], r['judged_findings'])}"
@@ -133,7 +149,7 @@ def weekly_report(keys_dir: Path, runs_dir: Path, baseline: dict, week: str) -> 
                 "|---|---|---|---|---|---|---|---|"]
         for r in rows:
             out.append("| {} ({}) | {} | {} | {} | {} | {} | {} | {} |".format(
-                r["key"], r["source"], r["model"] or "not stated", pct(r["defects_found"], r["defects"]),
+                r["key"], source_label(r), r["model"] or "not stated", pct(r["defects_found"], r["defects"]),
                 pct(r["correct_findings"], r["judged_findings"]), r["false_compliant"], r["false_not_applicable"],
                 pct(r["traps_flagged"], r["traps"]),
                 pct(r["citations_valid"], r["citations_checked"]) if r["citations_checked"] else "not checked"))
@@ -143,6 +159,10 @@ def weekly_report(keys_dir: Path, runs_dir: Path, baseline: dict, week: str) -> 
     out.append("Answer keys scored: " + (", ".join(f"{n} {s}" for s, n in sorted(by_source.items())) or "none")
                + ". Keys from a named engineer (engineer_confirmed) are what makes this number mean something; "
                "invented keys prove the scorer, not the system.")
+    if by_source.get(rs.GOLD_LITE):
+        out.append(f"{by_source[rs.GOLD_LITE]} gold-lite key(s): read by a named session from real documents, "
+                   "NOT confirmed by an engineer. They show a change between runs; they do not prove a verdict "
+                   "is right, and they are never counted as engineer_confirmed.")
     if no_run:
         out.append(f"Keys with no run this week (not scored, no number given): {', '.join(no_run)}.")
     if skipped_hidden:
