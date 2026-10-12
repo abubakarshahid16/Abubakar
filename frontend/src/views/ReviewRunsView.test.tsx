@@ -17,6 +17,8 @@ vi.mock("../api/client", () => ({
     document: (...args: unknown[]) => documentApi(...args),
   },
   reviews: {
+    // #791: the five-step panel's trace; not what these tests are about.
+    reviewTrace: async () => ({ ok: false, error: { message: "not in this test" } }),
     // Section 3's readiness strip; not what these tests are about.
     readiness: async () => ({ ok: false, error: { message: "not in this test" } }),
     reviewRuns: (...args: unknown[]) => reviewRuns(...args),
