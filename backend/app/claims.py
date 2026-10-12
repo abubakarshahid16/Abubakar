@@ -274,6 +274,14 @@ _UNCONVERTED_UNITS: dict[str, str | None] = {
     "mm2": None, "cm2": None, "ft2": None, "cm3": None, "ft3": None,
     "kwh": None, "kva": None, "hp": None, "atm": "pressure", "mmhg": "pressure",
     "ppmv": None, "mol": None, "kmol": None, "kj": None, "mj": None,
+    # 2026-10-12 (#830), measured with the cloud reader on two real sheets:
+    # 5 readings were refused as "unit not recognised" for these two
+    # spellings - a viscosity in centipoise and a gas flow in standard cubic
+    # feet per hour. RECOGNISED, NOT CONVERTED: `cp` is the only viscosity
+    # spelling here, and a STANDARD gas volume differs from a normal or an
+    # actual one by its reference conditions (see `nm3` above), so `scfh`
+    # converts to nothing.
+    "cp": "viscosity", "scfh": None,
 }
 _RECOGNISED_UNITS = set(_UNIT_TABLE) | set(_UNCONVERTED_UNITS)
 
