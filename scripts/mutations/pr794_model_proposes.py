@@ -28,7 +28,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              replacement='        call = reader_api.model_call_via(transport, cfg=cfg)\n',
              target=_T, keyword="metered_lane or spend_cap", tags=("budget", "egress", "critical")),
     Mutation(id="M794-05", phase=794, description="the claude matcher skips the 'may Claude be used' check",
-             path=_C, anchor=('        code, _why = claude_unavailable()\n'
+             path=_C, anchor=('        code, _why = claude_unavailable_for_task(settings.match_engine)\n'
                               '        if code is not None:\n'
                               '            return None, MODEL_UNAVAILABLE\n'
                               '        transport = reader_transport.transport()\n'),
