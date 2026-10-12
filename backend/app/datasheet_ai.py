@@ -136,9 +136,10 @@ def engine_setting() -> str:
 
 def _claude_call():
     from . import claude_budget, claude_spend, reader_api, reader_transport
-    from .reasoning_provider import claude_unavailable
+    from .reasoning_provider import claude_unavailable_for_task
 
-    code, why = claude_unavailable()
+    # #501: this reader's own engine setting, under the provider switch.
+    code, why = claude_unavailable_for_task(engine_setting())
     if code is not None:
         return None, f"claude engine unavailable ({code}: {why})"
     transport = reader_transport.transport()

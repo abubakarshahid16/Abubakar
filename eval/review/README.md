@@ -44,6 +44,15 @@ JSON, shape in `answer_key.schema.json`, sample in `keys/invented-pump.json`
   must have all its words in the finding. The most specific item wins; a finding
   answers one item.
 
+* **Checklist items (#829).** A checklist finding has no standard document: its
+  label carries the standard and the clause together ("API 520-I 5.3"). The
+  export splits it (`standard`, `clause`, `checklist: true`), so a key item
+  names them the usual way. A label that is not "a standard, then a clause
+  number" is left as it is; no standard is guessed.
+* `submittal_page` (optional, on an item): the datasheet page the item is about,
+  for a sheet that covers several valves or tags. A finding answers the item
+  only on that page; an item without it is answered on any page.
+
 ## The findings file (`review-findings/1`)
 
 Written by `export` from a **copy** of the database, read-only. It holds

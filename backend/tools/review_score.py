@@ -109,6 +109,9 @@ def validate_key(data: object) -> dict:
             raise KeyError_(f"item {iid}: kind must be one of {', '.join(ITEM_KINDS)}")
         if not str(item.get("standard") or "").strip() or not str(item.get("clause") or "").strip():
             raise KeyError_(f"item {iid}: standard and clause are required")
+        page = item.get("submittal_page")
+        if page is not None and (isinstance(page, bool) or not isinstance(page, int) or page < 1):
+            raise KeyError_(f"item {iid}: submittal_page must be a page number (1 or more)")
     return data
 
 
@@ -216,15 +219,36 @@ def _field_matches(finding: dict, item: dict) -> bool:
     return all(w in text.split() for w in _words(field))
 
 
-def _specificity(item: dict) -> tuple[int, int]:
-    return (1 if item.get("field") else 0, len(_fold(item["clause"])))
+#: #829: a checklist finding has no standard document; its one label carries
+#: both ("API 520-I 5.3"). The clause is the trailing dotted number.
+_LABEL = re.compile(r"^(?P<standard>.*[A-Za-z].*?)\s+(?P<clause>\d+(?:\.\d+)*[a-z]?)$")
+
+
+def split_checklist_label(label: object) -> tuple[str | None, str | None]:
+    """("API 520-I", "5.3") from "API 520-I 5.3"; (None, the label) when it is
+    not a standard followed by a clause number. Never guesses a standard."""
+    text = " ".join(str(label or "").split())
+    m = _LABEL.match(text)
+    return (m["standard"], m["clause"]) if m else (None, text or None)
+
+
+def _page_matches(finding: dict, item: dict) -> bool:
+    """#829: an item that names its datasheet page (one valve, one tag) is
+    answered only by a finding on that page."""
+    page = item.get("submittal_page")
+    return page is None or finding.get("submittal_page") == page
+
+
+def _specificity(item: dict) -> tuple[int, int, int]:
+    return (1 if item.get("submittal_page") is not None else 0,
+            1 if item.get("field") else 0, len(_fold(item["clause"])))
 
 
 def match_item(finding: dict, items: list[dict]) -> dict | None:
     """The most specific key item this finding answers, or None."""
     hits = [it for it in items
             if _standard_matches(finding, it) and _clause_under(finding.get("clause") or "", it["clause"])
-            and _field_matches(finding, it)]
+            and _field_matches(finding, it) and _page_matches(finding, it)]
     return max(hits, key=_specificity) if hits else None
 
 

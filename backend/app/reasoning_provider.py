@@ -830,16 +830,60 @@ def _cache_write(key: str, value: dict) -> None:
 UNAVAILABLE_PROVIDER_OFF = "PROVIDER_OFF"
 UNAVAILABLE_EGRESS_OFF = "EGRESS_OFF"
 UNAVAILABLE_KEY_MISSING = "KEY_MISSING"
+#: #501: the provider switch says "per task" and this step's own engine
+#: setting does not say claude.
+UNAVAILABLE_TASK_LOCAL = "TASK_ENGINE_LOCAL"
+
+#: #501 (owner decision, 12 Oct 2026): REASONING_PROVIDER=per_task. The Claude
+#: lane may open ONLY for a step whose OWN engine setting says "claude"
+#: (the AI reader, the AI matcher, the AI engineering check); every other
+#: step stays on the local model. `claude` still means "every reasoning step",
+#: and `ollama` still means "nothing leaves": the provider switch stays the
+#: master switch, checked first.
+PER_TASK = "per_task"
+
+
+def _provider_setting() -> str:
+    return (settings.reasoning_provider or "").strip().lower()
 
 
 def claude_unavailable() -> tuple[str | None, str]:
     """(code, why) - code is None when Claude may be used. The ONE place the
     three local conditions are checked; `claude_available` is a view of it.
-    Never the key itself, only whether one is present."""
+    Never the key itself, only whether one is present.
+
+    This is the question of every step WITHOUT an engine setting of its own.
+    Under `per_task` the answer is no: such a step stays local."""
+    if _provider_setting() != CLAUDE:
+        return UNAVAILABLE_PROVIDER_OFF, f"REASONING_PROVIDER={settings.reasoning_provider!r}"
+    return _lane_unavailable()
+
+
+def claude_unavailable_for_task(engine: str | None) -> tuple[str | None, str]:
+    """#501: the same question for a step that has its OWN engine setting
+    (`engine` is that setting's value). Claude may be used when
+
+      * REASONING_PROVIDER=claude (every reasoning step; unchanged), or
+      * REASONING_PROVIDER=per_task AND this step's engine says "claude",
+
+    and, in both cases, the two egress flags are on and a key is present.
+    REASONING_PROVIDER=ollama refuses whatever the step's setting says: the
+    provider switch is checked FIRST (r2 S5), so one line in `.env` still
+    keeps every document on the machine."""
+    provider = _provider_setting()
+    if provider == CLAUDE:
+        return _lane_unavailable()
+    if provider != PER_TASK:
+        return UNAVAILABLE_PROVIDER_OFF, f"REASONING_PROVIDER={settings.reasoning_provider!r}"
+    if (str(engine or "")).strip().lower() != CLAUDE:
+        return UNAVAILABLE_TASK_LOCAL, "this step's own engine setting is not claude"
+    return _lane_unavailable()
+
+
+def _lane_unavailable() -> tuple[str | None, str]:
+    """The lane's own two conditions: both egress flags, and a key."""
     from . import reader_api
 
-    if (settings.reasoning_provider or "").strip().lower() != CLAUDE:
-        return UNAVAILABLE_PROVIDER_OFF, f"REASONING_PROVIDER={settings.reasoning_provider!r}"
     cfg = reader_api.ReaderSettings.from_env()
     if not (cfg.enabled and cfg.allow_public_egress):
         return UNAVAILABLE_EGRESS_OFF, "standards-reader egress flags are off"

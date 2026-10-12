@@ -53,6 +53,7 @@ def export_findings(conn: sqlite3.Connection, run_id: str, model: str | None = N
     here against the stored page text (a boolean; null when the page is absent)."""
     rows = conn.execute(
         "SELECT f.id, f.standard_document_id, f.standard_clause, f.standard_page, f.matched_phrase,"
+        " f.contractor_page,"
         " f.compliance_status, f.requirement_source_text, d.filename AS std_name,"
         " c.document_number AS std_number"
         " FROM review_findings f LEFT JOIN documents d ON d.id = f.standard_document_id"
@@ -71,7 +72,14 @@ def export_findings(conn: sqlite3.Connection, run_id: str, model: str | None = N
         f = {"id": r["id"], "standard": r["std_name"], "standard_number": r["std_number"],
              "standard_document_id": r["standard_document_id"], "clause": r["standard_clause"],
              "page": r["standard_page"], "field": r["matched_phrase"],
-             "compliance_status": r["compliance_status"], "requirement_text": r["requirement_source_text"]}
+             "compliance_status": r["compliance_status"], "requirement_text": r["requirement_source_text"],
+             "submittal_page": r["contractor_page"]}
+        if not r["standard_document_id"]:
+            # #829: a checklist finding names its standard inside its clause
+            # label and has no standard document (so no page to check).
+            standard, clause = rs.split_checklist_label(r["standard_clause"])
+            if standard:
+                f.update(standard=standard, clause=clause, checklist=True)
         f["citation_valid"] = rs.citation_valid(f, page_text(r["standard_document_id"], r["standard_page"]))
         findings.append(f)
     return {"format": rs.FINDINGS_FORMAT, "model": model, "run_id": run_id, "findings": findings}
