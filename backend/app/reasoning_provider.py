@@ -906,6 +906,12 @@ def claude_for_task(engine: str | None, role: str = "reasoning", *, step: str | 
     return ClaudeProvider(model, step=step)
 
 
+#: #870: what a review step says when it ran on the local model because the
+#: cloud model's call FAILED (an API error, a time-out). Not a budget cap -
+#: that is the owner's limit and stays a stop.
+CLOUD_CALL_FAILED = "ran on the local model: the cloud model's call failed"
+
+
 def _lane_unavailable() -> tuple[str | None, str]:
     """The lane's own two conditions: both egress flags, and a key."""
     from . import reader_api

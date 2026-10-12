@@ -635,7 +635,12 @@ def _call(provider, packet) -> tuple[object | None, str | None]:
     except claude_spend.BudgetExceeded as exc:
         return None, f"a budget cap stopped the call ({exc})"
     except rp.ProviderRefused as exc:
-        return None, f"the model call failed ({exc})"
+        return None, f"{CALL_FAILED} ({exc})"
+
+
+#: How a failed call (not a budget refusal) is worded; `run_check` reads it
+#: to tell the two apart (#870).
+CALL_FAILED = "the model call failed"
 
 
 #: #844 A DRAFT ABOUT THE SHEET'S FURNITURE IS NOT AN ENGINEERING OBSERVATION.
@@ -754,6 +759,7 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
     from . import reasoning_provider as rp
     from . import submittal_review
 
+    own_provider = provider is None          # False: a test or a caller handed one in
     ok, why = available() if provider is None else (True, "injected")
     if not ok:
         # #633: ASKED FOR AND COULD NOT RUN IS A FACT ON THE RUN, not silence
@@ -848,6 +854,23 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
         complete = True
         reason = None
         break
+
+    if (own_provider and local_pages is None and isinstance(provider, rp.ClaudeProvider)
+            and str(reason or "").startswith(CALL_FAILED)):
+        # #870: THE CLOUD MODEL'S CALL FAILED (an API error, a time-out; on a
+        # live review the account's credit was finished and every call came
+        # back refused). The check ran with nothing although the local model
+        # could do it. A budget cap is not this: it is the owner's limit and
+        # stays a stop. What the cloud model produced before failing is kept.
+        local_timeout = float(settings.review_ai_check_local_timeout_s)
+        local_pages = _local_page_calls(rp.OllamaProvider(timeout=local_timeout), fields, pages,
+                                        cited, held, local_timeout, all_kept, rejected)
+        calls_made += local_pages["calls_made"]
+        proposed_total += local_pages["proposed"]
+        engine = local_pages["engine"] or engine
+        reason = _local_reason(local_pages, local_timeout)
+        complete = reason is None
+        local_instead = rp.CLOUD_CALL_FAILED
 
     status = {
         "ran": True,

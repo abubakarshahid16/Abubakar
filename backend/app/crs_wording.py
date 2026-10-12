@@ -230,6 +230,19 @@ def _provider_for_this_review():
     return provider, None
 
 
+def _local_after_a_failed_cloud_call(provider, exc: BaseException):
+    """`(local provider, what the run says)` when a CLOUD provider's call
+    failed and the local model may take over (#870); None when it may not:
+    the provider was already local, or the failure is a limit the owner set
+    (a USD cap, an unapproved document - `claude_spend.StopRun`), which is
+    shown and never replaced."""
+    from . import claude_spend
+    from . import reasoning_provider as rp
+    if not isinstance(provider, rp.ClaudeProvider) or isinstance(exc, claude_spend.StopRun):
+        return None
+    return rp.OllamaProvider(timeout=float(settings.crs_ai_wording_timeout_s)), rp.CLOUD_CALL_FAILED
+
+
 def _ask(provider, row: dict) -> tuple[str | None, str | None, str]:
     """(ai_text, refusal reason, model). A transport failure raises."""
     from . import reasoning_provider as rp
@@ -265,6 +278,7 @@ def word_run(review_run_id: str, rows: list[dict], *, provider=None) -> dict:
                   and str(r.get("comment") or "").strip()
                   and not str(r.get("comment_by") or "").startswith(("Edited", "Engineer"))]
     summary["not_tried"] = max(0, len(candidates) - MAX_ROWS)
+    own_provider = provider is None          # False: a test or a caller handed one in
     try:
         if provider is None:
             provider, summary["local_instead"] = _provider_for_this_review()
@@ -276,8 +290,18 @@ def word_run(review_run_id: str, rows: list[dict], *, provider=None) -> dict:
         try:
             text, refused, model = _ask(provider, row)
         except Exception as exc:  # noqa: BLE001 - timeout or model down: stop, keep templates
-            summary["stopped"] = f"the model call failed ({type(exc).__name__}); templates kept"
-            break
+            local = _local_after_a_failed_cloud_call(provider, exc) if own_provider else None
+            if local is None:
+                summary["stopped"] = f"the model call failed ({type(exc).__name__}); templates kept"
+                break
+            # #870: the cloud model's call FAILED: the local model words this
+            # row and the rest, and the run says so. Not for a budget cap.
+            provider, summary["local_instead"] = local
+            try:
+                text, refused, model = _ask(provider, row)
+            except Exception as again:  # noqa: BLE001 - the local model is down too
+                summary["stopped"] = f"the model call failed ({type(again).__name__}); templates kept"
+                break
         summary["tried"] += 1
         summary["model"] = model
         if refused:
