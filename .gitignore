@@ -135,6 +135,19 @@ gold/*.jsonl
 # One regex per line; see .githooks/pre-commit section 2b.
 .githooks/client-identifiers.local
 
+# Facility names/codes for the register importer's subject derivation - also
+# client identifiers, kept out of git the same way. See
+# scripts/register_facilities.local.example.json for the shape.
+scripts/register_facilities.local.json
+
+# UI screenshots. Section 9's rule above already named "screenshots" and
+# "prompts or answers" as forbidden; these were tracked anyway (B29,
+# owner-accepted 2026-09-21 while the repository was private) and several
+# show real questions, cited filenames and an account email. Untracked
+# 2026-09-25 when the repository went public; kept locally.
+docs/screenshots/
+docs/ui-redesign/**/*.png
+
 # Eval output lists corpus file names and passage text. Local only (privacy rule 3).
 eval/results/
 

@@ -1,10 +1,11 @@
 """The rules that decide which containment hit may be paired.
 
 Each rule is tested on the false pairing that motivated it - the first three
-from gold/PAIRS-216400C.csv, the fourth (`compound_term`) from a real review
-of EF1975-DAS-M-03, 2026-09-28 - and on the case where it must NOT refuse -
-because a rule that refuses when unsure turns a correct pairing into silence,
-and silence does not show up on anybody's screen.
+from a filled gold pairing sheet (kept local, not tracked - see gold/README.md),
+the fourth (`compound_term`) from a real review of 2026-09-28 - and on the case
+where it must NOT refuse - because a rule that refuses when unsure turns a
+correct pairing into silence, and silence does not show up on anybody's
+screen.
 """
 
 from __future__ import annotations
