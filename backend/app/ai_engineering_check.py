@@ -113,6 +113,14 @@ LOCAL_MAX_OUTPUT_TOKENS = 2000
 #: clause list, and asks for a few items. The caps are sizes, not guesses
 #: about content: what does not fit is cut and the run says how many pages
 #: it asked. The Claude lane keeps its one whole-sheet call.
+#: #844, planner decision 12 Oct: ON THE LOCAL MODEL THE CHECK ASKS ONLY ABOUT
+#: FIELDS THE CODE READERS READ AS BLANK. Measured on three real sheets with
+#: the full scope: 49 drafts, about 30 of them wrong or noise - a 4B model
+#: calling a normal value "unusual" or "impossible". A question about a blank
+#: field is proved against the stored facts, not taken on the model's word.
+#: The cloud / strong-model path keeps the full scope; revisit this when
+#: Stage B picks the model (#816, #545). Said on every run, in these words.
+LOCAL_SCOPE = "local model: questions about blank fields only"
 LOCAL_PAGE_CHARS = 3000
 LOCAL_FIELDS_PER_PAGE = 40
 LOCAL_CLAUSES_PER_STANDARD = 6
@@ -145,6 +153,7 @@ class Reason(Enum):
     TOO_LONG = "too_long"
     PAGE_NOT_ASKED = "page_not_the_one_asked"
     LAYOUT = "layout_not_engineering"
+    NOT_A_BLANK_FIELD = "not_a_blank_field_question"
 
 
 SCHEMA = {
@@ -206,13 +215,13 @@ def datasheet_fields(submittal_id: str) -> list[dict]:
     """The current facts read from the submittal: label, value, unit, page."""
     try:
         rows = connect().execute(
-            "SELECT field_label, field_value, raw_unit, page FROM submittal_facts"
+            "SELECT field_label, field_value, raw_unit, page, is_blank FROM submittal_facts"
             " WHERE submittal_document_id = ? AND superseded_at IS NULL ORDER BY page",
             (submittal_id,)).fetchall()
     except Exception:  # noqa: BLE001 - no submittal tables yet
         return []
     return [{"field": r["field_label"], "value": r["field_value"], "unit": r["raw_unit"],
-             "page": r["page"]} for r in rows]
+             "page": r["page"], "is_blank": bool(r["is_blank"])} for r in rows]
 
 
 def build_prompt(fields: list[dict], pages: dict[int, str], cited: list[str],
@@ -244,20 +253,24 @@ def build_prompt(fields: list[dict], pages: dict[int, str], cited: list[str],
 
 def build_local_prompt(page: int, text: str, fields: list[dict], cited: list[str],
                        held: dict[str, list[str]]) -> str:
-    """#844: the local model's prompt - ONE datasheet page, the fields read
-    from that page, and a capped list of the standards and clauses it may
-    name. Everything is cut to a fixed size, so the packet fits the local
-    context window whatever the sheet."""
+    """#844: the local model's prompt - ONE datasheet page, the fields the
+    code readers read as BLANK on that page (`fields`), and a capped list of
+    the standards and clauses it may name. Everything is cut to a fixed
+    size, so the packet fits the local context window whatever the sheet."""
     lines = ["STANDARDS THE DATASHEET CITES (names only):"]
     lines += [f"- {name}" for name in cited[:LOCAL_STANDARDS]] or ["- (none)"]
     lines.append("\nHELD STANDARDS AND THE CLAUSES YOU MAY CITE:")
     lines += [f"- {name}: {', '.join(clauses[:LOCAL_CLAUSES_PER_STANDARD]) or '(no clause)'}"
               for name, clauses in list(held.items())[:LOCAL_STANDARDS]] or ["- (none: cite no clause)"]
-    lines.append(f"\nFIELDS READ FROM PAGE {page} (page | field | value | unit):")
-    lines += [f"p{f['page']} | {f['field']} | {f['value'] or ''} | {f['unit'] or ''}"
+    lines.append(f"\nFIELDS LEFT BLANK ON PAGE {page} (page | field | what is printed there):")
+    lines += [f"p{f['page']} | {f['field']} | {f['value'] or ''}"
               for f in fields[:LOCAL_FIELDS_PER_PAGE]] or ["(none)"]
-    lines.append(f"\nTHIS CALL IS ABOUT PAGE {page} ONLY. At most {LOCAL_ITEMS_PER_PAGE} items, "
-                 f"each citing page {page}. If nothing is worth raising, answer with no items.")
+    lines.append(f"\nTHIS CALL IS ABOUT PAGE {page} ONLY, AND ONLY ABOUT THE BLANK FIELDS LISTED "
+                 f"ABOVE. Pick the blank fields that matter most for this equipment and service "
+                 f"and ask for each to be stated. \"field\" is the field name COPIED EXACTLY from "
+                 f"the list; \"value\" is \"\". Say nothing about a field that has a value. "
+                 f"At most {LOCAL_ITEMS_PER_PAGE} items, each citing page {page}. If none of the "
+                 f"blank fields matters, answer with no items.")
     lines.append(f"\nDATASHEET PAGE:\n--- page {page} ---\n{text[:LOCAL_PAGE_CHARS]}")
     return "\n".join(lines)
 
@@ -280,18 +293,25 @@ def _local_page_calls(provider, fields: list[dict], pages: dict[int, str], cited
     # #844: ONLY PAGES THE CODE READERS TOOK A VALUE FROM. A title page, a
     # contents page and a sketch page carry no value; asking the local model
     # about them cost 9 of 22 calls on three real sheets and gave 18 of 49
-    # drafts, 13 of them noise. The pages left out are named on the run.
-    has_value = {f.get("page") for f in fields if str(f.get("value") or "").strip()}
-    asked = [p for p in with_text if p in has_value]
+    # drafts, 13 of them noise. AND ONLY PAGES WITH A BLANK FIELD (the local
+    # scope): a page with nothing blank has nothing to ask. The pages left
+    # out are named on the run, each under its reason.
+    has_value = {f.get("page") for f in fields
+                 if str(f.get("value") or "").strip() or f.get("is_blank")}
+    blank: dict[int, list[dict]] = {}
+    for f in fields:
+        if f.get("is_blank"):
+            blank.setdefault(f.get("page"), []).append(f)
+    asked = [p for p in with_text if p in has_value and p in blank]
     out = {"pages": len(asked), "done": [], "timed_out": [], "failed": [], "not_tried": [],
            "no_value_read": [p for p in with_text if p not in has_value],
+           "no_blank_field": [p for p in with_text if p in has_value and p not in blank],
            "calls_made": 0, "proposed": 0, "engine": None}
     for page in asked:
         if time.monotonic() >= deadline:
             out["not_tried"].append(page)
             continue
-        prompt = build_local_prompt(page, pages[page], [f for f in fields if f.get("page") == page],
-                                    cited, held)
+        prompt = build_local_prompt(page, pages[page], blank[page], cited, held)
         response, call_failed = _call(provider, _local_packet(prompt, timeout_s))
         out["calls_made"] += 1
         if call_failed is not None:
@@ -312,9 +332,47 @@ def _local_page_calls(provider, fields: list[dict], pages: dict[int, str], cited
         if len(on_page) < len(items):
             key = Reason.PAGE_NOT_ASKED.value
             rejected[key] = rejected.get(key, 0) + len(items) - len(on_page)
-        _gate_items(on_page, pages, held, cited, all_kept, rejected)
+        asks_a_blank = [i for i in on_page if _names_one_of(i.get("field"), blank[page])]
+        if len(asks_a_blank) < len(on_page):
+            key = Reason.NOT_A_BLANK_FIELD.value
+            rejected[key] = rejected.get(key, 0) + len(on_page) - len(asks_a_blank)
+        _gate_items(asks_a_blank, pages, held, cited, all_kept, rejected)
         out["done"].append(page)
     return out
+
+
+def _names_one_of(field, blank_fields: list[dict]) -> bool:
+    """Does the item's field name one of the page's blank fields? Folded and
+    WHOLE: the same name; the blank field's whole name inside a longer one
+    (the model added a note); or the model dropped only a clause reference or
+    a mark from it (numbers, one or two letters). Never a single shared word:
+    "Pressure" does not name "Hydrotest pressure"."""
+    name = _words(field)
+    if not name:
+        return False
+    for f in blank_fields:
+        known = _words(f.get("field"))
+        if not known:
+            continue
+        if name == known or _run_inside(known, name):
+            return True
+        if _run_inside(name, known):
+            dropped = list(known)
+            for word in name:
+                dropped.remove(word)
+            if all(word.isdigit() or len(word) <= 2 for word in dropped):
+                return True
+    return False
+
+
+def _words(text) -> list[str]:
+    return re.sub(r"[^a-z0-9]+", " ", _fold(str(text or "")).lower()).split()
+
+
+def _run_inside(short: list[str], long: list[str]) -> bool:
+    """Is `short` a consecutive run of whole words inside `long`?"""
+    n = len(short)
+    return n < len(long) and any(long[i:i + n] == short for i in range(len(long) - n + 1))
 
 
 def _local_packet(prompt: str, timeout_s: float):
@@ -639,6 +697,8 @@ def _plain_status(status: dict) -> str:
     calls = status["calls_made"]
     call_word = "call" if calls == 1 else "calls"
     local = f" The check {status['local_instead']}." if status.get("local_instead") else ""
+    if status.get("local_scope"):
+        local += f" Scope on this run - {status['local_scope']}."
     if status["complete"]:
         return (f"AI engineering check complete: {status['kept_items']} of "
                 f"{status['proposed_items']} proposed item(s) kept, over {calls} {call_word}.{local}")
@@ -801,7 +861,9 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
         # what became of each (page numbers only).
         "local_pages": None if local_pages is None else {
             k: local_pages[k] for k in ("pages", "done", "timed_out", "failed", "not_tried",
-                                        "no_value_read")},
+                                        "no_value_read", "no_blank_field")},
+        # #844: None on the Claude lane (full scope); on the local model, what it was asked.
+        "local_scope": None if local_pages is None else LOCAL_SCOPE,
     }
     status["plain"] = _plain_status(status)
     _store_status(review_run_id, status)

@@ -458,12 +458,28 @@ class _Transport:
         self.calls.append((body, timeout))
         if self.raises:
             raise self.raises
-        return {"response": json.dumps({"items": [GOOD]}), "model": "local-test:1b",
+        return {"response": json.dumps({"items": [ASKS_A_BLANK]}), "model": "local-test:1b",
                 "done_reason": "stop"}
 
 
-def _local(monkeypatch, transport):
+#: #844: the local model is asked only about fields read as blank.
+BLANK_FIELD = "Hydrotest pressure"
+ASKS_A_BLANK = {**GOOD, "field": BLANK_FIELD, "value": "",
+                "observation": "The hydrotest pressure is not stated.",
+                "action": "Contractor to state the hydrotest pressure."}
+
+
+def _blank_fields(monkeypatch, by_page: dict[int, list[str]]) -> None:
+    """Add fields the code readers read as blank (the synthetic sheet has none)."""
+    read = aic.datasheet_fields
+    extra = [{"field": name, "value": "By vendor", "unit": None, "page": page, "is_blank": True}
+             for page, names in by_page.items() for name in names]
+    monkeypatch.setattr(aic, "datasheet_fields", lambda sub: read(sub) + extra)
+
+
+def _local(monkeypatch, transport, blank=None):
     from app import model_transport
+    _blank_fields(monkeypatch, {1: [BLANK_FIELD]} if blank is None else blank)
     monkeypatch.setattr(settings, "review_ai_check_enabled", True)
     monkeypatch.setattr(rp, "claude_available", lambda: (False, "off in tests"))
     monkeypatch.setattr(model_transport, "post_json", transport)
