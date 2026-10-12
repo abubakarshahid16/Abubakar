@@ -493,18 +493,25 @@ def propose_checks(requirements: list[dict], *, review_run_id: str | None = None
     `sentences`."""
     from .db import connect
 
-    asked = proposed = unread = 0
+    asked = proposed = unread = no_limit = 0
     model = None
     refused: dict[str, int] = {}
     drafts = []
-    for requirement in requirements[:max(limit, 0)]:
-        sentence = requirement.get("source_text") or requirement.get("requirement_text") or ""
+    # #645 live run (12 Oct): the cap goes first to the sentences that print
+    # a figure - a limit is a number - and only then to the rest, in order.
+    ordered = sorted(requirements, key=lambda r: not _FIGURE.search(_sentence(r)))
+    for requirement in ordered[:max(limit, 0)]:
+        sentence = _sentence(requirement)
         asked += 1
         result = ai_task_runner.run_task(CLAUSE_TASK, sentence, provider=provider)
         if result.state != ai_task_runner.STATE_OK:
             unread += 1
             continue
         check, why = verify_proposal(result.data, sentence)
+        if why == NO_LIMIT:
+            # the model's answer, not a refusal: it read no limit in the sentence
+            no_limit += 1
+            continue
         if check is None:
             refused[why] = refused.get(why, 0) + 1
             continue
@@ -525,20 +532,43 @@ def propose_checks(requirements: list[dict], *, review_run_id: str | None = None
                   c["condition"], c["quote"], model, review_run_id)
                  for rid, c, model in drafts])
     return {"sentences": len(requirements), "asked": asked, "proposed": proposed,
-            "refused": refused, "could_not_read": unread,
+            "no_limit": no_limit, "refused": refused, "could_not_read": unread,
             "not_asked_budget": max(len(requirements) - max(limit, 0), 0),
             # the local runner's model (`ai_task_runner`); None when none answered
             "model": model}
 
 
+_FIGURE = re.compile(r"\d")
+
+
+def _sentence(requirement: dict) -> str:
+    return requirement.get("source_text") or requirement.get("requirement_text") or ""
+
+
+def split_refusals(counts: dict) -> tuple[int, dict[str, int]]:
+    """(sentences the model read no limit in, {code's reason: count}). A run
+    stored before the two were counted apart kept the model's "no limit"
+    among the refusals; it is read out of them here, so every run says it
+    the same way."""
+    refused = dict(counts.get("refused") or {})
+    no_limit = int(counts.get("no_limit") or 0) + int(refused.pop(NO_LIMIT, 0) or 0)
+    return no_limit, refused
+
+
 def report_line(counts: dict | None) -> str | None:
     """"N of M sentence requirements now have a proposed check", with what
-    happened to the rest - or None when the step did not run."""
+    happened to the rest - or None when the step did not run. A sentence the
+    model read no limit in is the model's answer, not a refusal by code; a
+    refusal names code's reason."""
     if not counts:
         return None
-    refused = sum(counts.get("refused", {}).values())
+    no_limit, refused = split_refusals(counts)
+    why = "; ".join(f"{reason}: {n}" for reason, n in
+                    sorted(refused.items(), key=lambda kv: (-kv[1], kv[0])))
     line = (f"{counts['proposed']} of {counts['sentences']} sentence requirement(s) now have a "
-            f"proposed check (drafts for the engineer); {refused} proposal(s) refused by code, "
+            f"proposed check (drafts for the engineer); {no_limit} the model read no limit in, "
+            f"{sum(refused.values())} proposal(s) refused by code"
+            f"{f' ({why})' if why else ''}, "
             f"{counts['could_not_read']} not read by the model")
     if counts.get("not_asked_budget"):
         line += f", {counts['not_asked_budget']} not asked (the per-run cap)"
