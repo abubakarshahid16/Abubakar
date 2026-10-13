@@ -2428,6 +2428,10 @@ class CrsPreviewRow(BaseModel):
     #: review. Printed as the comment's first line ONLY on an unnumbered row;
     #: a numbered row's Item No is the one ID a contractor quotes back.
     row_ref: str = ""
+    #: #892 item 1: the stored finding(s) the row stands on - every finding of
+    #: a grouped row, not only its leader. Empty for a row no finding stands
+    #: on (a review note, a standards check). Never printed in the workbook.
+    finding_ids: list[str] = []
     document_name: str
     page_section: str
     comment: str

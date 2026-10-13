@@ -583,6 +583,12 @@ def engineer_comment_text(group: list[dict]) -> str:
     return f"{lead} {said} {_action(f, field)}"
 
 
+def finding_ids(group: list[dict]) -> list[str]:
+    """#892 item 1: the stored ids of every finding a CRS row stands on, in
+    the row's own order, each once. Empty for a row no finding stands on."""
+    return list(dict.fromkeys(str(f["id"]) for f in group if f.get("id")))
+
+
 def _confirmed(finding: dict) -> bool:
     """Has an ENGINEER confirmed this comment? (the issue copy's gate)"""
     return bool(finding.get("confirmed_by") or finding.get("engineer_comment")
@@ -678,7 +684,7 @@ def standards_check_rows(check: dict | None, submittal_name: str) -> list[dict]:
     for r in (check or {}).get("required_not_cited") or []:
         ident = r["identifier"]
         rows.append({
-            "finding_id": "", "document_name": submittal_name, "page_section": "",
+            "finding_id": "", "finding_ids": [], "document_name": submittal_name, "page_section": "",
             "comment": (f"Contractor did not reference {ident}; confirm compliance with "
                         f"{ident} (required because {r['reason']})."),
             "comment_by": "AI Review", "standard_reference": ident,
@@ -689,7 +695,7 @@ def standards_check_rows(check: dict | None, submittal_name: str) -> list[dict]:
     for r in (check or {}).get("cited_not_applicable") or []:
         ident = r["identifier"]
         rows.append({
-            "finding_id": "", "document_name": submittal_name, "page_section": "",
+            "finding_id": "", "finding_ids": [], "document_name": submittal_name, "page_section": "",
             "comment": (f"{ident} is cited but does not appear to apply ({r['reason']}); "
                         "confirm."),
             "comment_by": "AI Review", "standard_reference": ident,
@@ -763,6 +769,10 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                 # THE FINDING'S OWN STORED ID, carried so `crs_export` can mint
                 # a per-row reference that survives a re-export; never printed.
                 "finding_id": f.get("id") or "",
+                # #892 item 1: EVERY finding the row stands on, not only the
+                # leader's - a grouped row is several findings (tags,
+                # standards), and each one's evidence must be reachable.
+                "finding_ids": finding_ids(group),
                 "document_name": submittal_name,
                 "page_section": _page_section(group),
                 "comment": text,
@@ -785,6 +795,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             continue
         rows.append({
             "finding_id": f.get("id") or "",
+            "finding_ids": finding_ids([f]),
             "document_name": submittal_name,
             "page_section": "",
             "comment": f.get("engineer_comment") or f.get("finding") or "",
@@ -833,6 +844,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
         row_kind = ROW_KIND_AI_ENGINEERING_CHECK if origin == _AI_ORIGIN else ROW_KIND_WEB_STANDARD_CHECK
         rows.append({
             "finding_id": f.get("id") or "",
+            "finding_ids": finding_ids([f]),
             "document_name": submittal_name,
             "page_section": where,
             "comment": text if confirmed else "",
