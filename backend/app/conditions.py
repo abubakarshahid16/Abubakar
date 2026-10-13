@@ -120,6 +120,47 @@ _FIELD_HINTS = {
                   "voltage", "description"),
 }
 
+#: #920: WHICH TERMS EXCLUDE EACH OTHER. A clause is excused only by a stated
+#: value that names ANOTHER member of a family the condition's own term belongs
+#: to - "Zone 2" says the area is not "zone 1"; a vessel is one material.
+#: Services are NOT mutually exclusive across families (a sour hydrocarbon
+#: stream is both), and an equipment kind says nothing about the area it stands
+#: in, so a term outside every family can never excuse a clause.
+_EXCLUSIVE_FAMILIES: dict[str, tuple[tuple[str, ...], ...]] = {
+    SHAPE_MATERIAL: (_MATERIAL_TERMS,),
+    SHAPE_SERVICE: (
+        # One stream is one of these; "fire water" may be sea water and "crude"
+        # is a hydrocarbon, so neither is a member.
+        ("potable water", "seawater", "sea water", "steam", "glycol", "caustic",
+         "molten sulfur", "molten sulphur", "hydrocarbon"),
+        ("sour service", "sour", "sweet"),
+        ("wet gas", "dry gas"),
+    ),
+    SHAPE_CLASS: (
+        ("zone 0", "zone 1", "zone 2"),
+        ("division 1", "division 2"),
+        ("low voltage", "medium voltage"),
+        ("onshore", "offshore"),
+        ("pressure vessel", "vessel", "pump", "compressor", "piping", "pipeline", "valve",
+         "relief valve", "psv", "tank", "heater", "exchanger", "instrument", "motor",
+         "thermocouple", "cable", "cables"),
+    ),
+}
+
+
+def _names_another_of_the_family(value: str, terms: list[str], shape: str) -> str | None:
+    """The OTHER member of an exclusive family that `value` names, when one of
+    the condition's own terms is in that family; else None."""
+    for family in _EXCLUSIVE_FAMILIES.get(shape, ()):
+        if not any(t == f or _contains_term(f, t) or _contains_term(t, f) for t in terms for f in family):
+            continue
+        for other in family:
+            if (_contains_term(value, other)
+                    and not any(_contains_term(other, t) or _contains_term(t, other) for t in terms)):
+                return other
+    return None
+
+
 _NUMERIC_CONDITION = re.compile(
     r"(?P<cmp>greater than or equal to|less than or equal to|not less than|"
     r"not more than|at least|at most|greater than|less than|more than|"
@@ -305,18 +346,14 @@ def _evaluate_terms(shape: str, condition: str, facts: list[dict]) -> dict:
     # value NAMES SOMETHING ELSE of the same kind: another material, another
     # service, another class of equipment. THIS is the only route to
     # NOT_APPLICABLE, and it carries its proof.
-    table = {SHAPE_MATERIAL: _MATERIAL_TERMS, SHAPE_SERVICE: _SERVICE_TERMS,
-             SHAPE_CLASS: _CLASS_TERMS}.get(shape, ())
     for said in stated:
-        value = _fold(said.get("field_value"))
-        for other in table:
-            if (_contains_term(value, other)
-                    and not any(_contains_term(other, t) or _contains_term(t, other) for t in terms)):
-                return _result(
-                    NOT_SATISFIED, shape, condition,
-                    f"{said.get('field_name')!r} states {other!r}, which is not "
-                    f"{', '.join(repr(t) for t in terms)}",
-                    _evidence_of(said))
+        other = _names_another_of_the_family(_fold(said.get("field_value")), terms, shape)
+        if other is not None:
+            return _result(
+                NOT_SATISFIED, shape, condition,
+                f"{said.get('field_name')!r} states {other!r}, which is not "
+                f"{', '.join(repr(t) for t in terms)}",
+                _evidence_of(said))
     return _result(
         UNKNOWN, shape, condition,
         f"{len(stated)} field(s) state a value; none of them names "

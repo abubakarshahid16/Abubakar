@@ -158,22 +158,26 @@ def file_comment(conversation_id: str, message_id: str, *, text: str,
     run_id = runs[0]["id"] if runs else None
     asked = _asked_before(conversation_id, message["ordinal"])
     now = _now()
-    finding = review_mod.create({
-        "document_id": document_id,
-        "category": "technical_query",
-        "severity": "minor",
-        "requirement": (f"Raised from chat: {asked}" if asked else "Raised from chat")[:4000],
-        "finding": body,
-        "required_action": "Contractor to respond to this comment.",
-        "status": "open",
-        "approval_status": "pending",
-    }, created_by=user_id)
+    # A9/#923: the finding and the chat_filed_comments row in ONE transaction.
+    # A crash between them used to leave either an orphan finding (no run,
+    # no origin, invisible to the review screen) or a finding with no
+    # record linking it back to the chat message it was filed from.
     conn = connect()
     with conn:
-        conn.execute(
-            """UPDATE review_findings SET review_run_id = ?, origin = 'chat',
-                   confirmed_by = ?, confirmed_at = ? WHERE id = ?""",
-            (run_id, user_id or "", _iso(now), finding["id"]))
+        finding = review_mod.create({
+            "document_id": document_id,
+            "category": "technical_query",
+            "severity": "minor",
+            "requirement": (f"Raised from chat: {asked}" if asked else "Raised from chat")[:4000],
+            "finding": body,
+            "required_action": "Contractor to respond to this comment.",
+            "status": "open",
+            "approval_status": "pending",
+            "review_run_id": run_id,
+            "origin": "chat",
+            "confirmed_by": user_id or "",
+            "confirmed_at": _iso(now),
+        }, created_by=user_id, conn=conn)
         conn.execute(
             """INSERT INTO chat_filed_comments
                (message_id, finding_id, document_id, filed_by, filed_at) VALUES (?, ?, ?, ?, ?)""",

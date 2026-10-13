@@ -88,6 +88,15 @@ def decisions(review_run_id: str) -> list[dict]:
         (review_run_id,))]
 
 
+def pages_to_check(page_coverage: dict | None) -> list[int]:
+    """The pages an engineer must check before the contractor's copy is issued:
+    pages the code readers did not read into fields AND (PF3, #883) pages the
+    AI reader was asked to read and did not (time-out, unavailable, failed)."""
+    coverage = page_coverage or {}
+    return sorted({int(p) for p in (coverage.get("pages_not_read_into_fields") or [])}
+                  | {int(p) for p in (coverage.get("pages_ai_not_read") or [])})
+
+
 def open_items(review_run_id: str, rows: list[dict], page_coverage: dict | None) -> dict:
     """What still stands between this run and its contractor copy.
 
@@ -102,18 +111,37 @@ def open_items(review_run_id: str, rows: list[dict], page_coverage: dict | None)
     if not page_coverage or page_coverage.get("pages_total") is None:
         blockers.append(NO_PAGE_COVERAGE)
     else:
-        reasons = page_coverage.get("not_read_reasons") or {}
-        for page in page_coverage.get("pages_not_read_into_fields") or []:
+        reasons = {**(page_coverage.get("ai_not_read_reasons") or {}),
+                   **(page_coverage.get("not_read_reasons") or {})}
+        for page in pages_to_check(page_coverage):
             if str(page) not in checked:
                 unread.append({"page": int(page), "reason": reasons.get(str(page)) or None})
     seen: set[str] = set()
     findings: list[dict] = []
     for n, row in enumerate(rows, start=1):
-        fid = row.get("finding_id") or ""
-        if not fid or row.get("engineer_confirmed") or fid in seen:
+        # A9/#923: a row with NO finding_id (#754 F5b's "standard not cited"/
+        # "standard not applicable" rows have none - they are synthesised
+        # from the applicability check, not from a review_findings row) used
+        # to be skipped here unconditionally, which meant it could never
+        # become a blocker: the issue gate never saw it, whatever an engineer
+        # had or had not decided about it. `crs_row_key` (main._crs_content,
+        # from the row's own `comment_key`) is set on EVERY row, with or
+        # without a finding_id, and `engineer_confirmed` is already derived
+        # from it uniformly (`crs_numbers.row_keys`/`lookup`) - so a
+        # no-finding_id row is gated the same way a finding-bearing one is,
+        # not skipped.
+        subject = row.get("finding_id") or row.get("crs_row_key") or ""
+        if not subject or row.get("engineer_confirmed") or subject in seen:
             continue
-        seen.add(fid)
-        findings.append({"finding_id": fid, "row_kind": row.get("row_kind") or None, "item": n})
+        seen.add(subject)
+        # `finding_id` here is `crs_row_key` (the row's `comment_key`), not a
+        # real review_findings id, when the row has none - a caller cannot
+        # yet decide this item through the existing per-finding decide route
+        # (it looks the id up in review_findings and 404s). Fixing THAT is a
+        # follow-up; this fix is that the item is no longer invisible to the
+        # gate, which is the bypass #923 named.
+        findings.append({"finding_id": subject,
+                         "row_kind": row.get("row_kind") or None, "item": n})
     if unread:
         blockers.append(f"{len(unread)} page(s) of the submittal were not read and no "
                         "engineer has recorded checking them")
@@ -123,11 +151,20 @@ def open_items(review_run_id: str, rows: list[dict], page_coverage: dict | None)
             "issuable": not blockers}
 
 
+#: A9/#923: "n/a", "ok." and "idk" are each 3 characters and said nothing -
+#: the audit's own example of what the old `< 3` floor let through. Ten is
+#: still short (not a word-count or content check, which would be a
+#: different, harder kind of validation), but it is long enough that a
+#: placeholder typed without thinking does not clear it by accident.
+MIN_REASON_LENGTH = 10
+
+
 def _record(review_run_id: str, kind: str, subject: str, decision: str, reason: str,
             actor: str) -> dict:
     reason = " ".join((reason or "").split())
-    if len(reason) < 3:
-        raise IssueError("a decision needs the engineer's reason")
+    if len(reason) < MIN_REASON_LENGTH:
+        raise IssueError(f"a decision needs the engineer's reason "
+                         f"({MIN_REASON_LENGTH} characters minimum)")
     if not actor:
         raise IssueError("a decision must name the engineer who made it")
     ensure_schema()
@@ -167,13 +204,21 @@ def _archive_dir() -> Path:
 
 
 def archive(review_run_id: str, workbook: bytes, filename: str, *, actor: str) -> dict:
-    """Keep the exact bytes issued to the contractor, with their sha256."""
+    """Keep the exact bytes issued to the contractor, with their sha256.
+
+    A9/#923: the DB ROW IS WRITTEN FIRST. The old order wrote the file, then
+    the row - a crash between them left an untracked file on disk forever,
+    invisible (no error, no record, just wasted disk). Writing the row first
+    means the only way to fail now is a crash between the (committed) row
+    and the file, which `issued_bytes` already turns into a loud
+    `IssueError` ("no longer matches its recorded sha256") rather than
+    silently serving nothing - so this reorder is cleaned up by deleting the
+    row if the file write itself fails, rather than left to be discovered."""
     if not actor:
         raise IssueError("an issued copy must name the engineer who issued it")
     ensure_schema()
     copy_id = uuid.uuid4().hex
     path = _archive_dir() / f"{copy_id}.xlsx"
-    path.write_bytes(workbook)
     row = {"id": copy_id, "review_run_id": review_run_id, "filename": filename,
            "sha256": hashlib.sha256(workbook).hexdigest(), "size_bytes": len(workbook),
            "path": str(path), "issued_by": actor, "issued_at": _now()}
@@ -181,6 +226,12 @@ def archive(review_run_id: str, workbook: bytes, filename: str, *, actor: str) -
     with conn:
         conn.execute("INSERT INTO crs_issued_copies (id, review_run_id, filename, sha256, size_bytes,"
                      " path, issued_by, issued_at) VALUES (?,?,?,?,?,?,?,?)", tuple(row.values()))
+    try:
+        path.write_bytes(workbook)
+    except OSError:
+        with conn:
+            conn.execute("DELETE FROM crs_issued_copies WHERE id = ?", (copy_id,))
+        raise
     return row
 
 

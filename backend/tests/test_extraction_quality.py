@@ -14,8 +14,10 @@ fixes below existed. They are not illustrative:
   * 54 rows (7.1%) were byte-identical duplicates of another row.
 
 THE ONE THING THIS FILE MUST NOT DO is let `subject` become `field`. `field` is
-the join key `comparison._match_fact` reads, by exact equality against a
-datasheet caption; `subject` is a descriptive phrase for a human. The test that
+the join key read by exact equality against a datasheet caption (A13/#927:
+`comparison._match_fact`, the function that once did this join, was dead
+code and has been removed; `field`'s contract is unchanged); `subject` is a
+descriptive phrase for a human. The test that
 guards it asserts `field` stays NULL on a row whose `subject` is populated -
 not because NULL is good, but because a populated `field` that matches nothing
 would hide the fact that no requirement is comparable yet.
@@ -216,11 +218,11 @@ def test_the_same_sentence_under_a_different_clause_is_kept():
 def test_subject_is_populated_and_field_stays_null():
     """THE LINE THIS CHANGE MUST NOT CROSS.
 
-    `subject` is descriptive. `field` is the key `comparison._match_fact` joins
-    on by exact equality against a datasheet caption, and the phrase before the
-    operator is never a caption. A populated `field` here would make the column
-    read as usable while matching nothing - hiding, rather than fixing, the
-    fact that no requirement is comparable yet.
+    `subject` is descriptive. `field` is the key joined by exact equality
+    against a datasheet caption, and the phrase before the operator is
+    never a caption. A populated `field` here would make the column read as
+    usable while matching nothing - hiding, rather than fixing, the fact
+    that no requirement is comparable yet.
     """
     doc = _standard(
         "doc_s", ("5.3", "The maximum solids loading limit shall not exceed 5 g/L."))
@@ -230,7 +232,7 @@ def test_subject_is_populated_and_field_stays_null():
     row = rows(doc)[0]
     assert row["subject"] == "maximum solids loading limit"
     assert row["field"] is None, (
-        "field was populated; _match_fact joins on it by exact equality and "
+        "field was populated; it is joined by exact equality and "
         "a descriptive phrase will never equal a datasheet caption")
 
 

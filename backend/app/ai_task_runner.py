@@ -31,8 +31,11 @@ Privacy: the only socket is `model_transport` (loopback Ollama), through
 `reasoning_provider.OllamaProvider`. This module opens none, logs no source
 text, and the queue and the cache live in the local database.
 
-Nothing calls this from the review pipeline yet: it is the runner, not a
-feature. A task is added by registering a `TaskSpec`.
+A13/#927: this docstring was stale. The review pipeline does call this now -
+`ai_requirements.py` (`TASK`, `CLAUSE_TASK`) and `ai_applicability.py` (`TASK`)
+both register a `TaskSpec` and run it through here, and `comparison.py` calls
+into both of those as part of the live review flow. A task is added by
+registering a `TaskSpec`; this module stays the shared runner underneath them.
 """
 from __future__ import annotations
 
