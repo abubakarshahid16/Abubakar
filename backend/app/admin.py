@@ -470,8 +470,10 @@ def create_user(body: CreateUserRequest, actor: dict | None) -> dict:
             (user_id, hashlib.sha256(token.encode("utf-8")).hexdigest(), now,
              expires.isoformat(timespec="seconds")),
         )
-    _audit("admin_user_created", actor, "user", user_id,
-           detail=",".join(r["name"] for r in roles) or None)
+        # A9/#923: in the SAME transaction (P5: a crash here used to leave a
+        # new admin-created account with no audit row at all).
+        _audit("admin_user_created", actor, "user", user_id,
+               detail=",".join(r["name"] for r in roles) or None, conn=conn)
 
     return {
         "user_id": user_id,
@@ -519,7 +521,9 @@ def issue_password_reset(user_id: str, actor: dict | None) -> dict:
         conn.execute(
             "UPDATE users SET token_epoch = token_epoch + 1 WHERE id = ?",
             (user_id,))
-    _audit("admin_password_reset_issued", actor, "user", user_id)
+        # A9/#923: in the SAME transaction as the token and the session
+        # invalidation it causes.
+        _audit("admin_password_reset_issued", actor, "user", user_id, conn=conn)
     return {
         "user_id": user_id,
         "email": row["email"],
@@ -574,8 +578,9 @@ def redeem_password_token(token: str, password: str) -> dict:
             "UPDATE users SET password_hash = ?, token_epoch = token_epoch + 1 "
             "WHERE id = ?",
             (password_hash, row["user_id"]))
-    _audit("password_reset", {"id": row["user_id"], "email": row["email"]},
-           "session", None)
+        # A9/#923: in the SAME transaction as the password change itself.
+        _audit("password_reset", {"id": row["user_id"], "email": row["email"]},
+               "session", None, conn=conn)
     return {"reset": True}
 
 
@@ -639,7 +644,8 @@ def deactivate_user(user_id: str, actor: dict | None) -> dict:
         raise _not_found()
     with conn:
         conn.execute("UPDATE users SET is_active = 0 WHERE id = ?", (user_id,))
-    _audit("admin_user_deactivated", actor, "user", user_id)
+        # A9/#923: in the SAME transaction as the deactivation.
+        _audit("admin_user_deactivated", actor, "user", user_id, conn=conn)
     # `auth.resolve_user_id` re-reads is_active on every request, so this takes
     # effect on the user's NEXT request rather than at token expiry.
     return {"user_id": user_id, "active": False}

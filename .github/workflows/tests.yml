@@ -216,6 +216,13 @@ jobs:
       - name: Check mutation anchors
         run: python scripts/check_mutation_anchors.py
 
+      # A14 / #928: the owner's 9-rule code-quality bar, enforced as a
+      # RATCHET rather than a fixed gate - a PR may leave an unmeasured rule
+      # unmeasured, but may never make a MEASURED one worse than
+      # eval/quality/baseline.json. See scripts/quality_ratchet.py.
+      - name: Quality ratchet (no measured rule may get worse)
+        run: python scripts/quality_ratchet.py check --baseline eval/quality/baseline.json
+
       - name: Cache models
         id: models
         uses: actions/cache@v6

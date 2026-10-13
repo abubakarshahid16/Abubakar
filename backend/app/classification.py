@@ -56,6 +56,7 @@ from datetime import UTC, datetime
 from typing import get_args
 
 from . import access
+from . import numparse
 from . import schemas
 from . import disciplines as disciplines_mod
 from .db import connect
@@ -707,11 +708,14 @@ OUT_OF_SCOPE_FIELDS: dict[str, str] = {
         "authoritative source is the transmittal, outside the document: an "
         "administrator records it through confirm()."),
     "cited_standards": (
-        "Not stored on the classification row. applicability."
-        "_referenced_in_submittal re-reads them from the submittal's own "
-        "chunks with datasheets.referenced_standards every time a review, the "
-        "dashboard or the CRS export asks, so a stored copy would be a second "
-        "source of truth that goes stale on re-chunk."),
+        "Not stored on the classification row. Re-read from the submittal's "
+        "own chunks with datasheets.referenced_standards (A13/#927: the "
+        "wrapper this comment once named, applicability."
+        "_referenced_in_submittal, was dead code and has been removed - "
+        "every real caller already called referenced_standards directly) "
+        "every time a review, the dashboard or the CRS export asks, so a "
+        "stored copy would be a second source of truth that goes stale on "
+        "re-chunk."),
 }
 
 #: Fields whose values are a SHORT CONTROLLED VOCABULARY, and therefore
@@ -807,7 +811,12 @@ _CONFIDENCE = {
     "equipment_tags": 0.75, "service": 0.7, "discipline": 0.7,
 }
 
-_DASHES = re.compile(r"[?-??]")
+#: A6/#922: this was `re.compile(r"[?-??]")` - the source held literal "?"
+#: characters (encoding damage), so dash normalisation below did nothing; an
+#: en-dash or em-dash project number never folded to the hyphenated one.
+#: One vocabulary (#928 rule 3): the same hyphen and dash characters
+#: `numparse` already defines, not a second guess at the list here.
+_DASHES = re.compile(f"[{re.escape(numparse.HYPHENS + numparse.DASHES)}]")
 
 
 @dataclass(frozen=True)

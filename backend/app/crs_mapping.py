@@ -126,14 +126,32 @@ def _page_list(pages: list[int]) -> str:
     return ", ".join(out)
 
 
+_LEGACY_MARKERS = (_REQUIRES_OTHER_DOCUMENT_MARKER, _UNREAD_PAGES_MARKER, _PAGE_READER_ONLY_MARKER)
+
+
+def _reason(finding: dict) -> str | None:
+    """WHY the finding is what it is, as the CODE the review stored (#921).
+    A row written before the column existed has none (NULL); for those, the
+    leading words of the rationale are read, here and nowhere else. A row
+    written after it has the code by construction, so the words add nothing."""
+    code = finding.get("reason_code")
+    if code:
+        return str(code)
+    text = finding.get("ai_rationale") or ""
+    for marker in (*_LEGACY_MARKERS, _NO_FIELD_MARKER, _CONDITION_NOT_MET_MARKER):
+        if text.startswith(marker):
+            return marker
+    return None
+
+
 def _unread(finding: dict) -> bool:
     return (finding.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"
-            and (finding.get("ai_rationale") or "").startswith(_UNREAD_PAGES_MARKER))
+            and _reason(finding) == _UNREAD_PAGES_MARKER)
 
 
 def _page_reader_only(finding: dict) -> bool:
     return (finding.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"
-            and (finding.get("ai_rationale") or "").startswith(_PAGE_READER_ONLY_MARKER))
+            and _reason(finding) == _PAGE_READER_ONLY_MARKER)
 
 
 def _ai_relates_to(finding: dict) -> str:
@@ -320,7 +338,7 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
     by_standard: dict[str, int] = {}
     for f in findings:
         if (f.get("compliance_status") == _NOT_IN_DOCUMENT_SCOPE
-                and (f.get("ai_rationale") or "").startswith(_REQUIRES_OTHER_DOCUMENT_MARKER)):
+                and _reason(f) == _REQUIRES_OTHER_DOCUMENT_MARKER):
             name = str(f.get("standard_name") or f.get("standard_document_id") or "")
             by_standard[name] = by_standard.get(name, 0) + 1
     for name in sorted(by_standard):
@@ -333,7 +351,7 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
     no_field: dict[str, int] = {}
     for f in findings:
         if (f.get("compliance_status") == _NOT_IN_DOCUMENT_SCOPE
-                and (f.get("ai_rationale") or "").startswith(_NO_FIELD_MARKER)):
+                and _reason(f) == _NO_FIELD_MARKER):
             standard = str(f.get("standard_name") or f.get("standard_document_id") or "")
             no_field[standard] = no_field.get(standard, 0) + 1
     for name in sorted(no_field):
@@ -346,7 +364,7 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
                                  "that governs it.")})
     for f in findings:
         if (f.get("compliance_status") == _NOT_APPLICABLE
-                and (f.get("ai_rationale") or "").startswith(_CONDITION_NOT_MET_MARKER)):
+                and _reason(f) == _CONDITION_NOT_MET_MARKER):
             ref = _standard_reference(f)
             notes.append({"note": NOTE_CONDITION_NOT_MET,
                           "standard": ref, "count": None,
