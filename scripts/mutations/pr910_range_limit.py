@@ -37,7 +37,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M910-05", phase=910,
              description="a range requirement is not paired with any value (left out of the matcher)",
              path=_C,
-             anchor=" | {requirements_3b.RANGE_LIMIT}",
-             replacement="",
+             anchor=" | {requirements_3b.RANGE_LIMIT, requirements_3b.NOMINAL_VALUE}",
+             replacement=" | {requirements_3b.NOMINAL_VALUE}",
              target=_T, keyword="stored_type_the_api_can_return", tags=("honesty",)),
 )
