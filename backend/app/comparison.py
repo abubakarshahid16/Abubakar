@@ -3735,26 +3735,6 @@ def _contains_words(haystack: str, needle: str) -> bool:
     return re.search(rf"(?<!\w){re.escape(needle)}(?!\w)", haystack) is not None
 
 
-def _match_fact(requirement: dict, by_field: dict) -> dict | None:
-    """The submitted fact this requirement is about, or None.
-
-    Matched on the NORMALISED field name, which `datasheets` already computes.
-    An unmatched requirement yields None and becomes MISSING_INFORMATION -
-    never a failure, because "this system could not find the field" and "the
-    contractor got it wrong" are different statements.
-
-    THIS IS WHERE THE MODEL WOULD EARN ITS PLACE. Matching a free-text
-    requirement to a datasheet label is exactly the interpretive work section
-    14 assigns to it. This phase does the deterministic half - exact normalised
-    match - and reports the rest as unmatched rather than guessing, which is
-    why the missing-information count is high on a real sheet.
-    """
-    field = (requirement.get("field") or "").strip().lower()
-    if field and field in by_field:
-        return by_field[field]
-    return None
-
-
 def attach_crs_context(findings: list[dict]) -> list[dict]:
     """What the CRS wording needs that a finding row does not carry, looked
     up by the finding's own ids (CRS quick wins, `crs_mapping`):

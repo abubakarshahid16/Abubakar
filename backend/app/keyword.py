@@ -1015,6 +1015,30 @@ def _scope_clause(
     params.extend(sorted(allowed_document_ids))
     return where, params
 
+#: A5/#919: the shapes FTS5's own OperationalError takes for a MALFORMED
+#: MATCH EXPRESSION - a caller-typed query SQLite's query-string grammar
+#: rejects (measured against this process's own SQLite build): a dangling
+#: operator or stray punctuation gives "fts5: syntax error near ...", an
+#: unclosed quote gives "unterminated string", a leading `*` with no
+#: query-name gives "unknown special query: ...", and a column filter naming
+#: a column the table does not have gives "no such column: ...". ONLY these
+#: read as "no results" (the bug this fixes: a locked or corrupt database
+#: gave the exact same answer). Anything else - "database is locked", "disk
+#: I/O error", "database disk image is malformed" - is not a malformed
+#: query and must be seen, not swallowed.
+_MALFORMED_MATCH_MESSAGES = (
+    "fts5: syntax error",
+    "unterminated string",
+    "unknown special query",
+    "no such column",
+)
+
+
+def _is_malformed_match(exc: sqlite3.OperationalError) -> bool:
+    message = str(exc).lower()
+    return any(marker in message for marker in _MALFORMED_MATCH_MESSAGES)
+
+
 def _run_match(
     conn: sqlite3.Connection,
     match: str,
@@ -1031,8 +1055,11 @@ def _run_match(
                 ORDER BY score LIMIT ?""",
             [match, *scope_params, limit],
         ).fetchall()
-    except sqlite3.OperationalError:
-        # a malformed MATCH expression must not 500 the API
+    except sqlite3.OperationalError as exc:
+        if not _is_malformed_match(exc):
+            # A5/#919: a locked or corrupt database is not "no results" -
+            # let it surface as the named failure it is.
+            raise
         return []
 
     return [

@@ -1156,7 +1156,6 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
     """Write each result as a finding of the run (origin 'datasheet_check')."""
     from . import comparison
     from . import review as review_mod
-    from .db import connect
     written = []
     # A CHECK AN ENGINEER REJECTED in this run is kept by the re-run's delete
     # (`review.UNDECIDED_SQL`) and not written again beside it (audit
@@ -1188,6 +1187,10 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
         if (fold(f"{LABEL} {r['rule_id']}: {r['text']}"), r["fact_id"],
                 fold(r["equipment_tag"]), fold(r["field"])) in rejected:
             continue
+        # A9/#923: every field in ONE transaction. This used to create the
+        # finding, then UPDATE it with review_run_id/origin/compliance_status
+        # etc. in a second transaction - a crash between them left a finding
+        # with no run and no origin, invisible to the run that made it.
         finding = review_mod.create({
             "document_id": submittal_id, "category": "technical_query",
             "severity": (r["severity"] if r.get("checklist") and status == NON_COMPLIANT
@@ -1199,21 +1202,15 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
                                 else "Engineer to check." if status == NEEDS_ENGINEER_REVIEW
                                 else "None."),
             "status": "open", "approval_status": "pending",
+            "review_run_id": review_run_id, "origin": ORIGIN, "compliance_status": status,
+            "contractor_page": r["page"], "contractor_section": r["field"],
+            "contractor_evidence_text": r["value"],
+            "requirement_source_text": f"{LABEL} {r['rule_id']}: {r['text']}",
+            "ai_rationale": (detail if detail.startswith(("UNREAD_PAGES", "PAGE_READER_ONLY"))
+                            else f"{LABEL} {r['rule_id']}: {detail}"),
+            "fact_id": r["fact_id"], "equipment_tag": r["equipment_tag"],
+            "standard_clause": f"{r['standard']} {r['clause']}" if r.get("clause") else None,
         }, created_by=None)
-        conn = connect()
-        with conn:
-            conn.execute(
-                """UPDATE review_findings SET review_run_id = ?, origin = ?, compliance_status = ?,
-                       contractor_page = ?, contractor_section = ?, contractor_evidence_text = ?,
-                       requirement_source_text = ?, ai_rationale = ?, fact_id = ?, equipment_tag = ?,
-                       standard_clause = ?
-                   WHERE id = ?""",
-                (review_run_id, ORIGIN, status, r["page"], r["field"], r["value"],
-                 f"{LABEL} {r['rule_id']}: {r['text']}",
-                 detail if detail.startswith(("UNREAD_PAGES", "PAGE_READER_ONLY"))
-                 else f"{LABEL} {r['rule_id']}: {detail}",
-                 r["fact_id"], r["equipment_tag"],
-                 f"{r['standard']} {r['clause']}" if r.get("clause") else None, finding["id"]))
         written.append({**finding, "compliance_status": status, "origin": ORIGIN,
                         "contractor_page": r["page"], "ai_rationale": detail})
     return written
