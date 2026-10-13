@@ -56,6 +56,7 @@ from datetime import UTC, datetime
 from typing import get_args
 
 from . import access
+from . import numparse
 from . import schemas
 from . import disciplines as disciplines_mod
 from .db import connect
@@ -807,7 +808,12 @@ _CONFIDENCE = {
     "equipment_tags": 0.75, "service": 0.7, "discipline": 0.7,
 }
 
-_DASHES = re.compile(r"[?-??]")
+#: A6/#922: this was `re.compile(r"[?-??]")` - the source held literal "?"
+#: characters (encoding damage), so dash normalisation below did nothing; an
+#: en-dash or em-dash project number never folded to the hyphenated one.
+#: One vocabulary (#928 rule 3): the same hyphen and dash characters
+#: `numparse` already defines, not a second guess at the list here.
+_DASHES = re.compile(f"[{re.escape(numparse.HYPHENS + numparse.DASHES)}]")
 
 
 @dataclass(frozen=True)

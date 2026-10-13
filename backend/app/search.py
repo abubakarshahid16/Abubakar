@@ -1176,8 +1176,8 @@ def search(
 
     # A per-document census of what survived, for coverage reporting. Built
     # from the final pool, so `best_rerank_score` is None on the unreranked
-    # path rather than 0.0 - a 0.0 sits above the -3.0 floor and would read as
-    # credible when in fact nothing scored it.
+    # path rather than 0.0 - a 0.0 sits above RELEVANCE_FLOOR and would read
+    # as credible when in fact nothing scored it.
     census: dict[str, dict] = {
         doc_id: {"candidates": n, "shortlisted": 0, "best_rerank_score": None}
         for doc_id, n in contributed.items()
