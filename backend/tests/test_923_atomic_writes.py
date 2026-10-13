@@ -42,6 +42,29 @@ def test_create_writes_the_extra_fields_in_the_same_insert():
     assert stored["fact_id"] == "fact-1" and stored["equipment_tag"] == "P-101A"
 
 
+def test_datasheet_checks_store_writes_the_extra_fields_in_one_call():
+    """A9/#923 item 1, end to end through the real caller: a single
+    datasheet-check result becomes a finding with its run id, origin and
+    verdict already set - no follow-up UPDATE."""
+    from app import datasheet_checks as dc
+
+    doc = _submittal()
+    result = {
+        "rule_id": "DS-C1", "status": dc.NON_COMPLIANT,
+        "detail": "the design pressure is below the operating pressure",
+        "text": "design pressure shall exceed operating pressure", "severity": "major",
+        "fact_id": "fact-1", "equipment_tag": "V-101", "field": "Design pressure",
+        "value": "5 bar", "page": 2, "standard": None, "clause": None,
+    }
+    written = dc.store("run-1", doc, [result], pages_read={})
+    assert len(written) == 1
+    stored = review.get(written[0]["id"])
+    assert stored["review_run_id"] == "run-1" and stored["origin"] == dc.ORIGIN
+    assert stored["compliance_status"] == dc.NON_COMPLIANT
+    assert stored["fact_id"] == "fact-1" and stored["equipment_tag"] == "V-101"
+    assert stored["contractor_page"] == 2
+
+
 def test_create_given_a_conn_rolls_back_with_the_callers_transaction():
     doc = _submittal()
     conn = db.connect()
