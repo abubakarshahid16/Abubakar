@@ -1,0 +1,101 @@
+"""PF4 (#884): every applicable rule of a run accounted for, in exactly one
+state - checked, sent to the engineer, not checked - with the denominator
+stated, checklist-covered rules apart, and "does not apply" outside it.
+
+Read from the run's own scope ledger (#677). Invented runs only.
+"""
+from __future__ import annotations
+
+from app import clause_coverage as cov
+from app import db, scope_ledger
+from tests.test_crs_endpoint import _client, _run, _submittal, temp_db  # noqa: F401 - fixture
+
+
+def _ledger(run_id: str, codes: list[str]) -> None:
+    decisions = [scope_ledger.decision({"id": f"req-{n}"}, code) for n, code in enumerate(codes)]
+    scope_ledger.store(run_id, decisions)
+
+
+def _get(client, run_id):
+    r = client.get(f"/api/reviews/runs/{run_id}/coverage")
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_every_ledger_reason_has_one_pf4_state():
+    assert set(scope_ledger.REASONS) <= set(cov.STATE_OF)
+    assert set(cov.STATE_OF.values()) <= {*cov.STATES, cov.DOES_NOT_APPLY}
+
+
+def test_each_rule_is_in_exactly_one_state_out_of_the_applicable_ones():
+    doc = _submittal()
+    run = _run(doc)
+    _ledger(run, ["compared", "compared", "missing_information", "not_applicable",
+                  "needs_engineer", "needs_other_document",
+                  "row_label_not_on_sheet", "applicability_unsure",
+                  "covered_by_checklist",
+                  "definition", "other_equipment"])
+    body = _get(_client(doc), run)
+    assert body["recorded"] is True and body["adds_up"] is True
+    assert body["counts"] == {"checked": 4, "engineer": 2, "not_checked": 2,
+                              "covered_by_checklist": 1, "does_not_apply": 2}
+    # the denominator: in scope minus "does not apply", checklist-covered included
+    assert body["applicable"] == 9 and body["checked_share"] == 44.4
+    assert body["line"] == (
+        "4 of 9 applicable requirement(s) checked (44.4%), 2 sent to the engineer, "
+        "2 not checked; 1 covered by a checklist (not proof the whole standard was "
+        "checked); 2 do not apply")
+    states = {r["requirement_id"]: r["state"] for r in body["rows"]}
+    assert len(states) == 11 and states["req-4"] == "engineer" and states["req-7"] == "not_checked"
+
+
+def test_a_checklist_covered_rule_says_it_is_not_proof_of_the_whole_standard():
+    doc = _submittal()
+    run = _run(doc)
+    _ledger(run, ["covered_by_checklist"])
+    row = _get(_client(doc), run)["rows"][0]
+    assert row["state"] == "covered_by_checklist" and row["note"] == cov.CHECKLIST_NOTE
+    assert row["reason"] == "the review checklist for this equipment type governs its standard"
+
+
+def test_a_run_with_no_ledger_says_so_never_zero():
+    doc = _submittal()
+    body = _get(_client(doc), _run(doc))
+    assert (body["recorded"], body["applicable"], body["counts"]) == (False, None, None)
+    assert body["line"] == cov.NO_LEDGER
+
+
+def test_an_unknown_reason_is_counted_not_checked_never_dropped():
+    doc = _submittal()
+    run = _run(doc)
+    scope_ledger.ensure_schema()
+    with db.connect() as conn:
+        conn.execute("INSERT INTO review_scope_decisions (review_run_id, requirement_id, state,"
+                     " reason_code, reason, decided_by, created_at)"
+                     " VALUES (?, 'r1', 'applies_not_checked', 'a_new_reason', 'new', 'code', 'now')",
+                     (run,))
+    body = _get(_client(doc), run)
+    assert body["counts"]["not_checked"] == 1 and body["applicable"] == 1
+
+
+def test_clause_and_standard_only_where_the_caller_may_read_the_standard():
+    doc = _submittal()
+    run = _run(doc)
+    _ledger(run, ["compared"])
+    _submittal("std-1", "std.pdf")
+    with db.connect() as conn:
+        conn.execute("INSERT INTO standard_requirements (id, standard_document_id, clause,"
+                     " requirement_text, created_at, updated_at)"
+                     " VALUES ('req-0', 'std-1', '6.2', 'x', 'now', 'now')")
+    assert _get(_client(doc), run)["rows"][0]["clause"] is None          # standard not granted
+    row = _get(_client(doc, "std-1"), run)["rows"][0]
+    assert (row["clause"], row["standard_document_id"]) == ("6.2", "std-1")
+
+
+def test_a_stranger_gets_404_and_the_route_writes_nothing():
+    doc = _submittal()
+    run = _run(doc)
+    assert _client("other").get(f"/api/reviews/runs/{run}/coverage").status_code == 404
+    _get(_client(doc), run)
+    tables = {r["name"] for r in db.connect().execute("SELECT name FROM sqlite_master")}
+    assert "review_scope_decisions" not in tables
