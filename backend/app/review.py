@@ -500,15 +500,41 @@ def _event(conn, finding_id: str, event_type: str, changes: dict,
     )
 
 
-def create(payload: dict, *, created_by: str | None) -> dict:
+#: A9/#923: AI-review fields `create()` writes in the SAME transaction as the
+#: finding row, when a caller passes them. `datasheet_checks.store` and
+#: `chat_actions.file_comment` used to call `create()` for the base fields,
+#: then UPDATE the finding with these in a SECOND transaction - a crash
+#: between the two left a finding with no `review_run_id`/`origin`:
+#: unreachable by the run or chat message it belonged to. All default to
+#: NULL, exactly as the column already does, so a caller that omits them
+#: (every existing caller) writes exactly what it always wrote.
+_EXTRA_FIELDS = (
+    "review_run_id", "origin", "compliance_status", "contractor_page",
+    "contractor_section", "contractor_evidence_text", "requirement_source_text",
+    "ai_rationale", "fact_id", "equipment_tag", "standard_clause",
+    "confirmed_by", "confirmed_at",
+)
+
+
+def create(payload: dict, *, created_by: str | None, conn=None) -> dict:
+    """Write one finding, in one transaction.
+
+    `conn`: an ALREADY-OPEN connection whose transaction the CALLER commits
+    (its own `with conn:`), for an operation that must write the finding
+    together with another table's row in one transaction (A9/#923,
+    `chat_actions.file_comment`'s `chat_filed_comments` row). Left as `None`
+    (every other caller), `create` opens and commits its own - unchanged.
+    """
     ensure_schema()
     now = _now()
     finding_id = str(uuid.uuid4())
     governing_sources = list(payload.get("governing_sources", []))
     template_id = payload.get("template_id")
     discipline = payload.get("discipline")
+    owns_transaction = conn is None
+    conn = conn or connect()
     if template_id and not governing_sources:
-        template = connect().execute(
+        template = conn.execute(
             "SELECT governing_sources, discipline FROM review_templates WHERE id = ? AND active = 1",
             (template_id,),
         ).fetchone()
@@ -518,15 +544,20 @@ def create(payload: dict, *, created_by: str | None) -> dict:
             except (TypeError, ValueError):
                 governing_sources = []
             discipline = discipline or template["discipline"]
-    conn = connect()
-    with conn:
+
+    def _write() -> None:
         conn.execute(
             """INSERT INTO review_findings
                (id, document_id, baseline_document_id, template_id, discipline, confidence, category, severity,
                requirement, finding, required_action, governing_sources, unresolved_evidence, response_text, disposition, citation_ids,
                owner_user_id, due_date, status, approval_status, approved_by, approved_at,
-               escalation_level, created_by, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               escalation_level, created_by, created_at, updated_at,
+               review_run_id, origin, compliance_status, contractor_page,
+               contractor_section, contractor_evidence_text, requirement_source_text,
+               ai_rationale, fact_id, equipment_tag, standard_clause,
+               confirmed_by, confirmed_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 finding_id, payload["document_id"], payload.get("baseline_document_id"), template_id,
                 discipline, payload.get("confidence"),
@@ -539,6 +570,7 @@ def create(payload: dict, *, created_by: str | None) -> dict:
                 payload.get("approval_status", "pending"), payload.get("approved_by"),
                 payload.get("approved_at"), payload.get("escalation_level", 0),
                 created_by, now, now,
+                *(payload.get(name) for name in _EXTRA_FIELDS),
             ),
         )
         _event(conn, finding_id, "created", {
@@ -546,6 +578,12 @@ def create(payload: dict, *, created_by: str | None) -> dict:
             "status": payload.get("status", "open"),
             "approval_status": payload.get("approval_status", "pending"),
         }, created_by, now)
+
+    if owns_transaction:
+        with conn:
+            _write()
+    else:
+        _write()
     return get(finding_id)  # type: ignore[return-value]
 
 
