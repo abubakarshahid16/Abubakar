@@ -24,6 +24,8 @@ import type {
 } from "../types/api";
 import { AiNumbersPanel } from "../components/review/AiNumbersPanel";
 import { FindingDetail } from "../components/review/FindingDetail";
+import { CrsIssueGatePanel } from "../components/review/CrsIssueGatePanel";
+import { RunCoverageLine } from "../components/review/RunCoverageLine";
 import { ReviewStepsPanel } from "../components/review/ReviewStepsPanel";
 import { FindingsTable } from "../components/review/FindingsTable";
 import {
@@ -509,6 +511,9 @@ export function ReviewRunsView(
                 An engineer must record the final code before issue.
               </p>
             )}
+            {/* PF5 (#885): what still stands between this run and the
+                contractor's copy, each item closed here with a reason. */}
+            <CrsIssueGatePanel runId={run.review_run_id} />
             {/* THE SAME SHEET, ON SCREEN. It reads from a sibling route that
                 the server builds from the same builder as the file above, so
                 this is the deliverable rather than a summary of it. */}
@@ -545,6 +550,8 @@ export function ReviewRunsView(
             <StandardsInScope standards={standards} missing={missingStandards} error={standardsError} />
           )}
           {run?.requirement_split && <RequirementSplitPanel split={run.requirement_split} />}
+          {/* PF4 (#884): the run's applicable rules, each accounted for. */}
+          {run && <RunCoverageLine key={`coverage-${run.review_run_id}`} runId={run.review_run_id} />}
           {run && (
             <ReviewStepsPanel
               key={`steps-${run.review_run_id}`} run={run}

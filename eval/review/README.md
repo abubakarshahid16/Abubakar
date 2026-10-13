@@ -51,7 +51,11 @@ JSON, shape in `answer_key.schema.json`, sample in `keys/invented-pump.json`
   number" is left as it is; no standard is guessed.
 * `submittal_page` (optional, on an item): the datasheet page the item is about,
   for a sheet that covers several valves or tags. A finding answers the item
-  only on that page; an item without it is answered on any page.
+  only on that page; an item without it is answered on any page. A finding that
+  names **no** page (for example "no value was found") still answers a paged
+  item, when exactly one item fits; two items that differ only by their page
+  are answered by neither. The score says how many defects were found that
+  way (`defects_found_without_page`): found, but the engineer is not told where.
 
 ## The findings file (`review-findings/1`)
 

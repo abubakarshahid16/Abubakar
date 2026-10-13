@@ -234,9 +234,15 @@ def split_checklist_label(label: object) -> tuple[str | None, str | None]:
 
 def _page_matches(finding: dict, item: dict) -> bool:
     """#829: an item that names its datasheet page (one valve, one tag) is
-    answered only by a finding on that page."""
+    answered only by a finding on that page.
+
+    #881: A FINDING THAT NAMES NO PAGE IS STILL A FINDING. "No value was
+    found" has no page to give, and the first PF1 run counted such a finding
+    as if the review had said nothing about the planted defect. It may answer
+    a paged item; `match_item` lets it do so only when ONE item fits, so it
+    can never be credited to the wrong valve."""
     page = item.get("submittal_page")
-    return page is None or finding.get("submittal_page") == page
+    return page is None or finding.get("submittal_page") in (None, page)
 
 
 def _specificity(item: dict) -> tuple[int, int, int]:
@@ -249,7 +255,17 @@ def match_item(finding: dict, items: list[dict]) -> dict | None:
     hits = [it for it in items
             if _standard_matches(finding, it) and _clause_under(finding.get("clause") or "", it["clause"])
             and _field_matches(finding, it) and _page_matches(finding, it)]
-    return max(hits, key=_specificity) if hits else None
+    if not hits:
+        return None
+    if finding.get("submittal_page") is None:
+        # #881: without a page, the finding cannot choose between two items
+        # that differ only by their page - then it answers neither.
+        paged = [it for it in hits if it.get("submittal_page") is not None]
+        if len(paged) > 1:
+            hits = [it for it in hits if it.get("submittal_page") is None]
+            if not hits:
+                return None
+    return max(hits, key=_specificity)
 
 
 # --------------------------------------------------------------------- citation
@@ -304,6 +320,11 @@ def score(key: dict, findings_doc: dict,
     defects = [it for it in items if it["kind"] == DEFECT]
     found = [it for it in defects if statuses(it["id"]) & FLAG_STATUSES]
     missed = [it for it in defects if not statuses(it["id"]) & FLAG_STATUSES]
+    # #881: found, and by findings that name no datasheet page - said apart,
+    # so "found" never hides that the engineer is not told where to look.
+    without_page = [it for it in found if all(
+        f.get("submittal_page") is None for f in matched[it["id"]]
+        if str(f.get("compliance_status") or "") in FLAG_STATUSES)]
     false_compliant = [it for it in defects if OK_STATUS in statuses(it["id"])]
     applying = [it for it in items if it["kind"] in (DEFECT, MET, TRAP)]
     false_na = [it for it in applying if NA_STATUS in statuses(it["id"])]
@@ -353,6 +374,8 @@ def score(key: dict, findings_doc: dict,
         "defects": len(defects), "defects_found": len(found),
         "recall": _ratio(len(found), len(defects)),
         "missed_ids": sorted(it["id"] for it in missed),
+        "defects_found_without_page": len(without_page),
+        "found_without_page_ids": sorted(it["id"] for it in without_page),
         "judged_findings": judged, "correct_findings": correct,
         "precision": _ratio(correct, judged),
         "findings_other_status": other_status,

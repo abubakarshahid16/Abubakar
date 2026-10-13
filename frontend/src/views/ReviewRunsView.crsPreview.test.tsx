@@ -43,6 +43,13 @@ vi.mock("../api/client", () => ({
     exportCrs: (...args: unknown[]) => exportCrs(...args),
     startReviewRun: vi.fn(),
     decideCode: vi.fn(),
+    // PF5 (#885): the open items before issue.
+    crsIssueGate: async () => ({ ok: true, data: {
+      review_run_id: "run-1", issuable: false, final_code_recorded: true,
+      blockers: ["1 finding(s) on the sheet have no engineer's decision"],
+      unread_pages: [], open_findings: [{ finding_id: "f-1", row_kind: null, item: 1 }] } }),
+    // PF4 (#884): the run's coverage line.
+    runCoverage: async () => ({ ok: true, data: { line: "4 of 9 applicable requirement(s) checked (44.4%)" } }),
   },
 }));
 
@@ -359,5 +366,19 @@ describe("2f: the engineer's internal notes are their own table, not comments", 
     expect(within(notes).getByText("12")).toBeInTheDocument();
     const table = panel.getAllByRole("table")[0];
     expect(within(table).queryByText(/name their own evidence/)).toBeNull();
+  });
+
+  it("PF5: shows what still stands before the contractor's copy, under the issue button", async () => {
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({ engineer_final_code: "Approved" })] } });
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    expect(await screen.findByText("Not ready to issue to the contractor")).toBeInTheDocument();
+    expect(screen.getByTestId("finding-f-1")).toHaveTextContent("Item 1 has no engineer's decision.");
+  });
+
+  it("PF4: shows the run's clause coverage line", async () => {
+    render(<ReviewRunsView />);
+    await userEvent.click(await screen.findByRole("button", { name: /drum\.pdf/i }));
+    expect(await screen.findByTestId("run-coverage")).toHaveTextContent("4 of 9 applicable requirement(s) checked (44.4%)");
   });
 });

@@ -2384,6 +2384,31 @@ class CrsIssuedCopyList(BaseModel):
     copies: list[CrsIssuedCopy]
 
 
+class CoverageRow(BaseModel):
+    requirement_id: str
+    state: str
+    reason_code: str
+    reason: str
+    note: str | None = None
+    standard_document_id: str | None = None
+    clause: str | None = None
+
+
+class ClauseCoverage(BaseModel):
+    """PF4 (#884): every applicable rule of a run in exactly one state -
+    checked, sent to the engineer, not checked - with checklist-covered rules
+    apart and the denominator stated. `recorded` False: no ledger, never 0."""
+    review_run_id: str
+    recorded: bool
+    note: str | None = None
+    applicable: int | None = None
+    counts: dict[str, int] | None = None
+    checked_share: float | None = None
+    adds_up: bool | None = None
+    line: str
+    rows: list[CoverageRow]
+
+
 class CrsPreviewRow(BaseModel):
     """One comment row of the CRS, exactly as the workbook writes it.
 

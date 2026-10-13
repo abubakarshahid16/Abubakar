@@ -15,6 +15,9 @@ import type {
   DeletedDocument,
   ApiError,
   ClauseCheckDecisionResult,
+  CrsIssueDecision,
+  CrsIssueGate,
+  ClauseCoverage,
   ClauseCheckDraft,
   MissingStandard,
   AskRequest,
@@ -504,6 +507,29 @@ export const reviews = {
       undefined,
       hasArrayField("rows"),
     ),
+  /** PF5 (#885): the run's open items before its contractor copy. Read only. */
+  crsIssueGate: (runId: string) =>
+    request<CrsIssueGate>(`/reviews/runs/${encodeURIComponent(runId)}/crs/issue-gate`),
+  /** PF5: the engineer checked an unread page by eye; the reason is theirs,
+   *  who and when are the server's. */
+  decideCrsPage: (runId: string, page: number, reason: string) =>
+    request<CrsIssueDecision>(
+      `/reviews/runs/${encodeURIComponent(runId)}/crs/open-items/pages/${page}/decision`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      }),
+  /** PF5: the engineer accepts or rejects one open finding, with a reason. */
+  decideCrsFinding: (runId: string, findingId: string, decision: "accept" | "reject", reason: string) =>
+    request<CrsIssueDecision>(
+      `/reviews/runs/${encodeURIComponent(runId)}/crs/open-items/findings/${encodeURIComponent(findingId)}/decision`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision, reason }),
+      }),
+  /** PF4 (#884): the run's clause coverage ledger. Read only. */
+  runCoverage: (runId: string) =>
+    request<ClauseCoverage>(`/reviews/runs/${encodeURIComponent(runId)}/coverage`),
   /** Close or re-open one numbered comment (its Final Resolution). Only a
    *  signed-in reviewer can; the server records who from the session. */
   setCrsCommentStatus: (runId: string, ref: string, status: "Open" | "Closed", note?: string) =>

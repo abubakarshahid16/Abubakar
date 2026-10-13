@@ -817,6 +817,44 @@ export interface ClauseCheckDraft {
   new_requirement_id: string | null;
 }
 
+/** PF5 (#885): what still stands between a run and its contractor copy. */
+export interface CrsIssueGate {
+  review_run_id: string;
+  issuable: boolean;
+  final_code_recorded: boolean;
+  blockers: string[];
+  unread_pages: { page: number; reason: string | null }[];
+  open_findings: { finding_id: string; row_kind: string | null; item: number }[];
+}
+
+/** PF5 (#885): one recorded decision on an open item - who, when, why. */
+export interface CrsIssueDecision {
+  id: string;
+  review_run_id: string;
+  kind: string;
+  subject: string;
+  decision: string;
+  reason: string;
+  decided_by: string;
+  decided_at: string;
+}
+
+/** PF4 (#884): a run's applicable rules, each in exactly one state. */
+export interface ClauseCoverage {
+  review_run_id: string;
+  recorded: boolean;
+  note: string | null;
+  applicable: number | null;
+  counts: Record<string, number> | null;
+  checked_share: number | null;
+  adds_up: boolean | null;
+  line: string;
+  rows: {
+    requirement_id: string; state: string; reason_code: string; reason: string;
+    note: string | null; standard_document_id: string | null; clause: string | null;
+  }[];
+}
+
 export interface ClauseCheckDecisionResult {
   id: string;
   decision: string;
