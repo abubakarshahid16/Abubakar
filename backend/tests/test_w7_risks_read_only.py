@@ -36,8 +36,9 @@ def world(tmp_path, monkeypatch):
     db.reset_connection()
 
 
-def _findings(n, *, deviation=False):
-    rows = [(f"f{i:06d}", "doc", "requirement_deviation" if deviation else "other", "major", "r", "f", "a",
+def _findings(n, *, deviation=False, document_id="doc", id_prefix="f"):
+    rows = [(f"{id_prefix}{i:06d}", document_id, "requirement_deviation" if deviation else "other",
+             "major", "r", "f", "a",
              json.dumps(["missing citation"]) if deviation else "[]", "open",
              "2020-01-01", "2020-01-01") for i in range(n)]
     with db.connect() as con:
@@ -45,6 +46,13 @@ def _findings(n, *, deviation=False):
             "INSERT INTO review_findings (id, document_id, category, severity, requirement, finding,"
             " required_action, unresolved_evidence, status, created_at, updated_at)"
             " VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
+
+
+def _document(doc_id):
+    with db.connect() as con:
+        con.execute("INSERT INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at)"
+                    " VALUES (?,?,?,1,'x','ready','2020-01-01')",
+                    (doc_id, f"{doc_id}.pdf", hashlib.sha256(doc_id.encode()).hexdigest()))
 
 
 def _client():
@@ -73,45 +81,50 @@ def test_get_risks_writes_nothing_and_emails_nothing_on_100000_findings(world, m
 
 
 def test_detection_creates_each_risk_once_and_sends_one_digest(world, monkeypatch):
+    """A10/#924: 300 findings on ONE document are one review risk and one
+    compliance risk, not 600 - the explosion that made the live risks table
+    147,770 rows, all open, for 143,558 findings."""
     monkeypatch.setattr(settings, "smtp_enabled", True)
-    _findings(300, deviation=True)                 # each: a review risk AND a compliance risk
+    _findings(300, deviation=True)                 # one document: one review risk, one compliance risk
     first = risks.run_detection()
-    assert first["status"] == "ok" and first["created"] == 600
-    assert first["by_type"] == {"review": 300, "compliance": 300}
-    assert len(world) == 1, f"{len(world)} emails for 600 risks"
+    assert first["status"] == "ok" and first["created"] == 2
+    assert first["by_type"] == {"review": 1, "compliance": 1}
+    assert len(world) == 1, f"{len(world)} emails for 2 risks"
     assert first["digest"] == "sent"
-    assert "600 new" in world[0]["subject"]
+    assert "2 new" in world[0]["subject"]
+    rows = db.connect().execute("SELECT description FROM risks ORDER BY risk_type").fetchall()
+    assert all("300" in row["description"] for row in rows), rows
     again = risks.run_detection()
     assert again["created"] == 0 and again["digest"] == "none"
     assert len(world) == 1
-    assert db.connect().execute("SELECT COUNT(*) FROM risks").fetchone()[0] == 600
+    assert db.connect().execute("SELECT COUNT(*) FROM risks").fetchone()[0] == 2
 
 
 def test_the_digest_is_rate_limited_not_one_per_run(world, monkeypatch):
+    """Each batch lands on its OWN document (A10/#924: a second batch on the
+    SAME document would be deduplicated into the first batch's still-open
+    aggregate, never minting a second risk - this test is about the digest's
+    own rate limit, not that dedup, so it gives each batch a document the
+    aggregate has not already covered)."""
     monkeypatch.setattr(settings, "smtp_enabled", True)
     monkeypatch.setattr(settings, "risk_digest_min_interval_seconds", 3600)
     _findings(5)
     assert risks.run_detection()["digest"] == "sent"
-    with db.connect() as con:
-        con.execute("UPDATE review_findings SET id = 'x' || id")   # new ids for the next batch to add
-    _findings(5)
+    _document("doc2")
+    _findings(5, document_id="doc2", id_prefix="x")
     second = risks.run_detection()
-    assert second["created"] == 5 and second["digest"] == "rate_limited"
+    assert second["created"] == 1 and second["digest"] == "rate_limited"
     assert len(world) == 1
     monkeypatch.setattr(settings, "risk_digest_min_interval_seconds", 0)
-    _findings_more = [(f"g{i}", "doc", "other", "major", "r", "f", "a", "[]", "open", "2020-01-01", "2020-01-01")
-                      for i in range(3)]
-    with db.connect() as con:
-        con.executemany("INSERT INTO review_findings (id, document_id, category, severity, requirement,"
-                        " finding, required_action, unresolved_evidence, status, created_at, updated_at)"
-                        " VALUES (?,?,?,?,?,?,?,?,?,?,?)", _findings_more)
+    _document("doc3")
+    _findings(3, document_id="doc3", id_prefix="g")
     assert risks.run_detection()["digest"] == "sent" and len(world) == 2
 
 
 def test_nothing_is_emailed_when_smtp_is_off(world):
     _findings(10)
     out = risks.run_detection()
-    assert out["created"] == 10 and out["digest"] == "disabled" and world == []
+    assert out["created"] == 1 and out["digest"] == "disabled" and world == []
 
 
 def test_detection_asks_the_database_a_fixed_number_of_questions(world):
@@ -146,8 +159,8 @@ def test_the_admin_trigger_runs_detection_and_returns_counts(world):
     r = _client().post("/api/risks/detect")
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["status"] == "ok" and body["created"] == 4
-    assert _client().get("/api/risks").json()["risks"].__len__() == 4
+    assert body["status"] == "ok" and body["created"] == 1
+    assert _client().get("/api/risks").json()["risks"].__len__() == 1
 
 
 def test_a_non_admin_cannot_trigger_detection(world, monkeypatch):

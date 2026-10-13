@@ -116,7 +116,11 @@ def test_risk_detection_pauses_between_batches_and_still_finds_everything(monkey
     monkeypatch.setattr(risks, "_insert_many", lambda items: inserted.extend(items))
     monkeypatch.setattr(risks, "OPEN_REVIEW_STATUSES", ("open",))
     created = risks.detect_automatic_risks()
-    assert len(created) == 12 == len(inserted)       # nothing lost to the batching
+    # A10/#924: one document's 12 findings are one aggregate risk, not 12 -
+    # "nothing lost to the batching" now means the aggregate's own count
+    # still names all 12, wherever the batch boundary fell.
+    assert len(created) == 1 == len(inserted)
+    assert "12" in created[0]["description"]
     assert len(pauses) == 2                          # 12 findings, batches of 5: 5+5+2
 
 

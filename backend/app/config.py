@@ -713,7 +713,10 @@ class Settings(BaseSettings):
     #: Automatic risk detection (#478): every this many seconds, in a background
     #: thread (0 = off). The digest email is rate-limited to one per interval
     #: below. GET /api/risks never runs detection.
-    risk_detection_interval_seconds: int = 900
+    #: A10/#924: OFF by default. At 900s on 143,558 live findings this grew the
+    #: risks table to 147,770 open rows, one per finding, unusable to an
+    #: engineer. A deployment that wants it sets this explicitly.
+    risk_detection_interval_seconds: int = 0
     risk_digest_min_interval_seconds: int = 3600
     #: Gap analysis work budget (#606). A run that reaches any of these stops,
     #: returns what it has, and says `truncated: true` with the reason.
