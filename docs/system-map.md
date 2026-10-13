@@ -77,6 +77,9 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `crs_wording` | AI-worded CRS comments, with a code lock on every number, unit, clause, page and standard |
 | `crs_reply` | Read a contractor's returned Comment Resolution Sheet |
 | `datasheet_ai` | Read a contractor datasheet into facts |
+| `form_reader` | Read the form of a datasheet page with a model and verify every answer in code |
+| `form_reader_fields` | Build a datasheet type's field list, schema and prompt from reference data |
+| `form_reader_run` | Run the form reader over a datasheet for extraction |
 | `datasheet_checks` | Datasheet self-checks (kind B): what a datasheet says against ITSELF |
 | `datasheet_inputs` | Datasheet INPUTS other than a PDF text layer: Excel, Word, scanned pages |
 | `datasheets` | Read a contractor datasheet into facts |
