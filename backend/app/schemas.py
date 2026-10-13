@@ -230,6 +230,16 @@ class OkfReport(BaseModel):
                                       "resolving citation'; a built set has 0")
 
 
+class OkfApproval(BaseModel):
+    """R29/#833: an engineer's decision on one OKF concept, read back fresh
+    every time - `stale` when the standard's own text has changed since."""
+
+    status: Literal["draft", "confirmed", "rejected", "stale"]
+    decided_by: str | None
+    decided_at: str | None
+    previous_status: Literal["confirmed", "rejected"] | None = None
+
+
 class StandardClause(BaseModel):
     """One clause of a standard, resolving to the chunk it was read from."""
 
