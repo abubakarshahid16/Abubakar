@@ -70,6 +70,7 @@ unchanged on the Mac Studio (#683).
 ## Commands
 
 ```powershell
+python scripts\review_score.py from-crs --crs PAST_CRS.xlsx --name a-key --approved-by "Engineer Name" --out OUTSIDE_REPO\drafted-key.json
 python scripts\review_score.py export --db COPY.sqlite --run RUN_ID --out runs\invented-pump.findings.json --model qwen3.5:4b
 python scripts\review_score.py score  --key eval\review\keys\invented-pump.json --findings runs\invented-pump.findings.json
 python scripts\review_score.py check  --key eval\review\keys\invented-pump.json --findings runs\invented-pump.findings.json
@@ -77,6 +78,17 @@ python scripts\review_score.py record-baseline --key ... --findings ...
 python scripts\review_score.py weekly --runs-dir runs --out runs\week.md
 ```
 
+* `from-crs` (#747, R1 #765): drafts an `engineer_confirmed` key from one real
+  Comment Resolution Sheet - the client's template, a "COMPANY Comments"
+  header row. Each comment becomes one `defect` item (the standard and the
+  clause it names); a comment whose standard or clause cannot be read is never
+  guessed, it is listed in `to_complete` by row number only, for a person to
+  check before scoring. **Refuses to write inside this repository** (a drafted
+  key stays beside the CRS it came from). The whole chain - a CRS file on
+  disk, the CLI, the drafted key, `score` - is proved end to end on invented
+  data (`backend/tests/test_765_crs_import_score_harness.py`); the real CRSs
+  R1 needs are an owner action (#765, NEEDS OWNER) and run the same code
+  unchanged.
 * `check` exits 1 (BLOCKED) when any defect was called COMPLIANT, or when recall,
   precision or citation validity is more than `margin` (5 points) below the
   stored baseline for that key and model. With no baseline stored it checks the
