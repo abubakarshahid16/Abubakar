@@ -707,11 +707,14 @@ OUT_OF_SCOPE_FIELDS: dict[str, str] = {
         "authoritative source is the transmittal, outside the document: an "
         "administrator records it through confirm()."),
     "cited_standards": (
-        "Not stored on the classification row. applicability."
-        "_referenced_in_submittal re-reads them from the submittal's own "
-        "chunks with datasheets.referenced_standards every time a review, the "
-        "dashboard or the CRS export asks, so a stored copy would be a second "
-        "source of truth that goes stale on re-chunk."),
+        "Not stored on the classification row. Re-read from the submittal's "
+        "own chunks with datasheets.referenced_standards (A13/#927: the "
+        "wrapper this comment once named, applicability."
+        "_referenced_in_submittal, was dead code and has been removed - "
+        "every real caller already called referenced_standards directly) "
+        "every time a review, the dashboard or the CRS export asks, so a "
+        "stored copy would be a second source of truth that goes stale on "
+        "re-chunk."),
 }
 
 #: Fields whose values are a SHORT CONTROLLED VOCABULARY, and therefore
