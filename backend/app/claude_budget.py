@@ -19,8 +19,8 @@ TWO CONTROLS, BOTH DUMB ON PURPOSE:
   2. A RUNNING TOTAL. After every route, the transport's `usage` is added to
      one row in `model_spend`, which survives restarts. Every route answers
      with `spend_total`, so the person watching the demo sees the same number
-     as the person paying for it. The dollar figure is an ESTIMATE from list
-     prices in `PRICE_PER_MILLION` and says so; the invoice is the truth.
+     as the person paying for it. The dollar figure is an ESTIMATE from
+     `claude_spend`'s list prices and says so; the invoice is the truth.
 
 WHAT THIS IS NOT. Not a rate limiter and not a lock: two routes running at
 once each get their own cap. It exists so that one route cannot spend more
@@ -47,14 +47,6 @@ ENV_MAX_CALLS = "STANDARDS_READER_MAX_CALLS_PER_RUN"
 DEFAULT_MAX_CALLS = 200
 
 BUDGET_EXHAUSTED = "budget_exhausted"
-
-#: USD per million tokens, list price, for the estimate only. Keyed by the
-#: first two words of the model id so a dated id still finds its family.
-PRICE_PER_MILLION = {
-    "claude-sonnet": (3.0, 15.0),
-    "claude-haiku": (0.8, 4.0),
-    "claude-opus": (15.0, 75.0),
-}
 
 
 class BudgetExhausted(claude_spend.StopRun):
@@ -144,7 +136,12 @@ def total(model: str | None = None) -> dict:
 
 def estimate_usd(input_tokens: int, output_tokens: int, model: str | None = None) -> float:
     """List-price estimate, rounded to the cent. Sonnet prices when the model
-    is unknown, because that is the reader's default."""
-    family = "-".join((model or "claude-sonnet").split("-")[:2])
-    per_in, per_out = PRICE_PER_MILLION.get(family, PRICE_PER_MILLION["claude-sonnet"])
+    is unknown, because that is the reader's default.
+
+    A8/#922: one price table (rule 3, #928) - `claude_spend.price_for`, not a
+    second guess at Anthropic's prices kept here. It priced input/output
+    separately from cache-write/cache-read; a call with no cache activity (the
+    only kind this estimate is ever given: `total()` only tracks input/output
+    tokens) simply does not use the other two rates."""
+    per_in, per_out, _write, _read = claude_spend.price_for(model or "claude-sonnet-5")
     return round((input_tokens * per_in + output_tokens * per_out) / 1_000_000, 2)
