@@ -10,12 +10,13 @@
  * page nobody can reach is a claim without evidence (§12: no finding without
  * both citations resolving), so the page is one click away on each side.
  */
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
-import { api, reviews as reviewsApi } from "../../api/client";
+import { reviews as reviewsApi } from "../../api/client";
 import type { DocumentRecord, ReviewFinding, ReviewRunStandard } from "../../types/api";
 import { DocumentPreview } from "../DocumentPreview";
 import { SideBySideEvidence, WhyStandardApplies } from "./SideBySideEvidence";
+import { useResolvedDocuments } from "./useResolvedDocuments";
 import {
   confidenceLabel, findingLabel, matchMethodLabel, matchMethodTone, orNothing,
   statusTone, whenLabel,
@@ -57,35 +58,9 @@ function FindingDetailBody(
   // R21: both cited pages at once. Opening it closes the one-page view.
   const [sideBySide, setSideBySide] = useState(false);
 
-  // THE CITED DOCUMENTS, FETCHED BY ID WHEN THEY ARE NOT ALREADY IN HAND.
-  // A findings list carries document IDs, and the page's document list holds
-  // the submittals plus whatever standards fitted in one page of results - so
-  // the standard a finding cites is often missing from it. Rendering "not
-  // readable" in that case states something untrue about the reader's access;
-  // the honest thing is to go and get it, and to say "still loading" until
-  // the answer is known.
-  const [fetched, setFetched] = useState<Record<string, DocumentRecord | null>>({});
   const standardId = finding.standard_document_id ?? null;
   const submittalId = finding.document_id ?? null;
-
-  useEffect(() => {
-    for (const id of [standardId, submittalId]) {
-      if (!id) continue;
-      if (documents.some((d) => d.id === id)) continue;
-      if (id in fetched) continue;
-      setFetched((current) => ({ ...current, [id]: null }));
-      void api.document(id).then((result) => {
-        setFetched((current) => ({
-          ...current, [id]: result.ok ? result.data : null,
-        }));
-      });
-    }
-  }, [standardId, submittalId, documents, fetched]);
-
-  const find = (id: string | null) =>
-    (id ? documents.find((d) => d.id === id) ?? fetched[id] ?? null : null);
-  const standard = find(standardId);
-  const submittal = find(submittalId);
+  const { standard, submittal } = useResolvedDocuments(standardId, submittalId, documents);
   const canReject = Boolean(finding.requirement_id && finding.fact_id);
 
   async function confirm() {

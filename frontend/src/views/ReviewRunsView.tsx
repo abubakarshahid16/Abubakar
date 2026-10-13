@@ -600,14 +600,14 @@ export function ReviewRunsView(
             // #791: the findings one count stands for, in one list.
             <FindingsTable
               key={`focus-${focus.n}`}
-              findings={findings} selectedId={selectedFinding}
+              findings={findings} selectedId={selectedFinding} documents={documents}
               standardNames={standardNames}
               onSelect={(item) => setSelectedFinding(item.id)}
               initialStatus={focus.status}
             />
           ) : groupFindingsByTopic(findings).length <= 1 ? (
             <FindingsTable
-              findings={findings} selectedId={selectedFinding}
+              findings={findings} selectedId={selectedFinding} documents={documents}
               standardNames={standardNames}
               onSelect={(item) => setSelectedFinding(item.id)}
             />
@@ -619,7 +619,7 @@ export function ReviewRunsView(
                     {group.topic} ({group.findings.length})
                   </h3>
                   <FindingsTable
-                    findings={group.findings} selectedId={selectedFinding}
+                    findings={group.findings} selectedId={selectedFinding} documents={documents}
                     standardNames={standardNames}
                     onSelect={(item) => setSelectedFinding(item.id)}
                   />
