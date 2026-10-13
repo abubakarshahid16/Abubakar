@@ -170,6 +170,25 @@ _ARTICLE = re.compile(r"^(?:either|a|an|the|of)\s+", re.IGNORECASE)
 _NAMED_VALUE_WORDS = 6
 
 
+#: #921: WORDS THAT POINT ELSEWHERE INSTEAD OF STATING A VALUE. "see note 3",
+#: "refer to drawing", "as per datasheet", "N/A" are not a value; they may not
+#: make a "state it" or "one of these values" clause COMPLIANT. (The blank
+#: markers - TBD, by vendor, rules - are `blank_markers`.)
+_DEFERRAL = re.compile(
+    r"^\W*(?:see|refer(?:\s+to)?|as\s+per|per|n\s*/\s*a|na|not\s+applicable|none|nil|"
+    r"to\s+follow|pending|by\s+others|as\s+required|as\s+applicable|various)\b", re.IGNORECASE)
+
+
+def states_a_value(text: str | None) -> bool:
+    """Does this cell state something, rather than nothing or a pointer?"""
+    from . import blank_markers
+
+    stated = " ".join(str(text or "").split())
+    if not stated or blank_markers.classify(stated)[0]:
+        return False
+    return _DEFERRAL.match(stated) is None
+
+
 def asks_only_to_be_stated(text: str | None) -> bool:
     """Does the clause ask for nothing but that the thing be stated on the
     datasheet? A clause that also negates or conditions is not that."""
