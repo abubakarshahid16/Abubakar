@@ -558,6 +558,18 @@ class Settings(BaseSettings):
     #: The local model the "ollama" engine uses; empty = `answer_model`.
     #: Env: DATASHEET_AI_OLLAMA_MODEL.
     datasheet_ai_ollama_model: str = ""
+    #: WHICH AI READING runs inside extraction (the engine is still
+    #: DATASHEET_AI_READER; with that "off" no AI reading runs in any mode):
+    #:   "merge" - THE DEFAULT, unchanged: `datasheet_ai` reads every row it
+    #:             can see and the reading is merged with the rule readers'.
+    #:   "form"  - `form_reader`: the model fills the equipment type's fixed
+    #:             FIELD LIST (from `reference/datasheet_checks.json`) with
+    #:             value, unit and a verbatim quote; code only verifies; the
+    #:             rule readers' facts become the cross-check in the same
+    #:             merge. Any layout, no layout code.
+    #:   "rules" - no AI reading at all (the rule readers only).
+    #: Any other value is refused at startup. Env: DATASHEET_READER_MODE.
+    datasheet_reader_mode: str = "merge"
     #: B8: after the structural answerability checks, a reasoning model
     #: (local Ollama, or Claude through reader_transport under the USD caps)
     #: judges whether the passages ANSWER the question. It may only downgrade
@@ -1353,6 +1365,13 @@ class Settings(BaseSettings):
         or fail every call at once (timeout): refused at startup instead."""
         if self.datasheet_ai_timeout_seconds <= 0 or self.datasheet_ai_max_seconds <= 0:
             raise ValueError("DATASHEET_AI_TIMEOUT_SECONDS and DATASHEET_AI_MAX_SECONDS must be positive")
+        return self
+
+    @model_validator(mode="after")
+    def _datasheet_reader_mode_is_known(self) -> Settings:
+        """A misspelt mode would silently run the default reader instead."""
+        if str(self.datasheet_reader_mode).strip().lower() not in ("rules", "merge", "form"):
+            raise ValueError("DATASHEET_READER_MODE must be one of: rules, merge, form")
         return self
 
     @model_validator(mode="after")
