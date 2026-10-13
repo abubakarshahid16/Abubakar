@@ -181,6 +181,13 @@ def ensure_schema() -> None:
             "fact_id": "TEXT",
             "matched_phrase": "TEXT",
             "match_method": "TEXT",
+            # WHY THE FINDING IS WHAT IT IS, as a CODE (#921): `crs_mapping`
+            # used to decide what reaches the CRS by reading the first words of
+            # `ai_rationale`, text `comparison` writes. A reworded sentence
+            # then silently moved findings into or out of the CRS. NULL on rows
+            # written before this column; `crs_mapping` falls back to the
+            # words for those, once, in one place.
+            "reason_code": "TEXT",
             # A HUMAN'S DECISION ABOUT THIS FINDING, and the reason re-running
             # a comparison cannot destroy it.
             #
