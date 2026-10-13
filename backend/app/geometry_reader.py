@@ -208,6 +208,60 @@ def _states_a_value_beside_a_label(row: list[str], gutter: set[int]) -> bool:
     return any(_STARTS_WITH_A_NUMBER.match(v) or blank_markers.names_a_marker(v) for v in filled[1:])
 
 
+#: Words a table prints as the NAMES OF ITS COLUMNS. #899-adjacent (PF1, #881):
+#: a narrow label / value table whose first row has a TEXT value
+#: ("Gas handled | Nitrogen", "Service | Air receiver") was read as column
+#: names: the row was lost and every other label grew its value as a suffix
+#: ("casing design pressure nitrogen"), and on a two-column form a value cell
+#: became the "header" of another ("hydrostatic test pressure vacuum service
+#: = Joint efficiency", a label stored as a value). A row names columns when
+#: EVERY word in it is one of these; one other word and it is an answer.
+_COLUMN_NAME_WORDS = frozenset(
+    "description descriptions parameter parameters item items property properties characteristic "
+    "characteristics data value values unit units uom required requirement requirements offered offer "
+    "vendor supplier contractor purchaser client company manufacturer specification specifications spec "
+    "remarks remark note notes comment comments ref reference no number tag tags type rev revision min max "
+    "minimum maximum normal rated design operating actual quantity qty size rating class sheet page "
+    "and of for the to by at in on per or field fields name names title details detail".split())
+#: The narrow shapes this applies to: a label / value table, or two of them
+#: side by side. A wider table has columns whose names matter and keeps its
+#: first row as the header.
+_NARROW_TABLE_COLUMNS = 4
+
+
+def _names_columns(row: list[str], gutter: set[int]) -> bool:
+    """Does this row consist ONLY of column-name words?"""
+    words = [w for j, v in enumerate(row) if j not in gutter and v
+             for w in re.findall(r"[a-z]+", v.lower())]
+    return bool(words) and all(w in _COLUMN_NAME_WORDS for w in words)
+
+
+def _alternates(row: list[str], gutter: set[int]) -> bool:
+    """Two label / value pairs on one row: four filled cells, the first and
+    third are words that do not start with a number."""
+    cells = [v for j, v in enumerate(row) if j not in gutter]
+    return (len(cells) == 4 and all(cells)
+            and all(re.search(r"[A-Za-z]", cells[k]) and not _STARTS_WITH_A_NUMBER.match(cells[k]) for k in (0, 2)))
+
+
+def _states_text_beside_a_label(row: list[str], gutter: set[int], below: list[list[str]] | None = None) -> bool:
+    """A first row of a NARROW table that is already an answer although its
+    value is words, not a number: a label, a filled cell after it, and the
+    row does not consist of column-name words. A FOUR-column row needs more
+    than that - a header may use any words ("Attribute | Measure | Figure |
+    Notes") - so the rows BELOW must be the same two-pairs shape, twice."""
+    cells = [v for j, v in enumerate(row) if j not in gutter]
+    filled = [v for v in cells if v]
+    answer = (len(cells) <= _NARROW_TABLE_COLUMNS and len(filled) >= 2
+              and bool(re.search(r"[A-Za-z]", filled[0])) and not _STARTS_WITH_A_NUMBER.match(filled[0])
+              and not _names_columns(row, gutter))
+    if answer and len(cells) == 4:
+        return sum(1 for r in below or [] if _alternates(r, gutter)) >= 2
+    # A THREE-column table has columns whose names matter ("Attribute |
+    # Measure | Figure"): only a two-column table is a plain label / value one.
+    return answer and len(cells) == 2
+
+
 def _answers_in_every_cell(row: list[str], gutter: set[int]) -> bool:
     """The STRICT form, for a row above a schedule's first data row: a label,
     and EVERY filled cell after it states a value. A real header row can
@@ -501,7 +555,7 @@ def _structure(table: Any, *, page_no: int, table_id: str, strategy: str,
             if not header and _is_title_row(rects[i], texts[i], gutter, x_left, x_right):
                 title_rows.append(i)
                 continue
-            if _states_a_value_beside_a_label(texts[i], gutter):
+            if _states_a_value_beside_a_label(texts[i], gutter) or _states_text_beside_a_label(texts[i], gutter, texts[i + 1:]):
                 # A LABEL/VALUE TABLE HAS NO HEADER ROW (R27, 2026-10-11). Its
                 # first row is already an answer ("Rated capacity | 125 m3/h").
                 # Taking it as the header lost that row and named every other
@@ -1134,42 +1188,52 @@ def _label_value_rows(table: dict[str, Any], alphabet_violations) -> list[dict[s
         cells = sorted(data["cells"], key=lambda c: c["column"])
         texts = [c["text"] or (_merged_from_above(table["rows"], index, c["column"])
                                if c.get("bbox") is None else "") for c in cells]
-        filled = [i for i, t in enumerate(texts) if t]
-        if len(filled) < 2:
-            continue
-        answer = next((i for i in filled[1:] if cells[i]["text"] and (
-            _STARTS_WITH_A_NUMBER.match(texts[i]) or blank_markers.names_a_marker(texts[i]))), None)
-        if answer is None:
-            answer = filled[-1]
-        if not cells[answer]["text"]:
-            continue
-        parts = [(i, texts[i]) for i in filled if i < answer]
-        if not parts or any(not re.search(r"[^\W_]", t) or cells[i].get("cut_word", False)
-                            or alphabet_violations(t)[0] > 0 for i, t in parts):
-            continue
-        c = cells[answer]
-        if _is_a_contents_row(" ".join(t for _i, t in parts), c["text"]):
-            continue
-        label, value_text, value, unit = " ".join(t for _i, t in parts), c["text"], c["value"], c["unit"]
-        # R27: A VALUE CELL THAT CARRIES ITS OWN SUB-LABEL ("Bottom course:
-        # 14 mm", a value cell split in two under one label). The sub-label
-        # belongs to the name and the quantity is the value; stored whole it
-        # was a field "Shell plate thickness" whose value was a sentence.
-        sub = _SUB_LABELLED_VALUE.match(c["text"] or "") if not c["is_blank"] else None
-        inner = split_value_unit(sub.group("value")) if sub else None
-        if inner and inner["unit"]:
-            label = f"{label} {sub.group('sub').strip()}"
-            value_text, value, unit = sub.group("value").strip(), inner["value"], inner["unit"]
-        out.append({
-            "source": "table", "page": c["page"],
-            "label": label,
-            "label_text": "", "value_text": value_text,
-            "value": value, "unit": unit, "is_blank": c["is_blank"],
-            "blank_marker": c["blank_marker"], "condition": c.get("condition"),
-            "note": c.get("note"), "bbox": c["bbox"], "label_bbox": cells[parts[-1][0]].get("bbox"),
-            "position": None, "table_id": c["table_id"], "row": c["row"],
-            "column": c["column"], "column_label": "",
-        })
+        filled_all = [i for i, t in enumerate(texts) if t]
+        # PF1 (#881): TWO LABEL / VALUE PAIRS ON ONE ROW of a four-column form
+        # ("Shell plate material | SA-285 | Radiography | 10 %"). Taking the
+        # first value-like cell as THE answer made the label "Shell plate
+        # material SA-285 Radiography" for the value 10 %: a longer name that
+        # contains the real label's words and so wins the pairing with a
+        # value that is not that field's. Each pair is its own row.
+        pairs = [[0, 1], [2, 3]] if (len(cells) == 4 and filled_all == [0, 1, 2, 3]
+                                     and all(re.search(r"[A-Za-z]", texts[k]) and not _STARTS_WITH_A_NUMBER.match(texts[k])
+                                             for k in (0, 2))) else [filled_all]
+        for filled in pairs:
+            if len(filled) < 2:
+                continue
+            answer = next((i for i in filled[1:] if cells[i]["text"] and (
+                _STARTS_WITH_A_NUMBER.match(texts[i]) or blank_markers.names_a_marker(texts[i]))), None)
+            if answer is None:
+                answer = filled[-1]
+            if not cells[answer]["text"]:
+                continue
+            parts = [(i, texts[i]) for i in filled if i < answer]
+            if not parts or any(not re.search(r"[^\W_]", t) or cells[i].get("cut_word", False)
+                                or alphabet_violations(t)[0] > 0 for i, t in parts):
+                continue
+            c = cells[answer]
+            if _is_a_contents_row(" ".join(t for _i, t in parts), c["text"]):
+                continue
+            label, value_text, value, unit = " ".join(t for _i, t in parts), c["text"], c["value"], c["unit"]
+            # R27: A VALUE CELL THAT CARRIES ITS OWN SUB-LABEL ("Bottom course:
+            # 14 mm", a value cell split in two under one label). The sub-label
+            # belongs to the name and the quantity is the value; stored whole it
+            # was a field "Shell plate thickness" whose value was a sentence.
+            sub = _SUB_LABELLED_VALUE.match(c["text"] or "") if not c["is_blank"] else None
+            inner = split_value_unit(sub.group("value")) if sub else None
+            if inner and inner["unit"]:
+                label = f"{label} {sub.group('sub').strip()}"
+                value_text, value, unit = sub.group("value").strip(), inner["value"], inner["unit"]
+            out.append({
+                "source": "table", "page": c["page"],
+                "label": label,
+                "label_text": "", "value_text": value_text,
+                "value": value, "unit": unit, "is_blank": c["is_blank"],
+                "blank_marker": c["blank_marker"], "condition": c.get("condition"),
+                "note": c.get("note"), "bbox": c["bbox"], "label_bbox": cells[parts[-1][0]].get("bbox"),
+                "position": None, "table_id": c["table_id"], "row": c["row"],
+                "column": c["column"], "column_label": "",
+            })
     return out
 
 

@@ -1499,12 +1499,19 @@ def _states_a_quantity(cell: str) -> bool:
     return number is not None and bool(unit)
 
 
-def _first_row_states_a_value(row0: list[str]) -> bool:
+def _first_row_states_a_value(row0: list[str], below: list[list[str]] | None = None) -> bool:
     """Is a wide table's first row DATA, not column names? Its last filled
     cell states a quantity, and it has a label before it. A header names
     columns and states no quantity ("Parameter | Units | Value")."""
     filled = [c for c in row0 if c]
-    return len(filled) >= 2 and _states_a_quantity(filled[-1]) and bool(re.search(r"[^\W\d_]", filled[0]))
+    if len(filled) >= 2 and _states_a_quantity(filled[-1]) and bool(re.search(r"[^\W\d_]", filled[0])):
+        return True
+    # PF1 (#881): a NARROW table (two label / value pairs side by side) whose
+    # first row has TEXT values ("Service | Air receiver | Vacuum service |
+    # No") is data too: unless every word in the row is a column-name word.
+    # The same closed vocabulary as the geometry reader, one home.
+    from . import geometry_reader
+    return (len(row0) == 4 and geometry_reader._states_text_beside_a_label(list(row0), set(), [list(r) for r in below or []]))
 
 
 #: A value cell that carries its own sub-label: "Bottom course: 14 mm".
@@ -1606,7 +1613,7 @@ def pairs_from_table_shape(shape: list[list[str]]) -> list[tuple[str, str]]:
     def _padded(row: list[str]) -> list[str]:
         return [(c or "").strip() for c in row] + [""] * (width - len(row))
 
-    if _first_row_states_a_value(_padded(shape[0])):
+    if _first_row_states_a_value(_padded(shape[0]), [_padded(row) for row in shape[1:]]):
         # R27: no header row at all - see `_pairs_from_headerless_shape`.
         return _pairs_from_headerless_shape([_padded(row) for row in shape])
 
