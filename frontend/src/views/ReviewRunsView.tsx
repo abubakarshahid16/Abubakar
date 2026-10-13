@@ -46,7 +46,17 @@ type Phase =
   | { kind: "error"; message: string };
 
 export function ReviewRunsView(
-  { openRunId, onOpenStandards }: { openRunId?: string; onOpenStandards?: () => void } = {},
+  { openRunId, onOpenStandards, isAdmin = true }: {
+    openRunId?: string;
+    onOpenStandards?: () => void;
+    /** Whether this caller may start a review. `POST /api/reviews/run` is
+     *  admin-gated and answers a plain 404 to anyone else - "That is not
+     *  something the backend knows about" - which reads as the submittal
+     *  being missing, not as a permission the reader lacks. Defaults to
+     *  `true`, matching every caller of this view before #925; `App.tsx`
+     *  now passes the real value. */
+    isAdmin?: boolean;
+  } = {},
 ) {
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
   const [runs, setRuns] = useState<ReviewRunSummary[]>([]);
@@ -392,7 +402,8 @@ export function ReviewRunsView(
           <select
             id="review-target" value={target}
             onChange={(event) => pickTarget(event.target.value)}
-            className="min-w-[18rem] rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-100"
+            disabled={!isAdmin}
+            className="min-w-[18rem] rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-100 disabled:opacity-50"
           >
             <option value="">Choose a contractor submittal…</option>
             {submittals.map((doc) => (
@@ -406,11 +417,19 @@ export function ReviewRunsView(
           )}
           <button
             type="button" onClick={requestRun}
-            disabled={!target || launch.kind === "running"}
+            disabled={!isAdmin || !target || launch.kind === "running"}
             className="rounded-[var(--radius-sm)] bg-signal-500 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50"
           >
             {launch.kind === "running" ? "Running…" : "Run AI review"}
           </button>
+          {/* THE REASON, not a quietly-greyed-out control. The server gives a
+              non-admin a 404 that reads as "no such submittal", not as "you
+              lack permission" - this says the real reason up front. */}
+          {!isAdmin && (
+            <p className="basis-full text-xs text-slateish-400">
+              Only an administrator can start a review.
+            </p>
+          )}
           {launch.kind === "running" && (
             <span aria-live="polite" className="text-sm text-slateish-300">
               Selecting applicable standards and comparing requirements. This
@@ -464,7 +483,7 @@ export function ReviewRunsView(
         </p>
       )}
 
-      {phase.kind === "ready" && runs.length === 0 && <EmptyRuns />}
+      {phase.kind === "ready" && runs.length === 0 && <EmptyRuns isAdmin={isAdmin} />}
 
       {run && (
         <section ref={findingsRef} className="space-y-4 rounded-[var(--radius-md)] border border-ink-700 bg-ink-900 p-4">
@@ -1347,7 +1366,7 @@ function StandardsInScope({ standards, missing, error }: {
   );
 }
 
-function EmptyRuns() {
+function EmptyRuns({ isAdmin }: { isAdmin: boolean }) {
   return (
     <section className="rounded-[var(--radius-md)] border border-dashed border-ink-600 bg-ink-850 p-6">
       <h2 className="text-lg font-semibold text-slateish-100">No reviews have been run yet</h2>
@@ -1358,12 +1377,23 @@ function EmptyRuns() {
         each with the clause it came from and the page of the submittal it was
         compared against.
       </p>
-      <p className="mt-2 max-w-2xl text-sm text-slateish-400">
-        To start one: choose a contractor submittal above and select
-        <span className="font-semibold text-slateish-200"> Run AI review</span>.
-        If the list is empty, upload a datasheet on the Documents page first
-        and set its role to contractor submittal.
-      </p>
+      {/* DOES NOT SEND A NON-ADMIN TO A STEP THEY CANNOT TAKE. The control
+          this used to point at ("above") is disabled for them, so telling
+          them to use it is a dead end, not an instruction. */}
+      {isAdmin ? (
+        <p className="mt-2 max-w-2xl text-sm text-slateish-400">
+          To start one: choose a contractor submittal above and select
+          <span className="font-semibold text-slateish-200"> Run AI review</span>.
+          If the list is empty, upload a datasheet on the Documents page first
+          and set its role to contractor submittal.
+        </p>
+      ) : (
+        <p className="mt-2 max-w-2xl text-sm text-slateish-400">
+          Only an administrator can start a review. Ask one to run a review on
+          your contractor submittal - uploaded on the Documents page, with its
+          role set to contractor submittal.
+        </p>
+      )}
     </section>
   );
 }

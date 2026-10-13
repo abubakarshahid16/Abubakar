@@ -344,6 +344,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
             <ReviewRunsView
               openRunId={route.kind === "view" ? route.recordId : undefined}
               onOpenStandards={() => onNavigate("standards")}
+              isAdmin={canAdmin}
             />
           )}
           {/* `canAdmin &&` is the gate, not the absence of a nav entry. Setting
