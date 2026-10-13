@@ -829,6 +829,7 @@ def _compare(requirement: dict, fact: dict | None, *,
         # code, because another name for the same thing is not a breach.
         clause = requirement.get("source_text") or requirement.get("requirement_text")
         stated = " ".join(str(fact.get("field_value") or "").split())
+        stated = stated if field_links.states_a_value(stated) else ""      # #921: a pointer is not a value
         if stated and field_links.asks_only_to_be_stated(clause):
             return {"status": COMPLIANT,
                     "rationale": (f"{STATED_AS_ASKED}: the clause asks for this to be stated on the "
