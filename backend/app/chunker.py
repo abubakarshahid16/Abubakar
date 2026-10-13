@@ -2390,8 +2390,12 @@ def _split_structured(b: Block, target: int, ceiling: int) -> list[Block]:
     return out
 
 
-def build_chunks(blocks: list[Block], vocab: frozenset[str] | None = None) -> list[Block]:
-    """Accumulate blocks into ~target-token chunks on sentence boundaries."""
+def build_chunks(blocks: list[Block], vocab: frozenset[str] | None = None,
+                 dropped: list[Block] | None = None) -> list[Block]:
+    """Accumulate blocks into ~target-token chunks on sentence boundaries.
+
+    `dropped`, when given, collects what the runt pass threw away (a stray
+    fragment with no letters), so the caller can RECORD it (#918)."""
     target = settings.chunk_target_tokens
     ceiling = settings.chunk_max_tokens
     overlap = settings.chunk_overlap_tokens
@@ -2543,7 +2547,7 @@ def build_chunks(blocks: list[Block], vocab: frozenset[str] | None = None) -> li
     flush()
     # Ceiling enforcement first: splitting an oversized chunk can itself emit a
     # tiny trailing piece, so runt-merging has to run after it, not before.
-    return _merge_runts(_enforce_ceiling([c for c in chunks if c.text.strip()]))
+    return _merge_runts(_enforce_ceiling([c for c in chunks if c.text.strip()]), dropped)
 
 
 def _heading_prefix_length(text: str) -> int:
@@ -2611,7 +2615,7 @@ def _enforce_ceiling(chunks: list[Block]) -> list[Block]:
     return out
 
 
-def _merge_runts(chunks: list[Block]) -> list[Block]:
+def _merge_runts(chunks: list[Block], dropped: list[Block] | None = None) -> list[Block]:
     """Fold tiny chunks into a neighbour so no chunk is too small to retrieve.
 
     A 2-token chunk can never answer anything, but it can still win a search
@@ -2645,6 +2649,8 @@ def _merge_runts(chunks: list[Block]) -> list[Block]:
             and c.tokens < 5
             and not re.search(r"[A-Za-z]{3}", c.text)
         ):
+            if dropped is not None:
+                dropped.append(c)    # #918: a dropped fragment leaves a record
             continue  # punctuation or a stray number - no retrievable content
         out.append(c)
 
@@ -2923,6 +2929,7 @@ def chunk_document(doc_id: str, force: bool = False,
         }
 
     paths: dict[str, str | None] = {}
+    stray: list[Block] = []     # #918: fragments the runt pass dropped
     if flow:
         from . import docx_chunks, docx_reader
 
@@ -2935,14 +2942,16 @@ def chunk_document(doc_id: str, force: bool = False,
         # running line, or published twice (as the table and as shredded prose).
         masked = mask_tables(pages, _decode_tables(raw_tables), running)
         blocks, removed = segment_document(masked, running, page_kinds, paths_out=paths)
-        chunks = build_chunks(blocks, document_vocabulary(pages))
+        chunks = build_chunks(blocks, document_vocabulary(pages), stray)
 
     ceiling = settings.chunk_max_tokens
     over = [c for c in chunks if c.tokens > ceiling]
-    assert not over, (
-        f"{len(over)} chunk(s) exceed the {ceiling}-token ceiling "
-        f"(max {max(c.tokens for c in over) if over else 0}) - e5-small would truncate them"
-    )
+    if over:
+        # An explicit raise, not an `assert`: `python -O` removes asserts, and
+        # the ceiling is what keeps e5-small from truncating a chunk (#918).
+        raise RuntimeError(
+            f"{len(over)} chunk(s) exceed the {ceiling}-token ceiling "
+            f"(max {max(c.tokens for c in over)}) - e5-small would truncate them")
 
     # A chunk is retrievable only if its kind is searchable AND its text reads
     # like language. The quality gate is the safety net for failure modes no
@@ -3127,6 +3136,12 @@ def chunk_document(doc_id: str, force: bool = False,
         exclusion_rows.append(
             (doc_id, "page", pno, pno, None, rule, reason, ptext[:2000], length,
              now, dropped_real_content(ptext, rule))
+        )
+    for c in stray:
+        exclusion_rows.append(
+            (doc_id, "chunk", c.page_start, c.page_end, None, "stray_fragment",
+             "a fragment with no letters (punctuation or a stray number), dropped from the chunks",
+             c.text[:2000], len(c.text.strip()), now, 0)
         )
     for ordinal, c in enumerate(chunks):
         q = quality[id(c)]
