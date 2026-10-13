@@ -453,6 +453,49 @@ def undecided_statements(requirements: list[dict], status_of: dict) -> list[dict
             if r.get("requirement_type") == STATEMENT and status_of.get(r.get("id")) in open_states]
 
 
+def statements_of_standard(standard_document_id: str, *, allowed_document_ids: frozenset[str]) -> list[dict]:
+    """Every open clause sentence of ONE standard - no review, no run.
+
+    `undecided_statements` filters a review's own requirement list by that
+    review's own `status_of`; this is the general-path step-1 case (planner,
+    13 Oct): the standard has no review yet, or none the caller is running
+    now, and the checklist should exist before one does. "Open" here is
+    `requirement_type == STATEMENT` and not yet superseded - the same
+    condition every live read already applies (`standards.py`), so a
+    sentence this call drafted and an engineer later accepted is not asked
+    about again next time (`propose_checks`'s `INSERT OR IGNORE` is the
+    other half of that: a draft already decided is not re-offered either)."""
+    from .db import connect
+
+    if standard_document_id not in allowed_document_ids:
+        return []
+    rows = connect().execute(
+        "SELECT id, source_text, requirement_text FROM standard_requirements"
+        " WHERE standard_document_id = ? AND requirement_type = ? AND superseded_at IS NULL",
+        (standard_document_id, STATEMENT)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def compile_standard(standard_document_id: str, *, allowed_document_ids: frozenset[str],
+                     limit: int, provider=None) -> dict:
+    """General path, step 1 (#645/#833, planner 13 Oct, "standards -> checklist,
+    by AI, once"): propose a numeric check for every open clause sentence of
+    this ONE standard, independent of any particular review run.
+
+    This is NOT a second compiler. The model call, the verification
+    (quote-on-page, value-in-quote, unit-in-quote, operator agrees with
+    code's own reading) and the draft storage are `propose_checks`'s,
+    unchanged - this only widens what feeds it, from one review's undecided
+    sentences to a standard's own, so the draft exists before any submittal
+    is reviewed against it. Reviews already use an accepted draft's new row
+    over the sentence it replaced (`decide_draft` supersedes the old row;
+    every live read already excludes superseded rows) - nothing more to wire
+    there. Counts only in the return; never a sentence or a quote."""
+    requirements = statements_of_standard(standard_document_id, allowed_document_ids=allowed_document_ids)
+    report = propose_checks(requirements, review_run_id=None, limit=limit, provider=provider)
+    return {**report, "standard_document_id": standard_document_id}
+
+
 def ensure_schema() -> None:
     """Drafts only. A proposed check is never a requirement: the engineer
     approves it into one, or rejects it (#645)."""
