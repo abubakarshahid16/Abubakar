@@ -2800,6 +2800,19 @@ def _load_pages(conn, doc_id: str):
     return pages, raw_tables, page_rows
 
 
+def _table_failures(raw_tables: dict[int, str]) -> dict[int, str]:
+    """{page: why} for pages whose table reader FAILED (#918)."""
+    out: dict[int, str] = {}
+    for pno, raw in raw_tables.items():
+        try:
+            why = json.loads(raw).get("failed")
+        except (ValueError, AttributeError, TypeError):
+            continue
+        if why:
+            out[pno] = str(why)
+    return out
+
+
 def _decode_tables(raw_tables: dict[int, str]) -> dict[int, list[dict]]:
     out: dict[int, list[dict]] = {}
     for pno, raw in raw_tables.items():
@@ -3136,6 +3149,12 @@ def chunk_document(doc_id: str, force: bool = False,
         exclusion_rows.append(
             (doc_id, "page", pno, pno, None, rule, reason, ptext[:2000], length,
              now, dropped_real_content(ptext, rule))
+        )
+    for pno, why in sorted(_table_failures(raw_tables).items()):
+        exclusion_rows.append(
+            (doc_id, "chunk", pno, pno, None, why,
+             "the ruled-table reader failed on this page; its tables are read as plain text",
+             "", 0, now, 0)
         )
     for c in stray:
         exclusion_rows.append(
