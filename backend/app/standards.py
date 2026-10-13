@@ -290,8 +290,10 @@ _SUBJECT_TAIL = re.compile(
 def subject_of(sentence: str) -> str | None:
     """What the clause is ABOUT, in the document's own words. Never a join key.
 
-    THIS IS NOT `field` AND MUST NOT BECOME IT. `comparison._match_fact` joins
-    on `field` by exact equality against a datasheet's normalised caption, and
+    THIS IS NOT `field` AND MUST NOT BECOME IT. `field` joins by exact
+    equality against a datasheet's normalised caption (A13/#927:
+    `comparison._match_fact`, the function that once did this join, was dead
+    code and has been removed; `field`'s contract is unchanged), and
     measured over this corpus the phrase before the operator is a descriptive
     clause - "the material stress in the bottom parts of the vessel" - which
     no caption will ever equal. Writing these into `field` would make the

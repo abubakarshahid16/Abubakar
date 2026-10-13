@@ -58,7 +58,6 @@ from app.synthesis import (
     confidence_from,
     recommend,
     recommendation_to_api,
-    reduce_summaries,
     summarise,
     summary_to_api,
 )
@@ -353,67 +352,6 @@ def test_evidence_removed_is_reported_on_the_recommendation_too(overflow_window)
     assert rec is not None
     assert [r["action"] for r in rec.evidence_removed] == ["trimmed", "dropped"]
     assert recommendation_to_api(rec)["evidence_removed"]
-
-
-# ------------------------------------------------- the reduce carries ids, not markers
-
-
-def _leaf(evidence, reply):
-    return summarise(QUESTION, evidence, Stub(reply))
-
-
-def test_a_reduce_resolves_to_the_evidence_the_leaf_cited_not_to_its_own_position_one():
-    """The citation-invention path the design names as most likely.
-
-    Leaf A cites [S1] = a1. Leaf B cites [S2] = b2. A naive reduce that pasted
-    leaf A's TEXT into the next prompt would let "[S1]" be re-read against the
-    level-2 map, where position 1 is whatever happens to be first - here the
-    impostor. Citations travel as evidence ids instead.
-    """
-    a = [ev("a1", "MDFT shall be 280 um.", "a.pdf"), ev("a2", "Other text.", "a.pdf", 2),
-         ev("a3", "More text.", "a.pdf", 3)]
-    b = [ev("b1", "Unrelated clause.", "b.pdf"), ev("b2", "Adhesion shall be 9,0 MPa.", "b.pdf", 5),
-         ev("b3", "Also unrelated.", "b.pdf", 6)]
-    impostor = ev("zz", "The impostor passage says 12 um.", "z.pdf", 99)
-    ledger = {item["evidence_id"]: item for item in [*a, *b, impostor]}
-
-    leaf_a = _leaf(a, "The system requires 280 um [S1].")
-    leaf_b = _leaf(b, "Unrelated [S1]. Adhesion shall be 9,0 MPa [S2].")
-    assert leaf_a.cited_evidence_ids == ("a1",)
-    assert leaf_b.cited_evidence_ids == ("b1", "b2")
-
-    model = Stub("Requires 280 um [S1]. Adhesion shall be 9,0 MPa [S3].")
-    out = reduce_summaries(QUESTION, [leaf_a, leaf_b], ledger, model)
-
-    assert out.positional_evidence_ids == ("a1", "b1", "b2")
-    _system, prompt = model.calls[0]
-    assert "MDFT shall be 280 um." in prompt, "the leaf's evidence was not re-expanded"
-    assert "The impostor passage" not in prompt
-    assert "The system requires 280 um [S1]." not in prompt, (
-        "the leaf's PROSE reached the reduce; its markers now mean other passages"
-    )
-    assert out.findings[0].citation_ids == ("a1",)
-    assert out.findings[1].citation_ids == ("b2",)
-    assert "zz" not in out.cited_evidence_ids
-
-
-def test_a_reduce_cannot_cite_evidence_no_leaf_cited():
-    a = [ev("a1", "MDFT shall be 280 um.", "a.pdf"), ev("a2", "Other text.", "a.pdf", 2)]
-    unseen = ev("zz", "Never cited by anything.", "z.pdf", 99)
-    ledger = {item["evidence_id"]: item for item in [*a, unseen]}
-    leaf = _leaf(a, "Requires 280 um [S1]. Other text [S2].")
-    out = reduce_summaries(QUESTION, [leaf], ledger, Stub("Requires 280 um [S1]."))
-    assert "zz" not in out.positional_evidence_ids
-    assert set(out.positional_evidence_ids) == {"a1", "a2"}
-    assert unseen["evidence_id"] in ledger, "the impostor was not even in the ledger"
-
-
-def test_a_cited_id_missing_from_the_ledger_raises_rather_than_being_skipped():
-    a = [ev("a1", "MDFT shall be 280 um.", "a.pdf"), ev("a2", "Other text.", "a.pdf", 2)]
-    leaf = _leaf(a, "Requires 280 um [S1]. Other [S2].")
-    assert leaf.cited_evidence_ids == ("a1", "a2")
-    with pytest.raises(KeyError):
-        reduce_summaries(QUESTION, [leaf], {"a1": a[0]}, Stub("x [S1]."))
 
 
 # ----------------------------------------------------------------- confidence
