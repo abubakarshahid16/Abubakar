@@ -349,15 +349,24 @@ def reading_gaps(reader: dict | None, pages: dict) -> dict:
                 for page in range(1, int(total) + 1):
                     reasons.setdefault(page, f"the {engine} reader was stopped ({reader['stopped']})")
         ai_missing = {p: why for p, why in sorted(reasons.items()) if 1 <= p <= int(total)}
-    incomplete = sorted(set(unread) | set(ai_missing))
+    # #918: a page a CODE reader failed on, or something the office reader left
+    # out, makes the reading incomplete whatever the AI did.
+    failed: dict[int, str] = {}
+    for page, readers in ((reader or {}).get("page_failures") or {}).items():
+        failed[int(page)] = "a reader failed on this page (" + ", ".join(sorted(readers)) + ")"
+    notes = list((reader or {}).get("reading_notes") or [])
+    incomplete = sorted(set(unread) | set(ai_missing) | set(failed))
     return {
         "pages_ai_not_read": sorted(ai_missing),
         "ai_not_read_reasons": {str(p): why for p, why in ai_missing.items()},
         "reading": {
-            "status": READING_INCOMPLETE if incomplete or not total else READING_COMPLETE,
+            "status": READING_INCOMPLETE if incomplete or notes or not total else READING_COMPLETE,
             "pages_total": total,
             "incomplete_pages": incomplete,
             "reasons": ({"no page of this submittal is accounted for": True} if not total else {}),
+            # only when there is something: the shape without it is unchanged
+            **({"failed_pages": {str(p): why for p, why in sorted(failed.items())}} if failed else {}),
+            **({"notes": notes} if notes else {}),
         },
     }
 

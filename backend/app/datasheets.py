@@ -2445,6 +2445,7 @@ def _pairs_from_pdf_page(stored_path: str, page_no: int) -> list[tuple[str, str]
     except (pymupdf.FileNotFoundError, pymupdf.FileDataError):
         return []  # the FILE; named by pdf_condition, not guessed at here
     except Exception:  # noqa: BLE001 - a failure inside one page of a readable file
+        _page_failed(page_no, "pairs")
         return []
 
 
@@ -2664,6 +2665,7 @@ def _grid_facts_from_pdf_page(stored_path: str | None, page_no: int) -> list[dic
             from . import geometry_reader
             return grid_facts(geometry_reader.upright_words(doc[page_no - 1]))
     except Exception:  # noqa: BLE001 - the file's condition is pdf_condition's to name
+        _page_failed(page_no, "grid")
         return []
 
 
@@ -2709,6 +2711,7 @@ def _geometry_rows_from_pdf_page(stored_path: str | None, page_no: int,
                 return []
             rows = geometry_reader.read_page_rows(doc[page_no - 1])
     except Exception:  # noqa: BLE001 - the file's condition is pdf_condition's to name
+        _page_failed(page_no, "geometry")
         return []
     if page_needs_ocr:
         rows = [{**row, "page_needs_ocr": True} for row in rows]
@@ -2763,6 +2766,7 @@ def _text_layer_words(stored_path: str | None, page_no: int) -> int:
                 return 0
             return len(doc[page_no - 1].get_text("words"))
     except Exception:  # noqa: BLE001 - the file's condition is pdf_condition's to name
+        _page_failed(page_no, "text_layer")
         return 0
 
 
@@ -2783,6 +2787,7 @@ def _vision_reading(stored_path: str | None, page_no: int, geometry_rows: list[d
             return vision_reader.read_page(doc[page_no - 1], page_no, provider,
                                            geometry_rows=geometry_rows)
     except Exception:  # noqa: BLE001 - the file's condition is pdf_condition's to name
+        _page_failed(page_no, "vision_open")
         return None
 
 
@@ -3295,6 +3300,27 @@ class _PlanOnly(Exception):
 #: cannot see it.
 _OFFICE_METHOD: ContextVar[str | None] = ContextVar("office_method", default=None)
 
+#: #918: PAGES A CODE READER COULD NOT READ, with the reason, for the run in
+#: progress: {page: {reason, ...}}. A reader that failed on a page used to
+#: return [] - "no values" - and nothing said it had failed. The failures go
+#: into the reader summary, and `page_ledger.reading_gaps` calls the reading
+#: incomplete. Counts and slugs only, never document text.
+_PAGE_FAILURES: ContextVar[dict | None] = ContextVar("page_failures", default=None)
+PAGE_READ_FAILED = {
+    "pairs": "the text-block reader failed on this page",
+    "grid": "the column-grid reader failed on this page",
+    "geometry": "the geometry reader failed on this page",
+    "text_layer": "the page's text layer could not be counted",
+    "vision_open": "the page could not be opened for the vision reader",
+}
+
+
+def _page_failed(page_no: int, reader: str) -> None:
+    """Record that `reader` failed on `page_no` (when a run is collecting)."""
+    failures = _PAGE_FAILURES.get()
+    if failures is not None:
+        failures.setdefault(int(page_no), set()).add(reader)
+
 
 def extract_facts(
     document_id: str, *, allowed_document_ids: frozenset[str],
@@ -3310,6 +3336,7 @@ def extract_facts(
         if row is not None and datasheet_inputs.is_office_input(row["stored_path"]):
             method = datasheet_inputs.extraction_method(row["stored_path"])
     token = _OFFICE_METHOD.set(method)
+    failures_token = _PAGE_FAILURES.set({})
     try:
         # The sheet's own spelling decides how "3.175" is read: a decimal, or
         # (when the sheet writes a decimal comma anywhere) possibly 3,175.
@@ -3321,6 +3348,7 @@ def extract_facts(
                 review_run_id=review_run_id, replace=replace)
     finally:
         _OFFICE_METHOD.reset(token)
+        _PAGE_FAILURES.reset(failures_token)
 
 
 def _extract_facts_by_plan(
@@ -4183,8 +4211,7 @@ def _extract_facts(
         # Owner order 2026-10-11: which reader read this sheet - engine,
         # model, pages read, and every page left to the code readers with
         # its reason - is kept, so the review that uses these facts says it.
-        record_reader_summary(document_id, extractor_version,
-                              reader_summary(ai_run, ai_stats, pages=sorted(by_page)))
+        _record_run_summary(document_id, extractor_version, ai_run, ai_stats, sorted(by_page))
     return {
         **geometry_counts,
         "document_id": document_id,
@@ -4206,14 +4233,43 @@ def _extract_facts(
     }
 
 
-def reader_summary(ai_run: dict | None, ai_stats: dict, *, pages: list[int]) -> dict:
+def _record_run_summary(document_id: str, extractor_version: str | None, ai_run: dict | None,
+                        ai_stats: dict, pages: list[int]) -> None:
+    """Keep this run's reader summary: the AI reader's, the code readers' page
+    failures and what the office reader left out (#918)."""
+    record_reader_summary(document_id, extractor_version,
+                          reader_summary(ai_run, ai_stats, pages=pages,
+                                         page_failures=_PAGE_FAILURES.get(),
+                                         reading_notes=_office_notes_of(document_id)))
+
+
+def _office_notes_of(document_id: str) -> list[str]:
+    """What the office reader deliberately left out of this file (#918)."""
+    row = connect().execute("SELECT stored_path FROM documents WHERE id = ?", (document_id,)).fetchone()
+    if row is None or not row["stored_path"] or not datasheet_inputs.is_office_input(row["stored_path"]):
+        return []
+    try:
+        return list(datasheet_inputs.office_notes(row["stored_path"]))
+    except OSError:
+        return []
+
+
+def reader_summary(ai_run: dict | None, ai_stats: dict, *, pages: list[int],
+                   page_failures: dict | None = None, reading_notes: list[str] | None = None) -> dict:
     """What read a datasheet, as counts and reasons - never a page's words.
     `engine` "off" when the AI reader was not asked (DATASHEET_AI_READER=off);
     otherwise the engine and model, how many pages the model read, and each
     page left to the code readers (`code_only`, page -> reason: unavailable,
     timed out, out of time, an unusable answer)."""
+    #: #918: what the CODE readers could not read, by page and reader, and what
+    #: the office reader left out - kept whether or not an AI reader ran.
+    extra = {}
+    if page_failures:
+        extra["page_failures"] = {str(p): sorted(r) for p, r in sorted(page_failures.items())}
+    if reading_notes:
+        extra["reading_notes"] = list(reading_notes)
     if ai_run is None:
-        return {"engine": "off", "pages": len(pages)}
+        return {"engine": "off", "pages": len(pages), **extra}
     read = sorted(p for p, out in ai_run["pages"].items() if not out.get("error"))
     return {"engine": ai_run["engine"], "model": ai_run.get("model"), "pages": len(pages),
             "pages_read": len(read),
@@ -4231,7 +4287,7 @@ def reader_summary(ai_run: dict | None, ai_stats: dict, *, pages: list[int]) -> 
             # say "N of M readings refused by the gate".
             "refused_by_gate": (sum((ai_stats.get("proposals_rejected") or {}).values())
                                 + sum((ai_stats.get("dropped") or {}).values())),
-            "unconfirmed": ai_stats.get("unconfirmed", 0)}
+            "unconfirmed": ai_stats.get("unconfirmed", 0), **extra}
 
 
 def _ensure_reader_runs(conn) -> None:
