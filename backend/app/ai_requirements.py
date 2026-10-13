@@ -652,8 +652,16 @@ def decide_draft(draft_id: str, *, decision: str, allowed_document_ids: frozense
     who = (actor or {}).get("id")
     if decision == "reject":
         with conn:
-            conn.execute("UPDATE clause_check_drafts SET status = ?, decided_by = ?, decided_at = ?"
-                         " WHERE id = ?", (REJECTED, who, now, draft_id))
+            # A9/#923: the read of row["status"] above and this write are two
+            # steps - a concurrent decision on the same draft could land
+            # between them. Guarded here too, so only the first decision to
+            # reach this UPDATE actually takes effect; the loser gets a clear
+            # DraftError instead of silently reporting success twice.
+            decided = conn.execute(
+                "UPDATE clause_check_drafts SET status = ?, decided_by = ?, decided_at = ?"
+                " WHERE id = ? AND status = ?", (REJECTED, who, now, draft_id, DRAFT))
+            if decided.rowcount != 1:
+                raise DraftError("this draft was already decided")
         standards._audit("standard.clause_check_rejected", actor, row["standard_document_id"],
                          detail=f"draft={draft_id} requirement={row['requirement_id']}"
                                 f" clause={row['clause']}")
@@ -687,13 +695,22 @@ def decide_draft(draft_id: str, *, decision: str, allowed_document_ids: frozense
         structured={"requirement_type": "numeric_limit", "field": check["field"],
                     "subject": check["field"], "condition": check["condition"], **limit})
     with conn:
+        # A9/#923: guarded the same way as reject - only the decision that
+        # still finds the draft in DRAFT status takes effect. A concurrent
+        # accept that lost this race leaves its own new requirement row
+        # written above as an orphan (harmless: unconfirmed, superseding
+        # nothing, cited by no finding) rather than silently double-deciding
+        # the one draft.
+        decided = conn.execute(
+            "UPDATE clause_check_drafts SET status = ?, decided_by = ?, decided_at = ?,"
+            " new_requirement_id = ? WHERE id = ? AND status = ?",
+            (ACCEPTED, who, now, new["id"], draft_id, DRAFT))
+        if decided.rowcount != 1:
+            raise DraftError("this draft was already decided")
         conn.execute("UPDATE standard_requirements SET confirmed_by = ?, confirmed_at = ?,"
                      " updated_at = ? WHERE id = ?", (who, now, now, new["id"]))
         conn.execute("UPDATE standard_requirements SET superseded_at = ?, updated_at = ?"
                      " WHERE id = ?", (now, now, row["requirement_id"]))
-        conn.execute("UPDATE clause_check_drafts SET status = ?, decided_by = ?, decided_at = ?,"
-                     " new_requirement_id = ? WHERE id = ?",
-                     (ACCEPTED, who, now, new["id"], draft_id))
         # the sentence has its check now: its other drafts are moot
         conn.execute("UPDATE clause_check_drafts SET status = ?, decided_at = ?"
                      " WHERE requirement_id = ? AND status = ?",
