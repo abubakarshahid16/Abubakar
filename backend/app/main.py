@@ -5206,7 +5206,7 @@ def decide_crs_unread_page(
     actor = _crs_decision_actor(review_run_id, scope)
     outcome = comparison_mod.run_outcome(
         review_run_id, allowed_document_ids=scope.allowed_document_ids) or {}
-    unread = (outcome.get("page_coverage") or {}).get("pages_not_read_into_fields") or []
+    unread = crs_issue_mod.pages_to_check(outcome.get("page_coverage"))
     try:
         return crs_issue_mod.decide_page(review_run_id, page_no, unread=unread,
                                          reason=body.reason, actor=actor)

@@ -88,6 +88,15 @@ def decisions(review_run_id: str) -> list[dict]:
         (review_run_id,))]
 
 
+def pages_to_check(page_coverage: dict | None) -> list[int]:
+    """The pages an engineer must check before the contractor's copy is issued:
+    pages the code readers did not read into fields AND (PF3, #883) pages the
+    AI reader was asked to read and did not (time-out, unavailable, failed)."""
+    coverage = page_coverage or {}
+    return sorted({int(p) for p in (coverage.get("pages_not_read_into_fields") or [])}
+                  | {int(p) for p in (coverage.get("pages_ai_not_read") or [])})
+
+
 def open_items(review_run_id: str, rows: list[dict], page_coverage: dict | None) -> dict:
     """What still stands between this run and its contractor copy.
 
@@ -102,8 +111,9 @@ def open_items(review_run_id: str, rows: list[dict], page_coverage: dict | None)
     if not page_coverage or page_coverage.get("pages_total") is None:
         blockers.append(NO_PAGE_COVERAGE)
     else:
-        reasons = page_coverage.get("not_read_reasons") or {}
-        for page in page_coverage.get("pages_not_read_into_fields") or []:
+        reasons = {**(page_coverage.get("ai_not_read_reasons") or {}),
+                   **(page_coverage.get("not_read_reasons") or {})}
+        for page in pages_to_check(page_coverage):
             if str(page) not in checked:
                 unread.append({"page": int(page), "reason": reasons.get(str(page)) or None})
     seen: set[str] = set()
