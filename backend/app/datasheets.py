@@ -3188,6 +3188,9 @@ def _write_ai_reading(conn, ai_run: dict, stats: dict, rule_rows: list[dict], *,
         return json.dumps({"reader": datasheet_ai.READER, "engine": engine,
                            "model": ai_run.get("model"), "quote_on_page": True,
                            "quote": fact.get("quote"), "kind": fact.get("kind"),
+                           # form reader: its own provenance (reader, field
+                           # key, page); absent on every `datasheet_ai` fact.
+                           **(fact.get("provenance") or {}),
                            **extra}, sort_keys=True)
 
     def write(fact: dict, conflicts_with: list[str] | None) -> dict | None:
@@ -3200,7 +3203,10 @@ def _write_ai_reading(conn, ai_run: dict, stats: dict, rule_rows: list[dict], *,
                 review_run_id=review_run_id, confidence=datasheet_ai.AI_CONFIDENCE,
                 extraction_method=datasheet_ai.EXTRACTION_METHOD,
                 equipment_tag=equipment_tag, commit=False,
-                validation_state=GEOMETRY_CONFLICT if conflicts_with else None,
+                # A form-reader value two pages state differently is a
+                # conflict for the engineer as well (`form_conflict`).
+                validation_state=(GEOMETRY_CONFLICT if conflicts_with or fact.get("form_conflict")
+                                  else None),
                 extractor_version=stats["version"], input_hash=input_hash,
                 bbox=provenance_box(fact, conflicts_with=conflicts_with or None),
                 unit=printed_unit, printed_unit=printed_unit)
@@ -3244,6 +3250,11 @@ def _write_ai_reading(conn, ai_run: dict, stats: dict, rule_rows: list[dict], *,
                 rule.update(proven)
                 stats["units_from_ai"] += 1
             rule["confidence"] = datasheet_ai.AGREED_CONFIDENCE
+            if d["ai"].get("form_conflict"):
+                # Agreed on this page, but another page states another value.
+                conn.execute("UPDATE submittal_facts SET validation_state = ? WHERE id = ?",
+                             (GEOMETRY_CONFLICT, rule["id"]))
+                rule["validation_state"] = GEOMETRY_CONFLICT
             stats["agreed"] += 1
         elif outcome == datasheet_ai.RULES_ONLY:
             # KEPT, NOT CONFIRMED. The AI read this page and did not read
@@ -3600,24 +3611,41 @@ def _extract_facts(
     # no write lock is held during a model call (B7's rule). Not in the B7
     # plan pass (`_plan`), which is rolled back and would pay twice. With the
     # flag off `ai_run` is None and nothing below changes.
+    #
+    # DATASHEET_READER_MODE (default "merge" = exactly the above): "form" asks
+    # `form_reader` to fill the equipment type's field list instead, in the
+    # same `ai_run` shape, so the same merge makes the rule readers its
+    # cross-check; "rules" asks no model.
     ai_run = None
     ai_stats: dict = {}
-    if _plan is None and (str(settings.datasheet_ai_reader or "off").strip().lower()
-                          or "off") != "off":
+    from .form_reader_run import FORM, RULES, reader_mode
+    mode = reader_mode()
+    if _plan is None and mode != RULES and (str(settings.datasheet_ai_reader or "off").strip().lower()
+                                            or "off") != "off":
         from . import datasheet_ai
         # #806 S3: the prompts carry THIS datasheet's page text.
         from . import claude_approved
         with claude_approved.carrying([document_id]):
-            ai_run = datasheet_ai.read_pages(
-                {page: datasheet_ai.page_text(stored_path, page, by_page[page])
-                 for page in sorted(by_page)})
+            texts = {page: datasheet_ai.page_text(stored_path, page, by_page[page])
+                     for page in sorted(by_page)}
+            if mode == FORM:
+                from . import form_reader_run
+                ai_run = form_reader_run.read_document(
+                    texts, form_reader_run.equipment_type_of(document_id, chunks))
+            else:
+                ai_run = datasheet_ai.read_pages(texts)
         ai_stats = {"engine": ai_run["engine"], "unavailable": ai_run["unavailable"],
                     "stopped": ai_run["stopped"], "pages_read": 0,
                     "agreed": 0, "conflicts": 0, "ai_only": 0, "facts_written": 0,
                     "units_from_ai": 0, "unconfirmed": 0,
                     "dropped": {}, "proposals_rejected": {},
                     "version": provenance.code_version(
-                        "datasheets", "datasheet_ai", "claude_datasheet")}
+                        "datasheets", "datasheet_ai", "claude_datasheet",
+                        *(("form_reader", "form_reader_fields", "form_reader_run")
+                          if mode == FORM else ()))}
+        if mode == FORM:
+            ai_stats.update(reader="form_reader", form=ai_run.get("form"),
+                            equipment_type=ai_run.get("equipment_type"))
 
     # B19: ONE DATASHEET, ONE TRANSACTION. Every fact used to commit on its
     # own, so an extraction that died on page 5 left pages 1-4 behind - and
