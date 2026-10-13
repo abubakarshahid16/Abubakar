@@ -58,7 +58,7 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 
-from . import numparse
+from . import comparators, numparse
 from .config import model_host_of, settings
 
 # --------------------------------------------------------------- vocabulary
@@ -234,35 +234,10 @@ def _value_in_quote(value, quote: str) -> bool:
 
 # ------------------------------------------------------- direction and shape
 
-def _phrases(*spellings: str) -> re.Pattern:
-    """One pattern from literal phrases, spaces made whitespace-tolerant."""
-    return re.compile("|".join(
-        re.escape(p).replace(r"\ ", r"\s+").replace(" ", r"\s+")
-        for p in spellings))
-
-
-#: WORDS THAT MEAN "AT MOST". The negated spellings come first and absorb the
-#: negation, on `requirements_3b._OPERATOR`'s precedent: "shall not be less
-#: than 45 m" was once read as `< 45` by a pattern that saw the bare "less
-#: than" and missed the "not" four characters earlier. A flipped comparator is
-#: a compliant design reported non-compliant.
-_CEILING = _phrases(
-    "shall not exceed", "must not exceed", "may not exceed", "not to exceed",
-    "not be exceeded", "not exceed", "not be more than", "not more than",
-    "no more than", "not be greater than", "not greater than",
-    "no greater than", "not be higher than", "not higher than",
-    "not be in excess of", "at most", "maximum", "max.",
-)
-
-#: WORDS THAT MEAN "AT LEAST", including the trap this file was asked for:
-#: "the minimum cement content shall be 370 kg/m3" is `>= 370`. Stored as
-#: equality it fails every compliant submittal that exceeds the minimum, which
-#: is most of them.
-_FLOOR = _phrases(
-    "shall not be less than", "must not be less than", "not be less than",
-    "not less than", "no less than", "not be lower than", "not lower than",
-    "not fall below", "not be smaller than", "at least", "minimum", "min.",
-)
+# The direction words live in ONE place, `comparators` (#915): the reader's own
+# `_CEILING` / `_FLOOR` lists lacked "less than", "below", "up to", "or less",
+# the symbols and more, so a quote that said "less than" had no direction and
+# rule 4 never fired.
 
 #: A SENTENCE WHOSE OBLIGATION IS PAPERWORK OR A CROSS-REFERENCE.
 #:
@@ -299,12 +274,7 @@ def direction_of_quote(quote: str) -> str | None:
     be the module deciding what a clause means, which is the one thing it is
     not allowed to do.
     """
-    folded = _fold(quote)
-    ceiling = _CEILING.search(folded) is not None
-    floor = _FLOOR.search(folded) is not None
-    if ceiling == floor:
-        return None
-    return "<=" if ceiling else ">="
+    return comparators.direction_of(quote)
 
 
 def looks_like_a_trigger(sentence: str) -> bool:

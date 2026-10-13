@@ -148,6 +148,45 @@ def _default_severity(status: str | None) -> str:
     not for what it started as."""
     return SEVERITY_BY_STATUS.get(status, "major")
 
+
+def unscoped_statement_counts(requirements: list[dict], *, rules: dict | None = None) -> dict[str, int]:
+    """#946, MEASUREMENT ONLY - nothing here changes what becomes a finding.
+
+    Among STATEMENT-type requirements (the ones that can be NOT_IN_DOCUMENT_
+    SCOPE for `NO_FIELD_MATCHED`), how many PER STANDARD name neither a
+    field nor a subject this system recognises as ANY equipment's datasheet
+    field at all (`datasheet_checks.role_of`, tried against `field` then
+    `subject`) - the planner's "requirements that belong to another document"
+    (procedures, fabrication, testing), as a count, never a document id's
+    requirement text.
+
+    READ THIS AGAINST THE REAL VOLUME FIRST (`NO_FIELD_MATCHED`'s own share
+    of a real run's findings, or `crs_mapping`'s NOTE_NO_FIELD count) before
+    building anything that SUPPRESSES a finding row on this signal.
+    `scope_ledger`'s "exactly one decision per requirement" (#677) and
+    `requirement_split`'s "one of three honest groups" (#678) both currently
+    read their decision for a requirement from the finding ROW
+    `_run_comparison` writes for it - dropping the row for a requirement
+    this heuristic calls unscoped would need the ledger/split decision kept
+    from the verdict that would have been written, with only the ROW
+    suppressed; that decoupling is not done here.
+    """
+    from . import datasheet_checks
+
+    rules = rules or datasheet_checks.load_rules()
+    counts: dict[str, int] = {}
+    for requirement in requirements:
+        if requirement.get("requirement_type") != requirements_3b.STATEMENT:
+            continue
+        known = any(
+            text and datasheet_checks.role_of(text, rules) is not None
+            for text in (requirement.get("field"), requirement.get("subject")))
+        if known:
+            continue
+        standard_id = requirement.get("standard_document_id") or ""
+        counts[standard_id] = counts.get(standard_id, 0) + 1
+    return counts
+
 # -------------------------------------------------------------- review codes
 #
 # CONFIGURABLE, because the client may use different names or numbers
@@ -228,6 +267,18 @@ BASIS_REQUIRED_FIELDS = "required_by_applicable_standards"
 BASIS_NOMINAL = "nominal_fields_per_page"
 
 
+def _pairing_unconfirmed(finding: dict) -> bool:
+    """#921: THE FIELD WAS PAIRED BY A GUESS THAT WAITS FOR AN ENGINEER. A
+    finding that carries a fact only because a model named the pairing (always
+    held) or the AI matcher's pairing was held as low-confidence is a question,
+    not an answer: counting it raised the completeness gate for "Approved" on a
+    pairing nobody had confirmed."""
+    method = finding.get("match_method")
+    if method == METHOD_FIELD_NAME:
+        return True
+    return method == METHOD_MODEL_CHOICE and finding.get("compliance_status") == NEEDS_ENGINEER_REVIEW
+
+
 def _required_and_answered(findings: list[dict]) -> tuple[int, int]:
     """(requirements that ask this datasheet for a value, how many a field
     read from it answered), counted per REQUIREMENT - one clause judged for
@@ -244,8 +295,9 @@ def _required_and_answered(findings: list[dict]) -> tuple[int, int]:
         rid = f.get("requirement_id")
         if not rid or f.get("compliance_status") == NOT_IN_DOCUMENT_SCOPE:
             continue
-        answered = bool(f.get("fact_id")) and not (
-            f.get("ai_rationale") or "").startswith(UNREAD_PAGES)
+        answered = (bool(f.get("fact_id"))
+                    and not (f.get("ai_rationale") or "").startswith(UNREAD_PAGES)
+                    and not _pairing_unconfirmed(f))
         asked[rid] = asked.get(rid, False) or answered
     return len(asked), sum(1 for v in asked.values() if v)
 
@@ -1306,10 +1358,26 @@ def _prepare_finding(
         # finding naming a different valve from the value it quotes would be
         # worse than one naming none. NULL where the sheet does not say.
         "equipment_tag": (fact or {}).get("equipment_tag"),
+        "reason_code": reason_code_of(rationale),
         "created_at": now,
         "updated_at": now,
     }
     return row, unresolved
+
+
+#: #921: the leading token of a rationale, as a stored CODE. The only place
+#: that reads the words is here, where the words are written.
+_REASON_CODES = (REQUIRES_OTHER_DOCUMENT, NO_FIELD_MATCHED, CONDITION_NOT_MET,
+                 "UNREAD_PAGES", "PAGE_READER_ONLY")
+
+
+def reason_code_of(rationale: str | None) -> str | None:
+    """The code a finding's rationale leads with, or None."""
+    text = rationale or ""
+    for code in _REASON_CODES:
+        if text.startswith(code):
+            return code
+    return None
 
 
 def _insert_findings(conn, rows: list[dict]) -> None:
@@ -1323,7 +1391,7 @@ def _insert_findings(conn, rows: list[dict]) -> None:
                 standard_document_id, standard_clause, standard_page,
                 requirement_source_text, ai_rationale, unresolved_evidence,
                 requirement_id, fact_id, matched_phrase, match_method,
-                equipment_tag,
+                equipment_tag, reason_code,
                 governing_sources, citation_ids, status, approval_status,
                 created_at, updated_at)
                VALUES (:id, :document_id, :review_run_id, :compliance_status,
@@ -1334,7 +1402,7 @@ def _insert_findings(conn, rows: list[dict]) -> None:
                        :requirement_source_text, :ai_rationale,
                        :unresolved_evidence, :requirement_id, :fact_id,
                        :matched_phrase, :match_method, :equipment_tag,
-                       '[]', '[]', 'open', 'pending',
+                       :reason_code, '[]', '[]', 'open', 'pending',
                        :created_at, :updated_at)""", row)
         # B10: THE HISTORY STARTS AT THE MACHINE. A finding's trail began at
         # the first human edit, so it could not say the review wrote it. No
