@@ -267,7 +267,12 @@ def _hints_agree(item: dict, figures: list[dict]) -> bool:
     from . import answer
 
     unit = hint(item.get("unit")) or ""
-    read = [answer._figure_occurrences(f"{f['value']} {f['unit']}")[0] for f in figures]
+    # The figures are taken AS READ, not written out and read again: `read_figures`
+    # lower-cases a unit, and a lone lower-case letter ("60 c", "140 f") is a
+    # word to the figure reader, so a temperature in C or F lost its unit and the
+    # model's correct value was refused as "disagreed" (#947 bug).
+    read = [{"value": numparse.canonical_token(f["value"].lstrip("-")),
+             "sign": "-" if f["value"].startswith("-") else "+", "unit": f["unit"]} for f in figures]
     for value in (item.get("value"), item.get("value_to")):
         value = hint(value)
         if value is None:
