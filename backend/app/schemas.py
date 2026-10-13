@@ -342,7 +342,7 @@ class StandardRequirement(BaseModel):
 #: tests/test_requirement_types_contract.py keeps them equal.
 RequirementType = Literal["numeric_limit", "statement", "table_value",
                           "applicability_trigger", "relative_limit", "table_row",
-                          "definition"]
+                          "definition", "table_range", "range_limit"]
 
 #: An engineer's decision on an extracted requirement.
 RequirementDecision = Literal["confirm", "edit", "reject"]

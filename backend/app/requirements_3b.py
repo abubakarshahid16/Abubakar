@@ -324,6 +324,13 @@ def cell_reading(cell: str) -> tuple[str, str | None] | None:
 #: (`comparison.MATCHABLE_TYPES` does not list it).
 TABLE_RANGE = "table_range"
 RANGE_OPERATOR = "between"
+#: #895: a SENTENCE that states a two-sided limit - "shall operate between
+#: 20 % and 80 % of its travel", "the velocity shall be between 1.0 m/s and
+#: 2.5 m/s". Stored as ONE requirement with both ends (`value_low`,
+#: `value_high`); compared as two ordinary limits (`comparison._compare_range`).
+#: Until #895 the sentence was a `statement` (or, when another phrase in it
+#: parsed, a ONE-SIDED limit): a sheet value outside either end got no verdict.
+RANGE_LIMIT = "range_limit"
 _RANGE_CELL = re.compile(
     r"^\s*(?P<low>[-+]?\d[\d.,]*)(?P<sep>\s*(?:to|[-\u2012\u2013\u2014\u2015])\s*)"
     r"(?P<high>[-+]?\d[\d.,]*)\s*"
@@ -888,6 +895,58 @@ def measure(raw_value: str, raw_unit: str | None) -> claims.Measurement:
     return claims.normalise(raw_value, raw_unit or "")
 
 
+_UNIT = r"[A-Za-z%\u00b5\u03bc\u00b0][A-Za-z0-9()/%\u00b5\u03bc\u00b0.\-]{0,15}(?:\s*\([A-Za-z]\))?"
+_RANGE_SENTENCE = re.compile(
+    r"\b(?:between|from|in\s+the\s+range\s+(?:of\s+)?|within\s+(?:the\s+)?range\s+(?:of\s+)?)\s*"
+    r"(?P<low>[-+]?\d[\d.,]*)\s*(?P<u1>" + _UNIT + r")?\s*(?:and|to)\s+"
+    r"(?P<high>[-+]?\d[\d.,]*)\s*(?P<u2>" + _UNIT + r")?", re.IGNORECASE)
+_NEGATED_BEFORE = re.compile(r"\b(?:not|never|no)\b[^.;]{0,40}$", re.IGNORECASE)
+
+
+def parse_range(sentence: str) -> dict | None:
+    """A two-sided limit out of one sentence, or None (#895).
+
+    "between 20 % and 80 %", "between 1.0 m/s and 2.5 m/s", "from 5 to 10 bar",
+    "in the range of 10 to 40 degC". WHEN UNSURE, NONE - the sentence stays
+    what it was:
+      * a UNIT is required, and a recognised one (a bare "from 5 to 10" is as
+        often item numbers as a measure), the same on both ends if both state it;
+      * a negation shortly before it ("shall not be between 5 and 10") is not
+        a range to stay inside;
+      * both numbers must read as numbers, the low end not above the high.
+    `_ends` carries the two printed numbers, for `parse_limit_or_range`."""
+    match = _RANGE_SENTENCE.search(sentence or "")
+    if match is None or _NEGATED_BEFORE.search(sentence[:match.start()]):
+        return None
+    low_raw, high_raw = match.group("low"), match.group("high")
+    first, second = unit_token(match.group("u1")), unit_token(match.group("u2"))
+    if first and second and re.sub(r"\s+", "", first).lower() != re.sub(r"\s+", "", second).lower():
+        return None
+    unit = second or first
+    low, high = claims.parse_value(low_raw), claims.parse_value(high_raw)
+    if not unit or low is None or high is None or low > high:
+        return None
+    measurement = measure(low_raw, unit)
+    return {"operator": RANGE_OPERATOR, "raw_value": f"{low_raw} to {high_raw}", "raw_unit": unit,
+            "value": None, "unit": measurement.normalized_unit,
+            "value_low": low, "value_high": high, "_ends": (low_raw, high_raw)}
+
+
+def parse_limit_or_range(sentence: str) -> dict | None:
+    """The limit a sentence states: a range when it states one, else the
+    one-sided limit `parse_limit` reads (#895).
+
+    A sentence with a range AND another number that is neither end ("between
+    20 % and 80 % of travel, and not above 5 bar") is NOT turned into a range:
+    it stays the limit it was, for an engineer to read."""
+    limit, span = parse_limit(sentence), parse_range(sentence)
+    if span is None:
+        return limit
+    if limit is None or str(limit.get("raw_value")) in span["_ends"]:
+        return {key: value for key, value in span.items() if key != "_ends"}
+    return limit
+
+
 def parse_limit(sentence: str) -> dict | None:
     """A numeric limit out of one sentence, or None.
 
@@ -1070,7 +1129,7 @@ DEFINITION = "definition"
 #: return (`schemas.RequirementType`). `REQUIREMENT_TYPES` above is the core
 #: three the parser may classify an obligation as; these are all of them.
 STORED_REQUIREMENT_TYPES = (*REQUIREMENT_TYPES, APPLICABILITY_TRIGGER, RELATIVE_LIMIT, TABLE_ROW,
-                           DEFINITION)
+                           DEFINITION, TABLE_RANGE, RANGE_LIMIT)
 
 
 def classify(sentence: str, limit: dict | None) -> str:
@@ -1099,6 +1158,12 @@ def classify(sentence: str, limit: dict | None) -> str:
         # lookup and stored as a limit - so it applies only where a number was
         # actually lifted.
         return "statement"
+    # #895: A SENTENCE THAT STATES ITS OWN RANGE STATES ITS OWN LIMIT, like one
+    # with its own comparator (see `is_table_row`): "shall be from 5 to 10 bar"
+    # has the shape of a row boundary and is a requirement. Unless it hands the
+    # number to a table.
+    if limit.get("operator") == RANGE_OPERATOR and not _TABLE_REFERENCE.search(sentence or ""):
+        return RANGE_LIMIT
     if is_table_row(sentence):
         return TABLE_ROW
     # THE NUMBER IS THE THRESHOLD, NOT THE LIMIT. Checked before
