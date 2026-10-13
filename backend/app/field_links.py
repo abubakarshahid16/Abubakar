@@ -276,7 +276,10 @@ def _flange_rule(sentence: str) -> tuple[str, object, str] | None:
             return "<=", number, shown
         if _FORBIDDEN.search(sentence):
             return "!=", number, shown
-        if _NEGATION.search(sentence):
+        # "not less than Class 300" IS a floor: the "not" belongs to the comparative
+        # `_AT_LEAST` already read, so it is taken out before any OTHER negation
+        # is looked for (it used to make every such clause an engineer's question).
+        if _NEGATION.search(_AT_LEAST.sub(" ", sentence)):
             return None
         return (">=" if _AT_LEAST.search(sentence) else "=="), number, shown
     # SEVERAL CLASSES. "Class 150 or Class 300" is a set of alternatives; any
