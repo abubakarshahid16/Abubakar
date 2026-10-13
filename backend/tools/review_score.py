@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from collections import defaultdict
 from pathlib import Path
 from typing import Callable
@@ -274,6 +275,20 @@ def _squash(text: object) -> str:
     return " ".join(re.sub(r"[^a-z0-9]+", " ", str(text or "").lower()).split())
 
 
+#: A word broken across lines: "treat-<newline>ment".
+_LINE_HYPHEN = re.compile(r"(?<=[A-Za-z])-[ \t]*\r?\n[ \t]*(?=[a-z])")
+
+
+def _variants(text: object) -> tuple[str, ...]:
+    """The squashed text in the spellings a PDF's text layer may have written
+    it (PF1 citation diagnosis, #692): NFKC (ligatures: a single "fi" glyph -> "fi") and a word split
+    by a line-break hyphen joined up. Both are layout, never wording, so a
+    quote found under either is found. The plain squash comes first."""
+    raw = unicodedata.normalize("NFKC", str(text or ""))
+    out = [_squash(text), _squash(raw), _squash(_LINE_HYPHEN.sub("", raw))]
+    return tuple(dict.fromkeys(v for v in out if v))
+
+
 def citation_valid(finding: dict, page_text: str | None) -> bool | None:
     """Does the cited page (and clause) really contain the requirement?
     None when the page text is not available (not checked)."""
@@ -282,9 +297,11 @@ def citation_valid(finding: dict, page_text: str | None) -> bool | None:
     source = _squash(finding.get("requirement_text"))
     if not source:
         return False
-    page = _squash(page_text)
-    contained = source in page
+    sources, pages = _variants(finding.get("requirement_text")), _variants(page_text)
+    page = next((p for p in pages for q in sources if q in p), None)
+    contained = page is not None
     if not contained and "|" in str(finding.get("requirement_text") or ""):
+        page = pages[0] if pages else ""
         contained = all(w in set(page.split()) for w in source.split())      # a table row read cell by cell
     if not contained:
         return False
