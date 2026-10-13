@@ -181,8 +181,10 @@ def ensure_schema() -> None:
             # verbs and page-footer text removed.
             #
             # DESCRIPTIVE ONLY, AND DELIBERATELY NOT `field`. `field` is the
-            # join key `comparison._match_fact` looks up against a datasheet's
-            # normalised label, and it is exact equality. Measured over the
+            # join key the comparison engine looks up against a datasheet's
+            # normalised label, and it is exact equality (A13/#927:
+            # `comparison._match_fact` itself was dead code, removed; this
+            # is still the column's contract). Measured over the
             # corpus, the noun phrase before the operator produces things like
             # "the material stress in the bottom parts of the vessel" - true
             # descriptions of the clause, and never a datasheet caption. Put in

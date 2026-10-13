@@ -900,20 +900,6 @@ REFUSAL_MALFORMED = (
 )
 
 
-def describe_unreachable(error: str) -> str:
-    """The third failure, for the caller that owns the HTTP call to render.
-
-    `summarise` never sees a transport error - `generate` raises through it -
-    so the module can only supply the wording. The route that catches the
-    exception should show THIS, not the model-declined sentence: a timeout on a
-    machine with no free memory is not the model's opinion of the evidence.
-    """
-    return (
-        f"the model could not be reached ({error}); no completion was produced, "
-        "and nothing here is the model's judgement of the sources"
-    )
-
-
 def _unusable(text: str, generation: Generation) -> str | None:
     """Why a completion cannot be read, or None when it can.
 
@@ -1018,8 +1004,10 @@ def _run_summary(
     # truncated to nothing, or no readable sentence - which is what a 4B model
     # timing out on a machine with no free memory looks like, and is NOT the
     # model's judgement of the evidence. (iii) The model could not be reached
-    # at all: that raises out of `generate` and is the route's to describe,
-    # with `describe_unreachable`. Relaying (ii) as (i) was the live defect.
+    # at all: that raises out of `generate` and is the route's to describe
+    # (A13/#927: `describe_unreachable` was written for this and never
+    # wired in; `main._analysis_or_503` writes its own wording instead).
+    # Relaying (ii) as (i) was the live defect.
     unusable = _unusable(text, generation)
     if unusable:
         return _refused(unusable, removed, raw=raw, truncated=generation.truncated)
@@ -1155,9 +1143,9 @@ def reduce_sources(
         sentence's numbers were already checked against the passage text. The
         numeric gate therefore still ends at a document page.
 
-    A cited id missing from the ledger raises, for the same reason
-    `carried_evidence` raises: it means the summaries and the ledger came from
-    different runs.
+    A cited id missing from the ledger raises: it means the summaries and
+    the ledger came from different runs, a programming error and not a data
+    condition to paper over.
     """
     out: list[dict] = []
     for summary in summaries:
@@ -1269,50 +1257,6 @@ def map_reduce(
         documents_summarised=tuple(summarised),
         documents_refused=tuple(refused),
     )
-
-
-def carried_evidence(
-    summaries: Sequence[Summary], ledger: Mapping[str, Mapping[str, object]]
-) -> list[dict]:
-    """The evidence a set of summaries actually cited, re-expanded from the ledger.
-
-    THE MARKERS ARE NOT READ. `[S1]` in a level-1 summary and `[S1]` in the
-    level-2 reduce that consumes it are different passages, and a reduce built
-    by pasting the lower level's text carries the first meaning into the second.
-    Citations travel as evidence ids and are re-expanded to evidence TEXT here,
-    which is also why a reduce cannot cite anything a leaf did not.
-
-    A cited id missing from the ledger raises: it means the summary and the
-    ledger came from different runs, which is a programming error and not a
-    data condition to paper over.
-    """
-    out: list[dict] = []
-    seen: set[str] = set()
-    for summary in summaries:
-        for eid in summary.cited_evidence_ids:
-            if eid in seen:
-                continue
-            seen.add(eid)
-            out.append(dict(ledger[eid]))
-    return out
-
-
-def reduce_summaries(
-    question: str,
-    summaries: Sequence[Summary],
-    ledger: Mapping[str, Mapping[str, object]],
-    generate: Generate,
-    *,
-    system: str = SUMMARY_SYSTEM_PROMPT,
-) -> Summary:
-    """One level of the reduce, over the evidence the level below cited.
-
-    Costs one generation, ~60 s on the production machine. The branching factor
-    is 3 because three passages is what the window holds; a 15-document
-    synthesis is 23 of these and 10-22 minutes, which is why nothing here
-    schedules them.
-    """
-    return summarise(question, carried_evidence(summaries, ledger), generate, system=system)
 
 
 # ------------------------------------------------------------------ confidence

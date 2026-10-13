@@ -35,7 +35,6 @@ from app.synthesis import (
     Generation,
     _normalise_number,
     claimed_numbers,
-    describe_unreachable,
     is_fragment,
     strip_reference_numerals,
     summarise,
@@ -395,15 +394,11 @@ def test_an_unreachable_model_raises_through_and_is_never_the_declined_sentence(
 
     with pytest.raises(Unreachable):
         summarise(QUESTION, LIVE, Stub(raise_=Unreachable("ReadTimeout")))
-    wording = describe_unreachable("ReadTimeout")
-    assert "could not be reached" in wording and "ReadTimeout" in wording
-    assert "reported the sources" not in wording
-    assert wording != REFUSAL_MODEL_DECLINED
 
 
-def test_the_three_refusals_are_three_different_sentences():
+def test_the_four_refusals_are_four_different_sentences():
     assert len({REFUSAL_MODEL_DECLINED, REFUSAL_EMPTY, REFUSAL_EMPTY_TRUNCATED,
-                REFUSAL_MALFORMED, describe_unreachable("x")}) == 5
+                REFUSAL_MALFORMED}) == 4
 
 
 def test_the_raw_completion_is_kept_on_success_and_on_refusal_and_in_the_api():

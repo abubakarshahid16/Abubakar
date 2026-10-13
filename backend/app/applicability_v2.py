@@ -1,9 +1,14 @@
 """Applicability v2 - the DECISION, by code (owner order 2026-09-25, 4.5).
 
-PROPOSAL STAGE: not called by any live route. The taxonomy and the term
-lexicon are PARAMETERS, because both are still proposals awaiting owner
-approval (.cowork/equipment-taxonomy-PROPOSED-v1.md); nothing unapproved is
-baked in here.
+A13/#927: LIVE, not a proposal - this docstring was stale. `applicability.py`
+calls this module's `decide`/`nodes_for` as the scope decision's FALLBACK
+path, taken when `applicability_reasoning_enabled` is off (AI reasoning is
+the default path since #736); `applicability_reasoning.py` also shares this
+module's decision vocabulary and its safety gate
+(`confirm_not_applicable`) directly. The taxonomy and the term lexicon are
+still PARAMETERS, because both remain proposals awaiting owner approval;
+nothing unapproved is baked in here, and the fallback path reports "not
+run" when no taxonomy is approved.
 
 Division of labour (the order's design principle):
 - the MODEL reads a standard's scope once into a scope record (covered
