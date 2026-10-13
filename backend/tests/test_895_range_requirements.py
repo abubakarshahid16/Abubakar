@@ -159,3 +159,12 @@ def test_a_requirement_keeps_its_own_condition_gate():
     conditional = _req(condition="for steam service")
     verdict = _judge(conditional, _fact(88), [_fact(88)])
     assert verdict["status"] != comparison.NON_COMPLIANT
+
+
+def test_a_range_meets_only_when_both_ends_are_decided_and_met():
+    """One end can be judged and the other cannot: a vacuum written with a
+    negative sign as the low end, a positive pressure on the sheet (#858's
+    sign rule). The judged end meets; the range does NOT, it is the engineer's."""
+    verdict = _judge(_req(-0.5, 5.0, "bar"), _fact(3, "bar"))
+    assert verdict["status"] == comparison.NEEDS_ENGINEER_REVIEW
+    assert "opposite signs" in verdict["rationale"] and verdict["limit"] == "between -0.5 and 5 bar"
