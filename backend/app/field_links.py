@@ -102,12 +102,17 @@ def field_of(fact_name: str | None) -> tuple[str, str | None]:
 _CLASSES = (150, 300, 400, 600, 900, 1500, 2500)
 _CLASS_IN_TEXT = re.compile(r"\b(?:class|cl\.?)\s*[-#]?\s*(150|300|400|600|900|1500|2500)\b"
                             r"|\b(150|300|400|600|900|1500|2500)\s*#", re.IGNORECASE)
+#: IEC 60529 ingress protection: "IP66", "IP 66". Two digits (solids, water); a
+#: code that dominates another has BOTH digits at least as high - IP56 does not
+#: meet IP65, however the digits add up. "IPX6" (a digit not tested) is not read.
+_IP_IN_TEXT = re.compile(r"\bIP\s?([0-6])\s?([0-9])\b", re.IGNORECASE)
+_IP_JOINED = re.compile(r"(?:\band\b|\bor\b|,|/)\s*IP\s?([0-6])\s?([0-9])\b", re.IGNORECASE)
 #: Radiography extent, weakest to strongest.
 _RT_LEVELS = {"none": 0, "nil": 0, "no": 0, "spot": 1, "partial": 1, "random": 1,
               "full": 2, "100%": 2, "100 %": 2}
 _RT_IN_TEXT = re.compile(r"\b(full|spot|partial|random)\s+radiograph|\b(100\s?%)\s+radiograph"
                          r"|radiograph\w*\s+(?:shall\s+be\s+)?(full|spot|100\s?%)", re.IGNORECASE)
-_AT_LEAST = re.compile(r"\b(?:minimum|at least|not less than|or higher|or above|or greater)\b",
+_AT_LEAST = re.compile(r"\b(?:minimum|at least|not less than|or higher|or above|or greater|or better)\b",
                        re.IGNORECASE)
 #: A CEILING: "shall not exceed Class 600", "maximum Class 600".
 _AT_MOST = re.compile(r"\b(?:shall\s+not\s+exceed|must\s+not\s+exceed|not\s+(?:to\s+)?exceed"
@@ -241,7 +246,9 @@ def is_named_value(value: object, names: tuple[str, ...] | None) -> bool:
 
 #: Which canonical field names answer each family.
 FAMILY_FIELDS = {
-    "flange_rating": frozenset({"flange rating"}),
+    # A valve body is rated in the same ASME classes as a flange.
+    "flange_rating": frozenset({"flange rating", "body rating", "valve body rating"}),
+    "ip_rating": frozenset({"ip rating"}),
     "radiography": frozenset({"radiography"}),
     "pwht": frozenset({"pwht"}),
 }
@@ -294,6 +301,36 @@ def _flange_rule(sentence: str) -> tuple[str, object, str] | None:
     return None
 
 
+def _ip_rule(sentence: str) -> tuple[str, object, str] | None:
+    """(operator, value, shown) for an ingress-protection clause, or None.
+    Same discipline as `_flange_rule`: each shape is read for what it says; a
+    shape not recognised gives NO rule (the engineer reads it)."""
+    codes = [(int(a), int(b)) for a, b in _IP_IN_TEXT.findall(sentence)]
+    # "IP66, IP67 or IP68": each joined code carries its own "IP" (a bare pair of
+    # digits after a comma is a number, not a code).
+    codes += [(int(a), int(b)) for a, b in _IP_JOINED.findall(sentence)]
+    distinct = list(dict.fromkeys(codes))
+    if not distinct:
+        return None
+    if len(distinct) == 1:
+        code = distinct[0]
+        shown = f"IP{code[0]}{code[1]}"
+        if _AT_MOST.search(sentence):
+            return None if _AT_LEAST.search(sentence) else ("<=", code, shown)
+        if _FORBIDDEN.search(sentence):
+            return "!=", code, shown
+        if _NEGATION.search(_AT_LEAST.sub(" ", sentence)):
+            return None
+        return (">=" if _AT_LEAST.search(sentence) else "=="), code, shown
+    if _NEGATION.search(sentence) or _AT_LEAST.search(sentence) or _AT_MOST.search(sentence):
+        return None
+    between = _IP_IN_TEXT.sub("|", sentence)
+    between = _IP_JOINED.sub("|", between).split("|")[1:-1]
+    if all(re.fullmatch(r"(?:\s|,|or|and|/)*", gap, re.IGNORECASE) for gap in between):
+        return "in", tuple(distinct), " or ".join(f"IP{a}{b}" for a, b in distinct)
+    return None
+
+
 def categorical_requirement(text: str | None) -> dict | None:
     """The closed value a clause states, or None.
 
@@ -321,7 +358,8 @@ def categorical_requirement(text: str | None) -> dict | None:
         cond = "for " + re.split(r"\s+(?:shall|must)\b", sentence, maxsplit=1,
                                  flags=re.IGNORECASE)[0].rstrip(",")
     folded = canonical(sentence)
-    if "flange rating" in folded or re.search(r"\bflanges?\b", sentence, re.IGNORECASE):
+    if ("flange rating" in folded or "body rating" in folded
+            or re.search(r"\bflanges?\b", sentence, re.IGNORECASE)):
         if _CLASS_IN_TEXT.search(sentence):
             rule = _flange_rule(sentence)
             if rule is None:
@@ -329,6 +367,13 @@ def categorical_requirement(text: str | None) -> dict | None:
             operator, value, shown = rule
             return {"family": "flange_rating", "operator": operator,
                     "value": value, "shown": shown, "condition": cond}
+    if _IP_IN_TEXT.search(sentence):
+        rule = _ip_rule(sentence)
+        if rule is None:
+            return None
+        operator, value, shown = rule
+        return {"family": "ip_rating", "operator": operator, "value": value,
+                "shown": shown, "condition": cond}
     if "radiography" in folded or re.search(r"radiograph", sentence, re.IGNORECASE):
         found = list(_RT_IN_TEXT.finditer(sentence))
         if found:
@@ -368,6 +413,9 @@ def read_categorical(family: str, value: str | None) -> int | bool | None:
                              text, re.IGNORECASE)
         number = int(found.group(1)) if found else None
         return number if number in _CLASSES else None
+    if family == "ip_rating":
+        found = re.fullmatch(r"IP\s?([0-6])\s?([0-9])", text, re.IGNORECASE)
+        return (int(found.group(1)), int(found.group(2))) if found else None
     if family == "radiography":
         return _RT_LEVELS.get(text.lower())
     if family == "pwht":
@@ -390,7 +438,11 @@ def compare_categorical(rule: dict, provided: str | None) -> dict | None:
     if got is None:
         return None
     operator = rule["operator"]
-    if operator == ">=":
+    if operator in (">=", "<=") and rule["family"] == "ip_rating":
+        # Componentwise, not lexicographic: IP56 does not meet IP65.
+        ok = (all(g >= w for g, w in zip(got, rule["value"])) if operator == ">="
+              else all(g <= w for g, w in zip(got, rule["value"])))
+    elif operator == ">=":
         ok = got >= rule["value"]
     elif operator == "<=":
         ok = got <= rule["value"]
