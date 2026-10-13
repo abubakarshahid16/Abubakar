@@ -1614,6 +1614,14 @@ def recommend_code(findings: list[dict], completeness: dict, *,
                                    page_coverage, missing, codes=codes)}
 
 
+def pages_read_with_reading(submittal_id: str) -> dict:
+    """The run's page coverage (#883, PF3): the ledger's, plus the pages the AI
+    reader did not read and the run's reading status. A run with any such page
+    or any unread page is INCOMPLETE, never a clean run."""
+    pages = page_ledger.coverage(submittal_id)
+    return {**pages, **page_ledger.reading_gaps(datasheets.latest_reader_summary(submittal_id), pages)}
+
+
 def _pages_part(page_coverage: dict | None) -> str:
     total = (page_coverage or {}).get("pages_total")
     if not total:
@@ -2079,11 +2087,7 @@ def _run_comparison(
     # B3: WHICH PAGES WERE READ INTO FIELDS, once per run, so no finding says
     # the contractor omitted a value that could sit on a page nobody read.
     page_ledger.refresh(submittal_id, as_submittal=True)
-    pages_read = page_ledger.coverage(submittal_id)
-    # PF3 (#883): a page the AI reader did not read is named on the run, and a
-    # run with any such page or any unread page is INCOMPLETE - never a clean run.
-    pages_read = {**pages_read, **page_ledger.reading_gaps(
-        datasheets.latest_reader_summary(submittal_id), pages_read)}
+    pages_read = pages_read_with_reading(submittal_id)
     # THE SHEET'S KIND, ONCE PER RUN. The classification's word when an
     # engineer or the classifier gave one; the field names otherwise.
     from . import classification as classification_mod

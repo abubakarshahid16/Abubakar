@@ -157,3 +157,15 @@ def test_a_page_that_nobody_failed_to_read_cannot_be_decided():
     refused = _client(doc).post(f"/api/reviews/runs/{run}/crs/open-items/pages/5/decision",
                              json={"reason": "checked by eye"})
     assert refused.status_code == 422
+
+
+def test_the_stored_page_coverage_carries_the_reading(monkeypatch):
+    """What the run stores is the ledger's coverage WITH the reader's gaps."""
+    monkeypatch.setattr(page_ledger, "coverage", lambda _id: dict(COVERAGE))
+    monkeypatch.setattr(comparison.datasheets, "latest_reader_summary",
+                        lambda _id: {"engine": "ollama", "timed_out": [2], "code_only": {"2": "x"}})
+    stored = comparison.pages_read_with_reading("doc_sheet")
+    assert stored["pages_total"] == 5 and stored["pages_ai_not_read"] == [2]
+    assert stored["reading"]["status"] == page_ledger.READING_INCOMPLETE and stored["reading"]["incomplete_pages"] == [2]
+    monkeypatch.setattr(comparison.datasheets, "latest_reader_summary", lambda _id: None)
+    assert comparison.pages_read_with_reading("doc_sheet")["reading"]["status"] == page_ledger.READING_COMPLETE
