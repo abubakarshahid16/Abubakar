@@ -231,7 +231,7 @@ def _call(model_call, prompt: str) -> tuple[str | None, Reason | None]:
         return model_call(prompt), None
     except StopRun:
         return None, Reason.MODEL_STOPPED
-    except Exception as exc:  # noqa: BLE001 - never into ingestion; the reason is kept
+    except Exception as exc:  # noqa: BLE001 - never into ingestion; the failure is recorded as a named reason
         return None, Reason.MODEL_TIMED_OUT if datasheet_ai.is_timeout(exc) else Reason.MODEL_FAILED
 
 

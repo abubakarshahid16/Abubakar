@@ -3379,6 +3379,43 @@ def _extract_facts_by_plan(
                                    "unavailable": unavailable})
 
 
+def _read_with_ai(document_id: str, stored_path: str | None, by_page: dict, chunks, _plan) -> tuple[dict | None, dict]:
+    """The AI reader's run over one datasheet, or (None, {}) when it is off
+    (the block `_extract_facts` used to carry inline: the ratchet keeps that
+    function from growing)."""
+    ai_run = None
+    ai_stats: dict = {}
+    from .form_reader_run import FORM, RULES, reader_mode
+    mode = reader_mode()
+    if _plan is None and mode != RULES and (str(settings.datasheet_ai_reader or "off").strip().lower()
+                                            or "off") != "off":
+        from . import datasheet_ai
+        # #806 S3: the prompts carry THIS datasheet's page text.
+        from . import claude_approved
+        with claude_approved.carrying([document_id]):
+            texts = {page: datasheet_ai.page_text(stored_path, page, by_page[page])
+                     for page in sorted(by_page)}
+            if mode == FORM:
+                from . import form_reader_run
+                ai_run = form_reader_run.read_document(
+                    texts, form_reader_run.equipment_type_of(document_id, chunks))
+            else:
+                ai_run = datasheet_ai.read_pages(texts)
+        ai_stats = {"engine": ai_run["engine"], "unavailable": ai_run["unavailable"],
+                    "stopped": ai_run["stopped"], "pages_read": 0,
+                    "agreed": 0, "conflicts": 0, "ai_only": 0, "facts_written": 0,
+                    "units_from_ai": 0, "unconfirmed": 0,
+                    "dropped": {}, "proposals_rejected": {},
+                    "version": provenance.code_version(
+                        "datasheets", "datasheet_ai", "claude_datasheet",
+                        *(("form_reader", "form_reader_fields", "form_reader_run")
+                          if mode == FORM else ()))}
+        if mode == FORM:
+            ai_stats.update(reader="form_reader", form=ai_run.get("form"),
+                            equipment_type=ai_run.get("equipment_type"))
+    return ai_run, ai_stats
+
+
 def _extract_facts(
     document_id: str, *, allowed_document_ids: frozenset[str],
     review_run_id: str | None = None, replace: bool = True,
@@ -3616,36 +3653,7 @@ def _extract_facts(
     # `form_reader` to fill the equipment type's field list instead, in the
     # same `ai_run` shape, so the same merge makes the rule readers its
     # cross-check; "rules" asks no model.
-    ai_run = None
-    ai_stats: dict = {}
-    from .form_reader_run import FORM, RULES, reader_mode
-    mode = reader_mode()
-    if _plan is None and mode != RULES and (str(settings.datasheet_ai_reader or "off").strip().lower()
-                                            or "off") != "off":
-        from . import datasheet_ai
-        # #806 S3: the prompts carry THIS datasheet's page text.
-        from . import claude_approved
-        with claude_approved.carrying([document_id]):
-            texts = {page: datasheet_ai.page_text(stored_path, page, by_page[page])
-                     for page in sorted(by_page)}
-            if mode == FORM:
-                from . import form_reader_run
-                ai_run = form_reader_run.read_document(
-                    texts, form_reader_run.equipment_type_of(document_id, chunks))
-            else:
-                ai_run = datasheet_ai.read_pages(texts)
-        ai_stats = {"engine": ai_run["engine"], "unavailable": ai_run["unavailable"],
-                    "stopped": ai_run["stopped"], "pages_read": 0,
-                    "agreed": 0, "conflicts": 0, "ai_only": 0, "facts_written": 0,
-                    "units_from_ai": 0, "unconfirmed": 0,
-                    "dropped": {}, "proposals_rejected": {},
-                    "version": provenance.code_version(
-                        "datasheets", "datasheet_ai", "claude_datasheet",
-                        *(("form_reader", "form_reader_fields", "form_reader_run")
-                          if mode == FORM else ()))}
-        if mode == FORM:
-            ai_stats.update(reader="form_reader", form=ai_run.get("form"),
-                            equipment_type=ai_run.get("equipment_type"))
+    ai_run, ai_stats = _read_with_ai(document_id, stored_path, by_page, chunks, _plan)
 
     # B19: ONE DATASHEET, ONE TRANSACTION. Every fact used to commit on its
     # own, so an extraction that died on page 5 left pages 1-4 behind - and
