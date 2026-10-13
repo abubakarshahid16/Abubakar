@@ -108,7 +108,10 @@ def test_the_change_is_audited_by_id_and_field_never_by_text():
     event = db.connect().execute(
         "SELECT detail FROM audit_events WHERE action = 'standard.requirement_readings_changed'").fetchone()
     assert event is not None and row_id in event["detail"] and "operator:1" in event["detail"]
-    assert "noise" not in event["detail"].lower() and "90" not in event["detail"]
+    # WORDS OF THE SENTENCE, NOT ITS NUMBER: the detail holds random hexadecimal ids, and a bare "90" appears
+    # in about 4 of every 100 of them (this assertion was flaky by construction, found 13 Oct 2026).
+    detail = event["detail"].lower()
+    assert not any(word in detail for word in ("noise", "rotating", "equipment", "metre", "db(a)", "shall"))
     summary = db.connect().execute(
         "SELECT detail FROM audit_events WHERE action = 'standard.requirements_extracted'"
         " ORDER BY rowid DESC LIMIT 1").fetchone()
