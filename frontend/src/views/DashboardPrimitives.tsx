@@ -233,9 +233,6 @@ export function ReadinessPanel({ metrics }: { metrics: Metrics }) {
             about before relying on it.
           </p>
         </div>
-        <span className="rounded-[var(--radius-sm)] border border-warn-500/40 bg-warn-500/10 px-2 py-1 font-mono text-xs text-warn-500">
-          Prototype
-        </span>
       </div>
       <ul className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-5">
         {gates.map((g) => {

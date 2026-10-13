@@ -54,9 +54,32 @@ function sourcesUnder(dir: string): string[] {
   return out;
 }
 
+/**
+ * The files directly in `src/` (App.tsx, main.tsx, routing.ts, ...), not
+ * recursed into by `ROOTS`. A banned legacy localStorage key once lived in
+ * `App.tsx` and this scan never saw it, because `ROOTS` only walks
+ * `views/` and `components/` - a real gap, not a one-off. `api/`, `hooks/`
+ * and `types/` are directories, so they stay out of this non-recursive scan
+ * and out of `ROOTS`: they hold wiring and field names, not UI text.
+ */
+function topLevelSources(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir)) {
+    const path = join(dir, entry);
+    if (statSync(path).isDirectory()) continue;
+    if (/\.(tsx|ts)$/.test(entry) && !/\.test\.tsx?$/.test(entry)) {
+      out.push(path);
+    }
+  }
+  return out;
+}
+
 describe("UI terminology", () => {
   const root = resolve(__dirname);
-  const files = ROOTS.flatMap((name) => sourcesUnder(resolve(root, name)));
+  const files = [
+    ...ROOTS.flatMap((name) => sourcesUnder(resolve(root, name))),
+    ...topLevelSources(root),
+  ];
 
   it("scans the source that actually renders text", () => {
     // THE GUARD ON THE GUARD. A scan whose file list quietly became empty
