@@ -4175,10 +4175,7 @@ def _extract_facts(
         # Owner order 2026-10-11: which reader read this sheet - engine,
         # model, pages read, and every page left to the code readers with
         # its reason - is kept, so the review that uses these facts says it.
-        record_reader_summary(document_id, extractor_version,
-                              reader_summary(ai_run, ai_stats, pages=sorted(by_page),
-                                             page_failures=_PAGE_FAILURES.get(),
-                                             reading_notes=_office_notes_of(document_id)))
+        _record_run_summary(document_id, extractor_version, ai_run, ai_stats, sorted(by_page))
     return {
         **geometry_counts,
         "document_id": document_id,
@@ -4198,6 +4195,16 @@ def _extract_facts(
         "unreadable": [],
         "repaired": repaired,
     }
+
+
+def _record_run_summary(document_id: str, extractor_version: str | None, ai_run: dict | None,
+                        ai_stats: dict, pages: list[int]) -> None:
+    """Keep this run's reader summary: the AI reader's, the code readers' page
+    failures and what the office reader left out (#918)."""
+    record_reader_summary(document_id, extractor_version,
+                          reader_summary(ai_run, ai_stats, pages=pages,
+                                         page_failures=_PAGE_FAILURES.get(),
+                                         reading_notes=_office_notes_of(document_id)))
 
 
 def _office_notes_of(document_id: str) -> list[str]:
