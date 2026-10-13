@@ -68,6 +68,37 @@ def role_of(field_name: str, rules: dict) -> str | None:
     return None
 
 
+#: #898: how many leading words may qualify a field name ("casing", "shell
+#: side") before it stops being that field with a qualifier.
+QUALIFIER_WORDS = 2
+#: The mandatory-field check's id when the field is stated under a qualifier.
+QUALIFIED_RULE = "DS-M1"
+
+
+def qualified_role_of(field_name: str, rules: dict) -> str | None:
+    """The role a field name states UNDER A LEADING QUALIFIER, or None.
+
+    "Casing design pressure" and "Shell side design temperature" are a design
+    pressure and a design temperature with a qualifier in front. PF1's first
+    run (#881): four sheets printing such a row were told "Design pressure
+    was not found". The qualifier is LEADING words only, at most two: "design
+    pressure note" and "minimum design metal temperature" are other things.
+
+    NOT A ROLE. A qualified field is never used in a comparison or a unit
+    check: the shell side's design pressure against the tube side's operating
+    pressure is not a check. It only changes what the mandatory-field check
+    says: the sheet states something by that name, for an engineer to confirm.
+    """
+    words = _fold(field_name).split()
+    if role_of(field_name, rules) is not None:
+        return None
+    for drop in range(1, min(QUALIFIER_WORDS, len(words) - 1) + 1):
+        role = role_of(" ".join(words[drop:]), rules)
+        if role is not None:
+            return role
+    return None
+
+
 def _pretty(role: str) -> str:
     return role.replace("_", " ").capitalize()
 
@@ -196,10 +227,14 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
     """Every check's result for one datasheet. Pure."""
     rules = rules or load_rules()
     by_tag: dict[str | None, dict[str, list[dict]]] = {}
+    #: #898: fields that state a role under a leading qualifier, per tag.
+    qualified: dict[str | None, dict[str, list[dict]]] = {}
     for fact in facts:
         role = role_of(fact.get("field_name") or "", rules)
         if role:
             by_tag.setdefault(fact.get("equipment_tag"), {}).setdefault(role, []).append(fact)
+        elif (under := qualified_role_of(fact.get("field_name") or "", rules)) and not fact.get("is_blank"):
+            qualified.setdefault(fact.get("equipment_tag"), {}).setdefault(under, []).append(fact)
     if not by_tag:
         by_tag[None] = {}
     out: list[dict] = []
@@ -237,6 +272,19 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
             if not found and (shared_section or (tag is not None and common.get(role))):
                 # Stated once in the common section - its placeholder, if any,
                 # is reported there, once, not repeated per tag.
+                continue
+            # #898: NOT "MISSING" WHEN THE SHEET STATES IT UNDER A QUALIFIER, AND
+            # NOT SILENT EITHER. "Casing design pressure: 14 barg" may be the
+            # design pressure, or one of two; code does not choose. The finding
+            # stays, as an engineer's question that names the row.
+            named = [] if found else (qualified.get(tag, {}).get(role) or qualified.get(None, {}).get(role) or [])
+            if named:
+                labels = ", ".join(sorted({f"'{_label(f, role)}' (page {f.get('page')})" for f in named}))
+                out.append(_result(QUALIFIED_RULE, NEEDS_ENGINEER_REVIEW,
+                                   f"{_pretty(role)} is a mandatory field for {equipment_phrase}.",
+                                   f"{_pretty(role)} was not found under that name; the sheet states "
+                                   f"{labels}. Engineer to confirm that it is the {_pretty(role).lower()}.",
+                                   named[0], role, tag))
                 continue
             if not found:
                 out.append(_result("DS-M1", MISSING_INFORMATION,

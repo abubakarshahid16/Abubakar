@@ -69,6 +69,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `context_budget` | Keep the evidence inside the model's context window, and say when it does not |
 | `corpus` | Questions about the corpus itself, and counts that pretend to be about it |
 | `coverage` | Which documents the question was about, and which of them the answer used |
+| `clause_coverage` | PF4 (#884): the run's applicable rules in exactly one state (checked / sent to the engineer / not checked), checklist-covered apart, read from the scope ledger |
 | `crs_export` | CRS (Comment Resolution Sheet) generator - client CRS format |
 | `crs_issue` | PF5 (#885): the contractor-copy gate (unread pages, undecided findings), the engineer's recorded decisions, and the archive of each issued copy with its sha256 |
 | `crs_mapping` | Write the CRS comment text |

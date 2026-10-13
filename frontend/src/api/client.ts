@@ -17,6 +17,7 @@ import type {
   ClauseCheckDecisionResult,
   CrsIssueDecision,
   CrsIssueGate,
+  ClauseCoverage,
   ClauseCheckDraft,
   MissingStandard,
   AskRequest,
@@ -526,6 +527,9 @@ export const reviews = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ decision, reason }),
       }),
+  /** PF4 (#884): the run's clause coverage ledger. Read only. */
+  runCoverage: (runId: string) =>
+    request<ClauseCoverage>(`/reviews/runs/${encodeURIComponent(runId)}/coverage`),
   /** Close or re-open one numbered comment (its Final Resolution). Only a
    *  signed-in reviewer can; the server records who from the session. */
   setCrsCommentStatus: (runId: string, ref: string, status: "Open" | "Closed", note?: string) =>

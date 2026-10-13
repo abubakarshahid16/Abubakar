@@ -296,13 +296,32 @@ def _evaluate_terms(shape: str, condition: str, facts: list[dict]) -> dict:
                 return _result(SATISFIED, shape, condition,
                                f"{fact.get('field_name')!r} states {term!r}",
                                _evidence_of(fact))
-    # Every stated candidate was read and none carries the condition's term.
-    # THIS is the only route to NOT_APPLICABLE, and it carries its proof.
+    # #899: "NONE OF THEM SAYS THE WORD" IS NOT CONTRARY EVIDENCE. PF1's first
+    # run: "For a conventional valve, the built-up back pressure shall not
+    # exceed 10 %" was excused on a sheet that states "Valve type:
+    # Conventional" with 14 % - because the VALUE "Conventional" does not
+    # contain the word "valve". A field that does not repeat the condition's
+    # word says nothing about it. The clause is excused only when a stated
+    # value NAMES SOMETHING ELSE of the same kind: another material, another
+    # service, another class of equipment. THIS is the only route to
+    # NOT_APPLICABLE, and it carries its proof.
+    table = {SHAPE_MATERIAL: _MATERIAL_TERMS, SHAPE_SERVICE: _SERVICE_TERMS,
+             SHAPE_CLASS: _CLASS_TERMS}.get(shape, ())
+    for said in stated:
+        value = _fold(said.get("field_value"))
+        for other in table:
+            if (_contains_term(value, other)
+                    and not any(_contains_term(other, t) or _contains_term(t, other) for t in terms)):
+                return _result(
+                    NOT_SATISFIED, shape, condition,
+                    f"{said.get('field_name')!r} states {other!r}, which is not "
+                    f"{', '.join(repr(t) for t in terms)}",
+                    _evidence_of(said))
     return _result(
-        NOT_SATISFIED, shape, condition,
-        f"{len(stated)} field(s) state a value and none of them is "
-        f"{', '.join(repr(t) for t in terms)}",
-        _evidence_of(stated[0]))
+        UNKNOWN, shape, condition,
+        f"{len(stated)} field(s) state a value; none of them names "
+        f"{', '.join(repr(t) for t in terms)} and none names another "
+        f"{shape.replace('_', ' ')}, so whether the condition holds is not established")
 
 
 def _evaluate_numeric(condition: str, facts: list[dict]) -> dict:
