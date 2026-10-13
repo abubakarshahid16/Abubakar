@@ -1,9 +1,12 @@
 """Applicability v2 - the DECISION, by code (owner order 2026-09-25, 4.5).
 
-PROPOSAL STAGE: not called by any live route. The taxonomy and the term
-lexicon are PARAMETERS, because both are still proposals awaiting owner
-approval (.cowork/equipment-taxonomy-PROPOSED-v1.md); nothing unapproved is
-baked in here.
+LIVE: `applicability.py` calls this module's `decide` as the taxonomy-matched
+fallback path whenever `settings.applicability_reasoning_enabled` is False,
+and `applicability_reasoning.py` reuses its safety gate (`confirm_not_applicable`)
+and shared types (`Profile`, `nodes_for`, ...) on the reasoning path too. The
+taxonomy and the term lexicon are still PARAMETERS, because both remain
+proposals awaiting owner approval (.cowork/equipment-taxonomy-PROPOSED-v1.md);
+nothing unapproved is baked in here.
 
 Division of labour (the order's design principle):
 - the MODEL reads a standard's scope once into a scope record (covered
