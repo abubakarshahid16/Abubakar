@@ -141,7 +141,11 @@ export function FindingsTable(
               <th scope="col" className="px-3 py-2">Standard / clause</th>
               <th scope="col" className="px-3 py-2">Requirement</th>
               <th scope="col" className="px-3 py-2">Submitted value</th>
-              <th scope="col" className="px-3 py-2">Outcome</th>
+              {/* THE SAME WORD AS THE FILTER ABOVE (#925 item 4): both name
+                  `compliance_status`, and calling it "Outcome" here while the
+                  filter beside it says "Status" read as two different
+                  columns to a reader comparing the two. */}
+              <th scope="col" className="px-3 py-2">Status</th>
               <th scope="col" className="px-3 py-2">Pairing</th>
             </tr>
           </thead>
