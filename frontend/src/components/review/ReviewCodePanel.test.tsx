@@ -214,3 +214,32 @@ describe("a decided run says it cannot be re-run", () => {
     expect(screen.getByText(/new review starts a new run/i)).toBeInTheDocument();
   });
 });
+
+describe("the disabled button says why (#925 item 2)", () => {
+  it("explains a disabled Record button when no code has been chosen yet", () => {
+    render(
+      <ReviewCodePanel
+        run={run({ recommended_code: null, recommended_reason: null })}
+        onDecided={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /Record final code/ })).toBeDisabled();
+    expect(screen.getByText(/Choose a code above before recording it/))
+      .toBeInTheDocument();
+  });
+
+  it("says nothing once a code is chosen", async () => {
+    render(
+      <ReviewCodePanel
+        run={run({ recommended_code: null, recommended_reason: null })}
+        onDecided={vi.fn()}
+      />,
+    );
+
+    await userEvent.selectOptions(screen.getByLabelText(/Set the final code/), "Approved");
+
+    expect(screen.getByRole("button", { name: /Record final code/ })).not.toBeDisabled();
+    expect(screen.queryByText(/Choose a code above before recording it/)).toBeNull();
+  });
+});
