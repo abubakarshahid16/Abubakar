@@ -135,6 +135,20 @@ _IN_EXCESS_RE = (r"(?:shall|must|may|should|will)\s+not\s+"
 _SMALLER_THAN = ("closer", "smaller", "thinner", "lower", "shorter", "narrower")
 _LARGER_THAN = ("larger", "thicker", "higher", "longer", "wider")
 _COMPARATIVE_THAN = r"(?:" + "|".join(_SMALLER_THAN + _LARGER_THAN) + r")\s+than"
+_BELOW = ("below", "under", "beneath")
+_ABOVE = ("above", "over")
+#: #894: THE NEGATION OF A COMPARATIVE OR OF "ABOVE / BELOW". "shall not be
+#: higher than -10 C" was read as `> -10`: the alternatives above absorb the
+#: negation of less / more / greater only, so "higher than" matched bare and
+#: the limit was stored REVERSED - a wrong Fail for a good value and a false
+#: Meets for a bad one, with a citation attached. 21 of 174 stored limits
+#: worded this way carried the reversed operator (a copy of the library,
+#: 13 Oct 2026). The same care as `_LIMIT`'s first alternatives: the negated
+#: form comes FIRST and takes the negation with it. Up to two words may sit
+#: between ("shall not be set higher than", "shall not fall below").
+_NEGATED_RE = r"(?:(?:shall|must|may|should|will)\s+)?(?:no|not|never)\s+(?:\w+\s+){0,2}?"
+_NEGATED_COMPARATIVE = _NEGATED_RE + _COMPARATIVE_THAN
+_NEGATED_PREPOSITION = _NEGATED_RE + r"(?:" + "|".join(_BELOW + _ABOVE) + r")\b"
 
 _LIMIT = re.compile(
     r"(?P<cmp>" + _IN_NO_CASE_RE + r"(?:less|more|greater)\s+than"
@@ -142,6 +156,7 @@ _LIMIT = re.compile(
     r"|" + _IN_EXCESS_RE + r"|(?:shall|must|may|should|will)\s+not\s+exceed"
     r"|(?:no|not)\s+(?:be\s+)?less\s+than"
     r"|(?:no|not)\s+(?:be\s+)?(?:more|greater)\s+than"
+    r"|" + _NEGATED_COMPARATIVE + r"|" + _NEGATED_PREPOSITION +
     r"|shall\s+exceed|at\s+least"
     r"|maximum|minimum|max|min|up\s+to"
     r"|greater\s+than|less\s+than"
@@ -174,6 +189,12 @@ _OPERATOR = {
     **{f"{word} than": "<" for word in _SMALLER_THAN},
     **{f"{word} than": ">" for word in _LARGER_THAN},
     "below": "<", "under": "<", "beneath": "<", "above": ">", "over": ">",
+    # #894: the negated forms. "not lower than X" asks for X or more; "not
+    # higher than X" for X or less. Generated from the same lists.
+    **{f"not {word} than": ">=" for word in _SMALLER_THAN},
+    **{f"not {word} than": "<=" for word in _LARGER_THAN},
+    **{f"not {word}": ">=" for word in _BELOW},
+    **{f"not {word}": "<=" for word in _ABOVE},
 }
 
 #: The leading negation of a negated comparison: "no", "not", "not be", and
@@ -183,6 +204,10 @@ _NEGATION = re.compile(r"^(?:" + _IN_NO_CASE_RE + r"|(?:no|not)\s+(?:be\s+)?)")
 
 #: Any negated "in excess of", however many words sit in its middle.
 _IN_EXCESS_FOLD = re.compile(r"\bnot\b.*\bin\s+excess\s+of\b")
+
+
+_NEGATED_TAIL = re.compile(
+    r"^" + _NEGATED_RE + r"(?P<tail>" + _COMPARATIVE_THAN + r"|(?:" + "|".join(_BELOW + _ABOVE) + r"))$")
 
 
 def _canonical_comparator(phrase: str) -> str:
@@ -197,6 +222,11 @@ def _canonical_comparator(phrase: str) -> str:
         return "not exceed"
     folded = re.sub(r"^(?:shall|must|may|should|will)\s+not\s+exceed$",
                     "not exceed", folded)
+    # #894: "shall not be set higher than" / "never fall below" -> "not higher
+    # than" / "not below": the negation and the comparative, nothing between.
+    negated = _NEGATED_TAIL.match(folded)
+    if negated:
+        return "not " + " ".join(negated.group("tail").split())
     return _NEGATION.sub("not ", folded)
 
 #: An exception clause. "except for pressure relief valves", "other than ...",

@@ -696,7 +696,11 @@ def test_a_condition_is_the_circumstance_not_the_subject():
         # than the three already covered (less/more/greater) left a real limit
         # as a statement. Same word family `_RELATIVE_TAIL` already vets for
         # false positives, reused rather than a second vocabulary invented.
-        ("Welds shall not be closer than 25 mm to the head thickness.", "<", "25"),
+        # #894: THIS ROW ASSERTED THE REVERSED LIMIT ("<") UNTIL 13 OCT 2026.
+        # "shall not be closer than 25 mm" asks for 25 mm or more. The
+        # negation was not part of the match, and the test was written from
+        # what the reader returned (audit A-903).
+        ("Welds shall not be closer than 25 mm to the head thickness.", ">=", "25"),
         ("The pipe wall shall be thicker than 6 mm.", ">", "6"),
         ("The bolt diameter shall be larger than 20 mm.", ">", "20"),
         ("The clearance shall be smaller than 3 mm.", "<", "3"),
