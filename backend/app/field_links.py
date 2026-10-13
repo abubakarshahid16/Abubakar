@@ -136,6 +136,90 @@ _CONDITION = re.compile(r"\b(?:when|where|if|unless|provided\s+that|except|in\s+
                         r"|for\s+\w+\s+service|and\s+(?:larger|smaller|above|below|over|under)"
                         r"|or\s+(?:larger|smaller))\b", re.IGNORECASE)
 
+# ------------------------------------------------ #893: values a clause names
+#
+# "The casing material shall be carbon steel or stainless steel grade 316."
+# "The body material shall be WCB or CF8M." "The seal flush plan shall be
+# stated on the datasheet." No number, no closed family - and the sheet has a
+# row of that very name. PF1's first run: 18 such clauses on 7 unfamiliar
+# sheets were reported as "not in the document", 7 planted defects with them.
+#
+# WHAT CODE MAY DECIDE HERE, AND NOTHING MORE:
+#   * the clause only asks for the thing to be STATED, and the sheet states
+#     it                                             -> the clause is met;
+#   * the clause names values, and the sheet's value IS one of them, letter
+#     for letter after folding case and punctuation  -> the clause is met.
+# A value that is NOT one of the named values is never called a breach by
+# code: "SS 316" against "stainless steel grade 316" is the same steel. That
+# pair goes to the engineer with both sides shown.
+
+_ASKS_TO_BE_STATED = re.compile(
+    r"\bshall\s+be\s+(?:stated|shown|given|indicated|specified|recorded)\s+(?:on|in)\s+the\s+data\s?sheet\b"
+    r"|\bdata\s?sheet\s+shall\s+(?:state|show|give|indicate|specify|record)\b", re.IGNORECASE)
+_SHALL_BE = re.compile(r"\bshall\s+be\s+(?P<rest>[^.;:]+)", re.IGNORECASE)
+#: What follows "shall be" when the clause is NOT a list of named values: a
+#: limit, a manner, an action, a comparison with something else.
+_NOT_A_NAMED_VALUE = re.compile(
+    r"^(?:at\s+least|at\s+most|not\b|no\b|between|within|above|below|over|under|up\s+to|less|more|greater|"
+    r"equal|minimum|maximum|a\s+minimum|a\s+maximum|in\s+accordance|as\s+per|per\b|to\b|such\b|able|"
+    r"capable|suitable|designed|sized|rated|provided|fitted|supplied|installed|tested|stated|shown|given|"
+    r"indicated|specified|recorded|agreed|approved|submitted|performed|carried|applied|required|done|made)\b",
+    re.IGNORECASE)
+_ARTICLE = re.compile(r"^(?:either|a|an|the|of)\s+", re.IGNORECASE)
+#: A named value is a short name, not a sentence.
+_NAMED_VALUE_WORDS = 6
+
+
+def asks_only_to_be_stated(text: str | None) -> bool:
+    """Does the clause ask for nothing but that the thing be stated on the
+    datasheet? A clause that also negates or conditions is not that."""
+    sentence = " ".join((text or "").split())
+    return bool(sentence and _ASKS_TO_BE_STATED.search(sentence)
+                and not _NEGATION.search(sentence) and not _CONDITION.search(sentence))
+
+
+def named_values(text: str | None) -> tuple[str, ...] | None:
+    """The values a clause names as the ones a thing shall be, or None.
+
+    ("carbon steel", "stainless steel grade 316") from "... shall be carbon
+    steel or stainless steel grade 316". WHEN UNSURE, NONE: a negation, a
+    condition, two "shall be", an "and" (both, not either), a limit or an
+    action after "shall be", or a name longer than a few words."""
+    sentence = " ".join((text or "").split())
+    if (not sentence or _NOT_REQUIRED.search(sentence) or _NEGATION.search(sentence)
+            or _CONDITION.search(sentence)):
+        return None
+    found = _SHALL_BE.findall(sentence)
+    if len(found) != 1:
+        return None
+    rest = found[0].strip()
+    if _NOT_A_NAMED_VALUE.match(rest) or re.search(r"\band\b", rest, re.IGNORECASE):
+        return None
+    names = []
+    for part in re.split(r",|\bor\b", rest, flags=re.IGNORECASE):
+        name = _ARTICLE.sub("", part.strip())
+        if not name:
+            continue
+        if len(name.split()) > _NAMED_VALUE_WORDS:
+            return None
+        names.append(name)
+    return tuple(names) or None
+
+
+def _name_form(text: object) -> str:
+    words = re.findall(r"[a-z0-9]+", str(text or "").lower())
+    if words and len(words[-1]) > 3 and words[-1].endswith("s"):
+        words[-1] = words[-1][:-1]                  # "seals" names what "seal" names
+    return " ".join(words)
+
+
+def is_named_value(value: object, names: tuple[str, ...] | None) -> bool:
+    """Is the sheet's value one of the named values, letter for letter after
+    folding case and punctuation? Never "close to" one."""
+    form = _name_form(value)
+    return bool(form) and any(form == _name_form(name) for name in names or ())
+
+
 #: Which canonical field names answer each family.
 FAMILY_FIELDS = {
     "flange_rating": frozenset({"flange rating"}),
