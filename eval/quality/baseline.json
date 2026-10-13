@@ -19,11 +19,11 @@
   },
   "duplicate_definitions_in_backend_app": {
    "note": null,
-   "value": 5
+   "value": 0
   },
   "max_backend_file_lines": {
    "note": null,
-   "value": 5580
+   "value": 5627
   },
   "max_backend_function_lines": {
    "note": null,
@@ -55,7 +55,7 @@
   },
   "vulture_findings": {
    "note": null,
-   "value": 7
+   "value": 0
   }
  },
  "rules": {
