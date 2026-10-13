@@ -598,6 +598,28 @@ class Settings(BaseSettings):
     #: and a run without the owner's settings file used to drop the standards
     #: it chooses. Env: APPLICABILITY_REASONING_ENABLED (false turns it off).
     applicability_reasoning_enabled: bool = True
+    #: #946 (planner 23:54 PKT, measured on the real PF1 database): the AI
+    #: scope-reasoning step used to ask about EVERY library standard that has
+    #: a stored scope record, not just ones another route already found
+    #: plausible - `_cached_scope_decision`'s own docstring already measured
+    #: "hundreds of live API calls per review" for this, and PF1's own corpus
+    #: measured ~260-270 of a library asked per sheet, almost all ending
+    #: UNKNOWN/NOT_APPLICABLE (never included). `select()` now caps the pool
+    #: it asks about to every standard a cheaper route already surfaced
+    #: (cited, equipment, governing, service, project) plus up to this many
+    #: MORE, ranked by the submittal's own distinctive words (the same
+    #: retrieval the semantic route already uses, a wider net than its own
+    #: 5-item suggestion cap). A standard with neither a cheap-route signal
+    #: nor textual similarity to the submittal is not asked - the SAME
+    #: bounded risk the semantic route already accepts for SUGGESTING a
+    #: standard to an engineer, applied here to CHECKING one by AI. This
+    #: default is chosen to bias toward recall (a hidden standard is the
+    #: worst failure mode this module is built against), not speed; tune it
+    #: with the real counts from `scripts/measure_applicability_routes.py`
+    #: on PF1 sheets 1 and 2 once the PC is free. 0 disables the cap (asks
+    #: about the whole library, the old behaviour). Env:
+    #: APPLICABILITY_SCOPE_REASONING_CANDIDATE_CAP.
+    applicability_scope_reasoning_candidate_cap: int = 150
     #: #791 part 0: print every review step to the backend console and to
     #: `<data_dir>/debug/review-<run>.log` (git-ignored, this machine only),
     #: through the `review.debug` logger (`review_trace`). OFF by default; the
