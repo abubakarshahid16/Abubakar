@@ -108,6 +108,17 @@ carries the client's name; only the owner can rename it.
     `M<PR number>-01`, `M<PR number>-02`, ... with `phase=<PR number>`. Audit
     entries: `A-<PR number>`. Existing ids are never renumbered. A merge that
     only renumbers ids is not allowed.
+13. **General fixes only, never per-layout** (owner order, 13 Oct 2026, #692).
+    Never add code that recognises one datasheet's table shape, label
+    spelling or layout; new layouts will keep arriving. Allowed: fixes true
+    for any document (number/unit/comparator meaning, silent-loss reporting,
+    verdict safety, output size, approved checklists, code quality). New
+    layouts are handled by one path: the reader fills the equipment type's
+    fixed field list with a page quote per value; code verifies the quote
+    and compares with the approved rule; what the reader misses goes to the
+    engineer or waits for a stronger reader. A reading fix is merged only if
+    it also helps, or does not hurt, sheets it was not built on (invented +
+    held-out totals).
 
 ## Who does what
 

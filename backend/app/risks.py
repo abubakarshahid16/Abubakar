@@ -78,21 +78,31 @@ def _insert_many(items: list[dict]) -> None:
 
 def _open_risk_keys() -> tuple[set[tuple], set[tuple]]:
     """The open risks that already exist, read with ONE query:
-    ({(risk_type, deliverable_id)}, {(risk_type, source_finding_id)}).
+    ({(risk_type, deliverable_id)}, {(risk_type, document_id)} for the
+    review/compliance types).
 
     Detection diffs against these sets. It used to ask the database one
     question per finding (`_open_exists`, about 133,000 of them).
+
+    A10/#924: the second set used to key on `source_finding_id` (one open
+    risk per FINDING). With 143,558 live findings that grew the risks table
+    to 147,770 rows, all open, unreadable to an engineer. It now keys on
+    `document_id`: one open "review"/"compliance" risk per document is
+    enough to tell the engineer that document needs attention; the
+    aggregate's own description names how many findings are behind it as of
+    its creation. A document that already has one open of that type is left
+    alone - closing it is the engineer's call, not a re-run's.
     """
     ensure_schema()
     by_deliverable: set[tuple] = set()
-    by_finding: set[tuple] = set()
+    by_document_type: set[tuple] = set()
     for row in connect().execute(
-            "SELECT risk_type, deliverable_id, source_finding_id FROM risks WHERE status = 'open'"):
+            "SELECT risk_type, deliverable_id, document_id FROM risks WHERE status = 'open'"):
         if row["deliverable_id"] is not None:
             by_deliverable.add((row["risk_type"], row["deliverable_id"]))
-        if row["source_finding_id"] is not None:
-            by_finding.add((row["risk_type"], row["source_finding_id"]))
-    return by_deliverable, by_finding
+        if row["risk_type"] in ("review", "compliance") and row["document_id"] is not None:
+            by_document_type.add((row["risk_type"], row["document_id"]))
+    return by_deliverable, by_document_type
 
 
 def _candidate_findings(allowed_document_ids: frozenset[str] | None) -> list[dict]:
@@ -125,10 +135,13 @@ def detect_automatic_risks(*, allowed_document_ids: frozenset[str] | None = None
     read once and diffed, the candidate findings come from one filtered query,
     and the new risks are inserted in one transaction. It sends NO email: the
     caller sends one digest for the whole run.
+
+    A10/#924: the "review" and "compliance" types are ONE RISK PER DOCUMENT,
+    not one per finding - see `_open_risk_keys`.
     """
     ensure_schema()
     from . import deliverables as deliverables_mod
-    by_deliverable, by_finding = _open_risk_keys()
+    by_deliverable, by_document_type = _open_risk_keys()
     new_items: list[dict] = []
     visible_deliverables = deliverables_mod.list_items(allowed_document_ids=allowed_document_ids)
     by_id = {item["id"]: item for item in visible_deliverables}
@@ -144,13 +157,20 @@ def detect_automatic_risks(*, allowed_document_ids: frozenset[str] | None = None
             "document_id": (by_id.get(alert["deliverable_id"]) or {}).get("document_id")}))
     now = datetime.now(UTC)
     candidates = _candidate_findings(allowed_document_ids)
+    review_groups: dict[str, list[dict]] = {}
+    compliance_groups: dict[str, list[dict]] = {}
     for start in range(0, len(candidates), RISK_BATCH_SIZE):
         # #626 GENTLE: a run over ~133,000 findings used to be one unbroken
         # loop that held the CPU (and the GIL) for as long as it took. A short
         # pause between batches lets the request threads run.
         if start:
             _pause_between_batches()
-        _scan_findings(candidates[start:start + RISK_BATCH_SIZE], now, by_finding, new_items)
+        _scan_findings(candidates[start:start + RISK_BATCH_SIZE], now, by_document_type,
+                      review_groups, compliance_groups)
+    for risk_type, groups in (("review", review_groups), ("compliance", compliance_groups)):
+        for document_id, group in groups.items():
+            new_items.append(_aggregate_item(risk_type, document_id, group, now))
+            by_document_type.add((risk_type, document_id))
     for item in visible_deliverables:
         parent_id = item.get("parent_id")
         if not parent_id or parent_id not in by_id or item["status"] in {"approved", "superseded"}:
@@ -182,10 +202,41 @@ def _pause_between_batches() -> None:
     time.sleep(RISK_BATCH_PAUSE_SECONDS)
 
 
-def _scan_findings(findings: list[dict], now: datetime, by_finding: set,
-                   new_items: list[dict]) -> None:
+#: Worst first, for the one severity an aggregated risk can honestly carry.
+_SEVERITY_ORDER = ("critical", "major", "minor")
+
+
+def _worst_severity(group: list[dict]) -> str:
+    found = {str(f.get("severity") or "").lower() for f in group}
+    return next((s for s in _SEVERITY_ORDER if s in found), "medium")
+
+
+def _aggregate_item(risk_type: str, document_id: str, group: list[dict], now: datetime) -> dict:
+    """A10/#924: one risk for a whole document, not one per finding. The
+    count is stated with the date it was counted on (honesty rule 4: a
+    boundary, not a live number this un-updated row keeps claiming)."""
+    n = len(group)
+    today = now.date().isoformat()
+    if risk_type == "review":
+        title = "Review responses overdue"
+        description = (f"{n} finding{'s' if n != 1 else ''} on this document had remained open "
+                       f"beyond the seven-day review target, as counted on {today}.")
+    else:
+        title = "Requirements lack supporting evidence"
+        description = (f"{n} requirement{'s' if n != 1 else ''} on this document had unresolved "
+                       f"evidence from gap analysis, as counted on {today}.")
+    return _new_item({"risk_type": risk_type, "title": title, "description": description,
+                      "severity": _worst_severity(group), "document_id": document_id})
+
+
+def _scan_findings(findings: list[dict], now: datetime, open_document_types: set,
+                   review_groups: dict[str, list[dict]],
+                   compliance_groups: dict[str, list[dict]]) -> None:
     """One batch of candidate findings: the overdue-review and the
-    unsupported-requirement rules. Appends to `new_items` and `by_finding`."""
+    unsupported-requirement rules, grouped by document into `review_groups`
+    and `compliance_groups`. A document already in `open_document_types`
+    (an open risk of that kind exists) is skipped - its findings do not grow
+    an aggregate that already stands."""
     for finding in findings:
         try:
             updated = datetime.fromisoformat(finding["updated_at"].replace("Z", "+00:00"))
@@ -193,24 +244,16 @@ def _scan_findings(findings: list[dict], now: datetime, by_finding: set,
                 updated = updated.replace(tzinfo=UTC)
         except (KeyError, ValueError, AttributeError):
             continue
+        document_id = finding.get("document_id")
+        if not document_id:
+            continue
         if (finding["status"] in OPEN_REVIEW_STATUSES and now - updated > timedelta(days=7)
-                and ("review", finding["id"]) not in by_finding):
-            by_finding.add(("review", finding["id"]))
-            new_items.append(_new_item({
-                "risk_type": "review", "title": "Review response overdue",
-                "description": "This finding has remained open beyond the seven-day review target.",
-                "severity": finding["severity"], "document_id": finding["document_id"],
-                "source_finding_id": finding["id"], "owner_user_id": finding.get("owner_user_id"),
-                "due_date": finding.get("due_date")}))
+                and ("review", document_id) not in open_document_types):
+            review_groups.setdefault(document_id, []).append(finding)
         if (finding["category"] == "requirement_deviation"
                 and finding.get("unresolved_evidence") not in (None, "", "[]", "null")
-                and ("compliance", finding["id"]) not in by_finding):
-            by_finding.add(("compliance", finding["id"]))
-            new_items.append(_new_item({
-                "risk_type": "compliance", "title": "Requirement lacks supporting evidence",
-                "description": "Gap analysis found unresolved evidence for this requirement.",
-                "severity": finding["severity"], "document_id": finding["document_id"],
-                "source_finding_id": finding["id"], "owner_user_id": finding.get("owner_user_id")}))
+                and ("compliance", document_id) not in open_document_types):
+            compliance_groups.setdefault(document_id, []).append(finding)
 
 
 _detect_lock = threading.Lock()

@@ -15,12 +15,20 @@ Ask questions against your own PDFs and get answers that cite the exact page the
 
 | Allowed | Forbidden |
 |---|---|
-| Downloading model weights, pip/npm packages | Sending document text, chunks, questions, or answers to any external service |
-| GitHub, CI, reading documentation | Hosted inference APIs |
+| Downloading model weights, pip/npm packages | Sending document text, chunks, questions, or answers to any external service outside the one lane below |
+| GitHub, CI, reading documentation | Hosted inference APIs, other than the one lane below |
 | Any network use that does not carry document content | Cloud OCR |
 | | Cloud/hosted vector databases |
 
-All inference — embedding and generation — runs locally on CPU.
+**One owner-approved exception (owner decision 2026-09-25):** the Claude API,
+reached only through `reader_transport.py`, only when `REASONING_PROVIDER`
+turns it on, gated by the `STANDARDS_READER_*` egress flags and a key, and
+capped by `claude_spend` at USD 5 per step / USD 20 in total. No document
+text ever reaches it in logs, issues, PRs or CI. Every other hosted-inference
+and cloud path stays forbidden. See CLAUDE.md rule 1.
+
+Embedding, retrieval and the local answer model (Tier 1 and Tier 2) all run
+locally on CPU, with no exception.
 After model download completes, `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` are set so no library can phone home with document content.
 
 This is **not** an air-gapped system. It is a **locally-inferencing** system on a networked machine.

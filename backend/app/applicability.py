@@ -428,19 +428,6 @@ def _submittal_text(document_id: str, allowed_document_ids: frozenset[str]) -> s
     return " ".join(r["text"] or "" for r in rows)
 
 
-def _referenced_in_submittal(document_id: str,
-                             allowed_document_ids: frozenset[str]) -> list[str]:
-    """The standard identifiers this submittal's own text cites.
-
-    Read from the chunks under the caller's grants, using phase 4's detector -
-    so a datasheet's citations and a chat answer's citations come from the same
-    text. THIS DETECTOR KNOWS THE BUILT-IN FAMILIES ONLY (API, ASME, ISO, SAES
-    ...); a standard numbered any other way is found by `library_citations`,
-    which starts from the library's own identifiers (#702).
-    """
-    return datasheets.referenced_standards(_submittal_text(document_id, allowed_document_ids))
-
-
 def citation_evidence(document_id: str, identifier: str,
                       allowed_document_ids: frozenset[str]) -> tuple[int | None, str | None]:
     """WHERE the submittal cites `identifier`: (page, the printed line).

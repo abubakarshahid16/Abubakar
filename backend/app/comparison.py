@@ -829,6 +829,7 @@ def _compare(requirement: dict, fact: dict | None, *,
         # code, because another name for the same thing is not a breach.
         clause = requirement.get("source_text") or requirement.get("requirement_text")
         stated = " ".join(str(fact.get("field_value") or "").split())
+        stated = stated if field_links.states_a_value(stated) else ""      # #921: a pointer is not a value
         if stated and field_links.asks_only_to_be_stated(clause):
             return {"status": COMPLIANT,
                     "rationale": (f"{STATED_AS_ASKED}: the clause asks for this to be stated on the "
@@ -1578,6 +1579,17 @@ def recommend_code(findings: list[dict], completeness: dict, *,
                              "to this submittal were not checked (no matching field, or text that "
                              "could not be read), so the rest cannot be called met"),
                   "unchecked_share": round(share, 3)}
+    # PF3 (#883): AN INCOMPLETE READING CANNOT BE APPROVED. A page the AI reader
+    # timed out on, or that no reader read into fields, is a page nobody has
+    # read the way the run said it would; an approval (outright or with
+    # comments) would be a claim about it. A proven breach stays a breach.
+    reading = (page_coverage or {}).get("reading") or {}
+    if reading.get("status") == page_ledger.READING_INCOMPLETE and result["code"] in (codes[0], codes[1]):
+        pages = page_ledger.page_list(reading.get("incomplete_pages") or [])
+        result = {**result, "code": codes[3],
+                  "reason": (f"Manual review: the reading is incomplete (page{'s' if len(reading.get('incomplete_pages') or []) != 1 else ''} "
+                             f"{pages} not read in full, see the run's page coverage), so the rest cannot be called met"),
+                  "reading_incomplete": True}
     missing = [m for m in dict.fromkeys(missing_references or ()) if m]
     if result["code"] == codes[2]:
         # A PROVEN BREACH, IN AN ENGINEER'S WORDS, with what else is open.
@@ -1601,6 +1613,14 @@ def recommend_code(findings: list[dict], completeness: dict, *,
     return {**result, "details": result["reason"],
             "reason": plain_reason(result["code"], result["reason"], completeness,
                                    page_coverage, missing, codes=codes)}
+
+
+def pages_read_with_reading(submittal_id: str) -> dict:
+    """The run's page coverage (#883, PF3): the ledger's, plus the pages the AI
+    reader did not read and the run's reading status. A run with any such page
+    or any unread page is INCOMPLETE, never a clean run."""
+    pages = page_ledger.coverage(submittal_id)
+    return {**pages, **page_ledger.reading_gaps(datasheets.latest_reader_summary(submittal_id), pages)}
 
 
 def _pages_part(page_coverage: dict | None) -> str:
@@ -2068,7 +2088,7 @@ def _run_comparison(
     # B3: WHICH PAGES WERE READ INTO FIELDS, once per run, so no finding says
     # the contractor omitted a value that could sit on a page nobody read.
     page_ledger.refresh(submittal_id, as_submittal=True)
-    pages_read = page_ledger.coverage(submittal_id)
+    pages_read = pages_read_with_reading(submittal_id)
     # THE SHEET'S KIND, ONCE PER RUN. The classification's word when an
     # engineer or the classifier gave one; the field names otherwise.
     from . import classification as classification_mod
@@ -3674,26 +3694,6 @@ def _contains_words(haystack: str, needle: str) -> bool:
     if not needle:
         return False
     return re.search(rf"(?<!\w){re.escape(needle)}(?!\w)", haystack) is not None
-
-
-def _match_fact(requirement: dict, by_field: dict) -> dict | None:
-    """The submitted fact this requirement is about, or None.
-
-    Matched on the NORMALISED field name, which `datasheets` already computes.
-    An unmatched requirement yields None and becomes MISSING_INFORMATION -
-    never a failure, because "this system could not find the field" and "the
-    contractor got it wrong" are different statements.
-
-    THIS IS WHERE THE MODEL WOULD EARN ITS PLACE. Matching a free-text
-    requirement to a datasheet label is exactly the interpretive work section
-    14 assigns to it. This phase does the deterministic half - exact normalised
-    match - and reports the rest as unmatched rather than guessing, which is
-    why the missing-information count is high on a real sheet.
-    """
-    field = (requirement.get("field") or "").strip().lower()
-    if field and field in by_field:
-        return by_field[field]
-    return None
 
 
 def attach_crs_context(findings: list[dict]) -> list[dict]:
