@@ -95,6 +95,8 @@ REQUIRES_OTHER_DOCUMENT = "requires_other_document"
 #: class, PWHT...) named nothing of the kind. Only a clause whose own sentence
 #: names a document (`required_evidence_type`) carries the first token now.
 NO_FIELD_MATCHED = "no_field_matched"
+#: #895: why a verdict says the value is outside a two-sided limit.
+RANGE_LIMIT_REASON = "outside_the_range"
 #: #893: the clause only asks for the thing to be stated, and it is.
 STATED_AS_ASKED = "stated_as_asked"
 #: #893: the clause names the values a thing shall be; the rationale says
@@ -624,6 +626,45 @@ def compare(requirement: dict, fact: dict | None, *,
     return verdict
 
 
+def _compare_range(requirement: dict, fact: dict, *, subject: str | None,
+                   submittal_facts: list[dict] | None) -> dict:
+    """#895: A TWO-SIDED LIMIT IS TWO ORDINARY LIMITS. "Between 20 % and 80 %"
+    is "at least 20 %" and "at most 80 %", each judged by `_compare` itself -
+    so units, pressure signs and references, ranges on the sheet's side
+    (compared at the end that matters for each bound), the condition gate and
+    every refusal apply to a range exactly as to a one-sided limit; nothing
+    here is a second comparison.
+
+    Meets only when BOTH ends meet. Does not meet when either does not - the
+    rationale names which end. Anything else (a unit that cannot be compared,
+    a condition not established, ...) is the first end's own answer."""
+    low, high = requirement.get("value_low"), requirement.get("value_high")
+    unit = requirement.get("raw_unit") or ""
+    shown = f"between {_plain(low)} and {_plain(high)} {unit}".rstrip() if None not in (low, high) else None
+    if shown is None:
+        return {"status": NEEDS_ENGINEER_REVIEW,
+                "rationale": "the requirement states a range whose ends were not stored; it needs a human reading",
+                "limit": None, "observed": None, "exception_applied": None}
+    ends = []
+    for operator, bound in ((">=", low), ("<=", high)):
+        end = {**requirement, "requirement_type": "numeric_limit", "operator": operator,
+               "raw_value": _plain(bound), "value": None, "value_low": None, "value_high": None}
+        ends.append((operator, bound, _compare(end, fact, subject=subject, submittal_facts=submittal_facts)))
+    breached = [(op, bound, v) for op, bound, v in ends if v["status"] == NON_COMPLIANT]
+    if breached:
+        op, bound, verdict = breached[0]
+        side = "below the lowest" if op == ">=" else "above the highest"
+        return {**verdict, "rationale": f"{RANGE_LIMIT_REASON}: {side} value of the required range {shown}: "
+                                        f"{verdict['rationale']}", "limit": shown}
+    if all(v["status"] == COMPLIANT for _op, _bound, v in ends):
+        first = ends[0][2]
+        return {**first, "rationale": (f"the submitted value {fact.get('raw_value')} "
+                                       f"{fact.get('raw_unit') or ''}".rstrip()
+                                       + f" is within the required range {shown}"), "limit": shown}
+    other = next(v for _op, _bound, v in ends if v["status"] != COMPLIANT)
+    return {**other, "limit": shown}
+
+
 def _compare(requirement: dict, fact: dict | None, *,
              subject: str | None = None,
              submittal_facts: list[dict] | None = None) -> dict:
@@ -775,6 +816,9 @@ def _compare(requirement: dict, fact: dict | None, *,
             "rationale": f"the submittal leaves this field to be provided ({marker})",
             "limit": None, "observed": None, "exception_applied": None,
         }
+
+    if requirement.get("requirement_type") == requirements_3b.RANGE_LIMIT:
+        return _compare_range(requirement, fact, subject=subject, submittal_facts=submittal_facts)
 
     # ---------------------------------------------------------------- B24 gate
     # AFTER the two MISSING_INFORMATION branches and BEFORE any arithmetic.
@@ -2760,7 +2804,7 @@ def _unit_from_clause_text(requirement: dict, fact: dict | None) -> dict:
 #: at which another document takes over, so there is nothing for a submitted
 #: value to be measured against and pairing one could only produce a verdict.
 MATCHABLE_TYPES = frozenset({
-    "numeric_limit", requirements_3b.TABLE_ROW, requirements_3b.RELATIVE_LIMIT})
+    "numeric_limit", requirements_3b.TABLE_ROW, requirements_3b.RELATIVE_LIMIT}) | {requirements_3b.RANGE_LIMIT}
 
 
 def is_matchable(requirement: dict) -> bool:
