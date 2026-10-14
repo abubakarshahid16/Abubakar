@@ -97,6 +97,9 @@ REQUIRES_OTHER_DOCUMENT = "requires_other_document"
 NO_FIELD_MATCHED = "no_field_matched"
 #: #895: why a verdict says the value is outside a two-sided limit.
 RANGE_LIMIT_REASON = "outside_the_range"
+#: A clause that states ONE value (`requirements_3b.NOMINAL_VALUE`): the sheet
+#: states another. Never a breach by code - a nominal value is not a limit.
+NOMINAL_VALUE_REASON = "not_the_stated_value"
 #: #893: the clause only asks for the thing to be stated, and it is.
 STATED_AS_ASKED = "stated_as_asked"
 #: #893: the clause names the values a thing shall be; the rationale says
@@ -665,6 +668,32 @@ def _compare_range(requirement: dict, fact: dict, *, subject: str | None,
     return {**other, "limit": shown}
 
 
+def _compare_nominal(requirement: dict, fact: dict, *, subject: str | None,
+                     submittal_facts: list[dict] | None) -> dict:
+    """A clause that states ONE value ("shall operate from 24 V DC").
+
+    The value and the half-unit of its last printed digit are a tight range
+    (`value_low`, `value_high`), judged by `_compare_range`, so units, pressure
+    references and the condition gate all apply. What differs is the OUTCOME:
+    equal within the stated precision -> COMPLIANT; ANY other value ->
+    NEEDS_ENGINEER_REVIEW with both values shown, NEVER NON_COMPLIANT - the
+    clause states a nominal value, not a limit, and another value may be a
+    different but acceptable choice (planner, 14 Oct 2026)."""
+    stated = f"{requirement.get('raw_value')} {requirement.get('raw_unit') or ''}".strip()
+    verdict = _compare_range({**requirement, "requirement_type": requirements_3b.RANGE_LIMIT},
+                             fact, subject=subject, submittal_facts=submittal_facts)
+    observed = " ".join(str(fact.get("field_value") or fact.get("raw_value") or "").split())
+    if verdict["status"] == COMPLIANT:
+        return {**verdict, "limit": stated,
+                "rationale": f"the submitted value {observed} is the stated value {stated} within the precision it is written to"}
+    if verdict["status"] == NON_COMPLIANT:
+        return {**verdict, "status": NEEDS_ENGINEER_REVIEW, "limit": stated,
+                "rationale": (f"{NOMINAL_VALUE_REASON}: the clause states {stated}; the datasheet states {observed}. "
+                              "A stated value is not a limit, so code does not call another value a breach: "
+                              "an engineer decides")}
+    return {**verdict, "limit": stated}
+
+
 def _compare(requirement: dict, fact: dict | None, *,
              subject: str | None = None,
              submittal_facts: list[dict] | None = None) -> dict:
@@ -819,6 +848,8 @@ def _compare(requirement: dict, fact: dict | None, *,
 
     if requirement.get("requirement_type") == requirements_3b.RANGE_LIMIT:
         return _compare_range(requirement, fact, subject=subject, submittal_facts=submittal_facts)
+    if requirement.get("requirement_type") == requirements_3b.NOMINAL_VALUE:
+        return _compare_nominal(requirement, fact, subject=subject, submittal_facts=submittal_facts)
 
     # ---------------------------------------------------------------- B24 gate
     # AFTER the two MISSING_INFORMATION branches and BEFORE any arithmetic.
@@ -2804,7 +2835,7 @@ def _unit_from_clause_text(requirement: dict, fact: dict | None) -> dict:
 #: at which another document takes over, so there is nothing for a submitted
 #: value to be measured against and pairing one could only produce a verdict.
 MATCHABLE_TYPES = frozenset({
-    "numeric_limit", requirements_3b.TABLE_ROW, requirements_3b.RELATIVE_LIMIT}) | {requirements_3b.RANGE_LIMIT}
+    "numeric_limit", requirements_3b.TABLE_ROW, requirements_3b.RELATIVE_LIMIT}) | {requirements_3b.RANGE_LIMIT, requirements_3b.NOMINAL_VALUE}
 
 
 def is_matchable(requirement: dict) -> bool:

@@ -331,6 +331,15 @@ RANGE_OPERATOR = "between"
 #: Until #895 the sentence was a `statement` (or, when another phrase in it
 #: parsed, a ONE-SIDED limit): a sheet value outside either end got no verdict.
 RANGE_LIMIT = "range_limit"
+#: A SENTENCE THAT STATES ONE VALUE, with no comparator: "the transmitter shall
+#: operate from a 24 V DC loop supply", "the cable shall be 3 m". Not a limit
+#: either way, so it was a `statement` and a sheet value got no verdict. Stored
+#: with the stated value and the half-unit of its last printed digit as its
+#: precision (`value_low`, `value_high`); compared as that tight range, but a
+#: value outside it is an engineer's question, NEVER a breach
+#: (`comparison._compare_nominal`).
+NOMINAL_VALUE = "nominal_value"
+NOMINAL_OPERATOR = "nominal"
 _RANGE_CELL = re.compile(
     r"^\s*(?P<low>[-+]?\d[\d.,]*)(?P<sep>\s*(?:to|[-\u2012\u2013\u2014\u2015])\s*)"
     r"(?P<high>[-+]?\d[\d.,]*)\s*"
@@ -932,6 +941,58 @@ def parse_range(sentence: str) -> dict | None:
             "value_low": low, "value_high": high, "_ends": (low_raw, high_raw)}
 
 
+#: The verbs that state ONE value and nothing else. A sentence that does not
+#: use one of them is not read as a nominal value (WHEN UNSURE, NONE).
+_NOMINAL_SENTENCE = re.compile(
+    r"\b(?:shall|must|is\s+to)\s+(?:be(?:\s+(?:supplied|powered|rated|set|designed)\s+(?:at|for|to|by|from|with))?"
+    r"|operate\s+(?:from|at|on)|be\s+(?:supplied|powered|rated|set|designed)\s+(?:at|for|to|by|from|with))\s+"
+    r"(?:(?:a|an|the)\s+)?(?P<value>[-+]?\d[\d.,]*)\s*(?P<unit>" + _UNIT + r")", re.IGNORECASE)
+
+
+def _half_unit(raw_value: str) -> float | None:
+    """Half a unit of the last printed digit of `raw_value`: "24" -> 0.5,
+    "2.50" -> 0.005. The precision the clause itself states."""
+    text = raw_value.strip().lstrip("+-")
+    if not re.fullmatch(r"\d+(?:\.\d+)?", text):
+        return None
+    decimals = len(text.split(".")[1]) if "." in text else 0
+    return 0.5 * 10 ** -decimals
+
+
+def parse_nominal(sentence: str) -> dict | None:
+    """The one value a sentence states, or None (nominal values).
+
+    "shall be 24 V DC", "shall operate from a 24 V DC loop supply". WHEN UNSURE,
+    NONE: a recognised unit is required; any comparator or range wording in the
+    sentence (the sentence then states a limit or a range, which have their own
+    readers) or a negation, and a sentence with a second number-with-a-unit,
+    is left as it was."""
+    from . import comparators
+
+    text = sentence or ""
+    match = _NOMINAL_SENTENCE.search(text)
+    if match is None or comparators.directions_in(text) or _NEGATION_WORD.search(text):
+        return None
+    if parse_limit(text) is not None or parse_range(text) is not None:
+        return None
+    raw_value, raw_unit = match.group("value"), unit_token(match.group("unit"))
+    half = _half_unit(raw_value)
+    value = claims.parse_value(raw_value)
+    if not raw_unit or half is None or value is None:
+        return None
+    # A second quantity in the sentence ("24 V DC at 50 Hz") is a second claim.
+    others = [m for m in claims._MEASUREMENT.finditer(text) if m.start("value") != match.start("value")]
+    if others:
+        return None
+    measurement = measure(raw_value, raw_unit)
+    return {"operator": NOMINAL_OPERATOR, "raw_value": raw_value, "raw_unit": raw_unit,
+            "value": measurement.normalized_value, "unit": measurement.normalized_unit,
+            "value_low": round(value - half, 9), "value_high": round(value + half, 9)}
+
+
+_NEGATION_WORD = re.compile(r"\b(?:not|never|no|without|nor)\b", re.IGNORECASE)
+
+
 def parse_limit_or_range(sentence: str) -> dict | None:
     """The limit a sentence states: a range when it states one, else the
     one-sided limit `parse_limit` reads (#895).
@@ -941,7 +1002,7 @@ def parse_limit_or_range(sentence: str) -> dict | None:
     it stays the limit it was, for an engineer to read."""
     limit, span = parse_limit(sentence), parse_range(sentence)
     if span is None:
-        return limit
+        return limit or parse_nominal(sentence)
     if limit is None or str(limit.get("raw_value")) in span["_ends"]:
         return {key: value for key, value in span.items() if key != "_ends"}
     return limit
@@ -1129,7 +1190,7 @@ DEFINITION = "definition"
 #: return (`schemas.RequirementType`). `REQUIREMENT_TYPES` above is the core
 #: three the parser may classify an obligation as; these are all of them.
 STORED_REQUIREMENT_TYPES = (*REQUIREMENT_TYPES, APPLICABILITY_TRIGGER, RELATIVE_LIMIT, TABLE_ROW,
-                           DEFINITION, TABLE_RANGE, RANGE_LIMIT)
+                           DEFINITION, TABLE_RANGE, RANGE_LIMIT, NOMINAL_VALUE)
 
 
 def classify(sentence: str, limit: dict | None) -> str:
@@ -1164,6 +1225,10 @@ def classify(sentence: str, limit: dict | None) -> str:
     # number to a table.
     if limit.get("operator") == RANGE_OPERATOR and not _TABLE_REFERENCE.search(sentence or ""):
         return RANGE_LIMIT
+    if limit.get("operator") == NOMINAL_OPERATOR:
+        # One stated value. A sentence that hands the number to a table is the
+        # table's row, as for every other limit.
+        return TABLE_ROW if _TABLE_REFERENCE.search(sentence or "") else NOMINAL_VALUE
     if is_table_row(sentence):
         return TABLE_ROW
     # THE NUMBER IS THE THRESHOLD, NOT THE LIMIT. Checked before
