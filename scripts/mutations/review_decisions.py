@@ -41,7 +41,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              replacement='            crs_export_mod.CODE_NOT_YET_DECIDED if run.get("engineer_final_code")\n',
              target=_T, keyword="engineer_decided_the_code", tags=("honesty",)),
     Mutation(id="M851", phase=73, runner="vitest", description="B10: the CRS preview hides who decided the code",
-             path=FRONTEND_SRC / "views" / "ReviewRunsView.tsx",
+             path=FRONTEND_SRC / "components" / "review" / "CrsPreviewSheet.tsx",
              anchor="      {preview.recommended_code && preview.recommended_code_status && (\n",
              replacement="      {false && preview.recommended_code_status && (\n",
              target="src/views/ReviewRunsView.crsPreview.test.tsx", keyword="AI's recommendation",
