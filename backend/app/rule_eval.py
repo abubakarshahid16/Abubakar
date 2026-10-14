@@ -92,7 +92,13 @@ def required_for(rule: dict, input_value: float) -> tuple[float, dict] | None:
     for row in rule["rows"]:
         lo, hi = row.get("from"), row.get("to")
         if (lo is None or input_value > lo) and (hi is None or input_value <= hi):
-            values = [t.get("k", 1) * input_value + t.get("c", 0) for t in row["terms"]]
+            # #916: a row a model wrote with no "terms" (or with none usable)
+            # is a row nobody can evaluate: no verdict, never a KeyError that
+            # takes the whole review down.
+            terms = row.get("terms")
+            if not isinstance(terms, list) or not terms or not all(isinstance(t, dict) for t in terms):
+                return None
+            values = [t.get("k", 1) * input_value + t.get("c", 0) for t in terms]
             op = row.get("op", "single")
             if op == "max":
                 return max(values), row
@@ -106,6 +112,8 @@ def required_for(rule: dict, input_value: float) -> tuple[float, dict] | None:
 
 def _row_words(row: dict, unit: str) -> str:
     lo, hi = row.get("from"), row.get("to")
+    if lo is None and hi is None:
+        return "the clause's own comparison"        # a cross-field rule has no table
     if lo is None:
         return f"up to {_fmt(hi)} {unit}"
     if hi is None:
@@ -166,10 +174,11 @@ def evaluate(rule: dict, input_value: float, input_unit: str,
     required, row = found
     ok = _CMP[comparator](x_out, required)
     word = "at least" if comparator == ">=" else "at most"
+    where = "clause" if row.get("from") is None and row.get("to") is None else "table row"
     rationale = (
         f"{RULE_REASON}: required {rule.get('output', 'value')} {word} {_fmt(required)} {unit} "
         f"from {rule.get('input', 'the input')} {_fmt(input_value)} {input_unit} "
-        f"(table row: {_row_words(row, unit)}); the datasheet says "
+        f"({where}: {_row_words(row, unit)}); the datasheet says "
         f"{_fmt(output_value)} {output_unit}{basis_note}")
     return {"status": COMPLIANT if ok else NON_COMPLIANT, "required_value": required,
             "input_used": f"{_fmt(input_value)} {input_unit}",
@@ -226,14 +235,14 @@ def _parse_expr(expr: str, symbols: list[str]) -> dict | None:
     return {"op": op, "terms": terms}
 
 
-def parse_rule(text: str, *, output: str, input_names: list[str]) -> dict | None:
+def parse_rule(text: str, *, output: str, input_names: list[str], comparator: str = ">=") -> dict | None:
     try:
-        return _parse_rule(text, output=output, input_names=input_names)
+        return _parse_rule(text, output=output, input_names=input_names, comparator=comparator)
     except ValueError:
         return None      # a number that is not one number: not a rule
 
 
-def _parse_rule(text: str, *, output: str, input_names: list[str]) -> dict | None:
+def _parse_rule(text: str, *, output: str, input_names: list[str], comparator: str = ">=") -> dict | None:
     """A range-table rule from the clause/table text, or None if it does not parse.
 
     Reads rows written `<bound> | <expression>` or `<bound>: <expression>`,
@@ -268,7 +277,7 @@ def _parse_rule(text: str, *, output: str, input_names: list[str]) -> dict | Non
         return None
     rows.sort(key=lambda r: (r["from"] is not None, r["from"] or 0))
     return {"output": output, "input": input_names[-1], "input_names": input_names,
-            "unit": unit, "comparator": ">=", "rows": rows}
+            "unit": unit, "comparator": comparator, "rows": rows}
 
 
 def rule_numbers(rule: dict) -> set[float]:
@@ -291,16 +300,65 @@ def verify_numbers(rule: dict, text: str) -> bool:
     return rule_numbers(rule) <= present
 
 
+# #916: WHAT ELSE A MODEL'S PARSE MUST PROVE. Numbers on the page are not
+# enough: the same numbers under another unit ("1,800 psi" for "1,800 kPa") or
+# another max / min pass that gate and give a confident wrong required value.
+_OP_WORDS = {
+    "max": re.compile(r"\b(?:greater|greatest|higher|highest|larger|largest|maximum|max|whichever\s+is\s+more|more\s+of)\b",
+                      re.IGNORECASE),
+    "min": re.compile(r"\b(?:lesser|least|lower|lowest|smaller|smallest|minimum|min|whichever\s+is\s+less|less\s+of)\b",
+                      re.IGNORECASE),
+}
+
+
+def unit_in_text(unit: str, text: str) -> bool:
+    """Is the rule's unit written in the text, as a unit (the gauge or
+    absolute letter and the case aside)?"""
+    base, _basis = _split_basis(unit or "")
+    base = (base or "").strip()
+    if not base:
+        return False
+    return re.search(r"(?<![A-Za-z])" + re.escape(base) + r"(?:\s?\(?[ga]\)?)?(?![A-Za-z])",
+                     text or "", re.IGNORECASE) is not None
+
+
+def ops_proven(rule: dict, text: str) -> bool:
+    """Every row's `max` / `min` is said by a word in the text, and a row with
+    several terms and no such word ("single") is not a rule."""
+    for row in rule.get("rows", []):
+        terms = row.get("terms")
+        if not isinstance(terms, list) or not terms:
+            return False
+        op = row.get("op", "single")
+        if op == "single":
+            if len(terms) != 1:
+                return False
+        elif op not in _OP_WORDS or not _OP_WORDS[op].search(text or ""):
+            return False
+    return True
+
+
+def verify_model_rule(rule: dict, text: str) -> bool:
+    """A model's parse is kept only when the NUMBERS, the UNIT and each row's
+    max / min are all in the text. The arithmetic is always Python."""
+    return verify_numbers(rule, text) and unit_in_text(rule.get("unit", ""), text) and ops_proven(rule, text)
+
+
 # ------------------------------------------------------------ pairing (2b)
 
 #: What a pressure-from-operating-pressure rule reads from a datasheet. Field
 #: names are matched after `datasheets.normalise_field_name`.
+#:
+#: `comparator` is the rule's OWN direction, stated here as data (#916), not in
+#: the parser: a design pressure or temperature taken from a table is a FLOOR
+#: ("shall be at least the value in the table"). A table's own "up to" bounds a
+#: row, so the clause's words are not used to flip it.
 KNOWN_RULES = (
-    {"output": "design pressure",
+    {"output": "design pressure", "comparator": ">=",
      "input_names": ["mop", "maximum operating pressure", "max operating pressure",
                      "operating pressure"],
      "requirement_words": ("design pressure",)},
-    {"output": "design temperature",
+    {"output": "design temperature", "comparator": ">=",
      "input_names": ["mot", "maximum operating temperature", "max operating temperature",
                      "operating temperature"],
      "requirement_words": ("design temperature",)},
@@ -432,6 +490,9 @@ def _judge_one(rule: dict, facts: list[dict]) -> tuple[dict, dict | None]:
         return ({"status": NEEDS_ENGINEER_REVIEW,
                  "rationale": f"{RULE_REASON}: a value is not a single number; not calculated",
                  "limit": None, "observed": None, "exception_applied": None}, output)
+    if not rule.get("unit"):
+        # A comparison with no offset has no unit of its own: the reference's unit is the scale.
+        rule = {**rule, "unit": inp.get("raw_unit") or ""}
     result = evaluate(rule, x_in, inp.get("raw_unit") or "", x_out, output.get("raw_unit") or "")
     if result is None:
         return ({"status": NEEDS_ENGINEER_REVIEW,
@@ -542,11 +603,28 @@ def _model_parse(text: str, known: dict, provider) -> dict | None:
         body = json.loads(response.text.strip().strip("`").removeprefix("json").strip())
         rule = {"output": known["output"], "input": known["input_names"][-1],
                 "input_names": known["input_names"], "unit": str(body["unit"]),
-                "comparator": ">=", "rows": list(body["rows"])}
+                "comparator": known["comparator"], "rows": list(body["rows"])}
     except (ValueError, KeyError, TypeError):
         return None
-    # REJECT, NEVER REPAIR: a number that is not on the page is an invention.
-    return rule if rule["rows"] and verify_numbers(rule, text) else None
+    # REJECT, NEVER REPAIR: a number that is not on the page is an invention,
+    # and so is a unit or a max / min the text does not say (#916).
+    return rule if rule["rows"] and verify_model_rule(rule, text) else None
+
+
+def cross_rule(requirement: dict) -> dict | None:
+    """The one-row rule a clause that compares two fields states, or None.
+    output field `op` factor * reference field + offset, read by
+    `requirements_3b.parse_cross_field` from the clause's own sentence (code;
+    no model). With no offset the rule has no unit of its own: the reference
+    field's unit is the scale, and both values are converted into it."""
+    from . import requirements_3b
+    cross = requirements_3b.parse_cross_field(requirement.get("source_text") or requirement.get("requirement_text"))
+    if cross is None:
+        return None
+    return {"output": cross["output"], "input": cross["reference"], "input_names": [cross["reference"]],
+            "unit": cross["offset_unit"], "comparator": cross["operator"],
+            "rows": [{"from": None, "to": None, "op": "single",
+                      "terms": [{"k": cross["factor"], "c": cross["offset"]}]}]}
 
 
 def rule_for(requirement: dict, *, provider=None) -> tuple[dict | None, str | None]:
@@ -559,13 +637,24 @@ def rule_for(requirement: dict, *, provider=None) -> tuple[dict | None, str | No
             return json.loads(requirement["rule_json"]), requirement.get("rule_source")
         except ValueError:
             pass
+    from . import requirements_3b
+    if requirement.get("requirement_type") == requirements_3b.CROSS_FIELD_LIMIT:
+        rule = cross_rule(requirement)
+        if rule is None:
+            return None, "the comparison of the two fields could not be read"
+        if requirement.get("id"):
+            with connect() as conn:
+                conn.execute("UPDATE standard_requirements SET rule_source = ?, rule_json = ?"
+                             " WHERE id = ?", (SOURCE_CODE, dumps(rule), requirement["id"]))
+        return rule, SOURCE_CODE
     known = known_rule_for(requirement)
     if known is None:
         return None, None
     texts = _page_texts(requirement)
     rule, source = None, None
     for text in texts:
-        rule = parse_rule(text, output=known["output"], input_names=known["input_names"])
+        rule = parse_rule(text, output=known["output"], input_names=known["input_names"],
+                          comparator=known["comparator"])
         if rule is not None and verify_numbers(rule, text):
             source = SOURCE_CODE
             break

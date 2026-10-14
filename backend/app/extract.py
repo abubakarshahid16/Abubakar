@@ -152,7 +152,15 @@ def _unrotated_rows(table, cells: list[list], derotate) -> list[list]:
 
 
 def page_tables(page, raw_text: str) -> list[dict]:
-    """Every ruled table on `page`: its rows and the text lines it covers.
+    """`page_tables_checked(...)[0]` - the tables, for callers that do not ask why none."""
+    return page_tables_checked(page, raw_text)[0]
+
+
+def page_tables_checked(page, raw_text: str) -> tuple[list[dict], str | None]:
+    """(tables, why not): `why not` is a slug when the reader FAILED on this
+    page (#918: it used to return [] and nothing said it had failed), else None.
+
+    Every ruled table on `page`: its rows and the text lines it covers.
 
     Each entry is {"bbox", "rows", "lines"}: `rows` are cell texts (the
     tables.py guards drop 1xN strips, character fragmentation and 50-column
@@ -163,21 +171,21 @@ def page_tables(page, raw_text: str) -> list[dict]:
     try:
         paths = page.get_drawings()
     except Exception:  # noqa: BLE001 - geometry that defeats the reader
-        return []
+        return [], "table_get_drawings_failed"
     if len(paths) < MIN_TABLE_PATHS:
-        return []
+        return [], None
     try:
         found = page.find_tables(strategy="lines").tables
     except Exception:  # noqa: BLE001 - same: no table rather than no page
-        return []
+        return [], "table_find_failed"
     if not found:
-        return []
+        return [], None
     texts, boxes = _raw_lines(page)
     plain = raw_text.split("\n")
     if plain and plain[-1] == "":
         plain = plain[:-1]
     if plain != texts:
-        return []
+        return [], "table_line_mapping_untrusted"
     out: list[dict] = []
     claimed: set[int] = set()
     derotate = page.derotation_matrix if page.rotation % 360 else None
@@ -210,7 +218,7 @@ def page_tables(page, raw_text: str) -> list[dict]:
         claimed.update(lines)
         out.append({"bbox": [round(v, 1) for v in (x0, y0, x1, y1)],
                     "rows": rows, "lines": lines})
-    return out
+    return out, None
 
 
 def _tables_json(page, raw_text: str, text: str) -> str | None:
@@ -219,7 +227,11 @@ def _tables_json(page, raw_text: str, text: str) -> str | None:
     the line count - if it did, no mapping is stored."""
     if raw_text.count("\n") != text.count("\n"):
         return None
-    found = page_tables(page, raw_text)
+    found, failed = page_tables_checked(page, raw_text)
+    if failed:
+        # #918: the failure is stored with the page, so the chunker records it.
+        return json.dumps({"v": TABLE_READER_VERSION, "tables": [], "failed": failed},
+                          ensure_ascii=False, separators=(",", ":"))
     if not found:
         return None
     return json.dumps({"v": TABLE_READER_VERSION, "tables": found},

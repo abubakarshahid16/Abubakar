@@ -1022,7 +1022,7 @@ def extract_requirements(
                 # sentence with no recognisable limit becomes a `statement`, which
                 # is a true description of it rather than a numeric_limit with a
                 # null value - a shape that reads as a limit nobody recorded.
-                limit = requirements_3b.parse_limit(sentence)
+                limit = requirements_3b.parse_limit_or_range(sentence)
                 # THE SELF-AUDIT. A limit that points the opposite way to its
                 # own sentence is the one failure a reviewer cannot catch by
                 # checking the citation, because the citation is correct. It

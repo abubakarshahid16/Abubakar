@@ -722,6 +722,34 @@ def _cached_scope_decision(standard_document_id: str, equipment_type: str,
     return applicability_reasoning.with_covered_evidence(decision, record)
 
 
+def _scope_reasoning_candidates(
+    library: list[dict], selected: dict[str, dict], submittal_document_id: str,
+    allowed_document_ids: frozenset[str], *, cap: int,
+) -> list[dict]:
+    """#946: the pool the AI scope-reasoning step is allowed to ask about -
+    every standard a CHEAPER route already surfaced, plus up to `cap` more
+    ranked by the submittal's own distinctive words. `cap <= 0` or a library
+    no bigger than it: the whole library, unchanged (today's behaviour).
+
+    Never drops a standard any other route already found - only stops
+    ASKING THE MODEL about standards nothing else suggests either, the same
+    bounded risk `_match_semantic` already accepts for suggesting a standard
+    to an engineer, applied here to spending a model call checking one.
+    """
+    if cap <= 0 or len(library) <= cap:
+        return library
+    wanted = {entry["id"] for entry in library if entry["id"] in selected}
+    remaining = cap - len(wanted)
+    if remaining > 0:
+        ranked = _match_semantic(submittal_document_id, library, allowed_document_ids,
+                                 limit=remaining + len(wanted))
+        for standard_id in ranked:
+            if len(wanted) >= cap:
+                break
+            wanted.add(standard_id)
+    return [entry for entry in library if entry["id"] in wanted]
+
+
 def scope_decisions_by_reasoning(library: list[dict], profile: dict,
                                  provider=None, heartbeat=None) -> tuple[dict[str, dict], str | None]:
     """`scope_decisions`, without a taxonomy: the AI reads a standard's
@@ -1148,8 +1176,16 @@ def select(
     # which already reports "not run" when no taxonomy is approved.
     from .config import settings as _settings
     if _settings.applicability_reasoning_enabled:
-        decisions, scope_not_run = scope_decisions_by_reasoning(library, profile, heartbeat=heartbeat)
+        # #946: cap the pool asked about - see `_scope_reasoning_candidates`.
+        # The non-AI taxonomy path below is cheap (a local table lookup, no
+        # model call) and is left scanning the whole library unchanged.
+        scope_candidates = _scope_reasoning_candidates(
+            library, selected, submittal_document_id, allowed_document_ids,
+            cap=_settings.applicability_scope_reasoning_candidate_cap)
+        decisions, scope_not_run = scope_decisions_by_reasoning(
+            scope_candidates, profile, heartbeat=heartbeat)
     else:
+        scope_candidates = library
         decisions, scope_not_run = scope_decisions(library, profile)
     from . import applicability_v2 as v2
     for standard_id, decision in decisions.items():
@@ -1214,10 +1250,52 @@ def select(
             if standard_ids.key(g["identifier"]) not in {standard_ids.key(m["identifier"]) for m in missing}],
         "referenced_total": len(referenced),
         "library_size": len(library),
+        # #946: how many of the library's standards the AI scope-reasoning
+        # step actually asked about, out of how many it could have (every
+        # count states its boundary - CLAUDE.md rule 4). Equal to
+        # `library_size` when the candidate cap did not bind (or is off, or
+        # the non-AI taxonomy path ran instead - that path still scans the
+        # whole library, unchanged).
+        "scope_candidates_asked": len(scope_candidates),
         # #754 F5b: required vs cited, computed from the same library.
         "standards_check": check,
         **completeness(selected, missing, submittal_document_id,
                        allowed_document_ids=allowed_document_ids),
+    }
+
+
+def route_counts(submittal_document_id: str, *, allowed_document_ids: frozenset[str]) -> dict:
+    """#946: how many standards each selection route touched, for ONE
+    submittal - counts only, never a document, a clause or a quote (CLAUDE.md
+    rule 1). One number per method `select()` can record (the STRONGEST route
+    per standard, same merge `select()` itself does), plus how many of the
+    library's standards no route touched at all, and how many ended up
+    `included`.
+
+    READ-ONLY (`persist=False`, nothing written). Run this before and after a
+    change to a selection route to see its actual effect on one real
+    submittal, without creating a review run - this is the tool #946's
+    measurement step uses, and the one to re-run on a real submittal to
+    cross-check an invented-fixture measurement.
+    """
+    result = select(submittal_document_id, allowed_document_ids=allowed_document_ids,
+                    persist=False)
+    by_method = dict.fromkeys(_PRIORITY, 0)
+    included = 0
+    for row in result["selected"]:
+        by_method[row["method"]] += 1
+        if row["included"]:
+            included += 1
+    return {
+        "submittal_document_id": submittal_document_id,
+        "library_size": result["library_size"],
+        "by_method": by_method,
+        "included": included,
+        "considered_not_included": len(result["selected"]) - included,
+        "no_route_matched": result["library_size"] - len(result["selected"]),
+        # #946: how many standards actually got an AI scope-reasoning model
+        # call this run - the speed measurement, out of `library_size`.
+        "scope_candidates_asked": result["scope_candidates_asked"],
     }
 
 

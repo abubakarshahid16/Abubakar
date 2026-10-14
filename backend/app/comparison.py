@@ -95,6 +95,11 @@ REQUIRES_OTHER_DOCUMENT = "requires_other_document"
 #: class, PWHT...) named nothing of the kind. Only a clause whose own sentence
 #: names a document (`required_evidence_type`) carries the first token now.
 NO_FIELD_MATCHED = "no_field_matched"
+#: #895: why a verdict says the value is outside a two-sided limit.
+RANGE_LIMIT_REASON = "outside_the_range"
+#: A clause that states ONE value (`requirements_3b.NOMINAL_VALUE`): the sheet
+#: states another. Never a breach by code - a nominal value is not a limit.
+NOMINAL_VALUE_REASON = "not_the_stated_value"
 #: #893: the clause only asks for the thing to be stated, and it is.
 STATED_AS_ASKED = "stated_as_asked"
 #: #893: the clause names the values a thing shall be; the rationale says
@@ -147,6 +152,45 @@ def _default_severity(status: str | None) -> str:
     finding downgraded to NEEDS_ENGINEER_REVIEW is scored for what it became,
     not for what it started as."""
     return SEVERITY_BY_STATUS.get(status, "major")
+
+
+def unscoped_statement_counts(requirements: list[dict], *, rules: dict | None = None) -> dict[str, int]:
+    """#946, MEASUREMENT ONLY - nothing here changes what becomes a finding.
+
+    Among STATEMENT-type requirements (the ones that can be NOT_IN_DOCUMENT_
+    SCOPE for `NO_FIELD_MATCHED`), how many PER STANDARD name neither a
+    field nor a subject this system recognises as ANY equipment's datasheet
+    field at all (`datasheet_checks.role_of`, tried against `field` then
+    `subject`) - the planner's "requirements that belong to another document"
+    (procedures, fabrication, testing), as a count, never a document id's
+    requirement text.
+
+    READ THIS AGAINST THE REAL VOLUME FIRST (`NO_FIELD_MATCHED`'s own share
+    of a real run's findings, or `crs_mapping`'s NOTE_NO_FIELD count) before
+    building anything that SUPPRESSES a finding row on this signal.
+    `scope_ledger`'s "exactly one decision per requirement" (#677) and
+    `requirement_split`'s "one of three honest groups" (#678) both currently
+    read their decision for a requirement from the finding ROW
+    `_run_comparison` writes for it - dropping the row for a requirement
+    this heuristic calls unscoped would need the ledger/split decision kept
+    from the verdict that would have been written, with only the ROW
+    suppressed; that decoupling is not done here.
+    """
+    from . import datasheet_checks
+
+    rules = rules or datasheet_checks.load_rules()
+    counts: dict[str, int] = {}
+    for requirement in requirements:
+        if requirement.get("requirement_type") != requirements_3b.STATEMENT:
+            continue
+        known = any(
+            text and datasheet_checks.role_of(text, rules) is not None
+            for text in (requirement.get("field"), requirement.get("subject")))
+        if known:
+            continue
+        standard_id = requirement.get("standard_document_id") or ""
+        counts[standard_id] = counts.get(standard_id, 0) + 1
+    return counts
 
 # -------------------------------------------------------------- review codes
 #
@@ -228,6 +272,18 @@ BASIS_REQUIRED_FIELDS = "required_by_applicable_standards"
 BASIS_NOMINAL = "nominal_fields_per_page"
 
 
+def _pairing_unconfirmed(finding: dict) -> bool:
+    """#921: THE FIELD WAS PAIRED BY A GUESS THAT WAITS FOR AN ENGINEER. A
+    finding that carries a fact only because a model named the pairing (always
+    held) or the AI matcher's pairing was held as low-confidence is a question,
+    not an answer: counting it raised the completeness gate for "Approved" on a
+    pairing nobody had confirmed."""
+    method = finding.get("match_method")
+    if method == METHOD_FIELD_NAME:
+        return True
+    return method == METHOD_MODEL_CHOICE and finding.get("compliance_status") == NEEDS_ENGINEER_REVIEW
+
+
 def _required_and_answered(findings: list[dict]) -> tuple[int, int]:
     """(requirements that ask this datasheet for a value, how many a field
     read from it answered), counted per REQUIREMENT - one clause judged for
@@ -244,8 +300,9 @@ def _required_and_answered(findings: list[dict]) -> tuple[int, int]:
         rid = f.get("requirement_id")
         if not rid or f.get("compliance_status") == NOT_IN_DOCUMENT_SCOPE:
             continue
-        answered = bool(f.get("fact_id")) and not (
-            f.get("ai_rationale") or "").startswith(UNREAD_PAGES)
+        answered = (bool(f.get("fact_id"))
+                    and not (f.get("ai_rationale") or "").startswith(UNREAD_PAGES)
+                    and not _pairing_unconfirmed(f))
         asked[rid] = asked.get(rid, False) or answered
     return len(asked), sum(1 for v in asked.values() if v)
 
@@ -572,6 +629,71 @@ def compare(requirement: dict, fact: dict | None, *,
     return verdict
 
 
+def _compare_range(requirement: dict, fact: dict, *, subject: str | None,
+                   submittal_facts: list[dict] | None) -> dict:
+    """#895: A TWO-SIDED LIMIT IS TWO ORDINARY LIMITS. "Between 20 % and 80 %"
+    is "at least 20 %" and "at most 80 %", each judged by `_compare` itself -
+    so units, pressure signs and references, ranges on the sheet's side
+    (compared at the end that matters for each bound), the condition gate and
+    every refusal apply to a range exactly as to a one-sided limit; nothing
+    here is a second comparison.
+
+    Meets only when BOTH ends meet. Does not meet when either does not - the
+    rationale names which end. Anything else (a unit that cannot be compared,
+    a condition not established, ...) is the first end's own answer."""
+    low, high = requirement.get("value_low"), requirement.get("value_high")
+    unit = requirement.get("raw_unit") or ""
+    shown = f"between {_plain(low)} and {_plain(high)} {unit}".rstrip() if None not in (low, high) else None
+    if shown is None:
+        return {"status": NEEDS_ENGINEER_REVIEW,
+                "rationale": "the requirement states a range whose ends were not stored; it needs a human reading",
+                "limit": None, "observed": None, "exception_applied": None}
+    ends = []
+    for operator, bound in ((">=", low), ("<=", high)):
+        end = {**requirement, "requirement_type": "numeric_limit", "operator": operator,
+               "raw_value": _plain(bound), "value": None, "value_low": None, "value_high": None}
+        ends.append((operator, bound, _compare(end, fact, subject=subject, submittal_facts=submittal_facts)))
+    breached = [(op, bound, v) for op, bound, v in ends if v["status"] == NON_COMPLIANT]
+    if breached:
+        op, bound, verdict = breached[0]
+        side = "below the lowest" if op == ">=" else "above the highest"
+        return {**verdict, "rationale": f"{RANGE_LIMIT_REASON}: {side} value of the required range {shown}: "
+                                        f"{verdict['rationale']}", "limit": shown}
+    if all(v["status"] == COMPLIANT for _op, _bound, v in ends):
+        first = ends[0][2]
+        return {**first, "rationale": (f"the submitted value {fact.get('raw_value')} "
+                                       f"{fact.get('raw_unit') or ''}".rstrip()
+                                       + f" is within the required range {shown}"), "limit": shown}
+    other = next(v for _op, _bound, v in ends if v["status"] != COMPLIANT)
+    return {**other, "limit": shown}
+
+
+def _compare_nominal(requirement: dict, fact: dict, *, subject: str | None,
+                     submittal_facts: list[dict] | None) -> dict:
+    """A clause that states ONE value ("shall operate from 24 V DC").
+
+    The value and the half-unit of its last printed digit are a tight range
+    (`value_low`, `value_high`), judged by `_compare_range`, so units, pressure
+    references and the condition gate all apply. What differs is the OUTCOME:
+    equal within the stated precision -> COMPLIANT; ANY other value ->
+    NEEDS_ENGINEER_REVIEW with both values shown, NEVER NON_COMPLIANT - the
+    clause states a nominal value, not a limit, and another value may be a
+    different but acceptable choice (planner, 14 Oct 2026)."""
+    stated = f"{requirement.get('raw_value')} {requirement.get('raw_unit') or ''}".strip()
+    verdict = _compare_range({**requirement, "requirement_type": requirements_3b.RANGE_LIMIT},
+                             fact, subject=subject, submittal_facts=submittal_facts)
+    observed = " ".join(str(fact.get("field_value") or fact.get("raw_value") or "").split())
+    if verdict["status"] == COMPLIANT:
+        return {**verdict, "limit": stated,
+                "rationale": f"the submitted value {observed} is the stated value {stated} within the precision it is written to"}
+    if verdict["status"] == NON_COMPLIANT:
+        return {**verdict, "status": NEEDS_ENGINEER_REVIEW, "limit": stated,
+                "rationale": (f"{NOMINAL_VALUE_REASON}: the clause states {stated}; the datasheet states {observed}. "
+                              "A stated value is not a limit, so code does not call another value a breach: "
+                              "an engineer decides")}
+    return {**verdict, "limit": stated}
+
+
 def _compare(requirement: dict, fact: dict | None, *,
              subject: str | None = None,
              submittal_facts: list[dict] | None = None) -> dict:
@@ -723,6 +845,11 @@ def _compare(requirement: dict, fact: dict | None, *,
             "rationale": f"the submittal leaves this field to be provided ({marker})",
             "limit": None, "observed": None, "exception_applied": None,
         }
+
+    if requirement.get("requirement_type") == requirements_3b.RANGE_LIMIT:
+        return _compare_range(requirement, fact, subject=subject, submittal_facts=submittal_facts)
+    if requirement.get("requirement_type") == requirements_3b.NOMINAL_VALUE:
+        return _compare_nominal(requirement, fact, subject=subject, submittal_facts=submittal_facts)
 
     # ---------------------------------------------------------------- B24 gate
     # AFTER the two MISSING_INFORMATION branches and BEFORE any arithmetic.
@@ -1306,10 +1433,26 @@ def _prepare_finding(
         # finding naming a different valve from the value it quotes would be
         # worse than one naming none. NULL where the sheet does not say.
         "equipment_tag": (fact or {}).get("equipment_tag"),
+        "reason_code": reason_code_of(rationale),
         "created_at": now,
         "updated_at": now,
     }
     return row, unresolved
+
+
+#: #921: the leading token of a rationale, as a stored CODE. The only place
+#: that reads the words is here, where the words are written.
+_REASON_CODES = (REQUIRES_OTHER_DOCUMENT, NO_FIELD_MATCHED, CONDITION_NOT_MET,
+                 "UNREAD_PAGES", "PAGE_READER_ONLY")
+
+
+def reason_code_of(rationale: str | None) -> str | None:
+    """The code a finding's rationale leads with, or None."""
+    text = rationale or ""
+    for code in _REASON_CODES:
+        if text.startswith(code):
+            return code
+    return None
 
 
 def _insert_findings(conn, rows: list[dict]) -> None:
@@ -1323,7 +1466,7 @@ def _insert_findings(conn, rows: list[dict]) -> None:
                 standard_document_id, standard_clause, standard_page,
                 requirement_source_text, ai_rationale, unresolved_evidence,
                 requirement_id, fact_id, matched_phrase, match_method,
-                equipment_tag,
+                equipment_tag, reason_code,
                 governing_sources, citation_ids, status, approval_status,
                 created_at, updated_at)
                VALUES (:id, :document_id, :review_run_id, :compliance_status,
@@ -1334,7 +1477,7 @@ def _insert_findings(conn, rows: list[dict]) -> None:
                        :requirement_source_text, :ai_rationale,
                        :unresolved_evidence, :requirement_id, :fact_id,
                        :matched_phrase, :match_method, :equipment_tag,
-                       '[]', '[]', 'open', 'pending',
+                       :reason_code, '[]', '[]', 'open', 'pending',
                        :created_at, :updated_at)""", row)
         # B10: THE HISTORY STARTS AT THE MACHINE. A finding's trail began at
         # the first human edit, so it could not say the review wrote it. No
@@ -2304,7 +2447,8 @@ def _run_comparison(
         rule_verdict = None
         rule_unread = None
         if requirement.get("requirement_type") in (requirements_3b.TABLE_ROW,
-                                                    requirements_3b.RELATIVE_LIMIT):
+                                                    requirements_3b.RELATIVE_LIMIT,
+                                                    requirements_3b.CROSS_FIELD_LIMIT):
             from . import rule_eval
             rule, rule_unread = rule_eval.rule_for(requirement)
             if rule is not None:
@@ -2692,7 +2836,7 @@ def _unit_from_clause_text(requirement: dict, fact: dict | None) -> dict:
 #: at which another document takes over, so there is nothing for a submitted
 #: value to be measured against and pairing one could only produce a verdict.
 MATCHABLE_TYPES = frozenset({
-    "numeric_limit", requirements_3b.TABLE_ROW, requirements_3b.RELATIVE_LIMIT})
+    "numeric_limit", requirements_3b.TABLE_ROW, requirements_3b.RELATIVE_LIMIT}) | {requirements_3b.RANGE_LIMIT, requirements_3b.NOMINAL_VALUE, requirements_3b.CROSS_FIELD_LIMIT}
 
 
 def is_matchable(requirement: dict) -> bool:

@@ -105,7 +105,7 @@ export function ReviewPipeline({ runId }: { runId: string }) {
         });
       }}>
       <summary className="cursor-pointer text-slateish-200">
-        How this review was done - step by step (internal)
+        How this review was done - step by step
       </summary>
       {error && <p role="alert" className="mt-1 text-xs text-danger-500">{error}</p>}
       {trace === null && !error && <p className="mt-1 text-xs text-slateish-400">Loading…</p>}

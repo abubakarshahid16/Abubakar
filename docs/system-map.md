@@ -63,6 +63,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `claude_selection` | Choose the standards that apply to a submittal |
 | `claude_spend` | What the Claude API has cost, and the refusal before it costs more |
 | `comparison` | Phase 5B: does this submittal meet the requirements that govern it |
+| `comparators` | The one vocabulary of limit-direction words: which way does a sentence say a limit points (#915) |
 | `condition_choice` | Which clause applies: conditions in a question and in a passage |
 | `conditions` | B24 — can a requirement's condition be established from the submittal? |
 | `config` | Settings from backend/.env and defaults |
@@ -77,6 +78,9 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `crs_wording` | AI-worded CRS comments, with a code lock on every number, unit, clause, page and standard |
 | `crs_reply` | Read a contractor's returned Comment Resolution Sheet |
 | `datasheet_ai` | Read a contractor datasheet into facts |
+| `form_reader` | Read the form of a datasheet page with a model and verify every answer in code |
+| `form_reader_fields` | Build a datasheet type's field list, schema and prompt from reference data |
+| `form_reader_run` | Run the form reader over a datasheet for extraction |
 | `datasheet_checks` | Datasheet self-checks (kind B): what a datasheet says against ITSELF |
 | `datasheet_inputs` | Datasheet INPUTS other than a PDF text layer: Excel, Word, scanned pages |
 | `datasheets` | Read a contractor datasheet into facts |

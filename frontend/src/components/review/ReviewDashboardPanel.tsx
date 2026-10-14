@@ -25,6 +25,14 @@ export interface ReviewDashboardPanelProps {
   onOpenReview: (runId?: string) => void;
   /** Take the reader to Documents, where upload and its progress live. */
   onOpenDocuments: () => void;
+  /** Whether this caller may start a review. `POST /api/reviews/run` is
+   *  admin-gated and answers a plain 404 to anyone else - "That is not
+   *  something the backend knows about", which reads as the submittal being
+   *  missing, not as a permission the reader lacks. Defaults to `true`
+   *  (not `false`, unlike `DocumentCard`'s `isAdmin`) because the server is
+   *  the real gate either way, and every caller of this panel before #925
+   *  assumed the button was reachable; `App.tsx` now passes the real value. */
+  isAdmin?: boolean;
 }
 
 type Launch =
@@ -33,7 +41,7 @@ type Launch =
   | { kind: "error"; message: string };
 
 export function ReviewDashboardPanel(
-  { onOpenReview, onOpenDocuments }: ReviewDashboardPanelProps,
+  { onOpenReview, onOpenDocuments, isAdmin = true }: ReviewDashboardPanelProps,
 ) {
   const [data, setData] = useState<ReviewDashboard | null>(null);
   // A FAILED LOAD IS NOT AN EMPTY ONE (audit 2026-09-30). The panel used to
@@ -174,12 +182,22 @@ export function ReviewDashboardPanel(
       <div className="mt-4">
         <button
           type="button" onClick={() => setPicking((value) => !value)}
-          className="rounded-[var(--radius-sm)] bg-signal-500 px-4 py-2 text-sm font-semibold text-ink-950"
+          disabled={!isAdmin}
+          className="rounded-[var(--radius-sm)] bg-signal-500 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50"
         >
           Upload Datasheet and Run AI Review
         </button>
+        {/* THE REASON, not a quietly-greyed-out button. The server gives a
+            non-admin a 404 that reads as "no such submittal", not as "you
+            lack permission" - this says the real reason before anyone has to
+            guess from a confusing error. */}
+        {!isAdmin && (
+          <p className="mt-1 text-xs text-slateish-400">
+            Only an administrator can start a review.
+          </p>
+        )}
 
-        {picking && (
+        {isAdmin && picking && (
           <div className="mt-3 rounded-[var(--radius-md)] border border-ink-700 bg-ink-900 p-3">
             <label className="block text-xs text-slateish-400" htmlFor="dash-target">
               Run a review on a datasheet already loaded
