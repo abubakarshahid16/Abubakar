@@ -573,15 +573,24 @@ def page_texts(path: str | os.PathLike, *, document_id: str | None = None,
 
 
 @lru_cache(maxsize=8)
-def _cached_office(path: str, mtime_ns: int, size: int) -> tuple[PageText, ...]:
-    return tuple(read(path).pages)
+def _cached_office(path: str, mtime_ns: int, size: int) -> tuple[tuple[PageText, ...], tuple[str, ...]]:
+    reading = read(path)
+    return tuple(reading.pages), tuple(reading.notes)
 
 
 def office_pages(path: str) -> tuple[PageText, ...]:
     """Pages of an office file, cached per (path, mtime, size): the datasheet
     reader asks page by page and must not re-open the zip for each."""
     st = os.stat(path)
-    return _cached_office(str(path), st.st_mtime_ns, st.st_size)
+    return _cached_office(str(path), st.st_mtime_ns, st.st_size)[0]
+
+
+def office_notes(path: str) -> tuple[str, ...]:
+    """What `read` deliberately did NOT read in an office file (hidden sheet
+    skipped, rows cut off), as counts and positions, never document text.
+    The datasheet reading records them (#918): they were dropped here."""
+    st = os.stat(path)
+    return _cached_office(str(path), st.st_mtime_ns, st.st_size)[1]
 
 
 def office_condition(path: str) -> tuple[str | None, str]:
