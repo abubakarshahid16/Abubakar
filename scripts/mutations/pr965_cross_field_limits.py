@@ -47,4 +47,10 @@ MUTATIONS: tuple[Mutation, ...] = (
              anchor='        offset = -offset if match.group("sign").lower() == "minus" else offset\n',
              replacement="        offset = offset\n",
              target=_T, keyword="not_a_field_comparison or a_comparison_of_two_fields_is_read", tags=("honesty",)),
+    Mutation(id="M965-07", phase=965,
+             description="a stated factor (1.1 times) is ignored",
+             path=_R,
+             anchor='        factor = claims.parse_value(re.sub(r"\\s*(?:x|times)$", "", mult))\n',
+             replacement='        factor = 1.0\n',
+             target=_T, keyword="a_comparison_of_two_fields_is_read or factor_scales", tags=("honesty", "critical")),
 )

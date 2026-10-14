@@ -23,6 +23,10 @@ from tests.test_b3_page_ledger import NOW, temp_storage  # noqa: F401 - autouse
      "set pressure", "<=", 1.0, 0.0, None, "maximum allowable working pressure"),
     ("The wall thickness shall be not less than the corrosion allowance plus 3 mm.",
      "wall thickness", ">=", 1.0, 3.0, "mm", "corrosion allowance"),
+    ("The rated capacity shall be not less than 1.1 times the required capacity.",
+     "rated capacity", ">=", 1.1, 0.0, None, "required capacity"),
+    ("The set pressure shall not exceed 0.9 times the design pressure.",
+     "set pressure", "<=", 0.9, 0.0, None, "design pressure"),
     ("The design pressure shall be not less than the operating pressure minus 1 bar.",
      "design pressure", ">=", 1.0, -1.0, "bar", "operating pressure"),
 ])
@@ -42,7 +46,6 @@ def test_a_comparison_of_two_fields_is_read(sentence, output, operator, factor, 
     "The outlet shall not be less than the inlet size unless the purchaser agrees.",      # a condition
     "Where the line is hot the outlet size shall be not less than the inlet size.",      # a leading condition
     "Outlet size shall not be the inlet size.",                                           # no comparator
-    "The rated capacity shall be not less than 1.1 times the required capacity.",         # a factor: left to the engineer
 ])
 def test_when_unsure_a_sentence_is_not_a_field_comparison(sentence):
     assert r.parse_cross_field(sentence) is None
@@ -128,3 +131,18 @@ def test_a_reference_the_sheet_does_not_state_is_the_engineers_and_never_a_verdi
 def test_incomparable_units_are_never_a_verdict(tmp_path, monkeypatch):
     f = _run(tmp_path, monkeypatch, [("Inlet size", "4 in"), ("Outlet size", "10 kg")], SIZE)
     assert f["compliance_status"] == "NEEDS_ENGINEER_REVIEW"
+
+
+def test_a_unitless_factor_is_not_a_limit_of_its_own():
+    """Before, "1.1 times" read as a unitless limit of 1.1 and the clause went to an engineer."""
+    sentence = "The rated capacity shall be not less than 1.1 times the required capacity."
+    limit = r.parse_limit_or_range(sentence)
+    assert limit["operator"] == r.CROSS_OPERATOR and r.classify(sentence, limit) == r.CROSS_FIELD_LIMIT
+    plain = "The wall shall be not less than 5 mm."
+    assert r.parse_limit_or_range(plain)["operator"] == ">="
+
+
+def test_a_factor_scales_the_reference_before_the_comparison(tmp_path, monkeypatch):
+    sentence = "The rated capacity shall be not less than 1.1 times the required capacity."
+    meets = _run(tmp_path, monkeypatch, [("Required capacity", "100 bar"), ("Rated capacity", "115 bar")], sentence)
+    assert meets["compliance_status"] == "COMPLIANT"

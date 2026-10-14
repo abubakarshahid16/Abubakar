@@ -1022,6 +1022,13 @@ _SUBJECT_LEAD = re.compile(r"^\s*(?:the|a|an)?\s*(?P<subject>[A-Za-z][A-Za-z \-/
                            re.IGNORECASE)
 
 
+def _states_its_own_limit(text: str, mult: str | None) -> bool:
+    """A plain numeric limit is not a field comparison - except that the factor of
+    one ("1.1 times the required capacity") reads as a UNITLESS limit of 1.1."""
+    limit = parse_limit(text)
+    return limit is not None and not (mult and limit.get("raw_unit") is None)
+
+
 def parse_cross_field(sentence: str) -> dict | None:
     """The comparison of one field of the sheet with another, or None.
 
@@ -1044,7 +1051,7 @@ def parse_cross_field(sentence: str) -> dict | None:
     if (operator is None or subject is None or not reference or _NOT_A_FIELD.search(reference)
             or re.search(r"\d", subject.group("subject")) or len(reference.split()) > 6
             or _NEGATION_WORD.search(text[:match.start("cmp")] + " " + text[match.end("cmp"):])
-            or parse_limit(text) is not None or parse_range(text) is not None):
+            or parse_range(text) is not None or _states_its_own_limit(text, match.group("mult"))):
         return None
     mult = (match.group("mult") or "").lower()
     if not mult:
@@ -1075,7 +1082,7 @@ def parse_limit_or_range(sentence: str) -> dict | None:
     it stays the limit it was, for an engineer to read."""
     limit, span = parse_limit(sentence), parse_range(sentence)
     if span is None:
-        if limit:
+        if limit and not (limit.get("raw_unit") is None and parse_cross_field(sentence) is not None):
             return limit
         found = parse_nominal(sentence)
         if found is None and parse_cross_field(sentence) is not None:
