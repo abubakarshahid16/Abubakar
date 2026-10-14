@@ -223,7 +223,7 @@ def prove_family(rules: list[dict], answer_key: list[dict], evaluate_fn=evaluate
         rule, expected = by_id.get(case.get("rule_id")), case.get("expected")
         try:
             got = _status_of(evaluate_fn(rule, case)) if rule else "no such rule in the family"
-        except Exception as exc:   # an evaluation that fails is an error, not a skip
+        except Exception as exc:   # noqa: BLE001 - an evaluation that fails is recorded as an error, not skipped
             got = f"evaluation failed: {type(exc).__name__}"
         if got == expected:
             correct += 1
