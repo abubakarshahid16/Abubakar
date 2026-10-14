@@ -23,6 +23,8 @@ from tests.test_b3_page_ledger import NOW, temp_storage  # noqa: F401 - autouse
      "set pressure", "<=", 1.0, 0.0, None, "maximum allowable working pressure"),
     ("The wall thickness shall be not less than the corrosion allowance plus 3 mm.",
      "wall thickness", ">=", 1.0, 3.0, "mm", "corrosion allowance"),
+    ("The design pressure shall be not less than the operating pressure minus 1 bar.",
+     "design pressure", ">=", 1.0, -1.0, "bar", "operating pressure"),
 ])
 def test_a_comparison_of_two_fields_is_read(sentence, output, operator, factor, offset, unit, reference):
     cross = r.parse_cross_field(sentence)
@@ -38,6 +40,7 @@ def test_a_comparison_of_two_fields_is_read(sentence, output, operator, factor, 
     "The cable shall be at least 3 m.",                                                   # a plain limit
     "The vendor shall not be less than the purchaser.",                                   # parties, not fields
     "The outlet shall not be less than the inlet size unless the purchaser agrees.",      # a condition
+    "Where the line is hot the outlet size shall be not less than the inlet size.",      # a leading condition
     "Outlet size shall not be the inlet size.",                                           # no comparator
     "The rated capacity shall be not less than 1.1 times the required capacity.",         # a factor: left to the engineer
 ])
