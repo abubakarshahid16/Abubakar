@@ -153,7 +153,7 @@ export interface StandardClause {
  *  `statement`, never a `numeric_limit` carrying a null value. */
 export type RequirementType = "numeric_limit" | "statement" | "table_value"
   | "applicability_trigger" | "relative_limit" | "table_row" | "definition"
-  | "table_range" | "range_limit" | "nominal_value";
+  | "table_range" | "range_limit" | "nominal_value" | "cross_field_limit";
 
 /** One carve-out of a requirement, as `requirements_3b.parse_exceptions`
  *  records it. `applies_to` is always written; the limit keys only when the

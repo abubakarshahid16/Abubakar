@@ -112,6 +112,8 @@ def required_for(rule: dict, input_value: float) -> tuple[float, dict] | None:
 
 def _row_words(row: dict, unit: str) -> str:
     lo, hi = row.get("from"), row.get("to")
+    if lo is None and hi is None:
+        return "the clause's own comparison"        # a cross-field rule has no table
     if lo is None:
         return f"up to {_fmt(hi)} {unit}"
     if hi is None:
@@ -172,10 +174,11 @@ def evaluate(rule: dict, input_value: float, input_unit: str,
     required, row = found
     ok = _CMP[comparator](x_out, required)
     word = "at least" if comparator == ">=" else "at most"
+    where = "clause" if row.get("from") is None and row.get("to") is None else "table row"
     rationale = (
         f"{RULE_REASON}: required {rule.get('output', 'value')} {word} {_fmt(required)} {unit} "
         f"from {rule.get('input', 'the input')} {_fmt(input_value)} {input_unit} "
-        f"(table row: {_row_words(row, unit)}); the datasheet says "
+        f"({where}: {_row_words(row, unit)}); the datasheet says "
         f"{_fmt(output_value)} {output_unit}{basis_note}")
     return {"status": COMPLIANT if ok else NON_COMPLIANT, "required_value": required,
             "input_used": f"{_fmt(input_value)} {input_unit}",
@@ -487,6 +490,9 @@ def _judge_one(rule: dict, facts: list[dict]) -> tuple[dict, dict | None]:
         return ({"status": NEEDS_ENGINEER_REVIEW,
                  "rationale": f"{RULE_REASON}: a value is not a single number; not calculated",
                  "limit": None, "observed": None, "exception_applied": None}, output)
+    if not rule.get("unit"):
+        # A comparison with no offset has no unit of its own: the reference's unit is the scale.
+        rule = {**rule, "unit": inp.get("raw_unit") or ""}
     result = evaluate(rule, x_in, inp.get("raw_unit") or "", x_out, output.get("raw_unit") or "")
     if result is None:
         return ({"status": NEEDS_ENGINEER_REVIEW,
@@ -605,6 +611,22 @@ def _model_parse(text: str, known: dict, provider) -> dict | None:
     return rule if rule["rows"] and verify_model_rule(rule, text) else None
 
 
+def cross_rule(requirement: dict) -> dict | None:
+    """The one-row rule a clause that compares two fields states, or None.
+    output field `op` factor * reference field + offset, read by
+    `requirements_3b.parse_cross_field` from the clause's own sentence (code;
+    no model). With no offset the rule has no unit of its own: the reference
+    field's unit is the scale, and both values are converted into it."""
+    from . import requirements_3b
+    cross = requirements_3b.parse_cross_field(requirement.get("source_text") or requirement.get("requirement_text"))
+    if cross is None:
+        return None
+    return {"output": cross["output"], "input": cross["reference"], "input_names": [cross["reference"]],
+            "unit": cross["offset_unit"], "comparator": cross["operator"],
+            "rows": [{"from": None, "to": None, "op": "single",
+                      "terms": [{"k": cross["factor"], "c": cross["offset"]}]}]}
+
+
 def rule_for(requirement: dict, *, provider=None) -> tuple[dict | None, str | None]:
     """(rule, source) for a table/relative requirement - parsed once and
     stored on the requirement, or (None, why) when it stays with an engineer."""
@@ -615,6 +637,16 @@ def rule_for(requirement: dict, *, provider=None) -> tuple[dict | None, str | No
             return json.loads(requirement["rule_json"]), requirement.get("rule_source")
         except ValueError:
             pass
+    from . import requirements_3b
+    if requirement.get("requirement_type") == requirements_3b.CROSS_FIELD_LIMIT:
+        rule = cross_rule(requirement)
+        if rule is None:
+            return None, "the comparison of the two fields could not be read"
+        if requirement.get("id"):
+            with connect() as conn:
+                conn.execute("UPDATE standard_requirements SET rule_source = ?, rule_json = ?"
+                             " WHERE id = ?", (SOURCE_CODE, dumps(rule), requirement["id"]))
+        return rule, SOURCE_CODE
     known = known_rule_for(requirement)
     if known is None:
         return None, None

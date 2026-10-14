@@ -2447,7 +2447,8 @@ def _run_comparison(
         rule_verdict = None
         rule_unread = None
         if requirement.get("requirement_type") in (requirements_3b.TABLE_ROW,
-                                                    requirements_3b.RELATIVE_LIMIT):
+                                                    requirements_3b.RELATIVE_LIMIT,
+                                                    requirements_3b.CROSS_FIELD_LIMIT):
             from . import rule_eval
             rule, rule_unread = rule_eval.rule_for(requirement)
             if rule is not None:
@@ -2835,7 +2836,7 @@ def _unit_from_clause_text(requirement: dict, fact: dict | None) -> dict:
 #: at which another document takes over, so there is nothing for a submitted
 #: value to be measured against and pairing one could only produce a verdict.
 MATCHABLE_TYPES = frozenset({
-    "numeric_limit", requirements_3b.TABLE_ROW, requirements_3b.RELATIVE_LIMIT}) | {requirements_3b.RANGE_LIMIT, requirements_3b.NOMINAL_VALUE}
+    "numeric_limit", requirements_3b.TABLE_ROW, requirements_3b.RELATIVE_LIMIT}) | {requirements_3b.RANGE_LIMIT, requirements_3b.NOMINAL_VALUE, requirements_3b.CROSS_FIELD_LIMIT}
 
 
 def is_matchable(requirement: dict) -> bool:
