@@ -15,7 +15,9 @@
  */
 import { useMemo, useState } from "react";
 
-import type { ReviewFinding } from "../../types/api";
+import type { DocumentRecord, ReviewFinding } from "../../types/api";
+import { SideBySideEvidence } from "./SideBySideEvidence";
+import { useResolvedDocuments } from "./useResolvedDocuments";
 import {
   confidenceLabel, findingLabel, kindLabel, matchMethodLabel, matchMethodTone, orNothing,
   statusLabel, statusRank, statusTone, withDenominator,
@@ -30,13 +32,18 @@ export interface FindingsTableProps {
   /** #791: open filtered to this status (a count in the review steps was
    *  clicked). The engineer can change it like any filter. */
   initialStatus?: string;
+  /** #925 item 6: the contractor's cited page, beside each finding, without
+   *  first opening its full detail. Absent documents are fetched by
+   *  `useResolvedDocuments` the same way `FindingDetail` already does;
+   *  omitting this prop (existing callers) simply never resolves one. */
+  documents?: DocumentRecord[];
 }
 
 const MISSING = "MISSING_INFORMATION";
 const OUT_OF_SCOPE = "NOT_IN_DOCUMENT_SCOPE";
 
 export function FindingsTable(
-  { findings, selectedId, standardNames, onSelect, initialStatus }: FindingsTableProps,
+  { findings, selectedId, standardNames, onSelect, initialStatus, documents }: FindingsTableProps,
 ) {
   const [status, setStatus] = useState<string>(initialStatus ?? "");
   const [tag, setTag] = useState<string>("");
@@ -141,8 +148,13 @@ export function FindingsTable(
               <th scope="col" className="px-3 py-2">Standard / clause</th>
               <th scope="col" className="px-3 py-2">Requirement</th>
               <th scope="col" className="px-3 py-2">Submitted value</th>
-              <th scope="col" className="px-3 py-2">Outcome</th>
+              {/* THE SAME WORD AS THE FILTER ABOVE (#925 item 4): both name
+                  `compliance_status`, and calling it "Outcome" here while the
+                  filter beside it says "Status" read as two different
+                  columns to a reader comparing the two. */}
+              <th scope="col" className="px-3 py-2">Status</th>
               <th scope="col" className="px-3 py-2">Pairing</th>
+              <th scope="col" className="px-3 py-2"><span className="sr-only">Evidence</span></th>
             </tr>
           </thead>
           <tbody>
@@ -150,8 +162,10 @@ export function FindingsTable(
               <FindingRow
                 key={finding.id} finding={finding}
                 name={standardNames?.get(finding.standard_document_id ?? "")}
+                standardName={standardNames?.get(finding.standard_document_id ?? "")}
                 selected={finding.id === selectedId}
                 onSelect={() => onSelect(finding)}
+                documents={documents ?? []}
               />
             ))}
           </tbody>
@@ -218,10 +232,21 @@ export function FindingsTable(
   );
 }
 
-function FindingRow({ finding, name, selected, onSelect }: {
-  finding: ReviewFinding; name?: string; selected: boolean; onSelect: () => void;
+function FindingRow({ finding, name, standardName, selected, onSelect, documents }: {
+  finding: ReviewFinding; name?: string; standardName?: string; selected: boolean;
+  onSelect: () => void; documents: DocumentRecord[];
 }) {
   const [expanded, setExpanded] = useState(false);
+  // #925 item 6: evidence beside the row, without opening the finding's full
+  // detail first. Fetched only once expanded - passing `null` ids while
+  // collapsed keeps `useResolvedDocuments`'s effect a no-op, so a table of a
+  // thousand rows does not fetch a document for every one of them up front.
+  const [showEvidence, setShowEvidence] = useState(false);
+  const { standard, submittal } = useResolvedDocuments(
+    showEvidence ? (finding.standard_document_id ?? null) : null,
+    showEvidence ? (finding.document_id ?? null) : null,
+    documents,
+  );
   const requirement = finding.requirement ?? "";
   const long = requirement.length > 140;
   const shown = expanded || !long ? requirement : `${requirement.slice(0, 140)}…`;
@@ -242,6 +267,7 @@ function FindingRow({ finding, name, selected, onSelect }: {
   // reaches a focusable, correctly-labelled control per row - the row-level
   // click is additive for the mouse, not a replacement for keyboard access.
   return (
+    <>
     <tr
       role="row"
       onClick={onSelect}
@@ -307,6 +333,29 @@ function FindingRow({ finding, name, selected, onSelect }: {
           </span>
         )}
       </td>
+      <td className="px-3 py-2">
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); setShowEvidence((v) => !v); }}
+          className="text-xs text-signal-300 hover:underline"
+        >
+          {showEvidence ? "Hide evidence" : "Evidence"}
+        </button>
+      </td>
     </tr>
+    {showEvidence && (
+      <tr className="border-t border-ink-800">
+        {/* The six cells above: standard/clause, requirement, submitted
+            value, status, pairing, evidence toggle. */}
+        <td colSpan={6} className="bg-ink-900 px-3 py-3" onClick={(e) => e.stopPropagation()}>
+          <SideBySideEvidence
+            finding={finding} submittal={submittal} standard={standard}
+            standardName={standardName}
+            onClose={() => setShowEvidence(false)}
+          />
+        </td>
+      </tr>
+    )}
+    </>
   );
 }
