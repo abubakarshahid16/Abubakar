@@ -150,8 +150,8 @@ _NEGATED_RE = r"(?:(?:shall|must|may|should|will)\s+)?(?:no|not|never)\s+(?:\w+\
 _NEGATED_COMPARATIVE = _NEGATED_RE + _COMPARATIVE_THAN
 _NEGATED_PREPOSITION = _NEGATED_RE + r"(?:" + "|".join(_BELOW + _ABOVE) + r")\b"
 
-_LIMIT = re.compile(
-    r"(?P<cmp>" + _IN_NO_CASE_RE + r"(?:less|more|greater)\s+than"
+_CMP_RE = (
+    _IN_NO_CASE_RE + r"(?:less|more|greater)\s+than"
     r"|" + _IN_NO_CASE_RE + r"exceed"
     r"|" + _IN_EXCESS_RE + r"|(?:shall|must|may|should|will)\s+not\s+exceed"
     r"|(?:no|not)\s+(?:be\s+)?less\s+than"
@@ -164,7 +164,10 @@ _LIMIT = re.compile(
     # Single-word prepositions meaning "less/more than" - "the design
     # temperature shall be below 441degC" - not covered by any "than" form.
     # `\b` on both sides, so this never matches inside a longer word.
-    r"|\b(?:below|under|beneath|above|over)\b)\s*"
+    r"|\b(?:below|under|beneath|above|over)\b")
+
+_LIMIT = re.compile(
+    r"(?P<cmp>" + _CMP_RE + r")\s*"
     r"(?:of\s+)?"
     r"(?P<value>[-+]?\d[\d.,]*)\s*"
     r"(?P<unit>[A-Za-z%µμ°][A-Za-z0-9()/%µμ°.\-]{0,15}"
@@ -340,6 +343,15 @@ RANGE_LIMIT = "range_limit"
 #: (`comparison._compare_nominal`).
 NOMINAL_VALUE = "nominal_value"
 NOMINAL_OPERATOR = "nominal"
+#: A SENTENCE THAT COMPARES ONE FIELD WITH ANOTHER: "the outlet size shall be not
+#: less than the inlet size", "the design pressure shall be not less than the
+#: maximum operating pressure plus 2 bar", "... not less than half of the line
+#: size". No number states the limit, so it was a `statement`. Stored as that
+#: type and judged by `rule_eval` as a one-row rule (output field, input field,
+#: factor, offset) against the sheet's two fields; a field not on the sheet
+#: leaves it with an engineer.
+CROSS_FIELD_LIMIT = "cross_field_limit"
+CROSS_OPERATOR = "cross_field"
 _RANGE_CELL = re.compile(
     r"^\s*(?P<low>[-+]?\d[\d.,]*)(?P<sep>\s*(?:to|[-\u2012\u2013\u2014\u2015])\s*)"
     r"(?P<high>[-+]?\d[\d.,]*)\s*"
@@ -993,6 +1005,67 @@ def parse_nominal(sentence: str) -> dict | None:
 _NEGATION_WORD = re.compile(r"\b(?:not|never|no|without|nor)\b", re.IGNORECASE)
 
 
+_CROSS_SENTENCE = re.compile(
+    r"(?P<cmp>" + _CMP_RE + r")\s*(?:of\s+)?"
+    r"(?:(?P<mult>half|twice|double|\d+(?:\.\d+)?\s*(?:x|times))\s+(?:of\s+)?)?"
+    r"(?:the\s+)?(?P<ref>[A-Za-z][A-Za-z0-9 \-/]{1,60}?)"
+    r"(?:\s+(?P<sign>plus|minus)\s+(?P<ov>\d[\d.,]*)\s*(?P<ou>" + _UNIT + r"))?"
+    r"\s*(?:[.;,]|\s+(?:of|for|in|at|on|but)\b|$)", re.IGNORECASE)
+_CROSS_FACTOR = {"half": 0.5, "twice": 2.0, "double": 2.0}
+#: Words that make a "reference" something other than another field of the sheet.
+_NOT_A_FIELD = re.compile(
+    r"\b(?:table|figure|following|clause|section|value|values|requirement|requirements|specified|given|stated|"
+    r"above|below|applicable|relevant|appropriate|supplier|vendor|purchaser|standard|code|"
+    r"documents?|drawings?|datasheets?)\b", re.IGNORECASE)
+_CONDITION_WORD = re.compile(r"\b(?:when|where|if|unless|except|provided\s+that|whichever|whilst|while)\b", re.IGNORECASE)
+_SUBJECT_LEAD = re.compile(r"^\s*(?:the|a|an)?\s*(?P<subject>[A-Za-z][A-Za-z \-/]{1,50}?)(?:\s+(?:shall|must|should|will)(?:\s+be)?)?\s*$",
+                           re.IGNORECASE)
+
+
+def parse_cross_field(sentence: str) -> dict | None:
+    """The comparison of one field of the sheet with another, or None.
+
+    `{"output", "reference", "operator", "factor", "offset", "offset_unit"}`:
+    the OUTPUT field is judged against `factor * reference + offset`.
+    WHEN UNSURE, NONE: a reference that reads like a table, a clause or a
+    document is not a field; a condition, a negation outside the comparator,
+    a number that is not the stated offset or a subject that is not a short
+    plain noun phrase leaves the sentence as it was."""
+    text = " ".join((sentence or "").split())
+    match = _CROSS_SENTENCE.search(text)
+    if match is None or _CONDITION_WORD.search(text):
+        return None
+    operator = _OPERATOR.get(_canonical_comparator(match.group("cmp")))
+    subject = _SUBJECT_LEAD.match(text[:match.start("cmp")])
+    reference = " ".join(match.group("ref").split())
+    # An "of the ..." qualifier ("... pressure of the protected equipment") names which
+    # one, not another field: the head noun phrase is the field.
+    reference = re.split(r"\s+of\s+(?:the\s+)?", reference, maxsplit=1)[0].strip()
+    if (operator is None or subject is None or not reference or _NOT_A_FIELD.search(reference)
+            or re.search(r"\d", subject.group("subject")) or len(reference.split()) > 6
+            or _NEGATION_WORD.search(text[:match.start("cmp")] + " " + text[match.end("cmp"):])
+            or parse_limit(text) is not None or parse_range(text) is not None):
+        return None
+    mult = (match.group("mult") or "").lower()
+    if not mult:
+        factor = 1.0
+    elif mult in _CROSS_FACTOR:
+        factor = _CROSS_FACTOR[mult]
+    else:
+        factor = claims.parse_value(re.sub(r"\s*(?:x|times)$", "", mult))
+    offset, unit = 0.0, None
+    if match.group("ov"):
+        offset = claims.parse_value(match.group("ov"))
+        unit = unit_token(match.group("ou"))
+        if offset is None or not unit:
+            return None
+        offset = -offset if match.group("sign").lower() == "minus" else offset
+    if factor is None or factor <= 0:
+        return None
+    return {"output": " ".join(subject.group("subject").split()).lower(), "reference": reference.lower(),
+            "operator": operator, "factor": factor, "offset": offset, "offset_unit": unit}
+
+
 def parse_limit_or_range(sentence: str) -> dict | None:
     """The limit a sentence states: a range when it states one, else the
     one-sided limit `parse_limit` reads (#895).
@@ -1002,7 +1075,12 @@ def parse_limit_or_range(sentence: str) -> dict | None:
     it stays the limit it was, for an engineer to read."""
     limit, span = parse_limit(sentence), parse_range(sentence)
     if span is None:
-        return limit or parse_nominal(sentence)
+        if limit:
+            return limit
+        found = parse_nominal(sentence)
+        if found is None and parse_cross_field(sentence) is not None:
+            return {"operator": CROSS_OPERATOR, "raw_value": None, "raw_unit": None, "value": None, "unit": None}
+        return found
     if limit is None or str(limit.get("raw_value")) in span["_ends"]:
         return {key: value for key, value in span.items() if key != "_ends"}
     return limit
@@ -1190,7 +1268,7 @@ DEFINITION = "definition"
 #: return (`schemas.RequirementType`). `REQUIREMENT_TYPES` above is the core
 #: three the parser may classify an obligation as; these are all of them.
 STORED_REQUIREMENT_TYPES = (*REQUIREMENT_TYPES, APPLICABILITY_TRIGGER, RELATIVE_LIMIT, TABLE_ROW,
-                           DEFINITION, TABLE_RANGE, RANGE_LIMIT, NOMINAL_VALUE)
+                           DEFINITION, TABLE_RANGE, RANGE_LIMIT, NOMINAL_VALUE, CROSS_FIELD_LIMIT)
 
 
 def classify(sentence: str, limit: dict | None) -> str:
@@ -1225,6 +1303,8 @@ def classify(sentence: str, limit: dict | None) -> str:
     # number to a table.
     if limit.get("operator") == RANGE_OPERATOR and not _TABLE_REFERENCE.search(sentence or ""):
         return RANGE_LIMIT
+    if limit.get("operator") == CROSS_OPERATOR:
+        return TABLE_ROW if _TABLE_REFERENCE.search(sentence or "") else CROSS_FIELD_LIMIT
     if limit.get("operator") == NOMINAL_OPERATOR:
         # One stated value. A sentence that hands the number to a table is the
         # table's row, as for every other limit.
