@@ -35,7 +35,7 @@ import json
 import uuid
 from datetime import datetime, timezone
 
-from . import review
+from . import review, rule_trust
 from .db import add_column_if_missing, connect, schema_once
 
 
@@ -80,6 +80,9 @@ def ensure_schema() -> None:
     # time rather than at create time - so a missing call here would surface
     # as a confusing runtime error in phase 2, not here.
     review.ensure_schema()
+    # The proof and audit tables of the trusted-rule path (#947), additive and
+    # unused while `rule_auto_use_enabled` is off.
+    rule_trust.ensure_schema()
     conn = connect()
     with conn:
         # ---------------------------------------------------- standards side
