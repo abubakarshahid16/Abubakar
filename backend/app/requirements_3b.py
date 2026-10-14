@@ -1093,6 +1093,28 @@ def parse_limit_or_range(sentence: str) -> dict | None:
     return limit
 
 
+#: A comparator that FOLLOWS the value: "3 m or less", "5 mm or more", "50 mm or
+#: above". `_LIMIT` reads only a comparator in front of the number, so these
+#: stated a limit and the engine read none. The direction is the shared
+#: vocabulary's (`comparators`), never a second list here.
+_TRAILING_LIMIT = re.compile(
+    r"(?P<value>[-+]?\d[\d.,]*)\s*(?P<unit>" + _UNIT + r")\s+(?P<cmp>or\s+[A-Za-z]+)\b", re.IGNORECASE)
+
+
+def _parse_trailing_limit(sentence: str) -> dict | None:
+    from . import comparators
+
+    for match in _TRAILING_LIMIT.finditer(sentence or ""):
+        direction = comparators.direction_of(match.group(0))
+        raw_unit = unit_token(match.group("unit"))
+        if direction is None or not raw_unit:
+            continue
+        measurement = measure(match.group("value"), raw_unit)
+        return {"operator": direction, "raw_value": match.group("value"), "raw_unit": raw_unit,
+                "value": measurement.normalized_value, "unit": measurement.normalized_unit}
+    return None
+
+
 def parse_limit(sentence: str) -> dict | None:
     """A numeric limit out of one sentence, or None.
 
@@ -1102,7 +1124,7 @@ def parse_limit(sentence: str) -> dict | None:
     """
     match = _LIMIT.search(sentence)
     if not match:
-        return None
+        return _parse_trailing_limit(sentence)
     phrase = _canonical_comparator(match.group("cmp"))
     operator = _OPERATOR.get(phrase)
     if operator is None:
