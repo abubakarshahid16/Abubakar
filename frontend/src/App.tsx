@@ -22,6 +22,7 @@ import { AnalysisModeScreen } from "./views/AnalysisModeScreen";
 import { ReportsScreen } from "./views/ReportsScreen";
 import { DeliverablesView } from "./views/DeliverablesView";
 import { ReviewRunsView } from "./views/ReviewRunsView";
+import { SubmittalsLandingView } from "./views/SubmittalsLandingView";
 import type { AuthStatus, Me } from "./types/api";
 import { NavigationContext } from "./components/NavLink";
 import { parseRoute, pathForView, titleForView, type AppRoute } from "./routing";
@@ -340,11 +341,18 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
           {view === "analysis" && <AnalysisModeScreen />}
           {view === "reports" && <ReportsScreen />}
           {view === "deliverables" && <DeliverablesView />}
+          {/* #967 PR1: the page opens on the landing list of documents from
+              contractors; opening or starting a run takes you to the
+              existing review screen (unchanged - that is PR2's job). */}
           {view === "review" && (
-            <ReviewRunsView
-              openRunId={route.kind === "view" ? route.recordId : undefined}
-              onOpenStandards={() => onNavigate("standards")}
-            />
+            route.kind === "view" && route.recordId ? (
+              <ReviewRunsView
+                openRunId={route.recordId}
+                onOpenStandards={() => onNavigate("standards")}
+              />
+            ) : (
+              <SubmittalsLandingView onOpenRun={(runId) => onNavigate("review", runId)} />
+            )
           )}
           {/* `canAdmin &&` is the gate, not the absence of a nav entry. Setting
               the view to "admin" by any other means - a stale state value, a
