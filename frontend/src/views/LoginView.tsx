@@ -100,7 +100,6 @@ export function LoginView({
           <h1 className="text-2xl font-semibold tracking-tight text-slateish-100">
             RAG Intelligence System
           </h1>
-          <p className="mt-1 text-sm text-slateish-400">Enterprise FEED intelligence</p>
         </div>
 
         <div className="rounded-[var(--radius-lg)] border border-ink-700 bg-ink-800 px-6 py-6 shadow-lg shadow-black/20">
