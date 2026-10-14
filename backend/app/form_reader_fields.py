@@ -120,6 +120,37 @@ def field_list_for(equipment_type: str | None, rules: dict | None = None) -> lis
     return out
 
 
+#: The most fields one sheet's form carries: the type's reference roles first,
+#: then what its standards ask for, up to this many (planner, 14 Oct 2026).
+MAX_FORM_FIELDS = 60
+
+
+def _fold(text: str) -> str:
+    return " ".join(re.findall(r"[a-z0-9]+", str(text or "").lower()))
+
+
+def with_requirement_fields(base: list[Field], subjects: list[str],
+                            cap: int = MAX_FORM_FIELDS) -> list[Field]:
+    """`base` plus a field for each SUBJECT the sheet's included standards ask
+    for ("outlet size", "set pressure"), deduplicated against the base's names
+    and synonyms and against each other, capped at `cap` in all. The base is
+    never cut. A requirement field has no unit kind of its own (the unit must
+    still be a recognised one printed in the quote): every other check of the
+    form reader applies to it unchanged."""
+    out = list(base)
+    seen = {_fold(f.name) for f in base} | {_fold(s) for f in base for s in f.synonyms}
+    for subject in subjects:
+        folded = _fold(subject)
+        if len(out) >= cap:
+            break
+        if not folded or folded in seen:
+            continue
+        seen.add(folded)
+        out.append(Field(key="req_" + folded.replace(" ", "_"), name=subject[:1].upper() + subject[1:],
+                         unit_kind=None, synonyms=(subject.lower(),)))
+    return out
+
+
 def batches(fields: list[Field], size: int = MAX_BATCH) -> list[list[Field]]:
     size = max(1, min(int(size), MAX_BATCH))
     return [fields[i:i + size] for i in range(0, len(fields), size)]

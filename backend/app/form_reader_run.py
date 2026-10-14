@@ -18,7 +18,7 @@ from . import datasheet_ai
 from .config import settings
 from .db import connect
 from .form_reader import NUM_PREDICT, FormReading, read_form
-from .form_reader_fields import PROMPT_VERSION, field_list_for, schema_for
+from .form_reader_fields import PROMPT_VERSION, field_list_for, schema_for, with_requirement_fields
 
 RULES, MERGE, FORM = "rules", "merge", "form"
 MODES = (RULES, MERGE, FORM)
@@ -44,6 +44,60 @@ def equipment_type_of(document_id: str, chunks: list) -> str | None:
         return row["equipment_type"]
     suggestion = classification.suggest_equipment_type([dict(c) for c in chunks])
     return suggestion.equipment_type if suggestion is not None else None
+
+
+#: What a requirement's SUBJECT may look like to be a form label: a short plain noun phrase.
+_PLAIN_LABEL_WORDS = 8
+
+
+def requirement_subjects(standard_ids: list[str] | tuple[str, ...]) -> list[str]:
+    """The fields the given standards' evaluable requirements are ABOUT, most
+    asked first: the subject of a numeric limit, a range, a nominal value, and
+    the output field of a two-field comparison. Plain short labels only; a
+    long or odd subject is not a form line. [] when there are no standards."""
+    from . import requirements_3b
+
+    ids = [i for i in dict.fromkeys(standard_ids or []) if i]
+    if not ids:
+        return []
+    marks = ",".join("?" for _ in ids)
+    types = ("numeric_limit", requirements_3b.RANGE_LIMIT, requirements_3b.NOMINAL_VALUE, requirements_3b.CROSS_FIELD_LIMIT)
+    try:
+        rows = connect().execute(
+            "SELECT requirement_type, subject, source_text FROM standard_requirements"
+            f" WHERE superseded_at IS NULL AND standard_document_id IN ({marks})"
+            f" AND requirement_type IN ({','.join('?' for _ in types)})", [*ids, *types]).fetchall()
+    except sqlite3.Error:
+        return []
+    counts: Counter = Counter()
+    for row in rows:
+        subject = row["subject"]
+        if row["requirement_type"] == requirements_3b.CROSS_FIELD_LIMIT:
+            cross = requirements_3b.parse_cross_field(row["source_text"])
+            subject = cross["output"] if cross else None
+        text = " ".join(str(subject or "").split()).lower()
+        words = text.split()
+        if (text and text.isascii() and 1 <= len(words) <= _PLAIN_LABEL_WORDS
+                and any(len(w) >= 3 and w.isalpha() for w in words)):
+            counts[text] += 1
+    return [subject for subject, _n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
+
+
+def standards_of(document_id: str) -> list[str]:
+    """The standards the sheet's form is built for: the latest review run's
+    included standards. [] when the sheet has no run yet (the form is then the
+    type's own)."""
+    try:
+        run = connect().execute(
+            "SELECT id FROM review_runs WHERE submittal_document_id = ? ORDER BY rowid DESC LIMIT 1",
+            (document_id,)).fetchone()
+        if run is not None:
+            return [r["standard_document_id"] for r in connect().execute(
+                "SELECT standard_document_id FROM review_applicable_standards"
+                " WHERE review_run_id = ? AND included = 1", (run["id"],))]
+    except sqlite3.Error:
+        return []
+    return []
 
 
 def _page_counts(rejected: list[dict], page: int) -> dict:
@@ -72,7 +126,7 @@ def as_ai_run(reading: FormReading, page_numbers: list[int], *, engine: str | No
 
 
 def read_document(page_texts: dict[int, str], equipment_type: str | None,
-                  model_call=None) -> dict:
+                  model_call=None, extra_subjects: list[str] | None = None) -> dict:
     """The form reading of one document, as an `ai_run`. `model_call`
     defaults to the configured engine (DATASHEET_AI_READER) asked for this
     reader's flat schema; an unavailable engine or an invalid checklist is a
@@ -80,6 +134,8 @@ def read_document(page_texts: dict[int, str], equipment_type: str | None,
     pages = sorted(page_texts)
     try:
         fields = field_list_for(equipment_type)
+        if extra_subjects:
+            fields = with_requirement_fields(fields, extra_subjects)
     except ValueError as exc:               # a refused local checklist overlay
         empty = FormReading(fields=[])
         return as_ai_run(empty, pages, engine=None, model=None,
@@ -102,4 +158,4 @@ def read_document(page_texts: dict[int, str], equipment_type: str | None,
 
 
 __all__ = ["FORM", "MERGE", "MODES", "RULES", "as_ai_run", "equipment_type_of",
-           "read_document", "reader_mode"]
+           "read_document", "reader_mode", "requirement_subjects", "standards_of"]
