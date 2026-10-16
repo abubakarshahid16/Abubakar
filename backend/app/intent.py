@@ -589,6 +589,16 @@ def route(message: str, *, has_previous_answer: bool = False,
     return {**base, "kind": EITHER}
 
 
+_COLLECTION_SUMMARY = re.compile(r"\b(?:summari[sz]e|summary|overview|recap)\b", re.IGNORECASE)
+_COLLECTION_SCOPE = re.compile(
+    r"\b(?:all|these|selected|uploaded|documents|files|pdfs)\b", re.IGNORECASE)
+
+
+def is_collection_summary(message: str) -> bool:
+    """An explicit request to summarise a document set in the same chat."""
+    return bool(_COLLECTION_SUMMARY.search(message) and _COLLECTION_SCOPE.search(message))
+
+
 def small_talk_reply(kind: str, *, provider_line: str) -> str:
     """A natural reply to small talk. `provider_line` says honestly who answers."""
     replies = {

@@ -3417,6 +3417,8 @@ class AnswerResult(ChatPresentation):
         "under a refusal invites the reader to read it as evidence the corpus "
         "could have answered after all",
     )
+    summary_coverage: dict | None = Field(
+        None, description="collection-summary boundary: selected documents, readable chunks, and cited documents")
     examples: list[str] = Field(
         [], description="real questions drawn from the loaded documents"
     )

@@ -34,6 +34,7 @@ import uuid
 from datetime import datetime, timezone
 
 from . import answer as answer_mod
+from . import analysis as analysis_mod
 from . import chat_answers
 from . import chat_comparison
 from . import family_search
@@ -631,7 +632,7 @@ _PAYLOAD_KEYS = (
     # Without this, reopening a conversation would show a complete-looking
     # answer with the partial-coverage warning silently gone - worse than
     # never having shipped the field.
-    "coverage", "evidence_removed",
+    "coverage", "summary_coverage", "evidence_removed",
     # The same reason, three more times. Reopened without `corpus`, a two-part reply
     # would lose its database half; without `counts_bounded`, a re-bounded
     # count would lose the note that says it was; without `truncated`, a cut-off
@@ -789,7 +790,10 @@ def ask(
         tier = routed.get("tier") or tier
         carried: list[str] = []
         resolved = question
-        if route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER):
+        collection_request = intent_mod.is_collection_summary(question)
+        if collection_request:
+            route_kind = intent_mod.DOCUMENT
+        if route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER) and not collection_request:
             resolved, carried = resolve_followup(
                 routed["text"], prior_user_questions(conversation_id)
             )
@@ -855,8 +859,19 @@ def ask(
     # capability it does not have. NOT when scoped to one document
     # (`corpus.classify`'s own rule: a document's own standards are content
     # for retrieval, not a library count) or mid Tier-2 upgrade.
+    collection_result = None
+    if explain_of is None and intent_mod.is_collection_summary(original):
+        # Pass the reader's actual selection to the collection gate. Passing
+        # only the permission intersection would silently drop a revoked
+        # document and present the remaining subset as a complete summary.
+        summary_ids = (frozenset(document_ids) if document_ids else
+                       frozenset({document_id}) if document_id else
+                       retrieval_allowed)
+        collection_result = analysis_mod.collection_summary(
+            original, summary_ids, allowed_document_ids=retrieval_allowed)
+
     inventory_result = None
-    if explain_of is None and document_id is None:
+    if collection_result is None and explain_of is None and document_id is None:
         roles = corpus_mod.inventory_question(original)
         if roles is not None:
             inventory_result = corpus_mod.inventory_statement(
@@ -895,7 +910,7 @@ def ask(
     # citation or a real per-side "not found", must not reach a path that
     # would answer it from one merged retrieval or from a model's own words.
     comparison_result = None
-    if (inventory_result is None and explain_of is None
+    if (collection_result is None and inventory_result is None and explain_of is None
             and route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER)
             and chat_comparison.is_comparison_question(resolved)):
         comparison_sides, comparison_missing = chat_comparison.resolve_sides(
@@ -910,7 +925,7 @@ def ask(
     # ("the welding standards") is searched per standard, never in one shared
     # pass. Same slot and same reasons as the comparison above.
     family_notice = None
-    if (comparison_result is None and inventory_result is None and explain_of is None
+    if (collection_result is None and comparison_result is None and inventory_result is None and explain_of is None
             and document_id is None
             and route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER)):
         comparison_result, family_notice = family_search.run(
@@ -918,7 +933,7 @@ def ask(
             progress_id=progress_id, model=model, history=memory())
 
     spec_shaped_result = None
-    if (inventory_result is None and comparison_result is None and explain_of is None
+    if (collection_result is None and inventory_result is None and comparison_result is None and explain_of is None
             and route_kind in (intent_mod.EITHER, intent_mod.DOCUMENT)
             and intent_mod.is_spec_shaped(original)):
         spec_shaped_result, resolved = _document_answer(
@@ -938,7 +953,7 @@ def ask(
     #: Points the claim checker removed when it removed ALL of Claude's points
     #: and the turn was handed to the existing pipeline (audit 118).
     claude_unverified: list[list[dict]] = []
-    if (inventory_result is None and comparison_result is None and spec_shaped_result is None
+    if (collection_result is None and inventory_result is None and comparison_result is None and spec_shaped_result is None
             and explain_of is None
             and route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER, intent_mod.GENERAL)):
         from . import chat_claude_first
@@ -949,7 +964,9 @@ def ask(
             web_enabled=web, preference=model, on_fallback_cost=fallback_spent.append,
             on_fallback_reason=fallback_why.append, on_unverified=claude_unverified.append)
 
-    if inventory_result is not None:
+    if collection_result is not None:
+        result = collection_result
+    elif inventory_result is not None:
         result = {
             "question": original, "retrieval_mode": "metadata", "reranked": False,
             "timings": {}, "candidates_considered": 0, "answer_type": "metadata",
