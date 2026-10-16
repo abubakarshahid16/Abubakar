@@ -1369,23 +1369,33 @@ def _exhaustive_map_reduce(
         )
         if result.evidence_removed:
             return _refused("a source did not fit the model context window", result.evidence_removed)
-        if result.truncated:
-            return _refused("the model stopped before finishing a summary", truncated=True)
-        if (not final and result.refusal and not result.findings
-                and calls < COLLECTION_MAX_CALLS
-                and monotonic() - started < COLLECTION_MAX_SECONDS):
-            # A small model can decline or produce only rejected fragments
-            # for an awkward batch. Retry once with an extraction-shaped
-            # instruction; the same citation and source gates still decide
-            # what survives.
+        should_retry = result.truncated or (
+            not final and result.refusal and not result.findings)
+        if (should_retry and calls < COLLECTION_MAX_CALLS
+                and monotonic() - started < COLLECTION_MAX_SECONDS
+                and (cancelled is None or not cancelled())):
+            # A small model can stop at its output cap, decline, or produce
+            # only rejected fragments for an awkward batch. Retry once with
+            # a concise instruction and a larger output allowance; the same
+            # citation and source gates still decide what survives.
             calls += 1
             if on_progress is not None:
-                on_progress(stage, document)
+                on_progress("collection_final_retry" if final else stage, document)
+            if final:
+                labels = ", ".join(document_labels.values())
+                retry_question = (
+                    f"{question}\n\nCoverage requirement: cite at least one supported point "
+                    f"from each of these selected documents: {labels}.")
+                retry_system = COLLECTION_FINAL_RETRY_SYSTEM_PROMPT.format(
+                    target_words=target_words)
+            else:
+                retry_question = "State what these passages say, without adding context."
+                retry_system = COLLECTION_RETRY_SYSTEM_PROMPT
             result = _summarise_sources(
-                "State what these passages say, without adding context.",
-                items, generate, system=COLLECTION_RETRY_SYSTEM_PROMPT,
+                retry_question, items, generate, system=retry_system,
                 token_cap=COLLECTION_PROMPT_TOKEN_CAP,
-                stage=stage, document=document,
+                stage="collection_final_retry" if final else stage,
+                document=document,
             )
             if result.evidence_removed:
                 return _refused("a source did not fit the model context window", result.evidence_removed)
