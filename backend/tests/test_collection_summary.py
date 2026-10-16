@@ -473,7 +473,7 @@ def test_existing_chat_routes_collection_request_through_its_selected_scope(monk
                 "candidates_considered": 0, "seconds": 0.0, "timings": {}}
 
     monkeypatch.setattr(analysis, "collection_summary", fake_summary)
-    result = chat.ask(convo["id"], "Summarize these documents",
+    result = chat.ask(convo["id"], "read all document and summariee them",
                       allowed_document_ids=frozenset({"one"}),
                       document_ids=frozenset({"one"}), model="claude")
     assert seen["ids"] == frozenset({"one"})
