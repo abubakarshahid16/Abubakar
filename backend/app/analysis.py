@@ -784,7 +784,7 @@ def collection_claude_generate(
 
     provider = chat_model.provider(chat_model.CLAUDE)
     if not isinstance(provider, reasoning_provider.ClaudeProvider):
-        raise ModelUnavailable("Claude is not available for this chat request.")
+        raise ModelUnavailable("Could not start Claude for this chat request.")
     final = system.startswith(("You write an overview", "Write the requested overview"))
     output_tokens = min(1900, int(target_words * 2.4) + 200) if final else 220
     response = provider.reason(reasoning_provider.Packet(
