@@ -815,7 +815,8 @@ def ask(
         tier = routed.get("tier") or tier
         carried: list[str] = []
         resolved = question
-        collection_request = intent_mod.is_collection_summary(question)
+        collection_request = intent_mod.is_collection_summary(
+            question, selected_document_count=len(document_ids or ()))
         if collection_request:
             route_kind = intent_mod.DOCUMENT
         if route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER) and not collection_request:
@@ -885,7 +886,8 @@ def ask(
     # (`corpus.classify`'s own rule: a document's own standards are content
     # for retrieval, not a library count) or mid Tier-2 upgrade.
     collection_result = None
-    if explain_of is None and intent_mod.is_collection_summary(original):
+    if explain_of is None and intent_mod.is_collection_summary(
+            original, selected_document_count=len(document_ids or ())):
         # Pass the reader's actual selection to the collection gate. Passing
         # only the permission intersection would silently drop a revoked
         # document and present the remaining subset as a complete summary.
