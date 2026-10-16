@@ -83,7 +83,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              description="an inventory question reaches Claude-first instead "
                          "of the database, on Model=Claude",
              path=APP / "chat.py",
-             anchor="    inventory_result = None\n    if explain_of is None and document_id is None:\n",
+             anchor="    inventory_result = None\n    if collection_result is None and explain_of is None and document_id is None:\n",
              replacement="    inventory_result = None\n    if False:\n",
              target="tests/test_corpus_questions.py",
              keyword="never_asking_claude", tags=("honesty",)),

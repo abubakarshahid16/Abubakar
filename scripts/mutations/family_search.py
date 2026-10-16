@@ -30,9 +30,9 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1862", phase=1862,
              description="the family step runs after a comparison already answered and overwrites it",
              path=APP / "chat.py",
-             anchor="    if (comparison_result is None and inventory_result is None and explain_of is None\n"
+             anchor="    if (collection_result is None and comparison_result is None and inventory_result is None and explain_of is None\n"
                     "            and document_id is None",
-             replacement="    if (inventory_result is None and explain_of is None\n"
+             replacement="    if (collection_result is None and inventory_result is None and explain_of is None\n"
                          "            and document_id is None",
              target=_T, keyword="existing_compare_path", tags=_TAG),
     Mutation(id="M1863", phase=1863,
