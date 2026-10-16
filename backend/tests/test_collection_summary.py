@@ -107,7 +107,7 @@ def test_non_condensing_local_reducer_retries_without_losing_ten_document_covera
         def __call__(self, system: str, prompt: str) -> synthesis.Generation:
             self.prompts.append(prompt)
             self.systems.append(system)
-            markers = re.findall(r"(\\[S\\d+\\]) \\(", prompt)
+            markers = re.findall(r"(\[S\d+\]) \(", prompt)
             if system == synthesis.COLLECTION_REDUCE_SYSTEM_PROMPT:
                 return synthesis.Generation(
                     " ".join(f"Requirement applies {marker}." for marker in markers),
