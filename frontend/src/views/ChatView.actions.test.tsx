@@ -66,6 +66,7 @@ function mockApi({
   } as unknown,
   feedbackStatus = 200,
   stream,
+  streamDelay = 0,
   documents = [
     { id: "doc_ds", filename: "sample-datasheet.pdf" },
     { id: "doc_std", filename: "sample-standard.pdf" },
@@ -75,6 +76,7 @@ function mockApi({
   filed?: unknown;
   feedbackStatus?: number;
   stream?: string;
+  streamDelay?: number;
   documents?: { id: string; filename: string }[];
 } = {}) {
   const calls: Call[] = [];
@@ -99,7 +101,10 @@ function mockApi({
       return Promise.resolve(json(documents));
     }
     if (url.endsWith("/ask/stream")) {
-      return Promise.resolve(new Response(stream ?? "", { status: 200, headers: { "Content-Type": "text/event-stream" } }));
+      const response = new Response(stream ?? "", { status: 200, headers: { "Content-Type": "text/event-stream" } });
+      return streamDelay
+        ? new Promise((resolve) => setTimeout(() => resolve(response), streamDelay))
+        : Promise.resolve(response);
     }
     if (url.includes("/conversations/")) return Promise.resolve(json({ conversation, messages }));
     if (url.includes("/conversations")) {
@@ -226,7 +231,7 @@ describe("@ a document", () => {
       id: `doc_${i}`,
       filename: `schedule-${i + 1}.docx`,
     }));
-    const calls = mockApi({ messages: [question, general()], documents });
+    const calls = mockApi({ messages: [question, general()], documents, streamDelay: 50 });
     await openConversation();
     await userEvent.click(await screen.findByRole("button", { name: /^@ a document/ }));
     const dialog = await screen.findByRole("dialog", { name: "Choose documents" });
