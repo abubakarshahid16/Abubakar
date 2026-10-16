@@ -131,15 +131,13 @@ def open_items(review_run_id: str, rows: list[dict], page_coverage: dict | None)
         # no-finding_id row is gated the same way a finding-bearing one is,
         # not skipped.
         subject = row.get("finding_id") or row.get("crs_row_key") or ""
-        if not subject or row.get("engineer_confirmed") or subject in seen:
+        if (not subject or row.get("engineer_confirmed") or row.get("engineer_rejected")
+                or subject in seen):
             continue
         seen.add(subject)
         # `finding_id` here is `crs_row_key` (the row's `comment_key`), not a
-        # real review_findings id, when the row has none - a caller cannot
-        # yet decide this item through the existing per-finding decide route
-        # (it looks the id up in review_findings and 404s). Fixing THAT is a
-        # follow-up; this fix is that the item is no longer invisible to the
-        # gate, which is the bypass #923 named.
+        # real review_findings id, when the row has none. #986: the decide
+        # route accepts that key and records the decision against it.
         findings.append({"finding_id": subject,
                          "row_kind": row.get("row_kind") or None, "item": n})
     if unread:

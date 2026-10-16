@@ -781,6 +781,10 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                 # THE FINDING'S OWN STORED ID, carried so `crs_export` can mint
                 # a per-row reference that survives a re-export; never printed.
                 "finding_id": f.get("id") or "",
+                # #986: EVERY finding the row stands on. A decision on the row
+                # is a decision on all of them; deciding only the first left
+                # the row open with the next finding behind it.
+                "finding_ids": [g["id"] for g in group if g.get("id")],
                 "document_name": submittal_name,
                 "page_section": _page_section(group),
                 "comment": text,
