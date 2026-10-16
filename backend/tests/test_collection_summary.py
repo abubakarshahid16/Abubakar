@@ -82,6 +82,52 @@ def test_ten_document_request_reads_every_selected_document_and_cites_original_p
     assert len(reader.prompts) >= 11  # per-document work, then cross-document reduction
 
 
+def test_non_condensing_local_reducer_retries_without_losing_ten_document_coverage(monkeypatch):
+    # Simulate the final context budget requiring a cross-document reduction.
+    # The small model first repeats each batch's notes, then follows the strict
+    # one-sentence retry contract.
+    for n in range(10):
+        put_document(f"d{n}", [f"Inspection requirement {n} applies."])
+    ids = frozenset(f"d{n}" for n in range(10))
+    original_fit = synthesis._fit
+    forced_final_overflow = False
+
+    def force_one_final_reduction(question, sources, system, token_cap=None):
+        nonlocal forced_final_overflow
+        if system.startswith("You write an overview") and not forced_final_overflow:
+            forced_final_overflow = True
+            return [], list(sources)
+        return original_fit(question, sources, system, token_cap)
+
+    # Exercise the cross-document tree even though these concise fixtures would
+    # normally fit in one prompt.
+    monkeypatch.setattr(synthesis, "_fit", force_one_final_reduction)
+
+    class NonCondensingReader(Reader):
+        def __call__(self, system: str, prompt: str) -> synthesis.Generation:
+            self.prompts.append(prompt)
+            self.systems.append(system)
+            markers = re.findall(r"(\\[S\\d+\\]) \\(", prompt)
+            if system == synthesis.COLLECTION_REDUCE_SYSTEM_PROMPT:
+                return synthesis.Generation(
+                    " ".join(f"Requirement applies {marker}." for marker in markers),
+                    truncated=False)
+            return synthesis.Generation(
+                "Inspection requirements apply " + " ".join(markers) + ".",
+                truncated=False)
+
+    reader = NonCondensingReader()
+    result = analysis.collection_summary(
+        "Summarize these ten documents in one page", ids,
+        allowed_document_ids=ids, generate=reader)
+
+    assert result["answer_type"] == "generated", result["reason"]
+    assert synthesis.COLLECTION_REDUCE_RETRY_SYSTEM_PROMPT in reader.systems
+    assert result["summary_coverage"]["requested"] == 10
+    assert result["summary_coverage"]["processed"] == 10
+    assert result["summary_coverage"]["cited_documents"] == 10
+
+
 def test_claude_choice_uses_existing_provider_for_approved_collection(monkeypatch):
     from app import chat_model, claude_approved, reasoning_provider
 
@@ -251,10 +297,13 @@ def test_final_and_final_retry_use_a_summary_sized_output_budget(monkeypatch):
                                  "prompt", target_words=450)
     analysis.collection_generate(synthesis.COLLECTION_RETRY_SYSTEM_PROMPT,
                                  "prompt", target_words=450)
+    analysis.collection_generate(synthesis.COLLECTION_REDUCE_RETRY_SYSTEM_PROMPT,
+                                 "prompt", target_words=450)
     assert bodies[0]["options"]["num_predict"] == 1280
     assert bodies[1]["options"]["num_predict"] == 1280
     assert bodies[2]["options"]["num_predict"] == 220
     assert bodies[3]["options"]["num_predict"] == 384
+    assert bodies[4]["options"]["num_predict"] == 384
 
 
 def test_known_unread_page_refuses_before_generation():
