@@ -82,6 +82,123 @@ def test_ten_document_request_reads_every_selected_document_and_cites_original_p
     assert len(reader.prompts) >= 11  # per-document work, then cross-document reduction
 
 
+def test_claude_choice_uses_existing_provider_for_approved_collection(monkeypatch):
+    from app import chat_model, claude_approved, reasoning_provider
+
+    ids = frozenset({"one", "two"})
+    for doc_id in ids:
+        put_document(doc_id, ["Inspection is scheduled.", "Inspection is scheduled."])
+    reader = Reader()
+    reader_model = "claude-sonnet-test"
+    observed_scopes = []
+    provider = reasoning_provider.ClaudeProvider(reader_model, step=chat_model.CHAT_STEP)
+    monkeypatch.setattr(chat_model, "provider", lambda preference=None: provider)
+    monkeypatch.setattr(claude_approved, "local_instead", lambda: None)
+
+    def fake_claude(system, prompt, *, target_words):
+        observed_scopes.append(claude_approved.carried())
+        generated = reader(system, prompt)
+        return synthesis.Generation(generated.text, generated.truncated, reader_model)
+
+    monkeypatch.setattr(analysis, "collection_claude_generate", fake_claude)
+    result = analysis.collection_summary(
+        "Summarize these two documents in one page", ids,
+        allowed_document_ids=ids, model="claude",
+        explicit_document_selection=True)
+
+    assert result["answer_type"] == "generated", result["reason"]
+    assert result["provider"] == "claude"
+    assert result["model"] == reader_model
+    assert observed_scopes and all(scope == ids for scope in observed_scopes)
+
+
+def test_explicit_claude_selection_sends_only_selected_documents(monkeypatch):
+    from app import chat_model, claude_approved, reasoning_provider
+
+    ids = frozenset({"one", "two"})
+    other = "older-conversation-document"
+    for doc_id in ids:
+        put_document(doc_id, ["Inspection is scheduled.", "Inspection is scheduled."])
+    put_document(other, ["Unselected historical content."])
+    reader = Reader()
+    provider = reasoning_provider.ClaudeProvider(
+        "claude-sonnet-test", step=chat_model.CHAT_STEP)
+    monkeypatch.setattr(chat_model, "provider", lambda preference=None: provider)
+    observed_scopes = []
+
+    def fake_claude(system, prompt, *, target_words):
+        observed_scopes.append(claude_approved.carried())
+        assert "Unselected historical content." not in prompt
+        generated = reader(system, prompt)
+        return synthesis.Generation(generated.text, False, "claude-sonnet-test")
+
+    monkeypatch.setattr(analysis, "collection_claude_generate", fake_claude)
+
+    with claude_approved.carrying({other}):
+        result = analysis.collection_summary(
+            "Summarize these two documents", ids,
+            allowed_document_ids=ids | {other}, model="claude",
+            explicit_document_selection=True)
+
+    assert result["answer_type"] == "generated", result["reason"]
+    assert result["provider"] == "claude"
+    assert observed_scopes and set(observed_scopes) == {ids}
+    assert claude_approved.carried() is None
+
+
+def test_claude_without_explicit_document_selection_stays_local(monkeypatch):
+    from app import chat_model
+
+    ids = frozenset({"one", "two"})
+    for doc_id in ids:
+        put_document(doc_id, ["Inspection is scheduled.", "Inspection is scheduled."])
+    reader = Reader()
+    monkeypatch.setattr(analysis, "collection_generate", lambda system, prompt, *, target_words:
+                        synthesis.Generation(reader(system, prompt).text, False, "local-test"))
+    monkeypatch.setattr(analysis, "collection_claude_generate",
+                        lambda *args, **kwargs: pytest.fail("implicit document scope reached Claude"))
+    monkeypatch.setattr(chat_model, "provider", lambda *args, **kwargs:
+                        pytest.fail("Claude provider should not be selected without consent"))
+
+    result = analysis.collection_summary(
+        "Summarize these two documents", ids,
+        allowed_document_ids=ids, model="claude",
+        explicit_document_selection=False)
+
+    assert result["answer_type"] == "generated", result["reason"]
+    assert result["provider"] == "ollama"
+    assert "Choose one or more documents" in result["provider_note"]
+
+
+def test_claude_summary_adapter_uses_metered_chat_provider_and_output_budget(monkeypatch):
+    from app import chat_model, reasoning_provider
+
+    provider = reasoning_provider.ClaudeProvider(
+        "claude-sonnet-test", step=chat_model.CHAT_STEP)
+    seen = {}
+
+    def fake_reason(packet):
+        seen["packet"] = packet
+        return reasoning_provider.Response(
+            text="A supported summary [S1].", provider="claude",
+            model_tag="claude-sonnet-test", digest="response-hash",
+            finish_reason="end_turn", prompt_sha256=packet.sha256)
+
+    monkeypatch.setattr(provider, "reason", fake_reason)
+    monkeypatch.setattr(
+        chat_model, "provider", lambda preference=None: provider)
+
+    generated = analysis.collection_claude_generate(
+        "You write an overview using the sources", "[S1] (source)", target_words=450)
+
+    assert generated.text == "A supported summary [S1]."
+    assert generated.model == "claude-sonnet-test"
+    assert not generated.truncated
+    assert seen["packet"].step == chat_model.CHAT_STEP
+    assert seen["packet"].num_predict == 1280
+    assert seen["packet"].prompt_version == "collection-summary-v1"
+
+
 def test_twenty_selected_documents_use_the_same_chat_summary_engine():
     ids = frozenset(f"d{n}" for n in range(20))
     for doc_id in ids:
@@ -341,9 +458,12 @@ def test_existing_chat_routes_collection_request_through_its_selected_scope(monk
     convo = chat.create_conversation()
     seen = {}
 
-    def fake_summary(question, ids, *, allowed_document_ids):
+    def fake_summary(question, ids, *, allowed_document_ids, model=None,
+                     explicit_document_selection=False):
         seen["ids"] = ids
         seen["allowed"] = allowed_document_ids
+        seen["model"] = model
+        seen["explicit_document_selection"] = explicit_document_selection
         return {"question": question, "answer_type": "insufficient_evidence",
                 "answer": None, "reason": "test refusal", "passages": [], "cited": [],
                 "summary_coverage": {"requested": 1, "processed": 0,
@@ -354,8 +474,10 @@ def test_existing_chat_routes_collection_request_through_its_selected_scope(monk
     monkeypatch.setattr(analysis, "collection_summary", fake_summary)
     result = chat.ask(convo["id"], "Summarize these documents",
                       allowed_document_ids=frozenset({"one"}),
-                      document_ids=frozenset({"one"}))
+                      document_ids=frozenset({"one"}), model="claude")
     assert seen["ids"] == frozenset({"one"})
+    assert seen["model"] == "claude"
+    assert seen["explicit_document_selection"] is True
     assert result["answer_type"] == "insufficient_evidence"
     assert result["used_line"].startswith("Collection summary incomplete")
 
@@ -394,3 +516,4 @@ def test_completed_chat_summary_reopens_with_coverage_and_obeys_revoked_access(m
     assert reopened["payload"]["summary_coverage"]["cited_documents"] == 2
     revoked = chat.get_messages(convo["id"], allowed_document_ids=frozenset({"one"}))[-1]
     assert revoked["payload"] == {"withheld": True}
+

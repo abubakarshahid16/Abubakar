@@ -6,7 +6,7 @@ Every AI service and AI agent is listed here **before** it is used. The second t
 
 | Name | Type | Owner | Job | Access granted | Data allowed | Approved | How to switch off |
 |---|---|---|---|---|---|---|---|
-| Claude API | External AI service | Owner (Usman) | Datasheet reading, matching, CRS wording, standards scope, AI engineering check, chat | Internet only via `reader_transport.py`. USD 5 per step, USD 20 total (`claude_spend`) | Public. Confidential only for documents the owner approved in writing (now: M-03, I-06, 216400C) | Owner, 25 Sep 2026 | Remove the API key from `backend/.env`; set `REASONING_PROVIDER=ollama` and `DATASHEET_AI_READER=ollama` or `off` |
+| Claude API | External AI service | Owner (Usman) | Datasheet reading, matching, CRS wording, standards scope, AI engineering check, chat | Internet only via `reader_transport.py`. USD 5 per step, USD 20 total (`claude_spend`) | Public. Chat collection summaries: only files explicitly selected by the user for that Claude request. Other confidential workflows: owner-approved list (currently M-03, I-06, 216400C) | Owner, 25 Sep 2026; chat-summary scope 16 Oct 2026 (#692) | Remove the API key from `backend/.env`; set `REASONING_PROVIDER=ollama` and `DATASHEET_AI_READER=ollama` or `off` |
 | Ollama (local model, today qwen3.5:4b) | Internal AI on the local PC | Owner (Usman) | The same jobs, offline | Loopback only (`config.check_model_url`) | All internal classes except Restricted | Owner | Stop Ollama |
 | s1 | AI agent (Claude Code, PC) | Owner (Usman) | Builder | `D:\project\Rag_chatbot` and its worktrees. Opens PRs; never merges | No Restricted data. Never `hidden-exam` | Owner, in chat | Close the session; revoke its token |
 | s2 | AI agent (Claude Code, PC) | Owner (Usman) | Merger and inspector | The same folders. May merge; may back up the live DB | The same. May read `hidden-exam` only to score | Owner, in chat | Close the session; revoke its token |
@@ -40,3 +40,4 @@ A switch is any `*_enabled` flag, or `*_provider` / `*_reader` / `*_engine` sett
 | `geometry_table_reader_enabled` | `True` | No model (code) | The geometry reader's table path, cell by cell. Listed because it shares the reader family; it calls no AI | The rule readers alone |
 
 **Done when:** this register is committed, the owner signs it once (a comment "approved" on #806), and the CI check passes.
+

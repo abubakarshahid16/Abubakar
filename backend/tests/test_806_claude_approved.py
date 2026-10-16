@@ -71,6 +71,18 @@ def test_an_approved_document_passes_and_an_unapproved_one_refuses_the_whole_pro
     assert "doc_b.pdf" not in str(caught.value)                             # ids, never a file name
 
 
+def test_chat_consent_replaces_history_scope_for_one_request_only():
+    # User consent for doc_a must not inherit doc_b from older chat history,
+    # and must not make a later non-chat call to doc_b pass the owner list.
+    with claude_approved.carrying(["doc_b"]):
+        with claude_approved.per_request_consent(["doc_a"]):
+            assert claude_approved.carried() == {"doc_a"}
+            assert _reserve().step == "s3-test"
+        assert claude_approved.carried() == {"doc_b"}
+        with pytest.raises(claude_spend.DocumentNotApproved):
+            _reserve()
+
+
 def test_a_missing_or_empty_or_broken_list_approves_nothing():
     for write in (None, "{}", "not json"):
         if write is not None:
@@ -168,3 +180,4 @@ def test_the_reader_is_told_it_is_the_approved_list_not_the_spending_cap():
     assert chat_model.fallback_words(refused) == (
         "a document here is not approved for the cloud model; answered locally")
     assert chat_model.fallback_words(cap) == "the Claude spending cap would be exceeded"
+

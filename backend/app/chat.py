@@ -868,7 +868,9 @@ def ask(
                        frozenset({document_id}) if document_id else
                        retrieval_allowed)
         collection_result = analysis_mod.collection_summary(
-            original, summary_ids, allowed_document_ids=retrieval_allowed)
+            original, summary_ids, allowed_document_ids=retrieval_allowed,
+            model=model,
+            explicit_document_selection=bool(document_ids or selected_document))
 
     inventory_result = None
     if collection_result is None and explain_of is None and document_id is None:
@@ -950,6 +952,8 @@ def ask(
     #: Why the first Claude call could not be used (plain words), when it
     #: could not - the cause the downgrade notice reports.
     fallback_why: list[str] = []
+    if collection_result and collection_result.get("provider_note"):
+        fallback_why.append(str(collection_result["provider_note"]))
     #: Points the claim checker removed when it removed ALL of Claude's points
     #: and the turn was handed to the existing pipeline (audit 118).
     claude_unverified: list[list[dict]] = []
@@ -1204,3 +1208,4 @@ def _document_answer(conversation_id: str, resolved: str, understood: dict | Non
             and (earlier.get("judge") or {}).get("accepted")):
         result["answerability"] = rejudged
     return result, resolved
+

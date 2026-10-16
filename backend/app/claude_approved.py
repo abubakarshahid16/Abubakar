@@ -52,6 +52,7 @@ UNKNOWN_DOCUMENT = "unknown_document"
 #: The documents the prompt being built carries. None = nobody declared
 #: anything (refused); an empty set = declared to carry no document content.
 _CARRIED: ContextVar[frozenset[str] | None] = ContextVar("claude_carried_documents", default=None)
+_REQUEST_CONSENT: ContextVar[bool] = ContextVar("claude_request_consent", default=False)
 
 
 @contextlib.contextmanager
@@ -66,6 +67,26 @@ def carrying(document_ids):
         yield
     finally:
         _CARRIED.reset(token)
+
+
+@contextlib.contextmanager
+def per_request_consent(document_ids):
+    """Scope explicit chat consent to exactly the user's selected documents.
+
+    Unlike ``carrying``, this replaces the conversation's broader history
+    scope: a user opting to send two selected files must not implicitly send
+    every other document mentioned earlier in that conversation. The consent
+    is local to this context and never changes the owner allowlist for other
+    Claude workflows.
+    """
+    ids = frozenset(str(d) for d in (document_ids or ()) if d)
+    token_ids = _CARRIED.set(ids)
+    token_consent = _REQUEST_CONSENT.set(bool(ids))
+    try:
+        yield
+    finally:
+        _REQUEST_CONSENT.reset(token_consent)
+        _CARRIED.reset(token_ids)
 
 
 def carried() -> frozenset[str] | None:
@@ -166,6 +187,11 @@ def refusal() -> tuple[str, str] | None:
     if unknown:
         return UNKNOWN_DOCUMENT, (f"{len(unknown)} declared document(s) are not in the library "
                                   f"(ids: {', '.join(unknown)}), so nothing is sent")
+    # Chat collection-summary consent is explicit, per request and per selected
+    # file. It waives only the static owner list for this narrowly scoped call;
+    # egress flags, API-key checks and spend limits remain enforced downstream.
+    if _REQUEST_CONSENT.get():
+        return None
     approved = approved_hashes()
     missing = sorted(d for d, h in hashes.items() if h not in approved)
     if missing:
@@ -224,3 +250,4 @@ def sync_audit() -> bool:
             (datetime.now(UTC).isoformat(timespec="seconds"), "file edit (owner)", AUDIT_ACTION,
              "claude_approved_list", digest, json.dumps({"entries_by_status": counts()}, sort_keys=True)))
     return True
+

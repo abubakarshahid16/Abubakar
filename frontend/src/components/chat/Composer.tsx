@@ -61,6 +61,7 @@ export function Composer({
 }) {
   const [menu, setMenu] = useState(false);
   const area = useRef<HTMLTextAreaElement>(null);
+  const pickerButton = useRef<HTMLButtonElement>(null);
   const over = value.length > MAX_QUESTION;
   const canSend = !disabled && !busy && value.trim().length > 0 && !over;
 
@@ -139,6 +140,7 @@ export function Composer({
           </button>
           {onPick && onPickerOpen && (
             <button
+              ref={pickerButton}
               type="button"
               aria-expanded={pickerOpen}
               aria-haspopup="dialog"
@@ -171,7 +173,12 @@ export function Composer({
             </button>
           )}
           {pickerOpen && onPick && onPickerOpen && (
-            <DocumentPicker picked={picked} onChange={onPick} onClose={() => onPickerOpen(false)} />
+            <DocumentPicker
+              picked={picked}
+              anchorRef={pickerButton}
+              onChange={onPick}
+              onClose={() => onPickerOpen(false)}
+            />
           )}
           {menu && (
             <div
@@ -250,3 +257,4 @@ export function Composer({
     </form>
   );
 }
+
