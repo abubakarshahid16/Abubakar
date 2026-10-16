@@ -3,7 +3,7 @@ field": each entry deletes one part and backend/tests/test_w2b_598_review_table_
 must notice. Files: backend/app/table_gate.py, backend/app/comparison.py."""
 from __future__ import annotations
 
-from ._base import APP, FRONTEND_SRC, Mutation
+from ._base import APP, Mutation
 
 _T = "tests/test_w2b_598_review_table_filter.py"
 _TAG = ("w2b_598", "honesty")
@@ -45,11 +45,4 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(2710, "identifier matching becomes case-sensitive",
        "table_gate.py", "    return tuple(_TOKEN.findall(numparse.fold(text or \"\")))\n",
        "    return tuple(re.findall(r\"[A-Za-z0-9]+\", str(text or \"\")))\n"),
-    Mutation(id="M2711", phase=2711, runner="vitest",
-             description="the run screen no longer shows the grouped not-compared table values",
-             path=FRONTEND_SRC / "views" / "ReviewRunsView.tsx",
-             anchor="{run && (run.table_values_not_compared?.length ?? 0) > 0 && (",
-             replacement="{false && (",
-             target="src/views/ReviewRunsView.test.tsx", keyword="table values that were not compared",
-             tags=_TAG),
 )

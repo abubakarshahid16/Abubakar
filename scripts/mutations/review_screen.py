@@ -67,6 +67,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              anchor='              Page {page}: {readiness.unread_page_reasons?.[String(page)]\n'
                     '                || "reason not recorded"}\n',
              replacement='              Page {page}\n',
-             target="src/views/ReviewRunsView.screen.test.tsx",
+             # Re-targeted 2026-10-17 (#967 PR 3): the old page's test moved with the panel.
+             target="src/components/review/panels/RunReviewControl.test.tsx",
              keyword="HONESTY GROUP", tags=("honesty", "ui")),
 )

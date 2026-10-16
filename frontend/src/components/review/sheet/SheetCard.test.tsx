@@ -108,6 +108,17 @@ describe("SheetCard", () => {
     expect(decideCrsFinding).toHaveBeenCalledWith("run-1", "a", "accept", AGREE_REASON);
   });
 
+  it("scrolls the opened card into view, wherever the list put it", () => {
+    const spy = vi.fn();
+    Object.defineProperty(Element.prototype, "scrollIntoView", { value: spy, writable: true, configurable: true });
+    try {
+      renderCard([f("a")]);
+      expect(spy).toHaveBeenCalledWith(expect.objectContaining({ block: "nearest" }));
+    } finally {
+      delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView;
+    }
+  });
+
   it("shows one line, not the whole card, when not selected", () => {
     const [card] = buildCards([f("a")]);
     render(<SheetCard card={card} runId="run-1" selected={false} standardNames={new Map()}
@@ -120,7 +131,7 @@ describe("SheetCard", () => {
 describe("DecisionCard", () => {
   const run = {
     review_run_id: "run-1", recommended_code: "Approved with Comments", engineer_final_code: null,
-  } as never;
+  } as unknown as Parameters<typeof DecisionCard>[0]["run"];
 
   it("marks the suggestion and asks why when the choice differs", async () => {
     const onDecided = vi.fn();
@@ -134,6 +145,13 @@ describe("DecisionCard", () => {
     await userEvent.click(screen.getByRole("button", { name: "Record my decision" }));
     expect(decideCode).toHaveBeenCalledWith("run-1", "Approved", "Both blanks were answered by letter.");
     expect(onDecided).toHaveBeenCalled();
+  });
+
+  it("shows the recorded decision beside the suggestion, never instead of it", () => {
+    render(<DecisionCard run={{ ...run, engineer_final_code: "Approved with Comments" } as never} onDecided={vi.fn()} />);
+    expect(screen.getByText("suggested")).toBeInTheDocument();
+    expect(screen.getByText("Recorded: Approved with Comments.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Change my decision" })).toBeDisabled();
   });
 
   it("records the suggestion without a reason", async () => {

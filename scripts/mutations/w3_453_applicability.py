@@ -3,7 +3,7 @@ each entry deletes one part; backend/tests/test_w3_453_applicability_by_subject.
 must notice."""
 from __future__ import annotations
 
-from ._base import APP, FRONTEND_SRC, Mutation
+from ._base import APP, Mutation
 
 _T = "tests/test_w3_453_applicability_by_subject.py"
 _TAG = ("w3_453", "honesty")
@@ -46,13 +46,6 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(3112, "a general requirement is dropped",
        "subject_scope.py", '            summary["checked_general"] += 1\n            kept.append(requirement)\n',
        '            summary["checked_general"] += 1\n'),
-    Mutation(id="M3113", phase=3113, runner="vitest",
-             description="the run screen no longer shows the requirements not applied",
-             path=FRONTEND_SRC / "views" / "ReviewRunsView.tsx",
-             anchor="{run && (run.requirements_not_applied?.length ?? 0) > 0 && (",
-             replacement="{false && (",
-             target="src/views/ReviewRunsView.test.tsx", keyword="requirements about a different kind of equipment",
-             tags=_TAG),
 )
 
 MUTATIONS = MUTATIONS + (

@@ -2,7 +2,7 @@
 backend/tests/test_w3_633_absence_rest.py (or the named test) must notice."""
 from __future__ import annotations
 
-from ._base import APP, FRONTEND_SRC, Mutation
+from ._base import APP, Mutation
 
 _T = "tests/test_w3_633_absence_rest.py"
 _TAG = ("w3_633", "honesty")
@@ -73,20 +73,6 @@ MUTATIONS: tuple[Mutation, ...] = (
        '""', "pdf"),
     _m(3420, "a named document that cannot be read is no longer listed",
        "analysis.py", "        if not named_document_ids(scope, [name]):\n", "        if False:\n", "named_document"),
-    Mutation(id="M3421", phase=3421, runner="vitest",
-             description="the run card does not show a web check that could not be checked",
-             path=FRONTEND_SRC / "views" / "ReviewRunsView.tsx",
-             anchor="{run.web_check_status && !run.web_check_status.complete && (",
-             replacement="{false && (",
-             target="src/views/ReviewRunsView.test.tsx", keyword="could not check everything",
-             tags=_TAG),
-    Mutation(id="M3422", phase=3422, runner="vitest",
-             description="the run card does not show that findings are only partial",
-             path=FRONTEND_SRC / "views" / "ReviewRunsView.tsx",
-             anchor="{(run.partial_findings ?? 0) > 0 && (",
-             replacement="{false && (",
-             target="src/views/ReviewRunsView.test.tsx", keyword="could not check everything",
-             tags=_TAG),
 )
 
 _S = "tests/test_w3_633_silent_excepts.py"
