@@ -937,11 +937,18 @@ def ask(
     # citation or a real per-side "not found", must not reach a path that
     # would answer it from one merged retrieval or from a model's own words.
     comparison_result = None
+    # EITHER questions with no explicitly selected documents are still safe
+    # for Claude-first: its tool scope and history are empty, so it can only
+    # answer from general knowledge. If that first answer declines/fails, the
+    # existing local retrieval pipeline below still handles the ambiguity.
+    # A clearly document-scoped question, however, stays local unless the
+    # reader explicitly chose the files for Claude.
     document_model = (chat_model.LOCAL if model == chat_model.CLAUDE
-                      and not claude_document_selection else model)
+                      and not claude_document_selection
+                      and route_kind == intent_mod.DOCUMENT else model)
     claude_preference = model
     if (model == chat_model.CLAUDE and not claude_document_selection
-            and route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER)):
+            and route_kind == intent_mod.DOCUMENT):
         # A document question with no explicit file selection stays on the
         # local path; Claude may still answer a document-free general question.
         claude_preference = chat_model.LOCAL
