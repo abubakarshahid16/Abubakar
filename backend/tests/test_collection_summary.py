@@ -482,6 +482,72 @@ def test_existing_chat_routes_collection_request_through_its_selected_scope(monk
     assert result["used_line"].startswith("Collection summary incomplete")
 
 
+def test_claude_chat_consent_is_per_request_and_filters_old_document_history(monkeypatch):
+    from app import chat_claude_first, claude_approved
+
+    put_document("selected", ["Selected source text."])
+    put_document("older", ["Older private source text."])
+    seen = []
+
+    def route(question, **_kwargs):
+        return {"kind": intent.DOCUMENT, "text": question, "styles": [],
+                "small_talk": None, "compliance": False}
+
+    def answer(question, *, history, allowed_document_ids, preference, **_kwargs):
+        seen.append({"history": history, "allowed": allowed_document_ids,
+                     "carried": claude_approved.carried(), "preference": preference})
+        if preference == "local":
+            return None
+        return {"question": question, "answer_type": "general", "answer": "A chat answer.",
+                "reason": None, "passages": [], "cited": [], "provider": "claude",
+                "model": "claude-test", "seconds": 0.0, "retrieval_mode": "claude_tools",
+                "reranked": False, "candidates_considered": 0, "timings": {},
+                "steps": [], "claims": [], "notices": []}
+
+    monkeypatch.setattr(intent, "route", route)
+    monkeypatch.setattr(chat_claude_first, "answer", answer)
+    local_calls = []
+
+    def local_document_answer(_conversation_id, resolved, _understood, **kwargs):
+        local_calls.append(kwargs)
+        return ({"question": resolved, "answer_type": "general", "answer": "Local answer.",
+                 "reason": None, "passages": [], "cited": [], "provider": "ollama",
+                 "seconds": 0.0, "retrieval_mode": "keyword", "reranked": False,
+                 "candidates_considered": 0, "timings": {}, "notices": []}, resolved)
+
+    monkeypatch.setattr(chat, "_document_answer", local_document_answer)
+
+    def add_old_turn(conversation_id):
+        conn = db.connect()
+        chat._insert_message(conn, conversation_id, role="user", text="Earlier question",
+                             carried_terms=[])
+        chat._insert_message(conn, conversation_id, role="assistant",
+                             text="Older private source text.", answer_type="generated",
+                             payload={"document_ids": ["older"]})
+
+    selected_conversation = chat.create_conversation()
+    add_old_turn(selected_conversation["id"])
+    selected_result = chat.ask(
+        selected_conversation["id"], "What does the selected file say?",
+        allowed_document_ids=frozenset({"selected", "older"}),
+        document_ids=frozenset({"selected"}), model="claude")
+
+    assert seen[-1]["allowed"] == frozenset({"selected"})
+    assert seen[-1]["carried"] == frozenset({"selected"})
+    assert "Older private source text." not in seen[-1]["history"]
+    assert selected_result["provider"] == "claude"
+
+    no_selection_conversation = chat.create_conversation()
+    add_old_turn(no_selection_conversation["id"])
+    chat.ask(no_selection_conversation["id"], "What does the file say?",
+             allowed_document_ids=frozenset({"selected", "older"}), model="claude")
+    assert seen[-1]["allowed"] == frozenset()
+    assert seen[-1]["carried"] == frozenset()
+    assert "Older private source text." not in seen[-1]["history"]
+    assert seen[-1]["preference"] == "local"
+    assert local_calls[-1]["model"] == "local"
+
+
 def test_chat_does_not_silently_drop_a_selected_document_after_access_revocation(monkeypatch):
     put_document("allowed", ["Inspection is scheduled."])
     put_document("revoked", ["Inspection is scheduled."])

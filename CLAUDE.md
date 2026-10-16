@@ -36,10 +36,11 @@ carries the client's name; only the owner can rename it.
    `reader_transport.py`, only under the budget of **USD 5 per step /
    USD 20 in total** (enforced in `claude_spend`), and with **no document text
    in logs, GitHub issues, PRs or CI**. Every other outbound path for document
-   content stays forbidden. For chat collection summaries only, the user may
-   choose Claude and explicitly select the documents for that request; that
-   selection is per-request consent for only those files. Local sends no file
-   content to Claude; Claude without explicit document selection stays local.
+   content stays forbidden. In chat, the user may choose Claude and explicitly
+   select the documents for that request; that selection is per-request consent
+   for only those files. Local sends no file content to Claude; Claude without
+   explicit document selection can answer general questions but gets no document
+   content from the library or prior document-bearing chat history.
    Other Claude workflows retain the owner-approved document list. The market search sends only the human-typed
    phrase, previewed and approved per query. Only four modules may open a
    socket, each behind a gate:
