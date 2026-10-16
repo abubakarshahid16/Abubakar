@@ -21,7 +21,7 @@ import { LoginView, RoleBadge, type LoginOutcome } from "./views/LoginView";
 import { AnalysisModeScreen } from "./views/AnalysisModeScreen";
 import { ReportsScreen } from "./views/ReportsScreen";
 import { DeliverablesView } from "./views/DeliverablesView";
-import { ReviewRunsView } from "./views/ReviewRunsView";
+import { ReviewSheetView } from "./views/ReviewSheetView";
 import { SubmittalsLandingView } from "./views/SubmittalsLandingView";
 import type { AuthStatus, Me } from "./types/api";
 import { NavigationContext } from "./components/NavLink";
@@ -336,8 +336,9 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
               existing review screen (unchanged - that is PR2's job). */}
           {view === "review" && (
             route.kind === "view" && route.recordId ? (
-              <ReviewRunsView
-                openRunId={route.recordId}
+              <ReviewSheetView
+                key={route.recordId} runId={route.recordId}
+                onBack={() => onNavigate("review")}
                 onOpenStandards={() => onNavigate("standards")}
                 isAdmin={canAdmin}
               />

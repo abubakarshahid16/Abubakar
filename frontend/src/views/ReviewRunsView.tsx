@@ -37,6 +37,7 @@ import {
   progressLine, summaryTotals, totalFromResponse, truncationNote, whenLabel, withDenominator,
 } from "../components/review/reviewFormat";
 import { ReviewPipeline } from "./ReviewPipeline";
+import { downloadCrs } from "../components/review/downloadCrs";
 
 type Phase =
   | { kind: "loading" }
@@ -99,18 +100,8 @@ export function ReviewRunsView(
   async function exportCrs(runId: string, copy: "internal" | "issue" = "internal") {
     setExporting(true);
     setExportError(null);
-    const result = await reviewsApi.exportCrs(runId, copy);
+    setExportError(await downloadCrs(runId, copy));
     setExporting(false);
-    if (!result.ok) {
-      setExportError(result.error.message);
-      return;
-    }
-    const url = URL.createObjectURL(result.data.blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = result.data.filename;
-    link.click();
-    URL.revokeObjectURL(url);
   }
 
   /** Show the CRS in the application, or hide it again.
