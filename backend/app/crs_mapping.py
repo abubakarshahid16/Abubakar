@@ -305,7 +305,8 @@ _NOT_APPLICABLE = "NOT_APPLICABLE"
 
 
 def build_review_notes(findings: list[dict], missing_references: list[str],
-                       unread_pages: list[int] | None = None) -> list[dict]:
+                       unread_pages: list[int] | None = None,
+                       outcome: dict | None = None) -> list[dict]:
     """The engineer's internal notes for one run - never a contractor comment.
 
     One row per cited standard not held; one row for the pages not read into
@@ -317,7 +318,9 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
     count states its boundary: "of this run's requirements from <standard>".
     Last, one note per requirement found NOT APPLICABLE because the
     datasheet's own facts put it outside the requirement's condition, quoting
-    the condition and the value (and page) that decided it.
+    the condition and the value (and page) that decided it. Last of all,
+    rule_trust (#947): the fields no rule checked and the spot-check sample,
+    from the run's stored `outcome` (`rule_trust.review_notes`).
     """
     notes: list[dict] = []
     for ref in missing_references:
@@ -375,6 +378,9 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
                           "standard": ref, "count": None,
                           "detail": (f"{_clause_sentence(f, 160)}. Not checked: "
                                      f"{_reason_words(f)}")})
+    if outcome:
+        from .rule_trust import review_notes
+        notes.extend(review_notes(outcome, findings))
     return notes
 
 

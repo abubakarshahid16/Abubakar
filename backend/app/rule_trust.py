@@ -428,3 +428,55 @@ def record_audit_outcome(finding_id: str, key: str, *, correct: bool, engineer: 
                          (INVALID, f"audit error on finding {finding_id}", key))
     row = conn.execute("SELECT * FROM rule_family_proof WHERE family_key = ?", (key,)).fetchone()
     return dict(row) if row else None
+
+
+def review_notes(outcome: dict, findings: list[dict]) -> list[dict]:
+    """Steps 7 and 10 on the CRS Review notes sheet (internal), for crs_mapping:
+    the datasheet fields no applicable rule checked, and the automatic
+    findings drawn for an engineer's spot-check. Nothing on a run made with
+    the switch off (it stored no `rule_trust`). Every count names its
+    denominator: this run's fields read with a value; this run's findings
+    decided by a proven rule."""
+    trust = outcome.get("rule_trust") or {}
+    if not trust:
+        return []
+    notes = []
+    fields = [str(f) for f in (trust.get("uncovered_fields") or []) if f]
+    read = trust.get("fields_read")
+    notes.append({
+        "note": "Not checked by any rule", "standard": "", "count": len(fields),
+        "detail": (f"{len(fields)} of {read} datasheet fields read with a value that no "
+                   f"applicable rule targets: {', '.join(fields)}." if fields else
+                   f"Every one of the {read} datasheet fields read with a value is targeted "
+                   "by an applicable rule.")})
+    sample = set(trust.get("audit_sample") or [])
+    if sample:
+        by_id = {f.get("id"): f for f in findings}
+        where = []
+        for fid in trust.get("audit_sample") or []:
+            f = by_id.get(fid) or {}
+            page = f.get("contractor_page")
+            field = f.get("contractor_section") or f.get("matched_phrase") or fid
+            where.append(f"p.{page} {field}" if page else str(field))
+        notes.append({
+            "note": "Spot-check automatic findings", "standard": "", "count": len(sample),
+            "detail": (f"{len(sample)} of {trust.get('auto_proven')} findings decided by a "
+                       f"proven rule, drawn at random for an engineer's check: "
+                       f"{'; '.join(where)}. One wrong one drops the family's proof.")})
+    return notes
+
+
+def record_engineer_decision(finding: dict, decision: str, *, actor: str, note: str) -> None:
+    """Step 10, for crs_issue: an engineer's decision on a finding a PROVEN
+    rule decided is that rule family's spot-check outcome. Accept = correct;
+    reject = an audit error, which drops the family to UNPROVEN at once
+    (`record_audit_outcome`). Nothing for a finding the run did
+    not label as AUTO_PROVEN."""
+    if finding.get("trust_label") != AUTO_PROVEN:
+        return
+    from . import classification
+
+    stored = classification.of_document(finding["document_id"]) or {}
+    key = family_key(finding.get("standard_document_id") or "", stored.get("equipment_type"))
+    record_audit_outcome(finding["id"], key, correct=decision == "accept",
+                         engineer=actor, note=note)
