@@ -151,9 +151,11 @@ def read_document(page_texts: dict[int, str], equipment_type: str | None,
         reading = FormReading(fields=fields, status={f.key: "missing" for f in fields})
         return as_ai_run(reading, pages, engine=engine, model=None, unavailable=why)
     reading = read_form(page_texts, equipment_type, model_call, fields=fields,
-                        max_seconds=float(settings.datasheet_ai_max_seconds))
+                        max_seconds=float(settings.datasheet_ai_max_seconds),
+                        batch_size=int(settings.form_reader_batch_size))
     run = as_ai_run(reading, pages, engine=engine, model=model, unavailable=None)
     run["equipment_type"] = equipment_type
+    run["form_batch_size"] = int(settings.form_reader_batch_size)    # what the run asked per call
     return run
 
 

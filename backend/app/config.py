@@ -573,6 +573,12 @@ class Settings(BaseSettings):
     #: The local model the "ollama" engine uses; empty = `answer_model`.
     #: Env: DATASHEET_AI_OLLAMA_MODEL.
     datasheet_ai_ollama_model: str = ""
+    #: How many fields one form-reader call asks for (1 to 25). Measured on the
+    #: PC (17 Oct 2026, local qwen3.5:4b, a real pump sheet, 46 fields): 25 per
+    #: call never finished inside DATASHEET_AI_TIMEOUT_SECONDS (0 form facts); 8
+    #: per call read the page and agreed with all 24 code-read values. A faster
+    #: engine may take more. Env: FORM_READER_BATCH_SIZE.
+    form_reader_batch_size: int = 8
     #: WHICH AI READING runs inside extraction (the engine is still
     #: DATASHEET_AI_READER; with that "off" no AI reading runs in any mode):
     #:   "merge" - THE DEFAULT, unchanged: `datasheet_ai` reads every row it
@@ -1380,6 +1386,14 @@ class Settings(BaseSettings):
         or fail every call at once (timeout): refused at startup instead."""
         if self.datasheet_ai_timeout_seconds <= 0 or self.datasheet_ai_max_seconds <= 0:
             raise ValueError("DATASHEET_AI_TIMEOUT_SECONDS and DATASHEET_AI_MAX_SECONDS must be positive")
+        return self
+
+    @model_validator(mode="after")
+    def _form_reader_batch_size_is_sane(self) -> Settings:
+        """0 would ask for nothing, more than the form's own cap would send one
+        call bigger than the reader's schema allows: refused at startup."""
+        if not 1 <= int(self.form_reader_batch_size) <= 25:
+            raise ValueError("FORM_READER_BATCH_SIZE must be between 1 and 25")
         return self
 
     @model_validator(mode="after")
