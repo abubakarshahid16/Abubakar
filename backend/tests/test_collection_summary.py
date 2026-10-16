@@ -249,9 +249,12 @@ def test_final_and_final_retry_use_a_summary_sized_output_budget(monkeypatch):
                                  "prompt", target_words=450)
     analysis.collection_generate(synthesis.COLLECTION_INTERMEDIATE_SYSTEM_PROMPT,
                                  "prompt", target_words=450)
+    analysis.collection_generate(synthesis.COLLECTION_RETRY_SYSTEM_PROMPT,
+                                 "prompt", target_words=450)
     assert bodies[0]["options"]["num_predict"] == 1280
     assert bodies[1]["options"]["num_predict"] == 1280
     assert bodies[2]["options"]["num_predict"] == 220
+    assert bodies[3]["options"]["num_predict"] == 384
 
 
 def test_known_unread_page_refuses_before_generation():
@@ -455,6 +458,61 @@ def test_rejected_model_draft_gets_one_citation_checked_retry(first_draft):
         allowed_document_ids=ids, generate=reader)
     assert result["answer_type"] == "generated", result["reason"]
     assert synthesis.COLLECTION_RETRY_SYSTEM_PROMPT in reader.systems
+    assert result["summary_coverage"]["cited_documents"] == 2
+
+
+def test_truncated_intermediate_draft_gets_a_bounded_citation_checked_retry():
+    for doc_id in ("one", "two"):
+        put_document(doc_id, ["Inspection is scheduled.", "Inspection is scheduled."])
+    ids = frozenset({"one", "two"})
+
+    class TruncateFirstMap(Reader):
+        def __init__(self):
+            super().__init__()
+            self.did_truncate = False
+
+        def __call__(self, system: str, prompt: str) -> synthesis.Generation:
+            if system == synthesis.COLLECTION_INTERMEDIATE_SYSTEM_PROMPT and not self.did_truncate:
+                self.did_truncate = True
+                self.prompts.append(prompt)
+                self.systems.append(system)
+                return synthesis.Generation("Inspection is scheduled", truncated=True)
+            return super().__call__(system, prompt)
+
+    reader = TruncateFirstMap()
+    result = analysis.collection_summary(
+        "Summarize these two documents in one page", ids,
+        allowed_document_ids=ids, generate=reader)
+    assert result["answer_type"] == "generated", result["reason"]
+    assert synthesis.COLLECTION_RETRY_SYSTEM_PROMPT in reader.systems
+    assert result["summary_coverage"]["processed"] == 2
+    assert result["summary_coverage"]["cited_documents"] == 2
+
+
+def test_truncated_final_draft_gets_a_coverage_checked_retry():
+    for doc_id in ("one", "two"):
+        put_document(doc_id, ["Inspection is scheduled.", "Inspection is scheduled."])
+    ids = frozenset({"one", "two"})
+
+    class TruncateFirstFinal(Reader):
+        def __init__(self):
+            super().__init__()
+            self.did_truncate = False
+
+        def __call__(self, system: str, prompt: str) -> synthesis.Generation:
+            if system.startswith("You write an overview") and not self.did_truncate:
+                self.did_truncate = True
+                self.prompts.append(prompt)
+                self.systems.append(system)
+                return synthesis.Generation("Inspection is scheduled", truncated=True)
+            return super().__call__(system, prompt)
+
+    reader = TruncateFirstFinal()
+    result = analysis.collection_summary(
+        "Summarize these two documents in one page", ids,
+        allowed_document_ids=ids, generate=reader)
+    assert result["answer_type"] == "generated", result["reason"]
+    assert any(system.startswith("Write the requested overview") for system in reader.systems)
     assert result["summary_coverage"]["cited_documents"] == 2
 
 
