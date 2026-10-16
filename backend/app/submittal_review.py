@@ -343,8 +343,14 @@ def ensure_schema() -> None:
         conn.execute(
             """CREATE TABLE IF NOT EXISTS submittal_facts (
                 id TEXT PRIMARY KEY,
-                review_run_id TEXT NOT NULL
-                    REFERENCES review_runs(id) ON DELETE CASCADE,
+                -- #890: NULLABLE from the first CREATE, the same shape
+                -- `migrate_facts_to_per_document` gives an old database. A
+                -- fresh database used to get NOT NULL here and only the
+                -- server's startup migration relaxed it, so any process that
+                -- never ran startup (loaders, tests) failed every upload-time
+                -- read of a sheet's values.
+                review_run_id TEXT
+                    REFERENCES review_runs(id) ON DELETE SET NULL,
                 submittal_document_id TEXT NOT NULL
                     REFERENCES documents(id) ON DELETE CASCADE,
                 field_name TEXT NOT NULL,
