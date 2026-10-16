@@ -143,7 +143,7 @@ export function ChatView({
   const [recordsFailure, setRecordsFailure] = useState<ApiError | null>(null);
   const [recordsSearched, setRecordsSearched] = useState(false);
 
-  const bottom = useRef<HTMLDivElement>(null);
+  const threadScroller = useRef<HTMLDivElement>(null);
   const abort = useRef<AbortController | null>(null);
   const pendingRef = useRef<Pending | null>(null);
   pendingRef.current = pending;
@@ -270,8 +270,11 @@ export function ChatView({
   }, [progressId]);
 
   useEffect(() => {
-    const el = bottom.current;
-    if (el && typeof el.scrollIntoView === "function") el.scrollIntoView({ block: "end" });
+    // Scroll only the transcript pane. scrollIntoView can also move the page
+    // itself; with a large selected-document list that made the new question
+    // jump to the top and pushed the composer off-screen.
+    const el = threadScroller.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [messages.length, pending?.text, waitingHere]);
 
   // --------------------------------------------------------------- asking
@@ -819,6 +822,8 @@ export function ChatView({
             so the reader's focus and a failed question's text survive the
             move instead of landing in a box that was just replaced. */}
         <div
+          ref={threadScroller}
+          data-testid="chat-thread-scroller"
           className={
             empty
               ? "mx-auto flex w-full max-w-[820px] flex-col justify-end px-2 pt-10 sm:flex-1"
@@ -834,7 +839,6 @@ export function ChatView({
               )}
               {thread}
               {failure && <ErrorState error={failure} />}
-              <div ref={bottom} />
             </div>
           )}
         </div>
