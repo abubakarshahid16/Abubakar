@@ -701,6 +701,24 @@ def _declaring_the_conversation(fn):
     @functools.wraps(fn)
     def declared(conversation_id: str, question: str, *args, **kwargs):
         from . import claude_approved
+        # An explicit Claude+document choice is per-request consent for exactly
+        # those files. It replaces old conversation scope, while tool reads
+        # remain bounded by `allowed_document_ids` inside `ask`.
+        selected = frozenset(kwargs.get("document_ids") or ())
+        if not selected:
+            explicit_doc = kwargs.get("document_id")
+            if explicit_doc is None and len(args) > 1:
+                explicit_doc = args[1]  # ask's positional document_id
+            if explicit_doc:
+                selected = frozenset({explicit_doc})
+        if kwargs.get("model") == "claude" and selected:
+            with claude_approved.per_request_consent(selected):
+                return fn(conversation_id, question, *args, **kwargs)
+        if kwargs.get("model") == "claude":
+            # Claude may still answer a general question, but a selected model
+            # alone is not consent to send documents from chat history.
+            with claude_approved.carrying(()):
+                return fn(conversation_id, question, *args, **kwargs)
         with claude_approved.carrying(conversation_document_ids(conversation_id)):
             return fn(conversation_id, question, *args, **kwargs)
     return declared
@@ -742,6 +760,13 @@ def ask(
     # whole permission, so picking a document does not blank the history.
     retrieval_allowed = (allowed_document_ids & frozenset(document_ids)
                          if document_ids else allowed_document_ids)
+    claude_document_selection = (frozenset(document_ids) if document_ids else
+                                 frozenset({selected_document}) if selected_document else
+                                 frozenset())
+    history_allowed = allowed_document_ids
+    if model == "claude":
+        history_allowed = (allowed_document_ids & claude_document_selection
+                           if claude_document_selection else frozenset())
     if document_ids and document_id not in retrieval_allowed:
         # the picked documents win over the conversation's older single scope
         document_id = None
@@ -780,7 +805,7 @@ def ask(
         # IS SEARCHED. Only a document-kind message reaches retrieval; small
         # talk, general questions, rewrites, actions and record searches never
         # do - so none of them can produce a passage, a citation or a finding.
-        previous = last_answer(conversation_id, allowed_document_ids=allowed_document_ids)
+        previous = last_answer(conversation_id, allowed_document_ids=history_allowed)
         routed = intent_mod.route(
             question, has_previous_answer=previous is not None,
             document_in_scope=bool(selected_document or conversation["document_id"]
@@ -839,7 +864,7 @@ def ask(
             return ""
         local = (model == chat_model.LOCAL) or not chat_model.claude_ready()[0]
         turns = chat_model.history(
-            conversation_id, allowed_document_ids=allowed_document_ids,
+            conversation_id, allowed_document_ids=history_allowed,
             before_ordinal=user_message["ordinal"],
             token_budget=(settings.chat_history_local_token_budget if local
                           else settings.chat_history_token_budget))
@@ -912,6 +937,14 @@ def ask(
     # citation or a real per-side "not found", must not reach a path that
     # would answer it from one merged retrieval or from a model's own words.
     comparison_result = None
+    document_model = (chat_model.LOCAL if model == chat_model.CLAUDE
+                      and not claude_document_selection else model)
+    claude_preference = model
+    if (model == chat_model.CLAUDE and not claude_document_selection
+            and route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER)):
+        # A document question with no explicit file selection stays on the
+        # local path; Claude may still answer a document-free general question.
+        claude_preference = chat_model.LOCAL
     if (collection_result is None and inventory_result is None and explain_of is None
             and route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER)
             and chat_comparison.is_comparison_question(resolved)):
@@ -921,7 +954,7 @@ def ask(
             comparison_result = chat_comparison.compare(
                 resolved, comparison_sides, tier=tier,
                 allowed_document_ids=retrieval_allowed, progress_id=progress_id,
-                model=model, history=memory(), missing=comparison_missing)
+                model=document_model, history=memory(), missing=comparison_missing)
 
     # ISSUE #373: a question naming a FAMILY of standards in general words
     # ("the welding standards") is searched per standard, never in one shared
@@ -932,7 +965,7 @@ def ask(
             and route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER)):
         comparison_result, family_notice = family_search.run(
             resolved, documents_map, tier=tier, allowed_document_ids=retrieval_allowed,
-            progress_id=progress_id, model=model, history=memory())
+            progress_id=progress_id, model=document_model, history=memory())
 
     spec_shaped_result = None
     if (collection_result is None and inventory_result is None and comparison_result is None and explain_of is None
@@ -942,7 +975,7 @@ def ask(
             conversation_id, resolved, understood, tier=tier, document_id=document_id,
             selected_document=selected_document, limit=limit,
             allowed_document_ids=retrieval_allowed, progress_id=progress_id,
-            model=model, history=memory())
+            model=document_model, history=memory())
 
     claude_first_result = None
     #: USD a failed first Claude call was charged before this turn fell back
@@ -963,9 +996,12 @@ def ask(
         from . import chat_claude_first
         claude_first_result = chat_claude_first.answer(
             original, history=memory(always=True),
-            allowed_document_ids=claude_scope(retrieval_allowed, document_id=document_id,
-                                              picked=bool(document_ids), understood=understood),
-            web_enabled=web, preference=model, on_fallback_cost=fallback_spent.append,
+            allowed_document_ids=(
+                claude_scope(retrieval_allowed, document_id=document_id,
+                             picked=bool(document_ids), understood=understood)
+                if model != chat_model.CLAUDE or claude_document_selection
+                else frozenset()),
+            web_enabled=web, preference=claude_preference, on_fallback_cost=fallback_spent.append,
             on_fallback_reason=fallback_why.append, on_unverified=claude_unverified.append)
 
     if collection_result is not None:
@@ -996,7 +1032,7 @@ def ask(
             conversation_id, resolved, understood, tier=tier, document_id=document_id,
             selected_document=selected_document, limit=limit,
             allowed_document_ids=retrieval_allowed, progress_id=progress_id,
-            model=model, history=memory())
+            model=document_model, history=memory())
         if (route_kind == intent_mod.EITHER
                 and result["answer_type"] == "insufficient_evidence"):
             # NO DOCUMENT SIGNAL, AND THE DOCUMENTS DO NOT ANSWER IT: general
@@ -1027,7 +1063,7 @@ def ask(
             # the @-picked documents narrow this search too (intersection,
             # CLAUDE.md rule 5) - it used to search every readable document
             allowed_document_ids=retrieval_allowed, progress_id=progress_id,
-            model=model, history=memory(always=True))
+            model=document_model, history=memory(always=True))
     elif route_kind == intent_mod.REWRITE:
         result = chat_answers.rewrite(previous, styles=routed["styles"], history=memory(always=True),
                                       preference=model, question=original)
