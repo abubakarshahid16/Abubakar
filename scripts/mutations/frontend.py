@@ -498,7 +498,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M967", phase=83, runner="vitest",
         description='the footer hides that Claude receives the question',
         path=FRONTEND_SRC / 'views' / 'ChatView.tsx',
-        anchor='      {model === "claude" &&\n        " Claude writes these answers: your question and the passages it needs are sent to it."}\n',
+        anchor='      {model === "claude" &&\n        " Claude sends the question and source passages it needs to Anthropic. Only owner-approved documents can go; other selections stay local. Standard API retention is up to 30 days, with exceptions. "}\n',
         replacement='',
         target="src/views/ChatView.redesign.test.tsx",
         keyword='says honestly that Claude receives',
@@ -753,3 +753,4 @@ MUTATIONS: tuple[Mutation, ...] = (
         tags=("ui", "crs"),
     ),
 )
+
