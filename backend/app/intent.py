@@ -590,14 +590,31 @@ def route(message: str, *, has_previous_answer: bool = False,
 
 
 _COLLECTION_SUMMARY = re.compile(
-    r"\b(?:summari[sz]e|summariee|summary|overview|recap)\b", re.IGNORECASE)
+    r"\b(?:summari[sz]e|summariee|summary|overview|recap|digest)\b", re.IGNORECASE)
+_COLLECTION_SUMMARY_ACTION = re.compile(
+    r"\b(?:summari[sz]e|summariee|overview|recap|digest)\b"
+    r"|\b(?:give|write|create|make|provide|prepare)\b.{0,32}\bsummary\b"
+    r"|\bsummary\s+of\b",
+    re.IGNORECASE)
 _COLLECTION_SCOPE = re.compile(
-    r"\b(?:all|these|selected|uploaded|documents|files|pdfs)\b", re.IGNORECASE)
+    r"\b(?:all|these|those|selected|uploaded|documents|files|pdfs|them|both)\b",
+    re.IGNORECASE)
 
 
-def is_collection_summary(message: str) -> bool:
-    """An explicit request to summarise a document set in the same chat."""
-    return bool(_COLLECTION_SUMMARY.search(message) and _COLLECTION_SCOPE.search(message))
+def is_collection_summary(message: str, *, selected_document_count: int = 0) -> bool:
+    """Recognise a set-summary request from wording and the chat's selection.
+
+    Like a human chat assistant, use the selected-document context when the
+    reader says "summarize them" rather than requiring them to repeat "these
+    documents". Keep noun mentions ("what does the summary section say?") out
+    of the summary route, even when several documents happen to be selected.
+    """
+    if not _COLLECTION_SUMMARY.search(message):
+        return False
+    if selected_document_count >= 2:
+        return bool(_COLLECTION_SUMMARY_ACTION.search(message))
+    return bool(_COLLECTION_SCOPE.search(message)
+                and _COLLECTION_SUMMARY_ACTION.search(message))
 
 
 def small_talk_reply(kind: str, *, provider_line: str) -> str:

@@ -414,6 +414,10 @@ def test_collection_intent_is_explicit_and_does_not_capture_ordinary_questions()
     assert intent.is_collection_summary("Summarize these ten documents in one page")
     assert intent.is_collection_summary("Give me an overview of the selected PDFs")
     assert intent.is_collection_summary("read all document and summariee them")
+    assert intent.is_collection_summary("summarize them in one page", selected_document_count=10)
+    assert intent.is_collection_summary("make a short summary", selected_document_count=10)
+    assert not intent.is_collection_summary(
+        "what does the summary section say?", selected_document_count=10)
     assert not intent.is_collection_summary("Summarize this document")
     assert not intent.is_collection_summary("Summarize this file")
     assert not intent.is_collection_summary("What is the pressure limit in API 610?")
@@ -473,7 +477,7 @@ def test_existing_chat_routes_collection_request_through_its_selected_scope(monk
                 "candidates_considered": 0, "seconds": 0.0, "timings": {}}
 
     monkeypatch.setattr(analysis, "collection_summary", fake_summary)
-    result = chat.ask(convo["id"], "read all document and summariee them",
+    result = chat.ask(convo["id"], "summarize them in one page",
                       allowed_document_ids=frozenset({"one"}),
                       document_ids=frozenset({"one"}), model="claude")
     assert seen["ids"] == frozenset({"one"})
