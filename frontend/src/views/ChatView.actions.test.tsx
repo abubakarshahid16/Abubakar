@@ -66,11 +66,16 @@ function mockApi({
   } as unknown,
   feedbackStatus = 200,
   stream,
+  documents = [
+    { id: "doc_ds", filename: "sample-datasheet.pdf" },
+    { id: "doc_std", filename: "sample-standard.pdf" },
+  ],
 }: {
   messages?: Message[];
   filed?: unknown;
   feedbackStatus?: number;
   stream?: string;
+  documents?: { id: string; filename: string }[];
 } = {}) {
   const calls: Call[] = [];
   vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -91,10 +96,7 @@ function mockApi({
     if (url.includes("/comment") && call.method === "POST") return Promise.resolve(json(filed));
     if (url.includes("/comment/") && call.method === "DELETE") return Promise.resolve(json({ finding_id: "f_1", withdrawn: true }));
     if (url.includes("/documents?limit=50")) {
-      return Promise.resolve(json([
-        { id: "doc_ds", filename: "sample-datasheet.pdf" },
-        { id: "doc_std", filename: "sample-standard.pdf" },
-      ]));
+      return Promise.resolve(json(documents));
     }
     if (url.endsWith("/ask/stream")) {
       return Promise.resolve(new Response(stream ?? "", { status: 200, headers: { "Content-Type": "text/event-stream" } }));
@@ -219,6 +221,34 @@ describe("add to comment sheet", () => {
 // ------------------------------------------------------------ @ a document
 
 describe("@ a document", () => {
+  it("keeps ten selected documents compact while the submitted question stays visible", async () => {
+    const documents = Array.from({ length: 10 }, (_, i) => ({
+      id: `doc_${i}`,
+      filename: `schedule-${i + 1}.docx`,
+    }));
+    const calls = mockApi({ messages: [question, general()], documents });
+    await openConversation();
+    await userEvent.click(await screen.findByRole("button", { name: /^@ a document/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Choose documents" });
+    for (const document of documents) {
+      await userEvent.click(await within(dialog).findByRole("checkbox", { name: document.filename }));
+    }
+    await userEvent.click(within(dialog).getByRole("button", { name: "Done" }));
+
+    expect(screen.getByText("10 documents selected")).toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "Answering from" })).toBeNull();
+    await userEvent.type(screen.getByLabelText("Your question"), "Read all selected documents and summarize them in one page");
+    const thread = screen.getByTestId("chat-thread-scroller");
+    Object.defineProperty(thread, "scrollHeight", { configurable: true, value: 500 });
+    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+
+    await waitFor(() => expect(calls.filter((c) => c.url.endsWith("/ask/stream")).at(-1)?.body.document_ids)
+      .toEqual(documents.map((d) => d.id)));
+    await waitFor(() => expect(thread.scrollTop).toBe(500));
+    expect(await screen.findByText("Read all selected documents and summarize them in one page")).toBeInTheDocument();
+    expect(screen.getByText("10 documents selected")).toBeInTheDocument();
+  });
+
   it("sends exactly the documents picked, and none once they are removed", async () => {
     const calls = mockApi({ messages: [question, general()] });
     await openConversation();
