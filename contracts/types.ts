@@ -2189,6 +2189,17 @@ export interface AnswerResult extends ChatPresentation {
   /** Report-only. Null for a refusal, and null for an answer produced without
    *  the cross-encoder (nothing was scored for credibility). */
   coverage: Coverage | null;
+  /** Collection summary boundary, including each selected document's processing status. */
+  summary_coverage?: {
+    requested: number;
+    processed: number;
+    cited_documents: number;
+    target_words: number | null;
+    actual_words: number | null;
+    documents: Array<{ document_id: string; filename: string; status: string;
+      chunks_used: number; chunks_total: number; pages_total: number | null;
+      pages_unread: number[]; pages_excluded: number[] }>;
+  } | null;
   /** guidance only: real questions drawn from the loaded documents */
   examples: string[];
   /** B6C */

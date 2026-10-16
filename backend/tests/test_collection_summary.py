@@ -1,0 +1,396 @@
+"""The chat collection path must account for every selected document."""
+
+import logging
+import re
+
+import pytest
+
+from app import analysis, chat, db, intent, synthesis
+from app.config import settings
+from app.schemas import AnswerResult
+
+
+@pytest.fixture(autouse=True)
+def private_database(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "db_path", tmp_path / "summary.sqlite")
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    db.reset_connection()
+    db.init_db()
+    yield
+    db.reset_connection()
+
+
+def put_document(doc_id: str, text: list[str], *, status: str = "ready") -> None:
+    conn = db.connect()
+    with conn:
+        conn.execute(
+            """INSERT INTO documents
+               (id, filename, sha256, size_bytes, stored_path, uploaded_at,
+                status, chunk_count_total)
+               VALUES (?, ?, ?, 1, ?, '2026-10-16T00:00:00Z', ?, ?)""",
+            (doc_id, f"{doc_id}.pdf", doc_id, f"{doc_id}.pdf", status, len(text)),
+        )
+        for i, passage in enumerate(text):
+            conn.execute(
+                """INSERT INTO chunks
+                   (id, document_id, filename, ordinal, page_start, page_end,
+                    text, token_count, content_hash)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 10, ?)""",
+                (f"{doc_id}-{i}", doc_id, f"{doc_id}.pdf", i,
+                 i + 1, i + 1, passage, f"hash-{doc_id}-{i}"),
+            )
+
+
+class Reader:
+    def __init__(self, final: str | None = None):
+        self.prompts: list[str] = []
+        self.systems: list[str] = []
+        self.final = final
+
+    def __call__(self, system: str, prompt: str) -> synthesis.Generation:
+        self.prompts.append(prompt)
+        self.systems.append(system)
+        if (system.startswith("You write an overview")
+                or system.startswith("Write the requested overview")) and self.final is not None:
+            return synthesis.Generation(self.final, truncated=False)
+        markers = re.findall(r"(\[S\d+\]) \(", prompt)
+        return synthesis.Generation(
+            "Inspection is scheduled " + " ".join(markers) + ".", truncated=False)
+
+
+def test_ten_document_request_reads_every_selected_document_and_cites_original_pages():
+    for n in range(10):
+        put_document(f"d{n}", ["Inspection is scheduled.",
+                                "Inspection is scheduled for the next visit."])
+    reader = Reader()
+    ids = frozenset(f"d{n}" for n in range(10))
+    result = analysis.collection_summary(
+        "Summarize these ten documents in one page", ids,
+        allowed_document_ids=ids, generate=reader)
+    assert result["answer_type"] == "generated", result["reason"]
+    assert result["summary_coverage"]["requested"] == 10
+    assert result["summary_coverage"]["processed"] == 10
+    assert result["summary_coverage"]["cited_documents"] == 10
+    assert result["summary_coverage"]["target_words"] == 450
+    assert result["summary_coverage"]["actual_words"] == len(result["answer"].split())
+    assert "shorter than the requested" in result["notices"][0]
+    assert all(d["chunks_used"] == 2 for d in result["summary_coverage"]["documents"])
+    assert result["passages"]
+    assert all(p["document_id"] in ids and p["page_start"] >= 1 for p in result["passages"])
+    assert "[S1]" in result["answer"]
+    AnswerResult.model_validate(result)
+    assert len(reader.prompts) >= 11  # per-document work, then cross-document reduction
+
+
+def test_twenty_selected_documents_use_the_same_chat_summary_engine():
+    ids = frozenset(f"d{n}" for n in range(20))
+    for doc_id in ids:
+        put_document(doc_id, ["Inspection is scheduled.", "Inspection is scheduled."])
+    reader = Reader()
+    result = analysis.collection_summary(
+        "Summarize these 20 documents in two pages", ids,
+        allowed_document_ids=ids, generate=reader)
+    assert result["answer_type"] == "generated", result["reason"]
+    assert result["summary_coverage"]["cited_documents"] == 20
+    assert any("about 900 words" in system for system in reader.systems)
+    assert "[S20]" in reader.prompts[-1], "the final call should see every document note"
+
+
+def test_same_filename_uploads_remain_distinct_documents():
+    ids = frozenset({"first", "second"})
+    for doc_id in ids:
+        put_document(doc_id, ["Inspection is scheduled.", "Inspection is scheduled."])
+    conn = db.connect()
+    with conn:
+        conn.execute("UPDATE documents SET filename = 'report.pdf' WHERE id IN ('first', 'second')")
+        conn.execute("UPDATE chunks SET filename = 'report.pdf' WHERE document_id IN ('first', 'second')")
+    result = analysis.collection_summary(
+        "Summarize these two documents", ids,
+        allowed_document_ids=ids, generate=Reader())
+    assert result["answer_type"] == "generated", result["reason"]
+    assert result["summary_coverage"]["cited_documents"] == 2
+
+
+@pytest.mark.parametrize("question_text, expected", [
+    ("Summarize these documents in 200 words", 200),
+    ("Summarize these documents in one page", 450),
+    ("Give a brief overview of these files", 150),
+    ("Give a detailed overview of these files", 700),
+])
+def test_requested_length_changes_the_writing_target(question_text, expected):
+    assert analysis.requested_summary_words(question_text) == expected
+
+
+def test_final_and_final_retry_use_a_summary_sized_output_budget(monkeypatch):
+    bodies = []
+    monkeypatch.setattr(analysis.model_transport, "post_json",
+                        lambda path, body, timeout: bodies.append(body) or
+                        {"response": "OK", "done": True})
+    analysis.collection_generate(synthesis.COLLECTION_FINAL_SYSTEM_PROMPT, "prompt",
+                                 target_words=450)
+    analysis.collection_generate(synthesis.COLLECTION_FINAL_RETRY_SYSTEM_PROMPT,
+                                 "prompt", target_words=450)
+    analysis.collection_generate(synthesis.COLLECTION_INTERMEDIATE_SYSTEM_PROMPT,
+                                 "prompt", target_words=450)
+    assert bodies[0]["options"]["num_predict"] == 1280
+    assert bodies[1]["options"]["num_predict"] == 1280
+    assert bodies[2]["options"]["num_predict"] == 220
+
+
+def test_known_unread_page_refuses_before_generation():
+    put_document("one", ["Inspection is scheduled."])
+    conn = db.connect()
+    with conn:
+        conn.execute("UPDATE documents SET page_count = 2 WHERE id = 'one'")
+        conn.execute("""INSERT INTO page_ledger
+                        (document_id, page_no, native_status, ocr_status, index_status, updated_at)
+                        VALUES ('one', 1, 'text', 'not_required', 'retrievable', '2026-10-16'),
+                               ('one', 2, 'needs_ocr', 'failed', 'no_chunk', '2026-10-16')""")
+    reader = Reader()
+    result = analysis.collection_summary(
+        "Summarize this document", frozenset({"one"}),
+        allowed_document_ids=frozenset({"one"}), generate=reader)
+    assert result["answer"] is None
+    assert result["summary_coverage"]["documents"][0]["pages_unread"] == [2]
+    assert reader.prompts == []
+
+
+def test_intentionally_excluded_page_is_reported_but_not_called_unread():
+    for doc_id in ("one", "two"):
+        put_document(doc_id, ["Inspection is scheduled.", "Inspection is scheduled."])
+    conn = db.connect()
+    with conn:
+        conn.execute("UPDATE documents SET page_count = 3 WHERE id = 'one'")
+        for page, status in ((1, "retrievable"), (2, "retrievable"), (3, "excluded")):
+            conn.execute(
+                """INSERT INTO page_ledger
+                   (document_id, page_no, native_status, ocr_status, index_status, updated_at)
+                   VALUES ('one', ?, 'text', 'not_required', ?, '2026-10-16')""",
+                (page, status))
+    ids = frozenset({"one", "two"})
+    result = analysis.collection_summary(
+        "Summarize these two documents", ids,
+        allowed_document_ids=ids, generate=Reader())
+    assert result["answer_type"] == "generated", result["reason"]
+    assert result["summary_coverage"]["documents"][0]["pages_excluded"] == [3]
+    assert "1 intentionally excluded page" in result["notices"][0]
+
+
+def test_local_work_limit_is_reported_not_presented_as_a_complete_summary(monkeypatch):
+    for doc_id in ("one", "two"):
+        put_document(doc_id, ["Inspection is scheduled.", "Inspection is scheduled."])
+    monkeypatch.setattr(synthesis, "COLLECTION_MAX_CALLS", 1)
+    ids = frozenset({"one", "two"})
+    result = analysis.collection_summary(
+        "Summarize these two documents", ids,
+        allowed_document_ids=ids, generate=Reader())
+    assert result["answer"] is None
+    assert "work limit" in result["reason"]
+    assert result["summary_coverage"]["processed"] == 0
+
+
+def test_unsupported_requested_length_is_named_before_generation():
+    put_document("one", ["Inspection is scheduled."])
+    reader = Reader()
+    result = analysis.collection_summary(
+        "Summarize this document in 1500 words", frozenset({"one"}),
+        allowed_document_ids=frozenset({"one"}), generate=reader)
+    assert result["answer"] is None
+    assert "900 words" in result["reason"]
+    assert reader.prompts == []
+
+
+def test_partial_final_citation_is_not_presented_as_complete():
+    for doc_id in ("first", "second"):
+        put_document(doc_id, ["Inspection is scheduled.", "Inspection is scheduled."])
+    ids = frozenset({"first", "second"})
+    result = analysis.collection_summary(
+        "Summarize these documents", ids, allowed_document_ids=ids,
+        generate=Reader("Inspection is scheduled [S1]."))
+    assert result["answer"] is None
+    assert "omitted citations" in result["reason"]
+
+
+def test_original_page_gate_keeps_supported_sentences_and_drops_unsupported_claims():
+    ledger = {
+        "one": {"evidence_id": "one", "document_id": "d1", "filename": "one.pdf",
+                "page_start": 1, "page_end": 1, "text": "Inspection is scheduled."},
+        "two": {"evidence_id": "two", "document_id": "d2", "filename": "two.pdf",
+                "page_start": 1, "page_end": 1, "text": "Valve is tagged."},
+    }
+    draft = synthesis.Summary(
+        text="Inspection is scheduled. Valve is compliant.", truncated=False,
+        positional_evidence_ids=("one", "two"), cited_evidence_ids=("one", "two"),
+        findings=(
+            synthesis.CitedSentence("Inspection is scheduled [S1].", ("one",), "extracted"),
+            synthesis.CitedSentence("Valve is compliant [S2].", ("two",), "extracted"),
+        ),
+    )
+    checked, originals = synthesis.original_citations(draft, ledger)
+    assert checked.refusal is None
+    assert checked.text == "Inspection is scheduled [S1]."
+    assert len(checked.dropped_sentences) == 1
+    assert {item["document_id"] for item in originals} == {"d1", "d2"}
+
+
+def test_synthesis_logs_neither_client_filename_nor_completion(caplog):
+    with caplog.at_level(logging.DEBUG, logger="nabaa.synthesis"):
+        synthesis._Call(stage="collection_map", document="private-client.pdf",
+                        raw_completion="secret-document-prose").record()
+    assert "private-client.pdf" not in caplog.text
+    assert "secret-document-prose" not in caplog.text
+
+
+def test_scope_is_checked_before_any_document_text_reaches_the_model():
+    put_document("allowed", ["Inspection is scheduled.", "Inspection is scheduled."])
+    put_document("secret", ["TOP_SECRET_SENTINEL", "TOP_SECRET_SENTINEL"])
+    reader = Reader()
+    result = analysis.collection_summary(
+        "Summarize these documents", frozenset({"allowed", "secret"}),
+        allowed_document_ids=frozenset({"allowed"}), generate=reader)
+    assert result["answer"] is None
+    assert result["summary_coverage"]["processed"] == 0
+    assert reader.prompts == []
+
+
+def test_named_document_count_does_not_silently_expand_to_entire_library():
+    for doc_id in ("one", "two", "three"):
+        put_document(doc_id, ["Inspection is scheduled."])
+    reader = Reader()
+    ids = frozenset({"one", "two", "three"})
+    result = analysis.collection_summary(
+        "Summarize these two documents in one page", ids,
+        allowed_document_ids=ids, generate=reader)
+    assert result["answer"] is None
+    assert "2 documents" in result["reason"]
+    assert reader.prompts == []
+
+
+def test_unfinished_document_prevents_a_complete_looking_summary():
+    put_document("ready", ["Inspection is scheduled.", "Inspection is scheduled."])
+    put_document("waiting", [], status="extracting")
+    reader = Reader()
+    ids = frozenset({"ready", "waiting"})
+    result = analysis.collection_summary(
+        "Summarize these documents", ids,
+        allowed_document_ids=ids, generate=reader)
+    assert result["answer_type"] == "insufficient_evidence"
+    assert result["answer"] is None
+    assert "Ready" in result["reason"]
+    assert reader.prompts == []
+
+
+def test_unsupported_final_number_is_refused():
+    for doc_id in ("first", "second"):
+        put_document(doc_id, ["Inspection is scheduled.", "Inspection is scheduled."])
+    reader = Reader("Inspection is scheduled at 999 bar [S1].")
+    ids = frozenset({"first", "second"})
+    result = analysis.collection_summary(
+        "Summarize these documents", ids,
+        allowed_document_ids=ids, generate=reader)
+    assert result["answer"] is None
+    assert result["answer_type"] == "insufficient_evidence"
+    assert reader.prompts
+
+
+def test_collection_intent_is_explicit_and_does_not_capture_ordinary_questions():
+    assert intent.is_collection_summary("Summarize these ten documents in one page")
+    assert intent.is_collection_summary("Give me an overview of the selected PDFs")
+    assert not intent.is_collection_summary("Summarize this document")
+    assert not intent.is_collection_summary("Summarize this file")
+    assert not intent.is_collection_summary("What is the pressure limit in API 610?")
+    assert not intent.is_collection_summary("What does the summary section say?")
+
+
+@pytest.mark.parametrize("first_draft", [
+    "INSUFFICIENT EVIDENCE",
+    "The schedule is ready.",
+])
+def test_rejected_model_draft_gets_one_citation_checked_retry(first_draft):
+    for doc_id in ("one", "two"):
+        put_document(doc_id, ["Inspection is scheduled.", "Inspection is scheduled."])
+    ids = frozenset({"one", "two"})
+
+    class RetryReader(Reader):
+        def __init__(self):
+            super().__init__()
+            self.intermediate_calls = 0
+
+        def __call__(self, system: str, prompt: str) -> synthesis.Generation:
+            self.prompts.append(prompt)
+            self.systems.append(system)
+            if system == synthesis.COLLECTION_INTERMEDIATE_SYSTEM_PROMPT:
+                self.intermediate_calls += 1
+                if self.intermediate_calls == 1:
+                    return synthesis.Generation(first_draft, truncated=False)
+            markers = re.findall(r"(\[S\d+\]) \(", prompt)
+            return synthesis.Generation(
+                "Inspection is scheduled " + " ".join(markers) + ".", truncated=False)
+
+    reader = RetryReader()
+    result = analysis.collection_summary(
+        "Summarize these two documents in one page", ids,
+        allowed_document_ids=ids, generate=reader)
+    assert result["answer_type"] == "generated", result["reason"]
+    assert synthesis.COLLECTION_RETRY_SYSTEM_PROMPT in reader.systems
+    assert result["summary_coverage"]["cited_documents"] == 2
+
+
+def test_existing_chat_routes_collection_request_through_its_selected_scope(monkeypatch):
+    put_document("one", ["Inspection is scheduled.", "Inspection is scheduled."])
+    convo = chat.create_conversation()
+    seen = {}
+
+    def fake_summary(question, ids, *, allowed_document_ids):
+        seen["ids"] = ids
+        seen["allowed"] = allowed_document_ids
+        return {"question": question, "answer_type": "insufficient_evidence",
+                "answer": None, "reason": "test refusal", "passages": [], "cited": [],
+                "summary_coverage": {"requested": 1, "processed": 0,
+                                     "cited_documents": 0, "documents": []},
+                "retrieval_mode": "collection", "reranked": False,
+                "candidates_considered": 0, "seconds": 0.0, "timings": {}}
+
+    monkeypatch.setattr(analysis, "collection_summary", fake_summary)
+    result = chat.ask(convo["id"], "Summarize these documents",
+                      allowed_document_ids=frozenset({"one"}),
+                      document_ids=frozenset({"one"}))
+    assert seen["ids"] == frozenset({"one"})
+    assert result["answer_type"] == "insufficient_evidence"
+    assert result["used_line"].startswith("Collection summary incomplete")
+
+
+def test_chat_does_not_silently_drop_a_selected_document_after_access_revocation(monkeypatch):
+    put_document("allowed", ["Inspection is scheduled."])
+    put_document("revoked", ["Inspection is scheduled."])
+    convo = chat.create_conversation()
+    reader = Reader()
+    monkeypatch.setattr(analysis, "collection_generate",
+                        lambda system, prompt, *, target_words: reader(system, prompt))
+    result = chat.ask(
+        convo["id"], "Summarize these documents",
+        allowed_document_ids=frozenset({"allowed"}),
+        document_ids=frozenset({"allowed", "revoked"}),
+    )
+    assert result["answer"] is None
+    assert result["summary_coverage"]["requested"] == 2
+    assert result["summary_coverage"]["processed"] == 0
+    assert reader.prompts == []
+
+
+def test_completed_chat_summary_reopens_with_coverage_and_obeys_revoked_access(monkeypatch):
+    for doc_id in ("one", "two"):
+        put_document(doc_id, ["Inspection is scheduled.", "Inspection is scheduled."])
+    reader = Reader()
+    monkeypatch.setattr(analysis, "collection_generate",
+                        lambda system, prompt, *, target_words: reader(system, prompt))
+    ids = frozenset({"one", "two"})
+    convo = chat.create_conversation()
+    answer = chat.ask(convo["id"], "Summarize these two documents in one page",
+                      allowed_document_ids=ids, document_ids=ids)
+    assert answer["answer_type"] == "generated", answer["reason"]
+    assert "2 of 2 selected documents" in answer["used_line"]
+    reopened = chat.get_messages(convo["id"], allowed_document_ids=ids)[-1]
+    assert reopened["payload"]["summary_coverage"]["cited_documents"] == 2
+    revoked = chat.get_messages(convo["id"], allowed_document_ids=frozenset({"one"}))[-1]
+    assert revoked["payload"] == {"withheld": True}
