@@ -589,7 +589,8 @@ def route(message: str, *, has_previous_answer: bool = False,
     return {**base, "kind": EITHER}
 
 
-_COLLECTION_SUMMARY = re.compile(r"\b(?:summari[sz]e|summary|overview|recap)\b", re.IGNORECASE)
+_COLLECTION_SUMMARY = re.compile(
+    r"\b(?:summari[sz]e|summariee|summary|overview|recap)\b", re.IGNORECASE)
 _COLLECTION_SCOPE = re.compile(
     r"\b(?:all|these|selected|uploaded|documents|files|pdfs)\b", re.IGNORECASE)
 
