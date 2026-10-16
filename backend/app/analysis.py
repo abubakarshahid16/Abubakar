@@ -776,8 +776,36 @@ def collection_generate(system: str, prompt: str, *, target_words: int) -> synth
         model_transport.post_json("/api/generate", body, timeout=180.0))
 
 
+def collection_claude_generate(
+    system: str, prompt: str, *, target_words: int,
+) -> synthesis.Generation:
+    """Use the existing metered Claude provider for one bounded summary stage."""
+    from . import chat_model, reasoning_provider
+
+    provider = chat_model.provider(chat_model.CLAUDE)
+    if not isinstance(provider, reasoning_provider.ClaudeProvider):
+        raise ModelUnavailable("Claude is not available for this chat request.")
+    final = system.startswith(("You write an overview", "Write the requested overview"))
+    output_tokens = min(1900, int(target_words * 2.4) + 200) if final else 220
+    response = provider.reason(reasoning_provider.Packet(
+        prompt=prompt,
+        system=system,
+        num_ctx=settings.num_ctx,
+        num_predict=output_tokens,
+        temperature=settings.temperature,
+        step=chat_model.CHAT_STEP,
+        prompt_version="collection-summary-v1",
+    ))
+    return synthesis.Generation(
+        response.text,
+        truncated=response.finish_reason == "max_tokens",
+        model=response.model_tag,
+    )
+
+
 def collection_summary(question: str, document_ids: frozenset[str], *,
-                       allowed_document_ids: frozenset[str], generate=None) -> dict:
+                       allowed_document_ids: frozenset[str], generate=None,
+                       model: str | None = None) -> dict:
     """Summarise the selected local documents with an explicit coverage boundary.
 
     The caller can only narrow permissions. Every retrievable chunk in every
@@ -792,10 +820,10 @@ def collection_summary(question: str, document_ids: frozenset[str], *,
                 "cited_documents": 0, "target_words": None,
                 "actual_words": None, "documents": []}
 
-    def refused(reason: str) -> dict:
+    def refused(reason: str, *, provider: str = "ollama") -> dict:
         return {"question": question, "answer_type": "insufficient_evidence",
                 "answer": None, "reason": reason, "passages": [], "cited": [],
-                "summary_coverage": boundary, "provider": "ollama",
+                "summary_coverage": boundary, "provider": provider,
                 "notices": [reason], "retrieval_mode": "collection",
                 "reranked": False, "candidates_considered": 0,
                 "seconds": time.monotonic() - started, "timings": {}}
@@ -897,17 +925,65 @@ def collection_summary(question: str, document_ids: frozenset[str], *,
             turn.emit("step", {"label": "Summarizing document" if document else "Writing the one-page overview",
                                "count": None, "done": False})
 
+    actual_provider = "ollama"
+    actual_models: list[str] = []
+    local_note = None
+    writer = generate
+    if writer is None and model == "claude":
+        from . import chat_model, claude_approved, reasoning_provider
+
+        # The user's model choice is honoured only when this entire selected
+        # scope passes the existing owner-approved document and egress gates.
+        # The app's historical conversation scope is already carried by the
+        # outer chat wrapper; this adds the newly selected documents too.
+        with claude_approved.carrying(ids):
+            local_note = claude_approved.local_instead()
+            if local_note is None:
+                provider = chat_model.provider(chat_model.CLAUDE)
+                if isinstance(provider, reasoning_provider.ClaudeProvider):
+                    actual_provider = "claude"
+
+                    def writer(system: str, prompt: str) -> synthesis.Generation:
+                        with claude_approved.carrying(ids):
+                            generated = collection_claude_generate(
+                                system, prompt, target_words=target_words)
+                        actual_models.append(generated.model)
+                        return generated
+                else:
+                    local_note = chat_model.unavailable_words()
+    if writer is None:
+        def writer(system: str, prompt: str) -> synthesis.Generation:
+            generated = collection_generate(system, prompt, target_words=target_words)
+            actual_models.append(generated.model)
+            return generated
+
     try:
-        writer = generate or (lambda system, prompt: collection_generate(
-            system, prompt, target_words=target_words))
         summary = _generate_or_refuse(
             synthesis.map_reduce, question, evidence, writer,
             exhaustive=True, target_words=target_words,
             final_token_cap=final_prompt_cap,
             on_progress=stage, cancelled=chat_stream.cancelled)
     except ModelUnavailable:
-        return {**refused("The local summary model is unavailable."),
+        return {**refused(f"The {actual_provider} summary model is unavailable.",
+                          provider=actual_provider),
                 "answer_type": "model_unavailable"}
+    except Exception as exc:
+        # Claude budget, approval, and transport refusals are deliberate
+        # stop conditions. Never turn a partial cloud summary into a complete
+        # local answer or expose provider exception text to the chat screen.
+        from . import claude_spend, reasoning_provider
+        stopped = isinstance(exc, (claude_spend.StopRun,
+                                   reasoning_provider.ProviderRefused))
+        if actual_provider != "claude" or not stopped:
+            raise
+        reason = ("Claude stopped before the full summary was complete. "
+                  "No partial answer is shown; retry locally or shorten the request.")
+        result = refused(reason, provider="claude")
+        result["answer_type"] = "model_unavailable"
+        cost = getattr(exc, "cost_usd", None)
+        if cost is not None:
+            result["cost_usd"] = cost
+        return result
     if summary.refusal:
         return {**refused(summary.refusal),
                 "answer_type": "cancelled" if chat_stream.cancelled() else "insufficient_evidence"}
@@ -953,8 +1029,9 @@ def collection_summary(question: str, document_ids: frozenset[str], *,
     return {"question": question, "answer_type": "generated",
             "answer": summary.text, "reason": None, "passages": passages,
             "cited": list(range(1, len(passages) + 1)),
-            "summary_coverage": boundary, "provider": "ollama",
-            "model": settings.answer_model, "truncated": False,
+            "summary_coverage": boundary, "provider": actual_provider,
+            "model": (actual_models[-1] if actual_models and actual_models[-1]
+                      else settings.answer_model), "truncated": False,
             "retrieval_mode": "collection", "reranked": False,
             "candidates_considered": len(evidence), "timings": {},
             "notices": [f"Summarized searchable content from {len(selected)} selected "
@@ -962,7 +1039,8 @@ def collection_summary(question: str, document_ids: frozenset[str], *,
                         f"{excluded_pages} intentionally excluded {excluded_label} "
                         f"{excluded_verb} not used."
                         f"{coverage_notice}{length_notice}{citation_notice}"],
-            "seconds": time.monotonic() - started}
+            "seconds": time.monotonic() - started,
+            **({"provider_note": local_note} if local_note else {})}
 
 
 class ModelUnavailable(Exception):
@@ -1454,3 +1532,4 @@ def recommendation(question: str, scope: access.AccessScope, *, limit: int = 8,
         "public_market_findings": market.findings()["findings"],
         "not_implemented_sections": not_implemented_sections(),
     }
+
