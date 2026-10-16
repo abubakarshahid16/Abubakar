@@ -2799,8 +2799,13 @@ def _run_comparison(
         stored.get("equipment_type"), page_texts)
     check_results = datasheet_checks.evaluate(facts, equipment_type=stored.get("equipment_type"),
                                               page_texts=page_texts)
-    findings.extend(datasheet_checks.store(review_run_id, submittal_id, check_results,
-                                           pages_read=pages_read))
+    # rule_trust (#947): every rule labelled, the checks too - a signed-off
+    # checklist item is an engineer's rule; every other check is held when it
+    # would decide (planner answer on #985). Nothing with the switch off.
+    from . import rule_trust as rule_trust_mod
+    findings.extend(datasheet_checks.store(
+        review_run_id, submittal_id, check_results, pages_read=pages_read,
+        label=rule_trust_mod.label_check if trust is not None else None))
     checklist_coverage = datasheet_checks.coverage(check_results)
 
     coverage = completeness_for_run(

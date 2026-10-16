@@ -797,7 +797,10 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
     # same fact) is that row, not a second one.
     covered = {f.get("fact_id") for f in breaches + blanks if f.get("fact_id")}
     checks = [f for f in findings if f.get("origin") == _DATASHEET_ORIGIN
-              and status(f) in ("NON_COMPLIANT", _MISSING_INFORMATION)
+              and (status(f) in ("NON_COMPLIANT", _MISSING_INFORMATION)
+                   # rule_trust (#947): a check held because its rule is not
+                   # proven is still a row - the engineer decides it.
+                   or f.get("rule_said"))
               and not (f.get("fact_id") and f.get("fact_id") in covered)]
     for kind, bucket in ((ROW_KIND_NON_COMPLIANT, breaches),
                          (ROW_KIND_MISSING_INFORMATION, blanks),

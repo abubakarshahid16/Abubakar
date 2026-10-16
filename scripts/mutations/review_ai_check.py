@@ -64,7 +64,10 @@ MUTATIONS: tuple[Mutation, ...] = (
              # now also requires engineer confirmation (M1305 removes that half).
              anchor=('        findings = [f for f in findings\n'
                      '                    if not str(f.get("ai_review_comment") or "").strip()\n'
-                     '                    and f.get("engineer_confirmed") is True]\n'),
+                     '                    and f.get("engineer_confirmed") is True\n'
+                     '                    # rule_trust: a safety tick is the engineer\'s own check,\n'
+                     '                    # never a comment to the contractor - ticked or not.\n'
+                     '                    and f.get("row_kind") != ROW_KIND_SAFETY_TICK]\n'),
              replacement="        pass\n",
              target=_T, keyword="issue_copy_carries_no_ai_column", tags=("honesty", "critical")),
     Mutation(id="M1032", phase=86, description="an unconfirmed AI item is printed in COMPANY Comments",

@@ -2478,6 +2478,11 @@ class CrsPreviewRow(BaseModel):
     #: why), printed in the internal copy's last column "Reasoning (internal)".
     #: Always empty in the "Issue to contractor" copy.
     reasoning: str = ""
+    #: rule_trust (#947): who stands behind the rule the row rests on
+    #: ("engineer-approved rule", "automatic (proven rule)", "automatic rule
+    #: not yet proven"), in the internal copy's last column "Rule trust
+    #: (internal)". Empty on an unlabelled row and in the issue copy.
+    rule_trust: str = ""
 
 
 class CrsStandardRow(BaseModel):

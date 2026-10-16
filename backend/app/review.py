@@ -529,6 +529,8 @@ _EXTRA_FIELDS = (
     "contractor_section", "contractor_evidence_text", "requirement_source_text",
     "ai_rationale", "fact_id", "equipment_tag", "standard_clause",
     "confirmed_by", "confirmed_at",
+    # rule_trust (#947): NULL unless the run labelled the rule (switch on).
+    "trust_label", "tier", "show_for_engineer_tick", "rule_said",
 )
 
 
@@ -571,9 +573,9 @@ def create(payload: dict, *, created_by: str | None, conn=None) -> dict:
                review_run_id, origin, compliance_status, contractor_page,
                contractor_section, contractor_evidence_text, requirement_source_text,
                ai_rationale, fact_id, equipment_tag, standard_clause,
-               confirmed_by, confirmed_at)
+               confirmed_by, confirmed_at, trust_label, tier, show_for_engineer_tick, rule_said)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 finding_id, payload["document_id"], payload.get("baseline_document_id"), template_id,
                 discipline, payload.get("confidence"),

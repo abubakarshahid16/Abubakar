@@ -24,9 +24,11 @@ controls, each a function here:
      number, unit, operator and condition in its own sentence) and its
      operator must not point the opposite way to the sentence
      (`requirements_3b.contradicts_source`). Reused, never re-implemented.
-  4. TRUST LABEL (`trust_label`, `apply_trust`). ENGINEER_CONFIRMED (a person
-     confirmed the row), AUTO_PROVEN (family proven and second check passed)
-     or UNPROVEN. An UNPROVEN rule never decides COMPLIANT or NON_COMPLIANT on
+  4. TRUST LABEL (`trust_label`, `check_label`, `apply_trust`). Every rule
+     is labelled, one vocabulary (planner answer on #985): ENGINEER_CONFIRMED
+     (a person confirmed the row, or a signed-off committed checklist item),
+     AUTO_PROVEN (an AI-compiled rule, family proven, second check passed)
+     or UNPROVEN (every other rule). An UNPROVEN rule never decides COMPLIANT or NON_COMPLIANT on
      its own: the verdict becomes NEEDS_ENGINEER_REVIEW with the reason.
   5. UNCOVERED FIELDS (`uncovered_fields`). Datasheet fields read with a value
      that no applicable rule targets, so the CRS can list "not checked by any
@@ -39,21 +41,18 @@ controls, each a function here:
 PURE WHERE IT CAN BE. Only `ensure_schema`, `save_proof`, `load_proof` and
 `record_audit_outcome` touch the database. No model, no network.
 
-WIRING (NOT DONE HERE, ON PURPOSE). `comparison.py` is in the danger zone and
-existing behaviour must not change, so the review does not call this module
-yet. The opt-in hook is `label_finding(finding, rule, proof)`: it returns the
-finding unchanged unless `settings.rule_auto_use_enabled`. The call sites, for
-the PR that switches it on:
-  * `comparison._run_comparison`, where each verdict from `compare(...)` is
-    turned into a finding row by `_prepare_finding`: load the family proof
-    once per (standard_document_id, equipment_type) with `load_proof(key,
-    model_id=<ai_task_model or the compiling model>, standard_revision=<the
-    document's revision>)` and pass the finding through `label_finding`.
+WIRING (#985, BEHIND THE SWITCH). The hooks return their input unchanged
+unless `settings.rule_auto_use_enabled` (OFF by default), so a review with
+the switch off stores what it stored before. The call sites:
+  * `comparison._run_comparison`: every verdict from `compare(...)` passes
+    through `label_finding` with the family proof (`comparison._RuleTrust`,
+    one per (standard_document_id, equipment_type) and compiling model);
+    every datasheet check through `label_check` (`datasheet_checks.store`).
   * the same function, after all findings exist: `uncovered_fields(facts,
     applicable_requirements)` for the CRS "not checked by any rule" list, and
     `audit_sample([ids of AUTO_PROVEN findings], seed=review_run_id)`.
-  * `crs_export` prints `trust_words` and, for `show_for_engineer_tick`, the
-    clause quote and datasheet value with a tick box.
+  * `crs_mapping` prints `trust_words` and, for `show_for_engineer_tick`, a
+    safety-tick row with the clause and the datasheet value (internal copy).
 No rule here names a standard, a clause or a datasheet layout.
 """
 from __future__ import annotations
@@ -79,8 +78,14 @@ TRUST_WORDS = {ENGINEER_CONFIRMED: "engineer-approved rule", AUTO_PROVEN: "autom
 PROVEN, NOT_PROVEN, INVALID = "PROVEN", "NOT_PROVEN", "INVALID"
 AUDIT_CORRECT, AUDIT_ERROR = "correct", "error"
 AUDIT_RATE_MIN, AUDIT_RATE_MAX = 0.02, 0.05
-UNPROVEN_REASON = ("the rule was compiled by AI and its family is not proven on an answer key "
-                   "(or it failed code's second check); an engineer decides")
+UNPROVEN_REASON = ("the rule is not yet proven: it is neither engineer-approved nor an AI-compiled "
+                   "rule whose family is proven on an answer key and passes code's second check; "
+                   "an engineer decides")
+#: The one mark of an AI-COMPILED rule: the row the review compares with is
+#: the model's (`ai_requirements.auto_use_rules`), never confirmed by a person.
+#: Only such a rule can earn AUTO_PROVEN; a family proof says nothing about a
+#: rule code extracted or a checklist item.
+AI_COMPILED_METHOD = "model"
 
 
 # ------------------------------------------------------------ reference data
@@ -276,14 +281,32 @@ def second_check(rule: dict) -> tuple[bool, str | None]:
 
 # ------------------------------------------------------------ 4. labels
 
+def ai_compiled(rule: dict) -> bool:
+    return rule.get("extraction_method") == AI_COMPILED_METHOD
+
+
 def trust_label(rule: dict, proof: dict | None) -> str:
-    """ENGINEER_CONFIRMED when a person confirmed the row; AUTO_PROVEN when
-    the family proof is PROVEN (already checked current by `load_proof`) and
-    the rule passes `second_check`; UNPROVEN otherwise."""
+    """EVERY RULE IS LABELLED, ONE VOCABULARY (planner answer on #985).
+    ENGINEER_CONFIRMED when a person confirmed the row; AUTO_PROVEN only for
+    an AI-COMPILED rule whose family proof is PROVEN (already checked current
+    by `load_proof`) and which passes `second_check`; UNPROVEN for every other
+    rule - a code-extracted row an engineer has not confirmed included, proof
+    or not."""
     if rule.get("confirmed_by"):
         return ENGINEER_CONFIRMED
-    if proof and proof.get("status") == PROVEN and second_check(rule)[0]:
+    if ai_compiled(rule) and proof and proof.get("status") == PROVEN and second_check(rule)[0]:
         return AUTO_PROVEN
+    return UNPROVEN
+
+
+def check_label(result: dict) -> str:
+    """A datasheet check's label (`datasheet_checks` result), same vocabulary.
+    ENGINEER_CONFIRMED only for an item of a COMMITTED checklist an engineer
+    signed off (`sign_off.status == "signed"`: not a draft, not the local
+    overlay); every other check - a draft or local item, a consistency pair,
+    a mandatory field - is UNPROVEN. No family proof applies: none is AI-compiled."""
+    if result.get("checklist") and not result.get("draft") and not result.get("local"):
+        return ENGINEER_CONFIRMED
     return UNPROVEN
 
 
@@ -308,6 +331,20 @@ def label_finding(finding: dict, rule: dict, proof: dict | None) -> dict:
     level, why = tier(rule)
     out.update(tier=level, tier_reason=why,
                show_for_engineer_tick=level == SAFETY and out.get("status") == COMPLIANT)
+    return out
+
+
+def label_check(result: dict) -> dict:
+    """The opt-in hook for a datasheet check, like `label_finding`: the result
+    unchanged with the switch off; on, labelled by `check_label` and held for
+    the engineer when UNPROVEN (a check's text is its `detail`). No tick: a
+    signed checklist is an engineer's approval already."""
+    if not settings.rule_auto_use_enabled:
+        return result
+    out = apply_trust(result, check_label(result))
+    if out.get("rule_said"):
+        out["detail"] = f"{result.get('detail') or ''} ({UNPROVEN_REASON})".strip()
+    out.update(tier=None, show_for_engineer_tick=False)
     return out
 
 

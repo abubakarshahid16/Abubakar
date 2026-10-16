@@ -13,7 +13,7 @@ reject of a proven rule's finding drops the family's proof.
 Invented standards, an invented sheet and a stub model only.
 
 MUTATION PROOF (danger zone, CLAUDE.md rule 6): the entries in
-`scripts/mutations/rule_trust_wiring.py` each delete one of these and name the
+`scripts/mutations/pr985_rule_trust_wiring.py` (M985-*) each delete one of these and name the
 test that fails.
 """
 from __future__ import annotations
@@ -95,6 +95,14 @@ def _prove(world, *, model=None):
     return key
 
 
+def _ai_compiled(world):
+    """The code-extracted limit, recorded as the model compiled it (the run's
+    task model), never confirmed - the kind of rule a family proof covers."""
+    with connect() as conn:
+        conn.execute("UPDATE standard_requirements SET extraction_method = ? WHERE id = ?",
+                     (rule_trust.AI_COMPILED_METHOD, world["limit"]))
+
+
 # ------------------------------------------------------------------ switch off
 
 def test_off_uses_no_draft_labels_nothing_and_stores_nothing_new(world):
@@ -138,9 +146,24 @@ def test_on_an_unproven_rule_never_decides(world, monkeypatch):
     assert out["scope"]["in_scope"] >= 5
 
 
+def test_a_proof_covers_ai_compiled_rules_only(world, monkeypatch):
+    """Planner answer on #985: AI-compiled = by proof; every other rule that is
+    not engineer-approved needs an engineer. A proven family does not lift
+    the code-extracted limit."""
+    monkeypatch.setattr(settings, "rule_auto_use_enabled", True)
+    _prove(world)
+    _rerun(world)
+    rows = _findings(world["run"])
+    held = rows[world["limit"]]
+    assert (held["compliance_status"], held["rule_said"], held["trust_label"]) == (
+        "NEEDS_ENGINEER_REVIEW", "COMPLIANT", rule_trust.UNPROVEN)
+    assert rows[world["stmt"]]["trust_label"] == rule_trust.AUTO_PROVEN
+
+
 def test_on_a_proven_family_keeps_the_verdict_and_flags_a_safety_meets_for_a_tick(world, monkeypatch):
     monkeypatch.setattr(settings, "rule_auto_use_enabled", True)
     _prove(world)
+    _ai_compiled(world)
     out = _rerun(world)
     rows = _findings(world["run"])
     kept = rows[world["limit"]]
@@ -179,12 +202,15 @@ def test_an_engineer_confirmed_rule_needs_no_proof(world, monkeypatch):
 
 def test_a_proof_under_another_model_or_revision_does_not_count(world, monkeypatch):
     monkeypatch.setattr(settings, "rule_auto_use_enabled", True)
+    _ai_compiled(world)     # a code-extracted rule is UNPROVEN whatever the proof
     key = rule_trust.family_key(SPEC, "Pressure Safety Valve")
     rule_trust.save_proof(key, {"cases": 1, "correct": 1, "errors": [], "status": rule_trust.PROVEN},
                           model_id="some-other-model", standard_revision=None)
     _rerun(world)
     assert _findings(world["run"])[world["limit"]]["trust_label"] == rule_trust.UNPROVEN
     _prove(world)
+    _rerun(world)
+    assert _findings(world["run"])[world["limit"]]["trust_label"] == rule_trust.AUTO_PROVEN
     with connect() as conn:
         conn.execute("UPDATE document_classification SET revision = 'Rev B' WHERE document_id = ?",
                      (SPEC,))
@@ -206,6 +232,7 @@ def test_a_draft_code_refuses_again_is_not_used(world, monkeypatch):
 def test_the_internal_crs_shows_the_trust_and_the_safety_tick_and_the_issue_copy_does_not(world, monkeypatch):
     monkeypatch.setattr(settings, "rule_auto_use_enabled", True)
     _prove(world)
+    _ai_compiled(world)
     _rerun(world)
     client = _client(world["scope"])
     internal = client.get(f"/api/reviews/runs/{world['run']}/crs/preview").json()
@@ -229,6 +256,7 @@ def test_the_internal_crs_shows_the_trust_and_the_safety_tick_and_the_issue_copy
 def test_the_safety_tick_gates_issue_until_ticked_and_a_tick_is_a_correct_audit(world, monkeypatch):
     monkeypatch.setattr(settings, "rule_auto_use_enabled", True)
     key = _prove(world)
+    _ai_compiled(world)
     _rerun(world)
     client = _client(world["scope"])
     run = world["run"]
@@ -254,6 +282,7 @@ def test_the_safety_tick_gates_issue_until_ticked_and_a_tick_is_a_correct_audit(
 def test_something_is_off_drops_the_familys_proof(world, monkeypatch):
     monkeypatch.setattr(settings, "rule_auto_use_enabled", True)
     key = _prove(world)
+    _ai_compiled(world)
     _rerun(world)
     client = _client(world["scope"])
     run = world["run"]
@@ -276,3 +305,51 @@ def test_a_decision_on_an_unlabelled_finding_records_no_audit(world):
     client.post(f"/api/reviews/runs/{world['run']}/crs/open-items/findings/{fid}/decision",
                 json={"decision": "accept", "reason": "checked by eye on the page"})
     assert connect().execute("SELECT COUNT(*) FROM rule_audit_outcome").fetchone()[0] == 0
+
+
+# ------------------------------------------------- the datasheet checks too
+
+def _checks(run):
+    return [dict(r) for r in connect().execute(
+        "SELECT * FROM review_findings WHERE review_run_id = ? AND origin = 'datasheet_check'",
+        (run,))]
+
+
+def test_every_datasheet_check_is_labelled_too(world, monkeypatch):
+    """Planner answer on #985: label every rule. The PSV checklist is a draft
+    (not signed off), so with the switch on none of its items decides: a pass
+    is held for the engineer and still reaches the CRS as a row."""
+    _rerun(world)
+    off = _checks(world["run"])
+    assert off and {r["trust_label"] for r in off} == {None}
+    assert {r["show_for_engineer_tick"] for r in off} == {None}
+    decided = [r for r in off if r["compliance_status"] in ("COMPLIANT", "NON_COMPLIANT")]
+    assert decided, "the invented sheet must give the checklist something to decide"
+    monkeypatch.setattr(settings, "rule_auto_use_enabled", True)
+    _rerun(world)
+    on = _checks(world["run"])
+    assert {r["trust_label"] for r in on} == {rule_trust.UNPROVEN}
+    assert not [r for r in on if r["compliance_status"] in ("COMPLIANT", "NON_COMPLIANT")]
+    held = [r for r in on if r["rule_said"]]
+    assert len(held) == len(decided)
+    assert all(rule_trust.UNPROVEN_REASON in r["finding"] for r in held)
+    # a held check is still a CRS row (a held PASS was never one before)
+    rows = _client(world["scope"]).get(f"/api/reviews/runs/{world['run']}/crs/preview").json()["rows"]
+    shown = [r for r in rows if r["row_kind"] == "datasheet_check"
+             and rule_trust.UNPROVEN_REASON in r["comment"]]
+    assert shown and {r["rule_trust"] for r in shown} == {"automatic rule not yet proven"}
+    assert all(any(f["contractor_section"] in r["page_section"] for r in shown) for f in held)
+
+
+def test_a_signed_checklist_item_is_an_engineers_rule(world, monkeypatch):
+    from app import datasheet_checks
+    rules = datasheet_checks.load_rules()
+    rules["checklists"]["Pressure Safety Valve"]["sign_off"] = {"status": "signed", "by": "eng",
+                                                                "date": "2026-10-16"}
+    monkeypatch.setattr(datasheet_checks, "load_rules", lambda *a, **k: rules)
+    monkeypatch.setattr(settings, "rule_auto_use_enabled", True)
+    _rerun(world)
+    items = [r for r in _checks(world["run"]) if "DRAFT checklist" not in r["requirement"]]
+    signed = [r for r in items if r["standard_clause"]]     # a checklist item cites its clause
+    assert signed and {r["trust_label"] for r in signed} == {rule_trust.ENGINEER_CONFIRMED}
+    assert not [r for r in signed if r["rule_said"]]
