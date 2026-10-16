@@ -84,7 +84,7 @@ export function Composer({
         hero ? "px-4 pb-3 pt-4" : "px-3.5 pb-2.5 pt-3",
       ].join(" ")}
     >
-      {picked.length > 0 && (
+      {picked.length > 0 && picked.length <= 3 && (
         <ul aria-label="Answering from" className="mb-2 flex flex-wrap gap-1.5">
           {picked.map((d) => (
             <li
@@ -105,6 +105,26 @@ export function Composer({
             </li>
           ))}
         </ul>
+      )}
+      {picked.length > 3 && (
+        <div
+          aria-label="Answering from"
+          className="mb-2 flex min-w-0 items-center gap-2 rounded-[var(--radius-sm)] border border-signal-500/30 bg-signal-500/5 px-2.5 py-1.5 text-xs"
+        >
+          <span className="shrink-0 text-signal-300">{picked.length} documents selected</span>
+          <span className="min-w-0 truncate text-slateish-400" title={picked.map((d) => d.name).join(" · ")}>
+            {picked.map((d) => d.name).join(" · ")}
+          </span>
+          {onPickerOpen && (
+            <button
+              type="button"
+              onClick={() => onPickerOpen(true)}
+              className="ms-auto shrink-0 text-signal-300 underline underline-offset-2"
+            >
+              Change
+            </button>
+          )}
+        </div>
       )}
       <label htmlFor="chat-question" className="sr-only">
         Your question
