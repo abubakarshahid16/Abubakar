@@ -19,7 +19,7 @@ import { SideBySideEvidence, WhyStandardApplies } from "./SideBySideEvidence";
 import { useResolvedDocuments } from "./useResolvedDocuments";
 import {
   confidenceLabel, findingLabel, matchMethodLabel, matchMethodTone, orNothing,
-  statusTone, whenLabel,
+  statusLabel, statusTone, trustWords, whenLabel,
 } from "./reviewFormat";
 
 export interface FindingDetailProps {
@@ -172,6 +172,19 @@ function FindingDetailBody(
           {finding.confidence && <span>confidence {confidenceLabel(finding.confidence)}</span>}
           {finding.matched_phrase && <span>matched field: {finding.matched_phrase}</span>}
         </p>
+        {/* rule_trust (#947): who stands behind the rule, in the owner's words.
+            Nothing on a finding the run did not label (switch off). */}
+        {finding.trust_label && (
+          <p className="mt-2 text-xs text-slateish-300" data-testid="rule-trust">
+            {trustWords(finding.trust_label)}
+            {finding.rule_said
+              ? ` · the rule said "${statusLabel(finding.rule_said)}"; held for you until the rule is proven`
+              : ""}
+            {finding.show_for_engineer_tick
+              ? " · safety field: read the clause and the value on the page, then confirm it or reject it"
+              : ""}
+          </p>
+        )}
       </div>
 
       <WhyStandardApplies finding={finding} entry={whyApplies} />

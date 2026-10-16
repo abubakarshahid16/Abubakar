@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from . import admin_explorer as explorer_mod
 from . import chat as chat_mod
 from . import classification as classification_mod
+from . import rule_trust as rule_trust_mod
 from . import chunker as chunk_mod
 from . import absence as absence_mod
 from . import ai_engineering_check as ai_engineering_check_mod
@@ -4666,6 +4667,42 @@ def _prior_rejections(submittal_id: str, allowed: frozenset[str]
     return out
 
 
+def _rule_trust_notes(outcome: dict, findings: list[dict]) -> list[dict]:
+    """rule_trust (#947) steps 7 and 10 on the Review notes sheet (internal):
+    the datasheet fields no applicable rule checked, and the automatic
+    findings drawn for an engineer's spot-check. Nothing on a run made with
+    the switch off (it stored no `rule_trust`). Every count names its
+    denominator: this run's fields read with a value; this run's findings
+    decided by a proven rule."""
+    trust = outcome.get("rule_trust") or {}
+    if not trust:
+        return []
+    notes = []
+    fields = [str(f) for f in (trust.get("uncovered_fields") or []) if f]
+    read = trust.get("fields_read")
+    notes.append({
+        "note": "Not checked by any rule", "standard": "", "count": len(fields),
+        "detail": (f"{len(fields)} of {read} datasheet fields read with a value that no "
+                   f"applicable rule targets: {', '.join(fields)}." if fields else
+                   f"Every one of the {read} datasheet fields read with a value is targeted "
+                   "by an applicable rule.")})
+    sample = set(trust.get("audit_sample") or [])
+    if sample:
+        by_id = {f.get("id"): f for f in findings}
+        where = []
+        for fid in trust.get("audit_sample") or []:
+            f = by_id.get(fid) or {}
+            page = f.get("contractor_page")
+            field = f.get("contractor_section") or f.get("matched_phrase") or fid
+            where.append(f"p.{page} {field}" if page else str(field))
+        notes.append({
+            "note": "Spot-check automatic findings", "standard": "", "count": len(sample),
+            "detail": (f"{len(sample)} of {trust.get('auto_proven')} findings decided by a "
+                       f"proven rule, drawn at random for an engineer's check: "
+                       f"{'; '.join(where)}. One wrong one drops the family's proof.")})
+    return notes
+
+
 def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "internal"
                  ) -> tuple[list[dict], dict, str, str]:
     """One run's CRS rows and meta, with the scope question asked once.
@@ -4902,7 +4939,8 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         # "internal" (with "AI Review Comments") or "issue" (to the contractor).
         "copy": copy,
         # 2f: the engineer's internal notes, on their own sheet.
-        "review_notes": crs_mapping_mod.build_review_notes(findings, missing, unread) + [
+        "review_notes": crs_mapping_mod.build_review_notes(findings, missing, unread)
+        + _rule_trust_notes(outcome, findings) + [
             {"note": "Not checked", "standard": "", "count": None, "detail": part["line"]}
             for part in unchecked],
         "unchecked_parts": [part["line"] for part in unchecked],
@@ -5293,8 +5331,24 @@ def decide_crs_open_finding(
     if body.decision == "accept":
         changes.update({"confirmed_by": actor, "confirmed_at": now})
     review_mod.update(finding_id, changes, actor_user_id=actor)
+    _record_rule_audit(current, body.decision, actor=actor, note=body.reason)
     _mint_crs_numbers(review_run_id, scope)
     return record
+
+
+def _record_rule_audit(finding: dict, decision: str, *, actor: str, note: str) -> None:
+    """rule_trust (#947) step 10: an engineer's decision on a finding a PROVEN
+    rule decided is that rule family's spot-check outcome. Accept = correct;
+    reject = an audit error, which drops the family to UNPROVEN at once
+    (`rule_trust.record_audit_outcome`). Nothing for a finding the run did
+    not label as AUTO_PROVEN."""
+    if finding.get("trust_label") != rule_trust_mod.AUTO_PROVEN:
+        return
+    stored = classification_mod.of_document(finding["document_id"]) or {}
+    key = rule_trust_mod.family_key(finding.get("standard_document_id") or "",
+                                    stored.get("equipment_type"))
+    rule_trust_mod.record_audit_outcome(finding["id"], key, correct=decision == "accept",
+                                        engineer=actor, note=note)
 
 
 @app.post("/api/reviews/runs/{review_run_id}/crs/issue",

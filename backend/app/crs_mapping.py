@@ -70,6 +70,11 @@ ROW_KIND_STANDARD_NOT_APPLICABLE = "standard_not_applicable"
 #: current run no longer raises. Industry practice carries it forward until a
 #: reviewer closes it (`crs_numbers.open_elsewhere`); never dropped silently.
 ROW_KIND_CARRIED_FORWARD = "carried_forward"
+#: rule_trust (#947 step 8): a COMPLIANT verdict from a SAFETY-tier rule used
+#: automatically, shown for an ENGINEER'S TICK - the clause, the value read
+#: and where. Internal copy only; never a comment to the contractor (there is
+#: nothing to ask), and the sheet is not issued until it is ticked.
+ROW_KIND_SAFETY_TICK = "safety_tick"
 _WEB_ORIGIN = "web_standard_check"
 _WEB_CONFIRMED_BY = "Web check, confirmed by "
 #: Honesty audit entry 70: an unconfirmed kind C/D item left "Comment By"
@@ -601,6 +606,35 @@ def engineer_comment_text(group: list[dict]) -> str:
     return f"{lead} {said} {_action(f, field)}"
 
 
+def trust_words(finding: dict) -> str:
+    """rule_trust (#947): the label's words for the CRS ("engineer-approved
+    rule", "automatic (proven rule)", ...), from the ONE table in
+    `rule_trust.TRUST_WORDS`. "" on a finding the run did not label."""
+    label = finding.get("trust_label")
+    if not label:
+        return ""
+    from .rule_trust import TRUST_WORDS
+    return TRUST_WORDS.get(label, str(label))
+
+
+def safety_tick_text(f: dict) -> str:
+    """The safety-tick row's text: what the rule required, what the sheet
+    states and where, and that the automatic result was "meets" - for the
+    engineer to read against the page and tick. Every value is one already
+    on the finding; nothing is re-derived."""
+    ref = _standard_reference(f) or "Requirement"
+    value = str(f.get("contractor_evidence_text") or "").strip()
+    page = f.get("contractor_page")
+    field = _field_label(f) or str(f.get("contractor_section") or "").strip()
+    where = " ".join(p for p in (f"p.{page}," if page else "", field) if p)
+    said = (f"Datasheet {where} states {value}." if where and value
+            else f"Datasheet states {value}." if value else "")
+    return " ".join(p for p in (
+        f"ENGINEER TO TICK (safety field): {ref}: {_requirement_words(f)}.", said,
+        f"Automatic result: meets the standard ({trust_words(f) or 'automatic rule'}). "
+        "Read the clause and the value on the page and tick, or say what is off.") if p)
+
+
 def _confirmed(finding: dict) -> bool:
     """Has an ENGINEER confirmed this comment? (the issue copy's gate)"""
     return bool(finding.get("confirmed_by") or finding.get("engineer_comment")
@@ -794,7 +828,32 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                 "comment_key": _subject_key(f),
                 # R30: the chain behind the comment (internal copy only).
                 "reasoning": reasoning_text(group),
+                # rule_trust (#947): who stands behind the rule, in words.
+                "rule_trust": trust_words(f),
             })
+
+    # rule_trust (#947 step 8): SAFETY-TIER COMPLIANT, SHOWN FOR A TICK. The
+    # rule decided "meets the standard" on its own; because the field is a
+    # safety one, an engineer reads the clause and the value and ticks it
+    # (the PF5 decision routes: accept = ticked, reject = something is off).
+    # Internal copy only (`crs_export` drops the kind from the issue copy).
+    for f in findings:
+        if not f.get("show_for_engineer_tick") or status(f) != "COMPLIANT":
+            continue
+        rows.append({
+            "finding_id": f.get("id") or "",
+            "document_name": submittal_name,
+            "page_section": _page_section([f]),
+            "comment": safety_tick_text(f),
+            "comment_by": _by([f]),
+            "standard_reference": _standard_reference(f),
+            "row_kind": ROW_KIND_SAFETY_TICK,
+            "severity": "",
+            "engineer_confirmed": _confirmed(f),
+            "comment_key": comment_key("safety tick", _subject_key(f)),
+            "reasoning": reasoning_text([f]),
+            "rule_trust": trust_words(f),
+        })
 
     # An engineer's own comments, filed from chat: individual comments to the
     # contractor, the engineer's rather than the machine's.

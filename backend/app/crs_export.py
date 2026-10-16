@@ -26,6 +26,8 @@ from openpyxl import Workbook
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
+from .crs_mapping import ROW_KIND_SAFETY_TICK
+
 ARIAL = "Arial"
 THIN = Side(style="thin")
 BOX = Border(top=THIN, bottom=THIN, left=THIN, right=THIN)
@@ -58,6 +60,9 @@ ROW_FILLS = {
     # 2026-09-29: an Open comment carried forward from an earlier review - a
     # cool grey-blue, so it reads as history the reviewer still has to close.
     "carried_forward": PatternFill("solid", fgColor="FFEAF0F6"),
+    # rule_trust (#947): a safety-tier "meets" awaiting an engineer's tick - a
+    # pale green, read as "right unless you say otherwise".
+    ROW_KIND_SAFETY_TICK: PatternFill("solid", fgColor="FFE3F2E6"),
 }
 HEADERS = ["Item No", "Document Name", "Page No./Section", "COMPANY Comments",
            "Comment By", "Contractor's Response", "Final Resolution"]
@@ -85,6 +90,13 @@ AI_COLUMN_WIDTH = 60.0
 #: copy only. The issue copy never carries it; no existing column moves.
 REASONING_COLUMN = "Reasoning (internal)"
 REASONING_COLUMN_WIDTH = 70.0
+#: rule_trust (#947 step 8): who stands behind the rule a comment rests on -
+#: "engineer-approved rule", "automatic (proven rule)", "automatic rule not
+#: yet proven" - in a NEW LAST column of the INTERNAL copy only. The client's
+#: seven columns are untouched; whether the contractor's copy should carry
+#: it is the owner's call, not this file's.
+TRUST_COLUMN = "Rule trust (internal)"
+TRUST_COLUMN_WIDTH = 28.0
 #: The two copies Export CRS offers. INTERNAL (the default) carries the AI
 #: column; ISSUE (to the contractor) drops it and every unconfirmed AI row,
 #: so only confirmed comments leave the building.
@@ -282,7 +294,10 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         # as unconfirmed - the safe reading. The internal copy keeps them all.
         findings = [f for f in findings
                     if not str(f.get("ai_review_comment") or "").strip()
-                    and f.get("engineer_confirmed") is True]
+                    and f.get("engineer_confirmed") is True
+                    # rule_trust: a safety tick is the engineer's own check,
+                    # never a comment to the contractor - ticked or not.
+                    and f.get("row_kind") != ROW_KIND_SAFETY_TICK]
 
     rows = []
     seen: set[str] = set()
@@ -346,6 +361,9 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
             # R30: internal copy only, like the AI column.
             "reasoning": (str(finding.get("reasoning") or "")
                           if copy == COPY_INTERNAL else ""),
+            # rule_trust (#947): internal copy only, like the two above.
+            "rule_trust": (str(finding.get("rule_trust") or "")
+                           if copy == COPY_INTERNAL else ""),
         })
 
     return {
@@ -358,7 +376,8 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         "header": [{"label": label, "value": meta.get(key, "") or ""}
                    for label, key in HEADER_FIELDS],
         "columns": list(HEADERS) + [STANDARD_COLUMN, SEVERITY_COLUMN]
-                   + ([AI_COLUMN, REASONING_COLUMN] if copy == COPY_INTERNAL else []),
+                   + ([AI_COLUMN, REASONING_COLUMN, TRUST_COLUMN]
+                      if copy == COPY_INTERNAL else []),
         "crs_copy": copy,
         "rows": rows,
         "recommended_code": meta.get("recommended_code") or "",
@@ -461,6 +480,7 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
     if internal:
         ws.column_dimensions["J"].width = AI_COLUMN_WIDTH
         ws.column_dimensions["K"].width = REASONING_COLUMN_WIDTH
+        ws.column_dimensions["L"].width = TRUST_COLUMN_WIDTH
 
     def put(row, col, value, bold=False, size=10, center=False, wrap=False):
         cell = _write(ws, row, col, value)
@@ -500,10 +520,11 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
                   entry["contractor_response"], entry["final_resolution"],
                   entry["standard_reference"], entry.get("severity", "")]
         if internal:
-            values.extend([entry["ai_review_comment"], entry["reasoning"]])
+            values.extend([entry["ai_review_comment"], entry["reasoning"],
+                           entry.get("rule_trust", "")])
         fill = ROW_FILLS.get(entry.get("row_kind") or "")
         for i, value in enumerate(values, start=1):
-            cell = put(row, i, value, wrap=(i in (3, 4, 8, 10, 11)), center=(i in (1, 9)))
+            cell = put(row, i, value, wrap=(i in (3, 4, 8, 10, 11, 12)), center=(i in (1, 9)))
             cell.border = BOX
             if fill is not None:
                 cell.fill = fill
