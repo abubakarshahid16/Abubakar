@@ -10,6 +10,14 @@ the day they merged.
 
 ## [Unreleased]
 
+### PR #974 — cited multi-document summaries in chat
+
+The existing chat can now summarize selected, ready documents through the
+local model, with source-page citations and explicit document coverage. A
+read-only local probe on 10 real documents cited all 10 and returned 499 words
+for a 450-word target in 744 seconds. The 20-document case is covered by
+synthetic tests; a real 20-document load test has not been run.
+
 ### 2026-09-17 — configurable engineering-review baselines
 
 Engineering gap reviews can now use administrator-configured mappings from a
