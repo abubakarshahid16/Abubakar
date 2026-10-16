@@ -989,7 +989,7 @@ def collection_summary(question: str, document_ids: frozenset[str], *,
             result["cost_usd"] = cost
         return result
     if summary.refusal:
-        return {**refused(summary.refusal),
+        return {**refused(summary.refusal, provider=actual_provider),
                 "answer_type": "cancelled" if chat_stream.cancelled() else "insufficient_evidence"}
     # Completion of all map/reduce stages means all selected documents entered
     # the run; it does not imply they survived into the final cited prose.
@@ -998,12 +998,13 @@ def collection_summary(question: str, document_ids: frozenset[str], *,
               for item in evidence}
     summary, originals = synthesis.original_citations(summary, ledger)
     if summary.refusal or not summary.text:
-        return refused(summary.refusal or "The final summary could not be verified against source pages.")
+        return refused(summary.refusal or "The final summary could not be verified against source pages.",
+                       provider=actual_provider)
     actual_words = len(summary.text.split())
     boundary["actual_words"] = actual_words
     if actual_words > int(target_words * 1.25) + 25:
         return refused("The model exceeded the requested length; no unverified "
-                       "truncation was shown.")
+                       "truncation was shown.", provider=actual_provider)
 
     passages = []
     for source in originals:
@@ -1018,7 +1019,8 @@ def collection_summary(question: str, document_ids: frozenset[str], *,
     boundary["cited_documents"] = len({p["document_id"] for p in passages})
     if boundary["cited_documents"] != len(selected):
         return refused("The draft omitted citations to some selected documents. "
-                       "It was not shown as a complete collection summary.")
+                       "It was not shown as a complete collection summary.",
+                       provider=actual_provider)
     excluded_pages = sum(len(doc["pages_excluded"]) for doc in boundary["documents"])
     excluded_label = "page" if excluded_pages == 1 else "pages"
     excluded_verb = "was" if excluded_pages == 1 else "were"
