@@ -756,7 +756,9 @@ def requested_summary_words(question: str) -> int:
 def collection_generate(system: str, prompt: str, *, target_words: int) -> synthesis.Generation:
     """Generate through the existing loopback-only model transport."""
     final = system.startswith(("You write an overview", "Write the requested overview"))
-    output_tokens = min(1900, int(target_words * 2.4) + 200) if final else 220
+    retry = system == synthesis.COLLECTION_RETRY_SYSTEM_PROMPT
+    output_tokens = (min(1900, int(target_words * 2.4) + 200) if final
+                     else 384 if retry else 220)
     body = {
         "model": settings.answer_model,
         "system": system,
@@ -786,7 +788,9 @@ def collection_claude_generate(
     if not isinstance(provider, reasoning_provider.ClaudeProvider):
         raise ModelUnavailable("Could not start Claude for this chat request.")
     final = system.startswith(("You write an overview", "Write the requested overview"))
-    output_tokens = min(1900, int(target_words * 2.4) + 200) if final else 220
+    retry = system == synthesis.COLLECTION_RETRY_SYSTEM_PROMPT
+    output_tokens = (min(1900, int(target_words * 2.4) + 200) if final
+                     else 384 if retry else 220)
     response = provider.reason(reasoning_provider.Packet(
         prompt=prompt,
         system=system,
