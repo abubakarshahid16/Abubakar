@@ -805,7 +805,8 @@ def collection_claude_generate(
 
 def collection_summary(question: str, document_ids: frozenset[str], *,
                        allowed_document_ids: frozenset[str], generate=None,
-                       model: str | None = None) -> dict:
+                       model: str | None = None,
+                       explicit_document_selection: bool = False) -> dict:
     """Summarise the selected local documents with an explicit coverage boundary.
 
     The caller can only narrow permissions. Every retrievable chunk in every
@@ -932,19 +933,22 @@ def collection_summary(question: str, document_ids: frozenset[str], *,
     if writer is None and model == "claude":
         from . import chat_model, claude_approved, reasoning_provider
 
-        # The user's model choice is honoured only when this entire selected
-        # scope passes the existing owner-approved document and egress gates.
-        # The app's historical conversation scope is already carried by the
-        # outer chat wrapper; this adds the newly selected documents too.
-        with claude_approved.carrying(ids):
-            local_note = claude_approved.local_instead()
-            if local_note is None:
+        if not explicit_document_selection:
+            # Model=Claude is not consent to guess which files the user meant.
+            # Do not forward an implicit conversation/library scope.
+            local_note = ("Choose one or more documents in the chat document picker "
+                          "to send them to Claude. This request stayed local.")
+        else:
+            # Per-request user choice is limited to this selected set. It
+            # replaces the broader conversation history declaration only for
+            # this summary; all other Claude workflows retain the owner list.
+            with claude_approved.per_request_consent(ids):
                 provider = chat_model.provider(chat_model.CLAUDE)
                 if isinstance(provider, reasoning_provider.ClaudeProvider):
                     actual_provider = "claude"
 
                     def writer(system: str, prompt: str) -> synthesis.Generation:
-                        with claude_approved.carrying(ids):
+                        with claude_approved.per_request_consent(ids):
                             generated = collection_claude_generate(
                                 system, prompt, target_words=target_words)
                         actual_models.append(generated.model)

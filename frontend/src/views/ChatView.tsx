@@ -555,7 +555,7 @@ export function ChatView({
     <p className="mt-2 text-center text-xs text-slateish-500">
       AI can be wrong. Open a source to check the page it came from.
       {model === "claude" &&
-        " Claude sends the question and source passages it needs to Anthropic. Only owner-approved documents can go; other selections stay local. Standard API retention is up to 30 days, with exceptions. "}
+        " Claude sends this question and only the documents you selected for this request to Anthropic. With no selected documents, document content stays local. Standard API retention is up to 30 days, with exceptions. "}
       {model === "local" && " The local model writes these answers; nothing you type leaves this machine."}
     </p>
   );

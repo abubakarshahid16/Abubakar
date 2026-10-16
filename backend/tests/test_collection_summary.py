@@ -103,7 +103,8 @@ def test_claude_choice_uses_existing_provider_for_approved_collection(monkeypatc
     monkeypatch.setattr(analysis, "collection_claude_generate", fake_claude)
     result = analysis.collection_summary(
         "Summarize these two documents in one page", ids,
-        allowed_document_ids=ids, model="claude")
+        allowed_document_ids=ids, model="claude",
+        explicit_document_selection=True)
 
     assert result["answer_type"] == "generated", result["reason"]
     assert result["provider"] == "claude"
@@ -111,27 +112,62 @@ def test_claude_choice_uses_existing_provider_for_approved_collection(monkeypatc
     assert observed_scopes and all(scope == ids for scope in observed_scopes)
 
 
-def test_unapproved_claude_collection_stays_local_and_says_why(monkeypatch):
-    from app import claude_approved
+def test_explicit_claude_selection_sends_only_selected_documents(monkeypatch):
+    from app import chat_model, claude_approved, reasoning_provider
+
+    ids = frozenset({"one", "two"})
+    other = "older-conversation-document"
+    for doc_id in ids:
+        put_document(doc_id, ["Inspection is scheduled.", "Inspection is scheduled."])
+    put_document(other, ["Unselected historical content."])
+    reader = Reader()
+    provider = reasoning_provider.ClaudeProvider(
+        "claude-sonnet-test", step=chat_model.CHAT_STEP)
+    monkeypatch.setattr(chat_model, "provider", lambda preference=None: provider)
+    observed_scopes = []
+
+    def fake_claude(system, prompt, *, target_words):
+        observed_scopes.append(claude_approved.carried())
+        assert "Unselected historical content." not in prompt
+        generated = reader(system, prompt)
+        return synthesis.Generation(generated.text, False, "claude-sonnet-test")
+
+    monkeypatch.setattr(analysis, "collection_claude_generate", fake_claude)
+
+    with claude_approved.carrying({other}):
+        result = analysis.collection_summary(
+            "Summarize these two documents", ids,
+            allowed_document_ids=ids | {other}, model="claude",
+            explicit_document_selection=True)
+
+    assert result["answer_type"] == "generated", result["reason"]
+    assert result["provider"] == "claude"
+    assert observed_scopes and set(observed_scopes) == {ids}
+    assert claude_approved.carried() is None
+
+
+def test_claude_without_explicit_document_selection_stays_local(monkeypatch):
+    from app import chat_model
 
     ids = frozenset({"one", "two"})
     for doc_id in ids:
         put_document(doc_id, ["Inspection is scheduled.", "Inspection is scheduled."])
-    note = "ran on the local model: 2 of 2 documents are not approved for the cloud model"
     reader = Reader()
-    monkeypatch.setattr(claude_approved, "local_instead", lambda: note)
     monkeypatch.setattr(analysis, "collection_generate", lambda system, prompt, *, target_words:
                         synthesis.Generation(reader(system, prompt).text, False, "local-test"))
     monkeypatch.setattr(analysis, "collection_claude_generate",
-                        lambda *args, **kwargs: pytest.fail("unapproved content reached Claude"))
+                        lambda *args, **kwargs: pytest.fail("implicit document scope reached Claude"))
+    monkeypatch.setattr(chat_model, "provider", lambda *args, **kwargs:
+                        pytest.fail("Claude provider should not be selected without consent"))
 
     result = analysis.collection_summary(
         "Summarize these two documents", ids,
-        allowed_document_ids=ids, model="claude")
+        allowed_document_ids=ids, model="claude",
+        explicit_document_selection=False)
 
     assert result["answer_type"] == "generated", result["reason"]
     assert result["provider"] == "ollama"
-    assert result["provider_note"] == note
+    assert "Choose one or more documents" in result["provider_note"]
 
 
 def test_claude_summary_adapter_uses_metered_chat_provider_and_output_budget(monkeypatch):
@@ -422,10 +458,12 @@ def test_existing_chat_routes_collection_request_through_its_selected_scope(monk
     convo = chat.create_conversation()
     seen = {}
 
-    def fake_summary(question, ids, *, allowed_document_ids, model=None):
+    def fake_summary(question, ids, *, allowed_document_ids, model=None,
+                     explicit_document_selection=False):
         seen["ids"] = ids
         seen["allowed"] = allowed_document_ids
         seen["model"] = model
+        seen["explicit_document_selection"] = explicit_document_selection
         return {"question": question, "answer_type": "insufficient_evidence",
                 "answer": None, "reason": "test refusal", "passages": [], "cited": [],
                 "summary_coverage": {"requested": 1, "processed": 0,
@@ -439,6 +477,7 @@ def test_existing_chat_routes_collection_request_through_its_selected_scope(monk
                       document_ids=frozenset({"one"}), model="claude")
     assert seen["ids"] == frozenset({"one"})
     assert seen["model"] == "claude"
+    assert seen["explicit_document_selection"] is True
     assert result["answer_type"] == "insufficient_evidence"
     assert result["used_line"].startswith("Collection summary incomplete")
 

@@ -869,7 +869,8 @@ def ask(
                        retrieval_allowed)
         collection_result = analysis_mod.collection_summary(
             original, summary_ids, allowed_document_ids=retrieval_allowed,
-            model=model)
+            model=model,
+            explicit_document_selection=bool(document_ids or selected_document))
 
     inventory_result = None
     if collection_result is None and explain_of is None and document_id is None:

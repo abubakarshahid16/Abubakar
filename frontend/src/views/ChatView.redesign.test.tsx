@@ -232,8 +232,8 @@ describe("the first screen", () => {
   it("says honestly that Claude receives the question when Claude answers", async () => {
     mockApi();
     await openChat();
-    expect(await screen.findByText(/Claude sends the question and source passages it needs to Anthropic/i)).toBeInTheDocument();
-    expect(screen.getByText(/Only owner-approved documents can go; other selections stay local/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Claude sends this question and only the documents you selected/i)).toBeInTheDocument();
+    expect(screen.getByText(/only the documents you selected for this request/i)).toBeInTheDocument();
     expect(screen.getByText(/Standard API retention is up to 30 days, with exceptions/i)).toBeInTheDocument();
     expect(screen.queryByText(/nothing you type leaves this machine/i)).toBeNull();
   });
