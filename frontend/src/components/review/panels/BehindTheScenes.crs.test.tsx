@@ -143,6 +143,22 @@ describe("the CRS preview", () => {
     expect(cells[0].textContent).toContain("Result: does not meet");
   });
 
+  it("gives the rule-trust column a cell on every row, so the columns line up (#947)", async () => {
+    const base = sheet();
+    previewCrs.mockResolvedValue({ ok: true, data: sheet({
+      columns: [...base.columns, "Standard Reference", "Severity", "AI Review Comments",
+                "Reasoning (internal)", "Rule trust (internal)"],
+      rows: base.rows.map((r, i) => ({ ...r, rule_trust: i === 0 ? "automatic rule not yet proven" : "" })),
+    }) });
+    const panel = within(await openThePreview());
+    const cells = panel.getAllByTestId("crs-rule-trust");
+    expect(cells).toHaveLength(2);
+    expect(cells[0].textContent).toBe("automatic rule not yet proven");
+    for (const row of panel.getAllByRole("row").slice(1)) {
+      expect(within(row).getAllByRole("cell")).toHaveLength(12);
+    }
+  });
+
   it("shows no reasoning column when the copy does not carry it", async () => {
     const panel = within(await openThePreview());
     expect(panel.queryAllByTestId("crs-reasoning")).toHaveLength(0);

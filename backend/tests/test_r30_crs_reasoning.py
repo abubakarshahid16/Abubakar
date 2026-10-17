@@ -67,8 +67,9 @@ def _book(copy):
 
 def test_the_internal_copy_prints_it_in_a_new_last_column():
     view, ws = _book("internal")
-    assert view["columns"][-1] == crs_export.REASONING_COLUMN
-    assert view["columns"][-2] == crs_export.AI_COLUMN          # nothing moved
+    # #947 (PR #985): "Rule trust (internal)" follows it as the last column.
+    assert view["columns"][-3:] == [crs_export.AI_COLUMN, crs_export.REASONING_COLUMN,
+                                    crs_export.TRUST_COLUMN]   # nothing moved
     assert ws.cell(row=crs_export.COLUMN_HEADER_ROW, column=11).value == crs_export.REASONING_COLUMN
     assert ws.cell(row=crs_export.COLUMN_HEADER_ROW + 1, column=11).value == view["rows"][0]["reasoning"]
     assert view["rows"][0]["reasoning"].startswith("Read: Noise level = 95 dB(A)")

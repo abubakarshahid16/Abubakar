@@ -266,8 +266,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         # Re-anchored 2026-09-26 (order 2f): the gaps are Review notes now.
         # Re-anchored 2026-10-08 (#633): the notes list also carries the
         # "Not checked" lines after this call.
-        anchor='        "review_notes": crs_mapping_mod.build_review_notes(findings, missing, unread) + [\n',
-        replacement='        "review_notes": crs_mapping_mod.build_review_notes(findings, [], unread) + [\n',
+        # Re-anchored 2026-10-17 (#947 wiring, PR #985): the call also passes the run's outcome.
+        anchor='        "review_notes": crs_mapping_mod.build_review_notes(findings, missing, unread, outcome) + [\n',
+        replacement='        "review_notes": crs_mapping_mod.build_review_notes(findings, [], unread, outcome) + [\n',
         target="tests/test_crs_endpoint.py",
         keyword="no_includable_findings_still_exports_its_gap_rows",
         tags=("honesty", "critical"),
@@ -365,8 +366,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         # pages are named by the Review notes, built a few lines further on.
         # Re-anchored 2026-10-08 (#633): the notes list now also carries the
         # "Not checked" lines after this call.
-        anchor="        \"review_notes\": crs_mapping_mod.build_review_notes(findings, missing, unread) + [",
-        replacement="        \"review_notes\": crs_mapping_mod.build_review_notes(findings, missing, []) + [",
+        # Re-anchored 2026-10-17 (#947 wiring, PR #985): the call also passes the run's outcome.
+        anchor="        \"review_notes\": crs_mapping_mod.build_review_notes(findings, missing, unread, outcome) + [",
+        replacement="        \"review_notes\": crs_mapping_mod.build_review_notes(findings, missing, [], outcome) + [",
         target=_B3_TEST, keyword="crs_names_the_unread_pages",
         tags=("honesty",),
     ),
@@ -400,7 +402,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         anchor="app.include_router(claude_api_mod.router)\n",
         replacement="",
         target="tests/test_claude_api.py",
-        keyword="the_four_routes_are_registered",
+        # re-keyed 2026-10-17 (PR #985): the test is named for three routes now
+        keyword="the_three_routes_are_registered",
         tags=("gate",),
     ),
     # ---- from KEYWORD_TOKENIZER (2026-09-27) ------------------------------
