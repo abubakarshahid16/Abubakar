@@ -62,6 +62,8 @@ MUTATIONS: tuple[Mutation, ...] = (
              path=APP / "crs_export.py",
              # Re-anchored 2026-09-27 (CRS quick wins): the issue-copy filter
              # now also requires engineer confirmation (M1305 removes that half).
+             # Re-anchored 2026-10-17 (#947 wiring, PR #985): the filter also
+             # drops the safety tick row (M985-04 removes that half).
              anchor=('        findings = [f for f in findings\n'
                      '                    if not str(f.get("ai_review_comment") or "").strip()\n'
                      '                    and f.get("engineer_confirmed") is True\n'

@@ -569,9 +569,8 @@ export interface CrsPreviewRow {
    *  why), in the "Reasoning (internal)" column of the internal copy only;
    *  always "" in the issue copy. */
   reasoning?: string;
-  /** rule_trust (#947): who stands behind the rule ("engineer-approved rule",
-   *  "automatic (proven rule)", "automatic rule not yet proven"), in the
-   *  "Rule trust (internal)" column of the internal copy only. */
+  /** rule_trust (#947): who stands behind the rule the comment rests on, in
+   *  words; "" on an unlabelled row and always in the issue copy. */
   rule_trust?: string;
 }
 

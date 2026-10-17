@@ -57,6 +57,7 @@ MUTATIONS: tuple[Mutation, ...] = (
        '    parts = [p for p in parts if not p.get("detail")]\n', "    parts = list(parts)\n", "incomplete"),
     _m(4432, "the sheet lists every reason, not the top three", "absence.py",
        "        top = reasons[:3]\n", "        top = reasons\n", "top_three"),
+    # Re-anchored 2026-10-17 (#947 wiring, PR #985): rule_trust= follows the split.
     _m(4433, "the run does not store the split", "comparison.py",
        "                       requirement_split=split,\n                       rule_trust=rule_trust_summary)",
        "                       rule_trust=rule_trust_summary)", "stores"),

@@ -13,7 +13,8 @@ reject of a proven rule's finding drops the family's proof.
 Invented standards, an invented sheet and a stub model only.
 
 MUTATION PROOF (danger zone, CLAUDE.md rule 6): the entries in
-`scripts/mutations/pr985_rule_trust_wiring.py` (M985-*) each delete one of these and name the
+`scripts/mutations/rule_trust_wiring.py` (M985-01..09) and
+`pr985_rule_trust_wiring.py` (M985-10..20) each delete one of these and name the
 test that fails.
 """
 from __future__ import annotations
