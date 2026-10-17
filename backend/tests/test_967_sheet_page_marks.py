@@ -110,12 +110,14 @@ def test_the_render_draws_one_colour_per_state(tmp_path):
     rects = [(72.0, 90.0, 200.0, 104.0)]
     amber = pageimage.render_page_with_marks(doc, 1, [(rects, "open")]).read_bytes()
     grey = pageimage.render_page_with_marks(doc, 1, [(rects, "answered")]).read_bytes()
+    # #1003: a safety tick's value is its own (green) mark, like its card
+    green = pageimage.render_page_with_marks(doc, 1, [(rects, "tick")]).read_bytes()
     plain = pageimage.render_page(doc, 1).read_bytes()
-    assert amber != grey and amber != plain and grey != plain
+    assert len({amber, grey, green, plain}) == 4, "two states drew the same picture"
     assert pageimage.render_page_with_marks(doc, 1, [([], "open")]).read_bytes() == plain
     try:
-        pageimage.render_page_with_marks(doc, 1, [(rects, "green")])
+        pageimage.render_page_with_marks(doc, 1, [(rects, "purple")])
     except ValueError as e:
-        assert "green" in str(e)
+        assert "purple" in str(e)
     else:
         raise AssertionError("an unknown state was drawn")

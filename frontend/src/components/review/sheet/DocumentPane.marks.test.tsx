@@ -43,6 +43,15 @@ describe("DocumentPane marks", () => {
     ]);
     expect(marksOn(cards, 3)).toEqual([{ findingId: "tag", state: "open" }]);
     expect(marksOn(cards, 1)).toEqual([]);
+    // #1003: a safety tick still to be checked is its own green mark; ticked, it is answered
+    const ticks = buildCards([
+      finding("psv-set", 4, { compliance_status: "COMPLIANT", show_for_engineer_tick: true }),
+      finding("psv-cold", 4, { compliance_status: "COMPLIANT", show_for_engineer_tick: true, confirmed_by: "eng" }),
+    ]);
+    expect(marksOn(ticks, 4)).toEqual([
+      { findingId: "psv-set", state: "tick" },
+      { findingId: "psv-cold", state: "answered" },
+    ]);
   });
 
   it("shows the run's marked page for a page with cards, the plain page otherwise", () => {

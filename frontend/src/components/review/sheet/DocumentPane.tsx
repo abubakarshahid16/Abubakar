@@ -15,7 +15,7 @@ import { useEffect, useRef, useState } from "react";
 import type { DocumentRecord, ReviewFinding } from "../../../types/api";
 import { DocumentPreview } from "../../DocumentPreview";
 import { EvidencePageImage } from "../EvidencePageImage";
-import { type SheetCard, cardTitle, marksOn } from "./sheetCards";
+import { type SheetCard, cardTitle, isTickFinding, marksOn } from "./sheetCards";
 import { SheetPageImage } from "./SheetPageImage";
 
 export interface PaneView {
@@ -111,7 +111,8 @@ export function DocumentPane({ runId, submittal, cards, selected, view, pulse = 
             <li key={c.key}>
               <button
                 type="button" onClick={() => onSelectCard(c)}
-                className={`underline decoration-2 underline-offset-4 ${c.state === "open" ? "decoration-warn-500 text-slateish-100" : "decoration-slateish-500 text-slateish-400"} ${selected?.key === c.key ? "font-semibold" : ""}`}
+                data-mark={c.state !== "open" ? "answered" : isTickFinding(c.findings[0]) ? "tick" : "open"}
+                className={`underline decoration-2 underline-offset-4 ${c.state !== "open" ? "decoration-slateish-500 text-slateish-400" : isTickFinding(c.findings[0]) ? "decoration-signal-500 text-slateish-100" : "decoration-warn-500 text-slateish-100"} ${selected?.key === c.key ? "font-semibold" : ""}`}
               >
                 {cardTitle(c)}
               </button>

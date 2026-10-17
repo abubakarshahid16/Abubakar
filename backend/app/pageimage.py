@@ -128,6 +128,8 @@ def render_page_with_highlight(
 #: you, grey is answered - the same two the list under the page uses.
 MARK_COLOURS = {
     "open": (0.96, 0.62, 0.04),
+    # #1003: a safety tick's value, green like its card; checked by eye, not a comment.
+    "tick": (0.13, 0.77, 0.37),
     "answered": (0.55, 0.58, 0.62),
 }
 MARK_WIDTH = 2.2

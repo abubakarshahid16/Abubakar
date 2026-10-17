@@ -5,7 +5,8 @@ An `APIRouter`, like `watch_api`, so main.py includes one line.
 
 WHAT IT DRAWS. The Sheet lists the cards on a page; this route draws their
 values on the page image, each underlined in the colour of its card's state
-(amber: needs you; grey: answered). The marks are found the way the
+(amber: needs you; green: a safety tick to check, #1003; grey: answered).
+The marks are found the way the
 side-by-side view finds one finding's box (`evidence_boxes.side`, the
 submittal side: the stored quote, the value's stored box, its source line,
 the value when it is on the page once, the field's label) and drawn on the
