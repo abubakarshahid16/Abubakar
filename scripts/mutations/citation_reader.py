@@ -30,7 +30,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T, keyword="tags_document_numbers", tags=("w3",)),
     Mutation(id="M2804", phase=2804, description="a short API number in prose is read as a citation (\"API 20 units\")",
              path=_IDS,
-             anchor="        return bool(_API_IN_TEXT.fullmatch(m.group(\"num\")))\n",
+             anchor="        return bool((_API_IN_QUESTION if typed_question else _API_IN_TEXT).fullmatch(m.group(\"num\")))\n",
              replacement="        return True\n",
              target=_T, keyword="tags_document_numbers", tags=("w3",)),
     Mutation(id="M2805", phase=2805, description="two equivalent standards that were both cited are merged into one",
