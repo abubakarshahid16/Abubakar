@@ -2460,6 +2460,11 @@ def _run_comparison(
     # from turning into a review that calls a model thousands of times.
     model_cache: dict = {}
     budget = _Budget(settings.match_max_calls_per_run)
+    # #882 TECHNIQUE 2: one small exact question per requirement still left
+    # without a value - counted here, every count out of `eligible`.
+    ask_counts = {"eligible": 0, "asked": 0, "verified": 0, "not_stated": 0, "refused": {},
+                  "could_not_read": 0, "no_evidence": 0, "not_asked_budget": 0, "model": None}
+    ask_pages: dict | None = None
     # B4 (#193 5.2/5.3), FLAG-GATED: canonical field names for the numeric
     # requirements and the facts' labels, named by the labelling model under
     # code-verified gates (see field_naming). None with the flag off - the
@@ -2533,6 +2538,61 @@ def _run_comparison(
                     model_matches += 1
                 else:
                     model_reason = chosen["reason"]
+
+        # #882 TECHNIQUE 2: ONE SMALL EXACT QUESTION. A requirement still
+        # without a value after the rules and the AI matcher (which picks
+        # only among values already read as numbers) is asked about ONCE, by
+        # itself: its own words and the few datasheet lines naming its
+        # subject, never its limit and never a whole document. CODE verifies
+        # the answer on the page (`ai_requirements.ask_value`); comparison
+        # decides; the verdict is held for the engineer (below).
+        # A table or formula rule is judged on its OUTPUT field below; its
+        # number is not a value to look up, so it is not asked about.
+        if (fact is None and settings.match_enabled and is_matchable(requirement)
+                and requirement.get("requirement_type") not in (requirements_3b.TABLE_ROW,
+                                                                requirements_3b.RELATIVE_LIMIT)
+                and match.get("reason") != AMBIGUOUS_MATCH  # a tie is a person's question
+                and model_reason in (None, MODEL_DECLINED)):
+            ask_counts["eligible"] += 1
+            if ask_counts["asked"] >= max(settings.match_ask_max_per_run, 0):
+                ask_counts["not_asked_budget"] += 1
+            else:
+                from . import ai_requirements
+                if ask_pages is None:
+                    ask_pages = {r["page_no"]: r["text"] or "" for r in connect().execute(
+                        "SELECT page_no, text FROM pages WHERE document_id = ?", (submittal_id,))}
+                asked = ai_requirements.ask_value(requirement, ask_pages)
+                state = asked["state"]
+                if state == ai_requirements.ASKED_NO_EVIDENCE:
+                    ask_counts["no_evidence"] += 1
+                else:
+                    ask_counts["asked"] += 1
+                    ask_counts["model"] = ask_counts["model"] or asked["model"]
+                    why = asked["why"]
+                    if state == ai_requirements.ASKED_VERIFIED:
+                        asked_fact = _store_asked_fact(review_run_id, submittal_id,
+                                                       asked["proposal"], allowed_document_ids)
+                        why = (ASK_NOT_STORED if asked_fact is None else
+                               match_rules.refusal(requirement, asked_fact, sheet=sheet))
+                        if why is None:
+                            ask_counts["verified"] += 1
+                            match = {"fact": asked_fact, "method": METHOD_ASKED,
+                                     "matched_phrase": asked_fact.get("field_name"),
+                                     "reason": None, "candidates": []}
+                            fact = asked_fact
+                            model_reason = None
+                        else:
+                            state = ai_requirements.ASKED_REFUSED
+                    if state == ai_requirements.ASKED_NOT_STATED:
+                        ask_counts["not_stated"] += 1
+                    elif state == ai_requirements.ASKED_REFUSED:
+                        ask_counts["refused"][why] = ask_counts["refused"].get(why, 0) + 1
+                        # the model said the value is there and code could not
+                        # prove it: not an absence - the engineer looks
+                        model_reason = ASK_REFUSED
+                    elif state == ai_requirements.ASKED_COULD_NOT_READ:
+                        ask_counts["could_not_read"] += 1
+                        model_reason = ASK_UNREAD
 
         # OWNER ORDER 2a + 2b: A TABLE OR FORMULA RULE IS EVALUATED IN CODE,
         # against its OUTPUT field. "Design pressure from maximum operating
@@ -2670,6 +2730,24 @@ def _run_comparison(
                         verdict = {**verdict, "status": NEEDS_ENGINEER_REVIEW, "rationale": (
                             f"{verdict.get('rationale') or ''} The numbers read {status}, held "
                             f"for an engineer: the AI matcher's pairing is low-confidence ({doubt}).")}
+            elif match["method"] == METHOD_ASKED:
+                # #882 TECHNIQUE 2, FIRST VERSION: A VALUE FOUND BY THE LOCAL
+                # MODEL'S QUESTION NEVER CARRIES A VERDICT. The arithmetic is
+                # shown and the status waits for the engineer, with the page -
+                # whether the value is newly read or a reader's value the
+                # rules could not pair. Letting verified answers decide is a
+                # later, measured step (owner's yes on #692).
+                status = verdict.get("status")
+                held = status in (COMPLIANT, NON_COMPLIANT)
+                verdict = {**verdict,
+                           "status": NEEDS_ENGINEER_REVIEW if held else status,
+                           "rationale": (
+                               f"{ASKED_PREFIX}p.{(fact or {}).get('page')}. "
+                               + (f"The numbers read {status}, held for an engineer: the "
+                                  "value was found by the local model's question and "
+                                  "checked on the page by code, not paired by a reader. "
+                                  if held else "")
+                               + f"{verdict.get('rationale') or ''}")}
             elif match["method"] == METHOD_FIELD_NAME:
                 # A MODEL-NAMED PAIRING NEVER CARRIES A VERDICT. The arithmetic
                 # is shown, the status waits for an engineer: measured on a copy
@@ -2775,6 +2853,13 @@ def _run_comparison(
         not_used=covered_items)
     scope_counts = scope_ledger.check_complete(in_scope_all, decisions)
     scope_ledger.store(review_run_id, decisions)
+    # PF4 (#884) step 1: the clause coverage of this run - every applicable
+    # requirement in exactly one state, with its denominator and the one
+    # line - STORED WITH THE RUN from the same decisions the ledger holds,
+    # so the scorer reads it from a database copy with no route and the
+    # route (`clause_coverage.for_run`) can never say a different number.
+    from . import clause_coverage
+    clause_cov = clause_coverage.summarise(decisions)
 
     # #645 CLAUSE TO CHECK: a clause sentence stored with no limit that this
     # run could not decide is offered to the local model, which proposes a
@@ -2836,7 +2921,7 @@ def _run_comparison(
     if reader:
         split = {**split, "reader": reader}
     ai_matcher = matcher_summary(matcher_counts, model_matches=model_matches,
-                                 model_held=model_held)
+                                 model_held=model_held, questions=ask_counts)
     unchecked_counts = {
         "not_compared": split["applies_not_checked"],
         "not_applied": split["does_not_apply"],
@@ -2858,7 +2943,8 @@ def _run_comparison(
                        ai_matcher=ai_matcher,
                        unchecked_counts=unchecked_counts,
                        requirement_split=split,
-                       rule_trust=rule_trust_summary)
+                       rule_trust=rule_trust_summary,
+                       clause_coverage=clause_cov)
 
     return {
         "review_run_id": review_run_id,
@@ -2872,6 +2958,8 @@ def _run_comparison(
         "scope": scope_counts,
         # #678's distinct counts, built from the same items as `scope`
         "requirement_split": split,
+        # PF4 (#884): the same decisions as PF4's four states, with the line
+        "clause_coverage": clause_cov,
         "service_declarations": service_declarations,
         "ai_applicability": ai_applicability_summary,
         "clause_checks": clause_checks,
@@ -3447,6 +3535,33 @@ def match_by_field_name(requirement: dict, facts: list[dict], names: dict, *,
 #: `model` means a language model chose from a deterministic shortlist and an
 #: engineer has not confirmed it.
 METHOD_MODEL_CHOICE = "model"
+#: #882 technique 2: the value was found by one small exact question to the
+#: local model (`ai_requirements.ask_value`) and verified on the page by code.
+METHOD_ASKED = "asked"
+ASKED_PREFIX = "Value found by the local model's question (verified on the page by code): "
+#: Why a question did not give a value the comparison may use - the step did
+#: not complete, so "no field answers this" was not established (#450).
+ASK_REFUSED = "question_refused_by_code"
+ASK_UNREAD = "question_not_read"
+ASK_NOT_STORED = "the verified value could not be stored"
+
+
+def _store_asked_fact(review_run_id: str, submittal_id: str, proposal: dict,
+                      allowed_document_ids: frozenset[str]) -> dict | None:
+    """Store a verified answer as the model's fact (`claude_datasheet`:
+    `extraction_method="model"`, never overwriting) and return the stored row
+    as `list_facts` reads it - a reader's value already on that page under the
+    same field is returned instead. None when nothing could be stored."""
+    from . import claude_datasheet
+
+    stored = claude_datasheet.store_facts(review_run_id, submittal_id, [proposal],
+                                          allowed_document_ids=allowed_document_ids)
+    if not (stored["facts"] or stored["kept_existing"]):
+        return None
+    for row in datasheets.list_facts(submittal_id, allowed_document_ids=allowed_document_ids):
+        if row["page"] == proposal["page"] and row["field_name"] == proposal["field_name"]:
+            return row
+    return None
 
 #: At most this many candidates reach the prompt, longest field name first.
 MAX_CANDIDATES = 12
@@ -4015,7 +4130,8 @@ def attach_crs_context(findings: list[dict]) -> list[dict]:
     return findings
 
 
-def matcher_summary(counts: dict, *, model_matches: int, model_held: dict) -> dict:
+def matcher_summary(counts: dict, *, model_matches: int, model_held: dict,
+                    questions: dict | None = None) -> dict:
     """#845: the AI matcher's work on one run, as counts with what each is out
     of. `sent` requirements reached the tier (no rule pairing, not a tie);
     `asked` is those the model was actually asked about (not `no_candidates`,
@@ -4047,6 +4163,8 @@ def matcher_summary(counts: dict, *, model_matches: int, model_held: dict) -> di
         "declined": declined,
         "unavailable": unavailable,
         "other": reasons,
+        # #882 technique 2: the local model's one-requirement questions
+        **({"questions": questions} if questions and questions.get("eligible") else {}),
     }
 
 
@@ -4062,7 +4180,8 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
                        unchecked_counts: dict | None = None,
                        requirement_split: dict | None = None,
                        ai_matcher: dict | None = None,
-                       rule_trust: dict | None = None) -> None:
+                       rule_trust: dict | None = None,
+                       clause_coverage: dict | None = None) -> None:
     """Persist the AI recommendation and the completeness it was gated on.
 
     B3: `page_coverage` is the page ledger's summary AT THE TIME OF THE RUN -
@@ -4110,6 +4229,9 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
                 # rule_trust (#947): only on a run made with the switch on, so
                 # a run made with it off stores exactly what it did before.
                 **({"rule_trust": rule_trust} if rule_trust is not None else {}),
+                # PF4 (#884): checked / engineer / not checked / checklist /
+                # does not apply, the denominator and the line, at run end.
+                "clause_coverage": clause_coverage,
             # completed_at: the readiness strip's "since the last run" is
             # measured from here, not from updated_at (which the engineer's
             # code decision moves later).

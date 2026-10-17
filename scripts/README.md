@@ -13,6 +13,7 @@ listed here: they are tools, not dead code (#661).
 | `backfill_standard_metadata.py` | fill document number and revision of every standard from its own cover pages; `--live` goes through `live_guard` (backup and restore drill first) |
 | `bench_vector_store.py` | dense-stage benchmark of the vector-store backends, on synthetic data only |
 | `verify_crs_numbers_on_real_runs.py` | check permanent CRS comment numbers on a diagnostic copy of the real runs |
+| `weekly_log_check.py` | the S5 weekly log check (#821): Claude spend against the caps, unusual calls, failed logins; read-only, counts only, paste the output on #692 |
 | `verify_geometry_ocr_guard_on_real_docs.py` | read-only sanity check of the geometry reader's OCR guard on real documents |
 
 `vulture_whitelist.py` lists the names the dead-code check in CI must not report

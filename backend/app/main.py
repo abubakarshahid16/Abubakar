@@ -43,7 +43,9 @@ from . import search as search_mod
 from . import pageimage as pageimage_mod
 from . import upload as upload_mod
 from . import watcher as watcher_mod
+from . import fact_api as fact_api_mod
 from . import watch_api as watch_api_mod
+from . import sheet_page as sheet_page_mod
 from . import warmup as warmup_mod
 from .api_utils import (
     DEFAULT_LIMIT,
@@ -261,9 +263,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# The watched-folder status route lives in its own module so this file stays
-# the only place routing is declared, without this file growing a feature.
+# Routes in their own modules (watched folder; #473 fact confirmation) so this
+# file stays the only place routing is declared without growing a feature.
 app.include_router(watch_api_mod.router)
+app.include_router(fact_api_mod.router)
+app.include_router(sheet_page_mod.router)  # #967: the Sheet's page with every card's value marked
 
 # THE CLAUDE LANE (#222, revived by owner decision 2026-09-25). Every route is
 # gated on the reader's two egress flags and answers 409 model_disabled when
@@ -731,8 +735,7 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
         acknowledge=acknowledge_orphaned_findings,
         actor={"id": scope.user_id} if scope.user_id else None)
 
-    # Reports quote this document. Their FILES go; their ROWS stay, because
-    # the record that a report was issued must survive the document.
+    # Reports quote this document: their FILES go, their ROWS stay (the record survives).
     reports_mod.on_document_deleted(document_id)
 
     conn = connect()
@@ -741,6 +744,7 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
     with conn:
         removed.update(document_refs.erase_document_text(  # #436: its copied text goes too
             conn, document_id, doc["filename"], actor=actor))
+        removed["canonical_field_names"] = document_refs.forget_quotes(conn, document_id)  # #437, before the chunk cascade
         conn.execute("DELETE FROM chunks_fts WHERE document_id = ?", (document_id,))
         for table in ("chunk_vectors", "exclusions", "chunks", "pages", "jobs"):
             cur = conn.execute(f"DELETE FROM {table} WHERE document_id = ?", (document_id,))
@@ -755,11 +759,11 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
     if stored.exists():
         stored.unlink()
         files_removed += 1
-    cache = settings.data_dir / "page_images"
-    if cache.exists():
+    if (cache := settings.data_dir / "page_images").exists():
         for img in cache.glob(f"{doc['sha256'][:16]}_*.png"):
             img.unlink()
             files_removed += 1
+    files_removed += review_mod.remove_report_files(document_id)   # #437: its review PDFs
 
     return {
         "deleted": document_id,
@@ -2604,70 +2608,6 @@ def review_finding_history(
     return {"events": review_mod.history(finding_id)}
 
 
-#: R21 / #508: which stored page and text each side of a finding cites.
-_EVIDENCE_SIDES = {
-    "submittal": ("document_id", "contractor_page", "contractor_evidence_text"),
-    "standard": ("standard_document_id", "standard_page", "requirement_source_text"),
-}
-
-
-def _evidence_side(current: dict, side: str, scope: access.AccessScope) -> dict:
-    """#785: where one side of a finding sits and the box to draw on it -
-    {document, page, rects, box, reason}. `document` None with `reason`
-    when the side cannot be shown (no page cited, a document the caller may
-    not read, a Word document, a checklist clause not found in the library).
-    A checklist row's standard side is resolved from its clause id
-    (`evidence_boxes.checklist_standard`); nothing is written."""
-    doc_field, page_field, text_field = _EVIDENCE_SIDES[side]
-    document_id, page_no = current.get(doc_field), current.get(page_field)
-    text, how = current.get(text_field) or "", evidence_boxes_mod.QUOTE
-    if side == "standard" and not (document_id and page_no):
-        resolved = evidence_boxes_mod.checklist_standard(current, scope.allowed_document_ids)
-        if resolved is not None:
-            document_id, page_no = resolved["document_id"], resolved["page"]
-            text, how = resolved["text"], resolved["how"]
-        elif current.get("origin") == evidence_boxes_mod.CHECKLIST_ORIGIN and current.get("standard_clause"):
-            return {"document": None, "page": None, "rects": [], "box": None,
-                    "reason": f"{current['standard_clause']}: the standard is not in the library "
-                              "you may read, or the clause was not found in it"}
-    if (side == "submittal" and document_id and not page_no
-            and current.get("origin") == evidence_boxes_mod.CHECKLIST_ORIGIN
-            and not (current.get("contractor_evidence_text") or "").strip()
-            and scope.may_read(document_id)):
-        # #785 point 3: no value found, so no page cited - show where to look.
-        doc = dict(require_document(document_id, scope))
-        if doc.get("pagination") == "flow" or not doc.get("stored_path"):
-            return {"document": None, "page": None, "rects": [], "box": None,
-                    "reason": f"no value was found for {current.get('contractor_section') or 'this field'}"}
-        look = evidence_boxes_mod.where_to_look(current.get("contractor_section"), doc["stored_path"])
-        if look["page"] is None:
-            return {"document": None, "page": None, "rects": [], "box": None, "reason": look["reason"]}
-        return {"document": doc, "page": look["page"], "rects": look["rects"],
-                "box": evidence_boxes_mod.WHERE_TO_LOOK, "reason": None}
-    if not document_id or not page_no:
-        return {"document": None, "page": None, "rects": [], "box": None,
-                "reason": f"this finding cites no {side} page"}
-    if not scope.may_read(document_id):
-        return {"document": None, "page": None, "rects": [], "box": None,
-                "reason": f"this finding cites no {side} page"}
-    doc = dict(require_document(document_id, scope))
-    if doc.get("pagination") == "flow":
-        return {"document": None, "page": None, "rects": [], "box": None,
-                "reason": "a Word document has no printed pages"}
-    if side == "submittal":
-        rects, box = evidence_boxes_mod.submittal_box(current, doc["stored_path"], int(page_no))
-    else:
-        rects, box = evidence_boxes_mod.standard_box(text, doc["stored_path"], int(page_no), how)
-    reason = None
-    if not rects and not evidence_boxes_mod.has_text_layer(doc["stored_path"], int(page_no)):
-        # #508: a scanned page - box the recognised line, or say why not
-        texts = (evidence_boxes_mod.submittal_texts(current) if side == "submittal"
-                 else [t for t in (text,) if (t or "").strip()])
-        rects, box, reason = evidence_boxes_mod.scanned_box(
-            texts, doc["stored_path"], int(page_no), doc["sha256"])
-    return {"document": doc, "page": int(page_no), "rects": rects, "box": box, "reason": reason}
-
-
 def _finding_for_evidence(finding_id: str, scope: access.AccessScope) -> dict:
     current = review_mod.get(finding_id)
     if current is None or not scope.may_read(current["document_id"]):
@@ -2691,7 +2631,7 @@ def review_finding_evidence(
     current = _finding_for_evidence(finding_id, scope)
     out = {"finding_id": finding_id}
     for side in ("submittal", "standard"):
-        found = _evidence_side(current, side, scope)
+        found = evidence_boxes_mod.side(current, side, scope)
         doc = found["document"]
         out[side] = {"document_id": doc["id"] if doc else None,
                      "filename": doc.get("filename") if doc else None,
@@ -2728,7 +2668,7 @@ def review_finding_evidence_image(
     """
     reject_unknown_params(request, {"side", "dpi"})
     current = _finding_for_evidence(finding_id, scope)
-    found = _evidence_side(current, side, scope)
+    found = evidence_boxes_mod.side(current, side, scope)
     if found["document"] is None:
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, found["reason"]))
@@ -4034,8 +3974,7 @@ def cancel_job(
         cancelled, state = job_queue_mod.cancel(job_id, actor_user_id=(actor or {}).get("id"))
     if not cancelled:
         raise HTTPException(status_code=409, detail=errors.safe_error(
-            errors.INVALID_PARAMETER,
-            f"this job can no longer be cancelled; it is {state}"))
+            errors.INVALID_PARAMETER, f"this job can no longer be cancelled; it is {state}"))
     return job_queue_mod.get_job(job_id, allowed_document_ids=scope.allowed_document_ids)
 
 
@@ -4982,8 +4921,7 @@ def _readiness_payload(submittal_document_id: str, scope: access.AccessScope) ->
     the GET route and the re-extraction route below, so "what changed" is
     computed once and cannot drift into two answers (CLAUDE.md rule 8)."""
     allowed = scope.allowed_document_ids
-    page_ledger_mod.refresh(submittal_document_id, as_submittal=True)
-    pages = page_ledger_mod.coverage(submittal_document_id)
+    # #1017: a GET writes nothing (#478) - the ledger is READ, never rebuilt here.
     missing = _missing_references(submittal_document_id, allowed)
     runs = submittal_review_mod.list_review_runs(
         allowed_document_ids=allowed, submittal_document_id=submittal_document_id)
@@ -5028,17 +4966,7 @@ def _readiness_payload(submittal_document_id: str, scope: access.AccessScope) ->
         if scope.may_read(r["id"])] if last else []
     return {
         "submittal_document_id": submittal_document_id,
-        "pages_total": pages.get("pages_total"),
-        "pages_read": len(pages.get("fact_pages") or []),
-        "unread_pages": pages.get("pages_not_read_into_fields") or [],
-        # HONESTY GROUP (2026-09-27): the ledger has always recorded WHY a
-        # page did not read into fields (`page_ledger.coverage`'s own
-        # `not_read_reasons`, keyed by page); this route simply never carried
-        # it past `unread_pages`, so the strip could say a page was unread
-        # but never say why - the same "not mentioned" silence CLAUDE.md rule
-        # 4 forbids elsewhere. Keyed by the page number AS A STRING because
-        # that is what a JSON object key is.
-        "unread_page_reasons": pages.get("not_read_reasons") or {},
+        **page_ledger_mod.readiness_pages(submittal_document_id),
         "standards_cited": len(held) + len(missing),
         "standards_held": held,
         "standards_missing": missing,
@@ -5322,8 +5250,7 @@ def issue_review_crs(
             "be issued to the contractor"))
     if not gate["issuable"]:
         raise HTTPException(status_code=409, detail=errors.safe_error(
-            errors.CRS_NOT_FINISHED,
-            "the contractor's copy is not finished: " + "; ".join(gate["blockers"])))
+            errors.CRS_NOT_FINISHED, "the contractor's copy is not finished: " + "; ".join(gate["blockers"])))
     workbook, filename = _crs_workbook(review_run_id, scope, crs_export_mod.COPY_ISSUE)
     record = crs_issue_mod.archive(review_run_id, workbook, filename,
                                    actor=scope.user_id or "unrestricted")
