@@ -105,6 +105,14 @@ def test_the_drill_names_a_damaged_backup_never_a_silent_pass(world, damage):
         drill(made)
 
 
+def test_an_unreadable_manifest_is_named_not_a_traceback(tmp_path):
+    folder = tmp_path / "data-20261017-000000-000000"
+    folder.mkdir()
+    (folder / "MANIFEST.json").write_text("not json", encoding="utf-8")
+    with pytest.raises(BackupError, match="not readable JSON"):
+        drill(folder)
+
+
 def test_a_folder_without_a_manifest_is_not_a_backup(tmp_path):
     (tmp_path / "data-20261017-000000-000000").mkdir()
     with pytest.raises(BackupError, match="no MANIFEST"):
@@ -160,6 +168,16 @@ def test_retention_keeps_one_per_month_back_to_the_limit(tmp_path):
         "data-20260815-010000-000000", "data-20260901-010000-000000", "data-20261017-010000-000000"]
     with pytest.raises(BackupError, match="keep at least one"):
         prune(tmp_path, keep_daily=0)
+
+
+@pytest.mark.parametrize("manifest", ['{"format": 2, "files": [], "databases": {}}', "not json"])
+def test_retention_never_deletes_a_backup_whose_manifest_it_cannot_read(tmp_path, manifest):
+    old = tmp_path / "data-20200101-000000-000000"
+    old.mkdir()
+    (old / "MANIFEST.json").write_text(manifest, encoding="utf-8")
+    _fake(tmp_path, "20261017-010000-000000")
+    assert prune(tmp_path, keep_daily=1, keep_monthly=0) == []
+    assert old.is_dir()
 
 
 def test_the_off_disk_copy_refuses_the_same_disk_and_drills_the_copy(world, tmp_path, monkeypatch):

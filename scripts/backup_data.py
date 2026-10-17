@@ -93,7 +93,9 @@ def _tables(path: Path) -> dict[str, int]:
 
 
 def is_live_data_dir(path: Path) -> bool:
-    """A checkout's live data folder (`backend/data`), by the shape of its path."""
+    """Any folder named `backend/data`, by the shape of its path alone: the
+    live data folder of a checkout looks like this, and so does a copy of one.
+    This is not a liveness check; it refuses both, on purpose."""
     p = Path(path).resolve()
     return p.name == "data" and p.parent.name == "backend"
 
@@ -160,8 +162,12 @@ def _manifest(folder: Path) -> dict:
     path = Path(folder) / MANIFEST
     if not path.is_file():
         raise BackupError(f"{folder} has no {MANIFEST}; not a backup made by this tool")
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if data.get("format") != FORMAT:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        raise BackupError(f"{folder}: {MANIFEST} is not readable JSON") from exc
+    if not isinstance(data, dict) or data.get("format") != FORMAT:
+        data = data if isinstance(data, dict) else {}
         raise BackupError(f"{folder}: manifest format {data.get('format')!r}, expected {FORMAT}")
     return data
 
@@ -220,7 +226,10 @@ def _backups(root: Path) -> list[Path]:
         if p.is_dir() and p.name.startswith(PREFIX) and (p / MANIFEST).is_file():
             try:
                 _made_at(p)
-            except ValueError:
+                # a manifest this version cannot read (a newer format, or not
+                # JSON) is not counted, and so never deleted
+                _manifest(p)
+            except (ValueError, BackupError):  # a name that is not a stamp, or the manifest
                 continue
             out.append(p)
     return sorted(out, key=_made_at, reverse=True)
