@@ -131,15 +131,13 @@ def open_items(review_run_id: str, rows: list[dict], page_coverage: dict | None)
         # no-finding_id row is gated the same way a finding-bearing one is,
         # not skipped.
         subject = row.get("finding_id") or row.get("crs_row_key") or ""
-        if not subject or row.get("engineer_confirmed") or subject in seen:
+        if (not subject or row.get("engineer_confirmed") or row.get("engineer_rejected")
+                or subject in seen):
             continue
         seen.add(subject)
         # `finding_id` here is `crs_row_key` (the row's `comment_key`), not a
-        # real review_findings id, when the row has none - a caller cannot
-        # yet decide this item through the existing per-finding decide route
-        # (it looks the id up in review_findings and 404s). Fixing THAT is a
-        # follow-up; this fix is that the item is no longer invisible to the
-        # gate, which is the bypass #923 named.
+        # real review_findings id, when the row has none. #986: the decide
+        # route accepts that key and records the decision against it.
         findings.append({"finding_id": subject,
                          "row_kind": row.get("row_kind") or None, "item": n})
     if unread:
@@ -203,6 +201,46 @@ def decide_finding(review_run_id: str, finding_id: str, decision: str, *, reason
     rule_trust.record_engineer_decision(review.get(finding_id) or {}, decision,
                                         actor=actor, note=reason)
     return record
+
+
+def apply_row_decisions(review_run_id: str, rows: list[dict]) -> None:
+    """#986: A ROW WITH NO FINDING BEHIND IT (standard not cited, standard not
+    applicable) is decided by its row key, recorded here. Accepted: the
+    engineer made it theirs and the contractor copy prints it. Rejected:
+    withdrawn - not printed and no longer an open item. Marks the rows."""
+    verdicts = {d["subject"]: d["decision"] for d in decisions(review_run_id) if d["kind"] == FINDING}
+    for row in rows:
+        verdict = None if row.get("finding_id") else verdicts.get(row.get("crs_row_key"))
+        if verdict == ACCEPT:
+            row["engineer_confirmed"] = True
+        elif verdict == REJECT:
+            row["engineer_rejected"] = True
+
+
+def is_open_row_key(rows: list[dict], subject: str) -> bool:
+    """#986: is `subject` the row key of an undecided row with no finding -
+    the id the issue gate names for it, and the one the decide route takes?"""
+    return any(not r.get("finding_id") and r.get("crs_row_key") == subject
+               and not r.get("engineer_confirmed") and not r.get("engineer_rejected")
+               for r in rows)
+
+
+def finding_changes(decision: str | None, actor: str, now: str) -> dict:
+    """What a decision writes on a finding: accepted (and confirmed) or
+    rejected, by the caller, now."""
+    changes = {"approval_status": "accepted" if decision == ACCEPT else "rejected",
+               "approved_by": actor, "approved_at": now}
+    if decision == ACCEPT:
+        changes.update({"confirmed_by": actor, "confirmed_at": now})
+    return changes
+
+
+def group_of(rows: list[dict], finding_id: str) -> list[str]:
+    """#986: every finding the row of `finding_id` stands on (itself first). A
+    decision on the row covers all of them, or the row stays open with the
+    next finding behind it."""
+    group = next((r.get("finding_ids") or [] for r in rows if r.get("finding_id") == finding_id), [])
+    return list(dict.fromkeys([finding_id, *group]))
 
 
 def _archive_dir() -> Path:

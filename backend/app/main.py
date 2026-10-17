@@ -4744,6 +4744,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
             # states - so the same comment raised again by a re-run or on a
             # resubmittal is the one already confirmed, and is issued as such.
             row["engineer_confirmed"] = True
+    crs_issue_mod.apply_row_decisions(review_run_id, rows)  # #986: rows with no finding
     # A DRAFT THE ENGINEER ALREADY REJECTED SAYS SO (audit leftover
     # 2026-09-30). A new run of the same submittal raises the same comment
     # again as an unconfirmed draft; it is kept (a new run may be right), but
@@ -5215,9 +5216,11 @@ def decide_crs_open_finding(
     on the finding (accepted and confirmed, or rejected, by the caller) and
     the reason is kept beside it."""
     actor = _crs_decision_actor(review_run_id, scope)
+    rows = _crs_content(review_run_id, scope, "internal")[0]
     current = review_mod.get(finding_id)
-    if (current is None or current.get("review_run_id") != review_run_id
-            or not scope.may_read(current["document_id"])):
+    is_finding = (current is not None and current.get("review_run_id") == review_run_id
+                  and scope.may_read(current["document_id"]))
+    if not is_finding and not crs_issue_mod.is_open_row_key(rows, finding_id):  # #986
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "no review finding with that id in this run"))
     try:
@@ -5226,12 +5229,9 @@ def decide_crs_open_finding(
     except crs_issue_mod.IssueError as exc:
         raise HTTPException(status_code=422, detail=errors.safe_error(
             errors.INVALID_PARAMETER, str(exc))) from exc
-    now = review_mod.now_iso()
-    changes = {"approval_status": "accepted" if body.decision == "accept" else "rejected",
-               "approved_by": actor, "approved_at": now}
-    if body.decision == "accept":
-        changes.update({"confirmed_by": actor, "confirmed_at": now})
-    review_mod.update(finding_id, changes, actor_user_id=actor)
+    changes = crs_issue_mod.finding_changes(body.decision, actor, review_mod.now_iso())
+    for fid in crs_issue_mod.group_of(rows, finding_id) if is_finding else []:
+        review_mod.update(fid, changes, actor_user_id=actor)
     _mint_crs_numbers(review_run_id, scope)
     return record
 
