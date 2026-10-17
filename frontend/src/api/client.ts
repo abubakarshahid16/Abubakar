@@ -400,6 +400,14 @@ export const reviews = {
    *  box was drawn. Fetched with the bearer header (`useAuthedImage`). */
   evidenceImageUrl: (findingId: string, side: "submittal" | "standard") =>
     `${BASE}/reviews/findings/${encodeURIComponent(findingId)}/evidence-image?side=${side}`,
+  /** #967: the run's datasheet page with every card's value underlined on
+   *  it by the server, amber or grey by the card's state. Only finding ids
+   *  and states travel in the URL - never a value or a field name.
+   *  `X-Marks-Located` / `X-Marks-Total` say how many were placed. */
+  sheetPageImageUrl: (runId: string, page: number, marks: SheetMark[]) =>
+    `${BASE}/reviews/runs/${encodeURIComponent(runId)}/page-image?page=${page}&marks=${encodeURIComponent(
+      marks.map((m) => `${m.findingId}:${m.state}`).join(","),
+    )}`,
   /** #785: where each side of a finding sits (document, page) and what kind
    *  of box the evidence image draws on it, or why the side cannot be shown. */
   findingEvidence: (findingId: string) =>
@@ -910,10 +918,30 @@ export function filenameFromContentDisposition(header: string | null): string | 
  *  given the token as a query parameter. The caller owns the returned URL and
  *  must revoke it. Null on any failure, so the caller renders "could not
  *  render" rather than the browser's broken-image glyph. */
+/** #967: one value to underline on the Sheet's page, by its finding. */
+export interface SheetMark {
+  findingId: string;
+  state: "open" | "tick" | "answered";
+}
+
+/** #967: one value to underline on the Sheet's page, by its finding. */
+export interface SheetMark {
+  findingId: string;
+  state: "open" | "tick" | "answered";
+}
+
 export interface ImageObjectResult {
   url: string | null;
   /** null means the endpoint did not provide answer-location metadata. */
   answerLocated: boolean | null;
+  /** #967: how many of the asked marks the server placed, out of how many;
+   *  null when the endpoint is not the Sheet's page image. */
+  marksLocated: number | null;
+  marksTotal: number | null;
+}
+
+function count(value: string | null): number | null {
+  return value !== null && /^\d+$/.test(value) ? Number(value) : null;
 }
 
 export async function fetchImageObjectUrl(url: string): Promise<ImageObjectResult> {
@@ -923,15 +951,17 @@ export async function fetchImageObjectUrl(url: string): Promise<ImageObjectResul
     const response = await fetch(url, { headers });
     if (!response.ok) {
       signOutOn401(response.status);
-      return { url: null, answerLocated: null };
+      return { url: null, answerLocated: null, marksLocated: null, marksTotal: null };
     }
     const located = response.headers.get("X-Answer-Located");
     return {
       url: URL.createObjectURL(await response.blob()),
       answerLocated: located === "0" ? false : located === "1" ? true : null,
+      marksLocated: count(response.headers.get("X-Marks-Located")),
+      marksTotal: count(response.headers.get("X-Marks-Total")),
     };
   } catch {
-    return { url: null, answerLocated: null };
+    return { url: null, answerLocated: null, marksLocated: null, marksTotal: null };
   }
 }
 

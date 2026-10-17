@@ -531,10 +531,10 @@ def test_an_addition_is_not_reported_as_a_possible_gap():
     contradicted." A reader cannot reconcile those.
 
     "addition" means one row says MORE than the others, which is the opposite
-    of retrieval finding nothing. When the project documents DO speak to the
-    facet, the honest status is the one that already means "addressed, nothing
-    contradicted" - which is what `met` means here, since `agreement` maps to
-    it on the same basis.
+    of retrieval finding nothing. It is not `met` either (#1055, planner
+    decision on #633 item 3): nothing in the baseline asked for it, so there
+    was no comparison to pass. It is its own bucket, `beyond_requirement`,
+    kept out of the met / not-met tally.
     """
     items = _items_with_baseline("coating thickness", ADDITION, {"ev0"})
     addition = [i for i in items if i["note"] and "nothing is contradicted" in i["note"]]
@@ -543,7 +543,8 @@ def test_an_addition_is_not_reported_as_a_possible_gap():
         assert item["status"] != "possible_gap", (
             f"{item['facet']!r} is reported as a possible gap while its own note "
             f"says nothing is contradicted: {item['note']!r}")
-        assert item["status"] == "met", item
+        assert item["status"] == "beyond_requirement", item
+        assert item["project_citation_ids"], "an addition cites what the documents stated"
 
 
 def test_a_baseline_speaking_alone_is_still_a_possible_gap():
@@ -586,7 +587,8 @@ def test_the_label_to_status_mapping_is_exhaustive_and_honest():
     assert analysis.STATUS_FOR_LABEL == {
         "possible_conflict": "conflict",
         "agreement": "met",
-        "addition": "met",
+        # #1055: an addition is never met; it is its own bucket.
+        "addition": "beyond_requirement",
         "unresolved": "insufficient_evidence",
     }
 

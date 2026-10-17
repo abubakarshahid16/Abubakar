@@ -63,7 +63,7 @@ export function SubmittalsLandingView({ onOpenRun }: { onOpenRun: (runId: string
   }
 
   return (
-    <main className="mx-auto w-full max-w-7xl space-y-6" aria-labelledby="submittals-landing-title">
+    <section className="mx-auto w-full max-w-7xl space-y-6" aria-labelledby="submittals-landing-title">
       <header>
         <p className="text-sm font-semibold uppercase tracking-[0.16em] text-signal-400">
           AI Submittal Review
@@ -97,6 +97,6 @@ export function SubmittalsLandingView({ onOpenRun }: { onOpenRun: (runId: string
           startingDocumentId={startingDocumentId}
         />
       )}
-    </main>
+    </section>
   );
 }
