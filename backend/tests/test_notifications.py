@@ -39,7 +39,11 @@ class FakeSMTP:
     def __exit__(self, *_):
         return False
 
-    def starttls(self):
+    def starttls(self, context=None):
+        # #440: the lane always upgrades, with a verifying context.
+        assert context is not None and context.verify_mode.name == "CERT_REQUIRED"
+
+    def close(self):
         pass
 
     def login(self, username, password):
