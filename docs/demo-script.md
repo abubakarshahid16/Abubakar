@@ -6,7 +6,7 @@ out, with review code, page/section, comment, and exact clause per finding.
 
 ## Before the audience arrives (5 minutes)
 
-1. Run `scripts\start-system.bat` (or start backend, frontend, Ollama by
+1. Run `scripts\start-system.bat` (on the Mac `scripts/start-system.sh`; or start backend, frontend, Ollama by
    hand). Open the app, log in, confirm the Dashboard loads.
 2. Confirm the drum sheet's review run exists on the AI Submittal Review
    page. If not, run it from the Dashboard button - it takes ~8 seconds.

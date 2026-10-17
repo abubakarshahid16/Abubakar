@@ -21,7 +21,7 @@ import { LoginView, RoleBadge, type LoginOutcome } from "./views/LoginView";
 import { AnalysisModeScreen } from "./views/AnalysisModeScreen";
 import { ReportsScreen } from "./views/ReportsScreen";
 import { DeliverablesView } from "./views/DeliverablesView";
-import { ReviewRunsView } from "./views/ReviewRunsView";
+import { ReviewSheetView } from "./views/ReviewSheetView";
 import { SubmittalsLandingView } from "./views/SubmittalsLandingView";
 import type { AuthStatus, Me } from "./types/api";
 import { NavigationContext } from "./components/NavLink";
@@ -63,10 +63,10 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
     return parseRoute(window.location.pathname);
   });
   const view = route.kind === "view" ? route.view : initialView;
-  const onNavigate = useCallback((next: ViewId, recordId?: string) => {
-    const nextPath = pathForView(next, recordId);
+  const onNavigate = useCallback((next: ViewId, recordId?: string, panel?: string) => {
+    const nextPath = pathForView(next, recordId, panel);
     if (import.meta.env.MODE !== "test") window.history.pushState({ __epcRoute: true }, "", nextPath);
-    setRoute({ kind: "view", view: next, recordId });
+    setRoute({ kind: "view", view: next, recordId, ...(panel ? { panel } : {}) });
   }, []);
   useEffect(() => {
     const onPopState = () => setRoute(parseRoute(window.location.pathname));
@@ -336,8 +336,11 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
               existing review screen (unchanged - that is PR2's job). */}
           {view === "review" && (
             route.kind === "view" && route.recordId ? (
-              <ReviewRunsView
-                openRunId={route.recordId}
+              <ReviewSheetView
+                key={route.recordId} runId={route.recordId} panel={route.panel}
+                onBack={() => onNavigate("review")}
+                onOpenPanel={(panel) => onNavigate("review", route.recordId, panel)}
+                onOpenRun={(runId) => onNavigate("review", runId)}
                 onOpenStandards={() => onNavigate("standards")}
                 isAdmin={canAdmin}
               />

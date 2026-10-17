@@ -1,5 +1,11 @@
-import sqlite3, re
-DB = r"d:\project\Rag_chatbot\backend\data\rag_intelligence.sqlite"
+import sqlite3, re, sys
+from pathlib import Path
+
+#: Portable (#498): the database is the backend's own setting, never a drive path.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
+from app.config import settings  # noqa: E402
+
+DB = str(settings.db_path)
 c = sqlite3.connect(f"file:{DB}?mode=ro", uri=True); c.row_factory = sqlite3.Row
 
 def sample(doc, label, min_page):

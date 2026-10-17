@@ -16,12 +16,14 @@ MUTATIONS: tuple[Mutation, ...] = (
              replacement='''            "reasoning": str(finding.get("reasoning") or ""),''',
              target=_T, keyword="issue_copy_never_carries_it", tags=("crs", "honesty")),
     Mutation(id="M803-02", phase=803, description="the issue copy gets the reasoning column",
-             path=_E, anchor="+ ([AI_COLUMN, REASONING_COLUMN] if copy == COPY_INTERNAL else []),",
-             replacement="+ ([AI_COLUMN, REASONING_COLUMN] if copy == COPY_INTERNAL else [REASONING_COLUMN]),",
+             # Re-anchored 2026-10-17 (#947 wiring, PR #985): the trust column joined the list.
+             path=_E, anchor="+ ([AI_COLUMN, REASONING_COLUMN, TRUST_COLUMN]\n                      if copy == COPY_INTERNAL else []),",
+             replacement="+ ([AI_COLUMN, REASONING_COLUMN, TRUST_COLUMN]\n                      if copy == COPY_INTERNAL else [REASONING_COLUMN]),",
              target=_T, keyword="issue_copy_never_carries_it", tags=("crs", "honesty")),
     Mutation(id="M803-03", phase=803, description="the workbook drops the reasoning cell",
-             path=_E, anchor='values.extend([entry["ai_review_comment"], entry["reasoning"]])',
-             replacement='values.extend([entry["ai_review_comment"]])',
+             # Re-anchored 2026-10-17 (#947 wiring, PR #985): the trust cell follows the reasoning cell.
+             path=_E, anchor='values.extend([entry["ai_review_comment"], entry["reasoning"],\n                           entry.get("rule_trust", "")])',
+             replacement='values.extend([entry["ai_review_comment"],\n                           entry.get("rule_trust", "")])',
              target=_T, keyword="internal_copy_prints_it", tags=("crs",)),
     Mutation(id="M803-04", phase=803, description="a value not read is printed as if read",
              path=_M, anchor='(f" = {value}" if value else " (no value read)")',

@@ -32,7 +32,9 @@ SENTENCE = "The nozzle projection shall not exceed 60 mm."
 def limit_rule(**over) -> dict:
     base = {"id": "r1", "standard_document_id": "doc1", "equipment_type": "pump",
             "field": "nozzle projection", "operator": "<=", "raw_value": "60", "raw_unit": "mm",
-            "requirement_type": "numeric_limit", "source_text": SENTENCE, "confirmed_by": None}
+            "requirement_type": "numeric_limit", "source_text": SENTENCE, "confirmed_by": None,
+            # an AI-compiled rule (`ai_requirements.auto_use_rules`), the kind a proof covers
+            "extraction_method": rt.AI_COMPILED_METHOD}
     return {**base, **over}
 
 
@@ -163,6 +165,43 @@ def test_trust_labels():
     assert rt.trust_label(limit_rule(), proven) == rt.AUTO_PROVEN
     assert rt.trust_label(limit_rule(), None) == rt.UNPROVEN
     assert rt.trust_label(limit_rule(), {"status": rt.INVALID}) == rt.UNPROVEN
+
+
+@pytest.mark.parametrize("method", ["extracted", "vision", None])
+def test_a_proof_lifts_only_an_ai_compiled_rule(method):
+    """Planner answer on #985: every rule labelled; AI-compiled = by proof,
+    engineer-approved = trusted, every other rule needs the engineer."""
+    other = limit_rule(extraction_method=method)
+    assert rt.trust_label(other, {"status": rt.PROVEN}) == rt.UNPROVEN
+    assert rt.trust_label({**other, "confirmed_by": "u1"}, None) == rt.ENGINEER_CONFIRMED
+
+
+def _check(**over) -> dict:
+    base = {"rule_id": "PSV-1", "status": rt.COMPLIANT, "detail": "set pressure 9 barg is at most 10",
+            "checklist": True, "local": False, "draft": False}
+    return {**base, **over}
+
+
+def test_check_labels_one_vocabulary():
+    assert rt.check_label(_check()) == rt.ENGINEER_CONFIRMED            # signed, committed
+    assert rt.check_label(_check(draft=True)) == rt.UNPROVEN            # not signed off
+    assert rt.check_label(_check(local=True)) == rt.UNPROVEN            # the local overlay
+    # a consistency pair or a mandatory field: not a checklist item
+    assert rt.check_label({"rule_id": "DS-C1", "status": rt.NON_COMPLIANT, "detail": "d"}) == rt.UNPROVEN
+    assert set(rt.TRUST_WORDS) == {rt.ENGINEER_CONFIRMED, rt.AUTO_PROVEN, rt.UNPROVEN}
+
+
+def test_label_check_is_off_by_default_and_holds_unproven_checks_when_on(monkeypatch):
+    draft = _check(draft=True)
+    assert rt.label_check(draft) is draft
+    monkeypatch.setattr(settings, "rule_auto_use_enabled", True)
+    held = rt.label_check(draft)
+    assert (held["status"], held["rule_said"], held["trust_label"]) == (
+        rt.NEEDS_ENGINEER_REVIEW, rt.COMPLIANT, rt.UNPROVEN)
+    assert rt.UNPROVEN_REASON in held["detail"] and held["show_for_engineer_tick"] is False
+    kept = rt.label_check(_check(status=rt.NON_COMPLIANT))
+    assert (kept["status"], kept["trust_label"]) == (rt.NON_COMPLIANT, rt.ENGINEER_CONFIRMED)
+    assert "rule_said" not in kept
 
 
 @pytest.mark.parametrize("status", [rt.COMPLIANT, rt.NON_COMPLIANT])

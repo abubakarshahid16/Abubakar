@@ -189,10 +189,18 @@ def decide_page(review_run_id: str, page: int, *, unread: list[int], reason: str
 def decide_finding(review_run_id: str, finding_id: str, decision: str, *, reason: str,
                    actor: str) -> dict:
     """The engineer accepts or rejects one finding of the run. The caller
-    writes the decision on the finding itself; this keeps the reason."""
+    writes the decision on the finding itself; this keeps the reason, and
+    tells rule_trust when the finding was decided by a proven rule."""
     if decision not in FINDING_DECISIONS:
         raise IssueError("a finding is accepted or rejected")
-    return _record(review_run_id, FINDING, finding_id, decision, reason, actor)
+    record = _record(review_run_id, FINDING, finding_id, decision, reason, actor)
+    # rule_trust (#947 step 10): on a finding a PROVEN rule decided, this
+    # decision is the family's spot-check outcome (a reject drops its proof).
+    from . import review, rule_trust
+
+    rule_trust.record_engineer_decision(review.get(finding_id) or {}, decision,
+                                        actor=actor, note=reason)
+    return record
 
 
 def _archive_dir() -> Path:

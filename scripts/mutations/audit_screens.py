@@ -11,7 +11,6 @@ from __future__ import annotations
 from ._base import FRONTEND_SRC, Mutation
 
 _ROUTING = FRONTEND_SRC / "routing.ts"
-_RUNS = FRONTEND_SRC / "views" / "ReviewRunsView.tsx"
 _STD = FRONTEND_SRC / "views" / "StandardsView.tsx"
 _PANEL = FRONTEND_SRC / "components" / "review" / "ReviewDashboardPanel.tsx"
 _DELIV = FRONTEND_SRC / "views" / "DeliverablesView.tsx"
@@ -21,7 +20,6 @@ _CLIENT = FRONTEND_SRC / "api" / "client.ts"
 _UPLOADER = FRONTEND_SRC / "components" / "Uploader.tsx"
 
 _T_ROUTING = "src/routing.test.ts"
-_T_RUNS = "src/views/ReviewRunsView.test.tsx"
 _T_STD = "src/views/StandardsView.test.tsx"
 _T_PANEL = "src/components/review/ReviewDashboardPanel.test.tsx"
 _T_DELIV = "src/views/DeliverablesView.test.tsx"
@@ -38,40 +36,6 @@ MUTATIONS: tuple[Mutation, ...] = (
              replacement='  if (!["dashboard", "documents", "chat", "analysis", "reports", '
                          '"deliverables", "ingestion", "admin", "review"].includes(view)) {',
              target=_T_ROUTING, keyword="every navigation entry survives a refresh",
-             tags=("ui",)),
-    Mutation(id="M1501", phase=1501, runner="vitest",
-             description="a failed standards list becomes an empty one: "
-                         "'No standards were selected for this run.'",
-             path=_RUNS,
-             anchor="      setStandards(null);\n"
-                    "      setMissingStandards([]);\n"
-                    "      setStandardsError(listed.error.message);",
-             replacement="      setStandards([]);\n"
-                         "      setMissingStandards([]);",
-             target=_T_RUNS, keyword="not that none were selected",
-             tags=("honesty", "ui")),
-    Mutation(id="M1502", phase=1502, runner="vitest",
-             description="the run card shows the AI's code bare, not labelled as the AI's",
-             path=_RUNS,
-             anchor='          <span className="text-slateish-400">AI recommended: </span>\n',
-             replacement="",
-             target=_T_RUNS, keyword="labels the run card",
-             tags=("honesty", "ui")),
-    Mutation(id="M1503", phase=1503, runner="vitest",
-             description="the run card never shows the engineer's final code",
-             path=_RUNS,
-             anchor="      {run.engineer_final_code && (\n"
-                    '        <p className="mt-1 text-sm text-slateish-200" data-testid="run-card-final">',
-             replacement="      {false && (\n"
-                         '        <p className="mt-1 text-sm text-slateish-200" data-testid="run-card-final">',
-             target=_T_RUNS, keyword="final code beside the AI",
-             tags=("honesty", "ui")),
-    Mutation(id="M1504", phase=1504, runner="vitest",
-             description="the run card prints the raw database status",
-             path=_RUNS,
-             anchor="        {run.standards_in_scope} standards in scope · {runStatusLabel(run.status)}",
-             replacement="        {run.standards_in_scope} standards in scope · status {run.status}",
-             target=_T_RUNS, keyword="status in plain words",
              tags=("ui",)),
     Mutation(id="M1505", phase=1505, runner="vitest",
              description="the requirements tab spins forever when its list fails",
