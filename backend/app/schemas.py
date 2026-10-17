@@ -2499,8 +2499,16 @@ class ReviewReadiness(BaseModel):
 
     submittal_document_id: str
     pages_total: int | None = None
-    pages_read: int = 0
+    #: #1017: null when the page ledger is not one a reader may count on
+    #: (`ledger_state` says why) - never 0 for "nobody looked".
+    pages_read: int | None = None
     unread_pages: list[int] = []
+    #: #1017: current / missing / stale / not_as_submittal. A GET never rebuilds
+    #: the ledger; the writers do (ingest, reading the sheet into fields, a
+    #: review). `ledger_note` says, in words, what builds it when it is not
+    #: current.
+    ledger_state: str = "current"
+    ledger_note: str | None = None
     #: HONESTY GROUP (2026-09-27): keyed by page number (as a string, since
     #: that is what a JSON object key is), the reason `page_ledger.refresh`
     #: recorded for why the page did not read into fields - "no text on this
