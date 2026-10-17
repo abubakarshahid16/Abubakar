@@ -113,7 +113,7 @@ describe("side by side", () => {
   it("decides the row from the same screen: reject goes to the finding route", async () => {
     await openSideBySide();
     expect(screen.getByRole("group", { name: "Standard" })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Reject comment" }));
+    await userEvent.click(screen.getByRole("button", { name: "Not needed" }));
     expect(update).toHaveBeenCalledWith("f-1", { approval_status: "rejected" });
   });
 

@@ -285,7 +285,7 @@ function FindingDetailBody(
             disabled={action.kind === "working" || finding.approval_status === "rejected"}
             className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-2 text-sm text-slateish-100 disabled:opacity-50"
           >
-            {finding.approval_status === "rejected" ? "Comment rejected" : "Reject comment"}
+            {finding.approval_status === "rejected" ? "Marked not needed" : "Not needed"}
           </button>
         </div>
         {editing && (
@@ -310,7 +310,7 @@ function FindingDetailBody(
         {canReject ? (
           <div className="space-y-2">
             <label className="block text-xs text-slateish-400" htmlFor="reject-reason">
-              Reject this pairing — say why (required)
+              Wrong pairing: this value belongs to another requirement — say why (required)
             </label>
             <textarea
               id="reject-reason" value={reason} rows={2}
@@ -323,17 +323,17 @@ function FindingDetailBody(
               disabled={action.kind === "working" || action.kind === "rejected"}
               className="rounded-[var(--radius-sm)] border border-danger-500/50 px-3 py-2 text-sm text-danger-500 disabled:opacity-50"
             >
-              Reject pairing
+              Report wrong pairing
             </button>
           </div>
         ) : (
           <p className="text-xs text-slateish-500">
-            This finding records no pairing, so there is nothing to reject.
+            This finding records no value-to-requirement pairing, so there is no pairing to report as wrong.
           </p>
         )}
         {action.kind === "rejected" && (
           <p className="rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-sm text-danger-500">
-            Pairing rejected. This pairing will not be proposed again.
+            Wrong pairing recorded. This pairing will not be proposed again.
           </p>
         )}
         {action.kind === "error" && (

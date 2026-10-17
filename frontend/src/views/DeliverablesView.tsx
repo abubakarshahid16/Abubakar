@@ -107,7 +107,7 @@ export function DeliverablesView() {
   const shownError = [error, ...Object.values(panelErrors)].filter((message): message is string => Boolean(message)).join(" ");
 
   return (
-    <main id="deliverables" className="w-full px-4 py-6">
+    <section id="deliverables" className="w-full px-4 py-6">
       <header>
         <p className="text-xs font-semibold uppercase tracking-wider text-signal-400">EPC delivery control</p>
         <h1 className="mt-1 text-2xl font-semibold text-slateish-100">Deliverables &amp; timeline</h1>
@@ -159,6 +159,6 @@ export function DeliverablesView() {
 
       {workspace && selected === workspace.node.id && <section className="mt-5 rounded-[var(--radius-md)] border border-signal-500/40 bg-ink-850 p-4"><div className="flex items-baseline justify-between"><h2 className="text-sm font-semibold text-slateish-200">WBS workspace · {workspace.node.wbs_code}</h2><button type="button" onClick={() => setWorkspace(null)} className="text-xs text-slateish-400 hover:text-slateish-200">Close</button></div><p className="mt-1 text-xs text-slateish-500">Linked context for this node and its direct children.</p><div className="mt-3 grid gap-3 md:grid-cols-3"><div><p className="text-xs uppercase tracking-wide text-slateish-500">Children</p><p className="mt-1 text-xl font-semibold text-slateish-100">{workspace.children.length}</p></div><div><p className="text-xs uppercase tracking-wide text-slateish-500">Linked documents</p><p className="mt-1 text-xl font-semibold text-slateish-100">{workspace.documents.length}</p></div><div><p className="text-xs uppercase tracking-wide text-slateish-500">Review / escalation signals</p><p className="mt-1 text-xl font-semibold text-slateish-100">{workspace.reviews.length + workspace.escalations.length}</p></div></div><div className="mt-3 flex flex-wrap gap-2 text-xs text-slateish-400">{workspace.children.map((child) => <span key={child.id} className="rounded-full bg-ink-700 px-2 py-1"><strong className="text-signal-300">{child.wbs_code}</strong> · {child.title}</span>)}</div></section>}
       {selected && <section className="mt-3 rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4"><h2 className="text-sm font-semibold text-slateish-200">Assign stakeholder</h2><div className="mt-2 flex flex-wrap gap-2"><input value={stakeholderUser} onChange={(e) => setStakeholderUser(e.target.value)} placeholder="User ID" aria-label="Stakeholder user ID" className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200" /><select value={stakeholderRole} onChange={(e) => setStakeholderRole(e.target.value as StakeholderRole)} aria-label="Stakeholder role" className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200"><option value="owner">Owner</option><option value="reviewer">Reviewer</option><option value="approver">Approver</option><option value="informed">Informed</option></select><button type="button" onClick={() => void assignStakeholder()} className="rounded-[var(--radius-xs)] bg-signal-500/20 px-3 py-1.5 text-xs text-signal-300">Assign</button></div></section>}
-    </main>
+    </section>
   );
 }

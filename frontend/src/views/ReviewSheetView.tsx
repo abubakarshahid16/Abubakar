@@ -123,7 +123,7 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
 
   if (panel && run) {
     return (
-      <main className="mx-auto w-full max-w-7xl" aria-label={PANEL_TITLES[panel] ?? "Behind the scenes"}>
+      <section className="mx-auto w-full max-w-7xl" aria-label={PANEL_TITLES[panel] ?? "Behind the scenes"}>
         <BehindTheScenes
           panel={panel} run={run} findings={findings} documents={submittal ? [submittal] : []}
           standardsState={standardsState} focusStatus={focusStatus}
@@ -132,7 +132,7 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
           onStandardsChanged={(changed, missing) => setStandardsState({ standards: changed, missing, error: null })}
           onChanged={() => void refresh()}
         />
-      </main>
+      </section>
     );
   }
 
@@ -150,7 +150,7 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
   }
 
   return (
-    <main className="mx-auto w-full max-w-7xl space-y-5" aria-labelledby="sheet-title">
+    <section className="mx-auto w-full max-w-7xl space-y-5" aria-labelledby="sheet-title">
       <header className="space-y-3">
         <button type="button" onClick={onBack} className="text-sm text-signal-300 underline-offset-2 hover:underline">
           ← Documents from contractors
@@ -258,6 +258,6 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
           </div>
         </div>
       )}
-    </main>
+    </section>
   );
 }

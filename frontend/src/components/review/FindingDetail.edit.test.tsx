@@ -1,5 +1,5 @@
 /**
- * Owner order section 3: Edit and Reject comment on a finding.
+ * Owner order section 3: Edit and Not needed (reject the comment) on a finding.
  *
  * Edit saves the engineer's own wording (which the server confirms under
  * their name and prints on the sheet in place of the machine's text); Reject
@@ -94,11 +94,11 @@ describe("Edit comment", () => {
   });
 });
 
-describe("Reject comment", () => {
+describe("Not needed (the comment is rejected)", () => {
   it("marks the finding rejected without deleting it", async () => {
     const onChanged = vi.fn();
     render(<FindingDetail finding={finding()} documents={[]} onChanged={onChanged} />);
-    await userEvent.click(screen.getByRole("button", { name: "Reject comment" }));
+    await userEvent.click(screen.getByRole("button", { name: "Not needed" }));
 
     expect(update).toHaveBeenCalledWith("f-1", { approval_status: "rejected" });
     expect(onChanged).toHaveBeenCalled();
@@ -107,6 +107,6 @@ describe("Reject comment", () => {
   it("shows the rejected note and disables the button when already rejected", () => {
     render(<FindingDetail finding={finding({ approval_status: "rejected" })} documents={[]} onChanged={vi.fn()} />);
     expect(screen.getByTestId("comment-rejected")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Comment rejected" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Marked not needed" })).toBeDisabled();
   });
 });
