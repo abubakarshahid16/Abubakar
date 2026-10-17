@@ -894,6 +894,44 @@ def _finish_ingestion_jobs(conn, doc_id: str) -> None:
     )
 
 
+def on_role_changed(document_id: str, *, classify: bool = True) -> None:
+    """#195: THE READY HOOKS, FOR A ROLE SET AFTER READY.
+
+    The hooks at the end of ingestion ask what a document IS at the moment it
+    becomes READY. For an upload the role is usually NULL then and assigned
+    afterwards, so a document that became a CONTRACTOR_SUBMITTAL after READY
+    got no facts, no equipment type and no title-block metadata - ever - and
+    a COMPANY_STANDARD was covered only by its own one-off helper. One hook
+    now covers both orders: `classification.set_role` and
+    `classification.confirm` call this, and it runs the SAME hooks, in the
+    same order, as the ingest worker. Each does its own role gate and records
+    its own failure, so this never raises.
+
+    Only when READY: a document still ingesting reaches the ingest hooks on
+    its own, and reading a document with no chunks yet would read nothing and
+    report success.
+
+    `classify=False` is for `confirm`: the person has just filled the form,
+    and that IS the classification. The two classifiers skip a confirmed
+    record, but with authentication off `confirmed_by` can be NULL, and a
+    classifier must not overwrite what was typed a moment ago.
+    """
+    try:
+        row = connect().execute(
+            "SELECT status FROM documents WHERE id = ?", (document_id,)).fetchone()
+    except Exception as exc:  # noqa: BLE001 - assigning a role must not fail here
+        errors.record_failure(exc, document_id=document_id, stage="role_changed")
+        return
+    if row is None or row["status"] != states.READY:
+        return
+    _queue_extraction_if_standard(document_id)
+    _extract_facts_if_contractor_submittal(document_id)
+    if classify:
+        _classify_equipment_type_if_contractor_submittal(document_id)
+        _classify_metadata_if_contractor_submittal(document_id)
+    _refresh_page_ledger(document_id)
+
+
 def _refresh_page_ledger(document_id: str) -> None:
     """B3: account for every page of a finished document.
 
@@ -958,10 +996,8 @@ def _extract_facts_if_contractor_submittal(document_id: str) -> None:
     document with no role yet (NULL, the common case right after upload -
     `classification.py` notes a role is usually assigned afterwards) is left
     alone: nothing here guesses what an unclassified document is. A document
-    classified AFTER it is already READY is not covered by this hook - that
-    is the same "other order" gap `classification._queue_extraction_if_ready`
-    documents for standards, and closing it for submittals is out of scope
-    for this wiring fix.
+    classified AFTER it is already READY reaches this through
+    `on_role_changed` (#195).
 
     `ensure_facts_extracted` is the SAME guard `_extract_facts_if_none` (the
     review-run path) uses - CLAUDE.md rule 8: one guard, not two that can
