@@ -116,6 +116,19 @@ describe("ReviewSheetView", () => {
     expect(screen.getByText("submittal page 3")).toBeInTheDocument();
   });
 
+  it("rule_trust (#947): a safety tick is underlined green on the page, amber is for the rest", async () => {
+    findings = [
+      f("a", { contractor_page: 1 }),
+      f("s", { contractor_page: 1, compliance_status: "COMPLIANT", show_for_engineer_tick: true, trust_label: "AUTO_PROVEN", tier: "SAFETY" }),
+    ];
+    render(<ReviewSheetView runId="run-1" onBack={vi.fn()} onOpenPanel={vi.fn()} onOpenRun={vi.fn()} />);
+    await screen.findByTestId("sheet-headline");
+    expect(screen.getByTestId("sheet-headline")).toHaveTextContent("2 things need your answer");
+    const marks = within(screen.getByRole("list", { name: "Marked on this page" })).getAllByRole("button");
+    expect(marks.map((m) => m.dataset.mark)).toEqual(["open", "tick"]);
+    expect(marks[1]).toHaveTextContent(/Field s meets the standard/);
+  });
+
   it("marks pages with open cards and moves between cards with J and K", async () => {
     render(<ReviewSheetView runId="run-1" onBack={vi.fn()} onOpenPanel={vi.fn()} onOpenRun={vi.fn()} />);
     await screen.findByTestId("sheet-headline");
