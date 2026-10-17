@@ -5549,3 +5549,10 @@ def import_crs_reply(
         counts[key] += 1
         rows.append({"row": reply["row"], "item": reply["item"][:80], "outcome": outcome})
     return {"rows_read": len(replies), **counts, "rows": rows}
+
+
+# Order 69: the API description grouped by area, file responses typed. Docs only;
+# a route with no area fails the description build (test_api_tags).
+from . import api_tags as api_tags_mod  # noqa: E402
+
+api_tags_mod.describe(app)
