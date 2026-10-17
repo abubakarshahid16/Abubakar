@@ -305,8 +305,10 @@ describe("chat navigation", () => {
     await waitFor(() => expect(calls.find((c) => c.url.includes("/ask"))?.body).toMatchObject({
       tier: "extract", model: "local",
     }));
-    // and the footer says honestly where the question goes
-    expect(screen.getByText(/nothing you type leaves this machine/i)).toBeInTheDocument();
+    // and the footer says honestly where the question goes - and makes no
+    // machine-wide promise: other lanes (market, email) may be on (#482)
+    expect(screen.getByText(/local model writes these answers on this machine; your question is not sent to Claude/i)).toBeInTheDocument();
+    expect(screen.queryByText(/nothing you type leaves this machine/i)).toBeNull();
   });
 
   it("routes a critique through written explanation even when quotation mode is selected", async () => {

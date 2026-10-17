@@ -366,11 +366,11 @@ _REPLIES = {
     "greeting": "Hello. I answer questions about your documents, quoting the source with its page and clause.",
     "thanks": "You're welcome. Ask another question about your documents whenever you like.",
     "acknowledgement": "I answer questions about your documents, quoting the source with its page and clause.",
-    "farewell": "Goodbye. Your conversations stay on this machine.",
+    "farewell": "Goodbye.",
     "about_the_assistant": (
         "I answer questions about the documents loaded on this machine. I quote "
         "the source with its page and clause, and I say so when the documents "
-        "do not contain the answer. Nothing you type leaves this machine."
+        "do not contain the answer."
     ),
     "advice_request": (
         "That is a request for help with a task, not a question about what the "
@@ -383,9 +383,46 @@ _REPLIES = {
 }
 
 
+#: #482: the replies that speak about privacy end with `privacy_line()`,
+#: worked out when the reply is written, never a fixed promise.
+_PRIVACY_KINDS = frozenset({"farewell", "about_the_assistant"})
+
+
+def outbound_lanes() -> list[str]:
+    """#482: the outbound lanes switched on in this installation, by name.
+
+    The three of CLAUDE.md rule 1 that a reader of the chat would recognise:
+    the Claude API (both egress flags and a key), market search (both market
+    flags) and email notifications (`smtp_enabled`). Read each time, so a
+    flag changed on a running server changes the next reply.
+    """
+    from . import market_providers, reasoning_provider
+    from .config import settings
+
+    lanes = []
+    if reasoning_provider.claude_lane_open():
+        lanes.append("the Claude API")
+    if market_providers.live_enabled():
+        lanes.append("market search")
+    if settings.smtp_enabled:
+        lanes.append("email notifications")
+    return lanes
+
+
+def privacy_line() -> str:
+    """'Nothing leaves' only when it is true; otherwise the lanes that are on."""
+    lanes = outbound_lanes()
+    if not lanes:
+        return "Nothing you type leaves this machine."
+    return ("Switched on in this installation: " + ", ".join(lanes)
+            + ". Anything not sent through one of those stays on this machine.")
+
+
 def guidance(kind: str, examples: list[str] | None = None) -> str:
     """The reply text for a non-question input, with real examples appended."""
     reply = _REPLIES.get(kind, _REPLIES["not_a_question"])
+    if kind in _PRIVACY_KINDS:
+        reply = f"{reply} {privacy_line()}"
     examples = examples or []
     if not examples:
         return reply
