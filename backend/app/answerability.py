@@ -280,6 +280,11 @@ def judge(question: str, result: dict, current: dict, provider) -> dict:
     except Exception as exc:  # noqa: BLE001 - a judge failure never breaks an answer
         log.warning("answer judge failed: %s", type(exc).__name__)
         return {**current, "judge": {"accepted": False, "why": "model unavailable"}}
+    if response.truncated:
+        # #456 (C-H5): a reply the token cap cut off is named as such, not
+        # reported as "not valid JSON" - the fix is a bigger cap, not a better model.
+        return {**current, "judge": {"accepted": False,
+                                     "why": "output cut off at the token limit"}}
     errors = schema_errors(response.text, JUDGE_SCHEMA)
     if errors:
         return {**current, "judge": {"accepted": False, "why": "output rejected: " + "; ".join(errors)}}
