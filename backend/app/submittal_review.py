@@ -876,6 +876,56 @@ def list_submittal_facts(
     return [dict(row) for row in connect().execute(sql, args).fetchall()]
 
 
+class FactNotCurrent(ValueError):
+    """The fact exists but was superseded by a re-read: confirming it would
+    bless a value the review no longer uses."""
+
+
+def confirm_fact(fact_id: str, *, allowed_document_ids: frozenset[str],
+                 confirmed_by: str) -> dict | None:
+    """#473 (audit D04): an engineer confirms one value the reader read.
+
+    THE ONLY WRITER of `submittal_facts.confirmed_by`. The column had readers
+    from the start (`comparison` treats a confirmed fact as human-verified
+    and skips the AI-quote proof; the facts reader never supersedes a
+    confirmed row) and no writer, so no fact could ever reach that state.
+
+    Named states, never a silent pass: None when there is no fact with that
+    id the caller may read (the route's 404, the same answer for both);
+    `FactNotCurrent` for a superseded row. The actor is required - a
+    confirmation nobody signed is a suggestion, and the column stays NULL.
+    Confirming twice is one state: the first name and time are kept.
+    """
+    if not confirmed_by:
+        raise ValueError("a confirmation must name the engineer")
+    ensure_schema()
+    where, args = _scope_clause(allowed_document_ids, "submittal_document_id")
+    conn = connect()
+    with conn:
+        row = conn.execute("SELECT * FROM submittal_facts" + where + " AND id = ?",
+                           (*args, fact_id)).fetchone()
+        if row is None:
+            return None
+        if row["superseded_at"] is not None:
+            raise FactNotCurrent(fact_id)
+        if row["confirmed_by"] is None:
+            now = _now()
+            conn.execute(
+                "UPDATE submittal_facts SET confirmed_by = ?, confirmed_at = ?, updated_at = ?"
+                " WHERE id = ? AND confirmed_by IS NULL",
+                (confirmed_by, now, now, fact_id))
+            # Ids only (rule 1): the value and its source text stay off the trail.
+            conn.execute(
+                """INSERT INTO audit_events
+                       (at, actor_user_id, actor_username, action,
+                        resource_type, resource_id, outcome, detail)
+                   VALUES (?, ?, ?, 'fact.confirmed', 'review', ?, 'ok', ?)""",
+                (now, confirmed_by, confirmed_by[:200], fact_id,
+                 f"document={row['submittal_document_id']}"))
+        row = conn.execute("SELECT * FROM submittal_facts WHERE id = ?", (fact_id,)).fetchone()
+    return dict(row)
+
+
 def list_applicable_standards(
     review_run_id: str, *, allowed_document_ids: frozenset[str],
     include_excluded: bool = True,
