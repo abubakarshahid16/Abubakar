@@ -26,11 +26,18 @@ export const FAST_MS = 3000;
 
 /** Nothing is happening. Still polls, because work can start elsewhere - an
  *  upload from another tab, a worker picking up a queued document - and a
- *  screen that never refreshes is a screen that lies until reloaded. */
-export const IDLE_MS = 30000;
+ *  screen that never refreshes is a screen that lies until reloaded.
+ *  #1070: once a minute, the same pace as the health check. */
+export const IDLE_MS = 60000;
 
 export function pollInterval(busy: boolean): number {
   return busy ? FAST_MS : IDLE_MS;
+}
+
+/** #1070: a hidden tab asks for nothing (the Page Visibility API); the screen
+ *  cannot be read, so a fresh answer would be a request for nobody. */
+export function tabHidden(): boolean {
+  return typeof document !== "undefined" && document.visibilityState === "hidden";
 }
 
 /**
@@ -69,13 +76,21 @@ export function usePoll(tick: () => void, busy: boolean, repeat = true): void {
     if (!repeat) return;
     let cancelled = false;
     const run = () => {
-      if (!cancelled) latest.current();
+      if (!cancelled && !tabHidden()) latest.current();
+    };
+    // Shown again: look at once, so a tab left in the background for an hour
+    // is not an hour stale for up to a minute more. The interval keeps its
+    // own beat; it only skips the ticks nobody can see.
+    const onVisibility = () => {
+      if (!tabHidden()) run();
     };
     run();
     const timer = window.setInterval(run, pollInterval(busy));
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [busy, repeat]);
 }
