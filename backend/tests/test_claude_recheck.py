@@ -336,13 +336,40 @@ def test_store_never_touches_an_engineer_decided_finding(temp_storage):
     assert cr.NOTE_PREFIX not in row["ai_rationale"]
 
 
-def test_store_rejected_result_writes_nothing(temp_storage):
+def test_store_rejected_result_writes_nothing_to_the_finding_itself(temp_storage):
     fid = _stored_finding(comparison.COMPLIANT)
     result = cr.recheck_finding(_finding(comparison.COMPLIANT),
                                 _model(False, reason="the true limit is 65."))
     assert cr.store_recheck(fid, result)["why"] == "rejected"
     assert _row(fid)["ai_rationale"] == "engine said so"
+    assert _row(fid)["compliance_status"] == comparison.COMPLIANT
     assert cr.store_recheck("no-such-id", result) is None
+
+
+def test_a_rejected_recheck_leaves_a_trace_on_the_findings_history(temp_storage):
+    """#633 item 2: thrown away is not silent. The history names the reason
+    codes (never the model's words); the finding's own columns stay as they were."""
+    from app import review
+    fid = _stored_finding(comparison.COMPLIANT)
+    result = cr.recheck_finding(_finding(comparison.COMPLIANT),
+                                _model(False, reason="the true limit is 65."))
+    out = cr.store_recheck(fid, result)
+    assert out == {"stored": False, "raised": False, "why": "rejected",
+                   "reasons": [cr.Reason.NUMBER_NOT_IN_INPUTS.value]}
+    [event] = [e for e in review.history(fid) if e["event_type"] == cr.RECHECK_REJECTED_EVENT]
+    assert event["changes"]["reasons"] == [cr.Reason.NUMBER_NOT_IN_INPUTS.value]
+    assert event["changes"]["counts"] == {cr.Reason.NUMBER_NOT_IN_INPUTS.value: 1}
+    assert "65" not in json.dumps(event["changes"]), "the model's words reached the history"
+    # a reply that was not the JSON asked for is traced too, by its error key
+    malformed = cr.recheck_finding(_finding(comparison.COMPLIANT), lambda prompt: "not json")
+    out = cr.store_recheck(fid, malformed)
+    assert out["why"] == "rejected" and out["reasons"]
+    events = [e for e in review.history(fid) if e["event_type"] == cr.RECHECK_REJECTED_EVENT]
+    assert len(events) == 2 and events[1]["changes"]["reasons"] == out["reasons"]
+    # an engineer-decided finding is still never touched, history included
+    decided = _stored_finding(comparison.COMPLIANT, confirmed_by="u1")
+    assert cr.store_recheck(decided, result)["why"] == "engineer_decided"
+    assert [e for e in review.history(decided) if e["event_type"] == cr.RECHECK_REJECTED_EVENT] == []
 
 
 def test_store_cannot_raise_past_the_stored_status(temp_storage):
