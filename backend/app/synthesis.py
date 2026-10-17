@@ -847,12 +847,12 @@ def _fit(
 
 # --------------------------------------------------------------- measurement
 
-#: A CHILD of the "nabaa" logger errors.py configures, so these records land in
+#: A CHILD of the "rag_intelligence" logger errors.py configures, so these records land in
 #: the same file as everything else without this module importing the error
 #: stack (it must stay free of the retrieval and HTTP layers). Nothing logged
 #: here reaches a response: the route builds its dict from `summary_to_api`,
 #: which has never carried a log line.
-_log = logging.getLogger("nabaa.synthesis")
+_log = logging.getLogger("rag_intelligence.synthesis")
 
 
 @dataclass

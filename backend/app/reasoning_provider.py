@@ -495,6 +495,11 @@ class ClaudeProvider:
         cached = _cache_read(key)
         if cached is None:
             return None
+        errors = schema_errors(cached["text"], packet.json_schema)
+        if errors:
+            # #458: an answer cached before invalid ones were refused is a
+            # miss, not a hit - serving it would repeat the bad answer free.
+            return None
         claude_spend.record(step=step, model=cached["model_tag"], usage={},
                             prompt_sha256=packet.sha256, wall_time_s=0.0,
                             finish_reason="cache_hit")
@@ -503,8 +508,7 @@ class ClaudeProvider:
             digest=hashlib.sha256(cached["text"].encode("utf-8")).hexdigest(),
             finish_reason=cached["finish_reason"], prompt_sha256=packet.sha256,
             tokens_in=cached.get("tokens_in"), tokens_out=cached.get("tokens_out"),
-            wall_time_s=0.0, schema_errors=schema_errors(cached["text"], packet.json_schema),
-            cost_usd=0.0)
+            wall_time_s=0.0, schema_errors=errors, cost_usd=0.0)
 
     def _answered(self, payload: dict | None, packet: Packet, key: str, step: str, wall: float,
                   *, batch: bool = False, cacheable: bool = True, reservation=None) -> Response:
@@ -527,7 +531,10 @@ class ClaudeProvider:
             entry = claude_spend.record(step=step, model=reported or self.requested_model, usage=usage,
                                         prompt_sha256=packet.sha256, wall_time_s=wall,
                                         finish_reason=finish, batch=batch)
-        if cacheable and finish == "stop":   # a truncated answer is not worth keeping
+        errors = schema_errors(text, packet.json_schema)
+        # #458: only a complete AND valid answer is kept. A truncated one or one
+        # that fails its schema would be served again, free, on every repeat.
+        if cacheable and finish == "stop" and not errors:
             _cache_write(key, {"text": text, "model_tag": reported or self.requested_model,
                                "finish_reason": finish, "tokens_in": (usage or {}).get("input_tokens"),
                                "tokens_out": (usage or {}).get("output_tokens")})
@@ -537,7 +544,7 @@ class ClaudeProvider:
             digest=hashlib.sha256(text.encode("utf-8")).hexdigest(),
             finish_reason=finish, prompt_sha256=packet.sha256,
             tokens_in=(usage or {}).get("input_tokens"), tokens_out=(usage or {}).get("output_tokens"),
-            wall_time_s=round(wall, 3), schema_errors=schema_errors(text, packet.json_schema),
+            wall_time_s=round(wall, 3), schema_errors=errors,
             cost_usd=entry["cost_usd"], thinking=thinking_text, content_blocks=blocks,
         )
 
@@ -928,6 +935,13 @@ def _lane_unavailable() -> tuple[str | None, str]:
             or str(settings.anthropic_api_key or "").strip()):
         return UNAVAILABLE_KEY_MISSING, "no ANTHROPIC_API_KEY"
     return None, "claude"
+
+
+def claude_lane_open() -> bool:
+    """#482: whether the Claude lane itself is open (both egress flags and a
+    key), whichever step or chat choice would use it. Screens that state the
+    privacy posture read this, not the provider switch alone."""
+    return _lane_unavailable()[0] is None
 
 
 def claude_available() -> tuple[bool, str]:

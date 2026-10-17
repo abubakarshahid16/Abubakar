@@ -24,6 +24,10 @@ class NotificationConfigError(RuntimeError):
     """SMTP notifications were enabled without a complete configuration."""
 
 
+class SmtpTlsRefused(NotificationConfigError):
+    """#440: the SMTP lane could not set up verified TLS, so nothing was sent."""
+
+
 class UnsafeBindRefused(RuntimeError):
     """The server was told to listen beyond this machine with nobody signing in."""
 
@@ -210,6 +214,37 @@ def check_model_url(
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 PROJECT_DIR = BACKEND_DIR.parent
+
+
+def shared_backend_dir(backend: Path = BACKEND_DIR) -> Path:
+    """The MAIN checkout's `backend/` when this code runs from a git worktree.
+
+    #315: each `git worktree` has its own `backend/data/`, so a ledger kept
+    there is one ledger per checkout - a script run from a worktree checked
+    the owner's USD 20 total cap against its own nearly empty file while the
+    main checkout's showed USD 7.79 spent. A worktree's `.git` is a FILE
+    (`gitdir: <main>/.git/worktrees/<name>`); its `commondir` names the main
+    repository's `.git`, whose parent is the main checkout. Anything that does
+    not read as exactly that shape answers `backend` itself: no git, a normal
+    clone, a main checkout without a `backend/` (the guess is never wider).
+    """
+    marker = backend.parent / ".git"
+    try:
+        if not marker.is_file():
+            return backend
+        text = marker.read_text(encoding="utf-8").strip()
+        if not text.startswith("gitdir:"):
+            return backend
+        gitdir = Path(text[len("gitdir:"):].strip())
+        if not gitdir.is_absolute():
+            gitdir = (marker.parent / gitdir).resolve()
+        common_file = gitdir / "commondir"
+        common = ((gitdir / common_file.read_text(encoding="utf-8").strip()).resolve()
+                  if common_file.is_file() else gitdir.parent.parent)
+    except OSError:
+        return backend
+    candidate = common.parent / "backend"
+    return candidate if common.name == ".git" and candidate.is_dir() else backend
 
 
 class Settings(BaseSettings):
@@ -1136,7 +1171,9 @@ class Settings(BaseSettings):
     claude_budget_usd_total: float = 20.0
     #: Local JSONL ledger: one line per call - time, step, model, tokens, cost,
     #: prompt digest. Never prompt or document text, never the key.
-    claude_spend_log: Path = BACKEND_DIR / "data" / "claude_spend.jsonl"
+    #: ONE ledger per machine, not per checkout (#315): a worktree writes and
+    #: checks the main checkout's file, so the USD caps are the caps.
+    claude_spend_log: Path = shared_backend_dir() / "data" / "claude_spend.jsonl"
     #: Response cache: a repeat of (model, prompt version, input) is served
     #: from here at USD 0. Local only; it holds model answers, so it sits with
     #: the database under the same access rules, never in git.
@@ -1334,7 +1371,10 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     smtp_from: str = ""
     smtp_recipient: str = ""
+    # #440: exactly one TLS mode - STARTTLS on a plain port (587) or SMTPS
+    # from the first byte (465). With neither, the lane refuses to start.
     smtp_starttls: bool = True
+    smtp_ssl: bool = False
     smtp_timeout_seconds: float = 10.0
     # Scheduled summaries are opt-in. The worker calls notifications.run_scheduled_summary.
     summary_schedule: str = "disabled"  # disabled, daily, weekly
@@ -1424,6 +1464,12 @@ class Settings(BaseSettings):
                 "SMTP_USERNAME and SMTP_PASSWORD must be provided together")
         if self.smtp_timeout_seconds <= 0:
             raise NotificationConfigError("SMTP_TIMEOUT_SECONDS must be positive")
+        if not self.smtp_starttls and not self.smtp_ssl:
+            raise SmtpTlsRefused(
+                "SMTP notifications need TLS: set SMTP_STARTTLS=true or SMTP_SSL=true")
+        if self.smtp_starttls and self.smtp_ssl:
+            raise NotificationConfigError(
+                "set only one of SMTP_STARTTLS and SMTP_SSL")
         return self
 
     def embed_intra_op_threads(self) -> int:

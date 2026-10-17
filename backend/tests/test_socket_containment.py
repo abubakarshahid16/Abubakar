@@ -347,9 +347,9 @@ def test_a_loopback_caller_still_posts_exactly_what_it_used_to(monkeypatch):
 # ------------------------------------- 3. the package-wide structural guard
 
 
-#: THE FILES THAT MAY OPEN A SOCKET. Two, each with its reason, and each
-#: forbidden the other half of a leak: neither may import `db`, `search`,
-#: `keyword`, `chunker`, `passages`, `claims` or `analysis`.
+#: THE FILES THAT MAY OPEN A SOCKET. Four, each with its reason (CLAUDE.md
+#: rule 1). The three that can carry document text are also forbidden the
+#: other half of a leak - see the `cannot_reach_the_corpus` tests below.
 SOCKET_ALLOWLIST = {
     # The public-information lane. Sends an approved phrase and nothing from
     # the corpus; host-checked against `market_allowed_hosts`, and inert
@@ -366,6 +366,11 @@ SOCKET_ALLOWLIST = {
     # `ReaderSettings.allowed_hosts` immediately before every request; every
     # request logged at WARNING with counts and a digest, never the text.
     "reader_transport.py",
+    # The SMTP lane (#196). Off unless `smtp_enabled`; sends counts, ids,
+    # dates and register titles from a fixed template per sender, never
+    # document text, a filename or a page reference - pinned by
+    # tests/test_196_notification_bodies.py.
+    "notifications.py",
 }
 
 #: Modules that may NAME the model URL setting. Exactly one, so a new call
@@ -376,6 +381,8 @@ MODEL_URL_ALLOWLIST = {"config.py", "model_transport.py"}
 NETWORK_ROOTS = frozenset({
     "httpx", "requests", "urllib", "urllib3", "aiohttp", "socket", "ftplib",
     "telnetlib", "websockets", "http",
+    # #196: the SMTP lane, and TLS-wrapped sockets in general.
+    "smtplib", "ssl",
 })
 
 #: Attributes of those roots that do NOT open anything: exception classes and
@@ -386,6 +393,7 @@ NON_OPENING = frozenset({
     "httpx.TimeoutException", "httpx.ReadTimeout", "httpx.RequestError",
     "httpx.Timeout", "httpx.Request", "httpx.Response", "httpx.Limits",
     "httpx.URL",
+    "ssl.create_default_context", "ssl.SSLContext",
 })
 
 
@@ -420,7 +428,8 @@ def socket_calls(source: str) -> set[str]:
         # `from urllib.request import urlopen; urlopen(...)` has no dotted
         # root to inspect, so the bare names are matched too.
         if isinstance(node.func, ast.Name) and node.func.id in (
-                "urlopen", "urlretrieve", "create_connection", "socket"):
+                "urlopen", "urlretrieve", "create_connection", "socket",
+                "SMTP", "SMTP_SSL", "LMTP", "wrap_socket"):
             found.add(node.func.id)
     return found
 
@@ -480,6 +489,11 @@ def test_the_scanner_would_actually_catch_a_new_socket_call():
     assert socket_calls(
         "from urllib.request import urlopen\nurlopen('http://h')\n")
     assert socket_calls("import socket\ns = socket.socket()\n")
+    # #196: the SMTP lane, plain, TLS-wrapped and imported by name
+    assert socket_calls("import smtplib\nsmtplib.SMTP('h', 25)\n") == {"smtplib.SMTP"}
+    assert socket_calls("import smtplib\nsmtplib.SMTP_SSL('h', 465)\n")
+    assert socket_calls("from smtplib import SMTP\nSMTP('h', 25)\n") == {"SMTP"}
+    assert not socket_calls("import ssl\nctx = ssl.create_default_context()\n")
     # and the two shapes that must NOT count, or every module catching an
     # httpx error would be reported as opening a socket
     assert not socket_calls(
@@ -555,4 +569,16 @@ def test_the_model_transport_cannot_reach_the_corpus():
         f"corpus. This module holds the client for the lane that carries "
         f"document text; giving it corpus access of its own puts both halves "
         f"of a leak in one file."
+    )
+
+
+def test_only_the_notifications_module_imports_smtplib():
+    """#196: THE SMTP LANE HAS ONE HOME. The call scan above catches a new
+    `smtplib.SMTP(...)`; this catches the import itself, so a module that
+    takes `smtplib` in and hands it to something else cannot slip past."""
+    importers = sorted(str(p.relative_to(APP)) for p in app_modules()
+                       if "smtplib" in _imports(p))
+    assert importers == ["notifications.py"], (
+        f"smtplib is imported by {importers}. Mail goes out through "
+        f"notifications.send_email only: one module, off by default, audited."
     )

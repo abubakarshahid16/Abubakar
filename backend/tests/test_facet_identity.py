@@ -44,7 +44,7 @@ def temp_storage(tmp_path, monkeypatch):
 
     COPIED FROM test_claims.py DELIBERATELY, and for the reason its own
     docstring gives: without it these tests pass on a development machine -
-    which has a 71 MB corpus at backend/data/nabaa.sqlite - and fail anywhere
+    which has a 71 MB live corpus under backend/data/ - and fail anywhere
     else with `no such table: chunks`. This file was written without it and did
     exactly that: 8 passes on the dev box, 8 failures in a clean container.
     A test that needs a database it did not create is testing the machine.

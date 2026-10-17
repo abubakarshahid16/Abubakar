@@ -2,7 +2,7 @@
 
 - **Delete nothing** during an incident.
 - Copy these into `D:\project\incidents\<date>\`:
-  - `backend/data/claude_spend.jsonl`;
+  - `backend/data/claude_spend.jsonl` of the **main** checkout (every git worktree writes to that one ledger since #315);
   - the backend logs;
   - a copy of the database: all three files (`.sqlite`, `-wal`, `-shm`), or `live_guard.diagnostic_copy()`; never only the `.sqlite`;
   - the output of `git log` and the list of PRs.
