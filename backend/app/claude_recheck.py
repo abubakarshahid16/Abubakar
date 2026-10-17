@@ -434,6 +434,20 @@ def note_for(result: dict) -> str | None:
             + f' (quoting: "{result.get("quote") or ""}")')
 
 
+#: #633 item 2: the finding-history event a thrown-away second opinion leaves.
+RECHECK_REJECTED_EVENT = "recheck_rejected"
+
+
+def _rejection_reasons(result: dict) -> list[str]:
+    """The reason codes a recheck was thrown away for, sorted, codes only.
+    A call that returned nothing readable names its error key; a result
+    with no agree/disagree and no reason at all says so rather than nothing."""
+    reasons = {str(r.get("reason")) for r in (result.get("rejected") or []) if r.get("reason")}
+    if result.get("error"):
+        reasons.add(str(result["error"]))
+    return sorted(reasons) or ["no_answer"]
+
+
 def store_recheck(finding_id: str, result: dict) -> dict | None:
     """Write the note into `ai_rationale`; raise the status only per rule 1.
 
@@ -459,7 +473,18 @@ def store_recheck(finding_id: str, result: dict) -> dict | None:
         return {"stored": False, "raised": False, "why": "engineer_decided"}
     note = note_for(result)
     if note is None:
-        return {"stored": False, "raised": False, "why": "rejected"}
+        # #633 item 2: a rejected or malformed second opinion changes nothing
+        # on the finding (its rationale is about the finding, not the model),
+        # but it is no longer silent: the finding's history gets one event
+        # naming WHY it was thrown away - reason codes and counts only, never
+        # the model's words.
+        reasons = _rejection_reasons(result)
+        from . import review
+        with conn:
+            review._event(conn, finding_id, RECHECK_REJECTED_EVENT,
+                          {"reasons": reasons, "counts": result.get("counts") or {}},
+                          None, comparison._now())
+        return {"stored": False, "raised": False, "why": "rejected", "reasons": reasons}
     raise_it = (result.get("agree") is False
                 and result.get("raise_to_engineer") is True
                 and row["compliance_status"] in RAISABLE)
