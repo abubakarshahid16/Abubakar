@@ -1,4 +1,4 @@
-"""The form reader inside extraction (DATASHEET_READER_MODE=form).
+"""The form reader inside extraction (DATASHEET_READER_MODE=form, the default since #882).
 
 `datasheets._extract_facts` asks this module for a reading in EXACTLY the
 shape `datasheet_ai.read_pages` returns, so the existing merge and write path
@@ -25,8 +25,8 @@ MODES = (RULES, MERGE, FORM)
 
 
 def reader_mode() -> str:
-    """`settings.datasheet_reader_mode`, folded ("merge" when unset)."""
-    return str(settings.datasheet_reader_mode or MERGE).strip().lower() or MERGE
+    """`settings.datasheet_reader_mode`, folded ("form", the default, when unset)."""
+    return str(settings.datasheet_reader_mode or FORM).strip().lower() or FORM
 
 
 def equipment_type_of(document_id: str, chunks: list) -> str | None:

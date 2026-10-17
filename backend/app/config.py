@@ -581,16 +581,20 @@ class Settings(BaseSettings):
     form_reader_batch_size: int = 8
     #: WHICH AI READING runs inside extraction (the engine is still
     #: DATASHEET_AI_READER; with that "off" no AI reading runs in any mode):
-    #:   "merge" - THE DEFAULT, unchanged: `datasheet_ai` reads every row it
-    #:             can see and the reading is merged with the rule readers'.
-    #:   "form"  - `form_reader`: the model fills the equipment type's fixed
-    #:             FIELD LIST (from `reference/datasheet_checks.json`) with
-    #:             value, unit and a verbatim quote; code only verifies; the
-    #:             rule readers' facts become the cross-check in the same
-    #:             merge. Any layout, no layout code.
+    #:   "form"  - THE DEFAULT (planner 17 Oct, #882): `form_reader`: the
+    #:             model fills the equipment type's fixed FIELD LIST (from
+    #:             `reference/datasheet_checks.json`, widened by the included
+    #:             standards' requirement subjects) with value, unit and a
+    #:             verbatim quote; code only verifies; the rule readers' facts
+    #:             become the cross-check in the same merge. Any layout, no
+    #:             layout code. First measured gain (17 Oct, PC, qwen3.5:4b,
+    #:             batch 8): a real flow-meter sheet 0 of 10 drawn values read
+    #:             in "merge" -> 8 of 10, 0 wrong, in "form".
+    #:   "merge" - the old default: `datasheet_ai` reads every row it can see
+    #:             and the reading is merged with the rule readers'.
     #:   "rules" - no AI reading at all (the rule readers only).
     #: Any other value is refused at startup. Env: DATASHEET_READER_MODE.
-    datasheet_reader_mode: str = "merge"
+    datasheet_reader_mode: str = "form"
     #: B8: after the structural answerability checks, a reasoning model
     #: (local Ollama, or Claude through reader_transport under the USD caps)
     #: judges whether the passages ANSWER the question. It may only downgrade

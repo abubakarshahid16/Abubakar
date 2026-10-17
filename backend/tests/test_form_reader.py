@@ -1,7 +1,7 @@
 """THE FORM READER: one general path, any layout, code only verifies.
 
 `form_reader.py` + `form_reader_fields.py` + `form_reader_run.py`, behind
-DATASHEET_READER_MODE=form (default "merge": the old path). Every model here
+DATASHEET_READER_MODE=form (the default since #882; "merge" is the old path). Every model here
 is a FAKE scripted callable: no network, no Ollama, no Claude, and every page
 text is invented.
 
@@ -325,15 +325,23 @@ def _extract(tmp_path):
     return result, datasheets.list_facts(doc, allowed_document_ids=frozenset({doc}))
 
 
-def test_the_default_mode_is_merge_and_never_runs_the_form_reader(storage, monkeypatch):
-    assert Settings.model_fields["datasheet_reader_mode"].default == "merge"
-    assert settings.datasheet_reader_mode == "merge"
+def test_the_default_mode_is_form(monkeypatch):
+    """#882: the form reader is the default reading; unset also means form."""
+    assert Settings.model_fields["datasheet_reader_mode"].default == "form"
+    assert Settings(_env_file=None).datasheet_reader_mode == "form"
+    assert Settings(_env_file=None).form_reader_batch_size == 8
+    monkeypatch.setattr(settings, "datasheet_reader_mode", "")
+    assert form_reader_run.reader_mode() == "form"
+
+
+def test_merge_mode_never_runs_the_form_reader(storage, monkeypatch):
+    monkeypatch.setattr(settings, "datasheet_reader_mode", "merge")
     monkeypatch.setattr(settings, "datasheet_ai_reader", "ollama")
     monkeypatch.setattr(datasheet_ai, "model_call_for",
                         lambda engine=None, packet_shape=None: (lambda p: '{"facts": []}', None))
 
     def refuse(*_a, **_k):
-        raise AssertionError("the form reader ran in the default mode")
+        raise AssertionError("the form reader ran in merge mode")
     monkeypatch.setattr(form_reader_run, "read_document", refuse)
     result, _facts = _extract(storage)
     assert "form" not in result["ai_reader"] and "reader" not in result["ai_reader"]
