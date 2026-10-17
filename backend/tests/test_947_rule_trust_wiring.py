@@ -141,7 +141,14 @@ def test_on_an_unproven_rule_never_decides(world, monkeypatch):
     assert through["compliance_status"] == "MISSING_INFORMATION"
     assert set(out["rule_trust"]["labels"]) == {rule_trust.UNPROVEN}
     assert out["rule_trust"]["labels"][rule_trust.UNPROVEN] >= 2
-    assert out["rule_trust"]["held_unproven"] == 1
+    # EVERY held verdict of the run, the datasheet checks included - never the
+    # rule loop's share alone (s2's real-group run: 51 reported, 1,555 held).
+    every = [dict(r) for r in connect().execute(
+        "SELECT rule_said, origin FROM review_findings WHERE review_run_id = ?", (world["run"],))]
+    held_all = [r for r in every if r["rule_said"]]
+    assert out["rule_trust"]["held_unproven"] == len(held_all)
+    assert len(held_all) > 1 and any(r["origin"] == "datasheet_check" for r in held_all)
+    assert out["rule_trust"]["findings_counted"] == len(every)
     # the scope ledger still ends every requirement in exactly one state
     # (`scope_ledger.check_complete` raises otherwise) and the run completed
     assert out["scope"]["in_scope"] >= 5
