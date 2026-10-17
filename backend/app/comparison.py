@@ -2665,6 +2665,13 @@ def _run_comparison(
         not_used=covered_items)
     scope_counts = scope_ledger.check_complete(in_scope_all, decisions)
     scope_ledger.store(review_run_id, decisions)
+    # PF4 (#884) step 1: the clause coverage of this run - every applicable
+    # requirement in exactly one state, with its denominator and the one
+    # line - STORED WITH THE RUN from the same decisions the ledger holds,
+    # so the scorer reads it from a database copy with no route and the
+    # route (`clause_coverage.for_run`) can never say a different number.
+    from . import clause_coverage
+    clause_cov = clause_coverage.summarise(decisions)
 
     # #645 CLAUSE TO CHECK: a clause sentence stored with no limit that this
     # run could not decide is offered to the local model, which proposes a
@@ -2742,7 +2749,8 @@ def _run_comparison(
                        datasheet_check_not_run=datasheet_check_not_run,
                        ai_matcher=ai_matcher,
                        unchecked_counts=unchecked_counts,
-                       requirement_split=split)
+                       requirement_split=split,
+                       clause_coverage=clause_cov)
 
     return {
         "review_run_id": review_run_id,
@@ -2756,6 +2764,8 @@ def _run_comparison(
         "scope": scope_counts,
         # #678's distinct counts, built from the same items as `scope`
         "requirement_split": split,
+        # PF4 (#884): the same decisions as PF4's four states, with the line
+        "clause_coverage": clause_cov,
         "service_declarations": service_declarations,
         "ai_applicability": ai_applicability_summary,
         "clause_checks": clause_checks,
@@ -3944,7 +3954,8 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
                        datasheet_check_not_run: str | None = None,
                        unchecked_counts: dict | None = None,
                        requirement_split: dict | None = None,
-                       ai_matcher: dict | None = None) -> None:
+                       ai_matcher: dict | None = None,
+                       clause_coverage: dict | None = None) -> None:
     """Persist the AI recommendation and the completeness it was gated on.
 
     B3: `page_coverage` is the page ledger's summary AT THE TIME OF THE RUN -
@@ -3989,6 +4000,9 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
                 "requirement_split": requirement_split,
                 # #845: the AI matcher's counts, as this run made them.
                 "ai_matcher": ai_matcher,
+                # PF4 (#884): checked / engineer / not checked / checklist /
+                # does not apply, the denominator and the line, at run end.
+                "clause_coverage": clause_coverage,
             # completed_at: the readiness strip's "since the last run" is
             # measured from here, not from updated_at (which the engineer's
             # code decision moves later).

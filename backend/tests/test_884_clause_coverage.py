@@ -9,6 +9,7 @@ from __future__ import annotations
 from app import clause_coverage as cov
 from app import db, scope_ledger
 from tests.test_crs_endpoint import _client, _run, _submittal, temp_db  # noqa: F401 - fixture
+from tests.test_w5_677_scope_ledger import review_run  # noqa: F401 - fixture
 
 
 def _ledger(run_id: str, codes: list[str]) -> None:
@@ -99,3 +100,33 @@ def test_a_stranger_gets_404_and_the_route_writes_nothing():
     _get(_client(doc), run)
     tables = {r["name"] for r in db.connect().execute("SELECT name FROM sqlite_master")}
     assert "review_scope_decisions" not in tables
+
+
+# ------------------------------------------- PF4 step 1: stored with the run
+
+def test_summarise_is_the_routes_arithmetic():
+    decisions = [scope_ledger.decision({"id": f"r{n}"}, code) for n, code in enumerate(
+        ["compared", "needs_engineer", "row_label_not_on_sheet", "covered_by_checklist", "definition"])]
+    s = cov.summarise(decisions)
+    assert s["counts"] == {"checked": 1, "engineer": 1, "not_checked": 1,
+                           "covered_by_checklist": 1, "does_not_apply": 1}
+    assert (s["applicable"], s["checked_share"], s["adds_up"]) == (4, 25.0, True)
+    assert s["line"].startswith("1 of 4 applicable requirement(s) checked (25.0%)")
+    assert cov.summarise([])["line"] == "0 applicable requirements in this run (0 do not apply)"
+
+
+def test_the_run_stores_the_coverage_the_route_reports(review_run):
+    """PF4 step 1: at run end the run keeps its clause coverage (counts, the
+    denominator, the line) from the same decisions the ledger holds, so the
+    PF1 scorer reads it from a database copy and the route can never say a
+    different number (rule 8)."""
+    from app import comparison
+    run, _ids, scope = review_run
+    result = comparison.run_comparison(run, allowed_document_ids=scope)
+    stored = comparison.run_outcome(run, allowed_document_ids=scope)["clause_coverage"]
+    assert stored == result["clause_coverage"]
+    route = cov.for_run(run, allowed_document_ids=scope)
+    assert (stored["counts"], stored["applicable"], stored["line"]) == (
+        route["counts"], route["applicable"], route["line"])
+    assert stored["adds_up"] is True and stored["applicable"] == 2       # 5 in scope, 3 do not apply
+    assert stored["counts"]["checked"] == 1 and stored["counts"]["not_checked"] == 1

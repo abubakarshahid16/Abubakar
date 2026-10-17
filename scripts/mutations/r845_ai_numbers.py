@@ -26,9 +26,10 @@ MUTATIONS: tuple[Mutation, ...] = (
              path=_P, anchor='                    matcher_counts["no_candidates"] += 1\n',
              replacement='                    pass\n',
              target=_T, keyword="no_candidate_field", tags=_TAG),
+    # Re-anchored 2026-10-17 (PF4 #884 step 1): the clause coverage follows the matcher's counts.
     Mutation(id="M851-05", phase=851, description="the run does not store the matcher's counts",
-             path=_P, anchor='                "ai_matcher": ai_matcher,\n            # completed_at',
-             replacement='            # completed_at',
+             path=_P, anchor='                "ai_matcher": ai_matcher,\n                # PF4 (#884)',
+             replacement='                # PF4 (#884)',
              target=_T, keyword="stored_on_the_run or rule_refused or declined", tags=_TAG),
     Mutation(id="M851-06", phase=851, description="a switched-off matcher reports itself on",
              path=_P, anchor='    if not settings.match_enabled:\n        return {"enabled": False}\n    engine = ',
