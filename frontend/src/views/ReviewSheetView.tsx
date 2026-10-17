@@ -9,12 +9,13 @@
  * NOTHING HERE DECIDES. Each answer is the issue gate's own recorded
  * decision, the code is the existing code decision, and Send is the existing
  * issue route - which the server still refuses while anything is open. The
- * technical panels are kept, unchanged, behind "Behind the scenes".
+ * technical panels are kept, unchanged, behind "Behind the scenes" - each
+ * a route of its own (`/review/<run>/<panel>`, #967 PR 3).
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { api, reviews as reviewsApi } from "../api/client";
-import type { CrsIssueGate, DocumentRecord, ReviewFinding, ReviewRunStandard, ReviewRunSummary } from "../types/api";
+import type { CrsIssueGate, DocumentRecord, ReviewFinding, ReviewRunSummary } from "../types/api";
 import { downloadCrs } from "../components/review/downloadCrs";
 import { progressLine, runStatusLabel } from "../components/review/reviewFormat";
 import { DecisionCard } from "../components/review/sheet/DecisionCard";
@@ -23,22 +24,37 @@ import { ProgressRing } from "../components/review/sheet/ProgressRing";
 import { SheetCard } from "../components/review/sheet/SheetCard";
 import { type SheetCard as Card, buildCards, headline, passedCount, progress } from "../components/review/sheet/sheetCards";
 import { useSheetKeys } from "../components/review/sheet/useSheetKeys";
-import { ReviewRunsView } from "./ReviewRunsView";
+import { BehindTheScenes, PANEL_TITLES, type StandardsState } from "../components/review/panels/BehindTheScenes";
+import { ReviewJobControl } from "../components/review/panels/ReviewJobControl";
+import { RunIncompleteNotes } from "../components/review/panels/RunIncompleteNotes";
+import { RunReviewControl } from "../components/review/panels/RunReviewControl";
 
 type Load = { kind: "loading" } | { kind: "ready" } | { kind: "error"; message: string };
 
-export function ReviewSheetView({ runId, onBack, onOpenStandards, isAdmin = true }: {
-  runId: string; onBack: () => void; onOpenStandards?: () => void; isAdmin?: boolean;
+export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, onOpenStandards, isAdmin = true }: {
+  runId: string;
+  /** A behind-the-scenes page (`routing.PANELS.review`), or the sheet itself. */
+  panel?: string;
+  onBack: () => void;
+  onOpenPanel: (panel?: string) => void;
+  /** A new run was started for this document: open it. */
+  onOpenRun: (runId: string) => void;
+  onOpenStandards?: () => void;
+  isAdmin?: boolean;
 }) {
   const [load, setLoad] = useState<Load>({ kind: "loading" });
   const [run, setRun] = useState<ReviewRunSummary | null>(null);
   const [findings, setFindings] = useState<ReviewFinding[]>([]);
   const [gate, setGate] = useState<CrsIssueGate | null>(null);
-  const [standards, setStandards] = useState<ReviewRunStandard[]>([]);
+  // A FAILED LIST IS NOT AN EMPTY ONE (audit 2026-09-30): the standards page
+  // says the list could not be loaded, never "none were selected".
+  const [standardsState, setStandardsState] = useState<StandardsState>({ standards: null, missing: [], error: null });
+  const standards = standardsState.standards ?? [];
   const [submittal, setSubmittal] = useState<DocumentRecord | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [view, setView] = useState<PaneView>({ page: null, rule: null });
-  const [behind, setBehind] = useState(false);
+  // #791: the status a count in the review steps was clicked for.
+  const [focusStatus, setFocusStatus] = useState<string | null>(null);
   const [send, setSend] = useState<{ kind: "idle" | "sending" | "sent" } | { kind: "error"; message: string }>({ kind: "idle" });
 
   const refresh = useCallback(async () => {
@@ -53,7 +69,9 @@ export function ReviewSheetView({ runId, onBack, onOpenStandards, isAdmin = true
     setRun(found);
     setFindings(listed.data.findings);
     setGate(gated.ok ? gated.data : null);
-    setStandards(stds.ok ? stds.data.standards : []);
+    setStandardsState(stds.ok
+      ? { standards: stds.data.standards, missing: stds.data.missing_references ?? [], error: null }
+      : { standards: null, missing: [], error: stds.error.message });
     setLoad({ kind: "ready" });
     return { run: found, findings: listed.data.findings };
   }, [runId]);
@@ -96,14 +114,18 @@ export function ReviewSheetView({ runId, onBack, onOpenStandards, isAdmin = true
 
   useSheetKeys(cards, selected, select);
 
-  if (behind) {
+  if (panel && run) {
     return (
-      <div className="space-y-4">
-        <button type="button" onClick={() => setBehind(false)} className="text-sm text-signal-300 underline-offset-2 hover:underline">
-          ← Back to the sheet
-        </button>
-        <ReviewRunsView openRunId={runId} onOpenStandards={onOpenStandards} isAdmin={isAdmin} />
-      </div>
+      <main className="mx-auto w-full max-w-7xl" aria-label={PANEL_TITLES[panel] ?? "Behind the scenes"}>
+        <BehindTheScenes
+          panel={panel} run={run} findings={findings} documents={submittal ? [submittal] : []}
+          standardsState={standardsState} focusStatus={focusStatus}
+          onOpenPanel={(next) => { if (!next) setFocusStatus(null); onOpenPanel(next); }}
+          onFocusStatus={setFocusStatus}
+          onStandardsChanged={(changed, missing) => setStandardsState({ standards: changed, missing, error: null })}
+          onChanged={() => void refresh()}
+        />
+      </main>
     );
   }
 
@@ -141,6 +163,7 @@ export function ReviewSheetView({ runId, onBack, onOpenStandards, isAdmin = true
             {send.kind === "sending" ? "Sending…" : "Send comments to contractor"}
           </button>
         </div>
+        {run && <RunIncompleteNotes run={run} />}
         {send.kind === "sent" && <p role="status" className="text-sm text-signal-300">Sent. The issued copy was downloaded and kept on record.</p>}
         {send.kind === "error" && (
           <p role="alert" className="rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-sm text-danger-500">{send.message}</p>
@@ -152,10 +175,14 @@ export function ReviewSheetView({ runId, onBack, onOpenStandards, isAdmin = true
         <p role="alert" className="rounded-[var(--radius-md)] border border-danger-500/40 bg-danger-500/10 px-4 py-3 text-danger-500">{load.message}</p>
       )}
       {run && active && (
-        <p aria-live="polite" className="text-slateish-300">
-          {run.status === "queued" ? "Waiting to start…"
-            : run.job ? progressLine(run.job.progress_done, run.job.progress_total, run.job.progress_label) : runStatusLabel(run.status)}
-        </p>
+        <div className="space-y-1">
+          <p aria-live="polite" className="text-slateish-300" data-testid="review-progress">
+            {run.status === "queued" ? "Waiting to start"
+              : run.job ? progressLine(run.job.progress_done, run.job.progress_total, run.job.progress_label) : runStatusLabel(run.status)}
+            {run.job?.cancel_requested ? " · cancellation requested, stopping at the next step" : ""}
+          </p>
+          <ReviewJobControl run={run} onChanged={() => void refresh()} />
+        </div>
       )}
       {run?.status === "failed" && (
         <p role="alert" className="text-danger-500">This check failed{run.failure_reason ? `: ${run.failure_reason}` : "."}</p>
@@ -187,14 +214,26 @@ export function ReviewSheetView({ runId, onBack, onOpenStandards, isAdmin = true
             {(allAnswered || finalCode) && <DecisionCard key={`${run.review_run_id}-${finalCode ?? ""}`} run={run} onDecided={() => void refresh()} />}
             <p className="text-sm text-slateish-400">
               {passedCount(findings)} passed quietly ·{" "}
-              <button type="button" onClick={() => setBehind(true)} className="text-signal-300 underline-offset-2 hover:underline">see all</button>
+              <button type="button" onClick={() => onOpenPanel("findings")} className="text-signal-300 underline-offset-2 hover:underline">see all</button>
             </p>
             <p className="text-sm text-slateish-400">
               Behind the scenes:{" "}
-              <button type="button" onClick={() => setBehind(true)} className="text-signal-300 underline-offset-2 hover:underline">
-                how we checked this document · the rule books used ({standards.filter((s) => s.included).length} of {standards.length})
+              <button type="button" onClick={() => onOpenPanel("steps")} className="text-signal-300 underline-offset-2 hover:underline">how we checked this document</button>
+              {" · "}
+              <button type="button" onClick={() => onOpenPanel("standards")} className="text-signal-300 underline-offset-2 hover:underline">
+                the rule books used ({standards.filter((s) => s.included).length} of {standards.length})
               </button>
+              {" · "}
+              <button type="button" onClick={() => onOpenPanel("numbers")} className="text-signal-300 underline-offset-2 hover:underline">AI numbers</button>
+              {" · "}
+              <button type="button" onClick={() => onOpenPanel("crs")} className="text-signal-300 underline-offset-2 hover:underline">the CRS</button>
             </p>
+            {submittalId && !active && (
+              <RunReviewControl
+                key={submittalId} submittalId={submittalId} isAdmin={isAdmin} label="Check it again"
+                onStarted={onOpenRun} onOpenStandards={onOpenStandards} onReread={async () => { await refresh(); }}
+              />
+            )}
           </div>
         </div>
       )}
