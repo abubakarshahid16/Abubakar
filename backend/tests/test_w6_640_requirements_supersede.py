@@ -398,10 +398,10 @@ def test_the_rehearsal_reports_before_and_after_and_loses_nothing(capsys):
 
 
 def test_search_conflicts_and_missing_standards_read_active_rows_only(monkeypatch):
-    """The three remaining readers of current requirements. Each one's own
+    """The remaining readers of current requirements (conflicts, missing
+    standards; the requirement search was retired in #197). Each one's own
     logic is stubbed; only the rows it is handed are checked."""
     from app import requirements_3b, standards_inventory
-    from app import search as search_mod
 
     std = _standard()
     active = _row(std, "The pump shall be designed in accordance with API 610.")
@@ -410,13 +410,6 @@ def test_search_conflicts_and_missing_standards_read_active_rows_only(monkeypatc
         conn.execute("UPDATE standard_requirements SET value = 1, field = 'temperature',"
                      " requirement_type = ?", (requirements_3b.APPLICABILITY_TRIGGER,))
     scope = _scope(std)
-
-    monkeypatch.setattr(search_mod, "search", lambda *a, **k: {
-        "hits": [{"chunk_id": _chunk(std), "document_id": std, "score": 1.0,
-                  "bm25": None, "cosine": None}],
-        "mode": "hybrid", "reranked": False, "timings": {}, "total": 1, "seconds": 0.0})
-    found = {r["id"] for r in standards.search_requirements("bearing", allowed_document_ids=scope)}
-    assert active in found and old not in found
 
     handed: list[str] = []
     monkeypatch.setattr(requirements_3b, "find_conflicts",
