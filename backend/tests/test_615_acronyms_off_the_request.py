@@ -97,7 +97,7 @@ def test_the_search_route_returns_the_record(server):
     from fastapi.testclient import TestClient
 
     from app.main import app
-    ids, _started = server
+    _ids, _started = server
     acronyms.warm_all()
     r = TestClient(app, base_url="http://127.0.0.1").get(
         "/api/search", params={"q": QUESTION, "mode": "keyword", "rerank": "false"})
