@@ -63,7 +63,7 @@ export function EvidencePageImage({ findingId, side, page, box, reason }: {
       <img
         src={image.src}
         alt={`${side === "submittal" ? "Submittal" : "Standard"} page ${page}`}
-        className="max-h-[32rem] w-full rounded-[var(--radius-sm)] border border-ink-700 bg-white object-contain"
+        className="max-h-[32rem] w-full rounded-[var(--radius-sm)] border border-ink-700 bg-white object-contain max-sm:max-h-[20rem]"
       />
     </figure>
   );

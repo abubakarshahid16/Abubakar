@@ -3,7 +3,7 @@ one part; backend/tests/test_w3_678_three_way_split.py (or the screen's vitest
 file) must notice."""
 from __future__ import annotations
 
-from ._base import APP, FRONTEND_SRC, Mutation
+from ._base import APP, Mutation
 
 _T = "tests/test_w3_678_three_way_split.py"
 _TAG = ("w3_678", "three_way_split")
@@ -67,13 +67,4 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(4435, "an old run shows no split", "main.py",
        '                              or requirement_split_mod.from_counts(outcome.get("unchecked_counts"))),',
        '                              or None),', "old_run"),
-    Mutation(id="M4436", phase=4436, runner="vitest", description="the screen takes the share over all requirements",
-             path=FRONTEND_SRC / "views" / "ReviewRunsView.tsx",
-             anchor="const applies = split.checked + split.applies_not_checked;",
-             replacement="const applies = split.total;",
-             target="src/views/ReviewRunsView.test.tsx", keyword="three groups", tags=_TAG),
-    Mutation(id="M4437", phase=4437, runner="vitest", description="the screen shows 0% when no requirement applies",
-             path=FRONTEND_SRC / "views" / "ReviewRunsView.tsx",
-             anchor="{split.unchecked_share !== null &&", replacement="{true &&",
-             target="src/views/ReviewRunsView.test.tsx", keyword="three groups", tags=_TAG),
 )

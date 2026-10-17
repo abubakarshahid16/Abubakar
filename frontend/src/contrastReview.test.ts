@@ -47,7 +47,7 @@ describe("status colour tokens used by the review screens", () => {
 
 describe("no pale palette classes on the review screens", () => {
   const files = [
-    "views/ReviewRunsView.tsx", "components/review/ReviewDashboardPanel.tsx",
+    "views/ReviewSheetView.tsx", "components/review/panels/BehindTheScenes.tsx", "components/review/ReviewDashboardPanel.tsx",
     "components/review/FindingDetail.tsx", "components/review/ReviewCodePanel.tsx",
     "components/review/StandardOverrideControl.tsx", "components/review/CrsCommentControls.tsx",
     "components/review/FindingsTable.tsx",

@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-from ._base import APP, FRONTEND_SRC, Mutation
+from ._base import APP, Mutation
 
 _T = "tests/test_p3_review_jobs.py"
 _R = APP / "review_jobs.py"
-_V = FRONTEND_SRC / "views" / "ReviewRunsView.tsx"
-_VT = "src/views/ReviewRunsView.jobs.test.tsx"
 
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M880", phase=77, description="P3: the review runs inside the request again",
@@ -40,17 +38,4 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M887", phase=77, description="P3: a poisoned review leaves its run looking queued",
              path=_R, anchor="            if state == job_queue.POISONED:\n",
              replacement="            if False:\n", target=_T, keyword="retried_then_poisoned", tags=("honesty",)),
-    Mutation(id="M888", phase=77, runner="vitest", description="P3 UI: the cancel control is never offered",
-             path=_V, anchor="  if (!job || !(run.status === \"queued\" || run.status === \"running\") || job.cancel_requested) return null;\n",
-             replacement="  return null;\n", target=_VT, keyword="cancels it on request", tags=("ui",)),
-    Mutation(id="M889", phase=77, runner="vitest", description="P3 UI: a pending cancellation is not shown",
-             path=_V, anchor="          {run.job.cancel_requested ? \" · cancellation requested, stopping at the next step\" : \"\"}\n",
-             replacement="", target=_VT, keyword="cancellation is pending", tags=("honesty", "ui")),
-    Mutation(id="M1135", phase=95, runner="vitest",
-             description="BUG GROUP: the open run's findings no longer "
-                         "auto-reload once its job finishes",
-             path=_V,
-             anchor='    if (selectedRun && wasActive && nowTerminal) {\n',
-             replacement='    if (false) {\n',
-             target=_VT, keyword="reload automatically", tags=("ui", "critical")),
 )

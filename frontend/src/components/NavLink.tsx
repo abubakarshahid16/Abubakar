@@ -16,7 +16,7 @@ import { createContext, useContext, type ReactNode } from "react";
 import { pathForView } from "../routing";
 import type { ViewId } from "./Shell";
 
-export type NavigateFn = (view: ViewId, recordId?: string) => void;
+export type NavigateFn = (view: ViewId, recordId?: string, panel?: string) => void;
 
 export const NavigationContext = createContext<NavigateFn | null>(null);
 

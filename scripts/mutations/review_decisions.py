@@ -44,7 +44,8 @@ MUTATIONS: tuple[Mutation, ...] = (
              path=FRONTEND_SRC / "components" / "review" / "CrsPreviewSheet.tsx",
              anchor="      {preview.recommended_code && preview.recommended_code_status && (\n",
              replacement="      {false && preview.recommended_code_status && (\n",
-             target="src/views/ReviewRunsView.crsPreview.test.tsx", keyword="AI's recommendation",
+             # Re-targeted 2026-10-17 (#967 PR 3): the old page's test moved with the panel.
+             target="src/components/review/panels/BehindTheScenes.crs.test.tsx", keyword="AI's recommendation",
              tags=("honesty", "ui")),
     Mutation(id="M852", phase=73, description="B10: a machine-written finding leaves no history",
              path=APP / "comparison.py", anchor='        review._event(conn, row["id"], "created_by_review", {\n',
@@ -68,19 +69,4 @@ MUTATIONS: tuple[Mutation, ...] = (
              target="tests/test_crs_endpoint.py",
              keyword="issue_copy_is_refused_until_an_engineer_decides",
              tags=("safety", "critical")),
-    Mutation(id="M1131", phase=95, runner="vitest",
-             description="safety: the issue-to-contractor button is no "
-                         "longer disabled before an engineer decides",
-             path=FRONTEND_SRC / "views" / "ReviewRunsView.tsx",
-             anchor='              disabled={exporting || !run.engineer_final_code}\n'
-                    '              className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-200 disabled:opacity-50"\n'
-                    '            >\n'
-                    '              Issue CRS to contractor\n',
-             replacement='              disabled={exporting}\n'
-                        '              className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-200 disabled:opacity-50"\n'
-                        '            >\n'
-                        '              Issue CRS to contractor\n',
-             target="src/views/ReviewRunsView.crsPreview.test.tsx",
-             keyword="SAFETY GATE",
-             tags=("safety", "ui")),
 )

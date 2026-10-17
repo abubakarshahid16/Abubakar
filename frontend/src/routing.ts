@@ -1,8 +1,16 @@
 import type { ViewId } from "./components/Shell";
 
 export type AppRoute =
-  | { kind: "view"; view: ViewId; recordId?: string }
+  | { kind: "view"; view: ViewId; recordId?: string; panel?: string }
   | { kind: "forbidden"; path: string };
+
+/** #967 PR 3: the pages a record of a view keeps behind links, as a third
+ *  path segment (`/review/<run>/findings`). Only a view listed here takes
+ *  one, and only the panels it names: any other three-part path stays
+ *  "forbidden", as every over-deep path always was. */
+export const PANELS: Partial<Record<ViewId, readonly string[]>> = {
+  review: ["findings", "standards", "steps", "numbers", "crs"],
+};
 
 const titles: Record<ViewId, string> = {
   dashboard: "Dashboard",
@@ -44,12 +52,17 @@ export function parseRoute(pathname: string): AppRoute {
   if (!isRoutableView(view)) {
     return { kind: "forbidden", path: pathname };
   }
-  if (parts.length > 2 || (parts.length === 2 && !parts[1])) {
+  if (parts.length > 3 || (parts.length >= 2 && !parts[1])) {
     return { kind: "forbidden", path: pathname };
   }
-  return { kind: "view", view, recordId: parts[1] };
+  if (parts.length === 3 && !(PANELS[view] ?? []).includes(parts[2])) {
+    return { kind: "forbidden", path: pathname };
+  }
+  return { kind: "view", view, recordId: parts[1], ...(parts[2] ? { panel: parts[2] } : {}) };
 }
 
-export function pathForView(view: ViewId, recordId?: string): string {
-  return recordId ? `/${view}/${encodeURIComponent(recordId)}` : `/${view}`;
+export function pathForView(view: ViewId, recordId?: string, panel?: string): string {
+  if (!recordId) return `/${view}`;
+  const base = `/${view}/${encodeURIComponent(recordId)}`;
+  return panel ? `${base}/${encodeURIComponent(panel)}` : base;
 }
