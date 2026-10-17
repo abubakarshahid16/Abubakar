@@ -2388,6 +2388,16 @@ class CrsIssueDecision(BaseModel):
     decided_at: str
 
 
+class FactConfirmation(BaseModel):
+    """#473: one datasheet value an engineer has confirmed. `confirmed_by`
+    is never null here - an unsigned confirmation is refused (401)."""
+    fact_id: str
+    submittal_document_id: str
+    field_name: str
+    confirmed_by: str
+    confirmed_at: str
+
+
 class CrsIssuedCopy(BaseModel):
     """One contractor copy exactly as issued (#885): its sha256, size, run,
     who issued it and when."""
