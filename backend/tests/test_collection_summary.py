@@ -403,7 +403,7 @@ def test_original_page_gate_keeps_supported_sentences_and_drops_unsupported_clai
 
 
 def test_synthesis_logs_neither_client_filename_nor_completion(caplog):
-    with caplog.at_level(logging.DEBUG, logger="nabaa.synthesis"):
+    with caplog.at_level(logging.DEBUG, logger="rag_intelligence.synthesis"):
         synthesis._Call(stage="collection_map", document="private-client.pdf",
                         raw_completion="secret-document-prose").record()
     assert "private-client.pdf" not in caplog.text

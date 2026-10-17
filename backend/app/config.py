@@ -24,6 +24,10 @@ class NotificationConfigError(RuntimeError):
     """SMTP notifications were enabled without a complete configuration."""
 
 
+class SmtpTlsRefused(NotificationConfigError):
+    """#440: the SMTP lane could not set up verified TLS, so nothing was sent."""
+
+
 class UnsafeBindRefused(RuntimeError):
     """The server was told to listen beyond this machine with nobody signing in."""
 
@@ -1334,7 +1338,10 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     smtp_from: str = ""
     smtp_recipient: str = ""
+    # #440: exactly one TLS mode - STARTTLS on a plain port (587) or SMTPS
+    # from the first byte (465). With neither, the lane refuses to start.
     smtp_starttls: bool = True
+    smtp_ssl: bool = False
     smtp_timeout_seconds: float = 10.0
     # Scheduled summaries are opt-in. The worker calls notifications.run_scheduled_summary.
     summary_schedule: str = "disabled"  # disabled, daily, weekly
@@ -1424,6 +1431,12 @@ class Settings(BaseSettings):
                 "SMTP_USERNAME and SMTP_PASSWORD must be provided together")
         if self.smtp_timeout_seconds <= 0:
             raise NotificationConfigError("SMTP_TIMEOUT_SECONDS must be positive")
+        if not self.smtp_starttls and not self.smtp_ssl:
+            raise SmtpTlsRefused(
+                "SMTP notifications need TLS: set SMTP_STARTTLS=true or SMTP_SSL=true")
+        if self.smtp_starttls and self.smtp_ssl:
+            raise NotificationConfigError(
+                "set only one of SMTP_STARTTLS and SMTP_SSL")
         return self
 
     def embed_intra_op_threads(self) -> int:
