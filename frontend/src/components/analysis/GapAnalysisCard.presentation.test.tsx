@@ -120,7 +120,9 @@ describe("P2 - the tally line counts what is there and claims nothing more", () 
       item({ status: "not_applicable", facet: "e" }),
     ]);
 
-    expect(screen.getByText("5 facets compared · 3 possible gaps · 2 not applicable")).toBeInTheDocument();
+    // #1055: the not-applicable rows (no baseline) are not "compared"; they keep their own collapsed line
+    expect(screen.getByText("3 facets compared · 3 possible gaps")).toBeInTheDocument();
+    expect(screen.getByText("2 facets not applicable")).toBeInTheDocument();
   });
 
   it("singularises, and names a conflict and a met row by their own words", () => {

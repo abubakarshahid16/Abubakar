@@ -234,8 +234,9 @@ function orderedItems(items: GapItem[]): GapItem[] {
  * status with no rows is not mentioned rather than printed as a zero.
  */
 function tallyLine(items: GapItem[]): string {
-  // `items` are the facets a comparison happened on: the caller leaves the
-  // beyond-requirement rows out (#1055), which have their own line.
+  // `items` are the facets a comparison happened on: the caller leaves out
+  // the beyond-requirement rows (#1055) and the not-applicable rows (no
+  // baseline to compare against); each of those groups has its own line.
   const head = `${items.length} ${items.length === 1 ? "facet" : "facets"} compared`;
   const parts = STATUS_ORDER.flatMap((status) => {
     const n = items.filter((it) => it.status === status).length;
@@ -359,8 +360,11 @@ function ItemRow({
   const withSpan = hasBaselineSpan(item);
   const note = noteOf(item);
   const [editing, setEditing] = useState(false);
+  // #1055: a beyond-requirement row deviates from no requirement; a finding
+  // raised from it is an observation.
   const [category, setCategory] = useState<ReviewCategory>(
-    item.status === "conflict" ? "inconsistency" : item.status === "possible_gap" ? "missing_information" : "requirement_deviation",
+    item.status === "conflict" ? "inconsistency" : item.status === "possible_gap" ? "missing_information"
+      : item.status === "beyond_requirement" ? "positive_observation" : "requirement_deviation",
   );
   const [severity, setSeverity] = useState<ReviewSeverity>(
     item.status === "conflict" ? "major" : item.status === "possible_gap" ? "minor" : "observation",
@@ -678,7 +682,7 @@ export function GapAnalysisCard({
         <p className="mt-3 text-sm text-slateish-500">No gap items were produced for this baseline.</p>
       ) : (
         <>
-          <p className="mt-3 border-t border-ink-700 pt-2 text-xs text-slateish-400">{tallyLine(gaps.items.filter((it) => it.status !== "beyond_requirement"))}</p>
+          <p className="mt-3 border-t border-ink-700 pt-2 text-xs text-slateish-400">{tallyLine(gaps.items.filter((it) => it.status !== "beyond_requirement" && it.status !== "not_applicable"))}</p>
           {ordered.length > 0 && (
             <ul className="mt-1">
               {ordered.map((it, i) => (
