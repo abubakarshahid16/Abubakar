@@ -143,8 +143,11 @@ NOT_REFERENCES = frozenset({"documents"})
 
 #: Files, not rows. `reports.on_document_deleted` unlinks report files and
 #: the page-image cache and stored PDF are removed by the route. The review
-#: PDF written under `<data_dir>/review_reports` is NOT removed by a delete;
-#: whether it should be is the same owner decision as `holds_document_text`.
+#: PDFs under `<data_dir>/review_reports` are removed by the route too (#437,
+#: `review.remove_report_files`) - those rendered since the file name carries
+#: the document id; older files cannot be tied to a document and stay until
+#: the owner clears them. `canonical_field_names.quote` rows drawn from the
+#: document go with it (`field_naming.forget_document`).
 
 
 def record_document_deleted(conn: sqlite3.Connection, document_id: str,
@@ -167,3 +170,11 @@ def record_document_deleted(conn: sqlite3.Connection, document_id: str,
          (actor or {}).get("id"),
          ((actor or {}).get("email") or "unauthenticated")[:200],
          document_id, f"rows_removed: {counts}"))
+
+
+def forget_quotes(conn: sqlite3.Connection, document_id: str) -> int:
+    """#437: the `canonical_field_names.quote` rows drawn from this document
+    go with it - the one HOLDS_TEXT column a delete used to leave behind.
+    Inside the delete's transaction; returns the rows removed."""
+    from .field_naming import forget_document
+    return forget_document(conn, document_id)
