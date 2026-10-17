@@ -125,6 +125,36 @@ def as_ai_run(reading: FormReading, page_numbers: list[int], *, engine: str | No
             "seconds": reading.seconds, "reader": "form_reader", "form": reading.counts()}
 
 
+def add_merge_reading(form_run: dict, merge_run: dict) -> dict:
+    """The form ADDS to the whole-page reading, never replaces it (#1004,
+    planner order 41, option b). PF1 17 Oct: where the equipment type's form
+    is thin (a transmitter: 2 fields) form-only read 4 fewer values than the
+    merge reader and lost 2 defects. So the merge reader's accepted readings
+    for every field the form did NOT read on that page are kept beside the
+    form's; a page the form could not read takes the merge reading whole.
+    Both readings were already checked by their own reader (quote on the
+    page, two runs agree), and the same merge with the rule readers follows.
+    Pure: no model, no database; `form_run` is returned, updated."""
+    added = 0
+    for page, extra in (merge_run.get("pages") or {}).items():
+        if extra.get("error"):
+            continue
+        mine = form_run["pages"].get(page)
+        if mine is None or mine.get("error"):
+            form_run["pages"][page] = extra
+            form_run["reasons"].pop(page, None)
+            added += len(extra.get("accepted") or [])
+            continue
+        read = {datasheet_ai.field_key(f) for f in mine["accepted"]}
+        more = [f for f in extra.get("accepted") or [] if datasheet_ai.field_key(f) not in read]
+        mine["accepted"] = [*mine["accepted"], *more]
+        added += len(more)
+    form_run["added_from_merge"] = added
+    form_run["stopped"] = form_run.get("stopped") or merge_run.get("stopped")
+    form_run["seconds"] = round(float(form_run.get("seconds") or 0) + float(merge_run.get("seconds") or 0), 1)
+    return form_run
+
+
 def read_document(page_texts: dict[int, str], equipment_type: str | None,
                   model_call=None, extra_subjects: list[str] | None = None) -> dict:
     """The form reading of one document, as an `ai_run`. `model_call`
@@ -159,5 +189,5 @@ def read_document(page_texts: dict[int, str], equipment_type: str | None,
     return run
 
 
-__all__ = ["FORM", "MERGE", "MODES", "RULES", "as_ai_run", "equipment_type_of",
+__all__ = ["FORM", "MERGE", "MODES", "RULES", "add_merge_reading", "as_ai_run", "equipment_type_of",
            "read_document", "reader_mode", "requirement_subjects", "standards_of"]
