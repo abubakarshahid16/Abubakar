@@ -921,13 +921,13 @@ export function filenameFromContentDisposition(header: string | null): string | 
 /** #967: one value to underline on the Sheet's page, by its finding. */
 export interface SheetMark {
   findingId: string;
-  state: "open" | "answered";
+  state: "open" | "tick" | "answered";
 }
 
 /** #967: one value to underline on the Sheet's page, by its finding. */
 export interface SheetMark {
   findingId: string;
-  state: "open" | "answered";
+  state: "open" | "tick" | "answered";
 }
 
 export interface ImageObjectResult {
