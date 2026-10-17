@@ -48,6 +48,9 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "dsai.sqlite")
     monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
     monkeypatch.setattr(settings, "datasheet_ai_reader", "off")
+    # This file tests the "merge" reader (`datasheet_ai`); "form" is the
+    # default since #882 and has its own tests (`test_form_reader.py`).
+    monkeypatch.setattr(settings, "datasheet_reader_mode", "merge")
     db.reset_connection(); db.init_db(); submittal_review.ensure_schema()
     submittal_review.migrate_facts_to_per_document()
     yield

@@ -1,7 +1,7 @@
 """THE FORM READER: one general path, any layout, code only verifies.
 
 `form_reader.py` + `form_reader_fields.py` + `form_reader_run.py`, behind
-DATASHEET_READER_MODE=form (default "merge": the old path). Every model here
+DATASHEET_READER_MODE=form (the default since #882; "merge" is the old path). Every model here
 is a FAKE scripted callable: no network, no Ollama, no Claude, and every page
 text is invented.
 
@@ -325,15 +325,23 @@ def _extract(tmp_path):
     return result, datasheets.list_facts(doc, allowed_document_ids=frozenset({doc}))
 
 
-def test_the_default_mode_is_merge_and_never_runs_the_form_reader(storage, monkeypatch):
-    assert Settings.model_fields["datasheet_reader_mode"].default == "merge"
-    assert settings.datasheet_reader_mode == "merge"
+def test_the_default_mode_is_form(monkeypatch):
+    """#882: the form reader is the default reading; unset also means form."""
+    assert Settings.model_fields["datasheet_reader_mode"].default == "form"
+    assert Settings(_env_file=None).datasheet_reader_mode == "form"
+    assert Settings(_env_file=None).form_reader_batch_size == 8
+    monkeypatch.setattr(settings, "datasheet_reader_mode", "")
+    assert form_reader_run.reader_mode() == "form"
+
+
+def test_merge_mode_never_runs_the_form_reader(storage, monkeypatch):
+    monkeypatch.setattr(settings, "datasheet_reader_mode", "merge")
     monkeypatch.setattr(settings, "datasheet_ai_reader", "ollama")
     monkeypatch.setattr(datasheet_ai, "model_call_for",
                         lambda engine=None, packet_shape=None: (lambda p: '{"facts": []}', None))
 
     def refuse(*_a, **_k):
-        raise AssertionError("the form reader ran in the default mode")
+        raise AssertionError("the form reader ran in merge mode")
     monkeypatch.setattr(form_reader_run, "read_document", refuse)
     result, _facts = _extract(storage)
     assert "form" not in result["ai_reader"] and "reader" not in result["ai_reader"]
@@ -356,15 +364,15 @@ def test_an_unknown_mode_is_refused_at_startup():
 def test_form_mode_writes_verified_facts_through_the_existing_merge(storage, monkeypatch):
     monkeypatch.setattr(settings, "datasheet_ai_reader", "ollama")
     monkeypatch.setattr(settings, "datasheet_reader_mode", "form")
-    asked = {}
+    asked = []
 
     def model_call_for(engine=None, packet_shape=None):
-        asked["shape"] = packet_shape
+        asked.append(packet_shape)     # the form's call, then (#1004) the whole-page reading's
         return FakeModel({1: [[row("design_pressure", "23.5", "barg", "Design pressure 23.5 barg"),
                                row("design_temperature", "120", "C", "Design temperature 120 C")]]}), None
     monkeypatch.setattr(datasheet_ai, "model_call_for", model_call_for)
     result, facts = _extract(storage)
-    assert asked["shape"]["prompt_version"] == form_reader_fields.PROMPT_VERSION
+    assert asked[0]["prompt_version"] == form_reader_fields.PROMPT_VERSION and asked[1:] == [None]
     stats = result["ai_reader"]
     assert stats["reader"] == "form_reader" and stats["form"]["filled"] == 2
     assert stats["agreed"] == 2                       # the rule readers cross-check
@@ -373,3 +381,45 @@ def test_form_mode_writes_verified_facts_through_the_existing_merge(storage, mon
     box = json.loads(pressure[0]["bbox"])
     assert box["reader"] == "form_reader" and box["field_key"] == "design_pressure"
     assert box["quote_on_page"] is True
+
+
+# ---------------------------------------------------------------- #1004: the form adds, never replaces
+
+def _page(accepted, error=None):
+    out = {"page": 1, "engine": "ollama", "accepted": accepted, "rejected": [], "counts": {}}
+    if error:
+        out["error"] = error
+    return out
+
+
+def _fact(name, value):
+    return {"field_name": name, "field": name, "value": value, "quote": f"{name} {value}", "page": 1}
+
+
+def test_the_merge_reading_of_fields_the_form_did_not_read_is_kept():
+    """PF1 17 Oct, a transmitter: form-only lost 4 values the merge reader had."""
+    form = {"pages": {1: _page([_fact("design pressure", "10")])}, "reasons": {}, "stopped": None, "seconds": 5}
+    merge = {"pages": {1: _page([_fact("design pressure", "11"), _fact("output signal", "4-20 mA")])},
+             "stopped": None, "seconds": 7}
+    out = form_reader_run.add_merge_reading(form, merge)
+    got = {f["field_name"]: f["value"] for f in out["pages"][1]["accepted"]}
+    assert got == {"design pressure": "10", "output signal": "4-20 mA"}   # the form's own value wins its field
+    assert out["added_from_merge"] == 1 and out["seconds"] == 12
+
+
+def test_a_page_the_form_could_not_read_takes_the_merge_reading():
+    form = {"pages": {1: _page([], error="form reader could not read this page")},
+            "reasons": {1: "form reader could not read this page"}, "stopped": None, "seconds": 1}
+    merge = {"pages": {1: _page([_fact("enclosure rating", "IP66")])}, "stopped": None, "seconds": 2}
+    out = form_reader_run.add_merge_reading(form, merge)
+    assert [f["field_name"] for f in out["pages"][1]["accepted"]] == ["enclosure rating"]
+    assert 1 not in out["reasons"] and out["added_from_merge"] == 1
+
+
+def test_a_merge_page_with_an_error_adds_nothing():
+    form = {"pages": {1: _page([_fact("design pressure", "10")])}, "reasons": {}, "stopped": None, "seconds": 1}
+    merge = {"pages": {1: _page([_fact("output signal", "4-20 mA")], error="engine failed")},
+             "stopped": "usd_cap_reached", "seconds": 1}
+    out = form_reader_run.add_merge_reading(form, merge)
+    assert len(out["pages"][1]["accepted"]) == 1 and out["added_from_merge"] == 0
+    assert out["stopped"] == "usd_cap_reached"
