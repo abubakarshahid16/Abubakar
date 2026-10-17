@@ -40,6 +40,7 @@ the next build).
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import threading
 from pathlib import Path
@@ -50,6 +51,8 @@ import numpy as np
 from .config import settings
 from .db import connect
 from .embedder import EMBEDDING_DIM, embedding_tag, searchable_tags
+
+log = logging.getLogger(__name__)
 
 _lock = threading.Lock()
 
@@ -139,8 +142,9 @@ def _sweep(keep: str) -> None:
         if path.is_file() and not path.name.startswith(keep):
             try:
                 path.unlink()
-            except OSError:
-                pass
+            except OSError as exc:  # #655: retried at the next build
+                log.info("vector cache sweep kept a superseded file (%s); "
+                         "retried at the next build", type(exc).__name__)
 
 
 def _map(data_path: Path, rows: int) -> np.ndarray:

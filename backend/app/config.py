@@ -757,6 +757,14 @@ class Settings(BaseSettings):
     #: `model_budget` on the remaining requirements instead of as an hour of
     #: silence.
     match_max_calls_per_run: int = 200
+    #: #882 technique 2: at most this many requirements per review, still
+    #: without a value after the rules and the AI matcher, are asked about by
+    #: one small exact question to the local model (`ai_task_model`, two
+    #: calls each). Under `match_enabled`. 0 = never asked: OFF BY DEFAULT
+    #: (planner order 51, 17 Oct, the #985 pattern) until its ON before/after
+    #: on the real PF1 sheets is posted (Mac, #499); the default flips to 20
+    #: in its own PR then. Set MATCH_ASK_MAX_PER_RUN=20 to try it.
+    match_ask_max_per_run: int = 0
     #: Raised from 100 after measuring what the gold questions actually need.
     #: At 100, 5 of 12 Tier 2 generations stopped mid-sentence and one stopped
     #: inside a citation marker. At 250, 0 of 12 did, and the largest answer

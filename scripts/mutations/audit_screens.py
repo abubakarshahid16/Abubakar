@@ -127,14 +127,15 @@ MUTATIONS: tuple[Mutation, ...] = (
              replacement='  if (!isRecognised(passage)) return "quoted directly, no AI rewriting";',
              target=_T_PROV, keyword="never calls",
              tags=("honesty", "ui")),
+    # Re-anchored 2026-10-17 (#967 item 5): the refusal also returns the marks counts.
     Mutation(id="M1517", phase=1517, runner="vitest",
              description="a 401 on a page image leaves the dead token in place",
              path=_CLIENT,
              anchor="    if (!response.ok) {\n"
                     "      signOutOn401(response.status);\n"
-                    "      return { url: null, answerLocated: null };",
+                    "      return { url: null, answerLocated: null, marksLocated: null, marksTotal: null };",
              replacement="    if (!response.ok) {\n"
-                         "      return { url: null, answerLocated: null };",
+                         "      return { url: null, answerLocated: null, marksLocated: null, marksTotal: null };",
              target=_T_CLIENT, keyword="page image is refused",
              tags=("auth",)),
     Mutation(id="M1518", phase=1518, runner="vitest",
