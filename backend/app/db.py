@@ -3,6 +3,7 @@
 import functools
 import sqlite3
 import threading
+import time
 from pathlib import Path
 
 from . import live_guard
@@ -890,7 +891,7 @@ def connect() -> sqlite3.Connection:
         conn = sqlite3.connect(settings.db_path, timeout=30.0,
                                factory=SchemaRetryConnection)
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode = WAL")
+        _enable_wal(conn)
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA busy_timeout = 30000")
         # DURABILITY, STATED HONESTLY. SQLite's default `synchronous=FULL`
@@ -904,6 +905,31 @@ def connect() -> sqlite3.Connection:
         conn.execute(f"PRAGMA synchronous = {sqlite_synchronous()}")
         _local.conn = conn
     return conn
+
+
+#: #554: how long a first connection keeps asking for WAL while another
+#: process is switching the same fresh file to it.
+_WAL_SWITCH_WAIT_S = 10.0
+
+
+def _enable_wal(conn: sqlite3.Connection) -> None:
+    """`PRAGMA journal_mode = WAL`, waiting out another process doing the same.
+
+    On a FRESH file the switch to WAL needs an exclusive lock, and SQLite
+    answers a second process "database is locked" at once - the busy timeout
+    is not consulted for it. Two or three processes starting on a new database
+    (#554) therefore failed on their very first statement. Retried, bounded;
+    any other error, or still locked after the wait, is raised.
+    """
+    deadline = time.monotonic() + _WAL_SWITCH_WAIT_S
+    while True:
+        try:
+            conn.execute("PRAGMA journal_mode = WAL")
+            return
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc).lower() or time.monotonic() >= deadline:
+                raise
+            time.sleep(0.02)
 
 
 #: The two values `settings.sqlite_synchronous` may take. Anything else would
@@ -1396,7 +1422,22 @@ def init_db(path: Path | None = None) -> None:
         settings.db_path = path
     conn = connect()
     conn.executescript(SCHEMA)
-    _migrate(conn)
+    # #554: TWO PROCESSES. `_migrate` is check-then-ALTER; the thread lock
+    # cannot see another process, so two starting on a fresh file both saw a
+    # column missing and the second died on "duplicate column name". Taking
+    # SQLite's write lock first makes the second process wait, then re-read
+    # the columns the first one added. DDL is transactional in SQLite, so the
+    # whole migration lands at once or not at all. `_migrate` ends with its
+    # own commit, which ends this transaction; a "schema has changed" retry by
+    # `SchemaRetryConnection` re-runs the statement inside it, losing nothing.
+    if conn.in_transaction:
+        conn.commit()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        _migrate(conn)
+    except BaseException:
+        conn.rollback()
+        raise
     conn.commit()
 
 
