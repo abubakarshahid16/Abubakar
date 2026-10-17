@@ -62,7 +62,7 @@ running) calls, in order:
 3. `comparison.run_comparison` (`comparison.py:962`):
    - **Requirement inventory, not top-k:** every `standard_requirements` row of every
      applicable standard (`standards.list_requirements`). The hybrid top-k
-     `standards.search_requirements` has **no caller** (DEAD).
+     `standards.search_requirements` had **no caller** and was retired (#197).
    - **Pairing:** `match_by_containment` (:1288, deterministic) first; `match_by_model`
      (:1632) only if containment found nothing AND `settings.match_enabled` — **default
      True since 2026-10-11 (owner order item 4)**: the model's choice passes
