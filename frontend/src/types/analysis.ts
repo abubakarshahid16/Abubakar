@@ -96,7 +96,8 @@ export interface ClaimCluster {
 // ----------------------------------------------------------------------- gaps
 
 export type GapApplicability = "applicable" | "not_applicable" | "insufficient_baseline";
-export type GapItemStatus = "met" | "possible_gap" | "conflict" | "insufficient_evidence" | "not_applicable";
+/** `beyond_requirement` (#1055): stated by the documents, asked for by no clause of the baseline; not checked, never met. */
+export type GapItemStatus = "met" | "possible_gap" | "conflict" | "insufficient_evidence" | "beyond_requirement" | "not_applicable";
 
 export interface BaselineSelection {
   kind: "document" | "document_section" | "stated_requirement";
