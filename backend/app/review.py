@@ -769,6 +769,17 @@ def remove_report_files(document_id: str) -> int:
     return removed
 
 
+def submittals_citing(standard_document_id: str) -> list[str]:
+    """#1053: the submittals whose findings cite this standard. Their review
+    PDFs print the standard's requirement wording (`render_report`), so when
+    the standard is deleted those files go too - the quote must not outlive
+    the document. Read BEFORE the delete: the cascade nulls the citation."""
+    return [r[0] for r in connect().execute(
+        "SELECT DISTINCT document_id FROM review_findings"
+        " WHERE standard_document_id = ? AND document_id != ? ORDER BY document_id",
+        (standard_document_id, standard_document_id))]
+
+
 def render_report(document_id: str, *,
                   allowed_document_ids: frozenset[str] | None = None) -> Path:
     """Freeze the current review findings into a readable PDF export.
