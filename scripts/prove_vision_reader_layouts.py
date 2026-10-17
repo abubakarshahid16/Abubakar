@@ -39,6 +39,7 @@ name (never a stack trace with a key in it) and the script stops.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -55,7 +56,9 @@ LAYOUTS: dict[str, tuple[str, int]] = {
     "pump_datasheet": ("EF1975-DAS-M-03-pump.pdf", 2),
 }
 
-DEFAULT_BENCH_DIR = r"D:\docling-bench\input"
+#: Portable (#498): DOCLING_BENCH_DIR when set (the PC: D:\docling-bench\input),
+#: else docling-bench/input under the user's home folder; --bench-dir overrides both.
+DEFAULT_BENCH_DIR = os.environ.get("DOCLING_BENCH_DIR") or str(Path.home() / "docling-bench" / "input")
 
 
 def main(argv: list[str] | None = None) -> int:

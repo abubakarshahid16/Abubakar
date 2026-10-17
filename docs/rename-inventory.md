@@ -90,18 +90,18 @@ distinction: a plain `sqlite3.connect()` **creates** a missing file; a
 | `scripts/dbstate.py` | 3 | `data/nabaa.sqlite` (relative) | **READ-WRITE** |
 | `scripts/pagesample.py` | 3 | `data/nabaa.sqlite` (relative) | **READ-WRITE** |
 | `scripts/resetdoc.py` | 3 | `data/nabaa.sqlite` (relative) | **READ-WRITE — mutating** |
-| `scripts/bench_extract.py` | 6, 20 | `os.path.join(BACKEND,"data",...)` | read-only (`?mode=ro`) |
-| `scripts/chunk_report.py` | 6, 7 | **absolute Windows path** | read-only |
+| `scripts/bench_extract.py` | 6, 20 | `settings.db_path` (since #498) | read-only (`?mode=ro`) |
+| `scripts/chunk_report.py` | 6, 7 | `settings.db_path` (absolute Windows path until #498) | read-only |
 | `scripts/chunk_samples.py` | 6, 7 | `data/nabaa.sqlite` | read-only |
 | `scripts/classify_report.py` | 6, 7 | `data/nabaa.sqlite` | read-only |
 | `scripts/embed_ab.py` | 28 | `file:data/nabaa.sqlite?mode=ro` | read-only |
 | `scripts/embed_bench.py` | 19 | `file:data/nabaa.sqlite?mode=ro` | read-only |
 | `scripts/embed_sanity.py` | 47 | `file:data/nabaa.sqlite?mode=ro` | read-only |
-| `scripts/killtest.py` | 13, 17 | `os.path.join(BACKEND,"data",...)` | read-only |
+| `scripts/killtest.py` | 13, 17 | `settings.db_path` (since #498) | read-only |
 | `scripts/padding_report.py` | 13 | `file:data/nabaa.sqlite?mode=ro` | read-only |
 | `scripts/quality_matrix.py` | 6 | `file:data/nabaa.sqlite?mode=ro` | read-only |
 | `scripts/quality_tune.py` | 7 | `file:data/nabaa.sqlite?mode=ro` | read-only |
-| `scripts/textsample.py` | 2, 3 | **absolute Windows path** | read-only |
+| `scripts/textsample.py` | 2, 3 | `settings.db_path` (absolute Windows path until #498) | read-only |
 
 **The three read-write ones are the trap.** If `config.py` renames the database
 and `scripts/resetdoc.py:3` does not, running `resetdoc.py` opens
@@ -112,7 +112,7 @@ only read, but they open read-write, so they will happily report an empty
 corpus as fact and also litter a stray empty `.sqlite` file next to the real one.
 
 **The two absolute Windows paths** — `scripts/chunk_report.py:6` and
-`scripts/textsample.py:2` — are `d:\project\Rag_chatbot\backend\data\nabaa.sqlite`.
+`scripts/textsample.py:2` — were `d:\project\Rag_chatbot\backend\data\nabaa.sqlite` (since #498 both read `settings.db_path`; `docs/mac-readiness.md`).
 These break if the repo directory is *also* renamed, independently of the
 product rename. Grep for `d:\project` before you move the checkout.
 

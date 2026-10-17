@@ -1,9 +1,19 @@
 """Chunking quality report for step 3."""
 import sqlite3
 import statistics as st
+import sys
 from collections import Counter
+from pathlib import Path
 
-DB = r"d:\project\Rag_chatbot\backend\data\rag_intelligence.sqlite"
+#: Portable (#498): the repository is found from this file, the interpreter is the
+#: one running this script, and the database is the backend's own setting.
+REPO = Path(__file__).resolve().parents[1]
+BACKEND = str(REPO / "backend")
+PY = sys.executable
+sys.path.insert(0, BACKEND)
+from app.config import settings  # noqa: E402
+
+DB = str(settings.db_path)
 c = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
 c.row_factory = sqlite3.Row
 
