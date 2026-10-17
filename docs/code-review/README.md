@@ -203,9 +203,8 @@ mutation-proven tests, and recorded as honesty-audit entries 72-76.
 Verified clean in the same audit (spot-checked, static): socket containment for the
 three HTTP transports, transport gates failing closed before a socket is built, the
 market payload limited to phrase and metadata, no secrets in git history, the client
-register PDF never in git, classification separated from access. Still open and
-already tracked: `notifications.py` / `smtplib` outside the socket-containment scan
-(entry 49). Not verified (needs runtime): whether the market preview is byte-identical
+register PDF never in git, classification separated from access. The
+`notifications.py` / `smtplib` gap (entry 49) is closed by #196. Not verified (needs runtime): whether the market preview is byte-identical
 to what is sent.
 
 ## How to use this register
