@@ -25,7 +25,7 @@
   "backend/app/geometry_reader.py": 1272,
   "backend/app/ingest.py": 1135,
   "backend/app/keyword.py": 1176,
-  "backend/app/main.py": 5554,
+  "backend/app/main.py": 5551,
   "backend/app/market_providers.py": 959,
   "backend/app/ocr.py": 826,
   "backend/app/reader_api.py": 818,
@@ -35,7 +35,7 @@
   "backend/app/schemas.py": 4104,
   "backend/app/search.py": 1229,
   "backend/app/standards.py": 1912,
-  "backend/app/submittal_review.py": 1159,
+  "backend/app/submittal_review.py": 1188,
   "backend/app/synthesis.py": 1823,
   "backend/app/watcher.py": 903
  },
