@@ -23,27 +23,40 @@ APP = REPO / "backend" / "app"
 ENTRY_POINTS = ("main",)
 
 
+def module_name(path: Path, app: Path) -> str:
+    """`ai/json_reply.py` -> "ai.json_reply" (sub-packages of the app, #455)."""
+    return ".".join(path.relative_to(app).with_suffix("").parts)
+
+
 def _modules() -> dict[str, Path]:
-    return {p.stem: p for p in APP.glob("*.py") if p.stem != "__init__"}
+    return {module_name(p, APP): p for p in APP.rglob("*.py")
+            if p.stem != "__init__" and "__pycache__" not in p.parts}
 
 
 def imports_of(path: Path, known: set[str]) -> set[str]:
-    """The app modules this file imports, anywhere in it."""
+    """The app modules this file imports, anywhere in it. A module in a
+    sub-package is named with dots ("ai.json_reply"); every dotted prefix an
+    import names is counted, so `from .ai import json_reply` and
+    `from .ai.json_reply import x` both reach "ai.json_reply"."""
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    out: set[str] = set()
+    package = (list(path.parent.relative_to(APP).parts)
+               if path.is_relative_to(APP) else [])
+    named: list[list[str]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             mod = node.module or ""
-            if node.level >= 1 or mod == "app" or mod.startswith("app."):
-                base = mod[4:] if mod.startswith("app.") else ("" if mod == "app" else mod)
-                if base:
-                    out.add(base.split(".")[0])
-                else:
-                    out.update(a.name for a in node.names)
+            if node.level >= 1:
+                up = node.level - 1
+                base = (package[:len(package) - up] if up else package) + (mod.split(".") if mod else [])
+            elif mod == "app" or mod.startswith("app."):
+                base = mod.split(".")[1:]
+            else:
+                continue
+            named.append(base)
+            named.extend(base + a.name.split(".") for a in node.names)
         elif isinstance(node, ast.Import):
-            for a in node.names:
-                if a.name.startswith("app."):
-                    out.add(a.name.split(".")[1])
+            named.extend(a.name.split(".")[1:] for a in node.names if a.name.startswith("app."))
+    out = {".".join(parts[:i]) for parts in named for i in range(1, len(parts) + 1)}
     return out & known
 
 
@@ -78,7 +91,7 @@ def main() -> int:
     if dead:
         print(f"{len(dead)} module(s) in backend/app are not reached from the app:")
         for name in dead:
-            print(f"  backend/app/{name}.py")
+            print(f"  backend/app/{name.replace('.', '/')}.py")
         print("Move a tool to scripts/, or delete it with its tests and mutation entries.")
         return 1
     print(f"OK: all {len(_modules())} modules in backend/app are reached from the app")
