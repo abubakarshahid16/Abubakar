@@ -16,6 +16,7 @@ import { reviews as reviewsApi } from "../../api/client";
 import type { DocumentRecord, ReviewFinding, ReviewRunStandard } from "../../types/api";
 import { DocumentPreview } from "../DocumentPreview";
 import { SideBySideEvidence, WhyStandardApplies } from "./SideBySideEvidence";
+import { MIN_REASON } from "./sheet/sheetCards";
 import { useResolvedDocuments } from "./useResolvedDocuments";
 import {
   confidenceLabel, findingLabel, matchMethodLabel, matchMethodTone, orNothing,
@@ -51,6 +52,10 @@ function FindingDetailBody(
 ) {
   const [action, setAction] = useState<Action>({ kind: "idle" });
   const [reason, setReason] = useState("");
+  // "Not needed" asks why, the same rule as the Sheet's card (#1037): the
+  // decision goes to the run's finding route with its reason.
+  const [askWhy, setAskWhy] = useState(false);
+  const [why, setWhy] = useState("");
   // Owner order section 3: Edit - the engineer's own wording of the comment.
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -97,16 +102,28 @@ function FindingDetailBody(
     onChanged();
   }
 
-  /** Leave this comment off the Comment Resolution Sheet. Recorded with the
-   *  caller's name; the finding itself is kept. */
-  async function rejectComment() {
+  /** Leave this comment off the Comment Resolution Sheet, with the reason.
+   *  Recorded with the caller's name; the finding itself is kept. The first
+   *  press opens the reason box; the second sends it. */
+  async function notNeeded() {
+    if (!askWhy) { setAskWhy(true); return; }
+    if (why.trim().length < MIN_REASON) {
+      setAction({ kind: "error", message: `Say why it is not needed (${MIN_REASON} characters or more).` });
+      return;
+    }
+    if (!finding.review_run_id) {
+      setAction({ kind: "error", message: "This finding is not part of a review run, so its reason cannot be recorded." });
+      return;
+    }
     setAction({ kind: "working" });
-    const result = await reviewsApi.update(finding.id, { approval_status: "rejected" });
+    const result = await reviewsApi.decideCrsFinding(finding.review_run_id, finding.id, "reject", why.trim());
     if (!result.ok) {
       setAction({ kind: "error", message: result.error.message });
       return;
     }
     setAction({ kind: "idle" });
+    setAskWhy(false);
+    setWhy("");
     onChanged();
   }
 
@@ -254,7 +271,7 @@ function FindingDetailBody(
       {finding.approval_status === "rejected" && (
         <p className="rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-200"
           data-testid="comment-rejected">
-          Comment rejected - it is left off the Comment Resolution Sheet. A
+          Marked not needed - it is left off the Comment Resolution Sheet. A
           re-run of this review proposes it again.
         </p>
       )}
@@ -281,13 +298,24 @@ function FindingDetailBody(
             {editing ? "Cancel edit" : "Edit comment"}
           </button>
           <button
-            type="button" onClick={() => void rejectComment()}
+            type="button" onClick={() => void notNeeded()}
             disabled={action.kind === "working" || finding.approval_status === "rejected"}
             className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-2 text-sm text-slateish-100 disabled:opacity-50"
           >
-            {finding.approval_status === "rejected" ? "Comment rejected" : "Reject comment"}
+            {finding.approval_status === "rejected" ? "Marked not needed" : "Not needed"}
           </button>
         </div>
+        {askWhy && finding.approval_status !== "rejected" && (
+          <div className="space-y-2">
+            <label className="block text-xs text-slateish-400" htmlFor="not-needed-why">
+              Say why it is not needed ({MIN_REASON} characters or more). It is kept with the decision.
+            </label>
+            <textarea
+              id="not-needed-why" value={why} onChange={(e) => setWhy(e.target.value)} rows={2}
+              className="w-full rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100"
+            />
+          </div>
+        )}
         {editing && (
           <div className="space-y-2">
             <label className="block text-xs text-slateish-400" htmlFor="edit-comment">
@@ -310,7 +338,7 @@ function FindingDetailBody(
         {canReject ? (
           <div className="space-y-2">
             <label className="block text-xs text-slateish-400" htmlFor="reject-reason">
-              Reject this pairing — say why (required)
+              Wrong pairing: this value belongs to another requirement — say why (required)
             </label>
             <textarea
               id="reject-reason" value={reason} rows={2}
@@ -323,17 +351,17 @@ function FindingDetailBody(
               disabled={action.kind === "working" || action.kind === "rejected"}
               className="rounded-[var(--radius-sm)] border border-danger-500/50 px-3 py-2 text-sm text-danger-500 disabled:opacity-50"
             >
-              Reject pairing
+              Report wrong pairing
             </button>
           </div>
         ) : (
           <p className="text-xs text-slateish-500">
-            This finding records no pairing, so there is nothing to reject.
+            This finding records no value-to-requirement pairing, so there is no pairing to report as wrong.
           </p>
         )}
         {action.kind === "rejected" && (
           <p className="rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-sm text-danger-500">
-            Pairing rejected. This pairing will not be proposed again.
+            Wrong pairing recorded. This pairing will not be proposed again.
           </p>
         )}
         {action.kind === "error" && (

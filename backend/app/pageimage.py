@@ -122,3 +122,63 @@ def render_page_with_highlight(
         pix = page.get_pixmap(matrix=pymupdf.Matrix(dpi / 72, dpi / 72))
         pix.save(str(out))
     return out
+
+
+#: #967: the Sheet's underline colours, by the card's state - amber needs
+#: you, grey is answered - the same two the list under the page uses.
+MARK_COLOURS = {
+    "open": (0.96, 0.62, 0.04),
+    # #1003: a safety tick's value, green like its card; checked by eye, not a comment.
+    "tick": (0.13, 0.77, 0.37),
+    "answered": (0.55, 0.58, 0.62),
+}
+MARK_WIDTH = 2.2
+#: The underline sits just under the text's baseline box.
+MARK_DROP = 1.5
+
+
+def render_page_with_marks(
+    document: dict,
+    page_no: int,
+    marks: list[tuple[list[tuple[float, float, float, float]], str]],
+    dpi: int = 150,
+) -> Path:
+    """#967: render a page with EVERY card's value underlined on it, each in
+    the colour of its card's state (`MARK_COLOURS`).
+
+    Same rule as `render_page_with_highlight`: the marks are drawn on the
+    render, in PDF user space where the rectangles were measured, never
+    overlaid in the browser. The cache key hashes the rectangles AND the
+    states, so answering a card re-renders the page with its mark grey.
+    A page with no placeable mark is the plain render.
+    """
+    drawn = [(rects, state) for rects, state in marks if rects]
+    if not drawn:
+        return render_page(document, page_no, dpi=dpi)
+    unknown = {state for _, state in drawn} - set(MARK_COLOURS)
+    if unknown:
+        raise ValueError(f"unknown mark state(s): {sorted(unknown)}")
+    mark = hashlib.sha256(repr([
+        ([tuple(round(v, 2) for v in r) for r in rects], state) for rects, state in drawn
+    ]).encode()).hexdigest()[:12]
+    out = cache_path(document["sha256"], page_no, dpi, mark=f"m{mark}")
+    if out.exists() and out.stat().st_size > 0:
+        return out
+    with pymupdf.open(document["stored_path"]) as doc:
+        if not 1 <= page_no <= doc.page_count:
+            raise PageOutOfRange(
+                f"page {page_no} is out of range (document has {doc.page_count})"
+            )
+        page = doc.load_page(page_no - 1)
+        for state, colour in MARK_COLOURS.items():
+            shape = page.new_shape()
+            for rects, mark_state in drawn:
+                if mark_state != state:
+                    continue
+                for x0, _y0, x1, y1 in rects:
+                    shape.draw_line((x0, y1 + MARK_DROP), (x1, y1 + MARK_DROP))
+            shape.finish(color=colour, width=MARK_WIDTH)
+            shape.commit()
+        pix = page.get_pixmap(matrix=pymupdf.Matrix(dpi / 72, dpi / 72))
+        pix.save(str(out))
+    return out

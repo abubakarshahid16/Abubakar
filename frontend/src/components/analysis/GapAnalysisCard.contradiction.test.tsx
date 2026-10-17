@@ -181,6 +181,7 @@ describe("the row still shows what it always showed", () => {
       possible_gap: "Possible gap",
       conflict: "Conflict",
       insufficient_evidence: "Insufficient evidence",
+      beyond_requirement: "Beyond requirement, not checked",
       not_applicable: "Not applicable",
     };
     for (const [status, word] of Object.entries(words) as [GapItemStatus, string][]) {
