@@ -47,6 +47,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from .ai.json_reply import unfenced
 from .model_evidence import _collapse, quote_verified
 
 #: The claude_spend step every vision call is charged to.
@@ -160,10 +161,7 @@ def packet_for(image, page_no: int):
 
 
 def parse(text: str) -> tuple[str | None, list[dict]]:
-    body = (text or "").strip()
-    fence = re.match(r"^```[a-zA-Z]*\s*\n(.*)\n```$", body, re.DOTALL)
-    if fence:
-        body = fence.group(1)
+    body = unfenced((text or "").strip())
     try:
         value = json.loads(body)
     except json.JSONDecodeError:
