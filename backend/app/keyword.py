@@ -155,8 +155,19 @@ def designator_variants(designator: str) -> list[str]:
 #: A run of the characters TOKENIZER keeps inside tokens.
 _JOINER_RUN = re.compile(r"[.\-/_]+")
 
-#: A number written with thousands separators: 3,300 / 12,500 / 1,000,000.
-_THOUSANDS = re.compile(r"(?<![\d,.])\d{1,3}(?:,\d{3})+(?![\d,])")
+#: Digit groups joined by commas: 3,300 / 12,500 / 1,000,000 - and 0,030.
+_COMMA_GROUPS = re.compile(r"\d{1,3}(?:,\d{3})+")
+
+#: A number written with thousands separators. #622: A LONE LEADING ZERO IS
+#: NOT A THOUSANDS GROUP - `(?!0,)`, the one rule `numparse._THOUSANDS` and
+#: `claims` already use (#616, #619; rule 8: the three spellings must agree,
+#: `test_622_decimal_comma_not_thousands` pins them together). "0,030" is a
+#: decimal comma after a leading zero (0.030 mm); it used to be aliased as
+#: "0030", a number the sheet never states. Its tokens ("0", "030") still
+#: reach the index as the tokenizer splits them. The index that holds the old
+#: alias is rebuilt at the next planned reindex (INDEX_VERSION bump with
+#: #770), not by this change.
+_THOUSANDS = re.compile(r"(?<![\d,.])(?!0,)\d{1,3}(?:,\d{3})+(?![\d,])")
 
 #: A hyphen/slash compound of ordinary words: carbon-steel, hot-dip, ASME/ANSI.
 #: Letters only - an identifier such as P-101A or A-106 is never split, so its
@@ -880,11 +891,14 @@ def build_match_query(
                 spellings.extend(_escape(f) for f in forms)
                 if _correctable(w):
                     spellings.append(_escape(w) + "*")
-            elif _THOUSANDS.fullmatch(w.split(".")[0]):
+            elif _COMMA_GROUPS.fullmatch(w.split(".")[0]):
                 # "3,300": the phrase 3 300 as the tokenizer splits it, or the
-                # joined alias index_text adds
+                # joined alias index_text adds. "0,030" (#622): the phrase
+                # ONLY - no "0030" alias is indexed, and a bare "030" would
+                # match "1,030" as well.
                 spellings.append(_escape(w.replace(",", " ")))
-                spellings.append(_escape(w.replace(",", "")))
+                if _THOUSANDS.fullmatch(w.split(".")[0]):
+                    spellings.append(_escape(w.replace(",", "")))
             else:
                 spellings.extend(_escape(f) for f in word_forms(w))
         ors = " OR ".join(spellings)
