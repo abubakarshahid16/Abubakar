@@ -26,6 +26,11 @@ export function ReadinessStrip({ readiness, onOpenStandards, onReread }: {
   return (
     <div data-testid="readiness-strip"
       className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-[var(--radius-sm)] border border-ink-700 bg-ink-900 px-3 py-2 text-sm text-slateish-200">
+      {/* #1017: a ledger nobody has built (or built for another file) is
+          said, with no count in its place - a read never rebuilds it. */}
+      {!pages && readiness.ledger_note && (
+        <span data-testid="ledger-note" className="text-slateish-400">Pages read: not counted yet - {readiness.ledger_note}.</span>
+      )}
       {pages && (
         <span>
           {pages}

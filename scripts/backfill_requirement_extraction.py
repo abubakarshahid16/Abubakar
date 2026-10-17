@@ -2,7 +2,7 @@
 
 WHY THIS EXISTS (found 2026-09-28, real upload). Two hooks queue extraction:
 `ingest._queue_extraction_if_standard` (role already COMPANY_STANDARD when
-ingestion finishes) and `classification._queue_extraction_if_ready` (role set
+ingestion finishes) and `ingest.on_role_changed` (#195; role set
 afterwards, via `set_role` or `confirm`). Before this session, `confirm` -
 the per-document "Details" form an administrator uses one document at a time -
 had no such hook (`classification.py`, fixed alongside this script). Any
