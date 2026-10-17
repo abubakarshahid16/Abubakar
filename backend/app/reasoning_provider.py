@@ -35,12 +35,12 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import re
 import time
 from dataclasses import dataclass, field
 from typing import Protocol
 
 from . import model_transport
+from .ai.json_reply import unfenced
 from .config import settings
 
 log = logging.getLogger(__name__)
@@ -378,10 +378,7 @@ def schema_errors(text: str, schema: dict | None) -> tuple:
     """() when `schema` is None or `text` is JSON satisfying it."""
     if schema is None:
         return ()
-    body = text.strip()
-    fence = re.match(r"^```[a-zA-Z]*\s*\n(.*)\n```$", body, re.DOTALL)
-    if fence:
-        body = fence.group(1)
+    body = unfenced(text.strip())
     try:
         value = json.loads(body)
     except json.JSONDecodeError:
