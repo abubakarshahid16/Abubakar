@@ -56,6 +56,13 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
   // #791: the status a count in the review steps was clicked for.
   const [focusStatus, setFocusStatus] = useState<string | null>(null);
   const [send, setSend] = useState<{ kind: "idle" | "sending" | "sent" } | { kind: "error"; message: string }>({ kind: "idle" });
+  // #967 PR 4: "show it on the page" (T, or the card's link) - counted, so
+  // each ask scrolls the datasheet into view and pulses its frame once.
+  const [pulse, setPulse] = useState(0);
+  const showOnPage = useCallback(() => {
+    setView((v) => ({ ...v, rule: null }));
+    setPulse((n) => n + 1);
+  }, []);
 
   const refresh = useCallback(async () => {
     const [runs, listed, gated, stds] = await Promise.all([
@@ -112,7 +119,7 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
     select(after ?? fresh[at] ?? null);
   }
 
-  useSheetKeys(cards, selected, select);
+  useSheetKeys(cards, selected, select, showOnPage);
 
   if (panel && run) {
     return (
@@ -193,6 +200,7 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
           <DocumentPane
             submittal={submittal} cards={cards} selected={selected}
             view={{ ...view, page: view.page ?? selected?.page ?? null }}
+            pulse={pulse}
             onPage={(page) => {
               const on = cards.filter((c) => c.pages.includes(page));
               const first = on.find((c) => c.state === "open") ?? on[0];
@@ -208,9 +216,15 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
                 standardNames={standardNames} onSelect={() => select(card)}
                 onOpenRule={(finding) => setView((v) => ({ ...v, rule: finding }))}
                 onAnswered={() => void answered()}
+                onShowOnPage={showOnPage}
               />
             ))}
             {cards.length === 0 && <p className="text-sm text-slateish-300">Nothing on this datasheet needs your answer.</p>}
+            {cards.length > 0 && (
+              <p className="text-xs text-slateish-500 max-sm:hidden" data-testid="sheet-keys">
+                Keys: J / K next and previous · Enter agree · N not needed · T show it on the page
+              </p>
+            )}
             {(allAnswered || finalCode) && <DecisionCard key={`${run.review_run_id}-${finalCode ?? ""}`} run={run} onDecided={() => void refresh()} />}
             <p className="text-sm text-slateish-400">
               {passedCount(findings)} passed quietly ·{" "}
@@ -218,15 +232,22 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
             </p>
             <p className="text-sm text-slateish-400">
               Behind the scenes:{" "}
-              <button type="button" onClick={() => onOpenPanel("steps")} className="text-signal-300 underline-offset-2 hover:underline">how we checked this document</button>
-              {" · "}
-              <button type="button" onClick={() => onOpenPanel("standards")} className="text-signal-300 underline-offset-2 hover:underline">
-                the rule books used ({standards.filter((s) => s.included).length} of {standards.length})
-              </button>
-              {" · "}
-              <button type="button" onClick={() => onOpenPanel("numbers")} className="text-signal-300 underline-offset-2 hover:underline">AI numbers</button>
-              {" · "}
-              <button type="button" onClick={() => onOpenPanel("crs")} className="text-signal-300 underline-offset-2 hover:underline">the CRS</button>
+              {([
+                ["steps", "how we checked this document"],
+                ["standards", `the rule books used (${standards.filter((s) => s.included).length} of ${standards.length})`],
+                ["numbers", "AI numbers"],
+                ["crs", "the CRS"],
+              ] as const).map(([panelId, label], i) => (
+                // Each link stays on one line; the separator travels with it,
+                // and the line may break only between links.
+                <span key={panelId}>
+                  {i > 0 && " "}
+                  <span className="whitespace-nowrap">
+                    {i > 0 && <span aria-hidden="true">{"· "}</span>}
+                    <button type="button" onClick={() => onOpenPanel(panelId)} className="text-signal-300 underline-offset-2 hover:underline">{label}</button>
+                  </span>
+                </span>
+              ))}
             </p>
             {submittalId && !active && (
               <RunReviewControl

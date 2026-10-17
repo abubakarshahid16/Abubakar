@@ -27,6 +27,9 @@ export interface SheetCardProps {
   onSelect: () => void;
   onOpenRule: (finding: ReviewFinding) => void;
   onAnswered: () => void;
+  /** #967 PR 4: scroll the datasheet to this card's page and pulse its frame
+   *  (the T key does the same). */
+  onShowOnPage?: () => void;
 }
 
 type Busy = { kind: "idle" } | { kind: "working" } | { kind: "error"; message: string };
@@ -55,7 +58,7 @@ function doneWords(card: Card): string {
   return "Answered";
 }
 
-function OpenCard({ card, runId, standardNames, onOpenRule, onAnswered }: SheetCardProps) {
+function OpenCard({ card, runId, standardNames, onOpenRule, onAnswered, onShowOnPage }: SheetCardProps) {
   const leader = card.findings[0];
   const single = card.findings.length === 1;
   const done = card.state !== "open";
@@ -117,11 +120,19 @@ function OpenCard({ card, runId, standardNames, onOpenRule, onAnswered }: SheetC
   return (
     <article
       ref={ref} aria-label={cardTitle(card)} data-selected-card=""
-      className="space-y-3 rounded-[var(--radius-md)] border border-signal-500/60 bg-ink-850 p-4 shadow-sm"
+      className="sheet-card-in space-y-3 rounded-[var(--radius-md)] border border-signal-500/60 bg-ink-850 p-4 shadow-sm"
     >
-      <header>
-        <h3 className="text-base font-semibold text-slateish-100">{cardTitle(card)}</h3>
-        {groupLine(card) && <p className="text-xs text-slateish-400">{groupLine(card)}</p>}
+      <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <div className="min-w-0 flex-1">
+          <h3 className="text-base font-semibold text-slateish-100">{cardTitle(card)}</h3>
+          {groupLine(card) && <p className="text-xs text-slateish-400">{groupLine(card)}</p>}
+        </div>
+        {onShowOnPage && leader.contractor_page && (
+          <button type="button" onClick={onShowOnPage} title="T"
+            className="text-xs text-signal-300 underline-offset-2 hover:underline">
+            Show on the page
+          </button>
+        )}
       </header>
 
       <section>
