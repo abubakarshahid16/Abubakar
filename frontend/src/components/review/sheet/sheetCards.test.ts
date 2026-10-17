@@ -172,9 +172,19 @@ describe("headline", () => {
 
 describe("#603: visibleCards", () => {
   const many = Array.from({ length: 70 }, (_, i) => ({ key: `k${i}`, findings: [], state: "open", page: 1, pages: [1] })) as unknown as SheetCard[];
-  it("shows the first chunk and extends it to reach the selected card", () => {
+  it("shows the first chunk, or a window of the same size around a selection further down", () => {
     expect(visibleCards(many, CARD_CHUNK, null)).toHaveLength(CARD_CHUNK);
-    expect(visibleCards(many, CARD_CHUNK, many[65])).toHaveLength(66);
     expect(visibleCards(many, 200, many[3])).toHaveLength(70);
+    // K on the first card wraps to the last: a window, never every card up to it
+    const wrapped = visibleCards(many, CARD_CHUNK, many[69]);
+    expect(wrapped).toHaveLength(CARD_CHUNK);
+    expect(wrapped[0]).toBe(many[10]);
+    expect(wrapped).toContain(many[69]);
+    // a far-down default selection on a long sheet
+    const long = Array.from({ length: 3000 }, (_, i) => ({ key: `L${i}`, state: "open" })) as unknown as SheetCard[];
+    const window = visibleCards(long, CARD_CHUNK, long[2500]);
+    expect(window).toHaveLength(CARD_CHUNK);
+    expect(window).toContain(long[2500]);
+    expect(long.indexOf(window[0])).toBe(2500 - CARD_CHUNK / 2);
   });
 });

@@ -24,16 +24,29 @@ describe("#603: findings in pages", () => {
     const findings = Array.from({ length: PAGE_SIZE + 50 }, (_, i) => finding(i, i < 20 ? "V-1" : "V-2"));
     render(<FindingsTable findings={findings} selectedId={null} onSelect={vi.fn()} />);
     expect(rows()).toBe(PAGE_SIZE);
-    expect(screen.getByTestId("findings-page-line")).toHaveTextContent(`Showing 1-${PAGE_SIZE} of ${PAGE_SIZE + 50} findings`);
+    expect(screen.getByTestId("findings-page-line")).toHaveTextContent(`Showing rows 1-${PAGE_SIZE} of ${PAGE_SIZE + 50} in the table`);
     expect(screen.getByRole("button", { name: `Previous ${PAGE_SIZE}` })).toBeDisabled();
     await userEvent.click(screen.getByRole("button", { name: `Next ${PAGE_SIZE}` }));
     expect(rows()).toBe(50);
-    expect(screen.getByTestId("findings-page-line")).toHaveTextContent(`Showing ${PAGE_SIZE + 1}-${PAGE_SIZE + 50} of ${PAGE_SIZE + 50} findings`);
+    expect(screen.getByTestId("findings-page-line")).toHaveTextContent(`Showing rows ${PAGE_SIZE + 1}-${PAGE_SIZE + 50} of ${PAGE_SIZE + 50} in the table`);
     expect(screen.getByRole("button", { name: `Next ${PAGE_SIZE}` })).toBeDisabled();
     // a filter change starts again at page 1 of the new list
     await userEvent.selectOptions(screen.getByLabelText("Filter by equipment tag"), "V-2");
     expect(rows()).toBe(PAGE_SIZE);
-    expect(screen.getByTestId("findings-page-line")).toHaveTextContent(`Showing 1-${PAGE_SIZE} of ${PAGE_SIZE + 30} findings`);
+    expect(screen.getByTestId("findings-page-line")).toHaveTextContent(`Showing rows 1-${PAGE_SIZE} of ${PAGE_SIZE + 30} in the table`);
+  });
+
+  it("clamps the page when the list shrinks under it (the list refreshes during a run)", async () => {
+    const many = Array.from({ length: PAGE_SIZE + 50 }, (_, i) => finding(i, "V-1"));
+    const { rerender } = render(<FindingsTable findings={many} selectedId={null} onSelect={vi.fn()} />);
+    await userEvent.click(screen.getByRole("button", { name: `Next ${PAGE_SIZE}` }));
+    expect(rows()).toBe(50);
+    rerender(<FindingsTable findings={many.slice(0, 90)} selectedId={null} onSelect={vi.fn()} />);
+    expect(rows()).toBe(90);
+    expect(screen.queryByTestId("findings-page-line")).toBeNull();
+    rerender(<FindingsTable findings={many.slice(0, PAGE_SIZE + 10)} selectedId={null} onSelect={vi.fn()} />);
+    expect(screen.getByTestId("findings-page-line")).toHaveTextContent(`Showing rows ${PAGE_SIZE + 1}-${PAGE_SIZE + 10} of ${PAGE_SIZE + 10} in the table`);
+    expect(rows()).toBe(10);
   });
 
   it("shows no page controls when everything fits on one page", () => {

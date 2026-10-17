@@ -92,8 +92,10 @@ export function FindingsTable(
   // change, so "page 3" never silently shows a different list's page 3.
   const filterKey = [status, tag, standard, showMissing, showOutOfScope].join("\u001f");
   const [paging, setPaging] = useState({ key: filterKey, page: 0 });
-  const page = paging.key === filterKey ? paging.page : 0;
   const pages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+  // Clamped where it is read: the list refreshes every few seconds during a
+  // run and can shrink under a page that no longer exists.
+  const page = Math.min(paging.key === filterKey ? paging.page : 0, pages - 1);
   const shown = visible.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const setPage = (next: number) => setPaging({ key: filterKey, page: Math.min(Math.max(next, 0), pages - 1) });
 
@@ -185,8 +187,11 @@ export function FindingsTable(
       </div>
       {visible.length > PAGE_SIZE && (
         <nav aria-label="Findings pages" className="flex flex-wrap items-center gap-3 text-sm text-slateish-300">
-          <span data-testid="findings-page-line">
-            Showing {(page * PAGE_SIZE + 1).toLocaleString()}-{Math.min((page + 1) * PAGE_SIZE, visible.length).toLocaleString()} of {visible.length.toLocaleString()} findings
+          {/* Its boundary is the TABLE (rows after the missing / out-of-scope
+              toggles), not the filter count in the heading - the two differ
+              on purpose and each says which it is (rule 4). */}
+          <span data-testid="findings-page-line" aria-live="polite">
+            Showing rows {(page * PAGE_SIZE + 1).toLocaleString()}-{Math.min((page + 1) * PAGE_SIZE, visible.length).toLocaleString()} of {visible.length.toLocaleString()} in the table
           </span>
           <button type="button" onClick={() => setPage(page - 1)} disabled={page === 0}
             className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 disabled:opacity-40">

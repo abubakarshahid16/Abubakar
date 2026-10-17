@@ -22,9 +22,10 @@ import { DecisionCard } from "../components/review/sheet/DecisionCard";
 import { DocumentPane, type PaneView } from "../components/review/sheet/DocumentPane";
 import { ProgressRing } from "../components/review/sheet/ProgressRing";
 import { SheetCard } from "../components/review/sheet/SheetCard";
-import { type SheetCard as Card, buildCards, headline, passedCount, progress } from "../components/review/sheet/sheetCards";
+import {
+  CARD_CHUNK, type SheetCard as Card, buildCards, headline, passedCount, progress, visibleCards,
+} from "../components/review/sheet/sheetCards";
 import { useSheetKeys } from "../components/review/sheet/useSheetKeys";
-import { CARD_CHUNK, visibleCards } from "../components/review/sheet/sheetCards";
 import { BehindTheScenes, PANEL_TITLES, type StandardsState } from "../components/review/panels/BehindTheScenes";
 import { ReviewJobControl } from "../components/review/panels/ReviewJobControl";
 import { RunIncompleteNotes } from "../components/review/panels/RunIncompleteNotes";
@@ -123,8 +124,12 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
   useSheetKeys(cards, selected, select, showOnPage);
   // #603: the cards in chunks, never all at once; the keyboard still reaches
   // every card, so a selection past the chunk extends it.
+  // #603: how many cards render at once. Grows by a chunk per click and never
+  // shrinks under the user; the window follows the selection (`visibleCards`).
   const [shownCards, setShownCards] = useState(CARD_CHUNK);
   const cardsShown = visibleCards(cards, shownCards, selected);
+  const firstShown = cardsShown.length ? cards.indexOf(cardsShown[0]) + 1 : 0;
+  const lastShown = firstShown + cardsShown.length - 1;
 
   if (panel && run) {
     return (
@@ -214,7 +219,7 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
             onSelectCard={(card) => select(card, view.page ?? undefined)}
             onCloseRule={() => setView((v) => ({ ...v, rule: null }))}
           />
-          <div className="space-y-3">
+          <div className="space-y-3" data-testid="sheet-cards">
             {cardsShown.map((card) => (
               <SheetCard
                 key={card.key} card={card} runId={runId} selected={card.key === selected?.key}
@@ -226,9 +231,9 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
             ))}
             {cards.length === 0 && <p className="text-sm text-slateish-300">Nothing on this datasheet needs your answer.</p>}
             {cardsShown.length < cards.length && (
-              <button type="button" data-testid="more-cards" onClick={() => setShownCards(cardsShown.length + CARD_CHUNK)}
+              <button type="button" data-testid="more-cards" onClick={() => setShownCards(shownCards + CARD_CHUNK)}
                 className="w-full rounded-[var(--radius-md)] border border-dashed border-ink-600 bg-ink-900 px-4 py-3 text-left text-sm text-slateish-300 hover:border-ink-500">
-                Showing {cardsShown.length} of {cards.length} cards - show the next {Math.min(CARD_CHUNK, cards.length - cardsShown.length)}
+                Showing cards {firstShown}-{lastShown} of {cards.length} - show {Math.min(CARD_CHUNK, cards.length - cardsShown.length)} more
               </button>
             )}
             {cards.length > 0 && (
