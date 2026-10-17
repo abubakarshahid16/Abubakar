@@ -20,7 +20,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(6802, "a module nothing imports is not reported", _U,
        "    return sorted(set(_modules()) - reachable())", "    return []", "nothing_imports"),
     _m(6803, "relative imports of a name are dropped", _U,
-       "                    out.update(a.name for a in node.names)\n", "                    pass\n",
+       "            named.extend(base + a.name.split(\".\") for a in node.names)\n", "            pass\n",
        "lazy_and_relative or reached_from_the_app"),
     _m(6804, "a module missing from the map passes", _M,
        "    for name in sorted(modules - set(listed)):\n", "    for name in []:\n", "missing_from_the_map"),

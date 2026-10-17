@@ -41,6 +41,7 @@ import json
 import re
 from datetime import datetime, timezone
 
+from .ai.json_reply import unfenced
 from .db import connect
 from .model_evidence import quote_verified
 
@@ -252,10 +253,7 @@ def _system(dictionary: list[str], sheet_count: int | None = None) -> str:
 
 
 def _parse(text: str) -> list[dict]:
-    body = text.strip()
-    fence = re.match(r"^```[a-zA-Z]*\s*\n(.*)\n```$", body, re.DOTALL)
-    if fence:
-        body = fence.group(1)
+    body = unfenced(text.strip())
     try:
         value = json.loads(body)
     except json.JSONDecodeError:
