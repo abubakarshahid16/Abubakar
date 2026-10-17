@@ -402,7 +402,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         anchor="app.include_router(claude_api_mod.router)\n",
         replacement="",
         target="tests/test_claude_api.py",
-        keyword="the_four_routes_are_registered",
+        # re-keyed 2026-10-17 (PR #985): the test is named for three routes now
+        keyword="the_three_routes_are_registered",
         tags=("gate",),
     ),
     # ---- from KEYWORD_TOKENIZER (2026-09-27) ------------------------------
