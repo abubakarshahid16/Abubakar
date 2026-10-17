@@ -151,6 +151,7 @@ EGRESS_SAFE: dict[str, object] = {
     "smtp_recipient": "",
     "smtp_port": 587,                       # inert while smtp_enabled is off
     "smtp_starttls": True,
+    "smtp_ssl": False,
     "smtp_timeout_seconds": 10.0,
     "summary_schedule": "disabled",
     # --- secrets and identity
