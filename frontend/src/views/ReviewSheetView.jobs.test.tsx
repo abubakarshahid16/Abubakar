@@ -24,6 +24,7 @@ vi.mock("../api/client", () => ({
     startReviewRun: vi.fn(), exportCrs: vi.fn(), decideCode: vi.fn(), decideCrsFinding: vi.fn(),
   },
 }));
+vi.mock("../components/review/sheet/SheetPageImage", () => ({ SheetPageImage: () => <p>page</p> }));
 vi.mock("../components/review/EvidencePageImage", () => ({ EvidencePageImage: () => <p>page</p> }));
 vi.mock("../components/DocumentPreview", () => ({ DocumentPreview: () => <p>preview</p> }));
 

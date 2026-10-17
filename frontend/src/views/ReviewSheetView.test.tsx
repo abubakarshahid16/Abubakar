@@ -37,6 +37,9 @@ vi.mock("../api/client", () => ({
     runCoverage: async () => ({ ok: false, error: { message: "not in this test" } }),
   },
 }));
+vi.mock("../components/review/sheet/SheetPageImage", () => ({
+  SheetPageImage: ({ page }: { page: number }) => <p>{`submittal page ${page}`}</p>,
+}));
 vi.mock("../components/review/EvidencePageImage", () => ({
   EvidencePageImage: ({ side, page }: { side: string; page: number }) => <p>{`${side} page ${page}`}</p>,
 }));
