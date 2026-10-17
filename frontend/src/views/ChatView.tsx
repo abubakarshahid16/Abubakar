@@ -559,7 +559,7 @@ export function ChatView({
       AI can be wrong. Open a source to check the page it came from.
       {model === "claude" &&
         " Claude sends this question and only the documents you selected for this request to Anthropic. With no selected documents, document content stays local. Standard API retention is up to 30 days, with exceptions. "}
-      {model === "local" && " The local model writes these answers; nothing you type leaves this machine."}
+      {model === "local" && " The local model writes these answers on this machine; your question is not sent to Claude."}
     </p>
   );
 
