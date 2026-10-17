@@ -3,6 +3,7 @@ GATES on the packages the app runs on. These tests read the workflow file,
 so weakening the gate fails them."""
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -43,3 +44,24 @@ def test_the_frontend_production_packages_are_a_gate(flow):
     assert "--audit-level=high" in gate[0]["run"] and "||" not in gate[0]["run"]
     assert not gate[0].get("continue-on-error")
     assert gate[0]["working-directory"] == "frontend"
+
+
+def test_every_ignored_advisory_names_its_tracking_issue(flow):
+    """An ignore is the documented way through an advisory with no fix yet;
+    one without an issue number is an advisory silently switched off."""
+    ignores = re.findall(r"--ignore-vuln\s+(\S+)", " ".join(_runs(flow["jobs"]["python"])))
+    text = WORKFLOW.read_text(encoding="utf-8")
+    for vuln in ignores:
+        assert re.search(rf"# ignore {re.escape(vuln)}: .*#\d+", text), f"{vuln} has no tracking issue"
+
+
+def test_an_ignore_without_an_issue_is_refused(tmp_path, monkeypatch):
+    import sys
+    module = sys.modules[__name__]
+    bare = WORKFLOW.read_text(encoding="utf-8").replace(
+        "--progress-spinner off", "--progress-spinner off --ignore-vuln GHSA-xxxx-yyyy-zzzz")
+    fake = tmp_path / "dependency-audit.yml"
+    fake.write_text(bare, encoding="utf-8")
+    monkeypatch.setattr(module, "WORKFLOW", fake)
+    with pytest.raises(AssertionError, match="no tracking issue"):
+        test_every_ignored_advisory_names_its_tracking_issue(yaml.safe_load(bare))

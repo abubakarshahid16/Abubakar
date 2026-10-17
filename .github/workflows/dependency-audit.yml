@@ -13,6 +13,13 @@
 #
 # Only package names and versions leave the runner, to the advisory
 # databases. No document, no repository content beyond the lock files.
+#
+# AN ADVISORY WITH NO FIXED RELEASE YET blocks every PR until it is dealt
+# with. The way through is never a weaker gate: add one `--ignore-vuln <id>`
+# to the pip-audit line below, with a comment line above it naming the date,
+# the reason and the issue that tracks it (`# ignore <id>: <date>, <why>, #<n>`).
+# `test_dependency_audit_workflow.py` refuses an ignore without an issue
+# number. Every ignore is reviewed at the weekly log review (S5).
 
 name: dependency-audit
 
@@ -54,6 +61,8 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: "24"
+      # No `npm ci` first, on purpose: `npm audit` reads package-lock.json
+      # alone, so nothing is downloaded but the advisory answer.
       - name: Audit the production packages (gate)
         working-directory: frontend
         run: npm audit --omit=dev --audit-level=high
