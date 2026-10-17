@@ -1,7 +1,7 @@
 # Pinned for reproducibility. Python 3.12.
-fastapi==0.142.2
-uvicorn[standard]==0.38.0
-pydantic==2.13.5
+fastapi==0.143.0
+uvicorn[standard]==0.54.0
+pydantic==2.14.1
 pydantic-settings==2.15.0
 python-multipart==0.0.32
 
@@ -15,9 +15,9 @@ argon2-cffi==25.1.0
 PyMuPDF==1.28.2
 
 # Embeddings - local ONNX int8, no torch
-onnxruntime==1.30.0
-tokenizers==0.23.2
-numpy==2.5.3
+onnxruntime==1.31.0
+tokenizers==0.23.3
+numpy==2.5.4
 
 # Vector store
 pyarrow>=25.0.1
@@ -62,15 +62,15 @@ pytest-xdist==3.8.0
 # explicit path, because an unset model_path makes RapidOCR download from
 # modelscope.cn at the FIRST recognition, which fails on an air-gapped machine
 # at the worst possible moment.
-rapidocr==3.9.2
+rapidocr==3.10.0
 # rapidocr's transitive set, pinned here rather than left to the resolver -
 # an unpinned opencv is a 60 MB wheel that can change under a passing suite.
 opencv-python==5.0.0.93
-shapely==2.1.2
+shapely==2.2.0
 pyclipper==1.4.0
 pillow==12.3.0
-omegaconf==2.3.1
-antlr4-python3-runtime==4.9.3
+omegaconf==2.4.0
+antlr4-python3-runtime==4.13.2
 colorlog==6.12.0
 PyYAML==6.0.3
 tqdm==4.70.1
