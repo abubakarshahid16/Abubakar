@@ -215,3 +215,68 @@ describe("Documents polls on what it can already see", () => {
     expect(chosen).not.toContain(FAST_MS);
   });
 });
+
+describe("a hidden tab asks for nothing (#1070)", () => {
+  function setVisibility(v: "visible" | "hidden") {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => v });
+    document.dispatchEvent(new Event("visibilitychange"));
+  }
+  afterEach(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
+  });
+
+  it("idles once a minute, the health check's pace", () => {
+    expect(IDLE_MS).toBe(60_000);
+  });
+
+  it("skips every tick while hidden, and looks at once when shown again", () => {
+    vi.useFakeTimers();
+    const tick = vi.fn();
+    function Probe() {
+      usePoll(tick, false);
+      return null;
+    }
+    render(<Probe />);
+    expect(tick).toHaveBeenCalledTimes(1);
+
+    act(() => setVisibility("hidden"));
+    vi.advanceTimersByTime(IDLE_MS * 10);
+    expect(tick).toHaveBeenCalledTimes(1); // ten minutes hidden: not one call
+
+    act(() => setVisibility("visible"));
+    expect(tick).toHaveBeenCalledTimes(2); // shown: a fresh look at once
+    vi.advanceTimersByTime(IDLE_MS);
+    expect(tick).toHaveBeenCalledTimes(3); // ...and back on the beat
+  });
+
+  it("still polls fast while busy, but only in a visible tab", () => {
+    vi.useFakeTimers();
+    const tick = vi.fn();
+    function Probe() {
+      usePoll(tick, true);
+      return null;
+    }
+    render(<Probe />);
+    act(() => setVisibility("hidden"));
+    vi.advanceTimersByTime(FAST_MS * 5);
+    expect(tick).toHaveBeenCalledTimes(1);
+    act(() => setVisibility("visible"));
+    vi.advanceTimersByTime(FAST_MS * 2);
+    expect(tick).toHaveBeenCalledTimes(4); // shown (1) + two fast ticks
+  });
+
+  it("leaves no listener behind when the screen unmounts", () => {
+    vi.useFakeTimers();
+    const add = vi.spyOn(document, "addEventListener");
+    const remove = vi.spyOn(document, "removeEventListener");
+    const named = (spy: typeof add) => spy.mock.calls.filter((c) => c[0] === "visibilitychange").length;
+    function Probe() {
+      usePoll(vi.fn(), false);
+      return null;
+    }
+    const { unmount } = render(<StrictMode><Probe /></StrictMode>);
+    unmount();
+    expect(named(remove)).toBe(named(add));
+    expect(named(add)).toBeGreaterThan(0);
+  });
+});
