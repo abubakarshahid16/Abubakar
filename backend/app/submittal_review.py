@@ -1036,17 +1036,46 @@ def list_run_findings(
         "SELECT * FROM review_findings" + where + " AND review_run_id = ?"
         " ORDER BY updated_at DESC", [*args, review_run_id]
     ).fetchall()
-    out = []
-    for row in rows:
-        item = dict(row)
-        for field in ("citation_ids", "governing_sources", "unresolved_evidence"):
-            try:
-                item[field] = json.loads(item.get(field) or "[]")
-            except (TypeError, ValueError):
-                item[field] = []
-        out.append(item)
     # r2 S2: a submittal grant is not a grant on the standard it was compared with.
-    return review.withhold_unreadable_standards(out, allowed_document_ids)
+    return review.withhold_unreadable_standards(
+        [_finding_item(row) for row in rows], allowed_document_ids)
+
+
+def _finding_item(row) -> dict:
+    """One finding row as the API hands it on: the three list columns decoded,
+    an unreadable one read as empty. THE ONE decoder for findings rows."""
+    item = dict(row)
+    for field in ("citation_ids", "governing_sources", "unresolved_evidence"):
+        try:
+            item[field] = json.loads(item.get(field) or "[]")
+        except (TypeError, ValueError):
+            item[field] = []
+    return item
+
+
+def list_rejected_findings(
+    submittal_document_id: str, *, allowed_document_ids: frozenset[str],
+) -> list[dict]:
+    """Every finding an engineer REJECTED on any run of this submittal, under
+    the caller's grants (#1066).
+
+    The same rows `list_run_findings` gives, run by run, kept where
+    `approval_status = 'rejected'` - but selected in SQL, in one query over the
+    submittal's runs. The CRS composition asked for every finding of every
+    run of the submittal (41 runs, 61,500 rows on an invented copy; 88% of the
+    issue gate's time) to keep the few rejected ones. Scoped the same way:
+    on the finding's submittal, with the standard-withholding of r2 S2.
+    """
+    ensure_schema()
+    where, args = _scope_clause(allowed_document_ids, "f.document_id")
+    rows = connect().execute(
+        "SELECT f.* FROM review_findings f"
+        " JOIN review_runs r ON r.id = f.review_run_id" + where +
+        " AND r.submittal_document_id = ? AND f.approval_status = 'rejected'"
+        " ORDER BY f.updated_at DESC", [*args, submittal_document_id]
+    ).fetchall()
+    return review.withhold_unreadable_standards(
+        [_finding_item(row) for row in rows], allowed_document_ids)
 
 
 def migrate_pair_rejections_to_stable_keys() -> None:
