@@ -12,12 +12,14 @@ import { FindingDetail } from "./FindingDetail";
 
 const documentCall = vi.fn();
 const update = vi.fn();
+const decideCrsFinding = vi.fn();
 const findingEvidence = vi.fn();
 
 vi.mock("../../api/client", () => ({
   api: { document: (...args: unknown[]) => documentCall(...args) },
   reviews: {
     update: (...args: unknown[]) => update(...args),
+    decideCrsFinding: (...args: unknown[]) => decideCrsFinding(...args),
     findingEvidence: (...args: unknown[]) => findingEvidence(...args),
     confirm: vi.fn(),
     rejectPairing: vi.fn(),
@@ -46,6 +48,7 @@ const STD = { id: "doc-std", filename: "std-noise.pdf" } as DocumentRecord;
 function finding(over: Partial<ReviewFinding> = {}): ReviewFinding {
   return {
     id: "f-1",
+    review_run_id: "run-1",
     document_id: "doc-sub",
     standard_document_id: "doc-std",
     finding: "the noise level exceeds 90 dB(A)",
@@ -110,11 +113,15 @@ describe("side by side", () => {
     expect(within(std).getByText("The noise level shall not exceed 90 dB(A) at 1 m.")).toBeInTheDocument();
   });
 
-  it("decides the row from the same screen: reject goes to the finding route", async () => {
+  it("decides the row from the same screen: not needed asks why, then goes to the run's finding route", async () => {
+    decideCrsFinding.mockResolvedValue({ ok: true, data: {} });
     await openSideBySide();
     expect(screen.getByRole("group", { name: "Standard" })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Reject comment" }));
-    expect(update).toHaveBeenCalledWith("f-1", { approval_status: "rejected" });
+    await userEvent.click(screen.getByRole("button", { name: "Not needed" }));
+    await userEvent.type(screen.getByLabelText(/Say why it is not needed/), "covered by the vendor's own sheet");
+    await userEvent.click(screen.getByRole("button", { name: "Not needed" }));
+    expect(decideCrsFinding).toHaveBeenCalledWith("run-1", "f-1", "reject", "covered by the vendor's own sheet");
+    expect(update).not.toHaveBeenCalledWith("f-1", { approval_status: "rejected" });
   });
 
   it("a side with no cited page says so instead of showing an empty pane", async () => {
