@@ -174,6 +174,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `vectorcache` | The exact numpy backend of the vector store: one memory-mapped matrix |
 | `vision_reader` | Read a contractor datasheet into facts |
 | `warmup` | Background warm-up at startup: models and acronym maps, off the request path |
+| `fact_api` | POST /api/reviews/facts/{id}/confirm - an engineer confirms one datasheet value (#473) |
 | `watch_api` | GET /api/watch/status - what the watched drop folder is doing |
 | `watcher` | Watched-folder auto-ingest |
 | `web_standards` | Owner order 2d-2: for a standard the submittal CITES but the library does NOT HOLD, an OPTIONAL check against |
