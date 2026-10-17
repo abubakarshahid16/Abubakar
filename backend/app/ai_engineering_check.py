@@ -55,6 +55,7 @@ from enum import Enum
 
 from . import claude_approved
 from . import claude_spend, numparse
+from .ai.json_reply import unfenced
 from .config import settings
 from .db import connect
 from .reader_api import _contains, _fold
@@ -498,10 +499,7 @@ def accept(item: dict, pages: dict[int, str], held: dict[str, list[str]],
 
 
 def parse(text: str) -> list | None:
-    body = (text or "").strip()
-    fence = re.match(r"^```[a-zA-Z]*\s*\n(.*)\n```$", body, re.DOTALL)
-    if fence:
-        body = fence.group(1)
+    body = unfenced((text or "").strip())
     try:
         value = json.loads(body)
     except (json.JSONDecodeError, TypeError, ValueError):

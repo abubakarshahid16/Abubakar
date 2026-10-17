@@ -16,13 +16,15 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 APP = REPO / "backend" / "app"
 MAP = REPO / "docs" / "system-map.md"
-_ROW = re.compile(r"^\| `(?P<module>\w+)` \| (?P<job>.+?) \|\s*$")
+_ROW = re.compile(r"^\| `(?P<module>[\w.]+)` \| (?P<job>.+?) \|\s*$")
 _DUP = re.compile(r"^\| (?P<job>[^`|][^|]*?) \| (?P<modules>`.+`) \|\s*$")
 
 
 def problems(text: str | None = None) -> list[str]:
     text = MAP.read_text(encoding="utf-8") if text is None else text
-    modules = {p.stem for p in APP.glob("*.py") if p.stem != "__init__"}
+    # Sub-packages count too, named with dots: ai/json_reply.py is "ai.json_reply".
+    modules = {".".join(p.relative_to(APP).with_suffix("").parts) for p in APP.rglob("*.py")
+               if p.stem != "__init__" and "__pycache__" not in p.parts}
     listed: dict[str, str] = {}
     duplicates: dict[str, set[str]] = {}
     out: list[str] = []
@@ -36,9 +38,9 @@ def problems(text: str | None = None) -> list[str]:
             continue
         dup = _DUP.match(line)
         if dup and dup["job"].strip() not in ("Job",):
-            duplicates[dup["job"].strip()] = set(re.findall(r"`(\w+)`", dup["modules"]))
+            duplicates[dup["job"].strip()] = set(re.findall(r"`([\w.]+)`", dup["modules"]))
     for name in sorted(modules - set(listed)):
-        out.append(f"backend/app/{name}.py is not in docs/system-map.md")
+        out.append(f"backend/app/{name.replace('.', '/')}.py is not in docs/system-map.md")
     for name in sorted(set(listed) - modules):
         out.append(f"docs/system-map.md lists {name}, which is not in backend/app")
     by_job: dict[str, set[str]] = defaultdict(set)
