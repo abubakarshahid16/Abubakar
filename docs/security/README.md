@@ -23,4 +23,6 @@ The controls behind the cybersecurity questionnaire, rows 31 to 50 (#806, Stage 
 
 A new AI switch, a removed one, or a changed default therefore cannot merge without updating the register.
 
+**Hardening checks in CI (#521):** secrets by `secret-scan.yml` (gitleaks, history and working tree); uploads validated in `backend/app/upload.py` (PDF signature, workbook structure, zip-bomb limits); runtime dependencies by `dependency-audit.yml` (pip-audit on `backend/requirements.txt`, `npm audit --omit=dev`, high or critical fails the check).
+
 These files describe controls. They never contain a key, a password, a document's text or a client's name.

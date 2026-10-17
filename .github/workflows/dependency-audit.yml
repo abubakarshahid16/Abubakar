@@ -1,0 +1,62 @@
+# Dependency audit (#521, Stage S). The third leg of the hardening pass:
+# secrets are scanned by secret-scan.yml (gitleaks), uploads are validated in
+# backend/app/upload.py, and this checks the packages the app RUNS ON against
+# the public advisory databases.
+#
+# GATE: a high or critical advisory in a runtime dependency fails the check -
+# the Python packages in backend/requirements.txt (pip-audit, any advisory)
+# and the frontend's production packages (npm audit --omit=dev). The
+# frontend's build-time packages are REPORTED, not gated: they never ship to
+# the browser and never see a document, and one of them (source-map-js,
+# GHSA-68fv-2mgg-jv7q, 17 Oct) has an advisory today. Dependabot
+# (.github/dependabot.yml) raises the bump.
+#
+# Only package names and versions leave the runner, to the advisory
+# databases. No document, no repository content beyond the lock files.
+
+name: dependency-audit
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  # A new advisory against an unchanged lock file only shows on a schedule.
+  schedule:
+    - cron: "41 2 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: dependency audit (python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install pip-audit (pinned)
+        run: python -m pip install pip-audit==2.10.1
+      - name: Audit backend/requirements.txt
+        run: python -m pip_audit -r backend/requirements.txt --progress-spinner off
+
+  frontend:
+    name: dependency audit (frontend)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - name: Audit the production packages (gate)
+        working-directory: frontend
+        run: npm audit --omit=dev --audit-level=high
+      - name: Report the build-time packages (not a gate)
+        working-directory: frontend
+        run: npm audit --audit-level=high || echo "::warning::build-time npm advisories above; see the log"
