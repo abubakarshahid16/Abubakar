@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { LoginView } from "./LoginView";
 import { ReportsScreen } from "./ReportsScreen";
-import { ReviewRunsView } from "./ReviewRunsView";
+import { RunReviewControl } from "../components/review/panels/RunReviewControl";
 
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
@@ -69,8 +69,7 @@ describe("vision reader line", () => {
       if (url.includes("/reviews/runs")) return json({ runs: [] });
       return json({});
     }));
-    render(<ReviewRunsView />);
-    await userEvent.selectOptions(await screen.findByLabelText("Submittal"), "doc-sub");
+    render(<RunReviewControl submittalId="doc-sub" isAdmin label="Check it" onStarted={vi.fn()} />);
     await waitFor(() => expect(screen.getByTestId("vision-reader-status"))
       .toHaveTextContent(/page images to Claude/));
   });

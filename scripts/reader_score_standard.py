@@ -23,8 +23,13 @@ import sys
 import time
 from pathlib import Path
 
-REPO = Path(r"D:\project\Rag_chatbot")
-LIVE = REPO / "backend" / "data" / "rag_intelligence.sqlite"
+#: Portable (#498): the repository is found from this file; the database is the
+#: backend's own setting.
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO / "backend"))
+from app.config import settings  # noqa: E402
+
+LIVE = Path(settings.db_path)
 GOLD = REPO / "gold" / "SAES-A-105.csv"
 DOC = "doc_a835c3a15e04"
 PAGES = (8, 10)

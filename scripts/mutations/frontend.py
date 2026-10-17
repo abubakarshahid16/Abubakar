@@ -10,7 +10,6 @@
     frontend/src/components/review/FindingsTable.tsx
     frontend/src/components/review/reviewFormat.ts
     frontend/src/views/DocumentsView.tsx
-    frontend/src/views/ReviewRunsView.tsx
     frontend/src/views/StandardsView.tsx
     frontend/src/views/analysis/AnalysisResultSections.tsx
     frontend/src/views/analysis/analysisStore.ts
@@ -199,21 +198,6 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="carries both fields",
         tags=("ui",),
     ),
-    # ---- from DEMO_POLISH -------------------------------------------------
-    Mutation(
-        id="M265", phase=27, runner="vitest",
-        description="restore the duplicate nominal-estimate completeness line "
-                    "when the recommendation already states it",
-        path=FRONTEND_SRC / "views" / "ReviewRunsView.tsx",
-        # Re-anchored 2026-09-26 (2g): the reason now states the COUNT in
-        # plain words ("Checked N datasheet fields"), and the line is not
-        # printed a second time.
-        anchor="      {completeness && !reasonStatesCount && (",
-        replacement="      {completeness && (",
-        target="src/views/ReviewRunsView.test.tsx",
-        keyword="shows the plain reason and no developer word",
-        tags=("honesty", "ui"),
-    ),
     # ---- from B34_STANDARD_IDS --------------------------------------------
     #: Phase 31: B34 - a standard number is a NAME, not a measurement, under a
     #: CLOSED grammar; and a removed sentence is REPORTED, never silently deleted.
@@ -306,19 +290,6 @@ MUTATIONS: tuple[Mutation, ...] = (
     #: Master order B3: the page ledger, and a review that never calls an unread
     #: page the contractor's omission. Phase 57.
     Mutation(
-        id="M464", phase=57, runner="vitest",
-        description="the run card stops saying which pages were not read into "
-                    "fields (B3, UI)",
-        path=REPO / "frontend" / "src" / "views" / "ReviewRunsView.tsx",
-        anchor='        <p className="mt-1 text-xs text-slateish-500" data-testid="page-coverage">\n'
-               "          {pageCoverage}\n"
-               "        </p>\n",
-        replacement="        <></>\n",
-        target="src/views/ReviewRunsView.test.tsx",
-        keyword="which pages were not read",
-        tags=("honesty", "ui"),
-    ),
-    Mutation(
         id="M465", phase=57, runner="vitest",
         description="the page-coverage line drops the unread pages and reads as "
                     "'every page read' (B3, UI)",
@@ -350,27 +321,6 @@ MUTATIONS: tuple[Mutation, ...] = (
         replacement="          {statusLabel(finding.compliance_status)}\n",
         target="src/components/review/FindingsTable.test.tsx",
         keyword="not a bare status",
-        tags=("honesty", "ui"),
-    ),
-    # ---- B5 live wiring, 2026-09-25
-    Mutation(
-        id="M746", phase=66, runner="vitest",
-        description="B5 live: the review screen drops the selection's evidence line",
-        path=FRONTEND_SRC / "views" / "ReviewRunsView.tsx",
-        anchor="          {item.evidence_quote && (\n",
-        replacement="          {false && (\n",
-        target="src/views/ReviewRunsView.test.tsx",
-        keyword="citation line",
-        tags=("honesty", "ui"),
-    ),
-    Mutation(
-        id="M747", phase=66, runner="vitest",
-        description="B5 live: the review screen hides cited standards not held",
-        path=FRONTEND_SRC / "views" / "ReviewRunsView.tsx",
-        anchor="  const notHeld = missing.length > 0 && (\n",
-        replacement="  const notHeld = false && (\n",
-        target="src/views/ReviewRunsView.test.tsx",
-        keyword="missing",
         tags=("honesty", "ui"),
     ),
     # ---- chat redesign PR 4 (owner order 2026-09-26): the new Chat screen ----
@@ -728,17 +678,6 @@ MUTATIONS: tuple[Mutation, ...] = (
         target="src/components/review/FindingsTable.test.tsx",
         keyword="UX GROUP",
         tags=("ui", "critical"),
-    ),
-    Mutation(
-        id="M1137", phase=95, runner="vitest",
-        description="the finding detail panel stops scrolling into view "
-                    "once a finding is selected",
-        path=FRONTEND_SRC / "views" / "ReviewRunsView.tsx",
-        anchor='    if (!selectedFinding || el === null) return;\n    if (typeof el.scrollIntoView !== "function") return;\n    el.scrollIntoView({ block: "nearest" });\n',
-        replacement='    if (true) return;\n',
-        target="src/views/ReviewRunsView.test.tsx",
-        keyword="UX GROUP",
-        tags=("ui",),
     ),
     Mutation(
         id="M1310", phase=96, runner="vitest",

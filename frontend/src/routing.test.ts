@@ -11,6 +11,15 @@ describe("application routes", () => {
   it("rejects unknown or over-deep paths", () => {
     expect(parseRoute("/secret")).toEqual({ kind: "forbidden", path: "/secret" });
     expect(parseRoute("/documents/a/b")).toEqual({ kind: "forbidden", path: "/documents/a/b" });
+    expect(parseRoute("/review/run-1/a/b")).toEqual({ kind: "forbidden", path: "/review/run-1/a/b" });
+  });
+
+  it("#967: a review run's behind-the-scenes pages are a third segment, named ones only", () => {
+    expect(parseRoute("/review/run-1/findings")).toEqual({ kind: "view", view: "review", recordId: "run-1", panel: "findings" });
+    expect(parseRoute("/review/run-1/secret")).toEqual({ kind: "forbidden", path: "/review/run-1/secret" });
+    expect(pathForView("review", "run-1", "crs")).toBe("/review/run-1/crs");
+    expect(parseRoute(pathForView("review", "run/1", "steps"))).toEqual({ kind: "view", view: "review", recordId: "run/1", panel: "steps" });
+    expect(pathForView("review", undefined, "crs")).toBe("/review");
   });
 
   it("generates stable links and distinct page titles", () => {

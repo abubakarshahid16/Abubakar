@@ -1,30 +1,31 @@
-/** P3: a queued or running review shows its progress and can be cancelled.
- *  Mutations M886-M889. */
-import { act, fireEvent, render, screen } from "@testing-library/react";
+/** P3: a queued or running review shows its progress on the Sheet screen and
+ *  can be cancelled; its findings load by themselves once the job finishes.
+ *  Ported from the old page's tests (#967 PR 3). Mutations M886-M889, M1135. */
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ReviewRunSummary } from "../types/api";
-import { ReviewRunsView } from "./ReviewRunsView";
+import { ReviewSheetView } from "./ReviewSheetView";
 
 const reviewRuns = vi.fn();
 const cancelJob = vi.fn();
 const list = vi.fn();
 vi.mock("../api/client", () => ({
-  api: { documents: () => Promise.resolve({ ok: true, data: [] }) },
+  api: { document: async () => ({ ok: true, data: { id: "d", filename: "pump.pdf", page_count: 1 } }) },
   reviews: {
-    // #791: the five-step panel's trace; not what these tests are about.
-    reviewTrace: async () => ({ ok: false, error: { message: "not in this test" } }),
-    // Section 3's readiness strip; not what these tests are about.
-    readiness: async () => ({ ok: false, error: { message: "not in this test" } }),
     reviewRuns: (...a: unknown[]) => reviewRuns(...a),
     list: (...a: unknown[]) => list(...a),
-    reviewRunStandards: () => Promise.resolve({ ok: true, data: { standards: [] } }),
-    reviewRunStandardsAll: () => Promise.resolve({ ok: true, data: { standards: [] } }),
+    crsIssueGate: async () => ({ ok: true, data: { review_run_id: "run-1", issuable: false, final_code_recorded: false, blockers: [], unread_pages: [], open_findings: [] } }),
+    reviewRunStandards: async () => ({ ok: true, data: { standards: [] } }),
+    readiness: async () => ({ ok: false, error: { message: "not in this test" } }),
+    visionReaderStatus: async () => ({ ok: false, error: { message: "n/a" } }),
     cancelJob: (...a: unknown[]) => cancelJob(...a),
-    startReviewRun: vi.fn(), previewCrs: vi.fn(), exportCrs: vi.fn(), decideCode: vi.fn(),
+    startReviewRun: vi.fn(), exportCrs: vi.fn(), decideCode: vi.fn(), decideCrsFinding: vi.fn(),
   },
 }));
+vi.mock("../components/review/EvidencePageImage", () => ({ EvidencePageImage: () => <p>page</p> }));
+vi.mock("../components/DocumentPreview", () => ({ DocumentPreview: () => <p>preview</p> }));
 
 function run(over: Partial<ReviewRunSummary>): ReviewRunSummary {
   return { review_run_id: "run-1", submittal_document_id: "d", submittal_filename: "pump.pdf",
@@ -34,6 +35,8 @@ function run(over: Partial<ReviewRunSummary>): ReviewRunSummary {
     job: { id: "job-1", state: "queued", progress_done: 0, progress_total: 3,
       progress_label: "queued", cancel_requested: false }, ...over } as ReviewRunSummary;
 }
+
+const sheet = () => <ReviewSheetView runId="run-1" onBack={vi.fn()} onOpenPanel={vi.fn()} onOpenRun={vi.fn()} />;
 
 beforeEach(() => {
   reviewRuns.mockReset(); cancelJob.mockReset();
@@ -45,7 +48,7 @@ describe("a review on the queue", () => {
   it("says a queued review is waiting and cancels it on request", async () => {
     reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({})] } });
     cancelJob.mockResolvedValue({ ok: true, data: {} });
-    render(<ReviewRunsView />);
+    render(sheet());
     expect(await screen.findByTestId("review-progress")).toHaveTextContent("Waiting to start");
     await userEvent.click(screen.getByRole("button", { name: "Cancel this review" }));
     expect(cancelJob).toHaveBeenCalledWith("job-1");
@@ -56,7 +59,7 @@ describe("a review on the queue", () => {
     reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({ status: "running",
       job: { id: "job-1", state: "running", progress_done: 1, progress_total: 3,
         progress_label: "selecting the applicable standards", cancel_requested: false } })] } });
-    render(<ReviewRunsView />);
+    render(sheet());
     expect(await screen.findByTestId("review-progress"))
       .toHaveTextContent("Step 2 of 3: selecting the applicable standards");
   });
@@ -65,7 +68,7 @@ describe("a review on the queue", () => {
     reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({ status: "running",
       job: { id: "job-1", state: "running", progress_done: 2, progress_total: 3,
         progress_label: "comparing", cancel_requested: true } })] } });
-    render(<ReviewRunsView />);
+    render(sheet());
     expect(await screen.findByTestId("review-progress")).toHaveTextContent("stopping at the next step");
     expect(screen.queryByRole("button", { name: "Cancel this review" })).toBeNull();
   });
@@ -73,7 +76,7 @@ describe("a review on the queue", () => {
   it("shows the server's refusal", async () => {
     reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({})] } });
     cancelJob.mockResolvedValue({ ok: false, error: { message: "this job can no longer be cancelled; it is done" } });
-    render(<ReviewRunsView />);
+    render(sheet());
     await userEvent.click(await screen.findByRole("button", { name: "Cancel this review" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("no longer be cancelled");
   });
@@ -82,24 +85,25 @@ describe("a review on the queue", () => {
     reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({ status: "completed",
       job: { id: "job-1", state: "done", progress_done: 3, progress_total: 3, progress_label: "done",
         cancel_requested: false } })] } });
-    render(<ReviewRunsView />);
-    await screen.findByText("pump.pdf");
+    render(sheet());
+    await screen.findByTestId("sheet-headline");
     expect(screen.queryByTestId("review-progress")).toBeNull();
     expect(screen.queryByRole("button", { name: "Cancel this review" })).toBeNull();
   });
+
+  it("shows no 'of N' when the server reported no total", async () => {
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({ status: "running",
+      job: { id: "job-1", state: "running", progress_done: 1, progress_total: null,
+        progress_label: "comparing", cancel_requested: false } })] } });
+    render(sheet());
+    const line = await screen.findByTestId("review-progress");
+    expect(line).toHaveTextContent("Step 2: comparing");
+    expect(line.textContent).not.toMatch(/ of \d/);
+  });
 });
 
-describe("the open run's findings, once its job finishes", () => {
-  it("BUG GROUP (2026-09-27): reload automatically - no second click on the run card", async () => {
-    // "Run AI review" opens ITS OWN run immediately (`start`, ReviewRunsView.tsx)
-    // while it is still queued/running, with no findings yet - the job has
-    // written none. The 3s poll below already refreshes the run CARD's own
-    // status and progress; before this fix nothing told the OPEN FINDINGS
-    // PANEL to look again once the job actually finished, so an engineer
-    // watching the screen saw it sit empty until they clicked the run card
-    // themselves. Opening the run here (one click) stands in for `start()`'s
-    // own auto-open; the fix is proven by the SECOND `list` call happening
-    // with no second click at all.
+describe("the findings, once the job finishes", () => {
+  it("BUG GROUP (2026-09-27): the sheet fills by itself - no click", async () => {
     vi.useFakeTimers();
     let status: "running" | "completed" = "running";
     reviewRuns.mockImplementation(() => Promise.resolve({
@@ -110,49 +114,15 @@ describe("the open run's findings, once its job finishes", () => {
               progress_label: status === "completed" ? "done" : "comparing",
               cancel_requested: false } })] },
     }));
-
-    render(<ReviewRunsView />);
+    render(sheet());
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
-
-    fireEvent.click(screen.getByText("pump.pdf"));
-    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
-    expect(list).toHaveBeenCalledTimes(1);
-    expect(list).toHaveBeenLastCalledWith({ review_run_id: "run-1" });
+    expect(screen.getByTestId("review-progress")).toHaveTextContent("Step 2 of 3: comparing");
+    expect(screen.queryByTestId("sheet-headline")).toBeNull();
 
     // The job finishes in the background; nothing here clicks anything.
     status = "completed";
     await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
-
-    expect(list).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("sheet-headline")).toBeInTheDocument();
     expect(list).toHaveBeenLastCalledWith({ review_run_id: "run-1" });
-  });
-
-  it("does not reload findings on every poll tick while still running", async () => {
-    vi.useFakeTimers();
-    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({ status: "running",
-      job: { id: "job-1", state: "running", progress_done: 1, progress_total: 3,
-            progress_label: "comparing", cancel_requested: false } })] } });
-
-    render(<ReviewRunsView />);
-    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
-    fireEvent.click(screen.getByText("pump.pdf"));
-    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
-    expect(list).toHaveBeenCalledTimes(1);
-
-    // Several poll ticks, status never leaves "running".
-    await act(async () => { await vi.advanceTimersByTimeAsync(9000); });
-    expect(list).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("the step line never invents a total", () => {
-  it("shows no 'of N' when the server reported no total", async () => {
-    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({ status: "running",
-      job: { id: "job-1", state: "running", progress_done: 1, progress_total: null,
-        progress_label: "comparing", cancel_requested: false } })] } });
-    render(<ReviewRunsView />);
-    const line = await screen.findByTestId("review-progress");
-    expect(line).toHaveTextContent("Step 2: comparing");
-    expect(line.textContent).not.toMatch(/ of \d/);
   });
 });
