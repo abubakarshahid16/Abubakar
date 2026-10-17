@@ -188,3 +188,39 @@ describe("#603: visibleCards", () => {
     expect(long.indexOf(window[0])).toBe(2500 - CARD_CHUNK / 2);
   });
 });
+
+
+describe("#1062: the owner's click-through shapes on the Sheet (#1061 checks 2 and 3)", () => {
+  const grade = (i: number, page: number, status: ReviewFinding["compliance_status"] = "NEEDS_ENGINEER_REVIEW") => f({
+    compliance_status: status, standard_document_id: "std-nace", standard_clause: null, standard_page: page,
+    matched_phrase: `Grade ${i}`, required_action: `Contractor to confirm grade ${i} is within the listed hardness.`,
+    finding: `Grade ${i} is listed in the table.`, contractor_page: 3,
+  });
+
+  it("hundreds of clause-less table rows fold into one card per table page, titled as the table", () => {
+    const rows = [...Array.from({ length: 120 }, (_, i) => grade(i, 142)), ...Array.from({ length: 80 }, (_, i) => grade(200 + i, 143))];
+    const cards = buildCards(rows);
+    expect(cards).toHaveLength(2);
+    expect(cards.map((c) => c.findings.length)).toEqual([120, 80]);
+    expect(cardTitle(cards[0])).toBe("120 rows of a table on page 142 of the standard need your judgement");
+    expect(groupLine(cards[0])).toBe("120 rows of one table, one answer");
+    // a clause-carrying row never joins a table card; a single table row keeps its own title
+    const one = buildCards([grade(1, 150, "NON_COMPLIANT"), f({ standard_clause: "5.3.3", standard_document_id: "std-nace", standard_page: 150 })]);
+    expect(one).toHaveLength(2);
+    expect(one.map(cardTitle)).toContain("Grade 1 does not meet the standard");
+  });
+
+  it("a 'pages not yet readable' row is never a card, and the pages are named once in the headline", () => {
+    const unread = Array.from({ length: 300 }, (_, i) => f({
+      compliance_status: "NEEDS_ENGINEER_REVIEW", standard_clause: null, standard_document_id: "std-nace", standard_page: 142,
+      ai_rationale: `UNREAD_PAGES: no value for this requirement ${i} was found in the pages read`,
+    }));
+    const other = f({ compliance_status: "NOT_IN_DOCUMENT_SCOPE" });           // belongs to another document
+    expect(buildCards([...unread, other])).toEqual([]);
+    const gate = { review_run_id: "r", issuable: false, final_code_recorded: false, blockers: [],
+      unread_pages: [{ page: 4, reason: "no text" }, { page: 7, reason: "no text" }], open_findings: [] } as unknown as CrsIssueGate;
+    const line = headline([], gate, null);
+    expect(line).toMatch(/Pages 4(,| and) 7 still need a look\./);
+    expect(line.match(/still need/g)).toHaveLength(1);
+  });
+});
