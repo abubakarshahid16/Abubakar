@@ -2778,6 +2778,9 @@ class ReviewRunSummary(BaseModel):
     #: once, with the reasons behind the last two. For a run that predates it
     #: only the counts are known and every reason is "no reason recorded".
     requirement_split: dict | None = None
+    #: PF4 (#884): {applicable, counts, checked_share, adds_up, line} as the
+    #: run stored it at its end; null on a run made before the record.
+    clause_coverage: dict | None = None
     #: #453: how the requirements that stayed were decided (general, matching,
     #: kept because the equipment is unknown). Null for a run that predates it.
     applicability: dict | None = None
