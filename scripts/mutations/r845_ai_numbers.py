@@ -28,6 +28,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T, keyword="no_candidate_field", tags=_TAG),
     Mutation(id="M851-05", phase=851, description="the run does not store the matcher's counts",
              # Re-anchored 2026-10-17 (#947 wiring, PR #985): the rule_trust key follows it.
+             # PF4 #884 step 1 (PR #1013) adds clause_coverage after rule_trust; anchor unchanged.
              path=_P, anchor='                "ai_matcher": ai_matcher,\n                # rule_trust',
              replacement='                # rule_trust',
              target=_T, keyword="stored_on_the_run or rule_refused or declined", tags=_TAG),
