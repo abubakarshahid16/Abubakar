@@ -157,6 +157,16 @@ export function trustLine(card: SheetCard): string {
   return "Rule not yet proven, so you decide";
 }
 
+/** #603: how many cards the Sheet shows before "show the next". */
+export const CARD_CHUNK = 60;
+
+/** #603: the first `shown` cards, extended so the selected card is always
+ *  among them - the keyboard walks every card, not only the shown ones. */
+export function visibleCards(cards: SheetCard[], shown: number, selected: SheetCard | null): SheetCard[] {
+  const at = selected ? cards.findIndex((c) => c.key === selected.key) : -1;
+  return cards.slice(0, Math.max(shown, at + 1));
+}
+
 export interface SheetProgress {
   answered: number;
   total: number;

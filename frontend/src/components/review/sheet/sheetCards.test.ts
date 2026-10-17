@@ -11,6 +11,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { CrsIssueGate, ReviewFinding } from "../../../types/api";
+import { CARD_CHUNK, type SheetCard, visibleCards } from "./sheetCards";
 import {
   buildCards, cardTitle, commentTemplate, groupLine, headline, isAskFinding, passedCount, progress, trustLine,
 } from "./sheetCards";
@@ -137,5 +138,14 @@ describe("headline", () => {
       .toBe("All answered and decided. Ready to send to the contractor.");
     expect(headline(cards, gate({ blockers: ["no page coverage is recorded for this run, so no page can be called read"] }), "Approved"))
       .toMatch(/^Not ready to send yet: no page coverage/);
+  });
+});
+
+describe("#603: visibleCards", () => {
+  const many = Array.from({ length: 70 }, (_, i) => ({ key: `k${i}`, findings: [], state: "open", page: 1, pages: [1] })) as unknown as SheetCard[];
+  it("shows the first chunk and extends it to reach the selected card", () => {
+    expect(visibleCards(many, CARD_CHUNK, null)).toHaveLength(CARD_CHUNK);
+    expect(visibleCards(many, CARD_CHUNK, many[65])).toHaveLength(66);
+    expect(visibleCards(many, 200, many[3])).toHaveLength(70);
   });
 });

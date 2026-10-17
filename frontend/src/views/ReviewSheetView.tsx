@@ -24,6 +24,7 @@ import { ProgressRing } from "../components/review/sheet/ProgressRing";
 import { SheetCard } from "../components/review/sheet/SheetCard";
 import { type SheetCard as Card, buildCards, headline, passedCount, progress } from "../components/review/sheet/sheetCards";
 import { useSheetKeys } from "../components/review/sheet/useSheetKeys";
+import { CARD_CHUNK, visibleCards } from "../components/review/sheet/sheetCards";
 import { BehindTheScenes, PANEL_TITLES, type StandardsState } from "../components/review/panels/BehindTheScenes";
 import { ReviewJobControl } from "../components/review/panels/ReviewJobControl";
 import { RunIncompleteNotes } from "../components/review/panels/RunIncompleteNotes";
@@ -120,6 +121,10 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
   }
 
   useSheetKeys(cards, selected, select, showOnPage);
+  // #603: the cards in chunks, never all at once; the keyboard still reaches
+  // every card, so a selection past the chunk extends it.
+  const [shownCards, setShownCards] = useState(CARD_CHUNK);
+  const cardsShown = visibleCards(cards, shownCards, selected);
 
   if (panel && run) {
     return (
@@ -210,7 +215,7 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
             onCloseRule={() => setView((v) => ({ ...v, rule: null }))}
           />
           <div className="space-y-3">
-            {cards.map((card) => (
+            {cardsShown.map((card) => (
               <SheetCard
                 key={card.key} card={card} runId={runId} selected={card.key === selected?.key}
                 standardNames={standardNames} onSelect={() => select(card)}
@@ -220,6 +225,12 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
               />
             ))}
             {cards.length === 0 && <p className="text-sm text-slateish-300">Nothing on this datasheet needs your answer.</p>}
+            {cardsShown.length < cards.length && (
+              <button type="button" data-testid="more-cards" onClick={() => setShownCards(cardsShown.length + CARD_CHUNK)}
+                className="w-full rounded-[var(--radius-md)] border border-dashed border-ink-600 bg-ink-900 px-4 py-3 text-left text-sm text-slateish-300 hover:border-ink-500">
+                Showing {cardsShown.length} of {cards.length} cards - show the next {Math.min(CARD_CHUNK, cards.length - cardsShown.length)}
+              </button>
+            )}
             {cards.length > 0 && (
               <p className="text-xs text-slateish-500 max-sm:hidden" data-testid="sheet-keys">
                 Keys: J / K next and previous · Enter agree · N not needed · T show it on the page
