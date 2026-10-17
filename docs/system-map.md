@@ -34,6 +34,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `analysis` | The three engines joined to retrieval, the model and the access scope |
 | `answer` | Answer a chat question from the documents |
 | `answerability` | B8: the answer-level safety gate - does the evidence ANSWER the question? |
+| `api_tags` | The API description grouped by area (one tag per route) with every file response typed; documentation only (order 69) |
 | `api_utils` | Shared API validation |
 | `applicability` | Choose the standards that apply to a submittal |
 | `applicability_reasoning` | Choose the standards that apply to a submittal |
