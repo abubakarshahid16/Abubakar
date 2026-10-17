@@ -173,13 +173,21 @@ def build(review_run_id: str, scope) -> dict:
     steps.append(_step("DECIDE", " | ".join(f"{label} {status.get(s, 0)}" for s, label in _DECISIONS),
                        warning="0 decisions (no meets, no fails)" if findings and not decided else None,
                        counts={label: status.get(s, 0) for s, label in _DECISIONS}))
-    # 8 COVERAGE
+    # 8 COVERAGE: PF4 (#884) clause coverage as the run stored it (every
+    # applicable requirement in one state, with the denominator), then the
+    # checklist's value coverage.
     cov = split.get("checklist_coverage") or {}
+    clause = outcome.get("clause_coverage") or {}
     steps.append(_step(
         "COVERAGE",
-        (f"checklist values read {cov.get('read')} of {cov.get('fields')} | on the sheet, not read "
-         f"{cov.get('on_sheet_not_read')}") if cov else "no checklist coverage recorded",
-        counts=dict(cov) if cov else {}))
+        (clause.get("line") or "no clause coverage recorded for this run")
+        + " | "
+        + ((f"checklist values read {cov.get('read')} of {cov.get('fields')} | on the sheet, not read "
+            f"{cov.get('on_sheet_not_read')}") if cov else "no checklist coverage recorded"),
+        warning=(None if clause.get("adds_up", True) else "clause coverage counts do not add up"),
+        counts={**({f"clause_{k}": v for k, v in (clause.get("counts") or {}).items()}),
+                **({"clause_applicable": clause.get("applicable")} if clause else {}),
+                **(dict(cov) if cov else {})}))
     # 9 CRS
     from .main import _crs_content
     try:

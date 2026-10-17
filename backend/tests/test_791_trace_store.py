@@ -107,3 +107,14 @@ def test_the_trace_never_changes_or_breaks_a_review(world, monkeypatch):
     assert "NON_COMPLIANT" in statuses
     scope = main.access.AccessScope(user_id="adm", allowed_document_ids=world["scope"])
     assert review_trace.stored(run_id, scope) is None
+
+
+def test_the_coverage_step_carries_the_runs_clause_coverage(world):
+    """PF4 (#884) step 1: the trace's COVERAGE step reads the clause coverage
+    the run stored - the one line with its denominator - never a recount."""
+    run_id = _reviewed(world)
+    trace = review_trace.stored(run_id, main.access.AccessScope(
+        user_id="adm", allowed_document_ids=world["scope"]))
+    step = next(s for s in trace["steps"] if s["step"] == "COVERAGE")
+    assert "applicable requirement" in step["summary"]
+    assert "clause_applicable" in step["counts"] and "clause_checked" in step["counts"]
