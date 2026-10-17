@@ -342,6 +342,28 @@ _API_IN_TEXT = re.compile(r"\d{3,4}[A-Z]{0,2}|\d{1,2}[A-Z]{1,2}")
 #: hold a typed question ask for this (`chat_comparison`); document text keeps
 #: `_API_IN_TEXT`.
 _API_IN_QUESTION = re.compile(r"\d{1,4}[A-Z]{0,2}")
+#: #664 review (cloud-2): even in a typed question a short API number is a
+#: QUANTITY when a unit follows ("API 65 psi") or the words of API gravity
+#: ("oil of API 35 crude", "API 35 gravity"), and never a standard at 0 / 00.
+_API_QUANTITY_WORDS = frozenset({"gravity", "crude"})
+_NEXT_WORD = re.compile(r"\s*([^\s,;:()]+)")
+
+
+def _short_api_is_a_quantity(text: str, m: re.Match) -> bool:
+    """A 1-2 digit API number read in a typed question that is really a
+    quantity: 0 or 00, or followed by a unit (`claims.is_unit`) or a word of
+    API gravity. Longer numbers keep the reader's normal rule."""
+    num = re.match(r"\d+", m.group("num")).group(0)
+    if len(num) > 2:
+        return False
+    if int(num) == 0:
+        return True
+    nxt = _NEXT_WORD.match(text, m.end())
+    if nxt is None:
+        return False
+    word = nxt.group(1)
+    from .claims import is_unit
+    return word.lower() in _API_QUANTITY_WORDS or is_unit(word)
 _FOUR_DIGIT_YEAR_AFTER = re.compile(r"-\d{4}(?![\dA-Za-z])")
 #: One more level of part after a part: the "-1" of "IEC 60534-2-1".
 _SUB_PART = re.compile(r"-\d{1,2}(?![\dA-Za-z])")
@@ -417,7 +439,8 @@ def find_citations(text: str, *, typed_question: bool = False) -> list[tuple[str
     found: list[tuple[int, int]] = []
     for pattern, build in _specific():
         for m in pattern.finditer(upper):
-            if _strict_enough(build, m, typed_question):
+            if _strict_enough(build, m, typed_question) and not (
+                    typed_question and build is _api and _short_api_is_a_quantity(text, m)):
                 found.append((m.start(), m.end()))
     general, classes = _citation_patterns()
     for pattern in [general, *classes]:

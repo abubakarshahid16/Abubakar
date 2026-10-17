@@ -28,9 +28,22 @@ def test_a_typed_question_reads_a_short_api_number(typed, expected):
     assert labels(typed, typed_question=True) == expected
 
 
-@pytest.mark.parametrize("typed", ["the pump runs at 65 psi", "API gravity 65 at 15 C"])
-def test_a_quantity_is_still_not_a_standard_in_a_question(typed):
-    assert labels(typed, typed_question=True) == []
+@pytest.mark.parametrize("typed, expected", [
+    ("compare API 65 psi with API 650", ["API 650"]),      # a unit follows: a quantity
+    ("oil of API 35 crude vs API 650 tank", ["API 650"]),  # API gravity of a crude
+    ("is API 35 gravity in API 650", ["API 650"]),
+    ("compare API 0 and API 650", ["API 650"]),            # never a standard number
+    ("compare API 00 and API 650", ["API 650"]),
+])
+def test_a_short_api_quantity_is_not_a_standard_in_a_question(typed, expected):
+    """cloud-2's review cases: each FITS the API shape, so the flag is what
+    decides - a short number followed by a unit or API-gravity words is a
+    quantity, and 0 / 00 are never standards."""
+    assert labels(typed, typed_question=True) == expected
+
+
+def test_a_long_api_number_before_a_unit_keeps_the_normal_rule():
+    assert labels("compare API 650 m3 tanks", typed_question=True) == ["API 650"]
 
 
 def test_document_text_keeps_the_old_rule():
