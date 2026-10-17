@@ -44,7 +44,10 @@ class CapturingSMTP:
     def __exit__(self, *_):
         return False
 
-    def starttls(self):
+    def starttls(self, context=None):
+        pass
+
+    def close(self):
         pass
 
     def login(self, username, password):
