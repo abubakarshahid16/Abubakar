@@ -120,12 +120,24 @@ const STATUS: Record<
     caption: null,
     captionRequires: null,
   },
+  beyond_requirement: {
+    icon: "+",
+    text: "Beyond requirement, not checked",
+    tone: "text-slateish-400",
+    badge: "bg-ink-700 text-slateish-300",
+    rank: 4,
+    countWord: { one: "beyond requirement, not checked", many: "beyond requirement, not checked" },
+    // #1055: the documents state it; no clause of the baseline asks for it,
+    // so there was nothing to check it against. Never a met.
+    caption: "The documents state this; no clause of the baseline asks for it, so it was not checked.",
+    captionRequires: "project_evidence",
+  },
   not_applicable: {
     icon: "—",
     text: "Not applicable",
     tone: "text-slateish-500",
     badge: "bg-ink-700 text-slateish-400",
-    rank: 4,
+    rank: 5,
     countWord: { one: "not applicable", many: "not applicable" },
     caption: null,
     captionRequires: null,
@@ -222,6 +234,8 @@ function orderedItems(items: GapItem[]): GapItem[] {
  * status with no rows is not mentioned rather than printed as a zero.
  */
 function tallyLine(items: GapItem[]): string {
+  // `items` are the facets a comparison happened on: the caller leaves the
+  // beyond-requirement rows out (#1055), which have their own line.
   const head = `${items.length} ${items.length === 1 ? "facet" : "facets"} compared`;
   const parts = STATUS_ORDER.flatMap((status) => {
     const n = items.filter((it) => it.status === status).length;
@@ -640,14 +654,20 @@ export function GapAnalysisCard({
 
   const baselineIsStated = gaps.baseline?.kind === "stated_requirement";
   const sorted = orderedItems(gaps.items);
-  const orderedAll = sorted.filter((it) => it.status !== "not_applicable");
+  const orderedAll = sorted.filter((it) => it.status !== "not_applicable" && it.status !== "beyond_requirement");
   const notApplicableAll = sorted.filter((it) => it.status === "not_applicable");
+  // #1055: beyond the requirement - shown on their own, outside the tally of
+  // facets compared, because no comparison happened on them.
+  const beyondAll = sorted.filter((it) => it.status === "beyond_requirement");
   // A row with nothing of its own to show is not rendered as a bullet; it is
   // counted, and then said out loud. See `hasRenderableBody`.
   const ordered = orderedAll.filter(hasRenderableBody);
   const notApplicable = notApplicableAll.filter(hasRenderableBody);
+  const beyond = beyondAll.filter(hasRenderableBody);
   const orderedWithheld = orderedAll.length - ordered.length;
   const notApplicableWithheld = notApplicableAll.length - notApplicable.length;
+  const beyondWithheld = beyondAll.length - beyond.length;
+  const rowProps = { onCite, baselineIsStated, baselineDocumentId: gaps.baseline?.document_id ?? null, ledger: ledger ?? [], onCreateFinding, templates };
 
   return (
     <section aria-label="Gap analysis" className="card-3d surface-card rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4">
@@ -658,7 +678,7 @@ export function GapAnalysisCard({
         <p className="mt-3 text-sm text-slateish-500">No gap items were produced for this baseline.</p>
       ) : (
         <>
-          <p className="mt-3 border-t border-ink-700 pt-2 text-xs text-slateish-400">{tallyLine(gaps.items)}</p>
+          <p className="mt-3 border-t border-ink-700 pt-2 text-xs text-slateish-400">{tallyLine(gaps.items.filter((it) => it.status !== "beyond_requirement"))}</p>
           {ordered.length > 0 && (
             <ul className="mt-1">
               {ordered.map((it, i) => (
@@ -668,6 +688,20 @@ export function GapAnalysisCard({
           )}
           {orderedWithheld > 0 && (
             <p className="mt-2 text-xs text-slateish-500">{withheldLine(orderedWithheld)}</p>
+          )}
+          {beyondAll.length > 0 && (
+            /* #1055: its own group, its own count, outside the tally above. */
+            <details className="mt-2 rounded-[var(--radius-xs)] border border-ink-700 bg-ink-850 px-3 py-2" data-testid="beyond-requirement">
+              <summary className="cursor-pointer text-xs text-slateish-400">
+                {beyondAll.length} {beyondAll.length === 1 ? "facet" : "facets"} beyond the requirement, not checked
+              </summary>
+              {beyond.length > 0 && (
+                <ul className="mt-1">
+                  {beyond.map((it, i) => <ItemRow key={`br-${it.facet}-${i}`} item={it} {...rowProps} />)}
+                </ul>
+              )}
+              {beyondWithheld > 0 && <p className="mt-2 text-xs text-slateish-500">{withheldLine(beyondWithheld)}</p>}
+            </details>
           )}
           {notApplicableAll.length > 0 && (
             /* Collapsed, never hidden: the count is in the summary, so it is

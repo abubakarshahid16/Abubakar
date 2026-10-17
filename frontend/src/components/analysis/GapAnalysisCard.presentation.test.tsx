@@ -61,15 +61,17 @@ const STATUS_TEXT: Record<GapItemStatus, string> = {
   possible_gap: "Possible gap",
   insufficient_evidence: "Insufficient evidence",
   met: "Met",
+  beyond_requirement: "Beyond requirement, not checked",
   not_applicable: "Not applicable",
 };
 
 describe("P1 - rows are ordered by how much attention they deserve", () => {
-  it("orders conflict, possible_gap, insufficient_evidence, met, not_applicable", () => {
+  it("orders conflict, possible_gap, insufficient_evidence, met, beyond_requirement, not_applicable", () => {
     // Supplied in exactly the wrong order, so passing cannot be an accident of
     // the payload's own ordering.
     const supplied: GapItemStatus[] = [
       "not_applicable",
+      "beyond_requirement",
       "met",
       "insufficient_evidence",
       "possible_gap",
@@ -82,6 +84,7 @@ describe("P1 - rows are ordered by how much attention they deserve", () => {
       "possible_gap",
       "insufficient_evidence",
       "met",
+      "beyond_requirement",
       "not_applicable",
     ]);
   });
@@ -130,6 +133,22 @@ describe("P2 - the tally line counts what is there and claims nothing more", () 
     expect(
       screen.getByText("3 facets compared · 1 conflict · 1 with insufficient evidence · 1 met"),
     ).toBeInTheDocument();
+  });
+
+  it("#1055: a facet beyond the requirement is its own group, outside the tally, never met", () => {
+    renderCard([
+      item({ status: "met", facet: "a", project_citation_ids: ["ev_1"] }),
+      item({ status: "beyond_requirement", facet: "extra", project_citation_ids: ["ev_2"] }),
+      item({ status: "beyond_requirement", facet: "extra-2", project_citation_ids: ["ev_3"] }),
+    ]);
+    expect(screen.getByText("1 facet compared · 1 met")).toBeInTheDocument();
+    const group = screen.getByTestId("beyond-requirement");
+    expect(group).toHaveTextContent("2 facets beyond the requirement, not checked");
+    expect(within(group).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(group).getAllByText("Beyond requirement, not checked")).toHaveLength(2);
+    expect(within(group).getAllByText(/no clause of the baseline asks for it, so it was not checked/)).toHaveLength(2);
+    // the main list holds the compared facet; the group's rows follow it in the DOM
+    expect(facetOrder()).toEqual(["a", "extra", "extra-2"]);
   });
 
   it("says 'facet' for one row", () => {
