@@ -276,8 +276,8 @@ class _Abort:
                 if sock is not None:
                     try:
                         sock.shutdown(_socket.SHUT_RDWR)
-                    except OSError:
-                        pass
+                    except OSError as exc:  # #655: already closed by the peer
+                        log.debug("cancel: socket shutdown skipped (%s)", type(exc).__name__)
                 self.client.close()
                 return
 
