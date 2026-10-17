@@ -119,6 +119,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `match_rules` | Rules that decide WHICH containment hit a requirement may be paired with |
 | `metrics` | Everything the dashboard shows, and nothing it does not measure |
 | `model_evidence` | Verification of a local model's quoted evidence (B5 bounded model assistance, owner-approved 2026-09-25) |
+| `model_json` | #455: the ONE parser for a model's JSON reply - one enclosing code fence off, strict JSON, a named error (empty / not_json), never a silent None |
 | `model_memory` | Free the memory the local answer models hold (#666) |
 | `model_transport` | The one place in this codebase that may open a socket to the answer model |
 | `notifications` | Fail-closed email notifications for operational EPC events |

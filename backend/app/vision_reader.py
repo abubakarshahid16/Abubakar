@@ -44,6 +44,7 @@ from __future__ import annotations
 import base64
 import json
 import re
+from . import model_json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -160,14 +161,7 @@ def packet_for(image, page_no: int):
 
 
 def parse(text: str) -> tuple[str | None, list[dict]]:
-    body = (text or "").strip()
-    fence = re.match(r"^```[a-zA-Z]*\s*\n(.*)\n```$", body, re.DOTALL)
-    if fence:
-        body = fence.group(1)
-    try:
-        value = json.loads(body)
-    except json.JSONDecodeError:
-        return None, []
+    value, _error = model_json.parse(text)   # #455: the one parser
     if not isinstance(value, dict):
         return None, []
     kind = value.get("page_kind") if value.get("page_kind") in PAGE_KINDS else None

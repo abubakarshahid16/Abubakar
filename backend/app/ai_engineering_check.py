@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import json
 import re
+from . import model_json
 from datetime import datetime, timezone
 from enum import Enum
 
@@ -498,14 +499,7 @@ def accept(item: dict, pages: dict[int, str], held: dict[str, list[str]],
 
 
 def parse(text: str) -> list | None:
-    body = (text or "").strip()
-    fence = re.match(r"^```[a-zA-Z]*\s*\n(.*)\n```$", body, re.DOTALL)
-    if fence:
-        body = fence.group(1)
-    try:
-        value = json.loads(body)
-    except (json.JSONDecodeError, TypeError, ValueError):
-        return None
+    value, _error = model_json.parse(text)   # #455: the one parser
     items = value.get("items") if isinstance(value, dict) else None
     return items if isinstance(items, list) else None
 
@@ -521,10 +515,7 @@ def parse_partial(text: str) -> list[dict]:
     or guesses a partial object - an item that was cut off mid-object is
     simply not returned, exactly as if it had never been proposed.
     """
-    body = (text or "").strip()
-    fence = re.match(r"^```[a-zA-Z]*\s*\n(.*)$", body, re.DOTALL)
-    if fence:
-        body = fence.group(1)
+    body = model_json.unfence_open((text or "").strip())   # #455: a cut reply's open fence
     key = body.find('"items"')
     if key == -1:
         return []

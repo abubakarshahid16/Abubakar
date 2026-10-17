@@ -36,6 +36,7 @@ import hashlib
 import json
 import logging
 import re
+from . import model_json
 import time
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -378,13 +379,8 @@ def schema_errors(text: str, schema: dict | None) -> tuple:
     """() when `schema` is None or `text` is JSON satisfying it."""
     if schema is None:
         return ()
-    body = text.strip()
-    fence = re.match(r"^```[a-zA-Z]*\s*\n(.*)\n```$", body, re.DOTALL)
-    if fence:
-        body = fence.group(1)
-    try:
-        value = json.loads(body)
-    except json.JSONDecodeError:
+    value, error = model_json.parse(text)   # #455: the one parser
+    if error is not None:
         return ("not valid JSON",)
     errors: list[str] = []
     _check(value, schema, "", errors)

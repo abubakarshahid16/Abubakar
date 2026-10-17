@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import json
 import re
+from . import model_json
 from enum import Enum
 
 from . import blank_markers, claims, datasheets, numparse, submittal_review
@@ -412,21 +413,16 @@ def atomise(proposals: list[dict]) -> list[dict]:
 
 # -------------------------------------------------------------------- parse
 
-_FENCE = re.compile(r"^\s*```[A-Za-z0-9_-]*\s*\n(?P<body>.*?)\n?\s*```\s*$", re.DOTALL)
-
-
 def _unfenced(raw):
-    """The answer without ONE surrounding Markdown code fence.
+    """The answer without ONE surrounding Markdown code fence (#455: the one
+    parser's `unfence`).
 
     R32, 2026-10-11: the cloud model answered four of five pages as a fenced
     block and every one was thrown away as malformed. Taking the fence off is
     not repairing the answer: what is inside must still be the whole, valid
     JSON, and a cut-off answer (no closing fence, or half an object) still
     fails the strict parse below."""
-    if not isinstance(raw, str):
-        return raw
-    fenced = _FENCE.match(raw)
-    return fenced.group("body") if fenced else raw
+    return model_json.unfence(raw)
 
 
 #: Said of a page whose answer ended before its list closed.
@@ -451,10 +447,7 @@ def facts_before_the_cut(raw) -> list[dict] | None:
     list, the list closes, or not one fact was finished."""
     if not isinstance(raw, str):
         return None
-    body = raw.strip()
-    fence = re.match(r"^```[A-Za-z0-9_-]*\s*\n(.*)$", body, re.DOTALL)
-    if fence:
-        body = fence.group(1)
+    body = model_json.unfence_open(raw.strip())   # #455: a cut reply's open fence
     try:
         json.loads(_unfenced(raw))
         return None                                   # a whole answer: not this function's business

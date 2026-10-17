@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import json
 import re
+from . import model_json
 from datetime import datetime, timezone
 
 from .db import connect
@@ -252,14 +253,7 @@ def _system(dictionary: list[str], sheet_count: int | None = None) -> str:
 
 
 def _parse(text: str) -> list[dict]:
-    body = text.strip()
-    fence = re.match(r"^```[a-zA-Z]*\s*\n(.*)\n```$", body, re.DOTALL)
-    if fence:
-        body = fence.group(1)
-    try:
-        value = json.loads(body)
-    except json.JSONDecodeError:
-        return []
+    value, _error = model_json.parse(text)   # #455: the one parser
     names = value.get("names") if isinstance(value, dict) else None
     return names if isinstance(names, list) else []
 

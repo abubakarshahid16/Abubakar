@@ -40,6 +40,7 @@ from __future__ import annotations
 import re
 
 import json
+from . import model_json
 import logging
 
 from . import condition_choice as cc
@@ -288,9 +289,7 @@ def judge(question: str, result: dict, current: dict, provider) -> dict:
     errors = schema_errors(response.text, JUDGE_SCHEMA)
     if errors:
         return {**current, "judge": {"accepted": False, "why": "output rejected: " + "; ".join(errors)}}
-    body = response.text.strip().strip("`")
-    body = body[body.find("{"):]
-    out = json.loads(body)
+    out, _error = model_json.parse(response.text)   # #455: the one parser (the schema passed above)
     if not out["answers"]:
         return {"verdict": INSUFFICIENT,
                 "reason": "the passages are on the topic but none states the answer (model judgement, "
