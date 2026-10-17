@@ -440,3 +440,66 @@ def page_list(pages: list[int]) -> str:
     if run:
         out.append(f"{run[0]}-{run[-1]}" if len(run) > 1 else str(run[0]))
     return ", ".join(out)
+
+
+#: #1017: what a READ of the ledger may rely on. A GET never rebuilds it (a
+#: GET writes nothing, #478); it says which of these holds instead.
+CURRENT, MISSING, STALE, NOT_AS_SUBMITTAL = "current", "missing", "stale", "not_as_submittal"
+STATE_NOTES = {
+    MISSING: "the page ledger for this document is not built yet; reading the sheet "
+             "into fields or running a review builds it",
+    STALE: "the page ledger was built for an earlier file or page count; the next "
+           "read of the sheet into fields or review rebuilds it",
+    NOT_AS_SUBMITTAL: "the page ledger was built before this document was treated as a "
+                      "submittal; reading the sheet into fields or running a review "
+                      "rebuilds it with the pages read into fields",
+}
+
+
+def state(document_id: str) -> str:
+    """READ ONLY: whether the stored ledger is the one a reader may count on.
+
+    `current`: one row per page of the stored file, built for this file.
+    `missing`: no row. `stale`: rows for another file hash or page count.
+    `not_as_submittal`: rows built with no fact columns (the document was not
+    treated as a submittal when they were built), so "pages read into
+    fields" would read as none when nobody has looked.
+    """
+    conn = connect()
+    doc = conn.execute("SELECT page_count, sha256 FROM documents WHERE id = ?",
+                       (document_id,)).fetchone()
+    ledger = rows(document_id)
+    if not ledger:
+        return MISSING
+    page_count = (doc["page_count"] if doc else None) or 0
+    if page_count and len(ledger) != page_count:
+        return STALE
+    if doc and any(r["file_sha256"] and r["file_sha256"] != doc["sha256"] for r in ledger):
+        return STALE
+    if all(r["facts_status"] == "not_applicable" for r in ledger):
+        return NOT_AS_SUBMITTAL
+    return CURRENT
+
+
+def readiness_pages(document_id: str) -> dict:
+    """READ ONLY (#1017): the readiness strip's page numbers, from the stored
+    ledger - which a GET never rebuilds; the writers do (ingest, reading the
+    sheet into fields, a review). A ledger a reader may not count on is SAID
+    in `ledger_state` / `ledger_note`, with no number in its place: null,
+    never 0 for "nobody looked" (CLAUDE.md rule 4).
+
+    HONESTY GROUP (2026-09-27): `unread_page_reasons` carries, keyed by the
+    page number AS A STRING (a JSON object key), WHY each unread page did not
+    read into fields - `coverage`'s own `not_read_reasons`, which the route
+    once dropped on the floor.
+    """
+    ledger_state = state(document_id)
+    cov = coverage(document_id) if ledger_state == CURRENT else {}
+    return {
+        "pages_total": cov.get("pages_total"),
+        "pages_read": len(cov.get("fact_pages") or []) if ledger_state == CURRENT else None,
+        "unread_pages": cov.get("pages_not_read_into_fields") or [],
+        "unread_page_reasons": cov.get("not_read_reasons") or {},
+        "ledger_state": ledger_state,
+        "ledger_note": STATE_NOTES.get(ledger_state),
+    }
