@@ -72,15 +72,17 @@ def test_two_editions_of_one_standard_are_two_sides_each_labelled_with_its_editi
                  "c": "ASME B16.47-2020.pdf", "d": "ASME B16.5-2020 addendum.pdf"}
     sides, missing = _sides(documents)
     assert missing == []
-    assert sides == {"ASME B16.47": ["c"], "ASME B16.5 (2013)": ["a"],
-                     "ASME B16.5 (2020)": ["b", "d"]}
+    # #665: the label says where the edition came from (here, the file name).
+    assert sides == {"ASME B16.47": ["c"], "ASME B16.5 (2013, from the file name)": ["a"],
+                     "ASME B16.5 (2020, from the file name)": ["b", "d"]}
 
 
 def test_a_copy_with_no_edition_is_not_merged_into_a_named_edition():
     sides, _ = _sides({"a": "ASME B16.5-2013.pdf", "b": "ASME B16.5.pdf",
                        "c": "ASME B16.5-2020.pdf", "d": "ASME B16.47.pdf"})
     assert sides["ASME B16.5 (edition not stated)"] == ["b"]
-    assert sides["ASME B16.5 (2013)"] == ["a"] and sides["ASME B16.5 (2020)"] == ["c"]
+    assert sides["ASME B16.5 (2013, from the file name)"] == ["a"]
+    assert sides["ASME B16.5 (2020, from the file name)"] == ["c"]
 
 
 def test_the_edition_is_a_printed_year_never_part_of_the_number():

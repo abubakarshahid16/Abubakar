@@ -167,8 +167,44 @@ def typed_standards(question: str) -> list[str]:
     return out
 
 
+def edition_record(filename: str, front_text: str = "") -> tuple[str | None, str | None, str | None]:
+    """#665: (edition, where it came from, the file name's year when it
+    disagrees). The document's own words come first (`front_text`, its first
+    pages); the file name is the fallback and is said to be the less certain
+    source. A disagreement is returned, never resolved silently."""
+    stated = standard_ids.edition_in_text(front_text)
+    named = standard_ids.edition_of(filename)
+    if stated:
+        return stated, "the title page", (named if named and named != stated else None)
+    if named:
+        return named, "the file name", None
+    return None, None, None
+
+
+def _edition_label(base: str, record: tuple[str | None, str | None, str | None]) -> str:
+    edition, source, disagrees = record
+    if not edition:
+        return f"{base} (edition not stated)"
+    label = f"{edition}, from {source}"
+    if disagrees:
+        label += f"; the file name says {disagrees}"
+    return f"{base} ({label})"
+
+
+def front_text(document_id: str, allowed_document_ids: frozenset[str]) -> str:
+    """#665: the first two pages of a document the caller may read - where a
+    standard states its edition. Empty for a document outside the scope."""
+    if document_id not in allowed_document_ids:
+        return ""
+    from .db import connect
+    rows = connect().execute(
+        "SELECT text FROM pages WHERE document_id = ? AND page_no <= 2 ORDER BY page_no",
+        (document_id,)).fetchall()
+    return "\n".join(r[0] or "" for r in rows)
+
+
 def resolve_sides(
-    question: str, documents: dict[str, str]
+    question: str, documents: dict[str, str], front_text_of=None,
 ) -> tuple[list[tuple[str, frozenset[str]]], list[str]]:
     """(sides, missing) for a comparison, by the STANDARD'S IDENTITY.
 
@@ -179,7 +215,10 @@ def resolve_sides(
     one standard (two years in the library) are two sides, each labelled with
     its edition, because their answers can differ. Never grouped by document
     title or by a hard-coded name: the identity is the shared matcher's
-    (`standard_ids`), and an edition is a year printed in the file's name.
+    (`standard_ids`). #665: the edition is the one the document's own first
+    pages state (`front_text_of(document_id)`), the file name's year only as
+    the fallback, and the label says which; a title page and file name that
+    disagree are shown as disagreeing, on every side they touch.
 
     `missing` is every standard the reader typed that no readable document is.
     """
@@ -203,14 +242,20 @@ def resolve_sides(
             understanding_mod.designation(documents[members[0]])
             or _stem(documents[members[0]]))
         base = re.sub(r"[-\s_]*(?:19|20)\d\d\s*$", "", base)
-        editions = {standard_ids.edition_of(documents[d]) for d in members}
+        records = {d: edition_record(documents[d], front_text_of(d) if front_text_of else "")
+                   for d in members}
+        editions = {r[0] for r in records.values()}
         if len({e for e in editions if e}) < 2:
-            sides.append((base, frozenset(members)))
+            disagreeing = [r for r in records.values() if r[2]]
+            # One edition: the label stays the standard's name, unless a title
+            # page and a file name disagree - that is said, never merged away.
+            sides.append((_edition_label(base, disagreeing[0]) if disagreeing else base,
+                          frozenset(members)))
             continue
         for edition in sorted(editions, key=lambda e: (e is None, e or "")):
-            label = f"{base} ({edition})" if edition else f"{base} (edition not stated)"
-            sides.append((label, frozenset(d for d in members
-                                           if standard_ids.edition_of(documents[d]) == edition)))
+            in_side = [d for d in members if records[d][0] == edition]
+            record = next((records[d] for d in in_side if records[d][2]), records[in_side[0]])
+            sides.append((_edition_label(base, record), frozenset(in_side)))
     sides.sort(key=lambda side: side[0])
     return sides, [want for want in typed if want not in matched_typed]
 

@@ -22,7 +22,9 @@ MUTATIONS: tuple[Mutation, ...] = (
        "        if len({e for e in editions if e}) < 2:\n", "        if True:\n",
        "two_editions"),
     _m(3903, "the chat route goes back to the old side matcher", "chat.py",
-       "        comparison_sides, comparison_missing = chat_comparison.resolve_sides(\n            resolved, documents_map)\n",
+       "        comparison_sides, comparison_missing = chat_comparison.resolve_sides(\n            resolved, documents_map,\n"
+       "            # #665: the edition from the document's own first pages.\n"
+       "            lambda d: chat_comparison.front_text(d, retrieval_allowed))\n",
        "        comparison_sides = chat_comparison.matched_sides(resolved, documents_map)\n"
        "        comparison_missing = (chat_comparison.missing_designations(\n"
        "            resolved, [n for n, _ in comparison_sides]) if comparison_sides else [])\n",
@@ -36,8 +38,8 @@ MUTATIONS: tuple[Mutation, ...] = (
        'if not re.search(r"\\d", token) or any(s <= m.start() and m.end() <= e for s, e in spans):',
        'if not re.search(r"\\d", token):'),
     _m(3907, "an edition side carries no edition label", C,
-       'label = f"{base} ({edition})" if edition else f"{base} (edition not stated)"',
-       'label = f"{base}"', "edition"),
+       '    return f"{base} ({label})"\n',
+       '    return f"{base}"\n', "edition"),
     _m(3908, "the first printed year wins as the edition", "standard_ids.py",
        "    return years[-1] if years else None\n", "    return years[0] if years else None\n",
        "edition_is_a_printed_year"),

@@ -958,7 +958,9 @@ def ask(
             and route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER)
             and chat_comparison.is_comparison_question(resolved)):
         comparison_sides, comparison_missing = chat_comparison.resolve_sides(
-            resolved, documents_map)
+            resolved, documents_map,
+            # #665: the edition from the document's own first pages.
+            lambda d: chat_comparison.front_text(d, retrieval_allowed))
         if comparison_sides and len(comparison_sides) + len(comparison_missing) >= 2:
             comparison_result = chat_comparison.compare(
                 resolved, comparison_sides, tier=tier,
