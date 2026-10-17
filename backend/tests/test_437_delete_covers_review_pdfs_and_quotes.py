@@ -42,11 +42,12 @@ def _names() -> set[tuple[str, str]]:
         "SELECT subject_kind, subject_key FROM canonical_field_names")}
 
 
-def _fact(submittal: str, label: str) -> None:
+def _fact(submittal: str, label: str, *, superseded: bool = False) -> None:
     with db.connect() as conn:
         conn.execute("INSERT INTO submittal_facts (id, submittal_document_id, field_name, field_value,"
-                     " created_at, updated_at) VALUES (?,?,?,'95',?,?)",
-                     (f"fact-{submittal}-{label_key(label)}", submittal, label, NOW, NOW))
+                     " superseded_at, created_at, updated_at) VALUES (?,?,?,'95',?,?,?)",
+                     (f"fact-{submittal}-{label_key(label)}-{int(superseded)}", submittal, label,
+                      NOW if superseded else None, NOW, NOW))
 
 
 def test_a_delete_removes_the_documents_review_pdfs_and_no_other_documents():
@@ -89,6 +90,21 @@ def test_a_label_quote_goes_only_when_no_remaining_document_carries_the_label():
     out = _delete(mine)
     assert out["rows_removed"]["canonical_field_names"] == 1
     assert _names() == {(LABEL, label_key("Noise level"))}
+
+
+def test_a_label_the_sheet_carried_only_in_an_earlier_read_still_goes_with_it():
+    """cloud-2's note on #1042: the deleted sheet's OWN labels count from every
+    read, superseded ones included; another sheet keeps a quote alive only by
+    a label it carries now."""
+    sub, other = _uploaded("sub.pdf"), _uploaded("other.pdf")
+    _fact(sub, "Design pressure", superseded=True)          # only an earlier read
+    _fact(other, "Design temperature")
+    _fact(other, "Design pressure", superseded=True)        # the other no longer carries it
+    _name(LABEL, label_key("Design pressure"), "quote from the sheet's first read")
+    _name(LABEL, label_key("Design temperature"), "quote the other sheet keeps")
+    out = _delete(sub)
+    assert out["rows_removed"]["canonical_field_names"] == 1
+    assert _names() == {(LABEL, label_key("Design temperature"))}
 
 
 def test_a_database_that_never_named_a_field_deletes_as_before():

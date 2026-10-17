@@ -423,8 +423,12 @@ def forget_document(conn, document_id: str) -> int:
         return removed
     label = "COALESCE(field_label, field_name)" if "field_label" in columns else "field_name"
     current = " AND superseded_at IS NULL" if "superseded_at" in columns else ""
+    # EVERY label the deleted sheet ever carried, superseded reads included:
+    # a quote justified by a label the sheet carried only in an earlier read
+    # is still drawn from this document. Other sheets count by their CURRENT
+    # facts only - a label they no longer carry does not keep a quote alive.
     mine = {label_key(r[0]) for r in conn.execute(
-        f"SELECT {label} FROM submittal_facts WHERE submittal_document_id = ?{current}",
+        f"SELECT {label} FROM submittal_facts WHERE submittal_document_id = ?",
         (document_id,))}
     mine.discard("")
     if not mine:

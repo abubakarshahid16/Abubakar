@@ -130,8 +130,12 @@ REGISTRY: dict[tuple[str, str], tuple[str, str]] = {
         HOLDS_TEXT, "the filename seen by the folder watcher"),
     ("crs_comment_numbers", "document_name"): (
         HOLDS_TEXT, "a document name copied beside the comment number"),
+    # #437: removed by the delete route (`field_naming.forget_document`), so a
+    # quote no longer outlives its document. Its own section because it is a
+    # side table with no foreign key, like the keyword rows.
     ("canonical_field_names", "quote"): (
-        HOLDS_TEXT, "a quote from the document that justified a field name"),
+        DELETED_BY_ROUTE, "a quote from the document that justified a field name;"
+        " the delete route removes the rows drawn from the document (#437)"),
 }
 
 #: Columns that name a document. The test finds these by name in the full
@@ -174,7 +178,8 @@ def record_document_deleted(conn: sqlite3.Connection, document_id: str,
 
 def forget_quotes(conn: sqlite3.Connection, document_id: str) -> int:
     """#437: the `canonical_field_names.quote` rows drawn from this document
-    go with it - the one HOLDS_TEXT column a delete used to leave behind.
-    Inside the delete's transaction; returns the rows removed."""
+    go with it (the registry files the column as DELETED_BY_ROUTE; it was the
+    one text column a delete left behind). Inside the delete's transaction;
+    returns the rows removed."""
     from .field_naming import forget_document
     return forget_document(conn, document_id)
