@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from app import access, clause_coverage as cov, comparison, crs_mapping
+from app import access, comparison, crs_mapping
+from app import clause_coverage as cov
 from app.main import app
 from tests.test_crs_endpoint import temp_db  # noqa: F401 - fixture
 from tests.test_w5_677_scope_ledger import review_run  # noqa: F401 - fixture
@@ -25,7 +26,7 @@ def test_the_review_note_says_the_stored_line_or_that_none_is_recorded():
     assert cov.review_notes(None) == cov.review_notes({})
 
 
-def test_the_crs_review_notes_carry_the_runs_own_coverage(review_run):
+def test_the_crs_review_notes_carry_the_runs_own_coverage(review_run):  # noqa: F811 - the fixture
     run, _ids, scope = review_run
     comparison.run_comparison(run, allowed_document_ids=scope)
     outcome = comparison.run_outcome(run, allowed_document_ids=scope)
@@ -38,7 +39,7 @@ def test_the_crs_review_notes_carry_the_runs_own_coverage(review_run):
     assert "not recorded" in old["detail"] and old["count"] is None
 
 
-def test_the_run_the_sheet_reads_carries_the_same_record(review_run):
+def test_the_run_the_sheet_reads_carries_the_same_record(review_run):  # noqa: F811 - the fixture
     run, _ids, scope = review_run
     comparison.run_comparison(run, allowed_document_ids=scope)
     stored = comparison.run_outcome(run, allowed_document_ids=scope)["clause_coverage"]
