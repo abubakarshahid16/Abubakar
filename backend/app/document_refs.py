@@ -150,7 +150,9 @@ NOT_REFERENCES = frozenset({"documents"})
 #: PDFs under `<data_dir>/review_reports` are removed by the route too (#437,
 #: `review.remove_report_files`) - those rendered since the file name carries
 #: the document id; older files cannot be tied to a document and stay until
-#: the owner clears them. `canonical_field_names.quote` rows drawn from the
+#: the owner clears them. A deleted STANDARD also takes the review PDFs of the
+#: submittals whose findings cite it (#1053, `review.submittals_citing`): they
+#: print its requirement wording. `canonical_field_names.quote` rows drawn from the
 #: document go with it (`field_naming.forget_document`).
 
 

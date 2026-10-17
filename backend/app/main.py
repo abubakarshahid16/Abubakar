@@ -735,6 +735,7 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
 
     # Reports quote this document: their FILES go, their ROWS stay (the record survives).
     reports_mod.on_document_deleted(document_id)
+    citing = review_mod.submittals_citing(document_id)  # #1053: before the cascade nulls the citation
 
     conn = connect()
     removed = {}
@@ -762,6 +763,12 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
             img.unlink()
             files_removed += 1
     files_removed += review_mod.remove_report_files(document_id)   # #437: its review PDFs
+    # #1053: a deleted STANDARD's requirement text is printed on the review
+    # PDFs of every submittal reviewed against it; those files go as well
+    # (the findings stay and can be exported again, with the citation nulled).
+    removed["review_pdfs_of_citing_submittals"] = sum(
+        review_mod.remove_report_files(s) for s in citing)
+    files_removed += removed["review_pdfs_of_citing_submittals"]
 
     return {
         "deleted": document_id,
