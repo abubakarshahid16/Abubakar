@@ -230,6 +230,16 @@ class OkfReport(BaseModel):
                                       "resolving citation'; a built set has 0")
 
 
+class OkfApproval(BaseModel):
+    """R29/#833: an engineer's decision on one OKF concept, read back fresh
+    every time - `stale` when the standard's own text has changed since."""
+
+    status: Literal["draft", "confirmed", "rejected", "stale"]
+    decided_by: str | None
+    decided_at: str | None
+    previous_status: Literal["confirmed", "rejected"] | None = None
+
+
 class StandardClause(BaseModel):
     """One clause of a standard, resolving to the chunk it was read from."""
 
@@ -342,7 +352,7 @@ class StandardRequirement(BaseModel):
 #: tests/test_requirement_types_contract.py keeps them equal.
 RequirementType = Literal["numeric_limit", "statement", "table_value",
                           "applicability_trigger", "relative_limit", "table_row",
-                          "definition"]
+                          "definition", "table_range", "range_limit", "nominal_value", "cross_field_limit"]
 
 #: An engineer's decision on an extracted requirement.
 RequirementDecision = Literal["confirm", "edit", "reject"]
@@ -3407,6 +3417,8 @@ class AnswerResult(ChatPresentation):
         "under a refusal invites the reader to read it as evidence the corpus "
         "could have answered after all",
     )
+    summary_coverage: dict | None = Field(
+        None, description="collection-summary boundary: selected documents, readable chunks, and cited documents")
     examples: list[str] = Field(
         [], description="real questions drawn from the loaded documents"
     )

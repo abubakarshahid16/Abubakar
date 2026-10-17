@@ -1,0 +1,72 @@
+{
+ "format": "quality-ratchet/1",
+ "metrics": {
+  "axe_serious_critical": {
+   "note": "not measured here: the axe gate runs as its own CI job (pass/fail, not a count)",
+   "value": null
+  },
+  "broad_except_with_no_named_reason": {
+   "note": "heuristic: a handler is 'accounted for' if its body mentions log/record/count/raise/warn",
+   "value": 63
+  },
+  "developer_text_on_screen": {
+   "note": "not measured: no automated 'no developer text on screen' check exists yet",
+   "value": null
+  },
+  "docs_contradicting_the_code": {
+   "note": "not measured: needs a semantic reading of docs against code, not a line count",
+   "value": null
+  },
+  "duplicate_definitions_in_backend_app": {
+   "note": null,
+   "value": 0
+  },
+  "max_backend_file_lines": {
+   "note": null,
+   "value": 5627
+  },
+  "max_backend_function_lines": {
+   "note": null,
+   "value": 800
+  },
+  "max_cyclomatic_complexity": {
+   "note": null,
+   "value": 77
+  },
+  "max_frontend_component_lines": {
+   "note": null,
+   "value": 1421
+  },
+  "mypy_strict_errors": {
+   "note": "not measured: mypy is not installed here",
+   "value": null
+  },
+  "one_unit_table_one_comparator_one_applicability_path": {
+   "note": "not measured: needs a semantic check, not a line count (see #197/#736's own tracked list for the manual audit)",
+   "value": null
+  },
+  "review_path_coverage_percent": {
+   "note": "not measured: no coverage tool runs in this CI job yet (#928)",
+   "value": null
+  },
+  "unused_backend_modules": {
+   "note": null,
+   "value": 0
+  },
+  "vulture_findings": {
+   "note": null,
+   "value": 0
+  }
+ },
+ "rules": {
+  "1": "file and function length (no file over 800 lines, no function over 80)",
+  "2": "cyclomatic complexity per function (<= 15)",
+  "3": "zero duplicated logic in the danger zone (one vocabulary, one parser, ...)",
+  "4": "zero dead code",
+  "5": "no broad except that returns empty with no named, counted reason",
+  "6": "typed: mypy/pyright strict on the danger zone, then everything",
+  "7": "measured coverage: >= 90% on the review path",
+  "8": "one README, one SETUP, no doc contradicting the code",
+  "9": "frontend: one wording per concept, no component over 400 lines, axe green"
+ }
+}

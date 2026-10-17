@@ -231,8 +231,8 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "design temperature shall be below 441degC' states no limit "
                     "(B5 comparator fix)",
         path=APP / "requirements_3b.py",
-        anchor='    r"|\\b(?:below|under|beneath|above|over)\\b)\\s*"',
-        replacement='    r")\\s*"',
+        anchor='    r"|\\b(?:below|under|beneath|above|over)\\b")',
+        replacement='    r"")',
         target="tests/test_standards_3b.py",
         keyword="comparative_adjective_states_a_real_limit",
         tags=("honesty", "requirement-typing"),

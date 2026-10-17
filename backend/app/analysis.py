@@ -31,6 +31,7 @@ import math
 import re
 import sqlite3
 import threading
+import time
 
 # Imported for its EXCEPTION TYPES only - `_generate_or_refuse` below turns an
 # httpx error into `ModelUnavailable`. This module no longer constructs a
@@ -42,6 +43,22 @@ from . import access, acronyms, claims, market, model_transport, search as searc
 from .work_budget import WorkBudget
 from .config import settings
 from .db import connect
+
+COLLECTION_MAX_DOCUMENTS = 20
+COLLECTION_MAX_CHUNKS = 6000
+COLLECTION_MAX_WORDS = 900
+_SUMMARY_WORDS = re.compile(r"\b(\d{2,4})\s*[- ]?words?\b", re.IGNORECASE)
+_SUMMARY_PAGES = re.compile(r"\b(\d+|one|two)\s*[- ]?pages?\b", re.IGNORECASE)
+_COLLECTION_COUNT_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+    "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14,
+    "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18,
+    "nineteen": 19, "twenty": 20,
+}
+_COLLECTION_COUNT = re.compile(
+    r"\b(\d+|" + "|".join(_COLLECTION_COUNT_WORDS) +
+    r")\s+(?:documents?|files?|pdfs?)\b", re.IGNORECASE)
 
 #: What the plan asks for that this build does not produce. Named on the
 #: result so a missing section is visible as missing rather than as an empty
@@ -78,28 +95,6 @@ def not_implemented_sections() -> list[str]:
     return [market_line() if item is None else item for item in NOT_IMPLEMENTED]
 
 
-#: WHAT THE TWO MODES MEAN, in the backend rather than in the button.
-#:
-#: The screen sends `limit`: 8 for Quick, 24 for Comprehensive
-#: (AnalysisModeScreen.tsx). Until now both ran the same single generation, and
-#: the larger number bought the reader LESS: `synthesis._fit` reserves prompt
-#: budget for the header of every source it is handed - ~52 tokens each,
-#: because the tokenizer charges digits one at a time - including the sources
-#: it is about to drop. Twenty-four headers reserve ~1,250 tokens of a 3,846
-#: token budget for passages the model never sees.
-#:
-#: So the modes are made to mean what they say. Quick is one pass over the top
-#: QUICK_PASSAGES. Comprehensive is a map-reduce: every document that has a
-#: passage gets its own summary, and the final call runs over those. No
-#: frontend change - `limit` already carries the distinction.
-QUICK_PASSAGES = 8
-
-
-def is_comprehensive(limit: int) -> bool:
-    """Whether this request asked for more than one pass can honestly carry."""
-    return limit > QUICK_PASSAGES
-
-
 def evidence_id(hit: dict) -> str:
     """Stable across re-chunking, because it is derived from what is quoted."""
     key = "|".join((
@@ -119,6 +114,7 @@ def to_evidence(hit: dict) -> dict:
     """
     return {
         "evidence_id": evidence_id(hit),
+        "chunk_id": hit.get("chunk_id"),
         "document_id": hit["document_id"],
         "filename": hit["filename"],
         "page_start": hit["page_start"],
@@ -741,6 +737,324 @@ def ollama_generate(system: str, prompt: str) -> synthesis.Generation:
         model_transport.post_json("/api/generate", body, timeout=180.0))
 
 
+def requested_summary_words(question: str) -> int:
+    """Translate a reader's requested length into a bounded writing target."""
+    words = _SUMMARY_WORDS.search(question)
+    if words:
+        return int(words.group(1))
+    pages = _SUMMARY_PAGES.search(question)
+    if pages:
+        raw = pages.group(1).lower()
+        return (int(raw) if raw.isdigit() else {"one": 1, "two": 2}[raw]) * 450
+    if re.search(r"\b(?:brief|short|concise|one paragraph)\b", question, re.IGNORECASE):
+        return 150
+    if re.search(r"\b(?:detailed|in depth|in-depth)\b", question, re.IGNORECASE):
+        return 700
+    return 450
+
+
+def collection_generate(system: str, prompt: str, *, target_words: int) -> synthesis.Generation:
+    """Generate through the existing loopback-only model transport."""
+    final = system.startswith(("You write an overview", "Write the requested overview"))
+    retry = system in (synthesis.COLLECTION_RETRY_SYSTEM_PROMPT,
+                       synthesis.COLLECTION_REDUCE_RETRY_SYSTEM_PROMPT)
+    output_tokens = (min(1900, int(target_words * 2.4) + 200) if final
+                     else 384 if retry else 220)
+    body = {
+        "model": settings.answer_model,
+        "system": system,
+        "prompt": prompt,
+        "stream": False,
+        "think": False,
+        "options": {
+            "temperature": settings.temperature,
+            "num_predict": output_tokens,
+            "num_ctx": settings.num_ctx,
+            "num_thread": settings.num_thread,
+            "num_batch": settings.num_batch,
+        },
+        "keep_alive": settings.ollama_keep_alive,
+    }
+    return synthesis.Generation.from_ollama(
+        model_transport.post_json("/api/generate", body, timeout=180.0))
+
+
+def collection_claude_generate(
+    system: str, prompt: str, *, target_words: int,
+) -> synthesis.Generation:
+    """Use the existing metered Claude provider for one bounded summary stage."""
+    from . import chat_model, reasoning_provider
+
+    provider = chat_model.provider(chat_model.CLAUDE)
+    if not isinstance(provider, reasoning_provider.ClaudeProvider):
+        raise ModelUnavailable("Could not start Claude for this chat request.")
+    final = system.startswith(("You write an overview", "Write the requested overview"))
+    retry = system in (synthesis.COLLECTION_RETRY_SYSTEM_PROMPT,
+                       synthesis.COLLECTION_REDUCE_RETRY_SYSTEM_PROMPT)
+    output_tokens = (min(1900, int(target_words * 2.4) + 200) if final
+                     else 384 if retry else 220)
+    response = provider.reason(reasoning_provider.Packet(
+        prompt=prompt,
+        system=system,
+        num_ctx=settings.num_ctx,
+        num_predict=output_tokens,
+        temperature=settings.temperature,
+        step=chat_model.CHAT_STEP,
+        prompt_version="collection-summary-v1",
+    ))
+    return synthesis.Generation(
+        response.text,
+        truncated=response.finish_reason == "max_tokens",
+        model=response.model_tag,
+    )
+
+
+def collection_summary(question: str, document_ids: frozenset[str], *,
+                       allowed_document_ids: frozenset[str], generate=None,
+                       model: str | None = None,
+                       explicit_document_selection: bool = False) -> dict:
+    """Summarise the selected local documents with an explicit coverage boundary.
+
+    The caller can only narrow permissions. Every retrievable chunk in every
+    selected ready document is supplied to the hierarchical synthesiser. A
+    missing or unfinished document stops the run before model generation.
+    """
+    from . import chat_stream, states
+
+    started = time.monotonic()
+    selected = frozenset(document_ids) & allowed_document_ids
+    boundary = {"requested": len(document_ids), "processed": 0,
+                "cited_documents": 0, "target_words": None,
+                "actual_words": None, "documents": []}
+
+    def refused(reason: str, *, provider: str = "ollama") -> dict:
+        return {"question": question, "answer_type": "insufficient_evidence",
+                "answer": None, "reason": reason, "passages": [], "cited": [],
+                "summary_coverage": boundary, "provider": provider,
+                "notices": [reason], "retrieval_mode": "collection",
+                "reranked": False, "candidates_considered": 0,
+                "seconds": time.monotonic() - started, "timings": {}}
+
+    if not selected or selected != document_ids:
+        return refused("No readable documents were selected for this summary.")
+    count_match = _COLLECTION_COUNT.search(question)
+    if count_match:
+        raw_count = count_match.group(1).lower()
+        named_count = int(raw_count) if raw_count.isdigit() else _COLLECTION_COUNT_WORDS[raw_count]
+        if named_count != len(selected):
+            return refused(f"You asked for {named_count} documents, but {len(selected)} are "
+                           "selected. Select the intended documents and ask again.")
+    if len(selected) > COLLECTION_MAX_DOCUMENTS:
+        return refused(f"Select at most {COLLECTION_MAX_DOCUMENTS} documents for one summary.")
+    target_words = requested_summary_words(question)
+    boundary["target_words"] = target_words
+    if target_words < 50 or target_words > COLLECTION_MAX_WORDS:
+        return refused(f"Ask for between 50 and {COLLECTION_MAX_WORDS} words "
+                       "(up to two pages) in one chat answer.")
+    final_output_tokens = min(1900, int(target_words * 2.4) + 200)
+    final_prompt_cap = min(synthesis.COLLECTION_PROMPT_TOKEN_CAP,
+                           settings.num_ctx - final_output_tokens - 350)
+    if final_prompt_cap < 500:
+        return refused("The local model context is too small for the requested "
+                       "summary length. Ask for a shorter answer.")
+
+    ids = tuple(sorted(selected))
+    marks = ",".join("?" for _ in ids)
+    rows = connect().execute(
+        f"SELECT id, filename, status, page_count, chunk_count_total FROM documents WHERE id IN ({marks})",
+        ids).fetchall()
+    by_id = {row["id"]: row for row in rows}
+    if len(by_id) != len(ids):
+        return refused("A selected document is no longer available.")
+    for doc_id in ids:
+        row = by_id[doc_id]
+        boundary["documents"].append({
+            "document_id": doc_id, "filename": row["filename"],
+            "status": row["status"], "chunks_used": 0,
+            "chunks_total": row["chunk_count_total"],
+            "pages_total": row["page_count"], "pages_unread": [],
+            "pages_excluded": [],
+        })
+    unfinished = [d for d in boundary["documents"] if d["status"] != states.READY]
+    if unfinished:
+        return refused("A selected document is still processing or has no searchable content. "
+                       "Wait for every document to show Ready, then ask again.")
+
+    # The search index can be READY while a nonblank page has no retrievable
+    # text. The existing page ledger, not chunk count alone, detects that gap.
+    page_rows = connect().execute(
+        f"""SELECT document_id, page_no, native_status, ocr_status, index_status
+            FROM page_ledger WHERE document_id IN ({marks})""", ids).fetchall()
+    pages_by_doc: dict[str, list] = {doc_id: [] for doc_id in ids}
+    for page in page_rows:
+        pages_by_doc[page["document_id"]].append(page)
+    for doc in boundary["documents"]:
+        pages = pages_by_doc[doc["document_id"]]
+        if doc["pages_total"] is not None and len(pages) != doc["pages_total"]:
+            return refused("A selected document has no complete page-coverage record. "
+                           "Reprocess it before requesting a full summary.")
+        doc["pages_excluded"] = [p["page_no"] for p in pages
+                                 if p["index_status"] == "excluded"]
+        doc["pages_unread"] = [p["page_no"] for p in pages
+                               if p["index_status"] not in ("retrievable", "excluded")
+                               and not (p["native_status"] == "empty"
+                                        and p["ocr_status"] == "not_required")]
+    if any(doc["pages_unread"] for doc in boundary["documents"]):
+        return refused("Some selected documents have pages without searchable text. "
+                       "Check their page coverage before requesting a full summary.")
+    if len(selected) < 2:
+        return refused("Select at least two documents for a collection summary.")
+
+    chunks = connect().execute(
+        f"""SELECT id, document_id, filename, ordinal, page_start, page_end,
+                   section, text, text_source, ocr_min_conf
+            FROM chunks WHERE retrievable = 1 AND document_id IN ({marks})
+            ORDER BY document_id, ordinal""", ids).fetchall()
+    if len(chunks) > COLLECTION_MAX_CHUNKS:
+        return refused("This set is too large for one local summary run. "
+                       "Select fewer documents and combine their cited summaries.")
+    used = dict.fromkeys(ids, 0)
+    evidence: list[dict] = []
+    for chunk in chunks:
+        used[chunk["document_id"]] += 1
+        item = dict(chunk)
+        item["chunk_id"] = item["id"]
+        evidence.append(to_evidence(item))
+    for doc in boundary["documents"]:
+        doc["chunks_used"] = used[doc["document_id"]]
+    if any(n == 0 for n in used.values()):
+        return refused("A selected document has no readable source passages to summarize.")
+
+    turn = chat_stream.current()
+
+    def stage(_name: str, document: str | None) -> None:
+        if turn is not None:
+            turn.emit("step", {"label": "Summarizing document" if document else "Writing the one-page overview",
+                               "count": None, "done": False})
+
+    actual_provider = "ollama"
+    actual_models: list[str] = []
+    local_note = None
+    writer = generate
+    if writer is None and model == "claude":
+        from . import chat_model, claude_approved, reasoning_provider
+
+        if not explicit_document_selection:
+            # Model=Claude is not consent to guess which files the user meant.
+            # Do not forward an implicit conversation/library scope.
+            local_note = ("Choose one or more documents in the chat document picker "
+                          "to send them to Claude. This request stayed local.")
+        else:
+            # Per-request user choice is limited to this selected set. It
+            # replaces the broader conversation history declaration only for
+            # this summary; all other Claude workflows retain the owner list.
+            with claude_approved.per_request_consent(ids):
+                provider = chat_model.provider(chat_model.CLAUDE)
+                if isinstance(provider, reasoning_provider.ClaudeProvider):
+                    actual_provider = "claude"
+
+                    def writer(system: str, prompt: str) -> synthesis.Generation:
+                        with claude_approved.per_request_consent(ids):
+                            generated = collection_claude_generate(
+                                system, prompt, target_words=target_words)
+                        actual_models.append(generated.model)
+                        return generated
+                else:
+                    local_note = chat_model.unavailable_words()
+    if writer is None:
+        def writer(system: str, prompt: str) -> synthesis.Generation:
+            generated = collection_generate(system, prompt, target_words=target_words)
+            actual_models.append(generated.model)
+            return generated
+
+    try:
+        summary = _generate_or_refuse(
+            synthesis.map_reduce, question, evidence, writer,
+            exhaustive=True, target_words=target_words,
+            final_token_cap=final_prompt_cap,
+            on_progress=stage, cancelled=chat_stream.cancelled)
+    except ModelUnavailable:
+        return {**refused(f"The {actual_provider} summary model is unavailable.",
+                          provider=actual_provider),
+                "answer_type": "model_unavailable"}
+    except Exception as exc:
+        # Claude budget, approval, and transport refusals are deliberate
+        # stop conditions. Never turn a partial cloud summary into a complete
+        # local answer or expose provider exception text to the chat screen.
+        from . import claude_spend, reasoning_provider
+        stopped = isinstance(exc, (claude_spend.StopRun,
+                                   reasoning_provider.ProviderRefused))
+        if actual_provider != "claude" or not stopped:
+            raise
+        reason = ("Claude stopped before the full summary was complete. "
+                  "No partial answer is shown; retry locally or shorten the request.")
+        result = refused(reason, provider="claude")
+        result["answer_type"] = "model_unavailable"
+        cost = getattr(exc, "cost_usd", None)
+        if cost is not None:
+            result["cost_usd"] = cost
+        return result
+    if summary.refusal:
+        return {**refused(summary.refusal, provider=actual_provider),
+                "answer_type": "cancelled" if chat_stream.cancelled() else "insufficient_evidence"}
+    # Completion of all map/reduce stages means all selected documents entered
+    # the run; it does not imply they survived into the final cited prose.
+    boundary["processed"] = len(selected)
+    ledger = {str(item["evidence_id"]): {**item, "text": item["exact_span"]}
+              for item in evidence}
+    summary, originals = synthesis.original_citations(summary, ledger)
+    if summary.refusal or not summary.text:
+        return refused(summary.refusal or "The final summary could not be verified against source pages.",
+                       provider=actual_provider)
+    actual_words = len(summary.text.split())
+    boundary["actual_words"] = actual_words
+    if actual_words > int(target_words * 1.25) + 25:
+        return refused("The model exceeded the requested length; no unverified "
+                       "truncation was shown.", provider=actual_provider)
+
+    passages = []
+    for source in originals:
+        passages.append({
+            "chunk_id": source["chunk_id"], "document_id": source["document_id"],
+            "filename": source["filename"], "page_start": source["page_start"],
+            "page_end": source["page_end"], "section": source.get("section"),
+            "text": source["text"], "kind": "prose", "score": 0.0,
+            "text_source": source.get("text_source") or "extracted",
+            "ocr_min_conf": source.get("ocr_min_conf"),
+        })
+    boundary["cited_documents"] = len({p["document_id"] for p in passages})
+    if boundary["cited_documents"] != len(selected):
+        return refused("The draft omitted citations to some selected documents. "
+                       "It was not shown as a complete collection summary.",
+                       provider=actual_provider)
+    excluded_pages = sum(len(doc["pages_excluded"]) for doc in boundary["documents"])
+    excluded_label = "page" if excluded_pages == 1 else "pages"
+    excluded_verb = "was" if excluded_pages == 1 else "were"
+    uncounted_pages = sum(doc["pages_total"] is None for doc in boundary["documents"])
+    coverage_notice = (f" Page totals are unavailable for {uncounted_pages} document(s)."
+                       if uncounted_pages else "")
+    length_notice = (f" The model wrote {actual_words} words, shorter than the "
+                     f"requested {target_words}-word target."
+                     if actual_words < target_words * 0.6 else "")
+    citation_notice = (" Unsupported draft sentences were removed by the source checks."
+                       if summary.dropped_sentences else "")
+    return {"question": question, "answer_type": "generated",
+            "answer": summary.text, "reason": None, "passages": passages,
+            "cited": list(range(1, len(passages) + 1)),
+            "summary_coverage": boundary, "provider": actual_provider,
+            "model": (actual_models[-1] if actual_models and actual_models[-1]
+                      else settings.answer_model), "truncated": False,
+            "retrieval_mode": "collection", "reranked": False,
+            "candidates_considered": len(evidence), "timings": {},
+            "notices": [f"Summarized searchable content from {len(selected)} selected "
+                        f"documents and {len(evidence)} readable chunks. "
+                        f"{excluded_pages} intentionally excluded {excluded_label} "
+                        f"{excluded_verb} not used."
+                        f"{coverage_notice}{length_notice}{citation_notice}"],
+            "seconds": time.monotonic() - started,
+            **({"provider_note": local_note} if local_note else {})}
+
+
 class ModelUnavailable(Exception):
     """The local model could not be reached. Not a crash, and not an answer."""
 
@@ -754,21 +1068,6 @@ def _generate_or_refuse(fn, *args, **kwargs):
         # is a privacy-boundary misconfiguration, and downgrading it to "the
         # model is unavailable" would hide the one failure that must be loud.
         raise ModelUnavailable(type(exc).__name__) from exc
-
-
-def _synthesise(question: str, evidence: list[dict], limit: int,
-                generate) -> synthesis.Summary:
-    """The one place the mode is decided, so the summary route and the
-    recommendation route cannot drift into running different engines over the
-    same question."""
-    model = generate or ollama_generate
-    if is_comprehensive(limit):
-        return _generate_or_refuse(synthesis.map_reduce, question, evidence, model)
-    # Quick is a PREFIX of the same ranked list, cut here rather than at
-    # retrieval, so the evidence ledger the reader is shown and the passages
-    # the model saw come from one gather.
-    return _generate_or_refuse(
-        synthesis.summarise, question, evidence[:QUICK_PASSAGES], model)
 
 
 # ------------------------------------------------------------------ stage 3
@@ -1245,3 +1544,4 @@ def recommendation(question: str, scope: access.AccessScope, *, limit: int = 8,
         "public_market_findings": market.findings()["findings"],
         "not_implemented_sections": not_implemented_sections(),
     }
+

@@ -409,6 +409,21 @@ class Settings(BaseSettings):
     #: many sentences per run are asked (one model call each).
     ai_clause_checks_enabled: bool = True
     ai_clause_checks_max_per_run: int = 20
+    #: Rule trust (`rule_trust.py`, owner decision on AI-compiled rules): a
+    #: rule the AI compiled may decide a verdict WITHOUT one-by-one engineer
+    #: approval only when its family (standard x equipment type) has been
+    #: PROVEN on an answer key of at least `rule_proof_min_cases` cases with
+    #: no error (rule of three: 0 errors in 300 bounds the error rate at 1%
+    #: with 95% confidence), and the rule passes code's second check. OFF by
+    #: default: the owner switches it on after the first family is proven.
+    #: A share `rule_audit_rate` (clamped to 2-5%, at least one) of the
+    #: automatic findings is drawn for an engineer's spot-check; one audit
+    #: error drops the family back to unproven. The safety field list and the
+    #: condition words live in reference data, not in code.
+    rule_auto_use_enabled: bool = False
+    rule_proof_min_cases: int = 300
+    rule_audit_rate: float = 0.03
+    rule_trust_reference_path: Path = BACKEND_DIR / "app" / "reference" / "rule_trust.json"
 
     # Measured on the target CPU - see docs/benchmarks.md
     num_thread: int = 12
@@ -558,6 +573,24 @@ class Settings(BaseSettings):
     #: The local model the "ollama" engine uses; empty = `answer_model`.
     #: Env: DATASHEET_AI_OLLAMA_MODEL.
     datasheet_ai_ollama_model: str = ""
+    #: How many fields one form-reader call asks for (1 to 25). Measured on the
+    #: PC (17 Oct 2026, local qwen3.5:4b, a real pump sheet, 46 fields): 25 per
+    #: call never finished inside DATASHEET_AI_TIMEOUT_SECONDS (0 form facts); 8
+    #: per call read the page and agreed with all 24 code-read values. A faster
+    #: engine may take more. Env: FORM_READER_BATCH_SIZE.
+    form_reader_batch_size: int = 8
+    #: WHICH AI READING runs inside extraction (the engine is still
+    #: DATASHEET_AI_READER; with that "off" no AI reading runs in any mode):
+    #:   "merge" - THE DEFAULT, unchanged: `datasheet_ai` reads every row it
+    #:             can see and the reading is merged with the rule readers'.
+    #:   "form"  - `form_reader`: the model fills the equipment type's fixed
+    #:             FIELD LIST (from `reference/datasheet_checks.json`) with
+    #:             value, unit and a verbatim quote; code only verifies; the
+    #:             rule readers' facts become the cross-check in the same
+    #:             merge. Any layout, no layout code.
+    #:   "rules" - no AI reading at all (the rule readers only).
+    #: Any other value is refused at startup. Env: DATASHEET_READER_MODE.
+    datasheet_reader_mode: str = "merge"
     #: B8: after the structural answerability checks, a reasoning model
     #: (local Ollama, or Claude through reader_transport under the USD caps)
     #: judges whether the passages ANSWER the question. It may only downgrade
@@ -586,6 +619,28 @@ class Settings(BaseSettings):
     #: and a run without the owner's settings file used to drop the standards
     #: it chooses. Env: APPLICABILITY_REASONING_ENABLED (false turns it off).
     applicability_reasoning_enabled: bool = True
+    #: #946 (planner 23:54 PKT, measured on the real PF1 database): the AI
+    #: scope-reasoning step used to ask about EVERY library standard that has
+    #: a stored scope record, not just ones another route already found
+    #: plausible - `_cached_scope_decision`'s own docstring already measured
+    #: "hundreds of live API calls per review" for this, and PF1's own corpus
+    #: measured ~260-270 of a library asked per sheet, almost all ending
+    #: UNKNOWN/NOT_APPLICABLE (never included). `select()` now caps the pool
+    #: it asks about to every standard a cheaper route already surfaced
+    #: (cited, equipment, governing, service, project) plus up to this many
+    #: MORE, ranked by the submittal's own distinctive words (the same
+    #: retrieval the semantic route already uses, a wider net than its own
+    #: 5-item suggestion cap). A standard with neither a cheap-route signal
+    #: nor textual similarity to the submittal is not asked - the SAME
+    #: bounded risk the semantic route already accepts for SUGGESTING a
+    #: standard to an engineer, applied here to CHECKING one by AI. This
+    #: default is chosen to bias toward recall (a hidden standard is the
+    #: worst failure mode this module is built against), not speed; tune it
+    #: with the real counts from `scripts/measure_applicability_routes.py`
+    #: on PF1 sheets 1 and 2 once the PC is free. 0 disables the cap (asks
+    #: about the whole library, the old behaviour). Env:
+    #: APPLICABILITY_SCOPE_REASONING_CANDIDATE_CAP.
+    applicability_scope_reasoning_candidate_cap: int = 150
     #: #791 part 0: print every review step to the backend console and to
     #: `<data_dir>/debug/review-<run>.log` (git-ignored, this machine only),
     #: through the `review.debug` logger (`review_trace`). OFF by default; the
@@ -718,7 +773,10 @@ class Settings(BaseSettings):
     #: Automatic risk detection (#478): every this many seconds, in a background
     #: thread (0 = off). The digest email is rate-limited to one per interval
     #: below. GET /api/risks never runs detection.
-    risk_detection_interval_seconds: int = 900
+    #: A10/#924: OFF by default. At 900s on 143,558 live findings this grew the
+    #: risks table to 147,770 open rows, one per finding, unusable to an
+    #: engineer. A deployment that wants it sets this explicitly.
+    risk_detection_interval_seconds: int = 0
     risk_digest_min_interval_seconds: int = 3600
     #: Gap analysis work budget (#606). A run that reaches any of these stops,
     #: returns what it has, and says `truncated: true` with the reason.
@@ -760,75 +818,6 @@ class Settings(BaseSettings):
     #: past the limit gets nothing. 1 matches the one worker thread today; the
     #: limit is what keeps it true if a second worker is ever started.
     job_max_running: int = 1
-
-    # ------------------------------------------------------- watched folder
-    #: The drop folder. EMPTY IS THE DEFAULT AND EMPTY MEANS OFF - there is no
-    #: separate `watch_enabled` boolean, because two settings that can disagree
-    #: are two settings that eventually do: a folder configured with the
-    #: boolean left false is a client dropping documents into a system that is
-    #: not looking, and reports nothing wrong. One value, and its emptiness is
-    #: the switch.
-    #:
-    #: FROM `.env` AND FROM NOWHERE ELSE. Never a request body, never a query
-    #: parameter, never an admin form. A path supplied by a caller is a
-    #: file-disclosure hole: the watcher reads whatever directory it is given
-    #: and copies what it finds into a corpus the caller can then search, so a
-    #: client-settable path turns "read my drop folder" into "read any folder
-    #: this process can open". The value being operator-supplied at deploy time
-    #: is what makes reading it safe at all - and it is still withheld from
-    #: non-administrators by /api/watch/status, because host filesystem layout
-    #: is not corpus data.
-    #:
-    #: A str rather than a Path, deliberately: `Path("")` is `.`, so an unset
-    #: Path setting would silently mean "watch the working directory". The
-    #: emptiness has to survive being read.
-    watch_folder: str = ""
-    #: Five minutes. This is a POLL, not an OS filesystem event subscription -
-    #: a network share and a synced folder both fail to deliver events, and the
-    #: client's drop folder is expected to be one or the other. Polling costs a
-    #: directory listing per interval, which is nothing, and it is the same
-    #: code path on every kind of volume.
-    #:
-    #: Latency is not the constraint people expect it to be: a file is only
-    #: eligible once it has been seen UNCHANGED on two consecutive scans, so a
-    #: document appears in the corpus one to two intervals after it is dropped
-    #: regardless. That two-scan rule is what stops a half-copied 40 MB PDF
-    #: being ingested as a truncated document, and shortening this interval
-    #: buys latency at the cost of making that race likelier on a slow share.
-    watch_interval_seconds: int = 300
-    #: WHO the documents the folder brings in belong to. An email of an
-    #: EXISTING user, and empty by default.
-    #:
-    #: A file sitting in a folder carries no identity. Somebody put it there
-    #: and the filesystem does not record who in any way this system can
-    #: trust, so the two available answers were to invent a service account -
-    #: a permanent false record of who supplied every document the client ever
-    #: drops - or to have the administrator STATE which real person owns what
-    #: the folder brings in. This is the second. `admin.grant_on_upload` then
-    #: gives the document exactly the grants a manual upload by that user
-    #: would have given it: their disciplines, plus the admin capability. No
-    #: more, and it is deliberately the same call rather than a similar one.
-    #:
-    #: WITHOUT THIS THE FEATURE DOES NOTHING under `AUTH_MODE=demo_required`,
-    #: which is the only mode anyone deploys. `document_role_access` is
-    #: written by `admin.grant()` and by nothing else, so a document ingested
-    #: with no owner is readable by nobody - not by an engineer, not by an
-    #: administrator - while holding disk and occupying the worker. The
-    #: watcher refuses rather than creating one, and this setting is what
-    #: turns that refusal into an ingest.
-    #:
-    #: FROM `.env` AND FROM NOWHERE ELSE, for a sharper reason than the path
-    #: is. This value decides WHO CAN READ the documents: a request that could
-    #: set it could point the folder's output at its own roles and read every
-    #: specification the client drops. It is an access-control decision, and
-    #: access-control decisions in this system come from the grant tables and
-    #: from operator configuration, never from a caller.
-    #:
-    #: The named user must hold a DISCIPLINE role. One who does not would send
-    #: every dropped document to no discipline at all, which is the orphan
-    #: again wearing a name; the watcher checks and says so rather than
-    #: ingesting into a void. See `watcher.resolve_owner`.
-    watch_owner_email: str = ""
 
     # ------------------------------------------------------- CRS export
     #: Row 1 of the Comment Resolution Sheet when the caller names no company.
@@ -1405,6 +1394,21 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def _form_reader_batch_size_is_sane(self) -> Settings:
+        """0 would ask for nothing, more than the form's own cap would send one
+        call bigger than the reader's schema allows: refused at startup."""
+        if not 1 <= int(self.form_reader_batch_size) <= 25:
+            raise ValueError("FORM_READER_BATCH_SIZE must be between 1 and 25")
+        return self
+
+    @model_validator(mode="after")
+    def _datasheet_reader_mode_is_known(self) -> Settings:
+        """A misspelt mode would silently run the default reader instead."""
+        if str(self.datasheet_reader_mode).strip().lower() not in ("rules", "merge", "form"):
+            raise ValueError("DATASHEET_READER_MODE must be one of: rules, merge, form")
+        return self
+
+    @model_validator(mode="after")
     def _validate_smtp_notifications(self) -> "Settings":
         """Fail closed when outbound notifications are explicitly enabled."""
         if not self.smtp_enabled:
@@ -1455,6 +1459,14 @@ ANSWER_AFFECTING_SETTINGS = (
     "answer_top_k", "generated_context_passages",
     "claude_context_passages", "claude_context_chars", "claude_context_tokens",
     "ocr_rec_model", "ocr_expected_script",
+    # A8/#922: these change a REVIEW's verdict (which engine answered, which
+    # reader read the sheet, whether applicability is decided by taxonomy or
+    # by model reasoning), not only a chat answer; config_version is stamped
+    # on every review run (review_jobs.py, submittal_review.py) as well as on
+    # chat reports, so leaving them out let a run's AI settings change with
+    # no change in the version a report compares against.
+    "ai_task_model", "datasheet_ai_reader", "match_engine",
+    "ai_applicability_enabled", "applicability_reasoning_enabled",
 )
 
 

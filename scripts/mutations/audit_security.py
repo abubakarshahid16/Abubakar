@@ -172,8 +172,12 @@ MUTATIONS: tuple[Mutation, ...] = (
         anchor=('        conn.execute(\n'
                 '            "UPDATE users SET token_epoch = token_epoch + 1 WHERE id = ?",\n'
                 '            (user_id,))\n'
-                '    _audit("admin_password_reset_issued", actor, "user", user_id)'),
-        replacement='    _audit("admin_password_reset_issued", actor, "user", user_id)',
+                '        # A9/#923: in the SAME transaction as the token and the session\n'
+                '        # invalidation it causes.\n'
+                '        _audit("admin_password_reset_issued", actor, "user", user_id, conn=conn)'),
+        replacement=('        # A9/#923: in the SAME transaction as the token and the session\n'
+                    '        # invalidation it causes.\n'
+                    '        _audit("admin_password_reset_issued", actor, "user", user_id, conn=conn)'),
         target=_T, keyword="admin_password_reset_ends",
         tags=("security",),
     ),

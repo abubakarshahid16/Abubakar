@@ -12,6 +12,7 @@ import { useState } from "react";
 
 import type { ClassificationSource, DocumentClassification, DocumentKindOption, DocumentRecord } from "../types/api";
 import { DocumentKindChip } from "./DocumentKindChip";
+import { ROLE_OPTIONS } from "./classification/MetadataEditor";
 import {
   LOW_RETRIEVABLE_THRESHOLD,
   embedProgress,
@@ -31,6 +32,13 @@ const TONE: Record<string, string> = {
 };
 
 const nf = new Intl.NumberFormat("en-GB");
+
+/** The words an engineer uses for a role, from the one place that defines
+ *  them (`MetadataEditor.ROLE_OPTIONS`) - never a second list here that could
+ *  drift from it. */
+function roleLabel(role: string): string {
+  return ROLE_OPTIONS.find((o) => o.value === role)?.label ?? role;
+}
 
 export interface DocumentActions {
   onInspect: (doc: DocumentRecord) => void;
@@ -151,6 +159,20 @@ export function DocumentCard({
               isAdmin={isAdmin}
               onConfirm={onConfirmKind ? (kind) => onConfirmKind(doc, kind) : undefined}
             />
+            {/* THE ROLE. Absent until an administrator sets one in
+                `MetadataEditor`, and the card said nothing about it (#925) -
+                a reader scanning the list could not tell a contractor
+                submittal from a company standard without opening each one.
+                Unset renders nothing, not a placeholder: a role this system
+                has not been told is not "none", it is unknown. */}
+            {classification?.document_role && (
+              <span
+                data-testid="role-chip"
+                className="rounded-[var(--radius-xs)] border border-ink-600 px-2 py-0.5 text-xs text-slateish-300"
+              >
+                {roleLabel(classification.document_role)}
+              </span>
+            )}
             {/* THE CATEGORY. It is the access grant - plan line 1010 makes
                 discipline the grant rather than a tag - so this reads the
                 grant tables through the API and never infers from the

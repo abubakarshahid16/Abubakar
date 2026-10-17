@@ -790,13 +790,39 @@ _SPACE_DASH_START = re.compile(r"(?<![\w.,/-])(\d+(?:[.,]\d+)?)\s$")
 _ENGLISH_IN = re.compile(r"\s+(?!x\b)[a-z]")
 
 
-def extract_measurements(sentence: str) -> tuple[Measurement, ...]:
+#: Two glued designators in a list: "5A and 5B", "7A/7B", "3C, 3D": the SAME
+#: number with ANOTHER letter. "230V or 24V" and "230V, 50Hz" are quantities
+#: (#917).
+_DESIGNATOR_LIST = re.compile(
+    r"(?<![\w.])(\d+)([A-Za-z])\s*(?:,|/|&|\band\b|\bor\b|\bto\b)\s*(\d+)([A-Za-z])(?![A-Za-z])")
+
+#: Why a number with a unit was NOT read as a measurement (counted, #917).
+SKIP_DESIGNATOR_LEAD = "designator_lead"
+SKIP_DESIGNATOR_LIST = "designator_list"
+SKIP_LONE_LETTER_WORD = "lone_letter_word"
+SKIP_SENTENCE_INITIAL = "sentence_initial_designator"
+
+
+def _glued_designator_list(sentence: str, start: int, end: int) -> bool:
+    """Is the glued number+letter at [start, end) one of a LIST of designators
+    ("5A and 5B")? Then it is a name; a lone "230V" is a quantity."""
+    for m in _DESIGNATOR_LIST.finditer(sentence):
+        if m.start() <= start and end <= m.end():
+            return m.group(1) == m.group(3) and m.group(2).lower() != m.group(4).lower()
+    return False
+
+
+def extract_measurements(sentence: str, skips: dict[str, int] | None = None) -> tuple[Measurement, ...]:
     """Numbers with a recognised unit. keyword.IDENTIFIER also matches "9.0"
     (its clause-number alternative), so a plain decimal that is itself an
     identifier match AND is followed by a unit is a measurement, not a clause;
     "5.3.2" or "8501-1" glued to an identifier is never a measurement."""
     spans = _identifier_spans(sentence)
     found: list[Measurement] = []
+
+    def skipped(reason: str) -> None:
+        if skips is not None:
+            skips[reason] = skips.get(reason, 0) + 1
     for m in _MEASUREMENT.finditer(sentence):
         start, end = m.span("value")
         # The sign is numparse's. A dash that is a joiner or a range separator
@@ -843,20 +869,26 @@ def extract_measurements(sentence: str) -> tuple[Measurement, ...]:
             if _fold_unit(unit) not in _RECOGNISED_UNITS:
                 continue
         # A lone lowercase letter after a number ("3 a coat") is a word, not a unit.
-        if len(unit) == 1 and unit.isalpha() and not unit.isupper():
+        glued = not sentence[m.end("value"):m.start("unit")]
+        if len(unit) == 1 and unit.isalpha() and not unit.isupper() and not glued:
+            skipped(SKIP_LONE_LETTER_WORD)
             continue
-        # A SINGLE letter glued to the digits with no space is a designator
-        # suffix, not a unit: "coating system no. 5A and 5B" was read as five
-        # AMPERES, and an invented measurement is worse than a missing one -
-        # it enters a cluster and gets compared against real values.
-        #
-        # The rule is about the GLUING, not the letter. "5 A" with a space is
-        # still amperes, so an electrical spec keeps its current ratings; and
-        # the unit must be one character, so "125um" and "280um" are untouched.
-        if not sentence[m.end("value"):m.start("unit")] and len(unit) == 1                 and unit.isalpha():
+        # A SINGLE letter glued to the digits is a unit ("230V", "5A", "40C",
+        # "3m") unless the CONTEXT says it is a name (#917): a designator lead
+        # ("system no. 5A") or a list of designators ("5A and 5B"). It used to
+        # be dropped whatever the context, silently, and real quantities went
+        # with it. Every skip is counted by reason.
+        if glued and len(unit) == 1 and unit.isalpha() and _glued_designator_list(sentence, start, m.end("unit")):
+            skipped(SKIP_DESIGNATOR_LIST)
+            continue
+        # A sentence that BEGINS with the glued number is naming something
+        # ("5A to be tested ..."); a quantity does not open a sentence.
+        if glued and len(unit) == 1 and unit.isalpha() and not sentence[:begin].strip():
+            skipped(SKIP_SENTENCE_INITIAL)
             continue
         # A number introduced as a designator is a name, not a quantity.
         if _DESIGNATOR_LEAD.search(sentence[:begin]):
+            skipped(SKIP_DESIGNATOR_LEAD)
             continue
         # Nor is a percentage that names a submittal phase - see _PHASE_PERCENT.
         if unit == "%" and _PHASE_PERCENT.match(sentence[m.end("unit"):]):

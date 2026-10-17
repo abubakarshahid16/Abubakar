@@ -48,23 +48,23 @@ export function ChatStarters({
         ))}
       </div>
       {recent.length > 0 && (
-        <p className="mt-5 text-center text-xs text-slateish-500">
-          Continue:{" "}
-          {recent.slice(0, 3).map((c, i) => (
-            <span key={c.id}>
-              {i > 0 && " · "}
-              <button
-                type="button"
-                aria-label={`Continue ${c.title}`}
-                onClick={() => onOpen(c.id)}
-                className="min-h-0 text-signal-400 underline decoration-signal-500/40 underline-offset-2 hover:text-signal-300"
-              >
-                {c.title}
-              </button>
-            </span>
+        <nav aria-label="Recent conversations" className="mt-5 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs text-slateish-500">
+          <span>Continue:</span>
+          {recent.slice(0, 3).map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              aria-label={`Continue ${c.title}`}
+              onClick={() => onOpen(c.id)}
+              title={c.title}
+              className="min-h-0 min-w-0 max-w-full truncate text-signal-400 underline decoration-signal-500/40 underline-offset-2 hover:text-signal-300 sm:max-w-[24rem]"
+            >
+              {c.title}
+            </button>
           ))}
-        </p>
+        </nav>
       )}
     </div>
   );
 }
+

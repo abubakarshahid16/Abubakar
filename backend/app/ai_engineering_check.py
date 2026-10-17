@@ -1086,10 +1086,3 @@ def _item_identity(finding, action, page, section) -> tuple:
     `crs_mapping` keys its permanent number on, folded."""
     fold = lambda v: " ".join(str(v or "").lower().split())  # noqa: E731
     return (fold(finding), fold(action), page, fold(section))
-
-
-def relates_to(finding: dict) -> str:
-    """The standard name an item relates to, read back from its rationale."""
-    text = finding.get("ai_rationale") or ""
-    marker = "Relates to: "
-    return text.split(marker, 1)[1].rstrip(".") if marker in text else ""

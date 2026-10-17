@@ -152,7 +152,8 @@ export interface StandardClause {
  *  did not understand: an obligation with no recognisable limit is a
  *  `statement`, never a `numeric_limit` carrying a null value. */
 export type RequirementType = "numeric_limit" | "statement" | "table_value"
-  | "applicability_trigger" | "relative_limit" | "table_row" | "definition";
+  | "applicability_trigger" | "relative_limit" | "table_row" | "definition"
+  | "table_range" | "range_limit" | "nominal_value" | "cross_field_limit";
 
 /** One carve-out of a requirement, as `requirements_3b.parse_exceptions`
  *  records it. `applies_to` is always written; the limit keys only when the
@@ -2188,6 +2189,17 @@ export interface AnswerResult extends ChatPresentation {
   /** Report-only. Null for a refusal, and null for an answer produced without
    *  the cross-encoder (nothing was scored for credibility). */
   coverage: Coverage | null;
+  /** Collection summary boundary, including each selected document's processing status. */
+  summary_coverage?: {
+    requested: number;
+    processed: number;
+    cited_documents: number;
+    target_words: number | null;
+    actual_words: number | null;
+    documents: Array<{ document_id: string; filename: string; status: string;
+      chunks_used: number; chunks_total: number; pages_total: number | null;
+      pages_unread: number[]; pages_excluded: number[] }>;
+  } | null;
   /** guidance only: real questions drawn from the loaded documents */
   examples: string[];
   /** B6C */

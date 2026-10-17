@@ -298,6 +298,79 @@ def record_fact_pages(conn, document_id: str, outcomes: dict[int, tuple],
                 (document_id, page, vision_status, vision_reason, now))
 
 
+# ------------------------------------------------- PF3 (#883): reading coverage
+#
+# A PAGE THE AI READER DID NOT READ IS NOT A CLEAN PAGE. The ledger says a page
+# was read into fields when the CODE readers found fields on it, and that stays
+# true. But when an AI reader was asked to read the sheet and timed out, was
+# unavailable or failed on a page, the review has not read that page the way
+# the run said it would: "the code readers' reading stands" is a statement
+# about the code readers, and a run that carries it has to say so. PF1's first
+# run: the local model timed out on 4 of 5 pages of the PSV sheet and the run
+# presented itself like any other.
+#
+# Pure: it reads the reader's own stored summary, never a database.
+
+READING_COMPLETE = "complete"
+READING_INCOMPLETE = "incomplete"
+
+
+def reading_gaps(reader: dict | None, pages: dict) -> dict:
+    """What the AI reader did not read, and the run's reading status.
+
+    `reader` is `datasheets.latest_reader_summary`; `pages` is `coverage()`.
+    Returns the keys to merge into the run's stored page coverage:
+      pages_ai_not_read    pages the configured AI reader did not read
+      ai_not_read_reasons  {page: why}, in words
+      reading              {"status", "pages_total", "incomplete_pages", "reasons"}
+    With NO reader recorded (it was off, or the sheet was read before
+    summaries were kept) nothing is claimed about the AI: the status is only
+    about the pages the code readers did not read."""
+    total = pages.get("pages_total")
+    unread = [int(p) for p in pages.get("pages_not_read_into_fields") or []]
+    ai_missing: dict[int, str] = {}
+    if reader and total:
+        engine = reader.get("engine") or "AI"
+        reasons: dict[int, str] = {}
+        for page in reader.get("timed_out") or []:
+            reasons[int(page)] = f"the {engine} reader timed out on this page"
+        code_only = reader.get("code_only")
+        if isinstance(code_only, dict):
+            for page, why in code_only.items():
+                reasons.setdefault(int(page), f"the {engine} reader did not read this page ({why})")
+        for page in reader.get("cut_off") or []:
+            reasons.setdefault(int(page), f"the {engine} reader was cut off before this page")
+        if reader.get("unavailable"):
+            for page in range(1, int(total) + 1):
+                reasons.setdefault(page, f"the {engine} reader was unavailable ({reader['unavailable']})")
+        if reader.get("stopped"):
+            read = int(reader.get("pages_read") or 0)
+            if read < int(total):
+                for page in range(1, int(total) + 1):
+                    reasons.setdefault(page, f"the {engine} reader was stopped ({reader['stopped']})")
+        ai_missing = {p: why for p, why in sorted(reasons.items()) if 1 <= p <= int(total)}
+    # #918: a page a CODE reader failed on, or something the office reader left
+    # out, makes the reading incomplete whatever the AI did.
+    failed: dict[int, str] = {}
+    for page, readers in ((reader or {}).get("page_failures") or {}).items():
+        failed[int(page)] = "a reader failed on this page (" + ", ".join(sorted(readers)) + ")"
+    notes = list((reader or {}).get("reading_notes") or [])
+    incomplete = sorted(set(unread) | set(ai_missing) | set(failed))
+    return {
+        "pages_ai_not_read": sorted(ai_missing),
+        "ai_not_read_reasons": {str(p): why for p, why in ai_missing.items()},
+        "reading": {
+            "status": READING_INCOMPLETE if incomplete or notes or not total else READING_COMPLETE,
+            "pages_total": total,
+            "incomplete_pages": incomplete,
+            "reasons": ({"no page of this submittal is accounted for": True} if not total else {}),
+            # only when there is something: the shape without it is unchanged
+            **({"failed_pages": {str(p): why for p, why in sorted(failed.items())}} if failed else {}),
+            **({"notes": notes} if notes else {}),
+        },
+    }
+
+
 def rows(document_id: str) -> list[dict]:
     return [dict(r) for r in connect().execute(
         "SELECT * FROM page_ledger WHERE document_id = ? ORDER BY page_no", (document_id,))]

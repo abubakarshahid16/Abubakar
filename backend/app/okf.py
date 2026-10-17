@@ -26,19 +26,32 @@ local data folder (`<data_dir>/okf/v1/`), which is outside git, and refuses
 any other place. Counts and ids only are reported.
 
 Not in v1 (named, not forgotten): concepts for a datasheet, a revision and a
-finding; cross-reference links between standards (R8 #772); engineer approval
-and versions of the map (R29 #833). Each concept does carry a content hash,
-which is what a version will be made of.
+finding; cross-reference links between standards (R8 #772). Each concept does
+carry a content hash, which is what a version is made of - see "R29/#833:
+engineer approval" below for what is built on it.
+
+R29/#833: ENGINEER APPROVAL AND VERSIONS OF THE MAP. A decision
+(`approve`/`reject`) is keyed on a concept's id AND the `content_sha256` it
+was decided at - not on the id alone. `build` re-derives that hash from the
+standard's own stored facts every time it runs, so a decision survives an
+unrelated rebuild (same hash, same decision) but a standard's own text
+changing (re-extraction, a corrected clause, a new edition) changes the
+hash and the concept comes back `stale`: still shown, never silently still
+`confirmed` for words that are no longer there. A review PREFERS a
+`confirmed` requirement (`confirmed_requirement_ids`); `draft` and `stale`
+are not yet dropped silently either - wiring that preference into a live
+review run is left to the module that runs reviews, not done here.
 """
 from __future__ import annotations
 
 import hashlib
 import json
 import re
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .config import settings
-from .db import connect
+from .db import connect, schema_once
 
 VERSION = 1
 
@@ -589,3 +602,101 @@ def latest_revision(built: dict, concepts: list[dict], standard_id: str, *, conn
     if unordered:
         return {"state": ORDER_NOT_RECORDED, "also_held": unordered, "basis": basis}
     return {"state": LATEST_HELD if others else ONLY_ONE_HELD, "replaces": others, "basis": basis}
+
+
+# ------------------------------------------- R29/#833: engineer approval
+#
+# A decision is keyed on (concept_id, content_sha256) - the SAME concept at
+# the SAME content. `build` re-derives the hash from stored facts every run,
+# so a decision made once reads back unchanged across an unrelated rebuild,
+# and reads back STALE the moment the standard's own text behind it changes.
+
+DRAFT, CONFIRMED, REJECTED, STALE = "draft", "confirmed", "rejected", "stale"
+APPROVAL_STATES = (DRAFT, CONFIRMED, REJECTED, STALE)
+_DECIDED_STATES = (CONFIRMED, REJECTED)
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+@schema_once
+def ensure_approval_schema() -> None:
+    with connect() as conn:
+        conn.execute("""CREATE TABLE IF NOT EXISTS okf_approval (
+            concept_id TEXT PRIMARY KEY,
+            content_sha256 TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('confirmed', 'rejected')),
+            decided_by TEXT,
+            decided_at TEXT NOT NULL)""")
+
+
+def _decide(concept_id_: str, content_sha256: str, status: str, decided_by: str | None) -> None:
+    if status not in _DECIDED_STATES:
+        raise ValueError(f"not a decision: {status!r}")
+    ensure_approval_schema()
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO okf_approval (concept_id, content_sha256, status, decided_by, decided_at)"
+            " VALUES (?, ?, ?, ?, ?)"
+            " ON CONFLICT(concept_id) DO UPDATE SET content_sha256 = excluded.content_sha256,"
+            " status = excluded.status, decided_by = excluded.decided_by, decided_at = excluded.decided_at",
+            (concept_id_, content_sha256, status, decided_by, _now()))
+
+
+def approve(concept_id_: str, content_sha256: str, *, decided_by: str | None = None) -> None:
+    """An engineer confirms this concept, AT THIS CONTENT. Overwrites any
+    earlier decision on the same concept (re-deciding is allowed; the
+    decision this makes is still keyed on the content it was made on)."""
+    _decide(concept_id_, content_sha256, CONFIRMED, decided_by)
+
+
+def reject(concept_id_: str, content_sha256: str, *, decided_by: str | None = None) -> None:
+    """An engineer rejects this concept, AT THIS CONTENT."""
+    _decide(concept_id_, content_sha256, REJECTED, decided_by)
+
+
+def approval_status(concept: dict) -> dict:
+    """The engineer's decision on THIS version of `concept`.
+
+    `{"status", "decided_by", "decided_at"}`. No row yet: `draft`, nobody has
+    decided. A row whose `content_sha256` no longer matches the concept's own
+    (VERSIONING: the standard's stored facts changed since the decision):
+    `stale`, with the OLD decision kept alongside it - a changed standard
+    never keeps an old `confirmed` silently true for words that are no
+    longer there, and never throws the record of what was once decided away
+    either."""
+    ensure_approval_schema()
+    row = connect().execute(
+        "SELECT content_sha256, status, decided_by, decided_at FROM okf_approval WHERE concept_id = ?",
+        (concept.get("id"),)).fetchone()
+    if row is None:
+        return {"status": DRAFT, "decided_by": None, "decided_at": None}
+    if row["content_sha256"] != concept.get("content_sha256"):
+        return {"status": STALE, "decided_by": row["decided_by"], "decided_at": row["decided_at"],
+                "previous_status": row["status"]}
+    return {"status": row["status"], "decided_by": row["decided_by"], "decided_at": row["decided_at"]}
+
+
+def annotate(concepts: list[dict]) -> list[dict]:
+    """Each concept with its own `approval` added, read fresh - never cached
+    on the concept dict itself, which a caller may hold across a decision."""
+    return [dict(c, approval=approval_status(c)) for c in concepts]
+
+
+def confirmed_requirement_ids(concepts: list[dict]) -> set[str]:
+    """The `standard_requirements.id`s a review may PREFER: their REQUIREMENT
+    concept is `confirmed`, at its CURRENT content - never one still `draft`,
+    `rejected`, or `confirmed` at a hash the standard has since outgrown.
+    Reading this set is the only effect of an approval today; nothing in
+    this module changes what a review itself does with it."""
+    out: set[str] = set()
+    for concept in concepts:
+        if concept.get("kind") != REQUIREMENT:
+            continue
+        if approval_status(concept)["status"] != CONFIRMED:
+            continue
+        requirement_id = (concept.get("facts") or {}).get("requirement_id")
+        if requirement_id:
+            out.add(requirement_id)
+    return out

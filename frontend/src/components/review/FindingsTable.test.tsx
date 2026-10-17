@@ -121,6 +121,21 @@ describe("filters", () => {
 
     expect(screen.getByText(/1 of 2/)).toBeInTheDocument();
   });
+
+  /** #925 item 4: the filter beside the table said "Status" while the
+   *  column over the same field said "Outcome" - two names for
+   *  `compliance_status` a reader had to notice meant the same thing. */
+  it("names the status column the same as the status filter", () => {
+    render(
+      <FindingsTable
+        findings={[finding({ id: "a", compliance_status: "COMPLIANT" })]}
+        selectedId={null} onSelect={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("columnheader", { name: "Status" })).toBeInTheDocument();
+    expect(screen.queryByText("Outcome")).toBeNull();
+  });
 });
 
 describe("the pairing is labelled", () => {

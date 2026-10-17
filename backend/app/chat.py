@@ -34,6 +34,7 @@ import uuid
 from datetime import datetime, timezone
 
 from . import answer as answer_mod
+from . import analysis as analysis_mod
 from . import chat_answers
 from . import chat_comparison
 from . import family_search
@@ -631,7 +632,7 @@ _PAYLOAD_KEYS = (
     # Without this, reopening a conversation would show a complete-looking
     # answer with the partial-coverage warning silently gone - worse than
     # never having shipped the field.
-    "coverage", "evidence_removed",
+    "coverage", "summary_coverage", "evidence_removed",
     # The same reason, three more times. Reopened without `corpus`, a two-part reply
     # would lose its database half; without `counts_bounded`, a re-bounded
     # count would lose the note that says it was; without `truncated`, a cut-off
@@ -700,6 +701,24 @@ def _declaring_the_conversation(fn):
     @functools.wraps(fn)
     def declared(conversation_id: str, question: str, *args, **kwargs):
         from . import claude_approved
+        # An explicit Claude+document choice is per-request consent for exactly
+        # those files. It replaces old conversation scope, while tool reads
+        # remain bounded by `allowed_document_ids` inside `ask`.
+        selected = frozenset(kwargs.get("document_ids") or ())
+        if not selected:
+            explicit_doc = kwargs.get("document_id")
+            if explicit_doc is None and len(args) > 1:
+                explicit_doc = args[1]  # ask's positional document_id
+            if explicit_doc:
+                selected = frozenset({explicit_doc})
+        if kwargs.get("model") == "claude" and selected:
+            with claude_approved.per_request_consent(selected):
+                return fn(conversation_id, question, *args, **kwargs)
+        if kwargs.get("model") == "claude":
+            # Claude may still answer a general question, but a selected model
+            # alone is not consent to send documents from chat history.
+            with claude_approved.carrying(()):
+                return fn(conversation_id, question, *args, **kwargs)
         with claude_approved.carrying(conversation_document_ids(conversation_id)):
             return fn(conversation_id, question, *args, **kwargs)
     return declared
@@ -741,6 +760,13 @@ def ask(
     # whole permission, so picking a document does not blank the history.
     retrieval_allowed = (allowed_document_ids & frozenset(document_ids)
                          if document_ids else allowed_document_ids)
+    claude_document_selection = (frozenset(document_ids) if document_ids else
+                                 frozenset({selected_document}) if selected_document else
+                                 frozenset())
+    history_allowed = allowed_document_ids
+    if model == "claude":
+        history_allowed = (allowed_document_ids & claude_document_selection
+                           if claude_document_selection else frozenset())
     if document_ids and document_id not in retrieval_allowed:
         # the picked documents win over the conversation's older single scope
         document_id = None
@@ -779,7 +805,7 @@ def ask(
         # IS SEARCHED. Only a document-kind message reaches retrieval; small
         # talk, general questions, rewrites, actions and record searches never
         # do - so none of them can produce a passage, a citation or a finding.
-        previous = last_answer(conversation_id, allowed_document_ids=allowed_document_ids)
+        previous = last_answer(conversation_id, allowed_document_ids=history_allowed)
         routed = intent_mod.route(
             question, has_previous_answer=previous is not None,
             document_in_scope=bool(selected_document or conversation["document_id"]
@@ -789,7 +815,11 @@ def ask(
         tier = routed.get("tier") or tier
         carried: list[str] = []
         resolved = question
-        if route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER):
+        collection_request = intent_mod.is_collection_summary(
+            question, selected_document_count=len(document_ids or ()))
+        if collection_request:
+            route_kind = intent_mod.DOCUMENT
+        if route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER) and not collection_request:
             resolved, carried = resolve_followup(
                 routed["text"], prior_user_questions(conversation_id)
             )
@@ -835,7 +865,7 @@ def ask(
             return ""
         local = (model == chat_model.LOCAL) or not chat_model.claude_ready()[0]
         turns = chat_model.history(
-            conversation_id, allowed_document_ids=allowed_document_ids,
+            conversation_id, allowed_document_ids=history_allowed,
             before_ordinal=user_message["ordinal"],
             token_budget=(settings.chat_history_local_token_budget if local
                           else settings.chat_history_token_budget))
@@ -855,8 +885,22 @@ def ask(
     # capability it does not have. NOT when scoped to one document
     # (`corpus.classify`'s own rule: a document's own standards are content
     # for retrieval, not a library count) or mid Tier-2 upgrade.
+    collection_result = None
+    if explain_of is None and intent_mod.is_collection_summary(
+            original, selected_document_count=len(document_ids or ())):
+        # Pass the reader's actual selection to the collection gate. Passing
+        # only the permission intersection would silently drop a revoked
+        # document and present the remaining subset as a complete summary.
+        summary_ids = (frozenset(document_ids) if document_ids else
+                       frozenset({document_id}) if document_id else
+                       retrieval_allowed)
+        collection_result = analysis_mod.collection_summary(
+            original, summary_ids, allowed_document_ids=retrieval_allowed,
+            model=model,
+            explicit_document_selection=bool(document_ids or selected_document))
+
     inventory_result = None
-    if explain_of is None and document_id is None:
+    if collection_result is None and explain_of is None and document_id is None:
         roles = corpus_mod.inventory_question(original)
         if roles is not None:
             inventory_result = corpus_mod.inventory_statement(
@@ -895,7 +939,22 @@ def ask(
     # citation or a real per-side "not found", must not reach a path that
     # would answer it from one merged retrieval or from a model's own words.
     comparison_result = None
-    if (inventory_result is None and explain_of is None
+    # EITHER questions with no explicitly selected documents are still safe
+    # for Claude-first: its tool scope and history are empty, so it can only
+    # answer from general knowledge. If that first answer declines/fails, the
+    # existing local retrieval pipeline below still handles the ambiguity.
+    # A clearly document-scoped question, however, stays local unless the
+    # reader explicitly chose the files for Claude.
+    document_model = (chat_model.LOCAL if model == chat_model.CLAUDE
+                      and not claude_document_selection
+                      and route_kind == intent_mod.DOCUMENT else model)
+    claude_preference = model
+    if (model == chat_model.CLAUDE and not claude_document_selection
+            and route_kind == intent_mod.DOCUMENT):
+        # A document question with no explicit file selection stays on the
+        # local path; Claude may still answer a document-free general question.
+        claude_preference = chat_model.LOCAL
+    if (collection_result is None and inventory_result is None and explain_of is None
             and route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER)
             and chat_comparison.is_comparison_question(resolved)):
         comparison_sides, comparison_missing = chat_comparison.resolve_sides(
@@ -904,28 +963,28 @@ def ask(
             comparison_result = chat_comparison.compare(
                 resolved, comparison_sides, tier=tier,
                 allowed_document_ids=retrieval_allowed, progress_id=progress_id,
-                model=model, history=memory(), missing=comparison_missing)
+                model=document_model, history=memory(), missing=comparison_missing)
 
     # ISSUE #373: a question naming a FAMILY of standards in general words
     # ("the welding standards") is searched per standard, never in one shared
     # pass. Same slot and same reasons as the comparison above.
     family_notice = None
-    if (comparison_result is None and inventory_result is None and explain_of is None
+    if (collection_result is None and comparison_result is None and inventory_result is None and explain_of is None
             and document_id is None
             and route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER)):
         comparison_result, family_notice = family_search.run(
             resolved, documents_map, tier=tier, allowed_document_ids=retrieval_allowed,
-            progress_id=progress_id, model=model, history=memory())
+            progress_id=progress_id, model=document_model, history=memory())
 
     spec_shaped_result = None
-    if (inventory_result is None and comparison_result is None and explain_of is None
+    if (collection_result is None and inventory_result is None and comparison_result is None and explain_of is None
             and route_kind in (intent_mod.EITHER, intent_mod.DOCUMENT)
             and intent_mod.is_spec_shaped(original)):
         spec_shaped_result, resolved = _document_answer(
             conversation_id, resolved, understood, tier=tier, document_id=document_id,
             selected_document=selected_document, limit=limit,
             allowed_document_ids=retrieval_allowed, progress_id=progress_id,
-            model=model, history=memory())
+            model=document_model, history=memory())
 
     claude_first_result = None
     #: USD a failed first Claude call was charged before this turn fell back
@@ -935,21 +994,28 @@ def ask(
     #: Why the first Claude call could not be used (plain words), when it
     #: could not - the cause the downgrade notice reports.
     fallback_why: list[str] = []
+    if collection_result and collection_result.get("provider_note"):
+        fallback_why.append(str(collection_result["provider_note"]))
     #: Points the claim checker removed when it removed ALL of Claude's points
     #: and the turn was handed to the existing pipeline (audit 118).
     claude_unverified: list[list[dict]] = []
-    if (inventory_result is None and comparison_result is None and spec_shaped_result is None
+    if (collection_result is None and inventory_result is None and comparison_result is None and spec_shaped_result is None
             and explain_of is None
             and route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER, intent_mod.GENERAL)):
         from . import chat_claude_first
         claude_first_result = chat_claude_first.answer(
             original, history=memory(always=True),
-            allowed_document_ids=claude_scope(retrieval_allowed, document_id=document_id,
-                                              picked=bool(document_ids), understood=understood),
-            web_enabled=web, preference=model, on_fallback_cost=fallback_spent.append,
+            allowed_document_ids=(
+                claude_scope(retrieval_allowed, document_id=document_id,
+                             picked=bool(document_ids), understood=understood)
+                if model != chat_model.CLAUDE or claude_document_selection
+                else frozenset()),
+            web_enabled=web, preference=claude_preference, on_fallback_cost=fallback_spent.append,
             on_fallback_reason=fallback_why.append, on_unverified=claude_unverified.append)
 
-    if inventory_result is not None:
+    if collection_result is not None:
+        result = collection_result
+    elif inventory_result is not None:
         result = {
             "question": original, "retrieval_mode": "metadata", "reranked": False,
             "timings": {}, "candidates_considered": 0, "answer_type": "metadata",
@@ -975,7 +1041,7 @@ def ask(
             conversation_id, resolved, understood, tier=tier, document_id=document_id,
             selected_document=selected_document, limit=limit,
             allowed_document_ids=retrieval_allowed, progress_id=progress_id,
-            model=model, history=memory())
+            model=document_model, history=memory())
         if (route_kind == intent_mod.EITHER
                 and result["answer_type"] == "insufficient_evidence"):
             # NO DOCUMENT SIGNAL, AND THE DOCUMENTS DO NOT ANSWER IT: general
@@ -1006,7 +1072,7 @@ def ask(
             # the @-picked documents narrow this search too (intersection,
             # CLAUDE.md rule 5) - it used to search every readable document
             allowed_document_ids=retrieval_allowed, progress_id=progress_id,
-            model=model, history=memory(always=True))
+            model=document_model, history=memory(always=True))
     elif route_kind == intent_mod.REWRITE:
         result = chat_answers.rewrite(previous, styles=routed["styles"], history=memory(always=True),
                                       preference=model, question=original)
@@ -1187,3 +1253,4 @@ def _document_answer(conversation_id: str, resolved: str, understood: dict | Non
             and (earlier.get("judge") or {}).get("accepted")):
         result["answerability"] = rejudged
     return result, resolved
+

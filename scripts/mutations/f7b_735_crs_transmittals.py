@@ -33,7 +33,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(7206, "the Reports page list renders nothing", FRONTEND_SRC / "views" / "ReviewCrsList.tsx",
        "      {runs !== null && runs.length > 0 && (", "      {false && (", "lists each run",
        target=_F, runner="vitest"),
-    _m(7207, "the transmittal form does not save", FRONTEND_SRC / "views" / "ReviewRunsView.tsx",
+    _m(7207, "the transmittal form does not save", FRONTEND_SRC / "components" / "review" / "CrsPreviewSheet.tsx",
        "    const res = await reviewsApi.setCrsTransmittals(runId, {\n      company_transmittal: company, contractor_transmittal: contractor,\n    });",
        "    const res = { ok: false as const, error: { message: \"no\" } };", "saves what was typed",
        target=_F, runner="vitest"),

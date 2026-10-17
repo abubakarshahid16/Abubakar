@@ -63,7 +63,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1134", phase=95, runner="vitest",
              description="honesty: the readiness strip stops naming why each "
                          "unread page is unread",
-             path=FRONTEND_SRC / "views" / "ReviewRunsView.tsx",
+             path=FRONTEND_SRC / "components" / "review" / "ReadinessStrip.tsx",
              anchor='              Page {page}: {readiness.unread_page_reasons?.[String(page)]\n'
                     '                || "reason not recorded"}\n',
              replacement='              Page {page}\n',

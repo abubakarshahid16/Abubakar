@@ -175,6 +175,15 @@ function ReviewCodePanelBody({ run, onDecided }: ReviewCodePanelProps) {
         >
           {state.kind === "saving" ? "Saving…" : "Record final code"}
         </button>
+        {/* THE REASON, not a quietly-greyed-out button (#925 item 2). Every
+            other disabled control on this screen already says why - the
+            "Issue CRS to contractor" button two panels over does - this one
+            did not. */}
+        {!code && state.kind !== "saving" && (
+          <p className="text-xs text-slateish-400">
+            Choose a code above before recording it.
+          </p>
+        )}
 
         {state.kind === "error" && (
           <p role="alert" className="rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-sm text-danger-500">

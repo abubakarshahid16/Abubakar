@@ -3,8 +3,7 @@ import type { ReactNode } from "react";
 export function AnalysisHeader() {
   return (
     <header className="border-b border-ink-700 pb-4">
-      <p className="text-xs font-semibold uppercase tracking-wide text-signal-400">Enterprise FEED intelligence</p>
-      <h1 className="mt-1 text-xl font-semibold text-slateish-100">Analysis</h1>
+      <h1 className="text-xl font-semibold text-slateish-100">Analysis</h1>
       <p className="mt-1 text-sm font-semibold text-signal-300">Document submittal review</p>
       <p className="mt-2 max-w-3xl text-sm text-slateish-300">
         Ask one engineering question, choose the work to run, and inspect only cited document evidence.

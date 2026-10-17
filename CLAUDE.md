@@ -32,11 +32,16 @@ carries the client's name; only the owner can rename it.
 
 1. **Privacy is the product.** No document text, filename, page reference or
    anything derived from a document may leave the machine - with ONE
-   owner-approved lane (owner decision 2026-09-25): the **Claude API**, only
-   through `reader_transport.py`, only under the budget of **USD 5 per step /
+   owner-approved lanes: the **Claude API**, only through
+   `reader_transport.py`, only under the budget of **USD 5 per step /
    USD 20 in total** (enforced in `claude_spend`), and with **no document text
    in logs, GitHub issues, PRs or CI**. Every other outbound path for document
-   content stays forbidden. The market search sends only the human-typed
+   content stays forbidden. In chat, the user may choose Claude and explicitly
+   select the documents for that request; that selection is per-request consent
+   for only those files. Local sends no file content to Claude; Claude without
+   explicit document selection can answer general questions but gets no document
+   content from the library or prior document-bearing chat history.
+   Other Claude workflows retain the owner-approved document list. The market search sends only the human-typed
    phrase, previewed and approved per query. Only four modules may open a
    socket, each behind a gate:
    `market_transport.py` (market lane, off by default), `model_transport.py`
@@ -108,6 +113,17 @@ carries the client's name; only the owner can rename it.
     `M<PR number>-01`, `M<PR number>-02`, ... with `phase=<PR number>`. Audit
     entries: `A-<PR number>`. Existing ids are never renumbered. A merge that
     only renumbers ids is not allowed.
+13. **General fixes only, never per-layout** (owner order, 13 Oct 2026, #692).
+    Never add code that recognises one datasheet's table shape, label
+    spelling or layout; new layouts will keep arriving. Allowed: fixes true
+    for any document (number/unit/comparator meaning, silent-loss reporting,
+    verdict safety, output size, approved checklists, code quality). New
+    layouts are handled by one path: the reader fills the equipment type's
+    fixed field list with a page quote per value; code verifies the quote
+    and compares with the approved rule; what the reader misses goes to the
+    engineer or waits for a stronger reader. A reading fix is merged only if
+    it also helps, or does not hurt, sheets it was not built on (invented +
+    held-out totals).
 
 ## Who does what
 
@@ -177,3 +193,4 @@ Never write a second waiter.
 | Review any change against the project's own failure modes | `/review` (`.claude/commands/review.md`) |
 | Demo script and safe questions | `docs/HANDOVER.md` § Demo |
 | Run it | `backend`: `python run.py` · `frontend`: `npm run dev` · Ollama must be up |
+

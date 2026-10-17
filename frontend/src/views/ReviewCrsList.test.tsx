@@ -23,7 +23,7 @@ vi.mock("../api/client", () => ({
 }));
 
 import { ReviewCrsList } from "./ReviewCrsList";
-import { CrsTransmittalsForm } from "./ReviewRunsView";
+import { CrsTransmittalsForm } from "../components/review/CrsPreviewSheet";
 
 beforeEach(() => {
   reviewRuns.mockReset();

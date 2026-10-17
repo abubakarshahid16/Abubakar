@@ -162,6 +162,7 @@ export function DashboardView({
       {onOpenReview && onOpenDocuments && (
         <ReviewDashboardPanel
           onOpenReview={onOpenReview} onOpenDocuments={onOpenDocuments}
+          isAdmin={isAdmin}
         />
       )}
 

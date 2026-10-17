@@ -290,8 +290,10 @@ _SUBJECT_TAIL = re.compile(
 def subject_of(sentence: str) -> str | None:
     """What the clause is ABOUT, in the document's own words. Never a join key.
 
-    THIS IS NOT `field` AND MUST NOT BECOME IT. `comparison._match_fact` joins
-    on `field` by exact equality against a datasheet's normalised caption, and
+    THIS IS NOT `field` AND MUST NOT BECOME IT. `field` joins by exact
+    equality against a datasheet's normalised caption (A13/#927:
+    `comparison._match_fact`, the function that once did this join, was dead
+    code and has been removed; `field`'s contract is unchanged), and
     measured over this corpus the phrase before the operator is a descriptive
     clause - "the material stress in the bottom parts of the vessel" - which
     no caption will ever equal. Writing these into `field` would make the
@@ -778,19 +780,63 @@ def _page_texts(document_id: str, chunk) -> dict[int, str] | None:
     return {r["page_no"]: _fold_for_page(r["text"]) for r in rows}
 
 
+#: #904: WHAT THE READER SAYS ABOUT A SENTENCE - everything a re-read may find
+#: differently in the same words. The text, the clause and the id are not in
+#: it: they are what made the row "the same requirement".
+_READING_FIELDS = ("requirement_type", "operator", "value", "unit", "raw_value", "raw_unit",
+                   "value_low", "value_high", "unit_from", "condition", "exceptions", "subject",
+                   "required_evidence_type", "category", "confidence")
+
+
+def _same_reading(old, new) -> bool:
+    """Is a stored value the value read now? Nothing and "" are the same
+    nothing; two numbers are compared as numbers (the column is REAL)."""
+    if old in (None, "") or new in (None, ""):
+        return old in (None, "") and new in (None, "")
+    try:
+        return abs(float(old) - float(new)) <= 1e-9 * max(1.0, abs(float(old)))
+    except (TypeError, ValueError):
+        return str(old) == str(new)
+
+
 def _reproduced(requirement_id: str, chunk, run_id: str,
                 extractor_version: str | None, inputs: str | None, *,
-                page: int | None = None) -> None:
-    """A requirement met again by a re-extraction: same row, new provenance.
-    The text is not touched - it is the same text, which is why it matched."""
+                page: int | None = None, reading: dict | None = None) -> list[str]:
+    """A requirement met again by a re-extraction: same row, new provenance,
+    AND THE READING OF THE CODE THAT IS STAMPED ON IT. Returns the fields
+    whose stored value changed.
+
+    #904: until 13 Oct 2026 this kept the row's old operator, value, unit and
+    condition and stamped it with the new `extractor_version` - the row said
+    it was read by today's code while it held yesterday's reading, and no fix
+    to the reader ever reached a sentence already stored. The text is not
+    touched (it is the same text, which is why it matched), and neither is a
+    row a person confirmed (`_SUPERSEDABLE`)."""
     conn = connect()
+    changed: list[str] = []
+    assignments = ["chunk_id = ?", "page = ?", "extraction_run_id = ?", "extractor_version = ?",
+                   "input_hash = ?", "updated_at = ?"]
+    values: list = [chunk["id"], page if page is not None else chunk["page_start"], run_id,
+                    extractor_version, inputs, _now()]
+    if reading is not None:
+        stored = conn.execute(
+            "SELECT " + ", ".join(_READING_FIELDS) + ", quality_reason FROM standard_requirements"
+            " WHERE id = ? AND " + _SUPERSEDABLE, (requirement_id,)).fetchone()
+        if stored is not None:
+            fresh = {name: reading.get(name) for name in _READING_FIELDS}
+            # the text-quality gate caps the confidence of a row it flagged, as on a first write
+            if stored["quality_reason"] and (fresh["confidence"] is None
+                                             or fresh["confidence"] > TEXT_QUALITY_CONFIDENCE):
+                fresh["confidence"] = TEXT_QUALITY_CONFIDENCE
+            for name in _READING_FIELDS:
+                if not _same_reading(stored[name], fresh[name]):
+                    changed.append(name)
+                    assignments.append(f"{name} = ?")
+                    values.append(fresh[name])
     with conn:
-        conn.execute(
-            "UPDATE standard_requirements SET chunk_id = ?, page = ?,"
-            " extraction_run_id = ?, extractor_version = ?, input_hash = ?,"
-            " updated_at = ? WHERE id = ? AND " + _SUPERSEDABLE,
-            (chunk["id"], page if page is not None else chunk["page_start"], run_id,
-             extractor_version, inputs, _now(), requirement_id))
+        conn.execute("UPDATE standard_requirements SET " + ", ".join(assignments)
+                     + " WHERE id = ? AND " + _SUPERSEDABLE, (*values, requirement_id))
+    return changed
 
 
 def _supersede(document_id: str, ids: list[str], run_id: str, *, action: str) -> int:
@@ -892,6 +938,8 @@ def extract_requirements(
                 " AND " + _SUPERSEDABLE + " ORDER BY created_at DESC, id DESC",
                 (document_id,))}
     kept: set[str] = set()
+    #: #904 the kept rows whose stored reading this run changed: id -> fields.
+    reread: dict[str, list[str]] = {}
 
     written = 0
     low_confidence = 0
@@ -969,21 +1017,12 @@ def extract_requirements(
                 if key in seen:
                     continue
                 seen.add(key)
-                if key in reproducible:
-                    # #640 the same requirement, met again: the row stays,
-                    # with this run's provenance, and nothing is written.
-                    _reproduced(reproducible[key], chunk, run_id,
-                                extractor_version, inputs,
-                                page=sentence_page(chunk, sentence, pages_of_chunk))
-                    kept.add(reproducible[key])
-                    written += 1
-                    continue
                 confidence = _confidence(clause, sentence)
                 # Phase 3B: the structured shape, parsed deterministically. A
                 # sentence with no recognisable limit becomes a `statement`, which
                 # is a true description of it rather than a numeric_limit with a
                 # null value - a shape that reads as a limit nobody recorded.
-                limit = requirements_3b.parse_limit(sentence)
+                limit = requirements_3b.parse_limit_or_range(sentence)
                 # THE SELF-AUDIT. A limit that points the opposite way to its
                 # own sentence is the one failure a reviewer cannot catch by
                 # checking the citation, because the citation is correct. It
@@ -1014,6 +1053,23 @@ def extract_requirements(
                     "required_evidence_type": requirements_3b.required_evidence_type(sentence),
                     **(limit or {}),
                 }
+                category = "prohibition" if _PROHIBITION.search(sentence) else None
+                if key in reproducible:
+                    # #640 the same requirement, met again: the row stays (same
+                    # id, so findings keep resolving) with this run's provenance
+                    # - and, #904, with THIS run's reading of it.
+                    met_on = sentence_page(chunk, sentence, pages_of_chunk)
+                    fields = _reproduced(reproducible[key], chunk, run_id,
+                                         extractor_version, inputs, page=met_on,
+                                         reading={**structured, "category": category,
+                                                  "confidence": confidence})
+                    if fields:
+                        reread[reproducible[key]] = fields
+                    kept.add(reproducible[key])
+                    written += 1
+                    if confidence < VERIFICATION_THRESHOLD:
+                        low_confidence += 1
+                    continue
                 try:
                     create_requirement(
                         standard_document_id=document_id,
@@ -1029,7 +1085,7 @@ def extract_requirements(
                         page=sentence_page(chunk, sentence, pages_of_chunk),
                         extraction_method="extracted",
                         confidence=confidence,
-                        category="prohibition" if _PROHIBITION.search(sentence) else None,
+                        category=category,
                         extractor_version=extractor_version,
                         input_hash=inputs,
                         extraction_run_id=run_id,
@@ -1045,16 +1101,33 @@ def extract_requirements(
     superseded = _supersede(
         document_id, [i for i in reproducible.values() if i not in kept],
         run_id, action="re_extraction")
+    fields_changed: dict[str, int] = {}
+    for names in reread.values():
+        for name in names:
+            fields_changed[name] = fields_changed.get(name, 0) + 1
     _audit("standard.requirements_extracted", actor, document_id,
            detail=f"run={run_id} chunks={len(chunks)} requirements={written} "
                   f"kept={len(kept)} superseded={superseded} "
                   f"awaiting_verification={low_confidence} "
-                  f"contradicted_source={contradicted}")
+                  f"contradicted_source={contradicted} "
+                  f"readings_changed={len(reread)}")
+    if reread:
+        # WHICH rows now read differently, and in what - ids and field names,
+        # never the sentence. Findings written against the old reading still
+        # cite these ids; this is how someone finds them.
+        _audit("standard.requirement_readings_changed", actor, document_id,
+               detail=f"run={run_id} rows={len(reread)} fields="
+                      + ",".join(f"{k}:{v}" for k, v in sorted(fields_changed.items()))
+                      + " ids=" + ",".join(sorted(reread)[:200]))
     return {
         "extraction_run_id": run_id,
         # #640: of `requirements`, how many were the same rows met again, and
         # how many unconfirmed rows this run no longer produced (kept, marked).
         "kept": len(kept),
+        # #904: of `kept`, the rows whose stored reading (operator, value,
+        # unit, condition, type...) this run changed, and how often each field.
+        "readings_changed": len(reread),
+        "reading_fields_changed": fields_changed,
         "superseded": superseded,
         "document_id": document_id,
         "chunks_read": len(chunks),

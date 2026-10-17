@@ -68,10 +68,13 @@ beforeEach(() => {
   });
 });
 
-function panel(onOpenReview = vi.fn(), onOpenDocuments = vi.fn()) {
+function panel(
+  onOpenReview = vi.fn(), onOpenDocuments = vi.fn(), isAdmin?: boolean,
+) {
   render(
     <ReviewDashboardPanel
       onOpenReview={onOpenReview} onOpenDocuments={onOpenDocuments}
+      isAdmin={isAdmin}
     />,
   );
   return { onOpenReview, onOpenDocuments };
@@ -156,6 +159,17 @@ describe("the one button", () => {
       screen.getByRole("button", { name: /Upload it on the Documents page/ }));
 
     expect(onOpenDocuments).toHaveBeenCalled();
+  });
+
+  it("disables the button and says why for a non-admin, rather than a 404 that reads as a missing submittal (#925)", async () => {
+    panel(vi.fn(), vi.fn(), false);
+
+    const launch = await screen.findByRole(
+      "button", { name: /Upload Datasheet and Run AI Review/ });
+    expect(launch).toBeDisabled();
+    expect(screen.getByText(/Only an administrator can start a review/))
+      .toBeInTheDocument();
+    expect(startReviewRun).not.toHaveBeenCalled();
   });
 });
 

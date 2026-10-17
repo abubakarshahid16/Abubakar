@@ -1,0 +1,17 @@
+{
+  "_about": "Reference data for rule_trust.py (owner decision: AI-compiled rules may be used automatically, under controls). Edit here, not in code. safety_fields: a rule whose TARGET FIELD names one of these (every content word of a name, stems of 4+ letters counting) is SAFETY tier: still used automatically, but every COMPLIANT verdict it gives is shown to an engineer to tick. text_words: words that make a rule safety tier wherever they appear in its sentence (the field may be named generically, e.g. 'material', while the sentence says sour service). condition_words: generic operator words that mark a sentence as carrying a condition, exception or cross-reference; any of them makes a rule safety tier. Nothing here names a standard, a clause or a datasheet layout.",
+  "safety_fields": [
+    {"name": "set pressure", "names": ["set pressure", "relief set pressure", "opening pressure"]},
+    {"name": "design pressure", "names": ["design pressure", "MAWP", "maximum allowable working pressure"]},
+    {"name": "design temperature", "names": ["design temperature", "MDMT", "minimum design metal temperature"]},
+    {"name": "relief / PSV capacity", "names": ["relief capacity", "relieving capacity", "PSV capacity"]},
+    {"name": "SIL / safety integrity level", "names": ["SIL", "safety integrity level"]},
+    {"name": "hazardous area classification / zone", "names": ["hazardous area", "area classification", "zone", "gas group", "temperature class"], "text_words": ["hazardous area", "explosive atmosphere"]},
+    {"name": "material for sour service / NACE", "names": ["sour service", "NACE", "MR0175", "MR0103"], "text_words": ["sour service", "NACE", "MR0175", "MR0103", "H2S"]}
+  ],
+  "condition_words": [
+    "except", "excepting", "unless", "provided that", "providing that", "where", "if",
+    "in accordance with", "as per",
+    "see clause", "see section", "see paragraph", "see table", "see annex", "see appendix", "see figure"
+  ]
+}

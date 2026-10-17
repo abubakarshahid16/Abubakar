@@ -63,6 +63,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `claude_selection` | Choose the standards that apply to a submittal |
 | `claude_spend` | What the Claude API has cost, and the refusal before it costs more |
 | `comparison` | Phase 5B: does this submittal meet the requirements that govern it |
+| `comparators` | The one vocabulary of limit-direction words: which way does a sentence say a limit points (#915) |
 | `condition_choice` | Which clause applies: conditions in a question and in a passage |
 | `conditions` | B24 — can a requirement's condition be established from the submittal? |
 | `config` | Settings from backend/.env and defaults |
@@ -77,6 +78,9 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `crs_wording` | AI-worded CRS comments, with a code lock on every number, unit, clause, page and standard |
 | `crs_reply` | Read a contractor's returned Comment Resolution Sheet |
 | `datasheet_ai` | Read a contractor datasheet into facts |
+| `form_reader` | Read the form of a datasheet page with a model and verify every answer in code |
+| `form_reader_fields` | Build a datasheet type's field list, schema and prompt from reference data |
+| `form_reader_run` | Run the form reader over a datasheet for extraction |
 | `datasheet_checks` | Datasheet self-checks (kind B): what a datasheet says against ITSELF |
 | `datasheet_inputs` | Datasheet INPUTS other than a PDF text layer: Excel, Word, scanned pages |
 | `datasheets` | Read a contractor datasheet into facts |
@@ -143,6 +147,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `review_trace` | Show what each step of a finished review produced (REVIEW_DEBUG console and per-run log, #791) |
 | `risks` | Typed EPC risk register, kept separate from evidence-backed findings |
 | `row_noise` | Page furniture and fragments that are not fields (#193 plan B4, item 3) |
+| `rule_trust` | Decide when an AI-compiled rule may be used: tier, family proof, second check, audit sample, trust labels |
 | `rule_eval` | Table and formula rules, evaluated in code (owner order 2026-09-26, 2a + 2b) |
 | `schemas` | Typed response models |
 | `scope_ledger` | Every requirement in a review's scope ends in exactly ONE state, with a reason (#677) |

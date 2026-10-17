@@ -177,13 +177,15 @@ EGRESS_SAFE: dict[str, object] = {
     "geometry_table_reader_enabled": True,
     # --- local only: reads an uploaded Word file with the standard library
     "docx_input_enabled": True,
+    # --- local only, no model or socket: rule_trust's opt-in hook (off by default)
+    "rule_auto_use_enabled": False,
 }
 
 #: Path fields the suite WRITES through. They must point inside a temp dir,
 #: never at `backend/data` (the live DB, the real spend ledger, the real
 #: Claude response cache). Model directories are read-only and stay put.
 WRITE_PATHS = ("data_dir", "upload_dir", "db_path", "claude_spend_log", "claude_cache_dir")
-READ_ONLY_PATHS = ("embed_model_dir", "ocr_model_dir")
+READ_ONLY_PATHS = ("embed_model_dir", "ocr_model_dir", "rule_trust_reference_path")
 
 #: Name shapes that mean "this field might open a socket, hold a secret or
 #: touch a path". Every field matching one must appear in EGRESS_SAFE,

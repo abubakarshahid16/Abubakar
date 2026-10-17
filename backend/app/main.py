@@ -3727,6 +3727,53 @@ def standard_okf_report(
             "problems": len(okf_mod.problems(built["concepts"]))}
 
 
+def _okf_concept_or_404(document_id: str, concept_id: str,
+                        scope: access.AccessScope) -> dict:
+    built = okf_mod.build([document_id], allowed_document_ids=scope.allowed_document_ids)
+    concept = next((c for c in built["concepts"] if c["id"] == concept_id), None)
+    if concept is None:
+        raise HTTPException(status_code=404, detail=errors.safe_error(
+            errors.NOT_FOUND, "no such OKF concept"))
+    return concept
+
+
+@app.post("/api/standards/{document_id}/okf/concepts/{concept_id}/approve",
+          response_model=schemas.OkfApproval,
+          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def approve_okf_concept(
+    document_id: str,
+    concept_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """R29/#833: an engineer confirms one OKF concept, at its CURRENT
+    content hash. Re-deciding an already-confirmed concept at the same
+    content is a no-op in effect (the same decision, re-dated)."""
+    reject_unknown_params(request, set())
+    require_document(document_id, scope)
+    concept = _okf_concept_or_404(document_id, concept_id, scope)
+    okf_mod.approve(concept["id"], concept["content_sha256"], decided_by=scope.user_id)
+    return okf_mod.approval_status(concept)
+
+
+@app.post("/api/standards/{document_id}/okf/concepts/{concept_id}/reject",
+          response_model=schemas.OkfApproval,
+          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+def reject_okf_concept(
+    document_id: str,
+    concept_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """R29/#833: an engineer rejects one OKF concept, at its CURRENT
+    content hash."""
+    reject_unknown_params(request, set())
+    require_document(document_id, scope)
+    concept = _okf_concept_or_404(document_id, concept_id, scope)
+    okf_mod.reject(concept["id"], concept["content_sha256"], decided_by=scope.user_id)
+    return okf_mod.approval_status(concept)
+
+
 @app.get("/api/standards/{document_id}/clauses",
          response_model=list[schemas.StandardClause],
          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
@@ -5206,7 +5253,7 @@ def decide_crs_unread_page(
     actor = _crs_decision_actor(review_run_id, scope)
     outcome = comparison_mod.run_outcome(
         review_run_id, allowed_document_ids=scope.allowed_document_ids) or {}
-    unread = (outcome.get("page_coverage") or {}).get("pages_not_read_into_fields") or []
+    unread = crs_issue_mod.pages_to_check(outcome.get("page_coverage"))
     try:
         return crs_issue_mod.decide_page(review_run_id, page_no, unread=unread,
                                          reason=body.reason, actor=actor)

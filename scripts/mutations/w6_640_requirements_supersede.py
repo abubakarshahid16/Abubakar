@@ -109,8 +109,8 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T, keyword="by_identity", tags=("data-loss", "critical")),
     Mutation(id="M3620", phase=3620, description="a requirement met again keeps stale provenance",
              path=_S,
-             anchor=('    The text is not touched - it is the same text, which is why it matched."""\n'),
-             replacement=('    The text is not touched - it is the same text, which is why it matched."""\n'
-                          "    return\n"),
+             anchor=('    row a person confirmed (`_SUPERSEDABLE`)."""\n'),
+             replacement=('    row a person confirmed (`_SUPERSEDABLE`)."""\n'
+                          "    return []\n"),
              target=_T, keyword="met_again_keeps", tags=("honesty",)),
 )

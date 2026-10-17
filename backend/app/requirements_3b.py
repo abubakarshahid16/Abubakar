@@ -150,8 +150,8 @@ _NEGATED_RE = r"(?:(?:shall|must|may|should|will)\s+)?(?:no|not|never)\s+(?:\w+\
 _NEGATED_COMPARATIVE = _NEGATED_RE + _COMPARATIVE_THAN
 _NEGATED_PREPOSITION = _NEGATED_RE + r"(?:" + "|".join(_BELOW + _ABOVE) + r")\b"
 
-_LIMIT = re.compile(
-    r"(?P<cmp>" + _IN_NO_CASE_RE + r"(?:less|more|greater)\s+than"
+_CMP_RE = (
+    _IN_NO_CASE_RE + r"(?:less|more|greater)\s+than"
     r"|" + _IN_NO_CASE_RE + r"exceed"
     r"|" + _IN_EXCESS_RE + r"|(?:shall|must|may|should|will)\s+not\s+exceed"
     r"|(?:no|not)\s+(?:be\s+)?less\s+than"
@@ -164,7 +164,10 @@ _LIMIT = re.compile(
     # Single-word prepositions meaning "less/more than" - "the design
     # temperature shall be below 441degC" - not covered by any "than" form.
     # `\b` on both sides, so this never matches inside a longer word.
-    r"|\b(?:below|under|beneath|above|over)\b)\s*"
+    r"|\b(?:below|under|beneath|above|over)\b")
+
+_LIMIT = re.compile(
+    r"(?P<cmp>" + _CMP_RE + r")\s*"
     r"(?:of\s+)?"
     r"(?P<value>[-+]?\d[\d.,]*)\s*"
     r"(?P<unit>[A-Za-z%µμ°][A-Za-z0-9()/%µμ°.\-]{0,15}"
@@ -324,6 +327,31 @@ def cell_reading(cell: str) -> tuple[str, str | None] | None:
 #: (`comparison.MATCHABLE_TYPES` does not list it).
 TABLE_RANGE = "table_range"
 RANGE_OPERATOR = "between"
+#: #895: a SENTENCE that states a two-sided limit - "shall operate between
+#: 20 % and 80 % of its travel", "the velocity shall be between 1.0 m/s and
+#: 2.5 m/s". Stored as ONE requirement with both ends (`value_low`,
+#: `value_high`); compared as two ordinary limits (`comparison._compare_range`).
+#: Until #895 the sentence was a `statement` (or, when another phrase in it
+#: parsed, a ONE-SIDED limit): a sheet value outside either end got no verdict.
+RANGE_LIMIT = "range_limit"
+#: A SENTENCE THAT STATES ONE VALUE, with no comparator: "the transmitter shall
+#: operate from a 24 V DC loop supply", "the cable shall be 3 m". Not a limit
+#: either way, so it was a `statement` and a sheet value got no verdict. Stored
+#: with the stated value and the half-unit of its last printed digit as its
+#: precision (`value_low`, `value_high`); compared as that tight range, but a
+#: value outside it is an engineer's question, NEVER a breach
+#: (`comparison._compare_nominal`).
+NOMINAL_VALUE = "nominal_value"
+NOMINAL_OPERATOR = "nominal"
+#: A SENTENCE THAT COMPARES ONE FIELD WITH ANOTHER: "the outlet size shall be not
+#: less than the inlet size", "the design pressure shall be not less than the
+#: maximum operating pressure plus 2 bar", "... not less than half of the line
+#: size". No number states the limit, so it was a `statement`. Stored as that
+#: type and judged by `rule_eval` as a one-row rule (output field, input field,
+#: factor, offset) against the sheet's two fields; a field not on the sheet
+#: leaves it with an engineer.
+CROSS_FIELD_LIMIT = "cross_field_limit"
+CROSS_OPERATOR = "cross_field"
 _RANGE_CELL = re.compile(
     r"^\s*(?P<low>[-+]?\d[\d.,]*)(?P<sep>\s*(?:to|[-\u2012\u2013\u2014\u2015])\s*)"
     r"(?P<high>[-+]?\d[\d.,]*)\s*"
@@ -888,6 +916,205 @@ def measure(raw_value: str, raw_unit: str | None) -> claims.Measurement:
     return claims.normalise(raw_value, raw_unit or "")
 
 
+_UNIT = r"[A-Za-z%\u00b5\u03bc\u00b0][A-Za-z0-9()/%\u00b5\u03bc\u00b0.\-]{0,15}(?:\s*\([A-Za-z]\))?"
+_RANGE_SENTENCE = re.compile(
+    r"\b(?:between|from|in\s+the\s+range\s+(?:of\s+)?|within\s+(?:the\s+)?range\s+(?:of\s+)?)\s*"
+    r"(?P<low>[-+]?\d[\d.,]*)\s*(?P<u1>" + _UNIT + r")?\s*(?:and|to)\s+"
+    r"(?P<high>[-+]?\d[\d.,]*)\s*(?P<u2>" + _UNIT + r")?", re.IGNORECASE)
+_NEGATED_BEFORE = re.compile(r"\b(?:not|never|no)\b[^.;]{0,40}$", re.IGNORECASE)
+
+
+def parse_range(sentence: str) -> dict | None:
+    """A two-sided limit out of one sentence, or None (#895).
+
+    "between 20 % and 80 %", "between 1.0 m/s and 2.5 m/s", "from 5 to 10 bar",
+    "in the range of 10 to 40 degC". WHEN UNSURE, NONE - the sentence stays
+    what it was:
+      * a UNIT is required, and a recognised one (a bare "from 5 to 10" is as
+        often item numbers as a measure), the same on both ends if both state it;
+      * a negation shortly before it ("shall not be between 5 and 10") is not
+        a range to stay inside;
+      * both numbers must read as numbers, the low end not above the high.
+    `_ends` carries the two printed numbers, for `parse_limit_or_range`."""
+    match = _RANGE_SENTENCE.search(sentence or "")
+    if match is None or _NEGATED_BEFORE.search(sentence[:match.start()]):
+        return None
+    low_raw, high_raw = match.group("low"), match.group("high")
+    first, second = unit_token(match.group("u1")), unit_token(match.group("u2"))
+    if first and second and re.sub(r"\s+", "", first).lower() != re.sub(r"\s+", "", second).lower():
+        return None
+    unit = second or first
+    low, high = claims.parse_value(low_raw), claims.parse_value(high_raw)
+    if not unit or low is None or high is None or low > high:
+        return None
+    measurement = measure(low_raw, unit)
+    return {"operator": RANGE_OPERATOR, "raw_value": f"{low_raw} to {high_raw}", "raw_unit": unit,
+            "value": None, "unit": measurement.normalized_unit,
+            "value_low": low, "value_high": high, "_ends": (low_raw, high_raw)}
+
+
+#: The verbs that state ONE value and nothing else. A sentence that does not
+#: use one of them is not read as a nominal value (WHEN UNSURE, NONE).
+_NOMINAL_SENTENCE = re.compile(
+    r"\b(?:shall|must|is\s+to)\s+(?:be(?:\s+(?:supplied|powered|rated|set|designed)\s+(?:at|for|to|by|from|with))?"
+    r"|operate\s+(?:from|at|on)|be\s+(?:supplied|powered|rated|set|designed)\s+(?:at|for|to|by|from|with))\s+"
+    r"(?:(?:a|an|the)\s+)?(?P<value>[-+]?\d[\d.,]*)\s*(?P<unit>" + _UNIT + r")", re.IGNORECASE)
+
+
+def _half_unit(raw_value: str) -> float | None:
+    """Half a unit of the last printed digit of `raw_value`: "24" -> 0.5,
+    "2.50" -> 0.005. The precision the clause itself states."""
+    text = raw_value.strip().lstrip("+-")
+    if not re.fullmatch(r"\d+(?:\.\d+)?", text):
+        return None
+    decimals = len(text.split(".")[1]) if "." in text else 0
+    return 0.5 * 10 ** -decimals
+
+
+def parse_nominal(sentence: str) -> dict | None:
+    """The one value a sentence states, or None (nominal values).
+
+    "shall be 24 V DC", "shall operate from a 24 V DC loop supply". WHEN UNSURE,
+    NONE: a recognised unit is required; any comparator or range wording in the
+    sentence (the sentence then states a limit or a range, which have their own
+    readers) or a negation, and a sentence with a second number-with-a-unit,
+    is left as it was."""
+    from . import comparators
+
+    text = sentence or ""
+    match = _NOMINAL_SENTENCE.search(text)
+    if match is None or comparators.directions_in(text) or _NEGATION_WORD.search(text):
+        return None
+    if parse_limit(text) is not None or parse_range(text) is not None:
+        return None
+    raw_value, raw_unit = match.group("value"), unit_token(match.group("unit"))
+    half = _half_unit(raw_value)
+    value = claims.parse_value(raw_value)
+    if not raw_unit or half is None or value is None:
+        return None
+    # A second quantity in the sentence ("24 V DC at 50 Hz") is a second claim.
+    others = [m for m in claims._MEASUREMENT.finditer(text) if m.start("value") != match.start("value")]
+    if others:
+        return None
+    measurement = measure(raw_value, raw_unit)
+    return {"operator": NOMINAL_OPERATOR, "raw_value": raw_value, "raw_unit": raw_unit,
+            "value": measurement.normalized_value, "unit": measurement.normalized_unit,
+            "value_low": round(value - half, 9), "value_high": round(value + half, 9)}
+
+
+_NEGATION_WORD = re.compile(r"\b(?:not|never|no|without|nor)\b", re.IGNORECASE)
+
+
+_CROSS_SENTENCE = re.compile(
+    r"(?P<cmp>" + _CMP_RE + r")\s*(?:of\s+)?"
+    r"(?:(?P<mult>half|twice|double|\d+(?:\.\d+)?\s*(?:x|times))\s+(?:of\s+)?)?"
+    r"(?:the\s+)?(?P<ref>[A-Za-z][A-Za-z0-9 \-/]{1,60}?)"
+    r"(?:\s+(?P<sign>plus|minus)\s+(?P<ov>\d[\d.,]*)\s*(?P<ou>" + _UNIT + r"))?"
+    r"\s*(?:[.;,]|\s+(?:of|for|in|at|on|but)\b|$)", re.IGNORECASE)
+_CROSS_FACTOR = {"half": 0.5, "twice": 2.0, "double": 2.0}
+#: Words that make a "reference" something other than another field of the sheet.
+_NOT_A_FIELD = re.compile(
+    r"\b(?:table|figure|following|clause|section|value|values|requirement|requirements|specified|given|stated|"
+    r"above|below|applicable|relevant|appropriate|supplier|vendor|purchaser|standard|code|"
+    r"documents?|drawings?|datasheets?)\b", re.IGNORECASE)
+_CONDITION_WORD = re.compile(r"\b(?:when|where|if|unless|except|provided\s+that|whichever|whilst|while)\b", re.IGNORECASE)
+_SUBJECT_LEAD = re.compile(r"^\s*(?:the|a|an)?\s*(?P<subject>[A-Za-z][A-Za-z \-/]{1,50}?)(?:\s+(?:shall|must|should|will)(?:\s+be)?)?\s*$",
+                           re.IGNORECASE)
+
+
+def _states_its_own_limit(text: str, mult: str | None) -> bool:
+    """A plain numeric limit is not a field comparison - except that the factor of
+    one ("1.1 times the required capacity") reads as a UNITLESS limit of 1.1."""
+    limit = parse_limit(text)
+    return limit is not None and not (mult and limit.get("raw_unit") is None)
+
+
+def parse_cross_field(sentence: str) -> dict | None:
+    """The comparison of one field of the sheet with another, or None.
+
+    `{"output", "reference", "operator", "factor", "offset", "offset_unit"}`:
+    the OUTPUT field is judged against `factor * reference + offset`.
+    WHEN UNSURE, NONE: a reference that reads like a table, a clause or a
+    document is not a field; a condition, a negation outside the comparator,
+    a number that is not the stated offset or a subject that is not a short
+    plain noun phrase leaves the sentence as it was."""
+    text = " ".join((sentence or "").split())
+    match = _CROSS_SENTENCE.search(text)
+    if match is None or _CONDITION_WORD.search(text):
+        return None
+    operator = _OPERATOR.get(_canonical_comparator(match.group("cmp")))
+    subject = _SUBJECT_LEAD.match(text[:match.start("cmp")])
+    reference = " ".join(match.group("ref").split())
+    # An "of the ..." qualifier ("... pressure of the protected equipment") names which
+    # one, not another field: the head noun phrase is the field.
+    reference = re.split(r"\s+of\s+(?:the\s+)?", reference, maxsplit=1)[0].strip()
+    if (operator is None or subject is None or not reference or _NOT_A_FIELD.search(reference)
+            or re.search(r"\d", subject.group("subject")) or len(reference.split()) > 6
+            or _NEGATION_WORD.search(text[:match.start("cmp")] + " " + text[match.end("cmp"):])
+            or parse_range(text) is not None or _states_its_own_limit(text, match.group("mult"))):
+        return None
+    mult = (match.group("mult") or "").lower()
+    if not mult:
+        factor = 1.0
+    elif mult in _CROSS_FACTOR:
+        factor = _CROSS_FACTOR[mult]
+    else:
+        factor = claims.parse_value(re.sub(r"\s*(?:x|times)$", "", mult))
+    offset, unit = 0.0, None
+    if match.group("ov"):
+        offset = claims.parse_value(match.group("ov"))
+        unit = unit_token(match.group("ou"))
+        if offset is None or not unit:
+            return None
+        offset = -offset if match.group("sign").lower() == "minus" else offset
+    if factor is None or factor <= 0:
+        return None
+    return {"output": " ".join(subject.group("subject").split()).lower(), "reference": reference.lower(),
+            "operator": operator, "factor": factor, "offset": offset, "offset_unit": unit}
+
+
+def parse_limit_or_range(sentence: str) -> dict | None:
+    """The limit a sentence states: a range when it states one, else the
+    one-sided limit `parse_limit` reads (#895).
+
+    A sentence with a range AND another number that is neither end ("between
+    20 % and 80 % of travel, and not above 5 bar") is NOT turned into a range:
+    it stays the limit it was, for an engineer to read."""
+    limit, span = parse_limit(sentence), parse_range(sentence)
+    if span is None:
+        if limit and not (limit.get("raw_unit") is None and parse_cross_field(sentence) is not None):
+            return limit
+        found = parse_nominal(sentence)
+        if found is None and parse_cross_field(sentence) is not None:
+            return {"operator": CROSS_OPERATOR, "raw_value": None, "raw_unit": None, "value": None, "unit": None}
+        return found
+    if limit is None or str(limit.get("raw_value")) in span["_ends"]:
+        return {key: value for key, value in span.items() if key != "_ends"}
+    return limit
+
+
+#: A comparator that FOLLOWS the value: "3 m or less", "5 mm or more", "50 mm or
+#: above". `_LIMIT` reads only a comparator in front of the number, so these
+#: stated a limit and the engine read none. The direction is the shared
+#: vocabulary's (`comparators`), never a second list here.
+_TRAILING_LIMIT = re.compile(
+    r"(?P<value>[-+]?\d[\d.,]*)\s*(?P<unit>" + _UNIT + r")\s+(?P<cmp>or\s+[A-Za-z]+)\b", re.IGNORECASE)
+
+
+def _parse_trailing_limit(sentence: str) -> dict | None:
+    from . import comparators
+
+    for match in _TRAILING_LIMIT.finditer(sentence or ""):
+        direction = comparators.direction_of(match.group(0))
+        raw_unit = unit_token(match.group("unit"))
+        if direction is None or not raw_unit:
+            continue
+        measurement = measure(match.group("value"), raw_unit)
+        return {"operator": direction, "raw_value": match.group("value"), "raw_unit": raw_unit,
+                "value": measurement.normalized_value, "unit": measurement.normalized_unit}
+    return None
+
+
 def parse_limit(sentence: str) -> dict | None:
     """A numeric limit out of one sentence, or None.
 
@@ -897,7 +1124,7 @@ def parse_limit(sentence: str) -> dict | None:
     """
     match = _LIMIT.search(sentence)
     if not match:
-        return None
+        return _parse_trailing_limit(sentence)
     phrase = _canonical_comparator(match.group("cmp"))
     operator = _OPERATOR.get(phrase)
     if operator is None:
@@ -1070,7 +1297,7 @@ DEFINITION = "definition"
 #: return (`schemas.RequirementType`). `REQUIREMENT_TYPES` above is the core
 #: three the parser may classify an obligation as; these are all of them.
 STORED_REQUIREMENT_TYPES = (*REQUIREMENT_TYPES, APPLICABILITY_TRIGGER, RELATIVE_LIMIT, TABLE_ROW,
-                           DEFINITION)
+                           DEFINITION, TABLE_RANGE, RANGE_LIMIT, NOMINAL_VALUE, CROSS_FIELD_LIMIT)
 
 
 def classify(sentence: str, limit: dict | None) -> str:
@@ -1099,6 +1326,18 @@ def classify(sentence: str, limit: dict | None) -> str:
         # lookup and stored as a limit - so it applies only where a number was
         # actually lifted.
         return "statement"
+    # #895: A SENTENCE THAT STATES ITS OWN RANGE STATES ITS OWN LIMIT, like one
+    # with its own comparator (see `is_table_row`): "shall be from 5 to 10 bar"
+    # has the shape of a row boundary and is a requirement. Unless it hands the
+    # number to a table.
+    if limit.get("operator") == RANGE_OPERATOR and not _TABLE_REFERENCE.search(sentence or ""):
+        return RANGE_LIMIT
+    if limit.get("operator") == CROSS_OPERATOR:
+        return TABLE_ROW if _TABLE_REFERENCE.search(sentence or "") else CROSS_FIELD_LIMIT
+    if limit.get("operator") == NOMINAL_OPERATOR:
+        # One stated value. A sentence that hands the number to a table is the
+        # table's row, as for every other limit.
+        return TABLE_ROW if _TABLE_REFERENCE.search(sentence or "") else NOMINAL_VALUE
     if is_table_row(sentence):
         return TABLE_ROW
     # THE NUMBER IS THE THRESHOLD, NOT THE LIMIT. Checked before

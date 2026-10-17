@@ -1,0 +1,1125 @@
+{
+ "format": "rule-proof-seed/1",
+ "standard": "invented PSV standard (pf1-07-psv)",
+ "truth": "arithmetic on the limit as extracted; NOT engineer-confirmed",
+ "rules": [
+  {
+   "id": "6250e753-3692-493a-9abd-b618ca743714",
+   "requirement_type": "numeric_limit",
+   "operator": "<=",
+   "raw_value": "90",
+   "raw_unit": "%",
+   "value": 90.0,
+   "unit": "%",
+   "subject": "maximum operating pressure",
+   "field": "maximum operating pressure",
+   "requirement_text": "The maximum operating pressure shall not exceed 90 % of the set pressure.",
+   "source_text": "The maximum operating pressure shall not exceed 90 % of the set pressure.",
+   "clause": "4.2"
+  },
+  {
+   "id": "25724099-6288-45bd-a217-623d841340ed",
+   "requirement_type": "numeric_limit",
+   "operator": "<=",
+   "raw_value": "10",
+   "raw_unit": "%",
+   "value": 10.0,
+   "unit": "%",
+   "subject": "overpressure",
+   "field": "overpressure",
+   "requirement_text": "For a single valve in a case other than fire, the overpressure shall not exceed 10 %.",
+   "source_text": "For a single valve in a case other than fire, the overpressure shall not exceed 10 %.",
+   "clause": "4.3"
+  },
+  {
+   "id": "76bd059b-c502-4c8e-bcdb-ce3e9be8d082",
+   "requirement_type": "numeric_limit",
+   "operator": "<=",
+   "raw_value": "10",
+   "raw_unit": "%",
+   "value": 10.0,
+   "unit": "%",
+   "subject": "built-up back pressure",
+   "field": "built-up back pressure",
+   "requirement_text": "For a conventional valve, the built-up back pressure shall not exceed 10 % of the set pressure.",
+   "source_text": "For a conventional valve, the built-up back pressure shall not exceed 10 % of the set pressure.",
+   "clause": "4.4"
+  },
+  {
+   "output": "set pressure",
+   "input": "maximum allowable working pressure",
+   "input_names": [
+    "maximum allowable working pressure"
+   ],
+   "unit": "bar",
+   "comparator": "<=",
+   "rows": [
+    {
+     "from": null,
+     "to": null,
+     "op": "single",
+     "terms": [
+      {
+       "k": 1.0,
+       "c": 0.0
+      }
+     ]
+    }
+   ],
+   "id": "9f216e5b-95c8-480b-8096-13ab8b098e45",
+   "requirement_type": "cross_field_limit",
+   "source_text": "The set pressure shall not exceed the maximum allowable working pressure of the protected equipment.",
+   "requirement_text": "The set pressure shall not exceed the maximum allowable working pressure of the protected equipment.",
+   "clause": "4.1"
+  },
+  {
+   "output": "cold differential test pressure",
+   "input": "set pressure",
+   "input_names": [
+    "set pressure"
+   ],
+   "unit": "bar",
+   "comparator": "<=",
+   "rows": [
+    {
+     "from": null,
+     "to": null,
+     "op": "single",
+     "terms": [
+      {
+       "k": 1.0,
+       "c": 0.0
+      }
+     ]
+    }
+   ],
+   "id": "6b88a688-07d8-4e1e-9d80-41256b563fff",
+   "requirement_type": "cross_field_limit",
+   "source_text": "The cold differential test pressure shall not exceed the set pressure.",
+   "requirement_text": "The cold differential test pressure shall not exceed the set pressure.",
+   "clause": "4.6"
+  },
+  {
+   "output": "outlet size",
+   "input": "inlet size",
+   "input_names": [
+    "inlet size"
+   ],
+   "unit": "mm",
+   "comparator": ">=",
+   "rows": [
+    {
+     "from": null,
+     "to": null,
+     "op": "single",
+     "terms": [
+      {
+       "k": 1.0,
+       "c": 0.0
+      }
+     ]
+    }
+   ],
+   "id": "70e5b94c-c799-477d-aaf4-5348834107d3",
+   "requirement_type": "cross_field_limit",
+   "source_text": "The outlet size shall be not less than the inlet size.",
+   "requirement_text": "The outlet size shall be not less than the inlet size.",
+   "clause": "5.2"
+  }
+ ],
+ "cases": [
+  {
+   "rule_id": "6250e753-3692-493a-9abd-b618ca743714",
+   "made": "outside_1",
+   "values": {
+    "maximum operating pressure": {
+     "value": 90.9,
+     "unit": "%"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "6250e753-3692-493a-9abd-b618ca743714",
+   "made": "outside_5",
+   "values": {
+    "maximum operating pressure": {
+     "value": 94.5,
+     "unit": "%"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "6250e753-3692-493a-9abd-b618ca743714",
+   "made": "outside_10",
+   "values": {
+    "maximum operating pressure": {
+     "value": 99.0,
+     "unit": "%"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "6250e753-3692-493a-9abd-b618ca743714",
+   "made": "outside_20",
+   "values": {
+    "maximum operating pressure": {
+     "value": 108.0,
+     "unit": "%"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "6250e753-3692-493a-9abd-b618ca743714",
+   "made": "outside_50",
+   "values": {
+    "maximum operating pressure": {
+     "value": 135.0,
+     "unit": "%"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "6250e753-3692-493a-9abd-b618ca743714",
+   "made": "inside_1",
+   "values": {
+    "maximum operating pressure": {
+     "value": 89.1,
+     "unit": "%"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "6250e753-3692-493a-9abd-b618ca743714",
+   "made": "inside_5",
+   "values": {
+    "maximum operating pressure": {
+     "value": 85.5,
+     "unit": "%"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "6250e753-3692-493a-9abd-b618ca743714",
+   "made": "inside_10",
+   "values": {
+    "maximum operating pressure": {
+     "value": 81.0,
+     "unit": "%"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "6250e753-3692-493a-9abd-b618ca743714",
+   "made": "inside_20",
+   "values": {
+    "maximum operating pressure": {
+     "value": 72.0,
+     "unit": "%"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "6250e753-3692-493a-9abd-b618ca743714",
+   "made": "inside_50",
+   "values": {
+    "maximum operating pressure": {
+     "value": 45.0,
+     "unit": "%"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "6250e753-3692-493a-9abd-b618ca743714",
+   "made": "at_limit",
+   "values": {
+    "maximum operating pressure": {
+     "value": 90.0,
+     "unit": "%"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "25724099-6288-45bd-a217-623d841340ed",
+   "made": "outside_1",
+   "values": {
+    "overpressure": {
+     "value": 10.1,
+     "unit": "%"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "25724099-6288-45bd-a217-623d841340ed",
+   "made": "outside_5",
+   "values": {
+    "overpressure": {
+     "value": 10.5,
+     "unit": "%"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "25724099-6288-45bd-a217-623d841340ed",
+   "made": "outside_10",
+   "values": {
+    "overpressure": {
+     "value": 11.0,
+     "unit": "%"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "25724099-6288-45bd-a217-623d841340ed",
+   "made": "outside_20",
+   "values": {
+    "overpressure": {
+     "value": 12.0,
+     "unit": "%"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "25724099-6288-45bd-a217-623d841340ed",
+   "made": "outside_50",
+   "values": {
+    "overpressure": {
+     "value": 15.0,
+     "unit": "%"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "25724099-6288-45bd-a217-623d841340ed",
+   "made": "inside_1",
+   "values": {
+    "overpressure": {
+     "value": 9.9,
+     "unit": "%"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "25724099-6288-45bd-a217-623d841340ed",
+   "made": "inside_5",
+   "values": {
+    "overpressure": {
+     "value": 9.5,
+     "unit": "%"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "25724099-6288-45bd-a217-623d841340ed",
+   "made": "inside_10",
+   "values": {
+    "overpressure": {
+     "value": 9.0,
+     "unit": "%"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "25724099-6288-45bd-a217-623d841340ed",
+   "made": "inside_20",
+   "values": {
+    "overpressure": {
+     "value": 8.0,
+     "unit": "%"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "25724099-6288-45bd-a217-623d841340ed",
+   "made": "inside_50",
+   "values": {
+    "overpressure": {
+     "value": 5.0,
+     "unit": "%"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "25724099-6288-45bd-a217-623d841340ed",
+   "made": "at_limit",
+   "values": {
+    "overpressure": {
+     "value": 10.0,
+     "unit": "%"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "76bd059b-c502-4c8e-bcdb-ce3e9be8d082",
+   "made": "outside_1",
+   "values": {
+    "built-up back pressure": {
+     "value": 10.1,
+     "unit": "%"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "76bd059b-c502-4c8e-bcdb-ce3e9be8d082",
+   "made": "outside_5",
+   "values": {
+    "built-up back pressure": {
+     "value": 10.5,
+     "unit": "%"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "76bd059b-c502-4c8e-bcdb-ce3e9be8d082",
+   "made": "outside_10",
+   "values": {
+    "built-up back pressure": {
+     "value": 11.0,
+     "unit": "%"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "76bd059b-c502-4c8e-bcdb-ce3e9be8d082",
+   "made": "outside_20",
+   "values": {
+    "built-up back pressure": {
+     "value": 12.0,
+     "unit": "%"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "76bd059b-c502-4c8e-bcdb-ce3e9be8d082",
+   "made": "outside_50",
+   "values": {
+    "built-up back pressure": {
+     "value": 15.0,
+     "unit": "%"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "76bd059b-c502-4c8e-bcdb-ce3e9be8d082",
+   "made": "inside_1",
+   "values": {
+    "built-up back pressure": {
+     "value": 9.9,
+     "unit": "%"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "76bd059b-c502-4c8e-bcdb-ce3e9be8d082",
+   "made": "inside_5",
+   "values": {
+    "built-up back pressure": {
+     "value": 9.5,
+     "unit": "%"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "76bd059b-c502-4c8e-bcdb-ce3e9be8d082",
+   "made": "inside_10",
+   "values": {
+    "built-up back pressure": {
+     "value": 9.0,
+     "unit": "%"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "76bd059b-c502-4c8e-bcdb-ce3e9be8d082",
+   "made": "inside_20",
+   "values": {
+    "built-up back pressure": {
+     "value": 8.0,
+     "unit": "%"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "76bd059b-c502-4c8e-bcdb-ce3e9be8d082",
+   "made": "inside_50",
+   "values": {
+    "built-up back pressure": {
+     "value": 5.0,
+     "unit": "%"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "76bd059b-c502-4c8e-bcdb-ce3e9be8d082",
+   "made": "at_limit",
+   "values": {
+    "built-up back pressure": {
+     "value": 10.0,
+     "unit": "%"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "9f216e5b-95c8-480b-8096-13ab8b098e45",
+   "made": "two_field_far_below_ref10",
+   "values": {
+    "set pressure": {
+     "value": 5.0,
+     "unit": "bar"
+    },
+    "maximum allowable working pressure": {
+     "value": 10.0,
+     "unit": "bar"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "9f216e5b-95c8-480b-8096-13ab8b098e45",
+   "made": "two_field_below_20_ref10",
+   "values": {
+    "set pressure": {
+     "value": 8.0,
+     "unit": "bar"
+    },
+    "maximum allowable working pressure": {
+     "value": 10.0,
+     "unit": "bar"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "9f216e5b-95c8-480b-8096-13ab8b098e45",
+   "made": "two_field_below_5_ref10",
+   "values": {
+    "set pressure": {
+     "value": 9.5,
+     "unit": "bar"
+    },
+    "maximum allowable working pressure": {
+     "value": 10.0,
+     "unit": "bar"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "9f216e5b-95c8-480b-8096-13ab8b098e45",
+   "made": "two_field_at_required_ref10",
+   "values": {
+    "set pressure": {
+     "value": 10.0,
+     "unit": "bar"
+    },
+    "maximum allowable working pressure": {
+     "value": 10.0,
+     "unit": "bar"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "9f216e5b-95c8-480b-8096-13ab8b098e45",
+   "made": "two_field_above_5_ref10",
+   "values": {
+    "set pressure": {
+     "value": 10.5,
+     "unit": "bar"
+    },
+    "maximum allowable working pressure": {
+     "value": 10.0,
+     "unit": "bar"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "9f216e5b-95c8-480b-8096-13ab8b098e45",
+   "made": "two_field_above_20_ref10",
+   "values": {
+    "set pressure": {
+     "value": 12.0,
+     "unit": "bar"
+    },
+    "maximum allowable working pressure": {
+     "value": 10.0,
+     "unit": "bar"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "9f216e5b-95c8-480b-8096-13ab8b098e45",
+   "made": "two_field_far_above_ref10",
+   "values": {
+    "set pressure": {
+     "value": 20.0,
+     "unit": "bar"
+    },
+    "maximum allowable working pressure": {
+     "value": 10.0,
+     "unit": "bar"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "9f216e5b-95c8-480b-8096-13ab8b098e45",
+   "made": "two_field_far_below_ref40",
+   "values": {
+    "set pressure": {
+     "value": 20.0,
+     "unit": "bar"
+    },
+    "maximum allowable working pressure": {
+     "value": 40.0,
+     "unit": "bar"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "9f216e5b-95c8-480b-8096-13ab8b098e45",
+   "made": "two_field_below_20_ref40",
+   "values": {
+    "set pressure": {
+     "value": 32.0,
+     "unit": "bar"
+    },
+    "maximum allowable working pressure": {
+     "value": 40.0,
+     "unit": "bar"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "9f216e5b-95c8-480b-8096-13ab8b098e45",
+   "made": "two_field_below_5_ref40",
+   "values": {
+    "set pressure": {
+     "value": 38.0,
+     "unit": "bar"
+    },
+    "maximum allowable working pressure": {
+     "value": 40.0,
+     "unit": "bar"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "9f216e5b-95c8-480b-8096-13ab8b098e45",
+   "made": "two_field_at_required_ref40",
+   "values": {
+    "set pressure": {
+     "value": 40.0,
+     "unit": "bar"
+    },
+    "maximum allowable working pressure": {
+     "value": 40.0,
+     "unit": "bar"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "9f216e5b-95c8-480b-8096-13ab8b098e45",
+   "made": "two_field_above_5_ref40",
+   "values": {
+    "set pressure": {
+     "value": 42.0,
+     "unit": "bar"
+    },
+    "maximum allowable working pressure": {
+     "value": 40.0,
+     "unit": "bar"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "9f216e5b-95c8-480b-8096-13ab8b098e45",
+   "made": "two_field_above_20_ref40",
+   "values": {
+    "set pressure": {
+     "value": 48.0,
+     "unit": "bar"
+    },
+    "maximum allowable working pressure": {
+     "value": 40.0,
+     "unit": "bar"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "9f216e5b-95c8-480b-8096-13ab8b098e45",
+   "made": "two_field_far_above_ref40",
+   "values": {
+    "set pressure": {
+     "value": 80.0,
+     "unit": "bar"
+    },
+    "maximum allowable working pressure": {
+     "value": 40.0,
+     "unit": "bar"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "6b88a688-07d8-4e1e-9d80-41256b563fff",
+   "made": "two_field_far_below_ref10",
+   "values": {
+    "cold differential test pressure": {
+     "value": 5.0,
+     "unit": "bar"
+    },
+    "set pressure": {
+     "value": 10.0,
+     "unit": "bar"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "6b88a688-07d8-4e1e-9d80-41256b563fff",
+   "made": "two_field_below_20_ref10",
+   "values": {
+    "cold differential test pressure": {
+     "value": 8.0,
+     "unit": "bar"
+    },
+    "set pressure": {
+     "value": 10.0,
+     "unit": "bar"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "6b88a688-07d8-4e1e-9d80-41256b563fff",
+   "made": "two_field_below_5_ref10",
+   "values": {
+    "cold differential test pressure": {
+     "value": 9.5,
+     "unit": "bar"
+    },
+    "set pressure": {
+     "value": 10.0,
+     "unit": "bar"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "6b88a688-07d8-4e1e-9d80-41256b563fff",
+   "made": "two_field_at_required_ref10",
+   "values": {
+    "cold differential test pressure": {
+     "value": 10.0,
+     "unit": "bar"
+    },
+    "set pressure": {
+     "value": 10.0,
+     "unit": "bar"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "6b88a688-07d8-4e1e-9d80-41256b563fff",
+   "made": "two_field_above_5_ref10",
+   "values": {
+    "cold differential test pressure": {
+     "value": 10.5,
+     "unit": "bar"
+    },
+    "set pressure": {
+     "value": 10.0,
+     "unit": "bar"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "6b88a688-07d8-4e1e-9d80-41256b563fff",
+   "made": "two_field_above_20_ref10",
+   "values": {
+    "cold differential test pressure": {
+     "value": 12.0,
+     "unit": "bar"
+    },
+    "set pressure": {
+     "value": 10.0,
+     "unit": "bar"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "6b88a688-07d8-4e1e-9d80-41256b563fff",
+   "made": "two_field_far_above_ref10",
+   "values": {
+    "cold differential test pressure": {
+     "value": 20.0,
+     "unit": "bar"
+    },
+    "set pressure": {
+     "value": 10.0,
+     "unit": "bar"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "6b88a688-07d8-4e1e-9d80-41256b563fff",
+   "made": "two_field_far_below_ref40",
+   "values": {
+    "cold differential test pressure": {
+     "value": 20.0,
+     "unit": "bar"
+    },
+    "set pressure": {
+     "value": 40.0,
+     "unit": "bar"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "6b88a688-07d8-4e1e-9d80-41256b563fff",
+   "made": "two_field_below_20_ref40",
+   "values": {
+    "cold differential test pressure": {
+     "value": 32.0,
+     "unit": "bar"
+    },
+    "set pressure": {
+     "value": 40.0,
+     "unit": "bar"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "6b88a688-07d8-4e1e-9d80-41256b563fff",
+   "made": "two_field_below_5_ref40",
+   "values": {
+    "cold differential test pressure": {
+     "value": 38.0,
+     "unit": "bar"
+    },
+    "set pressure": {
+     "value": 40.0,
+     "unit": "bar"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "6b88a688-07d8-4e1e-9d80-41256b563fff",
+   "made": "two_field_at_required_ref40",
+   "values": {
+    "cold differential test pressure": {
+     "value": 40.0,
+     "unit": "bar"
+    },
+    "set pressure": {
+     "value": 40.0,
+     "unit": "bar"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "6b88a688-07d8-4e1e-9d80-41256b563fff",
+   "made": "two_field_above_5_ref40",
+   "values": {
+    "cold differential test pressure": {
+     "value": 42.0,
+     "unit": "bar"
+    },
+    "set pressure": {
+     "value": 40.0,
+     "unit": "bar"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "6b88a688-07d8-4e1e-9d80-41256b563fff",
+   "made": "two_field_above_20_ref40",
+   "values": {
+    "cold differential test pressure": {
+     "value": 48.0,
+     "unit": "bar"
+    },
+    "set pressure": {
+     "value": 40.0,
+     "unit": "bar"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "6b88a688-07d8-4e1e-9d80-41256b563fff",
+   "made": "two_field_far_above_ref40",
+   "values": {
+    "cold differential test pressure": {
+     "value": 80.0,
+     "unit": "bar"
+    },
+    "set pressure": {
+     "value": 40.0,
+     "unit": "bar"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "70e5b94c-c799-477d-aaf4-5348834107d3",
+   "made": "two_field_far_below_ref10",
+   "values": {
+    "outlet size": {
+     "value": 5.0,
+     "unit": "mm"
+    },
+    "inlet size": {
+     "value": 10.0,
+     "unit": "mm"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "70e5b94c-c799-477d-aaf4-5348834107d3",
+   "made": "two_field_below_20_ref10",
+   "values": {
+    "outlet size": {
+     "value": 8.0,
+     "unit": "mm"
+    },
+    "inlet size": {
+     "value": 10.0,
+     "unit": "mm"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "70e5b94c-c799-477d-aaf4-5348834107d3",
+   "made": "two_field_below_5_ref10",
+   "values": {
+    "outlet size": {
+     "value": 9.5,
+     "unit": "mm"
+    },
+    "inlet size": {
+     "value": 10.0,
+     "unit": "mm"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "70e5b94c-c799-477d-aaf4-5348834107d3",
+   "made": "two_field_at_required_ref10",
+   "values": {
+    "outlet size": {
+     "value": 10.0,
+     "unit": "mm"
+    },
+    "inlet size": {
+     "value": 10.0,
+     "unit": "mm"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "70e5b94c-c799-477d-aaf4-5348834107d3",
+   "made": "two_field_above_5_ref10",
+   "values": {
+    "outlet size": {
+     "value": 10.5,
+     "unit": "mm"
+    },
+    "inlet size": {
+     "value": 10.0,
+     "unit": "mm"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "70e5b94c-c799-477d-aaf4-5348834107d3",
+   "made": "two_field_above_20_ref10",
+   "values": {
+    "outlet size": {
+     "value": 12.0,
+     "unit": "mm"
+    },
+    "inlet size": {
+     "value": 10.0,
+     "unit": "mm"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "70e5b94c-c799-477d-aaf4-5348834107d3",
+   "made": "two_field_far_above_ref10",
+   "values": {
+    "outlet size": {
+     "value": 20.0,
+     "unit": "mm"
+    },
+    "inlet size": {
+     "value": 10.0,
+     "unit": "mm"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "70e5b94c-c799-477d-aaf4-5348834107d3",
+   "made": "two_field_far_below_ref40",
+   "values": {
+    "outlet size": {
+     "value": 20.0,
+     "unit": "mm"
+    },
+    "inlet size": {
+     "value": 40.0,
+     "unit": "mm"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "70e5b94c-c799-477d-aaf4-5348834107d3",
+   "made": "two_field_below_20_ref40",
+   "values": {
+    "outlet size": {
+     "value": 32.0,
+     "unit": "mm"
+    },
+    "inlet size": {
+     "value": 40.0,
+     "unit": "mm"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "70e5b94c-c799-477d-aaf4-5348834107d3",
+   "made": "two_field_below_5_ref40",
+   "values": {
+    "outlet size": {
+     "value": 38.0,
+     "unit": "mm"
+    },
+    "inlet size": {
+     "value": 40.0,
+     "unit": "mm"
+    }
+   },
+   "expected": "NON_COMPLIANT"
+  },
+  {
+   "rule_id": "70e5b94c-c799-477d-aaf4-5348834107d3",
+   "made": "two_field_at_required_ref40",
+   "values": {
+    "outlet size": {
+     "value": 40.0,
+     "unit": "mm"
+    },
+    "inlet size": {
+     "value": 40.0,
+     "unit": "mm"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "70e5b94c-c799-477d-aaf4-5348834107d3",
+   "made": "two_field_above_5_ref40",
+   "values": {
+    "outlet size": {
+     "value": 42.0,
+     "unit": "mm"
+    },
+    "inlet size": {
+     "value": 40.0,
+     "unit": "mm"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "70e5b94c-c799-477d-aaf4-5348834107d3",
+   "made": "two_field_above_20_ref40",
+   "values": {
+    "outlet size": {
+     "value": 48.0,
+     "unit": "mm"
+    },
+    "inlet size": {
+     "value": 40.0,
+     "unit": "mm"
+    }
+   },
+   "expected": "COMPLIANT"
+  },
+  {
+   "rule_id": "70e5b94c-c799-477d-aaf4-5348834107d3",
+   "made": "two_field_far_above_ref40",
+   "values": {
+    "outlet size": {
+     "value": 80.0,
+     "unit": "mm"
+    },
+    "inlet size": {
+     "value": 40.0,
+     "unit": "mm"
+    }
+   },
+   "expected": "COMPLIANT"
+  }
+ ]
+}

@@ -233,6 +233,14 @@ def used_line(result: dict) -> str:
     route = result.get("route")
     took = _seconds(result.get("seconds"))
     tail = f" · {took}" if took else ""
+    if result.get("summary_coverage"):
+        coverage = result["summary_coverage"]
+        processed = coverage.get("processed", 0)
+        requested = coverage.get("requested", 0)
+        cited = coverage.get("cited_documents", 0)
+        if kind == "generated":
+            return f"Processed {processed} of {requested} selected documents · {cited} cited" + tail
+        return f"Collection summary incomplete · {processed} of {requested} documents processed" + tail
     if kind == "guidance":
         return ""   # small talk needs no header
     if kind == "cancelled":

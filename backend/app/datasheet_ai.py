@@ -166,7 +166,10 @@ def _claude_call():
     return call, None
 
 
-def _ollama_call():
+def _ollama_call(packet_shape: dict | None = None):
+    """`packet_shape` (form reader, #form-reader): the JSON schema, prompt
+    version and answer budget of a caller with its own answer shape. None -
+    this reader's own `_SCHEMA` and sizes, exactly as before."""
     from . import model_transport
     from .reasoning_provider import OllamaProvider, Packet
 
@@ -181,12 +184,14 @@ def _ollama_call():
     # own timeout (DATASHEET_AI_TIMEOUT_SECONDS), not the provider's 15 min.
     model = settings.datasheet_ai_ollama_model or settings.answer_model
     provider = OllamaProvider(model, timeout=float(settings.datasheet_ai_timeout_seconds))
+    shape = {"json_schema": _SCHEMA, "prompt_version": PROMPT_VERSION,
+             "num_predict": OLLAMA_NUM_PREDICT, **(packet_shape or {})}
 
     def call(prompt: str) -> str:
         response = provider.reason(Packet(
-            prompt=prompt, num_ctx=OLLAMA_NUM_CTX, num_predict=OLLAMA_NUM_PREDICT,
-            temperature=0.0, json_schema=_SCHEMA, step=STEP,
-            prompt_version=PROMPT_VERSION))
+            prompt=prompt, num_ctx=OLLAMA_NUM_CTX, num_predict=shape["num_predict"],
+            temperature=0.0, json_schema=shape["json_schema"], step=STEP,
+            prompt_version=shape["prompt_version"]))
         if response.truncated:
             # A cut-off JSON answer is not an answer; never parsed as one.
             raise EngineFailed("the answer was truncated")
@@ -217,12 +222,14 @@ def using_model_call(model_call):
         _CALL_OVERRIDE.reset(token)
 
 
-def model_call_for(engine: str | None = None):
+def model_call_for(engine: str | None = None, packet_shape: dict | None = None):
     """`(model_call, None)` for the engine, or `(None, reason)`.
 
     `engine` defaults to the configured one. NEVER RAISES: an engine that is
     off, unknown or unavailable is a reason the caller records, and the page
     stays with the rule readers. The callable carries `.engine`.
+    `packet_shape` is handed to the local engine only (`_ollama_call`); the
+    Claude engine states the shape in the prompt and is checked in code.
     """
     name = (engine if engine is not None else engine_setting()).strip().lower()
     if name == OFF:
@@ -232,7 +239,7 @@ def model_call_for(engine: str | None = None):
         return override, None
     try:
         if name == OLLAMA:
-            return _ollama_call()
+            return _ollama_call(packet_shape) if packet_shape else _ollama_call()
         if name == CLAUDE:
             return _claude_call()
     except Exception as exc:  # noqa: BLE001 - never into ingestion

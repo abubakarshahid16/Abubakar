@@ -35,7 +35,7 @@ import json
 import uuid
 from datetime import datetime, timezone
 
-from . import review
+from . import review, rule_trust
 from .db import add_column_if_missing, connect, schema_once
 
 
@@ -80,6 +80,9 @@ def ensure_schema() -> None:
     # time rather than at create time - so a missing call here would surface
     # as a confusing runtime error in phase 2, not here.
     review.ensure_schema()
+    # The proof and audit tables of the trusted-rule path (#947), additive and
+    # unused while `rule_auto_use_enabled` is off.
+    rule_trust.ensure_schema()
     conn = connect()
     with conn:
         # ---------------------------------------------------- standards side
@@ -181,8 +184,10 @@ def ensure_schema() -> None:
             # verbs and page-footer text removed.
             #
             # DESCRIPTIVE ONLY, AND DELIBERATELY NOT `field`. `field` is the
-            # join key `comparison._match_fact` looks up against a datasheet's
-            # normalised label, and it is exact equality. Measured over the
+            # join key the comparison engine looks up against a datasheet's
+            # normalised label, and it is exact equality (A13/#927:
+            # `comparison._match_fact` itself was dead code, removed; this
+            # is still the column's contract). Measured over the
             # corpus, the noun phrase before the operator produces things like
             # "the material stress in the bottom parts of the vessel" - true
             # descriptions of the clause, and never a datasheet caption. Put in
@@ -338,8 +343,14 @@ def ensure_schema() -> None:
         conn.execute(
             """CREATE TABLE IF NOT EXISTS submittal_facts (
                 id TEXT PRIMARY KEY,
-                review_run_id TEXT NOT NULL
-                    REFERENCES review_runs(id) ON DELETE CASCADE,
+                -- #890: NULLABLE from the first CREATE, the same shape
+                -- `migrate_facts_to_per_document` gives an old database. A
+                -- fresh database used to get NOT NULL here and only the
+                -- server's startup migration relaxed it, so any process that
+                -- never ran startup (loaders, tests) failed every upload-time
+                -- read of a sheet's values.
+                review_run_id TEXT
+                    REFERENCES review_runs(id) ON DELETE SET NULL,
                 submittal_document_id TEXT NOT NULL
                     REFERENCES documents(id) ON DELETE CASCADE,
                 field_name TEXT NOT NULL,

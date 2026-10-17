@@ -43,7 +43,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              replacement='            conn.execute("SELECT ?, ?"\n',
              target=_T, keyword="stored_once", tags=("audit",)),
     Mutation(id="M1081", phase=91, description="a model's parse is kept without the number check",
-             path=_R, anchor='    return rule if rule["rows"] and verify_numbers(rule, text) else None\n',
+             path=_R, anchor='    return rule if rule["rows"] and verify_model_rule(rule, text) else None\n',
              replacement='    return rule if rule["rows"] else None\n',
              target=_T, keyword="model_parse_is_kept_only", tags=("honesty", "critical")),
 )
