@@ -106,6 +106,11 @@ def matcher(counts: dict | None) -> dict | None:
     lines.append(f"Of {asked} asked: {proposed} proposed, {_n(counts.get('declined'))} declined, "
                  f"{_n(counts.get('unavailable'))} unavailable (time-out or model down)"
                  + (f", {_reasons(other)}" if other else "") + ".")
+    from . import ai_requirements
+
+    asked_line = ai_requirements.ask_report_line(counts.get("questions"))
+    if asked_line:
+        lines.append(asked_line)
     state = "incomplete" if counts.get("unavailable") or counts.get("not_asked_budget") else "ran"
     return _step("AI matcher", state, lines, engine=counts.get("engine"), model=counts.get("model"),
                  counts={k: _n(counts.get(k)) for k in (
