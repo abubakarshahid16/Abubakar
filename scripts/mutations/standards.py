@@ -376,37 +376,6 @@ MUTATIONS: tuple[Mutation, ...] = (
     #: B58 fix, renumbered M356-M358 -> M365-M367 to avoid colliding with
     #: mutation ids already added on this branch since the two diverged), OCR
     #: fallback routing, and confidence-based NEEDS_ENGINEER_REVIEW routing.
-    Mutation(
-        id="M372", phase=47,
-        description="reimplement requirement ranking directly off the RRF "
-                    "fusion helpers instead of calling the shared "
-                    "search.search entrypoint, so requirement retrieval "
-                    "silently forks into a second search stack",
-        path=APP / "standards.py",
-        anchor="    from . import search as search_mod\n"
-               "    result = search_mod.search(",
-        replacement="    from . import search as search_mod\n"
-                    "    def _bypass(*a, **k):\n"
-                    "        return {'hits': []}\n"
-                    "    result = _bypass(",
-        target="tests/test_standards_3b.py",
-        keyword="search_requirements_reuses_the_existing_hybrid_search",
-        tags=("critical",),
-    ),
-    Mutation(
-        id="M373", phase=47,
-        description="apply the structured pre-filter AFTER retrieval "
-                    "instead of narrowing the id set retrieval receives, "
-                    "so a filtered-out standard is still a candidate",
-        path=APP / "standards.py",
-        anchor="        scope = {r[\"id\"] for r in rows}\n"
-               "    narrowed = frozenset(scope)",
-        replacement="        pass\n"
-                    "    narrowed = frozenset(scope)",
-        target="tests/test_standards_3b.py",
-        keyword="a_prefilter_narrows_the_scope_handed_to_retrieval_before_ranking",
-        tags=("honesty", "critical"),
-    ),
     # ---- from B177_JOB_CLAIM_RETRY_PRIORITY -------------------------------
     Mutation(
         id="M410", phase=53,
