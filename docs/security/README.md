@@ -16,11 +16,14 @@ The controls behind the cybersecurity questionnaire, rows 31 to 50 (#806, Stage 
 | S10 Exercises | Q46, Q47 | [exercises.md](exercises.md) | Committed; first drill within 2 weeks |
 | S11 Forensics and evidence | Q48 | [evidence.md](evidence.md) | Committed |
 | S12 Threat levels | Q50 | [threat-levels.md](threat-levels.md) | Committed |
+| Backup and restore (#475) | Q44 step 4 | [backup.md](backup.md) | Committed; daily copy and monthly drill are the PC's |
 
 **Machine check:** `backend/tests/test_806_security_docs.py` (and `scripts/check_ai_register.py`) fails CI in two cases:
 - a file above is missing;
 - the AI register's switch table does not match the AI switches in `backend/app/config.py`, by name and by default.
 
 A new AI switch, a removed one, or a changed default therefore cannot merge without updating the register.
+
+**Hardening checks in CI (#521):** secrets by `secret-scan.yml` (gitleaks, history and working tree); uploads validated in `backend/app/upload.py` (PDF signature, workbook structure, zip-bomb limits); runtime dependencies by `dependency-audit.yml` (pip-audit on `backend/requirements.txt`, `npm audit --omit=dev`, high or critical fails the check).
 
 These files describe controls. They never contain a key, a password, a document's text or a client's name.
