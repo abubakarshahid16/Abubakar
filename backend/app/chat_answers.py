@@ -16,6 +16,8 @@ action answer returns a DRAFT for the reader to confirm (section 2g).
 """
 from __future__ import annotations
 
+import logging
+
 from . import answer as answer_mod
 from . import chat_model
 from . import claude_spend
@@ -23,6 +25,8 @@ from . import intent as intent_mod
 from . import reasoning_provider as rp
 from .config import settings
 from .rates import Timer
+
+log = logging.getLogger(__name__)
 
 GENERAL_SYSTEM = """You are the chat assistant in an engineering document system. This question is answered from your GENERAL knowledge, not from the user's documents.
 
@@ -97,6 +101,7 @@ def general(question: str, *, styles: list[str], history: str, preference: str |
     try:
         raw = _generate(GENERAL_SYSTEM, prompt, settings.chat_temperature_general, preference)
     except Exception as exc:  # noqa: BLE001 - reported as unavailable, never a crash
+        log.info("chat_answers: the model call failed; reported as unavailable (%s)", type(exc).__name__)  # 79c
         return _failed(base, exc, timer, preference)
     if raw.get("cancelled"):
         return answer_mod.stopped(base, raw, timer)
@@ -173,6 +178,7 @@ def rewrite(previous: dict | None, *, styles: list[str], history: str, preferenc
         try:
             raw = _generate(GENERAL_SYSTEM, prompt, settings.chat_temperature_general, preference)
         except Exception as exc:  # noqa: BLE001
+            log.info("chat_answers: the model call failed; reported as unavailable (%s)", type(exc).__name__)  # 79c
             return _failed(base, exc, timer, preference)
         if raw.get("cancelled"):
             return answer_mod.stopped(base, raw, timer)

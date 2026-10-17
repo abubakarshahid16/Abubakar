@@ -47,6 +47,8 @@ as such.
 
 from __future__ import annotations
 
+import logging
+
 import string
 import time
 import re
@@ -54,6 +56,8 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 
 from .config import settings
+
+log = logging.getLogger(__name__)
 
 #: PERCENT-ENCODING, HAND-ROLLED, and the reason is a guarantee rather than
 #: taste. `urllib.parse.quote` would do this in one line and cannot open a
@@ -783,6 +787,7 @@ def search_all(phrase: str | None, *, fetch: Fetch | None = None,
                 payloads[tier], fetch=fetch,
                 timeout=float(settings.market_tier_timeout_seconds))
         except Exception as exc:                    # noqa: BLE001
+            log.info("market_providers: one market tier failed; the run continues with the other tiers (%s)", type(exc).__name__)  # 79c
             # One tier failing is not the search failing. The reason is
             # recorded per tier and the run continues.
             failures.append(f"{tier}: {_safe_reason(exc)}")

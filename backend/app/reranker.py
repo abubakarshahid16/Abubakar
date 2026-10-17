@@ -16,11 +16,14 @@ fails to load, retrieval falls back to the RRF ordering rather than failing.
 
 from __future__ import annotations
 
+import logging
 import threading
 
 import numpy as np
 
 from .config import settings
+
+log = logging.getLogger(__name__)
 
 MODEL_DIR_NAME = "reranker"
 MODEL_FILE = "model_quantized.onnx"
@@ -125,6 +128,7 @@ def _load():
 
             _session, _tokenizer = session, tok
         except Exception as exc:  # noqa: BLE001 - never let this break retrieval
+            log.warning("reranker: the reranker could not be loaded; retrieval runs without it (%s)", type(exc).__name__)  # 79c
             _unavailable_reason = f"{type(exc).__name__}: {exc}"
             return None, None
     return _session, _tokenizer

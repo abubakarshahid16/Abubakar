@@ -26,11 +26,14 @@ either. The filtering happens before a single character is assembled.
 """
 from __future__ import annotations
 
+import logging
 import re
 
 from . import claude_spend, model_transport
 from . import reasoning_provider as rp
 from .config import settings
+
+log = logging.getLogger(__name__)
 
 #: The budget step every chat call is charged to in the Claude ledger.
 CHAT_STEP = "chat"
@@ -85,7 +88,8 @@ def engine_name(preference: str | None = None) -> str:
     raises: a failure notice must not itself fail."""
     try:
         return rp.CLAUDE if isinstance(provider(preference), rp.ClaudeProvider) else rp.OLLAMA
-    except Exception:  # noqa: BLE001 - reporting must not crash
+    except Exception as exc:  # noqa: BLE001 - reporting must not crash
+        log.debug("chat_model: the reasoning provider could not be read; the local model is reported (%s)", type(exc).__name__)  # 79c
         return rp.OLLAMA
 
 
@@ -104,7 +108,8 @@ def unavailable_words() -> str | None:
     be used or the cause cannot be read. Never raises, never the key."""
     try:
         code, _why = rp.claude_unavailable()
-    except Exception:  # noqa: BLE001 - reporting must not crash
+    except Exception as exc:  # noqa: BLE001 - reporting must not crash
+        log.debug("chat_model: the reason Claude is unavailable could not be read; no reason is shown (%s)", type(exc).__name__)  # 79c
         return None
     return _UNAVAILABLE_WORDS.get(code) if code else None
 

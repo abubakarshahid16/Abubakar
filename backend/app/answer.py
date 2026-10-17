@@ -17,6 +17,8 @@ tell what the document actually says.
 
 from __future__ import annotations
 
+import logging
+
 import contextvars
 import re
 from decimal import ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal, InvalidOperation
@@ -122,6 +124,8 @@ SECOND_PASSAGE_MAX_GAP = 6.0
 MIN_RRF_SCORE = 0.012
 
 from .citations import _CITATION, _HALF_CITATION, strip_half_citation, validate_citations
+
+log = logging.getLogger(__name__)
 
 _SENTENCE = re.compile(r"(?<=[.!?])" + NOT_AN_ABBREVIATION + r"\s+")
 _REVIEW_REQUEST = re.compile(
@@ -1578,6 +1582,7 @@ def generate_from_passages(instruction: str, passages: list[dict], *, history: s
         except model_transport.ModelHostRefused:
             raise
         except Exception as exc:  # noqa: BLE001
+            log.info("answer: the model call for an answer failed; the answer is marked failed (%s)", type(exc).__name__)  # 79c
             from . import chat_answers
             return chat_answers._failed({**base, "passages": passages}, exc, timer)
         return _finish_generated(raw, passages, base={**base, "passages": passages}, timer=timer)
@@ -2126,6 +2131,7 @@ def _answer_from_documents(
             "seconds": timer.seconds(),
         }
     except Exception as exc:  # noqa: BLE001 - the model being down is not a crash
+        log.info("answer: the model call failed; the answer says the model is unavailable (%s)", type(exc).__name__)  # 79c
         return {
             **base,
             "answer_type": "model_unavailable",

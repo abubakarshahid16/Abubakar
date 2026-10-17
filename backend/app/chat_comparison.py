@@ -37,6 +37,8 @@ second matcher.
 
 from __future__ import annotations
 
+import logging
+
 import re
 
 from . import absence
@@ -46,6 +48,8 @@ from .config import ModelHostRefused
 from .reasoning_provider import ProviderRefused
 from . import understanding as understanding_mod
 from .citations import _CITATION
+
+log = logging.getLogger(__name__)
 
 #: A CHAT COMPARISON, not a request for a submittal review, a definition or a
 #: general "what's the difference". Kept small and literal on purpose
@@ -365,6 +369,7 @@ def compare(
             except (ModelHostRefused, ProviderRefused):
                 raise      # a refused host or lane is the operator's to see
             except Exception as exc:  # noqa: BLE001 - one side failing is a state
+                log.info("chat_comparison: one side of a comparison failed; that side says it could not be checked (%s)", type(exc).__name__)  # 79c
                 # THIS SIDE ONLY (B01): the other sides keep their answers and
                 # this one says it could not be checked. The type name is the
                 # reason; no text from the failure is shown.
