@@ -1360,7 +1360,13 @@ def _trust_columns(verdict: dict, status: str | None) -> dict:
 def _rule_trust_summary(trust, review_run_id: str, facts: list[dict],
                         requirements: list[dict], rows: list[dict]) -> dict | None:
     """Steps 7 and 10 of the owner decision, for the run's record. None with
-    the switch off. Field NAMES of this machine's own datasheet; never values."""
+    the switch off. Field NAMES of this machine's own datasheet; never values.
+
+    `rows` are EVERY finding written for this run - the rule rows and the
+    datasheet checks - so `held_unproven` is every verdict rule_trust held,
+    not the main loop's share of them (s2's real-group run of 17 Oct found
+    51 reported against 1,555 held). `findings_counted` states the boundary.
+    """
     if trust is None:
         return None
     from . import rule_trust
@@ -1379,6 +1385,7 @@ def _rule_trust_summary(trust, review_run_id: str, facts: list[dict],
         "fields_read": len(read),
         "uncovered_fields": [f.get("field_name") or f.get("name") for f in uncovered],
         "labels": labels,
+        "findings_counted": len(rows),
         "held_unproven": sum(1 for r in rows if r.get("rule_said")),
         "safety_ticks": sum(1 for r in rows if r.get("show_for_engineer_tick")),
         "auto_proven": len(auto_ids),
@@ -2833,13 +2840,6 @@ def _run_comparison(
     # must not be deleted by it.
     _write_run_findings(review_run_id, prepared_rows, replace=replace)
 
-    # rule_trust (#947) steps 7 and 10, switch ON only: the datasheet fields
-    # read with a value that no applicable rule targets (the CRS lists them
-    # as "not checked by any rule"), and the random draw of automatic
-    # findings for an engineer's spot-check. Counts and ids; stored on the run.
-    rule_trust_summary = _rule_trust_summary(trust, review_run_id, facts, requirements,
-                                             prepared_rows)
-
     # #677 EVERY REQUIREMENT THAT REACHED THE COMPARISON: its finding's status
     # decides its state; one with no finding (an engineer rejected the
     # pairing) is an engineer's question, never silent.
@@ -2891,6 +2891,15 @@ def _run_comparison(
     findings.extend(datasheet_checks.store(
         review_run_id, submittal_id, check_results, pages_read=pages_read,
         label=rule_trust_mod.label_check if trust is not None else None))
+
+    # rule_trust (#947) steps 7 and 10, switch ON only: the datasheet fields
+    # read with a value that no applicable rule targets (the CRS lists them
+    # as "not checked by any rule"), and the random draw of automatic
+    # findings for an engineer's spot-check. Counts and ids; stored on the
+    # run. AFTER the datasheet checks, over every finding of this run, so a
+    # held check counts as held (s2, 17 Oct: 51 reported, 1,555 held).
+    rule_trust_summary = _rule_trust_summary(trust, review_run_id, facts, requirements,
+                                             findings)
     checklist_coverage = datasheet_checks.coverage(check_results)
 
     coverage = completeness_for_run(
