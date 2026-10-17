@@ -236,8 +236,11 @@ describe("#967 PR 4: show it on the page", () => {
     expect(frame().dataset.pulsing).toBeUndefined();
     await userEvent.keyboard("t");
     expect(frame().dataset.pulsing).toBe("true");
-    expect(scrolled).toHaveBeenCalled();
-    expect(scrolled.mock.instances[0]).toBe(frame());
+    // THE PAGE FRAME scrolled - pinned to [data-sheet-page], not to "the first
+    // scroll after T": on a slow runner the opened card's own scroll (its
+    // effect, when it becomes selected) can land after the reset above, and
+    // this used to take that <article> for the frame (flaky on two gates, 17 Oct).
+    expect(scrolled.mock.instances).toContain(frame());
     await waitFor(() => expect(frame().dataset.pulsing).toBeUndefined(), { timeout: 3000 });
   });
 
