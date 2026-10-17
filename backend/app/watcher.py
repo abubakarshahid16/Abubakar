@@ -68,6 +68,14 @@ from .db import connect
 INGESTED = "ingested"
 DUPLICATE = "duplicate"
 FAILED = "failed"
+#: #479: a file that could not be read and will be tried again on the next
+#: scan. A count in the scan result only - no `watch_events` row is written
+#: until the watcher gives up, so a file locked for one interval while it is
+#: still being copied leaves no failure behind.
+RETRYING = "retrying"
+#: How many reads of one unchanged file the watcher makes before it gives up
+#: and records the failure. A changed file starts again from one.
+READ_ATTEMPTS = 3
 
 #: What a scan found the folder to be. Reported, and logged only when it
 #: CHANGES - a missing share logged every five minutes is a log nobody reads,
@@ -398,6 +406,8 @@ class FolderWatcher:
         self._seen: dict[str, tuple[int, int]] = {}
         self._handled: dict[str, tuple[int, int]] = {}
         self._duplicate_hashes: set[str] = set()
+        #: key -> (fingerprint, reads that failed) for files still being retried.
+        self._read_failures: dict[str, tuple[tuple[int, int], int]] = {}
         #: ISO-8601 UTC of the last COMPLETED scan, or None if none has
         #: finished. Null rather than a zero timestamp: "never scanned" and
         #: "scanned at the epoch" are different facts.
@@ -565,6 +575,7 @@ class FolderWatcher:
         # different file with the same name.
         self._seen = {k: v for k, v in self._seen.items() if k in present}
         self._handled = {k: v for k, v in self._handled.items() if k in present}
+        self._read_failures = {k: v for k, v in self._read_failures.items() if k in present}
 
         result = self._result(STATE_OK, configured)
         for key, path in sorted(keyed.items()):
@@ -615,6 +626,7 @@ class FolderWatcher:
             INGESTED: [],
             DUPLICATE: [],
             FAILED: [],
+            RETRYING: [],
             "unstable": [],
             "already_handled": [],
         }
@@ -626,7 +638,9 @@ class FolderWatcher:
         Returns the outcome, which is also the key the caller counts it under.
         Marked handled whatever happens - a failure re-reported every interval
         is noise that hides the next real one, and replacing the file changes
-        its fingerprint and makes it eligible again.
+        its fingerprint and makes it eligible again. The one exception (#479):
+        a file that could not be READ is tried again on the next scans, up to
+        `READ_ATTEMPTS` reads in all, and only then marked handled and failed.
 
         `role` comes from the subfolder and is None for the folder root. It is
         passed IN rather than derived here so that the decision has exactly one
@@ -636,15 +650,27 @@ class FolderWatcher:
         try:
             sha256 = hash_file(path)
         except OSError as exc:
+            # #479: A LOCKED FILE IS USUALLY A FILE STILL BEING WRITTEN, so one
+            # failed read is not a verdict. It used to be marked handled at
+            # once and then never looked at again until it changed.
+            failed_fp, reads = self._read_failures.get(key, (fingerprint, 0))
+            reads = reads + 1 if failed_fp == fingerprint else 1
+            if reads < READ_ATTEMPTS:
+                self._read_failures[key] = (fingerprint, reads)
+                return RETRYING
+            self._read_failures.pop(key, None)
             self._handled[key] = fingerprint
             record_event(
                 path.name, source, NO_HASH, FAILED,
                 detail=(f"no sha256: the file could not be read "
-                        f"({exc.__class__.__name__}); it may be locked by "
-                        f"whoever is writing it, or unreadable by this process"),
+                        f"({exc.__class__.__name__}) in {reads} tries on "
+                        f"separate scans; it may be locked by whoever is "
+                        f"writing it, or unreadable by this process. Replace "
+                        f"or touch the file to try again"),
             )
             return FAILED
 
+        self._read_failures.pop(key, None)
         self._handled[key] = fingerprint
 
         # The dedup mechanism is `upload.find_by_hash`, which is what
