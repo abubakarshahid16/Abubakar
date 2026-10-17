@@ -78,14 +78,32 @@ def test_a_lock_just_under_three_hours_still_holds(lock):
     assert heavy_lock.try_acquire("tests") is None
 
 
-def test_a_lock_whose_process_is_gone_is_stale_at_once(lock):
-    done = subprocess.run([sys.executable, "-c", "import os;print(os.getpid())"],
-                          capture_output=True, text=True)
-    dead_pid = int(done.stdout)
+def test_a_lock_whose_process_is_gone_is_stale_at_once(lock, monkeypatch):
+    """#911: the liveness answer is pinned, not taken from a real exited
+    child. Windows reuses a process id quickly, so on a busy runner the
+    child's id could already belong to another process (seen once on
+    a720693) - the test then measured the runner, not the lock."""
+    dead_pid = 4_000_001
+    monkeypatch.setattr(heavy_lock, "_pid_alive", lambda pid: False if pid == dead_pid else True)
     rec = {"token": "x", "kind": "p1", "owner": "gone", "pid": dead_pid,
            "host": heavy_lock.platform.node(), "started_epoch": time.time()}
     lock.write_text(json.dumps(rec))
     assert heavy_lock.try_acquire("tests") is not None
+
+
+def test_a_lock_whose_process_cannot_be_checked_still_holds(lock, monkeypatch):
+    """"Cannot tell" (no psutil) is not "gone": the 3-hour rule decides."""
+    monkeypatch.setattr(heavy_lock, "_pid_alive", lambda pid: None)
+    rec = {"token": "x", "kind": "p1", "owner": "busy", "pid": 4_000_001,
+           "host": heavy_lock.platform.node(), "started_epoch": time.time()}
+    lock.write_text(json.dumps(rec))
+    assert heavy_lock.try_acquire("tests") is None
+
+
+def test_this_process_is_seen_alive():
+    """The real psutil check, on a process id that is certainly alive."""
+    import os
+    assert heavy_lock._pid_alive(os.getpid()) in (True, None)
 
 
 def test_an_unreadable_lock_file_does_not_block_for_ever(lock):

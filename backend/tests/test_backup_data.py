@@ -198,3 +198,30 @@ def test_the_off_disk_copy_refuses_the_same_disk_and_drills_the_copy(world, tmp_
 def test_the_command_line_says_refused_and_exits_non_zero(tmp_path, capsys):
     assert backup_data.main(["drill", str(tmp_path)]) == 1
     assert "REFUSED" in capsys.readouterr().err
+
+
+def test_a_vec0_index_is_named_as_derived_not_copied_and_does_not_break_the_backup(world):
+    """Found by the Mac-move dry run on the PC (17 Oct): the real data folder
+    holds the sqlite-vec index, which plain sqlite3 cannot count ("no such
+    module: vec0"), so every backup of it failed. It is a derived index
+    (app/vector_store.py rebuilds it from chunk_vectors), so it is left out
+    and named in the manifest with why."""
+    sqlite_vec = pytest.importorskip("sqlite_vec")
+    data, root = world
+    index = sqlite3.connect(data / "semantic_index.sqlite")
+    index.enable_load_extension(True)
+    sqlite_vec.load(index)
+    index.execute("CREATE VIRTUAL TABLE chunk_vec USING vec0(embedding float[4])")
+    index.execute("INSERT INTO chunk_vec(rowid, embedding) VALUES (1, '[0.1, 0.2, 0.3, 0.4]')")
+    index.commit()
+    index.close()
+
+    made = backup(data, root)
+
+    manifest = json.loads((made / backup_data.MANIFEST).read_text(encoding="utf-8"))
+    assert [d["path"] for d in manifest["not_backed_up"]] == ["semantic_index.sqlite"]
+    assert "derived" in manifest["not_backed_up"][0]["why"]
+    assert not (made / "semantic_index.sqlite").exists()
+    assert "semantic_index.sqlite" not in manifest["databases"]
+    assert manifest["databases"]["rag_intelligence.sqlite"] == {"documents": 12}
+    drill(made)                         # the backup still drills clean
