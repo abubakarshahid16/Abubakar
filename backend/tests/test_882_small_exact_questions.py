@@ -189,3 +189,12 @@ def test_a_page_that_was_not_sent_is_refused():
     out = air.ask_value({"subject": "shell pressure"}, {1: PAGE},
                         provider=Fake(answer(page=2), answer(page=2)))
     assert (out["state"], out["why"]) == (air.ASKED_REFUSED, air.PAGE_NOT_SENT)
+
+
+def test_the_small_questions_are_off_by_default_until_their_before_after():
+    """Planner order 51 (17 Oct): #909 ships OFF (0 = never asked), the #985
+    pattern; the default flips to 20 in its own PR after the ON before/after
+    on the real PF1 sheets. The env-isolated test settings pin 0 too, so this
+    reads the class default, not the fixture."""
+    from app.config import Settings
+    assert Settings.model_fields["match_ask_max_per_run"].default == 0
