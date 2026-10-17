@@ -14,11 +14,13 @@ import { FindingDetail } from "./FindingDetail";
 
 const documentCall = vi.fn();
 const update = vi.fn();
+const decideCrsFinding = vi.fn();
 
 vi.mock("../../api/client", () => ({
   api: { document: (...args: unknown[]) => documentCall(...args) },
   reviews: {
     update: (...args: unknown[]) => update(...args),
+    decideCrsFinding: (...args: unknown[]) => decideCrsFinding(...args),
     confirm: vi.fn(),
     rejectPairing: vi.fn(),
   },
@@ -27,6 +29,7 @@ vi.mock("../../api/client", () => ({
 function finding(over: Partial<ReviewFinding> = {}): ReviewFinding {
   return {
     id: "f-1",
+    review_run_id: "run-1",
     document_id: "doc-sub",
     standard_document_id: null,
     finding: "the noise level exceeds 90 dB(A)",
@@ -95,18 +98,28 @@ describe("Edit comment", () => {
 });
 
 describe("Not needed (the comment is rejected)", () => {
-  it("marks the finding rejected without deleting it", async () => {
+  it("asks why, refuses a short reason, then records the decision with its reason on the run", async () => {
+    decideCrsFinding.mockResolvedValue({ ok: true, data: {} });
     const onChanged = vi.fn();
     render(<FindingDetail finding={finding()} documents={[]} onChanged={onChanged} />);
     await userEvent.click(screen.getByRole("button", { name: "Not needed" }));
-
-    expect(update).toHaveBeenCalledWith("f-1", { approval_status: "rejected" });
+    expect(decideCrsFinding).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+    await userEvent.type(screen.getByLabelText(/Say why it is not needed/), "too short");
+    await userEvent.click(screen.getByRole("button", { name: "Not needed" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Say why it is not needed (10 characters or more).");
+    expect(decideCrsFinding).not.toHaveBeenCalled();
+    await userEvent.type(screen.getByLabelText(/Say why it is not needed/), " - the vendor sheet covers it");
+    await userEvent.click(screen.getByRole("button", { name: "Not needed" }));
+    expect(decideCrsFinding).toHaveBeenCalledWith("run-1", "f-1", "reject", "too short - the vendor sheet covers it");
+    expect(update).not.toHaveBeenCalled();
     expect(onChanged).toHaveBeenCalled();
   });
 
   it("shows the rejected note and disables the button when already rejected", () => {
     render(<FindingDetail finding={finding({ approval_status: "rejected" })} documents={[]} onChanged={vi.fn()} />);
-    expect(screen.getByTestId("comment-rejected")).toBeInTheDocument();
+    expect(screen.getByTestId("comment-rejected")).toHaveTextContent(/^Marked not needed - /);
+    expect(screen.queryByText(/Comment rejected/)).toBeNull();
     expect(screen.getByRole("button", { name: "Marked not needed" })).toBeDisabled();
   });
 });

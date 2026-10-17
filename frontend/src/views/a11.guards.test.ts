@@ -20,13 +20,16 @@ describe("A11 guards", () => {
       .filter((f) => /<main[\s>]/.test(read(join("views", f))));
     expect(offenders).toEqual([]);
     expect((read("components/Shell.tsx").match(/<main[\s>]/g) ?? []).length).toBe(1);
+    // the forbidden-route page in App.tsx used to be a second <main> inside the Shell's
+    expect(/<main[\s>]/.test(read("App.tsx"))).toBe(false);
   });
 
-  it("no review control uses an 11 px font", () => {
+  it("nothing in the review area uses a font under 12 px", () => {
     const dir = join(SRC, "components", "review");
-    const offenders = readdirSync(dir)
+    const offenders = readdirSync(dir, { recursive: true })
+      .map(String)
       .filter((f) => f.endsWith(".tsx") && !f.includes(".test."))
-      .filter((f) => /text-\[11px\]/.test(read(join("components", "review", f))));
+      .filter((f) => /text-\[(?:\d|1[01])px\]/.test(read(join("components", "review", f))));
     expect(offenders).toEqual([]);
   });
 });

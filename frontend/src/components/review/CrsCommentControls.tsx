@@ -223,7 +223,7 @@ export function CrsItemCell({ runId, row }: { runId: string; row: CrsPreviewRow 
     <div className="space-y-1">
       <span>{row.item_no}</span>
       {row.row_kind === "carried_forward" && (
-        <p className="text-[10px] text-info-500">carried forward</p>
+        <p className="text-xs text-info-500">carried forward</p>
       )}
       {ref && (
         <button type="button" className={button} aria-expanded={events !== null}
@@ -233,7 +233,7 @@ export function CrsItemCell({ runId, row }: { runId: string; row: CrsPreviewRow 
       )}
       {error && <p role="alert" className={errorText}>{error}</p>}
       {events && (
-        <ol className="space-y-0.5 text-left text-[10px] text-slateish-300">
+        <ol className="space-y-0.5 text-left text-xs text-slateish-300">
           {events.map((e, i) => (
             <li key={i}>
               {e.at.slice(0, 16).replace("T", " ")} - {e.event}

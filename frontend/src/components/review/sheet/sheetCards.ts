@@ -174,6 +174,10 @@ export function trustLine(card: SheetCard): string {
   return `${words}. The rule said "${PLAIN_OUTCOME[leader.rule_said] ?? leader.rule_said}"; held for you.`;
 }
 
+/** "Not needed" leaves a comment off the Comment Resolution Sheet, so every
+ *  place that offers it asks why, with the same floor (#925, #1037). */
+export const MIN_REASON = 10;
+
 export interface SheetProgress {
   answered: number;
   total: number;
