@@ -16,7 +16,11 @@ register names one config.py does not have, a default differs, a rollout
 row's window is longer than `MAX_DAYS` - or a rollout flag is past its
 `decide by` date.
 
-Run: python scripts/check_flag_expiry.py [--today YYYY-MM-DD]
+THE DATE PART RUNS NIGHTLY ONLY (planner order 46): a pull request's CI runs
+`--no-dates`, so no PR turns red because a calendar day passed; the nightly
+run on main reports an expired flag.
+
+Run: python scripts/check_flag_expiry.py [--today YYYY-MM-DD] [--no-dates]
 """
 from __future__ import annotations
 
@@ -60,7 +64,8 @@ def _day(text: str) -> date | None:
         return None
 
 
-def problems(today: date, text: str | None = None, flags: dict[str, str] | None = None) -> list[str]:
+def problems(today: date, text: str | None = None, flags: dict[str, str] | None = None,
+             *, dates: bool = True) -> list[str]:
     if text is None:
         if not REGISTER.is_file():
             return ["missing docs/flags.md"]
@@ -85,7 +90,7 @@ def problems(today: date, text: str | None = None, flags: dict[str, str] | None 
                 found.append(f"{name}: a rollout flag needs `since` and `decide by` as YYYY-MM-DD")
             elif (end - start).days > MAX_DAYS:
                 found.append(f"{name}: decide-by window is {(end - start).days} days; at most {MAX_DAYS}")
-            elif today > end:
+            elif dates and today > end:
                 found.append(f"{name}: EXPIRED on {end} - make it the default and remove the switch, "
                              f"remove the path, or extend it (new `since`, a note) with the owner")
     return found
@@ -95,12 +100,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--today", type=date.fromisoformat,
                         default=datetime.now(UTC).date())
+    parser.add_argument("--no-dates", action="store_true",
+                        help="the register only, no expiry (pull requests)")
     args = parser.parse_args(argv)
-    found = problems(args.today)
+    found = problems(args.today, dates=not args.no_dates)
     for line in found:
         print(f"FAIL: {line}")
     if not found:
-        print(f"OK: every boolean setting is in docs/flags.md; no rollout flag past its date ({args.today})")
+        when = "dates not checked" if args.no_dates else f"no rollout flag past its date ({args.today})"
+        print(f"OK: every boolean setting is in docs/flags.md; {when}")
     return 1 if found else 0
 
 

@@ -70,3 +70,12 @@ def test_main_exits_1_on_an_expired_register(capsys):
     assert mod.main(["--today", "2026-10-17"]) == 0
     assert mod.main(["--today", "2026-11-01"]) == 1
     assert "EXPIRED on 2026-10-31" in capsys.readouterr().out
+
+
+def test_a_pull_request_run_never_fails_on_a_date(capsys):
+    """Order 46: `--no-dates` (the PR step) still checks the register."""
+    mod = _load()
+    assert mod.main(["--today", "2030-01-01", "--no-dates"]) == 0
+    assert "dates not checked" in capsys.readouterr().out
+    found = mod.problems(date(2030, 1, 1), HEAD + ROLL, {"new_path_enabled": "True"}, dates=False)
+    assert found == ["default differs for new_path_enabled: config.py True, docs/flags.md False"]

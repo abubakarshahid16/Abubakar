@@ -209,9 +209,12 @@ jobs:
         run: python scripts/check_unused_modules.py
       - name: System map is complete
         run: python scripts/check_system_map.py
-      # docs/flags.md lists every boolean setting; a rollout flag past its
-      # decide-by date (at most 14 days) fails until the owner decides (#736).
-      - name: No rollout flag past its decide-by date
+      # docs/flags.md lists every boolean setting (#736). The decide-by dates
+      # are checked nightly only (order 46): a PR never turns red on a date.
+      - name: Every boolean setting is in docs/flags.md
+        run: python scripts/check_flag_expiry.py --no-dates
+      - name: No rollout flag past its decide-by date (nightly)
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: python scripts/check_flag_expiry.py
 
       # No tests run: reads each mutation's target file and fails when an

@@ -1,8 +1,9 @@
 # Flags: one decision per on/off setting (#736)
 
 Every boolean setting in `backend/app/config.py` is listed here once.
-`scripts/check_flag_expiry.py` (CI) fails when one is missing, a default differs, or a
-**rollout** flag is past its **decide by** date.
+`scripts/check_flag_expiry.py` fails a pull request's CI when one is missing or a default
+differs, and the **nightly** run on main fails when a **rollout** flag is past its
+**decide by** date (order 46: a PR never turns red because of a date).
 
 - **permanent**: a gate or operator setting that is meant to stay a switch. The note says why.
 - **rollout**: a switch that exists while a path is proven. The decide-by date is at most 14 days
