@@ -22,7 +22,9 @@ import { DecisionCard } from "../components/review/sheet/DecisionCard";
 import { DocumentPane, type PaneView } from "../components/review/sheet/DocumentPane";
 import { ProgressRing } from "../components/review/sheet/ProgressRing";
 import { SheetCard } from "../components/review/sheet/SheetCard";
-import { type SheetCard as Card, buildCards, headline, passedCount, progress } from "../components/review/sheet/sheetCards";
+import {
+  CARD_CHUNK, type SheetCard as Card, buildCards, headline, passedCount, progress, visibleCards,
+} from "../components/review/sheet/sheetCards";
 import { useSheetKeys } from "../components/review/sheet/useSheetKeys";
 import { BehindTheScenes, PANEL_TITLES, type StandardsState } from "../components/review/panels/BehindTheScenes";
 import { ReviewJobControl } from "../components/review/panels/ReviewJobControl";
@@ -120,10 +122,18 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
   }
 
   useSheetKeys(cards, selected, select, showOnPage);
+  // #603: the cards in chunks, never all at once; the keyboard still reaches
+  // every card, so a selection past the chunk extends it.
+  // #603: how many cards render at once. Grows by a chunk per click and never
+  // shrinks under the user; the window follows the selection (`visibleCards`).
+  const [shownCards, setShownCards] = useState(CARD_CHUNK);
+  const cardsShown = visibleCards(cards, shownCards, selected);
+  const firstShown = cardsShown.length ? cards.indexOf(cardsShown[0]) + 1 : 0;
+  const lastShown = firstShown + cardsShown.length - 1;
 
   if (panel && run) {
     return (
-      <main className="mx-auto w-full max-w-7xl" aria-label={PANEL_TITLES[panel] ?? "Behind the scenes"}>
+      <section className="mx-auto w-full max-w-7xl" aria-label={PANEL_TITLES[panel] ?? "Behind the scenes"}>
         <BehindTheScenes
           panel={panel} run={run} findings={findings} documents={submittal ? [submittal] : []}
           standardsState={standardsState} focusStatus={focusStatus}
@@ -132,7 +142,7 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
           onStandardsChanged={(changed, missing) => setStandardsState({ standards: changed, missing, error: null })}
           onChanged={() => void refresh()}
         />
-      </main>
+      </section>
     );
   }
 
@@ -150,7 +160,7 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
   }
 
   return (
-    <main className="mx-auto w-full max-w-7xl space-y-5" aria-labelledby="sheet-title">
+    <section className="mx-auto w-full max-w-7xl space-y-5" aria-labelledby="sheet-title">
       <header className="space-y-3">
         <button type="button" onClick={onBack} className="text-sm text-signal-300 underline-offset-2 hover:underline">
           ← Documents from contractors
@@ -198,6 +208,7 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
       {load.kind === "ready" && run && !active && run.status !== "failed" && (
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_26rem]">
           <DocumentPane
+            runId={runId}
             submittal={submittal} cards={cards} selected={selected}
             view={{ ...view, page: view.page ?? selected?.page ?? null }}
             pulse={pulse}
@@ -209,8 +220,8 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
             onSelectCard={(card) => select(card, view.page ?? undefined)}
             onCloseRule={() => setView((v) => ({ ...v, rule: null }))}
           />
-          <div className="space-y-3">
-            {cards.map((card) => (
+          <div className="space-y-3" data-testid="sheet-cards">
+            {cardsShown.map((card) => (
               <SheetCard
                 key={card.key} card={card} runId={runId} selected={card.key === selected?.key}
                 standardNames={standardNames} onSelect={() => select(card)}
@@ -220,6 +231,12 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
               />
             ))}
             {cards.length === 0 && <p className="text-sm text-slateish-300">Nothing on this datasheet needs your answer.</p>}
+            {cardsShown.length < cards.length && (
+              <button type="button" data-testid="more-cards" onClick={() => setShownCards(shownCards + CARD_CHUNK)}
+                className="w-full rounded-[var(--radius-md)] border border-dashed border-ink-600 bg-ink-900 px-4 py-3 text-left text-sm text-slateish-300 hover:border-ink-500">
+                Showing cards {firstShown}-{lastShown} of {cards.length} - show {Math.min(CARD_CHUNK, cards.length - cardsShown.length)} more
+              </button>
+            )}
             {cards.length > 0 && (
               <p className="text-xs text-slateish-500 max-sm:hidden" data-testid="sheet-keys">
                 Keys: J / K next and previous · Enter agree · N not needed · T show it on the page
@@ -258,6 +275,6 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
           </div>
         </div>
       )}
-    </main>
+    </section>
   );
 }

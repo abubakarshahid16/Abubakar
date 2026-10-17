@@ -20,7 +20,7 @@ vi.mock("../../api/client", () => ({
 }));
 
 const ready = (answerLocated: boolean | null): AuthedImage =>
-  ({ src: "blob:page", loading: false, failed: false, answerLocated });
+  ({ src: "blob:page", loading: false, failed: false, answerLocated, marksLocated: null, marksTotal: null });
 
 beforeEach(() => imageFor.mockReset());
 
@@ -67,14 +67,14 @@ describe("EvidencePageImage", () => {
   });
 
   it("a page that cannot be loaded is said, not a broken image", () => {
-    imageFor.mockReturnValue({ src: null, loading: false, failed: true, answerLocated: null });
+    imageFor.mockReturnValue({ src: null, loading: false, failed: true, answerLocated: null, marksLocated: null, marksTotal: null });
     render(<EvidencePageImage findingId="f-1" side="submittal" page={2} />);
     expect(screen.getByRole("alert")).toHaveTextContent("Page 2 could not be loaded from this screen.");
     expect(screen.queryByRole("img")).toBeNull();
   });
 
   it("says loading while the page loads", () => {
-    imageFor.mockReturnValue({ src: null, loading: true, failed: false, answerLocated: null });
+    imageFor.mockReturnValue({ src: null, loading: true, failed: false, answerLocated: null, marksLocated: null, marksTotal: null });
     render(<EvidencePageImage findingId="f-1" side="submittal" page={2} />);
     expect(screen.getByText("Loading page 2…")).toBeInTheDocument();
   });

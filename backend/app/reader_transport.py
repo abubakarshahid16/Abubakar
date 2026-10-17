@@ -163,8 +163,8 @@ def transport():
             try:
                 err = response.json().get("error", {})
                 kind = str(err.get("type") or "") if isinstance(err, dict) else ""
-            except ValueError:
-                pass
+            except ValueError as exc:  # #655: the status alone is reported
+                log.debug("error body from %s was not JSON (%s)", host, type(exc).__name__)
             raise httpx.HTTPStatusError(
                 f"{response.status_code} from {host}" + (f" ({kind})" if kind else ""),
                 request=response.request, response=response)
@@ -240,8 +240,8 @@ def stream(url: str, *, headers: Mapping[str, str], body: Mapping, timeout: floa
                 if sock is not None:
                     try:
                         sock.shutdown(_socket.SHUT_RDWR)
-                    except OSError:
-                        pass
+                    except OSError as exc:  # #655: already closed by the peer
+                        log.debug("cancel: socket shutdown skipped (%s)", type(exc).__name__)
                 client.close()
                 return
 
@@ -257,8 +257,8 @@ def stream(url: str, *, headers: Mapping[str, str], body: Mapping, timeout: floa
                 try:
                     err = json.loads(response.read()).get("error", {})
                     kind = str(err.get("type") or "") if isinstance(err, dict) else ""
-                except ValueError:
-                    pass
+                except ValueError as exc:  # #655: the status alone is reported
+                    log.debug("error body from %s was not JSON (%s)", host, type(exc).__name__)
                 raise httpx.HTTPStatusError(
                     f"{status} from {host}" + (f" ({kind})" if kind else ""),
                     request=response.request, response=response)
@@ -362,8 +362,8 @@ def _gated(method: str, url: str, *, headers: Mapping[str, str], timeout: float,
         try:
             err = response.json().get("error", {})
             kind = str(err.get("type") or "") if isinstance(err, dict) else ""
-        except ValueError:
-            pass
+        except ValueError as exc:  # #655: the status alone is reported
+            log.debug("error body from %s was not JSON (%s)", host, type(exc).__name__)
         raise httpx.HTTPStatusError(f"{response.status_code} from {host}" + (f" ({kind})" if kind else ""),
                                     request=response.request, response=response)
     if len(response.content) > limit:

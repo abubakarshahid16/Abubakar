@@ -37,6 +37,9 @@ vi.mock("../api/client", () => ({
     runCoverage: async () => ({ ok: false, error: { message: "not in this test" } }),
   },
 }));
+vi.mock("../components/review/sheet/SheetPageImage", () => ({
+  SheetPageImage: ({ page }: { page: number }) => <p>{`submittal page ${page}`}</p>,
+}));
 vi.mock("../components/review/EvidencePageImage", () => ({
   EvidencePageImage: ({ side, page }: { side: string; page: number }) => <p>{`${side} page ${page}`}</p>,
 }));
@@ -217,6 +220,29 @@ describe("ReviewSheetView", () => {
   });
 });
 
+describe("#603: cards in chunks", () => {
+  it("renders a chunk, grows it on the button, and K from the first card shows a window round the last", async () => {
+    // 70 distinct open cards: a different wording each (digits and the field
+    // name are folded out of the template, so none collapse into one card)
+    findings = Array.from({ length: 70 }, (_, i) => f(`c${i}`, { required_action: `Contractor to ${"re".repeat(i + 1)}fix it.` }));
+    render(<ReviewSheetView runId="run-1" onBack={vi.fn()} onOpenPanel={vi.fn()} onOpenRun={vi.fn()} />);
+    await screen.findByTestId("sheet-headline");
+    // one card is open (an article); the rest are one-line buttons named by their title
+    const cardsOnScreen = () => within(screen.getByTestId("sheet-cards")).getAllByText(/^Field c\d+ does not meet the standard$/).length;
+    expect(cardsOnScreen()).toBe(60);
+    expect(screen.getByTestId("more-cards")).toHaveTextContent("Showing cards 1-60 of 70 - show 10 more");
+    await userEvent.keyboard("k");                                   // wraps to the last card
+    expect(screen.getByRole("article", { name: "Field c69 does not meet the standard" })).toBeInTheDocument();
+    expect(cardsOnScreen()).toBe(60);                                 // a window, not every card
+    expect(screen.getByTestId("more-cards")).toHaveTextContent("Showing cards 11-70 of 70");
+    await userEvent.keyboard("j");                                   // and back to the first
+    expect(screen.getByTestId("more-cards")).toHaveTextContent("Showing cards 1-60 of 70");
+    await userEvent.click(screen.getByTestId("more-cards"));
+    expect(cardsOnScreen()).toBe(70);
+    expect(screen.queryByTestId("more-cards")).toBeNull();
+  });
+});
+
 describe("#967 PR 4: show it on the page", () => {
   const scrolled = vi.fn();
   beforeEach(() => {
@@ -236,8 +262,11 @@ describe("#967 PR 4: show it on the page", () => {
     expect(frame().dataset.pulsing).toBeUndefined();
     await userEvent.keyboard("t");
     expect(frame().dataset.pulsing).toBe("true");
-    expect(scrolled).toHaveBeenCalled();
-    expect(scrolled.mock.instances[0]).toBe(frame());
+    // THE PAGE FRAME scrolled - pinned to [data-sheet-page], not to "the first
+    // scroll after T": on a slow runner the opened card's own scroll (its
+    // effect, when it becomes selected) can land after the reset above, and
+    // this used to take that <article> for the frame (flaky on two gates, 17 Oct).
+    expect(scrolled.mock.instances).toContain(frame());
     await waitFor(() => expect(frame().dataset.pulsing).toBeUndefined(), { timeout: 3000 });
   });
 

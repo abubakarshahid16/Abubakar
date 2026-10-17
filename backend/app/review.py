@@ -7,6 +7,7 @@ workflow record created from that evidence and then managed by people.
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -740,6 +741,34 @@ def update(finding_id: str, changes: dict, *, actor_user_id: str | None = None) 
     return get(finding_id)
 
 
+def _file_tag(document_id: str) -> str:
+    """The document id as it may appear in a file name: letters, digits, dash,
+    underscore; anything else becomes an underscore."""
+    return re.sub(r"[^A-Za-z0-9_-]", "_", document_id) or "document"
+
+
+def report_files_for(document_id: str) -> list[Path]:
+    """#437: the review PDFs rendered for this document, by their file name."""
+    report_dir = settings.data_dir / "review_reports"
+    if not report_dir.exists():
+        return []
+    return sorted(report_dir.glob(f"engineering-review-{_file_tag(document_id)}-*.pdf"))
+
+
+def remove_report_files(document_id: str) -> int:
+    """#437: delete the document's review PDFs; returns how many went.
+
+    Files rendered before the name carried the document id cannot be tied to
+    one document and are left as they are - the owner clears those by hand;
+    `document_refs` says so.
+    """
+    removed = 0
+    for path in report_files_for(document_id):
+        path.unlink(missing_ok=True)
+        removed += 1
+    return removed
+
+
 def render_report(document_id: str, *,
                   allowed_document_ids: frozenset[str] | None = None) -> Path:
     """Freeze the current review findings into a readable PDF export.
@@ -760,7 +789,9 @@ def render_report(document_id: str, *,
                              allowed_document_ids=allowed_document_ids)
     report_dir = settings.data_dir / "review_reports"
     report_dir.mkdir(parents=True, exist_ok=True)
-    path = report_dir / f"engineering-review-{uuid.uuid4()}.pdf"
+    # #437: the file carries the document it quotes in its name, so a delete
+    # of the document can find and remove it (`remove_report_files`).
+    path = report_dir / f"engineering-review-{_file_tag(document_id)}-{uuid.uuid4()}.pdf"
     pdf = pymupdf.open()
     page = pdf.new_page()
     y = 48

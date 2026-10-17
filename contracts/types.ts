@@ -1679,12 +1679,7 @@ export interface BaselineSelectionOut {
   text: string | null;
 }
 
-export type GapItemStatus =
-  | "met"
-  | "possible_gap"
-  | "conflict"
-  | "insufficient_evidence"
-  | "not_applicable";
+export type GapItemStatus = "met" | "possible_gap" | "conflict" | "insufficient_evidence" | "beyond_requirement" | "not_applicable";
 
 export interface GapItemOut {
   facet: string;

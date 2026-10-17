@@ -212,6 +212,7 @@ const GAP_STATUSES = new Set([
   "possible_gap",
   "conflict",
   "insufficient_evidence",
+  "beyond_requirement", // #1055: stated by the documents, asked for by no clause; its own group
   "not_applicable",
 ]);
 

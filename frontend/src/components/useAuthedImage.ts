@@ -18,6 +18,9 @@ export interface AuthedImage {
   loading: boolean;
   failed: boolean;
   answerLocated: boolean | null;
+  /** #967: the Sheet's page image - marks placed, out of marks asked. */
+  marksLocated: number | null;
+  marksTotal: number | null;
 }
 
 export function useAuthedImage(url: string | null): AuthedImage {
@@ -26,16 +29,18 @@ export function useAuthedImage(url: string | null): AuthedImage {
     loading: url !== null,
     failed: false,
     answerLocated: null,
+    marksLocated: null,
+    marksTotal: null,
   });
 
   useEffect(() => {
     if (url === null) {
-      setState({ src: null, loading: false, failed: false, answerLocated: null });
+      setState({ src: null, loading: false, failed: false, answerLocated: null, marksLocated: null, marksTotal: null });
       return;
     }
     let cancelled = false;
     let created: string | null = null;
-    setState({ src: null, loading: true, failed: false, answerLocated: null });
+    setState({ src: null, loading: true, failed: false, answerLocated: null, marksLocated: null, marksTotal: null });
     void fetchImageObjectUrl(url).then((result) => {
       if (cancelled) {
         if (result.url) URL.revokeObjectURL(result.url);
@@ -47,6 +52,8 @@ export function useAuthedImage(url: string | null): AuthedImage {
         loading: false,
         failed: result.url === null,
         answerLocated: result.answerLocated,
+        marksLocated: result.marksLocated,
+        marksTotal: result.marksTotal,
       });
     });
     return () => {
