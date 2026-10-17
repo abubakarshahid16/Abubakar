@@ -42,6 +42,9 @@ export interface FindingsTableProps {
 const MISSING = "MISSING_INFORMATION";
 const OUT_OF_SCOPE = "NOT_IN_DOCUMENT_SCOPE";
 
+/** #603: rows per page of the findings table. */
+export const PAGE_SIZE = 100;
+
 export function FindingsTable(
   { findings, selectedId, standardNames, onSelect, initialStatus, documents }: FindingsTableProps,
 ) {
@@ -84,6 +87,17 @@ export function FindingsTable(
     ...(showMissing ? missing : []),
     ...(showOutOfScope ? outOfScope : []),
   ];
+  // #603: one page of rows at a time. A live review once rendered 6,900 rows
+  // (about 1 MB of text) in one go. The page resets whenever the filters
+  // change, so "page 3" never silently shows a different list's page 3.
+  const filterKey = [status, tag, standard, showMissing, showOutOfScope].join("\u001f");
+  const [paging, setPaging] = useState({ key: filterKey, page: 0 });
+  const pages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+  // Clamped where it is read: the list refreshes every few seconds during a
+  // run and can shrink under a page that no longer exists.
+  const page = Math.min(paging.key === filterKey ? paging.page : 0, pages - 1);
+  const shown = visible.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const setPage = (next: number) => setPaging({ key: filterKey, page: Math.min(Math.max(next, 0), pages - 1) });
 
   return (
     <section aria-labelledby="findings-title" className="space-y-3">
@@ -158,7 +172,7 @@ export function FindingsTable(
             </tr>
           </thead>
           <tbody>
-            {visible.map((finding) => (
+            {shown.map((finding) => (
               <FindingRow
                 key={finding.id} finding={finding}
                 name={standardNames?.get(finding.standard_document_id ?? "")}
@@ -171,6 +185,24 @@ export function FindingsTable(
           </tbody>
         </table>
       </div>
+      {visible.length > PAGE_SIZE && (
+        <nav aria-label="Findings pages" className="flex flex-wrap items-center gap-3 text-sm text-slateish-300">
+          {/* Its boundary is the TABLE (rows after the missing / out-of-scope
+              toggles), not the filter count in the heading - the two differ
+              on purpose and each says which it is (rule 4). */}
+          <span data-testid="findings-page-line" aria-live="polite">
+            Showing rows {(page * PAGE_SIZE + 1).toLocaleString()}-{Math.min((page + 1) * PAGE_SIZE, visible.length).toLocaleString()} of {visible.length.toLocaleString()} in the table
+          </span>
+          <button type="button" onClick={() => setPage(page - 1)} disabled={page === 0}
+            className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 disabled:opacity-40">
+            Previous {PAGE_SIZE}
+          </button>
+          <button type="button" onClick={() => setPage(page + 1)} disabled={page >= pages - 1}
+            className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 disabled:opacity-40">
+            Next {PAGE_SIZE}
+          </button>
+        </nav>
+      )}
 
       {missing.length > 0 && !showMissing && (
         <button

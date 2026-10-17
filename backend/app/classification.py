@@ -1295,50 +1295,13 @@ def set_role(document_id: str, role: str, *, only_if_unset: bool = False) -> boo
             f"{role!r} is not a document role; expected one of {', '.join(ROLES)}")
     changed = _set_one_column("document_role", document_id, role,
                               only_if_unset=only_if_unset)
-    if changed and role == "COMPANY_STANDARD":
-        _queue_extraction_if_ready(document_id)
+    if changed:
+        # #195: the READY hooks, for a role set after READY (standards
+        # extraction, and a submittal's facts and classifiers). READY-gated,
+        # idempotent and never raising.
+        from . import ingest
+        ingest.on_role_changed(document_id)
     return changed
-
-
-def _queue_extraction_if_ready(document_id: str) -> None:
-    """Queue rule extraction for a document that BECOMES a company standard.
-
-    THE OTHER HALF OF THE INGESTION HOOK, and without it that hook is inert
-    for every document a person uploads. `ingest._queue_extraction_if_standard`
-    asks whether a document is a COMPANY_STANDARD at the moment ingestion
-    finishes. For an upload the answer is always no: `upload.py` writes a
-    classification row with `document_role` NULL and the role is assigned
-    afterwards, by an administrator or by the watch folder. Measured on the
-    live corpus - 256 of the 272 standards carry `suggested_by = 'none'`,
-    which is the bulk role endpoint, not a pattern match at upload.
-
-    So the two hooks cover the two orders and neither covers both:
-      role set first, then ingestion finishes  -> the ingest hook queues it
-      ingestion finishes, then role set        -> this queues it
-
-    Only when the document is already READY. A document still chunking will
-    reach the ingest hook on its own, and queuing extraction for a document
-    with no chunks yet would extract nothing and report success.
-
-    Imported inside the function: `standards` pulls in the whole review
-    surface, and this module must not depend on it merely to enqueue - the
-    same reason `ingest` gives for the same import.
-
-    Swallows its own failure. Assigning a role must not fail because
-    downstream work could not be scheduled, and `enqueue_extraction` is
-    idempotent per document, so a later retry costs nothing.
-    """
-    try:
-        from . import states
-        row = connect().execute(
-            "SELECT status FROM documents WHERE id = ?", (document_id,)).fetchone()
-        if row is None or row["status"] != states.READY:
-            return
-        from . import standards
-        standards.enqueue_extraction(document_id)
-    except Exception as exc:  # noqa: BLE001 - see docstring
-        from . import errors
-        errors.record_failure(exc, stage="standard_extraction_enqueue")
 
 
 def set_discipline(document_id: str, discipline: str, *,
@@ -1513,11 +1476,16 @@ def confirm(document_id: str, *, doc_type: str | None,
     # one document at a time - and it had no such hook. Found 2026-09-28: a
     # document confirmed here as COMPANY_STANDARD after it finished ingesting
     # sat fully indexed with zero requirements extracted, forever, with
-    # nothing on screen to say why. `_queue_extraction_if_ready` is the same
-    # helper `set_role` already calls; it is READY-gated and idempotent, so
+    # nothing on screen to say why. `ingest.on_role_changed` is the same
+    # hook `set_role` already calls; it is READY-gated and idempotent, so
     # calling it again here for a document already queued costs nothing.
-    if metadata is not None and metadata.get("document_role") == "COMPANY_STANDARD":
-        _queue_extraction_if_ready(document_id)
+    # #195: the same shared hook `set_role` calls, which also reads a
+    # submittal's facts. Without the classifiers: this form IS the
+    # classification, and it must not be overwritten a moment later.
+    if metadata is not None and metadata.get("document_role") in (
+            "COMPANY_STANDARD", "CONTRACTOR_SUBMITTAL"):
+        from . import ingest
+        ingest.on_role_changed(document_id, classify=False)
     return of_document(document_id) or {}
 
 
