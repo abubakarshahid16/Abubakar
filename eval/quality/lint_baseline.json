@@ -1,6 +1,6 @@
 {
  "ruff": "0.16.6",
- "total": 1590,
+ "total": 1577,
  "counts": {
   "backend/app/absence.py::E741": 1,
   "backend/app/access.py::UP031": 1,
@@ -145,7 +145,6 @@
   "backend/app/live_guard.py::RUF100": 1,
   "backend/app/live_guard.py::UP037": 1,
   "backend/app/main.py::ARG001": 17,
-  "backend/app/main.py::B904": 14,
   "backend/app/main.py::B905": 1,
   "backend/app/main.py::BLE001": 1,
   "backend/app/main.py::I001": 1,
@@ -305,6 +304,7 @@
   "backend/tests/test_819_standards_per_task.py::I001": 1,
   "backend/tests/test_830_units_the_reader_refused.py::I001": 1,
   "backend/tests/test_833_okf_approval.py::E702": 2,
+  "backend/tests/test_835_repo_hygiene.py::RUF021": 1,
   "backend/tests/test_838_local_when_not_approved.py::F811": 11,
   "backend/tests/test_838_local_when_not_approved.py::I001": 1,
   "backend/tests/test_838_local_when_not_approved.py::RUF012": 1,
