@@ -46,9 +46,8 @@ SCHEMA_BOOTSTRAP = {(sqlite3.SQLITE_INSERT, "escalation_rules"),
 #: the walk keeps guarding, and asserted to STILL write below: when the issue
 #: is fixed this test fails until the entry is removed, so the list cannot
 #: outlive the defect it excuses.
-KNOWN_GET_WRITES = {
-    # rebuilds the derived page ledger on every read (#1017, review path)
-    ("/api/reviews/readiness/{submittal_document_id}", "page_ledger"): "#1017",
+KNOWN_GET_WRITES: dict[tuple[str, str], str] = {
+    # none: the readiness route (#1017) reads the ledger since PR #1029.
 }
 
 

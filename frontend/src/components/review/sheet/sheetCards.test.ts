@@ -110,6 +110,35 @@ describe("words", () => {
   it("counts the passes of this run", () => {
     expect(passedCount([f({ compliance_status: "COMPLIANT" }), f()])).toBe(1);
   });
+
+  it("rule_trust (#947): the trust line is the finding's own label, in the owner's words", () => {
+    expect(trustLine(buildCards([f({ trust_label: "AUTO_PROVEN" })])[0])).toBe("Checked by a proven rule");
+    expect(trustLine(buildCards([f({ trust_label: "ENGINEER_CONFIRMED" })])[0])).toBe("Rule approved by an engineer");
+    expect(trustLine(buildCards([f({ compliance_status: "NEEDS_ENGINEER_REVIEW", trust_label: "UNPROVEN", rule_said: "NON_COMPLIANT" })])[0]))
+      .toBe('Rule not yet proven, so you decide. The rule said "does not meet"; held for you.');
+  });
+});
+
+describe("the safety tick (rule_trust #947 step 8)", () => {
+  const tick = (over: Partial<ReviewFinding> = {}) =>
+    f({ compliance_status: "COMPLIANT", show_for_engineer_tick: true, trust_label: "AUTO_PROVEN", tier: "SAFETY",
+        matched_phrase: "Set pressure", finding: "Set pressure 9 barg meets the standard.", ...over });
+
+  it("a flagged safety meets is a card, one per value, never grouped and never a pass", () => {
+    expect(isAskFinding(tick())).toBe(true);
+    expect(isAskFinding(f({ compliance_status: "COMPLIANT", show_for_engineer_tick: false }))).toBe(false);
+    const cards = buildCards([tick(), tick({ matched_phrase: "Set pressure" })]);
+    expect(cards).toHaveLength(2);
+    expect(cardTitle(cards[0])).toBe("Set pressure meets the standard: a safety field, please check it");
+    expect(passedCount([tick()])).toBe(1); // still a pass in the count; the tick is the engineer's check of it
+  });
+
+  it("is open until ticked, and ticked or 'something is off' like any answer", () => {
+    expect(buildCards([tick()])[0].state).toBe("open");
+    expect(buildCards([tick({ confirmed_by: "eng" })])[0].state).toBe("agreed");
+    expect(buildCards([tick({ approval_status: "rejected" })])[0].state).toBe("not_needed");
+    expect(headline(buildCards([tick()]), gate(), null)).toBe("1 thing needs your answer. Everything else checked out.");
+  });
 });
 
 describe("headline", () => {

@@ -9,7 +9,7 @@
  * issued is still the server's issue gate, never this file.
  */
 import type { CrsIssueGate, ReviewFinding } from "../../../types/api";
-import { AI_ENGINEERING_CHECK, PAGE_READER_ONLY, UNREAD_PAGES, WEB_STANDARD_CHECK, pageList } from "../reviewFormat";
+import { AI_ENGINEERING_CHECK, PAGE_READER_ONLY, UNREAD_PAGES, WEB_STANDARD_CHECK, pageList, trustWords } from "../reviewFormat";
 
 const ASK_STATUSES = new Set(["NON_COMPLIANT", "MISSING_INFORMATION", "NEEDS_ENGINEER_REVIEW", "CONDITIONAL"]);
 const CHECK_ORIGINS = new Set([AI_ENGINEERING_CHECK, WEB_STANDARD_CHECK]);
@@ -46,9 +46,19 @@ function isPageNote(f: ReviewFinding): boolean {
   return why.startsWith(UNREAD_PAGES) || why.startsWith(PAGE_READER_ONLY);
 }
 
-/** A finding the engineer must answer: a comment the sheet would carry. */
+/** rule_trust (#947 step 8): a "meets" from a SAFETY-tier rule is shown
+ *  for the engineer's own tick. It is never a comment to the contractor:
+ *  the engineer checks the value on the page, then ticks it or says
+ *  something is off. */
+export function isTickFinding(f: ReviewFinding): boolean {
+  return Boolean(f.show_for_engineer_tick) && f.compliance_status === "COMPLIANT";
+}
+
+/** A finding the engineer must answer: a comment the sheet would carry, or a
+ *  safety tick. */
 export function isAskFinding(f: ReviewFinding): boolean {
   if (f.origin === "chat" || isPageNote(f)) return false;
+  if (isTickFinding(f)) return true;
   if (CHECK_ORIGINS.has(f.origin ?? "")) return true;
   return ASK_STATUSES.has(f.compliance_status ?? "");
 }
@@ -73,6 +83,8 @@ export function commentTemplate(f: ReviewFinding): string {
 
 function cardKey(f: ReviewFinding): string {
   if (f.engineer_comment) return `own:${f.id}`;
+  // A safety tick is one value, checked by one person: never grouped.
+  if (isTickFinding(f)) return `tick:${f.id}`;
   return [f.origin ?? "", f.compliance_status ?? "", reasonCode(f), commentTemplate(f)].join("\u001f");
 }
 
@@ -133,6 +145,7 @@ export function cardTitle(card: SheetCard): string {
     : fields.length === 1 ? fields[0]
     : fields.length === 2 ? `${fields[0]} and ${fields[1]}`
     : `${fields[0]}, ${fields[1]} and ${fields.length - 2} more`;
+  if (isTickFinding(leader)) return capital(`${subject} meets the standard: a safety field, please check it`);
   if (CHECK_ORIGINS.has(leader.origin ?? "")) {
     return capital(`${subject}: the computer's plausibility check raised it`);
   }
@@ -149,12 +162,16 @@ export function groupLine(card: SheetCard): string {
   return `${n} ${noun}, one answer`;
 }
 
-/** The trust line. Until rule_trust (#947) is wired, no rule is claimed as
- *  proven: a guess is shown as a guess (CLAUDE.md rule 4). */
+/** The trust line: who stands behind the rule, in the owner's words
+ *  (rule_trust, #947), from the finding's own label. A finding the run did
+ *  not label claims nothing: a guess is shown as a guess (CLAUDE.md rule
+ *  4). A verdict held for the engineer says what the rule said. */
 export function trustLine(card: SheetCard): string {
   const leader = card.findings[0];
   if (CHECK_ORIGINS.has(leader.origin ?? "")) return "Flagged by the computer's plausibility check";
-  return "Rule not yet proven, so you decide";
+  const words = trustWords(leader.trust_label) || "Rule not yet proven, so you decide";
+  if (!leader.rule_said) return words;
+  return `${words}. The rule said "${PLAIN_OUTCOME[leader.rule_said] ?? leader.rule_said}"; held for you.`;
 }
 
 /** #603: how many cards the Sheet shows before "show the next". */
