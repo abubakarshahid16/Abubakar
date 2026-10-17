@@ -153,3 +153,16 @@ eval/results/
 
 # Mutation harness backups (never commit a half-mutated source file).
 *.mutbak
+
+# Proof and scratch output that once landed in the tree (order 68, repo hygiene
+# before the Mac move, #835): timing files, rehearsal scripts and their output,
+# a captured dashboard body. Proof runs write OUTSIDE the repo; these patterns
+# keep a stray copy from being committed again.
+*_elapsed.txt
+/rehearsal*.py
+/rehearsal*.json
+/rehearsal*.txt
+/backend/rehearsal*.json
+/backend/rehearsal*.txt
+/frontend/dash-body.txt
+/docs/review-command.md
