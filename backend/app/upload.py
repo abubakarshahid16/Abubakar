@@ -585,7 +585,8 @@ def _first_page_text(pdf_path: Path) -> str:
             if document.page_count == 0:
                 return ""
             return document.load_page(0).get_text() or ""
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        log.info("upload: the first page's text could not be read; the title is left blank (%s)", type(exc).__name__)  # 79c
         return ""
 
 

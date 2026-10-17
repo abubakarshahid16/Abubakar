@@ -29,6 +29,7 @@ is `datasheet_ai.model_call_for` (or a caller's / test's callable).
 from __future__ import annotations
 
 import json
+import logging
 import time
 from collections import Counter
 from dataclasses import dataclass, field
@@ -57,6 +58,8 @@ from .form_reader_fields import (
     schema_for,
 )
 from .model_evidence import APPROVED_CHARACTER_MAP
+
+log = logging.getLogger(__name__)
 
 READER = "form_reader"
 #: Facts are the model's, exactly as `datasheet_ai` writes them.
@@ -232,6 +235,7 @@ def _call(model_call, prompt: str) -> tuple[str | None, Reason | None]:
     except StopRun:
         return None, Reason.MODEL_STOPPED
     except Exception as exc:  # noqa: BLE001 - never into ingestion; the failure is recorded as a named reason
+        log.info("form_reader: the form reader's model call failed; recorded as a named reason (%s)", type(exc).__name__)  # 79c
         return None, Reason.MODEL_TIMED_OUT if datasheet_ai.is_timeout(exc) else Reason.MODEL_FAILED
 
 

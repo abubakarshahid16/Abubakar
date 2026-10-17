@@ -19,10 +19,13 @@ Ids, statuses, counts and rule names only. Never page text.
 """
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 
 from .config import settings
 from .db import connect
+
+log = logging.getLogger(__name__)
 
 SUBMITTAL_ROLE = "CONTRACTOR_SUBMITTAL"
 
@@ -62,7 +65,8 @@ def _role(conn, document_id: str) -> str | None:
         row = conn.execute(
             "SELECT document_role FROM document_classification WHERE document_id = ?",
             (document_id,)).fetchone()
-    except Exception:  # noqa: BLE001 - a database without classification yet
+    except Exception as exc:  # noqa: BLE001 - a database without classification yet
+        log.debug("page_ledger: the document role could not be read (no classification table yet) (%s)", type(exc).__name__)  # 79c
         return None
     return row["document_role"] if row else None
 
@@ -142,7 +146,8 @@ def refresh(document_id: str, *, as_submittal: bool | None = None) -> int:
                     " WHERE submittal_document_id = ? AND superseded_at IS NULL"
                     " GROUP BY page", (document_id,)):
                 fact_counts[r["page"]] = r["n"]
-        except Exception:  # noqa: BLE001 - no submittal tables yet
+        except Exception as exc:  # noqa: BLE001 - no submittal tables yet
+            log.debug("page_ledger: fact counts could not be read (no submittal tables yet) (%s)", type(exc).__name__)  # 79c
             fact_counts = {}
 
     now = _now()
@@ -420,7 +425,8 @@ def _page_reader_only(document_id: str, fact_pages: list[int]) -> list[int]:
                 " WHERE submittal_document_id = ? AND superseded_at IS NULL",
                 (document_id,)):
             methods.setdefault(r["page"], set()).add(r["extraction_method"] or "")
-    except Exception:  # noqa: BLE001 - no submittal tables yet
+    except Exception as exc:  # noqa: BLE001 - no submittal tables yet
+        log.debug("page_ledger: fact methods could not be read (no submittal tables yet) (%s)", type(exc).__name__)  # 79c
         return []
     return [p for p in fact_pages
             if methods.get(p) and not (methods[p] & TEXT_READER_METHODS)]

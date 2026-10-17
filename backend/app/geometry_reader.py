@@ -32,11 +32,14 @@ column for tables; label bbox and value bbox for forms; and `source`.
 
 from __future__ import annotations
 
+import logging
 import re
 import statistics
 from typing import Any
 
 from . import blank_markers, claims
+
+log = logging.getLogger(__name__)
 
 # --------------------------------------------------------------------------
 # Units
@@ -268,7 +271,8 @@ def text_rotation(page: Any) -> int:
     written: dict[tuple[int, int], int] = {}
     try:
         blocks = page.get_text("dict").get("blocks", [])
-    except Exception:  # a page that cannot be read as text keeps its rotation
+    except Exception as exc:  # a page that cannot be read as text keeps its rotation
+        log.debug("geometry_reader: page text could not be read for rotation; the page keeps its rotation (%s)", type(exc).__name__)  # 79c
         return int(page.rotation)
     for block in blocks:
         for line in block.get("lines", []) if block.get("type") == 0 else []:
@@ -580,6 +584,7 @@ def read_tables(page: Any) -> dict[str, Any]:
         try:
             tables = list(page.find_tables(strategy=strategy).tables)
         except Exception as exc:  # a strategy that crashes simply loses
+            log.debug("geometry_reader: a table strategy failed; it scores 0 (%s)", type(exc).__name__)  # 79c
             tables = []
             scores[strategy] = {"score": 0.0, "tables": 0, "error": type(exc).__name__}
             found[strategy] = tables

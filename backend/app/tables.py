@@ -36,9 +36,12 @@ figure is what stops that looking like success.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
 from .db import connect
+
+log = logging.getLogger(__name__)
 
 #: A recovered table must have at least this many rows and columns before it is
 #: called a table. A 1xN strip is a run of text that happened to sit inside
@@ -255,7 +258,8 @@ def parse_page_tables(stored_path: str, page_no: int) -> list[list[list[str]]]:
         # only duplicate that. Returning nothing is correct - and is no longer
         # the ONLY thing that happens, which was the defect.
         return []
-    except Exception:  # noqa: BLE001 - geometry that defeats the finder
+    except Exception as exc:  # noqa: BLE001 - geometry that defeats the finder
+        log.debug("tables: the table finder failed; no table is returned (%s)", type(exc).__name__)  # 79c
         return []
 
 

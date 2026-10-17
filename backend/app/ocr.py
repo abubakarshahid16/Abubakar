@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import bisect
 import concurrent.futures as cf
+import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -62,6 +63,8 @@ from .config import settings
 from .db import connect
 from .quality import normalise_text
 from .rates import Timer
+
+log = logging.getLogger(__name__)
 
 #: What the recogniser produced, and what it ran against. Kept as one string
 #: so a stored row can always answer "which model wrote this".
@@ -191,7 +194,8 @@ def route_page(page, text: str) -> Route:
     try:
         images = [_clip(tuple(i["bbox"]), bounds)
                   for i in page.get_image_info(hashes=False, xrefs=False)]
-    except Exception:  # noqa: BLE001 - a malformed image stream is not a scan
+    except Exception as exc:  # noqa: BLE001 - a malformed image stream is not a scan
+        log.debug("ocr: image info could not be read; the page is not treated as a scan (%s)", type(exc).__name__)  # 79c
         images = []
     image_area = _union_area(images)
     text_area = None
@@ -466,7 +470,8 @@ def _box_origin(box) -> tuple[float, float]:
     """(y, x) of a recogniser box: its top-left over the four corners."""
     try:
         return (float(min(pt[1] for pt in box)), float(min(pt[0] for pt in box)))
-    except Exception:  # noqa: BLE001 - a box of unexpected shape sorts first
+    except Exception as exc:  # noqa: BLE001 - a box of unexpected shape sorts first
+        log.debug("ocr: a recogniser box of unexpected shape sorts first (%s)", type(exc).__name__)  # 79c
         return (0.0, 0.0)
 
 
@@ -484,13 +489,14 @@ def recognise_batch(stored_path: str, sha256: str, page_nos: list[int]) -> list[
     as recognised. A page that raises is returned with its error, never
     dropped: one bad page must not kill a batch or hold the document.
     """
-    from .pageimage import render_page
-
     import time
+
+    from .pageimage import render_page
 
     try:
         ocr = _build_engine()
     except Exception as exc:  # noqa: BLE001 - a missing model is every page failing, not the document
+        log.warning("ocr: the OCR engine could not be built; every page of the batch is failed (%s)", type(exc).__name__)  # 79c
         return failed_rows(page_nos, f"engine_unavailable: {type(exc).__name__}: {exc}")
     out: list[tuple] = []
     doc = {"sha256": sha256, "stored_path": stored_path}
@@ -506,6 +512,7 @@ def recognise_batch(stored_path: str, sha256: str, page_nos: list[int]) -> list[
             boxes = list(boxes) if boxes is not None else []
             native = _native_lines(stored_path, pno, scale)
         except Exception as exc:  # noqa: BLE001 - one bad page must not kill a batch
+            log.info("ocr: OCR of one page failed; the page is recorded as failed (%s)", type(exc).__name__)  # 79c
             out.append((pno, "", None, None, 0, 0, round(time.perf_counter() - t0, 3), 0, "",
                         f"{type(exc).__name__}: {exc}"[:500]))
             continue
@@ -719,6 +726,7 @@ def recognise_document(doc_id: str, progress=None, max_pages: int | None = None)
                 try:
                     rows = future.result()
                 except Exception as exc:  # noqa: BLE001 - the worker, not the document, failed
+                    log.warning("ocr: an OCR worker failed; its pages are recorded as failed (%s)", type(exc).__name__)  # 79c
                     if isinstance(exc, cf.BrokenExecutor):
                         broken = True
                     rows = failed_rows(
