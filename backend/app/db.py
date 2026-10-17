@@ -1427,7 +1427,9 @@ def init_db(path: Path | None = None) -> None:
     # column missing and the second died on "duplicate column name". Taking
     # SQLite's write lock first makes the second process wait, then re-read
     # the columns the first one added. DDL is transactional in SQLite, so the
-    # whole migration lands at once or not at all.
+    # whole migration lands at once or not at all. `_migrate` ends with its
+    # own commit, which ends this transaction; a "schema has changed" retry by
+    # `SchemaRetryConnection` re-runs the statement inside it, losing nothing.
     if conn.in_transaction:
         conn.commit()
     conn.execute("BEGIN IMMEDIATE")
