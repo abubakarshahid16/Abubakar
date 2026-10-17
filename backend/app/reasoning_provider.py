@@ -930,6 +930,13 @@ def _lane_unavailable() -> tuple[str | None, str]:
     return None, "claude"
 
 
+def claude_lane_open() -> bool:
+    """#482: whether the Claude lane itself is open (both egress flags and a
+    key), whichever step or chat choice would use it. Screens that state the
+    privacy posture read this, not the provider switch alone."""
+    return _lane_unavailable()[0] is None
+
+
 def claude_available() -> tuple[bool, str]:
     """Whether Claude may be used, and if not, why (never the key itself)."""
     code, why = claude_unavailable()
