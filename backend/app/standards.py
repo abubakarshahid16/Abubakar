@@ -1804,11 +1804,15 @@ def selectable_standard_ids(*, allowed_document_ids: frozenset[str]) -> frozense
     with the data that expresses it rather than with the engine that asks.
     """
     where, args = _scope_clause(allowed_document_ids, "d.id")
+    # #620: a standard a non-admin uploaded waits for an administrator's
+    # confirmation before a review may use it (`company_standard_confirm`).
+    from .company_standard_confirm import held_clause
+    held, held_args = held_clause("d.id")
     rows = connect().execute(
         "SELECT d.id FROM documents d"
         " JOIN document_classification c ON c.document_id = d.id" + where +
-        " AND c.document_role = ? AND c.superseded_by IS NULL",
-        [*args, COMPANY_STANDARD],
+        " AND c.document_role = ? AND c.superseded_by IS NULL AND NOT (" + held + ")",
+        [*args, COMPANY_STANDARD, *held_args],
     ).fetchall()
     return frozenset(row["id"] for row in rows)
 
