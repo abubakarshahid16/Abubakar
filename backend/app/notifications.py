@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import smtplib
+import ssl
 from datetime import UTC, datetime, timezone
 from email.message import EmailMessage
 
-from .config import NotificationConfigError, settings
+from .config import NotificationConfigError, SmtpTlsRefused, settings
 from .db import connect
 
 
@@ -40,6 +41,41 @@ def _validate_runtime() -> None:
     if bool(settings.smtp_username) != bool(settings.smtp_password):
         raise NotificationConfigError(
             "SMTP_USERNAME and SMTP_PASSWORD must be provided together")
+    # #440: re-checked here, not only at load, because the settings object can
+    # be changed after startup and this is the last point before the socket.
+    if not settings.smtp_starttls and not settings.smtp_ssl:
+        raise SmtpTlsRefused(
+            "SMTP notifications need TLS: set SMTP_STARTTLS=true or SMTP_SSL=true")
+    if settings.smtp_starttls and settings.smtp_ssl:
+        raise NotificationConfigError("set only one of SMTP_STARTTLS and SMTP_SSL")
+
+
+def _open_tls(context: ssl.SSLContext) -> smtplib.SMTP:
+    """A connection that is already encrypted, or a named refusal.
+
+    SMTPS wraps the socket before the first byte. STARTTLS upgrades a plain
+    connection, and a server that does not offer it, refuses it or fails the
+    handshake raises `SmtpTlsRefused` with the connection closed - before
+    login, before any message. The context verifies the certificate and the
+    host name; `smtplib`'s own default for `starttls()` verifies neither.
+    """
+    if settings.smtp_ssl:
+        try:
+            return smtplib.SMTP_SSL(settings.smtp_host, settings.smtp_port,
+                                    timeout=settings.smtp_timeout_seconds,
+                                    context=context)
+        except ssl.SSLError as exc:
+            raise SmtpTlsRefused(
+                "the SMTPS handshake failed; nothing was sent") from exc
+    smtp = smtplib.SMTP(settings.smtp_host, settings.smtp_port,
+                        timeout=settings.smtp_timeout_seconds)
+    try:
+        smtp.starttls(context=context)
+    except (smtplib.SMTPException, ssl.SSLError) as exc:
+        smtp.close()
+        raise SmtpTlsRefused(
+            "the SMTP server did not complete STARTTLS; nothing was sent") from exc
+    return smtp
 
 
 def send_email(*, subject: str, body: str, trigger: str,
@@ -61,10 +97,7 @@ def send_email(*, subject: str, body: str, trigger: str,
     message["Subject"] = subject[:200]
     message.set_content(body)
     try:
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port,
-                          timeout=settings.smtp_timeout_seconds) as smtp:
-            if settings.smtp_starttls:
-                smtp.starttls()
+        with _open_tls(ssl.create_default_context()) as smtp:
             if settings.smtp_username:
                 smtp.login(settings.smtp_username, settings.smtp_password)
             smtp.send_message(message)
