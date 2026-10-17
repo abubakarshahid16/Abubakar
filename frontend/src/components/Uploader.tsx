@@ -242,7 +242,7 @@ export function Uploader({ onUploaded }: { onUploaded: () => void }) {
           </button>
         </p>
         <p className="mt-1 text-xs text-slateish-400">
-          Files stay on this machine. Multiple files are uploaded one after another.
+          Files are stored on this machine. Multiple files are uploaded one after another.
         </p>
         <input
           ref={inputRef}
