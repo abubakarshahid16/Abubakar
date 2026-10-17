@@ -20,6 +20,14 @@ const statusLabels: Record<ReviewStatus, string> = {
   deferred: "Deferred",
 };
 
+/** #633 item 2: a thrown-away second opinion is named in the history, not
+ *  shown as an update that changed nothing. */
+function eventLabel(eventType: string): string {
+  if (eventType === "created") return "Created";
+  if (eventType === "recheck_rejected") return "Second opinion thrown away (not stored)";
+  return "Updated";
+}
+
 export function ReviewWorkflowPanel({ findings, onUpdate, documents = [] }: Props) {
   if (findings.length === 0) return null;
   return (
@@ -157,7 +165,7 @@ function FindingRow({ finding, onUpdate, documents }: { finding: ReviewFinding; 
         <button type="button" onClick={() => void showTraceability()} className="rounded-[var(--radius-xs)] border border-signal-500/50 px-3 py-1.5 text-xs text-signal-300 hover:bg-signal-500/10">{traceability === null ? "View full chain" : "Refresh full chain"}</button>
       </div>
       {history !== null && <ol className="mt-3 space-y-1 border-l border-ink-600 ps-3 text-xs text-slateish-500" aria-label="Finding history">
-        {history.map((event) => <li key={event.id}><span className="text-slateish-400">{event.event_type === "created" ? "Created" : "Updated"}</span> · {new Date(event.created_at).toLocaleString()} · {Object.keys(event.changes).join(", ") || "no field changes"}</li>)}
+        {history.map((event) => <li key={event.id}><span className="text-slateish-400">{eventLabel(event.event_type)}</span> · {new Date(event.created_at).toLocaleString()} · {Object.keys(event.changes).join(", ") || "no field changes"}</li>)}
       </ol>}
       {traceability !== null && <TraceabilityTimeline traceability={traceability} finding={finding} />}
     </li>
@@ -185,7 +193,7 @@ function TraceabilityTimeline({ traceability, finding }: { traceability: import(
       </li>)}
     </ol>
     {traceability.events.length > 0 && <ul className="mt-3 border-t border-ink-700 pt-2 text-slateish-500">
-      {traceability.events.map((event) => <li key={event.id}>{event.event_type === "created" ? "Created" : "Updated"} · {new Date(event.created_at).toLocaleString()} · {event.actor_user_id ?? "system"}</li>)}
+      {traceability.events.map((event) => <li key={event.id}>{eventLabel(event.event_type)} · {new Date(event.created_at).toLocaleString()} · {event.actor_user_id ?? "system"}</li>)}
     </ul>}
   </section>;
 }

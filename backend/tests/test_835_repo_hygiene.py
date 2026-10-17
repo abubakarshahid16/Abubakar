@@ -50,3 +50,12 @@ def test_no_tracked_file_is_a_stray():
                 or path in ("frontend/dash-body.txt", "docs/review-command.md"))
 
     assert [p for p in tracked if stray(p)] == []
+
+
+def test_no_tracked_text_file_is_stored_with_crlf():
+    """13 files were committed with mixed line endings, so every checkout on
+    every machine showed them as modified (the '16 changed files' of 18 Oct).
+    They are renormalised to LF; this keeps it that way."""
+    rows = _git("ls-files", "--eol").stdout.splitlines()
+    bad = [row.split()[-1] for row in rows if row.split()[0] in ("i/crlf", "i/mixed")]
+    assert bad == [], bad
