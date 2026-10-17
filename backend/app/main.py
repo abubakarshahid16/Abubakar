@@ -43,6 +43,7 @@ from . import search as search_mod
 from . import pageimage as pageimage_mod
 from . import upload as upload_mod
 from . import watcher as watcher_mod
+from . import fact_api as fact_api_mod
 from . import watch_api as watch_api_mod
 from . import warmup as warmup_mod
 from .api_utils import (
@@ -261,9 +262,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# The watched-folder status route lives in its own module so this file stays
-# the only place routing is declared, without this file growing a feature.
+# Routes in their own modules (watched folder; #473 fact confirmation) so this
+# file stays the only place routing is declared without growing a feature.
 app.include_router(watch_api_mod.router)
+app.include_router(fact_api_mod.router)
 
 # THE CLAUDE LANE (#222, revived by owner decision 2026-09-25). Every route is
 # gated on the reader's two egress flags and answers 409 model_disabled when
@@ -4034,8 +4036,7 @@ def cancel_job(
         cancelled, state = job_queue_mod.cancel(job_id, actor_user_id=(actor or {}).get("id"))
     if not cancelled:
         raise HTTPException(status_code=409, detail=errors.safe_error(
-            errors.INVALID_PARAMETER,
-            f"this job can no longer be cancelled; it is {state}"))
+            errors.INVALID_PARAMETER, f"this job can no longer be cancelled; it is {state}"))
     return job_queue_mod.get_job(job_id, allowed_document_ids=scope.allowed_document_ids)
 
 
@@ -4982,8 +4983,7 @@ def _readiness_payload(submittal_document_id: str, scope: access.AccessScope) ->
     the GET route and the re-extraction route below, so "what changed" is
     computed once and cannot drift into two answers (CLAUDE.md rule 8)."""
     allowed = scope.allowed_document_ids
-    page_ledger_mod.refresh(submittal_document_id, as_submittal=True)
-    pages = page_ledger_mod.coverage(submittal_document_id)
+    # #1017: a GET writes nothing (#478) - the ledger is READ, never rebuilt here.
     missing = _missing_references(submittal_document_id, allowed)
     runs = submittal_review_mod.list_review_runs(
         allowed_document_ids=allowed, submittal_document_id=submittal_document_id)
@@ -5028,17 +5028,7 @@ def _readiness_payload(submittal_document_id: str, scope: access.AccessScope) ->
         if scope.may_read(r["id"])] if last else []
     return {
         "submittal_document_id": submittal_document_id,
-        "pages_total": pages.get("pages_total"),
-        "pages_read": len(pages.get("fact_pages") or []),
-        "unread_pages": pages.get("pages_not_read_into_fields") or [],
-        # HONESTY GROUP (2026-09-27): the ledger has always recorded WHY a
-        # page did not read into fields (`page_ledger.coverage`'s own
-        # `not_read_reasons`, keyed by page); this route simply never carried
-        # it past `unread_pages`, so the strip could say a page was unread
-        # but never say why - the same "not mentioned" silence CLAUDE.md rule
-        # 4 forbids elsewhere. Keyed by the page number AS A STRING because
-        # that is what a JSON object key is.
-        "unread_page_reasons": pages.get("not_read_reasons") or {},
+        **page_ledger_mod.readiness_pages(submittal_document_id),
         "standards_cited": len(held) + len(missing),
         "standards_held": held,
         "standards_missing": missing,
@@ -5322,8 +5312,7 @@ def issue_review_crs(
             "be issued to the contractor"))
     if not gate["issuable"]:
         raise HTTPException(status_code=409, detail=errors.safe_error(
-            errors.CRS_NOT_FINISHED,
-            "the contractor's copy is not finished: " + "; ".join(gate["blockers"])))
+            errors.CRS_NOT_FINISHED, "the contractor's copy is not finished: " + "; ".join(gate["blockers"])))
     workbook, filename = _crs_workbook(review_run_id, scope, crs_export_mod.COPY_ISSUE)
     record = crs_issue_mod.archive(review_run_id, workbook, filename,
                                    actor=scope.user_id or "unrestricted")

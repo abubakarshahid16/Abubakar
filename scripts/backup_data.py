@@ -62,6 +62,26 @@ SQLITE_HEADER = b"SQLite format 3\x00"
 #: in a copy. Never copied.
 SKIP_SUFFIXES = ("-wal", "-shm", "-journal")
 SKIP_NAMES = (".heavy-job.lock",)
+#: DERIVED INDEXES, never backed up, and named in the manifest with why: a
+#: database holding a virtual table of one of these modules. The vec0 index is
+#: rebuilt from `chunk_vectors` (which IS backed up) at startup
+#: (`app/vector_store.py`), and a plain `sqlite3` connection cannot even count
+#: its rows ("no such module: vec0"), so copying it made every backup fail.
+DERIVED_MODULES = {"vec0": "derived vector index, rebuilt from chunk_vectors at startup"}
+
+
+def _derived(path: Path) -> str | None:
+    """Why this database is a derived index (not backed up), or None. Read
+    from sqlite_master, which needs no extension."""
+    conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+    try:
+        sql = [r[0] or "" for r in conn.execute("SELECT sql FROM sqlite_master WHERE type='table'")]
+    finally:
+        conn.close()
+    for module, why in DERIVED_MODULES.items():
+        if any(f"using {module}" in " ".join(q.lower().split()) for q in sql):
+            return why
+    return None
 
 
 class BackupError(RuntimeError):
@@ -86,7 +106,12 @@ def _skipped(path: Path) -> bool:
 
 
 def _tables(path: Path) -> dict[str, int]:
-    report = backup_db.verify(str(path))
+    try:
+        report = backup_db.verify(str(path))
+    except sqlite3.OperationalError as exc:
+        # A database this tool cannot read (an extension's virtual table) is
+        # named, never a traceback - and never silently left out.
+        raise BackupError(f"{path.name}: cannot be verified with plain sqlite3 ({exc})") from exc
     if not report["ok"]:
         raise BackupError(f"{path.name}: integrity_check says {report['integrity']}")
     return report["tables"]
@@ -135,9 +160,13 @@ def backup(data_dir: str | os.PathLike, backup_root: str | os.PathLike) -> Path:
     stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     dest = root / f"{PREFIX}{stamp}"
     dest.mkdir()                      # exclusive: an existing folder is an error
-    files, databases = [], {}
+    files, databases, derived = [], {}, []
     for path in sorted(p for p in source.rglob("*") if p.is_file()):
         if _skipped(path):
+            continue
+        why = _derived(path) if _is_sqlite(path) else None
+        if why:
+            derived.append({"path": path.relative_to(source).as_posix(), "why": why})
             continue
         rel = path.relative_to(source).as_posix()
         target = dest / rel
@@ -152,7 +181,8 @@ def backup(data_dir: str | os.PathLike, backup_root: str | os.PathLike) -> Path:
         shutil.rmtree(dest)
         raise BackupError(f"{data_dir} holds no files; nothing to back up")
     manifest = {"format": FORMAT, "made_at": _dt.datetime.now().isoformat(timespec="seconds"),
-                "source": str(source.resolve()), "files": files, "databases": databases}
+                "source": str(source.resolve()), "files": files, "databases": databases,
+                "not_backed_up": derived}
     (dest / MANIFEST).write_text(json.dumps(manifest, indent=1, sort_keys=True), encoding="utf-8")
     drill(dest)
     return dest

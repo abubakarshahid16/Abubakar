@@ -393,8 +393,8 @@ export function groupRunsByDocument<T extends { submittal_document_id: string; c
 /** Owner order section 3: the readiness strip's page line, with its
  *  denominator. Nothing when the page count is unknown (null renders as
  *  nothing). */
-export function pagesReadLine(r: { pages_total: number | null; pages_read: number }): string {
-  if (r.pages_total == null) return "";
+export function pagesReadLine(r: { pages_total: number | null; pages_read: number | null }): string {
+  if (r.pages_total == null || r.pages_read == null) return "";
   return `Pages read: ${r.pages_read} of ${r.pages_total}`;
 }
 

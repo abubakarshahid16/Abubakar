@@ -8,6 +8,7 @@
 
 **Added by this control:**
 - s2 does a **weekly log check** and posts it on #692. It covers Claude spend against the caps, unusual calls (a step or model not in the AI register, S2), and failed logins.
+  `python scripts/weekly_log_check.py` prints it, ready to paste (read-only: the DB opens `mode=ro`; counts, steps, models and account names only).
 - Logs are kept for **90 days** at least.
 
 **Done when:** the first weekly check is posted on #692.
