@@ -1,13 +1,16 @@
 """#478: no GET route writes to the database or sends email.
 
-Walks every GET route that takes no path parameter against a seeded throwaway
-database whose connections REFUSE every INSERT, UPDATE and DELETE (SQLite's
-authorizer). A GET that writes is recorded with its route and the table, and
-the test fails. Email is watched at `notifications.send_email` and at
-`smtplib.SMTP`.
+Walks every GET route against a seeded throwaway database whose connections
+REFUSE every INSERT, UPDATE and DELETE (SQLite's authorizer). A GET that
+writes is recorded with its route and the table, and the test fails. Email is
+watched at `notifications.send_email` and at `smtplib.SMTP`.
 
-KNOWN LIMIT, stated: routes with a path parameter (`/api/documents/{id}` and
-the like) are not walked, because they need a real id.
+PATH PARAMETERS (#478 follow-up). Routes like `/api/documents/{document_id}`
+are walked too: a parameter naming a seeded row (a document, a finding, a
+deliverable, a page) gets that row's id, so the handler runs its real read
+path; any other parameter gets an id that does not exist, which still runs
+the handler up to its lookup. The walk must reach a 200 on several of them,
+or "no writes" would only mean "every request was turned away".
 
 SCHEMA BOOTSTRAP IS NOT A GET WRITE. Several modules create their tables and
 seed fixed default rows (escalation rules, stakeholder backfill) the first time
@@ -18,6 +21,7 @@ forbids all writes.
 from __future__ import annotations
 
 import hashlib
+import re
 import smtplib
 import sqlite3
 
@@ -38,6 +42,15 @@ from app.config import settings
 SCHEMA_BOOTSTRAP = {(sqlite3.SQLITE_INSERT, "escalation_rules"),
                     (sqlite3.SQLITE_INSERT, "deliverable_stakeholders")}
 
+#: GET routes KNOWN to write, each with its open issue. Allowed so the rest of
+#: the walk keeps guarding, and asserted to STILL write below: when the issue
+#: is fixed this test fails until the entry is removed, so the list cannot
+#: outlive the defect it excuses.
+KNOWN_GET_WRITES = {
+    # rebuilds the derived page ledger on every read (#1017, review path)
+    ("/api/reviews/readiness/{submittal_document_id}", "page_ledger"): "#1017",
+}
+
 
 
 @pytest.fixture
@@ -53,18 +66,28 @@ def seeded(tmp_path, monkeypatch):
         con.execute("INSERT INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at)"
                     " VALUES ('doc','a.pdf',?,1,'x','ready','2020-01-01')", (hashlib.sha256(b"d").hexdigest(),))
     # Old, open, with unresolved evidence: what the old GET /api/risks acted on.
-    review.create({"document_id": "doc", "category": "requirement_deviation", "severity": "major",
-                   "requirement": "r", "finding": "f", "required_action": "a",
-                   "unresolved_evidence": ["missing citation"]}, created_by=None)
-    deliverables.create({"wbs_code": "1.1", "title": "Parent", "deliverable_type": "report",
-                         "due_date": "2020-01-01"}, created_by=None)
+    finding = review.create({"document_id": "doc", "category": "requirement_deviation", "severity": "major",
+                             "requirement": "r", "finding": "f", "required_action": "a",
+                             "unresolved_evidence": ["missing citation"]}, created_by=None)
+    deliverable = deliverables.create({"wbs_code": "1.1", "title": "Parent", "deliverable_type": "report",
+                                       "due_date": "2020-01-01"}, created_by=None)
     db.reset_connection()
-    yield
+    yield {"document_id": "doc", "submittal_document_id": "doc", "finding_id": finding["id"],
+           "deliverable_id": deliverable["id"], "page_no": "1"}
     db.reset_connection()
+
+
+#: The id given to a path parameter that names no seeded row.
+MISSING_ID = "no-such-id-478"
+
+
+def _fill(path: str, ids: dict) -> str:
+    """`/api/documents/{document_id}` -> `/api/documents/doc`."""
+    return re.sub(r"{([^}:]+)(:[^}]*)?}", lambda m: ids.get(m.group(1), MISSING_ID), path)
 
 
 def test_no_get_route_writes_or_emails(seeded, monkeypatch):
-    state = {"on": False, "route": None, "writes": [], "mail": []}
+    state = {"on": False, "route": None, "writes": [], "mail": [], "known": set()}
     real_init = db.SchemaRetryConnection.__init__
 
     def authorizer(action, arg1, arg2, dbname, source):
@@ -72,6 +95,9 @@ def test_no_get_route_writes_or_emails(seeded, monkeypatch):
                                        sqlite3.SQLITE_DELETE)
                 and dbname != "temp" and not str(arg1).startswith("sqlite_")):
             if (action, arg1) in SCHEMA_BOOTSTRAP:
+                return sqlite3.SQLITE_OK
+            if (state["route"], arg1) in KNOWN_GET_WRITES:
+                state["known"].add((state["route"], arg1))
                 return sqlite3.SQLITE_OK
             state["writes"].append((state["route"], action, arg1))
             return sqlite3.SQLITE_DENY
@@ -96,13 +122,23 @@ def test_no_get_route_writes_or_emails(seeded, monkeypatch):
             module.ensure_schema()
     client = TestClient(app, base_url="http://127.0.0.1", raise_server_exceptions=False)
     routes = sorted({r.path for r in app.routes
-                     if isinstance(r, APIRoute) and "GET" in r.methods and "{" not in r.path})
-    assert len(routes) >= 30, "the walk found too few routes to mean anything"
+                     if isinstance(r, APIRoute) and "GET" in r.methods})
+    with_params = [r for r in routes if "{" in r]
+    assert len(routes) - len(with_params) >= 30, "the walk found too few routes to mean anything"
+    assert len(with_params) >= 40, "the walk found too few path-parameter routes to mean anything"
+    answered = []
     state["on"] = True
     for path in routes:
         state["route"] = path
-        client.get(path)
+        response = client.get(_fill(path, seeded))
+        if "{" in path and response.status_code == 200:
+            answered.append(path)
     state["on"] = False
+    # Not vacuous: the seeded ids reach real read paths, not only 404s.
+    assert len(answered) >= 15, f"only {answered} answered 200 - the walk proves little"
     offenders = sorted({(route, action, table) for route, action, table in state["writes"]})
     assert offenders == [], f"GET routes that write: {offenders}"
     assert state["mail"] == [], f"GET routes that send email: {state['mail']}"
+    fixed = set(KNOWN_GET_WRITES) - state["known"]
+    assert not fixed, (f"{sorted(fixed)} no longer write on GET - remove them from "
+                       f"KNOWN_GET_WRITES and close {[KNOWN_GET_WRITES[k] for k in sorted(fixed)]}")
