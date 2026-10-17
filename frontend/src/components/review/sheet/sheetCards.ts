@@ -174,6 +174,21 @@ export function trustLine(card: SheetCard): string {
   return `${words}. The rule said "${PLAIN_OUTCOME[leader.rule_said] ?? leader.rule_said}"; held for you.`;
 }
 
+/** #603: how many cards the Sheet shows before "show the next". */
+export const CARD_CHUNK = 60;
+
+/** #603: a window of at most `shown` cards that always holds the selected
+ *  card. The first `shown` cards while the selection is among them; when the
+ *  keyboard (J / K wrap) or the default selection lands further down, a
+ *  window of the same size around it - never every card up to it (a mostly
+ *  answered sheet can put the first open card thousands of cards down). */
+export function visibleCards(cards: SheetCard[], shown: number, selected: SheetCard | null): SheetCard[] {
+  const at = selected ? cards.findIndex((c) => c.key === selected.key) : -1;
+  if (at < shown) return cards.slice(0, shown);
+  const from = Math.max(0, Math.min(at - Math.floor(shown / 2), cards.length - shown));
+  return cards.slice(from, from + shown);
+}
+
 export interface SheetProgress {
   answered: number;
   total: number;
