@@ -194,6 +194,10 @@ jobs:
 
       - name: Lint backend for correctness errors
         run: python -m ruff check backend/app backend/tests --select E9,F63,F7,F82
+      # Order 55a: everything ruff.toml selects, as a ratchet - a PR fails only
+      # on a NEW finding (per file and rule); the formatter is a report.
+      - name: No new ruff.toml findings (baseline)
+        run: python scripts/check_lint_baseline.py check
 
       # New dead code fails the build (#661). Confidence 80: an unused import,
       # variable or unreachable branch. Names that only LOOK unused (a cache
