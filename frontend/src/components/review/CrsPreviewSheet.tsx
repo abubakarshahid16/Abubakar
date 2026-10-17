@@ -176,6 +176,13 @@ export function CrsPreviewSheet(
                   {row.reasoning ?? ""}
                 </td>
               )}
+              {/* rule_trust (#947): who stands behind the rule, internal copy only. */}
+              {preview.columns.includes("Rule trust (internal)") && (
+                <td data-testid="crs-rule-trust"
+                  className="border border-ink-600 px-2 py-1 align-top text-xs text-slateish-300">
+                  {row.rule_trust ?? ""}
+                </td>
+              )}
             </tr>
           ))}
         </tbody>

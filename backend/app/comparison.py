@@ -1309,6 +1309,83 @@ def create_finding(
             "citation_resolves": not unresolved}
 
 
+class _RuleTrust:
+    """One run's view of `rule_trust` (#947), switch ON only: the family
+    proof per (standard, equipment type) and the compiling model, read once
+    per run; `label` is `rule_trust.label_finding` with that proof. A proof
+    made under another model or another revision of the standard is INVALID
+    (`rule_trust.load_proof`), so the rule reads as UNPROVEN."""
+
+    def __init__(self, equipment_type: str | None) -> None:
+        self.equipment_type = equipment_type
+        self._proofs: dict[tuple[str, str], dict | None] = {}
+        self._revisions: dict[str, str | None] = {}
+
+    def _revision(self, standard_id: str) -> str | None:
+        if standard_id not in self._revisions:
+            row = connect().execute(
+                "SELECT revision FROM document_classification WHERE document_id = ?",
+                (standard_id,)).fetchone()
+            self._revisions[standard_id] = (row["revision"] or None) if row else None
+        return self._revisions[standard_id]
+
+    def proof(self, rule: dict) -> dict | None:
+        from . import rule_trust
+        standard_id = rule.get("standard_document_id") or ""
+        model = rule.get("model") or settings.ai_task_model
+        key = (standard_id, model)
+        if key not in self._proofs:
+            self._proofs[key] = rule_trust.load_proof(
+                rule_trust.family_key(standard_id, self.equipment_type),
+                model_id=model, standard_revision=self._revision(standard_id))
+        return self._proofs[key]
+
+    def label(self, verdict: dict, rule: dict) -> dict:
+        from . import rule_trust
+        return rule_trust.label_finding(verdict, rule, self.proof(rule))
+
+
+def _trust_columns(verdict: dict, status: str | None) -> dict:
+    """A labelled verdict's rule-trust fields, as the finding stores them.
+    Nothing when the verdict carries no label (switch off). The tick is only
+    kept on a finding that STAYED compliant through the citation gate."""
+    if "trust_label" not in verdict:
+        return {}
+    return {"trust_label": verdict.get("trust_label"), "tier": verdict.get("tier"),
+            "show_for_engineer_tick": int(bool(verdict.get("show_for_engineer_tick"))
+                                          and status == COMPLIANT),
+            "rule_said": verdict.get("rule_said")}
+
+
+def _rule_trust_summary(trust, review_run_id: str, facts: list[dict],
+                        requirements: list[dict], rows: list[dict]) -> dict | None:
+    """Steps 7 and 10 of the owner decision, for the run's record. None with
+    the switch off. Field NAMES of this machine's own datasheet; never values."""
+    if trust is None:
+        return None
+    from . import rule_trust
+    # A stored fact carries its value as `field_value`; the pure function
+    # reads `raw_value`. One translation, here, never a second reader.
+    shaped = [{"field_name": f.get("field_label") or f.get("field_name"),
+               "raw_value": f.get("field_value"), "is_blank": f.get("is_blank")} for f in facts]
+    read = [f for f in shaped if not f["is_blank"] and f["raw_value"] not in (None, "")]
+    uncovered = rule_trust.uncovered_fields(shaped, requirements)
+    auto_ids = [r["id"] for r in rows if r.get("trust_label") == rule_trust.AUTO_PROVEN]
+    labels: dict[str, int] = {}
+    for r in rows:
+        if r.get("trust_label"):
+            labels[r["trust_label"]] = labels.get(r["trust_label"], 0) + 1
+    return {
+        "fields_read": len(read),
+        "uncovered_fields": [f.get("field_name") or f.get("name") for f in uncovered],
+        "labels": labels,
+        "held_unproven": sum(1 for r in rows if r.get("rule_said")),
+        "safety_ticks": sum(1 for r in rows if r.get("show_for_engineer_tick")),
+        "auto_proven": len(auto_ids),
+        "audit_sample": rule_trust.audit_sample(auto_ids, seed=review_run_id),
+    }
+
+
 def _prepare_finding(
     *, review_run_id: str, submittal_document_id: str, requirement: dict,
     fact: dict | None, verdict: dict, comment: str | None = None,
@@ -1434,6 +1511,11 @@ def _prepare_finding(
         # worse than one naming none. NULL where the sheet does not say.
         "equipment_tag": (fact or {}).get("equipment_tag"),
         "reason_code": reason_code_of(rationale),
+        # rule_trust (#947): NULL unless the run labelled the verdict.
+        "trust_label": None,
+        "tier": None,
+        "show_for_engineer_tick": None,
+        "rule_said": None,
         "created_at": now,
         "updated_at": now,
     }
@@ -1467,6 +1549,7 @@ def _insert_findings(conn, rows: list[dict]) -> None:
                 requirement_source_text, ai_rationale, unresolved_evidence,
                 requirement_id, fact_id, matched_phrase, match_method,
                 equipment_tag, reason_code,
+                trust_label, tier, show_for_engineer_tick, rule_said,
                 governing_sources, citation_ids, status, approval_status,
                 created_at, updated_at)
                VALUES (:id, :document_id, :review_run_id, :compliance_status,
@@ -1477,7 +1560,8 @@ def _insert_findings(conn, rows: list[dict]) -> None:
                        :requirement_source_text, :ai_rationale,
                        :unresolved_evidence, :requirement_id, :fact_id,
                        :matched_phrase, :match_method, :equipment_tag,
-                       :reason_code, '[]', '[]', 'open', 'pending',
+                       :reason_code, :trust_label, :tier, :show_for_engineer_tick,
+                       :rule_said, '[]', '[]', 'open', 'pending',
                        :created_at, :updated_at)""", row)
         # B10: THE HISTORY STARTS AT THE MACHINE. A finding's trail began at
         # the first human edit, so it could not say the review wrote it. No
@@ -2187,6 +2271,7 @@ def _run_comparison(
     # #677 THE SCOPE LEDGER: every requirement of every applicable standard
     # (`in_scope_all`) ends in exactly one decision with a stored reason,
     # built from the SAME items #678's counts are built from - one source.
+    from . import ai_requirements as ai_requirements_mod
     from . import scope_ledger
     in_scope_all: list[dict] = []
     extra_not_applied: list[dict] = []   # #677: definitions, service gate, AI tier
@@ -2202,7 +2287,15 @@ def _run_comparison(
                                   (standard_id,)).fetchone()["filename"]
                 if connect().execute("SELECT 1 FROM documents WHERE id = ?",
                                      (standard_id,)).fetchone() else standard_id)
+        # OWNER DECISION (rule_trust, #947 steps 3-6), SWITCH OFF BY DEFAULT: a
+        # clause sentence with an undecided AI-compiled check is compared
+        # through that check, in the sentence's own place (same id). Empty
+        # with the switch off, so nothing below changes.
+        auto_rules = ai_requirements_mod.auto_use_rules(
+            standard_id, allowed_document_ids=allowed_document_ids)
         for r in loaded:
+            if r["id"] in auto_rules:
+                r = {**r, **auto_rules[r["id"]]}
             in_scope_all.append(r)
             if standards_mod.is_reviewable(r):
                 requirements.append(r)
@@ -2237,6 +2330,9 @@ def _run_comparison(
     from . import classification as classification_mod
     stored = classification_mod.of_document(submittal_id) or {}
     sheet = match_rules.sheet_kind(facts, stored.get("equipment_type"))
+    # rule_trust (#947): who stands behind each rule's verdict. None with the
+    # switch off: no proof is read and no finding is labelled.
+    trust = _RuleTrust(stored.get("equipment_type")) if settings.rule_auto_use_enabled else None
     # THE EQUIPMENT SUBJECT, for equipment-specific exceptions ("90 dB(A),
     # except pressure relief valves 115 dB(A)"). Audit 2026-09-30: neither
     # production caller passed one, so every exception was dead code and a
@@ -2624,6 +2720,12 @@ def _run_comparison(
             if (requirement.get("id"), (fact or {}).get("id")) in rejected_pairs:
                 rejected_requirements.add(requirement.get("id"))
                 continue
+            # rule_trust (#947): the LAST word on the verdict. An UNPROVEN rule
+            # never decides COMPLIANT or NON_COMPLIANT (held for the engineer,
+            # the rule's own verdict kept as `rule_said`); a SAFETY-tier
+            # COMPLIANT is flagged for an engineer's tick.
+            if trust is not None:
+                verdict = trust.label(verdict, requirement)
             opinion = (model_opinions or {}).get(requirement.get("id"))
             # ONE FINDING PER ITEM, WRITTEN THROUGH THE BATCH HELPER: `_prepare_finding`
             # applies every gate `create_finding` would (duplicate check against
@@ -2642,6 +2744,7 @@ def _run_comparison(
                                 else match["matched_phrase"]),
                 match_method=match["method"], pending=pending,
                 stored_replaced=replace)
+            row.update(_trust_columns(verdict, row["compliance_status"]))
             pending[(row["requirement_id"], row["fact_id"])] = row["id"]
             prepared_rows.append(row)
             findings.append({**row, "unresolved_evidence": unresolved,
@@ -2651,6 +2754,13 @@ def _run_comparison(
     # datasheet self-checks below, which add their own rows to this run and
     # must not be deleted by it.
     _write_run_findings(review_run_id, prepared_rows, replace=replace)
+
+    # rule_trust (#947) steps 7 and 10, switch ON only: the datasheet fields
+    # read with a value that no applicable rule targets (the CRS lists them
+    # as "not checked by any rule"), and the random draw of automatic
+    # findings for an engineer's spot-check. Counts and ids; stored on the run.
+    rule_trust_summary = _rule_trust_summary(trust, review_run_id, facts, requirements,
+                                             prepared_rows)
 
     # #677 EVERY REQUIREMENT THAT REACHED THE COMPARISON: its finding's status
     # decides its state; one with no finding (an engineer rejected the
@@ -2696,8 +2806,13 @@ def _run_comparison(
         stored.get("equipment_type"), page_texts)
     check_results = datasheet_checks.evaluate(facts, equipment_type=stored.get("equipment_type"),
                                               page_texts=page_texts)
-    findings.extend(datasheet_checks.store(review_run_id, submittal_id, check_results,
-                                           pages_read=pages_read))
+    # rule_trust (#947): every rule labelled, the checks too - a signed-off
+    # checklist item is an engineer's rule; every other check is held when it
+    # would decide (planner answer on #985). Nothing with the switch off.
+    from . import rule_trust as rule_trust_mod
+    findings.extend(datasheet_checks.store(
+        review_run_id, submittal_id, check_results, pages_read=pages_read,
+        label=rule_trust_mod.label_check if trust is not None else None))
     checklist_coverage = datasheet_checks.coverage(check_results)
 
     coverage = completeness_for_run(
@@ -2750,6 +2865,7 @@ def _run_comparison(
                        ai_matcher=ai_matcher,
                        unchecked_counts=unchecked_counts,
                        requirement_split=split,
+                       rule_trust=rule_trust_summary,
                        clause_coverage=clause_cov)
 
     return {
@@ -2788,6 +2904,7 @@ def _run_comparison(
         "model_reasons": model_reasons,
         "model_held": model_held,
         "ai_matcher": ai_matcher,
+        **({"rule_trust": rule_trust_summary} if rule_trust_summary is not None else {}),
         "sheet_kind": sheet,
         "rule_refusals": rule_refusals,
         "findings": findings,
@@ -3955,6 +4072,7 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
                        unchecked_counts: dict | None = None,
                        requirement_split: dict | None = None,
                        ai_matcher: dict | None = None,
+                       rule_trust: dict | None = None,
                        clause_coverage: dict | None = None) -> None:
     """Persist the AI recommendation and the completeness it was gated on.
 
@@ -4000,6 +4118,9 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
                 "requirement_split": requirement_split,
                 # #845: the AI matcher's counts, as this run made them.
                 "ai_matcher": ai_matcher,
+                # rule_trust (#947): only on a run made with the switch on, so
+                # a run made with it off stores exactly what it did before.
+                **({"rule_trust": rule_trust} if rule_trust is not None else {}),
                 # PF4 (#884): checked / engineer / not checked / checklist /
                 # does not apply, the denominator and the line, at run end.
                 "clause_coverage": clause_coverage,

@@ -70,6 +70,11 @@ ROW_KIND_STANDARD_NOT_APPLICABLE = "standard_not_applicable"
 #: current run no longer raises. Industry practice carries it forward until a
 #: reviewer closes it (`crs_numbers.open_elsewhere`); never dropped silently.
 ROW_KIND_CARRIED_FORWARD = "carried_forward"
+#: rule_trust (#947 step 8): a COMPLIANT verdict from a SAFETY-tier rule used
+#: automatically, shown for an ENGINEER'S TICK - the clause, the value read
+#: and where. Internal copy only; never a comment to the contractor (there is
+#: nothing to ask), and the sheet is not issued until it is ticked.
+ROW_KIND_SAFETY_TICK = "safety_tick"
 _WEB_ORIGIN = "web_standard_check"
 _WEB_CONFIRMED_BY = "Web check, confirmed by "
 #: Honesty audit entry 70: an unconfirmed kind C/D item left "Comment By"
@@ -300,7 +305,8 @@ _NOT_APPLICABLE = "NOT_APPLICABLE"
 
 
 def build_review_notes(findings: list[dict], missing_references: list[str],
-                       unread_pages: list[int] | None = None) -> list[dict]:
+                       unread_pages: list[int] | None = None,
+                       outcome: dict | None = None) -> list[dict]:
     """The engineer's internal notes for one run - never a contractor comment.
 
     One row per cited standard not held; one row for the pages not read into
@@ -312,7 +318,9 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
     count states its boundary: "of this run's requirements from <standard>".
     Last, one note per requirement found NOT APPLICABLE because the
     datasheet's own facts put it outside the requirement's condition, quoting
-    the condition and the value (and page) that decided it.
+    the condition and the value (and page) that decided it. Last of all,
+    rule_trust (#947): the fields no rule checked and the spot-check sample,
+    from the run's stored `outcome` (`rule_trust.review_notes`).
     """
     notes: list[dict] = []
     for ref in missing_references:
@@ -370,6 +378,9 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
                           "standard": ref, "count": None,
                           "detail": (f"{_clause_sentence(f, 160)}. Not checked: "
                                      f"{_reason_words(f)}")})
+    if outcome:
+        from .rule_trust import review_notes
+        notes.extend(review_notes(outcome, findings))
     return notes
 
 
@@ -601,6 +612,35 @@ def engineer_comment_text(group: list[dict]) -> str:
     return f"{lead} {said} {_action(f, field)}"
 
 
+def trust_words(finding: dict) -> str:
+    """rule_trust (#947): the label's words for the CRS ("engineer-approved
+    rule", "automatic (proven rule)", ...), from the ONE table in
+    `rule_trust.TRUST_WORDS`. "" on a finding the run did not label."""
+    label = finding.get("trust_label")
+    if not label:
+        return ""
+    from .rule_trust import TRUST_WORDS
+    return TRUST_WORDS.get(label, str(label))
+
+
+def safety_tick_text(f: dict) -> str:
+    """The safety-tick row's text: what the rule required, what the sheet
+    states and where, and that the automatic result was "meets" - for the
+    engineer to read against the page and tick. Every value is one already
+    on the finding; nothing is re-derived."""
+    ref = _standard_reference(f) or "Requirement"
+    value = str(f.get("contractor_evidence_text") or "").strip()
+    page = f.get("contractor_page")
+    field = _field_label(f) or str(f.get("contractor_section") or "").strip()
+    where = " ".join(p for p in (f"p.{page}," if page else "", field) if p)
+    said = (f"Datasheet {where} states {value}." if where and value
+            else f"Datasheet states {value}." if value else "")
+    return " ".join(p for p in (
+        f"ENGINEER TO TICK (safety field): {ref}: {_requirement_words(f)}.", said,
+        f"Automatic result: meets the standard ({trust_words(f) or 'automatic rule'}). "
+        "Read the clause and the value on the page and tick, or say what is off.") if p)
+
+
 def _confirmed(finding: dict) -> bool:
     """Has an ENGINEER confirmed this comment? (the issue copy's gate)"""
     return bool(finding.get("confirmed_by") or finding.get("engineer_comment")
@@ -763,7 +803,10 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
     # same fact) is that row, not a second one.
     covered = {f.get("fact_id") for f in breaches + blanks if f.get("fact_id")}
     checks = [f for f in findings if f.get("origin") == _DATASHEET_ORIGIN
-              and status(f) in ("NON_COMPLIANT", _MISSING_INFORMATION)
+              and (status(f) in ("NON_COMPLIANT", _MISSING_INFORMATION)
+                   # rule_trust (#947): a check held because its rule is not
+                   # proven is still a row - the engineer decides it.
+                   or f.get("rule_said"))
               and not (f.get("fact_id") and f.get("fact_id") in covered)]
     for kind, bucket in ((ROW_KIND_NON_COMPLIANT, breaches),
                          (ROW_KIND_MISSING_INFORMATION, blanks),
@@ -794,7 +837,32 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                 "comment_key": _subject_key(f),
                 # R30: the chain behind the comment (internal copy only).
                 "reasoning": reasoning_text(group),
+                # rule_trust (#947): who stands behind the rule, in words.
+                "rule_trust": trust_words(f),
             })
+
+    # rule_trust (#947 step 8): SAFETY-TIER COMPLIANT, SHOWN FOR A TICK. The
+    # rule decided "meets the standard" on its own; because the field is a
+    # safety one, an engineer reads the clause and the value and ticks it
+    # (the PF5 decision routes: accept = ticked, reject = something is off).
+    # Internal copy only (`crs_export` drops the kind from the issue copy).
+    for f in findings:
+        if not f.get("show_for_engineer_tick") or status(f) != "COMPLIANT":
+            continue
+        rows.append({
+            "finding_id": f.get("id") or "",
+            "document_name": submittal_name,
+            "page_section": _page_section([f]),
+            "comment": safety_tick_text(f),
+            "comment_by": _by([f]),
+            "standard_reference": _standard_reference(f),
+            "row_kind": ROW_KIND_SAFETY_TICK,
+            "severity": "",
+            "engineer_confirmed": _confirmed(f),
+            "comment_key": comment_key("safety tick", _subject_key(f)),
+            "reasoning": reasoning_text([f]),
+            "rule_trust": trust_words(f),
+        })
 
     # An engineer's own comments, filed from chat: individual comments to the
     # contractor, the engineer's rather than the machine's.

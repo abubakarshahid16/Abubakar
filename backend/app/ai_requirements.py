@@ -56,6 +56,7 @@ import re
 import uuid
 
 from . import ai_task_runner, numparse, standard_ids
+from .config import settings
 
 #: Words per task. Under the runner's 300-word limit, so a passage split at a
 #: sentence never crosses it (#644 decision b).
@@ -669,6 +670,79 @@ def _draft(conn, draft_id: str, allowed_document_ids: frozenset[str]):
     return row
 
 
+def limit_from_draft(row: dict, sentence: str) -> dict:
+    """The numeric limit a draft proposes, checked by code AGAIN against its
+    sentence (`verify_proposal`, then `contradicts_source` with the RULE's
+    operator) and normalised by the parser's own `measure`.
+
+    ONE HOME for the engineer's accept (`decide_draft`) and the automatic use
+    (`auto_use_rules`, switch `rule_auto_use_enabled`): a draft code refuses
+    here is used by neither. Raises `DraftError` with code's reason."""
+    from . import requirements_3b
+
+    check, why = verify_proposal(
+        {"has_limit": True, "field": row["field"], "operator": row["operator"],
+         "value": row["value"], "unit": row["unit"] or None, "condition": row["condition"],
+         "quote": row["quote"]}, sentence)
+    if check is None:
+        raise DraftError(f"code refused the draft: {why}")
+    if check["operator"] is None:
+        raise DraftError("code refused the draft: no operator could be read")
+    raw_unit = requirements_3b.unit_token(check["unit"]) if check["unit"] else None
+    measured = requirements_3b.measure(check["value"], raw_unit)
+    limit = {"operator": check["operator"], "raw_value": check["value"], "raw_unit": raw_unit,
+             "value": measured.normalized_value, "unit": measured.normalized_unit}
+    if limit["value"] is None:
+        raise DraftError("code refused the draft: the value is not a number")
+    if requirements_3b.contradicts_source(limit, sentence):
+        raise DraftError("code refused the draft: the operator points the opposite way to "
+                         "the sentence")
+    return {**limit, "field": check["field"], "subject": check["field"],
+            "condition": check["condition"]}
+
+
+def auto_use_rules(standard_document_id: str, *,
+                   allowed_document_ids: frozenset[str]) -> dict[str, dict]:
+    """OWNER DECISION (`rule_trust`, 14 Oct; switch `rule_auto_use_enabled`,
+    OFF by default): the standard's UNDECIDED drafts as rules the review may
+    compare with, keyed by the sentence row each stands on. The review puts
+    the rule in its sentence's place - same id, so the scope ledger still
+    ends every requirement in exactly one state - and `rule_trust.label_finding`
+    decides what its verdict may say (an unproven family never decides).
+
+    Code checks every draft again (`limit_from_draft`); a refused one is left
+    out. The earliest draft per sentence is the one used. Nothing is written.
+    EMPTY WITH THE SWITCH OFF: nothing in a review changes."""
+    from .db import connect
+
+    if not settings.rule_auto_use_enabled or standard_document_id not in allowed_document_ids:
+        return {}
+    columns = {r["name"] for r in connect().execute("PRAGMA table_info(clause_check_drafts)")}
+    if "id" not in columns:
+        return {}
+    rows = connect().execute(
+        "SELECT d.*, r.source_text, r.requirement_text"
+        " FROM clause_check_drafts d JOIN standard_requirements r ON r.id = d.requirement_id"
+        " WHERE r.standard_document_id = ? AND d.status = ? AND r.superseded_at IS NULL"
+        " AND r.requirement_type = ? ORDER BY d.created_at, d.id",
+        (standard_document_id, DRAFT, STATEMENT)).fetchall()
+    out: dict[str, dict] = {}
+    for row in rows:
+        if row["requirement_id"] in out:
+            continue
+        sentence = row["source_text"] or row["requirement_text"] or ""
+        try:
+            limit = limit_from_draft(row, sentence)
+        except DraftError:
+            continue
+        out[row["requirement_id"]] = {
+            "requirement_type": "numeric_limit", **limit,
+            # The AI's rule, never confirmed by a person: `rule_trust` labels it.
+            "extraction_method": "model", "model": row["model"], "confirmed_by": None,
+            "confirmed_at": None, "rule_draft_id": row["id"], "quote": row["quote"]}
+    return out
+
+
 def decide_draft(draft_id: str, *, decision: str, allowed_document_ids: frozenset[str],
                  actor: dict | None = None) -> dict:
     """The engineer accepts or rejects one draft (#645 part 2).
@@ -686,7 +760,7 @@ def decide_draft(draft_id: str, *, decision: str, allowed_document_ids: frozense
     REJECT keeps the draft, marked rejected with the engineer's name, so the
     same proposal for the same words is not offered again.
     """
-    from . import requirements_3b, standards
+    from . import standards
     from .db import connect
 
     if decision not in {"accept", "reject"}:
@@ -719,29 +793,12 @@ def decide_draft(draft_id: str, *, decision: str, allowed_document_ids: frozense
     if row["superseded_at"] or row["requirement_type"] != STATEMENT:
         raise DraftError("the clause sentence has changed since this draft was proposed")
     sentence = row["source_text"] or row["requirement_text"] or ""
-    check, why = verify_proposal(
-        {"has_limit": True, "field": row["field"], "operator": row["operator"],
-         "value": row["value"], "unit": row["unit"] or None, "condition": row["condition"],
-         "quote": row["quote"]}, sentence)
-    if check is None:
-        raise DraftError(f"code refused the draft: {why}")
-    if check["operator"] is None:
-        raise DraftError("code refused the draft: no operator could be read")
-    raw_unit = requirements_3b.unit_token(check["unit"]) if check["unit"] else None
-    measured = requirements_3b.measure(check["value"], raw_unit)
-    limit = {"operator": check["operator"], "raw_value": check["value"], "raw_unit": raw_unit,
-             "value": measured.normalized_value, "unit": measured.normalized_unit}
-    if limit["value"] is None:
-        raise DraftError("code refused the draft: the value is not a number")
-    if requirements_3b.contradicts_source(limit, sentence):
-        raise DraftError("code refused the draft: the operator points the opposite way to "
-                         "the sentence")
+    limit = limit_from_draft(row, sentence)
     new = standards.create_requirement(
         standard_document_id=row["standard_document_id"], chunk_id=row["chunk_id"],
         requirement_text=row["requirement_text"], source_text=row["source_text"] or sentence,
         clause=row["clause"], page=row["page"], extraction_method="human",
-        structured={"requirement_type": "numeric_limit", "field": check["field"],
-                    "subject": check["field"], "condition": check["condition"], **limit})
+        structured={"requirement_type": "numeric_limit", **limit})
     with conn:
         # A9/#923: guarded the same way as reject - only the decision that
         # still finds the draft in DRAFT status takes effect. A concurrent
