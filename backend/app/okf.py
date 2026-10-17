@@ -46,12 +46,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 from datetime import UTC, datetime
 from pathlib import Path
 
 from .config import settings
 from .db import connect, schema_once
+
+log = logging.getLogger(__name__)
 
 VERSION = 1
 
@@ -224,7 +227,8 @@ def _classification(conn, document_id: str) -> dict:
     try:
         row = conn.execute("SELECT document_number, revision, title FROM document_classification"
                            " WHERE document_id = ?", (document_id,)).fetchone()
-    except Exception:  # noqa: BLE001 - a library with no classification table yet
+    except Exception as exc:  # noqa: BLE001 - a library with no classification table yet
+        log.debug("okf: the document classification could not be read (no table yet) (%s)", type(exc).__name__)  # 79c
         return {}
     return dict(row) if row else {}
 
