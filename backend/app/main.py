@@ -2006,10 +2006,10 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         "page_coverage": outcome.get("page_coverage"),
         "table_values_not_compared": outcome.get("table_values_not_compared") or [],
         "requirements_not_applied": outcome.get("requirements_not_applied") or [],
-        # #678: every requirement in scope in one of three groups; a run stored
-        # before this existed has only its counts, so its reasons say so.
         "requirement_split": (outcome.get("requirement_split")
                               or requirement_split_mod.from_counts(outcome.get("unchecked_counts"))),
+        # PF4 (#884): the clause coverage the run stored; null on an older run, never 0.
+        "clause_coverage": outcome.get("clause_coverage"),
         "applicability": outcome.get("applicability"),
         # P3: the background job running this review - progress and cancel.
         "job": job,
