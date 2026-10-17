@@ -54,7 +54,7 @@ from datetime import datetime, timezone
 from enum import Enum
 
 from . import claude_approved
-from . import claude_spend, numparse
+from . import claude_spend, errors, numparse
 from .ai.json_reply import unfenced
 from .config import settings
 from .db import connect
@@ -219,8 +219,8 @@ def datasheet_fields(submittal_id: str) -> list[dict]:
             "SELECT field_label, field_value, raw_unit, page, is_blank FROM submittal_facts"
             " WHERE submittal_document_id = ? AND superseded_at IS NULL ORDER BY page",
             (submittal_id,)).fetchall()
-    except Exception:  # noqa: BLE001 - no submittal tables yet
-        return []
+    except Exception as exc:  # noqa: BLE001 - no submittal tables yet
+        return errors.fell_back("ai_engineering_check: submittal facts could not be read; none are sent", exc, [])
     return [{"field": r["field_label"], "value": r["field_value"], "unit": r["raw_unit"],
              "page": r["page"], "is_blank": bool(r["is_blank"])} for r in rows]
 

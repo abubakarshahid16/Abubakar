@@ -46,7 +46,7 @@ import json
 import re
 from enum import Enum
 
-from . import blank_markers, claims, datasheets, numparse, submittal_review
+from . import blank_markers, claims, datasheets, errors, numparse, submittal_review
 from .claude_spend import StopRun
 from .db import connect
 
@@ -737,8 +737,8 @@ def _pdf_page_text(stored_path: str, page_no: int) -> str:
             if not (1 <= page_no <= doc.page_count):
                 return ""
             return doc[page_no - 1].get_text("text") or ""
-    except Exception:  # noqa: BLE001 - an unreadable page has no text
-        return ""
+    except Exception as exc:  # noqa: BLE001 - an unreadable page has no text
+        return errors.fell_back("claude_datasheet: a page's text could not be read; it has none", exc, "")
 
 
 def stored_page_text(document_id: str, page_no: int, *, allowed_document_ids: frozenset[str]) -> str:

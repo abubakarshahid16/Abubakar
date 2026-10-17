@@ -128,7 +128,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              description="the ollama engine skips the model URL check",
              path=_AI,
              anchor="    except Exception as exc:  # noqa: BLE001 - a refused host is a reason, not a crash\n"
-                    "        return None, f\"ollama engine unavailable ({type(exc).__name__})\"\n",
+                    "        return errors.fell_back(\"datasheet_ai: the local engine is unavailable; no AI read\", exc, (None, f\"ollama engine unavailable ({type(exc).__name__})\"))\n",
              replacement="    except Exception:  # noqa: BLE001\n        pass\n",
              target=_T, keyword="refuses_a_host", tags=("datasheet_ai", "egress")),
 )
