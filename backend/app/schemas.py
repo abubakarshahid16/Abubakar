@@ -1625,8 +1625,10 @@ class BaselineSelectionOut(BaseModel):
 
 class GapItemOut(BaseModel):
     facet: str
+    #: `beyond_requirement` (#1055): the documents state something no clause
+    #: of the baseline asks for; not checked, never counted as met.
     status: Literal["met", "possible_gap", "conflict",
-                    "insufficient_evidence", "not_applicable"]
+                    "insufficient_evidence", "beyond_requirement", "not_applicable"]
     baseline_citation_id: str | None
     baseline_span: str
     project_citation_ids: list[str]
