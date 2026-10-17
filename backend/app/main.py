@@ -4596,13 +4596,10 @@ def _prior_rejections(submittal_id: str, allowed: frozenset[str]
     rejected on ANY run of this submittal the caller may read - the latest
     rejection per key. Read only; keys as `crs_mapping.finding_comment_key`
     gives them, over the same CRS context the rows are built from."""
-    runs = [r["id"] for r in connect().execute(
-        "SELECT id FROM review_runs WHERE submittal_document_id = ?", (submittal_id,))]
-    rejected: list[dict] = []
-    for run_id in runs:
-        rejected.extend(f for f in submittal_review_mod.list_run_findings(
-            run_id, allowed_document_ids=allowed)
-            if f.get("approval_status") == "rejected")
+    # #1066: the rejected rows alone, in one query - this used to load every
+    # finding of every run of the submittal and keep the rejected ones.
+    rejected = submittal_review_mod.list_rejected_findings(
+        submittal_id, allowed_document_ids=allowed)
     if not rejected:
         return {}
     comparison_mod.attach_crs_context(rejected)

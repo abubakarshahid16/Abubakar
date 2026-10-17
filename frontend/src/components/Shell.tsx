@@ -101,8 +101,10 @@ export const CONFIRM_OFFLINE_MS = 1500;
 
 /** The health check runs this often while the tab is visible (#654). It was
  *  5 s, and kept running in a hidden tab: 4 calls in 20 s, forever, against a
- *  PC with little spare memory and one server worker. */
-export const HEALTH_POLL_MS = 15000;
+ *  PC with little spare memory and one server worker. #1070: 15 s was still
+ *  16 calls in 4 minutes on an idle screen; once a minute is the pace now,
+ *  and the moment the tab is shown again is always a fresh look. */
+export const HEALTH_POLL_MS = 60000;
 
 /** The interval in use. VITE_HEALTH_POLL_MS exists so tests need not wait out 15 s. */
 function pollInterval(): number {
