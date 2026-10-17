@@ -740,7 +740,10 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
 
     conn = connect()
     removed = {}
+    actor = {"id": scope.user_id, "email": (_admin or {}).get("email")} if scope.user_id else None
     with conn:
+        removed.update(document_refs.erase_document_text(  # #436: its copied text goes too
+            conn, document_id, doc["filename"], actor=actor))
         removed["canonical_field_names"] = document_refs.forget_quotes(conn, document_id)  # #437, before the chunk cascade
         conn.execute("DELETE FROM chunks_fts WHERE document_id = ?", (document_id,))
         for table in ("chunk_vectors", "exclusions", "chunks", "pages", "jobs"):
@@ -749,10 +752,7 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
         cur = conn.execute("DELETE FROM documents WHERE id = ?", (document_id,))
         removed["documents"] = cur.rowcount
         # The record of the delete commits with the delete (ids and counts only).
-        document_refs.record_document_deleted(
-            conn, document_id, removed,
-            actor={"id": scope.user_id, "email": (_admin or {}).get("email")}
-            if scope.user_id else None)
+        document_refs.record_document_deleted(conn, document_id, removed, actor=actor)
 
     files_removed = 0
     stored = Path(doc["stored_path"])
