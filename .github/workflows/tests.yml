@@ -209,6 +209,10 @@ jobs:
         run: python scripts/check_unused_modules.py
       - name: System map is complete
         run: python scripts/check_system_map.py
+      # docs/flags.md lists every boolean setting; a rollout flag past its
+      # decide-by date (at most 14 days) fails until the owner decides (#736).
+      - name: No rollout flag past its decide-by date
+        run: python scripts/check_flag_expiry.py
 
       # No tests run: reads each mutation's target file and fails when an
       # anchor in scripts/mutations/ no longer matches exactly once, so a
