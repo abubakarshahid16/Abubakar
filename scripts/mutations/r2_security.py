@@ -35,8 +35,10 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1982", phase=1982,
              description="a run's findings (CRS preview and workbook) are no longer redacted",
              path=APP / "submittal_review.py",
-             anchor='    return review.withhold_unreadable_standards(out, allowed_document_ids)',
-             replacement='    return out',
+             anchor=('    # r2 S2: a submittal grant is not a grant on the standard it was compared with.\n'
+                     '    return review.withhold_unreadable_standards(\n'
+                     '        [_finding_item(row) for row in rows], allowed_document_ids)'),
+             replacement='    return [_finding_item(row) for row in rows]',
              target=_T2, keyword="crs", tags=_TAG),
     Mutation(id="M1983", phase=1983,
              description="a deliverable with no document is open to a caller with no grant",

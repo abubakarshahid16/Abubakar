@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { api, classification, management } from "../api/client";
 import type { ClassificationCoverage } from "../api/client";
 import type { Connection } from "../components/Shell";
@@ -8,6 +8,7 @@ import type { ApiError, Metrics, ManagementSummary } from "../types/api";
 import { nf, Stat, Headline, ReadinessPanel, TypeCounts } from "./DashboardPrimitives";
 import { DashboardTechnicalDetails } from "./DashboardTechnicalDetails";
 import { ReviewDashboardPanel } from "../components/review/ReviewDashboardPanel";
+import { usePoll } from "../hooks/usePoll";
 
 export function DashboardView({
   connection,
@@ -67,22 +68,18 @@ export function DashboardView({
     setDelivery(r.ok ? r.data : null);
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    const tick = () => {
-      if (!cancelled) {
-        void load();
-        void loadCoverage();
-        void loadDelivery();
-      }
-    };
-    tick();
-    const timer = window.setInterval(tick, 15000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [load, loadCoverage, loadDelivery]);
+  // #1070: the shared poller - once a minute, nothing while the tab is
+  // hidden, a fresh look when it is shown again. This screen used to run its
+  // own 15 s timer that never stopped. The Dashboard has no "busy" signal of
+  // its own: nothing on it changes faster than the worker's own pace.
+  usePoll(
+    useCallback(() => {
+      void load();
+      void loadCoverage();
+      void loadDelivery();
+    }, [load, loadCoverage, loadDelivery]),
+    false,
+  );
 
   // The shell already knows the backend is gone, so say so at once rather
   // than waiting for this screen's own fetch to time out.

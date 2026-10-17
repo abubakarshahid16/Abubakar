@@ -57,6 +57,14 @@ from argon2.exceptions import VerificationError, VerifyMismatchError
 from .config import settings
 from .db import connect
 
+#: Order 55d: an UNEXPECTED failure while reading a token or checking a hash is
+#: still a refusal, but it is logged by error type - never the token, never the
+#: hash - so a bug cannot pass as "every token is invalid" with no trace.
+_log = logging.getLogger("rag_intelligence.auth")
+#: What a malformed token raises (base64, JSON, a missing dot, a wrong type).
+#: These are a forger's or a stale client's problem: quiet, as before.
+_MALFORMED = (ValueError, TypeError, AttributeError)
+
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from fastapi import Request
 
@@ -234,7 +242,10 @@ def read_token(token: str, now: float | None = None) -> str | None:
             return None
         user_id = claims.get("u")
         return user_id if isinstance(user_id, str) and user_id else None
-    except Exception:  # noqa: BLE001 - any malformed token is simply not a token
+    except _MALFORMED:
+        return None
+    except Exception as exc:  # noqa: BLE001 - never raises; a fault is still not a token
+        _log.warning("token check failed unexpectedly (%s); refused", type(exc).__name__)
         return None
 
 
@@ -243,7 +254,10 @@ def _token_epoch(token: str) -> int:
         body_b64, _ = token.split(".", 1)
         claims = json.loads(_unb64(body_b64))
         return int(claims.get("e", 0))
-    except Exception:
+    except _MALFORMED:
+        return -1
+    except Exception as exc:  # noqa: BLE001 - -1 matches no epoch: refused
+        _log.warning("token epoch read failed unexpectedly (%s); refused", type(exc).__name__)
         return -1
 
 
@@ -473,7 +487,9 @@ def login(email: str, password: str, now: float | None = None,
             ok = True
         except (VerifyMismatchError, VerificationError):
             ok = False
-        except Exception:  # noqa: BLE001 - a corrupt hash is a failed login
+        except Exception as exc:  # noqa: BLE001 - a corrupt hash is a failed login
+            _log.warning("password check failed unexpectedly (%s); refused",
+                         type(exc).__name__)
             ok = False
     finally:
         _limiter.release_work(work_key)

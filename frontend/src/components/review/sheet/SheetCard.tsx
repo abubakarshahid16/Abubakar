@@ -14,13 +14,12 @@ import { useEffect, useRef, useState } from "react";
 import { reviews as reviewsApi } from "../../../api/client";
 import type { ReviewFinding } from "../../../types/api";
 import { orNothing } from "../reviewFormat";
-import { type SheetCard as Card, cardTitle, groupLine, isAgreed, isNotNeeded, isTickFinding, trustLine } from "./sheetCards";
+import { type SheetCard as Card, cardTitle, groupLine, isAgreed, isNotNeeded, isTickFinding, trustLine, MIN_REASON } from "./sheetCards";
 
 export const AGREE_REASON = "Engineer agreed on the review page: ask the contractor.";
 /** rule_trust (#947): the tick is the PF5 accept on the finding; the server
  *  records it as the rule family's correct spot-check. */
 export const TICK_REASON = "Engineer checked the safety field on the page and ticked it.";
-const MIN_REASON = 10;
 
 export interface SheetCardProps {
   card: Card;
