@@ -119,7 +119,9 @@ def _log_hooks_path() -> None:
 
     try:
         message = hooks_check.hooks_path_warning()
-    except Exception:  # noqa: BLE001 - boot must not depend on git
+    except Exception as exc:  # noqa: BLE001 - boot must not depend on git
+        logging.getLogger("uvicorn.error").debug(
+            "main: the git hooks check failed; no hooks warning at boot (%s)", type(exc).__name__)
         return
     if message:
         logging.getLogger("uvicorn.error").warning(message)
@@ -3315,13 +3317,15 @@ async def ask_stream(conversation_id: str, body: schemas.AskRequest, request: Re
     threading.Thread(target=work, daemon=True, name=f"chat-{turn.id}").start()
 
     async def events():
+        import queue
+
         yield _sse("turn", {"turn_id": turn.id})
         while True:
             if await request.is_disconnected():
                 turn.cancel.set()
             try:
                 item = turn.events.get_nowait()
-            except Exception:  # queue.Empty
+            except queue.Empty:
                 await asyncio.sleep(0.05)
                 continue
             if item is None:
