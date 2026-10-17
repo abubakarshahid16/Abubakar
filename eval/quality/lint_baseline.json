@@ -1,6 +1,6 @@
 {
  "ruff": "0.16.6",
- "total": 1577,
+ "total": 1580,
  "counts": {
   "backend/app/absence.py::E741": 1,
   "backend/app/access.py::UP031": 1,
@@ -252,6 +252,9 @@
   "backend/tests/r2_security_support.py::UP017": 1,
   "backend/tests/test_1017_readiness_reads_only.py::F811": 2,
   "backend/tests/test_1017_readiness_reads_only.py::RUF059": 1,
+  "backend/tests/test_1066_issue_gate_reads_only_rejected.py::F401": 1,
+  "backend/tests/test_1066_issue_gate_reads_only_rejected.py::I001": 1,
+  "backend/tests/test_1066_issue_gate_reads_only_rejected.py::RUF059": 1,
   "backend/tests/test_179_layouts.py::E702": 6,
   "backend/tests/test_179_layouts.py::RUF005": 3,
   "backend/tests/test_183_title_block.py::RUF005": 2,
