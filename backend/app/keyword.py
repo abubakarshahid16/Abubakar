@@ -156,7 +156,13 @@ def designator_variants(designator: str) -> list[str]:
 _JOINER_RUN = re.compile(r"[.\-/_]+")
 
 #: A number written with thousands separators: 3,300 / 12,500 / 1,000,000.
-_THOUSANDS = re.compile(r"(?<![\d,.])\d{1,3}(?:,\d{3})+(?![\d,])")
+#: #622: THE FIRST GROUP NEVER STARTS WITH A ZERO - the same rule `numparse`
+#: got in #619. "0,030" is a decimal comma after a leading zero (0.030 mm), and
+#: it used to be aliased as "0030", a number the sheet never states. Its
+#: tokens ("0", "030") still reach the index as the tokenizer splits them.
+#: The index that holds the old alias is rebuilt at the next planned reindex
+#: (INDEX_VERSION bump with #770), not by this change.
+_THOUSANDS = re.compile(r"(?<![\d,.])(?!0)\d{1,3}(?:,\d{3})+(?![\d,])")
 
 #: A hyphen/slash compound of ordinary words: carbon-steel, hot-dip, ASME/ANSI.
 #: Letters only - an identifier such as P-101A or A-106 is never split, so its
@@ -776,7 +782,8 @@ STOPWORDS = frozenset({
     "would", "you", "your",
 })
 
-_QUERY_TOKEN = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|[\w.\-/]{2,}")
+# A thousands-separated number never starts with a zero (#622, as _THOUSANDS).
+_QUERY_TOKEN = re.compile(r"(?!0)\d{1,3}(?:,\d{3})+(?:\.\d+)?|[\w.\-/]{2,}")
 
 
 def content_phrases(question: str) -> list[str]:
