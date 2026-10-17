@@ -562,3 +562,21 @@ table {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ── The Sheet screen (#967 PR 4): the page frame glows once when the
+   engineer asks to see a value on the page (T, or the card's link), and an
+   opened card settles in. Both are stilled by the reduced-motion rule above. */
+@keyframes sheet-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-signal-500) 70%, transparent); }
+  100% { box-shadow: 0 0 0 14px transparent; }
+}
+.sheet-pulse {
+  animation: sheet-pulse 1.2s ease-out;
+}
+@keyframes sheet-card-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.sheet-card-in {
+  animation: sheet-card-in 180ms ease-out;
+}
