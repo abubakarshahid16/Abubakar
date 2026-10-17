@@ -1,19 +1,22 @@
 /**
  * The datasheet, page by page, on the left of the Sheet screen (#967 PR 2).
  *
- * THE MARK ON THE PAGE IS THE SERVER'S. The selected card's page is the
- * finding's evidence image, with its cited value boxed by the server (#508) -
- * or a plain sentence saying it could not be placed. The browser never draws
- * a mark of its own guessing, because a mark in the wrong place is worse
- * than none. Under the page, every value on it that has a card is listed and
- * underlined: amber needs you, grey is answered.
+ * THE MARKS ON THE PAGE ARE THE SERVER'S. A page with cards is the run's
+ * page image with EVERY card's value underlined on it by the server (#967
+ * item 5): amber needs you, grey is answered - the same colours as the list
+ * under the page. A value the server cannot place safely gets no mark, and
+ * the sentence over the page says how many were placed out of how many. The
+ * browser never draws a mark of its own guessing, because a mark in the
+ * wrong place is worse than none. "The rule" still opens the standard's page
+ * with that one clause boxed (#508).
  */
 import { useEffect, useRef, useState } from "react";
 
 import type { DocumentRecord, ReviewFinding } from "../../../types/api";
 import { DocumentPreview } from "../../DocumentPreview";
 import { EvidencePageImage } from "../EvidencePageImage";
-import { type SheetCard, cardTitle } from "./sheetCards";
+import { type SheetCard, cardTitle, marksOn } from "./sheetCards";
+import { SheetPageImage } from "./SheetPageImage";
 
 export interface PaneView {
   page: number | null;
@@ -24,7 +27,8 @@ export interface PaneView {
 /** How long the page frame glows after "show it on the page" (#967 PR 4). */
 export const PULSE_MS = 1200;
 
-export function DocumentPane({ submittal, cards, selected, view, pulse = 0, onPage, onSelectCard, onCloseRule }: {
+export function DocumentPane({ runId, submittal, cards, selected, view, pulse = 0, onPage, onSelectCard, onCloseRule }: {
+  runId: string;
   submittal: DocumentRecord | null;
   cards: SheetCard[];
   selected: SheetCard | null;
@@ -55,10 +59,7 @@ export function DocumentPane({ submittal, cards, selected, view, pulse = 0, onPa
   const openPages = new Set(cards.filter((c) => c.state === "open").flatMap((c) => c.pages));
   const page = view.page ?? pages[0] ?? null;
   const onPageCards = cards.filter((c) => page !== null && c.pages.includes(page));
-  // The selected card's value on this page, else any marked value on it, so
-  // a page with a card always shows the real page image.
-  const onThisPage = (c: SheetCard | null | undefined) => c?.findings.find((f) => f.contractor_page === page);
-  const leader = onThisPage(selected) ?? onThisPage(onPageCards[0]) ?? null;
+  const marks = marksOn(onPageCards, page);
 
   return (
     <section aria-label="The datasheet" className="space-y-3">
@@ -91,8 +92,8 @@ export function DocumentPane({ submittal, cards, selected, view, pulse = 0, onPa
             </button>
             <EvidencePageImage findingId={view.rule.id} side="standard" page={view.rule.standard_page ?? 1} />
           </div>
-        ) : leader && page !== null ? (
-          <EvidencePageImage findingId={leader.id} side="submittal" page={page} />
+        ) : marks.length > 0 && page !== null ? (
+          <SheetPageImage runId={runId} page={page} marks={marks} />
         ) : submittal && page !== null ? (
           <div className="h-[36rem] max-sm:h-[20rem]">
             <DocumentPreview doc={submittal} page={page} />

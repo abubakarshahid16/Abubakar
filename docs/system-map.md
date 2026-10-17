@@ -155,6 +155,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `search` | Hybrid retrieval: FTS5 + dense vectors, fused with RRF, then reranked |
 | `sentence_guard` | Where a sentence does NOT end |
 | `service_scope` | Service-condition scope (#638, #677): a requirement that applies only in a service the submittal says it is NO |
+| `sheet_page` | #967 item 5: the Sheet's datasheet page with every card's value underlined on it by the server (one router route; ids and states only in the URL) |
 | `standard_ids` | ONE matcher for standard identifiers (W3, #452; audit A02, A03) |
 | `standards` | The Standards Library: clause hierarchy, atomic requirements, revisions |
 | `standards_acquisition` | Standards beyond the client's own: WHERE to get a missing one, and a record of getting it |

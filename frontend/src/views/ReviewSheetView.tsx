@@ -198,6 +198,7 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
       {load.kind === "ready" && run && !active && run.status !== "failed" && (
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_26rem]">
           <DocumentPane
+            runId={runId}
             submittal={submittal} cards={cards} selected={selected}
             view={{ ...view, page: view.page ?? selected?.page ?? null }}
             pulse={pulse}

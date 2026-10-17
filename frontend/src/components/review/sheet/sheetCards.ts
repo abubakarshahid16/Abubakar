@@ -157,6 +157,37 @@ export function trustLine(card: SheetCard): string {
   return "Rule not yet proven, so you decide";
 }
 
+/** #967 item 5: one value to underline on the page, by its finding and its
+ *  card's state. Ids only; the value itself never leaves the finding. */
+export interface PageMark {
+  findingId: string;
+  state: "open" | "answered";
+}
+
+/** Every value on `page` that has a card, with its card's state - the marks
+ *  the server draws on the page image. */
+export function marksOn(cards: SheetCard[], page: number | null): PageMark[] {
+  return cards.flatMap((c) =>
+    c.findings
+      .filter((f) => page !== null && f.contractor_page === page)
+      .map((f) => ({ findingId: f.id, state: c.state === "open" ? "open" as const : "answered" as const })),
+  );
+}
+
+/** #967 item 5: what the page image shows, in words with the denominator (CLAUDE.md rule 4). */
+export function marksSentence(located: number | null, total: number | null): string {
+  if (located === null || total === null) return "The page is shown; whether its values are marked could not be read.";
+  if (total === 0) return "No value on this page has a card.";
+  if (located === total) {
+    return total === 1 ? "The 1 value with a card is underlined on the page." : `All ${total} values with a card are underlined on the page.`;
+  }
+  if (located === 0) {
+    return `None of the ${total} value${total === 1 ? "" : "s"} with a card could be placed on this page - read the page itself.`;
+  }
+  const missing = total - located;
+  return `${located} of ${total} values with a card are underlined on the page; ${missing} could not be placed - read the page for ${missing === 1 ? "that one" : "those"}.`;
+}
+
 export interface SheetProgress {
   answered: number;
   total: number;
