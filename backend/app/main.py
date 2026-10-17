@@ -735,13 +735,13 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
         acknowledge=acknowledge_orphaned_findings,
         actor={"id": scope.user_id} if scope.user_id else None)
 
-    # Reports quote this document. Their FILES go; their ROWS stay, because
-    # the record that a report was issued must survive the document.
+    # Reports quote this document: their FILES go, their ROWS stay (the record survives).
     reports_mod.on_document_deleted(document_id)
 
     conn = connect()
     removed = {}
     with conn:
+        removed["canonical_field_names"] = document_refs.forget_quotes(conn, document_id)  # #437, before the chunk cascade
         conn.execute("DELETE FROM chunks_fts WHERE document_id = ?", (document_id,))
         for table in ("chunk_vectors", "exclusions", "chunks", "pages", "jobs"):
             cur = conn.execute(f"DELETE FROM {table} WHERE document_id = ?", (document_id,))
@@ -759,11 +759,11 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
     if stored.exists():
         stored.unlink()
         files_removed += 1
-    cache = settings.data_dir / "page_images"
-    if cache.exists():
+    if (cache := settings.data_dir / "page_images").exists():
         for img in cache.glob(f"{doc['sha256'][:16]}_*.png"):
             img.unlink()
             files_removed += 1
+    files_removed += review_mod.remove_report_files(document_id)   # #437: its review PDFs
 
     return {
         "deleted": document_id,
