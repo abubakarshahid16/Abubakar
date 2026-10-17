@@ -1684,13 +1684,31 @@ def _merge_facets(groups: dict[frozenset[str], list[Claim]], *, budget=None
     Applied to a fixpoint and in a deterministic order - fewest terms first,
     then the sorted key - so the same corpus always produces the same facets.
 
-    Pairwise in the number of facets (each merge restarts the scan), so it is
-    BOUNDED by `budget` (#606): past the deadline merging stops, the facets
-    found so far are returned UNMERGED-FURTHER (still true, only less
+    Each merge restarts the scan, because a facet that just grew may now
+    absorb one that was scanned earlier. #615: the RULE is asked at most once
+    per pair of facet versions - a facet's version changes only when it
+    absorbs another - so the expensive part (`_can_merge`, which labels both
+    sides and the merged rows) runs about n^2 + merges x n times instead of
+    once per pair on every restart. The order and the result are exactly the
+    old loop's (test_615_facet_merge_memo replays it as the oracle).
+
+    Still BOUNDED by `budget` (#606): past the deadline merging stops, the
+    facets found so far are returned UNMERGED-FURTHER (still true, only less
     consolidated) and the budget records why.
     """
-    items: list[list] = [[key, list(rows)] for key, rows in groups.items()]
+    # [key, rows, version]; the version is a fresh number whenever the facet
+    # grows, so a remembered answer for it can never be reused by mistake.
+    items: list[list] = [[key, list(rows), n] for n, (key, rows) in enumerate(groups.items())]
     items.sort(key=lambda it: (len(subject_terms(it[0])), sorted(it[0])))
+    next_version = len(items)
+    asked: dict[tuple[int, int], bool] = {}
+
+    def mergeable(small: list, big: list) -> bool:
+        pair = (small[2], big[2])
+        if pair not in asked:
+            asked[pair] = _can_merge(small[0], small[1], big[0], big[1])
+        return asked[pair]
+
     changed = True
     while changed:
         changed = False
@@ -1698,7 +1716,7 @@ def _merge_facets(groups: dict[frozenset[str], list[Claim]], *, budget=None
             target = None
             if budget is not None and budget.exceeded():
                 budget.note("facet merging stopped early")
-                return [(key, rows) for key, rows in items]
+                return [(key, rows) for key, rows, _v in items]
             for j, big in enumerate(items):
                 if i == j:
                     continue
@@ -1708,16 +1726,18 @@ def _merge_facets(groups: dict[frozenset[str], list[Claim]], *, budget=None
                     # is "detail into subject" - and it makes the fold acyclic,
                     # which a symmetric rule (equal phrases) otherwise is not.
                     continue
-                if _can_merge(small[0], small[1], big[0], big[1]):
+                if mergeable(small, big):
                     target = j
                     break
             if target is not None:
                 items[target][0] = items[target][0] | small[0]
                 items[target][1] = items[target][1] + small[1]
+                items[target][2] = next_version
+                next_version += 1
                 items.pop(i)
                 changed = True
                 break
-    return [(key, rows) for key, rows in items]
+    return [(key, rows) for key, rows, _v in items]
 
 
 def cluster(claims: list[Claim], question_terms: frozenset[str], *,
