@@ -937,7 +937,19 @@ def apply_heading_precedence(candidates: list[Candidate]) -> str | None:
 SUPPORTING_WITHIN = 0.35
 
 
-def search(
+def search(question: str, *args, **kwargs) -> dict:
+    """Hybrid retrieval (`_search`), inside the acronym request scope (#615):
+    a search uses only the acronym maps already built and never reads the
+    whole corpus to build one. The result says how many documents in scope
+    had no map yet (`acronym_map`); the missing ones build in the background.
+    """
+    with acronyms.serving_scope() as not_ready:
+        result = _search(question, *args, **kwargs)
+    result["acronym_map"] = acronyms.map_record(not_ready)
+    return result
+
+
+def _search(
     question: str,
     limit: int = 10,
     candidates: int | None = None,

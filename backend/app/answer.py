@@ -1681,19 +1681,24 @@ def answer(
     gate_candidates). `soft_identifiers` are follow-up identifiers carried from
     earlier turns: they steer retrieval and are never required (search.search).
     """
-    from . import answerability
+    from . import acronyms, answerability
     if limit is None:
         limit = gate_candidates()
     token = _PREFERENCE.set(model)
-    try:
-        result = _answer(question, tier, document_id, limit,
-                         allowed_document_ids=allowed_document_ids, progress_id=progress_id,
-                         history=history, soft_identifiers=tuple(soft_identifiers))
-    finally:
-        _PREFERENCE.reset(token)
-    verdict = answerability.assess(question, result, allowed_document_ids=allowed_document_ids)
+    # #615: the whole answer - retrieval, the gate and the answerability
+    # check - uses only the acronym maps already built; none is built inside
+    # the request. `acronym_map` says how many documents had none yet.
+    with acronyms.serving_scope() as not_ready:
+        try:
+            result = _answer(question, tier, document_id, limit,
+                             allowed_document_ids=allowed_document_ids, progress_id=progress_id,
+                             history=history, soft_identifiers=tuple(soft_identifiers))
+        finally:
+            _PREFERENCE.reset(token)
+        verdict = answerability.assess(question, result, allowed_document_ids=allowed_document_ids)
     result["answerability"] = answerability.judge(
         question, result, verdict, answerability.judge_provider())
+    result["acronym_map"] = acronyms.map_record(not_ready)
     return result
 
 

@@ -1324,6 +1324,10 @@ class SearchResult(BaseModel):
     #: the first when it means the second. Optional so a response predating
     #: the filter still validates.
     applied_scope: AppliedScope | None = None
+    #: #615: how complete the acronym expansion was - the shape the Gap
+    #: analysis returns. `documents_not_ready` > 0: those documents' maps
+    #: were still being built in the background and were not used here.
+    acronym_map: dict | None = None
 
 
 AnswerType = Literal[
@@ -3413,6 +3417,8 @@ class AnswerResult(ChatPresentation):
         "The UI must never present one as the other."
     )
     answer: str | None
+    #: #615: how complete the acronym expansion was (see SearchResult).
+    acronym_map: dict | None = None
     reason: str | None = Field(None, description="why there is no answer")
     passage: AnswerPassage | None = None
     answer_passages: list[AnswerPassage] = Field(

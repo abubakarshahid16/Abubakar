@@ -2223,6 +2223,8 @@ export interface AnswerResult extends ChatPresentation {
   condition_choice?: ConditionChoice | null;
   /** B8 */
   answerability?: Answerability | null;
+  /** #615: how complete the abbreviation expansion was (backend `acronym_map`). */
+  acronym_map?: { documents_not_ready: number; complete: boolean } | null;
   /** The LIBRARY's answer, counted from the database. On a metadata answer it
    *  IS the answer; on any other answer_type the question also asked about
    *  content, and this is the separate database half of a two-part reply. */

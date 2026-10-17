@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { Citation, Highlighted, PassageLocation } from "./EvidencePanel";
 import { ProvenanceMark, isRecognised, provenanceDetail } from "./Provenance";
 import { ComparisonScopeNotice as ComparisonScopeNoticeView } from "./ComparisonScopeNotice";
-import { type AnswerView, type UpgradeFailure, asksForComparison, documentsAnsweredFrom, sourcesOf, asSentence, formatDuration, Chip, ChipMark, CitedProse, Label, ReportAction, UpgradeFailureNotice } from "./AnswerCardContent";
+import { type AnswerView, acronymNote, type UpgradeFailure, asksForComparison, documentsAnsweredFrom, sourcesOf, asSentence, formatDuration, Chip, ChipMark, CitedProse, Label, ReportAction, UpgradeFailureNotice } from "./AnswerCardContent";
 import { CorpusPart, CountsBoundedNote, GuidanceAnswer, MetadataAnswer } from "./AnswerNonDocument";
 import { InsufficientAnswer } from "./AnswerInsufficient";
 import { ComparisonAnswer } from "./AnswerComparison";
@@ -47,6 +47,7 @@ export function AnswerCard(props: Parameters<typeof AnswerCardBody>[0]) {
       <ScopeNotice understanding={view.understanding} ambiguity={view.scope_ambiguity} />
       <ConditionNotice choice={view.condition_choice} />
       <ProviderNotice note={providerNoteFor(view)} />
+      <AcronymNotice note={acronymNote(view.acronym_map)} />
     </>
   );
   if (!twoPart && !bounded) {
@@ -491,5 +492,15 @@ ollama serve
         note="Freezes this generated explanation and its cited passages into a PDF. Use this when the explanation combines multiple cited sources that the quoted extract did not merge."
       />
     </div>
+  );
+}
+
+/** #615: the answer ran before some documents' abbreviation maps were built. */
+function AcronymNotice({ note }: { note: string | null }) {
+  if (!note) return null;
+  return (
+    <p data-testid="acronym-notice" role="status" className="text-xs text-warn-500">
+      {note}
+    </p>
   );
 }
