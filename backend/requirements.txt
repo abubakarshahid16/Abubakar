@@ -20,7 +20,7 @@ tokenizers==0.23.3
 numpy==2.5.4
 
 # Vector store
-pyarrow>=25.0.1
+pyarrow>=26.0.0
 # Dense-search index (app/vector_store.py): a SQLite extension, in-process, no
 # server, no socket. Apache-2.0/MIT. 0.1.9 ships a win_amd64 wheel (vec0.dll,
 # PE32+ x86-64) as well as manylinux/macOS ones; CPython's own Windows build
