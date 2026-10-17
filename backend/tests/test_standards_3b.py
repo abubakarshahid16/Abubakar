@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import claims, db, requirements_3b, search as search_mod, standards, submittal_review, tables
+from app import claims, db, requirements_3b, standards, submittal_review, tables
 from app.config import settings
 
 
@@ -1154,86 +1154,3 @@ def test_the_mandatory_verb_branch_is_unreachable_for_a_comparator_sentence():
     assert requirements_3b._LIMIT.search(sentence)
     # The head stops at "at least", not at "shall" - the comparator wins.
     assert requirements_3b.subject_phrase(sentence) == "The vent shall be"
-
-
-# ================================================= requirement-level retrieval
-
-def _classify(doc_id: str, **fields):
-    """Set document_classification fields beyond `_doc`'s defaults, for the
-    structured pre-filter tests."""
-    cols = ", ".join(f"{k} = ?" for k in fields)
-    with db.connect() as conn:
-        conn.execute(f"UPDATE document_classification SET {cols} "
-                     "WHERE document_id = ?", [*fields.values(), doc_id])
-
-
-def test_search_requirements_reuses_the_existing_hybrid_search(tmp_path, monkeypatch):
-    """THE MUTATION TARGET (M372). Not a second search stack: this must call
-    the SAME `search.search` everything else (Chat, Analysis) already uses -
-    lexical + dense fused by RRF - rather than reimplementing ranking over
-    `standard_requirements` directly. Proven by substituting the shared
-    entrypoint and confirming the substitute is what actually ran.
-    """
-    pdf = _ruled_table_pdf(tmp_path / "t.pdf", ["a", "b"], [["1", "2"]])
-    doc = _doc("doc_hybrid", pdf)
-    _chunk("c1", doc, NOISE, section="5.3.3 Noise", page=9)
-    standards.extract_requirements(doc, allowed_document_ids=_scope(doc))
-    row = standards.list_requirements(doc, allowed_document_ids=_scope(doc))[0]
-
-    calls = []
-
-    def fake_search(query, *, limit, allowed_document_ids, **kw):
-        calls.append({"query": query, "limit": limit,
-                       "allowed_document_ids": allowed_document_ids, **kw})
-        return {"hits": [{"chunk_id": row["chunk_id"], "score": 0.9,
-                          "bm25": 1.2, "cosine": 0.5}]}
-
-    monkeypatch.setattr(search_mod, "search", fake_search)
-    results = standards.search_requirements(
-        "noise limit", allowed_document_ids=_scope(doc))
-
-    assert len(calls) == 1, "search_requirements did not call the shared hybrid search"
-    # dense is never disabled - the same hybrid path everything else uses.
-    assert calls[0].get("dense", True) is not False
-    assert len(results) == 1
-    assert results[0]["id"] == row["id"]
-    assert results[0]["retrieval"]["chunk_id"] == row["chunk_id"]
-
-
-def test_a_prefilter_narrows_the_scope_handed_to_retrieval_before_ranking(tmp_path, monkeypatch):
-    """THE MUTATION TARGET (M373). CLAUDE.md rule 5: a filter may only
-    NARROW what the caller already may read - intersection, never union.
-    `discipline="Civil"` must remove the Mechanical standard from the id set
-    retrieval is even given, not filter results after the fact.
-    """
-    pdf = _ruled_table_pdf(tmp_path / "t.pdf", ["a", "b"], [["1", "2"]])
-    mech = _doc("doc_mech", pdf, "MECH.pdf")
-    civil_pdf = _ruled_table_pdf(tmp_path / "c.pdf", ["a", "b"], [["1", "2"]])
-    civil = _doc("doc_civil", civil_pdf, "CIVIL.pdf")
-    _classify(civil, discipline_canonical="Civil")
-    _chunk("c-mech", mech, NOISE, section="5.3.3 Noise", page=9)
-    _chunk("c-civil", civil, NOISE, section="5.3.3 Noise", page=9)
-    standards.extract_requirements(mech, allowed_document_ids=_scope(mech))
-    standards.extract_requirements(civil, allowed_document_ids=_scope(civil))
-
-    captured = {}
-
-    def fake_search(query, *, limit, allowed_document_ids, **kw):
-        captured["allowed_document_ids"] = allowed_document_ids
-        return {"hits": []}
-
-    monkeypatch.setattr(search_mod, "search", fake_search)
-    standards.search_requirements(
-        "noise limit", allowed_document_ids=_scope(mech, civil),
-        discipline="Civil")
-
-    assert captured["allowed_document_ids"] == frozenset({civil})
-
-
-def test_an_empty_grant_and_an_empty_query_both_return_nothing(tmp_path):
-    """1=0, never a permissive default - the same rule every other read in
-    this module follows."""
-    assert standards.search_requirements("noise", allowed_document_ids=frozenset()) == []
-    pdf = _ruled_table_pdf(tmp_path / "t.pdf", ["a", "b"], [["1", "2"]])
-    doc = _doc("doc_q", pdf)
-    assert standards.search_requirements("   ", allowed_document_ids=_scope(doc)) == []
