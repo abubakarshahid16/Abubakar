@@ -81,10 +81,21 @@ export function commentTemplate(f: ReviewFinding): string {
   return text.replace(/\d+(?:[.,]\d+)?/g, "#");
 }
 
+/** #1062 (owner click-through, #1061 check 2): a requirement row with no
+ *  clause id is a row of a standard's TABLE (a material grade, `· p142`
+ *  only). Hundreds of them, each worded for its own grade, made hundreds of
+ *  cards; one table is one point for the engineer. */
+export function isTableRow(f: ReviewFinding): boolean {
+  return !f.standard_clause && Boolean(f.standard_document_id) && typeof f.standard_page === "number"
+    && !CHECK_ORIGINS.has(f.origin ?? "");
+}
+
 function cardKey(f: ReviewFinding): string {
   if (f.engineer_comment) return `own:${f.id}`;
   // A safety tick is one value, checked by one person: never grouped.
   if (isTickFinding(f)) return `tick:${f.id}`;
+  // One card per table page of a standard, whatever each row's wording.
+  if (isTableRow(f)) return ["table", f.standard_document_id, f.standard_page, f.compliance_status ?? ""].join("\u001f");
   return [f.origin ?? "", f.compliance_status ?? "", reasonCode(f), commentTemplate(f)].join("\u001f");
 }
 
@@ -132,6 +143,12 @@ const TITLE_TAIL: Record<string, string> = {
   NEEDS_ENGINEER_REVIEW: "needs your judgement",
   CONDITIONAL: "needs your judgement",
 };
+const TITLE_TAIL_PLURAL: Record<string, string> = {
+  NON_COMPLIANT: "do not meet the standard",
+  MISSING_INFORMATION: "are not given",
+  NEEDS_ENGINEER_REVIEW: "need your judgement",
+  CONDITIONAL: "need your judgement",
+};
 
 function capital(text: string): string {
   return text ? text[0].toUpperCase() + text.slice(1) : text;
@@ -146,6 +163,11 @@ export function cardTitle(card: SheetCard): string {
     : fields.length === 2 ? `${fields[0]} and ${fields[1]}`
     : `${fields[0]}, ${fields[1]} and ${fields.length - 2} more`;
   if (isTickFinding(leader)) return capital(`${subject} meets the standard: a safety field, please check it`);
+  if (isTableRow(leader) && card.findings.length > 1) {
+    // #1062: the table, not its rows; the page is the standard's (where the table is).
+    const tail = TITLE_TAIL_PLURAL[leader.compliance_status ?? ""] ?? "need your answer";
+    return `${card.findings.length} rows of a table on page ${leader.standard_page} of the standard ${tail}`;
+  }
   if (CHECK_ORIGINS.has(leader.origin ?? "")) {
     return capital(`${subject}: the computer's plausibility check raised it`);
   }
@@ -158,6 +180,7 @@ export function cardTitle(card: SheetCard): string {
 export function groupLine(card: SheetCard): string {
   const n = card.findings.length;
   if (n < 2) return "";
+  if (isTableRow(card.findings[0])) return `${n} rows of one table, one answer`;
   const noun = card.findings[0].compliance_status === "MISSING_INFORMATION" ? "blanks" : "places";
   return `${n} ${noun}, one answer`;
 }
@@ -173,6 +196,10 @@ export function trustLine(card: SheetCard): string {
   if (!leader.rule_said) return words;
   return `${words}. The rule said "${PLAIN_OUTCOME[leader.rule_said] ?? leader.rule_said}"; held for you.`;
 }
+
+/** "Not needed" leaves a comment off the Comment Resolution Sheet, so every
+ *  place that offers it asks why, with the same floor (#925, #1037). */
+export const MIN_REASON = 10;
 
 /** #967 item 5: one value to underline on the page, by its finding and its
  *  card's state. Ids only; the value itself never leaves the finding. */

@@ -22,13 +22,15 @@ Dispositions:
                        (`deliverables.org_wide` is the explicit flag for that).
   kept_by_design      The row stays on purpose. Holds ids or counts only, and
                        the reason says why it must outlive the document.
-  holds_document_text  The row stays and holds text taken from the document
-                       (a passage, a filename, a quote). Whether a delete must
-                       also erase that text is an OWNER DECISION that has not
-                       been made, so it is listed here and left alone. When the
-                       owner decides, this is the list to change.
+  erased_on_delete     The row stays and its text taken from the document
+                       (a passage, an answer quoting it, a filename) is
+                       replaced by `ERASED` inside the delete's transaction
+                       (`erase_document_text`, #436; owner decision 8 Oct).
+  holds_document_text  The row stays and still holds text taken from the
+                       document. Listed so it is not forgotten; each one names
+                       the issue that decides it.
 
-Nothing here deletes anything. It only states, and the test enforces it.
+Nothing here deletes a row. `erase_document_text` rewrites text in place.
 """
 
 from __future__ import annotations
@@ -41,8 +43,13 @@ FK_SET_NULL = "fk_set_null"
 DELETED_BY_ROUTE = "deleted_by_route"
 KEPT = "kept_by_design"
 HOLDS_TEXT = "holds_document_text"
+ERASED_ON_DELETE = "erased_on_delete"
 
-DISPOSITIONS = frozenset({FK_CASCADE, FK_SET_NULL, DELETED_BY_ROUTE, KEPT, HOLDS_TEXT})
+DISPOSITIONS = frozenset({FK_CASCADE, FK_SET_NULL, DELETED_BY_ROUTE, KEPT, HOLDS_TEXT,
+                          ERASED_ON_DELETE})
+
+#: What erased text reads as. Says what happened, names nothing.
+ERASED = "[removed: the document was deleted]"
 
 #: (table, column) -> (disposition, reason)
 REGISTRY: dict[tuple[str, str], tuple[str, str]] = {
@@ -117,19 +124,26 @@ REGISTRY: dict[tuple[str, str], tuple[str, str]] = {
         KEPT, "id and a scope key; numbering scopes must not be reused. "
               "NOT CHECKED: whether its `label` can carry a document name"),
 
-    # ---- rows that hold text taken from a document: owner decision ------
+    # ---- text taken from a document, erased by the delete (#436) ---------
     ("messages", "text"): (
-        HOLDS_TEXT, "chat answers can quote document passages"),
+        ERASED_ON_DELETE, "an answer citing the document is replaced; its filename "
+                          "is removed from every other message"),
     ("messages", "payload"): (
-        HOLDS_TEXT, "chat answer payload can carry passages and citations"),
+        ERASED_ON_DELETE, "every passage or citation of the document loses its text "
+                          "and filename; ids and page numbers stay"),
     ("reports", "snapshot_json"): (
-        HOLDS_TEXT, "report snapshot can carry cited passage text"),
+        ERASED_ON_DELETE, "the snapshot is redacted the same way and its hash "
+                          "recomputed; an audit row holds the old and new hash"),
     ("report_documents", "filename"): (
-        HOLDS_TEXT, "the filename of the document, copied at report time"),
+        ERASED_ON_DELETE, "the filename copied at report time; the row stays as the "
+                          "record of what the report covered"),
     ("watch_events", "filename"): (
-        HOLDS_TEXT, "the filename seen by the folder watcher"),
+        ERASED_ON_DELETE, "the filename seen by the folder watcher; the intake row stays"),
+
+    # ---- rows that still hold text taken from a document -----------------
     ("crs_comment_numbers", "document_name"): (
-        HOLDS_TEXT, "a document name copied beside the comment number"),
+        HOLDS_TEXT, "a document name copied beside the comment number; CRS output "
+                    "is the review path, left to s2 (#436 lane note)"),
     # #437: removed by the delete route (`field_naming.forget_document`), so a
     # quote no longer outlives its document. Its own section because it is a
     # side table with no foreign key, like the keyword rows.
@@ -154,6 +168,126 @@ NOT_REFERENCES = frozenset({"documents"})
 #: submittals whose findings cite it (#1053, `review.submittals_citing`): they
 #: print its requirement wording. `canonical_field_names.quote` rows drawn from the
 #: document go with it (`field_naming.forget_document`).
+
+
+def _scrub(value, document_id: str, filename: str):
+    """`value` with the document's text gone: in every object whose
+    `document_id` is this document, every string except the ids becomes
+    `ERASED` (numbers such as page numbers stay); anywhere else, the
+    filename is cut out of strings."""
+    if isinstance(value, dict):
+        if value.get("document_id") == document_id:
+            return {k: (v if k in ("document_id", "chunk_id")
+                        else _erase_all(v)) for k, v in value.items()}
+        return {k: _scrub(v, document_id, filename) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_scrub(v, document_id, filename) for v in value]
+    if isinstance(value, str) and filename and filename in value:
+        return value.replace(filename, ERASED)
+    return value
+
+
+def _erase_all(value):
+    if isinstance(value, str):
+        return ERASED
+    if isinstance(value, dict):
+        return {k: _erase_all(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_erase_all(v) for v in value]
+    return value
+
+
+def _cites(value, document_id: str) -> bool:
+    if isinstance(value, dict):
+        return value.get("document_id") == document_id or any(
+            _cites(v, document_id) for v in value.values())
+    if isinstance(value, list):
+        return any(_cites(v, document_id) for v in value)
+    return False
+
+
+def erase_document_text(conn: sqlite3.Connection, document_id: str, filename: str, *,
+                        actor: dict | None = None) -> dict[str, int]:
+    """#436 (owner decision 8 Oct): erase the document's text and filename
+    from the rows that outlive it. Inside the delete's transaction, so the
+    document and its copies go together or not at all.
+
+    * a chat answer whose payload cites the document is replaced by `ERASED`,
+      and so is every passage of it in the payload (ids and pages stay);
+    * the filename is cut out of every other message, question, conversation
+      title and watched-file path;
+    * each report snapshot covering it is redacted the same way, its
+      `snapshot_sha256` recomputed, and one `report.redacted` audit row
+      records the old and new hash; the report row stays;
+    * `report_documents.filename` and `watch_events.filename` become `ERASED`.
+
+    Returns counts per kind of row changed.
+    """
+    import json
+
+    from . import reports  # the snapshot's canonical form and hash have one home
+
+    counts = {"erased_messages": 0, "erased_reports": 0, "erased_filenames": 0}
+    like = f"%{document_id}%"
+    for row in conn.execute(
+            "SELECT id, text, payload FROM messages WHERE payload LIKE ?", (like,)).fetchall():
+        try:
+            payload = json.loads(row["payload"])
+        except (TypeError, ValueError):
+            continue
+        if not _cites(payload, document_id):
+            continue
+        conn.execute("UPDATE messages SET text = ?, payload = ? WHERE id = ?",
+                     (ERASED if row["text"] is not None else None,
+                      json.dumps(_scrub(payload, document_id, filename)), row["id"]))
+        counts["erased_messages"] += 1
+    if filename:
+        # A filename typed into a question, a conversation title made from
+        # it, or a watched file's full path: cut out wherever it appears.
+        for table, column, key in (("messages", "text", "erased_messages"),
+                                   ("messages", "resolved_question", "erased_messages"),
+                                   ("conversations", "title", "erased_filenames"),
+                                   ("watch_events", "source_path", "erased_filenames")):
+            cur = conn.execute(
+                f"UPDATE {table} SET {column} = replace({column}, ?, ?)"
+                f" WHERE instr({column}, ?) > 0", (filename, ERASED, filename))
+            counts[key] += cur.rowcount
+
+    report_ids = [r[0] for r in conn.execute(
+        "SELECT report_id FROM report_documents WHERE document_id = ?", (document_id,))]
+    now = datetime.now(UTC).isoformat(timespec="seconds")
+    for report_id in report_ids:
+        row = conn.execute("SELECT snapshot_json, snapshot_sha256, question,"
+                           " resolved_question FROM reports WHERE id = ?",
+                           (report_id,)).fetchone()
+        if row is None or not row["snapshot_json"]:
+            continue
+        snapshot = _scrub(json.loads(row["snapshot_json"]), document_id, filename)
+        snapshot["answer"] = ERASED
+        body = reports._canonical(snapshot)
+        new_sha = reports._sha(body)
+        conn.execute(
+            "UPDATE reports SET snapshot_json = ?, snapshot_sha256 = ?,"
+            " question = ?, resolved_question = ? WHERE id = ?",
+            (body.decode("utf-8"), new_sha,
+             _scrub(row["question"], document_id, filename),
+             _scrub(row["resolved_question"], document_id, filename), report_id))
+        conn.execute(
+            """INSERT INTO audit_events
+                   (at, actor_user_id, actor_username, action,
+                    resource_type, resource_id, outcome, detail)
+               VALUES (?, ?, ?, 'report.redacted', 'report', ?, 'ok', ?)""",
+            (now, (actor or {}).get("id"),
+             ((actor or {}).get("email") or "unauthenticated")[:200], report_id,
+             f"document {document_id} deleted; snapshot_sha256 "
+             f"old={row['snapshot_sha256']} new={new_sha}"))
+        counts["erased_reports"] += 1
+
+    for table in ("report_documents", "watch_events"):
+        cur = conn.execute(f"UPDATE {table} SET filename = ? WHERE document_id = ?",
+                           (ERASED, document_id))
+        counts["erased_filenames"] += cur.rowcount
+    return counts
 
 
 def record_document_deleted(conn: sqlite3.Connection, document_id: str,
