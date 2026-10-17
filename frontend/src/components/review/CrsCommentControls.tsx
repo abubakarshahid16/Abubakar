@@ -24,8 +24,8 @@ const RESPONSE_CODES: CrsResponseCode[] = [
 ];
 
 const button =
-  "rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5 text-[11px] text-slateish-200 disabled:opacity-50";
-const errorText = "text-[11px] text-danger-500";
+  "rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5 text-xs text-slateish-200 disabled:opacity-50";
+const errorText = "text-xs text-danger-500";
 
 /** Import the contractor's returned sheet (.xlsx). */
 export function CrsReplyImportControl(
@@ -116,7 +116,7 @@ export function CrsResponseCell(
           <select
             aria-label={`Response code for ${ref}`} value={code}
             onChange={(e) => setCode(e.target.value as CrsResponseCode | "")}
-            className="w-full rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-1 py-0.5 text-[11px] text-slateish-100"
+            className="w-full rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-1 py-0.5 text-xs text-slateish-100"
           >
             {/* NO CODE IS A REAL ANSWER, not a default for "Accepted". */}
             <option value="">No response code stated</option>
@@ -125,7 +125,7 @@ export function CrsResponseCell(
           <textarea
             aria-label={`Contractor's reply to ${ref}`} value={text} rows={2}
             onChange={(e) => setText(e.target.value)} maxLength={4000}
-            className="w-full rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-1 py-0.5 text-[11px] text-slateish-100"
+            className="w-full rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-1 py-0.5 text-xs text-slateish-100"
           />
           <div className="flex gap-1">
             <button type="button" className={button} disabled={busy || (!code && !text.trim())}
@@ -183,7 +183,7 @@ export function CrsResolutionCell(
             aria-label={`Closing note for ${ref}`} value={note} maxLength={2000}
             placeholder="Closing note (optional)"
             onChange={(e) => setNote(e.target.value)}
-            className="w-full rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-1 py-0.5 text-[11px] text-slateish-100"
+            className="w-full rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-1 py-0.5 text-xs text-slateish-100"
           />
           <div className="flex gap-1">
             <button type="button" className={button} disabled={busy}
@@ -223,7 +223,7 @@ export function CrsItemCell({ runId, row }: { runId: string; row: CrsPreviewRow 
     <div className="space-y-1">
       <span>{row.item_no}</span>
       {row.row_kind === "carried_forward" && (
-        <p className="text-[10px] text-info-500">carried forward</p>
+        <p className="text-xs text-info-500">carried forward</p>
       )}
       {ref && (
         <button type="button" className={button} aria-expanded={events !== null}
@@ -233,7 +233,7 @@ export function CrsItemCell({ runId, row }: { runId: string; row: CrsPreviewRow 
       )}
       {error && <p role="alert" className={errorText}>{error}</p>}
       {events && (
-        <ol className="space-y-0.5 text-left text-[10px] text-slateish-300">
+        <ol className="space-y-0.5 text-left text-xs text-slateish-300">
           {events.map((e, i) => (
             <li key={i}>
               {e.at.slice(0, 16).replace("T", " ")} - {e.event}
