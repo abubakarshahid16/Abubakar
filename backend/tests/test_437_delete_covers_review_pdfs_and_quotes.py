@@ -135,3 +135,21 @@ def test_1053_deleting_a_standard_takes_the_review_pdfs_of_the_submittals_that_c
     # the finding itself stays: the record survives, its citation nulled by the cascade
     assert db.connect().execute("SELECT COUNT(*) FROM review_findings WHERE document_id = ?",
                                 (sub,)).fetchone()[0] == 1
+
+
+def test_1053_a_library_that_never_ran_a_review_cites_nothing_and_does_not_fail(tmp_path, monkeypatch):
+    """The delete route asks which submittals cite the standard before it
+    deletes. A database where no review ever ran has no findings table yet:
+    the answer is "none", never an error that blocks the delete (CI caught
+    this on test_worker_health and test_keyword's delete tests)."""
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    monkeypatch.setattr(settings, "db_path", tmp_path / "fresh.sqlite")
+    db.reset_connection()
+    db.init_db()
+    try:
+        tables = {r[0] for r in db.connect().execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'")}
+        assert "review_findings" not in tables, "the fixture must start with no review tables"
+        assert review.submittals_citing("doc_never_reviewed") == []
+    finally:
+        db.reset_connection()

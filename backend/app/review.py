@@ -773,7 +773,10 @@ def submittals_citing(standard_document_id: str) -> list[str]:
     """#1053: the submittals whose findings cite this standard. Their review
     PDFs print the standard's requirement wording (`render_report`), so when
     the standard is deleted those files go too - the quote must not outlive
-    the document. Read BEFORE the delete: the cascade nulls the citation."""
+    the document. Read BEFORE the delete: the cascade nulls the citation.
+    A library that never ran a review has no findings table yet; it cites
+    nothing, and the delete must not fail on it."""
+    ensure_schema()
     return [r[0] for r in connect().execute(
         "SELECT DISTINCT document_id FROM review_findings"
         " WHERE standard_document_id = ? AND document_id != ? ORDER BY document_id",
