@@ -208,6 +208,7 @@ export function marksSentence(located: number | null, total: number | null): str
   }
   const missing = total - located;
   return `${located} of ${total} values with a card are underlined on the page; ${missing} could not be placed - read the page for ${missing === 1 ? "that one" : "those"}.`;
+}
 
 /** #603: how many cards the Sheet shows before "show the next". */
 export const CARD_CHUNK = 60;
