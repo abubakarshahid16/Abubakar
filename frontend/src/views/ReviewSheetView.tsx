@@ -192,7 +192,7 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
         </div>
         <p role="note" data-testid="older-view" className="rounded-[var(--radius-sm)] border border-warn-500/40 bg-warn-500/10 px-3 py-2 text-sm text-slateish-200">
           Older view. Decisions are made on the comment sheet.{" "}
-          <NavLink view="review" recordId={runId} panel={sheetPanel} className="text-signal-300 underline-offset-2 hover:underline">
+          <NavLink view="review" recordId={runId} panel={sheetPanel} className="font-semibold text-slateish-100 underline underline-offset-2">
             Go to the comment sheet
           </NavLink>
         </p>
