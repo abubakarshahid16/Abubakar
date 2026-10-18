@@ -75,10 +75,15 @@ export function CrsEvidenceDrawer({ row, runId, standardNames, onClose, onOpenCa
   const history = historyOf(row.findings, Array.isArray(decisions) ? decisions : null);
   const [viewFor, setViewFor] = useState(row.key);
   if (viewFor !== row.key) { setViewFor(row.key); setViewPage(row.page); setJumpError(null); }
+  // Order 117: Close takes the keyboard once, when the drawer opens; moving
+  // to another row leaves focus where it is; closing gives it back to the
+  // element that opened the drawer (the latest one the screen named).
+  const returnRef = useRef(returnTo);
+  useEffect(() => { returnRef.current = returnTo; }, [returnTo]);
   useEffect(() => {
     closeRef.current?.focus();
-    return () => { returnTo?.focus?.(); };
-  }, [row.key, returnTo]);
+    return () => { returnRef.current?.focus?.(); };
+  }, []);
 
   const pageCount = pager?.pageCount ?? null;
   function goPage(page: number) {

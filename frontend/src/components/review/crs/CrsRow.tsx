@@ -1,8 +1,12 @@
 /**
  * One row of the CRS-first Sheet (order 95 piece 2): the client's seven columns,
  * the tier word, and Keep / Edit wording / Remove.
+ *
+ * Order 117: the row is memoised and its callbacks take the row (or its
+ * key), so the table hands every row the same functions and a J / K press
+ * re-renders only the two rows whose selection changed.
  */
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 
 import type { CrsRow as Row } from "./crsRows";
 import { type Decision, REMOVE_REASONS, type RemoveReason, decisionWords, wordingOf } from "./useCrsDecisions";
@@ -17,13 +21,13 @@ export interface CrsRowProps {
   /** Spec 1.2: a Met row surfaced as a spot check is said to be one. */
   spotCheck: boolean;
   mode: RowMode;
-  onSelect: () => void;
-  onOpenEvidence: () => void;
-  onMode: (mode: RowMode) => void;
-  onKeep: () => void;
-  onEdit: (observation: string, requiredAction: string) => void;
-  onRemove: (reason: RemoveReason) => void;
-  onClear: () => void;
+  onSelect: (row: Row) => void;
+  onOpenEvidence: (row: Row) => void;
+  onMode: (key: string, mode: RowMode) => void;
+  onKeep: (key: string) => void;
+  onEdit: (key: string, observation: string, requiredAction: string) => void;
+  onRemove: (key: string, reason: RemoveReason) => void;
+  onClear: (key: string) => void;
 }
 
 const TIER_CLASS: Record<string, string> = {
@@ -32,7 +36,7 @@ const TIER_CLASS: Record<string, string> = {
   C: "text-danger-500 font-semibold",
 };
 
-export function CrsRow(props: CrsRowProps) {
+export const CrsRow = memo(function CrsRow(props: CrsRowProps) {
   const { row, decision, selected, opened, spotCheck, mode, onSelect, onOpenEvidence, onMode } = props;
   const ref = useRef<HTMLTableRowElement | null>(null);
   useEffect(() => {
@@ -46,7 +50,7 @@ export function CrsRow(props: CrsRowProps) {
   const label = `Comment ${row.commentNo ?? "-"}: ${row.item || row.observation}`;
   return (
     <tr
-      ref={ref} onClick={() => { onSelect(); onOpenEvidence(); }} data-row-key={row.key} data-tier={row.tier.tier} aria-selected={selected}
+      ref={ref} onClick={() => { onSelect(row); onOpenEvidence(row); }} data-row-key={row.key} data-tier={row.tier.tier} aria-selected={selected}
       aria-label={label}
       className={`align-top ${selected ? "bg-ink-800" : "bg-ink-900"} ${removed ? "opacity-60" : ""} border-b border-ink-700`}
     >
@@ -56,7 +60,7 @@ export function CrsRow(props: CrsRowProps) {
         {row.tier.tier === "C" && !opened && <span className="block text-xs text-slateish-400">not opened yet</span>}
       </td>
       <td className="px-2 py-2 text-sm text-slateish-200">
-        <button type="button" onClick={(e) => { e.stopPropagation(); onSelect(); onOpenEvidence(); }}
+        <button type="button" onClick={(e) => { e.stopPropagation(); onSelect(row); onOpenEvidence(row); }}
           aria-label={`Open evidence for ${label}`}
           className="text-signal-300 underline-offset-2 hover:underline">
           {row.commentNo ?? "–"}
@@ -66,7 +70,7 @@ export function CrsRow(props: CrsRowProps) {
       <td className="px-2 py-2 text-sm text-slateish-100">{row.item}</td>
       <td className="px-2 py-2 text-sm text-slateish-300">{row.clauseAndStandard}</td>
       {mode === "edit" ? (
-        <EditCells row={row} words={words} onSave={(o, a) => { props.onEdit(o, a); onMode(null); }} onCancel={() => onMode(null)} />
+        <EditCells row={row} words={words} onSave={(o, a) => { props.onEdit(row.key, o, a); onMode(row.key, null); }} onCancel={() => onMode(row.key, null)} />
       ) : (
         <>
           <td className={`px-2 py-2 text-sm text-slateish-200 ${removed ? "line-through" : ""}`}>{words.observation}</td>
@@ -81,7 +85,7 @@ export function CrsRow(props: CrsRowProps) {
       </td>
     </tr>
   );
-}
+});
 
 function EditCells({ row, words, onSave, onCancel }: {
   row: Row; words: { observation: string; requiredAction: string };
@@ -137,9 +141,9 @@ function Actions({ row, decision, mode, onMode, onKeep, onRemove, onClear }: Crs
         <div className="flex gap-1">
           <button type="button" className={btn} data-action="remove-confirm" onClick={() => {
             if (!reason) { setError("Choose a reason first."); return; }
-            onRemove(reason); onMode(null); setReason("");
+            onRemove(row.key, reason); onMode(row.key, null); setReason("");
           }}>Remove</button>
-          <button type="button" className={btn} onClick={() => { onMode(null); setError(""); }}>Cancel</button>
+          <button type="button" className={btn} onClick={() => { onMode(row.key, null); setError(""); }}>Cancel</button>
         </div>
         {error && <p role="alert" className="text-danger-500">{error}</p>}
       </div>
@@ -148,14 +152,14 @@ function Actions({ row, decision, mode, onMode, onKeep, onRemove, onClear }: Crs
   return (
     <div className="flex flex-wrap gap-1" onClick={(e) => e.stopPropagation()}>
       {decision?.kind === "remove" ? (
-        <button type="button" className={btn} onClick={onClear} aria-label={`Put comment ${no} back`}>Put back</button>
+        <button type="button" className={btn} onClick={() => onClear(row.key)} aria-label={`Put comment ${no} back`}>Put back</button>
       ) : (
         <>
           <button type="button" className={btn} data-action="keep" aria-pressed={decision?.kind === "keep"}
-            onClick={onKeep} aria-label={`Keep comment ${no}`}>Keep</button>
-          <button type="button" className={btn} data-action="edit" onClick={() => onMode("edit")}
+            onClick={() => onKeep(row.key)} aria-label={`Keep comment ${no}`}>Keep</button>
+          <button type="button" className={btn} data-action="edit" onClick={() => onMode(row.key, "edit")}
             aria-label={`Edit wording of comment ${no}`}>Edit wording</button>
-          <button type="button" className={btn} data-action="remove" onClick={() => onMode("remove")}
+          <button type="button" className={btn} data-action="remove" onClick={() => onMode(row.key, "remove")}
             aria-label={`Remove comment ${no}`}>Remove</button>
         </>
       )}

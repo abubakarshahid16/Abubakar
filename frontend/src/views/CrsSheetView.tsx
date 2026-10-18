@@ -147,6 +147,18 @@ function drawerNav(shown: CrsRow[], row: CrsRow, open: (row: CrsRow) => void) {
   return { index, total: shown.length, onPrev: prev ? () => open(prev) : null, onNext: next ? () => open(next) : null };
 }
 
+/** Order 117: where the keyboard goes back to when the drawer closes. The
+ *  element that opened it, when that is outside the drawer; the row's own
+ *  evidence button when the click landed on the row itself (a row cannot
+ *  hold focus); and the earlier target when the drawer is already open. */
+function returnTarget(prev: HTMLElement | null, rowKey: string): HTMLElement | null {
+  const active = document.activeElement as HTMLElement | null;
+  if (active?.closest?.("[role=dialog]")) return prev;
+  if (active && active !== document.body) return active;
+  const tr = Array.from(document.querySelectorAll<HTMLElement>("tr[data-row-key]")).find((el) => el.dataset.rowKey === rowKey);
+  return tr?.querySelector<HTMLElement>("button") ?? prev;
+}
+
 export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) {
   const { load, run, findings, standardsState, submittal, summary, active, refresh } = useRunData(runId);
   const [depth, setDepth] = useState<Depth>("standard");
@@ -189,18 +201,23 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
   const drawerRow = rows.find((r) => r.key === drawerKey) ?? null;
   const pagesWithComments = useMemo(() => commentPages(shown), [shown]);
 
+  // Order 117: these stay the same between renders, so the memoised rows
+  // and the keyboard listener are not rebuilt on every key press.
+  const { markOpened, keep } = decisions;
   const openEvidence = useCallback((row: CrsRow) => {
-    setReturnTo(document.activeElement as HTMLElement | null);
-    decisions.markOpened(row.key);
+    setReturnTo((prev) => returnTarget(prev, row.key));
+    markOpened(row.key);
     setDrawerKey(row.key);
-  }, [decisions]);
+  }, [markOpened]);
+  const selectRow = useCallback((row: CrsRow) => setSelectedKey(row.key), []);
+  const changeMode = useCallback((key: string, kind: RowMode) => setMode(kind ? { key, kind } : null), []);
 
   const keyActions = useMemo(() => ({
     select: (row: CrsRow) => setSelectedKey(row.key),
     edit: (row: CrsRow) => { if (row.tier.tier !== "A") setMode({ key: row.key, kind: "edit" }); },
     remove: (row: CrsRow) => { if (row.tier.tier !== "A") setMode({ key: row.key, kind: "remove" }); },
-    keep: (row: CrsRow) => { if (row.tier.tier !== "A") decisions.keep(row.key); },
-  }), [decisions]);
+    keep: (row: CrsRow) => { if (row.tier.tier !== "A") keep(row.key); },
+  }), [keep]);
   useCrsKeys(shown, selectedKey, keyActions, drawerRow === null);
 
   if (load.kind === "loading") return <p className="text-slateish-300">Loading the sheet…</p>;
@@ -241,8 +258,8 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
       />
       <CrsTable
         rows={shown} allRows={rows} counts={counts} depth={depth} onDepth={setDepth} showMet={showMet} onShowMet={setShowMet}
-        spot={spot} selectedKey={selectedKey} onSelect={(row) => setSelectedKey(row.key)} onOpenEvidence={openEvidence}
-        mode={mode} onMode={(key, kind) => setMode(kind ? { key, kind } : null)} decisions={decisions}
+        spot={spot} selectedKey={selectedKey} onSelect={selectRow} onOpenEvidence={openEvidence}
+        mode={mode} onMode={changeMode} decisions={decisions}
         clausesNotApplicable={run.requirement_split?.does_not_apply ?? null}
       />
       <CrsFooter run={run} counts={counts} standards={standardsState.standards} missing={standardsState.missing} standardsError={standardsState.error} rejected={rejected} />
