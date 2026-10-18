@@ -27,6 +27,9 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 import zipfile
+
+from defusedxml import DefusedXmlException
+from defusedxml import ElementTree as SafeET
 from pathlib import Path
 
 #: OOXML namespaces. Fixed strings, so a workbook cannot redirect the parse by
@@ -66,12 +69,14 @@ def _read_part(book: zipfile.ZipFile, name: str) -> bytes | None:
 def _parse(data: bytes) -> ET.Element:
     """Parse one part.
 
-    `xml.etree` does not expand external entities, so an XXE pointing at a
-    local file does not resolve. An undefined entity raises rather than
-    silently expanding, which is the billion-laughs case.
+    With `defusedxml` (order 117 item 8): a part that declares an entity,
+    internal (the billion-laughs case) or external (XXE), is refused, not
+    left to whichever expat version the platform ships.
     """
     try:
-        return ET.fromstring(data)
+        return SafeET.fromstring(data)
+    except DefusedXmlException as exc:
+        raise WorkbookError(f"refused XML: {type(exc).__name__}") from exc
     except ET.ParseError as exc:
         raise WorkbookError(f"malformed XML: {exc}") from exc
 

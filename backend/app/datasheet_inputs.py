@@ -46,6 +46,9 @@ from functools import lru_cache
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+from defusedxml import DefusedXmlException
+from defusedxml import ElementTree as SafeET
+
 log = logging.getLogger(__name__)
 
 SOURCE_PDF_TEXT = "pdf_text"
@@ -219,7 +222,7 @@ def _merged_ranges(zf: zipfile.ZipFile, sheet_xml: str) -> list[tuple[int, int, 
     out: list[tuple[int, int, int, int]] = []
     try:
         with zf.open(sheet_xml) as fh:
-            for _event, elem in ET.iterparse(fh, events=("end",)):
+            for _event, elem in SafeET.iterparse(fh, events=("end",)):
                 if elem.tag.endswith("}mergeCell"):
                     ref = elem.get("ref") or ""
                     try:
@@ -230,7 +233,7 @@ def _merged_ranges(zf: zipfile.ZipFile, sheet_xml: str) -> list[tuple[int, int, 
                     if len(out) > MAX_SHEET_ROWS:
                         break
                 elem.clear()
-    except (KeyError, ET.ParseError):
+    except (KeyError, ET.ParseError, DefusedXmlException):
         return []
     return out
 
