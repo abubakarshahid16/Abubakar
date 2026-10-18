@@ -20,6 +20,9 @@ const list = vi.fn();
 const exportCrs = vi.fn();
 const reviewRunStandards = vi.fn();
 const reviewRunSummary = vi.fn();
+const confirm = vi.fn();
+const update = vi.fn();
+const decideCrsFinding = vi.fn();
 const crsDecisions = vi.fn();
 
 vi.mock("../api/client", () => ({
@@ -30,6 +33,9 @@ vi.mock("../api/client", () => ({
     reviewRunStandards: (...a: unknown[]) => reviewRunStandards(...a),
     reviewRunSummary: (...a: unknown[]) => reviewRunSummary(...a),
     exportCrs: (...a: unknown[]) => exportCrs(...a),
+    confirm: (...a: unknown[]) => confirm(...a),
+    update: (...a: unknown[]) => update(...a),
+    decideCrsFinding: (...a: unknown[]) => decideCrsFinding(...a),
     crsDecisions: (...a: unknown[]) => crsDecisions(...a),
     cancelJob: vi.fn(),
   },
@@ -78,6 +84,9 @@ beforeEach(() => {
   // A server without #1111's route: 404, as `request()` reports it.
   reviewRunSummary.mockReset().mockResolvedValue({ ok: false, disconnected: false, error: { code: "internal", message: "That is not something the backend knows about." } });
   exportCrs.mockReset().mockResolvedValue({ ok: false, error: { code: "conflict", message: "2 findings are still open." } });
+  confirm.mockReset().mockResolvedValue({ ok: true, data: {} });
+  update.mockReset().mockResolvedValue({ ok: true, data: {} });
+  decideCrsFinding.mockReset().mockResolvedValue({ ok: true, data: {} });
   crsDecisions.mockReset().mockResolvedValue({ ok: true, data: { decisions: [] } });
 });
 
@@ -220,12 +229,72 @@ describe("CrsSheetView", () => {
     expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
   });
 
-  it("says by Sign that decisions on this screen are not in the exported file", async () => {
-    mount();
-    await screen.findByTestId("crs-headline");
-    expect(screen.queryByTestId("sign-local-note")).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Keep comment 1" }));
-    expect(screen.getByTestId("sign-local-note")).toHaveTextContent("Your 1 decision on this screen (Keep, edited wording, Remove) is not in the exported file yet");
+  describe("order 95 piece 6c: Save decisions", () => {
+    it("a Keep stays on screen, holds both exports, and one Save confirms its finding", async () => {
+      mount();
+      await screen.findByTestId("crs-headline");
+      expect(screen.queryByTestId("save-bar")).not.toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "Keep comment 1" }));
+      expect(confirm).not.toHaveBeenCalled();
+      expect(screen.getByTestId("save-bar")).toHaveTextContent("1 decision not saved yet");
+      expect(screen.getByRole("button", { name: /Sign and export/ })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Download working copy" })).toBeDisabled();
+      await userEvent.click(screen.getByRole("button", { name: "Save decisions" }));
+      expect(confirm).toHaveBeenCalledWith("a");
+      expect(await screen.findByText("1 decision saved to the record.")).toBeInTheDocument();
+      expect(screen.queryByTestId("save-bar")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Download working copy" })).toBeEnabled();
+    });
+
+    it("an edit saves the Required action as the engineer's comment; the Observation is read only", async () => {
+      mount();
+      await screen.findByTestId("crs-headline");
+      await userEvent.click(screen.getByRole("button", { name: "Edit wording of comment 1" }));
+      expect(screen.getByLabelText("Observation for comment 1")).toHaveAttribute("readonly");
+      const action = screen.getByLabelText("Required action for comment 1");
+      await userEvent.clear(action);
+      await userEvent.type(action, "Contractor to state the set pressure in barg.");
+      await userEvent.click(screen.getByRole("button", { name: "Save wording" }));
+      await userEvent.click(screen.getByRole("button", { name: "Save decisions" }));
+      expect(update).toHaveBeenCalledWith("a", { engineer_comment: "Contractor to state the set pressure in barg." });
+      expect(confirm).not.toHaveBeenCalled();
+    });
+
+    it("a Remove sends a reject with its listed reason code", async () => {
+      mount();
+      await screen.findByTestId("crs-headline");
+      await userEvent.click(screen.getByRole("button", { name: "Remove comment 1" }));
+      await userEvent.selectOptions(screen.getByLabelText("Why remove comment 1?"), "Duplicate");
+      await userEvent.click(screen.getByRole("button", { name: "Remove" }));
+      await userEvent.click(screen.getByRole("button", { name: "Save decisions" }));
+      expect(decideCrsFinding).toHaveBeenCalledWith("run-1", "a", "reject", "", "duplicate");
+    });
+
+    it("a row the server refuses stays unsaved and says why", async () => {
+      confirm.mockResolvedValue({ ok: false, error: { code: "forbidden", message: "Not allowed." } });
+      mount();
+      await screen.findByTestId("crs-headline");
+      await userEvent.click(screen.getByRole("button", { name: "Keep comment 1" }));
+      await userEvent.click(screen.getByRole("button", { name: "Save decisions" }));
+      expect(await screen.findByText(/1 not saved: Comment 1: Not allowed\./)).toBeInTheDocument();
+      expect(screen.getByTestId("save-bar")).toHaveTextContent("1 decision not saved yet");
+      expect(screen.getByRole("button", { name: /Sign and export/ })).toBeDisabled();
+    });
+
+    it("leaving with unsaved decisions warns first", async () => {
+      const onBack = vi.fn();
+      render(<CrsSheetView runId="run-1" onBack={onBack} onOpenCards={vi.fn()} />);
+      await screen.findByTestId("crs-headline");
+      await userEvent.click(screen.getByRole("button", { name: "Keep comment 1" }));
+      const unload = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(unload);
+      expect(unload.defaultPrevented).toBe(true);
+      const ask = vi.spyOn(window, "confirm").mockReturnValue(false);
+      await userEvent.click(screen.getByRole("button", { name: "← Reviews" }));
+      expect(ask).toHaveBeenCalled();
+      expect(onBack).not.toHaveBeenCalled();
+      ask.mockRestore();
+    });
   });
 
   it("Sign and export is disabled until every Needs-you row has been opened, then calls the existing CRS issue export", async () => {
@@ -319,7 +388,7 @@ describe("CrsSheetView", () => {
     await userEvent.keyboard("{Enter}");
     expect(within(rows()[0]).getByTestId("row-status")).toHaveTextContent("Kept");
     await userEvent.keyboard("e");
-    expect(screen.getByLabelText("Observation for comment 1")).toHaveFocus();
+    expect(screen.getByLabelText("Required action for comment 1")).toHaveFocus();
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     await userEvent.keyboard("r");
     expect(screen.getByLabelText("Why remove comment 1?")).toHaveFocus();

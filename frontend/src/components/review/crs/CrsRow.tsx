@@ -87,7 +87,9 @@ function EditCells({ row, words, onSave, onCancel }: {
   row: Row; words: { observation: string; requiredAction: string };
   onSave: (observation: string, requiredAction: string) => void; onCancel: () => void;
 }) {
-  const [observation, setObservation] = useState(words.observation);
+  // The Observation is the review's own; only the Required action is the
+  // engineer's wording (saved as `engineer_comment`, piece 6c).
+  const observation = words.observation;
   const [action, setAction] = useState(words.requiredAction);
   const first = useRef<HTMLTextAreaElement | null>(null);
   useEffect(() => { first.current?.focus(); }, []);
@@ -97,12 +99,12 @@ function EditCells({ row, words, onSave, onCancel }: {
       <div className="grid gap-2 sm:grid-cols-2">
         <label className="block text-xs text-slateish-400">
           Observation
-          <textarea ref={first} rows={3} value={observation} onChange={(e) => setObservation(e.target.value)} className={field}
+          <textarea rows={3} value={observation} readOnly className={`${field} opacity-70`}
             aria-label={`Observation for comment ${row.commentNo ?? ""}`} />
         </label>
         <label className="block text-xs text-slateish-400">
           Required action
-          <textarea rows={3} value={action} onChange={(e) => setAction(e.target.value)} className={field}
+          <textarea ref={first} rows={3} value={action} onChange={(e) => setAction(e.target.value)} className={field}
             aria-label={`Required action for comment ${row.commentNo ?? ""}`} />
         </label>
       </div>

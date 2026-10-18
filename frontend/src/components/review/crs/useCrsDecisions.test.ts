@@ -57,3 +57,15 @@ describe("useCrsDecisions: Accept all and undo", () => {
     expect(result.current.canUndo).toBe(true);
   });
 });
+
+describe("useCrsDecisions: what is not saved yet (order 95 piece 6c)", () => {
+  it("a decision is unsaved until marked saved, and unsaved again once changed", () => {
+    const { result } = renderHook(() => useCrsDecisions());
+    act(() => result.current.keep(a));
+    expect(result.current.unsaved).toEqual([a]);
+    act(() => result.current.markSaved([a]));
+    expect(result.current.unsaved).toEqual([]);
+    act(() => result.current.edit(a, "obs", "Do it."));
+    expect(result.current.unsaved).toEqual([a]);
+  });
+});
