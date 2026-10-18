@@ -6,7 +6,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { ReportsView } from "./ReportsView";
+import { ReportsView, displayQuestion } from "./ReportsView";
 import type { ReportRecord, ReportVerification } from "../types/api";
 
 const DOC_ID = "doc_7c1f9e2a4b3d";
@@ -131,5 +131,18 @@ describe("ReportsView: document naming", () => {
     expect(screen.getByText(/Outside this report/)).toBeInTheDocument();
     expect(screen.getByText(/This single-answer PDF does not include:/)).toBeInTheDocument();
     expect(screen.getByText(/gap_analysis, market_summary/)).toBeInTheDocument();
+  });
+});
+
+describe("a report's title (order 88c, #1097)", () => {
+  it("is shown without the stray backslash typed before Enter", () => {
+    renderView([makeReport({ question: "Which coating does this require?\\ " })]);
+    expect(screen.getByRole("heading", { level: 3 }).textContent).toBe("Which coating does this require?");
+  });
+
+  it("keeps a backslash inside the text, and adds no 'Read as' line for the same question", () => {
+    expect(displayQuestion("C:\\data path?\\\\")).toBe("C:\\data path?");
+    renderView([makeReport({ question: "Same?\\", resolved_question: "Same?" })]);
+    expect(screen.queryByText(/Read as/)).toBeNull();
   });
 });
