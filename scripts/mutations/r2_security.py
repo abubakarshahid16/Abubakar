@@ -42,7 +42,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T2, keyword="crs", tags=_TAG),
     Mutation(id="M1983", phase=1983,
              description="a deliverable with no document is open to a caller with no grant",
-             path=APP / "main.py",
+             path=APP / "api_utils.py",
              anchor='    return scope.is_admin or bool(scope.allowed_document_ids)',
              replacement='    return True',
              target=_T3, keyword="no_grants_cannot_write", tags=_TAG),

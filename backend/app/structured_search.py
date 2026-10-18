@@ -28,6 +28,7 @@ was asked for.
 """
 from __future__ import annotations
 
+from . import deliverables, review, risks
 from .db import connect
 
 
@@ -63,6 +64,10 @@ def search(query: str, *, allowed_document_ids: frozenset[str],
     term = f"%{query.strip()}%"
     if not query.strip():
         return []
+    # #1105: it reads these modules' tables, and can be the first call on a
+    # fresh database; it must not fail on a table not created yet.
+    for module in (deliverables, review, risks):
+        module.ensure_schema()
     out: list[dict] = []
     if kind in (None, "deliverable"):
         where, scope_args = _scope_sql("document_id", allowed_document_ids,
