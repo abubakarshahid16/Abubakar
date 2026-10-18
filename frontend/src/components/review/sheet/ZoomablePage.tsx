@@ -52,7 +52,10 @@ export function ZoomablePage({ src, alt, caption, status }: { src: string | null
             className={`mx-auto block h-auto ${step === FIT ? "cursor-zoom-in" : "cursor-zoom-out"}`}
           />
         ) : (
-          <div className="p-3 text-xs text-slateish-500">{status}</div>
+          // The frame is white paper in both themes, so its text is a fixed dark
+          // grey: a theme token turns pale in the dark theme and failed the axe
+          // gate on white (order 117 item 6).
+          <div className="p-3 text-xs text-[#4b5563]">{status}</div>
         )}
       </div>
       {full && src && (
