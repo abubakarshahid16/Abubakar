@@ -40,4 +40,6 @@ def test_every_code_has_a_plain_sentence_on_the_screen():
     table = TABLE.read_text(encoding="utf-8")
     named = set(re.findall(r'^\s+([A-Za-z_]+): "', table, flags=re.MULTILINE))
     missing = sorted(code for code in _codes().values() if code not in named)
-    assert not missing, f"reason codes with no plain sentence in {TABLE.name}: {missing}"
+    assert not missing, (
+        f"reason codes with no plain sentence in {TABLE.name}: {missing}"
+    )
