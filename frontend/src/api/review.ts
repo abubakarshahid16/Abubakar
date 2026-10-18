@@ -8,6 +8,7 @@ import type {
   BackgroundJob,
   ApiError,
   CrsIssueDecision,
+  CrsIssueDecisionList,
   CrsIssueGate,
   ClauseCoverage,
   AnalysisGapsResult,
@@ -274,6 +275,10 @@ export const reviews = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(reasonCode ? { decision, reason, reason_code: reasonCode } : { decision, reason }),
       }),
+  /** Order 95 piece 6a: every decision on the run's CRS - who, when, why
+   *  and the removal reason code - newest first. Read only. */
+  crsDecisions: (runId: string) =>
+    request<CrsIssueDecisionList>(`/reviews/runs/${encodeURIComponent(runId)}/crs/decisions`),
   /** PF4 (#884): the run's clause coverage ledger. Read only. */
   runCoverage: (runId: string) =>
     request<ClauseCoverage>(`/reviews/runs/${encodeURIComponent(runId)}/coverage`),

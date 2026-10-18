@@ -35,6 +35,7 @@ import type { RowMode } from "../components/review/crs/CrsRow";
 import {
   type CrsRow, type Depth, buildCrsRows, headlineFieldsOf, rowCounts, splitRejected, spotCheckKeys, visibleRows,
 } from "../components/review/crs/crsRows";
+import { commentPages, firstRowOnPage, stepRow } from "../components/review/crs/evidenceNav";
 import { countsOfServer, runFactsOf, serverTiersOf } from "../components/review/crs/tiers";
 import { saveCrsDecisions } from "../components/review/crs/saveCrsDecisions";
 import { useCrsDecisions } from "../components/review/crs/useCrsDecisions";
@@ -135,6 +136,16 @@ function RunNotReady({ run, active, onBack, onChanged }: { run: ReviewRunSummary
   );
 }
 
+/** Order 95 piece 4: the drawer moves along the rows the engineer sees. A
+ *  row not in that list (filtered out meanwhile) gets no position. */
+function drawerNav(shown: CrsRow[], row: CrsRow, open: (row: CrsRow) => void) {
+  const index = shown.findIndex((r) => r.key === row.key);
+  if (index < 0) return undefined;
+  const prev = stepRow(shown, row.key, -1);
+  const next = stepRow(shown, row.key, 1);
+  return { index, total: shown.length, onPrev: prev ? () => open(prev) : null, onNext: next ? () => open(next) : null };
+}
+
 export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) {
   const { load, run, findings, standardsState, submittal, summary, active, refresh } = useRunData(runId);
   const [depth, setDepth] = useState<Depth>("standard");
@@ -172,6 +183,7 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
   const shown = useMemo(() => visibleRows(rows, depth, showMet, spot), [rows, depth, showMet, spot]);
   const unopened = rows.filter((r) => r.tier.tier === "C" && !decisions.state.opened[r.key]);
   const drawerRow = rows.find((r) => r.key === drawerKey) ?? null;
+  const pagesWithComments = useMemo(() => commentPages(shown), [shown]);
 
   const openEvidence = useCallback((row: CrsRow) => {
     setReturnTo(document.activeElement as HTMLElement | null);
@@ -232,7 +244,16 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
       <CrsFooter run={run} counts={counts} standards={standardsState.standards} missing={standardsState.missing} standardsError={standardsState.error} rejected={rejected} />
       {drawerRow && (
         <CrsEvidenceDrawer row={drawerRow} runId={runId} standardNames={standardNames} returnTo={returnTo}
-          onClose={() => setDrawerKey(null)} onOpenCards={onOpenCards} />
+          onClose={() => setDrawerKey(null)} onOpenCards={onOpenCards}
+          nav={drawerNav(shown, drawerRow, (row) => { decisions.markOpened(row.key); setDrawerKey(row.key); })}
+          pager={{
+            pageCount: submittal?.page_count ?? null, commentPages: pagesWithComments,
+            onPage: (page) => {
+              const row = firstRowOnPage(shown, page);
+              if (row) { decisions.markOpened(row.key); setDrawerKey(row.key); }
+              return row !== null;
+            },
+          }} />
       )}
     </section>
   );
