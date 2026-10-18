@@ -389,3 +389,27 @@ describe("AnalysisModeScreen: a run whose job rejects", () => {
     expect(summaryCalls(fetch)).toBe(1);
   });
 });
+
+// ------------------------------------------- #633: unread named documents
+
+describe("#633: a document the question named but the answer could not read", () => {
+  it("is said on the screen, even when the summary itself is empty", async () => {
+    mockSummary(() => Promise.resolve(json({
+      ...summaryBody(), summary: null, summary_cited_evidence_ids: [], documented_findings: [],
+      named_documents_not_read: ["SAES-D-901 rev 3"],
+    })));
+    render(<AnalysisModeScreen />);
+    askSync("what does SAES-D-901 rev 3 say about relief");
+    const line = await screen.findByTestId("named-not-read");
+    expect(line).toHaveTextContent("A document named in the question was not read: SAES-D-901 rev 3");
+    expect(line).toHaveTextContent("The summary did not examine it");
+  });
+
+  it("says nothing when every named document was read", async () => {
+    mockSummary(() => Promise.resolve(json({ ...summaryBody(), named_documents_not_read: [] })));
+    render(<AnalysisModeScreen />);
+    askSync();
+    expect((await screen.findAllByText(/250 kPa/)).length).toBeGreaterThan(0);
+    expect(screen.queryByTestId("named-not-read")).toBeNull();
+  });
+});

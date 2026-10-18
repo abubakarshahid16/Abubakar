@@ -79,7 +79,9 @@ def side_state(side: dict, used_passages: list) -> tuple[str, str | None]:
 #: switched off" (`model_disabled`), which are ordinary absences.
 _MODEL_FAILURES = frozenset({
     "model_unavailable", "model_malformed", "model_out_of_range",
-    "model_unstable", "model_budget"})
+    "model_unstable", "model_budget",
+    # #882 technique 2: the local model's question did not complete
+    "question_refused_by_code", "question_not_read"})
 
 _MODEL_FAILURE_WORDS = {
     "model_unavailable": "the model that pairs fields was not available",
@@ -87,6 +89,9 @@ _MODEL_FAILURE_WORDS = {
     "model_out_of_range": "the model that pairs fields named a field that does not exist",
     "model_unstable": "the model that pairs fields gave different answers on repeat",
     "model_budget": "the model that pairs fields was out of budget",
+    "question_refused_by_code": ("the local model said the value is on the sheet and code "
+                                 "could not verify it on the page"),
+    "question_not_read": "the local model's question about this value could not be read",
 }
 
 

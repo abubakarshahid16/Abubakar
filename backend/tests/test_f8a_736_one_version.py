@@ -91,3 +91,38 @@ def test_an_unrecorded_second_module_for_one_job_is_reported():
 def test_a_module_listed_twice_is_reported():
     text = system_map.MAP.read_text(encoding="utf-8") + "| `absence` | again |\n"
     assert any("absence is listed twice" in p for p in system_map.problems(text))
+
+
+# ------------------------------------------------ sub-packages (#455, ai/)
+
+def test_imports_into_and_inside_a_sub_package_are_followed(tmp_path, monkeypatch):
+    app = tmp_path / "app"
+    (app / "ai").mkdir(parents=True)
+    monkeypatch.setattr(unused, "APP", app)
+    top = app / "m.py"
+    top.write_text("from .ai import json_reply\nfrom .ai.parse import x\n", encoding="utf-8")
+    inner = app / "ai" / "parse.py"
+    inner.write_text("from . import sibling\nfrom .. import alpha\nfrom ..beta import y\n", encoding="utf-8")
+    known = {"ai.json_reply", "ai.parse", "ai.sibling", "alpha", "beta", "other"}
+    assert unused.imports_of(top, known) == {"ai.json_reply", "ai.parse"}
+    assert unused.imports_of(inner, known) == {"ai.sibling", "alpha", "beta"}
+
+
+def test_an_orphan_inside_a_sub_package_is_reported(tmp_path, monkeypatch, capsys):
+    app = tmp_path / "app"
+    (app / "ai").mkdir(parents=True)
+    (app / "main.py").write_text("from .ai import used\n", encoding="utf-8")
+    (app / "ai" / "__init__.py").write_text("", encoding="utf-8")
+    (app / "ai" / "used.py").write_text("x = 1\n", encoding="utf-8")
+    (app / "ai" / "orphan.py").write_text("y = 2\n", encoding="utf-8")
+    monkeypatch.setattr(unused, "APP", app)
+    monkeypatch.setattr(unused, "REPO", tmp_path)
+    assert unused.unused() == ["ai.orphan"]
+    assert unused.main() == 1
+    assert "backend/app/ai/orphan.py" in capsys.readouterr().out
+
+
+def test_a_sub_package_module_missing_from_the_map_is_reported():
+    text = system_map.MAP.read_text(encoding="utf-8")
+    without = "\n".join(line for line in text.splitlines() if not line.startswith("| `ai.json_reply` |"))
+    assert "backend/app/ai/json_reply.py is not in docs/system-map.md" in system_map.problems(without)

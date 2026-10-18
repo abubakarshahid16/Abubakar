@@ -14,10 +14,12 @@ import { useEffect, useRef, useState } from "react";
 import { reviews as reviewsApi } from "../../../api/client";
 import type { ReviewFinding } from "../../../types/api";
 import { orNothing } from "../reviewFormat";
-import { type SheetCard as Card, cardTitle, groupLine, isAgreed, isNotNeeded, trustLine } from "./sheetCards";
+import { type SheetCard as Card, cardTitle, groupLine, isAgreed, isNotNeeded, isTickFinding, trustLine, MIN_REASON } from "./sheetCards";
 
 export const AGREE_REASON = "Engineer agreed on the review page: ask the contractor.";
-const MIN_REASON = 10;
+/** rule_trust (#947): the tick is the PF5 accept on the finding; the server
+ *  records it as the rule family's correct spot-check. */
+export const TICK_REASON = "Engineer checked the safety field on the page and ticked it.";
 
 export interface SheetCardProps {
   card: Card;
@@ -43,7 +45,7 @@ export function SheetCard(props: SheetCardProps) {
         type="button" onClick={onSelect}
         className="flex w-full items-center gap-2 rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 px-3 py-2 text-left text-sm text-slateish-200 hover:border-ink-600"
       >
-        <span aria-hidden="true" className={done ? "text-signal-400" : "text-warn-500"}>{done ? "✓" : "●"}</span>
+        <span aria-hidden="true" className={done ? "text-signal-400" : isTickFinding(card.findings[0]) ? "text-signal-500" : "text-warn-500"}>{done ? "✓" : "●"}</span>
         <span className={`flex-1 truncate ${done ? "text-slateish-400" : ""}`}>{cardTitle(card)}</span>
         {done && <span className="text-xs text-slateish-500">{doneWords(card)}</span>}
       </button>
@@ -53,6 +55,7 @@ export function SheetCard(props: SheetCardProps) {
 }
 
 function doneWords(card: Card): string {
+  if (isTickFinding(card.findings[0])) return card.state === "agreed" ? "Ticked" : "Something is off";
   if (card.state === "agreed") return "Asked";
   if (card.state === "not_needed") return "Not needed";
   return "Answered";
@@ -62,6 +65,7 @@ function OpenCard({ card, runId, standardNames, onOpenRule, onAnswered, onShowOn
   const leader = card.findings[0];
   const single = card.findings.length === 1;
   const done = card.state !== "open";
+  const tick = isTickFinding(leader);
   const [busy, setBusy] = useState<Busy>({ kind: "idle" });
   const [why, setWhy] = useState("");
   const [askWhy, setAskWhy] = useState(false);
@@ -163,6 +167,15 @@ function OpenCard({ card, runId, standardNames, onOpenRule, onAnswered, onShowOn
         )}
       </section>
 
+      {tick ? (
+        <section>
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-slateish-400">Your check</h4>
+          <p className="mt-1 text-sm text-slateish-100">
+            A safety field: look at the value on the page yourself. Nothing goes to the contractor either way;
+            your tick is recorded, and "something is off" takes the rule out of automatic use.
+          </p>
+        </section>
+      ) : (
       <section>
         <h4 className="text-xs font-semibold uppercase tracking-wide text-slateish-400">Our comment</h4>
         {editing ? (
@@ -197,21 +210,22 @@ function OpenCard({ card, runId, standardNames, onOpenRule, onAnswered, onShowOn
           </div>
         )}
       </section>
+      )}
 
       {done ? (
         <DoneRow card={card} working={working} onChange={() => {
-          if (card.state === "not_needed") void decide("accept", AGREE_REASON);
+          if (card.state === "not_needed") void decide("accept", tick ? TICK_REASON : AGREE_REASON);
           else setAskWhy(true);
         }} />
       ) : (
         <div className="flex flex-wrap gap-2">
-          <button type="button" data-action="agree" disabled={working} onClick={() => void decide("accept", AGREE_REASON)}
+          <button type="button" data-action="agree" disabled={working} onClick={() => void decide("accept", tick ? TICK_REASON : AGREE_REASON)}
             className="rounded-[var(--radius-sm)] bg-signal-500 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50">
-            Agree, ask the contractor
+            {tick ? "I checked it, tick" : "Agree, ask the contractor"}
           </button>
           <button type="button" data-action="not-needed" disabled={working} onClick={notNeeded}
             className="rounded-[var(--radius-sm)] border border-ink-600 px-4 py-2 text-sm text-slateish-100 disabled:opacity-50">
-            Not needed
+            {tick ? "Something is off" : "Not needed"}
           </button>
         </div>
       )}
@@ -219,7 +233,9 @@ function OpenCard({ card, runId, standardNames, onOpenRule, onAnswered, onShowOn
       {askWhy && (
         <div className="space-y-2">
           <label htmlFor={`why-${leader.id}`} className="block text-xs text-slateish-400">
-            Why is this comment not needed? It is left off the sheet, and your reason is kept.
+            {tick
+              ? "What is off? Your reason is kept, and the rule is taken out of automatic use until an engineer re-proves it."
+              : "Why is this comment not needed? It is left off the sheet, and your reason is kept."}
           </label>
           <input
             id={`why-${leader.id}`} value={why} onChange={(e) => setWhy(e.target.value)}
@@ -227,7 +243,7 @@ function OpenCard({ card, runId, standardNames, onOpenRule, onAnswered, onShowOn
           />
           <button type="button" disabled={working} onClick={notNeeded}
             className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1.5 text-sm text-slateish-100 disabled:opacity-50">
-            Leave it off the sheet
+            {tick ? "Record that something is off" : "Leave it off the sheet"}
           </button>
         </div>
       )}
@@ -246,7 +262,9 @@ function OpenCard({ card, runId, standardNames, onOpenRule, onAnswered, onShowOn
 function DoneRow({ card, working, onChange }: { card: Card; working: boolean; onChange: () => void }) {
   return (
     <div className="flex flex-wrap items-center gap-3 text-sm">
-      <span className="text-signal-300">✓ {card.state === "agreed" ? "You agreed: the contractor is asked."
+      <span className="text-signal-300">✓ {isTickFinding(card.findings[0])
+        ? (card.state === "agreed" ? "You checked it and ticked it." : "You said something is off: the rule is held for re-proof.")
+        : card.state === "agreed" ? "You agreed: the contractor is asked."
         : card.state === "not_needed" ? "You said it is not needed: it is left off the sheet."
         : "Answered, part asked and part left off."}</span>
       <button type="button" disabled={working} onClick={onChange}

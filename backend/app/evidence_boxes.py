@@ -42,7 +42,8 @@ from __future__ import annotations
 import json
 import re
 
-from . import highlight
+from . import access, highlight
+from .api_utils import require_document
 
 #: What kind of box was drawn - shown to the engineer in words.
 QUOTE = "quote"                 # the finding's own stored text
@@ -316,3 +317,68 @@ def submittal_texts(finding: dict) -> list[str]:
     texts = [finding.get("contractor_evidence_text") or ""]
     texts += [f.get("source_text") or "" for f in _facts_for(finding)]
     return [t for t in dict.fromkeys(texts) if t.strip()]
+
+
+#: R21 / #508: which stored page and text each side of a finding cites.
+SIDES = {
+    "submittal": ("document_id", "contractor_page", "contractor_evidence_text"),
+    "standard": ("standard_document_id", "standard_page", "requirement_source_text"),
+}
+
+
+def side(current: dict, side: str, scope: access.AccessScope) -> dict:
+    """#785: where one side of a finding sits and the box to draw on it -
+    moved here from main.py for #967 (the Sheet page draws every card's mark) -
+    {document, page, rects, box, reason}. `document` None with `reason`
+    when the side cannot be shown (no page cited, a document the caller may
+    not read, a Word document, a checklist clause not found in the library).
+    A checklist row's standard side is resolved from its clause id
+    (`evidence_boxes.checklist_standard`); nothing is written."""
+    doc_field, page_field, text_field = SIDES[side]
+    document_id, page_no = current.get(doc_field), current.get(page_field)
+    text, how = current.get(text_field) or "", QUOTE
+    if side == "standard" and not (document_id and page_no):
+        resolved = checklist_standard(current, scope.allowed_document_ids)
+        if resolved is not None:
+            document_id, page_no = resolved["document_id"], resolved["page"]
+            text, how = resolved["text"], resolved["how"]
+        elif current.get("origin") == CHECKLIST_ORIGIN and current.get("standard_clause"):
+            return {"document": None, "page": None, "rects": [], "box": None,
+                    "reason": f"{current['standard_clause']}: the standard is not in the library "
+                              "you may read, or the clause was not found in it"}
+    if (side == "submittal" and document_id and not page_no
+            and current.get("origin") == CHECKLIST_ORIGIN
+            and not (current.get("contractor_evidence_text") or "").strip()
+            and scope.may_read(document_id)):
+        # #785 point 3: no value found, so no page cited - show where to look.
+        doc = dict(require_document(document_id, scope))
+        if doc.get("pagination") == "flow" or not doc.get("stored_path"):
+            return {"document": None, "page": None, "rects": [], "box": None,
+                    "reason": f"no value was found for {current.get('contractor_section') or 'this field'}"}
+        look = where_to_look(current.get("contractor_section"), doc["stored_path"])
+        if look["page"] is None:
+            return {"document": None, "page": None, "rects": [], "box": None, "reason": look["reason"]}
+        return {"document": doc, "page": look["page"], "rects": look["rects"],
+                "box": WHERE_TO_LOOK, "reason": None}
+    if not document_id or not page_no:
+        return {"document": None, "page": None, "rects": [], "box": None,
+                "reason": f"this finding cites no {side} page"}
+    if not scope.may_read(document_id):
+        return {"document": None, "page": None, "rects": [], "box": None,
+                "reason": f"this finding cites no {side} page"}
+    doc = dict(require_document(document_id, scope))
+    if doc.get("pagination") == "flow":
+        return {"document": None, "page": None, "rects": [], "box": None,
+                "reason": "a Word document has no printed pages"}
+    if side == "submittal":
+        rects, box = submittal_box(current, doc["stored_path"], int(page_no))
+    else:
+        rects, box = standard_box(text, doc["stored_path"], int(page_no), how)
+    reason = None
+    if not rects and not has_text_layer(doc["stored_path"], int(page_no)):
+        # #508: a scanned page - box the recognised line, or say why not
+        texts = (submittal_texts(current) if side == "submittal"
+                 else [t for t in (text,) if (t or "").strip()])
+        rects, box, reason = scanned_box(
+            texts, doc["stored_path"], int(page_no), doc["sha256"])
+    return {"document": doc, "page": int(page_no), "rects": rects, "box": box, "reason": reason}

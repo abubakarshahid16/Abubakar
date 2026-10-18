@@ -13,7 +13,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T, keyword="unverified_claim_is_never_streamed", tags=("citation", "critical")),
     Mutation(id="M942", phase=82, description="stop: a request waiting for its first byte is not interrupted",
              path=APP / "model_transport.py",
-             anchor="                if sock is not None:\n                    try:\n                        sock.shutdown(_socket.SHUT_RDWR)\n                    except OSError:\n                        pass\n                self.client.close()\n",
+             anchor="                if sock is not None:\n                    try:\n                        sock.shutdown(_socket.SHUT_RDWR)\n                    except OSError as exc:  # #655: already closed by the peer\n                        log.debug(\"cancel: socket shutdown skipped (%s)\", type(exc).__name__)\n                self.client.close()\n",
              replacement="                self.client.close()\n",
              target=_T, keyword="within_two_seconds_even_before", tags=("stop", "critical")),
     Mutation(id="M943", phase=82, description="stop: a turn stopped before the model still calls it",

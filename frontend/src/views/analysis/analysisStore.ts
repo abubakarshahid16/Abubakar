@@ -27,11 +27,18 @@ function toRemoved(value: unknown): RemovedEntry[] {
 
 // ------------------------------------------------------------- what renders
 
+/** #633: the API's list of named-but-unread documents, as strings only. */
+function toNames(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string" && v.trim() !== "") : [];
+}
+
 export interface SummarySlotData {
   result: AnalysisResult;
   refusal: string | null;
   removed: RemovedEntry[];
   ledger: EvidenceItem[];
+  /** #633: documents the question named that the answer could not read. */
+  namedNotRead: string[];
 }
 
 export interface GapsSlotData {
@@ -40,6 +47,8 @@ export interface GapsSlotData {
   ledger: EvidenceItem[];
   /** why the run stopped early (work budget), or null when it ran to the end */
   truncatedReason: string | null;
+  /** #633: documents the question named that the comparison could not read. */
+  namedNotRead: string[];
 }
 
 export interface RecommendationSlotData {
@@ -345,12 +354,16 @@ export async function runAnalysis(overrideBaseline?: string | null): Promise<voi
             // named as text-not-returned below, never rendered as a bullet
             // with nothing in it.
             const removed = toRemoved(d.removed);
-            if (prose === null && findings.length === 0 && refusal === null) return null;
+            const namedNotRead = toNames(d.named_documents_not_read);
+            // #633: a named document the answer could not read keeps the slot
+            // alive on its own - "nothing was read" is what the reader must see.
+            if (prose === null && findings.length === 0 && refusal === null && namedNotRead.length === 0) return null;
             return {
               result: toAnalysisResult(d, prose, findings),
               refusal,
               removed,
               ledger: Array.isArray(d.evidence_ledger) ? d.evidence_ledger : [],
+              namedNotRead,
             };
           }),
         });
@@ -368,12 +381,14 @@ export async function runAnalysis(overrideBaseline?: string | null): Promise<voi
             const located = locate(d.evidence_ledger);
             const clusters = toClaimClusters(d.claim_clusters, located);
             const items = toGapItems(d.gaps?.items, located);
-            if (clusters.length === 0 && items.length === 0) return null;
+            const namedNotRead = toNames(d.named_documents_not_read);
+            if (clusters.length === 0 && items.length === 0 && namedNotRead.length === 0) return null;
             return {
               clusters,
               gaps: toGapAnalysis(d.gaps, items),
               ledger: Array.isArray(d.evidence_ledger) ? d.evidence_ledger : [],
               truncatedReason: d.truncated ? (d.truncation_reason ?? "the run stopped at its work limit") : null,
+              namedNotRead,
             };
           }),
         });

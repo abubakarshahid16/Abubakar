@@ -595,8 +595,13 @@ export interface CrsReviewNote {
 export interface ReviewReadiness {
   submittal_document_id: string;
   pages_total: number | null;
-  pages_read: number;
+  /** #1017: null when the page ledger is not one to count on (`ledger_state`). */
+  pages_read: number | null;
   unread_pages: number[];
+  /** #1017: current / missing / stale / not_as_submittal. A read never rebuilds
+   *  the ledger; `ledger_note` says what does when it is not current. */
+  ledger_state?: "current" | "missing" | "stale" | "not_as_submittal";
+  ledger_note?: string | null;
   /** Keyed by page number (a string - a JSON object key always is): why that
    *  page did not read into fields. Present for every page in `unread_pages`;
    *  absent only for a page the ledger never wrote a reason for. */
@@ -1667,12 +1672,7 @@ export interface BaselineSelectionOut {
   text: string | null;
 }
 
-export type GapItemStatus =
-  | "met"
-  | "possible_gap"
-  | "conflict"
-  | "insufficient_evidence"
-  | "not_applicable";
+export type GapItemStatus = "met" | "possible_gap" | "conflict" | "insufficient_evidence" | "beyond_requirement" | "not_applicable";
 
 export interface GapItemOut {
   facet: string;

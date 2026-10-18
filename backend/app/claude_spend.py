@@ -423,7 +423,17 @@ def settle(reservation: Reservation, *, usage: dict | None, finish_reason: str,
            model: str | None = None, wall_time_s: float | None = None,
            estimated_usd: float | None = None) -> dict:
     """Replace `reservation` with what the call cost: `usage` as the API
-    reported it, or `estimated_usd` when that is unknown. Returns the entry."""
+    reported it, or `estimated_usd` when that is unknown. Returns the entry.
+
+    #459 (audit B07): A REPLY WITH NO USAGE IS NOT A FREE REPLY. An answer
+    that arrived but carries no `usage` block (a proxy that strips it, a
+    shape the API has not used before) used to settle at USD 0 - the call
+    was billed, the ledger said nothing was spent, and the caps believed it.
+    With neither token count reported and no estimate given, the call settles
+    at the worst case it was reserved at, marked `"estimated": true`: the cap
+    errs toward counting too much, never too little - `settle_failure`'s rule."""
+    if estimated_usd is None and not _usage_reported(usage):
+        estimated_usd = reservation.worst_usd
     entry = _entry(step=reservation.step, model=model or reservation.model, usage=usage,
                    prompt_sha256=reservation.prompt_sha256,
                    wall_time_s=(time.time() - reservation.started) if wall_time_s is None else wall_time_s,
@@ -432,6 +442,11 @@ def settle(reservation: Reservation, *, usage: dict | None, finish_reason: str,
     with _ledger_lock():
         _append(entry)
     return entry
+
+
+def _usage_reported(usage) -> bool:
+    """True when the API said how many tokens the call used (#459)."""
+    return isinstance(usage, dict) and ("input_tokens" in usage or "output_tokens" in usage)
 
 
 def release(reservation: Reservation, reason: str) -> None:

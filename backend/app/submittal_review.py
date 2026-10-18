@@ -876,6 +876,56 @@ def list_submittal_facts(
     return [dict(row) for row in connect().execute(sql, args).fetchall()]
 
 
+class FactNotCurrent(ValueError):
+    """The fact exists but was superseded by a re-read: confirming it would
+    bless a value the review no longer uses."""
+
+
+def confirm_fact(fact_id: str, *, allowed_document_ids: frozenset[str],
+                 confirmed_by: str) -> dict | None:
+    """#473 (audit D04): an engineer confirms one value the reader read.
+
+    THE ONLY WRITER of `submittal_facts.confirmed_by`. The column had readers
+    from the start (`comparison` treats a confirmed fact as human-verified
+    and skips the AI-quote proof; the facts reader never supersedes a
+    confirmed row) and no writer, so no fact could ever reach that state.
+
+    Named states, never a silent pass: None when there is no fact with that
+    id the caller may read (the route's 404, the same answer for both);
+    `FactNotCurrent` for a superseded row. The actor is required - a
+    confirmation nobody signed is a suggestion, and the column stays NULL.
+    Confirming twice is one state: the first name and time are kept.
+    """
+    if not confirmed_by:
+        raise ValueError("a confirmation must name the engineer")
+    ensure_schema()
+    where, args = _scope_clause(allowed_document_ids, "submittal_document_id")
+    conn = connect()
+    with conn:
+        row = conn.execute("SELECT * FROM submittal_facts" + where + " AND id = ?",
+                           (*args, fact_id)).fetchone()
+        if row is None:
+            return None
+        if row["superseded_at"] is not None:
+            raise FactNotCurrent(fact_id)
+        if row["confirmed_by"] is None:
+            now = _now()
+            conn.execute(
+                "UPDATE submittal_facts SET confirmed_by = ?, confirmed_at = ?, updated_at = ?"
+                " WHERE id = ? AND confirmed_by IS NULL",
+                (confirmed_by, now, now, fact_id))
+            # Ids only (rule 1): the value and its source text stay off the trail.
+            conn.execute(
+                """INSERT INTO audit_events
+                       (at, actor_user_id, actor_username, action,
+                        resource_type, resource_id, outcome, detail)
+                   VALUES (?, ?, ?, 'fact.confirmed', 'review', ?, 'ok', ?)""",
+                (now, confirmed_by, confirmed_by[:200], fact_id,
+                 f"document={row['submittal_document_id']}"))
+        row = conn.execute("SELECT * FROM submittal_facts WHERE id = ?", (fact_id,)).fetchone()
+    return dict(row)
+
+
 def list_applicable_standards(
     review_run_id: str, *, allowed_document_ids: frozenset[str],
     include_excluded: bool = True,
@@ -986,17 +1036,46 @@ def list_run_findings(
         "SELECT * FROM review_findings" + where + " AND review_run_id = ?"
         " ORDER BY updated_at DESC", [*args, review_run_id]
     ).fetchall()
-    out = []
-    for row in rows:
-        item = dict(row)
-        for field in ("citation_ids", "governing_sources", "unresolved_evidence"):
-            try:
-                item[field] = json.loads(item.get(field) or "[]")
-            except (TypeError, ValueError):
-                item[field] = []
-        out.append(item)
     # r2 S2: a submittal grant is not a grant on the standard it was compared with.
-    return review.withhold_unreadable_standards(out, allowed_document_ids)
+    return review.withhold_unreadable_standards(
+        [_finding_item(row) for row in rows], allowed_document_ids)
+
+
+def _finding_item(row) -> dict:
+    """One finding row as the API hands it on: the three list columns decoded,
+    an unreadable one read as empty. THE ONE decoder for findings rows."""
+    item = dict(row)
+    for field in ("citation_ids", "governing_sources", "unresolved_evidence"):
+        try:
+            item[field] = json.loads(item.get(field) or "[]")
+        except (TypeError, ValueError):
+            item[field] = []
+    return item
+
+
+def list_rejected_findings(
+    submittal_document_id: str, *, allowed_document_ids: frozenset[str],
+) -> list[dict]:
+    """Every finding an engineer REJECTED on any run of this submittal, under
+    the caller's grants (#1066).
+
+    The same rows `list_run_findings` gives, run by run, kept where
+    `approval_status = 'rejected'` - but selected in SQL, in one query over the
+    submittal's runs. The CRS composition asked for every finding of every
+    run of the submittal (41 runs, 61,500 rows on an invented copy; 88% of the
+    issue gate's time) to keep the few rejected ones. Scoped the same way:
+    on the finding's submittal, with the standard-withholding of r2 S2.
+    """
+    ensure_schema()
+    where, args = _scope_clause(allowed_document_ids, "f.document_id")
+    rows = connect().execute(
+        "SELECT f.* FROM review_findings f"
+        " JOIN review_runs r ON r.id = f.review_run_id" + where +
+        " AND r.submittal_document_id = ? AND f.approval_status = 'rejected'"
+        " ORDER BY f.updated_at DESC", [*args, submittal_document_id]
+    ).fetchall()
+    return review.withhold_unreadable_standards(
+        [_finding_item(row) for row in rows], allowed_document_ids)
 
 
 def migrate_pair_rejections_to_stable_keys() -> None:
