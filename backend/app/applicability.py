@@ -42,16 +42,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-import logging
 import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import datasheets, keyword, standard_ids, standards, submittal_review
+from . import datasheets, errors, keyword, standard_ids, standards, submittal_review
 from .db import connect
-
-log = logging.getLogger(__name__)
 
 #: The selection rules, in the priority master plan section 11 gives them.
 #:
@@ -806,11 +803,10 @@ def scope_decisions_by_reasoning(library: list[dict], profile: dict,
                 decision = _cached_scope_decision(
                     entry["id"], equipment_type, record, engine, SCOPE_REASONING_STEP)
         except Exception as exc:  # noqa: BLE001 - budget cap, refusal or a down model:
-            log.info("applicability: the scope decision for a standard failed; it stays not decided (%s)", type(exc).__name__)  # 79c
-            # stays with an engineer as "not decided", never crashes the review.
-            # #450: AND SAYS SO. It used to be skipped with no record, so a
-            # model that was down for every standard read as "scope checked,
-            # nothing excluded". The standard is UNKNOWN, with the reason.
+            # stays with an engineer as "not decided", never crashes the review. #450: AND SAYS SO.
+            # It used to be skipped with no record, so a model that was down for every standard read
+            # as "scope checked, nothing excluded". The standard is UNKNOWN, with the reason.
+            errors.fell_back("applicability: the scope decision for a standard failed; it stays not decided", exc, None)
             from . import applicability_v2
             out[entry["id"]] = {
                 "decision": applicability_v2.UNKNOWN, "quote": None, "page": None,
@@ -1042,8 +1038,7 @@ def _match_semantic(document_id: str, library: list[dict],
         hits = keyword.search(" OR ".join(terms), limit=limit,
                               allowed_document_ids=searchable)
     except Exception as exc:  # noqa: BLE001 - a retrieval failure is not a selection
-        log.info("applicability: the keyword search for library citations failed; no standard is selected from it (%s)", type(exc).__name__)  # 79c
-        return {}
+        return errors.fell_back("applicability: the keyword search for library citations failed; no standard is selected from it", exc, {})
     out: dict[str, dict] = {}
     for hit in hits:
         standard_id = hit.get("document_id")

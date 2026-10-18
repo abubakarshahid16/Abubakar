@@ -15,7 +15,7 @@ import pytest
 
 APP = pathlib.Path(__file__).resolve().parent.parent / "app"
 KNOWLEDGE = ("standards", "applicability", "okf", "field_naming", "acronyms", "web_standards")
-LOGS = ("log.", "logger.", "logging.", "record_failure", "_say_once(", "log_exception")
+LOGS = ("log.", "logger.", "logging.", "record_failure", "_say_once(", "log_exception", "fell_back(")
 
 
 def _silent(module: str) -> list[int]:
