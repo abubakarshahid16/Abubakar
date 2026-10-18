@@ -1,5 +1,7 @@
-// Shared API types. Hand-written, source of truth for the UI.
-// Backend mirrors these in Pydantic models.
+// Shared API types. Hand-written, source of truth for the UI, except the
+// blocks re-exported from ./generated/, which are written from the backend's
+// Pydantic models by scripts/gen_contract_types.py (order 119.1). Backend
+// mirrors the hand-written ones in Pydantic models.
 
 // ---------- documents ----------
 
@@ -706,79 +708,10 @@ export interface ReviewRunMissingReference {
 }
 
 /** Order 95 piece 1 (#1111): `GET /api/reviews/runs/{id}/summary`, the run as
- *  the CRS-first Sheet shows it. Mirrors `backend/app/api/run_summary.py`
- *  field for field; the tiers are `backend/app/review_tiers.py`'s, the same
- *  rules as the screen's `crs/tiers.ts`. Display only. */
-export type RunSummaryTier = "A" | "B" | "C";
-export type RunSummaryTierLabel = "Met" | "Not applicable" | "Another document" | "Comment" | "Needs you";
-export type RunSummaryTierReason =
-  | "page not read"
-  | "standard not in library"
-  | "AI guess"
-  | "rule not proven"
-  | "safety field"
-  | "condition unsettled"
-  | "value conflict"
-  | "unit unknown";
-
-/** Counts over every finding of the run; `removed` = rejected by an
- *  engineer (in no tier); `total` includes the removed ones. */
-export interface RunSummaryTierCounts {
-  met: number;
-  not_applicable: number;
-  another_document: number;
-  comment: number;
-  needs_you: number;
-  removed: number;
-  total: number;
-}
-
-/** One finding still in a tier, in screen order (Comment, Needs you, Met;
- *  then page, no page last; then clause). */
-export interface RunSummaryTierRow {
-  finding_id: string;
-  tier: RunSummaryTier;
-  label: RunSummaryTierLabel;
-  /** Only a Tier C row carries a reason. */
-  reason?: RunSummaryTierReason | null;
-  compliance_status?: string | null;
-  standard_clause?: string | null;
-  contractor_page?: number | null;
-  equipment_tag?: string | null;
-  /** Order 96: the cited standard not held that this finding rests on. */
-  missing_standard_id?: string | null;
-}
-
-export interface RunSummaryStandardClauses {
-  /** Null: requirements of a standard the caller may not read, counted together. */
-  standard_document_id?: string | null;
-  counts: Record<string, number>;
-}
-
-/** The stored fields, as the run detail returns them; null when not stored. */
-export interface RunSummaryHowReviewed {
-  requirement_split?: RequirementSplit | null;
-  page_coverage?: PageCoverage | null;
-  completeness?: ReviewRunSummary["completeness"] | null;
-  reader?: AiStepNumbers | null;
-  /** Pages the AI reader timed out on; null when no reader record. */
-  timed_out_pages?: number[] | null;
-  code_version?: string | null;
-  config_version?: string | null;
-  /** Seconds per stage from the stored trace; null when none stored. */
-  stage_seconds?: Record<string, number> | null;
-  clauses_by_standard?: RunSummaryStandardClauses[] | null;
-}
-
-export interface ReviewRunTierSummary {
-  review_run_id: string;
-  status: string;
-  /** "findings of this run, on the submittal you may read" */
-  boundary: string;
-  counts: RunSummaryTierCounts;
-  rows: RunSummaryTierRow[];
-  how_reviewed: RunSummaryHowReviewed;
-}
+ *  the CRS-first Sheet shows it. GENERATED from `backend/app/api/run_summary.py`
+ *  (order 119.1): edit the backend model, then run
+ *  `python scripts/gen_contract_types.py`; CI fails on drift. */
+export * from "./generated/run_summary";
 
 /**
  * A review run as the runs list shows it.
