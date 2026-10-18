@@ -244,3 +244,130 @@ def test_measure_covers_all_nine_rules_and_never_fabricates_a_value_with_no_note
             assert entry["note"], f"{name} is null with no note"
         else:
             assert isinstance(entry["value"], int) and entry["value"] >= 0
+
+
+# ------------------------------------------- order 79d: formatter, changed files only
+
+
+def test_a_new_file_must_be_formatted_and_a_changed_one_may_not_drift_further():
+    blocked, better = qr.compare_format(
+        [
+            ("backend/new_clean.py", None, 0),
+            ("backend/new_messy.py", None, 4),
+            ("backend/grew.py", 10, 12),
+            ("backend/same.py", 10, 10),
+            ("backend/closer.py", 10, 3),
+        ]
+    )
+    assert blocked == [
+        "NEW FILE NOT FORMATTED: backend/new_messy.py (4 lines differ; run `ruff format backend/new_messy.py`)",
+        "FORMAT DRIFT GREW: backend/grew.py 10 -> 12 lines differ from `ruff format`",
+    ]
+    assert better == ["backend/closer.py 10 -> 3"]
+
+
+def test_format_drift_counts_the_lines_the_formatter_would_change():
+    assert qr.format_drift("x = 1\n", "backend/m.py") == 0
+    # `x=1` -> `x = 1`: one line out, one line in
+    assert qr.format_drift("x=1\n", "backend/m.py") == 2
+
+
+def _git(repo, *args):
+    import subprocess
+
+    subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+
+
+@pytest.fixture
+def repo(tmp_path, monkeypatch):
+    """A throwaway git repo with the real ruff.toml and one unformatted file."""
+    (tmp_path / "ruff.toml").write_text(
+        (REPO / "ruff.toml").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    (tmp_path / "backend").mkdir()
+    (tmp_path / "backend" / "old.py").write_text("a=1\nb = 2\n", encoding="utf-8")
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-qm", "base")
+    _git(tmp_path, "tag", "base")
+    monkeypatch.setattr(qr, "REPO", tmp_path)
+    return tmp_path
+
+
+def test_the_cli_blocks_a_changed_file_that_drifts_further(repo, capsys):
+    (repo / "backend" / "old.py").write_text("a=1\nb = 2\nc=3\n", encoding="utf-8")
+    _git(repo, "commit", "-qam", "grow")
+    assert qr.main(["format-check", "--base", "base"]) == 1
+    assert "FORMAT DRIFT GREW: backend/old.py 2 -> 4" in capsys.readouterr().out
+
+
+def test_the_cli_passes_an_untidy_file_whose_new_lines_are_formatted(repo, capsys):
+    (repo / "backend" / "old.py").write_text("a=1\nb = 2\nc = 3\n", encoding="utf-8")
+    _git(repo, "commit", "-qam", "tidy addition")
+    assert qr.main(["format-check", "--base", "base"]) == 0
+    assert "1 changed Python files checked" in capsys.readouterr().out
+
+
+def test_a_renamed_untidy_file_is_not_a_new_file(repo):
+    _git(repo, "mv", "backend/old.py", "backend/moved.py")
+    _git(repo, "commit", "-qm", "move")
+    assert qr.format_check("base") == ([], [], [], 1)
+
+
+def test_a_new_untidy_file_is_blocked_and_files_outside_the_trees_are_not_read(repo):
+    (repo / "backend" / "new.py").write_text("z=9\n", encoding="utf-8")
+    (repo / "frontend.py").write_text("y=8\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "new")
+    blocked, better, moved, checked = qr.format_check("base")
+    assert (checked, better, moved) == (1, [], [])
+    assert blocked == [
+        "NEW FILE NOT FORMATTED: backend/new.py (2 lines differ; "
+        "run `ruff format backend/new.py`)"
+    ]
+
+
+_UNTIDY = "".join(f"value_{i}={i}\n" for i in range(10))
+
+
+def test_code_moved_out_of_another_file_keeps_its_formatting(repo):
+    (repo / "backend" / "long.py").write_text(_UNTIDY + "keep=1\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "a long untidy file")
+    _git(repo, "tag", "-f", "base")
+    # a split: nine of the ten lines move verbatim into a new module
+    (repo / "backend" / "long.py").write_text("value_9=9\nkeep=1\n", encoding="utf-8")
+    (repo / "backend" / "part.py").write_text(
+        "".join(_UNTIDY.splitlines(True)[:9]), encoding="utf-8"
+    )
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "split")
+    blocked, _better, moved, checked = qr.format_check("base")
+    assert (blocked, checked) == ([], 2)
+    assert moved == [
+        "backend/part.py (100% of its lines moved from elsewhere in this PR)"
+    ]
+
+
+def test_new_code_beside_a_little_moved_code_must_still_be_formatted(repo):
+    # one moved line and four new untidy ones: 20% moved, under the bar
+    (repo / "backend" / "old.py").write_text("b = 2\n", encoding="utf-8")
+    (repo / "backend" / "part.py").write_text(
+        "a=1\nx=1\ny=2\nz=3\nw=4\n", encoding="utf-8"
+    )
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "new code")
+    blocked, _better, moved, _checked = qr.format_check("base")
+    assert moved == []
+    assert blocked[0].startswith("NEW FILE NOT FORMATTED: backend/part.py")
+
+
+def test_moved_share_counts_a_route_decorator_as_the_same_line():
+    deleted = {'@app.get("/api/x")', "def x():"}
+    assert qr.moved_share('@router.get("/api/x")\ndef x():\n\n', deleted) == 1.0
+    assert qr.moved_share("", deleted) == 0.0

@@ -16,8 +16,9 @@ register #1036 pattern):
 Counts depend on the ruff version, so the baseline pins it; another version
 is a named error, not a silently different count.
 
-The formatter (`ruff format --check`) is a REPORT only: how many files would
-be reformatted. It never fails the build.
+The whole-tree formatter count (`ruff format --check`) is a REPORT only: how
+many files would be reformatted. The gate is per file and only for the files
+a PR changes: `quality_ratchet.py format-check` (order 79d).
 
     python scripts/check_lint_baseline.py check
     python scripts/check_lint_baseline.py record
