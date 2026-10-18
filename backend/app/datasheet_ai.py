@@ -49,7 +49,14 @@ import re
 import time
 from contextvars import ContextVar
 
-from . import claims, claude_datasheet, datasheet_inputs, datasheets, errors
+from . import (
+    claims,
+    claude_datasheet,
+    datasheet_inputs,
+    datasheets,
+    errors,
+    job_progress,
+)
 from .ai import output_limits
 from .claude_spend import StopRun
 from .config import settings
@@ -355,7 +362,8 @@ def read_pages(page_texts: dict[int, str], engine_or_callable=None) -> dict:
     timed_out: list[int] = []
     budget = float(settings.datasheet_ai_max_seconds)
     started = time.monotonic()
-    for page_no in sorted(page_texts):
+    for index, page_no in enumerate(sorted(page_texts), start=1):
+        job_progress.page(index, len(page_texts))  # order 95 piece 3b: display only
         text = page_texts[page_no] or ""
         if call is None:
             reasons[page_no] = why
