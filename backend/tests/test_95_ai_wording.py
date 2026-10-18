@@ -1,9 +1,10 @@
 """Order 95 piece 6b: an engineer's edit keeps the machine's wording beside it.
 
 A CRS row carries `ai_comment` (the machine's own wording) and `edited` (an
-engineer replaced it). The internal copy prints the machine wording under the
-edit; the contractor's copy prints only the edit. An unedited row prints its
-comment once, with no "AI wording" line.
+engineer replaced it with different words). The internal copy prints the
+machine wording in its "AI Review Comments" cell, and the Comment cell stays
+the engineer's words alone (M1086-M1089); the contractor's copy carries only
+the edit. An unedited row has no "AI wording" at all.
 
 Invented findings only.
 """
@@ -41,6 +42,15 @@ def test_an_edited_row_keeps_the_machine_wording_and_says_it_was_edited():
     assert edited["ai_comment"] == plain["comment"] and "8 g/L" in edited["ai_comment"]
 
 
+def test_an_edit_that_keeps_the_machine_words_is_not_printed_twice():
+    [plain] = build_crs_rows([NC], [], "sheet.pdf")
+    same = dict(NC, engineer_comment=plain["comment"] + " ", confirmed_by="u1")
+    [row] = build_crs_rows([same], [], "sheet.pdf")
+    assert row["edited"] is False
+    [internal] = _view([row], "internal")["rows"]
+    assert internal["ai_review_comment"] == ""
+
+
 def test_a_datasheet_check_keeps_its_own_machine_wording():
     check = {
         "id": "c1",
@@ -58,20 +68,21 @@ def test_a_datasheet_check_keeps_its_own_machine_wording():
     )
 
 
-def test_the_internal_copy_prints_the_ai_wording_under_the_edit_the_issue_copy_does_not():
+def test_the_internal_copy_shows_the_ai_wording_beside_the_edit_the_issue_copy_does_not():
     [row] = build_crs_rows([EDITED], [], "sheet.pdf")
     [internal] = _view([row], "internal")["rows"]
     [issue] = _view([row], "issue")["rows"]
-    assert EDIT in internal["comment"]
-    assert f"\n{crs_export.AI_WORDING_LABEL}: " in internal["comment"]
-    assert "8 g/L" in internal["comment"]
-    assert EDIT in issue["comment"]
-    assert crs_export.AI_WORDING_LABEL not in issue["comment"]
-    assert "8 g/L" not in issue["comment"]
+    # replaced, never appended to (the first line is the row's Ref)
+    assert internal["comment"].endswith(EDIT) and "8 g/L" not in internal["comment"]
+    assert internal["ai_review_comment"] == (
+        f"{crs_export.AI_WORDING_LABEL}: {row['ai_comment']}"
+    )
+    assert "8 g/L" in internal["ai_review_comment"]
+    assert issue["comment"].endswith(EDIT) and issue["ai_review_comment"] == ""
 
 
 def test_an_unedited_row_prints_its_comment_once_with_no_ai_wording_line():
     [row] = build_crs_rows([dict(NC, confirmed_by="u1")], [], "sheet.pdf")
     [internal] = _view([row], "internal")["rows"]
-    assert crs_export.AI_WORDING_LABEL not in internal["comment"]
-    assert internal["comment"].count("8 g/L") == row["comment"].count("8 g/L")
+    assert internal["ai_review_comment"] == ""
+    assert internal["comment"].endswith(row["comment"])

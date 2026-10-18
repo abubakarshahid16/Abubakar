@@ -815,9 +815,9 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                          (ROW_KIND_NEEDS_ENGINEER_REVIEW, questions)):
         for group in sorted(_grouped(bucket), key=_row_order):
             f = group[0]
-            machine = engineer_comment_text(group)  # 95 6b: kept as ai_comment
-            if kind == ROW_KIND_DATASHEET_CHECK:
-                machine = _finding_text(f)
+            machine = _finding_text(f)  # 95 6b: kept as ai_comment
+            if kind != ROW_KIND_DATASHEET_CHECK:
+                machine = engineer_comment_text(group)
             text = f.get("engineer_comment") or machine
             rows.append({
                 # THE FINDING'S OWN STORED ID, carried so `crs_export` can mint
@@ -831,7 +831,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                 "page_section": _page_section(group),
                 "comment": text,
                 "ai_comment": machine,
-                "edited": bool(f.get("engineer_comment")),
+                "edited": text.strip() != machine.strip(),
                 "comment_by": _by(group),
                 "standard_reference": "; ".join(dict.fromkeys(
                     r for r in (_standard_reference(g) for g in group) if r)),
