@@ -117,12 +117,12 @@ def test_the_counts_are_unchanged_by_the_grouped_query():
     doc = _submittal()
     run_id = _run(doc)
     for status in ("NON_COMPLIANT", "NON_COMPLIANT", "COMPLIANT", None):
-        _finding(doc, run_id, status)
+        _finding(doc, run_id, status, equipment_tag="SYN-V-0001")
     _finding(doc, run_id, "UNCLEAR", equipment_tag=None)
     row = next(r for r in _listed(_client(doc)) if r["review_run_id"] == run_id)
     assert row["findings_total"] == 5  # the null-status finding still counts
     assert row["by_status"] == {"COMPLIANT": 1, "NON_COMPLIANT": 2, "UNCLEAR": 1}
-    assert row["equipment_tags"] == ["2003-47-V-0001A/B"]
+    assert row["equipment_tags"] == ["SYN-V-0001"]
 
 
 def test_a_handed_in_run_gives_the_same_answer_as_reading_it():

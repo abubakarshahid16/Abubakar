@@ -138,9 +138,9 @@ async def lifespan(app: FastAPI):
             "keyword index rebuilt to version %s (was %s): %d documents, "
             "%d chunks, %.1f s", _fts["version"], _fts["from_version"],
             _fts["documents"], _fts["chunks"], _fts["seconds"])
-    for _ensure in (review_mod.ensure_schema, deliverables_mod.ensure_schema, risks_mod.ensure_schema,
-                    submittal_review_mod.ensure_schema, crs_issue_mod.ensure_indexes):  # 109: an index
-        _ensure()
+    for _module in (review_mod, deliverables_mod, risks_mod, submittal_review_mod):
+        _module.ensure_schema()
+    crs_issue_mod.ensure_indexes()  # order 109: an index for the review runs list
     # THE DISCIPLINE OVERLAY. `discipline_canonical` is derived from the raw
     # value at every write, so this backfill exists only for rows written
     # before the column did. It is idempotent - it recomputes from `discipline`

@@ -1352,10 +1352,12 @@ def _migrate(conn: sqlite3.Connection) -> None:
         add_column_if_missing(conn, _table, _column, _definition)
     # created after the migration so none can reference a missing column; order 109
     # added a run's newest job, asked once per row of the review list
-    for _index in ("idx_jobs_claim ON jobs(stage, state, priority)",
-                   "idx_jobs_review_run ON jobs(review_run_id, started_at)",
-                   "idx_chunks_retrievable ON chunks(retrievable)",
-                   "idx_chunks_parent ON chunks(parent_id, ordinal)"):
+    for _index in (
+        "idx_jobs_claim ON jobs(stage, state, priority)",
+        "idx_jobs_review_run ON jobs(review_run_id, started_at)",
+        "idx_chunks_retrievable ON chunks(retrievable)",
+        "idx_chunks_parent ON chunks(parent_id, ordinal)",
+    ):
         conn.execute("CREATE INDEX IF NOT EXISTS " + _index)
     for statement in VECTOR_GENERATION_SQL:
         conn.execute(statement)

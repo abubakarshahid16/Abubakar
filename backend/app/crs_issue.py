@@ -98,8 +98,10 @@ def ensure_indexes() -> None:
     exists, so the server's startup (which calls this) creates no table."""
     if _has("crs_issued_copies"):
         with connect() as conn:
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_crs_issued_copies_run"
-                         " ON crs_issued_copies(review_run_id, issued_at)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_crs_issued_copies_run"
+                " ON crs_issued_copies(review_run_id, issued_at)"
+            )
 
 
 def _has(table: str) -> bool:
