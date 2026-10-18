@@ -52,6 +52,16 @@ describe("the two former plain-anchor sites", () => {
     expect(navigate).toHaveBeenCalledWith("documents", "doc-x");
   });
 
+  it("a warning's code sits on its own line, apart from the sentence (order 88c, #1097)", () => {
+    const warning = { code: "LOW_MEMORY", severity: "warning", message: "More memory is needed.", document_id: null } as MetricWarning;
+    const { container } = render(<ul><MetricWarningRow warning={warning} /></ul>);
+    const code = screen.getByText("LOW_MEMORY", { exact: false });
+    expect(code.textContent).toBe("Technical detail: LOW_MEMORY");
+    expect(code).toHaveClass("block");
+    // read aloud or copied, the sentence and the code no longer run together
+    expect(container.textContent).toBe("More memory is needed. Technical detail: LOW_MEMORY");
+  });
+
   it("a warning with no document opens Deliverables through the router", () => {
     const navigate = vi.fn();
     const warning = { code: "X", severity: "info", message: "General notice", document_id: null } as MetricWarning;
