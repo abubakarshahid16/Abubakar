@@ -501,6 +501,12 @@ jobs:
           CONTRAST_OUTPUT: contrast-ci.json
         run: npx playwright test tests/e2e/contrast-root-cause.spec.ts --config=playwright.phase0.config.ts
 
+      # Order 117 item 6: the review screens and the evidence drawer, which the
+      # empty app above never reaches. Every /api call is a fixture in the page.
+      - name: Run the axe gate on the review screens and the evidence drawer
+        working-directory: frontend
+        run: npx playwright test tests/e2e/review-screens-axe.spec.ts --config=playwright.phase0.config.ts
+
       - name: Chat end to end in a real browser (mocked API, sample data)
         working-directory: frontend
         run: npx playwright test --config=playwright.chat.config.ts
