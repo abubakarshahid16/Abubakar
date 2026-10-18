@@ -127,6 +127,23 @@ describe("CrsSheetView", () => {
     expect(sheet).not.toHaveTextContent("no_field_matched");
   });
 
+  it("order 117: a slow answer for the run the reader left never replaces the run they moved to", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    reviewRuns.mockImplementation(async (_fixture: string, id: string) => {
+      if (id === "run-1") {
+        await gate;
+        return { ok: true, data: { runs: [run()] } };
+      }
+      return { ok: true, data: { runs: [run({ review_run_id: "run-2", submittal_filename: "second.pdf" })] } };
+    });
+    const view = mount();
+    view.rerender(<CrsSheetView runId="run-2" onBack={vi.fn()} onOpenCards={vi.fn()} />);
+    expect(await screen.findByRole("heading", { level: 1, name: "second.pdf" })).toBeInTheDocument();
+    await act(async () => { release(); await gate; });
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("second.pdf");
+  });
+
   it("order 109: asks the server for its one run, never for the whole list", async () => {
     mount();
     await screen.findByTestId("crs-headline");

@@ -6,7 +6,7 @@
  * "answering opens the next open card" fails; drop the J handler and the
  * keyboard test fails.
  */
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -99,6 +99,23 @@ beforeEach(() => {
 });
 
 describe("ReviewSheetView", () => {
+  it("order 117: a slow answer for the run the reader left never replaces the run they moved to", async () => {
+    let release: () => void = () => {};
+    const slow = new Promise<void>((r) => { release = r; });
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [
+      run(), run({ review_run_id: "run-2", submittal_filename: "second.pdf" }),
+    ] } });
+    list.mockImplementation(async (q: { review_run_id: string }) => {
+      if (q.review_run_id === "run-1") await slow;
+      return { ok: true, data: { findings } };
+    });
+    const view = render(<ReviewSheetView runId="run-1" onBack={vi.fn()} onOpenPanel={vi.fn()} onOpenRun={vi.fn()} />);
+    view.rerender(<ReviewSheetView runId="run-2" onBack={vi.fn()} onOpenPanel={vi.fn()} onOpenRun={vi.fn()} />);
+    expect(await screen.findByRole("heading", { level: 1, name: "second.pdf" })).toBeInTheDocument();
+    await act(async () => { release(); await slow; });
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("second.pdf");
+  });
+
   it("says how many things need an answer, and opens the first card at its page", async () => {
     render(<ReviewSheetView runId="run-1" onBack={vi.fn()} onOpenPanel={vi.fn()} onOpenRun={vi.fn()} />);
     expect(await screen.findByTestId("sheet-headline"))
