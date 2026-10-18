@@ -78,7 +78,7 @@ function mount() {
 }
 
 function rows(): HTMLElement[] {
-  const table = screen.getByRole("table", { name: "Comment resolution sheet" });
+  const table = screen.getByRole("grid", { name: "Comment resolution sheet" });
   return within(table).getAllByRole("row").slice(1);
 }
 
@@ -87,19 +87,20 @@ function rowItems(): string[] {
 }
 
 describe("CrsSheetView", () => {
-  it("renders the headline from the run's stored fields, the code and the seven columns", async () => {
+  it("renders the headline from the rows and the run's stored fields, the code and the seven columns", async () => {
     mount();
     expect(await screen.findByTestId("crs-headline")).toHaveTextContent(
-      "5 comments, 2 need your judgement. 94 values met, 4,362 clauses not applicable (hidden). Read in 18 min; the reader gave up on pages 4 and 9.",
+      "5 comments, 2 need your judgement. 1 value met, 4,362 clauses not applicable (hidden). Read in 18 min; the reader gave up on pages 4 and 9.",
     );
     expect(screen.getByTestId("crs-code")).toHaveTextContent("Proposed code: Approved with Comments. Two values do not meet the standard.");
     expect(await screen.findByText(/Equipment: Pressure safety valve · Revision B/)).toBeInTheDocument();
-    const headers = within(screen.getByRole("table")).getAllByRole("columnheader").map((h) => h.textContent);
+    const headers = within(screen.getByRole("grid")).getAllByRole("columnheader").map((h) => h.textContent);
     expect(headers).toEqual(["Tier", "Comment no.", "Page or section", "Item", "Clause and standard", "Observation", "Required action", "Status", "Actions"]);
     expect(screen.getByTestId("crs-footer")).toHaveTextContent("Run run-1");
     expect(screen.getByTestId("crs-footer")).toHaveTextContent("Pages read: 3 of 12; not read: 4, 9.");
     expect(screen.getByTestId("crs-footer")).toHaveTextContent("Standards used: 1 (API 520.pdf); missing from the library: 1 (API 526).");
-    expect(screen.getByTestId("crs-footer")).toHaveTextContent("Rows on this sheet: 3 Comment, 2 Needs you, 1 Met, 1 Not applicable");
+    expect(screen.queryByTestId("crs-rejected")).not.toBeInTheDocument();
+    expect(screen.getByTestId("crs-footer")).toHaveTextContent("Rows on this sheet: 3 Comment, 2 Needs you, 1 Met, 0 Not applicable, 1 Another document");
   });
 
   it("hides Tier A by default behind one line, except the spot check, and shows it on click", async () => {
@@ -108,12 +109,28 @@ describe("CrsSheetView", () => {
     // One Met row exists, so the spot check (at least one) surfaces it; the not-applicable row stays hidden.
     expect(rowItems()).toEqual(["Field a", "Field blank", "Field b", "Field cond", "Field unread", "Field met"]);
     expect(screen.getByText("spot check")).toBeInTheDocument();
-    expect(screen.getByTestId("met-line")).toHaveTextContent("1 met, 1 not applicable (1 shown above as a spot check): show");
+    expect(screen.getByTestId("met-line")).toHaveTextContent("1 met, 0 not applicable, 1 for another document (1 shown above as a spot check): show");
     await userEvent.click(screen.getByRole("button", { name: "show" }));
     expect(rowItems()).toContain("Field scope");
     expect(screen.getByText(/4,362 clauses of the standards were judged not applicable/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "hide" }));
     expect(rowItems()).not.toContain("Field scope");
+  });
+
+  it("a finding already rejected is filtered off the sheet and counted in the footer", async () => {
+    findings = [...findings, f("gone", { approval_status: "rejected", contractor_page: 2 })];
+    mount();
+    await screen.findByTestId("crs-headline");
+    expect(rowItems()).not.toContain("Field gone");
+    expect(screen.getByTestId("crs-rejected")).toHaveTextContent("Left off this sheet: 1 finding already rejected by an engineer.");
+  });
+
+  it("a finding for another document says so when Tier A is shown", async () => {
+    mount();
+    await screen.findByTestId("crs-headline");
+    await userEvent.click(screen.getByLabelText("Everything"));
+    const scope = rows().find((r) => within(r).getAllByRole("cell")[3].textContent === "Field scope");
+    expect(within(scope as HTMLElement).getAllByRole("cell")[0]).toHaveTextContent("Another document");
   });
 
   it("the depth selector filters: Critical drops the blank, Everything adds Tier A", async () => {
@@ -134,7 +151,7 @@ describe("CrsSheetView", () => {
     expect(tiers[3]).toContain("Needs you: condition unsettled");
     expect(tiers[4]).toContain("Needs you: page not read");
     expect(tiers[5]).toContain("Met");
-    expect(screen.getByRole("table").textContent).not.toMatch(/\d+ ?%/);
+    expect(screen.getByRole("grid").textContent).not.toMatch(/\d+ ?%/);
   });
 
   it("Remove requires a reason from the closed list", async () => {
@@ -177,6 +194,14 @@ describe("CrsSheetView", () => {
     await userEvent.click(screen.getByRole("button", { name: "Undo" }));
     expect(statuses()).toEqual(["Kept", "Open", "Open", "Open", "Open", "Met"]);
     expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
+  });
+
+  it("says by Sign that decisions on this screen are not in the exported file", async () => {
+    mount();
+    await screen.findByTestId("crs-headline");
+    expect(screen.queryByTestId("sign-local-note")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Keep comment 1" }));
+    expect(screen.getByTestId("sign-local-note")).toHaveTextContent("Your 1 decision on this screen (Keep, edited wording, Remove) is not in the exported file yet");
   });
 
   it("Sign and export is disabled until every Needs-you row has been opened, then calls the existing CRS issue export", async () => {
@@ -255,7 +280,7 @@ describe("CrsSheetView", () => {
     reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({ status: "running", job: { id: "j", state: "running", progress_done: 3, progress_total: 12, progress_label: "pages", cancel_requested: false } })] } });
     mount();
     expect(await screen.findByTestId("review-progress")).toBeInTheDocument();
-    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(screen.queryByRole("grid")).not.toBeInTheDocument();
     await act(async () => {});
   });
 });

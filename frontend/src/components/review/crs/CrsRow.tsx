@@ -1,5 +1,5 @@
 /**
- * One row of the CRS-first Sheet (order 95 piece 2): KJO's seven columns,
+ * One row of the CRS-first Sheet (order 95 piece 2): the client's seven columns,
  * the tier word, and Keep / Edit wording / Remove.
  */
 import { useEffect, useRef, useState } from "react";

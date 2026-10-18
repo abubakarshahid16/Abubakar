@@ -1,8 +1,8 @@
 /**
- * The CRS table (order 95 piece 2): KJO's seven columns, one row per
+ * The CRS table (order 95 piece 2): the client's seven columns, one row per
  * comment, Tier A behind one line, a depth selector above.
  */
-import { type CrsRow as Row, DEPTHS, type Depth, KJO_COLUMNS } from "./crsRows";
+import { type CrsRow as Row, DEPTHS, type Depth, CRS_COLUMNS } from "./crsRows";
 import { CrsRow, type RowMode } from "./CrsRow";
 import type { TierCounts } from "./tiers";
 import type { CrsDecisions, RemoveReason } from "./useCrsDecisions";
@@ -28,7 +28,7 @@ export interface CrsTableProps {
 
 export function CrsTable(props: CrsTableProps) {
   const { rows, counts, depth, onDepth, showMet, onShowMet, spot, selectedKey, decisions, mode } = props;
-  const hidden = counts.met + counts.notApplicable;
+  const hidden = counts.met + counts.notApplicable + counts.anotherDocument;
   const metShown = depth === "everything" || showMet;
   return (
     <div className="space-y-3">
@@ -45,11 +45,11 @@ export function CrsTable(props: CrsTableProps) {
       </fieldset>
 
       <div className="overflow-x-auto rounded-[var(--radius-md)] border border-ink-700">
-        <table className="w-full min-w-[64rem] border-collapse text-left" aria-label="Comment resolution sheet">
+        <table role="grid" className="w-full min-w-[64rem] border-collapse text-left" aria-label="Comment resolution sheet">
           <thead className="bg-ink-850 text-xs uppercase tracking-wide text-slateish-400">
             <tr>
               <th scope="col" className="px-2 py-2">Tier</th>
-              {KJO_COLUMNS.map((c) => <th key={c} scope="col" className="px-2 py-2">{c}</th>)}
+              {CRS_COLUMNS.map((c) => <th key={c} scope="col" className="px-2 py-2">{c}</th>)}
               <th scope="col" className="px-2 py-2"><span className="sr-only">Actions</span></th>
             </tr>
           </thead>
@@ -68,7 +68,7 @@ export function CrsTable(props: CrsTableProps) {
               />
             ))}
             {rows.length === 0 && (
-              <tr><td colSpan={KJO_COLUMNS.length + 2} className="px-3 py-4 text-sm text-slateish-300">No row to show at this depth.</td></tr>
+              <tr><td colSpan={CRS_COLUMNS.length + 2} className="px-3 py-4 text-sm text-slateish-300">No row to show at this depth.</td></tr>
             )}
           </tbody>
         </table>
@@ -77,6 +77,7 @@ export function CrsTable(props: CrsTableProps) {
       {hidden > 0 && depth !== "everything" && (
         <p className="text-sm text-slateish-300" data-testid="met-line">
           {counts.met.toLocaleString()} met, {counts.notApplicable.toLocaleString()} not applicable
+          {counts.anotherDocument > 0 ? `, ${counts.anotherDocument.toLocaleString()} for another document` : ""}
           {!showMet && spot.size > 0 ? ` (${spot.size} shown above as a spot check)` : ""}:{" "}
           <button type="button" onClick={() => onShowMet(!showMet)} className="text-signal-300 underline-offset-2 hover:underline">
             {showMet ? "hide" : "show"}

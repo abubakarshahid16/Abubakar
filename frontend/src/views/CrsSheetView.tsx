@@ -1,7 +1,7 @@
 /**
  * The CRS-first Sheet (order 95 piece 2, spec 1.2; Part of #967).
  *
- * The comment sheet IS the screen: KJO's seven columns, one row per
+ * The comment sheet IS the screen: the client's seven columns, one row per
  * comment, three tier words (Comment / Needs you / Met), Keep / Edit
  * wording / Remove per row, Accept all remaining with one-step undo, Sign
  * and export wired to the existing CRS export. The card view stays at
@@ -27,7 +27,7 @@ import { CrsFooter } from "../components/review/crs/CrsFooter";
 import { CrsHeader } from "../components/review/crs/CrsHeader";
 import { CrsTable } from "../components/review/crs/CrsTable";
 import type { RowMode } from "../components/review/crs/CrsRow";
-import { type CrsRow, type Depth, buildCrsRows, rowCounts, spotCheckKeys, visibleRows } from "../components/review/crs/crsRows";
+import { type CrsRow, type Depth, buildCrsRows, rowCounts, splitRejected, spotCheckKeys, visibleRows } from "../components/review/crs/crsRows";
 import { commentPages, firstRowOnPage, stepRow } from "../components/review/crs/evidenceNav";
 import { runFactsOf } from "../components/review/crs/tiers";
 import { useCrsDecisions } from "../components/review/crs/useCrsDecisions";
@@ -149,6 +149,7 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
   const facts = useMemo(() => runFactsOf(run, standardsState.standards, standardsState.missing), [run, standardsState]);
   const rows = useMemo(() => buildCrsRows(findings, facts, standardNames), [findings, facts, standardNames]);
   const counts = useMemo(() => rowCounts(rows), [rows]);
+  const rejected = useMemo(() => splitRejected(findings).rejected, [findings]);
   const spot = useMemo(() => spotCheckKeys(rows, runId), [rows, runId]);
   const shown = useMemo(() => visibleRows(rows, depth, showMet, spot), [rows, depth, showMet, spot]);
   const unopened = rows.filter((r) => r.tier.tier === "C" && !decisions.state.opened[r.key]);
@@ -180,6 +181,7 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
     <section className="mx-auto w-full max-w-7xl space-y-5" aria-labelledby="crs-title">
       <CrsHeader
         run={run} submittal={submittal} counts={counts} unopened={unopened} remaining={remaining}
+        localDecisions={Object.keys(decisions.state.decisions).length}
         acceptAll={{
           confirming, kept, canUndo: decisions.canUndo,
           onAsk: () => setConfirming(true), onCancel: () => setConfirming(false),
@@ -195,7 +197,7 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
         mode={mode} onMode={(key, kind) => setMode(kind ? { key, kind } : null)} decisions={decisions}
         clausesNotApplicable={run.requirement_split?.does_not_apply ?? null}
       />
-      <CrsFooter run={run} counts={counts} standards={standardsState.standards} missing={standardsState.missing} standardsError={standardsState.error} />
+      <CrsFooter run={run} counts={counts} standards={standardsState.standards} missing={standardsState.missing} standardsError={standardsState.error} rejected={rejected} />
       {drawerRow && (
         <CrsEvidenceDrawer row={drawerRow} runId={runId} standardNames={standardNames} returnTo={returnTo}
           onClose={() => setDrawerKey(null)} onOpenCards={onOpenCards}

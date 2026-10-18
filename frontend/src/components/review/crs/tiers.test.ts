@@ -22,8 +22,8 @@ describe("tierOf: Tier A", () => {
   it("COMPLIANT is Met", () => {
     expect(tierOf(f({ compliance_status: "COMPLIANT" }), facts)).toEqual({ tier: "A", label: "Met", reason: null });
   });
-  it("NOT_IN_DOCUMENT_SCOPE is Not applicable", () => {
-    expect(tierOf(f({ compliance_status: "NOT_IN_DOCUMENT_SCOPE" }), facts)).toEqual({ tier: "A", label: "Not applicable", reason: null });
+  it("NOT_IN_DOCUMENT_SCOPE is Another document", () => {
+    expect(tierOf(f({ compliance_status: "NOT_IN_DOCUMENT_SCOPE" }), facts)).toEqual({ tier: "A", label: "Another document", reason: null });
   });
   it("NOT_APPLICABLE (does not apply) is Not applicable", () => {
     expect(tierOf(f({ compliance_status: "NOT_APPLICABLE" }), facts).label).toBe("Not applicable");
@@ -86,18 +86,46 @@ describe("tierOf: Tier C", () => {
   });
 });
 
+describe("tierOf: a met value nobody has confirmed yet needs you", () => {
+  it("a safety tick (show_for_engineer_tick, COMPLIANT, no confirmed_by): safety field", () => {
+    expect(tierOf(f({ compliance_status: "COMPLIANT", show_for_engineer_tick: true }), facts))
+      .toEqual({ tier: "C", label: "Needs you", reason: "safety field" });
+  });
+  it("a safety tick the engineer confirmed is Met", () => {
+    expect(tierOf(f({ compliance_status: "COMPLIANT", show_for_engineer_tick: true, confirmed_by: "eng" }), facts).label).toBe("Met");
+  });
+  it("mirrors _pairing_unconfirmed: a field paired by name is an AI guess, whatever the status", () => {
+    expect(tierOf(f({ compliance_status: "COMPLIANT", match_method: "field_name" }), facts))
+      .toEqual({ tier: "C", label: "Needs you", reason: "AI guess" });
+    expect(tierOf(f({ match_method: "field_name" }), facts).reason).toBe("AI guess");
+  });
+  it("mirrors _pairing_unconfirmed: a model pairing held for review is an AI guess; a model pairing that met is not", () => {
+    expect(tierOf(f({ compliance_status: "NEEDS_ENGINEER_REVIEW", match_method: "model" }), facts))
+      .toEqual({ tier: "C", label: "Needs you", reason: "AI guess" });
+    expect(tierOf(f({ compliance_status: "COMPLIANT", match_method: "model" }), facts).label).toBe("Met");
+  });
+  it("a rule not yet proven (trust_label UNPROVEN): rule not proven", () => {
+    expect(tierOf(f({ compliance_status: "COMPLIANT", trust_label: "UNPROVEN" }), facts))
+      .toEqual({ tier: "C", label: "Needs you", reason: "rule not proven" });
+    expect(tierOf(f({ compliance_status: "COMPLIANT", trust_label: "AUTO_PROVEN" }), facts).label).toBe("Met");
+  });
+  it("the unread page still comes first in the reason", () => {
+    expect(tierOf(f({ contractor_page: 4, compliance_status: "COMPLIANT", match_method: "field_name" }), facts).reason).toBe("page not read");
+  });
+});
+
 describe("tierOfGroup and countTiers", () => {
   it("a group takes its most demanding member: C over B over A", () => {
     expect(tierOfGroup([f({}), f({ compliance_status: "CONDITIONAL" })], facts).tier).toBe("C");
     expect(tierOfGroup([f({ compliance_status: "COMPLIANT" }), f({})], facts).tier).toBe("B");
     expect(tierOfGroup([f({ compliance_status: "COMPLIANT" })], facts).tier).toBe("A");
   });
-  it("counts per tier keep Met and Not applicable apart", () => {
+  it("counts per tier keep Met, Not applicable and Another document apart", () => {
     const results = [
-      f({ compliance_status: "COMPLIANT" }), f({ compliance_status: "NOT_IN_DOCUMENT_SCOPE" }), f({}), f({}),
-      f({ compliance_status: "CONDITIONAL" }),
+      f({ compliance_status: "COMPLIANT" }), f({ compliance_status: "NOT_IN_DOCUMENT_SCOPE" }), f({ compliance_status: "NOT_APPLICABLE" }),
+      f({}), f({}), f({ compliance_status: "CONDITIONAL" }),
     ].map((x) => tierOf(x, facts));
-    expect(countTiers(results)).toEqual({ met: 1, notApplicable: 1, comment: 2, needsYou: 1 });
+    expect(countTiers(results)).toEqual({ met: 1, notApplicable: 1, anotherDocument: 1, comment: 2, needsYou: 1 });
   });
 });
 

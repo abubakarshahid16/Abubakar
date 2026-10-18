@@ -5,8 +5,9 @@
  * the collapsed "met" line, the footer counts and the keyboard flow read
  * the result of `tierOf`, never a status of their own.
  *
- *   Tier A  "Met" / "Not applicable"   COMPLIANT, NOT_IN_DOCUMENT_SCOPE,
- *                                      NOT_APPLICABLE (does-not-apply).
+ *   Tier A  "Met" / "Not applicable"   COMPLIANT ("Met"), NOT_APPLICABLE
+ *           / "Another document"       (does-not-apply), NOT_IN_DOCUMENT_SCOPE
+ *                                      (the clause names another document).
  *   Tier B  "Comment"                  NON_COMPLIANT; MISSING_INFORMATION
  *                                      when the page WAS read into fields and
  *                                      the standard IS in the library.
@@ -14,9 +15,16 @@
  *                                      page not read into fields or timed out
  *                                      ("page not read"), a standard the
  *                                      library does not hold ("standard not
- *                                      in library"), a value conflict, an
+ *                                      in library"), a pairing an AI guessed
+ *                                      and nobody confirmed ("AI guess",
+ *                                      mirrors comparison._pairing_unconfirmed),
+ *                                      a rule not yet proven ("rule not
+ *                                      proven"), an unconfirmed safety tick
+ *                                      ("safety field"), a value conflict, an
  *                                      unknown unit, else "condition
- *                                      unsettled".
+ *                                      unsettled". These apply whatever the
+ *                                      status: a "met" nobody can stand behind
+ *                                      is shown to the engineer.
  *
  * DISPLAY ONLY. No stored status changes here, and the run's verdicts are
  * untouched (rule 3 of #805: display, no verdict change). The inputs are
@@ -28,12 +36,15 @@ import type { PageCoverage, ReviewFinding, ReviewRunMissingReference, ReviewRunS
 export type Tier = "A" | "B" | "C";
 
 /** The words on the row. Never a percentage (spec 1.2). */
-export type TierLabel = "Met" | "Not applicable" | "Comment" | "Needs you";
+export type TierLabel = "Met" | "Not applicable" | "Another document" | "Comment" | "Needs you";
 
 /** The closed list of reason words for a Tier C row (spec 1.2). */
 export type TierReason =
   | "page not read"
   | "standard not in library"
+  | "AI guess"
+  | "rule not proven"
+  | "safety field"
   | "condition unsettled"
   | "value conflict"
   | "unit unknown";
@@ -64,7 +75,6 @@ export const EMPTY_FACTS: RunFacts = {
   pagesNotRead: [], readerTimedOutPages: [], missingStandards: [], libraryStandardIds: null,
 };
 
-const TIER_A = new Set(["COMPLIANT", "NOT_IN_DOCUMENT_SCOPE", "NOT_APPLICABLE"]);
 const TIER_C = new Set(["NEEDS_ENGINEER_REVIEW", "CONDITIONAL"]);
 
 function fold(text: string | null | undefined): string {
@@ -99,6 +109,26 @@ export function standardInLibrary(finding: ReviewFinding, facts: RunFacts): bool
   return facts.libraryStandardIds.includes(finding.standard_document_id);
 }
 
+/** Mirrors `_pairing_unconfirmed` in backend/app/comparison.py (#921): a
+ *  field paired by its name alone (METHOD_FIELD_NAME, always held), or a
+ *  model's pairing held for review (METHOD_MODEL_CHOICE with
+ *  NEEDS_ENGINEER_REVIEW), is a guess waiting for an engineer. */
+export function pairingUnconfirmed(finding: ReviewFinding): boolean {
+  if (finding.match_method === "field_name") return true;
+  return finding.match_method === "model" && finding.compliance_status === "NEEDS_ENGINEER_REVIEW";
+}
+
+/** rule_trust (#947): the rule behind the finding has not been proven yet. */
+export function ruleUnproven(finding: ReviewFinding): boolean {
+  return finding.trust_label === "UNPROVEN";
+}
+
+/** rule_trust (#947): a safety field shown for the engineer's own tick,
+ *  which no engineer has ticked yet. */
+export function safetyTickOpen(finding: ReviewFinding): boolean {
+  return Boolean(finding.show_for_engineer_tick) && finding.compliance_status === "COMPLIANT" && !finding.confirmed_by;
+}
+
 function conflictWord(finding: ReviewFinding): TierReason | null {
   const why = fold(finding.ai_rationale);
   if (/\bvalue conflict\b|\bconflicting values?\b|\bvalues? conflict\b/.test(why)) return "value conflict";
@@ -106,25 +136,36 @@ function conflictWord(finding: ReviewFinding): TierReason | null {
   return null;
 }
 
-/** Why a Tier C row needs the engineer, in the spec's reason words. The
- *  page comes first: nothing about an unread page is settled. */
-function needsYouReason(finding: ReviewFinding, facts: RunFacts): TierReason {
+/** The fact, other than the status, that makes this finding Tier C, in the
+ *  order the reason is told. The page comes first: nothing about an unread
+ *  page is settled. Null when no such fact holds. */
+function unsettledReason(finding: ReviewFinding, facts: RunFacts): TierReason | null {
   if (pageNotRead(finding, facts)) return "page not read";
   if (citesMissingStandard(finding, facts)) return "standard not in library";
+  if (pairingUnconfirmed(finding)) return "AI guess";
+  if (ruleUnproven(finding)) return "rule not proven";
+  if (safetyTickOpen(finding)) return "safety field";
+  return conflictWord(finding);
+}
+
+/** Why a Tier C row needs the engineer, in the spec's reason words. */
+function needsYouReason(finding: ReviewFinding, facts: RunFacts): TierReason {
+  const unsettled = unsettledReason(finding, facts);
+  if (unsettled) return unsettled;
   if (finding.compliance_status === "MISSING_INFORMATION" && !standardInLibrary(finding, facts)) return "standard not in library";
-  return conflictWord(finding) ?? "condition unsettled";
+  return "condition unsettled";
 }
 
 /** Spec section 2, in order: the facts that make any finding Tier C come
  *  first, so a "met" value on an unread page is still shown to the engineer. */
 export function tierOf(finding: ReviewFinding, facts: RunFacts = EMPTY_FACTS): TierResult {
   const status = finding.compliance_status ?? "";
-  const unsettled = pageNotRead(finding, facts) || citesMissingStandard(finding, facts) || conflictWord(finding) !== null;
-  if (TIER_C.has(status) || unsettled) {
+  if (TIER_C.has(status) || unsettledReason(finding, facts) !== null) {
     return { tier: "C", label: "Needs you", reason: needsYouReason(finding, facts) };
   }
   if (status === "COMPLIANT") return { tier: "A", label: "Met", reason: null };
-  if (TIER_A.has(status)) return { tier: "A", label: "Not applicable", reason: null };
+  if (status === "NOT_APPLICABLE") return { tier: "A", label: "Not applicable", reason: null };
+  if (status === "NOT_IN_DOCUMENT_SCOPE") return { tier: "A", label: "Another document", reason: null };
   if (status === "NON_COMPLIANT") return { tier: "B", label: "Comment", reason: null };
   if (status === "MISSING_INFORMATION") {
     if (standardInLibrary(finding, facts)) return { tier: "B", label: "Comment", reason: null };
@@ -157,16 +198,19 @@ export function runFactsOf(
 export interface TierCounts {
   met: number;
   notApplicable: number;
+  /** NOT_IN_DOCUMENT_SCOPE: the clause names another document. */
+  anotherDocument: number;
   comment: number;
   needsYou: number;
 }
 
 export function countTiers(results: TierResult[]): TierCounts {
-  const counts: TierCounts = { met: 0, notApplicable: 0, comment: 0, needsYou: 0 };
+  const counts: TierCounts = { met: 0, notApplicable: 0, anotherDocument: 0, comment: 0, needsYou: 0 };
   for (const r of results) {
     if (r.tier === "B") counts.comment += 1;
     else if (r.tier === "C") counts.needsYou += 1;
     else if (r.label === "Met") counts.met += 1;
+    else if (r.label === "Another document") counts.anotherDocument += 1;
     else counts.notApplicable += 1;
   }
   return counts;

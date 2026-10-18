@@ -14,6 +14,9 @@ export interface CrsFooterProps {
   standards: ReviewRunStandard[] | null;
   missing: ReviewRunMissingReference[];
   standardsError: string | null;
+  /** Findings the engineer already rejected (approval_status "rejected"):
+   *  filtered off the sheet, and said here so none vanish unseen. */
+  rejected: number;
   /** The run's code version when the record carries one (the review job's). */
   codeVersion?: string | null;
 }
@@ -27,7 +30,7 @@ function pagesLine(run: ReviewRunSummary): string {
   return `Pages read: ${read} of ${pc.pages_total}${unread.length ? `; not read: ${pageList(unread)}` : "; not read: none"}.`;
 }
 
-export function CrsFooter({ run, counts, standards, missing, standardsError, codeVersion }: CrsFooterProps) {
+export function CrsFooter({ run, counts, standards, missing, standardsError, rejected, codeVersion }: CrsFooterProps) {
   const used = standards ? standards.filter((s) => s.included) : null;
   const standardsLine = standardsError
     ? `Standards: the list could not be loaded (${standardsError}).`
@@ -45,9 +48,14 @@ export function CrsFooter({ run, counts, standards, missing, standardsError, cod
       <p>{pagesLine(run)}</p>
       {standardsLine && <p>{standardsLine}</p>}
       <p>
-        Rows on this sheet: {counts.comment} Comment, {counts.needsYou} Needs you, {counts.met} Met, {counts.notApplicable} Not applicable
+        Rows on this sheet: {counts.comment} Comment, {counts.needsYou} Needs you, {counts.met} Met, {counts.notApplicable} Not applicable, {counts.anotherDocument} Another document
         {run.requirement_split ? ` · clauses: ${run.requirement_split.checked} checked, ${run.requirement_split.applies_not_checked} apply but not checked, ${run.requirement_split.does_not_apply} not applicable` : ""}.
       </p>
+      {rejected > 0 && (
+        <p data-testid="crs-rejected">
+          Left off this sheet: {rejected} {rejected === 1 ? "finding" : "findings"} already rejected by an engineer.
+        </p>
+      )}
       <p>Not signed yet. Signing records who and when on the exported file.</p>
     </footer>
   );

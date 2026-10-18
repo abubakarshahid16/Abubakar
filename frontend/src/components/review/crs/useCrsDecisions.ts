@@ -54,9 +54,13 @@ const EMPTY: DecisionState = { decisions: {}, opened: {} };
 
 export function useCrsDecisions(): CrsDecisions {
   const [state, setState] = useState<DecisionState>(EMPTY);
-  const [before, setBefore] = useState<DecisionState | null>(null);
+  /** The keys the last "Accept all" set to keep; null when there is nothing
+   *  to undo. Any other decision clears it: undo is one step, and only
+   *  ever touches what Accept all itself did. */
+  const [accepted, setAccepted] = useState<string[] | null>(null);
 
   const set = useCallback((key: string, decision: Decision | null) => {
+    setAccepted(null);
     setState((s) => {
       const decisions = { ...s.decisions };
       if (decision) decisions[key] = decision; else delete decisions[key];
@@ -68,22 +72,28 @@ export function useCrsDecisions(): CrsDecisions {
     r.tier.tier === "B" && !state.decisions[r.key] && r.priorState === "open"), [state.decisions]);
 
   const acceptAll = useCallback((rows: CrsRow[]) => {
-    const targets = remaining(rows);
+    const targets = remaining(rows).map((r) => r.key);
     if (targets.length === 0) return 0;
-    setBefore(state);
+    setAccepted(targets);
     setState((s) => {
       const decisions = { ...s.decisions };
-      for (const r of targets) decisions[r.key] = { kind: "keep" };
+      for (const key of targets) decisions[key] = { kind: "keep" };
       return { ...s, decisions };
     });
     return targets.length;
-  }, [remaining, state]);
+  }, [remaining]);
 
+  /** Clears only the keys Accept all set that are still "keep"; every other
+   *  decision, taken before or after, stays. */
   const undo = useCallback(() => {
-    if (!before) return;
-    setState(before);
-    setBefore(null);
-  }, [before]);
+    if (!accepted) return;
+    setState((s) => {
+      const decisions = { ...s.decisions };
+      for (const key of accepted) if (decisions[key]?.kind === "keep") delete decisions[key];
+      return { ...s, decisions };
+    });
+    setAccepted(null);
+  }, [accepted]);
 
   return {
     state,
@@ -95,7 +105,7 @@ export function useCrsDecisions(): CrsDecisions {
     markOpened: (key) => setState((s) => (s.opened[key] ? s : { ...s, opened: { ...s.opened, [key]: true } })),
     remaining,
     acceptAll,
-    canUndo: before !== null,
+    canUndo: accepted !== null,
     undo,
   };
 }
