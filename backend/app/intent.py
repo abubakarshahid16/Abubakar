@@ -19,9 +19,12 @@ a genuine question because it looked chatty.
 
 from __future__ import annotations
 
+import logging
 import re
 
 from .db import connect
+
+log = logging.getLogger(__name__)
 
 #: Conversational inputs, matched whole. Kept as exact phrases rather than
 #: keywords so "hi" is a greeting but "hi-lo alarm setpoint" is a question.
@@ -333,7 +336,8 @@ def example_questions(
                             d.uploaded_at DESC, c.document_id, n DESC""",
                 sorted(allowed_document_ids),
             ).fetchall()
-        except Exception:  # noqa: BLE001 - a suggestion is never worth an error
+        except Exception as exc:  # noqa: BLE001 - a suggestion is never worth an error
+            log.debug("intent: suggestion lookup failed (%s)", type(exc).__name__)
             rows = []
 
         seen_docs: set[str] = set()
