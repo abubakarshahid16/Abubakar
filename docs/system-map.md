@@ -184,3 +184,43 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `web_standards` | Owner order 2d-2: for a standard the submittal CITES but the library does NOT HOLD, an OPTIONAL check against |
 | `work_budget` | A hard work budget for a request that can grow with the library (#606) |
 | `workbook` | Read an xlsx into sheets for a read-only preview. Standard library only |
+
+## Target structure (planner order 71c on #692; the design for #736)
+
+The table above is where each job lives **today**. This is where it is going. It is reached step by step
+on the Mac: each move is one PR with before/after proof (review moves need the T2 proof on the 7
+invented sheets, order 64), never one big-bang move.
+
+```
+backend/app/
+  api/          one router file per area: documents, review, crs, chat, analysis, auth, admin, watch
+                (main.py keeps only app setup; today it holds most of the 168 operations)
+  review/       reader, facts, applicability, comparison, crs   (_extract_facts and _run_comparison split here)
+  knowledge/    standards library, clause index, reference graph (layer 4, the OKF idea)
+  chat/         answer, summary, prompts
+  ai/           model clients, Claude gate, spend guard, the one JSON parser (#455)
+  core/         config, security, database, logging, jobs
+  schemas/      request and response models
+backend/tests/  same folders as app/, one test file per module
+frontend/src/
+  features/     one folder per screen area: review, documents, chat, analysis, admin
+  shared/       buttons, layout, hooks
+  api/          one client file per area (today api/client.ts is one file)
+docs/           architecture (this map), decisions, security, runbooks
+scripts/        dev and ops tools only; never scratch
+```
+
+PR #1065 (#1064) tags the API description by these same areas, plus `standards` and `management`,
+which are areas of their own today.
+
+**Rules.**
+- No file over 800 lines and no function over 80 lines. `scripts/quality_ratchet.py check` (CI) fails a
+  NEW backend file or function over the limit, and a listed one that grows. Today's long ones are
+  listed in `eval/quality/long_code.json` (34 files, 99 functions on 17 Oct 2026) and may only shrink:
+  after a split, `python scripts/quality_ratchet.py record-long-code` moves the bar down in the same PR.
+- One module per job, no copies (the known duplicates above are debts with a date).
+- Tests mirror the app folders.
+- Scratch and proof output never live inside the repo.
+
+**Order on the Mac, week 1:** `api/` first (no logic change, lowest risk), then `core/` and `ai/`, then
+`review/` (T2 proof per move), then the frontend `api/` and `features/`.
