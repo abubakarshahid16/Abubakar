@@ -238,7 +238,7 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
         ? `${outcome.failed.length} not saved: ${outcome.failed.map((f) => f.message).join("; ")}`
         : null,
     });
-    if (outcome.saved.length > 0) void refresh();
+    if (outcome.wrote) void refresh();  // a half-saved row too: its next save sends only the rest
   };
   const leave = () => { if (unsavedCount === 0 || window.confirm(LEAVE_WARNING)) onBack(); };
   return (
