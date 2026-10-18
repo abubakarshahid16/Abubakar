@@ -66,10 +66,17 @@ export function inboxStateOf(run: ReviewRunSummary | undefined): InboxState {
   return { kind: "other", status: status || "unknown" };
 }
 
-/** The comment counts a Ready run carries once the run summary (order 95
- *  piece 1) is read; null until then, and null renders as nothing. */
+/** What a Ready run asks of the engineer, once the run summary (order 95
+ *  piece 1) is read; null until then, and null renders as nothing.
+ *
+ *  FINDINGS, NOT COMMENTS (A-1126). The summary counts findings, and the
+ *  sheet groups many findings into one comment row ("13 blanks, one
+ *  comment"), so calling these "comments" said 6,584 where the sheet shows
+ *  5 rows. The label names them as what they are. */
 export interface ReadyCounts {
-  comment: number;
+  /** Findings in a comment or needs-you tier (not Met, not removed). */
+  findings: number;
+  /** Of those, the ones that need the engineer's judgement. */
   needs_you: number;
 }
 
@@ -85,7 +92,7 @@ export function stateLabel(state: InboxState, counts: ReadyCounts | null = null)
     }
     case "ready":
       return counts
-        ? `Ready: ${counts.comment} comment${counts.comment === 1 ? "" : "s"}, ${counts.needs_you} need${counts.needs_you === 1 ? "s" : ""} you`
+        ? `Ready: ${counts.findings.toLocaleString("en-US")} finding${counts.findings === 1 ? "" : "s"} to decide, ${counts.needs_you.toLocaleString("en-US")} need${counts.needs_you === 1 ? "s" : ""} you`
         : "Ready";
     case "signed":
       return `Signed · ${whenLabel(state.at)}`;
