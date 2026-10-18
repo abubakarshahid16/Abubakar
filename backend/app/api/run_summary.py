@@ -20,7 +20,7 @@ from .. import crs_wording as crs_wording_mod
 from .. import requirement_split as requirement_split_mod
 from .. import submittal_review as submittal_review_mod
 from ..api_utils import reject_unknown_params
-from ..applicability import normalise_identifier
+from ..db import connect
 
 router = APIRouter()
 
@@ -29,17 +29,22 @@ BOUNDARY = "findings of this run, on the submittal you may read"
 
 
 class TierCounts(BaseModel):
+    met: int
+    not_applicable: int
     comment: int
     needs_you: int
-    met_or_not_applicable: int
     removed: int
     total: int
 
 
 class TierRow(BaseModel):
     finding_id: str
-    tier: Literal["comment", "needs_you", "met_or_not_applicable"]
-    reason: str
+    #: A met / not applicable, B comment, C needs you (tiers.ts `Tier`)
+    tier: Literal["A", "B", "C"]
+    label: Literal["Met", "Not applicable", "Comment", "Needs you"]
+    #: only a Tier C row carries a reason (tiers.ts `TierReason`)
+    reason: Literal["page not read", "standard not in library", "condition unsettled",
+                    "value conflict", "unit unknown"] | None = None
     compliance_status: str | None = None
     standard_clause: str | None = None
     contractor_page: int | None = None
@@ -101,13 +106,14 @@ def review_run_summary(
         outcome,
         ai_engineering_check_mod.ai_check_status(review_run_id, allowed_document_ids=allowed),
         crs_wording_mod.summary_of(review_run_id)) or {}
-    missing = {normalise_identifier(m["identifier"]): m["identifier"]
-               for m in outcome.get("missing_references") or [] if m.get("identifier")}
-    tiers = review_tiers.summarise(
-        comparison_mod.list_findings(review_run_id, allowed_document_ids=allowed), missing)
     split = (outcome.get("requirement_split")
              or requirement_split_mod.from_counts(outcome.get("unchecked_counts")))
     reader_record = (split or {}).get("reader")
+    timed_out = (sorted(reader_record.get("timed_out") or [])
+                 if isinstance(reader_record, dict) else None)
+    tiers = review_tiers.summarise(
+        comparison_mod.list_findings(review_run_id, allowed_document_ids=allowed),
+        _facts(review_run_id, outcome, timed_out))
     versions = review_jobs.last_run_versions(review_run_id) or {}
     return {
         "review_run_id": review_run_id,
@@ -119,8 +125,7 @@ def review_run_summary(
             "page_coverage": outcome.get("page_coverage"),
             "completeness": outcome.get("completeness"),
             "reader": steps.get("reader"),
-            "timed_out_pages": (sorted(reader_record.get("timed_out") or [])
-                                if isinstance(reader_record, dict) else None),
+            "timed_out_pages": timed_out,
             "code_version": versions.get("code_version"),
             "config_version": versions.get("config_version"),
             "stage_seconds": _stage_seconds(review_trace.stored(review_run_id, scope)),
@@ -128,6 +133,21 @@ def review_run_summary(
                 clause_coverage_mod.for_run(review_run_id, allowed_document_ids=allowed)),
         },
     }
+
+
+def _facts(review_run_id: str, outcome: dict, timed_out: list[int] | None) -> review_tiers.RunFacts:
+    """The run facts tiers.ts guesses at today, from what the run stored."""
+    coverage = outcome.get("page_coverage") or {}
+    library = connect().execute(
+        "SELECT standard_document_id FROM review_applicable_standards"
+        " WHERE review_run_id = ? AND included = 1", (review_run_id,)).fetchall()
+    return review_tiers.RunFacts(
+        pages_not_read=frozenset(coverage.get("pages_not_read_into_fields") or []),
+        reader_timed_out_pages=frozenset(timed_out or []),
+        missing_standards=tuple(m["identifier"] for m in outcome.get("missing_references") or []
+                                if m.get("identifier")
+                                and m.get("status") in (None, "MISSING_LOCALLY")),
+        library_standard_ids=frozenset(r["standard_document_id"] for r in library))
 
 
 def _stage_seconds(trace: dict | None) -> dict[str, float] | None:
