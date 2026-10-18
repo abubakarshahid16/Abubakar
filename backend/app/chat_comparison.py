@@ -160,7 +160,7 @@ def typed_standards(question: str) -> list[str]:
         if not any(standard_ids.same_standard(label, seen) for seen in out):
             out.append(label)
 
-    for label, start, end in standard_ids.find_citations(text):
+    for label, start, end in standard_ids.find_citations(text, typed_question=True):
         spans.append((start, end))
         add(label)
     for m in _TYPED_DESIGNATION.finditer(text):
@@ -234,7 +234,7 @@ def topic_of(question: str, names: list[str]) -> str | None:
     text = question or ""
     # Every citation the shared reader finds goes first, longest span first, so
     # "ASME B16.5" leaves no stray "ASME" behind to be searched for as a topic.
-    for _label, start, end in sorted(standard_ids.find_citations(text), key=lambda c: -c[1]):
+    for _label, start, end in sorted(standard_ids.find_citations(text, typed_question=True), key=lambda c: -c[1]):
         text = text[:start] + " " + text[end:]
     for name in names:
         text = re.sub(re.escape(name), " ", text, flags=re.I)
