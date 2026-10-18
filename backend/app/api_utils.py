@@ -106,3 +106,16 @@ def _require_identity_to_write(scope: access.AccessScope) -> None:
         status_code=401,
         detail=errors.safe_error(errors.UNAUTHENTICATED, "sign in to continue"),
     )
+
+
+def _require_named_reviewer(scope: access.AccessScope, what: str) -> None:
+    """A decision nobody signed is not a decision - the rule the finding route
+    applies to a confirmation."""
+    _require_identity_to_write(scope)
+    if scope.user_id is None:
+        raise HTTPException(
+            status_code=401,
+            detail=errors.safe_error(
+                errors.UNAUTHENTICATED, f"{what} must name the person who did it"
+            ),
+        )
