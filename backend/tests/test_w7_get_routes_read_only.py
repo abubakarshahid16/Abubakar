@@ -120,8 +120,12 @@ def test_no_get_route_writes_or_emails(seeded, monkeypatch):
         if name.startswith("app.") and callable(getattr(module, "ensure_schema", None)):
             module.ensure_schema()
     client = TestClient(app, base_url="http://127.0.0.1", raise_server_exceptions=False)
+    # The API description too: routes from include_router (app/api/, the
+    # watch, fact, Sheet-page and Claude routers) are wrapped differently
+    # across FastAPI versions and are not all in app.routes (order 73).
     routes = sorted({r.path for r in app.routes
-                     if isinstance(r, APIRoute) and "GET" in r.methods})
+                     if isinstance(r, APIRoute) and "GET" in r.methods}
+                    | {p for p, item in app.openapi()["paths"].items() if "get" in item})
     with_params = [r for r in routes if "{" in r]
     assert len(routes) - len(with_params) >= 30, "the walk found too few routes to mean anything"
     assert len(with_params) >= 40, "the walk found too few path-parameter routes to mean anything"

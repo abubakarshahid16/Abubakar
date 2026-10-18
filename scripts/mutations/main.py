@@ -18,7 +18,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         id="M13", phase=2,
         description="drop the scope check from the original-file download",
-        path=APP / "main.py",
+        path=APP / "api/document_files.py",
         # Disambiguated by the line that follows: `document_workbook` opens with
         # the same two lines, and the harness refuses an ambiguous anchor rather
         # than guessing which route was meant.
@@ -49,7 +49,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M78", phase=8,
         description="DROP THE ADMIN GATE FROM THE BULK ROUTE, so any signed-in "
                     "caller can re-tag the corpus",
-        path=APP / "main.py",
+        path=APP / "api/documents.py",
         anchor="    scope: access.AccessScope = Depends(access.current_scope),\n"
                "    actor: dict | None = Depends(admin_mod.current_admin),\n"
                "):\n"
@@ -65,7 +65,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         id="M79", phase=8,
         description="stop re-asking scope inside the bulk loop",
-        path=APP / "main.py",
+        path=APP / "api/documents.py",
         anchor="            require_document(document_id, scope)\n"
                "        except HTTPException:",
         replacement="            pass\n"
@@ -77,7 +77,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         id="M80", phase=8,
         description="report bulk failures as a silent count instead of by id",
-        path=APP / "main.py",
+        path=APP / "api/documents.py",
         anchor='            failed.append({"document_id": document_id, "reason": "not_found"})',
         replacement="            pass",
         target="tests/test_document_roles.py",
@@ -319,7 +319,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         id="M330", phase=38,
         description="path 4: deleting a cited standard cascades unguarded",
-        path=APP / "main.py",
+        path=APP / "api/documents.py",
         anchor='    orphan_guard.check(\n        "document_delete",',
         replacement=f'    {_B38_NOOP}\n        "document_delete",',
         target=_B38_TEST, keyword="deleting_a_cited_standard",
@@ -345,7 +345,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M458", phase=57,
         description="the page-ledger route stops checking the caller may read "
                     "the document (B3)",
-        path=APP / "main.py",
+        path=APP / "api/document_files.py",
         anchor="    reject_unknown_params(request, set())\n"
                "    require_document(document_id, scope)\n"
                "    return {\"document_id\": document_id,\n"

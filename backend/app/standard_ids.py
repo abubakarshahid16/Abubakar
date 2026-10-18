@@ -337,6 +337,33 @@ _PART_ANY_CASE = _PART.replace("(?:PART|PT)", "(?i:PART|PT)")
 #: SAES and SAMSS need a 3-4 digit series number as written ("SAES-B-14" in
 #: prose is not read; the forgiving padded read is for FILENAMES only).
 _API_IN_TEXT = re.compile(r"\d{3,4}[A-Z]{0,2}|\d{1,2}[A-Z]{1,2}")
+#: #664: in a question the reader TYPED ("compare API 65 and API 650") a
+#: standard is named on purpose, so 1-2 digits are read too. Only callers that
+#: hold a typed question ask for this (`chat_comparison`); document text keeps
+#: `_API_IN_TEXT`.
+_API_IN_QUESTION = re.compile(r"\d{1,4}[A-Z]{0,2}")
+#: #664 review (cloud-2): even in a typed question a short API number is a
+#: QUANTITY when a unit follows ("API 65 psi") or the words of API gravity
+#: ("oil of API 35 crude", "API 35 gravity"), and never a standard at 0 / 00.
+_API_QUANTITY_WORDS = frozenset({"gravity", "crude"})
+_NEXT_WORD = re.compile(r"\s*([^\s,;:()]+)")
+
+
+def _short_api_is_a_quantity(text: str, m: re.Match) -> bool:
+    """A 1-2 digit API number read in a typed question that is really a
+    quantity: 0 or 00, or followed by a unit (`claims.is_unit`) or a word of
+    API gravity. Longer numbers keep the reader's normal rule."""
+    num = re.match(r"\d+", m.group("num")).group(0)
+    if len(num) > 2:
+        return False
+    if int(num) == 0:
+        return True
+    nxt = _NEXT_WORD.match(text, m.end())
+    if nxt is None:
+        return False
+    word = nxt.group(1)
+    from .claims import is_unit
+    return word.lower() in _API_QUANTITY_WORDS or is_unit(word)
 _FOUR_DIGIT_YEAR_AFTER = re.compile(r"-\d{4}(?![\dA-Za-z])")
 #: One more level of part after a part: the "-1" of "IEC 60534-2-1".
 _SUB_PART = re.compile(r"-\d{1,2}(?![\dA-Za-z])")
@@ -389,28 +416,31 @@ def _standalone(text: str, start: int, end: int) -> bool:
     return True
 
 
-def _strict_enough(build, m: re.Match) -> bool:
+def _strict_enough(build, m: re.Match, typed_question: bool = False) -> bool:
     if build is _api:
-        return bool(_API_IN_TEXT.fullmatch(m.group("num")))
+        return bool((_API_IN_QUESTION if typed_question else _API_IN_TEXT).fullmatch(m.group("num")))
     if build in (_saes, _samss):
         return len(m.group("num")) >= 3
     return True
 
 
-def find_citations(text: str) -> list[tuple[str, int, int]]:
+def find_citations(text: str, *, typed_question: bool = False) -> list[tuple[str, int, int]]:
     """Every standard identifier cited in running `text`: (spelling as printed,
     start, end), in reading order, never overlapping. The special shapes are
     read in any case; the general shape and class letters only for a body
     written in upper case, so ordinary words never become citations. Plain
     numbers, tags, line numbers and document numbers are not read: a citation
-    needs an issuing body, and must stand on its own (`_standalone`)."""
+    needs an issuing body, and must stand on its own (`_standalone`).
+    `typed_question=True` (#664) is for a question a person typed: a short API
+    number ("API 65") is read there; never for document text."""
     text = text or ""
     upper = _same_length_upper(text)
     folded = _DASHES.sub("-", text)
     found: list[tuple[int, int]] = []
     for pattern, build in _specific():
         for m in pattern.finditer(upper):
-            if _strict_enough(build, m):
+            if _strict_enough(build, m, typed_question) and not (
+                    typed_question and build is _api and _short_api_is_a_quantity(text, m)):
                 found.append((m.start(), m.end()))
     general, classes = _citation_patterns()
     for pattern in [general, *classes]:
