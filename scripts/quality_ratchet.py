@@ -242,10 +242,47 @@ def compare_format(
     return blocked, better
 
 
-def format_check(base: str) -> tuple[list[str], list[str], int]:
-    """(blocked, better, files checked) for the files changed since `base`."""
-    drifts = []
+#: A new file whose non-blank lines are at least this share of lines the same
+#: PR deleted elsewhere is MOVED code (a split out of a long file), not new
+#: code: it keeps its old formatting, so a split stays a verbatim move and its
+#: mutation anchors still match. The api/ splits measured 92 to 94%.
+MOVED_SHARE = 0.8
+
+
+def _same_line(line: str) -> str:
+    # a route moved out of main.py changes only `@app.` to `@router.`
+    return re.sub(r"^@router\.", "@app.", line.strip())
+
+
+def moved_share(source: str, deleted: set[str]) -> float:
+    """The share of `source`'s non-blank lines that are lines this PR deleted."""
+    lines = [_same_line(line) for line in source.splitlines() if line.strip()]
+    return sum(1 for line in lines if line in deleted) / len(lines) if lines else 0.0
+
+
+def _deleted_lines(base: str) -> set[str]:
+    proc = subprocess.run(
+        ["git", "diff", "-U0", base, "HEAD"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=REPO,
+        check=True,
+    )
+    return {
+        _same_line(line[1:])
+        for line in proc.stdout.splitlines()
+        if line.startswith("-") and not line.startswith("---") and line[1:].strip()
+    }
+
+
+def format_check(base: str) -> tuple[list[str], list[str], list[str], int]:
+    """(blocked, better, moved, files checked) for the files changed since `base`."""
+    drifts, moved = [], []
+    deleted = None
     for old, now in changed_python(base):
+        source = (REPO / now).read_text(encoding="utf-8")
+        drift = format_drift(source, now)
         was = None
         if old is not None:
             shown = subprocess.run(
@@ -257,10 +294,16 @@ def format_check(base: str) -> tuple[list[str], list[str], int]:
                 check=True,
             )
             was = format_drift(shown.stdout, old)
-        drifts.append(
-            (now, was, format_drift((REPO / now).read_text(encoding="utf-8"), now))
-        )
-    return (*compare_format(drifts), len(drifts))
+        elif drift:
+            deleted = _deleted_lines(base) if deleted is None else deleted
+            share = moved_share(source, deleted)
+            if share >= MOVED_SHARE:
+                moved.append(
+                    f"{now} ({share:.0%} of its lines moved from elsewhere in this PR)"
+                )
+                was = drift
+        drifts.append((now, was, drift))
+    return (*compare_format(drifts), moved, len(drifts))
 
 
 def rule_1_length() -> dict:
@@ -500,13 +543,15 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     if args.cmd == "format-check":
-        blocked, better, checked = format_check(args.base)
+        blocked, better, moved, checked = format_check(args.base)
         print(
             f"  formatter: {checked} changed Python files checked against {args.base}; "
             f"{len(blocked)} further from `ruff format`, {len(better)} closer"
         )
         for line in better:
             print(f"  closer: {line}")
+        for line in moved:
+            print(f"  moved, kept as it was: {line}")
         if blocked:
             print("\nBLOCKED - format the lines this PR touches, or the new file:")
             for line in blocked:
