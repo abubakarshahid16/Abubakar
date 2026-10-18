@@ -164,11 +164,15 @@ def test_distinctive_terms_are_never_asked_for_per_document(monkeypatch):
     # the spy is never called - which would make this test pass vacuously,
     # asserting nothing. `seen and ...` below is what catches that.
     monkeypatch.setattr(
-        fts_index, "indexed_count",
-        lambda document_id=None, *, allowed_document_ids: 400)
+        fts_index,
+        "indexed_count",
+        lambda document_id=None, *, allowed_document_ids: 400,
+    )
     monkeypatch.setattr(
-        fts_index, "term_occurrences",
-        lambda term, document_id=None, *, allowed_document_ids: 3)
+        fts_index,
+        "term_occurrences",
+        lambda term, document_id=None, *, allowed_document_ids: 3,
+    )
     monkeypatch.setattr(lexical, "distinctive_terms", spy)
 
     terms = coverage.distinguishing_terms(

@@ -366,7 +366,9 @@ def _two_documents() -> frozenset[str]:
 
 def test_search_never_returns_a_chunk_of_a_failed_document():
     scope = _two_documents()
-    hits = fts_index.search("spiral wound gaskets", limit=10, allowed_document_ids=scope)
+    hits = fts_index.search(
+        "spiral wound gaskets", limit=10, allowed_document_ids=scope
+    )
     assert [h["chunk_id"] for h in hits] == ["ok-c0"]
     dense = vector_store.search(lambda: np.ones(EMBEDDING_DIM, dtype="float32"),
                                 limit=10, allowed_document_ids=scope)
@@ -376,8 +378,12 @@ def test_search_never_returns_a_chunk_of_a_failed_document():
 def test_a_document_being_re_processed_keeps_answering_from_its_last_build():
     scope = _two_documents()
     with connect() as conn:
-        conn.execute("UPDATE documents SET status = ? WHERE id = 'bad'", (states.CHUNKING,))
-    hits = fts_index.search("spiral wound gaskets", limit=10, allowed_document_ids=scope)
+        conn.execute(
+            "UPDATE documents SET status = ? WHERE id = 'bad'", (states.CHUNKING,)
+        )
+    hits = fts_index.search(
+        "spiral wound gaskets", limit=10, allowed_document_ids=scope
+    )
     assert {h["chunk_id"] for h in hits} == {"ok-c0", "bad-c0"}
 
 

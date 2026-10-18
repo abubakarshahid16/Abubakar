@@ -153,15 +153,26 @@ def test_every_clause_in_the_corpus_is_searchable(bench):
 
 def test_keyword_search_finds_every_exact_query_first(bench):
     exact = [(q, e) for q, kind, e in POSITIVES if kind == "exact"]
-    missed = [q for q, e in exact
-              if _rank(bench, fts_index.search(q, limit=TOP_K,
-                                             allowed_document_ids=bench["all"]), e) != 1]
+    missed = [
+        q
+        for q, e in exact
+        if _rank(
+            bench,
+            fts_index.search(q, limit=TOP_K, allowed_document_ids=bench["all"]),
+            e,
+        )
+        != 1
+    ]
     assert missed == [], f"FTS5 did not rank the answering clause first for: {missed}"
 
 
 def test_keyword_search_returns_nothing_for_words_no_clause_contains(bench):
-    assert fts_index.search("helicopter deck lighting", limit=TOP_K,
-                          allowed_document_ids=bench["all"]) == []
+    assert (
+        fts_index.search(
+            "helicopter deck lighting", limit=TOP_K, allowed_document_ids=bench["all"]
+        )
+        == []
+    )
 
 
 # ================================================================ 2. dense
@@ -171,10 +182,16 @@ def test_dense_search_finds_paraphrases_the_keyword_side_misses(bench):
     paraphrases = [(q, e) for q, kind, e in POSITIVES if kind == "paraphrase"]
     dense_found = keyword_missed_but_dense_found = 0
     for query, expected in paraphrases:
-        dense_rank = _rank(bench, search.dense_search(
-            query, limit=TOP_K, allowed_document_ids=bench["all"]), expected)
-        kw_rank = _rank(bench, fts_index.search(
-            query, limit=TOP_K, allowed_document_ids=bench["all"]), expected)
+        dense_rank = _rank(
+            bench,
+            search.dense_search(query, limit=TOP_K, allowed_document_ids=bench["all"]),
+            expected,
+        )
+        kw_rank = _rank(
+            bench,
+            fts_index.search(query, limit=TOP_K, allowed_document_ids=bench["all"]),
+            expected,
+        )
         dense_found += dense_rank is not None
         keyword_missed_but_dense_found += dense_rank is not None and kw_rank is None
     assert dense_found >= 6, f"dense found {dense_found} of {len(paraphrases)} paraphrases in top {TOP_K}"

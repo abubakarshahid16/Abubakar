@@ -80,7 +80,10 @@ def test_the_answering_page_passes_inside_its_own_standard():
     scope."""
     client = TestClient(app)
     a = upload(client, [COVER, PWHT_PAGE, STRESS_PAGE], "SAES-W-017.pdf")
-    assert fts_index.term_occurrences("SAES-W-017", allowed_document_ids=frozenset({a})) > 0
+    assert (
+        fts_index.term_occurrences("SAES-W-017", allowed_document_ids=frozenset({a}))
+        > 0
+    )
 
     verdict = lexical.assess(QUESTION, PASSAGE, allowed_document_ids=frozenset({a}))
     assert verdict["ok"] is True, verdict

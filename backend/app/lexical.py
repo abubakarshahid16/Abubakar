@@ -334,7 +334,10 @@ def _scope_wholly_named(term: str, scope: frozenset[str]) -> bool:
     # ("NACE-MR0175-ISO15156-specification" and "MR0175-ISO15156-specification").
     # The tail is part of the document's own name, so an identifier-shaped
     # term that sits inside the designation counts as naming it.
-    fragment_ok = bool(fts_index.IDENTIFIER.fullmatch(term)) and len(wanted) >= MIN_FRAGMENT_LENGTH
+    fragment_ok = (
+        bool(fts_index.IDENTIFIER.fullmatch(term))
+        and len(wanted) >= MIN_FRAGMENT_LENGTH
+    )
     for row in rows:
         designation = understanding.designation(row["filename"])
         if not designation:

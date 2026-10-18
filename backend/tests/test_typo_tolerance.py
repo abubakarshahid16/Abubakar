@@ -101,10 +101,8 @@ def test_the_misspelled_query_matches_nothing_without_the_retry():
 def test_a_misspelled_query_retrieves_what_the_correct_one_retrieves():
     """"strctural sumbittal" must find the passages "structural submittal"
     finds. This is issue #85."""
-    correct = fts_index.search(
-        "structural submittal", allowed_document_ids=SCOPE)
-    typed = fts_index.search(
-        "strctural sumbittal", allowed_document_ids=SCOPE)
+    correct = fts_index.search("structural submittal", allowed_document_ids=SCOPE)
+    typed = fts_index.search("strctural sumbittal", allowed_document_ids=SCOPE)
 
     assert ids(correct), "the control query found nothing; the fixture is wrong"
     assert ids(correct) <= ids(typed)
@@ -125,8 +123,7 @@ def test_the_corrections_are_reported_not_hidden():
 def test_the_exact_hits_are_kept_when_a_retry_happens():
     """The retry is ADDITIVE. A word the reader spelled correctly keeps
     everything it matched, whatever the tolerant query does."""
-    typed = fts_index.search(
-        "strctural coating", allowed_document_ids=SCOPE)
+    typed = fts_index.search("strctural coating", allowed_document_ids=SCOPE)
     assert "c2" in ids(typed), "the correctly spelled word lost its own hits"
     assert "c0" in ids(typed) or "c1" in ids(typed)
 
@@ -182,9 +179,16 @@ def test_an_identifier_is_never_corrected():
 
 def test_a_word_the_corpus_contains_is_never_rewritten():
     """The reader's spelling wins whenever it matches something."""
-    assert fts_index.fuzzy_corpus_match("structural", allowed_document_ids=SCOPE) is None
+    assert (
+        fts_index.fuzzy_corpus_match("structural", allowed_document_ids=SCOPE) is None
+    )
     assert fts_index.fuzzy_corpus_match("coating", allowed_document_ids=SCOPE) is None
-    assert fts_index.spelling_corrections("structural submittal drawings", allowed_document_ids=SCOPE) == {}
+    assert (
+        fts_index.spelling_corrections(
+            "structural submittal drawings", allowed_document_ids=SCOPE
+        )
+        == {}
+    )
 
 
 def test_a_different_word_is_not_treated_as_a_typo():
@@ -206,17 +210,19 @@ def test_short_words_are_left_alone():
 
 def test_normalisation_strips_noise_but_keeps_identifiers_intact():
     assert fts_index.normalise_query("  what  is   the NDFT?? ") == "what is the NDFT"
-    assert fts_index.normalise_query("clause 5.3.2 (API 610)!") == "clause 5.3.2 API 610"
+    assert (
+        fts_index.normalise_query("clause 5.3.2 (API 610)!") == "clause 5.3.2 API 610"
+    )
     # case is deliberately preserved: IDENTIFIER and DESIGNATOR key off it, and
     # folding here would quietly turn a REQUIRED term into an optional one
     assert '"API 610"' in fts_index.build_match_query(
-        fts_index.normalise_query("what does API 610 say?"))
+        fts_index.normalise_query("what does API 610 say?")
+    )
 
 
 def test_punctuation_alone_does_not_lose_the_hits():
     plain = fts_index.search("structural submittal", allowed_document_ids=SCOPE)
-    noisy = fts_index.search(
-        "structural submittal???", allowed_document_ids=SCOPE)
+    noisy = fts_index.search("structural submittal???", allowed_document_ids=SCOPE)
     assert ids(plain) == ids(noisy)
 
 

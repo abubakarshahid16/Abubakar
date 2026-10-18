@@ -91,9 +91,10 @@ def test_conversational_stopwords_do_not_enter_the_match_query():
 
 
 def test_exact_content_phrase_is_built_separately_from_the_recall_query():
-    assert fts_index.build_phrase_query(
-        "can you tell me about Design team leader"
-    ) == '"Design team leader"'
+    assert (
+        fts_index.build_phrase_query("can you tell me about Design team leader")
+        == '"Design team leader"'
+    )
 
 
 def test_exact_glossary_phrase_outranks_repeated_scattered_words():
@@ -159,8 +160,11 @@ def test_the_glossary_phrase_survives_a_crowd_of_scattered_word_matches():
     # Precondition, so the test cannot pass for the wrong reason: broad recall
     # ALONE really does push the glossary chunk out of a limit of 5.
     recall_only = fts_index._run_match(
-        conn, fts_index.build_match_query(question),
-        *fts_index._scope_clause(None, scope), 5)
+        conn,
+        fts_index.build_match_query(question),
+        *fts_index._scope_clause(None, scope),
+        5,
+    )
     assert "glossary" not in [h["chunk_id"] for h in recall_only]
 
     hits = fts_index.search(question, limit=5, allowed_document_ids=scope)
@@ -196,9 +200,12 @@ def test_a_spelling_correction_never_names_a_word_only_an_unreadable_document_ho
         "hydroprocesing", allowed_document_ids=frozenset({"secret"})
     ) == {"hydroprocesing": "hydroprocessing"}
 
-    assert fts_index.spelling_corrections(
-        "hydroprocesing", allowed_document_ids=frozenset({"open"})
-    ) == {}
+    assert (
+        fts_index.spelling_corrections(
+            "hydroprocesing", allowed_document_ids=frozenset({"open"})
+        )
+        == {}
+    )
 
 
 def test_a_closer_word_the_caller_may_not_read_does_not_hide_one_they_may():
@@ -217,7 +224,9 @@ def test_a_closer_word_the_caller_may_not_read_does_not_hide_one_they_may():
 
 def test_a_malformed_query_does_not_raise():
     # FTS5 treats several characters as syntax; every token is quoted
-    assert isinstance(fts_index.search('AND OR NOT " ( )', allowed_document_ids=_scope()), list)
+    assert isinstance(
+        fts_index.search('AND OR NOT " ( )', allowed_document_ids=_scope()), list
+    )
 
 
 # ------------------------------------------------------- ordering guarantee
@@ -291,7 +300,9 @@ def test_search_never_returns_a_non_retrievable_chunk():
     fts_index.index_document(doc_id)
 
     assert fts_index.indexed_count(doc_id, allowed_document_ids=_scope()) == 0
-    assert fts_index.search("vibration limit API 610", allowed_document_ids=_scope()) == []
+    assert (
+        fts_index.search("vibration limit API 610", allowed_document_ids=_scope()) == []
+    )
 
 
 def test_reindexing_replaces_rather_than_duplicates():
@@ -316,7 +327,9 @@ def test_rechunking_invalidates_the_index():
     assert fts_index.indexed_count(doc_id, allowed_document_ids=_scope()) > 0
 
     chunk_document(doc_id, force=True)
-    assert fts_index.indexed_count(doc_id, allowed_document_ids=_scope()) == 0, "stale index survived a rebuild"
+    assert fts_index.indexed_count(doc_id, allowed_document_ids=_scope()) == 0, (
+        "stale index survived a rebuild"
+    )
 
 
 def test_deleting_a_document_removes_it_from_the_index():
@@ -410,20 +423,21 @@ def test_a_term_only_in_an_unreadable_document_counts_as_absent():
 
     # Corpus-wide the term really is there, so the assertion below is about
     # SCOPE, not about the term being missing from the whole corpus.
-    assert fts_index.term_occurrences(
-        "Inconel", allowed_document_ids=_scope()) > 0, "precondition"
+    assert fts_index.term_occurrences("Inconel", allowed_document_ids=_scope()) > 0, (
+        "precondition"
+    )
 
     assert fts_index.term_occurrences("Inconel", allowed_document_ids=mine) == 0, (
         "a caller learned that a term exists in a document they may not read")
 
     # The denominator the gate judges commonness against is the caller's
     # corpus too, not everybody's.
-    assert (fts_index.indexed_count(allowed_document_ids=mine)
-            < fts_index.indexed_count(allowed_document_ids=_scope()))
+    assert fts_index.indexed_count(allowed_document_ids=mine) < fts_index.indexed_count(
+        allowed_document_ids=_scope()
+    )
 
     # NOT VACUOUS: a term that IS in the readable document still counts.
-    assert fts_index.term_occurrences(
-        "vibration", allowed_document_ids=mine) > 0
+    assert fts_index.term_occurrences("vibration", allowed_document_ids=mine) > 0
 
 
 def test_an_empty_scope_counts_nothing_rather_than_everything():
@@ -435,8 +449,9 @@ def test_an_empty_scope_counts_nothing_rather_than_everything():
     _index(client, "readable.pdf", (SPEC,))
 
     assert fts_index.indexed_count(allowed_document_ids=frozenset()) == 0
-    assert fts_index.term_occurrences(
-        "vibration", allowed_document_ids=frozenset()) == 0
+    assert (
+        fts_index.term_occurrences("vibration", allowed_document_ids=frozenset()) == 0
+    )
 
     verdict = lexical.assess(
         "what is the vibration limit", "any text at all",
