@@ -10,9 +10,10 @@
  */
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SubmittalsLandingView } from "./SubmittalsLandingView";
+import { INBOX_REFRESH_MS, SubmittalsLandingView } from "./SubmittalsLandingView";
+import { INBOX_IS_DEFAULT } from "../routing";
 
 const documents = vi.fn();
 const reviewRuns = vi.fn();
@@ -82,5 +83,79 @@ describe("SubmittalsLandingView", () => {
     reviewRuns.mockResolvedValue({ ok: false, error: { message: "offline" } });
     render(<SubmittalsLandingView onOpenRun={vi.fn()} />);
     expect(await screen.findByRole("alert")).toHaveTextContent("offline");
+  });
+  it("queues a review of every document never reviewed, reports each refusal by name, and opens nothing", async () => {
+    documents.mockResolvedValue({ ok: true, data: [
+      { id: "a", filename: "a.pdf" }, { id: "b", filename: "b.pdf" }, { id: "c", filename: "c.pdf" },
+    ] });
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [{
+      review_run_id: "run-c", submittal_document_id: "c", submittal_filename: "c.pdf",
+      equipment_tags: [], status: "completed", created_at: "2026-10-01T00:00:00Z",
+      standards_in_scope: 1, findings_total: 0, by_status: {},
+    }] } });
+    startReviewRun
+      .mockResolvedValueOnce({ ok: true, data: { review_run_id: "run-a" } })
+      .mockResolvedValueOnce({ ok: false, error: { message: "a review of this submittal is already running" } });
+    const onOpenRun = vi.fn();
+    render(<SubmittalsLandingView inbox onOpenRun={onOpenRun} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Review all not reviewed (2)" }));
+    const status = await screen.findByRole("status");
+    expect(status).toHaveTextContent("Queued 1 of 2 reviews asked for.");
+    expect(status).toHaveTextContent("b.pdf: a review of this submittal is already running");
+    expect(startReviewRun.mock.calls.map((call) => call[0])).toEqual(["a", "b"]);
+    expect(onOpenRun).not.toHaveBeenCalled();
+    expect(reviewRuns).toHaveBeenCalledTimes(2);
+  });
+
+  describe("order 104: the inbox is switched off by default", () => {
+    it("is off: /review keeps the current list and offers the inbox by a link", async () => {
+      expect(INBOX_IS_DEFAULT).toBe(false);
+      documents.mockResolvedValue({ ok: true, data: [{ id: "doc-1", filename: "psv.pdf" }] });
+      reviewRuns.mockResolvedValue({ ok: true, data: { runs: [] } });
+      const onOpenInbox = vi.fn();
+      render(<SubmittalsLandingView onOpenRun={vi.fn()} onOpenInbox={onOpenInbox} />);
+      expect(await screen.findByText("Not reviewed yet")).toBeInTheDocument();
+      expect(screen.queryByRole("group", { name: "Show documents" })).not.toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "Try the new inbox" }));
+      expect(onOpenInbox).toHaveBeenCalled();
+    });
+
+    it("the inbox shows its chips and a way back to the current list", async () => {
+      documents.mockResolvedValue({ ok: true, data: [{ id: "doc-1", filename: "psv.pdf" }] });
+      reviewRuns.mockResolvedValue({ ok: true, data: { runs: [] } });
+      const onOpenList = vi.fn();
+      render(<SubmittalsLandingView inbox onOpenRun={vi.fn()} onOpenList={onOpenList} />);
+      expect(await screen.findByRole("group", { name: "Show documents" })).toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "Back to the current list" }));
+      expect(onOpenList).toHaveBeenCalled();
+    });
+  });
+
+  describe("order 95 piece 3: the list re-reads while a review is moving", () => {
+    afterEach(() => { vi.useRealTimers(); });
+
+    function runOf(status: string) {
+      return { ok: true, data: { runs: [{
+        review_run_id: "run-1", submittal_document_id: "doc-1", submittal_filename: "psv.pdf",
+        equipment_tags: [], status, created_at: "2026-10-01T00:00:00Z",
+        standards_in_scope: 1, findings_total: 0, by_status: {},
+        job: status === "running" ? { id: "j", state: "running", progress_done: 0, progress_total: 3,
+          progress_label: "reading the datasheet", cancel_requested: false } : null,
+      }] } };
+    }
+
+    it("re-reads on the interval while a review is running, and stops once it is not", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      documents.mockResolvedValue({ ok: true, data: [{ id: "doc-1", filename: "psv.pdf" }] });
+      reviewRuns.mockResolvedValueOnce(runOf("running")).mockResolvedValue(runOf("completed"));
+      render(<SubmittalsLandingView inbox onOpenRun={vi.fn()} />);
+      await screen.findByRole("button", { name: "Queued or running (1 of 1)" });
+      expect(reviewRuns).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(INBOX_REFRESH_MS);
+      await screen.findByRole("button", { name: "Needs me (1 of 1)" });
+      expect(reviewRuns).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(INBOX_REFRESH_MS * 3);
+      expect(reviewRuns).toHaveBeenCalledTimes(2);
+    });
   });
 });
