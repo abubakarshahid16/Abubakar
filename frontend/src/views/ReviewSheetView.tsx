@@ -12,7 +12,7 @@
  * technical panels are kept, unchanged, behind "Behind the scenes" - each
  * a route of its own (`/review/<run>/<panel>`, #967 PR 3).
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api, reviews as reviewsApi } from "../api/client";
 import type { CrsIssueGate, DocumentRecord, ReviewFinding, ReviewRunSummary } from "../types/api";
@@ -68,11 +68,17 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
     setPulse((n) => n + 1);
   }, []);
 
+  // Order 117 item 6: only the newest load may paint (the CRS sheet's rule):
+  // a slower, older answer - another run's, or an overtaken poll - is dropped.
+  const latest = useRef(0);
+  useEffect(() => () => { latest.current += 1; }, []);
   const refresh = useCallback(async () => {
+    const mine = ++latest.current;
     const [runs, listed, gated, stds] = await Promise.all([
       reviewsApi.reviewRun(runId), reviewsApi.list({ review_run_id: runId }),
       reviewsApi.crsIssueGate(runId), reviewsApi.reviewRunStandards(runId),
     ]);
+    if (mine !== latest.current) return null;
     if (!runs.ok) { setLoad({ kind: "error", message: runs.error.message }); return null; }
     const found = runs.data;
     if (!found) { setLoad({ kind: "error", message: "This review run could not be found." }); return null; }
@@ -92,7 +98,9 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
   const submittalId = run?.submittal_document_id ?? null;
   useEffect(() => {
     if (!submittalId) return;
-    void api.document(submittalId).then((r) => setSubmittal(r.ok ? r.data : null));
+    let current = true;
+    void api.document(submittalId).then((r) => { if (current) setSubmittal(r.ok ? r.data : null); });
+    return () => { current = false; };
   }, [submittalId]);
 
   const active = run?.status === "queued" || run?.status === "running";
