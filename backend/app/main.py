@@ -2452,7 +2452,7 @@ def start_review_run(
         raise HTTPException(status_code=409, detail=errors.safe_error(
             errors.INVALID_PARAMETER,
             f"a review of this submittal is already queued or running ({exc.args[0]})")) from exc
-    return next(r for r in list_review_runs(
+    return next(r for r in list_review_runs.__wrapped__(
         request=request, document_id=document_id, scope=scope,
     )["runs"] if r["review_run_id"] == run_id)
 
