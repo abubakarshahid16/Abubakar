@@ -61,8 +61,8 @@ MUTATIONS: tuple[Mutation, ...] = (
        "                \"rule_trust\": rule_trust or {},\n",
        "off_uses_no_draft"),
     _m(9, "the Review notes sheet drops the rule_trust notes (fields no rule checked, spot-check)",
-       APP / "crs_mapping.py",
-       "    if outcome:\n        from .rule_trust import review_notes\n",
-       "    if False:\n        from .rule_trust import review_notes\n",
+       APP / "clause_coverage.py",
+       "    if outcome:\n        from .rule_trust import review_notes as trust_notes\n",
+       "    if False:\n        from .rule_trust import review_notes as trust_notes\n",
        "internal_crs_shows_the_trust"),
 )
