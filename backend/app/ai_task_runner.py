@@ -49,6 +49,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from . import heavy_lock, model_transport, progress
+from .ai import output_limits
 from .config import settings
 from .db import connect
 from .reasoning_provider import OllamaProvider, Packet, ProviderRefused, schema_errors
@@ -223,10 +224,13 @@ def _kind(exc: BaseException) -> str:
 def _reply_problems(spec: TaskSpec, response, text: str) -> list[str]:
     """Everything wrong with a reply: empty, cut off, not JSON, off schema, or
     failing the task's own code check. Empty list = keep it."""
-    if not (response.text or "").strip():
-        return ["the reply was empty"]
-    if response.finish_reason == "length":
+    # #456: the cap is checked FIRST, by the one vocabulary both engines map
+    # to - a reply cut off at zero text is "truncated", not "empty".
+    state = output_limits.state_of_response(response)
+    if state == output_limits.TRUNCATED:
         return ["the reply was cut off before it ended"]
+    if state == output_limits.UNKNOWN:
+        return ["the reply was empty"]
     try:
         data = json.loads(response.text)
     except ValueError:
