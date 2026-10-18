@@ -264,13 +264,15 @@ export const reviews = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason }),
       }),
-  /** PF5: the engineer accepts or rejects one open finding, with a reason. */
-  decideCrsFinding: (runId: string, findingId: string, decision: "accept" | "reject", reason: string) =>
+  /** PF5: the engineer accepts or rejects one open finding, with a reason.
+   *  Order 95 piece 6a: a reject may carry a listed `reasonCode` instead of
+   *  typed words; the server stores the code's own words. */
+  decideCrsFinding: (runId: string, findingId: string, decision: "accept" | "reject", reason: string, reasonCode?: string) =>
     request<CrsIssueDecision>(
       `/reviews/runs/${encodeURIComponent(runId)}/crs/open-items/findings/${encodeURIComponent(findingId)}/decision`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ decision, reason }),
+        body: JSON.stringify(reasonCode ? { decision, reason, reason_code: reasonCode } : { decision, reason }),
       }),
   /** PF4 (#884): the run's clause coverage ledger. Read only. */
   runCoverage: (runId: string) =>
