@@ -34,9 +34,11 @@ interface BatchResult {
 
 /** #1114: the Ready label's counts come from the run's own summary (#1111);
  *  any failure (a server without the route answers 404) leaves them out. */
-async function loadReadyCounts(runId: string): Promise<ReadyCounts | null> {
+export async function loadReadyCounts(runId: string): Promise<ReadyCounts | null> {
   const res = await reviewsApi.reviewRunSummary(runId);
-  return res.ok ? { comment: res.data.counts.comment, needs_you: res.data.counts.needs_you } : null;
+  if (!res.ok) return null;
+  const { comment, needs_you } = res.data.counts;
+  return { findings: comment + needs_you, needs_you };
 }
 
 export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onOpenInbox, onOpenList }: {
