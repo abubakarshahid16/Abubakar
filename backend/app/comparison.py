@@ -4320,12 +4320,12 @@ def record_engineer_code(
     return outcome
 
 
-def run_outcome(review_run_id: str, *,
-                allowed_document_ids: frozenset[str]) -> dict | None:
-    """The stored recommendation and decision for a run, under the caller's
-    grants."""
-    run = submittal_review.get_review_run(
-        review_run_id, allowed_document_ids=allowed_document_ids)
+def run_outcome(review_run_id: str, *, allowed_document_ids: frozenset[str],
+                run: dict | None = None) -> dict | None:
+    """The stored recommendation and decision for a run, under the caller's grants
+    (`run`: that row as the caller read it under the same grants; order 109)."""
+    if run is None or run.get("id") != review_run_id:
+        run = submittal_review.get_review_run(review_run_id, allowed_document_ids=allowed_document_ids)
     if run is None:
         return None
     try:

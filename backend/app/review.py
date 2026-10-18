@@ -230,16 +230,15 @@ def ensure_schema() -> None:
             # RACE-SAFE, because this runs on read paths. See
             # `db.add_column_if_missing`.
             add_column_if_missing(conn, "review_findings", name, definition)
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_review_findings_document "
-                     "ON review_findings(document_id, status, updated_at DESC)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_review_findings_due "
-                     "ON review_findings(due_date, status)")
-        # Created here rather than in the CREATE TABLE above, because on a
-        # database written by an earlier build the column does not exist until
-        # the ALTER block above has run.
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_review_findings_run "
-                     "ON review_findings(review_run_id, compliance_status, "
-                     "updated_at DESC)")
+        for _index, _columns in (
+                ("idx_review_findings_document", "document_id, status, updated_at DESC"),
+                ("idx_review_findings_due", "due_date, status"),
+                # Created here rather than in the CREATE TABLE above: on a database written
+                # by an earlier build the column does not exist until the ALTER block has run.
+                ("idx_review_findings_run", "review_run_id, compliance_status, updated_at DESC"),
+                # Order 109: a run's equipment tags for the review list, from the index alone.
+                ("idx_review_findings_run_tag", "review_run_id, equipment_tag")):
+            conn.execute(f"CREATE INDEX IF NOT EXISTS {_index} ON review_findings({_columns})")
         # THE DUPLICATE GATE'S INDEX. `comparison.create_finding` asks for an
         # unconfirmed finding with this run AND this requirement; with only
         # the index above, SQLite read every earlier finding of the run to

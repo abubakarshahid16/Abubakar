@@ -89,6 +89,17 @@ def ensure_schema() -> None:
             path TEXT NOT NULL,
             issued_by TEXT NOT NULL,
             issued_at TEXT NOT NULL)""")
+    ensure_indexes()
+
+
+def ensure_indexes() -> None:
+    """Order 109: `last_issued_at` runs once per row of the review list; this
+    index answers it without reading every issued copy. Only where the table
+    exists, so the server's startup (which calls this) creates no table."""
+    if _has("crs_issued_copies"):
+        with connect() as conn:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_crs_issued_copies_run"
+                         " ON crs_issued_copies(review_run_id, issued_at)")
 
 
 def _has(table: str) -> bool:

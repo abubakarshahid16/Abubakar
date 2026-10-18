@@ -717,12 +717,12 @@ def _store_status(review_run_id: str, status: dict) -> None:
                      (json.dumps(status), _now(), review_run_id))
 
 
-def ai_check_status(review_run_id: str, *, allowed_document_ids: frozenset[str]) -> dict | None:
-    """This run's own AI-check outcome, under the caller's grants - the same
-    read shape as `comparison.run_outcome`. None when the run does not exist,
-    the caller may not read it, or the check never stored one (never ran)."""
+def ai_check_status(review_run_id: str, *, allowed_document_ids: frozenset[str], run: dict | None = None) -> dict | None:
+    """This run's own AI-check outcome under the caller's grants, read like `comparison.run_outcome` (same `run`
+    argument). None when the run does not exist, the caller may not read it, or the check never stored one (never ran)."""
     from . import submittal_review
-    run = submittal_review.get_review_run(review_run_id, allowed_document_ids=allowed_document_ids)
+    if run is None or run.get("id") != review_run_id:
+        run = submittal_review.get_review_run(review_run_id, allowed_document_ids=allowed_document_ids)
     if run is None:
         return None
     raw = run.get("ai_check_status")

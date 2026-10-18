@@ -335,9 +335,9 @@ def ensure_schema() -> None:
             ("crs_contractor_transmittal", "TEXT"),
         ):
             add_column_if_missing(conn, "review_runs", _column, _type)
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_review_runs_submittal "
-            "ON review_runs(submittal_document_id, status, created_at DESC)")
+        for _index in ("idx_review_runs_submittal ON review_runs(submittal_document_id, status, created_at DESC)",
+                       "idx_review_runs_created ON review_runs(created_at)"):  # order 109: the list's order
+            conn.execute("CREATE INDEX IF NOT EXISTS " + _index)
 
         # ------------------------------------------------- the submittal side
         conn.execute(
