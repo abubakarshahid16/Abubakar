@@ -11,7 +11,7 @@ _TAG = ("w7", "honesty")
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M2901", phase=2901,
              description="the document list no longer carries the classification",
-             path=APP / "main.py",
+             path=APP / "api/documents.py",
              anchor='        doc["classification"] = {\n',
              replacement='        doc["_unused"] = {\n',
              target=_B, keyword="list_carries or never_classified or only_the_documents", tags=_TAG),
@@ -23,7 +23,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_B, keyword="fixed_number_of_classification_queries", tags=_TAG),
     Mutation(id="M2903", phase=2903,
              description="a never-classified document gets no empty record on the list",
-             path=APP / "main.py",
+             path=APP / "api/documents.py",
              anchor="(classifications.get(row[\"id\"]) or classification_mod.empty_record(row[\"id\"]))",
              replacement="(classifications.get(row[\"id\"]) or {})",
              target=_B, keyword="never_classified", tags=_TAG),
