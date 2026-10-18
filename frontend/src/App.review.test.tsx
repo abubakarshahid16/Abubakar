@@ -1,13 +1,15 @@
 /**
- * Order 95 piece 2 (Part of #967), with `CRS_SHEET_IS_DEFAULT = false` (the
- * value it ships with): `/review/<run>` is the current card view, also at
- * `/review/<run>/cards`; the new comment sheet is at `/review/<run>/crs-sheet`;
- * the behind-the-scenes pages (the old "crs" page among them) keep their
- * addresses. `App.review.crsDefault.test.tsx` covers the value `true`.
+ * Order 95 piece 2 / order 115 (Part of #967), with `CRS_SHEET_IS_DEFAULT =
+ * true` (the owner's yes, 18 Oct 2026): `/review/<run>` is the new comment
+ * sheet, also at `/review/<run>/crs-sheet`; the old card view is at
+ * `/review/<run>/cards`; its behind-the-scenes pages (the old "crs" page
+ * among them) keep their addresses. Both values of the switch are covered
+ * without the App in `routing.test.ts`.
  *
- * MUTATION PROOF: route `/review/<run>` to the new sheet and the first test
- * fails; drop "crs-sheet" from `PANELS.review` and the second is refused as
- * an unknown address; drop "cards" and the third is. Route "how" to either
+ * MUTATION PROOF: let App ignore the constant (route `/review/<run>` to the
+ * card view) and the first test fails; drop "crs-sheet" from `PANELS.review`
+ * and the second is refused as an unknown address; drop "cards" and the
+ * third is. Route "how" to either
  * review screen (or drop it from `PANELS.review`) and the fourth fails: the
  * new sheet's header link "How this was reviewed" must open the How page.
  */
@@ -69,13 +71,13 @@ afterEach(() => {
   window.history.pushState({}, "", "/");
 });
 
-describe("the review routes (the card view is the default)", () => {
-  it("/review/<run> opens the current card view", async () => {
+describe("the review routes (the new comment sheet is the default)", () => {
+  it("/review/<run> opens the new comment sheet", async () => {
     mockApi();
     render(<App initialView="review" />);
     expect(await screen.findByText("landing")).toBeInTheDocument();
     await goTo("/review/run-1");
-    expect(await screen.findByText("cards for run-1")).toBeInTheDocument();
+    expect(await screen.findByText("crs sheet for run-1")).toBeInTheDocument();
   });
 
   it("/review/<run>/crs-sheet opens the new comment sheet", async () => {

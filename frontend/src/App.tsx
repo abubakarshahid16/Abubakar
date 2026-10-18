@@ -348,8 +348,8 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
             />
           )}
           {/* Order 95 piece 2 (Part of #967): which screen `/review/<run>`
-              opens is `routing.CRS_SHEET_IS_DEFAULT` (the card view until
-              the owner switches it). The card view is also at
+              opens is `routing.CRS_SHEET_IS_DEFAULT` (the new comment
+              sheet since the owner's yes, order 115). The card view is also at
               `/review/<run>/cards`, the new comment sheet at
               `/review/<run>/crs-sheet`, whichever is the default. */}
           {view === "review" && !(route.kind === "view" && route.panel === "how") && (
