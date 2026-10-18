@@ -47,17 +47,14 @@ as such.
 
 from __future__ import annotations
 
-import logging
-
 import string
 import time
 import re
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 
+from . import errors
 from .config import settings
-
-log = logging.getLogger(__name__)
 
 #: PERCENT-ENCODING, HAND-ROLLED, and the reason is a guarantee rather than
 #: taste. `urllib.parse.quote` would do this in one line and cannot open a
@@ -787,10 +784,9 @@ def search_all(phrase: str | None, *, fetch: Fetch | None = None,
                 payloads[tier], fetch=fetch,
                 timeout=float(settings.market_tier_timeout_seconds))
         except Exception as exc:                    # noqa: BLE001
-            log.info("market_providers: one market tier failed; the run continues with the other tiers (%s)", type(exc).__name__)  # 79c
             # One tier failing is not the search failing. The reason is
             # recorded per tier and the run continues.
-            failures.append(f"{tier}: {_safe_reason(exc)}")
+            failures.append(errors.fell_back("market_providers: one market tier failed; the run continues", exc, f"{tier}: {_safe_reason(exc)}"))
             audit.append(audit_record(phrase, tier=tier, outcome="error"))
             continue
         audit.append(audit_record(phrase, tier=tier, outcome="ok"))
@@ -816,8 +812,7 @@ def search_all(phrase: str | None, *, fetch: Fetch | None = None,
         "tiers_unconfigured": tiers_unconfigured(),
         "tier_labels": tier_labels(),
         "failure": failure,
-        # NOT PART OF THE HTTP CONTRACT. Stripped by `to_api`; see its
-        # docstring and `audit_record`.
+        # NOT PART OF THE HTTP CONTRACT. Stripped by `to_api`; see its docstring and `audit_record`.
         "audit": audit,
     }
 

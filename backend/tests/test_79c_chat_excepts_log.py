@@ -17,7 +17,7 @@ import pytest
 APP = pathlib.Path(__file__).resolve().parent.parent / "app"
 CHAT = ("answer", "chat", "chat_answers", "chat_comparison", "chat_model", "chat_tools",
         "family_search", "highlight", "intent", "market_providers", "reranker")
-LOGS = ("log.", "logger.", "logging.", "record_failure", "_say_once(", "log_exception")
+LOGS = ("log.", "logger.", "logging.", "record_failure", "_say_once(", "log_exception", "fell_back(")
 
 
 def _silent(module: str) -> list[int]:
