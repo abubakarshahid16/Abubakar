@@ -381,7 +381,7 @@ def list_clause_checks(
     """#645: checks the AI proposed for clause sentences and code verified,
     for the standards the caller may read. Read only."""
     reject_unknown_params(request, {"status", "limit"})
-    from . import ai_requirements
+    from .. import ai_requirements
     return ai_requirements.list_drafts(
         allowed_document_ids=scope.allowed_document_ids, status=status, limit=limit)
 
@@ -400,7 +400,7 @@ def decide_clause_check(
     Accept is verified by code again and VERSIONED: a new confirmed numeric
     limit is written and the sentence row is superseded, not deleted. A draft
     the caller may not read is 404, like every route."""
-    from . import ai_requirements
+    from .. import ai_requirements
     try:
         return ai_requirements.decide_draft(
             draft_id, decision=body.decision,
