@@ -13,18 +13,20 @@ import { StrictMode } from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { INBOX_REFRESH_MS, SubmittalsLandingView } from "./SubmittalsLandingView";
+import { INBOX_REFRESH_MS, SubmittalsLandingView, loadReadyCounts } from "./SubmittalsLandingView";
 import { INBOX_IS_DEFAULT } from "../routing";
 
 const documents = vi.fn();
 const reviewRuns = vi.fn();
 const startReviewRun = vi.fn();
+const reviewRunSummary = vi.fn();
 
 vi.mock("../api/client", () => ({
   api: { documents: (...args: unknown[]) => documents(...args) },
   reviews: {
     reviewRuns: (...args: unknown[]) => reviewRuns(...args),
     startReviewRun: (...args: unknown[]) => startReviewRun(...args),
+    reviewRunSummary: (...args: unknown[]) => reviewRunSummary(...args),
   },
 }));
 
@@ -32,6 +34,21 @@ beforeEach(() => {
   documents.mockReset();
   reviewRuns.mockReset();
   startReviewRun.mockReset();
+});
+
+describe("loadReadyCounts (A-1126)", () => {
+  it("counts the findings in a comment or needs-you tier, never Met or removed ones", async () => {
+    reviewRunSummary.mockResolvedValue({ ok: true, data: { counts: {
+      met: 90, not_applicable: 4, another_document: 7, comment: 27, needs_you: 6557, removed: 3, total: 6688,
+    } } });
+    expect(await loadReadyCounts("run-1")).toEqual({ findings: 6584, needs_you: 6557 });
+    expect(reviewRunSummary).toHaveBeenCalledWith("run-1");
+  });
+
+  it("is null when the summary cannot be read", async () => {
+    reviewRunSummary.mockResolvedValue({ ok: false, error: { code: "internal", message: "no route" } });
+    expect(await loadReadyCounts("run-1")).toBeNull();
+  });
 });
 
 describe("SubmittalsLandingView", () => {

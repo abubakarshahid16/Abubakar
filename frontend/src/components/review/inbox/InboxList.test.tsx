@@ -135,14 +135,14 @@ describe("InboxList", () => {
 
   describe("#1114: a Ready row's comment counts", () => {
     it("shows the counts read from the run's own summary, asking once per run", async () => {
-      const load = vi.fn().mockResolvedValue({ comment: 3, needs_you: 1 });
+      const load = vi.fn().mockResolvedValue({ findings: 3, needs_you: 1 });
       const { rerender } = render(
         <InboxList
           documents={[doc()]} runs={[run()]} submittalsTotal={null}
           onReview={vi.fn()} startingDocumentId={null} loadReadyCounts={load}
         />,
       );
-      expect(await screen.findByText(/^Ready: 3 comments, 1 needs you/)).toBeInTheDocument();
+      expect(await screen.findByText(/^Ready: 3 findings to decide, 1 needs you/)).toBeInTheDocument();
       rerender(
         <InboxList
           documents={[doc()]} runs={[run()]} submittalsTotal={null}
@@ -166,7 +166,7 @@ describe("InboxList", () => {
     });
 
     it("does not ask for a run that is not Ready", () => {
-      const load = vi.fn().mockResolvedValue({ comment: 1, needs_you: 0 });
+      const load = vi.fn().mockResolvedValue({ findings: 1, needs_you: 0 });
       render(
         <InboxList
           documents={[doc()]} runs={[run({ status: "failed" })]} submittalsTotal={null}
