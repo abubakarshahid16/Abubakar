@@ -131,3 +131,36 @@ def line(counts: dict, applicable: int, adds_up: bool) -> str:
         text += f"; {counts[CHECKLIST]} covered by a checklist (not proof the whole standard was checked)"
     text += f"; {counts[DOES_NOT_APPLY]} do not apply"
     return text + ("" if adds_up else "; THE COUNTS DO NOT ADD UP - report this run")
+
+
+NOTE = "Clause coverage"
+NOT_RECORDED = ("Clause coverage is not recorded for this run (made before the coverage "
+                "ledger); re-run the review to get it.")
+
+
+def outcome_notes(outcome: dict, findings: list[dict]) -> list[dict]:
+    """The CRS Review-notes rows that come from the run's stored outcome
+    (`crs_mapping.build_review_notes` asks only when the caller passed one):
+    rule_trust's rows when the outcome holds anything, then - PF4 step 2
+    (#884) - the clause-coverage row, which an outcome without the record
+    still gets, saying so."""
+    notes: list[dict] = []
+    if outcome:
+        from .rule_trust import review_notes as trust_notes
+        notes.extend(trust_notes(outcome, findings))
+    notes.extend(review_notes(outcome))
+    return notes
+
+
+def review_notes(outcome: dict | None) -> list[dict]:
+    """PF4 step 2: the one CRS Review-notes row (internal copy) that states
+    the run's clause coverage from the record the run stored at its end
+    (`summarise`, PR #1013) - the same line, one home (CLAUDE.md rule 8).
+    A run with no record says so; it is never 0."""
+    cov = (outcome or {}).get("clause_coverage") or {}
+    if not cov:
+        return [{"note": NOTE, "standard": "", "count": None, "detail": NOT_RECORDED}]
+    return [{"note": NOTE, "standard": "", "count": cov.get("applicable"),
+             "detail": f"{cov.get('line')}. The share is out of this run's applicable "
+                       "requirements; a checklist-covered requirement counts as covered "
+                       "by its checklist, not as proof the whole standard was checked."}]
