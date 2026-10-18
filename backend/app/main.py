@@ -1339,9 +1339,8 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         "findings_total": findings_total,
         "by_status": by_status,
         "recommended_code": outcome.get("recommended_code"),
-        # 2g: plain words for the engineer; the technical sentence under
-        # "Details". A run stored before 2g gets its plain sentence derived
-        # from the same stored counts.
+        # 2g: plain words for the engineer; the technical sentence under "Details".
+        # A run stored before 2g gets its plain sentence from the same counts.
         "recommended_reason": comparison_mod.plain_outcome(outcome)[0],
         "recommended_details": comparison_mod.plain_outcome(outcome)[1],
         # The client's configured code labels, in policy order, so the screen
@@ -1381,8 +1380,9 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         "web_check_status": _json_column(run.get("web_check_status")),
         # #633: findings written before a failed run stopped are PARTIAL.
         "partial_findings": outcome.get("partial_findings") or 0,
-        # #845: the AI numbers (reader, matcher, AI check, wording), each with
-        # its denominator and where it ran - from stored data, no model call.
+        # Order 95 piece 3: the inbox's "Signed"; null when nothing was issued.
+        "crs_issued_at": crs_issue_mod.last_issued_at(run["id"]),
+        # #845: the AI numbers, each with its denominator - stored data, no model call.
         "ai_numbers": _ai_numbers(run, scope, outcome),
     }
 

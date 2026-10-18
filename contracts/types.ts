@@ -804,6 +804,9 @@ export interface ReviewRunSummary {
   web_check_status?: RunCheckStatus | null;
   /** #633: findings written before a failed run stopped. Partial. */
   partial_findings?: number;
+  /** Order 95 piece 3: when the newest contractor copy was issued (the
+   *  inbox's "Signed"). Null when none was. */
+  crs_issued_at?: string | null;
   ai_check_status?: {
     ran: boolean;
     complete: boolean;
