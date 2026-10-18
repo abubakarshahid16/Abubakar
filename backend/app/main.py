@@ -22,11 +22,12 @@ from . import crs_issue as crs_issue_mod
 from . import crs_mapping as crs_mapping_mod
 from . import crs_numbers as crs_numbers_mod
 from . import crs_wording as crs_wording_mod
+from . import export_status as export_status_mod
 from . import review_trace as review_trace_mod
 from . import engineer_feedback as engineer_feedback_mod
 from . import datasheets as datasheets_mod
 from . import disciplines as disciplines_mod
-from . import ingest as ingest_mod
+from . import ingest as ingest_mod, dashboard_pool
 from . import job_queue as job_queue_mod
 from . import review_jobs as review_jobs_mod
 from . import orphan_guard
@@ -108,7 +109,8 @@ def _log_hooks_path() -> None:
 
     try:
         message = hooks_check.hooks_path_warning()
-    except Exception:  # noqa: BLE001 - boot must not depend on git
+    except Exception as exc:  # noqa: BLE001 - boot must not depend on git
+        errors.fell_back("main: git hooks check failed; no warning", exc, None)
         return
     if message:
         logging.getLogger("uvicorn.error").warning(message)
@@ -259,13 +261,13 @@ from .api import deliverables as api_deliverables  # noqa: E402
 from .api import document_classification as api_document_classification  # noqa: E402
 from .api import document_files as api_document_files  # noqa: E402
 from .api import documents as api_documents  # noqa: E402
+from .api import run_summary as api_run_summary  # noqa: E402
 from .api import standards as api_standards  # noqa: E402
 
-# Order 73: the documents area's routes live in app/api/ (target structure).
-app.include_router(api_documents.router)
-app.include_router(api_document_classification.router)
-app.include_router(api_document_files.router)
-app.include_router(api_admin.router)
+# Order 73: the documents area's routes live in app/api/ (order 95: the run summary too).
+for _r in (api_documents, api_document_classification, api_document_files, api_admin):
+    app.include_router(_r.router)
+app.include_router(api_run_summary.router)
 app.include_router(api_standards.router)
 app.include_router(api_deliverables.router)
 app.include_router(watch_api_mod.router)
@@ -368,7 +370,7 @@ async def security_headers(request: Request, call_next):
 
 
 @app.get("/api/health", response_model=schemas.Health)
-def health():
+async def health():
     """Readiness, and NOTHING ELSE. This is the one unauthenticated route.
 
     It answers two questions: is the service up, and are the models present.
@@ -389,7 +391,7 @@ def health():
     backend has to distinguish "down" from "up but stuck", and neither is
     about anybody's documents.
     """
-    worker = ingest_mod.get_worker().status()
+    worker = dashboard_pool.health_status(ingest_mod.get_worker())
     return {
         "ok": True,
         "embed_model_present": (settings.embed_model_dir / "tokenizer.json").exists(),
@@ -412,6 +414,7 @@ def health():
 
 
 @app.get("/api/metrics", response_model=schemas.Metrics, responses=schemas.ERRORS_422)
+@dashboard_pool.heavy_route
 def metrics(request: Request,
     scope: access.AccessScope = Depends(access.current_scope),
 ):
@@ -1254,28 +1257,10 @@ def _now_date() -> str:
 
 
 def _missing_references(submittal_id: str, allowed: frozenset[str]) -> list[str]:
-    """Standards this submittal CITES that the library does not hold.
-
-    Lifted out of the dashboard, which computed exactly this inline, so the
-    CRS gap rows and the Active Standards tile cannot drift into two answers
-    to one question. Read from the submittal's own chunk text rather than by
-    re-running applicability selection.
-    """
-    text = " ".join(
-        row["text"] or "" for row in connect().execute(
-            "SELECT text FROM chunks WHERE document_id = ?", (submittal_id,)))
-    names = datasheets_mod.referenced_standards(text)
-    # THE RULE LIVES IN applicability.missing_references, and is only CALLED
-    # here. This helper used to carry its own copy, which compared an
-    # identifier against a dict keyed by document id - so every cited
-    # standard was "missing", and the CRS told a contractor that six standards
-    # held in the library were unavailable. See that function's docstring.
-    #
-    # Reported in the submittal's own spelling ("32-SAMSS-004", never
-    # "32SAMSS004"); ordered by the normalised key so the CRS rows are stable.
-    missing = applicability_mod.missing_references(
-        applicability_mod._library(allowed), names)
-    return sorted(missing, key=applicability_mod.normalise_identifier)
+    """Standards this submittal CITES that the library does not hold: the one
+    answer in `export_status.missing_standards`, shared by the CRS gap rows,
+    the Active Standards tile, the readiness strip and the review PDF."""
+    return export_status_mod.missing_standards(submittal_id, allowed)
 
 
 def _standards_change(run: dict, scope: access.AccessScope) -> dict | None:
@@ -1357,9 +1342,8 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         "findings_total": findings_total,
         "by_status": by_status,
         "recommended_code": outcome.get("recommended_code"),
-        # 2g: plain words for the engineer; the technical sentence under
-        # "Details". A run stored before 2g gets its plain sentence derived
-        # from the same stored counts.
+        # 2g: plain words for the engineer; the technical sentence under "Details".
+        # A run stored before 2g gets its plain sentence from the same counts.
         "recommended_reason": comparison_mod.plain_outcome(outcome)[0],
         "recommended_details": comparison_mod.plain_outcome(outcome)[1],
         # The client's configured code labels, in policy order, so the screen
@@ -1379,10 +1363,10 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         "page_coverage": outcome.get("page_coverage"),
         "table_values_not_compared": outcome.get("table_values_not_compared") or [],
         "requirements_not_applied": outcome.get("requirements_not_applied") or [],
-        # #678: every requirement in scope in one of three groups; a run stored
-        # before this existed has only its counts, so its reasons say so.
         "requirement_split": (outcome.get("requirement_split")
                               or requirement_split_mod.from_counts(outcome.get("unchecked_counts"))),
+        # PF4 (#884): the clause coverage the run stored; null on an older run, never 0.
+        "clause_coverage": outcome.get("clause_coverage"),
         "applicability": outcome.get("applicability"),
         # P3: the background job running this review - progress and cancel.
         "job": job,
@@ -1399,8 +1383,9 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         "web_check_status": _json_column(run.get("web_check_status")),
         # #633: findings written before a failed run stopped are PARTIAL.
         "partial_findings": outcome.get("partial_findings") or 0,
-        # #845: the AI numbers (reader, matcher, AI check, wording), each with
-        # its denominator and where it ran - from stored data, no model call.
+        # Order 95 piece 3: the inbox's "Signed"; null when nothing was issued.
+        "crs_issued_at": crs_issue_mod.last_issued_at(run["id"]),
+        # #845: the AI numbers, each with its denominator - stored data, no model call.
         "ai_numbers": _ai_numbers(run, scope, outcome),
     }
 
@@ -1617,6 +1602,7 @@ def review_feedback(
 
 @app.get("/api/reviews/runs", response_model=schemas.ReviewRunList,
          responses=schemas.ERRORS_422)
+@dashboard_pool.heavy_route
 def list_review_runs(
     request: Request,
     document_id: str | None = Query(None, description="only this submittal's runs"),
@@ -1819,7 +1805,7 @@ def start_review_run(
         raise HTTPException(status_code=409, detail=errors.safe_error(
             errors.INVALID_PARAMETER,
             f"a review of this submittal is already queued or running ({exc.args[0]})")) from exc
-    return next(r for r in list_review_runs(
+    return next(r for r in list_review_runs.__wrapped__(
         request=request, document_id=document_id, scope=scope,
     )["runs"] if r["review_run_id"] == run_id)
 
@@ -2071,15 +2057,13 @@ def structured_search(q: str, kind: str | None = None,
         include_unowned=scope.is_admin)}
 
 
-@app.get("/api/risks", response_model=schemas.RiskList)
-def list_risks(risk_type: str | None = None,
+@app.get("/api/risks", response_model=risks_mod.RiskList)
+@dashboard_pool.heavy_route
+def list_risks(risk_type: str | None = None, limit: int = Query(risks_mod.PAGE_SIZE, ge=1, le=risks_mod.MAX_PAGE_SIZE), offset: int = Query(0, ge=0),
                scope: access.AccessScope = Depends(access.current_scope)):
     if risk_type is not None and risk_type not in risks_mod.RISK_TYPES:
         raise HTTPException(status_code=422, detail="unsupported risk type")
-    # READ ONLY (#478, #608). Detection used to run here on every GET, looping
-    # over every finding and emailing per risk. It runs in the background
-    # (`risks_mod.start_background_detection`) and from POST /api/risks/detect.
-    return {"risks": risks_mod.list_items(risk_type=risk_type, allowed_document_ids=scope.allowed_document_ids)}
+    return risks_mod.list_page(risk_type=risk_type, allowed_document_ids=scope.allowed_document_ids, limit=limit, offset=offset)
 
 
 @app.post("/api/risks/detect", response_model=schemas.RiskDetectionResult,
@@ -2098,7 +2082,7 @@ def finding_traceability(finding_id: str, scope: access.AccessScope = Depends(ac
     return item
 
 
-@app.post("/api/risks", response_model=schemas.Risk,
+@app.post("/api/risks", response_model=risks_mod.Risk,
           responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
 def create_risk(body: schemas.RiskCreate, scope: access.AccessScope = Depends(access.current_scope)):
     """Record a risk. The same rules as every other writer (audit 2026-09-30):
@@ -2481,7 +2465,7 @@ async def ask_stream(conversation_id: str, body: schemas.AskRequest, request: Re
                 turn.cancel.set()
             try:
                 item = turn.events.get_nowait()
-            except Exception:  # queue.Empty
+            except chat_stream.Empty:  # nothing queued yet; only this (79c)
                 await asyncio.sleep(0.05)
                 continue
             if item is None:
@@ -2817,8 +2801,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     comparison_mod.attach_crs_context(findings)
     # Owner order 2d/2f: a confirmed AI engineering check item is printed
     # "confirmed by <name>" - the engineer's display name, never their id.
-    # Section 3: an edited comment names its editor the same way. 2d-2: a
-    # confirmed web standards check item does too.
+    # Section 3: an edited comment names its editor the same way; 2d-2: so does a confirmed web standards check item.
     # Audit 2026-09-30: EVERY confirmed comment, not only AI/web items and
     # edits - a plain confirmed requirement comment printed the raw user id.
     confirmers = {f["confirmed_by"] for f in findings if f.get("confirmed_by")}
@@ -2827,8 +2810,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         people = {r["id"]: r["display_name"] for r in connect().execute(
             f"SELECT id, display_name FROM users WHERE id IN ({marks})", tuple(confirmers))}
         for finding in findings:
-            # A name only when one is on record - never invented; the id
-            # stays the fallback in `crs_mapping`.
+            # A name only when one is on record - never invented; the id stays the fallback in `crs_mapping`.
             if people.get(finding.get("confirmed_by")):
                 finding["confirmed_by_name"] = people[finding["confirmed_by"]]
 
@@ -2954,8 +2936,8 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     meta = {
         "document_title": submittal_name,
         "submittal_number": submittal_number,
-        # Never printed. Half of the key each row's stable reference is
-        # minted from, so re-exporting this run quotes the same references.
+        # Never printed. Half of the key each row's stable reference is minted
+        # from, so re-exporting this run quotes the same references.
         "review_run_id": review_run_id,
         "date_issued": stamp,
         # Left blank on purpose - see above. Absent, not invented.
@@ -2982,8 +2964,10 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
             for part in unchecked],
         "unchecked_parts": [part["line"] for part in unchecked],
         "incomplete_notice": absence_mod.notice_for(unchecked),
-        # Never printed: the keys of this run's rejected comments, for
-        # `_mint_crs_numbers` to withdraw.
+        # #633 item 7: row 1 of a sheet whose run did not complete - status, reason,
+        # unread pages, missing standards. "" for a completed run (sheet unchanged).
+        "run_status_note": export_status_mod.crs_header_note(run.get("status"), outcome.get("error"), unread, missing),
+        # Never printed: this run's rejected comment keys, for `_mint_crs_numbers` to withdraw.
         "rejected_row_keys": meta_rejected_keys,
     }
     return rows, meta, submittal_name, stamp
@@ -3060,8 +3044,7 @@ def _readiness_payload(submittal_document_id: str, scope: access.AccessScope) ->
     missing = _missing_references(submittal_document_id, allowed)
     runs = submittal_review_mod.list_review_runs(
         allowed_document_ids=allowed, submittal_document_id=submittal_document_id)
-    # The latest COMPLETED run: a failed or still-running one produced no
-    # result to compare against.
+    # The latest COMPLETED run: a failed or still-running one produced no result to compare against.
     last = next((r for r in runs if r.get("status") == "completed"), None)
     changes: list[str] = []
     if last is not None:

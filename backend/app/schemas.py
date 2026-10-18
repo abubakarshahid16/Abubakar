@@ -2043,26 +2043,6 @@ class RiskCreate(BaseModel):
     source_finding_id: str | None = Field(default=None, max_length=200)
 
 
-class Risk(BaseModel):
-    id: str
-    risk_type: RiskType
-    title: str
-    description: str
-    severity: str
-    status: str
-    deliverable_id: str | None
-    document_id: str | None
-    owner_user_id: str | None
-    due_date: str | None
-    source_finding_id: str | None
-    created_at: str
-    updated_at: str
-
-
-class RiskList(BaseModel):
-    risks: list[Risk]
-
-
 class RiskDetectionResult(BaseModel):
     status: Literal["ok", "already_running"]
     created: int
@@ -2560,8 +2540,7 @@ class VisionReaderStatus(BaseModel):
 
 
 class CrsReviewNote(BaseModel):
-    """Owner order 2f: one of the engineer's internal notes (the "Review
-    notes" sheet) - never a contractor comment."""
+    """Owner order 2f: one of the engineer's internal notes (the "Review notes" sheet) - never a contractor comment."""
 
     note: str
     standard: str = ""
@@ -2596,15 +2575,16 @@ class CrsPreview(BaseModel):
     recommended_code_reason: str = ""
     recommended_code_status: str = ""
     recommended_code_label: str
-    #: #633: "REVIEW INCOMPLETE: N part(s) could not be checked" when the run
-    #: failed, stopped, or left parts unchecked; "" when nothing is known to be
-    #: unchecked. In both copies. `unchecked_parts` lists each part (internal
-    #: copy only).
+    #: #633: "REVIEW INCOMPLETE: N part(s) could not be checked" when the run failed, stopped
+    #: or left parts unchecked; "" when nothing is known to be unchecked. Both copies;
+    #: `unchecked_parts` lists each part (internal copy only). Item 7: `run_status_note` is row 1
+    #: of a sheet whose run did not complete: "REVIEW INCOMPLETE: run <status> - <reason>.
+    #: Unread pages: N (...). Missing standards: M (...)."; "" when it did.
     incomplete_notice: str = ""
     unchecked_parts: list[str] = []
-    #: B5: the standards the review applied and why, the ones considered and
-    #: not applied, and cited ones not held (MISSING_LOCALLY) - the workbook's
-    #: "Applicable standards" sheet.
+    run_status_note: str = ""
+    #: B5: the standards the review applied and why, the ones considered and not applied,
+    #: and cited ones not held (MISSING_LOCALLY): the "Applicable standards" sheet.
     applicable_standards: list[CrsStandardRow] = []
 
 
@@ -2775,11 +2755,11 @@ class ReviewRunSummary(BaseModel):
     #: they are about X, this submittal is Y") with the standards and clauses
     #: behind it. Empty for a run that predates it.
     requirements_not_applied: list[dict] = []
-    #: #678: every requirement in the run's scope in ONE of three groups
-    #: (checked / applies but not checked / does not apply), each repeat counted
-    #: once, with the reasons behind the last two. For a run that predates it
-    #: only the counts are known and every reason is "no reason recorded".
+    #: #678: every requirement in the run's scope in ONE of three groups (checked / applies but
+    #: not checked / does not apply), each repeat counted once, with the reasons behind the last
+    #: two. For a run that predates it only the counts are known and every reason is "no reason recorded".
     requirement_split: dict | None = None
+    clause_coverage: dict | None = None  # PF4 (#884): as the run stored it at its end; null before the record
     #: #453: how the requirements that stayed were decided (general, matching,
     #: kept because the equipment is unknown). Null for a run that predates it.
     applicability: dict | None = None
@@ -2799,6 +2779,9 @@ class ReviewRunSummary(BaseModel):
     #: #633: findings written before a failed run stopped. They are partial and
     #: the run recommends no code.
     partial_findings: int = 0
+    #: Order 95 piece 3: when the newest contractor copy of this run's CRS was
+    #: issued (the inbox's "Signed"). Null when none was.
+    crs_issued_at: str | None = None
     #: #845: the run's AI numbers (reader, matcher, AI check, wording), each
     #: with its denominator and where it ran. Null when the run holds no
     #: record of any AI step; a step with no record is null inside it.

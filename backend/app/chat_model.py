@@ -30,6 +30,7 @@ import re
 
 from . import claude_spend, model_transport
 from . import reasoning_provider as rp
+from .ai import output_limits
 from .config import settings
 
 #: The budget step every chat call is charged to in the Claude ledger.
@@ -237,7 +238,7 @@ def generate(system: str, prompt: str, *, temperature: float, preference: str | 
     if isinstance(engine, rp.ClaudeProvider):
         response = engine.reason(rp.Packet(
             prompt=prompt, system=system, num_ctx=settings.num_ctx,
-            num_predict=settings.chat_max_output_tokens, temperature=temperature,
+            num_predict=output_limits.max_tokens_for(output_limits.ROUTE_CHAT), temperature=temperature,
             step=CHAT_STEP, prompt_version="chat-v1", timeout_s=timeout))
         return {
             "response": response.text,
@@ -280,7 +281,8 @@ def _streamed(engine, turn, system: str, prompt: str, *, temperature: float, tim
                 "provider": rp.CLAUDE if claude else rp.OLLAMA, "cost_usd": None}
     packet = rp.Packet(
         prompt=prompt, system=system, num_ctx=settings.num_ctx,
-        num_predict=settings.chat_max_output_tokens if claude else settings.max_output_tokens,
+        num_predict=(output_limits.max_tokens_for(output_limits.ROUTE_CHAT) if claude
+                     else settings.max_output_tokens),
         temperature=temperature, step=CHAT_STEP, prompt_version="chat-v1", timeout_s=timeout,
         options={} if claude else {"num_thread": settings.num_thread, "num_batch": settings.num_batch})
     turn.emit("step", {"label": "Writing the answer", "count": None, "done": False})

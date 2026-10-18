@@ -23,13 +23,14 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T, keyword="refusal_rule_refuses", tags=("honesty",)),
     # MATCH_ENGINE=claude (R32): the one Claude lane, gated and metered.
     Mutation(id="M794-04", phase=794, description="the claude matcher is not metered by claude_spend",
-             path=_C, anchor=('        call = reader_api.model_call_via(claude_spend.metered(\n'
-                              '            transport, MATCH_STEP, unbilled=reader_transport.unbilled), cfg=cfg)\n'),
-             replacement='        call = reader_api.model_call_via(transport, cfg=cfg)\n',
+             # re-anchored (#456): the matcher goes through the route table's model_call
+             path=_C, anchor=('        call = output_limits.model_call_for(claude_spend.metered(\n'
+                              '            transport, MATCH_STEP, unbilled=reader_transport.unbilled), output_limits.ROUTE_MATCH, cfg=cfg)\n'),
+             replacement='        call = output_limits.model_call_for(transport, output_limits.ROUTE_MATCH, cfg=cfg)\n',
              target=_T, keyword="metered_lane or spend_cap", tags=("budget", "egress", "critical")),
     Mutation(id="M794-05", phase=794, description="the claude matcher skips the 'may Claude be used' check",
-             path=_C, anchor=('        code, _why = claude_unavailable_for_task(settings.match_engine)\n'
-                              '        if code is not None:\n'
+             # re-anchored (#456): the same check, one line shorter
+             path=_C, anchor=('        if claude_unavailable_for_task(settings.match_engine)[0] is not None:\n'
                               '            return None, MODEL_UNAVAILABLE\n'
                               '        transport = reader_transport.transport()\n'),
              replacement='        transport = reader_transport.transport()\n',

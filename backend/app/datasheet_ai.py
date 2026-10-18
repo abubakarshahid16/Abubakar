@@ -49,7 +49,15 @@ import re
 import time
 from contextvars import ContextVar
 
-from . import claims, claude_datasheet, datasheet_inputs, datasheets
+from . import (
+    claims,
+    claude_datasheet,
+    datasheet_inputs,
+    datasheets,
+    errors,
+    job_progress,
+)
+from .ai import output_limits
 from .claude_spend import StopRun
 from .config import settings
 
@@ -156,10 +164,15 @@ def _claude_call():
     import os
     base = reader_api.ReaderSettings.from_env()
     model = (os.environ.get("STANDARDS_READER_MODEL") or "").strip() or settings.claude_reasoning_model
-    cfg = dataclasses.replace(base, model=model, max_tokens=int(settings.datasheet_ai_claude_max_tokens),
+    cfg = dataclasses.replace(base, model=model,
                               timeout_seconds=float(settings.datasheet_ai_timeout_seconds))
-    call = claude_budget.Budget(reader_api.model_call_via(claude_spend.metered(
-        transport, STEP, unbilled=reader_transport.unbilled), cfg=cfg))
+    # #456: the route table sets the cap (DATASHEET_AI_CLAUDE_MAX_TOKENS); a
+    # cut-off reply keeps its complete facts and is marked `cut_off` by
+    # `claude_datasheet.parse_or_cut` (#501), exactly as the local lane's
+    # `EngineFailed` names a cut-off page - both named, neither parsed whole.
+    call = claude_budget.Budget(output_limits.model_call_for(
+        claude_spend.metered(transport, STEP, unbilled=reader_transport.unbilled),
+        output_limits.ROUTE_DATASHEET_READ, cfg=cfg, salvage=True))
     call.engine = CLAUDE
     call.model = model
     call.step = STEP
@@ -179,7 +192,7 @@ def _ollama_call(packet_shape: dict | None = None):
     try:
         model_transport.endpoint("/api/generate")
     except Exception as exc:  # noqa: BLE001 - a refused host is a reason, not a crash
-        return None, f"ollama engine unavailable ({type(exc).__name__})"
+        return errors.fell_back("datasheet_ai: the local engine is unavailable; no AI read", exc, (None, f"ollama engine unavailable ({type(exc).__name__})"))
     # Owner order 2026-10-11: the local model is slow - every call has its
     # own timeout (DATASHEET_AI_TIMEOUT_SECONDS), not the provider's 15 min.
     model = settings.datasheet_ai_ollama_model or settings.answer_model
@@ -243,7 +256,7 @@ def model_call_for(engine: str | None = None, packet_shape: dict | None = None):
         if name == CLAUDE:
             return _claude_call()
     except Exception as exc:  # noqa: BLE001 - never into ingestion
-        return None, f"{name} engine unavailable ({type(exc).__name__})"
+        return errors.fell_back("datasheet_ai: the AI reader engine could not be built; no AI read", exc, (None, f"{name} engine unavailable ({type(exc).__name__})"))
     return None, f"DATASHEET_AI_READER={name!r} is not one of {', '.join(ENGINES)}"
 
 
@@ -270,6 +283,7 @@ def _read(page_text: str, page_no: int, model_call, engine: str | None) -> dict:
         return _empty(page_no, engine, error=f"stopped by a limit ({exc.count_key})",
                       stopped=exc.count_key)
     except Exception as exc:  # noqa: BLE001 - never into ingestion
+        errors.fell_back("datasheet_ai: the AI read of a page failed; the page is recorded empty", exc, None)
         if is_timeout(exc):
             return _empty(page_no, engine, error=TIMED_OUT.format(
                 seconds=_seconds(settings.datasheet_ai_timeout_seconds)), timed_out=True)
@@ -348,7 +362,8 @@ def read_pages(page_texts: dict[int, str], engine_or_callable=None) -> dict:
     timed_out: list[int] = []
     budget = float(settings.datasheet_ai_max_seconds)
     started = time.monotonic()
-    for page_no in sorted(page_texts):
+    for index, page_no in enumerate(sorted(page_texts), start=1):
+        job_progress.page(index, len(page_texts))  # order 95 piece 3b: display only
         text = page_texts[page_no] or ""
         if call is None:
             reasons[page_no] = why
