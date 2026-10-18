@@ -782,6 +782,13 @@ export interface ReviewRunSummary {
    *  counted once. Only "applies but not checked" counts against a run. Null
    *  when the run has no counts at all. */
   requirement_split?: RequirementSplit | null;
+  /** PF4 (#884): the clause coverage the run stored at its end - every
+   *  applicable requirement in exactly one state, with the line that says
+   *  it; null on a run made before the record (never 0). */
+  clause_coverage?: {
+    applicable: number; counts: Record<string, number>; checked_share: number | null;
+    adds_up: boolean; line: string;
+  } | null;
   /** #453: how the rest were decided; null for a run that predates it. */
   applicability?: {
     submittal_equipment: string[]; equipment_source: string | null;
@@ -1115,7 +1122,9 @@ export interface ReviewBaselineRule { id: string; submittal_doc_type: string | n
 export interface BaselineSelection { document_id: string; rule_id: string | null; automatic: boolean; }
 export interface ExpectedDeliverable { id: string; wbs_code: string; deliverable_type: string; title: string; required: boolean; deliverable_id: string | null; status: DeliverableStatus | null; state: "registered" | "missing"; origin: "manual" | "inferred"; }
 export type RiskType = "schedule" | "review" | "dependency" | "compliance";
-export interface Risk { id: string; risk_type: RiskType; title: string; description: string; severity: string; status: string; deliverable_id: string | null; document_id: string | null; owner_user_id: string | null; due_date: string | null; source_finding_id: string | null; created_at: string; updated_at: string; }
+export interface Risk { id: string; risk_type: RiskType; title: string; description: string; severity: string; status: string; deliverable_id: string | null; document_id: string | null; owner_user_id: string | null; due_date: string | null; source_finding_id: string | null; created_at: string; updated_at: string; finding_count?: number; }
+// One page of the register and the total it is a page of (order 88a).
+export interface RiskPage { risks: Risk[]; total: number; limit: number; offset: number; }
 export interface StructuredSearchResult { id: string; kind: "deliverable" | "finding" | "risk" | "stakeholder"; label: string; wbs_code: string | null; document_id: string | null; }
 export interface ReviewTraceability { finding: ReviewFinding; document: { id: string; filename: string }; baseline: { filename: string } | null; citations: string[]; events: ReviewFindingEvent[]; deliverables: Deliverable[]; owner: { user_id: string; email: string; display_name: string | null } | null; action: string; }
 
