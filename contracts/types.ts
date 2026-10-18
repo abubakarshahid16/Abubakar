@@ -863,6 +863,13 @@ export interface CrsIssueDecision {
   reason: string;
   decided_by: string;
   decided_at: string;
+  /** Order 95 piece 6a: the removal reason code; null when none was given. */
+  reason_code?: string | null;
+}
+
+/** Order 95 piece 6a: every decision on a run's CRS, newest first. */
+export interface CrsIssueDecisionList {
+  decisions: CrsIssueDecision[];
 }
 
 /** PF4 (#884): a run's applicable rules, each in exactly one state. */

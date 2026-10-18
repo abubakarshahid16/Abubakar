@@ -258,6 +258,7 @@ app.add_middleware(
 # Routes in their own modules (watched folder; #473 fact confirmation) so this
 # file stays the only place routing is declared without growing a feature.
 from .api import admin as api_admin  # noqa: E402
+from .api import crs_archive as api_crs_archive  # noqa: E402
 from .api import document_classification as api_document_classification  # noqa: E402
 from .api import document_files as api_document_files  # noqa: E402
 from .api import documents as api_documents  # noqa: E402
@@ -267,6 +268,7 @@ app.include_router(api_documents.router)
 app.include_router(api_document_classification.router)
 app.include_router(api_document_files.router)
 app.include_router(api_admin.router)
+app.include_router(api_crs_archive.router)
 app.include_router(watch_api_mod.router)
 app.include_router(fact_api_mod.router)
 app.include_router(sheet_page_mod.router)  # #967: the Sheet's page with every card's value marked
@@ -4011,8 +4013,14 @@ def decide_crs_open_finding(
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "no review finding with that id in this run"))
     try:
-        record = crs_issue_mod.decide_finding(review_run_id, finding_id, body.decision or "",
-                                              reason=body.reason, actor=actor)
+        record = crs_issue_mod.decide_finding(
+            review_run_id,
+            finding_id,
+            body.decision or "",
+            reason=body.reason,
+            actor=actor,
+            reason_code=body.reason_code,
+        )
     except crs_issue_mod.IssueError as exc:
         raise HTTPException(status_code=422, detail=errors.safe_error(
             errors.INVALID_PARAMETER, str(exc))) from exc
@@ -4054,23 +4062,6 @@ def issue_review_crs(
                                    actor=scope.user_id or "unrestricted")
     return _xlsx_response(workbook, filename, {"X-Issued-Copy-Id": record["id"],
                                                "X-Issued-Sha256": record["sha256"]})
-
-
-@app.get("/api/reviews/runs/{review_run_id}/crs/issued",
-         response_model=schemas.CrsIssuedCopyList,
-         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def list_issued_crs(
-    review_run_id: str,
-    request: Request,
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """PF5 (#885): the contractor copies issued for this run. Read only."""
-    reject_unknown_params(request, set())
-    if submittal_review_mod.get_review_run(
-            review_run_id, allowed_document_ids=scope.allowed_document_ids) is None:
-        raise HTTPException(status_code=404, detail=errors.safe_error(
-            errors.NOT_FOUND, "no review run with that id"))
-    return {"copies": crs_issue_mod.issued(review_run_id)}
 
 
 @app.get("/api/reviews/runs/{review_run_id}/crs/issued/{copy_id}",

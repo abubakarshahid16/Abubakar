@@ -39,6 +39,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `api.document_classification` | Routes: what a document is - classification, kind, the playbook review |
 | `api.document_files` | Routes: a document's pages, page images, original file, workbook, chunks, excluded text and page ledger |
 | `api.admin` | Routes: users, disciplines, grants, the model unload, the read-only database explorer and the document-kind routing run (moved out of main.py, order 79a) |
+| `api.crs_archive` | Routes: a run's CRS record - who decided what, when and why (order 95 piece 6a), and the issued contractor copies (moved out of main.py) |
 | `api_tags` | The API description grouped by area (one tag per route) with every file response typed; documentation only (order 69) |
 | `api_utils` | Shared API validation |
 | `applicability` | Choose the standards that apply to a submittal |
