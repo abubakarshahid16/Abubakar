@@ -76,7 +76,7 @@ sys.path.insert(0, str(ROOT / "backend"))
 from app import answer as answer_mod  # noqa: E402
 from app import chat as chat_mod  # noqa: E402
 from app.search import every_document_id  # noqa: E402
-from app import keyword  # noqa: E402
+from app import fts_index  # noqa: E402
 from app.db import connect
 from app.config import settings
 from app.db import init_db  # noqa: E402
@@ -295,7 +295,7 @@ def check_ground_truth(questions: list[dict]) -> list[str]:
         ):
             if not lexical.looks_like_a_named_subject(term, q["question"]):
                 continue
-            occurrences = keyword.term_occurrences(
+            occurrences = fts_index.term_occurrences(
                 term, allowed_document_ids=allowed_document_ids
             )
             if occurrences > 0:
@@ -641,7 +641,7 @@ def main() -> int:
 
     data = load_questions(args.questions)
     init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
 
     # Stale ground truth is a different failure from a system regression, and
     # conflating them wastes the time of whoever reads the report.

@@ -1,5 +1,5 @@
 """Mutations of the context notes (CHUNKER_VERSION 8): the heading chain in
-backend/app/chunker.py, and its readers in keyword.py, search.py, ingest.py
+backend/app/chunker.py, and its readers in fts_index.py, search.py, ingest.py
 and embedder.py. Target: backend/tests/test_context_notes.py.
 """
 
@@ -21,7 +21,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              tags=("retrieval",)),
     Mutation(id="M1401", phase=1401,
              description="the keyword index ignores the chain and indexes the bare section",
-             path=APP / "keyword.py",
+             path=APP / "fts_index.py",
              anchor='index_text(r["context"] or r["section"] or "")',
              replacement='index_text(r["section"] or "")',
              target=_T, keyword="keyword_index_finds_a_clause_by_the_heading_above_it",

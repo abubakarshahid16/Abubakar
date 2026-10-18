@@ -37,7 +37,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app import access, db, keyword, metrics, states
+from app import access, db, fts_index, metrics, states
 from app.config import settings
 from app.db import connect
 from app.main import app
@@ -78,7 +78,7 @@ def temp_storage(tmp_path, monkeypatch):
     # and `metrics.corpus()` counts it unconditionally. Without this the
     # endpoint raises "no such table: chunks_fts" and every assertion in this
     # file fails for a reason that has nothing to do with disclosure.
-    connect().executescript(keyword.SCHEMA)
+    connect().executescript(fts_index.SCHEMA)
     yield
     access.set_user_resolver(None)
     monkeypatch.setattr(settings, "auth_mode", access.AUTH_DISABLED)

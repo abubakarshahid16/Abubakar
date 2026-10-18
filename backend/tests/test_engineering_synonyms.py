@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app import glossary, keyword, search
+from app import glossary, fts_index, search
 from app.main import app
 from tests.test_correctness_fixes import AMBIENT, INSPECTION, temp_storage, upload  # noqa: F401
 
@@ -40,7 +40,7 @@ def _clauses(hits):
 def test_a_lay_word_reaches_the_page_that_prints_the_documents_word(corpus):
     for question, clause in (("how humid is too humid to paint", "4.4"),
                              ("how much salt is allowed on the surface", "6.3")):
-        hits = keyword.search(question, allowed_document_ids=corpus)
+        hits = fts_index.search(question, allowed_document_ids=corpus)
         assert clause in _clauses(hits), question
 
 
@@ -48,9 +48,9 @@ def test_without_the_glossary_those_pages_were_not_reached(corpus, monkeypatch):
     """The miss is real on this corpus, so the test above proves the glossary
     and not something else."""
     monkeypatch.setattr(glossary, "GLOSSARY", {})
-    assert "4.4" not in _clauses(keyword.search("how humid is too humid",
+    assert "4.4" not in _clauses(fts_index.search("how humid is too humid",
                                                 allowed_document_ids=corpus))
-    assert "6.3" not in _clauses(keyword.search("how much salt is allowed",
+    assert "6.3" not in _clauses(fts_index.search("how much salt is allowed",
                                                 allowed_document_ids=corpus))
 
 
@@ -62,15 +62,15 @@ def test_the_expansion_is_reported_never_silent(corpus):
 
 def test_the_typed_word_is_kept_not_replaced(corpus):
     synonyms: dict = {}
-    keyword.search("salt", allowed_document_ids=corpus, synonyms=synonyms)
+    fts_index.search("salt", allowed_document_ids=corpus, synonyms=synonyms)
     assert synonyms == {"salt": list(glossary.GLOSSARY["salt"][0])}
-    variants = keyword._glossary_variants("salt spray")
+    variants = fts_index._glossary_variants("salt spray")
     assert "salt spray" not in variants and "spray" not in variants
 
 
 def test_a_word_with_no_entry_is_untouched(corpus):
     synonyms: dict = {}
-    keyword.search("design pressure", allowed_document_ids=corpus, synonyms=synonyms)
+    fts_index.search("design pressure", allowed_document_ids=corpus, synonyms=synonyms)
     assert synonyms == {}
 
 

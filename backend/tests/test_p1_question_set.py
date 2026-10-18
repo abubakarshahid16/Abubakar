@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "eval" / "p1"))
 
 import harness
 
-from app import access, db, keyword
+from app import access, db, fts_index
 from app.config import settings
 
 
@@ -33,7 +33,7 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "auth_mode", access.AUTH_DISABLED)
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     yield tmp_path
     db.reset_connection()

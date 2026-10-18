@@ -9,7 +9,7 @@ import sqlite3
 
 import pytest
 
-from app import db, keyword
+from app import db, fts_index
 from app.config import settings
 
 
@@ -19,14 +19,14 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "t.sqlite")
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     yield
     db.reset_connection()
 
 
 def _run(conn, match):
-    where, params = keyword._scope_clause(None, frozenset({"doc"}))
-    return keyword._run_match(conn, match, where, params, 10)
+    where, params = fts_index._scope_clause(None, frozenset({"doc"}))
+    return fts_index._run_match(conn, match, where, params, 10)
 
 
 # ---------------------------------------------- malformed MATCH still silent
@@ -51,7 +51,7 @@ def test_the_malformed_match_classifier_matches_what_sqlite_actually_says():
             conn.execute(
                 "SELECT * FROM chunks_fts WHERE chunks_fts MATCH ?", (bad_match,)
             ).fetchall()
-        assert keyword._is_malformed_match(caught.value), caught.value
+        assert fts_index._is_malformed_match(caught.value), caught.value
 
 
 # --------------------------------------------- a real DB error must surface

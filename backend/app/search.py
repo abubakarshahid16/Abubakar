@@ -25,7 +25,7 @@ import numpy as np
 
 from . import acronyms
 from . import glossary
-from . import keyword
+from . import fts_index
 from . import progress
 from . import scores
 from . import vector_store
@@ -254,7 +254,7 @@ def dense_search(
     """Exact cosine over the current vectors. Returns [] when nothing is
     embedded yet, and never loads the model when nothing is in scope.
 
-    `allowed_document_ids` is REQUIRED and keyword-only - see keyword.search
+    `allowed_document_ids` is REQUIRED and keyword-only - see fts_index.search
     for why it has no default.
 
     Storage, the backend (sqlite-vec or the exact numpy matrix), and the scope
@@ -281,7 +281,7 @@ def _keyword_candidates(
 ) -> list[dict]:
     """The keyword side, with carried-forward identifiers made SOFT.
 
-    keyword.search requires every identifier in its question (AND). For an
+    fts_index.search requires every identifier in its question (AND). For an
     identifier the reader typed that is right; for one a follow-up carried
     in from up to three turns back it is not - "what is the tolerance there?"
     became `"6.9.3" AND "API 610" AND ...` and every passage not naming all
@@ -305,9 +305,9 @@ def _keyword_candidates(
 
         soft = tuple(dict.fromkeys([
             *soft,
-            *(i for i in keyword.IDENTIFIER.findall(question)
+            *(i for i in fts_index.IDENTIFIER.findall(question)
               if lexical._scope_wholly_named(i, frozenset({document_id})))]))
-    strict = keyword.search(
+    strict = fts_index.search(
         question, limit=limit, document_id=document_id,
         allowed_document_ids=allowed_document_ids,
         corrections=corrections,
@@ -317,7 +317,7 @@ def _keyword_candidates(
     relaxed_question = without_terms(question, soft)
     if not relaxed_question or relaxed_question == question:
         return strict
-    relaxed = keyword.search(
+    relaxed = fts_index.search(
         relaxed_question, limit=limit, document_id=document_id,
         allowed_document_ids=allowed_document_ids,
         corrections=corrections,
@@ -376,11 +376,11 @@ def rrf_fuse(
 
 
 def find_identifiers(text: str) -> list[str]:
-    return keyword.IDENTIFIER.findall(text)
+    return fts_index.IDENTIFIER.findall(text)
 
 
 def find_designators(text: str) -> list[str]:
-    return keyword.find_designators(text)
+    return fts_index.find_designators(text)
 
 
 def without_terms(text: str, terms) -> str:
@@ -423,20 +423,20 @@ def apply_identifier_boost(
     wanted: dict[str, list[str]] = {}
     for ident in find_identifiers(question):
         # with or without an optional prefix: "UNS N06625" is named by a
-        # table row that prints "N06625" (keyword.unprefixed_forms)
+        # table row that prints "N06625" (fts_index.unprefixed_forms)
         wanted[ident.lower()] = [ident.lower(), *(
-            f.lower() for f in keyword.unprefixed_forms(ident))]
-    for designator in keyword.find_designators(question):
+            f.lower() for f in fts_index.unprefixed_forms(ident))]
+    for designator in fts_index.find_designators(question):
         wanted[designator.lower()] = [
-            v.lower() for v in keyword.designator_variants(designator)
+            v.lower() for v in fts_index.designator_variants(designator)
         ]
-    phrases = [phrase.lower() for phrase in keyword.content_phrases(question)]
+    phrases = [phrase.lower() for phrase in fts_index.content_phrases(question)]
     decimals = sorted(set(re.findall(r"(?<![\w.])\d+\.\d+(?![\w.])", question)))
     if not wanted and not phrases and not decimals:
         return
 
     top_rrf = max((c.rrf for c in candidates), default=0.0) or 1.0
-    wanted_designators = keyword.find_designators(question)
+    wanted_designators = fts_index.find_designators(question)
     for c in candidates:
         # The section heading is part of the passage's identity, and in a
         # specification it is where the designator usually lives: annex A.1's
@@ -497,7 +497,7 @@ def apply_identifier_boost(
             word, _, value = want.partition(" ")
             declared = {
                 m.group(2).upper()
-                for m in keyword.DESIGNATOR.finditer(heading)
+                for m in fts_index.DESIGNATOR.finditer(heading)
                 if m.group(1).lower() == word
             }
             if not declared:
@@ -970,11 +970,11 @@ def search(
     question = normalise_question(question)
 
     t = Timer()
-    # Filled in by keyword.search when a word the corpus does not contain was
+    # Filled in by fts_index.search when a word the corpus does not contain was
     # retried against the spelling the index does have. Reported, never
     # hidden: the reader is told what was actually searched.
     corrections: dict[str, str] = {}
-    # The engineering synonyms keyword.search OR-s in for this question
+    # The engineering synonyms fts_index.search OR-s in for this question
     # (app/glossary.py). Reported like the corrections, never hidden.
     synonyms = {word: list(phrases)
                 for word, phrases in glossary.expansions(question).items()}

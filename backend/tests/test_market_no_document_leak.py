@@ -49,7 +49,7 @@ APP = Path(market.__file__).resolve().parent
 #: these has, by construction, acquired the ability to leak document content -
 #: whether or not the code that does so has been written yet.
 FORBIDDEN_IMPORTS = frozenset({
-    "db", "search", "keyword", "chunker", "passages", "claims", "analysis",
+    "db", "search", "fts_index", "chunker", "passages", "claims", "analysis",
 })
 
 #: The files this promise covers. NONE of these may import an HTTP client and

@@ -398,7 +398,7 @@ _NAMED_PATTERNS = {
     "chat.py": "ordinal/clause shape of a question token",
     "claims.py": "the lexical shape of a number in the measurement regex; sign is numparse's",
     "corpus.py": "number WORDS for count questions",
-    "keyword.py": "joins digit groups inside identifiers for the keyword index",
+    "fts_index.py": "joins digit groups inside identifiers for the keyword index",
     "numparse.py": "the parser",
 }
 _NAMED = re.compile(r"^(?:_NUMBER|_THOUSANDS)\s*=", re.MULTILINE)

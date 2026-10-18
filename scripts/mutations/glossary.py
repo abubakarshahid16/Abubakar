@@ -7,7 +7,7 @@ _T = "tests/test_engineering_synonyms.py"
 
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1371", phase=1371, description="keyword search ignores the glossary",
-             path=APP / "keyword.py",
+             path=APP / "fts_index.py",
              anchor="    for word, phrases in _glossary_variants(question).items():",
              replacement="    for word, phrases in {}.items():",
              target=_T, keyword="lay_word_reaches", tags=("retrieval",)),

@@ -7,7 +7,7 @@ Two ways a good answer was refused as "not in the indexed documents":
    the corpus by nature (a standard does not write "say"), and with it the
    question crossed LONG_QUESTION_TERM_COUNT and needed two shared terms
    instead of one.
-2. A plain decimal ("2.5", "0.75") matched `keyword.IDENTIFIER` (its
+2. A plain decimal ("2.5", "0.75") matched `fts_index.IDENTIFIER` (its
    clause-number shape) and was held to be a named subject that must appear
    in the corpus. A value the reader typed is not a designation.
 
@@ -19,7 +19,7 @@ import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
-from app import db, keyword, lexical
+from app import db, fts_index, lexical
 from app.config import settings
 from app.ingest import IngestionWorker
 from app.main import app
@@ -34,7 +34,7 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "t.sqlite")
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     yield
     db.reset_connection()

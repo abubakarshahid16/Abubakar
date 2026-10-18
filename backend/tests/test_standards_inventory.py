@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import db, keyword, standards_inventory, submittal_review
+from app import db, fts_index, standards_inventory, submittal_review
 from app.config import settings
 
 
@@ -16,7 +16,7 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     monkeypatch.setattr(settings, "db_path", tmp_path / "app.sqlite")
     db.reset_connection(); db.init_db(); submittal_review.ensure_schema()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     yield
     db.reset_connection()
 
@@ -38,7 +38,7 @@ def _doc(doc_id: str, filename: str, role: str, text: str = "", **meta) -> str:
             VALUES (?,?,?,0,1,1,NULL,'prose',?,1,?,1)""",
             (f"{doc_id}-c1", doc_id, filename, text or filename,
              f"h-{doc_id}"))
-    keyword.index_document(doc_id)
+    fts_index.index_document(doc_id)
     return doc_id
 
 

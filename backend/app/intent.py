@@ -620,9 +620,9 @@ def route(message: str, *, has_previous_answer: bool = False,
     if kind == ADVICE_REQUEST:
         return {**base, "kind": GENERAL}
     # 6. The reader's own material: documents, and never general knowledge.
-    from . import keyword
-    if (document_in_scope or _DOCUMENT_WORDS.search(raw) or keyword.IDENTIFIER.search(raw)
-            or keyword.find_designators(raw)):
+    from . import fts_index
+    if (document_in_scope or _DOCUMENT_WORDS.search(raw) or fts_index.IDENTIFIER.search(raw)
+            or fts_index.find_designators(raw)):
         return {**base, "kind": DOCUMENT}
     # 7. The world, not the documents.
     if _GENERAL_WORDS.search(raw):

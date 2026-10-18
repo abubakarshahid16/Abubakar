@@ -28,7 +28,7 @@ from fastapi.testclient import TestClient
 
 from app import answer as answer_mod
 from app import chat_claude_first as ccf
-from app import db, keyword
+from app import db, fts_index
 from app import search as search_mod
 from app.config import settings
 from app.ingest import IngestionWorker
@@ -60,7 +60,7 @@ def alloys(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "t.sqlite")
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     path = tmp_path / "STD-N-013.pdf"
     doc = pymupdf.open()
@@ -85,7 +85,7 @@ def test_the_table_is_a_searchable_table_chunk(alloys):
     rows = db.connect().execute(
         "SELECT kind, page_start FROM chunks WHERE text LIKE '%N06625%'").fetchall()
     assert [(r["kind"], r["page_start"]) for r in rows] == [("table", 2)]
-    assert keyword.search("N06625", allowed_document_ids=alloys)
+    assert fts_index.search("N06625", allowed_document_ids=alloys)
 
 
 @pytest.mark.parametrize("question", [PREFIXED, NAMED])
@@ -114,7 +114,7 @@ def test_the_gate_counts_the_table_row_as_covering_the_identifier(alloys):
 def test_the_keyword_search_asks_for_the_bare_code(alloys):
     table = db.connect().execute(
         "SELECT id FROM chunks WHERE kind = 'table'").fetchone()["id"]
-    hits = keyword.search(PREFIXED, allowed_document_ids=alloys)
+    hits = fts_index.search(PREFIXED, allowed_document_ids=alloys)
     assert table in {h["chunk_id"] for h in hits}
 
 
@@ -137,30 +137,30 @@ def test_a_code_no_document_holds_still_refuses(alloys):
     ("UNS 06625", []),      # what remains is a bare number, never asked for alone
 ])
 def test_what_an_optional_prefix_drops(identifier, expected):
-    assert keyword.unprefixed_forms(identifier) == expected
+    assert fts_index.unprefixed_forms(identifier) == expected
 
 
 def test_the_bare_code_is_one_of_the_identifiers_forms():
-    assert "N06625" in keyword.identifier_forms("UNS N06625")
-    assert "610" not in keyword.identifier_forms("API 610")
+    assert "N06625" in fts_index.identifier_forms("UNS N06625")
+    assert "610" not in fts_index.identifier_forms("API 610")
 
 
 def test_the_prefixes_come_from_the_editable_file(tmp_path, monkeypatch):
     """Generic: a prefix is data, not code. And even a listed prefix never
     leaves a bare number behind."""
-    assert keyword.unprefixed_forms("XYZ Q1234") == []
-    data = json.loads(keyword.PREFIX_PATH.read_text(encoding="utf-8"))
+    assert fts_index.unprefixed_forms("XYZ Q1234") == []
+    data = json.loads(fts_index.PREFIX_PATH.read_text(encoding="utf-8"))
     data["prefixes"] += ["XYZ", "API"]
     edited = tmp_path / "identifier_prefixes.json"
     edited.write_text(json.dumps(data), encoding="utf-8")
-    monkeypatch.setattr(keyword, "PREFIX_PATH", edited)
-    keyword.reload_prefixes()
+    monkeypatch.setattr(fts_index, "PREFIX_PATH", edited)
+    fts_index.reload_prefixes()
     try:
-        assert keyword.unprefixed_forms("XYZ Q1234") == ["Q1234"]
-        assert keyword.unprefixed_forms("API 610") == []
+        assert fts_index.unprefixed_forms("XYZ Q1234") == ["Q1234"]
+        assert fts_index.unprefixed_forms("API 610") == []
     finally:
         monkeypatch.undo()
-        keyword.reload_prefixes()
+        fts_index.reload_prefixes()
 
 
 def test_a_passage_with_the_bare_code_names_the_prefixed_identifier():
@@ -224,7 +224,7 @@ def empty_db(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "e.sqlite")
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     yield
     db.reset_connection()
 

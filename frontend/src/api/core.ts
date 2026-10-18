@@ -28,8 +28,14 @@ const GATEWAY_STATUSES = new Set([502, 503, 504]);
 export let token: string | null = null;
 let onUnauthenticated: (() => void) | null = null;
 
+/** Bumped whenever the token changes, so a GET shared by `request()` is never
+ *  handed to a caller signed in as someone else. The key carries this number,
+ *  never the token: the token's one destination is the Authorization header. */
+let tokenGeneration = 0;
+
 export function setToken(next: string | null) {
   token = next;
+  tokenGeneration += 1;
 }
 
 export function isSignedIn() {
@@ -69,6 +75,7 @@ export function onSignedOut(fn: (() => void) | null) {
 export function signOutOn401(status: number): void {
   if (status === 401) {
     token = null;
+    tokenGeneration += 1;
     onUnauthenticated?.();
   }
 }
@@ -362,11 +369,34 @@ export async function failureOf(response: Response): Promise<Result<never>> {
   return { ok: false, disconnected: false, error };
 }
 
-export async function request<T>(
-  path: string,
-  init?: RequestInit,
-  expect?: ShapeCheck,
-): Promise<Result<T>> {
+/** What one fetch-and-parse produced: a failure every caller renders the same
+ *  way, or the parsed body with the response it came on. */
+type Fetched =
+  | { ok: false; result: Result<never> }
+  | { ok: true; body: unknown; response: Response };
+
+/** GETs just asked for, by path and the identity they were asked under (order
+ *  117 item 6). Screens that ask for the same thing in the same moment - sibling
+ *  components mounting in one commit, StrictMode's double effect - share one
+ *  request instead of making the server answer twice.
+ *
+ *  ONLY THE SAME MOMENT. An entry lives until the current task ends (a
+ *  microtask), not until the request settles: a GET that hangs would otherwise
+ *  hold every later identical GET hostage, and a reader pressing "try again"
+ *  must get a fresh request. Nothing is kept: this is not a cache. */
+const inFlight = new Map<string, Promise<Fetched>>();
+
+/** Only a plain GET is shared. A body, another method, or a caller's own abort
+ *  signal makes the request that caller's alone: aborting one screen's request
+ *  must never cancel another screen's. */
+function sharedKey(path: string, init?: RequestInit): string | null {
+  const method = (init?.method ?? "GET").toUpperCase();
+  if (method !== "GET" || init?.body != null || init?.signal) return null;
+  if (init?.headers && [...new Headers(init.headers).keys()].length > 0) return null;
+  return `${tokenGeneration}\u0000${path}`;
+}
+
+async function fetchAndParse(path: string, init?: RequestInit): Promise<Fetched> {
   let response: Response;
   try {
     // The single fetch in the module, which is why the token can be attached
@@ -376,29 +406,58 @@ export async function request<T>(
     response = await fetch(`${BASE}${path}`, { ...init, headers });
   } catch (e) {
     // fetch only rejects on a network-level failure - the server is down
-    return disconnected(e instanceof Error ? e.message : "Network request failed.");
+    return {
+      ok: false,
+      result: disconnected(e instanceof Error ? e.message : "Network request failed."),
+    };
   }
 
-  if (!response.ok) return failureOf(response);
+  if (!response.ok) return { ok: false, result: await failureOf(response) };
 
   // A 200 whose body is not JSON (a proxy's HTML page, a truncated body) must
   // become the same typed failure every caller already handles - never a
   // rejected promise, which strands whatever flag the caller set before it.
-  let body: unknown;
   try {
-    body = response.status === 204 ? null : await response.json();
+    return { ok: true, body: response.status === 204 ? null : await response.json(), response };
   } catch {
     return {
       ok: false,
-      disconnected: false,
-      error: {
-        code: "internal",
-        message:
-          "The server's reply could not be read. If you changed something, it may " +
-          "or may not have been saved - reload to check before trying again.",
+      result: {
+        ok: false,
+        disconnected: false,
+        error: {
+          code: "internal",
+          message:
+            "The server's reply could not be read. If you changed something, it may " +
+            "or may not have been saved - reload to check before trying again.",
+        },
       },
     };
   }
+}
+
+export async function request<T>(
+  path: string,
+  init?: RequestInit,
+  expect?: ShapeCheck,
+): Promise<Result<T>> {
+  const key = sharedKey(path, init);
+  let pending = key === null ? undefined : inFlight.get(key);
+  if (pending === undefined) {
+    pending = fetchAndParse(path, init);
+    if (key !== null) {
+      const mine = pending;
+      inFlight.set(key, mine);
+      queueMicrotask(() => {
+        if (inFlight.get(key) === mine) inFlight.delete(key);
+      });
+    }
+  }
+  const fetched = await pending;
+  if (!fetched.ok) return fetched.result;
+  const { body, response } = fetched;
+  // Each caller's own shape check, even on a shared request: two screens may
+  // read different fields of the same body.
   if (expect && !expect(body)) {
     // Never a white screen. The reader gets the same card any other API
     // failure produces, and the console keeps the detail for whoever is

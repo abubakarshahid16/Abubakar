@@ -23,7 +23,7 @@ from . import doc_router, errors, job_queue, page_ledger, states
 from .chunker import chunk_document
 from . import telemetry
 from .db import connect
-from . import keyword
+from . import fts_index
 from . import ocr
 from .extract import extract_document
 from .embedder import Embedder, EmbedderConfig, embedding_tag, searchable_tags
@@ -540,7 +540,7 @@ class IngestionWorker:
                     # advancing the state strands the document, which is how a
                     # fully searchable 1,200-page index sat at
                     # `indexing_keyword` with embedding never starting.
-                    result["keyword_index"] = keyword.index_document(
+                    result["keyword_index"] = fts_index.index_document(
                         doc_id,
                         advance_to=states.PARTIALLY_SEARCHABLE,
                         expect_status=states.INDEXING_KEYWORD,

@@ -24,7 +24,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT / "eval"))
 
-from app import db, keyword  # noqa: E402
+from app import db, fts_index  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.db import connect  # noqa: E402
 
@@ -37,7 +37,7 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "t.sqlite")
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     yield
     db.reset_connection()
 

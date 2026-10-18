@@ -123,7 +123,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `intent` | What the reader actually typed |
 | `job_progress` | "Page x of y" while a review job reads its datasheet; display only (order 95 piece 3b) |
 | `job_queue` | Claim, retry, poison and priority on the EXISTING tables (issue #177) |
-| `keyword` | SQLite FTS5 keyword index |
+| `fts_index` | SQLite FTS5 keyword index |
 | `lexical` | The lexical gate: is this passage plausibly about what was asked? |
 | `ligatures` | Repairing ligatures that failed to extract |
 | `live_guard` | The ONE way anything other than the server writes to a live database |

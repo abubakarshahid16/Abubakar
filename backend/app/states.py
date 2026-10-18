@@ -64,7 +64,7 @@ ANSWERABLE_STATES = frozenset({PARTIALLY_SEARCHABLE, READY})
 
 #: FINISHED AND NOT ANSWERABLE: `failed`, `no_searchable_content`,
 #: `stored_not_indexed`. Search never returns a chunk of a document in one of
-#: these (`searchable_scope`, read by keyword.search and vector_store.search).
+#: these (`searchable_scope`, read by fts_index.search and vector_store.search).
 #: A `failed` document used to keep answering from the chunks an earlier pass
 #: had indexed while the Documents page called it failed - two contradictory
 #: statements about one document (audit 2026-09-30).
