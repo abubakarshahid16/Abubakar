@@ -13,6 +13,20 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "scripts"))
 import quality_ratchet as qr  # noqa: E402, I001
+import pytest  # noqa: E402
+
+#: The real lister, kept before the fixture below replaces it for the CLI tests.
+REAL_LONG_CODE = qr.long_code
+
+
+@pytest.fixture(autouse=True)
+def _no_real_long_code(tmp_path, monkeypatch):
+    """The CLI tests below are about the 9 metrics: give `check` an empty
+    long-code list and an empty tree, so the real codebase never decides them."""
+    listed = tmp_path / "long_code.json"
+    listed.write_text(json.dumps({"files": {}, "functions": {}}), encoding="utf-8")
+    monkeypatch.setattr(qr, "DEFAULT_LONG_CODE", listed)
+    monkeypatch.setattr(qr, "long_code", lambda root=None: {"files": {}, "functions": {}})
 
 
 # ------------------------------------------------------- duplicate detector
@@ -150,6 +164,71 @@ def test_record_baseline_writes_every_rules_metrics(tmp_path, monkeypatch):
     assert qr.main(["record-baseline", "--out", str(out)]) == 0
     saved = json.loads(out.read_text(encoding="utf-8"))
     assert saved["format"] == qr.FORMAT and saved["metrics"]["x"]["value"] == 1
+
+
+# ------------------------------------------- long code (order 71c, #692)
+
+def _src(tmp_path, name, body):
+    (tmp_path / name).write_text(body, encoding="utf-8")
+    return tmp_path / name
+
+
+def _fn(name, lines, indent=""):
+    return f"{indent}def {name}():\n" + f"{indent}    x = 1\n" * (lines - 1)
+
+
+def test_function_lengths_carry_class_and_outer_names(tmp_path):
+    body = "class A:\n" + _fn("m", 3, "    ") + _fn("outer", 2) + "    " + _fn("inner", 2).replace("\n    x", "\n        x")
+    lengths = qr._qualified_lengths(_src(tmp_path, "m.py", body))
+    assert lengths["A.m"] == 3
+    assert lengths["outer.inner"] == 2 and "inner" not in lengths
+
+
+def test_a_name_defined_twice_keeps_its_longest(tmp_path):
+    assert qr._qualified_lengths(_src(tmp_path, "m.py", _fn("f", 3) + _fn("f", 9))) == {"f": 9}
+
+
+def test_only_files_and_functions_over_the_limits_are_listed(tmp_path):
+    _src(tmp_path, "long.py", "x = 1\n" * (qr.FILE_LIMIT + 1))
+    _src(tmp_path, "edge.py", "x = 1\n" * qr.FILE_LIMIT)
+    _src(tmp_path, "funcs.py", _fn("big", qr.FUNCTION_LIMIT + 1) + _fn("edge", qr.FUNCTION_LIMIT))
+    found = REAL_LONG_CODE(tmp_path)
+    assert list(found["files"]) == ["long.py"]
+    assert list(found["functions"]) == ["funcs.py::big"]
+
+
+def test_a_new_long_function_or_a_listed_one_growing_is_blocked():
+    listed = {"files": {"a.py": 900}, "functions": {"a.py::f": 100}}
+    blocked, shrunk = qr.compare_long_code(
+        listed, {"files": {"a.py": 901, "b.py": 801}, "functions": {"a.py::f": 100, "a.py::g": 81}})
+    assert blocked == ["GREW: a.py 900 -> 901 lines (listed, may only shrink)",
+                       "NEW: b.py is 801 lines (limit 800)",
+                       "NEW: a.py::g is 81 lines (limit 80)"]
+    assert shrunk == []
+
+
+def test_a_listed_one_shrinking_or_gone_is_reported_never_blocked():
+    listed = {"files": {"a.py": 900}, "functions": {"a.py::f": 100, "a.py::h": 90}}
+    blocked, shrunk = qr.compare_long_code(listed, {"files": {"a.py": 850}, "functions": {"a.py::f": 100}})
+    assert blocked == []
+    assert shrunk == ["a.py 900 -> 850", "a.py::h 90 -> under the limit"]
+
+
+def test_the_cli_blocks_a_new_long_function(tmp_path, monkeypatch, capsys):
+    baseline = tmp_path / "baseline.json"
+    baseline.write_text(json.dumps(_doc({"x": {"value": 5, "note": None}})), encoding="utf-8")
+    monkeypatch.setattr(qr, "measure", lambda: _doc({"x": {"value": 5, "note": None}}))
+    monkeypatch.setattr(qr, "long_code", lambda root=None: {"files": {}, "functions": {"a.py::g": 120}})
+    assert qr.main(["check", "--baseline", str(baseline)]) == 1
+    assert "NEW: a.py::g is 120 lines (limit 80)" in capsys.readouterr().out
+
+
+def test_record_long_code_writes_the_list_and_the_limits(tmp_path, monkeypatch):
+    out = tmp_path / "long.json"
+    monkeypatch.setattr(qr, "long_code", lambda root=None: {"files": {"a.py": 900}, "functions": {}})
+    assert qr.main(["record-long-code", "--out", str(out)]) == 0
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    assert saved == {"limits": {"file": 800, "function": 80}, "files": {"a.py": 900}, "functions": {}}
 
 
 # -------------------------------------------------------- against the real tree
