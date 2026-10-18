@@ -7,11 +7,13 @@
  * Switched off by default (order 104): the current list stays the landing
  * page until the owner says yes; `INBOX_IS_DEFAULT` in routing.ts is the switch.
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { DocumentRecord, ReviewRunSummary } from "../../../types/api";
 import { groupRunsByDocument, truncationNote, whenLabel } from "../reviewFormat";
-import { FILTERS, type InboxFilter, inFilter, inboxStateOf, stateLabel } from "./inboxState";
+import {
+  FILTERS, type InboxFilter, type ReadyCounts, inFilter, inboxStateOf, stateLabel,
+} from "./inboxState";
 
 interface Row {
   documentId: string;
@@ -40,7 +42,10 @@ function rowsFor(documents: DocumentRecord[], runs: ReviewRunSummary[]): Row[] {
 }
 
 export function InboxList(
-  { documents, runs, submittalsTotal, onReview, onOpenRun, onReviewAll, reviewingAll, startingDocumentId }: {
+  {
+    documents, runs, submittalsTotal, onReview, onOpenRun, onReviewAll, reviewingAll, startingDocumentId,
+    loadReadyCounts,
+  }: {
     documents: DocumentRecord[];
     runs: ReviewRunSummary[];
     submittalsTotal: number | null;
@@ -50,11 +55,32 @@ export function InboxList(
     onReviewAll?: (targets: { documentId: string; filename: string }[]) => void;
     reviewingAll?: boolean;
     startingDocumentId: string | null;
+    /** #1114: a Ready run's comment counts, from its run summary; null when
+     *  they could not be read, and then the row says "Ready" alone. */
+    loadReadyCounts?: (runId: string) => Promise<ReadyCounts | null>;
   },
 ) {
   const [filter, setFilter] = useState<InboxFilter>("needs_me");
+  const [counts, setCounts] = useState<Record<string, ReadyCounts | null>>({});
+  const asked = useRef(new Set<string>());
   const rows = rowsFor(documents, runs).map((row) => ({ ...row, state: inboxStateOf(row.latest) }));
   const shown = rows.filter((row) => inFilter(row.state, filter));
+  // Only the Ready rows on screen are asked for, each once.
+  const wanted = shown
+    .filter((row) => row.state.kind === "ready" && row.latest)
+    .map((row) => row.latest!.review_run_id);
+  const wantedKey = wanted.join(",");
+  useEffect(() => {
+    if (!loadReadyCounts || !wantedKey) return;
+    for (const id of wantedKey.split(",")) {
+      if (asked.current.has(id)) continue;
+      asked.current.add(id);
+      void loadReadyCounts(id).then(
+        (got) => setCounts((prev) => ({ ...prev, [id]: got })),
+        () => setCounts((prev) => ({ ...prev, [id]: null })),
+      );
+    }
+  }, [loadReadyCounts, wantedKey]);
   const notReviewed = rows.filter((row) => row.state.kind === "not_reviewed");
   const boundary = truncationNote(documents.length, submittalsTotal, "contractor submittals");
 
@@ -130,7 +156,7 @@ export function InboxList(
               <div className="min-w-0 flex-1">
                 <p className="truncate font-semibold text-slateish-100">{row.filename}</p>
                 <p className="mt-1 text-xs text-slateish-400" data-testid="inbox-state">
-                  {stateLabel(row.state)}
+                  {stateLabel(row.state, row.latest ? counts[row.latest.review_run_id] ?? null : null)}
                   {row.latest && row.state.kind !== "signed" ? ` · ${whenLabel(row.latest.created_at)}` : ""}
                 </p>
               </div>
