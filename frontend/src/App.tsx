@@ -21,12 +21,13 @@ import { LoginView, RoleBadge, type LoginOutcome } from "./views/LoginView";
 import { AnalysisModeScreen } from "./views/AnalysisModeScreen";
 import { ReportsScreen } from "./views/ReportsScreen";
 import { DeliverablesView } from "./views/DeliverablesView";
+import { CrsSheetView } from "./views/CrsSheetView";
 import { ReviewSheetView } from "./views/ReviewSheetView";
 import { HowReviewedView } from "./views/HowReviewedView";
 import { SubmittalsLandingView } from "./views/SubmittalsLandingView";
 import type { AuthStatus, Me } from "./types/api";
 import { NavigationContext } from "./components/NavLink";
-import { INBOX_RECORD, parseRoute, pathForView, titleForView, type AppRoute } from "./routing";
+import { CRS_SHEET_IS_DEFAULT, INBOX_RECORD, panelForReviewScreen, parseRoute, pathForView, reviewScreenFor, titleForView, type AppRoute } from "./routing";
 
 //: One key, named once. A typo in a second literal is a preference that
 //: silently never persists.
@@ -64,6 +65,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
     return parseRoute(window.location.pathname);
   });
   const view = route.kind === "view" ? route.view : initialView;
+  const reviewScreen = route.kind === "view" && route.view === "review" ? reviewScreenFor(route.panel, CRS_SHEET_IS_DEFAULT) : null;
   const onNavigate = useCallback((next: ViewId, recordId?: string, panel?: string) => {
     const nextPath = pathForView(next, recordId, panel);
     if (import.meta.env.MODE !== "test") window.history.pushState({ __epcRoute: true }, "", nextPath);
@@ -333,10 +335,10 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
           {view === "reports" && <ReportsScreen />}
           {view === "deliverables" && <DeliverablesView />}
           {/* #967 PR1: the page opens on the landing list of documents from
-              contractors; opening or starting a run takes you to the
-              existing review screen (unchanged - that is PR2's job). */}
+              contractors. */}
           {/* Order 95 piece 5: "How this was reviewed" is a page of its own
-              (`/review/<run>/how`), not one of the sheet's panels. */}
+              (`/review/<run>/how`), not one of the sheet's panels. Both review
+              screens link to it (the new sheet's header among them). */}
           {view === "review" && route.kind === "view" && route.recordId && route.panel === "how" && (
             <HowReviewedView
               key={route.recordId} runId={route.recordId}
@@ -345,6 +347,11 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
               onOpenSteps={() => onNavigate("review", route.recordId, "steps")}
             />
           )}
+          {/* Order 95 piece 2 (Part of #967): which screen `/review/<run>`
+              opens is `routing.CRS_SHEET_IS_DEFAULT` (the card view until
+              the owner switches it). The card view is also at
+              `/review/<run>/cards`, the new comment sheet at
+              `/review/<run>/crs-sheet`, whichever is the default. */}
           {view === "review" && !(route.kind === "view" && route.panel === "how") && (
             route.kind === "view" && route.recordId === INBOX_RECORD && !route.panel ? (
               <SubmittalsLandingView
@@ -352,14 +359,22 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
                 onOpenList={() => onNavigate("review")}
               />
             ) : route.kind === "view" && route.recordId ? (
-              <ReviewSheetView
-                key={route.recordId} runId={route.recordId} panel={route.panel}
-                onBack={() => onNavigate("review")}
-                onOpenPanel={(panel) => onNavigate("review", route.recordId, panel)}
-                onOpenRun={(runId) => onNavigate("review", runId)}
-                onOpenStandards={() => onNavigate("standards")}
-                isAdmin={canAdmin}
-              />
+              reviewScreen?.screen === "cards" ? (
+                <ReviewSheetView
+                  key={route.recordId} runId={route.recordId} panel={reviewScreen.panel}
+                  onBack={() => onNavigate("review")}
+                  onOpenPanel={(panel) => onNavigate("review", route.recordId, panel ?? panelForReviewScreen("cards", CRS_SHEET_IS_DEFAULT))}
+                  onOpenRun={(runId) => onNavigate("review", runId)}
+                  onOpenStandards={() => onNavigate("standards")}
+                  isAdmin={canAdmin}
+                />
+              ) : (
+                <CrsSheetView
+                  key={route.recordId} runId={route.recordId}
+                  onBack={() => onNavigate("review")}
+                  onOpenCards={() => onNavigate("review", route.recordId, panelForReviewScreen("cards", CRS_SHEET_IS_DEFAULT))}
+                />
+              )
             ) : (
               <SubmittalsLandingView
                 onOpenRun={(runId) => onNavigate("review", runId)}

@@ -30,6 +30,8 @@ import { BehindTheScenes, PANEL_TITLES, type StandardsState } from "../component
 import { ReviewJobControl } from "../components/review/panels/ReviewJobControl";
 import { RunIncompleteNotes } from "../components/review/panels/RunIncompleteNotes";
 import { RunReviewControl } from "../components/review/panels/RunReviewControl";
+import { NavLink } from "../components/NavLink";
+import { CRS_SHEET_IS_DEFAULT, panelForReviewScreen } from "../routing";
 
 type Load = { kind: "loading" } | { kind: "ready" } | { kind: "error"; message: string };
 
@@ -162,9 +164,17 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
   return (
     <section className="mx-auto w-full max-w-7xl space-y-5" aria-labelledby="sheet-title">
       <header className="space-y-3">
-        <button type="button" onClick={onBack} className="text-sm text-signal-300 underline-offset-2 hover:underline">
-          ← Documents from contractors
-        </button>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+          <button type="button" onClick={onBack} className="text-signal-300 underline-offset-2 hover:underline">
+            ← Documents from contractors
+          </button>
+          {/* Order 95 piece 2: the way to the new comment sheet, through the
+              app's own navigation (a reload would sign the reader out). */}
+          <NavLink view="review" recordId={runId} panel={panelForReviewScreen("crsSheet", CRS_SHEET_IS_DEFAULT)}
+            className="text-signal-300 underline-offset-2 hover:underline">
+            {CRS_SHEET_IS_DEFAULT ? "Back to the comment sheet" : "Try the new comment sheet"}
+          </NavLink>
+        </div>
         <div className="flex flex-wrap items-center gap-4">
           <div className="w-full min-w-0 sm:w-auto sm:flex-1">
             <h1 id="sheet-title" className="break-words text-2xl font-semibold text-slateish-100 sm:truncate">

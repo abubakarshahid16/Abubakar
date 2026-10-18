@@ -21,19 +21,19 @@ export type NavigateFn = (view: ViewId, recordId?: string, panel?: string) => vo
 export const NavigationContext = createContext<NavigateFn | null>(null);
 
 export function NavLink({
-  view, recordId, className, children,
-}: { view: ViewId; recordId?: string; className?: string; children: ReactNode }) {
+  view, recordId, panel, className, children,
+}: { view: ViewId; recordId?: string; panel?: string; className?: string; children: ReactNode }) {
   const navigate = useContext(NavigationContext);
   if (!navigate) return <span className={className}>{children}</span>;
   return (
     <a
-      href={pathForView(view, recordId)}
+      href={pathForView(view, recordId, panel)}
       className={className}
       onClick={(event) => {
         if (event.defaultPrevented || event.button !== 0
           || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
         event.preventDefault();
-        navigate(view, recordId);
+        if (panel) navigate(view, recordId, panel); else navigate(view, recordId);
       }}
     >
       {children}

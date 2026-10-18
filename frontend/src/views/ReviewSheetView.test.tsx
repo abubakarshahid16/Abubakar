@@ -10,6 +10,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { NavigationContext } from "../components/NavLink";
 import type { CrsIssueGate, ReviewFinding, ReviewRunSummary } from "../types/api";
 import { ReviewSheetView } from "./ReviewSheetView";
 
@@ -204,6 +205,28 @@ describe("ReviewSheetView", () => {
     expect(onOpenPanel).toHaveBeenLastCalledWith("standards");
     await userEvent.click(screen.getByRole("button", { name: "the CRS" }));
     expect(onOpenPanel).toHaveBeenLastCalledWith("crs");
+  });
+
+  it("order 95 piece 2: the header offers the new comment sheet at /review/<run>/crs-sheet through the app's navigation", async () => {
+    const navigate = vi.fn();
+    render(
+      <NavigationContext.Provider value={navigate}>
+        <ReviewSheetView runId="run-1" onBack={vi.fn()} onOpenPanel={vi.fn()} onOpenRun={vi.fn()} />
+      </NavigationContext.Provider>,
+    );
+    await screen.findByTestId("sheet-headline");
+    const link = screen.getByRole("link", { name: "Try the new comment sheet" });
+    expect(link).toHaveAttribute("href", "/review/run-1/crs-sheet");
+    await userEvent.click(link);
+    expect(navigate).toHaveBeenCalledWith("review", "run-1", "crs-sheet");
+  });
+
+  it("the behind-the-scenes menu lists only its pages, not the two review screens", async () => {
+    render(<ReviewSheetView runId="run-1" panel="crs" onBack={vi.fn()} onOpenPanel={vi.fn()} onOpenRun={vi.fn()} />);
+    const nav = await screen.findByRole("navigation", { name: "Behind the scenes" });
+    expect(within(nav).getAllByRole("button").map((b) => b.textContent)).toEqual([
+      "← Back to the sheet", "All findings", "The rule books used", "How we checked this document", "AI numbers for this run", "Comment Resolution Sheet",
+    ]);
   });
 
   it("audit 2026-09-30: a standards list that could not be loaded says so on its page", async () => {
