@@ -368,3 +368,47 @@ def test_versions_stages_and_clauses_are_read_from_what_the_run_stored(
     how = client.get(f"/api/reviews/runs/{run}/summary").json()["how_reviewed"]
     assert (how["code_version"], how["config_version"]) == ("abc123", "cfg9")
     assert how["stage_seconds"] and set(how["stage_seconds"].values()) == {1.5}
+
+
+def test_a_finding_on_a_page_the_reader_timed_out_on_needs_you(review_run):  # noqa: F811
+    """cloud-2's note 2 on #1111: the route itself turns the stored timed-out
+    pages into the tier, not only `tier_of` in isolation."""
+    run, _ids, scope = review_run
+    comparison.run_comparison(run, allowed_document_ids=scope)
+    fid = comparison.list_findings(run, allowed_document_ids=scope)[0]["id"]
+    with connect() as conn:
+        conn.execute(
+            "UPDATE review_findings SET compliance_status = 'COMPLIANT',"
+            " contractor_page = 7, match_method = NULL WHERE id = ?",
+            (fid,),
+        )
+    split = comparison.run_outcome(run, allowed_document_ids=scope)["requirement_split"]
+    client = TestClient(app)
+
+    def row():
+        rows = client.get(f"/api/reviews/runs/{run}/summary").json()["rows"]
+        return next(r for r in rows if r["finding_id"] == fid)
+
+    _store_outcome(run, requirement_split={**split, "reader": None})
+    assert (row()["tier"], row()["label"]) == ("A", "Met")
+    _store_outcome(
+        run, requirement_split={**split, "reader": {"pages": 9, "timed_out": [7]}}
+    )
+    assert (row()["tier"], row()["reason"]) == ("C", "page not read")
+
+
+def test_a_run_the_caller_may_not_read_is_404_like_one_that_is_not_there(review_run):  # noqa: F811
+    """cloud-2's note 3 on #1111: a run that exists, read by a caller whose
+    grants do not include its submittal."""
+    from app import access
+
+    run, _ids, _scope = review_run
+    app.dependency_overrides[access.current_scope] = lambda: access.AccessScope(
+        user_id="stranger", allowed_document_ids=frozenset({"some-other-doc"})
+    )
+    try:
+        response = TestClient(app).get(f"/api/reviews/runs/{run}/summary")
+    finally:
+        app.dependency_overrides.pop(access.current_scope, None)
+    assert response.status_code == 404
+    assert TestClient(app).get(f"/api/reviews/runs/{run}/summary").status_code == 200
