@@ -112,7 +112,7 @@ def _failed_run(w, status="failed", reason="the model host went away", created_a
     `created_at` orders it against another run made in the same second."""
     run_id, _job = review_jobs.enqueue(w["sub"], allowed_document_ids=w["scope"], requested_by="adm")
     with db.connect() as conn:
-        conn.execute("UPDATE review_runs SET status = ?, refusal_reason = ?,"
+        conn.execute("UPDATE review_runs SET status = ?, outcome_json = ?,"
                      " created_at = COALESCE(?, created_at) WHERE id = ?",
                      (status, json.dumps({"error": reason}), created_at, run_id))
     return run_id

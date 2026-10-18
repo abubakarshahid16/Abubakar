@@ -4204,7 +4204,7 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
     conn = connect()
     with conn:
         conn.execute(
-            "UPDATE review_runs SET status = ?, refusal_reason = ?,"
+            "UPDATE review_runs SET status = ?, outcome_json = ?,"
             " updated_at = ?, completed_at = ? WHERE id = ?",
             ("completed", json.dumps({
                 "recommended_code": recommendation["code"],
@@ -4265,7 +4265,7 @@ def record_engineer_code(
     if run is None:
         raise ComparisonError("no review run with that id")
     try:
-        stored = json.loads(run.get("refusal_reason") or "{}")
+        stored = json.loads(run.get("outcome_json") or "{}")
     except (TypeError, ValueError):
         stored = {}
     # THE CODE ITSELF FIRST. An unknown code is not an override of anything,
@@ -4294,7 +4294,7 @@ def record_engineer_code(
     now = _now()
     reason = (override_reason or "").strip() or None
     # THE DECISION GOES IN COLUMNS; THE RECOMMENDATION STAYS WHERE IT WAS.
-    # `refusal_reason` is untouched here, so the AI's original code and its
+    # `outcome_json` is untouched here, so the AI's original code and its
     # sentence survive the engineer's decision - section 15 asks for both to
     # be stored, and a screen that showed only the final one would be hiding
     # what the machine actually said.
@@ -4329,7 +4329,7 @@ def run_outcome(review_run_id: str, *, allowed_document_ids: frozenset[str],
     if run is None:
         return None
     try:
-        return json.loads(run.get("refusal_reason") or "{}")
+        return json.loads(run.get("outcome_json") or "{}")
     except (TypeError, ValueError):
         return {}
 

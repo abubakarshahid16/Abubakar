@@ -684,7 +684,7 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "reader can ever see what the machine itself said",
         path=APP / "comparison.py",
         anchor='            "UPDATE review_runs SET engineer_final_code = ?,"',
-        replacement='            "UPDATE review_runs SET refusal_reason = NULL,"\n'
+        replacement='            "UPDATE review_runs SET outcome_json = NULL,"\n'
                     '            " engineer_final_code = ?,"',
         target="tests/test_review_code.py",
         keyword="recommendation_survives_the_decision",

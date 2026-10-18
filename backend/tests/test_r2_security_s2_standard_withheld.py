@@ -29,7 +29,7 @@ def _run_with_finding(finding_id: str = "f1") -> str:
     run_id = str(uuid.uuid4())
     with connect() as conn:
         conn.execute(
-            "INSERT INTO review_runs (id, submittal_document_id, status, refusal_reason,"
+            "INSERT INTO review_runs (id, submittal_document_id, status, outcome_json,"
             " created_at, updated_at) VALUES (?, 'doc_sub', 'completed', ?, ?, ?)",
             (run_id, json.dumps({"recommended_code": "Manual Review Required",
                                  "reason": "examined"}), now(), now()))

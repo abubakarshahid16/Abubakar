@@ -189,7 +189,7 @@ def test_a_failure_is_retried_then_poisoned_with_the_reason_on_the_run(world, mo
         conn.execute("UPDATE jobs SET state = 'running', claimed_by = ? WHERE id = ?", (W, job_id))
     assert review_jobs.run(job_id, W) == job_queue.POISONED
     run = _run_row(run_id)
-    assert run["status"] == "failed" and "synthetic comparison failure" in run["refusal_reason"]
+    assert run["status"] == "failed" and "synthetic comparison failure" in run["outcome_json"]
 
 
 def test_the_review_runs_under_the_requesters_grants(world):

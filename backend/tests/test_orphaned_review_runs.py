@@ -98,8 +98,8 @@ def test_the_failure_says_why_in_words():
     submittal_review.fail_orphaned_review_runs()
 
     stored = db.connect().execute(
-        "SELECT refusal_reason FROM review_runs WHERE id = ?",
-        (orphan,)).fetchone()["refusal_reason"]
+        "SELECT outcome_json FROM review_runs WHERE id = ?",
+        (orphan,)).fetchone()["outcome_json"]
     assert json.loads(stored)["error"] == submittal_review.ORPHANED_RUN_REASON
     assert "orphaned" in submittal_review.ORPHANED_RUN_REASON
 
@@ -123,7 +123,7 @@ def test_a_completed_runs_outcome_survives_the_sweep():
     done = _run(doc, "completed")
     with db.connect() as conn:
         conn.execute(
-            "UPDATE review_runs SET refusal_reason = ? WHERE id = ?",
+            "UPDATE review_runs SET outcome_json = ? WHERE id = ?",
             (json.dumps({"recommended_code": "Manual Review Required",
                          "reason": "not enough of the submittal was read"}),
              done))

@@ -425,7 +425,7 @@ def _insert_review_run(conn, submittal_id: str, standard_id: str, rng: random.Ra
     outcome = json.dumps({"recommended_code": "Manual Review Required",
                           "reason": "synthetic load-test run"})
     with conn:
-        conn.execute("INSERT INTO review_runs (id,submittal_document_id,status,refusal_reason,"
+        conn.execute("INSERT INTO review_runs (id,submittal_document_id,status,outcome_json,"
                      "created_at,updated_at) VALUES (?,?,'completed',?,?,?)",
                      (run_id, submittal_id, outcome, now, now))
         for i in range(12):

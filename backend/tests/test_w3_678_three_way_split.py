@@ -187,7 +187,7 @@ def test_a_real_run_counts_unreadable_text_as_applies_but_not_checked(monkeypatc
     from app import standards
     monkeypatch.setattr(standards, "is_reviewable", lambda r: r["clause"] != "4.2")
     _review([("g", GENERAL, "4.1"), ("h", "The relief valve shall be stamped.", "4.2")])
-    split = json.loads(db.connect().execute("SELECT refusal_reason FROM review_runs").fetchone()[0])[
+    split = json.loads(db.connect().execute("SELECT outcome_json FROM review_runs").fetchone()[0])[
         "requirement_split"]
     assert (split["checked"], split["applies_not_checked"]) == (1, 1)
     assert split["applies_not_checked_reasons"] == [{"reason": rs.REASON_TEXT["text_quality"], "count": 1}]
@@ -195,9 +195,9 @@ def test_a_real_run_counts_unreadable_text_as_applies_but_not_checked(monkeypatc
 def test_a_real_run_stores_the_three_groups_with_their_reasons():
     ids, cited, result = table_setup([("Material", "UNS S31600")], {"std-a": [
         (row, "Max hardness (HRC)", v) for row, v in GRADES]})
-    split = db.connect().execute("SELECT refusal_reason FROM review_runs").fetchone()
+    split = db.connect().execute("SELECT outcome_json FROM review_runs").fetchone()
     import json
-    stored = json.loads(split["refusal_reason"])["requirement_split"]
+    stored = json.loads(split["outcome_json"])["requirement_split"]
     assert stored["checked"] == 1 and stored["applies_not_checked"] == 2 and stored["does_not_apply"] == 0
     assert stored["applies_not_checked_reasons"] == [
         {"reason": rs.REASON_TEXT["other_row_matched"], "count": 2}]
@@ -208,7 +208,7 @@ def test_a_real_run_stores_the_three_groups_with_their_reasons():
 def test_a_real_run_puts_other_equipment_in_does_not_apply_and_keeps_it_out_of_the_share():
     ids, cited, result = _review([("t", TURBINE, "8.7"), ("g", GENERAL, "4.1")])
     import json
-    stored = json.loads(db.connect().execute("SELECT refusal_reason FROM review_runs").fetchone()[0])
+    stored = json.loads(db.connect().execute("SELECT outcome_json FROM review_runs").fetchone()[0])
     split = stored["requirement_split"]
     assert (split["checked"], split["applies_not_checked"], split["does_not_apply"]) == (1, 0, 1)
     assert "turbine" in split["does_not_apply_reasons"][0]["reason"]
@@ -219,7 +219,7 @@ def test_a_real_run_puts_other_equipment_in_does_not_apply_and_keeps_it_out_of_t
 def test_a_real_run_counts_stored_repeats_once():
     ids, cited, result = _review([("a", GENERAL, "4.1"), ("b", GENERAL, "4.2"), ("c", GENERAL, "4.3")])
     import json
-    split = json.loads(db.connect().execute("SELECT refusal_reason FROM review_runs").fetchone()[0])["requirement_split"]
+    split = json.loads(db.connect().execute("SELECT outcome_json FROM review_runs").fetchone()[0])["requirement_split"]
     assert split["checked"] == 1 and split["repeats_ignored"] == 2
 
 
@@ -239,10 +239,10 @@ def test_an_old_run_with_only_counts_gets_them_with_no_reason_recorded():
     import json
     _review([("g", GENERAL, "4.1")])
     with db.connect() as conn:
-        raw = json.loads(conn.execute("SELECT refusal_reason FROM review_runs").fetchone()[0])
+        raw = json.loads(conn.execute("SELECT outcome_json FROM review_runs").fetchone()[0])
         raw.pop("requirement_split")
         raw["unchecked_counts"] = {"checked": 4, "not_compared": 6, "not_applied": 2}
-        conn.execute("UPDATE review_runs SET refusal_reason = ?", (json.dumps(raw),))
+        conn.execute("UPDATE review_runs SET outcome_json = ?", (json.dumps(raw),))
     got = _summary_of_the_only_run()["requirement_split"]
     assert got["applies_not_checked"] == 6
     assert got["applies_not_checked_reasons"] == [{"reason": "no reason recorded", "count": 6}]
