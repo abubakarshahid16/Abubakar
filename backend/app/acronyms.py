@@ -33,6 +33,7 @@ CPS, and "show that" is not AB.
 from __future__ import annotations
 
 import contextvars
+import functools
 import logging
 import re
 import threading
@@ -193,6 +194,19 @@ def map_record(skipped: list[str]) -> dict:
     if missing:
         warm_in_background()
     return {"documents_not_ready": missing, "complete": missing == 0}
+
+
+def records_acronym_map(fn):
+    """Run a search or an answer inside `serving_scope` and put
+    `map_record` on its result as `acronym_map` (#615): the request uses only
+    the maps already built, and says how many documents had none yet."""
+    @functools.wraps(fn)
+    def in_serving_scope(*args, **kwargs):
+        with serving_scope() as not_ready:
+            result = fn(*args, **kwargs)
+        result["acronym_map"] = map_record(not_ready)
+        return result
+    return in_serving_scope
 
 
 def looks_like_acronym(term: str) -> bool:

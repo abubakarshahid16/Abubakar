@@ -23,7 +23,7 @@ from decimal import ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal, InvalidOperation
 
 from . import corpus as corpus_mod
 from . import intent as intent_mod
-from . import keyword
+from . import acronyms, keyword
 from . import condition_choice as cc
 from . import context_budget
 from . import claims as claims_mod
@@ -76,8 +76,7 @@ SYSTEM_PROMPT_VERIFIED = SYSTEM_PROMPT.replace(
 
 INSUFFICIENT = "INSUFFICIENT EVIDENCE"
 
-#: Below this rerank score a LEXICALLY PLAUSIBLE passage is still not a
-#: credible answer.
+#: Below this rerank score a LEXICALLY PLAUSIBLE passage is still not a credible answer.
 #:
 #: Recalibrated when the lexical gate took over the job of rejecting
 #: unanswerable questions. At 0.0 this was one knob doing two jobs: it had to
@@ -1656,6 +1655,7 @@ def drop_citations(text: str) -> str:
 # ------------------------------------------------------------------- entry
 
 
+@acronyms.records_acronym_map  # #615: retrieval, the gate and the judge use built maps only
 def answer(
     question: str,
     tier: str = "extract",
@@ -1681,24 +1681,19 @@ def answer(
     gate_candidates). `soft_identifiers` are follow-up identifiers carried from
     earlier turns: they steer retrieval and are never required (search.search).
     """
-    from . import acronyms, answerability
+    from . import answerability
     if limit is None:
         limit = gate_candidates()
     token = _PREFERENCE.set(model)
-    # #615: the whole answer - retrieval, the gate and the answerability
-    # check - uses only the acronym maps already built; none is built inside
-    # the request. `acronym_map` says how many documents had none yet.
-    with acronyms.serving_scope() as not_ready:
-        try:
-            result = _answer(question, tier, document_id, limit,
-                             allowed_document_ids=allowed_document_ids, progress_id=progress_id,
-                             history=history, soft_identifiers=tuple(soft_identifiers))
-        finally:
-            _PREFERENCE.reset(token)
-        verdict = answerability.assess(question, result, allowed_document_ids=allowed_document_ids)
+    try:
+        result = _answer(question, tier, document_id, limit,
+                         allowed_document_ids=allowed_document_ids, progress_id=progress_id,
+                         history=history, soft_identifiers=tuple(soft_identifiers))
+    finally:
+        _PREFERENCE.reset(token)
+    verdict = answerability.assess(question, result, allowed_document_ids=allowed_document_ids)
     result["answerability"] = answerability.judge(
         question, result, verdict, answerability.judge_provider())
-    result["acronym_map"] = acronyms.map_record(not_ready)
     return result
 
 
