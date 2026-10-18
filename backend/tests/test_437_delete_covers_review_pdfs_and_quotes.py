@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from app import db, review
+from app import db, document_refs, review
 from app.config import settings
 from app.field_naming import LABEL, REQUIREMENT, label_key
 from app.main import app
@@ -126,7 +126,7 @@ def test_1053_deleting_a_standard_takes_the_review_pdfs_of_the_submittals_that_c
     _finding_against(other_sub, _requirement(other_std))
     gone = [review.render_report(sub), review.render_report(sub)]
     kept = [review.render_report(other_sub), review.render_report(other_std)]
-    assert review.submittals_citing(std) == [sub]
+    assert document_refs.submittals_citing(std) == [sub]
     out = _delete(std, acknowledge=True)
     assert not any(p.exists() for p in gone), "a submittal's PDFs still quote the deleted standard"
     assert all(p.exists() for p in kept)
@@ -150,6 +150,6 @@ def test_1053_a_library_that_never_ran_a_review_cites_nothing_and_does_not_fail(
         tables = {r[0] for r in db.connect().execute(
             "SELECT name FROM sqlite_master WHERE type = 'table'")}
         assert "review_findings" not in tables, "the fixture must start with no review tables"
-        assert review.submittals_citing("doc_never_reviewed") == []
+        assert document_refs.submittals_citing("doc_never_reviewed") == []
     finally:
         db.reset_connection()

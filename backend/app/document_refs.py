@@ -319,3 +319,27 @@ def forget_quotes(conn: sqlite3.Connection, document_id: str) -> int:
     returns the rows removed."""
     from .field_naming import forget_document
     return forget_document(conn, document_id)
+
+
+def submittals_citing(standard_document_id: str) -> list[str]:
+    """#1053: the submittals whose findings cite this standard. Their review
+    PDFs print the standard's requirement wording (`review.render_report`), so
+    when the standard is deleted those files go too - the quote must not
+    outlive the document. Read BEFORE the delete: the cascade nulls the
+    citation. A library that never ran a review has no findings table yet; it
+    cites nothing, and the delete must not fail on it."""
+    from . import review
+    from .db import connect
+    review.ensure_schema()
+    return [r[0] for r in connect().execute(
+        "SELECT DISTINCT document_id FROM review_findings"
+        " WHERE standard_document_id = ? AND document_id != ? ORDER BY document_id",
+        (standard_document_id, standard_document_id))]
+
+
+def remove_citing_report_files(standard_document_id: str) -> int:
+    """#1053: delete the review PDFs of every submittal that cites this
+    standard; returns how many went. The findings stay (the record survives,
+    its citation nulled by the cascade) and can be exported again."""
+    from . import review
+    return sum(review.remove_report_files(s) for s in submittals_citing(standard_document_id))
