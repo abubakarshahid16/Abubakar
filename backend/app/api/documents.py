@@ -24,8 +24,8 @@ from .. import admin as admin_mod
 from .. import chunker as chunk_mod
 from .. import classification as classification_mod
 from .. import extract as extract_mod
+from .. import fts_index as keyword_mod
 from .. import ingest as ingest_mod
-from .. import keyword as keyword_mod
 from .. import reports as reports_mod
 from .. import review as review_mod
 from .. import submittal_review as submittal_review_mod

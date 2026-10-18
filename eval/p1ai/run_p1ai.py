@@ -184,7 +184,7 @@ def _run(argv: list[str] | None, *, ask_factory=None, ingest=None) -> int:
         print(f"CANNOT RUN: {why}. No score was made (a score of unavailable rows would measure the host).")
         return EXIT_NO_MODEL
 
-    from app import access, db, keyword, vector_store
+    from app import access, db, fts_index, vector_store
 
     tmp = Path(tempfile.mkdtemp(prefix="p1ai-"))
     saved = (settings.data_dir, settings.upload_dir, settings.db_path, settings.auth_mode, settings.answer_model)
@@ -196,7 +196,7 @@ def _run(argv: list[str] | None, *, ask_factory=None, ingest=None) -> int:
         settings.answer_model = model
         db.reset_connection()
         db.init_db()
-        keyword.ensure_schema()
+        fts_index.ensure_schema()
         settings.upload_dir.mkdir(parents=True, exist_ok=True)
         (ingest or harness.ingest_corpus)(tmp / "corpus")
         if ask_factory is None:

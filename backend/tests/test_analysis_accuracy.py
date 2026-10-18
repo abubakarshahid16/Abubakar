@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import access, analysis, db, keyword
+from app import access, analysis, db, fts_index
 from app.config import settings
 
 NOW = "2026-09-07T00:00:00Z"
@@ -48,7 +48,7 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "t.sqlite")
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     yield
     db.reset_connection()
 
@@ -228,7 +228,7 @@ def _chunks(doc_id: str, filename: str, pages_text) -> None:
                 (f"{doc_id}_c{ordinal}", doc_id, filename, ordinal, page, page,
                  text, len(text.split()), f"h_{doc_id}_{ordinal}"),
             )
-    keyword.index_document(doc_id)
+    fts_index.index_document(doc_id)
 
 
 def corpus() -> None:

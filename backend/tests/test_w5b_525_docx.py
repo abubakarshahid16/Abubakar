@@ -14,7 +14,7 @@ import zipfile
 import pymupdf
 import pytest
 
-from app import access, chunker, db, docx_chunks, docx_reader, extract, keyword, search, upload
+from app import access, chunker, db, docx_chunks, docx_reader, extract, fts_index, search, upload
 from app.config import settings
 from tests import docx_builder as d
 from tests.fake_tokenizer import install_if_missing
@@ -34,7 +34,7 @@ def temp_storage(tmp_path, monkeypatch):
     install_if_missing(monkeypatch)
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     yield
 
 
@@ -173,7 +173,7 @@ def test_every_body_chunk_knows_its_heading_path_and_paragraph(tmp_path):
 
 def test_a_question_about_a_table_cell_is_answered_with_the_heading_path(tmp_path):
     doc = _ingest(tmp_path)
-    keyword.index_document(doc)
+    fts_index.index_document(doc)
     # The keyword side of hybrid search (no model weights needed): the row of
     # the table, found by a word in its cells and its heading.
     result = search.search("Flange ratings Rating 300 Mass 3.4", limit=5, dense=False,
@@ -203,7 +203,7 @@ def test_deleted_text_is_never_quoted_as_current_text(tmp_path):
     [prose] = [c for c in rows if c["kind"] == "prose"]
     assert prose["locator"].endswith(docx_chunks.TRACKED_SUFFIX)
     # search never returns the deleted words as a body hit
-    keyword.index_document(doc)
+    fts_index.index_document(doc)
     result = search.search("pressure testing is optional for small vessels", limit=5, dense=False,
                            rerank=False, allowed_document_ids=frozenset({doc}))
     assert all("optional" not in h["text"] for h in result["hits"])
@@ -320,7 +320,7 @@ def test_the_document_and_its_chunks_report_the_flow_format(tmp_path):
 def test_a_word_passage_is_cited_by_its_locator_in_the_prompt_and_the_source_chip(tmp_path):
     from app import answer, chat_presentation
     doc = _ingest(tmp_path)
-    keyword.index_document(doc)
+    fts_index.index_document(doc)
     hit = search.search("Flange ratings Rating 300 Mass 3.4", limit=3, dense=False, rerank=False,
                         allowed_document_ids=frozenset({doc}))["hits"][0]
     payload = answer._passage_payload(hit, "what is the rating of size 2")

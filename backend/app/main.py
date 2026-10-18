@@ -32,7 +32,7 @@ from . import job_queue as job_queue_mod
 from . import review_jobs as review_jobs_mod
 from . import orphan_guard
 from . import page_ledger as page_ledger_mod
-from . import keyword as keyword_mod
+from . import fts_index as keyword_mod
 from . import metrics as metrics_mod
 from . import answer as answer_mod
 from . import search as search_mod
@@ -129,7 +129,7 @@ async def lifespan(app: FastAPI):
     # A keyword index written by older indexing code (trailing full stops
     # glued onto tokens - "MR0175." unsearchable) is rebuilt from `chunks`
     # here, once, before the worker starts. FTS only: nothing is re-chunked or
-    # re-embedded. See keyword.INDEX_VERSION.
+    # re-embedded. See fts_index.INDEX_VERSION.
     _fts = keyword_mod.migrate_index()
     if _fts["rebuilt"] and _fts["documents"]:
         import logging as _logging

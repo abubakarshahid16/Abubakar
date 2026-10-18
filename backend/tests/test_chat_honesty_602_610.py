@@ -24,7 +24,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import answer as answer_mod
-from app import chat_presentation, db, front_matter, keyword, lexical
+from app import chat_presentation, db, front_matter, fts_index, lexical
 from app import passages as passages_mod
 from app import search as search_mod
 from app.config import settings
@@ -55,7 +55,7 @@ def relief(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "t.sqlite")
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     path = tmp_path / "relief.pdf"
     doc = pymupdf.open()
@@ -165,7 +165,7 @@ def fixed_hits(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "db_path", tmp_path / "e.sqlite")
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     monkeypatch.setattr(lexical, "assess", lambda *a, **k: {
         "ok": True, "reason": None, "coverage": 1.0, "terms": [], "covered": [],
         "absent_from_corpus": []})

@@ -26,7 +26,7 @@ from .config import settings
 from .db import connect
 from .rates import Timer, rate
 from . import states
-from . import keyword
+from . import fts_index
 from . import orphan_guard
 from .ocr import failed_page_reason
 from .quality import MIN_CLAUSE_WORDS, assess, longest_clause
@@ -2885,7 +2885,7 @@ def chunk_document(doc_id: str, force: bool = False,
     `acknowledge_orphaned_findings` is kept for callers and is not needed."""
     timer = Timer()
     conn = connect()
-    keyword.ensure_schema(conn)
+    fts_index.ensure_schema(conn)
     doc = conn.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()
     if doc is None:
         raise ValueError(f"unknown document {doc_id}")

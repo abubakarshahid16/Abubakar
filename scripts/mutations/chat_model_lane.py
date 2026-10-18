@@ -82,7 +82,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              replacement="    text = \" \".join((message.get(\"text\") or \"\").split())\n",
              target=_T, keyword="sees_the_conversation", tags=("citation",)),
     Mutation(id="M940", phase=80, description="search: a word with no length-neighbour crashes the correction",
-             path=APP / "keyword.py", anchor="    if not near:\n",
+             path=APP / "fts_index.py", anchor="    if not near:\n",
              replacement="    if False:\n",
              target="tests/test_keyword_no_length_neighbour.py", keyword="no_length_neighbour",
              tags=("search",)),

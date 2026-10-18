@@ -24,7 +24,7 @@ import numpy as np
 import pymupdf
 import pytest
 
-from app import db, extract, ingest, keyword, ocr, states, vector_store, vectorcache
+from app import db, extract, fts_index, ingest, ocr, states, vector_store, vectorcache
 from app.chunker import chunk_document
 from app.config import settings
 from app.db import connect
@@ -359,14 +359,14 @@ def _two_documents() -> frozenset[str]:
                           "Flange gaskets shall be spiral wound with a graphite filler.",
                           f"h-{doc_id}"))
     for doc_id in ("ok", "bad"):
-        keyword.index_document(doc_id)
+        fts_index.index_document(doc_id)
     _add_vectors([_vector("ok-c0", "ok"), _vector("bad-c0", "bad")])
     return frozenset({"ok", "bad"})
 
 
 def test_search_never_returns_a_chunk_of_a_failed_document():
     scope = _two_documents()
-    hits = keyword.search("spiral wound gaskets", limit=10, allowed_document_ids=scope)
+    hits = fts_index.search("spiral wound gaskets", limit=10, allowed_document_ids=scope)
     assert [h["chunk_id"] for h in hits] == ["ok-c0"]
     dense = vector_store.search(lambda: np.ones(EMBEDDING_DIM, dtype="float32"),
                                 limit=10, allowed_document_ids=scope)
@@ -377,7 +377,7 @@ def test_a_document_being_re_processed_keeps_answering_from_its_last_build():
     scope = _two_documents()
     with connect() as conn:
         conn.execute("UPDATE documents SET status = ? WHERE id = 'bad'", (states.CHUNKING,))
-    hits = keyword.search("spiral wound gaskets", limit=10, allowed_document_ids=scope)
+    hits = fts_index.search("spiral wound gaskets", limit=10, allowed_document_ids=scope)
     assert {h["chunk_id"] for h in hits} == {"ok-c0", "bad-c0"}
 
 

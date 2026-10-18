@@ -18,7 +18,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import answer as answer_mod
-from app import chat, db, keyword, lexical
+from app import chat, db, fts_index, lexical
 from app import condition_choice as cc
 from app.config import settings
 from app.ingest import IngestionWorker
@@ -171,7 +171,7 @@ def piping(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "t.sqlite")
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     path = tmp_path / "spec.pdf"
     doc = pymupdf.open()
@@ -222,7 +222,7 @@ def empty_db(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "e.sqlite")
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     yield
     db.reset_connection()
 

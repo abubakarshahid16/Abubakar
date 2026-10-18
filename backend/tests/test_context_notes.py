@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 
 from app import chunker as ch
-from app import db, keyword, vector_store, vectorcache
+from app import db, fts_index, vector_store, vectorcache
 from app.config import settings
 from app.embedder import (
     LEGACY_PASSAGE_INPUT_VERSIONS,
@@ -127,7 +127,7 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "ctx.sqlite")
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     with db.connect() as conn:
         conn.execute("""INSERT INTO documents
             (id,filename,sha256,size_bytes,stored_path,status,page_count,uploaded_at)
@@ -145,7 +145,7 @@ def world(tmp_path, monkeypatch):
 def test_the_keyword_index_finds_a_clause_by_the_heading_above_it(world):
     conn = db.connect()
     with conn:
-        keyword._index_rows(conn, "doc_ctx")
+        fts_index._index_rows(conn, "doc_ctx")
     hit = conn.execute(
         "SELECT chunk_id FROM chunks_fts WHERE chunks_fts MATCH 'larger'").fetchall()
     assert [r[0] for r in hit] == ["ctx-c1"]

@@ -26,7 +26,7 @@ import pytest
 
 from app import answer as answer_mod
 from app import chat as chat_mod
-from app import chat_stream, db, keyword, lexical, passages, reranker, search
+from app import chat_stream, db, fts_index, lexical, passages, reranker, search
 from app.config import settings
 
 REPO = Path(__file__).resolve().parents[2]
@@ -40,7 +40,7 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "t.sqlite")
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     yield
     db.reset_connection()
 
@@ -330,12 +330,12 @@ def test_only_carried_identifiers_are_soft():
 
 
 def test_a_carried_identifier_cannot_exclude_a_passage_from_the_keyword_side(monkeypatch):
-    """keyword.search ANDs identifiers; a carried one must not."""
+    """fts_index.search ANDs identifiers; a carried one must not."""
     corpus = {"a": "API 610 vibration tolerance 0.05 mm",
               "b": "shaft tolerance is 0.02 mm for all pumps"}
 
     def fake(question, limit=30, document_id=None, *, allowed_document_ids, corrections=None):
-        need = [i.lower() for i in keyword.IDENTIFIER.findall(question)]
+        need = [i.lower() for i in fts_index.IDENTIFIER.findall(question)]
         return [{"chunk_id": k, "bm25": -1.0} for k, t in corpus.items()
                 if all(n in t.lower() for n in need)]
     monkeypatch.setattr(search.keyword, "search", fake)

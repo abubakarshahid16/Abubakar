@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import chunker, extract, keyword
+from app import chunker, extract, fts_index
 from app.db import connect
 
 from tests.r2_security_support import h, temp_storage, world  # noqa: F401
@@ -44,7 +44,7 @@ def test_an_admin_can_still_delete(world):
 def test_a_reader_cannot_force_the_pipeline(world, monkeypatch, stage):
     called = []
     for mod, name in ((extract, "extract_document"), (chunker, "chunk_document"),
-                      (keyword, "index_document")):
+                      (fts_index, "index_document")):
         monkeypatch.setattr(mod, name, lambda *a, **k: called.append(name) or {})
     from app import ingest
     monkeypatch.setattr(ingest, "get_worker",
@@ -58,7 +58,7 @@ def test_a_reader_cannot_force_the_pipeline(world, monkeypatch, stage):
 def test_an_admin_reaches_the_pipeline(world, monkeypatch, stage):
     called = []
     for mod, name in ((extract, "extract_document"), (chunker, "chunk_document"),
-                      (keyword, "index_document")):
+                      (fts_index, "index_document")):
         monkeypatch.setattr(mod, name, lambda *a, **k: called.append(name) or {})
     from app import ingest
 

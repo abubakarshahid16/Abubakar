@@ -7,7 +7,7 @@ existing here is not a claim that anything fills it yet.
 
 WHY EVERY READ PATH TAKES `allowed_document_ids` KEYWORD-ONLY WITH NO DEFAULT
 
-The same reason `search.search` and `keyword.search` do, recorded as entry 11
+The same reason `search.search` and `fts_index.search` do, recorded as entry 11
 of the honesty audit: a default is a filter that can be forgotten. A caller
 that omits the argument here raises TypeError at the call site, which a test
 catches and a reviewer sees. A caller that omits a defaulted argument reads the

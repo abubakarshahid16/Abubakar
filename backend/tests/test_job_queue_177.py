@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app import (datasheets, db, ingest, job_queue, keyword, metrics,
+from app import (datasheets, db, ingest, job_queue, fts_index, metrics,
                  standards, states, submittal_review, upload)
 from app import watcher as watcher_mod
 from app.config import settings
@@ -38,7 +38,7 @@ def temp_storage(tmp_path, monkeypatch):
     db.init_db()
     submittal_review.ensure_schema()
     submittal_review.migrate_facts_to_per_document()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     watcher_mod.reset_watcher()
     yield
     watcher_mod.reset_watcher()

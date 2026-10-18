@@ -33,7 +33,7 @@ WHAT IS REUSED, NOT REBUILT
 second table and not collapsed to JSON, because it needs joins, permission
 filtering and audit. `standards.selectable_standard_ids` already excludes
 superseded revisions. `datasheets.referenced_standards` already reads the
-identifiers a sheet cites. `keyword.search` is FTS5 for exact standard numbers
+identifiers a sheet cites. `fts_index.search` is FTS5 for exact standard numbers
 and `search.search` is the hybrid path; both take `allowed_document_ids`
 keyword-only, so access filters before ranking rather than after.
 """
@@ -47,7 +47,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import datasheets, errors, keyword, standard_ids, standards, submittal_review
+from . import datasheets, errors, fts_index, standard_ids, standards, submittal_review
 from .db import connect
 
 #: The selection rules, in the priority master plan section 11 gives them.
@@ -1017,7 +1017,7 @@ def _match_semantic(document_id: str, library: list[dict],
 
     FTS5 over the submittal's own words, restricted to the library ids and to
     the caller's grants - ACCESS FILTERS BEFORE RANKING, never after, which is
-    what `keyword.search`'s keyword-only parameter enforces.
+    what `fts_index.search`'s keyword-only parameter enforces.
 
     THE WEAKEST RULE, AND IT IS TREATED AS ONE. It carries the lowest
     confidence, it is overridden by every other method, and it can never cover
@@ -1035,7 +1035,7 @@ def _match_semantic(document_id: str, library: list[dict],
     if not terms:
         return {}
     try:
-        hits = keyword.search(" OR ".join(terms), limit=limit,
+        hits = fts_index.search(" OR ".join(terms), limit=limit,
                               allowed_document_ids=searchable)
     except Exception as exc:  # noqa: BLE001 - a retrieval failure is not a selection
         return errors.fell_back("applicability: keyword search failed", exc, {})

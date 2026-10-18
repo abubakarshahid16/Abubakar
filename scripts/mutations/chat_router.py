@@ -9,8 +9,8 @@ _T = "tests/test_chat_pr2_router.py"
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M926", phase=81, description="router: the reader's own material no longer forces the documents",
              path=APP / "intent.py",
-             anchor="    if (document_in_scope or _DOCUMENT_WORDS.search(raw) or keyword.IDENTIFIER.search(raw)\n",
-             replacement="    if (document_in_scope or keyword.IDENTIFIER.search(raw)\n",
+             anchor="    if (document_in_scope or _DOCUMENT_WORDS.search(raw) or fts_index.IDENTIFIER.search(raw)\n",
+             replacement="    if (document_in_scope or fts_index.IDENTIFIER.search(raw)\n",
              target=_T, keyword="never_answered_from_general_knowledge", tags=("honesty", "critical")),
     Mutation(id="M927", phase=81, description="router: a question the documents miss is refused, not answered generally",
              path=APP / "chat.py",

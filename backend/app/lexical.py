@@ -30,7 +30,7 @@ import re
 
 from . import acronyms
 from . import glossary
-from . import keyword
+from . import fts_index
 
 #: Words that carry no subject. A question is not ABOUT "what" or "required".
 STOPWORDS = {
@@ -118,7 +118,7 @@ MIN_FRAGMENT_LENGTH = 8
 _TERM = re.compile(r"[A-Za-z][A-Za-z0-9./-]*")
 
 #: A plain decimal ("2.5", "0.75", "1.6"): a value the reader typed, not a
-#: designation. `keyword.IDENTIFIER` matches it through its clause-number
+#: designation. `fts_index.IDENTIFIER` matches it through its clause-number
 #: shape, which made every decimal in a question a named subject that had to
 #: appear in the corpus. Three-part clause numbers (5.3.2) are not decimals
 #: and still count; so does anything with a letter (A106, API 5L).
@@ -179,7 +179,7 @@ def distinctive_terms(
             seen.add(key)
             terms.append(term)
 
-    for ident in keyword.IDENTIFIER.findall(question):
+    for ident in fts_index.IDENTIFIER.findall(question):
         if _PLAIN_DECIMAL.fullmatch(ident):
             continue
         add(ident)
@@ -215,7 +215,7 @@ def looks_like_a_named_subject(term: str, question: str) -> bool:
     """
     if _PLAIN_DECIMAL.fullmatch(term):
         return False
-    if keyword.IDENTIFIER.fullmatch(term):
+    if fts_index.IDENTIFIER.fullmatch(term):
         return True
     # A user may paste a heading or a whole question in ALL CAPS. Long
     # alphabetic words in that style are ordinary prose, not named subjects;
@@ -246,7 +246,7 @@ def is_absent_qualifier(term: str, question: str, present: list[str]) -> bool:
     the qualifier aside when "relief" is indexed; "ASME-certified" at the end
     of a question qualifies nothing and still refuses.
     """
-    if keyword.IDENTIFIER.fullmatch(term) or not _QUALIFIER.fullmatch(term):
+    if fts_index.IDENTIFIER.fullmatch(term) or not _QUALIFIER.fullmatch(term):
         return False
     after = re.search(re.escape(term) + r"\s+([A-Za-z][A-Za-z0-9./-]*)", question)
     if not after:
@@ -269,7 +269,7 @@ def searched_scope(
 
         row = connect().execute(
             "SELECT filename FROM documents WHERE id = ?", (document_id,)).fetchone()
-        count = keyword.indexed_count(
+        count = fts_index.indexed_count(
             document_id, allowed_document_ids=allowed_document_ids)
         if row and count:
             noun = "passage" if count == 1 else "passages"
@@ -334,7 +334,7 @@ def _scope_wholly_named(term: str, scope: frozenset[str]) -> bool:
     # ("NACE-MR0175-ISO15156-specification" and "MR0175-ISO15156-specification").
     # The tail is part of the document's own name, so an identifier-shaped
     # term that sits inside the designation counts as naming it.
-    fragment_ok = bool(keyword.IDENTIFIER.fullmatch(term)) and len(wanted) >= MIN_FRAGMENT_LENGTH
+    fragment_ok = bool(fts_index.IDENTIFIER.fullmatch(term)) and len(wanted) >= MIN_FRAGMENT_LENGTH
     for row in rows:
         designation = understanding.designation(row["filename"])
         if not designation:
@@ -405,14 +405,14 @@ def assess(
         # nothing distinctive to check; the semantic score decides alone
         return empty
 
-    indexed = keyword.indexed_count(
+    indexed = fts_index.indexed_count(
         document_id, allowed_document_ids=allowed_document_ids)
     if not indexed:
         return empty
     common_ids = _COMMONNESS_IDS.get()
     common_indexed = indexed
     if common_ids is not None:
-        common_indexed = keyword.indexed_count(None, allowed_document_ids=common_ids)
+        common_indexed = fts_index.indexed_count(None, allowed_document_ids=common_ids)
     common_cutoff = max(1, int(common_indexed * COMMON_TERM_FRACTION))
     judge_commonness = common_indexed >= MIN_CORPUS_FOR_COMMONNESS
 
@@ -459,8 +459,8 @@ def assess(
         forms.extend(expanded.get(term.lower(), ()))
         # ...and an identifier without its optional prefix: a materials table
         # prints "N06625" under its UNS column, and "UNS N06625" was refused
-        # as absent from the standard that lists it (keyword.unprefixed_forms).
-        forms.extend(keyword.unprefixed_forms(term))
+        # as absent from the standard that lists it (fts_index.unprefixed_forms).
+        forms.extend(fts_index.unprefixed_forms(term))
 
         # ...and the spelling the corpus uses, when the reader's spelling is
         # not in it at all. Issue #85: "sumbittal requirements" refused with
@@ -470,8 +470,8 @@ def assess(
         # same argument acronyms.py makes about an expansion the document
         # never abbreviates. The correction comes from the INDEX, never from a
         # dictionary, and identifiers are excluded from it - see
-        # keyword._correctable, where API 610 and API 611 are one edit apart.
-        corrected = keyword.fuzzy_corpus_match(
+        # fts_index._correctable, where API 610 and API 611 are one edit apart.
+        corrected = fts_index.fuzzy_corpus_match(
             term, document_id, allowed_document_ids=allowed_document_ids)
         if corrected:
             forms.append(corrected)
@@ -480,7 +480,7 @@ def assess(
         occurrences = 0
         unparseable = True
         for form in forms:
-            count = keyword.term_occurrences(
+            count = fts_index.term_occurrences(
                 form, document_id, allowed_document_ids=allowed_document_ids)
             if count >= 0:
                 unparseable = False
@@ -512,7 +512,7 @@ def assess(
             if common_ids is not None:
                 common_occurrences = 0
                 for form in forms:
-                    count = keyword.term_occurrences(
+                    count = fts_index.term_occurrences(
                         form, None, allowed_document_ids=common_ids)
                     if count >= 0:
                         common_occurrences = max(common_occurrences, count)
@@ -619,7 +619,7 @@ def distinguishing_uncovered_terms(
     if not is_compound_question(question):
         # a single-subject question is answered by one passage or not at all
         return []
-    indexed = keyword.indexed_count(
+    indexed = fts_index.indexed_count(
         document_id, allowed_document_ids=allowed_document_ids)
     if not indexed:
         return []
@@ -634,7 +634,7 @@ def distinguishing_uncovered_terms(
             question, document_id, allowed_document_ids=allowed_document_ids):
         if term.lower() in body:
             continue
-        occurrences = keyword.term_occurrences(
+        occurrences = fts_index.term_occurrences(
             term, document_id, allowed_document_ids=allowed_document_ids)
         if 0 < occurrences <= cutoff:
             out.append(term)

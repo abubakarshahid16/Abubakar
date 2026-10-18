@@ -16,7 +16,7 @@ import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
-from app import access, analysis, db, keyword, synthesis
+from app import access, analysis, db, fts_index, synthesis
 from app.config import settings
 from app.ingest import IngestionWorker
 from app.main import app
@@ -54,7 +54,7 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "t.sqlite")
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     yield
     db.reset_connection()

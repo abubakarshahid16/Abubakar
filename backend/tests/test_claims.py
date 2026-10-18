@@ -14,7 +14,7 @@ import json
 
 import pytest
 
-from app import claims, db, keyword
+from app import claims, db, fts_index
 from app.config import settings
 from app.claims import (
     Claim,
@@ -46,7 +46,7 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "t.sqlite")
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     (tmp_path / "uploads").mkdir(parents=True, exist_ok=True)
     yield
     db.reset_connection()
@@ -359,7 +359,7 @@ def test_claim_and_measurement_are_frozen():
 
 
 def test_identifier_regex_does_not_swallow_a_measurement():
-    """keyword.IDENTIFIER matches "MDFT 280" (its API-610 shape) and "9.0" (its
+    """fts_index.IDENTIFIER matches "MDFT 280" (its API-610 shape) and "9.0" (its
     clause shape). Both must come out as measurements, not codes."""
     (c,) = extract_claims([_evidence("e1", "MDFT 280 um for adhesion 9.0 MPa.")], allowed_document_ids=_scope())
     assert [m.raw_value for m in c.measurements] == ["280", "9.0"]

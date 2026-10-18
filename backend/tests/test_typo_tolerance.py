@@ -7,7 +7,7 @@ product type badly.
 
 Two places had to change and both are asserted here:
 
-  * keyword.search retries a query that came back empty against the spelling
+  * fts_index.search retries a query that came back empty against the spelling
     the INDEX actually holds, and merges the retry's rows with the exact
     query's. The corrections come from fts5vocab, so a correction can only
     ever be a word that is really in the corpus - no dictionary, no model, no
@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import db, keyword, lexical
+from app import db, fts_index, lexical
 from app.config import settings
 
 # Parked. Both features these tests assert (the reranker relevance floor and
@@ -56,8 +56,8 @@ def corpus(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "t.sqlite")
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
-    keyword.reset_vocabulary_cache()
+    fts_index.ensure_schema()
+    fts_index.reset_vocabulary_cache()
     conn = db.connect()
     with conn:
         conn.execute(
@@ -75,8 +75,8 @@ def corpus(tmp_path, monkeypatch):
                 (f"c{ordinal}", ordinal, ordinal + 1, ordinal + 1, section,
                  text, len(text.split()), f"h{ordinal}"),
             )
-    keyword.index_document("doc1")
-    keyword.reset_vocabulary_cache()
+    fts_index.index_document("doc1")
+    fts_index.reset_vocabulary_cache()
     yield
     db.reset_connection()
 
@@ -92,18 +92,18 @@ def test_the_misspelled_query_matches_nothing_without_the_retry():
     """The defect itself, stated as a fact about the index rather than an
     assumption. If this ever stops being true the test below proves nothing,
     so it is asserted rather than believed."""
-    exact = keyword.build_match_query("strctural sumbittal")
+    exact = fts_index.build_match_query("strctural sumbittal")
     conn = db.connect()
-    where, params = keyword._scope_clause(None, SCOPE)
-    assert keyword._run_match(conn, exact, where, params, 30) == []
+    where, params = fts_index._scope_clause(None, SCOPE)
+    assert fts_index._run_match(conn, exact, where, params, 30) == []
 
 
 def test_a_misspelled_query_retrieves_what_the_correct_one_retrieves():
     """"strctural sumbittal" must find the passages "structural submittal"
     finds. This is issue #85."""
-    correct = keyword.search(
+    correct = fts_index.search(
         "structural submittal", allowed_document_ids=SCOPE)
-    typed = keyword.search(
+    typed = fts_index.search(
         "strctural sumbittal", allowed_document_ids=SCOPE)
 
     assert ids(correct), "the control query found nothing; the fixture is wrong"
@@ -115,7 +115,7 @@ def test_the_corrections_are_reported_not_hidden():
     """The reader is told what was actually searched. Silently answering a
     different question is the failure mode this feature has to avoid."""
     corrections: dict[str, str] = {}
-    keyword.search(
+    fts_index.search(
         "strctural sumbittal", allowed_document_ids=SCOPE,
         corrections=corrections,
     )
@@ -125,7 +125,7 @@ def test_the_corrections_are_reported_not_hidden():
 def test_the_exact_hits_are_kept_when_a_retry_happens():
     """The retry is ADDITIVE. A word the reader spelled correctly keeps
     everything it matched, whatever the tolerant query does."""
-    typed = keyword.search(
+    typed = fts_index.search(
         "strctural coating", allowed_document_ids=SCOPE)
     assert "c2" in ids(typed), "the correctly spelled word lost its own hits"
     assert "c0" in ids(typed) or "c1" in ids(typed)
@@ -174,48 +174,48 @@ def test_an_identifier_is_never_corrected():
     """API 610 and API 611 are one edit apart and are different standards.
     Correcting one to the other answers a question nobody asked, which is
     worse than returning nothing."""
-    assert keyword.fuzzy_corpus_match("610", allowed_document_ids=SCOPE) is None
-    assert keyword.fuzzy_corpus_match("P-101A", allowed_document_ids=SCOPE) is None
-    assert keyword.fuzzy_corpus_match("5.3.2", allowed_document_ids=SCOPE) is None
-    assert keyword._correctable("A216") is False
+    assert fts_index.fuzzy_corpus_match("610", allowed_document_ids=SCOPE) is None
+    assert fts_index.fuzzy_corpus_match("P-101A", allowed_document_ids=SCOPE) is None
+    assert fts_index.fuzzy_corpus_match("5.3.2", allowed_document_ids=SCOPE) is None
+    assert fts_index._correctable("A216") is False
 
 
 def test_a_word_the_corpus_contains_is_never_rewritten():
     """The reader's spelling wins whenever it matches something."""
-    assert keyword.fuzzy_corpus_match("structural", allowed_document_ids=SCOPE) is None
-    assert keyword.fuzzy_corpus_match("coating", allowed_document_ids=SCOPE) is None
-    assert keyword.spelling_corrections("structural submittal drawings", allowed_document_ids=SCOPE) == {}
+    assert fts_index.fuzzy_corpus_match("structural", allowed_document_ids=SCOPE) is None
+    assert fts_index.fuzzy_corpus_match("coating", allowed_document_ids=SCOPE) is None
+    assert fts_index.spelling_corrections("structural submittal drawings", allowed_document_ids=SCOPE) == {}
 
 
 def test_a_different_word_is_not_treated_as_a_typo():
     """Similarity is not identity. "clause" is not "class", and a correction
     that changes the meaning of the question is the defect, not the fix."""
-    assert keyword.fuzzy_corpus_match("cladding", allowed_document_ids=SCOPE) is None
-    assert keyword.fuzzy_corpus_match("submarine", allowed_document_ids=SCOPE) is None
+    assert fts_index.fuzzy_corpus_match("cladding", allowed_document_ids=SCOPE) is None
+    assert fts_index.fuzzy_corpus_match("submarine", allowed_document_ids=SCOPE) is None
 
 
 def test_short_words_are_left_alone():
     """At four characters and under, one edit is a different word far more
     often than it is a typo."""
-    assert keyword._correctable("stel") is False
-    assert keyword.fuzzy_corpus_match("stel", allowed_document_ids=SCOPE) is None
+    assert fts_index._correctable("stel") is False
+    assert fts_index.fuzzy_corpus_match("stel", allowed_document_ids=SCOPE) is None
 
 
 # ------------------------------------------------------ query normalisation
 
 
 def test_normalisation_strips_noise_but_keeps_identifiers_intact():
-    assert keyword.normalise_query("  what  is   the NDFT?? ") == "what is the NDFT"
-    assert keyword.normalise_query("clause 5.3.2 (API 610)!") == "clause 5.3.2 API 610"
+    assert fts_index.normalise_query("  what  is   the NDFT?? ") == "what is the NDFT"
+    assert fts_index.normalise_query("clause 5.3.2 (API 610)!") == "clause 5.3.2 API 610"
     # case is deliberately preserved: IDENTIFIER and DESIGNATOR key off it, and
     # folding here would quietly turn a REQUIRED term into an optional one
-    assert '"API 610"' in keyword.build_match_query(
-        keyword.normalise_query("what does API 610 say?"))
+    assert '"API 610"' in fts_index.build_match_query(
+        fts_index.normalise_query("what does API 610 say?"))
 
 
 def test_punctuation_alone_does_not_lose_the_hits():
-    plain = keyword.search("structural submittal", allowed_document_ids=SCOPE)
-    noisy = keyword.search(
+    plain = fts_index.search("structural submittal", allowed_document_ids=SCOPE)
+    noisy = fts_index.search(
         "structural submittal???", allowed_document_ids=SCOPE)
     assert ids(plain) == ids(noisy)
 

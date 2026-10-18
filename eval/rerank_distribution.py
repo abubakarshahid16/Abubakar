@@ -30,7 +30,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "backend"))
 
-from app import keyword, lexical, search  # noqa: E402
+from app import fts_index, lexical, search  # noqa: E402
 from app.db import init_db  # noqa: E402
 
 QUESTIONS = ROOT / "eval" / "questions.json"
@@ -64,7 +64,7 @@ def profile(question: str, expected_pages: set[int] | None) -> dict:
     median = statistics.median(scores)
     # Heading precedence evidence: does the top candidate's HEADING declare the
     # question's designator, or does it only mention it in the body?
-    wanted = keyword.find_designators(question)
+    wanted = fts_index.find_designators(question)
     top_heading_declares = None
     if wanted:
         heading = (hits[0]["section"] or "").lower()
@@ -132,7 +132,7 @@ def summarise(name: str, profiles: list[dict]) -> dict:
 
 def main() -> int:
     init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
 
     originals = {str(q["id"]): q for q in json.loads(QUESTIONS.read_text(encoding="utf-8"))}
     spec = json.loads(PHRASINGS.read_text(encoding="utf-8"))["phrasings"]

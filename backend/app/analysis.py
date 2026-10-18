@@ -419,7 +419,7 @@ _PERCENTAGE_IN_TEXT = re.compile(
     r"\d+(?:[.,]\d+)?\s*(?:%|per\s?cent\b|percent\b)", re.I)
 
 #: Percent-bearing terms for the SUPPLEMENTARY retrieval call. Two-digit and
-#: three-digit only: `keyword.build_match_query` keeps word tokens of two
+#: three-digit only: `fts_index.build_match_query` keeps word tokens of two
 #: characters or more, so "5%" would contribute nothing, and the FTS5
 #: tokenizer does not index "%" itself - "50%" in a document is the token
 #: "50". These are the round figures a design-submittal schedule is written
@@ -499,7 +499,7 @@ def percentage_recall(
     would start scoring against "50" and "100" as if the reader had asked
     about those numbers. The primary retrieval here is untouched, keeps its own
     ordering, and this is a strictly ADDITIVE second pass whose results arrive
-    behind it. `keyword.py` is not modified: the widening is entirely in the
+    behind it. `fts_index.py` is not modified: the widening is entirely in the
     argument this call passes.
 
     WHY IT CANNOT FLOOD THE SET. A supplementary hit is kept only if it
@@ -624,7 +624,7 @@ def gather(question: str, scope: access.AccessScope, *, limit: int = 8,
 
     FOUR THINGS HAPPEN HERE, in this order, and none of them changes shared
     retrieval: every one is either an argument passed to `search()` or a
-    post-filter over what it returned. `search.py`, `keyword.py` and
+    post-filter over what it returned. `search.py`, `fts_index.py` and
     `passages.py` are shared with Chat and are untouched.
 
     1. NARROWING. If the question names documents the caller may read, only

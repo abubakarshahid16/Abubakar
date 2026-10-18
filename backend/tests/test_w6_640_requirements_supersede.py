@@ -28,7 +28,7 @@ import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
-from app import ai_engineering_check, comparison, db, keyword, standards, submittal_review
+from app import ai_engineering_check, comparison, db, fts_index, standards, submittal_review
 from app.chunker import chunk_document
 from app.config import settings
 from app.extract import extract_document
@@ -47,7 +47,7 @@ def temp_storage(tmp_path, monkeypatch):
     db.reset_connection()
     db.init_db()
     submittal_review.ensure_schema()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     yield
     db.reset_connection()

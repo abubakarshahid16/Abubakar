@@ -141,7 +141,7 @@
   "backend/app/intent.py::C420": 6,
   "backend/app/intent.py::SIM118": 1,
   "backend/app/job_queue.py::UP017": 1,
-  "backend/app/keyword.py::I001": 1,
+  "backend/app/fts_index.py::I001": 1,
   "backend/app/lexical.py::I001": 1,
   "backend/app/ligatures.py::B905": 1,
   "backend/app/live_guard.py::RUF100": 1,

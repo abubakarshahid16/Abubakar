@@ -194,7 +194,7 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "from a background thread",
         path=APP / "warmup.py",
         anchor="    acronyms.harvest(allowed_document_ids=every_document_id())",
-        replacement="    from . import keyword\n    keyword.ensure_schema.uncached()\n"
+        replacement="    from . import fts_index\n    fts_index.ensure_schema.uncached()\n"
                     "    acronyms.harvest(allowed_document_ids=every_document_id())",
         target=_T, keyword="never_writes",
     ),
