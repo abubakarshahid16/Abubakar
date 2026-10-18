@@ -6,7 +6,7 @@
  * differ from what was last saved; the screen holds Sign and export, and
  * warns before leaving, while any do.
  */
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import type { CrsRow } from "./crsRows";
 
@@ -111,7 +111,9 @@ export function useCrsDecisions(): CrsDecisions {
     setAccepted(null);
   }, [accepted]);
 
-  const unsaved = Object.keys(state.decisions).filter((key) => !sameDecision(state.decisions[key], saved[key]));
+  const unsaved = useMemo(
+    () => Object.keys(state.decisions).filter((key) => !sameDecision(state.decisions[key], saved[key])),
+    [state.decisions, saved]);
   const markSaved = useCallback((keys: string[]) => {
     setSaved((prev) => {
       const next = { ...prev };
@@ -120,21 +122,23 @@ export function useCrsDecisions(): CrsDecisions {
     });
   }, [state.decisions]);
 
-  return {
-    state,
-    unsaved,
-    markSaved,
-    decisionOf: (key) => state.decisions[key] ?? null,
-    keep: (key) => set(key, { kind: "keep" }),
-    edit: (key, observation, requiredAction) => set(key, { kind: "edit", observation, requiredAction }),
-    remove: (key, reason) => set(key, { kind: "remove", reason }),
-    clear: (key) => set(key, null),
-    markOpened: (key) => setState((s) => (s.opened[key] ? s : { ...s, opened: { ...s.opened, [key]: true } })),
-    remaining,
-    acceptAll,
-    canUndo: accepted !== null,
-    undo,
-  };
+  // Order 117: the per-row actions never change, so a memoised row given
+  // them does not re-render when another row's decision does.
+  const decisionOf = useCallback((key: string) => state.decisions[key] ?? null, [state.decisions]);
+  const keep = useCallback((key: string) => set(key, { kind: "keep" }), [set]);
+  const edit = useCallback((key: string, observation: string, requiredAction: string) =>
+    set(key, { kind: "edit", observation, requiredAction }), [set]);
+  const remove = useCallback((key: string, reason: RemoveReason) => set(key, { kind: "remove", reason }), [set]);
+  const clear = useCallback((key: string) => set(key, null), [set]);
+  const markOpened = useCallback((key: string) =>
+    setState((s) => (s.opened[key] ? s : { ...s, opened: { ...s.opened, [key]: true } })), []);
+  const canUndo = accepted !== null;
+
+  // One object per change of state, not one per render: what depends on it
+  // (the keyboard listener, the row callbacks) stays put between renders.
+  return useMemo(() => ({
+    state, unsaved, markSaved, decisionOf, keep, edit, remove, clear, markOpened, remaining, acceptAll, canUndo, undo,
+  }), [state, unsaved, markSaved, decisionOf, keep, edit, remove, clear, markOpened, remaining, acceptAll, canUndo, undo]);
 }
 
 function sameDecision(a: Decision | undefined, b: Decision | undefined): boolean {
