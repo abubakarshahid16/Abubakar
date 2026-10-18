@@ -804,7 +804,7 @@ def collection_claude_generate(
     ))
     return synthesis.Generation(
         response.text,
-        truncated=response.finish_reason == "max_tokens",
+        truncated=response.truncated,     # #456: "length" on both engines
         model=response.model_tag,
     )
 

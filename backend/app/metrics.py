@@ -10,6 +10,7 @@ a dashboard is read as a fact.
 
 from __future__ import annotations
 
+import logging
 import shutil
 import threading
 import time
@@ -20,6 +21,8 @@ import psutil
 from . import model_transport, states, telemetry
 from .config import settings
 from .db import connect
+
+log = logging.getLogger(__name__)
 
 #: Ollama is a separate process. Asking it anything on a 15-second refresh has
 #: to be cheap and has to fail fast, or a stopped Ollama would hang the whole
@@ -227,7 +230,8 @@ def _reranker_name() -> str:
     cfg = reranker_mod.model_dir() / "config.json"
     try:
         data = json.loads(cfg.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001 - a dashboard label must never 500
+    except Exception as exc:  # noqa: BLE001 - a dashboard label must never 500
+        log.info("metrics: reranker config unreadable (%s)", type(exc).__name__)
         return f"{reranker_mod.model_dir().name} (name unavailable)"
     for key in ("_name_or_path", "name_or_path", "model_type"):
         value = data.get(key)
@@ -337,6 +341,7 @@ def _probe_ollama() -> dict:
         # 24 again - a control whose absence is invisible.
         raise
     except Exception as exc:  # noqa: BLE001 - a stopped Ollama is a state, not a crash
+        log.info("metrics: Ollama status call failed (%s)", type(exc).__name__)
         info["ollama_error"] = type(exc).__name__
     return info
 
@@ -515,7 +520,8 @@ def _vector_store_status(host: bool) -> dict | None:
 
     try:
         return vector_store.status(include_counts=host)
-    except Exception:  # noqa: BLE001 - a status probe must not break the dashboard
+    except Exception as exc:  # noqa: BLE001 - a status probe must not break the dashboard
+        log.info("metrics: vector store status unreadable (%s)", type(exc).__name__)
         return None
 
 

@@ -1,6 +1,6 @@
 {
  "ruff": "0.16.6",
- "total": 1580,
+ "total": 1579,
  "counts": {
   "backend/app/absence.py::E741": 1,
   "backend/app/access.py::UP031": 1,
@@ -9,7 +9,7 @@
   "backend/app/admin.py::UP017": 4,
   "backend/app/ai_applicability.py::I001": 1,
   "backend/app/ai_applicability.py::RUF021": 1,
-  "backend/app/ai_engineering_check.py::I001": 3,
+  "backend/app/ai_engineering_check.py::I001": 2,
   "backend/app/ai_engineering_check.py::RUF021": 1,
   "backend/app/ai_engineering_check.py::RUF059": 2,
   "backend/app/ai_engineering_check.py::UP017": 1,

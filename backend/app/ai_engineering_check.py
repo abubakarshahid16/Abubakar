@@ -53,8 +53,8 @@ import re
 from datetime import datetime, timezone
 from enum import Enum
 
-from . import claude_approved
-from . import claude_spend, errors, numparse
+from . import claude_approved, claude_spend, errors, numparse
+from .ai import output_limits
 from .ai.json_reply import unfenced
 from .config import settings
 from .db import connect
@@ -789,7 +789,7 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
             local_instead = claude_approved.local_instead()
             if local_instead:
                 provider = rp.OllamaProvider()
-    max_output_tokens = settings.review_ai_check_max_output_tokens
+    max_output_tokens = output_limits.max_tokens_for(output_limits.ROUTE_ENGINEERING_CHECK)
     timeout_s = 240.0
     if isinstance(provider, rp.OllamaProvider):
         # A local model writes far slower than the Claude lane: a smaller
@@ -1062,8 +1062,8 @@ def _opinion_packet(fields: list[dict], pages: dict[int, str], cited: list[str])
     from . import reasoning_provider as rp
     return rp.Packet(
         prompt=build_prompt(fields, pages, cited, {}), system=SYSTEM, num_ctx=settings.num_ctx,
-        num_predict=settings.review_ai_check_max_output_tokens, json_schema=SCHEMA, step=STEP,
-        prompt_version=PROMPT_VERSION + "+datasheet-only", timeout_s=240.0)
+        num_predict=output_limits.max_tokens_for(output_limits.ROUTE_ENGINEERING_CHECK),
+        json_schema=SCHEMA, step=STEP, prompt_version=PROMPT_VERSION + "+datasheet-only", timeout_s=240.0)
 
 
 def _store_opinion(review_run_id: str, allowed_document_ids: frozenset[str], outcome: dict) -> dict:

@@ -62,6 +62,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              anchor="    try:\n"
                     "        ocr = _build_engine()\n"
                     "    except Exception as exc:  # noqa: BLE001 - a missing model is every page failing, not the document\n"
+                    "        errors.fell_back(\"ocr: engine not built; every page fails\", exc, None)\n"
                     "        return failed_rows(page_nos, f\"engine_unavailable: {type(exc).__name__}: {exc}\")\n",
              replacement="    ocr = _build_engine()\n",
              target=_T, keyword="missing_ocr_model",
@@ -78,10 +79,8 @@ MUTATIONS: tuple[Mutation, ...] = (
              description="a broken OCR pool is not replaced: every later batch "
                          "fails too",
              path=APP / "ocr.py",
-             anchor="                    if isinstance(exc, cf.BrokenExecutor):\n"
-                    "                        broken = True",
-             replacement="                    if False:\n"
-                         "                        broken = True",
+             anchor="                    broken = broken or isinstance(exc, cf.BrokenExecutor)",
+             replacement="                    broken = broken or False",
              target=_T, keyword="killed_ocr_worker",
              tags=("reliability",)),
     Mutation(id="M1467", phase=1467,

@@ -195,7 +195,8 @@ jobs:
       - name: Lint backend for correctness errors
         run: python -m ruff check backend/app backend/tests --select E9,F63,F7,F82
       # Order 55a: everything ruff.toml selects, as a ratchet - a PR fails only
-      # on a NEW finding (per file and rule); the formatter is a report.
+      # on a NEW finding (per file and rule). The whole-tree formatter count is
+      # a report; the formatter gate is per changed file (order 79d, below).
       - name: No new ruff.toml findings (baseline)
         run: python scripts/check_lint_baseline.py check
 
@@ -233,6 +234,15 @@ jobs:
       # eval/quality/baseline.json. See scripts/quality_ratchet.py.
       - name: Quality ratchet (no measured rule may get worse)
         run: python scripts/quality_ratchet.py check --baseline eval/quality/baseline.json
+      # Order 79d: `ruff format`, for the files a PR changes only. A changed
+      # file may not move further from the formatter and a new file must be
+      # formatted, so the tidy-up happens file by file. The PR's merge commit
+      # is HEAD; its first parent is the base it was merged with.
+      - name: Formatter ratchet (changed files only)
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags --depth=2 origin "$GITHUB_SHA"
+          python scripts/quality_ratchet.py format-check --base HEAD^1
 
       - name: Cache models
         id: models
