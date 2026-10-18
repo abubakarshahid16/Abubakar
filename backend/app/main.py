@@ -138,10 +138,9 @@ async def lifespan(app: FastAPI):
             "keyword index rebuilt to version %s (was %s): %d documents, "
             "%d chunks, %.1f s", _fts["version"], _fts["from_version"],
             _fts["documents"], _fts["chunks"], _fts["seconds"])
-    review_mod.ensure_schema()
-    deliverables_mod.ensure_schema()
-    risks_mod.ensure_schema()
-    submittal_review_mod.ensure_schema()
+    for _module in (review_mod, deliverables_mod, risks_mod, submittal_review_mod):
+        _module.ensure_schema()
+    crs_issue_mod.ensure_indexes()  # order 109: an index for the review runs list
     # THE DISCIPLINE OVERLAY. `discipline_canonical` is derived from the raw
     # value at every write, so this backfill exists only for rows written
     # before the column did. It is idempotent - it recomputes from `discipline`
@@ -1294,6 +1293,28 @@ def _standards_change(run: dict, scope: access.AccessScope) -> dict | None:
             "removed": sorted(before[k] for k in before.keys() - now.keys())}
 
 
+def _finding_counts(run_id: str) -> tuple[int, dict[str, int], list[str]]:
+    """`_run_summary`'s finding numbers for one run: the total (the denominator,
+    findings with no status included), the count per status, and the distinct
+    equipment tags. One grouped count gives the total and the per-status
+    counts (order 109); both read only from indexes."""
+    by_status: dict[str, int] = {}
+    total = 0
+    for row in connect().execute(
+            "SELECT compliance_status, COUNT(*) AS n FROM review_findings"
+            " WHERE review_run_id = ? GROUP BY compliance_status", (run_id,)):
+        total += row["n"]
+        if row["compliance_status"] is not None:
+            by_status[row["compliance_status"]] = row["n"]
+    tags = [
+        row["equipment_tag"] for row in connect().execute(
+            "SELECT DISTINCT equipment_tag FROM review_findings"
+            " WHERE review_run_id = ? AND equipment_tag IS NOT NULL"
+            " ORDER BY equipment_tag", (run_id,))
+    ]
+    return total, by_status, tags
+
+
 def _run_summary(run: dict, scope: access.AccessScope) -> dict:
     """One review run as every screen shows it.
 
@@ -1306,26 +1327,20 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
     run - fourteen thousand across nine runs - to produce six numbers, and
     the list spent seconds on it before rendering. The run is already scoped
     by its caller, so these aggregates inherit that scope.
+
+    NOTHING ASKED TWICE (order 109): the list took 17-36 s for 57 runs. One
+    grouped count gives both the total and the per-status counts; the run row
+    the caller already holds is handed to `run_outcome` and `ai_check_status`
+    instead of each reading it again; the plain sentence and the AI-check
+    status are computed once.
     """
-    by_status = {
-        row["compliance_status"]: row["n"]
-        for row in connect().execute(
-            "SELECT compliance_status, COUNT(*) AS n FROM review_findings"
-            " WHERE review_run_id = ? AND compliance_status IS NOT NULL"
-            " GROUP BY compliance_status", (run["id"],))
-    }
-    findings_total = connect().execute(
-        "SELECT COUNT(*) AS n FROM review_findings WHERE review_run_id = ?",
-        (run["id"],)).fetchone()["n"]
-    tags = [
-        row["equipment_tag"] for row in connect().execute(
-            "SELECT DISTINCT equipment_tag FROM review_findings"
-            " WHERE review_run_id = ? AND equipment_tag IS NOT NULL"
-            " ORDER BY equipment_tag", (run["id"],))
-    ]
+    findings_total, by_status, tags = _finding_counts(run["id"])
     job = review_jobs_mod.job_for_run(run["id"])
     outcome = comparison_mod.run_outcome(
-        run["id"], allowed_document_ids=scope.allowed_document_ids) or {}
+        run["id"], allowed_document_ids=scope.allowed_document_ids, run=run) or {}
+    plain_reason, plain_details = comparison_mod.plain_outcome(outcome)
+    ai_check = ai_engineering_check_mod.ai_check_status(
+        run["id"], allowed_document_ids=scope.allowed_document_ids, run=run)
     document = connect().execute(
         "SELECT filename FROM documents WHERE id = ?",
         (run["submittal_document_id"],)).fetchone()
@@ -1346,8 +1361,8 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         "recommended_code": outcome.get("recommended_code"),
         # 2g: plain words for the engineer; the technical sentence under "Details".
         # A run stored before 2g gets its plain sentence from the same counts.
-        "recommended_reason": comparison_mod.plain_outcome(outcome)[0],
-        "recommended_details": comparison_mod.plain_outcome(outcome)[1],
+        "recommended_reason": plain_reason,
+        "recommended_details": plain_details,
         # The client's configured code labels, in policy order, so the screen
         # offers exactly the labels `record_engineer_code` accepts.
         "review_codes": list(comparison_mod.review_codes()),
@@ -1379,8 +1394,7 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         # silent when it did: a truncated or budget-refused reply is a fact
         # on the run, with the plain-English boundary sentence a reviewer
         # reads directly (`ai_engineering_check._plain_status`).
-        "ai_check_status": ai_engineering_check_mod.ai_check_status(
-            run["id"], allowed_document_ids=scope.allowed_document_ids),
+        "ai_check_status": ai_check,
         # #633: the web standards check's own outcome, same rule.
         "web_check_status": _json_column(run.get("web_check_status")),
         # #633: findings written before a failed run stopped are PARTIAL.
@@ -1388,18 +1402,23 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         # Order 95 piece 3: the inbox's "Signed"; null when nothing was issued.
         "crs_issued_at": crs_issue_mod.last_issued_at(run["id"]),
         # #845: the AI numbers, each with its denominator - stored data, no model call.
-        "ai_numbers": _ai_numbers(run, scope, outcome),
+        "ai_numbers": _ai_numbers(run, scope, outcome, ai_check=ai_check),
     }
 
 
-def _ai_numbers(run: dict, scope: access.AccessScope, outcome: dict | None) -> dict | None:
+_UNREAD = object()
+
+
+def _ai_numbers(run: dict, scope: access.AccessScope, outcome: dict | None,
+                *, ai_check=_UNREAD) -> dict | None:
     """#845: the run's four AI steps as `ai_numbers.for_run` reads them from
-    what the run stored. None when the run holds no record of any of them."""
-    return ai_numbers_mod.for_run(
-        outcome,
-        ai_engineering_check_mod.ai_check_status(
-            run["id"], allowed_document_ids=scope.allowed_document_ids),
-        crs_wording_mod.summary_of(run["id"]))
+    what the run stored. None when the run holds no record of any of them.
+    `ai_check`: the run's `ai_check_status` when the caller already read it
+    (order 109; None is a real answer, "never ran"); omitted, it is read here."""
+    if ai_check is _UNREAD:
+        ai_check = ai_engineering_check_mod.ai_check_status(
+            run["id"], allowed_document_ids=scope.allowed_document_ids, run=run)
+    return ai_numbers_mod.for_run(outcome, ai_check, crs_wording_mod.summary_of(run["id"]))
 
 
 def _json_column(raw) -> dict | None:

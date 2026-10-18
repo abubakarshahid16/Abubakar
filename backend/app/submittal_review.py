@@ -318,13 +318,12 @@ def ensure_schema() -> None:
             ("override_reason", "TEXT"),
             ("decided_by", "TEXT REFERENCES users(id) ON DELETE SET NULL"),
             ("decided_at", "TEXT"),
-            # 2026-09-27, AI-check truncation fix: the AI engineering check's
-            # own outcome for this run - JSON, same style as `refusal_reason`
-            # above. NULL when the check never ran (off, or the Claude lane is
-            # off). Set whether the check finished cleanly, was completed
-            # after a capped retry, or is still incomplete - so a truncated
-            # reply is a fact on the run a reviewer can see, never a run that
-            # silently looks like it raised nothing to say.
+            # 2026-09-27, AI-check truncation fix: the AI engineering check's own
+            # outcome for this run - JSON, same style as `refusal_reason` above. NULL
+            # when the check never ran (off, or the Claude lane is off). Set whether the
+            # check finished cleanly, was completed after a capped retry, or is still
+            # incomplete - so a truncated reply is a fact on the run a reviewer can see,
+            # never a run that silently looks like it raised nothing to say.
             ("ai_check_status", "TEXT"),
             # #633: the web standards check's own outcome, stored the same way.
             ("web_check_status", "TEXT"),
@@ -335,10 +334,11 @@ def ensure_schema() -> None:
             ("crs_contractor_transmittal", "TEXT"),
         ):
             add_column_if_missing(conn, "review_runs", _column, _type)
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_review_runs_submittal "
-            "ON review_runs(submittal_document_id, status, created_at DESC)")
-
+        for _index in (
+            "idx_review_runs_submittal ON review_runs(submittal_document_id, status, created_at DESC)",
+            "idx_review_runs_created ON review_runs(created_at)",  # order 109: the list's order
+        ):
+            conn.execute("CREATE INDEX IF NOT EXISTS " + _index)
         # ------------------------------------------------- the submittal side
         conn.execute(
             """CREATE TABLE IF NOT EXISTS submittal_facts (
