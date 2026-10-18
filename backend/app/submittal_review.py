@@ -289,15 +289,8 @@ def ensure_schema() -> None:
                     REFERENCES documents(id) ON DELETE CASCADE,
                 template_id TEXT REFERENCES review_templates(id) ON DELETE SET NULL,
                 status TEXT NOT NULL DEFAULT 'pending',
-                -- LEGACY, READ BY NOTHING. Before order 117 the run's outcome
-                -- JSON lived here under a name that only fit failures; it was
-                -- copied to `outcome_json` below and is no longer written.
+                -- Legacy: the run's outcome moved to `outcome_json` (order 117).
                 refusal_reason TEXT,
-                -- Why the run ended where it did, as JSON: the recommended
-                -- code and its reason on a completed run, `error` on a failed
-                -- or cancelled one. A refusal is a result and is recorded as
-                -- one rather than left as an empty finding list.
-                outcome_json TEXT,
                 model_name TEXT,
                 -- config.config_version() at the time of the run: the hash of
                 -- the settings that could change the answer, the same stamp
@@ -310,12 +303,12 @@ def ensure_schema() -> None:
                 updated_at TEXT NOT NULL
             )"""
         )
-        # SECTION 15: the AI recommends, the engineer decides, and both are
-        # kept. The recommendation lives in `outcome_json` where
-        # `_store_run_outcome` writes it; the DECISION gets columns of its
-        # own, because "which reviews are waiting for an engineer" is a
+        # SECTION 15: the AI recommends, the engineer decides, and both are kept.
+        # The recommendation lives in `outcome_json`; the DECISION gets columns of
+        # its own, because "which reviews are waiting for an engineer" is a
         # question a dashboard asks in SQL and cannot ask of a JSON blob.
         for _column, _type in (
+            ("outcome_json", "TEXT"),  # why the run ended: code and reason, or error
             # One of the four codes in section 15. NULL until an engineer
             # decides, which is the state "awaiting engineer decision".
             ("engineer_final_code", "TEXT"),
@@ -324,12 +317,9 @@ def ensure_schema() -> None:
             ("override_reason", "TEXT"),
             ("decided_by", "TEXT REFERENCES users(id) ON DELETE SET NULL"),
             ("decided_at", "TEXT"),
-            # 2026-09-27, AI-check truncation fix: the AI engineering check's own
-            # outcome for this run - JSON, same style as `outcome_json` above. NULL
-            # when the check never ran (off, or the Claude lane is off). Set whether the
-            # check finished cleanly, was completed after a capped retry, or is still
-            # incomplete - so a truncated reply is a fact on the run a reviewer can see,
-            # never a run that silently looks like it raised nothing to say.
+            # 2026-09-27: the AI engineering check's own outcome, JSON like
+            # `outcome_json`; NULL when it never ran. A truncated reply is a fact on
+            # the run, never a run that silently looks like it raised nothing.
             ("ai_check_status", "TEXT"),
             # #633: the web standards check's own outcome, stored the same way.
             ("web_check_status", "TEXT"),
@@ -340,13 +330,10 @@ def ensure_schema() -> None:
             ("crs_contractor_transmittal", "TEXT"),
         ):
             add_column_if_missing(conn, "review_runs", _column, _type)
-        # ORDER 117: THE OUTCOME MOVES OUT OF `refusal_reason`. A database made
-        # before the move gets the column, and every run's outcome is copied
-        # across once; `outcome_json IS NULL` keeps a re-run from overwriting
-        # an outcome written since.
-        add_column_if_missing(conn, "review_runs", "outcome_json", "TEXT")
-        conn.execute("UPDATE review_runs SET outcome_json = refusal_reason"
-                     " WHERE outcome_json IS NULL AND refusal_reason IS NOT NULL")
+        conn.execute(  # order 117: copy each pre-move outcome across, once
+            "UPDATE review_runs SET outcome_json = refusal_reason"
+            " WHERE outcome_json IS NULL AND refusal_reason IS NOT NULL"
+        )
         for _index in (
             "idx_review_runs_submittal ON review_runs(submittal_document_id, status, created_at DESC)",
             "idx_review_runs_created ON review_runs(created_at)",  # order 109: the list's order

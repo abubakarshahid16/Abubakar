@@ -41,7 +41,8 @@ def temp_storage(tmp_path, monkeypatch):
         conn.execute(
             "INSERT INTO documents (id,filename,sha256,size_bytes,stored_path,"
             "status,page_count,uploaded_at) VALUES ('doc_sub','s.pdf','sha',1,'s.pdf',"
-            "'ready',1,'2026-10-18T00:00:00Z')")
+            "'ready',1,'2026-10-18T00:00:00Z')"
+        )
     yield
     db.reset_connection()
 
@@ -57,13 +58,18 @@ def test_a_database_made_before_the_move_gets_each_outcome_copied_across():
         conn.execute(
             "INSERT INTO review_runs (id,submittal_document_id,status,refusal_reason,"
             "created_at,updated_at) VALUES ('run_old','doc_sub','completed',?,"
-            "'2026-10-01T00:00:00Z','2026-10-01T00:00:00Z')", (json.dumps(stored),))
+            "'2026-10-01T00:00:00Z','2026-10-01T00:00:00Z')",
+            (json.dumps(stored),),
+        )
     assert "outcome_json" not in _columns()
 
     submittal_review.ensure_schema()
 
     assert "outcome_json" in _columns()
-    assert comparison.run_outcome("run_old", allowed_document_ids=frozenset({"doc_sub"})) == stored
+    assert (
+        comparison.run_outcome("run_old", allowed_document_ids=frozenset({"doc_sub"}))
+        == stored
+    )
 
 
 def test_an_outcome_written_since_the_move_is_not_overwritten_by_the_copy():
@@ -72,13 +78,17 @@ def test_an_outcome_written_since_the_move_is_not_overwritten_by_the_copy():
         conn.execute(
             "INSERT INTO review_runs (id,submittal_document_id,status,refusal_reason,"
             "outcome_json,created_at,updated_at) VALUES ('run_new','doc_sub','failed',"
-            "'{\"error\": \"stale\"}','{\"error\": \"current\"}',"
-            "'2026-10-18T00:00:00Z','2026-10-18T00:00:00Z')")
+            '\'{"error": "stale"}\',\'{"error": "current"}\','
+            "'2026-10-18T00:00:00Z','2026-10-18T00:00:00Z')"
+        )
 
     submittal_review.ensure_schema.__wrapped__()  # the copy runs again, as on a restart
 
-    row = db.connect().execute(
-        "SELECT outcome_json FROM review_runs WHERE id = 'run_new'").fetchone()
+    row = (
+        db.connect()
+        .execute("SELECT outcome_json FROM review_runs WHERE id = 'run_new'")
+        .fetchone()
+    )
     assert json.loads(row["outcome_json"]) == {"error": "current"}
 
 
@@ -88,11 +98,19 @@ def test_a_writer_fills_outcome_json_and_leaves_the_old_column_alone():
         conn.execute(
             "INSERT INTO review_runs (id,submittal_document_id,status,created_at,"
             "updated_at) VALUES ('run_dead','doc_sub','running','2026-10-18T00:00:00Z',"
-            "'2026-10-18T00:00:00Z')")
+            "'2026-10-18T00:00:00Z')"
+        )
 
     assert submittal_review.fail_orphaned_review_runs() == 1
 
-    row = db.connect().execute(
-        "SELECT refusal_reason, outcome_json FROM review_runs WHERE id = 'run_dead'").fetchone()
+    row = (
+        db.connect()
+        .execute(
+            "SELECT refusal_reason, outcome_json FROM review_runs WHERE id = 'run_dead'"
+        )
+        .fetchone()
+    )
     assert row["refusal_reason"] is None
-    assert json.loads(row["outcome_json"]) == {"error": submittal_review.ORPHANED_RUN_REASON}
+    assert json.loads(row["outcome_json"]) == {
+        "error": submittal_review.ORPHANED_RUN_REASON
+    }
