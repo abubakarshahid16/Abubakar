@@ -103,6 +103,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `engineer_feedback` | Engineers' accept / edit / reject decisions as precision per standard and rule |
 | `errors` | Error codes and safe error reporting |
 | `extract` | Step 2 - resumable page-batch extraction |
+| `facet_memo` | The facet merge rule asked once per pair of facet versions (#615) |
 | `family_search` | A question that names a FAMILY of standards in general words ("what do the welding standards say about post we |
 | `field_links` | Linking a datasheet field to a clause: synonyms, nozzle marks, and simple categorical values. CRS quick wins, |
 | `field_naming` | Canonical field names for printed labels and numeric requirements (#193 plan B4, orders 5.2 and 5.3). Behind ` |
