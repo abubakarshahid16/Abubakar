@@ -36,7 +36,7 @@ LOGS = (
 
 def _silent(module: str) -> list[int]:
     out = []
-    for node in ast.walk(ast.parse((APP / f"{module}.py").read_text())):
+    for node in ast.walk(ast.parse((APP / f"{module}.py").read_text(encoding="utf-8"))):
         if not isinstance(node, ast.ExceptHandler):
             continue
         t = node.type
