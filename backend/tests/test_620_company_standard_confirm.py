@@ -19,7 +19,9 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     monkeypatch.setattr(settings, "db_path", tmp_path / "s620.sqlite")
     monkeypatch.setattr(settings, "company_standard_confirm_from", "2026-10-18T00:00:00")
-    db.reset_connection(); db.init_db(); submittal_review.ensure_schema()
+    db.reset_connection()
+    db.init_db()
+    submittal_review.ensure_schema()
     with db.connect() as conn:
         for rid, name in (("r-admin", "admin"), ("r-mech", "Mechanical")):
             conn.execute("INSERT OR IGNORE INTO roles (id, name, description, created_at) VALUES (?, ?, 'test', ?)",
