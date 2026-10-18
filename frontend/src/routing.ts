@@ -1,5 +1,13 @@
 import type { ViewId } from "./components/Shell";
 
+/** Order 95 piece 3 / order 104: the review inbox (/review/inbox) stays off
+ *  the landing page until the owner's click-through says yes. Flipping this
+ *  to true makes the inbox what /review opens. */
+export const INBOX_IS_DEFAULT = false;
+
+/** The record segment that opens the inbox under /review. */
+export const INBOX_RECORD = "inbox";
+
 export type AppRoute =
   | { kind: "view"; view: ViewId; recordId?: string; panel?: string }
   | { kind: "forbidden"; path: string };
