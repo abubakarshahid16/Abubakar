@@ -57,6 +57,7 @@ from . import (
     errors,
     job_progress,
 )
+from .ai import output_limits
 from .claude_spend import StopRun
 from .config import settings
 
@@ -163,10 +164,15 @@ def _claude_call():
     import os
     base = reader_api.ReaderSettings.from_env()
     model = (os.environ.get("STANDARDS_READER_MODEL") or "").strip() or settings.claude_reasoning_model
-    cfg = dataclasses.replace(base, model=model, max_tokens=int(settings.datasheet_ai_claude_max_tokens),
+    cfg = dataclasses.replace(base, model=model,
                               timeout_seconds=float(settings.datasheet_ai_timeout_seconds))
-    call = claude_budget.Budget(reader_api.model_call_via(claude_spend.metered(
-        transport, STEP, unbilled=reader_transport.unbilled), cfg=cfg))
+    # #456: the route table sets the cap (DATASHEET_AI_CLAUDE_MAX_TOKENS); a
+    # cut-off reply keeps its complete facts and is marked `cut_off` by
+    # `claude_datasheet.parse_or_cut` (#501), exactly as the local lane's
+    # `EngineFailed` names a cut-off page - both named, neither parsed whole.
+    call = claude_budget.Budget(output_limits.model_call_for(
+        claude_spend.metered(transport, STEP, unbilled=reader_transport.unbilled),
+        output_limits.ROUTE_DATASHEET_READ, cfg=cfg, salvage=True))
     call.engine = CLAUDE
     call.model = model
     call.step = STEP
