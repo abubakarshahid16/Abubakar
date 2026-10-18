@@ -128,3 +128,40 @@ def test_a_writer_fills_outcome_json_and_leaves_the_old_column_alone():
     assert json.loads(row["outcome_json"]) == {
         "error": submittal_review.ORPHANED_RUN_REASON
     }
+
+
+def test_the_copy_never_overwrites_an_outcome_written_after_the_column_was_added(
+    monkeypatch,
+):
+    """cloud's #1137 review: the ALTER commits at once, so a writer can store a
+    newer outcome before the copy runs. The copy must leave that one alone."""
+    with db.connect() as conn:
+        conn.execute(_OLD_REVIEW_RUNS)
+        conn.execute(
+            "INSERT INTO review_runs (id,submittal_document_id,status,refusal_reason,"
+            "created_at,updated_at) VALUES ('run_race','doc_sub','failed',NULL,"
+            "'2026-10-18T00:00:00Z','2026-10-18T00:00:00Z')"
+        )
+    real_add = submittal_review.add_column_if_missing
+
+    def add_then_a_writer_lands(conn, table, column, definition):
+        added = real_add(conn, table, column, definition)
+        if added and column == "outcome_json":
+            conn.execute(
+                "UPDATE review_runs SET outcome_json = ? WHERE id = 'run_race'",
+                (json.dumps({"error": "newer"}),),
+            )
+        return added
+
+    monkeypatch.setattr(
+        submittal_review, "add_column_if_missing", add_then_a_writer_lands
+    )
+
+    submittal_review.ensure_schema()
+
+    row = (
+        db.connect()
+        .execute("SELECT outcome_json FROM review_runs WHERE id = 'run_race'")
+        .fetchone()
+    )
+    assert json.loads(row["outcome_json"]) == {"error": "newer"}

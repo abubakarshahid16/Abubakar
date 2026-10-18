@@ -318,8 +318,7 @@ def ensure_schema() -> None:
             ("decided_by", "TEXT REFERENCES users(id) ON DELETE SET NULL"),
             ("decided_at", "TEXT"),
             # 2026-09-27: the AI engineering check's own outcome, JSON like
-            # `outcome_json`; NULL when it never ran. A truncated reply is a fact on
-            # the run, never a run that silently looks like it raised nothing.
+            # `outcome_json`; NULL when it never ran. A truncated reply shows on the run.
             ("ai_check_status", "TEXT"),
             # #633: the web standards check's own outcome, stored the same way.
             ("web_check_status", "TEXT"),
@@ -329,10 +328,12 @@ def ensure_schema() -> None:
             ("crs_company_transmittal", "TEXT"),
             ("crs_contractor_transmittal", "TEXT"),
         ):
-            if add_column_if_missing(conn, "review_runs", _column, _type) and (
-                _column == "outcome_json"  # order 117: a pre-move database, so
-            ):  # its outcomes are copied across once; a read path never writes
-                conn.execute("UPDATE review_runs SET outcome_json = refusal_reason")
+            added = add_column_if_missing(conn, "review_runs", _column, _type)
+            if added and _column == "outcome_json":  # order 117: a pre-move db
+                conn.execute(  # copied once, never over a newer outcome (#1137)
+                    "UPDATE review_runs SET outcome_json = refusal_reason"
+                    " WHERE outcome_json IS NULL"
+                )
         for _index in (
             "idx_review_runs_submittal ON review_runs(submittal_document_id, status, created_at DESC)",
             "idx_review_runs_created ON review_runs(created_at)",  # order 109: the list's order
