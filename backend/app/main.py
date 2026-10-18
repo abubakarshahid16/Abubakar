@@ -4,14 +4,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from . import admin_explorer as explorer_mod
 from . import chat as chat_mod
 from . import classification as classification_mod
-from . import chunker as chunk_mod
 from . import absence as absence_mod
 from . import ai_engineering_check as ai_engineering_check_mod
 from . import ai_numbers as ai_numbers_mod
@@ -28,32 +27,28 @@ from . import review_trace as review_trace_mod
 from . import engineer_feedback as engineer_feedback_mod
 from . import datasheets as datasheets_mod
 from . import disciplines as disciplines_mod
-from . import extract as extract_mod
 from . import ingest as ingest_mod
 from . import job_queue as job_queue_mod
 from . import review_jobs as review_jobs_mod
-from . import document_refs, orphan_guard
+from . import orphan_guard
 from . import okf as okf_mod
 from . import page_ledger as page_ledger_mod
-from . import highlight as highlight_mod
 from . import keyword as keyword_mod
 from . import metrics as metrics_mod
 from . import answer as answer_mod
 from . import search as search_mod
 from . import pageimage as pageimage_mod
-from . import upload as upload_mod
 from . import watcher as watcher_mod
 from . import fact_api as fact_api_mod
 from . import watch_api as watch_api_mod
 from . import sheet_page as sheet_page_mod
 from . import warmup as warmup_mod
 from .api_utils import (
+    _require_identity_to_write,
     DEFAULT_LIMIT,
     MAX_LIMIT,
     reject_unknown_params,
     require_document,
-    retrievable_clause,
-    validate_retrievable,
 )
 from . import access
 from . import admin as admin_mod
@@ -79,7 +74,6 @@ from . import standards as standards_mod
 from . import standards_inventory as standards_inventory_mod
 from . import standards_acquisition as standards_acquisition_mod
 from . import submittal_review as submittal_review_mod
-from . import workbook as workbook_mod
 from . import vector_store as vector_store_mod
 from . import schemas
 from .config import config_version, settings
@@ -265,6 +259,14 @@ app.add_middleware(
 
 # Routes in their own modules (watched folder; #473 fact confirmation) so this
 # file stays the only place routing is declared without growing a feature.
+from .api import document_classification as api_document_classification  # noqa: E402
+from .api import document_files as api_document_files  # noqa: E402
+from .api import documents as api_documents  # noqa: E402
+
+# Order 73: the documents area's routes live in app/api/ (target structure).
+app.include_router(api_documents.router)
+app.include_router(api_document_classification.router)
+app.include_router(api_document_files.router)
 app.include_router(watch_api_mod.router)
 app.include_router(fact_api_mod.router)
 app.include_router(sheet_page_mod.router)  # #967: the Sheet's page with every card's value marked
@@ -462,399 +464,7 @@ def metrics(request: Request,
 # --------------------------------------------------------------- documents
 
 
-@app.get("/api/documents/upload-disciplines", response_model=schemas.UploadDisciplines,
-         responses={**schemas.ERRORS_401})
-def upload_disciplines(scope: access.AccessScope = Depends(access.current_scope)):
-    """The disciplines this caller may make an upload visible to (#609), and
-    the default: their own. Empty and not required with authentication off."""
-    if scope.user_id is None:
-        _require_identity_to_write(scope)
-        return {"required": False, "choices": [], "default": []}
-    return {"required": True, **access.upload_discipline_choices(scope.user_id)}
-
-
-@app.post("/api/documents", response_model=schemas.UploadAccepted,
-          responses={**schemas.ERRORS_400, **schemas.ERRORS_401, **schemas.ERRORS_422})
-async def upload_document(
-    file: UploadFile = File(...),
-    disciplines: list[str] | None = Form(None),
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """Accept an identified upload, visible to the disciplines it names (#609).
-
-    With an identity, at least one discipline is required and is checked
-    BEFORE the bytes are stored, so no document is left visible to nobody.
-    With authentication off every caller reads every document and grants
-    decide nothing, so none are asked for or written."""
-    _require_identity_to_write(scope)
-    admin_role: str | None = None
-    discipline_roles: list[str] = []
-    if scope.user_id is not None:
-        try:
-            admin_role, _uploader_is_admin = access.upload_admin_role(scope.user_id)
-        except RuntimeError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
-        try:
-            discipline_roles = access.resolve_upload_disciplines(scope.user_id, disciplines)
-        except access.UploadDisciplineRefused as exc:
-            raise HTTPException(status_code=422, detail=errors.safe_error(
-                errors.INVALID_PARAMETER, str(exc))) from exc
-    try:
-        row, job_id, duplicate_of = upload_mod.ingest(file.file, file.filename or "")
-    except upload_mod.UploadError as e:
-        return JSONResponse(
-            status_code=400,
-            content={"code": e.code, "message": e.message, "detail": e.detail},
-        )
-    if duplicate_of is None and admin_role is not None and scope.user_id is not None:
-        access.grant_uploaded_document_to_admin(row["id"], admin_role, scope.user_id)
-        access.grant_uploaded_document_to_disciplines(
-            row["id"], discipline_roles, scope.user_id)
-    elif duplicate_of is not None and not scope.may_read(duplicate_of):
-        return {"document": None, "job_id": "", "duplicate_of": None,
-                "awaiting_grant": True}
-    # A new upload is readable by its uploader at once: an engineer may only
-    # choose their own disciplines, and an administrator holds every document.
-    return {
-        "document": upload_mod.to_api(row),
-        "job_id": job_id or "",
-        "duplicate_of": duplicate_of,
-        "awaiting_grant": False,
-    }
-
-
-@app.get("/api/documents", response_model=list[schemas.Document],
-         responses=schemas.ERRORS_422)
-def list_documents(request: Request, response: Response,
-    limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
-    offset: int = Query(0, ge=0),
-    sort: str = Query("uploaded_at"),
-    direction: str = Query("desc"),
-    q: str | None = Query(None, max_length=200),
-    status: str | None = Query(None),
-    document_role: list[str] | None = Query(None),
-    discipline: list[str] | None = Query(None),
-    equipment_type: list[str] | None = Query(None),
-    project: list[str] | None = Query(None),
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    reject_unknown_params(request, {"limit", "offset", "sort", "direction", "q",
-                                    "status", "document_role", "discipline",
-                                    "equipment_type", "project"})
-    sort_columns = {"uploaded_at": "uploaded_at", "filename": "filename",
-                    "status": "status", "size_bytes": "size_bytes"}
-    if sort not in sort_columns:
-        raise HTTPException(status_code=422, detail=errors.safe_error(
-            errors.INVALID_PARAMETER, "sort must be one of: uploaded_at, filename, status, size_bytes"))
-    if direction not in {"asc", "desc"}:
-        raise HTTPException(status_code=422, detail=errors.safe_error(
-            errors.INVALID_PARAMETER, "direction must be asc or desc"))
-    if status is not None and status not in schemas.DocStatus.__args__:
-        raise HTTPException(status_code=422, detail=errors.safe_error(
-            errors.INVALID_PARAMETER, "unknown document status"))
-    for role in document_role or ():
-        # Refused at the boundary, like every other vocabulary on this route.
-        # An unknown role would otherwise match nothing and read to the user as
-        # "there are no contractor submittals" rather than "that is not a role".
-        if role not in schemas.DocumentRole.__args__:
-            raise HTTPException(status_code=422, detail=errors.safe_error(
-                errors.INVALID_PARAMETER, "unknown document role"))
-    # THE METADATA FILTER, AND THE ONE PLACE IT IS APPLIED.
-    #
-    # It goes through `classification.restrict`, which intersects the matched
-    # ids with the scope and returns a NARROWER scope - never an id set
-    # assembled here. Two consequences that are the whole point:
-    #   * a filter can only ever shrink what this route may see, so no
-    #     combination of query parameters can reveal a document the caller
-    #     holds no grant for (mutation M11 flips the & to a | and this route's
-    #     permission tests fail);
-    #   * a filter that matches NOTHING yields an empty scope rather than
-    #     falling back to the corpus, because the caller asked for a role and
-    #     an empty answer is the honest one (mutation M14).
-    wanted = classification_mod.ScopeFilter(
-        disciplines=tuple(discipline or ()),
-        roles=tuple(document_role or ()),
-        equipment_types=tuple(equipment_type or ()),
-        projects=tuple(project or ()),
-    )
-    scope, metadata_filtered = classification_mod.restrict(scope, wanted)
-    conn = connect()
-    # Filtered IN THE QUERY, not after it. Selecting every document and
-    # dropping the unauthorised ones in Python would work here because there is
-    # no LIMIT - but it is the same shape as the retrieval defect fixed in the
-    # previous commit, and the next person to add pagination to this route
-    # would silently turn it into that bug. The scope belongs in the WHERE
-    # clause on principle, not because this particular query needs it.
-    allowed = sorted(scope.allowed_document_ids)
-    # `unrestricted` means "grants do not narrow this caller"; it does NOT mean
-    # "ignore the id set". A metadata filter narrows an unrestricted scope's
-    # id set while carrying `unrestricted` through untouched (see
-    # classification.restrict), so skipping the IN clause on `unrestricted`
-    # alone would apply the filter for ordinary users and silently drop it for
-    # an administrator - the filter working everywhere except where it is least
-    # likely to be noticed.
-    enumerate_ids = metadata_filtered or not scope.unrestricted
-    if enumerate_ids and not allowed:
-        response.headers["X-Total-Count"] = "0"
-        response.headers["X-Limit"] = str(limit)
-        response.headers["X-Offset"] = str(offset)
-        return []
-    if not enumerate_ids:
-        where: list[str] = []
-        params: list[object] = []
-    else:
-        marks = ",".join("?" * len(allowed))
-        where = [f"id IN ({marks})"]
-        params = list(allowed)
-    if q:
-        where.append("LOWER(filename) LIKE ?")
-        params.append(f"%{q.strip().lower()}%")
-    if status:
-        where.append("status = ?")
-        params.append(status)
-    where_sql = " AND ".join(where) or "1 = 1"
-    total = conn.execute(f"SELECT COUNT(*) FROM documents WHERE {where_sql}", params).fetchone()[0]
-    order = f"{sort_columns[sort]} {'ASC' if direction == 'asc' else 'DESC'}"
-    rows = conn.execute(
-        f"SELECT * FROM documents WHERE {where_sql} ORDER BY {order}, id LIMIT ? OFFSET ?",
-        [*params, limit, offset],
-    ).fetchall()
-    # Excluded PAGES carried on the list, so the card can warn without a
-    # second request. The Documents screen said "3 excluded" for chunks and
-    # said nothing at all about a dropped page that held an entire clause.
-    dropped = {
-        r["document_id"]: dict(r)
-        for r in conn.execute(
-            """SELECT document_id,
-                      COUNT(*) AS pages_excluded,
-                      COALESCE(SUM(text_length), 0) AS characters_dropped,
-                      COALESCE(SUM(clause_headings), 0) AS pages_with_clause_headings
-               FROM exclusions WHERE scope = 'page' GROUP BY document_id"""
-        )
-    }
-    # The submittal-review columns the Documents page shows, and the REVIEW
-    # STATUS, which is derived from review_runs rather than stored (see
-    # schemas.ReviewStatus). Fetched for this page of rows only - a join would
-    # be fine here too, but the review tables are owned by another module and
-    # this keeps the authority for "has it been reviewed" in that module.
-    page_ids = [row["id"] for row in rows]
-    review_status = submittal_review_mod.review_status_for(
-        page_ids, allowed_document_ids=frozenset(page_ids))
-    metadata = {}
-    if page_ids:
-        marks = ",".join("?" * len(page_ids))
-        metadata = {
-            r["document_id"]: dict(r)
-            for r in conn.execute(
-                f"""SELECT document_id, document_role, document_number, title,
-                           revision, equipment_type, project, discipline,
-                           superseded_by
-                    FROM document_classification
-                    WHERE document_id IN ({marks})""", page_ids)
-        }
-    # THE FULL CLASSIFICATION, ON THE LIST. The Documents page used to ask
-    # `GET /documents/{id}/classification` once per document (about 100
-    # requests on every load). The ids here are exactly the rows this caller's
-    # scope already selected above, so nothing is added to what they may read.
-    # A document with no classification row gets the same empty record the
-    # single route returns.
-    classifications = classification_mod.of_documents(page_ids)
-    out = []
-    for row in rows:
-        doc = upload_mod.to_api(row)
-        doc["classification"] = {
-            **(classifications.get(row["id"]) or classification_mod.empty_record(row["id"])),
-            "document_id": row["id"]}
-        meta = metadata.get(row["id"], {})
-        for field in ("document_role", "document_number", "title", "revision",
-                      "equipment_type", "project", "superseded_by"):
-            # Null renders as nothing. Absent metadata and a null column are
-            # the same answer - not recorded - and neither becomes a default.
-            doc[field] = meta.get(field)
-        doc["review_status"] = review_status.get(row["id"], "not_reviewed")
-        info = dropped.get(row["id"], {})
-        doc["pages_excluded"] = info.get("pages_excluded", 0)
-        doc["pages_excluded_characters"] = info.get("characters_dropped", 0)
-        doc["pages_excluded_with_clause_headings"] = info.get(
-            "pages_with_clause_headings", 0
-        )
-        out.append(doc)
-    response.headers["X-Total-Count"] = str(total)
-    response.headers["X-Limit"] = str(limit)
-    response.headers["X-Offset"] = str(offset)
-    return out
-
-
-@app.delete("/api/documents/{document_id}", response_model=schemas.DeletedDocument,
-            responses={**schemas.ERRORS_400, **schemas.ERRORS_404, **schemas.ERRORS_422})
-def delete_document(document_id: str, request: Request, confirm: bool = Query(False),
-    acknowledge_orphaned_findings: bool = Query(False),
-    scope: access.AccessScope = Depends(access.current_scope),
-    _admin: dict | None = Depends(admin_mod.current_admin),
-):
-    """Remove a document and everything derived from it.
-
-    ADMIN ONLY (r2 S1): a READ grant lets a caller see a document, not destroy
-    it. A non-admin gets the admin surface's silent 404.
-
-    Requires confirm=true - a destructive endpoint should not fire on a
-    mistyped URL. Removes chunks, pages, vectors, exclusions, jobs, cached
-    page images and the stored PDF.
-
-    B38: deleting a STANDARD cascades into its requirement rows. If review
-    findings cite them, the attempt is recorded and refused (409) unless
-    acknowledge_orphaned_findings=true.
-
-    Deleting a SUBMITTAL (a contractor's datasheet) cascades directly over
-    `review_findings.document_id ... ON DELETE CASCADE` (review.py) - every
-    CRS finding ever recorded against it. Same guard, same flag, checked
-    over that column instead of `standard_requirements`.
-    """
-    reject_unknown_params(request, {"confirm", "acknowledge_orphaned_findings"})
-    doc = require_document(document_id, scope)
-    if not confirm:
-        return JSONResponse(
-            status_code=400,
-            content={"detail": errors.safe_error(
-                errors.CONFIRM_REQUIRED,
-                "pass confirm=true to delete; this cannot be undone",
-                document_id=document_id,
-            )} | {"filename": doc["filename"], "retrievable_chunks": doc["chunk_count"]},
-        )
-
-    # B38, BEFORE anything is removed: a refusal must leave the document whole.
-    orphan_guard.check(
-        "document_delete", requirement_where="standard_document_id = ?",
-        params=(document_id,), document_id=document_id,
-        acknowledge=acknowledge_orphaned_findings,
-        actor={"id": scope.user_id} if scope.user_id else None)
-    # Same guard, the SUBMITTAL side: review_findings.document_id cascades
-    # directly, not through standard_requirements - see orphan_guard.py.
-    orphan_guard.check_submittal_delete(
-        "submittal_delete", document_id=document_id,
-        acknowledge=acknowledge_orphaned_findings,
-        actor={"id": scope.user_id} if scope.user_id else None)
-
-    # Reports quote this document: their FILES go, their ROWS stay (the record survives).
-    reports_mod.on_document_deleted(document_id)
-
-    conn = connect()
-    removed = {}
-    actor = {"id": scope.user_id, "email": (_admin or {}).get("email")} if scope.user_id else None
-    with conn:
-        removed.update(document_refs.erase_document_text(  # #436: its copied text goes too
-            conn, document_id, doc["filename"], actor=actor))
-        removed["canonical_field_names"] = document_refs.forget_quotes(conn, document_id)  # #437, before the chunk cascade
-        conn.execute("DELETE FROM chunks_fts WHERE document_id = ?", (document_id,))
-        for table in ("chunk_vectors", "exclusions", "chunks", "pages", "jobs"):
-            cur = conn.execute(f"DELETE FROM {table} WHERE document_id = ?", (document_id,))
-            removed[table] = cur.rowcount
-        cur = conn.execute("DELETE FROM documents WHERE id = ?", (document_id,))
-        removed["documents"] = cur.rowcount
-        # The record of the delete commits with the delete (ids and counts only).
-        document_refs.record_document_deleted(conn, document_id, removed, actor=actor)
-
-    files_removed = 0
-    stored = Path(doc["stored_path"])
-    if stored.exists():
-        stored.unlink()
-        files_removed += 1
-    if (cache := settings.data_dir / "page_images").exists():
-        for img in cache.glob(f"{doc['sha256'][:16]}_*.png"):
-            img.unlink()
-            files_removed += 1
-    files_removed += review_mod.remove_report_files(document_id)   # #437: its review PDFs
-
-    return {
-        "deleted": document_id,
-        "filename": doc["filename"],
-        "rows_removed": removed,
-        "files_removed": files_removed,
-    }
-
-
-@app.get("/api/documents/{document_id}", response_model=schemas.Document,
-         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def get_document(document_id: str, request: Request,
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    reject_unknown_params(request, set())
-    require_document(document_id, scope)
-    row = connect().execute(
-        "SELECT * FROM documents WHERE id = ?", (document_id,)
-    ).fetchone()
-    return upload_mod.to_api(row)
-
-
 # ------------------------------------------------------------- processing
-
-
-@app.post("/api/documents/{document_id}/extract", response_model=schemas.ExtractResult,
-          responses=schemas.ERRORS_404)
-def extract(document_id: str,
-    scope: access.AccessScope = Depends(access.current_scope),
-    _admin: dict | None = Depends(admin_mod.current_admin),
-):
-    """Extract pages in batches. Resumes from the last completed batch."""
-    require_document(document_id, scope)
-    return extract_mod.extract_document(document_id)
-
-
-@app.post("/api/documents/{document_id}/chunk", response_model=schemas.ChunkResult,
-          responses=schemas.ERRORS_404)
-def chunk(document_id: str, force: bool = Query(False),
-    acknowledge_orphaned_findings: bool = Query(False),
-    scope: access.AccessScope = Depends(access.current_scope),
-    _admin: dict | None = Depends(admin_mod.current_admin),
-):
-    """Chunk an extracted document.
-
-    Short-circuits when the document already has chunks and its content has
-    not changed, matching how /extract resumes rather than redoing work.
-    Pass force=true to rebuild. B38: a rebuild that would cascade away
-    requirement rows review findings cite is refused (409) unless
-    acknowledge_orphaned_findings=true.
-    """
-    require_document(document_id, scope)
-    return chunk_mod.chunk_document(
-        document_id, force=force,
-        acknowledge_orphaned_findings=acknowledge_orphaned_findings)
-
-
-@app.post("/api/documents/{document_id}/embed", response_model=schemas.EmbedResult,
-          responses=schemas.ERRORS_404)
-def embed(document_id: str,
-    scope: access.AccessScope = Depends(access.current_scope),
-    _admin: dict | None = Depends(admin_mod.current_admin),
-):
-    """Embed any retrievable chunks that do not yet have a vector."""
-    require_document(document_id, scope)
-    worker = ingest_mod.get_worker()
-    embedded = worker.embed_pending(document_id)
-    worker._finish_if_embedded(document_id)
-    row = connect().execute(
-        "SELECT chunk_count, embedded_count, status, indexed_at FROM documents WHERE id = ?",
-        (document_id,),
-    ).fetchone()
-    return {
-        "document_id": document_id,
-        "embedded_this_run": embedded,
-        "embedded_count": row["embedded_count"],
-        "chunk_count": row["chunk_count"],
-        "status": row["status"],
-        "indexed_at": row["indexed_at"],
-    }
-
-
-@app.post("/api/documents/{document_id}/index-keyword",
-          response_model=schemas.KeywordIndexResult, responses=schemas.ERRORS_404)
-def index_keyword(document_id: str,
-    scope: access.AccessScope = Depends(access.current_scope),
-    _admin: dict | None = Depends(admin_mod.current_admin),
-):
-    """Build the keyword index for one document. Needs no vectors."""
-    require_document(document_id, scope)
-    return keyword_mod.index_document(document_id)
 
 
 @app.get("/api/search", response_model=schemas.SearchResult,
@@ -989,22 +599,6 @@ def _require_owned_conversation(conversation_id: str, scope: access.AccessScope)
             detail=errors.safe_error(errors.NOT_FOUND, "no conversation with that id"),
         )
     return row
-
-
-def _require_identity_to_write(scope: access.AccessScope) -> None:
-    """A conversation nobody owns is one nobody can ever read again.
-
-    Under `demo_required` a caller with no identity resolves to an empty scope,
-    and every READ correctly returns nothing. A WRITE that succeeded would
-    manufacture an orphan - the same shape as #79 on uploads - so it is refused
-    with the same 401 /api/auth/me gives, rather than accepted into a void.
-    """
-    if scope.unrestricted or scope.user_id:
-        return
-    raise HTTPException(
-        status_code=401,
-        detail=errors.safe_error(errors.UNAUTHENTICATED, "sign in to continue"),
-    )
 
 
 def _actor_from_scope(scope: access.AccessScope) -> dict | None:
@@ -1277,93 +871,6 @@ def _applied(wanted: classification_mod.ScopeFilter, applied: bool,
     }
 
 
-@app.get("/api/classification/vocabulary",
-         response_model=schemas.ClassificationVocabulary)
-def classification_vocabulary(
-    request: Request,
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """The filter vocabulary, plus this caller's needs-classification count.
-
-    THE VOCABULARY IS NOT SCOPED AND THE COUNT IS. A discipline the caller
-    cannot read stays listed: discipline names are project structure, not
-    evidence that a document exists, and hiding one teaches a user the system
-    is broken rather than that they need access. The count is a statement
-    about documents, so it is bounded by what they may read.
-    """
-    reject_unknown_params(request, set())
-    return {**classification_mod.vocabulary(),
-            "needs_classification":
-                classification_mod.needs_classification(scope)}
-
-
-@app.get("/api/classification/coverage",
-         response_model=schemas.ClassificationCoverage)
-def classification_coverage(
-    request: Request,
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """Counts per axis, scoped, with `in_register` NULL when none is loaded."""
-    reject_unknown_params(request, set())
-    return classification_mod.coverage(scope)
-
-
-@app.get("/api/documents/{document_id}/classification",
-         response_model=schemas.DocumentClassification,
-         responses={**schemas.ERRORS_404})
-def get_document_classification(
-    document_id: str,
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """404 outside the caller's scope - the same answer every read path gives,
-    and the reason they are 404 rather than 403: a 403 confirms the document
-    exists."""
-    require_document(document_id, scope)
-    row = classification_mod.of_document(document_id)
-    if row is None:
-        # In scope but never classified. An empty, honest record rather than a
-        # 404: the document exists and the caller may read it, and "not
-        # classified yet" is the answer.
-        return classification_mod.empty_record(document_id)
-    return {**row, "document_id": document_id}
-
-
-@app.put("/api/documents/{document_id}/classification",
-         response_model=schemas.DocumentClassification,
-         responses={**schemas.ERRORS_404})
-def put_document_classification(
-    document_id: str,
-    body: schemas.ClassificationUpdate,
-    scope: access.AccessScope = Depends(access.current_scope),
-    actor: dict | None = Depends(admin_mod.current_admin),
-):
-    """CONFIRM or CHANGE a classification. THE ADMIN CAPABILITY IS REQUIRED.
-
-    A wrong classification misroutes searches for EVERYONE, not only for the
-    person who set it, so this needs a role that answers for everyone.
-    `admin_mod.current_admin` is the same gate the admin surface uses and
-    answers 404 rather than 403 to a non-admin - saying nothing about whether
-    the document exists.
-
-    The document must ALSO be in the caller's scope. An administrator holds
-    every grant in practice, but the check is not skipped on that basis: the
-    two questions are separate and this route asks both.
-    """
-    require_document(document_id, scope)
-    classification_mod.confirm(
-        document_id, doc_type=body.doc_type, discipline=body.discipline,
-        doc_class=body.doc_class, subject_ids=body.subject_ids,
-        confirmed_by=(actor or {}).get("id"),
-        # The submittal-review metadata. `document_role` arrived through
-        # `schemas.DocumentRole`, so an unknown role was already refused with a
-        # 422 naming the field and cannot reach the column.
-        metadata={name: getattr(body, name)
-                  for name in classification_mod.METADATA_FIELDS},
-        equipment_tags=body.equipment_tags)
-    row = classification_mod.of_document(document_id) or {}
-    return {**row, "document_id": document_id}
-
-
 @app.get("/api/playbooks", response_model=schemas.PlaybookList, responses={**schemas.ERRORS_404})
 def list_playbooks(scope: access.AccessScope = Depends(access.current_scope)):
     """The review playbooks (data files): what each expects a document of its
@@ -1378,61 +885,6 @@ def list_playbooks(scope: access.AccessScope = Depends(access.current_scope)):
         for pb in found.values()], "unusable": broken}
 
 
-@app.post("/api/documents/{document_id}/playbook-review", response_model=schemas.PlaybookReport,
-          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def playbook_review(
-    document_id: str,
-    body: schemas.PlaybookReviewRequest,
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """Review one document the caller may read against a playbook: per element
-    present, unclear, missing, could not be checked, or standard not held (never
-    "met"). Cited by the passage's locator. `use_ai` lets the LOCAL model propose
-    a quote for an element the cue words did not settle; a proposal is kept only
-    when its quote is verbatim in the passage it names."""
-    require_document(document_id, scope)
-    found, _broken = playbooks_mod.available()
-    playbook = found.get(body.playbook_id)
-    if playbook is None:
-        raise HTTPException(status_code=422, detail={
-            "code": "unknown_playbook", "message": f"no usable playbook {body.playbook_id!r}"})
-    proposer = playbooks_mod.task_proposer() if body.use_ai else None
-    return playbooks_mod.review(document_id, playbook, allowed_document_ids=scope.allowed_document_ids,
-                                proposer=proposer)
-
-
-@app.get("/api/document-kinds", response_model=schemas.DocumentKindVocabulary,
-         responses={**schemas.ERRORS_404})
-def get_document_kinds(scope: access.AccessScope = Depends(access.current_scope)):
-    """The document types the router knows, and how many of the caller's OWN
-    documents are in each routing state (rule 5: a count states whose
-    documents it counts)."""
-    allowed = None if scope.unrestricted else scope.allowed_document_ids
-    return {"kinds": doc_router_mod.kinds(), "counts": doc_router_mod.counts(allowed)}
-
-
-@app.put("/api/documents/{document_id}/kind", response_model=schemas.DocumentClassification,
-         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def put_document_kind(
-    document_id: str,
-    body: schemas.DocumentKindUpdate,
-    scope: access.AccessScope = Depends(access.current_scope),
-    actor: dict | None = Depends(admin_mod.current_admin),
-):
-    """A person confirms (or corrects) the document type the router suggested.
-    Admin-gated like the rest of classification; a kind outside the vocabulary
-    is a 422 naming it. Classification is not access control: this changes what
-    the document is called, never who may read it."""
-    require_document(document_id, scope)
-    try:
-        doc_router_mod.confirm(document_id, body.kind, (actor or {}).get("id"))
-    except doc_router_mod.UnknownKind as exc:
-        raise HTTPException(status_code=422, detail={
-            "code": "unknown_document_kind", "message": str(exc)}) from exc
-    row = classification_mod.of_document(document_id) or {}
-    return {**row, "document_id": document_id}
-
-
 @app.post("/api/admin/document-kinds/route", response_model=schemas.DocumentKindRouted,
           responses={**schemas.ERRORS_404})
 def route_document_kinds(_admin: dict | None = Depends(admin_mod.current_admin)):
@@ -1440,81 +892,6 @@ def route_document_kinds(_admin: dict | None = Depends(admin_mod.current_admin))
     Documents already in the library when the router arrived need this once.
     Confirmed kinds are never touched. Returns counts only."""
     return doc_router_mod.route_unrouted()
-
-
-@app.post("/api/documents/bulk/role", response_model=schemas.BulkRoleResult,
-          responses={**schemas.ERRORS_404, **schemas.ERRORS_422,
-                     207: {"model": schemas.BulkRoleResult,
-                           "description": "Some documents were not updated; "
-                                          "`failed` names each one"}})
-def bulk_set_document_role(
-    body: schemas.BulkRoleUpdate,
-    request: Request,
-    response: Response,
-    scope: access.AccessScope = Depends(access.current_scope),
-    actor: dict | None = Depends(admin_mod.current_admin),
-):
-    """Set one role on many documents. THE SAME PERMISSION, N TIMES.
-
-    THE GATE IS NOT LOOSENED FOR BULK, and that is the only interesting thing
-    about this route. `admin_mod.current_admin` is the identical dependency
-    `put_document_classification` uses, and `require_document(id, scope)` is
-    run for EVERY id rather than once for the first or not at all. A bulk
-    endpoint is the classic place for an authorisation check to become a
-    formality - it is written once, the loop is inside, and nobody notices that
-    the loop does not re-ask. Here the loop IS the asking.
-
-    Unknown and out-of-scope ids get the SAME `not_found` answer, for the
-    reason `require_document` gives: a distinct refusal for "exists but not
-    yours" is an existence oracle, and it would be a worse one here than
-    anywhere else - a caller could probe forty ids per request.
-
-    NOT ALL-OR-NOTHING, DELIBERATELY. The valid documents are written and the
-    invalid ones are named. A bulk action's ids come from a list the person has
-    been looking at for a while, and the common failure is one document deleted
-    in another tab; refusing the other thirty-nine because of it makes them
-    redo the selection to achieve exactly what this request already could. The
-    status goes to 207 when anything failed, so a client that checks only the
-    status code still cannot read a partial write as a complete one.
-
-    It sets the ROLE ALONE (`classification.set_role`), not a classification.
-    Reusing the PUT would replace the whole record and wipe the title, revision
-    and project on every document selected - a bulk action must not destroy
-    metadata that nobody asked it to touch.
-
-    NOT ACCESS CONTROL (rule 5). A role says what a document is for; the grant
-    tables say who may read it, and nothing here writes one.
-    """
-    reject_unknown_params(request, set())
-    # Order-preserving dedup. The same id twice is a UI that double-counted,
-    # not a request to write twice, and leaving it would report the document
-    # once as updated and once as unchanged in the same response.
-    ids = list(dict.fromkeys(body.document_ids))
-
-    updated: list[str] = []
-    unchanged: list[str] = []
-    failed: list[dict] = []
-    for document_id in ids:
-        try:
-            require_document(document_id, scope)
-        except HTTPException:
-            failed.append({"document_id": document_id, "reason": "not_found"})
-            continue
-        changed = classification_mod.set_role(document_id, body.document_role)
-        (updated if changed else unchanged).append(document_id)
-
-    if failed:
-        response.status_code = 207
-    # One audit row for the request, not one per document: this was a single
-    # decision by a single person, and forty rows would bury the next one.
-    # Ids are counted rather than listed - `detail` is response-safe only.
-    admin_mod._audit(
-        "documents.role_bulk_set", actor, "document", None,
-        detail=(f"{body.document_role}: {len(updated)} changed, "
-                f"{len(unchanged)} already held it, {len(failed)} not found "
-                f"of {len(ids)} requested"))
-    return {"document_role": body.document_role, "requested": len(ids),
-            "updated": updated, "unchanged": unchanged, "failed": failed}
 
 
 # ----------------------------------------------------------------- market
@@ -3355,155 +2732,6 @@ def cancel_turn(conversation_id: str, turn_id: str, request: Request,
 # ------------------------------------------------------------------ pages
 
 
-@app.get("/api/documents/{document_id}/pages", response_model=schemas.PagesResponse,
-         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def document_pages(
-    request: Request,
-    document_id: str,
-    limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
-    offset: int = Query(0, ge=0),
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    reject_unknown_params(request, {"limit", "offset"})
-    require_document(document_id, scope)
-    rows = connect().execute(
-        """SELECT page_no, char_count, needs_ocr, equation_heavy, batch_no,
-                  substr(text, 1, 300) AS preview
-           FROM pages WHERE document_id = ? ORDER BY page_no LIMIT ? OFFSET ?""",
-        (document_id, limit, offset),
-    ).fetchall()
-    total = connect().execute(
-        "SELECT COUNT(*) FROM pages WHERE document_id = ?", (document_id,)
-    ).fetchone()[0]
-    return {
-        "total": total,
-        "limit": limit,
-        "offset": offset,
-        "pages": [
-            dict(r) | {
-                "needs_ocr": bool(r["needs_ocr"]),
-                "equation_heavy": bool(r["equation_heavy"]),
-            }
-            for r in rows
-        ],
-    }
-
-
-@app.get("/api/documents/{document_id}/page-ledger", response_model=schemas.PageLedger,
-         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def document_page_ledger(
-    request: Request,
-    document_id: str,
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """Every page of one document with its per-stage outcome (master order B3).
-
-    SCOPED LIKE THE DOCUMENT: out of scope reads as not found. READ-ONLY: the
-    ledger is refreshed by ingestion, fact extraction and review runs, never
-    by a GET. A document with no ledger rows yet returns an empty list and a
-    `pages_total` of null - "not accounted for", never "zero pages".
-    Ids, statuses, counts and rule names only; never page text.
-    """
-    reject_unknown_params(request, set())
-    require_document(document_id, scope)
-    return {"document_id": document_id,
-            "pages": page_ledger_mod.rows(document_id),
-            "coverage": page_ledger_mod.coverage(document_id)}
-
-
-@app.get("/api/documents/{document_id}/applicability",
-         response_model=list[schemas.ApplicabilityStatus],
-         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def document_applicability(
-    request: Request,
-    document_id: str,
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """Every standard in the library, classified for THIS submittal into
-    applicable-and-assessable, applicable-but-needs-another-document,
-    not-applicable-with-a-reason, or unknown (B5, per the master order).
-
-    READ-ONLY and RECOMPUTED, never a stored verdict - the same reason
-    `select()`'s own selection is never persisted as a claim about the
-    present without being asked to re-run.
-    """
-    reject_unknown_params(request, set())
-    require_document(document_id, scope)
-    return applicability_mod.applicability_with_reasons(
-        document_id, allowed_document_ids=scope.allowed_document_ids)
-
-
-#: Media types for the preview surfaces. A CLOSED MAP with an
-#: `application/octet-stream` default, never `mimetypes.guess_type`: the
-#: filename is user-supplied, and letting it choose the Content-Type is how a
-#: document becomes `text/html` and runs in the reader's origin. Only the types
-#: this product previews are named, and everything else downloads.
-_MEDIA_TYPES = {
-    ".pdf": "application/pdf",
-    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    ".xlsm": "application/vnd.ms-excel.sheet.macroEnabled.12",
-    ".xls": "application/vnd.ms-excel",
-}
-
-
-def _media_type_for(filename: str) -> str:
-    return _MEDIA_TYPES.get(Path(filename).suffix.lower(), "application/octet-stream")
-
-
-@app.get("/api/documents/{document_id}/original",
-         response_class=FileResponse,
-         responses={200: {"content": {"application/octet-stream": {}},
-                          "description": "The original uploaded bytes"},
-                    **schemas.ERRORS_404})
-def document_original(
-    document_id: str,
-    request: Request,
-    download: bool = Query(False),
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """The ORIGINAL uploaded file, byte for byte.
-
-    Serves the preview surfaces (embedded PDF viewer, workbook preview) and the
-    "download original" action, which are the same bytes and must not be two
-    different answers.
-
-    SCOPED LIKE EVERY OTHER DOCUMENT READ. `require_document` answers 404 for a
-    document outside the caller's scope, so this route cannot become the one
-    place a caller reaches content they hold no grant for - which is exactly
-    what an unauthenticated preview URL would be. Deleting this check is
-    mutation M13.
-
-    `Content-Disposition` is `inline` for preview and `attachment` for
-    download, and the filename is quoted rather than interpolated raw: a
-    filename is user-supplied text and a bare newline in a header is a header
-    injection.
-    """
-    reject_unknown_params(request, {"download"})
-    doc = require_document(document_id, scope)
-    stored = Path(doc["stored_path"])
-    if not stored.exists():
-        # The row outlived its bytes. Said plainly rather than served as an
-        # empty file, which would read as a blank document.
-        return JSONResponse(
-            status_code=404,
-            content={"detail": errors.safe_error(
-                errors.NOT_FOUND, "the stored original is no longer on disk",
-                document_id=document_id)},
-        )
-    safe_name = str(doc["filename"]).replace("\r", " ").replace("\n", " ").replace('"', "'")
-    disposition = "attachment" if download else "inline"
-    return FileResponse(
-        stored,
-        media_type=_media_type_for(safe_name),
-        headers={
-            "Content-Disposition": f'{disposition}; filename="{safe_name}"',
-            # Private: this is document content, and a shared cache holding it
-            # would outlive the grant that allowed the read.
-            "Cache-Control": "private, max-age=0, no-store",
-        },
-    )
-
-
 # ------------------------------------------------------------- standards
 #
 # THE LIBRARY IS LOGICALLY SEPARATE AND PHYSICALLY THE SAME DATABASE. These
@@ -4034,200 +3262,7 @@ def supersede_standard(
     return {"superseded_by": result["superseded_by"]}
 
 
-@app.get("/api/documents/{document_id}/workbook",
-         response_model=schemas.WorkbookPreview,
-         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def document_workbook(
-    document_id: str,
-    request: Request,
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """A read-only view of a stored workbook: sheets, and populated cells.
-
-    Scoped like every other document read - `require_document` answers 404
-    outside the caller's scope.
-
-    THE ORIGINAL IS NOT TOUCHED. This reads the stored bytes and returns a
-    projection of them; `GET .../original` still serves the file itself,
-    unchanged. A preview is never the authority for what the workbook says.
-    """
-    reject_unknown_params(request, set())
-    doc = require_document(document_id, scope)
-    stored = Path(doc["stored_path"])
-    if not str(doc["filename"]).lower().endswith(".xlsx") or not stored.exists():
-        # Not a workbook, or the bytes are gone. Both are "there is nothing to
-        # preview here", and neither is an error the reader can act on.
-        return JSONResponse(
-            status_code=404,
-            content={"detail": errors.safe_error(
-                errors.NOT_FOUND, "no workbook to preview for that document",
-                document_id=document_id)},
-        )
-    try:
-        return workbook_mod.read_sheets(stored)
-    except workbook_mod.WorkbookError as exc:
-        # The file passed upload validation and still cannot be read now.
-        # Reported as a 422 about THIS file rather than a 500: nothing is
-        # broken on the server.
-        raise HTTPException(status_code=422, detail=errors.safe_error(
-            errors.INVALID_PARAMETER, "that workbook could not be read",
-            document_id=document_id)) from exc
-
-
-@app.get("/api/documents/{document_id}/pages/{page_no}/image",
-         response_class=FileResponse,
-         responses={200: {"content": {"image/png": {}}, "description": "Rendered page"},
-                    **schemas.ERRORS_404, **schemas.ERRORS_422})
-def page_image(
-    document_id: str,
-    page_no: int,
-    request: Request,
-    dpi: int = Query(150, ge=50, le=300),
-    chunk_id: str | None = Query(None),
-    q: str | None = Query(None, max_length=500),
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """Render one page to PNG on demand, cached by content hash.
-
-    The durable answer to degraded equations and flattened tables: whatever
-    the extracted text lost, the reader can see the real page.
-
-    Pass `chunk_id` and `q` together to have the answering span BOXED on the
-    image. An engineer who sees the answer outlined on the specification page
-    they already know stops having to trust the extraction at all.
-
-    When the span cannot be located the page is returned WITHOUT a box and
-    `X-Answer-Located: 0` says so. Never a box in a plausible-looking wrong
-    place: one wrong box and no box is ever trusted again.
-    """
-    reject_unknown_params(request, {"dpi", "chunk_id", "q"})
-    doc = require_document(document_id, scope)
-    if dict(doc).get("pagination") == "flow":
-        # A Word document has no printed pages: rendering it would show a
-        # layout that matches none of its reading pages or citations.
-        return JSONResponse(
-            status_code=404,
-            content={"detail": errors.safe_error(
-                errors.NOT_FOUND, "a Word document has no printed pages; it is cited by "
-                "heading path and paragraph", document_id=document_id)},
-        )
-
-    rects: list[tuple[float, float, float, float]] = []
-    if chunk_id and q:
-        # The answering span depends on the QUESTION, so it is recomputed here
-        # rather than stored: the same passage highlights differently for two
-        # different questions, and passing the text itself would not fit in a
-        # URL. Given the chunk and the question, the span is derived by exactly
-        # the same code the answer used.
-        located = highlight_mod.for_chunk(document_id, chunk_id, q)
-        rects = located.get("rects", [])
-
-    try:
-        if rects:
-            path = pageimage_mod.render_page_with_highlight(doc, page_no, rects, dpi=dpi)
-        else:
-            path = pageimage_mod.render_page(doc, page_no, dpi=dpi)
-    except pageimage_mod.PageOutOfRange as e:
-        return JSONResponse(
-            status_code=404,
-            content={"detail": errors.safe_error(errors.NOT_FOUND, str(e), document_id=document_id)},
-        )
-    headers = {"Cache-Control": "max-age=86400"}
-    if chunk_id and q:
-        # Stated in a header so the caller can say "location could not be
-        # confirmed" instead of the reader assuming an unboxed page means the
-        # answer is not on it.
-        headers["X-Answer-Located"] = "1" if rects else "0"
-    return FileResponse(path, media_type="image/png", headers=headers)
-
-
 # ----------------------------------------------------------------- chunks
-
-
-@app.get("/api/documents/{document_id}/chunks", response_model=schemas.ChunkPage,
-         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def document_chunks(
-    request: Request,
-    document_id: str,
-    limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
-    offset: int = Query(0, ge=0),
-    retrievable: str = Query("true"),
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """Chunks for a document.
-
-    retrievable = "true"  (default) only chunks search can see
-                  "false"           only the excluded ones, for inspection
-                  "all"             everything
-    """
-    reject_unknown_params(request, {"limit", "offset", "retrievable"})
-    require_document(document_id, scope)
-    retrievable = validate_retrievable(retrievable)
-    clause = retrievable_clause(retrievable)
-    conn = connect()
-    rows = conn.execute(
-        f"""SELECT id, ordinal, page_start, page_end, section, kind, token_count,
-                   content_hash, retrievable, quality_flags, locator, text
-            FROM chunks WHERE document_id = ?{clause}
-            ORDER BY ordinal LIMIT ? OFFSET ?""",
-        (document_id, limit, offset),
-    ).fetchall()
-    total = conn.execute(
-        f"SELECT COUNT(*) FROM chunks WHERE document_id = ?{clause}", (document_id,)
-    ).fetchone()[0]
-    return {
-        "total_matching": total,
-        "limit": limit,
-        "offset": offset,
-        "chunks": [dict(r) | {"retrievable": bool(r["retrievable"])} for r in rows],
-    }
-
-
-@app.get("/api/documents/{document_id}/excluded", response_model=schemas.ExclusionsResponse,
-         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def document_excluded(
-    request: Request,
-    document_id: str,
-    limit: int = Query(50, ge=1, le=MAX_LIMIT),
-    offset: int = Query(0, ge=0),
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """Everything excluded from search, with the rule that excluded it.
-
-    Nothing is dropped silently: every excluded page and chunk is recorded
-    here with its reason and the text that was dropped.
-    """
-    reject_unknown_params(request, {"limit", "offset"})
-    require_document(document_id, scope)
-    conn = connect()
-    summary = [
-        dict(r)
-        for r in conn.execute(
-            """SELECT scope, rule, COUNT(*) AS count,
-                      SUM(text_length) AS characters_dropped,
-                      COALESCE(SUM(clause_headings), 0) AS clause_heading_pages
-               FROM exclusions WHERE document_id = ?
-               GROUP BY scope, rule ORDER BY clause_heading_pages DESC, count DESC""",
-            (document_id,),
-        )
-    ]
-    rows = conn.execute(
-        """SELECT scope, page_start, page_end, chunk_id, rule, reason,
-                  text_length, text_sample, clause_headings
-           FROM exclusions WHERE document_id = ?
-           ORDER BY clause_headings DESC, page_start, id LIMIT ? OFFSET ?""",
-        (document_id, limit, offset),
-    ).fetchall()
-    total = conn.execute(
-        "SELECT COUNT(*) FROM exclusions WHERE document_id = ?", (document_id,)
-    ).fetchone()[0]
-    return {
-        "total": total,
-        "summary": summary,
-        "limit": limit,
-        "offset": offset,
-        "excluded": [dict(r) for r in rows],
-    }
 
 
 # ------------------------------------------------------------------ admin

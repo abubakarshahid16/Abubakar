@@ -28,7 +28,7 @@ MUTATIONS: tuple[Mutation, ...] = (
        "            resolved, [n for n, _ in comparison_sides]) if comparison_sides else [])\n",
        "the_route_gives_one_side"),
     _m(3904, "the topic keeps the standards' names", C,
-       "for _label, start, end in sorted(standard_ids.find_citations(text), key=lambda c: -c[1]):",
+       "for _label, start, end in sorted(standard_ids.find_citations(text, typed_question=True), key=lambda c: -c[1]):",
        "for _label, start, end in []:", "topic"),
     _m(3905, "a standard typed without its issuing body is not the held one", C,
        "    return bool(have) and (want.endswith(have) or have.endswith(want))\n", "    return False\n"),
