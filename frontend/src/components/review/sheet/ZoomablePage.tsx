@@ -52,7 +52,7 @@ export function ZoomablePage({ src, alt, caption, status }: { src: string | null
             className={`mx-auto block h-auto ${step === FIT ? "cursor-zoom-in" : "cursor-zoom-out"}`}
           />
         ) : (
-          <div className="p-3 text-xs text-slateish-600">{status}</div>
+          <div className="p-3 text-xs text-slateish-500">{status}</div>
         )}
       </div>
       {full && src && (
