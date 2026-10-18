@@ -13,12 +13,12 @@
  *
  * Display only. Stored statuses do not change here.
  */
-import type { ReviewFinding, ReviewRunSummary } from "../../../types/api";
+import type { ReviewFinding, ReviewRunSummary, RunSummaryHowReviewed } from "../../../types/api";
 import { orNothing, pageList } from "../reviewFormat";
 import {
   type CardState, type SheetCard, buildCards, fieldOf, groupLine, isNotNeeded, isPageNote, isTickFinding,
 } from "../sheet/sheetCards";
-import { type RunFacts, type TierCounts, type TierResult, countTiers, tierOf, tierOfGroup } from "./tiers";
+import { type RunFacts, type ServerTiers, type TierCounts, type TierResult, countTiers, tierFor, tierOfGroup } from "./tiers";
 
 export interface CrsRow {
   key: string;
@@ -105,8 +105,8 @@ function rowOf(key: string, findings: ReviewFinding[], state: CardState, tier: T
   };
 }
 
-function cardRow(card: SheetCard, facts: RunFacts, standardNames: Map<string, string>): CrsRow {
-  return rowOf(card.key, card.findings, card.state, tierOfGroup(card.findings, facts), standardNames);
+function cardRow(card: SheetCard, facts: RunFacts, standardNames: Map<string, string>, server: ServerTiers | null): CrsRow {
+  return rowOf(card.key, card.findings, card.state, tierOfGroup(card.findings, facts, server), standardNames);
 }
 
 /** The findings still on the sheet, and how many the engineer already
@@ -122,15 +122,19 @@ export function splitRejected(findings: ReviewFinding[]): { findings: ReviewFind
  *  to the contractor and is not a row; the unread pages are the headline's
  *  and the footer's. Every other finding is a row: one the card view does
  *  not group (a met value, a null or unknown status) takes its own tier,
- *  so nothing is dropped quietly. */
-export function buildCrsRows(all: ReviewFinding[], facts: RunFacts, standardNames: Map<string, string>): CrsRow[] {
+ *  so nothing is dropped quietly. `server`: the run summary's tier per
+ *  finding (#1111); when given it decides every tier, `facts` only fills
+ *  in for a finding the server did not name. */
+export function buildCrsRows(
+  all: ReviewFinding[], facts: RunFacts, standardNames: Map<string, string>, server: ServerTiers | null = null,
+): CrsRow[] {
   const { findings } = splitRejected(all);
   const cards = buildCards(findings);
   const onCards = new Set(cards.flatMap((c) => c.findings.map((f) => f.id)));
-  const rows = cards.map((c) => cardRow(c, facts, standardNames));
+  const rows = cards.map((c) => cardRow(c, facts, standardNames, server));
   for (const f of findings) {
     if (onCards.has(f.id) || f.origin === "chat" || isPageNote(f)) continue;
-    rows.push(rowOf(`one:${f.id}`, [f], f.confirmed_by ? "agreed" : "open", tierOf(f, facts), standardNames));
+    rows.push(rowOf(`one:${f.id}`, [f], f.confirmed_by ? "agreed" : "open", tierFor(f, facts, server), standardNames));
   }
   const comments = rows.filter((r) => r.tier.tier !== "A").sort((a, b) => pageOf(a.findings[0]) - pageOf(b.findings[0]));
   const met = rows.filter((r) => r.tier.tier === "A").sort((a, b) => pageOf(a.findings[0]) - pageOf(b.findings[0]));
@@ -206,24 +210,50 @@ function plural(n: number, one: string, many: string): string {
   return `${n.toLocaleString()} ${n === 1 ? one : many}`;
 }
 
+/** The run's stored fields the headline reads: the clauses not applicable
+ *  and the pages the reader did not read. */
+export interface HeadlineFields {
+  /** `requirement_split.does_not_apply`; null when the run does not hold it. */
+  doesNotApply: number | null;
+  /** Pages not read into fields, and (from the server) pages the AI reader
+   *  timed out on; both make a finding "page not read". */
+  unreadPages: number[];
+}
+
+/** From the run summary's "How this was reviewed" record (#1111) when the
+ *  server sent one, else from the runs list's copy of the same stored fields. */
+export function headlineFieldsOf(run: ReviewRunSummary, how: RunSummaryHowReviewed | null = null): HeadlineFields {
+  if (how) {
+    const pages = [...(how.page_coverage?.pages_not_read_into_fields ?? []), ...(how.timed_out_pages ?? [])];
+    return {
+      doesNotApply: how.requirement_split?.does_not_apply ?? null,
+      unreadPages: [...new Set(pages)].sort((a, b) => a - b),
+    };
+  }
+  return {
+    doesNotApply: run.requirement_split?.does_not_apply ?? null,
+    unreadPages: run.page_coverage?.pages_not_read_into_fields ?? [],
+  };
+}
+
 /** The one headline line (spec 1.2). The comment, needs-you and met counts
- *  are the rows' own (the same tier result the table, the met line and the
- *  footer show: one source); the clauses not applicable, the read time and
- *  the unread pages are the run's stored fields (`requirement_split`,
- *  `created_at` / `completed_at`, `page_coverage`). A field the run does not
- *  hold renders as nothing, never 0. */
-export function crsHeadline(run: ReviewRunSummary, counts: TierCounts): string {
+ *  are the run summary's (#1111) when the server sent it, else the rows'
+ *  own (the same tier result the table, the met line and the footer show);
+ *  the clauses not applicable and the unread pages are the run's stored
+ *  fields (`headlineFieldsOf`), the read time `created_at` / `completed_at`.
+ *  A field the run does not hold renders as nothing, never 0. */
+export function crsHeadline(run: ReviewRunSummary, counts: TierCounts, fields: HeadlineFields = headlineFieldsOf(run)): string {
   const comments = counts.comment + counts.needsYou;
   const first = `${plural(comments, "comment", "comments")}`
     + (counts.needsYou > 0 ? `, ${counts.needsYou} ${counts.needsYou === 1 ? "needs" : "need"} your judgement.` : ".");
-  const notApplicable = run.requirement_split?.does_not_apply;
+  const notApplicable = fields.doesNotApply;
   const quiet = [
     counts.met > 0 ? plural(counts.met, "value met", "values met") : "",
     typeof notApplicable === "number" ? `${plural(notApplicable, "clause", "clauses")} not applicable` : "",
   ].filter(Boolean);
   const second = quiet.length ? ` ${quiet.join(", ")} (hidden).` : "";
   const minutes = minutesBetween(run.created_at, run.completed_at);
-  const unread = run.page_coverage?.pages_not_read_into_fields ?? [];
+  const unread = fields.unreadPages;
   const reading = [
     minutes !== null ? `Read in ${minutes < 1 ? "under a minute" : `${minutes} min`}` : "",
     unread.length ? `the reader gave up on ${unread.length === 1 ? "page" : "pages"} ${spoken(pageList(unread))}` : "",

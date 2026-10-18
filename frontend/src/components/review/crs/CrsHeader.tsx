@@ -4,14 +4,21 @@
  * sheet actions.
  */
 import type { DocumentRecord, ReviewRunSummary } from "../../../types/api";
+import { NavLink } from "../../NavLink";
 import { orNothing } from "../reviewFormat";
-import { type CrsRow, crsHeadline } from "./crsRows";
+import { type CrsRow, type HeadlineFields, crsHeadline } from "./crsRows";
 import type { TierCounts } from "./tiers";
 
 export interface CrsHeaderProps {
   run: ReviewRunSummary;
   submittal: DocumentRecord | null;
   counts: TierCounts;
+  /** The stored fields the headline reads (`headlineFieldsOf`). */
+  headlineFields?: HeadlineFields;
+  /** Who decided the tiers: "server" = the run summary (#1111), the one
+   *  source; "screen" = this screen's own rules, because the summary did
+   *  not answer (a server without the route, or a failed read). */
+  tierSource?: "server" | "screen";
   /** Tier C rows the engineer has not opened yet (Sign waits for them). */
   unopened: CrsRow[];
   /** How many Comment rows "Accept all remaining" would keep right now. */
@@ -23,10 +30,11 @@ export interface CrsHeaderProps {
   sign: { busy: boolean; onSign: () => void; onWorkingCopy: () => void; message: string | null; error: string | null };
   onBack: () => void;
   onOpenCards: () => void;
-  onOpenReviewed?: () => void;
 }
 
-export function CrsHeader({ run, submittal, counts, unopened, remaining, localDecisions, acceptAll, sign, onBack, onOpenCards, onOpenReviewed }: CrsHeaderProps) {
+export function CrsHeader({
+  run, submittal, counts, headlineFields, tierSource = "server", unopened, remaining, localDecisions, acceptAll, sign, onBack, onOpenCards,
+}: CrsHeaderProps) {
   const equipment = orNothing(submittal?.equipment_type) || run.equipment_tags.join(", ");
   const revision = orNothing(submittal?.revision);
   const code = orNothing(run.engineer_final_code) || orNothing(run.recommended_code);
@@ -38,9 +46,13 @@ export function CrsHeader({ run, submittal, counts, unopened, remaining, localDe
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
         <button type="button" onClick={onBack} className="text-signal-300 underline-offset-2 hover:underline">← Reviews</button>
         <button type="button" onClick={onOpenCards} className="text-signal-300 underline-offset-2 hover:underline">Open cards view</button>
-        {onOpenReviewed && (
-          <button type="button" onClick={onOpenReviewed} className="text-signal-300 underline-offset-2 hover:underline">How this was reviewed</button>
-        )}
+        {/* Order 95 piece 5 (#1113): the run's audit page. Through the app's
+            own navigation (a plain href reload would sign the reader out);
+            an app that does not know the path yet shows its own
+            "not an available route" page, nothing breaks. */}
+        <NavLink view="review" recordId={run.review_run_id} panel="how" className="text-signal-300 underline-offset-2 hover:underline">
+          How this was reviewed
+        </NavLink>
       </div>
       <div>
         <h1 id="crs-title" className="break-words text-2xl font-semibold text-slateish-100">{run.submittal_filename ?? "Review"}</h1>
@@ -48,7 +60,12 @@ export function CrsHeader({ run, submittal, counts, unopened, remaining, localDe
           {[equipment ? `Equipment: ${equipment}` : "", revision ? `Revision ${revision}` : ""].filter(Boolean).join(" · ")}
         </p>
       </div>
-      <p className="text-slateish-200" data-testid="crs-headline">{crsHeadline(run, counts)}</p>
+      <p className="text-slateish-200" data-testid="crs-headline">{crsHeadline(run, counts, headlineFields)}</p>
+      {tierSource === "screen" && (
+        <p className="text-xs text-slateish-500" data-testid="crs-tier-source">
+          Tiers worked out on this screen: the run summary was not available from the server.
+        </p>
+      )}
       {code && (
         <p className="text-sm text-slateish-300" data-testid="crs-code">
           <span className="font-semibold text-slateish-100">{run.engineer_final_code ? "Code: " : "Proposed code: "}{code}</span>

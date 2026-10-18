@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ReviewFinding, ReviewRunSummary } from "../../../types/api";
 import { EMPTY_FACTS } from "./tiers";
-import { buildCrsRows, crsHeadline, rowCounts, spotCheckKeys, splitRejected, visibleRows } from "./crsRows";
+import { buildCrsRows, crsHeadline, headlineFieldsOf, rowCounts, spotCheckKeys, splitRejected, visibleRows } from "./crsRows";
 
 function f(id: string, over: Partial<ReviewFinding> = {}): ReviewFinding {
   return {
@@ -144,5 +144,26 @@ describe("crsHeadline", () => {
     expect(crsHeadline(bare, { comment: 1, needsYou: 0, met: 0, notApplicable: 0, anotherDocument: 0 })).toBe("1 comment.");
     expect(crsHeadline({ ...run, page_coverage: null }, { comment: 0, needsYou: 1, met: 90, notApplicable: 0, anotherDocument: 0 }))
       .toBe("1 comment, 1 needs your judgement. 90 values met, 4,362 clauses not applicable (hidden). Read in 18 min.");
+  });
+});
+
+describe("headlineFieldsOf", () => {
+  const run = {
+    requirement_split: { does_not_apply: 4362 },
+    page_coverage: { pages_total: 12, fact_pages: [], pages_not_read_into_fields: [4, 9], not_read_reasons: {} },
+  } as unknown as ReviewRunSummary;
+  it("reads the run's stored fields when there is no server summary", () => {
+    expect(headlineFieldsOf(run)).toEqual({ doesNotApply: 4362, unreadPages: [4, 9] });
+  });
+  it("reads the server's record when it sent one: unread plus timed-out pages, once each, in order", () => {
+    expect(headlineFieldsOf(run, {
+      requirement_split: { does_not_apply: 12 } as never,
+      page_coverage: { pages_total: 12, fact_pages: [], pages_not_read_into_fields: [9, 4], not_read_reasons: {} },
+      timed_out_pages: [7, 4],
+    })).toEqual({ doesNotApply: 12, unreadPages: [4, 7, 9] });
+  });
+  it("a field the server does not hold is nothing, not the runs list's copy and never 0", () => {
+    expect(headlineFieldsOf(run, { requirement_split: null, page_coverage: null, timed_out_pages: null }))
+      .toEqual({ doesNotApply: null, unreadPages: [] });
   });
 });

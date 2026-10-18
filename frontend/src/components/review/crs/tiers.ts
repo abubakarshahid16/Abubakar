@@ -31,7 +31,9 @@
  * data-shaped on purpose: piece 1 of order 95 (the run summary endpoint)
  * will hand the same facts from the server, and this signature stays.
  */
-import type { PageCoverage, ReviewFinding, ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary } from "../../../types/api";
+import type {
+  PageCoverage, ReviewFinding, ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary, RunSummaryTierCounts, RunSummaryTierRow,
+} from "../../../types/api";
 
 export type Tier = "A" | "B" | "C";
 
@@ -216,10 +218,39 @@ export function countTiers(results: TierResult[]): TierCounts {
   return counts;
 }
 
+/** The server's tier per finding (order 95 piece 1, #1111:
+ *  `GET /api/reviews/runs/{id}/summary`, `backend/app/review_tiers.py`),
+ *  keyed by finding id. When the screen has it, it is THE answer (spec
+ *  section 2: one place decides); `tierOf` above is the fallback for a
+ *  server without the route. */
+export type ServerTiers = ReadonlyMap<string, TierResult>;
+
+export function serverTiersOf(rows: RunSummaryTierRow[]): ServerTiers {
+  return new Map(rows.map((r) => [r.finding_id, {
+    tier: r.tier, label: r.label, reason: r.tier === "C" ? (r.reason ?? "condition unsettled") : null,
+  }]));
+}
+
+/** One finding's tier: the server's when it sent one for this finding,
+ *  else the screen's own rules. A finding the server's rows do not name
+ *  (it arrived after the summary was read) keeps the screen's answer
+ *  rather than vanishing. */
+export function tierFor(finding: ReviewFinding, facts: RunFacts, server: ServerTiers | null = null): TierResult {
+  return server?.get(finding.id) ?? tierOf(finding, facts);
+}
+
+/** The server's headline counts in the screen's shape. */
+export function countsOfServer(counts: RunSummaryTierCounts): TierCounts {
+  return {
+    met: counts.met, notApplicable: counts.not_applicable, anotherDocument: counts.another_document,
+    comment: counts.comment, needsYou: counts.needs_you,
+  };
+}
+
 /** A group of findings shown as one row takes the most demanding tier of
  *  its members: C over B over A. */
-export function tierOfGroup(findings: ReviewFinding[], facts: RunFacts): TierResult {
-  const results = findings.map((f) => tierOf(f, facts));
+export function tierOfGroup(findings: ReviewFinding[], facts: RunFacts, server: ServerTiers | null = null): TierResult {
+  const results = findings.map((f) => tierFor(f, facts, server));
   return results.find((r) => r.tier === "C") ?? results.find((r) => r.tier === "B") ?? results[0]
     ?? { tier: "C", label: "Needs you", reason: "condition unsettled" };
 }
