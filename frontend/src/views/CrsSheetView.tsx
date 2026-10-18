@@ -15,8 +15,9 @@
  * rules, and says so in one small line. Display only; the export is the server's existing route and the server still
  * refuses the contractor's copy while anything is open.
  *
- * TODO(order 95 piece 6, Part of #967): decisions are local state
- * (`useCrsDecisions`) until piece 6 persists them.
+ * Order 95 piece 6c: decisions stay on screen until one "Save decisions"
+ * press (`saveCrsDecisions`); Sign and export wait, and leaving warns,
+ * while any are not saved.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -36,11 +37,15 @@ import {
 } from "../components/review/crs/crsRows";
 import { commentPages, firstRowOnPage, stepRow } from "../components/review/crs/evidenceNav";
 import { countsOfServer, runFactsOf, serverTiersOf } from "../components/review/crs/tiers";
+import { saveCrsDecisions } from "../components/review/crs/saveCrsDecisions";
 import { useCrsDecisions } from "../components/review/crs/useCrsDecisions";
 import { useCrsKeys } from "../components/review/crs/useCrsKeys";
 
 type Load = { kind: "loading" } | { kind: "ready" } | { kind: "error"; message: string };
 type Sign = { busy: boolean; message: string | null; error: string | null };
+type Save = Sign;
+
+const LEAVE_WARNING = "Some decisions on this sheet are not saved yet. Leave without saving them?";
 
 export interface CrsSheetViewProps {
   runId: string;
@@ -153,6 +158,14 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
   const { sign, exportSheet } = useExport(runId, refresh);
   const [returnTo, setReturnTo] = useState<HTMLElement | null>(null);
   const decisions = useCrsDecisions();
+  const [save, setSave] = useState<Save>({ busy: false, message: null, error: null });
+  const unsavedCount = decisions.unsaved.length;
+  useEffect(() => {
+    if (unsavedCount === 0) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = LEAVE_WARNING; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [unsavedCount]);
 
   const standardNames = useMemo(() => new Map(
     (standardsState.standards ?? []).filter((s) => s.filename).map((s) => [s.standard_document_id, s.filename as string])),
@@ -193,12 +206,26 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
   if (active || run.status === "failed") return <RunNotReady run={run} active={active} onBack={onBack} onChanged={() => void refresh()} />;
 
   const remaining = decisions.remaining(rows).length;
+  const saveDecisions = async () => {
+    setSave({ busy: true, message: null, error: null });
+    const outcome = await saveCrsDecisions(runId, rows, decisions.state.decisions, decisions.unsaved);
+    decisions.markSaved(outcome.saved);
+    setSave({
+      busy: false,
+      message: outcome.saved.length > 0 ? `${outcome.saved.length} ${outcome.saved.length === 1 ? "decision" : "decisions"} saved to the record.` : null,
+      error: outcome.failed.length > 0
+        ? `${outcome.failed.length} not saved: ${outcome.failed.map((f) => f.message).join("; ")}`
+        : null,
+    });
+    if (outcome.saved.length > 0) void refresh();
+  };
+  const leave = () => { if (unsavedCount === 0 || window.confirm(LEAVE_WARNING)) onBack(); };
   return (
     <section className="mx-auto w-full max-w-7xl space-y-5" aria-labelledby="crs-title">
       <CrsHeader
         run={run} submittal={submittal} counts={headlineCounts} headlineFields={headlineFields}
         tierSource={summary ? "server" : "screen"} unopened={unopened} remaining={remaining}
-        localDecisions={Object.keys(decisions.state.decisions).length}
+        save={{ unsaved: unsavedCount, busy: save.busy, onSave: () => void saveDecisions(), message: save.message, error: save.error }}
         acceptAll={{
           confirming, kept, canUndo: decisions.canUndo,
           onAsk: () => setConfirming(true), onCancel: () => setConfirming(false),
@@ -206,7 +233,7 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
           onUndo: () => { decisions.undo(); setKept(null); },
         }}
         sign={{ busy: sign.busy, message: sign.message, error: sign.error, onSign: () => void exportSheet("issue"), onWorkingCopy: () => void exportSheet("internal") }}
-        onBack={onBack}
+        onBack={leave}
       />
       <CrsTable
         rows={shown} allRows={rows} counts={counts} depth={depth} onDepth={setDepth} showMet={showMet} onShowMet={setShowMet}

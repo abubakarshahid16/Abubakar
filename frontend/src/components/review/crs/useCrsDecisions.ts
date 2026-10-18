@@ -1,10 +1,10 @@
 /**
  * The engineer's decisions on the CRS-first Sheet (order 95 piece 2).
  *
- * TODO(order 95 piece 6, Part of #967): LOCAL STATE ONLY. Keep, edited
- * wording and Remove-with-reason live in this hook until piece 6 (record
- * and removal reasons) persists them with who, when and why. Until then a
- * reload loses them, and the screen says so.
+ * Order 95 piece 6c: decisions stay on this screen until ONE "Save
+ * decisions" press (`saveCrsDecisions`). The hook knows which decisions
+ * differ from what was last saved; the screen holds Sign and export, and
+ * warns before leaving, while any do.
  */
 import { useCallback, useState } from "react";
 
@@ -19,6 +19,15 @@ export const REMOVE_REASONS = [
   "Duplicate",
 ] as const;
 export type RemoveReason = (typeof REMOVE_REASONS)[number];
+
+/** Each reason's code, as `crs_issue.REMOVAL_REASONS` keys them (piece 6a). */
+export const REMOVE_REASON_CODES: Record<RemoveReason, string> = {
+  "Not applicable to this equipment": "not_applicable",
+  "Contractor already complies": "already_complies",
+  "Extraction wrong": "extraction_wrong",
+  "Accept deviation": "accept_deviation",
+  "Duplicate": "duplicate",
+};
 
 export type Decision =
   | { kind: "keep" }
@@ -35,6 +44,12 @@ export interface DecisionState {
 
 export interface CrsDecisions {
   state: DecisionState;
+  /** Keys whose decision differs from the one last saved (a decision taken
+   *  and not saved yet). A cleared key is not counted: nothing is sent to
+   *  take a saved decision back. */
+  unsaved: string[];
+  /** The record now holds these keys' decisions as they are on screen. */
+  markSaved: (keys: string[]) => void;
   decisionOf: (key: string) => Decision | null;
   keep: (key: string) => void;
   edit: (key: string, observation: string, requiredAction: string) => void;
@@ -58,6 +73,7 @@ export function useCrsDecisions(): CrsDecisions {
    *  to undo. Any other decision clears it: undo is one step, and only
    *  ever touches what Accept all itself did. */
   const [accepted, setAccepted] = useState<string[] | null>(null);
+  const [saved, setSaved] = useState<Record<string, Decision>>({});
 
   const set = useCallback((key: string, decision: Decision | null) => {
     setAccepted(null);
@@ -95,8 +111,19 @@ export function useCrsDecisions(): CrsDecisions {
     setAccepted(null);
   }, [accepted]);
 
+  const unsaved = Object.keys(state.decisions).filter((key) => !sameDecision(state.decisions[key], saved[key]));
+  const markSaved = useCallback((keys: string[]) => {
+    setSaved((prev) => {
+      const next = { ...prev };
+      for (const key of keys) if (state.decisions[key]) next[key] = state.decisions[key];
+      return next;
+    });
+  }, [state.decisions]);
+
   return {
     state,
+    unsaved,
+    markSaved,
     decisionOf: (key) => state.decisions[key] ?? null,
     keep: (key) => set(key, { kind: "keep" }),
     edit: (key, observation, requiredAction) => set(key, { kind: "edit", observation, requiredAction }),
@@ -108,6 +135,10 @@ export function useCrsDecisions(): CrsDecisions {
     canUndo: accepted !== null,
     undo,
   };
+}
+
+function sameDecision(a: Decision | undefined, b: Decision | undefined): boolean {
+  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 }
 
 /** The words of a decision in the status column. */
