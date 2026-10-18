@@ -203,9 +203,8 @@ def rejected_comment_keys(findings: list[dict]) -> set[str]:
     return {finding_comment_key(f) for f in findings if _rejected(f)}
 
 
-def _edited_by(finding: dict) -> str:
-    who = finding.get("confirmed_by_name") or finding.get("confirmed_by") or "an engineer"
-    return f"AI Review, edited and confirmed by {who}"
+def _finding_text(f: dict) -> str:
+    return " ".join(p for p in (f.get("finding"), f.get("required_action")) if p)
 
 
 #: The shapes a stored "Comment By" names one person in, as `_by`, the
@@ -720,7 +719,8 @@ def _row_order(group: list[dict]) -> tuple:
 def _by(group: list[dict]) -> str:
     f = group[0]
     if f.get("engineer_comment"):
-        return _edited_by(f)
+        who = f.get("confirmed_by_name") or f.get("confirmed_by") or "an engineer"
+        return f"AI Review, edited and confirmed by {who}"
     if f.get("confirmed_by"):
         return f"AI Review, confirmed by {f.get('confirmed_by_name') or f['confirmed_by']}"
     return "AI Review"
@@ -815,11 +815,10 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                          (ROW_KIND_NEEDS_ENGINEER_REVIEW, questions)):
         for group in sorted(_grouped(bucket), key=_row_order):
             f = group[0]
+            machine = engineer_comment_text(group)  # 95 6b: kept as ai_comment
             if kind == ROW_KIND_DATASHEET_CHECK:
-                text = f.get("engineer_comment") or " ".join(p for p in (
-                    f.get("finding"), f.get("required_action")) if p)
-            else:
-                text = f.get("engineer_comment") or engineer_comment_text(group)
+                machine = _finding_text(f)
+            text = f.get("engineer_comment") or machine
             rows.append({
                 # THE FINDING'S OWN STORED ID, carried so `crs_export` can mint
                 # a per-row reference that survives a re-export; never printed.
@@ -831,6 +830,8 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                 "document_name": submittal_name,
                 "page_section": _page_section(group),
                 "comment": text,
+                "ai_comment": machine,
+                "edited": bool(f.get("engineer_comment")),
                 "comment_by": _by(group),
                 "standard_reference": "; ".join(dict.fromkeys(
                     r for r in (_standard_reference(g) for g in group) if r)),
@@ -898,8 +899,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
         origin = f.get("origin")
         if origin not in (_AI_ORIGIN, _WEB_ORIGIN) or f.get("approval_status") == "rejected":
             continue
-        text = f.get("engineer_comment") or " ".join(
-            p for p in (f.get("finding"), f.get("required_action")) if p)
+        text = f.get("engineer_comment") or _finding_text(f)
         if origin == _AI_ORIGIN:
             relates = _ai_relates_to(f)
             if relates and not f.get("engineer_comment"):

@@ -197,6 +197,10 @@ def crs_numbers_open() -> str:
 ROW_REF_PREFIX = "RF-"
 ROW_REF_LABEL = "Ref"
 
+#: Order 95 piece 6b: the label of the machine's original wording, printed
+#: under an engineer's edit in the internal copy's Comment cell.
+AI_WORDING_LABEL = "AI wording"
+
 #: Hex digits of the digest kept. Six gives 16.7 million references, so two
 #: DIFFERENT rows of one sheet colliding is remote; the loop below still
 #: handles it rather than trusting the arithmetic.
@@ -234,6 +238,16 @@ def row_reference(review_run_id: str, finding: dict, salt: int = 0) -> str:
     digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
     return ROW_REF_PREFIX + digest[:ROW_REF_DIGITS].upper()
 
+
+
+def _printed_comment(finding: dict, copy: str) -> str:
+    """Order 95 piece 6b: an engineer's edit prints the machine's wording
+    under it on the internal copy only; the contractor reads the edit."""
+    comment = str(finding.get("comment", ""))
+    ai_wording = str(finding.get("ai_comment") or "").strip()
+    if copy == COPY_INTERNAL and finding.get("edited") is True and ai_wording:
+        return f"{comment}\n{AI_WORDING_LABEL}: {ai_wording}"
+    return comment
 
 
 def build_crs_view(findings: list[dict], meta: dict) -> dict:
@@ -301,7 +315,7 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
     rows = []
     seen: set[str] = set()
     for n, finding in enumerate(findings, start=1):
-        comment = str(finding.get("comment", ""))
+        comment = _printed_comment(finding, copy)
         ref = row_reference(run_id, finding)
         # Two DIFFERENT rows landing on one reference would let a contractor
         # answer the wrong comment. Re-mint with a salt until the sheet's
