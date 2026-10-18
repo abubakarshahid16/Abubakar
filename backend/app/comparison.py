@@ -3585,6 +3585,7 @@ MODEL_OUT_OF_RANGE = "model_out_of_range"
 MODEL_NAMED_OTHER = "model_named_other"
 MODEL_UNSTABLE = "model_unstable"
 MODEL_BUDGET = "model_budget"
+MODEL_TRUNCATED = "model_truncated"       # #456: the reply hit its output cap
 MODEL_DECLINED = "model_declined"
 #: The model proposed a pairing and a refusal rule (`match_rules.refusal`)
 #: refused it; the rule's name follows in brackets.
@@ -3727,29 +3728,28 @@ def _ask_claude_for_a_pair(prompt: str) -> tuple[str | None, str | None]:
     """The matcher's question through the ONE Claude lane (R32, 2026-10-11;
     MATCH_ENGINE=claude): only when `reasoning_provider.claude_unavailable`
     says Claude may be used, through `reader_transport.transport()` wrapped in
-    `claude_spend.metered` (the USD caps are checked before the call leaves,
-    every call is in the ledger) - `datasheet_ai._claude_call`'s chain.
-    Returns `(text, None)` or `(None, reason)`; never raises."""
-    import dataclasses
-
+    `claude_spend.metered` (USD caps before the call, every call in the ledger).
+    Returns `(text, None)` or `(None, reason)`; never raises. #456: the cap is
+    the route table's; a reply it cut off is `model_truncated`, never parsed."""
     from . import claude_spend, reader_api, reader_transport
+    from .ai import output_limits
     from .reasoning_provider import claude_unavailable_for_task
     # #501: the matcher's own engine setting, under the provider switch.
     try:
-        code, _why = claude_unavailable_for_task(settings.match_engine)
-        if code is not None:
+        if claude_unavailable_for_task(settings.match_engine)[0] is not None:
             return None, MODEL_UNAVAILABLE
         transport = reader_transport.transport()
         if transport is None:
             return None, MODEL_UNAVAILABLE
-        cfg = dataclasses.replace(reader_api.ReaderSettings.from_env(),
-                                  model=settings.claude_reasoning_model, max_tokens=200,
+        cfg = dataclasses.replace(reader_api.ReaderSettings.from_env(), model=settings.claude_reasoning_model,
                                   timeout_seconds=float(settings.match_timeout_seconds))
-        call = reader_api.model_call_via(claude_spend.metered(
-            transport, MATCH_STEP, unbilled=reader_transport.unbilled), cfg=cfg)
+        call = output_limits.model_call_for(claude_spend.metered(
+            transport, MATCH_STEP, unbilled=reader_transport.unbilled), output_limits.ROUTE_MATCH, cfg=cfg)
         return call(prompt), None
     except (claude_spend.StopRun, claude_spend.BudgetExceeded):
         return None, MODEL_BUDGET
+    except (output_limits.Truncated, output_limits.Unreadable) as exc:
+        return None, MODEL_TRUNCATED if exc.state == output_limits.TRUNCATED else MODEL_MALFORMED
     except Exception:  # noqa: BLE001 - refused, timed out, or answered wrongly
         return None, MODEL_UNAVAILABLE
 

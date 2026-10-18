@@ -63,6 +63,7 @@ from datetime import datetime, timezone
 from enum import Enum
 
 from . import applicability, datasheets, standard_ids, standards, submittal_review
+from .ai import output_limits
 from .db import connect
 
 # --------------------------------------------------------------- vocabulary
@@ -374,6 +375,17 @@ def _identity(p: dict) -> tuple:
     return (p.get("verdict"), p.get("index"), p.get("basis"))
 
 
+def _ask(model_call, prompt: str) -> tuple[list, str | None]:
+    """`parse_response` of one call. #456: a reply the output cap cut off,
+    or one with nothing readable, is a NAMED error (`truncated` /
+    `unknown`) - never parsed, so no half-list becomes a selection."""
+    try:
+        raw = model_call(prompt)
+    except (output_limits.Truncated, output_limits.Unreadable) as exc:
+        return [], exc.state
+    return parse_response(raw)
+
+
 def select_standards(datasheet_summary: dict, candidates: list[dict],
                      model_call, second_call=None) -> dict:
     """The datasheet through the model TWICE and then through the gate.
@@ -390,11 +402,11 @@ def select_standards(datasheet_summary: dict, candidates: list[dict],
     prompt = build_prompt(datasheet_summary, candidates)
     empty = {"accepted": [], "declined": [], "rejected": [], "counts": {},
              "prompt": prompt}
-    first, err = parse_response(model_call(prompt))
+    first, err = _ask(model_call, prompt)
     if err:
         return {**empty, "error": err}
     again = second_call if second_call is not None else model_call
-    second, err2 = parse_response(again(prompt))
+    second, err2 = _ask(again, prompt)
     if err2:
         return {**empty, "error": err2}
     seen = {_identity(p) for p in second}
