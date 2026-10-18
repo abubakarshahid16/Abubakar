@@ -39,6 +39,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `api.documents` | Routes: upload, list, read and delete documents, the ingest steps and the bulk role change (moved out of main.py, order 73) |
 | `api.document_classification` | Routes: what a document is - classification, kind, the playbook review |
 | `api.document_files` | Routes: a document's pages, page images, original file, workbook, chunks, excluded text and page ledger |
+| `api.deliverables` | Routes: the deliverables register, expected deliverables, history, stakeholders, workspace and alerts; management reminders, summary and schedule, escalation rules and the report (moved out of main.py, order 79a) |
 | `api.standards` | Routes: the standards library - list, inventory, missing and cited standards, provenance, OKF concepts, clauses, requirements and their extraction, tables, conflicts, the verification queue, clause checks, revisions and supersede (moved out of main.py, order 79a) |
 | `api.admin` | Routes: users, disciplines, grants, the model unload, the read-only database explorer and the document-kind routing run (moved out of main.py, order 79a) |
 | `api.crs_archive` | Routes: a run's CRS record - who decided what, when and why (order 95 piece 6a), and the issued contractor copies (moved out of main.py) |

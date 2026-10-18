@@ -7,7 +7,7 @@
  * before every Needs-you row was opened and "Sign waits" fails; drop the J
  * handler and the keyboard test fails.
  */
-import { act, render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -22,6 +22,10 @@ const list = vi.fn();
 const exportCrs = vi.fn();
 const reviewRunStandards = vi.fn();
 const reviewRunSummary = vi.fn();
+const confirm = vi.fn();
+const update = vi.fn();
+const decideCrsFinding = vi.fn();
+const crsDecisions = vi.fn();
 
 vi.mock("../api/client", () => ({
   api: { document: async () => ({ ok: true, data: { id: "doc-sub", filename: "psv.pdf", page_count: 12, equipment_type: "Pressure safety valve", revision: "B" } }) },
@@ -36,6 +40,10 @@ vi.mock("../api/client", () => ({
     reviewRunStandards: (...a: unknown[]) => reviewRunStandards(...a),
     reviewRunSummary: (...a: unknown[]) => reviewRunSummary(...a),
     exportCrs: (...a: unknown[]) => exportCrs(...a),
+    confirm: (...a: unknown[]) => confirm(...a),
+    update: (...a: unknown[]) => update(...a),
+    decideCrsFinding: (...a: unknown[]) => decideCrsFinding(...a),
+    crsDecisions: (...a: unknown[]) => crsDecisions(...a),
     cancelJob: vi.fn(),
   },
 }));
@@ -83,6 +91,10 @@ beforeEach(() => {
   // A server without #1111's route: 404, as `request()` reports it.
   reviewRunSummary.mockReset().mockResolvedValue({ ok: false, disconnected: false, error: { code: "internal", message: "That is not something the backend knows about." } });
   exportCrs.mockReset().mockResolvedValue({ ok: false, error: { code: "conflict", message: "2 findings are still open." } });
+  confirm.mockReset().mockResolvedValue({ ok: true, data: {} });
+  update.mockReset().mockResolvedValue({ ok: true, data: {} });
+  decideCrsFinding.mockReset().mockResolvedValue({ ok: true, data: {} });
+  crsDecisions.mockReset().mockResolvedValue({ ok: true, data: { decisions: [] } });
 });
 
 function mount() {
@@ -215,12 +227,72 @@ describe("CrsSheetView", () => {
     expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
   });
 
-  it("says by Sign that decisions on this screen are not in the exported file", async () => {
-    mount();
-    await screen.findByTestId("crs-headline");
-    expect(screen.queryByTestId("sign-local-note")).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Keep comment 1" }));
-    expect(screen.getByTestId("sign-local-note")).toHaveTextContent("Your 1 decision on this screen (Keep, edited wording, Remove) is not in the exported file yet");
+  describe("order 95 piece 6c: Save decisions", () => {
+    it("a Keep stays on screen, holds both exports, and one Save confirms its finding", async () => {
+      mount();
+      await screen.findByTestId("crs-headline");
+      expect(screen.queryByTestId("save-bar")).not.toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "Keep comment 1" }));
+      expect(confirm).not.toHaveBeenCalled();
+      expect(screen.getByTestId("save-bar")).toHaveTextContent("1 decision not saved yet");
+      expect(screen.getByRole("button", { name: /Sign and export/ })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Download working copy" })).toBeDisabled();
+      await userEvent.click(screen.getByRole("button", { name: "Save decisions" }));
+      expect(confirm).toHaveBeenCalledWith("a");
+      expect(await screen.findByText("1 decision saved to the record.")).toBeInTheDocument();
+      expect(screen.queryByTestId("save-bar")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Download working copy" })).toBeEnabled();
+    });
+
+    it("an edit saves the Required action as the engineer's comment; the Observation is read only", async () => {
+      mount();
+      await screen.findByTestId("crs-headline");
+      await userEvent.click(screen.getByRole("button", { name: "Edit wording of comment 1" }));
+      expect(screen.getByLabelText("Observation for comment 1")).toHaveAttribute("readonly");
+      const action = screen.getByLabelText("Required action for comment 1");
+      await userEvent.clear(action);
+      await userEvent.type(action, "Contractor to state the set pressure in barg.");
+      await userEvent.click(screen.getByRole("button", { name: "Save wording" }));
+      await userEvent.click(screen.getByRole("button", { name: "Save decisions" }));
+      expect(update).toHaveBeenCalledWith("a", { engineer_comment: "Contractor to state the set pressure in barg." });
+      expect(confirm).not.toHaveBeenCalled();
+    });
+
+    it("a Remove sends a reject with its listed reason code", async () => {
+      mount();
+      await screen.findByTestId("crs-headline");
+      await userEvent.click(screen.getByRole("button", { name: "Remove comment 1" }));
+      await userEvent.selectOptions(screen.getByLabelText("Why remove comment 1?"), "Duplicate");
+      await userEvent.click(screen.getByRole("button", { name: "Remove" }));
+      await userEvent.click(screen.getByRole("button", { name: "Save decisions" }));
+      expect(decideCrsFinding).toHaveBeenCalledWith("run-1", "a", "reject", "", "duplicate");
+    });
+
+    it("a row the server refuses stays unsaved and says why", async () => {
+      confirm.mockResolvedValue({ ok: false, error: { code: "forbidden", message: "Not allowed." } });
+      mount();
+      await screen.findByTestId("crs-headline");
+      await userEvent.click(screen.getByRole("button", { name: "Keep comment 1" }));
+      await userEvent.click(screen.getByRole("button", { name: "Save decisions" }));
+      expect(await screen.findByText(/1 not saved: Comment 1: Not allowed\./)).toBeInTheDocument();
+      expect(screen.getByTestId("save-bar")).toHaveTextContent("1 decision not saved yet");
+      expect(screen.getByRole("button", { name: /Sign and export/ })).toBeDisabled();
+    });
+
+    it("leaving with unsaved decisions warns first", async () => {
+      const onBack = vi.fn();
+      render(<CrsSheetView runId="run-1" onBack={onBack} onOpenCards={vi.fn()} />);
+      await screen.findByTestId("crs-headline");
+      await userEvent.click(screen.getByRole("button", { name: "Keep comment 1" }));
+      const unload = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(unload);
+      expect(unload.defaultPrevented).toBe(true);
+      const ask = vi.spyOn(window, "confirm").mockReturnValue(false);
+      await userEvent.click(screen.getByRole("button", { name: "← Reviews" }));
+      expect(ask).toHaveBeenCalled();
+      expect(onBack).not.toHaveBeenCalled();
+      ask.mockRestore();
+    });
   });
 
   it("Sign and export is disabled until every Needs-you row has been opened, then calls the existing CRS issue export", async () => {
@@ -245,6 +317,63 @@ describe("CrsSheetView", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("2 findings are still open.");
   });
 
+  it("piece 4: the drawer moves comment to comment and page to page on a long document", async () => {
+    mount();
+    await screen.findByTestId("crs-headline");
+    await userEvent.click(screen.getByRole("button", { name: /Open evidence for Comment 1/ }));
+    const dialog = () => screen.getByRole("dialog");
+    const position = () => within(dialog()).getByTestId("drawer-position").textContent ?? "";
+    expect(position()).toMatch(/^Row 1 of \d+$/);
+    expect(within(dialog()).getByRole("button", { name: "← Previous" })).toBeDisabled();
+    expect(within(dialog()).getByTestId("drawer-page")).toHaveTextContent("Page 1 of 12");
+    // the strip: the comment pages plus the first and the last page (12)
+    const strip = within(within(dialog()).getByTestId("drawer-strip")).getAllByRole("button").map((b) => b.textContent);
+    expect(strip[0]).toBe("1");
+    expect(strip[strip.length - 1]).toBe("12");
+    // Next, and the J key, move along the rows shown
+    await userEvent.click(within(dialog()).getByRole("button", { name: "Next →" }));
+    expect(position()).toMatch(/^Row 2 of /);
+    await userEvent.keyboard("j");
+    expect(position()).toMatch(/^Row 3 of /);
+    await userEvent.keyboard("k");
+    expect(position()).toMatch(/^Row 2 of /);
+    // a page with no comment can be looked at, and says so
+    await userEvent.type(within(dialog()).getByLabelText("Go to page"), "11{Enter}");
+    expect(within(dialog()).getByTestId("drawer-page")).toHaveTextContent("Page 11 of 12 - no comment on this page");
+    expect(dialog()).toHaveTextContent("submittal page 11");
+    // a page outside the document is refused in words
+    await userEvent.type(within(dialog()).getByLabelText("Go to page"), "40{Enter}");
+    expect(within(dialog()).getByRole("alert")).toHaveTextContent("Type a page from 1 to 12.");
+    // PageUp from page 11 opens the last comment page before it
+    await userEvent.keyboard("{PageUp}");
+    expect(within(dialog()).getByTestId("drawer-page")).toHaveTextContent(/^Page 4 of 12$/);
+  });
+
+  it("piece 4: the drawer's history reads the run's decision record, earlier decisions and reasons included", async () => {
+    crsDecisions.mockResolvedValue({ ok: true, data: { decisions: [
+      { id: "2", review_run_id: "run-1", kind: "finding", subject: "a", decision: "reject", reason: "same point as comment 3",
+        decided_by: "Ali", decided_at: "2026-10-17T09:00:00Z", reason_code: "duplicate" },
+      { id: "1", review_run_id: "run-1", kind: "finding", subject: "a", decision: "accept", reason: "breach confirmed by eye",
+        decided_by: "Ali", decided_at: "2026-10-16T09:00:00Z", reason_code: null },
+    ] } });
+    mount();
+    await screen.findByTestId("crs-headline");
+    await userEvent.click(screen.getByRole("button", { name: /Open evidence for Comment 1/ }));
+    const history = await screen.findByTestId("drawer-history");
+    await waitFor(() => expect(history).toHaveTextContent("Comment removed by Ali (Duplicate): same point as comment 3"));
+    expect(history).toHaveTextContent("Comment accepted by Ali: breach confirmed by eye");
+    expect(crsDecisions).toHaveBeenCalledWith("run-1");
+    expect(screen.queryByTestId("drawer-history-partial")).toBeNull();
+  });
+
+  it("piece 4: when the decision record cannot be read, the drawer says its history may be missing decisions", async () => {
+    crsDecisions.mockResolvedValue({ ok: false, disconnected: true, error: { code: "internal", message: "Cannot reach the backend." } });
+    mount();
+    await screen.findByTestId("crs-headline");
+    await userEvent.click(screen.getByRole("button", { name: /Open evidence for Comment 1/ }));
+    expect(await screen.findByTestId("drawer-history-partial")).toHaveTextContent("could not be loaded");
+  });
+
   it("the keyboard: J / K move, Enter keeps, E edits, R asks why", async () => {
     mount();
     await screen.findByTestId("crs-headline");
@@ -257,7 +386,7 @@ describe("CrsSheetView", () => {
     await userEvent.keyboard("{Enter}");
     expect(within(rows()[0]).getByTestId("row-status")).toHaveTextContent("Kept");
     await userEvent.keyboard("e");
-    expect(screen.getByLabelText("Observation for comment 1")).toHaveFocus();
+    expect(screen.getByLabelText("Required action for comment 1")).toHaveFocus();
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     await userEvent.keyboard("r");
     expect(screen.getByLabelText("Why remove comment 1?")).toHaveFocus();

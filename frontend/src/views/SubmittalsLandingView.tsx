@@ -17,7 +17,7 @@ import { DocumentsFromContractors } from "../components/review/DocumentsFromCont
 import { InboxList } from "../components/review/inbox/InboxList";
 import { INBOX_IS_DEFAULT } from "../routing";
 import { LIST_MAX, groupRunsByDocument, totalFromResponse } from "../components/review/reviewFormat";
-import { anyMoving, inboxStateOf } from "../components/review/inbox/inboxState";
+import { type ReadyCounts, anyMoving, inboxStateOf } from "../components/review/inbox/inboxState";
 
 /** Order 95 piece 3: while a review is queued or running, the list re-reads
  *  on this interval so its state moves without a refresh. */
@@ -30,6 +30,13 @@ interface BatchResult {
   asked: number;
   queued: number;
   refused: { filename: string; message: string }[];
+}
+
+/** #1114: the Ready label's counts come from the run's own summary (#1111);
+ *  any failure (a server without the route answers 404) leaves them out. */
+async function loadReadyCounts(runId: string): Promise<ReadyCounts | null> {
+  const res = await reviewsApi.reviewRunSummary(runId);
+  return res.ok ? { comment: res.data.counts.comment, needs_you: res.data.counts.needs_you } : null;
 }
 
 export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onOpenInbox, onOpenList }: {
@@ -197,6 +204,7 @@ export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onO
           onReviewAll={(targets) => void reviewAll(targets)}
           reviewingAll={batching}
           startingDocumentId={startingDocumentId}
+          loadReadyCounts={loadReadyCounts}
         />
       )}
     </section>
