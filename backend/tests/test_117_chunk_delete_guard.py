@@ -3,8 +3,14 @@ ON DELETE CASCADE, so deleting a chunk deletes the requirements read from
 it - engineer-confirmed ones included. Since #659 the one place that deletes
 chunks, `chunker.chunk_document`, detaches the requirements first and
 re-points or supersedes them after (`orphan_guard`). This test keeps it the
-one place: any other `DELETE FROM chunks` in `app/`, or a detach that no
-longer comes before the delete, fails here instead of losing data.
+one place: any other `DELETE FROM chunks` in `app/` - in a function or a
+module-level constant - or a detach that no longer comes before the delete,
+fails here instead of losing data.
+
+Deleting a whole DOCUMENT is out of scope on purpose: `DELETE FROM documents`
+cascades through its chunks to that standard's requirements, which is
+intended when the standard itself goes. This test is about re-chunking a
+document that stays.
 """
 
 from __future__ import annotations
@@ -18,22 +24,28 @@ DELETE_CHUNKS = re.compile(r"\bDELETE\s+FROM\s+chunks\b", re.IGNORECASE)
 
 
 def _deletes() -> list[tuple[str, str, int]]:
-    """(file, enclosing function, line) of every SQL string deleting chunks."""
+    """(file, innermost enclosing function or `<module>`, line) of every SQL
+    string deleting chunks - module-level constants included."""
     found = []
     for path in sorted(APP.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        for func in ast.walk(tree):
-            if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        funcs = [
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        ]
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and DELETE_CHUNKS.search(node.value)
+            ):
                 continue
-            for node in ast.walk(func):
-                if (
-                    isinstance(node, ast.Constant)
-                    and isinstance(node.value, str)
-                    and DELETE_CHUNKS.search(node.value)
-                ):
-                    found.append(
-                        (path.relative_to(APP).as_posix(), func.name, node.lineno)
-                    )
+            around = [
+                f for f in funcs if f.lineno <= node.lineno <= (f.end_lineno or 0)
+            ]
+            name = max(around, key=lambda f: f.lineno).name if around else "<module>"
+            found.append((path.relative_to(APP).as_posix(), name, node.lineno))
     return found
 
 
