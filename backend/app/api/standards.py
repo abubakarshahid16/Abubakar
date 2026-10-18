@@ -6,7 +6,7 @@ Moved out of main.py with no logic change (planner order 79a, #692; system map t
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from .. import access, errors, schemas
 from .. import admin as admin_mod
@@ -16,8 +16,13 @@ from .. import standards as standards_mod
 from .. import standards_acquisition as standards_acquisition_mod
 from .. import standards_inventory as standards_inventory_mod
 from ..api_utils import _require_named_reviewer, reject_unknown_params, require_document
+from ..paging import page_of
 
 router = APIRouter()
+
+#: optional page of a bare-list route; the total is in `X-Total-Count` (order 117 item 5)
+_LIMIT = Query(None, ge=1, le=1000, description="page size; omit for every row")
+_OFFSET = Query(0, ge=0)
 
 
 # ------------------------------------------------------------- standards
@@ -32,7 +37,10 @@ router = APIRouter()
             responses=schemas.ERRORS_422)
 def list_standards(
     request: Request,
+    response: Response,
     include_superseded: bool = Query(True),
+    limit: int | None = _LIMIT,
+    offset: int = _OFFSET,
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """Every COMPANY_STANDARD the caller may read.
@@ -41,10 +49,16 @@ def list_standards(
     caller may see. They are ANDed in the query, so the library is always a
     subset of what the caller already holds.
     """
-    reject_unknown_params(request, {"include_superseded"})
-    return standards_mod.list_standards(
-        allowed_document_ids=scope.allowed_document_ids,
-        include_superseded=include_superseded)
+    reject_unknown_params(request, {"include_superseded", "limit", "offset"})
+    return page_of(
+        standards_mod.list_standards(
+            allowed_document_ids=scope.allowed_document_ids,
+            include_superseded=include_superseded,
+        ),
+        limit,
+        offset,
+        response,
+    )
 
 
 @router.get("/api/standards/inventory",
@@ -52,7 +66,10 @@ def list_standards(
             responses=schemas.ERRORS_422)
 def standards_inventory(
     request: Request,
+    response: Response,
     include_superseded: bool = Query(True),
+    limit: int | None = _LIMIT,
+    offset: int = _OFFSET,
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """The standards inventory (B5 part 2): every COMPANY_STANDARD the
@@ -63,10 +80,16 @@ def standards_inventory(
     what belongs in the library, the grants decide what this caller may see,
     ANDed - never widened by this route.
     """
-    reject_unknown_params(request, {"include_superseded"})
-    return standards_inventory_mod.inventory_rows(
-        allowed_document_ids=scope.allowed_document_ids,
-        include_superseded=include_superseded)
+    reject_unknown_params(request, {"include_superseded", "limit", "offset"})
+    return page_of(
+        standards_inventory_mod.inventory_rows(
+            allowed_document_ids=scope.allowed_document_ids,
+            include_superseded=include_superseded,
+        ),
+        limit,
+        offset,
+        response,
+    )
 
 
 @router.get("/api/standards/cited-but-not-held",
@@ -236,13 +259,22 @@ def reject_okf_concept(
 def standard_clauses(
     document_id: str,
     request: Request,
+    response: Response,
+    limit: int | None = _LIMIT,
+    offset: int = _OFFSET,
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """The clause hierarchy, read from the chunks the document already has."""
-    reject_unknown_params(request, set())
+    reject_unknown_params(request, {"limit", "offset"})
     require_document(document_id, scope)
-    return standards_mod.clause_hierarchy(
-        document_id, allowed_document_ids=scope.allowed_document_ids)
+    return page_of(
+        standards_mod.clause_hierarchy(
+            document_id, allowed_document_ids=scope.allowed_document_ids
+        ),
+        limit,
+        offset,
+        response,
+    )
 
 
 @router.get("/api/standards/{document_id}/requirements",
@@ -251,12 +283,21 @@ def standard_clauses(
 def standard_requirements(
     document_id: str,
     request: Request,
+    response: Response,
+    limit: int | None = _LIMIT,
+    offset: int = _OFFSET,
     scope: access.AccessScope = Depends(access.current_scope),
 ):
-    reject_unknown_params(request, set())
+    reject_unknown_params(request, {"limit", "offset"})
     require_document(document_id, scope)
-    return standards_mod.list_requirements(
-        document_id, allowed_document_ids=scope.allowed_document_ids)
+    return page_of(
+        standards_mod.list_requirements(
+            document_id, allowed_document_ids=scope.allowed_document_ids
+        ),
+        limit,
+        offset,
+        response,
+    )
 
 
 @router.post("/api/standards/{document_id}/requirements/extract",

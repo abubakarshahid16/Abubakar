@@ -66,6 +66,7 @@ from . import progress as progress_mod
 from . import reports as reports_mod
 from . import review as review_mod
 from . import finding_query
+from . import paging as paging_mod
 from . import deliverables as deliverables_mod
 from . import structured_search as structured_search_mod
 from . import risks as risks_mod
@@ -252,6 +253,7 @@ app.add_middleware(
     allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=[paging_mod.TOTAL_HEADER],  # a bare list's total (order 117 item 5)
 )
 
 # Routes in their own modules (watched folder; #473 fact confirmation) so this
