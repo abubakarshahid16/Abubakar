@@ -233,7 +233,11 @@ def _record(
     reason_code: str | None = None,
 ) -> dict:
     reason = " ".join((reason or "").split())
-    if len(reason) < MIN_REASON_LENGTH:
+    if reason_code is not None:
+        # Order 95 piece 6a (a): a listed removal reason IS the engineer's
+        # reason; with nothing typed, its own words are stored.
+        reason = reason or REMOVAL_REASONS[reason_code]
+    elif len(reason) < MIN_REASON_LENGTH:
         raise IssueError(
             f"a decision needs the engineer's reason "
             f"({MIN_REASON_LENGTH} characters minimum)"
