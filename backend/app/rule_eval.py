@@ -42,7 +42,7 @@ from __future__ import annotations
 import json
 import re
 
-from . import claims, numparse
+from . import claims, errors, numparse
 
 import logging
 
@@ -672,8 +672,8 @@ def rule_for(requirement: dict, *, provider=None) -> tuple[dict | None, str | No
                         if rule is not None:
                             source = SOURCE_MODEL
                             break
-            except Exception:  # noqa: BLE001 - budget or refusal: stays with an engineer
-                rule = None
+            except Exception as exc:  # noqa: BLE001 - budget or refusal: stays with an engineer
+                rule = errors.fell_back("rule_eval: the model's rule could not be drafted; it stays with an engineer", exc, None)
     if rule is None:
         page = requirement.get("page") or requirement.get("chunk_page")
         return None, (f"the table on page {page} could not be read" if page

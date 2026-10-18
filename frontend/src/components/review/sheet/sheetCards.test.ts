@@ -13,7 +13,8 @@ import { describe, expect, it } from "vitest";
 import type { CrsIssueGate, ReviewFinding } from "../../../types/api";
 import { CARD_CHUNK, type SheetCard, visibleCards } from "./sheetCards";
 import {
-  buildCards, cardTitle, commentTemplate, groupLine, headline, isAskFinding, passedCount, progress, trustLine,
+  buildCards, cardTitle, clauseGroups, clauseSummary, commentTemplate, groupLine, headline, isAskFinding, passedCount,
+  progress, trustLine,
 } from "./sheetCards";
 
 let n = 0;
@@ -222,5 +223,32 @@ describe("#1062: the owner's click-through shapes on the Sheet (#1061 checks 2 a
     const line = headline([], gate, null);
     expect(line).toMatch(/Pages 4(,| and) 7 still need a look\./);
     expect(line.match(/still need/g)).toHaveLength(1);
+  });
+});
+
+describe("the clauses a card cites (#1094)", () => {
+  it("keeps one card per comment template but counts every (standard, clause) it cites, in page order", () => {
+    const cards = buildCards([
+      f({ standard_document_id: "s1", standard_clause: "5.2", contractor_page: 6 }),
+      f({ standard_document_id: "s2", standard_clause: "7.1", contractor_page: 2 }),
+      f({ standard_document_id: "s2", standard_clause: "7.1", contractor_page: 3 }),
+      f({ standard_document_id: null, standard_clause: null, contractor_page: 4 }),
+    ]);
+    expect(cards).toHaveLength(1);
+    const groups = clauseGroups(cards[0]);
+    expect(groups.map((g) => [g.standardId, g.clause, g.count, g.fields.length])).toEqual([
+      ["s2", "7.1", 2, 2], ["", "", 1, 1], ["s1", "5.2", 1, 1],
+    ]);
+    expect(groups[0].leader.contractor_page).toBe(2);
+    expect(clauseSummary(groups, "blanks")).toBe("2 clauses across 2 standards, and 1 blank no clause names");
+  });
+
+  it("words one standard and one clause in the singular", () => {
+    const cards = buildCards([
+      f({ standard_document_id: "s1", standard_clause: "5.2" }), f({ standard_document_id: "s1", standard_clause: "5.3" }),
+    ]);
+    expect(clauseSummary(clauseGroups(cards[0]), "blanks")).toBe("2 clauses of one standard");
+    const one = buildCards([f({ standard_document_id: "s1", standard_clause: "5.2" })]);
+    expect(clauseSummary(clauseGroups(one[0]), "places")).toBe("1 clause of one standard");
   });
 });

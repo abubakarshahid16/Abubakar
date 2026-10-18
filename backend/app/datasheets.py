@@ -46,7 +46,7 @@ import json
 from pathlib import Path
 from contextvars import ContextVar
 
-from . import (blank_markers, claims, datasheet_inputs, numparse, orphan_guard, page_ledger,
+from . import (blank_markers, claims, datasheet_inputs, errors, numparse, orphan_guard, page_ledger,
                provenance, row_noise, standard_ids, submittal_review, tables)
 from .config import settings
 from .db import connect
@@ -402,8 +402,7 @@ def furniture_labels(pairs_by_page: dict[int, list[tuple[str, str]]],
             pages_per_label.setdefault(name, set()).add(page)
             answered_pages.setdefault(name, set())
             answers_per_label.setdefault(name, set())
-            # Compared as the reader sees it: case and spacing are spelling,
-            # not different answers.
+            # Compared as the reader sees it: case and spacing are spelling, not different answers.
             answer = " ".join((value or "").split()).lower()
             # AN ANSWER IS SOMETHING A FACT COULD BE MADE OF (#179). The
             # vessel sheet's title-block row `<site name> | ... | OF` printed
@@ -2444,8 +2443,8 @@ def _pairs_from_pdf_page(stored_path: str, page_no: int) -> list[tuple[str, str]
             return pairs_from_blocks(blocks)
     except (pymupdf.FileNotFoundError, pymupdf.FileDataError):
         return []  # the FILE; named by pdf_condition, not guessed at here
-    except Exception:  # noqa: BLE001 - a failure inside one page of a readable file
-        _page_failed(page_no, "pairs")
+    except Exception as exc:  # noqa: BLE001 - a failure inside one page of a readable file
+        _page_failed(page_no, "pairs", exc)
         return []
 
 
@@ -2664,8 +2663,8 @@ def _grid_facts_from_pdf_page(stored_path: str | None, page_no: int) -> list[dic
                 return []
             from . import geometry_reader
             return grid_facts(geometry_reader.upright_words(doc[page_no - 1]))
-    except Exception:  # noqa: BLE001 - the file's condition is pdf_condition's to name
-        _page_failed(page_no, "grid")
+    except Exception as exc:  # noqa: BLE001 - the file's condition is pdf_condition's to name
+        _page_failed(page_no, "grid", exc)
         return []
 
 
@@ -2710,8 +2709,8 @@ def _geometry_rows_from_pdf_page(stored_path: str | None, page_no: int,
             if not (1 <= page_no <= doc.page_count):
                 return []
             rows = geometry_reader.read_page_rows(doc[page_no - 1])
-    except Exception:  # noqa: BLE001 - the file's condition is pdf_condition's to name
-        _page_failed(page_no, "geometry")
+    except Exception as exc:  # noqa: BLE001 - the file's condition is pdf_condition's to name
+        _page_failed(page_no, "geometry", exc)
         return []
     if page_needs_ocr:
         rows = [{**row, "page_needs_ocr": True} for row in rows]
@@ -2765,8 +2764,8 @@ def _text_layer_words(stored_path: str | None, page_no: int) -> int:
             if not (1 <= page_no <= doc.page_count):
                 return 0
             return len(doc[page_no - 1].get_text("words"))
-    except Exception:  # noqa: BLE001 - the file's condition is pdf_condition's to name
-        _page_failed(page_no, "text_layer")
+    except Exception as exc:  # noqa: BLE001 - the file's condition is pdf_condition's to name
+        _page_failed(page_no, "text_layer", exc)
         return 0
 
 
@@ -2786,8 +2785,8 @@ def _vision_reading(stored_path: str | None, page_no: int, geometry_rows: list[d
                 return None
             return vision_reader.read_page(doc[page_no - 1], page_no, provider,
                                            geometry_rows=geometry_rows)
-    except Exception:  # noqa: BLE001 - the file's condition is pdf_condition's to name
-        _page_failed(page_no, "vision_open")
+    except Exception as exc:  # noqa: BLE001 - the file's condition is pdf_condition's to name
+        _page_failed(page_no, "vision_open", exc)
         return None
 
 
@@ -3315,8 +3314,9 @@ PAGE_READ_FAILED = {
 }
 
 
-def _page_failed(page_no: int, reader: str) -> None:
+def _page_failed(page_no: int, reader: str, exc: BaseException | None = None) -> None:
     """Record that `reader` failed on `page_no` (when a run is collecting)."""
+    errors.fell_back(f"datasheets: the {reader} reader failed on a page; the page is recorded", exc, None)
     failures = _PAGE_FAILURES.get()
     if failures is not None:
         failures.setdefault(int(page_no), set()).add(reader)

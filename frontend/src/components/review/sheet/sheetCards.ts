@@ -183,8 +183,65 @@ export function groupLine(card: SheetCard): string {
   const n = card.findings.length;
   if (n < 2) return "";
   if (isTableRow(card.findings[0])) return `${n} rows of one table, one answer`;
-  const noun = card.findings[0].compliance_status === "MISSING_INFORMATION" ? "blanks" : "places";
-  return `${n} ${noun}, one answer`;
+  return `${n} ${findingNoun(card)}, one answer`;
+}
+
+/** #1094: one distinct (standard, clause) a card's findings cite, with what
+ *  it raised. A placeholder card groups blanks by outcome and wording, not
+ *  by requirement, so one card may cite many clauses; the card must never
+ *  show one of them as THE rule for all its blanks. */
+export interface ClauseGroup {
+  /** The first finding citing it (lowest page): what "open the rule" opens. */
+  leader: ReviewFinding;
+  standardId: string;
+  clause: string;
+  /** How many of the card's findings this clause raised. */
+  count: number;
+  /** The fields (labels) it covers, distinct, in page order. */
+  fields: string[];
+}
+
+/** True when the finding names no rule at all: no standard and no clause. */
+export function hasNoClause(f: ReviewFinding): boolean {
+  return !f.standard_document_id && !f.standard_clause;
+}
+
+/** The card's distinct (standard, clause) pairs in page order; findings that
+ *  name no clause share one group with an empty standard and clause. */
+export function clauseGroups(card: SheetCard): ClauseGroup[] {
+  const groups = new Map<string, ClauseGroup>();
+  for (const f of card.findings) {
+    const standardId = f.standard_document_id ?? "";
+    const clause = f.standard_clause ?? "";
+    const key = `${standardId}\u001f${clause}`;
+    const group = groups.get(key) ?? { leader: f, standardId, clause, count: 0, fields: [] };
+    group.count += 1;
+    const field = fieldOf(f);
+    if (field && !group.fields.includes(field)) group.fields.push(field);
+    groups.set(key, group);
+  }
+  return [...groups.values()];
+}
+
+/** "4 clauses across 3 standards" - the headline of a card whose blanks
+ *  cite more than one rule. Counts only what names a clause; the findings
+ *  no clause names are counted separately so the words stay true. */
+export function clauseSummary(groups: ClauseGroup[], noun: string): string {
+  const named = groups.filter((g) => !(g.standardId === "" && g.clause === ""));
+  const standards = new Set(named.map((g) => g.standardId).filter(Boolean)).size;
+  const unnamed = groups.find((g) => g.standardId === "" && g.clause === "")?.count ?? 0;
+  const parts: string[] = [];
+  if (named.length > 0) {
+    const across = standards > 1 ? ` across ${standards} standards` : standards === 1 ? " of one standard" : "";
+    parts.push(`${named.length} ${named.length === 1 ? "clause" : "clauses"}${across}`);
+  }
+  if (unnamed > 0) parts.push(`${unnamed} ${unnamed === 1 ? noun.replace(/s$/, "") : noun} no clause names`);
+  return parts.join(", and ");
+}
+
+/** The noun a card counts its findings in: blanks for "not given", places otherwise. */
+export function findingNoun(card: SheetCard): string {
+  return card.findings[0].compliance_status === "MISSING_INFORMATION" ? "blanks" : "places";
 }
 
 /** The trust line: who stands behind the rule, in the owner's words
