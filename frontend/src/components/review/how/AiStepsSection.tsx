@@ -21,6 +21,15 @@ type Column = (typeof COLUMNS)[number];
 const COLUMN_LABEL: Record<Column, string> = {
   asked: "Asked", proposed: "Proposed", confirmed: "Confirmed by code", refused: "Refused", timed_out: "Timed out / unavailable",
 };
+/** What each count is a count of (from `backend/app/ai_numbers.py`), so a
+ *  number is never bare: the reader's pages and its values differ. */
+const COUNT_UNITS: Record<string, Partial<Record<Column, string>>> = {
+  reader: { asked: "pages", proposed: "pages", confirmed: "values", refused: "values", timed_out: "pages" },
+  matcher: { asked: "requirements", proposed: "requirements", confirmed: "requirements", refused: "requirements", timed_out: "requirements" },
+  clause_checks: { asked: "sentences", proposed: "sentences", refused: "sentences", timed_out: "sentences" },
+  engineering_check: { asked: "items", proposed: "items", confirmed: "items", refused: "items" },
+  wording: { asked: "CRS rows", proposed: "CRS rows", confirmed: "CRS rows", refused: "CRS rows" },
+};
 const COUNT_KEYS: Record<string, Partial<Record<Column, string>>> = {
   reader: { asked: "pages", proposed: "pages_read", confirmed: "agreed", refused: "refused_by_gate", timed_out: "timed_out" },
   matcher: { asked: "asked", proposed: "proposed", confirmed: "used", refused: "refused_by_rule", timed_out: "unavailable" },
@@ -39,6 +48,8 @@ interface StepView {
   countsSource: string;
 }
 
+/** The engineering check's stored counts; `rejected` is the sum of the
+ *  stored per-reason rejections (`ai_check_status.rejected`). */
 function engineeringCounts(run: ReviewRunSummary): Record<string, number> {
   const s = run.ai_check_status;
   if (!s) return {};
@@ -78,12 +89,13 @@ function stepViews(run: ReviewRunSummary): StepView[] {
 function CountCell({ step, column }: { step: StepView; column: Column }) {
   const key = COUNT_KEYS[step.key]?.[column];
   const value = key !== undefined ? step.counts[key] : undefined;
+  const unit = COUNT_UNITS[step.key]?.[column];
   if (typeof value !== "number") {
     return <td className="py-1 pr-3 text-xs italic text-slateish-400">{NOT_RECORDED}</td>;
   }
   return (
     <td className="py-1 pr-3 tabular-nums text-slateish-100">
-      {value.toLocaleString()} <span className="text-xs text-slateish-500">({key})</span>
+      {value.toLocaleString()}{unit ? ` ${unit}` : ""} <span className="text-xs text-slateish-500">({key})</span>
     </td>
   );
 }
@@ -101,7 +113,9 @@ function StepRow({ step }: { step: StepView }) {
       </p>
       <div className="overflow-x-auto">
         <table className="text-sm">
-          <caption className="sr-only">{meta?.label ?? step.key} counts, from {step.countsSource}</caption>
+          <caption className="sr-only">
+            {meta?.label ?? step.key} counts, from {step.countsSource}
+          </caption>
           <thead>
             <tr className="text-left text-xs text-slateish-400">
               {COLUMNS.map((col) => <th key={col} scope="col" className="py-1 pr-3 font-medium">{COLUMN_LABEL[col]}</th>)}

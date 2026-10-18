@@ -5,12 +5,15 @@
  * auditor - and for printing: it is attached to audits.
  *
  * DISPLAY ONLY. Every number is one the engine stored on the run object
- * (`GET /api/reviews/runs`: `page_coverage`, `requirement_split`,
- * `completeness`, `ai_numbers`, `ai_check_status`, `standards_change`, the
- * result fields) or the run's stored standards record; each is printed with
- * the field it came from. Nothing is counted here beyond the length of a
- * stored list or the sum of two stored fields. A field the run does not
- * hold reads "not recorded on this run" - never 0, never blank.
+ * (`GET /api/reviews/runs`: `page_coverage` with its `reading` record,
+ * `requirement_split` with its `reader`, `applicability`, `clause_coverage`,
+ * `ai_numbers`, `ai_check_status`, `standards_change`, the time and result
+ * fields) or the run's stored standards record; each is printed with the
+ * field it came from. Nothing is counted here beyond the length of a stored
+ * list or the sum of stored fields (named beside the number). A field the
+ * run does not hold reads "not recorded on this run" - never 0, never
+ * blank; a field the runs list does not send at all (the code and settings
+ * versions today) reads "not sent to this page".
  */
 import { useEffect, useState } from "react";
 

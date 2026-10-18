@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ReviewRunSummary } from "../../../types/api";
-import { AI_STEP_DEFAULTS, clauseFacts, defaultLine, durationLabel, durationSeconds, pageFacts, uncheckedShare } from "./howData";
+import { AI_STEP_DEFAULTS, NOT_RECORDED, clauseFacts, defaultLine, durationLabel, durationSeconds, pageFacts, pagesMeaning, uncheckedShare } from "./howData";
 
 const base = { review_run_id: "r", submittal_document_id: "d", equipment_tags: [], status: "completed",
   standards_in_scope: 0, findings_total: 0, by_status: {}, recommended_code: null, recommended_reason: null,
@@ -64,5 +64,54 @@ describe("durations and defaults", () => {
       expect(defaultLine(key)).toMatch(d.onByDefault ? /^On by default .*rule 1/ : /^Off by default/);
     }
     expect(AI_STEP_DEFAULTS.applicability.onByDefault).toBe(false);
+  });
+});
+
+describe("pagesMeaning reads the stored reading record", () => {
+  // Failing-first (review of #1113): the old line said "Every one of the 3
+  // pages was read into fields" for both of these runs.
+  it("an incomplete reading names the incomplete pages and each stored reason", () => {
+    const run = { ...base, page_coverage: {
+      pages_total: 3, fact_pages: [1, 2, 3], pages_not_read_into_fields: [], not_read_reasons: {},
+      pages_ai_not_read: [2], ai_not_read_reasons: { "2": "the local reader timed out on this page" },
+      reading: { status: "incomplete", pages_total: 3, incomplete_pages: [2, 3], reasons: {},
+                 failed_pages: { "3": "a reader failed on this page (geometry)" } },
+    } } as unknown as ReviewRunSummary;
+    const line = pagesMeaning(run);
+    expect(line).not.toMatch(/every/i);
+    expect(line).toContain("incomplete");
+    expect(line).toContain("pages 2-3");
+    expect(line).toContain("page 2: the local reader timed out on this page");
+    expect(line).toContain("page 3: a reader failed on this page (geometry)");
+    expect(pageFacts(run).aiNotRead.value).toEqual([2]);
+    expect(pageFacts(run).aiNotRead.source).toBe("page_coverage.pages_ai_not_read");
+  });
+  it("a run with no pages_not_read_into_fields says not recorded, never zero or every page", () => {
+    const run = { ...base, page_coverage: { pages_total: 3, fact_pages: [1, 2, 3], not_read_reasons: {} } } as unknown as ReviewRunSummary;
+    expect(pageFacts(run).notRead.value).toBeNull();
+    const line = pagesMeaning(run);
+    expect(line).not.toMatch(/every/i);
+    expect(line).toContain("not recorded");
+  });
+  it("claims all pages only when the run stored the reading as complete", () => {
+    const run = { ...base, page_coverage: {
+      pages_total: 2, fact_pages: [1, 2], pages_not_read_into_fields: [], not_read_reasons: {}, pages_ai_not_read: [],
+      reading: { status: "complete", pages_total: 2, incomplete_pages: [], reasons: {} },
+    } } as unknown as ReviewRunSummary;
+    expect(pagesMeaning(run)).toContain("stored the reading as complete for all 2 pages");
+  });
+});
+
+describe("OCR counts", () => {
+  it("reads a missing OCR key as 0 only when the ledger accounted for the pages", () => {
+    const withLedger = { ...base, page_coverage: { pages_total: 2, fact_pages: [1, 2], pages_not_read_into_fields: [],
+      not_read_reasons: {}, ocr: { not_required: 2 } } } as unknown as ReviewRunSummary;
+    expect(pageFacts(withLedger).withoutOcr.value).toBe(0);
+    expect(pageFacts(withLedger).ocrDone.value).toBe(0);
+    const noLedger = { ...base, page_coverage: { pages_total: null, fact_pages: [], pages_not_read_into_fields: [],
+      not_read_reasons: {}, ocr: {} } } as unknown as ReviewRunSummary;
+    expect(pageFacts(noLedger).withoutOcr.value).toBeNull();
+    expect(pageFacts(noLedger).ocrDone.value).toBeNull();
+    expect(NOT_RECORDED).toBe("not recorded on this run");
   });
 });

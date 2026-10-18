@@ -23,6 +23,8 @@ export function ClausesSection({ run }: { run: ReviewRunSummary }) {
         <Fact label="Checked" fact={c.checked} testId="clauses-checked" />
         <Fact label="Apply but were not checked" fact={c.notChecked} testId="clauses-not-checked" />
         <Fact label="Do not apply" fact={c.doesNotApply} testId="clauses-not-applicable" />
+        <Fact label="Not checked one by one: covered by the equipment checklist" fact={c.notUsed} testId="clauses-not-used"
+          detail="(the checklist item was checked instead; not in the unchecked share)" />
         <Fact label="Repeats ignored" fact={c.repeatsIgnored} testId="clauses-repeats"
           detail="(the same standard and text, counted once)" />
       </FactList>

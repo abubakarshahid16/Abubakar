@@ -1,6 +1,8 @@
-/** Section 6: versions, from `code_version`, `config_version` (when the
- *  run carries them) and `standards_change`. */
+/** Section 6: versions, from `code_version`, `config_version` (shown as
+ *  "not sent to this page" when the runs list leaves them out) and
+ *  `standards_change`. */
 import type { ReviewRunSummary } from "../../../types/api";
+import { NOT_SENT } from "./howData";
 import { Fact, FactList, HowSection, type HowSectionMeta } from "./HowPrimitives";
 
 export const VERSIONS_META: HowSectionMeta = {
@@ -13,8 +15,12 @@ export function VersionsSection({ run, onOpenRun }: { run: ReviewRunSummary; onO
   return (
     <HowSection meta={VERSIONS_META}>
       <FactList label="Versions">
-        <Fact label="Review code version" fact={{ value: run.code_version ?? null, source: "code_version" }} testId="versions-code" />
-        <Fact label="Settings version" fact={{ value: run.config_version ?? null, source: "config_version" }} testId="versions-settings" />
+        {/* The runs list does not send these today: absent says so, rather
+            than claiming the run never recorded them. Null = not recorded. */}
+        <Fact label="Review code version" fact={{ value: run.code_version ?? null, source: "code_version" }} testId="versions-code"
+          missingText={run.code_version === undefined ? NOT_SENT : undefined} />
+        <Fact label="Settings version" fact={{ value: run.config_version ?? null, source: "config_version" }} testId="versions-settings"
+          missingText={run.config_version === undefined ? NOT_SENT : undefined} />
         <Fact label="Previous run" testId="versions-previous"
           fact={{ value: change?.previous_run_id ?? null, source: "standards_change.previous_run_id" }}
           detail={change && onOpenRun ? (

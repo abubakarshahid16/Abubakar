@@ -3,16 +3,23 @@
  * reading of what a run stored. Pure functions; no fetch, no React.
  *
  * NO NEW COUNTING. Every number here is a field the engine stored on the run
- * (`page_coverage`, `requirement_split`, `completeness`, `ai_numbers`,
- * `ai_check_status`), the length of a stored list, or a sum of two stored
- * fields - and each is printed with the field it came from. A field the run
- * does not hold is `null` and renders as NOT_RECORDED, never as 0 or blank
- * (CLAUDE.md rule 4).
+ * (`page_coverage`, including its `reading` record, and `requirement_split`,
+ * including its `reader`), the length of a stored list, or a sum of two
+ * stored fields - and each is printed with the field it came from. A field
+ * the run does not hold is `null` and renders as NOT_RECORDED, never as 0 or
+ * blank (CLAUDE.md rule 4). The one place a missing key counts as 0 is an
+ * OCR state on a run whose ledger accounted for its pages: the ledger stores
+ * only the states it saw, so an absent state there means no page in it.
  */
-import type { ReaderSummary, ReviewRunSummary } from "../../../types/api";
+import type { PageCoverage, ReaderSummary, ReviewRunSummary } from "../../../types/api";
+import { pageList } from "../reviewFormat";
 
 /** The one wording for a field the run does not carry. */
 export const NOT_RECORDED = "not recorded on this run";
+
+/** The wording for a field the runs list does not send to this page at all
+ *  (absent, as opposed to sent as null): the run may hold it elsewhere. */
+export const NOT_SENT = "not sent to this page";
 
 /** A value with the stored field it was read from. `value` null = not recorded. */
 export interface Sourced<T = number> {
@@ -37,11 +44,14 @@ export function readerOf(run: ReviewRunSummary): ReaderSummary | null {
 export function pageFacts(run: ReviewRunSummary) {
   const pc = run.page_coverage ?? null;
   const reader = readerOf(run);
-  const ocr = pc?.ocr ?? null;
+  // The ledger's OCR counts hold only the states it saw, so a missing state
+  // is 0 pages - but only when the ledger accounted for the pages at all
+  // (`pages_total` set). Without that, every OCR number is not recorded.
+  const ocr = pc && isNumber(pc.pages_total) && pc.ocr ? pc.ocr : null;
+  const ocrCount = (key: string): number => (ocr && isNumber(ocr[key]) ? ocr[key] : 0);
   // "scanned without OCR" = pages that need OCR and did not get it: the
   // ledger's `pending` plus `failed` counts (a sum of two stored fields).
-  const withoutOcr = ocr && (isNumber(ocr.pending) || isNumber(ocr.failed))
-    ? (ocr.pending ?? 0) + (ocr.failed ?? 0) : null;
+  const withoutOcr = ocr ? ocrCount("pending") + ocrCount("failed") : null;
   return {
     total: sourced(pc?.pages_total ?? null, "page_coverage.pages_total"),
     readByCode: sourced(pc ? pc.fact_pages.length : null, "page_coverage.fact_pages (count of the list)"),
@@ -52,29 +62,73 @@ export function pageFacts(run: ReviewRunSummary) {
     aiPages: sourced(reader?.pages ?? null, "requirement_split.reader.pages"),
     timedOut: sourced(reader && reader.engine !== "off" ? (reader.timed_out ?? []) : null,
                       "requirement_split.reader.timed_out"),
+    // Absent = the run did not record it; never read as "no page unread".
     notRead: sourced(pc?.pages_not_read_into_fields ?? null, "page_coverage.pages_not_read_into_fields"),
     notReadReasons: pc?.not_read_reasons ?? {},
+    aiNotRead: sourced(pc?.pages_ai_not_read ?? null, "page_coverage.pages_ai_not_read"),
+    aiNotReadReasons: pc?.ai_not_read_reasons ?? {},
+    reading: pc?.reading ?? null,
     withoutOcr: sourced(withoutOcr, "page_coverage.ocr.pending + page_coverage.ocr.failed"),
-    ocrDone: sourced(ocr && isNumber(ocr.done) ? ocr.done : null, "page_coverage.ocr.done"),
+    ocrDone: sourced(ocr ? ocrCount("done") : null, "page_coverage.ocr.done"),
   };
 }
 
-/** One line a manager can read about the pages, from the same stored fields. */
+/** Each incomplete page with the reasons the run stored for it
+ *  (`not_read_reasons`, `ai_not_read_reasons`, `reading.failed_pages`). */
+export function incompletePageReasons(pc: PageCoverage): { page: number; reasons: string[] }[] {
+  const reading = pc.reading;
+  if (!reading) return [];
+  return reading.incomplete_pages.map((page) => {
+    const key = String(page);
+    const reasons = [pc.not_read_reasons?.[key], pc.ai_not_read_reasons?.[key], reading.failed_pages?.[key]]
+      .filter((r): r is string => typeof r === "string" && r.trim() !== "");
+    return { page, reasons };
+  });
+}
+
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
+/** One line a manager can read about the pages, from the same stored
+ *  fields. It says "all pages" only when the run stored its reading as
+ *  complete (`page_coverage.reading.status`); otherwise it says what the run
+ *  stored, and what it did not. */
 export function pagesMeaning(run: ReviewRunSummary): string {
+  const pc = run.page_coverage ?? null;
   const p = pageFacts(run);
-  if (p.total.value === null) {
+  if (!pc || p.total.value === null) {
     return "No page of this document was accounted for on this run, so nothing can be called read or unread.";
   }
-  const unread = p.notRead.value?.length ?? 0;
-  const timedOut = p.timedOut.value?.length ?? 0;
-  if (unread === 0 && timedOut === 0) {
-    return `Every one of the ${p.total.value} pages was read into fields. A value not found was looked for on every page.`;
+  const total = p.total.value;
+  const reading = p.reading;
+  const sentences: string[] = [];
+  if (reading && reading.status === "incomplete") {
+    const pages = reading.incomplete_pages;
+    const why = incompletePageReasons(pc)
+      .map(({ page, reasons }) => `page ${page}: ${reasons.length ? reasons.join("; ") : "no reason recorded"}`);
+    const general = [...Object.entries(reading.reasons ?? {}).filter(([, on]) => on).map(([reason]) => reason),
+                     ...(reading.notes ?? [])];
+    sentences.push(pages.length
+      ? `The run stored the reading as incomplete: ${pages.length} of ${total} pages were not read in full (pages ${pageList(pages)})${why.length ? ` - ${why.join("; ")}` : ""}.`
+      : "The run stored the reading as incomplete.");
+    if (general.length) sentences.push(`Also recorded: ${general.join("; ")}.`);
+    sentences.push("A value that was not found may still be on those pages; an engineer should look at them.");
+  } else if (reading && reading.status === "complete") {
+    sentences.push(`The run stored the reading as complete for all ${total} pages (page_coverage.reading.status).`);
+  } else {
+    sentences.push(reading
+      ? `The run stored the reading status as "${reading.status}".`
+      : "The run did not record whether the reading was complete (page_coverage.reading), so it cannot be said that all pages were read.");
+    const unread = p.notRead.value;
+    const aiMissed = p.aiNotRead.value;
+    if (unread && unread.length) sentences.push(`${unread.length} of ${total} pages were not read into fields (pages ${pageList(unread)}).`);
+    if (aiMissed && aiMissed.length) sentences.push(`The AI reader did not read ${plural(aiMissed.length, "page")} (pages ${pageList(aiMissed)}).`);
   }
-  const parts = [
-    unread ? `${unread} of ${p.total.value} pages were not read into fields` : "",
-    timedOut ? `the AI reader timed out on ${timedOut} page${timedOut === 1 ? "" : "s"}` : "",
-  ].filter(Boolean);
-  return `${parts.join(" and ")}. A value that was not found may still be on those pages; an engineer should look at them.`;
+  if (p.notRead.value === null) {
+    sentences.push("Which pages were not read into fields is not recorded on this run.");
+  }
+  return sentences.join(" ");
 }
 
 /** The clause numbers from `requirement_split`, each with its field. */
@@ -94,6 +148,7 @@ export function clauseFacts(run: ReviewRunSummary) {
     doesNotApplyReasons: s?.does_not_apply_reasons ?? [],
     repeatsIgnored: sourced(s?.repeats_ignored ?? null, "requirement_split.repeats_ignored"),
     total: sourced(s?.total ?? null, "requirement_split.total"),
+    notUsed: sourced(s?.not_used ?? null, "requirement_split.not_used"),
     storedShare: sourced(s?.unchecked_share ?? null, "requirement_split.unchecked_share"),
   };
 }

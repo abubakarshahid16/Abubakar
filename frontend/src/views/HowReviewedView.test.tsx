@@ -44,9 +44,12 @@ function fullRun(): ReviewRunSummary {
       pages_total: 5, fact_pages: [1, 2, 3], pages_not_read_into_fields: [4, 5],
       not_read_reasons: { "4": "no fields found", "5": "scanned page, OCR pending" },
       ocr: { done: 1, pending: 1, not_required: 3 },
+      pages_ai_not_read: [4, 5],
+      ai_not_read_reasons: { "4": "the ollama reader timed out on this page", "5": "the ollama reader timed out on this page" },
+      reading: { status: "incomplete", pages_total: 5, incomplete_pages: [4, 5], reasons: {} },
     },
     requirement_split: {
-      checked: 60, applies_not_checked: 20, does_not_apply: 4362, total: 4442,
+      checked: 60, applies_not_checked: 20, does_not_apply: 4362, not_used: 7, total: 4449,
       applies_not_checked_reasons: [{ reason: "standard not in library", count: 12 }, { reason: "page not read", count: 8 }],
       does_not_apply_reasons: [{ reason: "other equipment", count: 4000 }, { reason: "definition only", count: 362 }],
       repeats_ignored: 15,
@@ -137,7 +140,14 @@ describe("HowReviewedView on a full run", () => {
     expect(screen.getByTestId("pages-not-read")).toHaveTextContent("pages 4-5");
     expect(screen.getByTestId("pages-not-read-reasons")).toHaveTextContent("Page 5: scanned page, OCR pending");
     expect(screen.getByTestId("pages-no-ocr")).toHaveTextContent("1");
-    expect(screen.getByTestId("pages-meaning")).toHaveTextContent(/2 of 5 pages were not read into fields and the AI reader timed out on 2 pages/);
+    expect(screen.getByTestId("pages-ai-not-read")).toHaveTextContent("2");
+    expect(screen.getByTestId("pages-ai-not-read")).toHaveTextContent("pages 4-5");
+    expect(screen.getByTestId("pages-ai-not-read")).toHaveTextContent("from page_coverage.pages_ai_not_read");
+    expect(screen.getByTestId("pages-ai-not-read-reasons")).toHaveTextContent("Page 4: the ollama reader timed out on this page");
+    expect(screen.getByTestId("pages-reading")).toHaveTextContent("incomplete");
+    expect(screen.getByTestId("pages-meaning")).toHaveTextContent(
+      /stored the reading as incomplete: 2 of 5 pages were not read in full \(pages 4-5\) - page 4: no fields found; the ollama reader timed out on this page/);
+    expect(screen.getByTestId("pages-meaning")).not.toHaveTextContent(/every/i);
 
     // 2. standards
     expect(screen.getByTestId("standards-in-scope")).toHaveTextContent("2");
@@ -153,6 +163,8 @@ describe("HowReviewedView on a full run", () => {
     expect(screen.getByTestId("clauses-applied")).toHaveTextContent("80");
     expect(screen.getByTestId("clauses-not-applicable")).toHaveTextContent("4,362");
     expect(screen.getByTestId("clauses-repeats")).toHaveTextContent("15");
+    expect(screen.getByTestId("clauses-not-used")).toHaveTextContent("7");
+    expect(screen.getByTestId("clauses-not-used")).toHaveTextContent("from requirement_split.not_used");
     expect(screen.getByTestId("clauses-not-checked-reasons")).toHaveTextContent("standard not in library");
     expect(screen.getByTestId("clauses-not-checked-reasons")).toHaveTextContent("12");
     expect(screen.getByTestId("clauses-not-applicable-reasons")).toHaveTextContent("other equipment");
@@ -162,17 +174,18 @@ describe("HowReviewedView on a full run", () => {
     // 4. AI steps: model, counts by key, and the rule-1 default line
     const reader = screen.getByTestId("ai-step-reader");
     expect(reader).toHaveTextContent("qwen2.5vl:7b");
-    expect(reader).toHaveTextContent("2 (timed_out)");
+    expect(reader).toHaveTextContent("2 pages (timed_out)");
+    expect(reader).toHaveTextContent("40 values (agreed)");
     expect(reader).toHaveTextContent(/On by default \(setting DATASHEET_AI_READER\)/);
     const matcher = screen.getByTestId("ai-step-matcher");
-    expect(matcher).toHaveTextContent("9 (asked)");
-    expect(matcher).toHaveTextContent("7 (proposed)");
-    expect(matcher).toHaveTextContent("5 (used)");
-    expect(matcher).toHaveTextContent("1 (refused_by_rule)");
+    expect(matcher).toHaveTextContent("9 requirements (asked)");
+    expect(matcher).toHaveTextContent("7 requirements (proposed)");
+    expect(matcher).toHaveTextContent("5 requirements (used)");
+    expect(matcher).toHaveTextContent("1 requirements (refused_by_rule)");
     const check = screen.getByTestId("ai-step-engineering_check");
-    expect(check).toHaveTextContent("5 (requested_items)");
-    expect(check).toHaveTextContent("3 (kept_items)");
-    expect(check).toHaveTextContent("1 (rejected)");
+    expect(check).toHaveTextContent("5 items (requested_items)");
+    expect(check).toHaveTextContent("3 items (kept_items)");
+    expect(check).toHaveTextContent("1 items (rejected)");
     expect(screen.getByTestId("ai-step-applicability")).toHaveTextContent(/Off by default \(setting AI_APPLICABILITY_ENABLED\)/);
     expect(screen.getByTestId("ai-step-wording")).toHaveTextContent("off");
 
@@ -184,7 +197,9 @@ describe("HowReviewedView on a full run", () => {
     expect(screen.getByTestId("versions-previous")).toHaveTextContent("run-prev");
     expect(screen.getByTestId("versions-added")).toHaveTextContent("API 526");
     expect(screen.getByTestId("versions-removed")).toHaveTextContent("none");
-    expect(screen.getByTestId("versions-code")).toHaveTextContent("not recorded on this run");
+    // absent from the runs list = not sent; null would be "not recorded"
+    expect(screen.getByTestId("versions-code")).toHaveTextContent("not sent to this page");
+    expect(screen.getByTestId("versions-settings")).toHaveTextContent("not sent to this page");
 
     // 7. result
     expect(screen.getByTestId("result-code")).toHaveTextContent("Approved with Comments");
@@ -220,10 +235,11 @@ describe("HowReviewedView on a minimal run", () => {
   it('shows "not recorded on this run" instead of 0 or blank for every missing field', async () => {
     mount(minimalRun(), { standards: [], missing_references: [] });
     await screen.findByTestId("how-pages");
-    for (const id of ["pages-total", "pages-code", "pages-ai", "pages-timed-out", "pages-not-read", "pages-no-ocr",
+    for (const id of ["pages-total", "pages-code", "pages-ai", "pages-ai-not-read", "pages-timed-out", "pages-not-read",
+                      "pages-no-ocr", "pages-reading",
                       "clauses-total", "clauses-checked", "clauses-not-checked", "clauses-applied", "clauses-repeats",
-                      "time-created", "time-completed", "time-duration", "time-reader",
-                      "versions-code", "versions-settings", "versions-previous", "versions-added",
+                      "clauses-not-used", "time-created", "time-completed", "time-duration", "time-reader",
+                      "versions-previous", "versions-added",
                       "result-code", "result-reason", "result-details", "result-final"]) {
       const el = screen.getByTestId(id);
       expect(el, id).toHaveTextContent("not recorded on this run");

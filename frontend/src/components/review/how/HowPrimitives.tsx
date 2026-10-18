@@ -40,12 +40,15 @@ export function factText(value: unknown): string {
   return String(value);
 }
 
-export function Fact({ label, fact, detail, testId }: {
+export function Fact({ label, fact, detail, testId, missingText }: {
   label: string;
   fact: Sourced<unknown>;
   /** Extra words after the value (a page list, a model name). */
   detail?: ReactNode;
   testId?: string;
+  /** The words for a null value when NOT_RECORDED is not the right ones
+   *  (a field this page is not sent at all). */
+  missingText?: string;
 }) {
   const recorded = fact.value !== null && fact.value !== undefined;
   return (
@@ -53,7 +56,7 @@ export function Fact({ label, fact, detail, testId }: {
       <dt className="text-sm text-slateish-300">{label}</dt>
       <dd className="min-w-0">
         <span className={recorded ? "text-sm font-medium text-slateish-100" : "text-sm italic text-slateish-400"}>
-          {factText(fact.value)}
+          {recorded ? factText(fact.value) : (missingText ?? NOT_RECORDED)}
         </span>
         {recorded && detail ? <span className="ml-1 text-sm text-slateish-300">{detail}</span> : null}
         <span className="block text-xs text-slateish-500">from {fact.source}</span>

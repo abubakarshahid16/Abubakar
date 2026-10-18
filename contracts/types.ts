@@ -952,6 +952,8 @@ export interface PageCoverage {
    *  (`done`, `pending`, `failed`, `not_required`), native text state and
    *  facts state. Absent on a run stored before the ledger kept them. */
   ocr?: Record<string, number>;
+  /** The ledger's per-state search-index counts (`index_status`). */
+  index?: Record<string, number>;
   native?: Record<string, number>;
   facts?: Record<string, number>;
   pages_read_only_by_page_reader?: number[];
@@ -2933,6 +2935,10 @@ export interface RequirementSplit {
   total: number;
   applies_not_checked_reasons: RequirementSplitReason[];
   does_not_apply_reasons: RequirementSplitReason[];
+  /** #746: clauses not checked one by one because the equipment type's review
+   *  checklist governs their standard (`requirement_split.build` `not_used`).
+   *  Absent on a run stored before it was counted: "not recorded", never 0. */
+  not_used?: number;
   /** Stored repeats ignored (the same standard and text counted once); null when unknown. */
   repeats_ignored: number | null;
   /** Share of the requirements that APPLY that were not checked; null when none apply. */
