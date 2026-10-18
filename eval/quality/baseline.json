@@ -7,7 +7,7 @@
   },
   "broad_except_with_no_named_reason": {
    "note": "heuristic: a handler is 'accounted for' if its body mentions log/record/count/raise/warn",
-   "value": 63
+   "value": 27
   },
   "developer_text_on_screen": {
    "note": "not measured: no automated 'no developer text on screen' check exists yet",
@@ -23,19 +23,19 @@
   },
   "max_backend_file_lines": {
    "note": null,
-   "value": 5627
+   "value": 4362
   },
   "max_backend_function_lines": {
    "note": null,
-   "value": 800
+   "value": 787
   },
   "max_cyclomatic_complexity": {
    "note": null,
-   "value": 77
+   "value": 76
   },
   "max_frontend_component_lines": {
    "note": null,
-   "value": 1421
+   "value": 901
   },
   "mypy_strict_errors": {
    "note": "not measured: mypy is not installed here",
