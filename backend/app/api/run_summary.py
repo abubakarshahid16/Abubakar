@@ -37,9 +37,6 @@ class TierCounts(BaseModel):
     needs_you: int
     removed: int
     total: int
-    #: order 103: rows in the exported CRS (every row, not only findings');
-    #: null when the export could not be composed
-    crs_rows: int | None = None
 
 
 class TierRow(BaseModel):
@@ -67,10 +64,6 @@ class TierRow(BaseModel):
     equipment_tag: str | None = None
     #: order 96: the cited standard not held that this finding rests on
     missing_standard_id: str | None = None
-    #: order 103: the 1-based row of the exported CRS this finding prints in,
-    #: and that row's permanent number; null when it prints in no row
-    crs_row: int | None = None
-    crs_ref: str | None = None
 
 
 class StandardClauses(BaseModel):
@@ -154,7 +147,6 @@ def review_run_summary(
     tiers = review_tiers.summarise(
         comparison_mod.list_findings(review_run_id, allowed_document_ids=allowed),
         _facts(review_run_id, outcome, timed_out),
-        _export_rows(review_run_id, scope),
     )
     versions = review_jobs.last_run_versions(review_run_id) or {}
     return {
@@ -202,17 +194,6 @@ def _facts(
         ),
         library_standard_ids=frozenset(r["standard_document_id"] for r in library),
     )
-
-
-def _export_rows(review_run_id: str, scope: access.AccessScope) -> list[dict] | None:
-    """The internal copy's CRS rows, from the export's own composition
-    (`main._crs_content`, read only), so the sheet and the .xlsx group alike."""
-    from ..main import _crs_content  # the export's one home; main imports this module
-
-    try:
-        return _crs_content(review_run_id, scope, "internal")[0]
-    except HTTPException:
-        return None
 
 
 def _stage_seconds(trace: dict | None) -> dict[str, float] | None:

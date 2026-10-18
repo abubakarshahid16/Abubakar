@@ -183,30 +183,10 @@ def _order(row: dict) -> tuple:
     )
 
 
-def export_rows_of(crs_rows: list[dict]) -> dict[str, tuple[int, str | None]]:
-    """finding id -> (1-based row of the exported CRS, its permanent number or
-    None), from the export's own rows (`finding_ids` per row)."""
-    out: dict[str, tuple[int, str | None]] = {}
-    for n, row in enumerate(crs_rows, start=1):
-        for fid in row.get("finding_ids") or []:
-            out.setdefault(fid, (n, row.get("crs_ref")))
-    return out
-
-
-def summarise(
-    findings: list[dict],
-    facts: RunFacts = RunFacts(),
-    crs_rows: list[dict] | None = None,
-) -> dict:
+def summarise(findings: list[dict], facts: RunFacts = RunFacts()) -> dict:
     """Headline counts (tiers.ts `countTiers`, plus removed and total) and one
     row per finding still in a tier, in screen order: Comment, Needs you, Met;
-    then contractor page (no page last), then clause.
-
-    `crs_rows` are the exported CRS's own rows: each finding then says which
-    row it prints in (`crs_row`, null when it prints in none), and
-    `counts.crs_rows` is how many rows the export has, so the sheet groups as
-    the export does (order 103). None: the export was not composed."""
-    export = export_rows_of(crs_rows) if crs_rows is not None else {}
+    then contractor page (no page last), then clause."""
     counts = {
         "met": 0,
         "not_applicable": 0,
@@ -235,13 +215,7 @@ def summarise(
                     "contractor_page": f.get("contractor_page"),
                     "equipment_tag": f.get("equipment_tag"),
                     "missing_standard_id": missing_standard_of(f, facts),
-                    "crs_row": export.get(f["id"], (None, None))[0],
-                    "crs_ref": export.get(f["id"], (None, None))[1],
                 }
             )
     rows.sort(key=_order)
-    total = {
-        "total": len(findings),
-        "crs_rows": None if crs_rows is None else len(crs_rows),
-    }
-    return {"counts": {**counts, **total}, "rows": rows}
+    return {"counts": {**counts, "total": len(findings)}, "rows": rows}
