@@ -11,7 +11,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ReviewFinding } from "../../../types/api";
 import { DecisionCard } from "./DecisionCard";
-import { AGREE_REASON, SheetCard } from "./SheetCard";
+import { AGREE_REASON, SheetCard, TICK_REASON } from "./SheetCard";
 import { buildCards } from "./sheetCards";
 
 const decideCrsFinding = vi.fn();
@@ -125,6 +125,38 @@ describe("SheetCard", () => {
       onSelect={vi.fn()} onOpenRule={vi.fn()} onAnswered={vi.fn()} />);
     expect(screen.queryByText("We noticed")).toBeNull();
     expect(screen.getByRole("button", { name: /Field a is not given/ })).toBeInTheDocument();
+  });
+});
+
+describe("the safety-tick card (rule_trust #947 step 8)", () => {
+  const tick = (id: string, over: Partial<ReviewFinding> = {}) => f(id, {
+    compliance_status: "COMPLIANT", show_for_engineer_tick: true, trust_label: "AUTO_PROVEN", tier: "SAFETY",
+    matched_phrase: "Set pressure", finding: "Set pressure 9 barg meets the standard.", required_action: undefined, ...over,
+  });
+
+  it("asks for the engineer's own check, never a comment to the contractor, and the tick is the accept", async () => {
+    renderCard([tick("s")]);
+    expect(screen.getAllByRole("heading", { level: 4 }).map((h) => h.textContent)).toEqual(["We noticed", "The rule", "Your check"]);
+    expect(screen.queryByText("Our comment")).toBeNull();
+    expect(screen.getByText("Checked by a proven rule")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "I checked it, tick" }));
+    expect(decideCrsFinding).toHaveBeenCalledWith("run-1", "s", "accept", TICK_REASON);
+  });
+
+  it("'something is off' asks what is off, then rejects with the engineer's words", async () => {
+    renderCard([tick("s")]);
+    await userEvent.click(screen.getByRole("button", { name: "Something is off" }));
+    expect(decideCrsFinding).not.toHaveBeenCalled();
+    await userEvent.type(screen.getByLabelText(/what is off/i), "The page says 9 barg at 20 C, not at relief.");
+    await userEvent.click(screen.getByRole("button", { name: "Record that something is off" }));
+    expect(decideCrsFinding).toHaveBeenCalledWith("run-1", "s", "reject", "The page says 9 barg at 20 C, not at relief.");
+  });
+
+  it("a ticked card says so, and offers a change that is a new recorded decision", async () => {
+    renderCard([tick("s", { confirmed_by: "eng" })]);
+    expect(screen.getByText(/You checked it and ticked it/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Change answer" }));
+    expect(screen.getByLabelText(/what is off/i)).toBeInTheDocument();
   });
 });
 

@@ -546,7 +546,9 @@ def snapshot(worker_status: dict, allowed: Allowed = None,
     """
     return {
         "at": _now(),
-        "refresh_seconds": 15,
+        # #1070: the pace the screens actually poll at (`usePoll.IDLE_MS`,
+        # `Shell.HEALTH_POLL_MS`); the Dashboard prints this figure.
+        "refresh_seconds": 60,
         "corpus_wide": corpus_wide,
         "corpus": corpus(allowed),
         "exclusions": exclusions(allowed),

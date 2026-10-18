@@ -1625,8 +1625,10 @@ class BaselineSelectionOut(BaseModel):
 
 class GapItemOut(BaseModel):
     facet: str
+    #: `beyond_requirement` (#1055): the documents state something no clause
+    #: of the baseline asks for; not checked, never counted as met.
     status: Literal["met", "possible_gap", "conflict",
-                    "insufficient_evidence", "not_applicable"]
+                    "insufficient_evidence", "beyond_requirement", "not_applicable"]
     baseline_citation_id: str | None
     baseline_span: str
     project_citation_ids: list[str]
@@ -2286,6 +2288,16 @@ class ReviewFinding(BaseModel):
     #: R21: the requirement's scope decision (None when the run recorded none,
     #: or when the standard is withheld from this caller).
     scope_decision: ReviewScopeDecision | None = None
+    #: rule_trust (#947, switch `rule_auto_use_enabled`): who stands behind the
+    #: rule this finding was decided with - ENGINEER_CONFIRMED, AUTO_PROVEN or
+    #: UNPROVEN - its tier (SAFETY / STANDARD), whether a COMPLIANT safety-tier
+    #: result is shown for an engineer's tick, and what the rule said before an
+    #: UNPROVEN verdict was held for the engineer. None on every finding
+    #: decided with the switch off: nothing was labelled.
+    trust_label: str | None = None
+    tier: str | None = None
+    show_for_engineer_tick: bool | None = None
+    rule_said: str | None = None
     contractor_page: int | None = None
     contractor_section: str | None = None
     contractor_evidence_text: str | None = None
@@ -2378,6 +2390,16 @@ class CrsIssueDecision(BaseModel):
     decided_at: str
 
 
+class FactConfirmation(BaseModel):
+    """#473: one datasheet value an engineer has confirmed. `confirmed_by`
+    is never null here - an unsigned confirmation is refused (401)."""
+    fact_id: str
+    submittal_document_id: str
+    field_name: str
+    confirmed_by: str
+    confirmed_at: str
+
+
 class CrsIssuedCopy(BaseModel):
     """One contractor copy exactly as issued (#885): its sha256, size, run,
     who issued it and when."""
@@ -2468,6 +2490,10 @@ class CrsPreviewRow(BaseModel):
     #: why), printed in the internal copy's last column "Reasoning (internal)".
     #: Always empty in the "Issue to contractor" copy.
     reasoning: str = ""
+    #: rule_trust (#947): who stands behind the rule the comment rests on, in
+    #: words ("automatic (proven rule)", ...); "" on an unlabelled row and in
+    #: the issue copy.
+    rule_trust: str = ""
 
 
 class CrsStandardRow(BaseModel):
@@ -2485,8 +2511,16 @@ class ReviewReadiness(BaseModel):
 
     submittal_document_id: str
     pages_total: int | None = None
-    pages_read: int = 0
+    #: #1017: null when the page ledger is not one a reader may count on
+    #: (`ledger_state` says why) - never 0 for "nobody looked".
+    pages_read: int | None = None
     unread_pages: list[int] = []
+    #: #1017: current / missing / stale / not_as_submittal. A GET never rebuilds
+    #: the ledger; the writers do (ingest, reading the sheet into fields, a
+    #: review). `ledger_note` says, in words, what builds it when it is not
+    #: current.
+    ledger_state: str = "current"
+    ledger_note: str | None = None
     #: HONESTY GROUP (2026-09-27): keyed by page number (as a string, since
     #: that is what a JSON object key is), the reason `page_ledger.refresh`
     #: recorded for why the page did not read into fields - "no text on this

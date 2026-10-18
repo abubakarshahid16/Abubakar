@@ -204,6 +204,11 @@ def test_an_edited_comment_survives_a_re_run(world, monkeypatch):
     finding_id, _ = _first_comment(run)
     _signed_in(monkeypatch, scope)
     TestClient(app).patch(f"/api/reviews/findings/{finding_id}", json={"engineer_comment": EDITED})
+    # SAVING THE EDIT CONFIRMS IT, in the engineer's name (M1102). Checked
+    # here directly: a re-run keeps an edited row by itself, so the survival
+    # below would pass with the confirmation gone.
+    assert db.connect().execute("SELECT confirmed_by FROM review_findings WHERE id = ?",
+                                (finding_id,)).fetchone()["confirmed_by"] == "eng-1"
     comparison.run_comparison(run, allowed_document_ids=scope)
     # A re-run also writes a fresh proposal beside every confirmed row (the
     # existing design, `comparison.create_finding`); the edit is what must stay.

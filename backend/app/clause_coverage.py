@@ -81,6 +81,27 @@ def _where(requirement_ids: list[str], allowed: frozenset[str]) -> dict:
     return out
 
 
+def state_of(decision: dict) -> str:
+    """PF4's state of one ledger decision. A reason this module does not
+    know is NOT CHECKED, never silent."""
+    return STATE_OF.get(decision["reason_code"]) or NOT_CHECKED
+
+
+def summarise(decisions: list[dict]) -> dict:
+    """The counts, the denominator and the one line, from a run's decisions -
+    the SAME arithmetic for the route (`for_run`, from the stored ledger) and
+    for the run record (`comparison` stores this at run end, PF4 step 1), so
+    the two can never disagree (rule 8). Counts only; no clause text."""
+    counts = {s: 0 for s in (*STATES, DOES_NOT_APPLY)}
+    for d in decisions:
+        counts[state_of(d)] += 1
+    applicable = sum(counts[s] for s in STATES)
+    adds_up = applicable + counts[DOES_NOT_APPLY] == len(decisions)
+    share = round(100 * counts[CHECKED] / applicable, 1) if applicable else None
+    return {"applicable": applicable, "counts": counts, "checked_share": share,
+            "adds_up": adds_up, "line": line(counts, applicable, adds_up)}
+
+
 def for_run(review_run_id: str, *, allowed_document_ids: frozenset[str]) -> dict:
     """The run's coverage ledger in PF4's states, with its denominator."""
     ledger = _ledger(review_run_id)
@@ -89,25 +110,13 @@ def for_run(review_run_id: str, *, allowed_document_ids: frozenset[str]) -> dict
                 "applicable": None, "counts": None, "checked_share": None,
                 "adds_up": None, "line": NO_LEDGER, "rows": []}
     where = _where([d["requirement_id"] for d in ledger], allowed_document_ids)
-    rows = []
-    counts = {s: 0 for s in (*STATES, DOES_NOT_APPLY)}
-    for d in ledger:
-        state = STATE_OF.get(d["reason_code"])
-        if state is None:
-            # a reason this module does not know is NOT CHECKED, never silent
-            state = NOT_CHECKED
-        counts[state] += 1
-        rows.append({"requirement_id": d["requirement_id"], "state": state,
-                     "reason_code": d["reason_code"], "reason": d["reason"],
-                     "note": CHECKLIST_NOTE if state == CHECKLIST else None,
-                     **where.get(d["requirement_id"], {"standard_document_id": None,
-                                                       "clause": None})})
-    applicable = sum(counts[s] for s in STATES)
-    adds_up = applicable + counts[DOES_NOT_APPLY] == len(ledger)
-    share = round(100 * counts[CHECKED] / applicable, 1) if applicable else None
+    rows = [{"requirement_id": d["requirement_id"], "state": state_of(d),
+             "reason_code": d["reason_code"], "reason": d["reason"],
+             "note": CHECKLIST_NOTE if state_of(d) == CHECKLIST else None,
+             **where.get(d["requirement_id"], {"standard_document_id": None, "clause": None})}
+            for d in ledger]
     return {"review_run_id": review_run_id, "recorded": True, "note": None,
-            "applicable": applicable, "counts": counts, "checked_share": share,
-            "adds_up": adds_up, "line": line(counts, applicable, adds_up), "rows": rows}
+            **summarise(ledger), "rows": rows}
 
 
 def line(counts: dict, applicable: int, adds_up: bool) -> str:

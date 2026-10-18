@@ -450,23 +450,36 @@ def ingest(src: BinaryIO, raw_filename: str, *,
                or bool(settings.datasheet_office_input))
     status = states.QUEUED if indexed else states.STORED_NOT_INDEXED
 
-    with conn:
-        conn.execute(
-            """INSERT INTO documents
-               (id, filename, sha256, size_bytes, stored_path, status,
-                uploaded_at, priority)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (doc_id, filename, sha256, size, str(final_path), status, now,
-             priority),
-        )
-        if indexed:
+    try:
+        with conn:
             conn.execute(
-                """INSERT INTO jobs
-                   (id, document_id, stage, state, started_at, updated_at,
-                    priority)
-                   VALUES (?, ?, 'extract', 'running', ?, ?, ?)""",
-                (job_id, doc_id, now, now, priority),
+                """INSERT INTO documents
+                   (id, filename, sha256, size_bytes, stored_path, status,
+                    uploaded_at, priority)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (doc_id, filename, sha256, size, str(final_path), status, now,
+                 priority),
             )
+            if indexed:
+                conn.execute(
+                    """INSERT INTO jobs
+                       (id, document_id, stage, state, started_at, updated_at,
+                        priority)
+                       VALUES (?, ?, 'extract', 'running', ?, ?, ?)""",
+                    (job_id, doc_id, now, now, priority),
+                )
+    except sqlite3.IntegrityError:
+        # #479: TWO UPLOADS OF THE SAME FILE AT THE SAME MOMENT both passed
+        # `find_by_hash` above; this one lost the race to `sha256 UNIQUE`.
+        # It is a duplicate, and gets the answer a duplicate uploaded a
+        # moment later gets - not a 500. The stored file is the winner's:
+        # storage is content-addressed, so it holds these same bytes. Any
+        # other constraint (no row with this hash) is not a duplicate and
+        # still raises.
+        existing = find_by_hash(sha256)
+        if existing is None:
+            raise
+        return existing, None, existing["id"]
 
     row = conn.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()
     if indexed:

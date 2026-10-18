@@ -96,6 +96,19 @@ export function runStatusLabel(status: string | null | undefined): string {
     ? RUN_STATUS_LABEL[status] : status;
 }
 
+/** rule_trust (#947): the owner's words for who stands behind a rule (06:15
+ *  PKT spec, 14 Oct). A label this table does not know prints as itself. */
+export const TRUST_WORDS: Record<string, string> = {
+  ENGINEER_CONFIRMED: "Rule approved by an engineer",
+  AUTO_PROVEN: "Checked by a proven rule",
+  UNPROVEN: "Rule not yet proven, so you decide",
+};
+
+export function trustWords(label: string | null | undefined): string {
+  if (!label) return "";
+  return TRUST_WORDS[label] ?? label;
+}
+
 export function statusLabel(status: string | null | undefined): string {
   if (!status) return "";
   return STATUS_LABEL[status as ComplianceStatus] ?? status;
@@ -380,8 +393,8 @@ export function groupRunsByDocument<T extends { submittal_document_id: string; c
 /** Owner order section 3: the readiness strip's page line, with its
  *  denominator. Nothing when the page count is unknown (null renders as
  *  nothing). */
-export function pagesReadLine(r: { pages_total: number | null; pages_read: number }): string {
-  if (r.pages_total == null) return "";
+export function pagesReadLine(r: { pages_total: number | null; pages_read: number | null }): string {
+  if (r.pages_total == null || r.pages_read == null) return "";
   return `Pages read: ${r.pages_read} of ${r.pages_total}`;
 }
 

@@ -440,6 +440,16 @@ export interface ReviewFinding {
    *  whether it applies here, why (plain words) and who decided. Null when the
    *  run recorded none, or when the standard is withheld from this caller. */
   scope_decision?: ReviewScopeDecision | null;
+  /** rule_trust (#947, switch `rule_auto_use_enabled`): who stands behind the
+   *  rule this finding was decided with - ENGINEER_CONFIRMED, AUTO_PROVEN or
+   *  UNPROVEN - its tier, whether a COMPLIANT safety-tier result is shown for
+   *  an engineer's tick, and what the rule said before an UNPROVEN verdict was
+   *  held for the engineer. Null on every finding decided with the switch
+   *  off: nothing was labelled, and null renders as nothing. */
+  trust_label?: string | null;
+  tier?: string | null;
+  show_for_engineer_tick?: boolean | null;
+  rule_said?: string | null;
 }
 
 export interface ReviewScopeDecision {
@@ -559,6 +569,9 @@ export interface CrsPreviewRow {
    *  why), in the "Reasoning (internal)" column of the internal copy only;
    *  always "" in the issue copy. */
   reasoning?: string;
+  /** rule_trust (#947): who stands behind the rule the comment rests on, in
+   *  words; "" on an unlabelled row and always in the issue copy. */
+  rule_trust?: string;
 }
 
 /**
@@ -582,8 +595,13 @@ export interface CrsReviewNote {
 export interface ReviewReadiness {
   submittal_document_id: string;
   pages_total: number | null;
-  pages_read: number;
+  /** #1017: null when the page ledger is not one to count on (`ledger_state`). */
+  pages_read: number | null;
   unread_pages: number[];
+  /** #1017: current / missing / stale / not_as_submittal. A read never rebuilds
+   *  the ledger; `ledger_note` says what does when it is not current. */
+  ledger_state?: "current" | "missing" | "stale" | "not_as_submittal";
+  ledger_note?: string | null;
   /** Keyed by page number (a string - a JSON object key always is): why that
    *  page did not read into fields. Present for every page in `unread_pages`;
    *  absent only for a page the ledger never wrote a reason for. */
@@ -1654,12 +1672,7 @@ export interface BaselineSelectionOut {
   text: string | null;
 }
 
-export type GapItemStatus =
-  | "met"
-  | "possible_gap"
-  | "conflict"
-  | "insufficient_evidence"
-  | "not_applicable";
+export type GapItemStatus = "met" | "possible_gap" | "conflict" | "insufficient_evidence" | "beyond_requirement" | "not_applicable";
 
 export interface GapItemOut {
   facet: string;

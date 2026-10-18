@@ -93,6 +93,9 @@ TEST_PINS: dict[str, object] = {
     # On by default since #645 (owner rule "AI-first", 11 Oct); in tests it
     # would be a model call per undecided clause sentence per review.
     "ai_clause_checks_enabled": False,
+    # #882 technique 2, on by default under `match_enabled`; in tests it would
+    # be two model calls per requirement left without a value.
+    "match_ask_max_per_run": 0,
 }
 
 #: The only values these fields may hold when a test session starts. A test
@@ -130,6 +133,7 @@ EGRESS_SAFE: dict[str, object] = {
     "answer_model_allow_remote_host": False,
     "answer_model_allowed_hosts": (),
     "match_enabled": False,
+    "match_ask_max_per_run": 0,            # #882: two local-model calls per question
     # the datasheet AI reader (`datasheet_ai`): local Ollama by default, or
     # Claude through reader_transport - two model calls per page
     "datasheet_ai_reader": "off",
@@ -151,6 +155,7 @@ EGRESS_SAFE: dict[str, object] = {
     "smtp_recipient": "",
     "smtp_port": 587,                       # inert while smtp_enabled is off
     "smtp_starttls": True,
+    "smtp_ssl": False,
     "smtp_timeout_seconds": 10.0,
     "summary_schedule": "disabled",
     # --- secrets and identity

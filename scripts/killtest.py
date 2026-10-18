@@ -2,15 +2,24 @@
 
 Spawns the real extraction worker, polls SQLite until a batch has committed
 but the document is NOT finished, then hard-kills the whole process tree with
-taskkill /F /T (no signal handling, no cleanup - the same as pulling power).
+taskkill /F /T on Windows, SIGKILL to its process group elsewhere (no signal
+handling, no cleanup - the same as pulling power).
 Then restarts and proves the resume.
 """
-import os, sqlite3, subprocess, sys, time
+import os, signal, sqlite3, subprocess, sys, time
+from pathlib import Path
+
+#: Portable (#498): the repository is found from this file, the interpreter is the
+#: one running this script, and the database is the backend's own setting.
+REPO = Path(__file__).resolve().parents[1]
+BACKEND = str(REPO / "backend")
+PY = sys.executable
+sys.path.insert(0, BACKEND)
+from app.config import settings  # noqa: E402
+
+DB = str(settings.db_path)
 
 DOC = "doc_b02fb622b193"
-BACKEND = r"d:\project\Rag_chatbot\backend"
-PY = r"d:\project\Rag_chatbot\.venv\Scripts\python.exe"
-DB = os.path.join(BACKEND, "data", "rag_intelligence.sqlite")
 
 
 def q():
@@ -37,12 +46,13 @@ def show(label):
 
 
 def main():
-    subprocess.run([PY, r"..\scripts\resetdoc.py", DOC], cwd=BACKEND, capture_output=True)
+    subprocess.run([PY, str(REPO / "scripts" / "resetdoc.py"), DOC], cwd=BACKEND, capture_output=True)
     show("BEFORE — nothing extracted")
 
     print("\n===== starting worker; will hard-kill the tree the moment a batch commits mid-document =====")
     proc = subprocess.Popen([PY, "-m", "app.worker", DOC], cwd=BACKEND,
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            start_new_session=(os.name != "nt"))
     caught = None
     t0 = time.perf_counter()
     while time.perf_counter() - t0 < 30:
@@ -61,7 +71,10 @@ def main():
 
     lcb, done, total = caught
     print(f"  caught at last_completed_batch={lcb}, pages_done={done}/{total} after {time.perf_counter()-t0:.2f}s")
-    subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
+    else:
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
     proc.wait(timeout=10)
     print(f"  process tree killed (exit={proc.returncode})")
     time.sleep(0.3)

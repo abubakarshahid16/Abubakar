@@ -3,9 +3,11 @@ import { useEffect } from "react";
 import type { SheetCard } from "./sheetCards";
 
 /** The owner's keyboard flow: J / K next and previous card, Enter agrees,
- *  N says not needed. Never while typing, and never with a modifier held. */
+ *  N says not needed, T shows the selected card's value on the page (#967
+ *  PR 4). Never while typing, and never with a modifier held. */
 export function useSheetKeys(
   cards: SheetCard[], selected: SheetCard | null, select: (card: SheetCard) => void,
+  showOnPage?: () => void,
 ) {
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -17,6 +19,11 @@ export function useSheetKeys(
       if ((key === "j" || key === "k") && cards.length > 0) {
         const step = key === "j" ? 1 : -1;
         select(cards[(at + step + cards.length) % cards.length]);
+        event.preventDefault();
+        return;
+      }
+      if (key === "t" && selected && showOnPage) {
+        showOnPage();
         event.preventDefault();
         return;
       }
@@ -34,5 +41,5 @@ export function useSheetKeys(
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [cards, selected, select]);
+  }, [cards, selected, select, showOnPage]);
 }

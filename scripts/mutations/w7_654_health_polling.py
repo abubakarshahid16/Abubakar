@@ -10,9 +10,9 @@ _TAG = ("w7", "reliability")
 
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M4801", phase=4801, runner="vitest",
-             description="the poll is back to every 5 seconds",
-             path=_P, anchor="export const HEALTH_POLL_MS = 15000;",
-             replacement="export const HEALTH_POLL_MS = 5000;",
+             description="the poll is back to every 15 seconds",
+             path=_P, anchor="export const HEALTH_POLL_MS = 60000;",
+             replacement="export const HEALTH_POLL_MS = 15000;",
              target=_T, keyword="is every 15 seconds", tags=_TAG),
     Mutation(id="M4802", phase=4802, runner="vitest",
              description="a hidden tab still polls (the schedule ignores visibility)",

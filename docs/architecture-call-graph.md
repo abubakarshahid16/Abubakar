@@ -62,7 +62,7 @@ running) calls, in order:
 3. `comparison.run_comparison` (`comparison.py:962`):
    - **Requirement inventory, not top-k:** every `standard_requirements` row of every
      applicable standard (`standards.list_requirements`). The hybrid top-k
-     `standards.search_requirements` has **no caller** (DEAD).
+     `standards.search_requirements` had **no caller** and was retired (#197).
    - **Pairing:** `match_by_containment` (:1288, deterministic) first; `match_by_model`
      (:1632) only if containment found nothing AND `settings.match_enabled` — **default
      True since 2026-10-11 (owner order item 4)**: the model's choice passes
@@ -94,7 +94,7 @@ Every module that can open a socket:
 | `model_transport.py` | `settings.ollama_url`, validated by `config.check_model_url` at settings load (:794) and before every request (:111) | `answer._call_model` (Tier 2 chat), `analysis.ollama_generate` (summary, recommendation), `comparison._ask_model_once`, `metrics` probes | `answer_model_allow_remote_host=False`, `answer_model_allowed_hosts=()` | LIVE, loopback only |
 | `market_transport.py` | `market_allowed_hosts` | `POST /api/market/search` (`main.py:1369`) | `market_live_enabled=False`, `market_allow_public_egress=False` | OFF |
 | `reader_transport.py` | Anthropic API | only `claude_api.py` | `standards_reader_enabled=False`, `..._allow_public_egress=False` | DEAD |
-| `notifications.py:64` (`smtplib.SMTP`) | `smtp_host` | management-summary e-mail, deliverable/risk notifications | `smtp_enabled=False` | OFF — **not covered by `tests/test_socket_containment.py`** (gap G2) |
+| `notifications.py:64` (`smtplib.SMTP`) | `smtp_host` | management-summary e-mail, deliverable/risk notifications | `smtp_enabled=False` | OFF — covered by `tests/test_socket_containment.py` since #196 (`smtplib`/`ssl` roots; sole importer); bodies pinned by `tests/test_196_notification_bodies.py` |
 
 Models configured: `answer_model="qwen3.5:4b"` (Ollama 0.34.3 at 127.0.0.1:11434; installed
 `qwen3.5:4b`, `qwen3.5:9b`, `mistral:7b`); embeddings e5-small int8 ONNX; reranker
@@ -150,9 +150,10 @@ grant-table query). Applied as a mask before top-k in keyword and dense search, 
   setting `COMPANY_STANDARD` queues no requirement extraction (only `set_role` does);
   a `CONTRACTOR_SUBMITTAL` role set after READY by either route runs no fact extraction
   (lazy at review time) and **never** runs equipment/metadata classification.
-- **G2 — socket containment incomplete (#196).** `notifications.py` opens an SMTP socket; the
-  containment test's network roots omit `smtplib`; CLAUDE.md said only `market_transport`
-  may open a socket (false; retraction: honesty audit entry 49).
+- **G2 — socket containment incomplete (#196). Closed by #196:** `smtplib` and `ssl` are
+  network roots, `notifications.py` is the fourth allowlisted socket module and the only
+  `smtplib` importer, and each sender's message is pinned to its template. CLAUDE.md once
+  said only `market_transport` may open a socket (false; retraction: honesty audit entry 49).
 - **G3 — dead and duplicate code (#197).** `quotes.py`, `extraction_schema.py`,
   `standards.search_requirements`, the vision no-op; duplicate definitions of
   `analysis.is_comprehensive` (:73, :313), `analysis._synthesise` (:717, :754), and the

@@ -41,6 +41,7 @@ import json
 import re
 from datetime import datetime, timezone
 
+from .ai.json_reply import unfenced
 from .db import connect
 from .model_evidence import quote_verified
 
@@ -252,10 +253,7 @@ def _system(dictionary: list[str], sheet_count: int | None = None) -> str:
 
 
 def _parse(text: str) -> list[dict]:
-    body = text.strip()
-    fence = re.match(r"^```[a-zA-Z]*\s*\n(.*)\n```$", body, re.DOTALL)
-    if fence:
-        body = fence.group(1)
+    body = unfenced(text.strip())
     try:
         value = json.loads(body)
     except json.JSONDecodeError:
@@ -388,3 +386,59 @@ def ensure_names(requirements: list[dict], facts: list[dict], *, provider=None) 
         "labels_named": sum(1 for v in label_names.values() if v.get("field_name")),
         "refused": refused,
     }
+
+
+# --------------------------------------------------------------- #437: delete
+
+def forget_document(conn, document_id: str) -> int:
+    """#437: remove the canonical-name rows whose QUOTE came from this document.
+    Returns how many rows went. Called inside the delete's transaction, before
+    the document row goes (the cascade would take the requirement rows the
+    lookup needs).
+
+    Two kinds of row hold a quote from a document:
+      requirement rows, keyed by the requirement's id - every requirement of
+        a deleted standard;
+      label rows, keyed by the label's normalised text, which several sheets
+        can share - removed only when NO remaining document's current fact
+        carries that label, so a quote another sheet still justifies stays.
+    A database that never named a field has no side table: nothing to do.
+    """
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table'"
+                    " AND name = 'canonical_field_names'").fetchone() is None:
+        return 0
+    removed = 0
+    req_ids = [r[0] for r in conn.execute(
+        "SELECT id FROM standard_requirements WHERE standard_document_id = ?", (document_id,))]
+    for i in range(0, len(req_ids), 500):
+        part = req_ids[i:i + 500]
+        marks = ",".join("?" * len(part))
+        removed += conn.execute(
+            f"DELETE FROM canonical_field_names WHERE subject_kind = ? AND subject_key IN ({marks})",
+            [REQUIREMENT, *part]).rowcount
+    columns = {r[1] for r in conn.execute("PRAGMA table_info(submittal_facts)")}
+    if not columns:
+        return removed
+    label = "COALESCE(field_label, field_name)" if "field_label" in columns else "field_name"
+    current = " AND superseded_at IS NULL" if "superseded_at" in columns else ""
+    # EVERY label the deleted sheet ever carried, superseded reads included:
+    # a quote justified by a label the sheet carried only in an earlier read
+    # is still drawn from this document. Other sheets count by their CURRENT
+    # facts only - a label they no longer carry does not keep a quote alive.
+    mine = {label_key(r[0]) for r in conn.execute(
+        f"SELECT {label} FROM submittal_facts WHERE submittal_document_id = ?",
+        (document_id,))}
+    mine.discard("")
+    if not mine:
+        return removed
+    others = {label_key(r[0]) for r in conn.execute(
+        f"SELECT DISTINCT {label} FROM submittal_facts"
+        f" WHERE submittal_document_id != ?{current}", (document_id,))}
+    alone = sorted(mine - others)
+    for i in range(0, len(alone), 500):
+        part = alone[i:i + 500]
+        marks = ",".join("?" * len(part))
+        removed += conn.execute(
+            f"DELETE FROM canonical_field_names WHERE subject_kind = ? AND subject_key IN ({marks})",
+            [LABEL, *part]).rowcount
+    return removed

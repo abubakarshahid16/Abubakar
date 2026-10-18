@@ -22,7 +22,9 @@ import { DecisionCard } from "../components/review/sheet/DecisionCard";
 import { DocumentPane, type PaneView } from "../components/review/sheet/DocumentPane";
 import { ProgressRing } from "../components/review/sheet/ProgressRing";
 import { SheetCard } from "../components/review/sheet/SheetCard";
-import { type SheetCard as Card, buildCards, headline, passedCount, progress } from "../components/review/sheet/sheetCards";
+import {
+  CARD_CHUNK, type SheetCard as Card, buildCards, headline, passedCount, progress, visibleCards,
+} from "../components/review/sheet/sheetCards";
 import { useSheetKeys } from "../components/review/sheet/useSheetKeys";
 import { BehindTheScenes, PANEL_TITLES, type StandardsState } from "../components/review/panels/BehindTheScenes";
 import { ReviewJobControl } from "../components/review/panels/ReviewJobControl";
@@ -56,6 +58,13 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
   // #791: the status a count in the review steps was clicked for.
   const [focusStatus, setFocusStatus] = useState<string | null>(null);
   const [send, setSend] = useState<{ kind: "idle" | "sending" | "sent" } | { kind: "error"; message: string }>({ kind: "idle" });
+  // #967 PR 4: "show it on the page" (T, or the card's link) - counted, so
+  // each ask scrolls the datasheet into view and pulses its frame once.
+  const [pulse, setPulse] = useState(0);
+  const showOnPage = useCallback(() => {
+    setView((v) => ({ ...v, rule: null }));
+    setPulse((n) => n + 1);
+  }, []);
 
   const refresh = useCallback(async () => {
     const [runs, listed, gated, stds] = await Promise.all([
@@ -112,11 +121,19 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
     select(after ?? fresh[at] ?? null);
   }
 
-  useSheetKeys(cards, selected, select);
+  useSheetKeys(cards, selected, select, showOnPage);
+  // #603: the cards in chunks, never all at once; the keyboard still reaches
+  // every card, so a selection past the chunk extends it.
+  // #603: how many cards render at once. Grows by a chunk per click and never
+  // shrinks under the user; the window follows the selection (`visibleCards`).
+  const [shownCards, setShownCards] = useState(CARD_CHUNK);
+  const cardsShown = visibleCards(cards, shownCards, selected);
+  const firstShown = cardsShown.length ? cards.indexOf(cardsShown[0]) + 1 : 0;
+  const lastShown = firstShown + cardsShown.length - 1;
 
   if (panel && run) {
     return (
-      <main className="mx-auto w-full max-w-7xl" aria-label={PANEL_TITLES[panel] ?? "Behind the scenes"}>
+      <section className="mx-auto w-full max-w-7xl" aria-label={PANEL_TITLES[panel] ?? "Behind the scenes"}>
         <BehindTheScenes
           panel={panel} run={run} findings={findings} documents={submittal ? [submittal] : []}
           standardsState={standardsState} focusStatus={focusStatus}
@@ -125,7 +142,7 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
           onStandardsChanged={(changed, missing) => setStandardsState({ standards: changed, missing, error: null })}
           onChanged={() => void refresh()}
         />
-      </main>
+      </section>
     );
   }
 
@@ -143,7 +160,7 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
   }
 
   return (
-    <main className="mx-auto w-full max-w-7xl space-y-5" aria-labelledby="sheet-title">
+    <section className="mx-auto w-full max-w-7xl space-y-5" aria-labelledby="sheet-title">
       <header className="space-y-3">
         <button type="button" onClick={onBack} className="text-sm text-signal-300 underline-offset-2 hover:underline">
           ← Documents from contractors
@@ -191,8 +208,10 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
       {load.kind === "ready" && run && !active && run.status !== "failed" && (
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_26rem]">
           <DocumentPane
+            runId={runId}
             submittal={submittal} cards={cards} selected={selected}
             view={{ ...view, page: view.page ?? selected?.page ?? null }}
+            pulse={pulse}
             onPage={(page) => {
               const on = cards.filter((c) => c.pages.includes(page));
               const first = on.find((c) => c.state === "open") ?? on[0];
@@ -201,16 +220,28 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
             onSelectCard={(card) => select(card, view.page ?? undefined)}
             onCloseRule={() => setView((v) => ({ ...v, rule: null }))}
           />
-          <div className="space-y-3">
-            {cards.map((card) => (
+          <div className="space-y-3" data-testid="sheet-cards">
+            {cardsShown.map((card) => (
               <SheetCard
                 key={card.key} card={card} runId={runId} selected={card.key === selected?.key}
                 standardNames={standardNames} onSelect={() => select(card)}
                 onOpenRule={(finding) => setView((v) => ({ ...v, rule: finding }))}
                 onAnswered={() => void answered()}
+                onShowOnPage={showOnPage}
               />
             ))}
             {cards.length === 0 && <p className="text-sm text-slateish-300">Nothing on this datasheet needs your answer.</p>}
+            {cardsShown.length < cards.length && (
+              <button type="button" data-testid="more-cards" onClick={() => setShownCards(shownCards + CARD_CHUNK)}
+                className="w-full rounded-[var(--radius-md)] border border-dashed border-ink-600 bg-ink-900 px-4 py-3 text-left text-sm text-slateish-300 hover:border-ink-500">
+                Showing cards {firstShown}-{lastShown} of {cards.length} - show {Math.min(CARD_CHUNK, cards.length - cardsShown.length)} more
+              </button>
+            )}
+            {cards.length > 0 && (
+              <p className="text-xs text-slateish-500 max-sm:hidden" data-testid="sheet-keys">
+                Keys: J / K next and previous · Enter agree · N not needed · T show it on the page
+              </p>
+            )}
             {(allAnswered || finalCode) && <DecisionCard key={`${run.review_run_id}-${finalCode ?? ""}`} run={run} onDecided={() => void refresh()} />}
             <p className="text-sm text-slateish-400">
               {passedCount(findings)} passed quietly ·{" "}
@@ -218,15 +249,22 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
             </p>
             <p className="text-sm text-slateish-400">
               Behind the scenes:{" "}
-              <button type="button" onClick={() => onOpenPanel("steps")} className="text-signal-300 underline-offset-2 hover:underline">how we checked this document</button>
-              {" · "}
-              <button type="button" onClick={() => onOpenPanel("standards")} className="text-signal-300 underline-offset-2 hover:underline">
-                the rule books used ({standards.filter((s) => s.included).length} of {standards.length})
-              </button>
-              {" · "}
-              <button type="button" onClick={() => onOpenPanel("numbers")} className="text-signal-300 underline-offset-2 hover:underline">AI numbers</button>
-              {" · "}
-              <button type="button" onClick={() => onOpenPanel("crs")} className="text-signal-300 underline-offset-2 hover:underline">the CRS</button>
+              {([
+                ["steps", "how we checked this document"],
+                ["standards", `the rule books used (${standards.filter((s) => s.included).length} of ${standards.length})`],
+                ["numbers", "AI numbers"],
+                ["crs", "the CRS"],
+              ] as const).map(([panelId, label], i) => (
+                // Each link stays on one line; the separator travels with it,
+                // and the line may break only between links.
+                <span key={panelId}>
+                  {i > 0 && " "}
+                  <span className="whitespace-nowrap">
+                    {i > 0 && <span aria-hidden="true">{"· "}</span>}
+                    <button type="button" onClick={() => onOpenPanel(panelId)} className="text-signal-300 underline-offset-2 hover:underline">{label}</button>
+                  </span>
+                </span>
+              ))}
             </p>
             {submittalId && !active && (
               <RunReviewControl
@@ -237,6 +275,6 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
           </div>
         </div>
       )}
-    </main>
+    </section>
   );
 }

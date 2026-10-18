@@ -342,7 +342,7 @@ def test_a_healthy_corpus_raises_no_corpus_warnings():
 def test_the_metrics_endpoint_declares_its_refresh_and_its_timestamp():
     client = TestClient(app)
     body = client.get("/api/metrics").json()
-    assert body["refresh_seconds"] == 15
+    assert body["refresh_seconds"] == 60
     assert body["at"].endswith("Z")
 
 

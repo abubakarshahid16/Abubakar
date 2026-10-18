@@ -1309,6 +1309,90 @@ def create_finding(
             "citation_resolves": not unresolved}
 
 
+class _RuleTrust:
+    """One run's view of `rule_trust` (#947), switch ON only: the family
+    proof per (standard, equipment type) and the compiling model, read once
+    per run; `label` is `rule_trust.label_finding` with that proof. A proof
+    made under another model or another revision of the standard is INVALID
+    (`rule_trust.load_proof`), so the rule reads as UNPROVEN."""
+
+    def __init__(self, equipment_type: str | None) -> None:
+        self.equipment_type = equipment_type
+        self._proofs: dict[tuple[str, str], dict | None] = {}
+        self._revisions: dict[str, str | None] = {}
+
+    def _revision(self, standard_id: str) -> str | None:
+        if standard_id not in self._revisions:
+            row = connect().execute(
+                "SELECT revision FROM document_classification WHERE document_id = ?",
+                (standard_id,)).fetchone()
+            self._revisions[standard_id] = (row["revision"] or None) if row else None
+        return self._revisions[standard_id]
+
+    def proof(self, rule: dict) -> dict | None:
+        from . import rule_trust
+        standard_id = rule.get("standard_document_id") or ""
+        model = rule.get("model") or settings.ai_task_model
+        key = (standard_id, model)
+        if key not in self._proofs:
+            self._proofs[key] = rule_trust.load_proof(
+                rule_trust.family_key(standard_id, self.equipment_type),
+                model_id=model, standard_revision=self._revision(standard_id))
+        return self._proofs[key]
+
+    def label(self, verdict: dict, rule: dict) -> dict:
+        from . import rule_trust
+        return rule_trust.label_finding(verdict, rule, self.proof(rule))
+
+
+def _trust_columns(verdict: dict, status: str | None) -> dict:
+    """A labelled verdict's rule-trust fields, as the finding stores them.
+    Nothing when the verdict carries no label (switch off). The tick is only
+    kept on a finding that STAYED compliant through the citation gate."""
+    if "trust_label" not in verdict:
+        return {}
+    return {"trust_label": verdict.get("trust_label"), "tier": verdict.get("tier"),
+            "show_for_engineer_tick": int(bool(verdict.get("show_for_engineer_tick"))
+                                          and status == COMPLIANT),
+            "rule_said": verdict.get("rule_said")}
+
+
+def _rule_trust_summary(trust, review_run_id: str, facts: list[dict],
+                        requirements: list[dict], rows: list[dict]) -> dict | None:
+    """Steps 7 and 10 of the owner decision, for the run's record. None with
+    the switch off. Field NAMES of this machine's own datasheet; never values.
+
+    `rows` are EVERY finding written for this run - the rule rows and the
+    datasheet checks - so `held_unproven` is every verdict rule_trust held,
+    not the main loop's share of them (s2's real-group run of 17 Oct found
+    51 reported against 1,555 held). `findings_counted` states the boundary.
+    """
+    if trust is None:
+        return None
+    from . import rule_trust
+    # A stored fact carries its value as `field_value`; the pure function
+    # reads `raw_value`. One translation, here, never a second reader.
+    shaped = [{"field_name": f.get("field_label") or f.get("field_name"),
+               "raw_value": f.get("field_value"), "is_blank": f.get("is_blank")} for f in facts]
+    read = [f for f in shaped if not f["is_blank"] and f["raw_value"] not in (None, "")]
+    uncovered = rule_trust.uncovered_fields(shaped, requirements)
+    auto_ids = [r["id"] for r in rows if r.get("trust_label") == rule_trust.AUTO_PROVEN]
+    labels: dict[str, int] = {}
+    for r in rows:
+        if r.get("trust_label"):
+            labels[r["trust_label"]] = labels.get(r["trust_label"], 0) + 1
+    return {
+        "fields_read": len(read),
+        "uncovered_fields": [f.get("field_name") or f.get("name") for f in uncovered],
+        "labels": labels,
+        "findings_counted": len(rows),
+        "held_unproven": sum(1 for r in rows if r.get("rule_said")),
+        "safety_ticks": sum(1 for r in rows if r.get("show_for_engineer_tick")),
+        "auto_proven": len(auto_ids),
+        "audit_sample": rule_trust.audit_sample(auto_ids, seed=review_run_id),
+    }
+
+
 def _prepare_finding(
     *, review_run_id: str, submittal_document_id: str, requirement: dict,
     fact: dict | None, verdict: dict, comment: str | None = None,
@@ -1434,6 +1518,11 @@ def _prepare_finding(
         # worse than one naming none. NULL where the sheet does not say.
         "equipment_tag": (fact or {}).get("equipment_tag"),
         "reason_code": reason_code_of(rationale),
+        # rule_trust (#947): NULL unless the run labelled the verdict.
+        "trust_label": None,
+        "tier": None,
+        "show_for_engineer_tick": None,
+        "rule_said": None,
         "created_at": now,
         "updated_at": now,
     }
@@ -1467,6 +1556,7 @@ def _insert_findings(conn, rows: list[dict]) -> None:
                 requirement_source_text, ai_rationale, unresolved_evidence,
                 requirement_id, fact_id, matched_phrase, match_method,
                 equipment_tag, reason_code,
+                trust_label, tier, show_for_engineer_tick, rule_said,
                 governing_sources, citation_ids, status, approval_status,
                 created_at, updated_at)
                VALUES (:id, :document_id, :review_run_id, :compliance_status,
@@ -1477,7 +1567,8 @@ def _insert_findings(conn, rows: list[dict]) -> None:
                        :requirement_source_text, :ai_rationale,
                        :unresolved_evidence, :requirement_id, :fact_id,
                        :matched_phrase, :match_method, :equipment_tag,
-                       :reason_code, '[]', '[]', 'open', 'pending',
+                       :reason_code, :trust_label, :tier, :show_for_engineer_tick,
+                       :rule_said, '[]', '[]', 'open', 'pending',
                        :created_at, :updated_at)""", row)
         # B10: THE HISTORY STARTS AT THE MACHINE. A finding's trail began at
         # the first human edit, so it could not say the review wrote it. No
@@ -2187,6 +2278,7 @@ def _run_comparison(
     # #677 THE SCOPE LEDGER: every requirement of every applicable standard
     # (`in_scope_all`) ends in exactly one decision with a stored reason,
     # built from the SAME items #678's counts are built from - one source.
+    from . import ai_requirements as ai_requirements_mod
     from . import scope_ledger
     in_scope_all: list[dict] = []
     extra_not_applied: list[dict] = []   # #677: definitions, service gate, AI tier
@@ -2202,7 +2294,15 @@ def _run_comparison(
                                   (standard_id,)).fetchone()["filename"]
                 if connect().execute("SELECT 1 FROM documents WHERE id = ?",
                                      (standard_id,)).fetchone() else standard_id)
+        # OWNER DECISION (rule_trust, #947 steps 3-6), SWITCH OFF BY DEFAULT: a
+        # clause sentence with an undecided AI-compiled check is compared
+        # through that check, in the sentence's own place (same id). Empty
+        # with the switch off, so nothing below changes.
+        auto_rules = ai_requirements_mod.auto_use_rules(
+            standard_id, allowed_document_ids=allowed_document_ids)
         for r in loaded:
+            if r["id"] in auto_rules:
+                r = {**r, **auto_rules[r["id"]]}
             in_scope_all.append(r)
             if standards_mod.is_reviewable(r):
                 requirements.append(r)
@@ -2237,6 +2337,9 @@ def _run_comparison(
     from . import classification as classification_mod
     stored = classification_mod.of_document(submittal_id) or {}
     sheet = match_rules.sheet_kind(facts, stored.get("equipment_type"))
+    # rule_trust (#947): who stands behind each rule's verdict. None with the
+    # switch off: no proof is read and no finding is labelled.
+    trust = _RuleTrust(stored.get("equipment_type")) if settings.rule_auto_use_enabled else None
     # THE EQUIPMENT SUBJECT, for equipment-specific exceptions ("90 dB(A),
     # except pressure relief valves 115 dB(A)"). Audit 2026-09-30: neither
     # production caller passed one, so every exception was dead code and a
@@ -2364,6 +2467,11 @@ def _run_comparison(
     # from turning into a review that calls a model thousands of times.
     model_cache: dict = {}
     budget = _Budget(settings.match_max_calls_per_run)
+    # #882 TECHNIQUE 2: one small exact question per requirement still left
+    # without a value - counted here, every count out of `eligible`.
+    ask_counts = {"eligible": 0, "asked": 0, "verified": 0, "not_stated": 0, "refused": {},
+                  "could_not_read": 0, "no_evidence": 0, "not_asked_budget": 0, "model": None}
+    ask_pages: dict | None = None
     # B4 (#193 5.2/5.3), FLAG-GATED: canonical field names for the numeric
     # requirements and the facts' labels, named by the labelling model under
     # code-verified gates (see field_naming). None with the flag off - the
@@ -2437,6 +2545,61 @@ def _run_comparison(
                     model_matches += 1
                 else:
                     model_reason = chosen["reason"]
+
+        # #882 TECHNIQUE 2: ONE SMALL EXACT QUESTION. A requirement still
+        # without a value after the rules and the AI matcher (which picks
+        # only among values already read as numbers) is asked about ONCE, by
+        # itself: its own words and the few datasheet lines naming its
+        # subject, never its limit and never a whole document. CODE verifies
+        # the answer on the page (`ai_requirements.ask_value`); comparison
+        # decides; the verdict is held for the engineer (below).
+        # A table or formula rule is judged on its OUTPUT field below; its
+        # number is not a value to look up, so it is not asked about.
+        if (fact is None and settings.match_enabled and is_matchable(requirement)
+                and requirement.get("requirement_type") not in (requirements_3b.TABLE_ROW,
+                                                                requirements_3b.RELATIVE_LIMIT)
+                and match.get("reason") != AMBIGUOUS_MATCH  # a tie is a person's question
+                and model_reason in (None, MODEL_DECLINED)):
+            ask_counts["eligible"] += 1
+            if ask_counts["asked"] >= max(settings.match_ask_max_per_run, 0):
+                ask_counts["not_asked_budget"] += 1
+            else:
+                from . import ai_requirements
+                if ask_pages is None:
+                    ask_pages = {r["page_no"]: r["text"] or "" for r in connect().execute(
+                        "SELECT page_no, text FROM pages WHERE document_id = ?", (submittal_id,))}
+                asked = ai_requirements.ask_value(requirement, ask_pages)
+                state = asked["state"]
+                if state == ai_requirements.ASKED_NO_EVIDENCE:
+                    ask_counts["no_evidence"] += 1
+                else:
+                    ask_counts["asked"] += 1
+                    ask_counts["model"] = ask_counts["model"] or asked["model"]
+                    why = asked["why"]
+                    if state == ai_requirements.ASKED_VERIFIED:
+                        asked_fact = _store_asked_fact(review_run_id, submittal_id,
+                                                       asked["proposal"], allowed_document_ids)
+                        why = (ASK_NOT_STORED if asked_fact is None else
+                               match_rules.refusal(requirement, asked_fact, sheet=sheet))
+                        if why is None:
+                            ask_counts["verified"] += 1
+                            match = {"fact": asked_fact, "method": METHOD_ASKED,
+                                     "matched_phrase": asked_fact.get("field_name"),
+                                     "reason": None, "candidates": []}
+                            fact = asked_fact
+                            model_reason = None
+                        else:
+                            state = ai_requirements.ASKED_REFUSED
+                    if state == ai_requirements.ASKED_NOT_STATED:
+                        ask_counts["not_stated"] += 1
+                    elif state == ai_requirements.ASKED_REFUSED:
+                        ask_counts["refused"][why] = ask_counts["refused"].get(why, 0) + 1
+                        # the model said the value is there and code could not
+                        # prove it: not an absence - the engineer looks
+                        model_reason = ASK_REFUSED
+                    elif state == ai_requirements.ASKED_COULD_NOT_READ:
+                        ask_counts["could_not_read"] += 1
+                        model_reason = ASK_UNREAD
 
         # OWNER ORDER 2a + 2b: A TABLE OR FORMULA RULE IS EVALUATED IN CODE,
         # against its OUTPUT field. "Design pressure from maximum operating
@@ -2574,6 +2737,24 @@ def _run_comparison(
                         verdict = {**verdict, "status": NEEDS_ENGINEER_REVIEW, "rationale": (
                             f"{verdict.get('rationale') or ''} The numbers read {status}, held "
                             f"for an engineer: the AI matcher's pairing is low-confidence ({doubt}).")}
+            elif match["method"] == METHOD_ASKED:
+                # #882 TECHNIQUE 2, FIRST VERSION: A VALUE FOUND BY THE LOCAL
+                # MODEL'S QUESTION NEVER CARRIES A VERDICT. The arithmetic is
+                # shown and the status waits for the engineer, with the page -
+                # whether the value is newly read or a reader's value the
+                # rules could not pair. Letting verified answers decide is a
+                # later, measured step (owner's yes on #692).
+                status = verdict.get("status")
+                held = status in (COMPLIANT, NON_COMPLIANT)
+                verdict = {**verdict,
+                           "status": NEEDS_ENGINEER_REVIEW if held else status,
+                           "rationale": (
+                               f"{ASKED_PREFIX}p.{(fact or {}).get('page')}. "
+                               + (f"The numbers read {status}, held for an engineer: the "
+                                  "value was found by the local model's question and "
+                                  "checked on the page by code, not paired by a reader. "
+                                  if held else "")
+                               + f"{verdict.get('rationale') or ''}")}
             elif match["method"] == METHOD_FIELD_NAME:
                 # A MODEL-NAMED PAIRING NEVER CARRIES A VERDICT. The arithmetic
                 # is shown, the status waits for an engineer: measured on a copy
@@ -2624,6 +2805,12 @@ def _run_comparison(
             if (requirement.get("id"), (fact or {}).get("id")) in rejected_pairs:
                 rejected_requirements.add(requirement.get("id"))
                 continue
+            # rule_trust (#947): the LAST word on the verdict. An UNPROVEN rule
+            # never decides COMPLIANT or NON_COMPLIANT (held for the engineer,
+            # the rule's own verdict kept as `rule_said`); a SAFETY-tier
+            # COMPLIANT is flagged for an engineer's tick.
+            if trust is not None:
+                verdict = trust.label(verdict, requirement)
             opinion = (model_opinions or {}).get(requirement.get("id"))
             # ONE FINDING PER ITEM, WRITTEN THROUGH THE BATCH HELPER: `_prepare_finding`
             # applies every gate `create_finding` would (duplicate check against
@@ -2642,6 +2829,7 @@ def _run_comparison(
                                 else match["matched_phrase"]),
                 match_method=match["method"], pending=pending,
                 stored_replaced=replace)
+            row.update(_trust_columns(verdict, row["compliance_status"]))
             pending[(row["requirement_id"], row["fact_id"])] = row["id"]
             prepared_rows.append(row)
             findings.append({**row, "unresolved_evidence": unresolved,
@@ -2665,6 +2853,13 @@ def _run_comparison(
         not_used=covered_items)
     scope_counts = scope_ledger.check_complete(in_scope_all, decisions)
     scope_ledger.store(review_run_id, decisions)
+    # PF4 (#884) step 1: the clause coverage of this run - every applicable
+    # requirement in exactly one state, with its denominator and the one
+    # line - STORED WITH THE RUN from the same decisions the ledger holds,
+    # so the scorer reads it from a database copy with no route and the
+    # route (`clause_coverage.for_run`) can never say a different number.
+    from . import clause_coverage
+    clause_cov = clause_coverage.summarise(decisions)
 
     # #645 CLAUSE TO CHECK: a clause sentence stored with no limit that this
     # run could not decide is offered to the local model, which proposes a
@@ -2689,8 +2884,22 @@ def _run_comparison(
         stored.get("equipment_type"), page_texts)
     check_results = datasheet_checks.evaluate(facts, equipment_type=stored.get("equipment_type"),
                                               page_texts=page_texts)
-    findings.extend(datasheet_checks.store(review_run_id, submittal_id, check_results,
-                                           pages_read=pages_read))
+    # rule_trust (#947): every rule labelled, the checks too - a signed-off
+    # checklist item is an engineer's rule; every other check is held when it
+    # would decide (planner answer on #985). Nothing with the switch off.
+    from . import rule_trust as rule_trust_mod
+    findings.extend(datasheet_checks.store(
+        review_run_id, submittal_id, check_results, pages_read=pages_read,
+        label=rule_trust_mod.label_check if trust is not None else None))
+
+    # rule_trust (#947) steps 7 and 10, switch ON only: the datasheet fields
+    # read with a value that no applicable rule targets (the CRS lists them
+    # as "not checked by any rule"), and the random draw of automatic
+    # findings for an engineer's spot-check. Counts and ids; stored on the
+    # run. AFTER the datasheet checks, over every finding of this run, so a
+    # held check counts as held (s2, 17 Oct: 51 reported, 1,555 held).
+    rule_trust_summary = _rule_trust_summary(trust, review_run_id, facts, requirements,
+                                             findings)
     checklist_coverage = datasheet_checks.coverage(check_results)
 
     coverage = completeness_for_run(
@@ -2721,7 +2930,7 @@ def _run_comparison(
     if reader:
         split = {**split, "reader": reader}
     ai_matcher = matcher_summary(matcher_counts, model_matches=model_matches,
-                                 model_held=model_held)
+                                 model_held=model_held, questions=ask_counts)
     unchecked_counts = {
         "not_compared": split["applies_not_checked"],
         "not_applied": split["does_not_apply"],
@@ -2742,7 +2951,9 @@ def _run_comparison(
                        datasheet_check_not_run=datasheet_check_not_run,
                        ai_matcher=ai_matcher,
                        unchecked_counts=unchecked_counts,
-                       requirement_split=split)
+                       requirement_split=split,
+                       rule_trust=rule_trust_summary,
+                       clause_coverage=clause_cov)
 
     return {
         "review_run_id": review_run_id,
@@ -2756,6 +2967,8 @@ def _run_comparison(
         "scope": scope_counts,
         # #678's distinct counts, built from the same items as `scope`
         "requirement_split": split,
+        # PF4 (#884): the same decisions as PF4's four states, with the line
+        "clause_coverage": clause_cov,
         "service_declarations": service_declarations,
         "ai_applicability": ai_applicability_summary,
         "clause_checks": clause_checks,
@@ -2778,6 +2991,7 @@ def _run_comparison(
         "model_reasons": model_reasons,
         "model_held": model_held,
         "ai_matcher": ai_matcher,
+        **({"rule_trust": rule_trust_summary} if rule_trust_summary is not None else {}),
         "sheet_kind": sheet,
         "rule_refusals": rule_refusals,
         "findings": findings,
@@ -3330,6 +3544,33 @@ def match_by_field_name(requirement: dict, facts: list[dict], names: dict, *,
 #: `model` means a language model chose from a deterministic shortlist and an
 #: engineer has not confirmed it.
 METHOD_MODEL_CHOICE = "model"
+#: #882 technique 2: the value was found by one small exact question to the
+#: local model (`ai_requirements.ask_value`) and verified on the page by code.
+METHOD_ASKED = "asked"
+ASKED_PREFIX = "Value found by the local model's question (verified on the page by code): "
+#: Why a question did not give a value the comparison may use - the step did
+#: not complete, so "no field answers this" was not established (#450).
+ASK_REFUSED = "question_refused_by_code"
+ASK_UNREAD = "question_not_read"
+ASK_NOT_STORED = "the verified value could not be stored"
+
+
+def _store_asked_fact(review_run_id: str, submittal_id: str, proposal: dict,
+                      allowed_document_ids: frozenset[str]) -> dict | None:
+    """Store a verified answer as the model's fact (`claude_datasheet`:
+    `extraction_method="model"`, never overwriting) and return the stored row
+    as `list_facts` reads it - a reader's value already on that page under the
+    same field is returned instead. None when nothing could be stored."""
+    from . import claude_datasheet
+
+    stored = claude_datasheet.store_facts(review_run_id, submittal_id, [proposal],
+                                          allowed_document_ids=allowed_document_ids)
+    if not (stored["facts"] or stored["kept_existing"]):
+        return None
+    for row in datasheets.list_facts(submittal_id, allowed_document_ids=allowed_document_ids):
+        if row["page"] == proposal["page"] and row["field_name"] == proposal["field_name"]:
+            return row
+    return None
 
 #: At most this many candidates reach the prompt, longest field name first.
 MAX_CANDIDATES = 12
@@ -3898,7 +4139,8 @@ def attach_crs_context(findings: list[dict]) -> list[dict]:
     return findings
 
 
-def matcher_summary(counts: dict, *, model_matches: int, model_held: dict) -> dict:
+def matcher_summary(counts: dict, *, model_matches: int, model_held: dict,
+                    questions: dict | None = None) -> dict:
     """#845: the AI matcher's work on one run, as counts with what each is out
     of. `sent` requirements reached the tier (no rule pairing, not a tie);
     `asked` is those the model was actually asked about (not `no_candidates`,
@@ -3930,6 +4172,8 @@ def matcher_summary(counts: dict, *, model_matches: int, model_held: dict) -> di
         "declined": declined,
         "unavailable": unavailable,
         "other": reasons,
+        # #882 technique 2: the local model's one-requirement questions
+        **({"questions": questions} if questions and questions.get("eligible") else {}),
     }
 
 
@@ -3944,7 +4188,9 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
                        datasheet_check_not_run: str | None = None,
                        unchecked_counts: dict | None = None,
                        requirement_split: dict | None = None,
-                       ai_matcher: dict | None = None) -> None:
+                       ai_matcher: dict | None = None,
+                       rule_trust: dict | None = None,
+                       clause_coverage: dict | None = None) -> None:
     """Persist the AI recommendation and the completeness it was gated on.
 
     B3: `page_coverage` is the page ledger's summary AT THE TIME OF THE RUN -
@@ -3989,6 +4235,12 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
                 "requirement_split": requirement_split,
                 # #845: the AI matcher's counts, as this run made them.
                 "ai_matcher": ai_matcher,
+                # rule_trust (#947): only on a run made with the switch on, so
+                # a run made with it off stores exactly what it did before.
+                **({"rule_trust": rule_trust} if rule_trust is not None else {}),
+                # PF4 (#884): checked / engineer / not checked / checklist /
+                # does not apply, the denominator and the line, at run end.
+                "clause_coverage": clause_coverage,
             # completed_at: the readiness strip's "since the last run" is
             # measured from here, not from updated_at (which the engineer's
             # code decision moves later).

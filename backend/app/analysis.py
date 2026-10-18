@@ -1244,7 +1244,8 @@ _STATUS_RANK = {
     "possible_gap": 1,
     "met": 2,
     "insufficient_evidence": 3,
-    "not_applicable": 4,
+    "beyond_requirement": 4,
+    "not_applicable": 5,
 }
 
 
@@ -1262,16 +1263,16 @@ _STATUS_RANK = {
 #:                COMPARED. Retrieval found plenty; it is the comparison that
 #:                failed, which is what `insufficient_evidence` means.
 #:
-#: `addition` maps to `met` rather than to a sixth status, and that is a
-#: deliberate reuse rather than a shortcut. `met` here already means "the
-#: documents address this and nothing contradicts the baseline" - `agreement`
-#: has always mapped to it on exactly that basis, and neither ever claimed a
-#: requirement was formally satisfied. The card's caption for `met`, "Positive
-#: matching evidence was found", is literally true of an addition row: there
-#: are project evidence chips on it. A new status would be more precise by a
-#: hair and would cost a contract change, a sixth concept in a five-concept
-#: UI, and a broken `Record<GapItemStatus, ...>` in a file another agent is
-#: editing right now.
+#: `addition` is ITS OWN BUCKET, never `met` (#1055, planner decision under
+#: rule 1, 17 Oct 2026, on #633 item 3). An addition is something the project
+#: documents state that no clause of the baseline asks for: there was nothing
+#: to check it against, so "met" would be a positive label where no
+#: comparison was possible (rule 4: not mentioned is never compliant). It is
+#: shown separately as "beyond requirement, not checked" and kept out of the
+#: met / possible-gap / conflict tally. Until 17 Oct it mapped to `met`, on
+#: the argument that `met` only ever meant "addressed, nothing contradicted";
+#: the owner's rule is that a count of met facets must contain only facets
+#: a requirement was compared on.
 #:
 #: A label added to claims.py and not added here becomes
 #: `insufficient_evidence` - which overstates nothing - and
@@ -1280,7 +1281,7 @@ _STATUS_RANK = {
 STATUS_FOR_LABEL: dict[str, str] = {
     "possible_conflict": "conflict",
     "agreement": "met",
-    "addition": "met",
+    "addition": "beyond_requirement",
     "unresolved": "insufficient_evidence",
 }
 

@@ -3,6 +3,7 @@ import { ClaimTable } from "../../components/analysis/ClaimTable";
 import { RemovedSentences } from "../../components/analysis/RemovedSentences";
 import { GapAnalysisCard } from "../../components/analysis/GapAnalysisCard";
 import { MarketPanel } from "../../components/analysis/MarketPanel";
+import { NamedNotRead } from "../../components/analysis/NamedNotRead";
 import { RecommendationCard } from "../../components/analysis/RecommendationCard";
 import { ReviewWorkflowPanel } from "../../components/analysis/ReviewWorkflowPanel";
 import { SummaryCard } from "../../components/analysis/SummaryCard";
@@ -66,6 +67,7 @@ export function AnalysisResultSections({ ctx }: { ctx: RenderContext }) {
     {summarySlot.s === "idle" && gapsSlot.s === "idle" && <EmptyState title="Nothing has been run yet." hint="Choose the sections you need, then run the selected analysis. The frontend will not silently change the selected mode." />}
     {engines.summary && hasBody(summarySlot) && <Section title="Summary" eyebrow="document-backed synthesis"><SlotBody<SummarySlotData> slot={summarySlot} loadingLabel="Generating the summary" emptyTitle="No summary was produced for this question." emptyHint={filteredEmptyHint("Nothing the retrieval found could be summarised with a citation behind every sentence.")} onRetry={retry}>{(d: SummarySlotData) => <div className="space-y-3">
       {d.refusal !== null && <p role="status" className="rounded-[var(--radius-xs)] border border-warn-500/50 bg-warn-500/10 px-3 py-2 text-sm text-warn-500">{d.refusal}</p>}
+      <NamedNotRead names={d.namedNotRead} what="summary" />
       <SummaryCard result={d.result} onCite={onCite} /><RemovedSentences removed={d.removed} what="summary" />
     </div>}</SlotBody></Section>}
     {engines.recommendation && hasBody(recSlot) && <Section title="AI recommendation" eyebrow="advisory only"><SlotBody<RecommendationSlotData> slot={recSlot} loadingLabel="Computing the recommendation" emptyTitle="No recommendation was generated." emptyHint={filteredEmptyHint("Nothing was produced that carried a citation, so there is nothing to advise on.")} onRetry={retry}>{(d: RecommendationSlotData) => <div className="space-y-3">
@@ -80,6 +82,7 @@ export function AnalysisResultSections({ ctx }: { ctx: RenderContext }) {
     </div>}</SlotBody></Section>}
     {engines.gaps && hasBody(gapsSlot) && <Section title="Gap analysis" eyebrow="baseline-controlled"><SlotBody<GapsSlotData> slot={gapsSlot} loadingLabel="Comparing claims across documents" emptyTitle="No comparable claims were found." emptyHint={filteredEmptyHint("Retrieval found nothing carrying a measurable claim with a page behind it. That is not proof the documents say nothing.")} onRetry={retry}>{(d: GapsSlotData) => <div className="space-y-3">
       {d.truncatedReason !== null && <p role="status" className="rounded-[var(--radius-xs)] border border-warn-500/40 bg-warn-500/[0.08] px-3 py-2 text-xs text-warn-500">Partial result: {d.truncatedReason}. Narrow the scope with the type filter, or ask a more specific question.</p>}
+      <NamedNotRead names={d.namedNotRead} what="gap analysis" />
       <GapAnalysisCard gaps={d.gaps} documents={documents} onCite={onCite} onNominateBaseline={store.nominateBaseline} ledger={d.ledger} onCreateFinding={createReviewFinding} templates={reviewTemplates} />
       <ReviewWorkflowPanel findings={reviewFindings} documents={documents} onUpdate={updateReviewFinding} />
       {(d.gaps.applicability === "applicable" && d.gaps.baseline !== null) && <ClaimTable clusters={d.clusters} onCite={onCite} selectedEvidenceId={selected} />}

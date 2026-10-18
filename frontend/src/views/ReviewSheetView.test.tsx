@@ -6,9 +6,9 @@
  * "answering opens the next open card" fails; drop the J handler and the
  * keyboard test fails.
  */
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CrsIssueGate, ReviewFinding, ReviewRunSummary } from "../types/api";
 import { ReviewSheetView } from "./ReviewSheetView";
@@ -36,6 +36,9 @@ vi.mock("../api/client", () => ({
     reviewTrace: async () => ({ ok: false, error: { message: "not in this test" } }),
     runCoverage: async () => ({ ok: false, error: { message: "not in this test" } }),
   },
+}));
+vi.mock("../components/review/sheet/SheetPageImage", () => ({
+  SheetPageImage: ({ page }: { page: number }) => <p>{`submittal page ${page}`}</p>,
 }));
 vi.mock("../components/review/EvidencePageImage", () => ({
   EvidencePageImage: ({ side, page }: { side: string; page: number }) => <p>{`${side} page ${page}`}</p>,
@@ -114,6 +117,19 @@ describe("ReviewSheetView", () => {
     expect(decideCrsFinding).toHaveBeenCalledWith("run-1", "c", "accept", expect.any(String));
     expect(await screen.findByRole("article", { name: "Field b does not meet the standard" })).toBeInTheDocument();
     expect(screen.getByText("submittal page 3")).toBeInTheDocument();
+  });
+
+  it("rule_trust (#947): a safety tick is underlined green on the page, amber is for the rest", async () => {
+    findings = [
+      f("a", { contractor_page: 1 }),
+      f("s", { contractor_page: 1, compliance_status: "COMPLIANT", show_for_engineer_tick: true, trust_label: "AUTO_PROVEN", tier: "SAFETY" }),
+    ];
+    render(<ReviewSheetView runId="run-1" onBack={vi.fn()} onOpenPanel={vi.fn()} onOpenRun={vi.fn()} />);
+    await screen.findByTestId("sheet-headline");
+    expect(screen.getByTestId("sheet-headline")).toHaveTextContent("2 things need your answer");
+    const marks = within(screen.getByRole("list", { name: "Marked on this page" })).getAllByRole("button");
+    expect(marks.map((m) => m.dataset.mark)).toEqual(["open", "tick"]);
+    expect(marks[1]).toHaveTextContent(/Field s meets the standard/);
   });
 
   it("marks pages with open cards and moves between cards with J and K", async () => {
@@ -201,5 +217,76 @@ describe("ReviewSheetView", () => {
     expect(screen.queryByTestId("sheet-headline")).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: /Back to the sheet/ }));
     expect(onOpenPanel).toHaveBeenLastCalledWith(undefined);
+  });
+});
+
+describe("#603: cards in chunks", () => {
+  it("renders a chunk, grows it on the button, and K from the first card shows a window round the last", async () => {
+    // 70 distinct open cards: a different wording each (digits and the field
+    // name are folded out of the template, so none collapse into one card)
+    findings = Array.from({ length: 70 }, (_, i) => f(`c${i}`, { required_action: `Contractor to ${"re".repeat(i + 1)}fix it.` }));
+    render(<ReviewSheetView runId="run-1" onBack={vi.fn()} onOpenPanel={vi.fn()} onOpenRun={vi.fn()} />);
+    await screen.findByTestId("sheet-headline");
+    // one card is open (an article); the rest are one-line buttons named by their title
+    const cardsOnScreen = () => within(screen.getByTestId("sheet-cards")).getAllByText(/^Field c\d+ does not meet the standard$/).length;
+    expect(cardsOnScreen()).toBe(60);
+    expect(screen.getByTestId("more-cards")).toHaveTextContent("Showing cards 1-60 of 70 - show 10 more");
+    await userEvent.keyboard("k");                                   // wraps to the last card
+    expect(screen.getByRole("article", { name: "Field c69 does not meet the standard" })).toBeInTheDocument();
+    expect(cardsOnScreen()).toBe(60);                                 // a window, not every card
+    expect(screen.getByTestId("more-cards")).toHaveTextContent("Showing cards 11-70 of 70");
+    await userEvent.keyboard("j");                                   // and back to the first
+    expect(screen.getByTestId("more-cards")).toHaveTextContent("Showing cards 1-60 of 70");
+    await userEvent.click(screen.getByTestId("more-cards"));
+    expect(cardsOnScreen()).toBe(70);
+    expect(screen.queryByTestId("more-cards")).toBeNull();
+  });
+});
+
+describe("#967 PR 4: show it on the page", () => {
+  const scrolled = vi.fn();
+  beforeEach(() => {
+    scrolled.mockReset();
+    (Element.prototype as unknown as Record<string, unknown>).scrollIntoView = scrolled;
+  });
+  afterEach(() => {
+    delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView;
+  });
+
+  const frame = () => document.querySelector("[data-sheet-page]") as HTMLElement;
+
+  it("T scrolls the datasheet into view and pulses its frame once, then the pulse ends", async () => {
+    render(<ReviewSheetView runId="run-1" onBack={vi.fn()} onOpenPanel={vi.fn()} onOpenRun={vi.fn()} />);
+    await screen.findByTestId("sheet-headline");
+    scrolled.mockReset(); // the opened card's own scroll is not the page's
+    expect(frame().dataset.pulsing).toBeUndefined();
+    await userEvent.keyboard("t");
+    expect(frame().dataset.pulsing).toBe("true");
+    // THE PAGE FRAME scrolled - pinned to [data-sheet-page], not to "the first
+    // scroll after T": on a slow runner the opened card's own scroll (its
+    // effect, when it becomes selected) can land after the reset above, and
+    // this used to take that <article> for the frame (flaky on two gates, 17 Oct).
+    expect(scrolled.mock.instances).toContain(frame());
+    await waitFor(() => expect(frame().dataset.pulsing).toBeUndefined(), { timeout: 3000 });
+  });
+
+  it("the card's own link does the same, and leaves the rule view for the datasheet", async () => {
+    findings = [f("a", { contractor_page: 1, standard_document_id: "std-1", standard_page: 1 })];
+    render(<ReviewSheetView runId="run-1" onBack={vi.fn()} onOpenPanel={vi.fn()} onOpenRun={vi.fn()} />);
+    await screen.findByTestId("sheet-headline");
+    await userEvent.click(screen.getByRole("button", { name: /API 520\.pdf/ }));
+    expect(screen.getByText("standard page 1")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Show on the page" }));
+    expect(screen.getByText("submittal page 1")).toBeInTheDocument();
+    expect(frame().dataset.pulsing).toBe("true");
+  });
+
+  it("never fires while typing, and the keys line names T", async () => {
+    render(<ReviewSheetView runId="run-1" onBack={vi.fn()} onOpenPanel={vi.fn()} onOpenRun={vi.fn()} />);
+    await screen.findByTestId("sheet-headline");
+    await userEvent.keyboard("n");
+    await userEvent.type(screen.getByLabelText(/why is this comment not needed/i), "t");
+    expect(frame().dataset.pulsing).toBeUndefined();
+    expect(screen.getByTestId("sheet-keys")).toHaveTextContent("T show it on the page");
   });
 });

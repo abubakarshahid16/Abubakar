@@ -43,7 +43,9 @@ from . import search as search_mod
 from . import pageimage as pageimage_mod
 from . import upload as upload_mod
 from . import watcher as watcher_mod
+from . import fact_api as fact_api_mod
 from . import watch_api as watch_api_mod
+from . import sheet_page as sheet_page_mod
 from . import warmup as warmup_mod
 from .api_utils import (
     DEFAULT_LIMIT,
@@ -261,9 +263,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# The watched-folder status route lives in its own module so this file stays
-# the only place routing is declared, without this file growing a feature.
+# Routes in their own modules (watched folder; #473 fact confirmation) so this
+# file stays the only place routing is declared without growing a feature.
 app.include_router(watch_api_mod.router)
+app.include_router(fact_api_mod.router)
+app.include_router(sheet_page_mod.router)  # #967: the Sheet's page with every card's value marked
 
 # THE CLAUDE LANE (#222, revived by owner decision 2026-09-25). Every route is
 # gated on the reader's two egress flags and answers 409 model_disabled when
@@ -731,13 +735,16 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
         acknowledge=acknowledge_orphaned_findings,
         actor={"id": scope.user_id} if scope.user_id else None)
 
-    # Reports quote this document. Their FILES go; their ROWS stay, because
-    # the record that a report was issued must survive the document.
+    # Reports quote this document: their FILES go, their ROWS stay (the record survives).
     reports_mod.on_document_deleted(document_id)
 
     conn = connect()
     removed = {}
+    actor = {"id": scope.user_id, "email": (_admin or {}).get("email")} if scope.user_id else None
     with conn:
+        removed.update(document_refs.erase_document_text(  # #436: its copied text goes too
+            conn, document_id, doc["filename"], actor=actor))
+        removed["canonical_field_names"] = document_refs.forget_quotes(conn, document_id)  # #437, before the chunk cascade
         conn.execute("DELETE FROM chunks_fts WHERE document_id = ?", (document_id,))
         for table in ("chunk_vectors", "exclusions", "chunks", "pages", "jobs"):
             cur = conn.execute(f"DELETE FROM {table} WHERE document_id = ?", (document_id,))
@@ -745,21 +752,18 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
         cur = conn.execute("DELETE FROM documents WHERE id = ?", (document_id,))
         removed["documents"] = cur.rowcount
         # The record of the delete commits with the delete (ids and counts only).
-        document_refs.record_document_deleted(
-            conn, document_id, removed,
-            actor={"id": scope.user_id, "email": (_admin or {}).get("email")}
-            if scope.user_id else None)
+        document_refs.record_document_deleted(conn, document_id, removed, actor=actor)
 
     files_removed = 0
     stored = Path(doc["stored_path"])
     if stored.exists():
         stored.unlink()
         files_removed += 1
-    cache = settings.data_dir / "page_images"
-    if cache.exists():
+    if (cache := settings.data_dir / "page_images").exists():
         for img in cache.glob(f"{doc['sha256'][:16]}_*.png"):
             img.unlink()
             files_removed += 1
+    files_removed += review_mod.remove_report_files(document_id)   # #437: its review PDFs
 
     return {
         "deleted": document_id,
@@ -1056,7 +1060,7 @@ def login(body: schemas.LoginRequest, request: Request):
             status_code=429 if exc.code == errors.RATE_LIMITED else 401,
             detail=errors.safe_error(exc.code, exc.message),
             headers=headers,
-        )
+        ) from exc
 
 
 @app.post("/api/auth/password/reset", response_model=schemas.PasswordResetResult,
@@ -1069,7 +1073,7 @@ def reset_password(body: schemas.PasswordResetRequest):
         raise HTTPException(
             status_code=422 if exc.code == errors.WEAK_PASSWORD else 401,
             detail=errors.safe_error(exc.code, exc.message),
-        )
+        ) from exc
 
 
 @app.get("/api/auth/me", response_model=schemas.AuthStatus,
@@ -1173,7 +1177,7 @@ def _analysis_or_503(fn, *args, **kwargs):
             detail=errors.safe_error(
                 errors.MODEL_UNAVAILABLE,
                 f"the local answer model could not be reached ({exc})"),
-        )
+        ) from exc
 
 
 @app.post("/api/analysis/summary", response_model=schemas.AnalysisSummary,
@@ -1682,7 +1686,7 @@ def _report_or_404(fn, *args):
         raise HTTPException(
             status_code=404,
             detail=errors.safe_error(errors.NOT_FOUND, "no report with that id"),
-        )
+        ) from None
 
 
 @app.post("/api/reports", response_model=schemas.ReportRecord,
@@ -1696,12 +1700,12 @@ def generate_report(body: schemas.GenerateReport,
         raise HTTPException(
             status_code=404,
             detail=errors.safe_error(errors.NOT_FOUND, "no message with that id"),
-        )
+        ) from None
     except reports_mod.NotReportable as exc:
         raise HTTPException(
             status_code=422,
             detail=errors.safe_error(errors.INVALID_PARAMETER, str(exc)),
-        )
+        ) from exc
 
 
 @app.get("/api/reports", response_model=schemas.ReportList,
@@ -1855,7 +1859,7 @@ def export_review_report(
             body.document_id, allowed_document_ids=scope.allowed_document_ids)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=errors.safe_error(
-            errors.NOT_FOUND, "review document not found"))
+            errors.NOT_FOUND, "review document not found")) from None
     return FileResponse(path, media_type="application/pdf",
                         filename=f"engineering-review-{body.document_id}.pdf",
                         headers={"Cache-Control": "private, no-store"})
@@ -2604,70 +2608,6 @@ def review_finding_history(
     return {"events": review_mod.history(finding_id)}
 
 
-#: R21 / #508: which stored page and text each side of a finding cites.
-_EVIDENCE_SIDES = {
-    "submittal": ("document_id", "contractor_page", "contractor_evidence_text"),
-    "standard": ("standard_document_id", "standard_page", "requirement_source_text"),
-}
-
-
-def _evidence_side(current: dict, side: str, scope: access.AccessScope) -> dict:
-    """#785: where one side of a finding sits and the box to draw on it -
-    {document, page, rects, box, reason}. `document` None with `reason`
-    when the side cannot be shown (no page cited, a document the caller may
-    not read, a Word document, a checklist clause not found in the library).
-    A checklist row's standard side is resolved from its clause id
-    (`evidence_boxes.checklist_standard`); nothing is written."""
-    doc_field, page_field, text_field = _EVIDENCE_SIDES[side]
-    document_id, page_no = current.get(doc_field), current.get(page_field)
-    text, how = current.get(text_field) or "", evidence_boxes_mod.QUOTE
-    if side == "standard" and not (document_id and page_no):
-        resolved = evidence_boxes_mod.checklist_standard(current, scope.allowed_document_ids)
-        if resolved is not None:
-            document_id, page_no = resolved["document_id"], resolved["page"]
-            text, how = resolved["text"], resolved["how"]
-        elif current.get("origin") == evidence_boxes_mod.CHECKLIST_ORIGIN and current.get("standard_clause"):
-            return {"document": None, "page": None, "rects": [], "box": None,
-                    "reason": f"{current['standard_clause']}: the standard is not in the library "
-                              "you may read, or the clause was not found in it"}
-    if (side == "submittal" and document_id and not page_no
-            and current.get("origin") == evidence_boxes_mod.CHECKLIST_ORIGIN
-            and not (current.get("contractor_evidence_text") or "").strip()
-            and scope.may_read(document_id)):
-        # #785 point 3: no value found, so no page cited - show where to look.
-        doc = dict(require_document(document_id, scope))
-        if doc.get("pagination") == "flow" or not doc.get("stored_path"):
-            return {"document": None, "page": None, "rects": [], "box": None,
-                    "reason": f"no value was found for {current.get('contractor_section') or 'this field'}"}
-        look = evidence_boxes_mod.where_to_look(current.get("contractor_section"), doc["stored_path"])
-        if look["page"] is None:
-            return {"document": None, "page": None, "rects": [], "box": None, "reason": look["reason"]}
-        return {"document": doc, "page": look["page"], "rects": look["rects"],
-                "box": evidence_boxes_mod.WHERE_TO_LOOK, "reason": None}
-    if not document_id or not page_no:
-        return {"document": None, "page": None, "rects": [], "box": None,
-                "reason": f"this finding cites no {side} page"}
-    if not scope.may_read(document_id):
-        return {"document": None, "page": None, "rects": [], "box": None,
-                "reason": f"this finding cites no {side} page"}
-    doc = dict(require_document(document_id, scope))
-    if doc.get("pagination") == "flow":
-        return {"document": None, "page": None, "rects": [], "box": None,
-                "reason": "a Word document has no printed pages"}
-    if side == "submittal":
-        rects, box = evidence_boxes_mod.submittal_box(current, doc["stored_path"], int(page_no))
-    else:
-        rects, box = evidence_boxes_mod.standard_box(text, doc["stored_path"], int(page_no), how)
-    reason = None
-    if not rects and not evidence_boxes_mod.has_text_layer(doc["stored_path"], int(page_no)):
-        # #508: a scanned page - box the recognised line, or say why not
-        texts = (evidence_boxes_mod.submittal_texts(current) if side == "submittal"
-                 else [t for t in (text,) if (t or "").strip()])
-        rects, box, reason = evidence_boxes_mod.scanned_box(
-            texts, doc["stored_path"], int(page_no), doc["sha256"])
-    return {"document": doc, "page": int(page_no), "rects": rects, "box": box, "reason": reason}
-
-
 def _finding_for_evidence(finding_id: str, scope: access.AccessScope) -> dict:
     current = review_mod.get(finding_id)
     if current is None or not scope.may_read(current["document_id"]):
@@ -2691,7 +2631,7 @@ def review_finding_evidence(
     current = _finding_for_evidence(finding_id, scope)
     out = {"finding_id": finding_id}
     for side in ("submittal", "standard"):
-        found = _evidence_side(current, side, scope)
+        found = evidence_boxes_mod.side(current, side, scope)
         doc = found["document"]
         out[side] = {"document_id": doc["id"] if doc else None,
                      "filename": doc.get("filename") if doc else None,
@@ -2728,7 +2668,7 @@ def review_finding_evidence_image(
     """
     reject_unknown_params(request, {"side", "dpi"})
     current = _finding_for_evidence(finding_id, scope)
-    found = _evidence_side(current, side, scope)
+    found = evidence_boxes_mod.side(current, side, scope)
     if found["document"] is None:
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, found["reason"]))
@@ -3183,7 +3123,7 @@ def ask(conversation_id: str, body: schemas.AskRequest,
             status_code=404,
             detail=errors.safe_error(
                 errors.NOT_FOUND, "no answered message with that id in this conversation"),
-        )
+        ) from None
 
 
 def _picked_documents(body: schemas.AskRequest, scope: access.AccessScope) -> frozenset[str] | None:
@@ -3204,10 +3144,10 @@ def _chat_action_errors(fn):
         return fn()
     except chat_actions.NotFound:
         raise HTTPException(status_code=404, detail=errors.safe_error(
-            errors.NOT_FOUND, "no such answer or comment in this conversation"))
+            errors.NOT_FOUND, "no such answer or comment in this conversation")) from None
     except (chat_actions.NothingToFile, chat_actions.UndoClosed) as exc:
         raise HTTPException(status_code=409, detail=errors.safe_error(
-            errors.INVALID_PARAMETER, str(exc)))
+            errors.INVALID_PARAMETER, str(exc))) from exc
 
 
 @app.post("/api/conversations/{conversation_id}/messages/{message_id}/feedback",
@@ -3246,10 +3186,10 @@ def chat_web_search(conversation_id: str, message_id: str,
                                         allowed_document_ids=scope.allowed_document_ids)
     except chat_web.NotFound:
         raise HTTPException(status_code=404, detail=errors.safe_error(
-            errors.NOT_FOUND, "no web question with that id in this conversation"))
+            errors.NOT_FOUND, "no web question with that id in this conversation")) from None
     except chat_web.Refused as exc:
         raise HTTPException(status_code=409, detail=errors.safe_error(
-            errors.INVALID_PARAMETER, str(exc)))
+            errors.INVALID_PARAMETER, str(exc))) from exc
     _record_market_audit(audit, scope)
     result["route"] = "web"
     result.update(chat_mod.chat_presentation.present(result))
@@ -3668,7 +3608,7 @@ def request_missing_standard(
             allowed_document_ids=scope.allowed_document_ids)
     except standards_acquisition_mod.AcquisitionError as exc:
         raise HTTPException(status_code=404, detail=errors.safe_error(
-            errors.NOT_FOUND, str(exc)))
+            errors.NOT_FOUND, str(exc))) from exc
 
 
 @app.post("/api/standards/{document_id}/provenance",
@@ -3691,7 +3631,7 @@ def record_standard_provenance(
     except standards_acquisition_mod.AcquisitionError as exc:
         status = 404 if "no such" in str(exc) else 422
         raise HTTPException(status_code=status, detail=errors.safe_error(
-            errors.NOT_FOUND if status == 404 else errors.INVALID_PARAMETER, str(exc)))
+            errors.NOT_FOUND if status == 404 else errors.INVALID_PARAMETER, str(exc))) from exc
 
 
 @app.get("/api/standards/{document_id}/provenance",
@@ -4034,8 +3974,7 @@ def cancel_job(
         cancelled, state = job_queue_mod.cancel(job_id, actor_user_id=(actor or {}).get("id"))
     if not cancelled:
         raise HTTPException(status_code=409, detail=errors.safe_error(
-            errors.INVALID_PARAMETER,
-            f"this job can no longer be cancelled; it is {state}"))
+            errors.INVALID_PARAMETER, f"this job can no longer be cancelled; it is {state}"))
     return job_queue_mod.get_job(job_id, allowed_document_ids=scope.allowed_document_ids)
 
 
@@ -4650,13 +4589,10 @@ def _prior_rejections(submittal_id: str, allowed: frozenset[str]
     rejected on ANY run of this submittal the caller may read - the latest
     rejection per key. Read only; keys as `crs_mapping.finding_comment_key`
     gives them, over the same CRS context the rows are built from."""
-    runs = [r["id"] for r in connect().execute(
-        "SELECT id FROM review_runs WHERE submittal_document_id = ?", (submittal_id,))]
-    rejected: list[dict] = []
-    for run_id in runs:
-        rejected.extend(f for f in submittal_review_mod.list_run_findings(
-            run_id, allowed_document_ids=allowed)
-            if f.get("approval_status") == "rejected")
+    # #1066: the rejected rows alone, in one query - this used to load every
+    # finding of every run of the submittal and keep the rejected ones.
+    rejected = submittal_review_mod.list_rejected_findings(
+        submittal_id, allowed_document_ids=allowed)
     if not rejected:
         return {}
     comparison_mod.attach_crs_context(rejected)
@@ -4805,6 +4741,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
             # states - so the same comment raised again by a re-run or on a
             # resubmittal is the one already confirmed, and is issued as such.
             row["engineer_confirmed"] = True
+    crs_issue_mod.apply_row_decisions(review_run_id, rows)  # #986: rows with no finding
     # A DRAFT THE ENGINEER ALREADY REJECTED SAYS SO (audit leftover
     # 2026-09-30). A new run of the same submittal raises the same comment
     # again as an unconfirmed draft; it is kept (a new run may be right), but
@@ -4902,7 +4839,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         # "internal" (with "AI Review Comments") or "issue" (to the contractor).
         "copy": copy,
         # 2f: the engineer's internal notes, on their own sheet.
-        "review_notes": crs_mapping_mod.build_review_notes(findings, missing, unread) + [
+        "review_notes": crs_mapping_mod.build_review_notes(findings, missing, unread, outcome) + [
             {"note": "Not checked", "standard": "", "count": None, "detail": part["line"]}
             for part in unchecked],
         "unchecked_parts": [part["line"] for part in unchecked],
@@ -4981,8 +4918,7 @@ def _readiness_payload(submittal_document_id: str, scope: access.AccessScope) ->
     the GET route and the re-extraction route below, so "what changed" is
     computed once and cannot drift into two answers (CLAUDE.md rule 8)."""
     allowed = scope.allowed_document_ids
-    page_ledger_mod.refresh(submittal_document_id, as_submittal=True)
-    pages = page_ledger_mod.coverage(submittal_document_id)
+    # #1017: a GET writes nothing (#478) - the ledger is READ, never rebuilt here.
     missing = _missing_references(submittal_document_id, allowed)
     runs = submittal_review_mod.list_review_runs(
         allowed_document_ids=allowed, submittal_document_id=submittal_document_id)
@@ -5027,17 +4963,7 @@ def _readiness_payload(submittal_document_id: str, scope: access.AccessScope) ->
         if scope.may_read(r["id"])] if last else []
     return {
         "submittal_document_id": submittal_document_id,
-        "pages_total": pages.get("pages_total"),
-        "pages_read": len(pages.get("fact_pages") or []),
-        "unread_pages": pages.get("pages_not_read_into_fields") or [],
-        # HONESTY GROUP (2026-09-27): the ledger has always recorded WHY a
-        # page did not read into fields (`page_ledger.coverage`'s own
-        # `not_read_reasons`, keyed by page); this route simply never carried
-        # it past `unread_pages`, so the strip could say a page was unread
-        # but never say why - the same "not mentioned" silence CLAUDE.md rule
-        # 4 forbids elsewhere. Keyed by the page number AS A STRING because
-        # that is what a JSON object key is.
-        "unread_page_reasons": pages.get("not_read_reasons") or {},
+        **page_ledger_mod.readiness_pages(submittal_document_id),
         "standards_cited": len(held) + len(missing),
         "standards_held": held,
         "standards_missing": missing,
@@ -5276,9 +5202,11 @@ def decide_crs_open_finding(
     on the finding (accepted and confirmed, or rejected, by the caller) and
     the reason is kept beside it."""
     actor = _crs_decision_actor(review_run_id, scope)
+    rows = _crs_content(review_run_id, scope, "internal")[0]
     current = review_mod.get(finding_id)
-    if (current is None or current.get("review_run_id") != review_run_id
-            or not scope.may_read(current["document_id"])):
+    is_finding = (current is not None and current.get("review_run_id") == review_run_id
+                  and scope.may_read(current["document_id"]))
+    if not is_finding and not crs_issue_mod.is_open_row_key(rows, finding_id):  # #986
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "no review finding with that id in this run"))
     try:
@@ -5287,12 +5215,9 @@ def decide_crs_open_finding(
     except crs_issue_mod.IssueError as exc:
         raise HTTPException(status_code=422, detail=errors.safe_error(
             errors.INVALID_PARAMETER, str(exc))) from exc
-    now = review_mod.now_iso()
-    changes = {"approval_status": "accepted" if body.decision == "accept" else "rejected",
-               "approved_by": actor, "approved_at": now}
-    if body.decision == "accept":
-        changes.update({"confirmed_by": actor, "confirmed_at": now})
-    review_mod.update(finding_id, changes, actor_user_id=actor)
+    changes = crs_issue_mod.finding_changes(body.decision, actor, review_mod.now_iso())
+    for fid in crs_issue_mod.group_of(rows, finding_id) if is_finding else []:
+        review_mod.update(fid, changes, actor_user_id=actor)
     _mint_crs_numbers(review_run_id, scope)
     return record
 
@@ -5322,8 +5247,7 @@ def issue_review_crs(
             "be issued to the contractor"))
     if not gate["issuable"]:
         raise HTTPException(status_code=409, detail=errors.safe_error(
-            errors.CRS_NOT_FINISHED,
-            "the contractor's copy is not finished: " + "; ".join(gate["blockers"])))
+            errors.CRS_NOT_FINISHED, "the contractor's copy is not finished: " + "; ".join(gate["blockers"])))
     workbook, filename = _crs_workbook(review_run_id, scope, crs_export_mod.COPY_ISSUE)
     record = crs_issue_mod.archive(review_run_id, workbook, filename,
                                    actor=scope.user_id or "unrestricted")
@@ -5625,3 +5549,10 @@ def import_crs_reply(
         counts[key] += 1
         rows.append({"row": reply["row"], "item": reply["item"][:80], "outcome": outcome})
     return {"rows_read": len(replies), **counts, "rows": rows}
+
+
+# Order 69: the API description grouped by area, file responses typed. Docs only;
+# a route with no area fails the description build (test_api_tags).
+from . import api_tags as api_tags_mod  # noqa: E402
+
+api_tags_mod.describe(app)

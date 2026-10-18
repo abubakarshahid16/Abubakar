@@ -26,7 +26,8 @@ as SQLite BLOBs, brute-force over a numpy memmap in
 `backend/app/vectorcache.py` — **not LanceDB**, despite `lancedb` being pinned
 in `backend/requirements.txt`), fused by `rrf_fuse`, then cross-encoder
 reranked. That is the guide's recommended four-step pipeline, already built.
-`standards.search_requirements` reuses it; comparison-time requirement
+(`standards.search_requirements` reused it until it was retired, never
+called, in #197.) Comparison-time requirement
 retrieval (`submittal_review.list_standard_requirements`) is an exhaustive SQL
 fetch per applicable standard — exact, so it has no recall loss to fix.
 

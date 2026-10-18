@@ -52,8 +52,8 @@ carries the client's name; only the owner can rename it.
    `MATCH_ENGINE` - owner decision 2026-10-12, #501) AND both `STANDARDS_READER_*` egress
    flags AND a key - owner decision 2026-09-25, USD caps in `claude_spend`,
    which the three `claude_api` review routes reach via `claude_spend.metered`) and the datasheet AI reader (`datasheet_ai`, with `DATASHEET_AI_READER=claude`) reaches the same way and
-   `notifications.py` (SMTP, off by default). Known gap: the socket-containment
-   test does not yet cover `smtplib` (honesty audit entry 49). Known gap: the
+   `notifications.py` (SMTP, off by default; in the socket-containment test
+   since #196). Known gap: the
    `claude_api` review routes check the two egress flags but not
    `REASONING_PROVIDER` (audit 2026-09-25 finding 1). Call graph:
    `docs/architecture-call-graph.md`.

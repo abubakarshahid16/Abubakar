@@ -366,6 +366,12 @@ def _commit_batch(doc_id: str, job_id: str, batch_no: int, rows: list[tuple]) ->
         )
 
 
+#: The job stages this module owns: 'extract' while pages are read, 'chunk'
+#: once it hands over (the same pair `ingest` resumes and reports on).
+EXTRACT_STAGES = ("extract", "chunk")
+_STAGE_MARKS = ",".join("?" * len(EXTRACT_STAGES))
+
+
 def extract_document(doc_id: str, progress=None) -> dict:
     """Extract one document, resuming from its last completed batch.
 
@@ -376,10 +382,16 @@ def extract_document(doc_id: str, progress=None) -> dict:
     if doc is None:
         raise ValueError(f"unknown document {doc_id}")
     job = conn.execute(
-        "SELECT * FROM jobs WHERE document_id = ? ORDER BY started_at DESC LIMIT 1", (doc_id,)
+        # #473 (DB-M3): THIS STAGE'S JOB, not the document's newest job. A
+        # document also gets rows for later stages (a review, the facts
+        # reader's failure marker, a standards extraction); the newest row
+        # used to be taken whatever its stage, and this run's page progress
+        # and 'done' were then written onto that other job.
+        f"SELECT * FROM jobs WHERE document_id = ? AND stage IN ({_STAGE_MARKS})"
+        " ORDER BY started_at DESC LIMIT 1", (doc_id, *EXTRACT_STAGES)
     ).fetchone()
     if job is None:
-        raise ValueError(f"no job for {doc_id}")
+        raise ValueError(f"no extract job for {doc_id}")
 
     pdf_path = doc["stored_path"]
     if not os.path.exists(pdf_path):

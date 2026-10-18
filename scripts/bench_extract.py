@@ -1,17 +1,24 @@
 """Clean-run extraction benchmark. Resets each document, then measures."""
-import os, subprocess, sqlite3, sys, time, csv
+import os, subprocess, sqlite3, sys, tempfile, time, csv
+from pathlib import Path
 
-BACKEND = r"d:\project\Rag_chatbot\backend"
-PY = r"d:\project\Rag_chatbot\.venv\Scripts\python.exe"
-DB = os.path.join(BACKEND, "data", "rag_intelligence.sqlite")
+#: Portable (#498): the repository is found from this file, the interpreter is the
+#: one running this script, and the database is the backend's own setting.
+REPO = Path(__file__).resolve().parents[1]
+BACKEND = str(REPO / "backend")
+PY = sys.executable
+sys.path.insert(0, BACKEND)
+from app.config import settings  # noqa: E402
+
+DB = str(settings.db_path)
 DOCS = [("doc_b02fb622b193", "book1-professionalpractices.pdf"),
         ("doc_0c5c007fcedd", "book2-Differential-Equations.pdf")]
 
 print(f"{'document':38} {'pages':>6} {'ocr':>4} {'secs':>7} {'pages/s':>9} {'peakRSS':>9}")
 print("-" * 78)
 for doc, name in DOCS:
-    subprocess.run([PY, r"..\scripts\resetdoc.py", doc], cwd=BACKEND, capture_output=True)
-    memlog = os.path.join(os.environ["TEMP"], f"mem_{doc}.csv")
+    subprocess.run([PY, str(REPO / "scripts" / "resetdoc.py"), doc], cwd=BACKEND, capture_output=True)
+    memlog = os.path.join(tempfile.gettempdir(), f"mem_{doc}.csv")
     t0 = time.perf_counter()
     r = subprocess.run([PY, "-m", "tools.worker", doc, "--memlog", memlog],
                        cwd=BACKEND, capture_output=True, text=True)
