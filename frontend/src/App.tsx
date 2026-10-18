@@ -25,7 +25,7 @@ import { ReviewSheetView } from "./views/ReviewSheetView";
 import { SubmittalsLandingView } from "./views/SubmittalsLandingView";
 import type { AuthStatus, Me } from "./types/api";
 import { NavigationContext } from "./components/NavLink";
-import { parseRoute, pathForView, titleForView, type AppRoute } from "./routing";
+import { INBOX_RECORD, parseRoute, pathForView, titleForView, type AppRoute } from "./routing";
 
 //: One key, named once. A typo in a second literal is a preference that
 //: silently never persists.
@@ -335,7 +335,12 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
               contractors; opening or starting a run takes you to the
               existing review screen (unchanged - that is PR2's job). */}
           {view === "review" && (
-            route.kind === "view" && route.recordId ? (
+            route.kind === "view" && route.recordId === INBOX_RECORD && !route.panel ? (
+              <SubmittalsLandingView
+                inbox onOpenRun={(runId) => onNavigate("review", runId)}
+                onOpenList={() => onNavigate("review")}
+              />
+            ) : route.kind === "view" && route.recordId ? (
               <ReviewSheetView
                 key={route.recordId} runId={route.recordId} panel={route.panel}
                 onBack={() => onNavigate("review")}
@@ -345,7 +350,10 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
                 isAdmin={canAdmin}
               />
             ) : (
-              <SubmittalsLandingView onOpenRun={(runId) => onNavigate("review", runId)} />
+              <SubmittalsLandingView
+                onOpenRun={(runId) => onNavigate("review", runId)}
+                onOpenInbox={() => onNavigate("review", INBOX_RECORD)}
+              />
             )
           )}
           {/* `canAdmin &&` is the gate, not the absence of a nav entry. Setting

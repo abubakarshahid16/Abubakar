@@ -14,6 +14,8 @@ import { useCallback, useEffect, useState } from "react";
 import { api, reviews as reviewsApi } from "../api/client";
 import type { DocumentRecord, ReviewRunSummary } from "../types/api";
 import { DocumentsFromContractors } from "../components/review/DocumentsFromContractors";
+import { InboxList } from "../components/review/inbox/InboxList";
+import { INBOX_IS_DEFAULT } from "../routing";
 import { LIST_MAX, groupRunsByDocument, totalFromResponse } from "../components/review/reviewFormat";
 import { anyMoving, inboxStateOf } from "../components/review/inbox/inboxState";
 
@@ -30,7 +32,13 @@ interface BatchResult {
   refused: { filename: string; message: string }[];
 }
 
-export function SubmittalsLandingView({ onOpenRun }: { onOpenRun: (runId: string) => void }) {
+export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onOpenInbox, onOpenList }: {
+  onOpenRun: (runId: string) => void;
+  /** Order 95 piece 3: show the inbox (/review/inbox) rather than the list. */
+  inbox?: boolean;
+  onOpenInbox?: () => void;
+  onOpenList?: () => void;
+}) {
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [submittalsTotal, setSubmittalsTotal] = useState<number | null>(null);
@@ -57,7 +65,7 @@ export function SubmittalsLandingView({ onOpenRun }: { onOpenRun: (runId: string
 
   useEffect(() => { void load(); }, [load]);
 
-  const moving = phase.kind === "ready"
+  const moving = inbox && phase.kind === "ready"
     && anyMoving(groupRunsByDocument(runs).map((group) => inboxStateOf(group.latest)));
   useEffect(() => {
     if (!moving) return undefined;
@@ -142,8 +150,31 @@ export function SubmittalsLandingView({ onOpenRun }: { onOpenRun: (runId: string
         </div>
       )}
 
-      {phase.kind === "ready" && (
+      {!inbox && onOpenInbox && (
+        <p className="text-sm text-slateish-300">
+          <button type="button" onClick={onOpenInbox} className="font-medium text-signal-400 hover:underline">
+            Try the new inbox
+          </button>{" "}
+          - where each review stands, filtered to what needs you. This list stays the default for now.
+        </p>
+      )}
+      {inbox && onOpenList && (
+        <p className="text-sm text-slateish-300">
+          <button type="button" onClick={onOpenList} className="font-medium text-signal-400 hover:underline">
+            Back to the current list
+          </button>
+        </p>
+      )}
+
+      {phase.kind === "ready" && !inbox && (
         <DocumentsFromContractors
+          documents={documents} runs={runs} submittalsTotal={submittalsTotal}
+          onReview={(documentId) => void reviewDocument(documentId)}
+          startingDocumentId={startingDocumentId}
+        />
+      )}
+      {phase.kind === "ready" && inbox && (
+        <InboxList
           documents={documents} runs={runs} submittalsTotal={submittalsTotal}
           onReview={(documentId) => void reviewDocument(documentId)}
           onOpenRun={onOpenRun}
