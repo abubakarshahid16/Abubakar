@@ -16,7 +16,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api, reviews as reviewsApi } from "../api/client";
 import type { CrsIssueGate, DocumentRecord, ReviewFinding, ReviewRunSummary } from "../types/api";
-import { downloadCrs } from "../components/review/downloadCrs";
 import { progressLine, runStatusLabel } from "../components/review/reviewFormat";
 import { DecisionCard } from "../components/review/sheet/DecisionCard";
 import { DocumentPane, type PaneView } from "../components/review/sheet/DocumentPane";
@@ -59,7 +58,6 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
   const [view, setView] = useState<PaneView>({ page: null, rule: null });
   // #791: the status a count in the review steps was clicked for.
   const [focusStatus, setFocusStatus] = useState<string | null>(null);
-  const [send, setSend] = useState<{ kind: "idle" | "sending" | "sent" } | { kind: "error"; message: string }>({ kind: "idle" });
   // #967 PR 4: "show it on the page" (T, or the card's link) - counted, so
   // each ask scrolls the datasheet into view and pulses its frame once.
   const [pulse, setPulse] = useState(0);
@@ -159,15 +157,9 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
   const done = progress(cards);
   const allAnswered = done.answered === done.total;
   const finalCode = run?.engineer_final_code ?? null;
-  const canSend = allAnswered && Boolean(finalCode) && Boolean(gate?.issuable) && send.kind !== "sending";
-
-  async function sendToContractor() {
-    setSend({ kind: "sending" });
-    const message = await downloadCrs(runId, "issue");
-    if (message) { setSend({ kind: "error", message }); return; }
-    setSend({ kind: "sent" });
-    void refresh();
-  }
+  // Order 121: the comment sheet is where a review is signed. This older
+  // view sends the engineer there; it no longer issues the copy itself.
+  const sheetPanel = panelForReviewScreen("crsSheet", CRS_SHEET_IS_DEFAULT);
 
   return (
     <section className="mx-auto w-full max-w-7xl space-y-5" aria-labelledby="sheet-title">
@@ -193,16 +185,18 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
             )}
           </div>
           {cards.length > 0 && <ProgressRing answered={done.answered} total={done.total} />}
-          <button type="button" onClick={() => void sendToContractor()} disabled={!canSend}
-            className="rounded-[var(--radius-sm)] bg-signal-500 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50">
-            {send.kind === "sending" ? "Sending…" : "Send comments to contractor"}
-          </button>
+          <NavLink view="review" recordId={runId} panel={sheetPanel}
+            className="rounded-[var(--radius-sm)] bg-signal-500 px-4 py-2 text-sm font-semibold text-ink-950">
+            Sign and export on the comment sheet
+          </NavLink>
         </div>
+        <p role="note" data-testid="older-view" className="rounded-[var(--radius-sm)] border border-warn-500/40 bg-warn-500/10 px-3 py-2 text-sm text-slateish-200">
+          Older view. Decisions are made on the comment sheet.{" "}
+          <NavLink view="review" recordId={runId} panel={sheetPanel} className="text-signal-300 underline-offset-2 hover:underline">
+            Go to the comment sheet
+          </NavLink>
+        </p>
         {run && <RunIncompleteNotes run={run} />}
-        {send.kind === "sent" && <p role="status" className="text-sm text-signal-300">Sent. The issued copy was downloaded and kept on record.</p>}
-        {send.kind === "error" && (
-          <p role="alert" className="rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-sm text-danger-500">{send.message}</p>
-        )}
       </header>
 
       {load.kind === "loading" && <p className="text-slateish-300">Loading the review…</p>}
