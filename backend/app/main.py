@@ -263,6 +263,7 @@ from .api import deliverables as api_deliverables  # noqa: E402
 from .api import document_classification as api_document_classification  # noqa: E402
 from .api import document_files as api_document_files  # noqa: E402
 from .api import documents as api_documents  # noqa: E402
+from .api import review_templates as api_review_templates  # noqa: E402
 from .api import run_summary as api_run_summary  # noqa: E402
 from .api import standards as api_standards  # noqa: E402
 
@@ -270,6 +271,7 @@ from .api import standards as api_standards  # noqa: E402
 for _r in (api_documents, api_document_classification, api_document_files, api_admin):
     app.include_router(_r.router)
 app.include_router(api_run_summary.router)
+app.include_router(api_review_templates.router)
 app.include_router(api_standards.router)
 app.include_router(api_crs_archive.router)
 app.include_router(api_deliverables.router)
@@ -1140,33 +1142,6 @@ def download_report(report_id: str,
 
 # ------------------------------------------------------- engineering reviews
 
-@app.get("/api/reviews/templates", response_model=schemas.ReviewTemplateList,
-         responses=schemas.ERRORS_422)
-def list_review_templates(
-    request: Request,
-    discipline: str | None = Query(None),
-    deliverable_type: str | None = Query(None),
-    active_only: bool = Query(True),
-    limit: int | None = paging_mod.limit_param(),
-    offset: int = paging_mod.offset_param(),
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """List versioned, governed review templates available to the caller."""
-    reject_unknown_params(
-        request, {"discipline", "deliverable_type", "active_only", "limit", "offset"}
-    )
-    return paging_mod.page_body(
-        "templates",
-        review_mod.list_templates(
-            active_only=active_only,
-            discipline=discipline,
-            deliverable_type=deliverable_type,
-        ),
-        limit,
-        offset,
-    )
-
-
 @app.post("/api/reviews/templates", response_model=schemas.ReviewTemplate,
           responses={**schemas.ERRORS_401, **schemas.ERRORS_422})
 def create_review_template(
@@ -1181,17 +1156,6 @@ def create_review_template(
     """
     _require_identity_to_write(scope)
     return review_mod.create_template(body.model_dump(), created_by=scope.user_id)
-
-
-@app.get("/api/reviews/baseline-rules", response_model=schemas.ReviewBaselineRuleList)
-def list_review_baseline_rules(
-    limit: int | None = paging_mod.limit_param(),
-    offset: int = paging_mod.offset_param(),
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    return paging_mod.page_body(
-        "rules", review_mod.list_baseline_rules(), limit, offset
-    )
 
 
 @app.post("/api/reviews/baseline-rules", response_model=schemas.ReviewBaselineRule,
