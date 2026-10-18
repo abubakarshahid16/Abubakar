@@ -80,7 +80,7 @@ def _pid_alive(pid: int) -> bool | None:
     try:
         return bool(psutil.pid_exists(pid))
     except Exception as exc:  # noqa: BLE001 - "cannot tell" is a valid answer
-        log.debug("heavy_lock: the lock holder's process could not be checked; treated as unknown (%s)", type(exc).__name__)
+        log.debug("heavy_lock: holder could not be checked (%s)", type(exc).__name__)
         return None
 
 

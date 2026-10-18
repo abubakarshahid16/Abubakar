@@ -231,7 +231,7 @@ def _reranker_name() -> str:
     try:
         data = json.loads(cfg.read_text(encoding="utf-8"))
     except Exception as exc:  # noqa: BLE001 - a dashboard label must never 500
-        log.info("metrics: the reranker's config could not be read; its name is shown unavailable (%s)", type(exc).__name__)
+        log.info("metrics: reranker config unreadable (%s)", type(exc).__name__)
         return f"{reranker_mod.model_dir().name} (name unavailable)"
     for key in ("_name_or_path", "name_or_path", "model_type"):
         value = data.get(key)
@@ -341,7 +341,7 @@ def _probe_ollama() -> dict:
         # 24 again - a control whose absence is invisible.
         raise
     except Exception as exc:  # noqa: BLE001 - a stopped Ollama is a state, not a crash
-        log.info("metrics: the Ollama status call failed; shown as ollama_error (%s)", type(exc).__name__)
+        log.info("metrics: Ollama status call failed (%s)", type(exc).__name__)
         info["ollama_error"] = type(exc).__name__
     return info
 
@@ -521,7 +521,7 @@ def _vector_store_status(host: bool) -> dict | None:
     try:
         return vector_store.status(include_counts=host)
     except Exception as exc:  # noqa: BLE001 - a status probe must not break the dashboard
-        log.info("metrics: the vector store status could not be read; none is shown (%s)", type(exc).__name__)
+        log.info("metrics: vector store status unreadable (%s)", type(exc).__name__)
         return None
 
 

@@ -5,6 +5,7 @@ Each handler either re-raises or logs what failed and the error's TYPE (the
 #655 pattern; never document text). Where the error is knowable it is caught
 exactly: the chat stream's poll catches `queue.Empty`, not every error.
 """
+
 from __future__ import annotations
 
 import ast
@@ -14,10 +15,32 @@ import pathlib
 import pytest
 
 APP = pathlib.Path(__file__).resolve().parent.parent / "app"
-INFRA = ("auth", "chat_web", "claude_spend", "db", "heavy_lock", "job_queue", "live_guard",
-         "main", "metrics", "model_memory", "notifications", "progress", "risks",
-         "telemetry", "warmup")
-LOGS = ("log.", "logger.", "logging.", "record_failure", "_say_once(", "log_exception", "fell_back(")
+INFRA = (
+    "auth",
+    "chat_web",
+    "claude_spend",
+    "db",
+    "heavy_lock",
+    "job_queue",
+    "live_guard",
+    "main",
+    "metrics",
+    "model_memory",
+    "notifications",
+    "progress",
+    "risks",
+    "telemetry",
+    "warmup",
+)
+LOGS = (
+    "log.",
+    "logger.",
+    "logging.",
+    "record_failure",
+    "_say_once(",
+    "log_exception",
+    "fell_back(",
+)
 
 
 def _silent(module: str) -> list[int]:
@@ -26,9 +49,13 @@ def _silent(module: str) -> list[int]:
         if not isinstance(node, ast.ExceptHandler):
             continue
         t = node.type
-        names = [] if t is None else ([t] if not isinstance(t, ast.Tuple) else list(t.elts))
-        broad = t is None or any(isinstance(n, ast.Name) and n.id in ("Exception", "BaseException")
-                                 for n in names)
+        names = (
+            [] if t is None else ([t] if not isinstance(t, ast.Tuple) else list(t.elts))
+        )
+        broad = t is None or any(
+            isinstance(n, ast.Name) and n.id in ("Exception", "BaseException")
+            for n in names
+        )
         if not broad or any(isinstance(n, ast.Raise) for n in ast.walk(node)):
             continue
         if not any(word in ast.unparse(node) for word in LOGS):
@@ -38,18 +65,24 @@ def _silent(module: str) -> list[int]:
 
 @pytest.mark.parametrize("module", INFRA)
 def test_every_broad_catch_in_the_infrastructure_modules_logs_or_reraises(module):
-    assert _silent(module) == [], f"{module}.py swallows errors silently at lines {_silent(module)}"
+    assert _silent(module) == [], (
+        f"{module}.py swallows errors silently at lines {_silent(module)}"
+    )
 
 
 def test_the_chat_stream_poll_catches_only_an_empty_queue():
     tree = ast.parse((APP / "main.py").read_text(encoding="utf-8"))
-    polls = [h for h in ast.walk(tree) if isinstance(h, ast.Try)
-             and "get_nowait" in ast.unparse(h.body[0])]
+    polls = [
+        h
+        for h in ast.walk(tree)
+        if isinstance(h, ast.Try) and "get_nowait" in ast.unparse(h.body[0])
+    ]
     assert polls, "the chat stream's queue poll was not found"
     assert all(ast.unparse(h.handlers[0].type) == "chat_stream.Empty" for h in polls)
     import queue
 
     from app import chat_stream
+
     assert chat_stream.Empty is queue.Empty
 
 
