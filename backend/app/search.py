@@ -38,9 +38,8 @@ from .rates import Timer
 #: one of the two lists is empty, which is the normal case before embedding.
 RRF_K = 60
 
-#: How much an exact identifier match is worth, as a fraction of the top RRF
-#: score. Deliberately additive rather than multiplicative so it cannot
-#: dominate a result that matches nothing else.
+#: How much an exact identifier match is worth, as a fraction of the top RRF score. Deliberately
+#: additive rather than multiplicative so it cannot dominate a result that matches nothing else.
 #:
 #: RRF SCALE ONLY. It orders the pool before reranking and is the ordering
 #: when the reranker is unavailable. After reranking it is NOT used: at most
@@ -937,6 +936,7 @@ def apply_heading_precedence(candidates: list[Candidate]) -> str | None:
 SUPPORTING_WITHIN = 0.35
 
 
+@acronyms.records_acronym_map  # #615: built maps only; the result says how many were missing
 def search(
     question: str,
     limit: int = 10,

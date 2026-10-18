@@ -1,6 +1,22 @@
 import type { AnswerPassage, Answerability, Comparison, ConditionChoice, CorpusFact, EvidenceRemoved, AnswerType, Message, ScopeAmbiguity, Understanding } from "../../types/api";
 import { PassageLocation } from "./EvidencePanel";
 /** The parts of an answer this card renders, from a live reply or a replay. */
+/** #615: the abbreviation maps an answer could use (the Gap analysis shape). */
+export interface AcronymMap {
+  documents_not_ready: number;
+  complete: boolean;
+}
+
+/** #615: what the reader is told when some documents' abbreviations were not
+ *  ready yet. Null when the map was complete or nothing was recorded (an
+ *  older answer): nothing is said, never "0". */
+export function acronymNote(map: AcronymMap | null | undefined): string | null {
+  if (!map || map.complete || !(map.documents_not_ready > 0)) return null;
+  const n = map.documents_not_ready;
+  return `Abbreviations defined in ${n} document${n === 1 ? "" : "s"} were not used for this answer: `
+    + "they are still being prepared. Ask again in a minute and an abbreviation those documents define will be matched too.";
+}
+
 export interface AnswerView {
   answer_type: AnswerType;
   answer: string | null;
@@ -29,6 +45,8 @@ export interface AnswerView {
   counts_bounded?: number;
   /** B8: the answer-level verdict. */
   answerability?: Answerability | null;
+  /** #615: how many documents' abbreviations were not ready for this answer. */
+  acronym_map?: AcronymMap | null;
   /** B6C: how the question was scoped. */
   understanding?: Understanding | null;
   scope_ambiguity?: ScopeAmbiguity | null;
@@ -93,6 +111,7 @@ export function viewFromMessage(m: Message): AnswerView {
     corpus: p.corpus ?? null,
     counts_bounded: p.counts_bounded ?? 0,
     answerability: p.answerability ?? null,
+    acronym_map: p.acronym_map ?? null,
     understanding: p.understanding ?? null,
     scope_ambiguity: p.scope_ambiguity ?? null,
     condition_choice: p.condition_choice ?? null,

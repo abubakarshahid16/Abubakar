@@ -648,7 +648,7 @@ _PAYLOAD_KEYS = (
     # reopened without it, an options answer would look like one answer.
     "condition_choice",
     # B8: the answer-level verdict, reopened exactly as it was given.
-    "answerability",
+    "answerability", "acronym_map",  # #615: an answer given before every acronym map was built says so
     # Chat redesign (2026-09-26): what the answer says about itself - see
     # chat_presentation. Additive: a turn stored before these existed simply
     # has none of them, and renders as it always did.

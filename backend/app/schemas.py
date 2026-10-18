@@ -971,9 +971,8 @@ class Passage(BaseModel):
 # WHAT A DOCUMENT IS. Not who may read it - `disciplines` and
 # `document_role_access` decide that, and nothing here touches them.
 #
-# Typed because tests/test_no_internal_leaks.py requires every 2xx to declare
-# a schema: an untyped 200 documents itself as `string`, and every frontend
-# type written against it is then a guess.
+# Typed because tests/test_no_internal_leaks.py requires every 2xx to declare a schema: an untyped
+# 200 documents itself as `string`, and every frontend type written against it is then a guess.
 
 
 class SubjectRow(BaseModel):
@@ -1324,6 +1323,7 @@ class SearchResult(BaseModel):
     #: the first when it means the second. Optional so a response predating
     #: the filter still validates.
     applied_scope: AppliedScope | None = None
+    acronym_map: dict | None = None  # #615: {documents_not_ready, complete} - maps still building were not used
 
 
 AnswerType = Literal[
@@ -1334,8 +1334,7 @@ AnswerType = Literal[
     # the input was never a document question - a greeting, thanks, chitchat
     "guidance",
     "metadata",
-    # chat redesign 2026-09-26: model general knowledge (never cited) and a
-    # workflow-records search
+    # chat redesign 2026-09-26: model general knowledge (never cited) and a workflow-records search
     "general",
     "records",
     # chat redesign PR 3: the reader pressed Stop; `answer` is what they were shown
@@ -3413,6 +3412,7 @@ class AnswerResult(ChatPresentation):
         "The UI must never present one as the other."
     )
     answer: str | None
+    acronym_map: dict | None = None  # #615: as on SearchResult
     reason: str | None = Field(None, description="why there is no answer")
     passage: AnswerPassage | None = None
     answer_passages: list[AnswerPassage] = Field(

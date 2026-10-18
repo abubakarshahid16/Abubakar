@@ -147,6 +147,12 @@ def run_questions(questions: list[dict]) -> list[dict]:
     from app.search import every_document_id
 
     scope = every_document_id()
+    # #615: a request never builds an acronym map; the server builds them all
+    # at startup (warmup) and after each ingest. The harness has no startup,
+    # so it does the same here, once, before the first question - otherwise
+    # P1 would measure a cold server that no engineer ever uses.
+    from app import acronyms
+    acronyms.warm_all()
     rows = []
     for q in questions:
         conv = chat_mod.create_conversation(title=f"p1 {q['id']}")["id"]

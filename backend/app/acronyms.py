@@ -33,6 +33,7 @@ CPS, and "show that" is not AB.
 from __future__ import annotations
 
 import contextvars
+import functools
 import logging
 import re
 import threading
@@ -125,6 +126,10 @@ _build_lock = threading.Lock()
 #: skipped, recorded in the list, and the caller says so in its result. The
 #: build belongs to the startup warm-up and to `warm_in_background`, never to
 #: a request (cold build measured at about 21 s on 40,293 chunks).
+#: #615: inside a request scope, the corpus fingerprint per (document_id,
+#: scope), so `harvest` called once per claim reads it once per request.
+_SIGNATURES: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "acronym_signatures", default=None)
 _NO_BUILD: contextvars.ContextVar[list[str] | None] = contextvars.ContextVar(
     "acronyms_no_build", default=None)
 
@@ -132,13 +137,76 @@ _NO_BUILD: contextvars.ContextVar[list[str] | None] = contextvars.ContextVar(
 @contextmanager
 def request_scope() -> Iterator[list[str]]:
     """Inside, `harvest` never builds a missing document map. Yields the list
-    of document ids that were skipped because their map was not built yet."""
+    of document ids that were skipped because their map was not built yet.
+
+    REENTRANT (#615): a scope opened inside another (chat -> answer -> search)
+    shares the outer one's list and signature memo, so the outermost caller
+    reports every skip, and the corpus fingerprint is read once per request.
+    """
+    outer = _NO_BUILD.get()
+    if outer is not None:
+        yield outer
+        return
     skipped: list[str] = []
     token = _NO_BUILD.set(skipped)
+    memo = _SIGNATURES.set({})
     try:
         yield skipped
     finally:
+        _SIGNATURES.reset(memo)
         _NO_BUILD.reset(token)
+
+
+@contextmanager
+def serving_scope() -> Iterator[list[str]]:
+    """The scope chat and search run in (#615).
+
+    With the background builder on (`startup_warmup`, the server's default),
+    this is `request_scope`: the request uses only the maps already built and
+    never reads the whole corpus; the missing ones build in the background.
+    With it off (the test suite, scripts), nothing would ever build them, so
+    the request builds what it needs as before - skipping would mean the
+    corpus's own abbreviations are never used at all. Either way the corpus
+    fingerprint is read once per request, not once per call.
+    """
+    if settings.startup_warmup:
+        with request_scope() as skipped:
+            yield skipped
+        return
+    outer = _NO_BUILD.get()
+    if outer is not None or _SIGNATURES.get() is not None:
+        yield outer if outer is not None else []
+        return
+    memo = _SIGNATURES.set({})
+    try:
+        yield []
+    finally:
+        _SIGNATURES.reset(memo)
+
+
+def map_record(skipped: list[str]) -> dict:
+    """What a response says about the acronym maps it used (#615), in the
+    shape the Gap analysis already returns: how many documents in scope had
+    no map yet, and whether the map was complete. A request never builds a
+    map; the missing ones are built in the background (`warm_in_background`).
+    """
+    missing = len(set(skipped))
+    if missing:
+        warm_in_background()
+    return {"documents_not_ready": missing, "complete": missing == 0}
+
+
+def records_acronym_map(fn):
+    """Run a search or an answer inside `serving_scope` and put
+    `map_record` on its result as `acronym_map` (#615): the request uses only
+    the maps already built, and says how many documents had none yet."""
+    @functools.wraps(fn)
+    def in_serving_scope(*args, **kwargs):
+        with serving_scope() as not_ready:
+            result = fn(*args, **kwargs)
+        result["acronym_map"] = map_record(not_ready)
+        return result
+    return in_serving_scope
 
 
 def looks_like_acronym(term: str) -> bool:
@@ -330,7 +398,13 @@ def harvest(
     """
     if not allowed_document_ids:
         return {}
-    signatures = _signatures(document_id, allowed_document_ids)
+    memo = _SIGNATURES.get()
+    memo_key = (document_id, allowed_document_ids)
+    signatures = memo.get(memo_key) if memo is not None else None
+    if signatures is None:
+        signatures = _signatures(document_id, allowed_document_ids)
+        if memo is not None:
+            memo[memo_key] = signatures
     # The scope and every contributing document's fingerprint are the key.
     # Without the scope, one caller's map was served to the next.
     key = (str(settings.db_path), document_id, allowed_document_ids,
