@@ -88,6 +88,13 @@ function statusOf(state: CardState, tier: TierResult): string {
   return state === "agreed" ? "Kept earlier" : "Open";
 }
 
+/** Order 112: a finding's text may open with the review's internal reason
+ *  code ("no_field_matched: ...", "ambiguous_match: ..."). The words after
+ *  the colon are already plain; the code itself is not for the engineer. */
+export function plainObservation(text: string): string {
+  return text.replace(/^[a-z]+(?:_[a-z]+)+:\s*/, "");
+}
+
 function rowOf(key: string, findings: ReviewFinding[], state: CardState, tier: TierResult, standardNames: Map<string, string>): CrsRow {
   const leader = findings[0];
   const extra = findings.length > 1 ? groupLine({ key, findings, state, page: null, pages: [] }) : "";
@@ -96,7 +103,7 @@ function rowOf(key: string, findings: ReviewFinding[], state: CardState, tier: T
     pageOrSection: pageOrSectionOf(findings),
     item: itemOf(findings),
     clauseAndStandard: clauseAndStandardOf(leader, standardNames),
-    observation: [orNothing(leader.finding), extra].filter(Boolean).join(" "),
+    observation: [plainObservation(orNothing(leader.finding)), extra].filter(Boolean).join(" "),
     requiredAction: orNothing(leader.engineer_comment) || orNothing(leader.required_action),
     status: statusOf(state, tier),
     priorState: state,
@@ -192,14 +199,6 @@ export function visibleRows(rows: CrsRow[], depth: Depth, showMet: boolean, spot
   });
 }
 
-function minutesBetween(start: string | null | undefined, end: string | null | undefined): number | null {
-  if (!start || !end) return null;
-  const a = new Date(start).getTime();
-  const b = new Date(end).getTime();
-  if (Number.isNaN(a) || Number.isNaN(b) || b < a) return null;
-  return Math.round((b - a) / 60000);
-}
-
 /** "4, 9" -> "4 and 9"; "1-3, 7, 9" -> "1-3, 7 and 9". */
 function spoken(list: string): string {
   const at = list.lastIndexOf(", ");
@@ -218,6 +217,9 @@ export interface HeadlineFields {
   /** Pages not read into fields, and (from the server) pages the AI reader
    *  timed out on; both make a finding "page not read". */
   unreadPages: number[];
+  /** Order 112: the seconds the run's stored trace adds up to, step by step;
+   *  null when no trace was stored (then no read time is shown). */
+  readSeconds: number | null;
 }
 
 /** From the run summary's "How this was reviewed" record (#1111) when the
@@ -225,14 +227,17 @@ export interface HeadlineFields {
 export function headlineFieldsOf(run: ReviewRunSummary, how: RunSummaryHowReviewed | null = null): HeadlineFields {
   if (how) {
     const pages = [...(how.page_coverage?.pages_not_read_into_fields ?? []), ...(how.timed_out_pages ?? [])];
+    const steps = Object.values(how.stage_seconds ?? {});
     return {
       doesNotApply: how.requirement_split?.does_not_apply ?? null,
       unreadPages: [...new Set(pages)].sort((a, b) => a - b),
+      readSeconds: steps.length ? steps.reduce((a, b) => a + b, 0) : null,
     };
   }
   return {
     doesNotApply: run.requirement_split?.does_not_apply ?? null,
     unreadPages: run.page_coverage?.pages_not_read_into_fields ?? [],
+    readSeconds: null,
   };
 }
 
@@ -242,17 +247,28 @@ export function headlineFieldsOf(run: ReviewRunSummary, how: RunSummaryHowReview
  *  the clauses not applicable and the unread pages are the run's stored
  *  fields (`headlineFieldsOf`), the read time `created_at` / `completed_at`.
  *  A field the run does not hold renders as nothing, never 0. */
-export function crsHeadline(run: ReviewRunSummary, counts: TierCounts, fields: HeadlineFields = headlineFieldsOf(run)): string {
+export function crsHeadline(
+  run: ReviewRunSummary, counts: TierCounts, fields: HeadlineFields = headlineFieldsOf(run), findingsInComments: number | null = null,
+): string {
+  // Order 112: COUNTS ARE ROWS, the rows the table shows. A row can stand on
+  // many findings ("13 blanks, one comment"), so the findings behind the
+  // comment rows come second, and only when they differ from the rows.
   const comments = counts.comment + counts.needsYou;
-  const first = `${plural(comments, "comment", "comments")}`
-    + (counts.needsYou > 0 ? `, ${counts.needsYou} ${counts.needsYou === 1 ? "needs" : "need"} your judgement.` : ".");
+  const behind = findingsInComments !== null && findingsInComments !== comments
+    ? ` (${plural(findingsInComments, "finding", "findings")})` : "";
+  const first = `${plural(comments, "comment", "comments")}${behind}`
+    + (counts.needsYou > 0 ? `, ${counts.needsYou.toLocaleString()} ${counts.needsYou === 1 ? "needs" : "need"} your judgement.` : ".");
   const notApplicable = fields.doesNotApply;
   const quiet = [
     counts.met > 0 ? plural(counts.met, "value met", "values met") : "",
     typeof notApplicable === "number" ? `${plural(notApplicable, "clause", "clauses")} not applicable` : "",
   ].filter(Boolean);
   const second = quiet.length ? ` ${quiet.join(", ")} (hidden).` : "";
-  const minutes = minutesBetween(run.created_at, run.completed_at);
+  // Order 112: the read time is the stored trace's own total, step by step.
+  // Without a trace nothing is said: the run row's created_at and
+  // completed_at do not bracket the reading (a run that read for most of an
+  // hour showed "under a minute" in the owner's app, order 112).
+  const minutes = fields.readSeconds !== null ? Math.round(fields.readSeconds / 60) : null;
   const unread = fields.unreadPages;
   const reading = [
     minutes !== null ? `Read in ${minutes < 1 ? "under a minute" : `${minutes} min`}` : "",

@@ -16,6 +16,8 @@ export interface CrsHeaderProps {
   counts: TierCounts;
   /** The stored fields the headline reads (`headlineFieldsOf`). */
   headlineFields?: HeadlineFields;
+  /** Order 112: the findings behind the comment rows (rows come first). */
+  findingsInComments?: number | null;
   /** Who decided the tiers: "server" = the run summary (#1111), the one
    *  source; "screen" = this screen's own rules, because the summary did
    *  not answer (a server without the route, or a failed read). */
@@ -33,7 +35,7 @@ export interface CrsHeaderProps {
 }
 
 export function CrsHeader({
-  run, submittal, counts, headlineFields, tierSource = "server", unopened, remaining, localDecisions, acceptAll, sign, onBack,
+  run, submittal, counts, headlineFields, findingsInComments = null, tierSource = "server", unopened, remaining, localDecisions, acceptAll, sign, onBack,
 }: CrsHeaderProps) {
   const equipment = orNothing(submittal?.equipment_type) || run.equipment_tags.join(", ");
   const revision = orNothing(submittal?.revision);
@@ -65,7 +67,7 @@ export function CrsHeader({
           {[equipment ? `Equipment: ${equipment}` : "", revision ? `Revision ${revision}` : ""].filter(Boolean).join(" · ")}
         </p>
       </div>
-      <p className="text-slateish-200" data-testid="crs-headline">{crsHeadline(run, counts, headlineFields)}</p>
+      <p className="text-slateish-200" data-testid="crs-headline">{crsHeadline(run, counts, headlineFields, findingsInComments)}</p>
       {tierSource === "screen" && (
         <p className="text-xs text-slateish-500" data-testid="crs-tier-source">
           Tiers worked out on this screen: the run summary was not available from the server.

@@ -35,7 +35,7 @@ import {
   type CrsRow, type Depth, buildCrsRows, headlineFieldsOf, rowCounts, splitRejected, spotCheckKeys, visibleRows,
 } from "../components/review/crs/crsRows";
 import { commentPages, firstRowOnPage, stepRow } from "../components/review/crs/evidenceNav";
-import { countsOfServer, runFactsOf, serverTiersOf } from "../components/review/crs/tiers";
+import { runFactsOf, serverTiersOf } from "../components/review/crs/tiers";
 import { useCrsDecisions } from "../components/review/crs/useCrsDecisions";
 import { useCrsKeys } from "../components/review/crs/useCrsKeys";
 
@@ -161,9 +161,12 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
   const server = useMemo(() => (summary ? serverTiersOf(summary.rows) : null), [summary]);
   const rows = useMemo(() => buildCrsRows(findings, facts, standardNames, server), [findings, facts, standardNames, server]);
   const counts = useMemo(() => rowCounts(rows), [rows]);
-  // The headline reads the server's counts and stored fields when it sent
-  // them (spec section 2: one source); the table and footer count rows.
-  const headlineCounts = useMemo(() => (summary ? countsOfServer(summary.counts) : counts), [summary, counts]);
+  // Order 112: the headline counts the table's rows (their tiers are the
+  // server's when it sent them) and names the findings behind the comment
+  // rows second; its stored fields are the server's when it sent them.
+  const headlineCounts = counts;
+  const findingsInComments = useMemo(
+    () => rows.filter((r) => r.tier.tier !== "A").reduce((n, r) => n + r.findings.length, 0), [rows]);
   const headlineFields = useMemo(() => (run ? headlineFieldsOf(run, summary?.how_reviewed ?? null) : undefined), [run, summary]);
   const rejected = useMemo(() => summary?.counts.removed ?? splitRejected(findings).rejected, [summary, findings]);
   const spot = useMemo(() => spotCheckKeys(rows, runId), [rows, runId]);
@@ -196,7 +199,7 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
   return (
     <section className="mx-auto w-full max-w-7xl space-y-5" aria-labelledby="crs-title">
       <CrsHeader
-        run={run} submittal={submittal} counts={headlineCounts} headlineFields={headlineFields}
+        run={run} submittal={submittal} counts={headlineCounts} headlineFields={headlineFields} findingsInComments={findingsInComments}
         tierSource={summary ? "server" : "screen"} unopened={unopened} remaining={remaining}
         localDecisions={Object.keys(decisions.state.decisions).length}
         acceptAll={{

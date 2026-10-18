@@ -2183,7 +2183,7 @@ def _insufficient_reason(completeness: dict) -> str:
                     "for a value, so how much of it the review covered was not "
                     "measured")
         else:
-            head = (f"{answered} of the {required} datasheet values the applicable "
+            head = (f"{answered:,} of the {required:,} datasheet values the applicable "
                     f"standards' requirements ask for were found in the fields read "
                     f"from this submittal")
         if cover is not None and cover < COMPLETENESS_THRESHOLD:

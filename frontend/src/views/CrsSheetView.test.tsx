@@ -95,10 +95,26 @@ function rowItems(): string[] {
 }
 
 describe("CrsSheetView", () => {
+  it("order 112: the headline counts rows and names the findings behind them; no internal code in the Observation", async () => {
+    findings = [
+      ...Array.from({ length: 13 }, (_, i) => f(`k${i}`, {
+        compliance_status: "MISSING_INFORMATION", finding: `Field k${i} is blank`, required_action: `Contractor to give Field k${i}.`,
+      })),
+      f("nf", { contractor_page: 2, finding: "no_field_matched: the datasheet has no row for this value" }),
+    ];
+    mount();
+    // 13 blanks make one row, plus one more: 2 rows on the table, 14 findings behind them.
+    expect(await screen.findByTestId("crs-headline")).toHaveTextContent(/^2 comments \(14 findings\)/);
+    expect(rows()).toHaveLength(2);
+    const sheet = screen.getByRole("grid", { name: "Comment resolution sheet" });
+    expect(sheet).toHaveTextContent("the datasheet has no row for this value");
+    expect(sheet).not.toHaveTextContent("no_field_matched");
+  });
+
   it("renders the headline from the rows and the run's stored fields, the code and the seven columns", async () => {
     mount();
     expect(await screen.findByTestId("crs-headline")).toHaveTextContent(
-      "5 comments, 2 need your judgement. 1 value met, 4,362 clauses not applicable (hidden). Read in 18 min; the reader gave up on pages 4 and 9.",
+      "5 comments, 2 need your judgement. 1 value met, 4,362 clauses not applicable (hidden). The reader gave up on pages 4 and 9.",
     );
     expect(screen.getByTestId("crs-code")).toHaveTextContent("Proposed code: Approved with Comments. Two values do not meet the standard.");
     expect(await screen.findByText(/Equipment: Pressure safety valve · Revision B/)).toBeInTheDocument();
@@ -352,14 +368,18 @@ function tierOfRow(item: string): string {
 }
 
 describe("CrsSheetView reads the run summary (order 95 piece 1, #1111)", () => {
-  it("when the summary answers, the headline reads the server's counts and stored fields, with no fallback note", async () => {
-    reviewRunSummary.mockResolvedValue({ ok: true, data: summaryOf(agreeingRows()) });
+  it("when the summary answers, the headline counts the table's rows and reads the server's stored fields, with no fallback note", async () => {
+    const base = summaryOf(agreeingRows());
+    reviewRunSummary.mockResolvedValue({ ok: true, data: { ...base, how_reviewed: { ...base.how_reviewed, stage_seconds: { extract: 900, compare: 180 } } } });
     mount();
-    // Server counts (11 + 3 comments, 40 met), server does_not_apply (1,200), and the
-    // server's unread pages: not read into fields (4) plus timed out (7).
+    // Order 112: the server's finding counts (11 + 3 comments, 40 met) do not
+    // make the headline: the table's 5 comment rows and 1 met row do. The
+    // server's does_not_apply (1,200), its unread pages (4 read into no
+    // field, 7 timed out) and its stored trace (900 + 180 s) do.
     expect(await screen.findByTestId("crs-headline")).toHaveTextContent(
-      "14 comments, 3 need your judgement. 40 values met, 1,200 clauses not applicable (hidden). Read in 18 min; the reader gave up on pages 4 and 7.",
+      "5 comments, 2 need your judgement. 1 value met, 1,200 clauses not applicable (hidden). Read in 18 min; the reader gave up on pages 4 and 7.",
     );
+    expect(rows().filter((r) => !/^Met/.test(within(r).getAllByRole("cell")[0].textContent ?? ""))).toHaveLength(5);
     expect(reviewRunSummary).toHaveBeenCalledWith("run-1");
     expect(screen.queryByTestId("crs-tier-source")).not.toBeInTheDocument();
     // The engineer-removed count is the server's too.
@@ -369,7 +389,7 @@ describe("CrsSheetView reads the run summary (order 95 piece 1, #1111)", () => {
   it("when the summary 404s (route not on this server), the screen's own tiers stand in and one small note says so", async () => {
     mount();
     expect(await screen.findByTestId("crs-headline")).toHaveTextContent(
-      "5 comments, 2 need your judgement. 1 value met, 4,362 clauses not applicable (hidden). Read in 18 min; the reader gave up on pages 4 and 9.",
+      "5 comments, 2 need your judgement. 1 value met, 4,362 clauses not applicable (hidden). The reader gave up on pages 4 and 9.",
     );
     expect(screen.getByTestId("crs-tier-source")).toHaveTextContent("Tiers worked out on this screen: the run summary was not available from the server.");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
