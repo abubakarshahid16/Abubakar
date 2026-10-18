@@ -29,6 +29,7 @@ from __future__ import annotations
 import re
 
 from . import ai_task_runner, requirement_quality, scope_ledger, service_scope, subject_scope
+from .ai import output_limits
 
 CATEGORIES = ["other_equipment", "service_condition_not_met", "informative_note",
               "definition", "none"]
@@ -56,7 +57,7 @@ Say "unsure" whenever the clause and the submittal do not settle it."""
 
 TASK = ai_task_runner.register(ai_task_runner.TaskSpec(
     name="clause_applicability", version="v1", instruction=INSTRUCTION, schema=SCHEMA,
-    num_predict=300))
+    num_predict=output_limits.max_tokens_for(output_limits.ROUTE_CLAUSE_APPLICABILITY)))
 
 _NOTE = re.compile(r"^\s*(?:note|notes|informative|commentary)\b", re.IGNORECASE)
 _MANDATORY = re.compile(r"\b(?:shall|must|is required|are required)\b", re.IGNORECASE)

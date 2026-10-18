@@ -197,6 +197,10 @@ def crs_numbers_open() -> str:
 ROW_REF_PREFIX = "RF-"
 ROW_REF_LABEL = "Ref"
 
+#: Order 95 piece 6b: the label of the machine's original wording, printed
+#: beside an engineer's edit in the internal copy's AI Review Comments cell.
+AI_WORDING_LABEL = "AI wording"
+
 #: Hex digits of the digest kept. Six gives 16.7 million references, so two
 #: DIFFERENT rows of one sheet colliding is remote; the loop below still
 #: handles it rather than trusting the arithmetic.
@@ -236,6 +240,19 @@ def row_reference(review_run_id: str, finding: dict, salt: int = 0) -> str:
 
 
 
+def _ai_column(finding: dict, copy: str) -> str:
+    """The internal copy's "AI Review Comments" cell; empty on the issue copy.
+    Order 95 piece 6b: an edited row shows the machine's own wording there,
+    so the Comment cell stays the engineer's words alone."""
+    if copy != COPY_INTERNAL:
+        return ""
+    text = str(finding.get("ai_review_comment") or "")
+    ai_wording = str(finding.get("ai_comment") or "").strip()
+    if not text and finding.get("edited") is True and ai_wording:
+        return f"{AI_WORDING_LABEL}: {ai_wording}"
+    return text
+
+
 def build_crs_view(findings: list[dict], meta: dict) -> dict:
     """What a CRS says, with nothing in it about how it is drawn.
 
@@ -251,13 +268,12 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
 
     Returned shape:
 
-      title                    row 1, company and project
+      title                    row 1, company and project (#633 item 7: `run_status_note` prints above it)
       subtitle                 row 2, the document's own name
       header                   rows 3-7 as {label, value} pairs, in order
       columns                  the seven column headers, row 8
-      rows                     one per finding, item_no assigned 1..N HERE,
-                               each carrying the stable `row_ref` that its
-                               comment's first line prints
+      rows                     one per finding, item_no assigned 1..N HERE, each
+                               carrying the stable `row_ref` its comment's first line prints
       recommended_code         "" when the caller supplies none
       recommended_code_label   the label the summary row prints
       recommended_code_reason  "" when there is none
@@ -356,8 +372,7 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
             "row_kind": finding.get("row_kind", ""),
             "standard_reference": str(finding.get("standard_reference") or ""),
             "severity": str(finding.get("severity") or ""),
-            "ai_review_comment": (str(finding.get("ai_review_comment") or "")
-                                  if copy == COPY_INTERNAL else ""),
+            "ai_review_comment": _ai_column(finding, copy),
             # R30: internal copy only, like the AI column.
             "reasoning": (str(finding.get("reasoning") or "")
                           if copy == COPY_INTERNAL else ""),
@@ -367,9 +382,10 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         })
 
     return {
-        # Absent parts print nothing: an unset company must not leave the
-        # title starting with a blank line.
+        # Absent parts print nothing: an unset company must not leave the title starting with a blank line.
         "title": "\n ".join(p for p in (company, project) if p).rstrip(),
+        # #633 item 7: "REVIEW INCOMPLETE: run <status> - ..." on row 1; "" for a completed run.
+        "run_status_note": str(meta.get("run_status_note") or ""),
         "subtitle": SUBTITLE,
         # A missing value renders as NOTHING, never as "None": a CRS carrying
         # a plausible-looking transmittal number lies about its own provenance.
@@ -491,9 +507,9 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         return cell
 
     # Header block, rows 1-7, merges as measured from the template.
-    ws.merge_cells("A1:G1")
-    put(1, 1, view["title"], bold=True, size=12, center=True, wrap=True)
-    ws.row_dimensions[1].height = 30
+    ws.merge_cells("A1:G1")  # #633 item 7: an incomplete run is said on row 1, above the company
+    put(1, 1, "\n".join(p for p in (view["run_status_note"], view["title"]) if p), bold=True, size=12, center=True, wrap=True)
+    ws.row_dimensions[1].height = 75 if view["run_status_note"] else 30
     ws.merge_cells("A2:G2")
     put(2, 1, view["subtitle"], bold=True, size=12, center=True)
     for offset, field in enumerate(view["header"]):

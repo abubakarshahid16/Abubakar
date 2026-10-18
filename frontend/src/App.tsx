@@ -23,10 +23,11 @@ import { ReportsScreen } from "./views/ReportsScreen";
 import { DeliverablesView } from "./views/DeliverablesView";
 import { CrsSheetView } from "./views/CrsSheetView";
 import { ReviewSheetView } from "./views/ReviewSheetView";
+import { HowReviewedView } from "./views/HowReviewedView";
 import { SubmittalsLandingView } from "./views/SubmittalsLandingView";
 import type { AuthStatus, Me } from "./types/api";
 import { NavigationContext } from "./components/NavLink";
-import { CRS_SHEET_IS_DEFAULT, panelForReviewScreen, parseRoute, pathForView, reviewScreenFor, titleForView, type AppRoute } from "./routing";
+import { CRS_SHEET_IS_DEFAULT, INBOX_RECORD, panelForReviewScreen, parseRoute, pathForView, reviewScreenFor, titleForView, type AppRoute } from "./routing";
 
 //: One key, named once. A typo in a second literal is a preference that
 //: silently never persists.
@@ -333,13 +334,31 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
           {view === "analysis" && <AnalysisModeScreen />}
           {view === "reports" && <ReportsScreen />}
           {view === "deliverables" && <DeliverablesView />}
+          {/* #967 PR1: the page opens on the landing list of documents from
+              contractors. */}
+          {/* Order 95 piece 5: "How this was reviewed" is a page of its own
+              (`/review/<run>/how`), not one of the sheet's panels. Both review
+              screens link to it (the new sheet's header among them). */}
+          {view === "review" && route.kind === "view" && route.recordId && route.panel === "how" && (
+            <HowReviewedView
+              key={route.recordId} runId={route.recordId}
+              onBack={() => onNavigate("review", route.recordId)}
+              onOpenRun={(runId) => onNavigate("review", runId)}
+              onOpenSteps={() => onNavigate("review", route.recordId, "steps")}
+            />
+          )}
           {/* Order 95 piece 2 (Part of #967): which screen `/review/<run>`
               opens is `routing.CRS_SHEET_IS_DEFAULT` (the card view until
               the owner switches it). The card view is also at
               `/review/<run>/cards`, the new comment sheet at
               `/review/<run>/crs-sheet`, whichever is the default. */}
-          {view === "review" && (
-            route.kind === "view" && route.recordId ? (
+          {view === "review" && !(route.kind === "view" && route.panel === "how") && (
+            route.kind === "view" && route.recordId === INBOX_RECORD && !route.panel ? (
+              <SubmittalsLandingView
+                inbox onOpenRun={(runId) => onNavigate("review", runId)}
+                onOpenList={() => onNavigate("review")}
+              />
+            ) : route.kind === "view" && route.recordId ? (
               reviewScreen?.screen === "cards" ? (
                 <ReviewSheetView
                   key={route.recordId} runId={route.recordId} panel={reviewScreen.panel}
@@ -357,7 +376,10 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
                 />
               )
             ) : (
-              <SubmittalsLandingView onOpenRun={(runId) => onNavigate("review", runId)} />
+              <SubmittalsLandingView
+                onOpenRun={(runId) => onNavigate("review", runId)}
+                onOpenInbox={() => onNavigate("review", INBOX_RECORD)}
+              />
             )
           )}
           {/* `canAdmin &&` is the gate, not the absence of a nav entry. Setting

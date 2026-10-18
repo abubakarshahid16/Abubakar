@@ -7,16 +7,33 @@
  *
  * MUTATION PROOF: route `/review/<run>` to the new sheet and the first test
  * fails; drop "crs-sheet" from `PANELS.review` and the second is refused as
- * an unknown address; drop "cards" and the third is.
+ * an unknown address; drop "cards" and the third is. Route "how" to either
+ * review screen (or drop it from `PANELS.review`) and the fourth fails: the
+ * new sheet's header link "How this was reviewed" must open the How page.
  */
 import { act, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
 import { setToken } from "./api/client";
 
-vi.mock("./views/CrsSheetView", () => ({
-  CrsSheetView: ({ runId }: { runId: string }) => <p>{`crs sheet for ${runId}`}</p>,
+// The sheet's stand-in carries the same link its header has (CrsHeader:
+// `<NavLink view="review" recordId={run} panel="how">`), so following it goes
+// through App's own navigation.
+vi.mock("./views/CrsSheetView", async () => {
+  const { NavLink } = await import("./components/NavLink");
+  return {
+    CrsSheetView: ({ runId }: { runId: string }) => (
+      <div>
+        <p>{`crs sheet for ${runId}`}</p>
+        <NavLink view="review" recordId={runId} panel="how">How this was reviewed</NavLink>
+      </div>
+    ),
+  };
+});
+vi.mock("./views/HowReviewedView", () => ({
+  HowReviewedView: ({ runId }: { runId: string }) => <p>{`how page for ${runId}`}</p>,
 }));
 vi.mock("./views/ReviewSheetView", () => ({
   ReviewSheetView: ({ runId, panel }: { runId: string; panel?: string }) => <p>{`cards for ${runId}${panel ? ` panel ${panel}` : ""}`}</p>,
@@ -79,5 +96,18 @@ describe("the review routes (the card view is the default)", () => {
     expect(await screen.findByText("cards for run-1 panel crs")).toBeInTheDocument();
     await goTo("/review/run-1/secret");
     expect(await screen.findByRole("heading", { name: "This address cannot be opened" })).toBeInTheDocument();
+  });
+
+  it("the new sheet's \"How this was reviewed\" link opens the How page at /review/<run>/how", async () => {
+    mockApi();
+    render(<App initialView="review" />);
+    await goTo("/review/run-1/crs-sheet");
+    await userEvent.click(await screen.findByRole("link", { name: "How this was reviewed" }));
+    expect(await screen.findByText("how page for run-1")).toBeInTheDocument();
+    expect(screen.queryByText("crs sheet for run-1")).not.toBeInTheDocument();
+    expect(screen.queryByText(/^cards for run-1/)).not.toBeInTheDocument();
+    // The same address typed in opens it too.
+    await goTo("/review/run-1/how");
+    expect(await screen.findByText("how page for run-1")).toBeInTheDocument();
   });
 });
