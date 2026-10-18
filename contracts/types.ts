@@ -782,6 +782,13 @@ export interface ReviewRunSummary {
    *  counted once. Only "applies but not checked" counts against a run. Null
    *  when the run has no counts at all. */
   requirement_split?: RequirementSplit | null;
+  /** PF4 (#884): the clause coverage the run stored at its end - every
+   *  applicable requirement in exactly one state, with the line that says
+   *  it; null on a run made before the record (never 0). */
+  clause_coverage?: {
+    applicable: number; counts: Record<string, number>; checked_share: number | null;
+    adds_up: boolean; line: string;
+  } | null;
   /** #453: how the rest were decided; null for a run that predates it. */
   applicability?: {
     submittal_equipment: string[]; equipment_source: string | null;

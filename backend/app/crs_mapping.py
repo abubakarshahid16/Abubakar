@@ -378,9 +378,9 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
                           "standard": ref, "count": None,
                           "detail": (f"{_clause_sentence(f, 160)}. Not checked: "
                                      f"{_reason_words(f)}")})
-    if outcome:
-        from .rule_trust import review_notes
-        notes.extend(review_notes(outcome, findings))
+    if outcome is not None:
+        from .clause_coverage import outcome_notes
+        notes.extend(outcome_notes(outcome, findings))
     return notes
 
 
