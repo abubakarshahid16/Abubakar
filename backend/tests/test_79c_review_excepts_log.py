@@ -73,6 +73,16 @@ def test_fell_back_logs_the_type_only_and_returns_the_fallback(caplog):
     assert _messages(caplog, "app.comparison") == ["comparison: a step failed; x instead (KeyError)"]
 
 
+def test_fell_back_logs_at_warning_so_the_default_level_shows_it(caplog):
+    """Order 117 item 8: a fallback is visible without switching INFO on."""
+    from app import errors
+
+    with caplog.at_level(logging.WARNING, logger="app.comparison"):
+        errors.fell_back("comparison: a step failed; x instead", KeyError("x"), None)
+    [record] = [r for r in caplog.records if r.name == "app.comparison"]
+    assert record.levelno == logging.WARNING
+
+
 def test_a_malformed_model_choice_is_still_malformed():
     """Narrowed to ValueError: bad JSON and the wrong shape both stay MODEL_MALFORMED."""
     from app import comparison

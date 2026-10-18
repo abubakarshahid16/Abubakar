@@ -79,11 +79,21 @@ running) calls, in order:
 5. CRS: `GET /api/reviews/runs/{id}/crs` (`main.py:3251`) and `/crs/preview` (:3297) →
    `_crs_content` → `crs_mapping.build_crs_rows` → `crs_export.build_crs` / `build_crs_view`.
 
-**What this means, plainly: the live review makes no model call by default.** Findings come
-from deterministic containment pairing plus deterministic comparison. There is no quote
-validation on the production review path because no model output reaches a finding:
-`quotes.py` (B23) has no importer in `app/`. Measured consequence on the regression
-documents: issue #193 (290 current facts, 2 pairings, 0 COMPLIANT/NON_COMPLIANT).
+**Corrected 2026-10-18 (order 117 item 8): the live review DOES call the model by default.**
+The paragraph that stood here described `1b445af` (2026-09-24) and said the review made no
+model call and that no model output reached a finding; both are no longer true:
+
+- **The AI datasheet reader** (`datasheet_ai.py`, `settings.datasheet_ai_reader = "ollama"`)
+  reads fields during extraction, each value with its page quote. A value decides like a
+  code-read fact only when code has proved its quote on the page (`quote_on_page` in its
+  provenance, `comparison.ai_quote_proved`).
+- **The requirement matcher** (`settings.match_enabled = True`, `match_engine = "ollama"`)
+  pairs a requirement with a submitted field (`comparison`); its choice is checked
+  (`_checked_choice`), and a malformed or failed one is recorded as such.
+- Both run on the local model through `model_transport.py`; either uses the Claude API only
+  under the gates of CLAUDE.md rule 1. `quotes.py` (B23) no longer exists.
+
+Section 2's line references above are still those of `1b445af`.
 
 ## 3. Model and network layer
 

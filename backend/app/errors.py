@@ -160,9 +160,13 @@ def fell_back(where: str, exc: BaseException | None, fallback: Any) -> Any:
     that module's logger with the error's TYPE only - never its message, which
     can carry document text (the #655 pattern). Returns `fallback` unchanged,
     so a handler stays one line: `return errors.fell_back(..., exc, value)`.
+
+    At WARNING (order 117 item 8): a step that failed and was replaced is
+    something an operator should see at the default log level, not only
+    when INFO is switched on.
     """
     if exc is not None:
-        logging.getLogger(f"app.{where.split(':', 1)[0]}").info(
+        logging.getLogger(f"app.{where.split(':', 1)[0]}").warning(
             "%s (%s)", where, type(exc).__name__)
     return fallback
 
