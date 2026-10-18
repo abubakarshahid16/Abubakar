@@ -95,6 +95,68 @@ def _function_lengths(path: Path) -> list[tuple[str, int]]:
     return out
 
 
+#: Rule 1's limits, per file and per function (order 71c on #692). The two
+#: max_* numbers below only bound the single longest file and function, so a
+#: NEW 1,000-line file passed. `long_code.json` lists every file and function
+#: over its limit today; `check` fails one that is new or longer than listed.
+FILE_LIMIT, FUNCTION_LIMIT = 800, 80
+DEFAULT_LONG_CODE = REPO / "eval" / "quality" / "long_code.json"
+
+
+def _qualified_lengths(path: Path) -> dict[str, int]:
+    """{"Class.method" / "outer.inner": line count} for one module; the
+    longest wins when one name is defined twice. A file that cannot be parsed
+    contributes nothing (never guessed)."""
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+    except SyntaxError:
+        return {}
+    out: dict[str, int] = {}
+
+    def walk(node: ast.AST, stack: list[str]) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                name = ".".join([*stack, child.name])
+                if not isinstance(child, ast.ClassDef) and child.end_lineno is not None:
+                    out[name] = max(out.get(name, 0), child.end_lineno - child.lineno + 1)
+                walk(child, [*stack, child.name])
+            else:
+                walk(child, stack)
+
+    walk(tree, [])
+    return out
+
+
+def long_code(root: Path = BACKEND_APP) -> dict[str, dict[str, int]]:
+    """Every backend file over FILE_LIMIT lines and function over FUNCTION_LIMIT."""
+    files, functions = {}, {}
+    for path in _py_files(root):
+        rel = path.relative_to(REPO).as_posix() if path.is_relative_to(REPO) else path.name
+        if (n := _line_count(path)) > FILE_LIMIT:
+            files[rel] = n
+        for name, n in _qualified_lengths(path).items():
+            if n > FUNCTION_LIMIT:
+                functions[f"{rel}::{name}"] = n
+    return {"files": dict(sorted(files.items())), "functions": dict(sorted(functions.items()))}
+
+
+def compare_long_code(listed: dict, current: dict) -> tuple[list[str], list[str]]:
+    """(blocked, shrunk). Blocked: a file or function over its limit that is
+    not listed, or longer than listed. Shrunk: a listed one that is shorter
+    or gone - never a failure; `record-long-code` moves the bar down."""
+    blocked, shrunk = [], []
+    for kind, limit in (("files", FILE_LIMIT), ("functions", FUNCTION_LIMIT)):
+        was, now = listed.get(kind, {}), current.get(kind, {})
+        for key, n in now.items():
+            if key not in was:
+                blocked.append(f"NEW: {key} is {n} lines (limit {limit})")
+            elif n > was[key]:
+                blocked.append(f"GREW: {key} {was[key]} -> {n} lines (listed, may only shrink)")
+        shrunk += [f"{key} {n} -> {now.get(key, 'under the limit')}"
+                   for key, n in was.items() if now.get(key, 0) < n]
+    return blocked, shrunk
+
+
 def rule_1_length() -> dict:
     backend = _py_files(BACKEND_APP)
     frontend = _tsx_files(FRONTEND_SRC) if FRONTEND_SRC.is_dir() else []
@@ -320,10 +382,20 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("measure")
     c = sub.add_parser("check")
     c.add_argument("--baseline", default=str(DEFAULT_BASELINE))
+    c.add_argument("--long-code", default=str(DEFAULT_LONG_CODE))
     r = sub.add_parser("record-baseline")
     r.add_argument("--out", default=str(DEFAULT_BASELINE))
+    rl = sub.add_parser("record-long-code")
+    rl.add_argument("--out", default=str(DEFAULT_LONG_CODE))
     args = ap.parse_args(argv)
 
+    if args.cmd == "record-long-code":
+        listed = long_code()
+        Path(args.out).write_text(json.dumps({"limits": {"file": FILE_LIMIT, "function": FUNCTION_LIMIT},
+                                              **listed}, indent=1) + "\n", encoding="utf-8")
+        print(f"listed {len(listed['files'])} files over {FILE_LIMIT} lines and "
+              f"{len(listed['functions'])} functions over {FUNCTION_LIMIT} in {args.out}")
+        return 0
     current = measure()
     if args.cmd == "measure":
         _print_report(current)
@@ -339,6 +411,17 @@ def main(argv: list[str] | None = None) -> int:
     baseline = load(args.baseline)
     regressions = compare(baseline, current)
     _print_report(current)
+    listed = json.loads(Path(args.long_code).read_text(encoding="utf-8"))
+    blocked, shrunk = compare_long_code(listed, long_code())
+    regressions += blocked
+    print(f"\n  long code: {len(listed['files'])} files over {FILE_LIMIT} lines and "
+          f"{len(listed['functions'])} functions over {FUNCTION_LIMIT} listed; "
+          f"{len(blocked)} new or longer, {len(shrunk)} shorter")
+    for line in shrunk:
+        print(f"  shorter: {line}")
+    if shrunk and not blocked:
+        print("  the bar went down: run `python scripts/quality_ratchet.py record-long-code`"
+              " in this PR so it cannot come back")
     if regressions:
         print("\nBLOCKED - this PR makes the quality bar worse:")
         for line in regressions:
