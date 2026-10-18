@@ -48,13 +48,17 @@ def test_health_answers_while_slow_dashboard_reads_hold_every_shared_thread(monk
     import anyio.to_thread
 
     release = threading.Event()
-    real = main_mod.risks_mod.list_items
+    # The read GET /api/risks really makes (88a: list_page -> _read_page). Patching
+    # list_items held nothing and let this test pass on the unfixed code (cloud-2's review).
+    real = main_mod.risks_mod._read_page
+    started = threading.Semaphore(0)
 
     def held(*a, **k):
+        started.release()
         release.wait(10)
         return real(*a, **k)
 
-    monkeypatch.setattr(main_mod.risks_mod, "list_items", held)
+    monkeypatch.setattr(main_mod.risks_mod, "_read_page", held)
     with _client() as client:
         async def shrink():
             limiter = anyio.to_thread.current_default_thread_limiter()
@@ -68,7 +72,8 @@ def test_health_answers_while_slow_dashboard_reads_hold_every_shared_thread(monk
                 "params": {"risk_type": t}}) for t in ("schedule", "review", "dependency", "compliance")]
             for r in readers:
                 r.start()
-            time.sleep(0.3)
+            for _ in range(3):  # three readers inside the held read: the shrunk pool is full
+                assert started.acquire(timeout=5)
             started = time.perf_counter()
             assert client.get("/api/health").status_code == 200
             assert time.perf_counter() - started < 2.0
