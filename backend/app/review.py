@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pymupdf
 
+from . import finding_query
 from .db import add_column_if_missing, connect, schema_once
 from .config import settings
 
@@ -614,38 +615,20 @@ def get(finding_id: str) -> dict | None:
 
 def list_findings(*, document_id: str | None = None, status: str | None = None,
                   review_run_id: str | None = None,
-                  allowed_document_ids: frozenset[str] | None = None) -> list[dict]:
+                  allowed_document_ids: frozenset[str] | None = None,
+                  limit: int | None = None, offset: int = 0) -> list[dict]:
+    """Most severe first; `limit=None` is every finding. Scope: `finding_query`."""
     ensure_schema()
-    clauses: list[str] = []
-    args: list[str] = []
-    if document_id:
-        clauses.append("document_id = ?")
-        args.append(document_id)
-    if review_run_id:
-        # ONE RUN'S FINDINGS. A comparison run produces one finding per
-        # requirement - 1,580 on this corpus - so without this the only way to
-        # see a run's output through the API is to fetch every finding ever
-        # written and filter in the client.
-        #
-        # FILTERED IN THE QUERY, never after it. `metrics._where` carries the
-        # reason: post-filtering works until someone adds a LIMIT, and then it
-        # silently returns the wrong page.
-        clauses.append("review_run_id = ?")
-        args.append(review_run_id)
-    if status:
-        clauses.append("status = ?")
-        args.append(status)
-    if allowed_document_ids is not None:
-        if not allowed_document_ids:
-            return []
-        marks = ",".join("?" for _ in allowed_document_ids)
-        clauses.append(f"document_id IN ({marks})")
-        args.extend(sorted(allowed_document_ids))
-    sql = "SELECT * FROM review_findings"
-    if clauses:
-        sql += " WHERE " + " AND ".join(clauses)
+    found = finding_query.where(document_id, status, review_run_id, allowed_document_ids)
+    if found is None:
+        return []
+    sql, args = "SELECT * FROM review_findings" + found[0], found[1]
+    # `id` last, so a page boundary falls in the same place on every call.
     sql += (" ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'major' THEN 1 "
-            "WHEN 'minor' THEN 2 ELSE 3 END, updated_at DESC")
+            "WHEN 'minor' THEN 2 ELSE 3 END, updated_at DESC, id")
+    if limit is not None:
+        sql += " LIMIT ? OFFSET ?"
+        args = [*args, limit, offset]
     findings = [_row(row) for row in connect().execute(sql, args).fetchall()]
     attach_scope_decisions(findings)
     return withhold_unreadable_standards(findings, allowed_document_ids)

@@ -2977,6 +2977,9 @@ class ReviewRunRequest(BaseModel):
 
 class ReviewFindingList(BaseModel):
     findings: list[ReviewFinding]
+    total: int = Field(description="every finding under the same filter: the page's denominator")
+    limit: int | None = None
+    offset: int = 0
 
 
 class ReviewFindingEvent(BaseModel):
