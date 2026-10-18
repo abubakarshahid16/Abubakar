@@ -137,7 +137,7 @@ function OpenItems({ runId, gate, rows, onJump, onDecided }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const split = splitOpenItems(gate, rows);
-  const done = split.comments.length === 0 && split.others.length === 0;
+  const done = split.comments.length === 0 && split.unnumbered.length === 0 && split.others.length === 0;
   async function decideOthers(decision: "accept" | "reject") {
     if (reason.trim().length < MIN_SIGN_REASON) { setError(`Write your reason first (${MIN_SIGN_REASON} characters at least).`); return; }
     setBusy(true);
@@ -169,6 +169,18 @@ function OpenItems({ runId, gate, rows, onJump, onDecided }: {
           </>
         ) : "Every comment on the sheet has a decision."}
       </p>
+      {split.unnumbered.length > 0 && (
+        <div className="space-y-1 text-sm text-slateish-200" data-testid="sign-unnumbered">
+          <p>{plural(split.unnumbered.length, "row on this sheet has", "rows on this sheet have")} no comment number and no decision yet. Open each one:</p>
+          <ul className="list-disc pl-5 text-xs">
+            {split.unnumbered.map((row) => (
+              <li key={row.key}>
+                <button type="button" className={link} onClick={() => onJump(row)}>{row.item || row.pageOrSection || "Open the row"}</button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {split.others.length > 0 && (
         <div className="space-y-2 text-sm text-slateish-200">
           <p>
