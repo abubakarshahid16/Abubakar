@@ -27,10 +27,10 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 import zipfile
+from pathlib import Path
 
 from defusedxml import DefusedXmlException
 from defusedxml import ElementTree as SafeET
-from pathlib import Path
 
 #: OOXML namespaces. Fixed strings, so a workbook cannot redirect the parse by
 #: declaring something else.

@@ -46,9 +46,6 @@ from functools import lru_cache
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-from defusedxml import DefusedXmlException
-from defusedxml import ElementTree as SafeET
-
 log = logging.getLogger(__name__)
 
 SOURCE_PDF_TEXT = "pdf_text"
@@ -213,10 +210,10 @@ def _render(rows: list[tuple[str, ...]], heading: str | None = None) -> str:
 def _merged_ranges(zf: zipfile.ZipFile, sheet_xml: str) -> list[tuple[int, int, int, int]]:
     """(min_row, min_col, max_row, max_col) of every merged range of a sheet.
 
-    Read from the sheet XML because openpyxl's read-only worksheet does not
-    expose merged cells. Streamed with iterparse; only `mergeCell` elements
-    are kept. The zip's bounds were checked before this is reached.
+    From the sheet XML (openpyxl's read-only sheet hides merged cells), streamed
+    with defusedxml's iterparse; the zip's bounds were checked before this.
     """
+    from defusedxml import ElementTree as SafeET
     from openpyxl.utils.cell import range_boundaries
 
     out: list[tuple[int, int, int, int]] = []
@@ -233,7 +230,7 @@ def _merged_ranges(zf: zipfile.ZipFile, sheet_xml: str) -> list[tuple[int, int, 
                     if len(out) > MAX_SHEET_ROWS:
                         break
                 elem.clear()
-    except (KeyError, ET.ParseError, DefusedXmlException):
+    except (KeyError, ET.ParseError, ValueError):  # ValueError: defusedxml refused it
         return []
     return out
 
