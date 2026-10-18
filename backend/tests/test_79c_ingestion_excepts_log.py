@@ -53,7 +53,7 @@ def _broad(handler: ast.ExceptHandler) -> bool:
 
 
 def _silent(module: str) -> list[int]:
-    tree = ast.parse((APP / f"{module}.py").read_text())
+    tree = ast.parse((APP / f"{module}.py").read_text(encoding="utf-8"))
     out = []
     for node in ast.walk(tree):
         if isinstance(node, ast.ExceptHandler) and _broad(node):
