@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ReviewFinding, ReviewRunSummary } from "../../../types/api";
 import { EMPTY_FACTS } from "./tiers";
-import { buildCrsRows, crsHeadline, rowCounts, spotCheckKeys, visibleRows } from "./crsRows";
+import { buildCrsRows, crsHeadline, rowCounts, spotCheckKeys, splitRejected, visibleRows } from "./crsRows";
 
 function f(id: string, over: Partial<ReviewFinding> = {}): ReviewFinding {
   return {
@@ -61,9 +61,32 @@ describe("buildCrsRows", () => {
     ], EMPTY_FACTS, names);
     expect(rows.map((r) => r.item)).toEqual(["Field a"]);
   });
-  it("the engineer's earlier answers on the card view show in the status column", () => {
-    const rows = buildCrsRows([f("a", { approval_status: "rejected" }), f("b", { confirmed_by: "eng", contractor_page: 2 })], EMPTY_FACTS, names);
-    expect(rows.map((r) => r.status)).toEqual(["Left off earlier", "Kept earlier"]);
+  it("the engineer's earlier answer on the card view shows in the status column", () => {
+    const rows = buildCrsRows([f("a"), f("b", { confirmed_by: "eng", contractor_page: 2 })], EMPTY_FACTS, names);
+    expect(rows.map((r) => r.status)).toEqual(["Open", "Kept earlier"]);
+  });
+  it("a finding the engineer already rejected is not a row, and is counted", () => {
+    const all = [f("a", { approval_status: "rejected" }), f("m", { compliance_status: "COMPLIANT", approval_status: "rejected" }), f("b")];
+    expect(splitRejected(all)).toEqual({ findings: [all[2]], rejected: 2 });
+    expect(buildCrsRows(all, EMPTY_FACTS, names).map((r) => r.item)).toEqual(["Field b"]);
+  });
+  it("every finding that is not a note is a row: a null status and an unknown status need you", () => {
+    const rows = buildCrsRows([
+      f("nul", { compliance_status: null }), f("odd", { compliance_status: "SOMETHING_NEW" as never, contractor_page: 2 }),
+    ], EMPTY_FACTS, names);
+    expect(rows.map((r) => [r.item, r.tier.label, r.tier.reason])).toEqual([
+      ["Field nul", "Needs you", "condition unsettled"], ["Field odd", "Needs you", "condition unsettled"],
+    ]);
+  });
+  it("a met value on an unread page is a row that needs you: page not read", () => {
+    const rows = buildCrsRows([f("m", { compliance_status: "COMPLIANT", contractor_page: 4 })], { ...EMPTY_FACTS, pagesNotRead: [4] }, names);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].tier).toEqual({ tier: "C", label: "Needs you", reason: "page not read" });
+    expect(rows[0].commentNo).toBe(1);
+  });
+  it("an unconfirmed safety tick is a Needs-you row", () => {
+    const rows = buildCrsRows([f("tick", { compliance_status: "COMPLIANT", show_for_engineer_tick: true })], EMPTY_FACTS, names);
+    expect(rows.map((r) => [r.tier.label, r.tier.reason])).toEqual([["Needs you", "safety field"]]);
   });
 });
 
@@ -92,16 +115,16 @@ describe("visibleRows and the spot check", () => {
     expect(visibleRows(rows, "critical", false, a)).toHaveLength(2);
     expect(spotCheckKeys(rows.filter((r) => r.tier.tier !== "A"), "run-1").size).toBe(0);
   });
-  it("a safety tick is always in the spot check", () => {
+  it("a confirmed safety tick is Met and always in the spot check", () => {
     const withTick = buildCrsRows([
-      f("tick", { compliance_status: "COMPLIANT", show_for_engineer_tick: true }),
+      f("tick", { compliance_status: "COMPLIANT", show_for_engineer_tick: true, confirmed_by: "eng" }),
       ...Array.from({ length: 10 }, (_, i) => f(`met${i}`, { compliance_status: "COMPLIANT" })),
     ], EMPTY_FACTS, names);
     const spot = spotCheckKeys(withTick, "run-2");
     expect([...spot].some((k) => withTick.find((r) => r.key === k)?.tick)).toBe(true);
   });
   it("counts per tier", () => {
-    expect(rowCounts(rows)).toEqual({ met: 40, notApplicable: 1, comment: 2, needsYou: 1 });
+    expect(rowCounts(rows)).toEqual({ met: 40, notApplicable: 0, anotherDocument: 1, comment: 2, needsYou: 1 });
   });
 });
 
@@ -111,15 +134,15 @@ describe("crsHeadline", () => {
     created_at: "2026-10-15T08:00:00Z", completed_at: "2026-10-15T08:18:00Z",
     page_coverage: { pages_total: 12, fact_pages: [1, 2, 3], pages_not_read_into_fields: [4, 9], not_read_reasons: {} },
   } as unknown as ReviewRunSummary;
-  it("is the spec's one line", () => {
-    expect(crsHeadline(run, { comment: 17, needsYou: 6, met: 94, notApplicable: 0 })).toBe(
+  it("is the spec's one line; the met count is the rows' own, not the run's by_status", () => {
+    expect(crsHeadline(run, { comment: 17, needsYou: 6, met: 94, notApplicable: 0, anotherDocument: 0 })).toBe(
       "23 comments, 6 need your judgement. 94 values met, 4,362 clauses not applicable (hidden). Read in 18 min; the reader gave up on pages 4 and 9.",
     );
   });
   it("a field the run does not hold renders as nothing, never 0", () => {
     const bare = { by_status: {}, created_at: null, completed_at: null } as unknown as ReviewRunSummary;
-    expect(crsHeadline(bare, { comment: 1, needsYou: 0, met: 0, notApplicable: 0 })).toBe("1 comment.");
-    expect(crsHeadline({ ...run, page_coverage: null }, { comment: 0, needsYou: 1, met: 0, notApplicable: 0 }))
-      .toBe("1 comment, 1 needs your judgement. 94 values met, 4,362 clauses not applicable (hidden). Read in 18 min.");
+    expect(crsHeadline(bare, { comment: 1, needsYou: 0, met: 0, notApplicable: 0, anotherDocument: 0 })).toBe("1 comment.");
+    expect(crsHeadline({ ...run, page_coverage: null }, { comment: 0, needsYou: 1, met: 90, notApplicable: 0, anotherDocument: 0 }))
+      .toBe("1 comment, 1 needs your judgement. 90 values met, 4,362 clauses not applicable (hidden). Read in 18 min.");
   });
 });

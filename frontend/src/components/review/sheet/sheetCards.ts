@@ -41,7 +41,7 @@ function fold(text: string | null | undefined): string {
 }
 
 /** A page-reading question is a Review note, not a comment to the contractor. */
-function isPageNote(f: ReviewFinding): boolean {
+export function isPageNote(f: ReviewFinding): boolean {
   const why = f.ai_rationale ?? "";
   return why.startsWith(UNREAD_PAGES) || why.startsWith(PAGE_READER_ONLY);
 }

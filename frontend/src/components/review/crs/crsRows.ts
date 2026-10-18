@@ -1,19 +1,22 @@
 /**
  * The CRS-first Sheet's rows (order 95 piece 2, spec 1.2; Part of #967).
  *
- * ONE ROW PER COMMENT, in KJO's seven columns: comment no., page or section,
- * item, clause and standard, observation, required action, status. A row is
- * the same group of findings the card view shows as one card (`buildCards`:
- * "13 blanks, one comment"), so the two screens never disagree about what
- * one comment is. Met and not-applicable findings are one row each, hidden
- * behind one line by default.
+ * ONE ROW PER COMMENT, in the client's seven columns: comment no., page or
+ * section, item, clause and standard, observation, required action, status.
+ * A row is the same group of findings the card view shows as one card
+ * (`buildCards`: "13 blanks, one comment"), so the two screens never
+ * disagree about what one comment is. Every other finding that is not a
+ * note is one row of its own, whatever its status: Met and not-applicable
+ * rows hide behind one line by default; anything else needs the engineer.
+ * A finding the engineer already rejected is not on the sheet at all; the
+ * footer counts it.
  *
  * Display only. Stored statuses do not change here.
  */
 import type { ReviewFinding, ReviewRunSummary } from "../../../types/api";
 import { orNothing, pageList } from "../reviewFormat";
 import {
-  type CardState, type SheetCard, buildCards, fieldOf, groupLine, isAskFinding, isTickFinding,
+  type CardState, type SheetCard, buildCards, fieldOf, groupLine, isNotNeeded, isPageNote, isTickFinding,
 } from "../sheet/sheetCards";
 import { type RunFacts, type TierCounts, type TierResult, countTiers, tierOf, tierOfGroup } from "./tiers";
 
@@ -30,18 +33,19 @@ export interface CrsRow {
   clauseAndStandard: string;
   observation: string;
   requiredAction: string;
-  /** "Open" on a new comment; what an engineer already recorded on the
-   *  card view otherwise; the tier's own word on a Met row. */
+  /** "Open" on a new comment; "Kept earlier" when an engineer already
+   *  agreed it on the card view; the tier's own word on a Tier A row. */
   status: string;
-  /** The card view's state for the same findings (agreed / not needed). */
+  /** The card view's state for the same findings (rejected ones are
+   *  filtered out first, so "open" or "agreed"). */
   priorState: CardState;
   /** rule_trust (#947): a safety field shown for the engineer's own tick. */
   tick: boolean;
   page: number | null;
 }
 
-/** KJO's seven columns, in the client's order and words (spec 1.2). */
-export const KJO_COLUMNS = [
+/** The client's seven columns, in the client's order and words (spec 1.2). */
+export const CRS_COLUMNS = [
   "Comment no.", "Page or section", "Item", "Clause and standard", "Observation", "Required action", "Status",
 ] as const;
 
@@ -81,10 +85,7 @@ function clauseAndStandardOf(f: ReviewFinding, standardNames: Map<string, string
 
 function statusOf(state: CardState, tier: TierResult): string {
   if (tier.tier === "A") return tier.label;
-  if (state === "agreed") return "Kept earlier";
-  if (state === "not_needed") return "Left off earlier";
-  if (state === "mixed") return "Part kept earlier";
-  return "Open";
+  return state === "agreed" ? "Kept earlier" : "Open";
 }
 
 function rowOf(key: string, findings: ReviewFinding[], state: CardState, tier: TierResult, standardNames: Map<string, string>): CrsRow {
@@ -108,19 +109,28 @@ function cardRow(card: SheetCard, facts: RunFacts, standardNames: Map<string, st
   return rowOf(card.key, card.findings, card.state, tierOfGroup(card.findings, facts), standardNames);
 }
 
+/** The findings still on the sheet, and how many the engineer already
+ *  rejected (approval_status "rejected"), which the footer states. */
+export function splitRejected(findings: ReviewFinding[]): { findings: ReviewFinding[]; rejected: number } {
+  const kept = findings.filter((f) => !isNotNeeded(f));
+  return { findings: kept, rejected: findings.length - kept.length };
+}
+
 /** Every row of the sheet, comments first (Tier B and C, in page order,
- *  numbered), then the Met and not-applicable rows in page order. A chat
- *  note or a page-reading note is not a comment to the contractor and is
- *  not a row; the unread pages are the headline's and the footer's. */
-export function buildCrsRows(findings: ReviewFinding[], facts: RunFacts, standardNames: Map<string, string>): CrsRow[] {
+ *  numbered), then the Tier A rows in page order. Rejected findings are
+ *  filtered out first. A chat note or a page-reading note is not a comment
+ *  to the contractor and is not a row; the unread pages are the headline's
+ *  and the footer's. Every other finding is a row: one the card view does
+ *  not group (a met value, a null or unknown status) takes its own tier,
+ *  so nothing is dropped quietly. */
+export function buildCrsRows(all: ReviewFinding[], facts: RunFacts, standardNames: Map<string, string>): CrsRow[] {
+  const { findings } = splitRejected(all);
   const cards = buildCards(findings);
   const onCards = new Set(cards.flatMap((c) => c.findings.map((f) => f.id)));
   const rows = cards.map((c) => cardRow(c, facts, standardNames));
   for (const f of findings) {
-    if (onCards.has(f.id) || isAskFinding(f) || f.origin === "chat") continue;
-    const tier = tierOf(f, facts);
-    if (tier.tier !== "A") continue;
-    rows.push(rowOf(`one:${f.id}`, [f], "open", tier, standardNames));
+    if (onCards.has(f.id) || f.origin === "chat" || isPageNote(f)) continue;
+    rows.push(rowOf(`one:${f.id}`, [f], f.confirmed_by ? "agreed" : "open", tierOf(f, facts), standardNames));
   }
   const comments = rows.filter((r) => r.tier.tier !== "A").sort((a, b) => pageOf(a.findings[0]) - pageOf(b.findings[0]));
   const met = rows.filter((r) => r.tier.tier === "A").sort((a, b) => pageOf(a.findings[0]) - pageOf(b.findings[0]));
@@ -196,20 +206,19 @@ function plural(n: number, one: string, many: string): string {
   return `${n.toLocaleString()} ${n === 1 ? one : many}`;
 }
 
-/** The one headline line (spec 1.2). The comment and needs-you counts are
- *  the rows' own (the same tier result the table shows); the met count, the
- *  clauses not applicable, the read time and the unread pages are the run's
- *  stored fields (`by_status`, `requirement_split`, `created_at` /
- *  `completed_at`, `page_coverage`). A field the run does not hold renders
- *  as nothing, never 0. */
+/** The one headline line (spec 1.2). The comment, needs-you and met counts
+ *  are the rows' own (the same tier result the table, the met line and the
+ *  footer show: one source); the clauses not applicable, the read time and
+ *  the unread pages are the run's stored fields (`requirement_split`,
+ *  `created_at` / `completed_at`, `page_coverage`). A field the run does not
+ *  hold renders as nothing, never 0. */
 export function crsHeadline(run: ReviewRunSummary, counts: TierCounts): string {
   const comments = counts.comment + counts.needsYou;
   const first = `${plural(comments, "comment", "comments")}`
     + (counts.needsYou > 0 ? `, ${counts.needsYou} ${counts.needsYou === 1 ? "needs" : "need"} your judgement.` : ".");
-  const met = run.by_status?.COMPLIANT;
   const notApplicable = run.requirement_split?.does_not_apply;
   const quiet = [
-    typeof met === "number" ? plural(met, "value met", "values met") : "",
+    counts.met > 0 ? plural(counts.met, "value met", "values met") : "",
     typeof notApplicable === "number" ? `${plural(notApplicable, "clause", "clauses")} not applicable` : "",
   ].filter(Boolean);
   const second = quiet.length ? ` ${quiet.join(", ")} (hidden).` : "";

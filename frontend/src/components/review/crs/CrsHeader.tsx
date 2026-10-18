@@ -16,6 +16,9 @@ export interface CrsHeaderProps {
   unopened: CrsRow[];
   /** How many Comment rows "Accept all remaining" would keep right now. */
   remaining: number;
+  /** How many Keep / Edit wording / Remove decisions are held on this
+   *  screen only (not yet in the exported file). */
+  localDecisions: number;
   acceptAll: { confirming: boolean; onAsk: () => void; onConfirm: () => void; onCancel: () => void; canUndo: boolean; onUndo: () => void; kept: number | null };
   sign: { busy: boolean; onSign: () => void; onWorkingCopy: () => void; message: string | null; error: string | null };
   onBack: () => void;
@@ -23,7 +26,7 @@ export interface CrsHeaderProps {
   onOpenReviewed?: () => void;
 }
 
-export function CrsHeader({ run, submittal, counts, unopened, remaining, acceptAll, sign, onBack, onOpenCards, onOpenReviewed }: CrsHeaderProps) {
+export function CrsHeader({ run, submittal, counts, unopened, remaining, localDecisions, acceptAll, sign, onBack, onOpenCards, onOpenReviewed }: CrsHeaderProps) {
   const equipment = orNothing(submittal?.equipment_type) || run.equipment_tags.join(", ");
   const revision = orNothing(submittal?.revision);
   const code = orNothing(run.engineer_final_code) || orNothing(run.recommended_code);
@@ -79,6 +82,12 @@ export function CrsHeader({ run, submittal, counts, unopened, remaining, acceptA
           </button>
         </span>
       </div>
+      {localDecisions > 0 && (
+        <p className="text-xs text-warn-500" data-testid="sign-local-note">
+          Your {localDecisions} {localDecisions === 1 ? "decision" : "decisions"} on this screen (Keep, edited wording, Remove)
+          {" "}{localDecisions === 1 ? "is" : "are"} not in the exported file yet: Sign and export issues the sheet as the record holds it.
+        </p>
+      )}
       {unopened.length > 0 && (
         <p className="text-xs text-slateish-400" data-testid="sign-waits">
           Sign and export waits until you have opened the {unopened.length} {unopened.length === 1 ? "row" : "rows"} marked "Needs you".
