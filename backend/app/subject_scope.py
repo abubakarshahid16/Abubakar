@@ -83,6 +83,20 @@ class Vocabulary:
     def equipment_in(self, text: object) -> set[str]:
         return {t for t in self.types_in(text) if self.kind.get(t) == EQUIPMENT}
 
+    def sure_equipment_in(self, text: object) -> list[tuple[str, str]]:
+        """`(equipment type, the spelling that named it)` for every phrase in
+        the text that means exactly ONE equipment type, in reading order.
+        A spelling listed under several types ("valve") names none of them
+        here: it is unclear, and unclear is not a reading."""
+        if self.pattern is None:
+            return []
+        out: list[tuple[str, str]] = []
+        for match in self.pattern.finditer(_fold(text)):
+            types = {t for t in self.phrases[match.group(0)] if self.kind.get(t) == EQUIPMENT}
+            if len(types) == 1:
+                out.append((types.pop(), match.group(0)))
+        return out
+
 
 def _fold(text: object) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", numparse.fold(text or "")).strip())
@@ -119,6 +133,46 @@ def submittal_equipment(classification: dict | None, facts: list[dict], vocab: V
         if found:
             return found, source
     return set(), None
+
+
+#: A title line that says it IS a sheet ("CONTROL VALVE DATA SHEET",
+#: "PUMP SPECIFICATION"): the document naming itself, read before the other
+#: edge lines of the page, which may name the equipment next to this one.
+_SHEET_WORD = re.compile(r"\b(?:data ?sheets?|specifications?|spec sheets?)\b")
+
+
+def title_equipment(lines: list[tuple[int, str]] | tuple, vocab: Vocabulary
+                    ) -> tuple[str, int | None, str] | None:
+    """(equipment type, page, the words that named it) when the title block
+    names exactly ONE equipment type of the vocabulary, else None (#897).
+
+    `lines` are `(page, line)` as `classification.title_block_lines` gives
+    them. Read in two passes, each decisive on its own: the lines that call
+    themselves a sheet, then every title line. Within a pass the longest
+    spelling wins at a position ("pressure transmitter", not "pressure";
+    "pressure safety valve", not "valve"), case and spacing do not matter,
+    and a spelling that could mean several types counts for none. One type
+    named: that is the reading. Two different types named: the title is
+    ambiguous and the type stays UNKNOWN - never the first, never a guess.
+    """
+    named = [(page, line, vocab.sure_equipment_in(line)) for page, line in lines]
+    sheet_lines = [n for n in named if _SHEET_WORD.search(_fold(n[1]))]
+    for group in (sheet_lines, named):
+        found = {t for _page, _line, hits in group for t, _phrase in hits}
+        if not found:
+            continue
+        if len(found) > 1:
+            return None
+        page, line, hits = next(n for n in group if n[2])
+        return hits[0][0], page, _quote(line, hits[0][1])
+    return None
+
+
+def _quote(line: str, phrase: str) -> str:
+    """The phrase as the line spells it (case and spacing kept), else the
+    folded phrase."""
+    match = re.search(r"\s+".join(re.escape(w) for w in phrase.split()), line, re.IGNORECASE)
+    return match.group(0) if match else phrase
 
 
 # ----------------------------------------------------------------- the clause
