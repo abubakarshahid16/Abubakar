@@ -5,6 +5,7 @@ Each such handler either re-raises or logs - the #655 pattern: what failed and
 the error's TYPE, never document text. The fallbacks stay (a page that defeats
 the table finder still keeps no table); only the silence goes. Invented data.
 """
+
 from __future__ import annotations
 
 import ast
@@ -14,10 +15,30 @@ import pathlib
 import pytest
 
 APP = pathlib.Path(__file__).resolve().parent.parent / "app"
-INGESTION = ("datasheet_inputs", "extract", "form_reader", "geometry_reader", "ocr",
-             "page_ledger", "tables", "upload", "vector_store", "vectorcache",
-             "ingest", "watcher", "classification")
-LOGS = ("log.", "logger.", "logging.", "record_failure", "_say_once(", "log_exception", "errors.fell_back(")
+INGESTION = (
+    "datasheet_inputs",
+    "extract",
+    "form_reader",
+    "geometry_reader",
+    "ocr",
+    "page_ledger",
+    "tables",
+    "upload",
+    "vector_store",
+    "vectorcache",
+    "ingest",
+    "watcher",
+    "classification",
+)
+LOGS = (
+    "log.",
+    "logger.",
+    "logging.",
+    "record_failure",
+    "_say_once(",
+    "log_exception",
+    "errors.fell_back(",
+)
 
 
 def _broad(handler: ast.ExceptHandler) -> bool:
@@ -25,7 +46,10 @@ def _broad(handler: ast.ExceptHandler) -> bool:
     if t is None:
         return True
     names = [t] if not isinstance(t, ast.Tuple) else list(t.elts)
-    return any(isinstance(n, ast.Name) and n.id in ("Exception", "BaseException") for n in names)
+    return any(
+        isinstance(n, ast.Name) and n.id in ("Exception", "BaseException")
+        for n in names
+    )
 
 
 def _silent(module: str) -> list[int]:
@@ -43,7 +67,9 @@ def _silent(module: str) -> list[int]:
 
 @pytest.mark.parametrize("module", INGESTION)
 def test_every_broad_catch_in_ingestion_logs_or_reraises(module):
-    assert _silent(module) == [], f"{module}.py swallows errors silently at lines {_silent(module)}"
+    assert _silent(module) == [], (
+        f"{module}.py swallows errors silently at lines {_silent(module)}"
+    )
 
 
 def test_a_page_whose_drawings_cannot_be_read_still_keeps_no_table_and_says_why(caplog):

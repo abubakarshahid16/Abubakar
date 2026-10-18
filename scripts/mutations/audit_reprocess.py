@@ -62,7 +62,8 @@ MUTATIONS: tuple[Mutation, ...] = (
              anchor="    try:\n"
                     "        ocr = _build_engine()\n"
                     "    except Exception as exc:  # noqa: BLE001 - a missing model is every page failing, not the document\n"
-                    "        return errors.fell_back(\"ocr: the OCR engine could not be built; every page of the batch is failed\", exc, failed_rows(page_nos, f\"engine_unavailable: {type(exc).__name__}: {exc}\"))  # 79c\n",
+                    "        errors.fell_back(\"ocr: no OCR engine; every page fails\", exc, None)\n"
+                    "        return failed_rows(page_nos, f\"engine_unavailable: {type(exc).__name__}: {exc}\")\n",
              replacement="    ocr = _build_engine()\n",
              target=_T, keyword="missing_ocr_model",
              tags=("reliability",)),

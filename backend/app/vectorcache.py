@@ -210,7 +210,7 @@ def load() -> Matrix:
             try:
                 m = _from_disk(token)
             except Exception as exc:  # noqa: BLE001 - a bad cache file must never break search
-                log.info("vectorcache: a cached vector file could not be read; the cache is rebuilt (%s)", type(exc).__name__)  # 79c
+                log.info("vectorcache: bad cache file (%s)", type(exc).__name__)
                 m = None
         if m is None:
             m = _build(token)
@@ -226,7 +226,7 @@ def search(query_vec: np.ndarray, limit: int, scope: frozenset[str]) -> list[dic
     try:
         m = load()
     except Exception as exc:  # noqa: BLE001 - never let a cache fault break retrieval
-        log.info("vectorcache: the vector cache could not be loaded; vectors are read from the database (%s)", type(exc).__name__)  # 79c
+        log.info("vectorcache: cache not loaded (%s)", type(exc).__name__)
         m = _read_from_db()
     if not m.ids or not scope or limit <= 0:
         return []

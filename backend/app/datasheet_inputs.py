@@ -602,7 +602,7 @@ def office_condition(path: str) -> tuple[str | None, str]:
     except InputError as exc:
         return f"office_{exc.code}", f"the stored file was refused: {exc.message}"
     except Exception as exc:  # noqa: BLE001 - any failure to open is the FILE's condition
-        log.info("datasheet_inputs: an Office datasheet could not be opened (%s)", type(exc).__name__)  # 79c
+        log.info("datasheet_inputs: Office file unreadable (%s)", type(exc).__name__)
         return "office_damaged", f"the stored file could not be read ({type(exc).__name__})"
     return None, ""
 

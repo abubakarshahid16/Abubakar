@@ -259,7 +259,7 @@ def parse_page_tables(stored_path: str, page_no: int) -> list[list[list[str]]]:
         # the ONLY thing that happens, which was the defect.
         return []
     except Exception as exc:  # noqa: BLE001 - geometry that defeats the finder
-        log.debug("tables: the table finder failed; no table is returned (%s)", type(exc).__name__)  # 79c
+        log.debug("tables: table finder failed; no table (%s)", type(exc).__name__)
         return []
 
 

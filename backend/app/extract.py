@@ -171,14 +171,14 @@ def page_tables_checked(page, raw_text: str) -> tuple[list[dict], str | None]:
     try:
         paths = page.get_drawings()
     except Exception as exc:  # noqa: BLE001 - geometry that defeats the reader
-        log.debug("extract: page.get_drawings failed; the page keeps no table (%s)", type(exc).__name__)  # 79c
+        log.debug("extract: get_drawings failed; no table (%s)", type(exc).__name__)
         return [], "table_get_drawings_failed"
     if len(paths) < MIN_TABLE_PATHS:
         return [], None
     try:
         found = page.find_tables(strategy="lines").tables
     except Exception as exc:  # noqa: BLE001 - same: no table rather than no page
-        log.debug("extract: page.find_tables failed; the page keeps no table (%s)", type(exc).__name__)  # 79c
+        log.debug("extract: find_tables failed; no table (%s)", type(exc).__name__)
         return [], "table_find_failed"
     if not found:
         return [], None
@@ -199,7 +199,7 @@ def page_tables_checked(page, raw_text: str) -> tuple[list[dict], str | None]:
             rows = [[tables_mod._clean(normalise_text(c or "")) for c in row]
                     for row in cells]
         except Exception as exc:  # noqa: BLE001
-            log.debug("extract: a table's cells could not be read; that table is skipped (%s)", type(exc).__name__)  # 79c
+            log.debug("extract: cells unreadable; skipped (%s)", type(exc).__name__)
             continue
         rows = [row for row in rows if any(cell for cell in row)]
         if not rows:
