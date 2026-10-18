@@ -5,8 +5,11 @@ import threading
 import time
 import uuid
 from datetime import UTC, datetime, timedelta, timezone
+from pydantic import BaseModel
+
 from .config import settings
 from .db import connect, schema_once
+from .schemas import RiskType
 
 log = logging.getLogger("uvicorn.error")
 
@@ -34,13 +37,15 @@ def create(payload: dict) -> dict:
     with connect() as conn:
         conn.execute("""INSERT INTO risks (id,risk_type,title,description,severity,status,deliverable_id,document_id,owner_user_id,due_date,source_finding_id,created_at,updated_at)
             VALUES (:id,:risk_type,:title,:description,:severity,:status,:deliverable_id,:document_id,:owner_user_id,:due_date,:source_finding_id,:created_at,:updated_at)""", item)
+    _page_cache.clear()  # after the commit: a read in between re-caches nothing stale
     return item
 
-def list_items(*, allowed_document_ids: frozenset[str] | None = None, risk_type: str | None = None) -> list[dict]:
-    ensure_schema(); clauses=[]; args=[]
+def _scope_where(allowed_document_ids: frozenset[str] | None, risk_type: str | None) -> tuple[list[str], list] | None:
+    """The WHERE clauses every risk read uses; None when the caller may read nothing."""
+    clauses: list[str] = []; args: list = []
     if risk_type: clauses.append("risk_type = ?"); args.append(risk_type)
     if allowed_document_ids is not None:
-        if not allowed_document_ids: return []
+        if not allowed_document_ids: return None
         marks=",".join("?" for _ in allowed_document_ids); clauses.append(f"(document_id IS NULL OR document_id IN ({marks}))"); args.extend(sorted(allowed_document_ids))
         # r2 S3: a risk raised about a deliverable follows that deliverable's
         # document, so a row written before `document_id` was carried (NULL)
@@ -48,9 +53,119 @@ def list_items(*, allowed_document_ids: frozenset[str] | None = None, risk_type:
         # document.
         clauses.append(f"(deliverable_id IS NULL OR deliverable_id IN (SELECT id FROM deliverables WHERE org_wide = 1 OR document_id IN ({marks})))")
         args.extend(sorted(allowed_document_ids))
+    return clauses, args
+
+
+def list_items(*, allowed_document_ids: frozenset[str] | None = None, risk_type: str | None = None) -> list[dict]:
+    """Every risk row, ungrouped (detection and tests). The screen reads `list_page`."""
+    ensure_schema()
+    scoped = _scope_where(allowed_document_ids, risk_type)
+    if scoped is None:
+        return []
+    clauses, args = scoped
     sql="SELECT * FROM risks" + (" WHERE " + " AND ".join(clauses) if clauses else "") + " ORDER BY updated_at DESC"
     return [dict(row) for row in connect().execute(sql,args).fetchall()]
 
+
+#: Rows of the register one request returns (order 88a): the screen shows a
+#: page and the total, never the whole table.
+PAGE_SIZE, MAX_PAGE_SIZE = 50, 200
+
+#: Before A10/#924 detection wrote ONE "review"/"compliance" risk PER FINDING
+#: (147,770 open rows in the owner's register). Those rows stay as stored; a
+#: read shows them as one row per document and status, with the count.
+_PER_FINDING = "(source_finding_id IS NOT NULL AND risk_type IN ('review','compliance'))"
+_SEVERITY_RANK = "CASE lower(severity) WHEN 'critical' THEN 0 WHEN 'major' THEN 1 WHEN 'minor' THEN 2 ELSE 3 END"
+
+
+def list_page(*, allowed_document_ids: frozenset[str] | None = None, risk_type: str | None = None,
+              limit: int = PAGE_SIZE, offset: int = 0) -> dict:
+    """One page of the register, newest first, with the total it is a page of.
+
+    READ ONLY (#478, #608): GET /api/risks used to run detection on every
+    call, looping over every finding and emailing per risk. Detection runs in
+    the background (`start_background_detection`) and from POST /api/risks/detect.
+
+    A per-finding row from before #924 is grouped with its document's others
+    (same type and status) into one row carrying `finding_count`; every other
+    row is itself (`finding_count` 1). SQL does the grouping and the paging, so
+    a request builds at most `limit` rows however large the table is.
+
+    CACHED for `PAGE_CACHE_SECONDS` per (caller's grants, type, page), and
+    cleared by every write in this module (`create`, detection). A document
+    delete changes the caller's grants, so it never serves a stale row of a
+    document the caller can no longer read."""
+    ensure_schema()
+    limit = max(1, min(int(limit), MAX_PAGE_SIZE)); offset = max(0, int(offset))
+    key = (allowed_document_ids, risk_type, limit, offset)
+    hit = _page_cache.get(key)
+    if hit and time.monotonic() - hit[0] < PAGE_CACHE_SECONDS:
+        return hit[1]
+    found = _read_page(allowed_document_ids, risk_type, limit, offset)
+    if len(_page_cache) > 256:
+        _page_cache.clear()
+    _page_cache[key] = (time.monotonic(), found)
+    return found
+
+
+PAGE_CACHE_SECONDS = 15.0
+_page_cache: dict[tuple, tuple[float, dict]] = {}
+
+
+def _read_page(allowed_document_ids: frozenset[str] | None, risk_type: str | None,
+               limit: int, offset: int) -> dict:
+    scoped = _scope_where(allowed_document_ids, risk_type)
+    if scoped is None:
+        return {"risks": [], "total": 0, "limit": limit, "offset": offset}
+    clauses, args = scoped
+    where = " AND ".join(clauses) if clauses else "1=1"
+    rows_sql = (
+        "SELECT id, risk_type, title, description, severity, status, deliverable_id, document_id,"
+        " owner_user_id, due_date, source_finding_id, created_at, updated_at, 1 AS finding_count"
+        f" FROM risks WHERE {where} AND NOT {_PER_FINDING}"
+        " UNION ALL"
+        " SELECT MIN(id), risk_type, MIN(title), '', "
+        f" CASE MIN({_SEVERITY_RANK}) WHEN 0 THEN 'critical' WHEN 1 THEN 'major' WHEN 2 THEN 'minor' ELSE 'medium' END,"
+        " status, NULL, document_id, NULL, MIN(due_date), NULL, MIN(created_at), MAX(updated_at), COUNT(*)"
+        f" FROM risks WHERE {where} AND {_PER_FINDING} GROUP BY risk_type, document_id, status")
+    conn = connect()
+    total = conn.execute(f"SELECT COUNT(*) AS n FROM ({rows_sql})", args + args).fetchone()["n"]
+    page = [dict(r) for r in conn.execute(
+        f"SELECT * FROM ({rows_sql}) ORDER BY updated_at DESC, id LIMIT ? OFFSET ?",
+        [*args, *args, limit, offset]).fetchall()]
+    for row in page:
+        if row["finding_count"] > 1 or (row["source_finding_id"] is None and row["description"] == ""):
+            n = row["finding_count"]
+            row["description"] = (f"{n} finding{'s' if n != 1 else ''} on this document, each recorded as its own risk"
+                                  " before risks were grouped per document (#924); shown as one row.")
+    return {"risks": page, "total": total, "limit": limit, "offset": offset}
+
+
+class Risk(BaseModel):
+    id: str
+    risk_type: RiskType
+    title: str
+    description: str
+    severity: str
+    status: str
+    deliverable_id: str | None
+    document_id: str | None
+    owner_user_id: str | None
+    due_date: str | None
+    source_finding_id: str | None
+    created_at: str
+    updated_at: str
+    #: How many stored rows this row stands for: 1, or the per-finding rows of
+    #: one document grouped by `list_page` (order 88a).
+    finding_count: int = 1
+
+
+class RiskList(BaseModel):
+    """One page of the register and the total it is a page of (order 88a)."""
+    risks: list[Risk]
+    total: int
+    limit: int
+    offset: int
 
 OPEN_REVIEW_STATUSES = ("open", "in_progress", "awaiting_response")
 
@@ -74,6 +189,7 @@ def _insert_many(items: list[dict]) -> None:
         conn.executemany(
             "INSERT INTO risks (" + ",".join(_COLUMNS) + ") VALUES ("
             + ",".join(":" + c for c in _COLUMNS) + ")", items)
+    _page_cache.clear()
 
 
 def _open_risk_keys() -> tuple[set[tuple], set[tuple]]:

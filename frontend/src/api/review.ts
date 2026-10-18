@@ -44,6 +44,7 @@ import type {
   BaselineSelection,
   ExpectedDeliverable,
   Risk,
+  RiskPage,
   RiskType,
   ReviewTraceability,
 } from "../types/api";
@@ -380,7 +381,7 @@ export const deliverables = {
 };
 
 export const risks = {
-  list: (riskType?: RiskType) => request<{ risks: Risk[] }>(`/risks${riskType ? `?risk_type=${encodeURIComponent(riskType)}` : ""}`),
+  list: (riskType?: RiskType, offset = 0) => request<RiskPage>(`/risks?${new URLSearchParams({ ...(riskType ? { risk_type: riskType } : {}), offset: String(offset) })}`),
   create: (body: Partial<Risk> & { risk_type: RiskType; title: string; description: string }) => request<Risk>("/risks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
 };
 

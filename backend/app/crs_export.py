@@ -251,13 +251,12 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
 
     Returned shape:
 
-      title                    row 1, company and project
+      title                    row 1, company and project (#633 item 7: `run_status_note` prints above it)
       subtitle                 row 2, the document's own name
       header                   rows 3-7 as {label, value} pairs, in order
       columns                  the seven column headers, row 8
-      rows                     one per finding, item_no assigned 1..N HERE,
-                               each carrying the stable `row_ref` that its
-                               comment's first line prints
+      rows                     one per finding, item_no assigned 1..N HERE, each
+                               carrying the stable `row_ref` its comment's first line prints
       recommended_code         "" when the caller supplies none
       recommended_code_label   the label the summary row prints
       recommended_code_reason  "" when there is none
@@ -367,9 +366,10 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         })
 
     return {
-        # Absent parts print nothing: an unset company must not leave the
-        # title starting with a blank line.
+        # Absent parts print nothing: an unset company must not leave the title starting with a blank line.
         "title": "\n ".join(p for p in (company, project) if p).rstrip(),
+        # #633 item 7: "REVIEW INCOMPLETE: run <status> - ..." on row 1; "" for a completed run.
+        "run_status_note": str(meta.get("run_status_note") or ""),
         "subtitle": SUBTITLE,
         # A missing value renders as NOTHING, never as "None": a CRS carrying
         # a plausible-looking transmittal number lies about its own provenance.
@@ -491,9 +491,9 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         return cell
 
     # Header block, rows 1-7, merges as measured from the template.
-    ws.merge_cells("A1:G1")
-    put(1, 1, view["title"], bold=True, size=12, center=True, wrap=True)
-    ws.row_dimensions[1].height = 30
+    ws.merge_cells("A1:G1")  # #633 item 7: an incomplete run is said on row 1, above the company
+    put(1, 1, "\n".join(p for p in (view["run_status_note"], view["title"]) if p), bold=True, size=12, center=True, wrap=True)
+    ws.row_dimensions[1].height = 75 if view["run_status_note"] else 30
     ws.merge_cells("A2:G2")
     put(2, 1, view["subtitle"], bold=True, size=12, center=True)
     for offset, field in enumerate(view["header"]):
