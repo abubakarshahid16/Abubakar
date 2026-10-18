@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import type { ReviewFinding } from "../../../types/api";
+import type { CrsIssueDecision, ReviewFinding } from "../../../types/api";
 import type { CrsRow } from "./crsRows";
 import { commentPages, comparisonLine, firstRowOnPage, historyOf, pagerStrip, parsePage, stepPage, stepRow } from "./evidenceNav";
 
@@ -95,5 +95,35 @@ describe("the history", () => {
   });
   it("two findings in one row found at the same time say it once", () => {
     expect(historyOf([f({ id: "1" }), f({ id: "2" })]).map((e) => e.what)).toEqual(["Found by the review"]);
+  });
+});
+
+describe("the history from the decision record", () => {
+  function d(over: Partial<CrsIssueDecision> = {}): CrsIssueDecision {
+    return { id: "d", review_run_id: "r", kind: "finding", subject: "x", decision: "reject",
+      reason: "same point as comment 3", decided_by: "Ali", decided_at: "2026-10-17T09:00:00Z", reason_code: null, ...over };
+  }
+  it("shows each recorded decision with its reason words and why, earlier ones kept", () => {
+    const h = historyOf([f({ approval_status: "rejected", approved_by: "Ali", approved_at: "2026-10-17T09:00:00Z" })], [
+      d({ id: "2", reason_code: "duplicate" }),
+      d({ id: "1", decision: "accept", reason: "breach confirmed by eye", decided_at: "2026-10-16T09:00:00Z" }),
+    ]);
+    expect(h.map((e) => e.what)).toEqual([
+      "Found by the review",
+      "Comment accepted by Ali: breach confirmed by eye",
+      "Comment removed by Ali (Duplicate): same point as comment 3",
+    ]);
+  });
+  it("a decision on another finding, or on a page, is not this row's", () => {
+    const h = historyOf([f()], [d({ subject: "other" }), d({ kind: "page", subject: "x" })]);
+    expect(h.map((e) => e.what)).toEqual(["Found by the review"]);
+  });
+  it("without the record, the finding's own fields still tell it", () => {
+    const h = historyOf([f({ approval_status: "rejected", approved_by: "Ali" })], null);
+    expect(h.map((e) => e.what)).toEqual(["Found by the review", "Comment removed by Ali"]);
+  });
+  it("a code the screen does not know is shown as stored, never dropped", () => {
+    expect(historyOf([f()], [d({ reason_code: "new_code", reason: "" })]).map((e) => e.what))
+      .toContain("Comment removed by Ali (new_code)");
   });
 });

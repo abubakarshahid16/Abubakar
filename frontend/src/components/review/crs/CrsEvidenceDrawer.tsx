@@ -10,10 +10,15 @@
  * the first and last page, a jump box, and PageUp / PageDown between comment
  * pages. A page with no comment can still be looked at; it is said so.
  *
+ * The history reads the run's decision record (`GET .../crs/decisions`),
+ * so an earlier decision on the same comment stays listed with its reason.
+ *
  * Read only. Decisions stay on the row.
  */
 import { useEffect, useRef, useState } from "react";
 
+import { reviews as reviewsApi } from "../../../api/client";
+import type { CrsIssueDecision } from "../../../types/api";
 import { orNothing } from "../reviewFormat";
 import { SheetPageImage } from "../sheet/SheetPageImage";
 import { cardTitle, trustLine } from "../sheet/sheetCards";
@@ -58,6 +63,16 @@ export function CrsEvidenceDrawer({ row, runId, standardNames, onClose, onOpenCa
   const [viewPage, setViewPage] = useState<number | null>(row.page);
   const [jump, setJump] = useState("");
   const [jumpError, setJumpError] = useState<string | null>(null);
+  // The run's decision record; null until loaded, "failed" when it could not be.
+  const [decisions, setDecisions] = useState<CrsIssueDecision[] | null | "failed">(null);
+  useEffect(() => {
+    let live = true;
+    reviewsApi.crsDecisions(runId)
+      .then((r) => { if (live) setDecisions(r.ok ? r.data.decisions : "failed"); })
+      .catch(() => { if (live) setDecisions("failed"); });
+    return () => { live = false; };
+  }, [runId]);
+  const history = historyOf(row.findings, Array.isArray(decisions) ? decisions : null);
   const [viewFor, setViewFor] = useState(row.key);
   if (viewFor !== row.key) { setViewFor(row.key); setViewPage(row.page); setJumpError(null); }
   useEffect(() => {
@@ -187,14 +202,19 @@ export function CrsEvidenceDrawer({ row, runId, standardNames, onClose, onOpenCa
           <SheetPageImage runId={runId} page={viewPage}
             marks={row.findings.filter((f) => f.contractor_page === viewPage).map((f) => ({ findingId: f.id, state: "open" as const }))} />
         )}
-        {historyOf(row.findings).length > 0 && (
+        {history.length > 0 && (
           <section>
             <h3 className={h}>History</h3>
             <ol className="mt-1 space-y-0.5 text-xs text-slateish-300" data-testid="drawer-history">
-              {historyOf(row.findings).map((e, i) => (
+              {history.map((e, i) => (
                 <li key={i}>{e.when ? <span className="text-slateish-500">{e.when}: </span> : null}{e.what}</li>
               ))}
             </ol>
+            {decisions === "failed" && (
+              <p className="mt-1 text-xs text-slateish-500" data-testid="drawer-history-partial">
+                The decision record could not be loaded, so earlier decisions and their reasons may be missing here.
+              </p>
+            )}
           </section>
         )}
         <button type="button" onClick={onOpenCards} className="text-sm text-signal-300 underline-offset-2 hover:underline">

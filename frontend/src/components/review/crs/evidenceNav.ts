@@ -10,7 +10,7 @@
  *
  * Pure functions; display only. No verdict is read or changed here.
  */
-import type { ReviewFinding } from "../../../types/api";
+import type { CrsIssueDecision, ReviewFinding } from "../../../types/api";
 import { fieldOf } from "../sheet/sheetCards";
 import { orNothing, statusLabel, whenLabel } from "../reviewFormat";
 import type { CrsRow } from "./crsRows";
@@ -78,17 +78,39 @@ export interface HistoryEntry {
   what: string;
 }
 
-/** What happened to the findings of one row, oldest first, from the fields
- *  the findings carry. Who did it is shown as recorded; a time not recorded
- *  is left blank, never guessed. */
-export function historyOf(findings: ReviewFinding[]): HistoryEntry[] {
+/** The words of the removal reason codes (`crs_issue.REMOVAL_REASONS`,
+ *  order 95 piece 6a). A code not listed here is shown as it was stored. */
+export const REMOVAL_REASON_WORDS: Record<string, string> = {
+  not_applicable: "Not applicable to this equipment",
+  already_complies: "Contractor already complies",
+  extraction_wrong: "Extraction wrong",
+  accept_deviation: "Accept deviation",
+  duplicate: "Duplicate",
+};
+
+function decisionLine(d: CrsIssueDecision): string {
+  const verb = d.decision === "accept" ? "Comment accepted" : "Comment removed";
+  const code = d.reason_code ? ` (${REMOVAL_REASON_WORDS[d.reason_code] ?? d.reason_code})` : "";
+  const why = orNothing(d.reason);
+  return `${verb} by ${d.decided_by}${code}${why ? `: ${why}` : ""}`;
+}
+
+/** What happened to the findings of one row, oldest first. `decisions` is
+ *  the run's decision record (`GET .../crs/decisions`): every accept and
+ *  removal on a finding, with who, when, why and the reason code, earlier
+ *  ones included. Without it (not loaded, or the load failed), the fields
+ *  the findings carry are used. Who did it is shown as recorded; a time not
+ *  recorded is left blank, never guessed. */
+export function historyOf(findings: ReviewFinding[], decisions: CrsIssueDecision[] | null = null): HistoryEntry[] {
   const out: { at: string; what: string }[] = [];
   for (const f of findings) {
     out.push({ at: f.created_at, what: "Found by the review" });
     if (f.confirmed_at || f.confirmed_by) {
       out.push({ at: f.confirmed_at ?? "", what: `Confirmed${f.confirmed_by ? ` by ${f.confirmed_by}` : ""}` });
     }
-    if (f.approval_status === "accepted" || f.approval_status === "rejected") {
+    const recorded = (decisions ?? []).filter((d) => d.kind === "finding" && d.subject === f.id);
+    for (const d of recorded) out.push({ at: d.decided_at, what: decisionLine(d) });
+    if (recorded.length === 0 && (f.approval_status === "accepted" || f.approval_status === "rejected")) {
       const verb = f.approval_status === "accepted" ? "Comment accepted" : "Comment removed";
       out.push({ at: f.approved_at ?? "", what: `${verb}${f.approved_by ? ` by ${f.approved_by}` : ""}` });
     }
