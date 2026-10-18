@@ -138,6 +138,20 @@ NOT_RECORDED = ("Clause coverage is not recorded for this run (made before the c
                 "ledger); re-run the review to get it.")
 
 
+def outcome_notes(outcome: dict, findings: list[dict]) -> list[dict]:
+    """The CRS Review-notes rows that come from the run's stored outcome
+    (`crs_mapping.build_review_notes` asks only when the caller passed one):
+    rule_trust's rows when the outcome holds anything, then - PF4 step 2
+    (#884) - the clause-coverage row, which an outcome without the record
+    still gets, saying so."""
+    notes: list[dict] = []
+    if outcome:
+        from .rule_trust import review_notes as trust_notes
+        notes.extend(trust_notes(outcome, findings))
+    notes.extend(review_notes(outcome))
+    return notes
+
+
 def review_notes(outcome: dict | None) -> list[dict]:
     """PF4 step 2: the one CRS Review-notes row (internal copy) that states
     the run's clause coverage from the record the run stored at its end
