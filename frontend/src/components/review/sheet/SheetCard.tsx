@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { reviews as reviewsApi } from "../../../api/client";
 import type { ReviewFinding } from "../../../types/api";
+import { SENSE_CHECK_RULE, isSenseCheck } from "../reasonWords";
 import { orNothing } from "../reviewFormat";
 import {
   type ClauseGroup, type SheetCard as Card, cardTitle, clauseGroups, clauseSummary, findingNoun, groupLine, hasNoClause,
@@ -274,7 +275,7 @@ function RuleSection({ card, standardNames, onOpenRule }: Pick<SheetCardProps, "
       <section>
         {heading}
         <p className="mt-1 line-clamp-3 text-sm text-slateish-200">
-          {orNothing(leader.requirement_source_text) || orNothing(leader.requirement)}
+          {isSenseCheck(leader) ? SENSE_CHECK_RULE : orNothing(leader.requirement_source_text) || orNothing(leader.requirement)}
         </p>
         {hasNoClause(leader)
           ? <p className="mt-1 text-xs text-slateish-400">{NO_CLAUSE}</p>
