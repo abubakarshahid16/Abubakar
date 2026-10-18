@@ -50,10 +50,10 @@ export function HowReviewedView({ runId, onBack, onOpenRun, onOpenSteps }: {
     // The App keys this view by run id, so a new run is a fresh mount and
     // the initial "loading" state stands; nothing is set synchronously here.
     let alive = true;
-    void Promise.all([reviewsApi.reviewRuns(), reviewsApi.reviewRunStandards(runId)]).then(([runs, stds]) => {
+    void Promise.all([reviewsApi.reviewRun(runId), reviewsApi.reviewRunStandards(runId)]).then(([runs, stds]) => {
       if (!alive) return;
       if (!runs.ok) { setLoad({ kind: "error", message: runs.error.message }); return; }
-      const found = runs.data.runs.find((r) => r.review_run_id === runId);
+      const found = runs.data;
       if (!found) { setLoad({ kind: "error", message: "This review run could not be found." }); return; }
       setLoad({ kind: "ready", run: found });
       // A FAILED LIST IS NOT AN EMPTY ONE: the section says it could not be

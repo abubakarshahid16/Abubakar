@@ -59,11 +59,11 @@ function useRunData(runId: string) {
 
   const refresh = useCallback(async () => {
     const [runs, listed, stds, sum] = await Promise.all([
-      reviewsApi.reviewRuns(), reviewsApi.list({ review_run_id: runId }), reviewsApi.reviewRunStandards(runId),
+      reviewsApi.reviewRun(runId), reviewsApi.list({ review_run_id: runId }), reviewsApi.reviewRunStandards(runId),
       reviewsApi.reviewRunSummary(runId),
     ]);
     if (!runs.ok) { setLoad({ kind: "error", message: runs.error.message }); return; }
-    const found = runs.data.runs.find((r) => r.review_run_id === runId) ?? null;
+    const found = runs.data;
     if (!found) { setLoad({ kind: "error", message: "This review run could not be found." }); return; }
     if (!listed.ok) { setLoad({ kind: "error", message: listed.error.message }); return; }
     setRun(found);
