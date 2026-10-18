@@ -8,6 +8,7 @@ import type {
   BackgroundJob,
   ApiError,
   CrsIssueDecision,
+  CrsIssueDecisionList,
   CrsIssueGate,
   ClauseCoverage,
   AnalysisGapsResult,
@@ -32,6 +33,7 @@ import type {
   ReviewRunStandard,
   ReviewRunMissingReference,
   ReviewRunSummary,
+  ReviewRunTierSummary,
   ReviewFinding,
   ReviewFindingCreate,
   ReviewFindingUpdate,
@@ -142,6 +144,18 @@ export const reviews = {
       `/reviews/runs/${encodeURIComponent(runId)}/standards`,
       undefined,
       hasArrayField("standards"),
+    ),
+  /** Order 95 piece 1 (#1111): the run as the CRS-first Sheet shows it -
+   *  one server tier (and reason) per finding, the headline counts and the
+   *  "How this was reviewed" stored fields. Read only. A server without the
+   *  route answers 404; callers fall back to the screen's own tiers. */
+  reviewRunSummary: (runId: string) =>
+    request<ReviewRunTierSummary>(
+      `/reviews/runs/${encodeURIComponent(runId)}/summary`,
+      undefined,
+      (b) => hasArrayField("rows")(b) && typeof (b as { counts?: unknown }).counts === "object"
+        && (b as { counts?: unknown }).counts !== null
+        && typeof (b as { how_reviewed?: unknown }).how_reviewed === "object",
     ),
   /** Which standards a run considered, INCLUDING the ones not applied - the
    *  engineer's add-a-standard list. */
@@ -259,6 +273,10 @@ export const reviews = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ decision, reason }),
       }),
+  /** Order 95 piece 6a: every decision on the run's CRS - who, when, why
+   *  and the removal reason code - newest first. Read only. */
+  crsDecisions: (runId: string) =>
+    request<CrsIssueDecisionList>(`/reviews/runs/${encodeURIComponent(runId)}/crs/decisions`),
   /** PF4 (#884): the run's clause coverage ledger. Read only. */
   runCoverage: (runId: string) =>
     request<ClauseCoverage>(`/reviews/runs/${encodeURIComponent(runId)}/coverage`),

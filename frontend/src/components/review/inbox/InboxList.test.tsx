@@ -132,4 +132,48 @@ describe("InboxList", () => {
     );
     expect(screen.getByText("No documents from contractors yet")).toBeInTheDocument();
   });
+
+  describe("#1114: a Ready row's comment counts", () => {
+    it("shows the counts read from the run's own summary, asking once per run", async () => {
+      const load = vi.fn().mockResolvedValue({ comment: 3, needs_you: 1 });
+      const { rerender } = render(
+        <InboxList
+          documents={[doc()]} runs={[run()]} submittalsTotal={null}
+          onReview={vi.fn()} startingDocumentId={null} loadReadyCounts={load}
+        />,
+      );
+      expect(await screen.findByText(/^Ready: 3 comments, 1 needs you/)).toBeInTheDocument();
+      rerender(
+        <InboxList
+          documents={[doc()]} runs={[run()]} submittalsTotal={null}
+          onReview={vi.fn()} startingDocumentId={null} loadReadyCounts={load}
+        />,
+      );
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(load).toHaveBeenCalledWith("run-1");
+    });
+
+    it("says Ready alone when the counts cannot be read", async () => {
+      const load = vi.fn().mockResolvedValue(null);
+      render(
+        <InboxList
+          documents={[doc()]} runs={[run()]} submittalsTotal={null}
+          onReview={vi.fn()} startingDocumentId={null} loadReadyCounts={load}
+        />,
+      );
+      await vi.waitFor(() => expect(load).toHaveBeenCalled());
+      expect(screen.getByTestId("inbox-state").textContent).toMatch(/^Ready ·/);
+    });
+
+    it("does not ask for a run that is not Ready", () => {
+      const load = vi.fn().mockResolvedValue({ comment: 1, needs_you: 0 });
+      render(
+        <InboxList
+          documents={[doc()]} runs={[run({ status: "failed" })]} submittalsTotal={null}
+          onReview={vi.fn()} startingDocumentId={null} loadReadyCounts={load}
+        />,
+      );
+      expect(load).not.toHaveBeenCalled();
+    });
+  });
 });

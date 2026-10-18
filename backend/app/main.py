@@ -31,7 +31,6 @@ from . import ingest as ingest_mod, dashboard_pool
 from . import job_queue as job_queue_mod
 from . import review_jobs as review_jobs_mod
 from . import orphan_guard
-from . import okf as okf_mod
 from . import page_ledger as page_ledger_mod
 from . import keyword as keyword_mod
 from . import metrics as metrics_mod
@@ -45,6 +44,8 @@ from . import sheet_page as sheet_page_mod
 from . import warmup as warmup_mod
 from .api_utils import (
     _require_identity_to_write,
+    _deliverable_visible,
+    _require_named_reviewer,
     DEFAULT_LIMIT,
     MAX_LIMIT,
     reject_unknown_params,
@@ -65,12 +66,9 @@ from . import progress as progress_mod
 from . import reports as reports_mod
 from . import review as review_mod
 from . import deliverables as deliverables_mod
-from . import notifications as notifications_mod
 from . import structured_search as structured_search_mod
 from . import risks as risks_mod
 from . import standards as standards_mod
-from . import standards_inventory as standards_inventory_mod
-from . import standards_acquisition as standards_acquisition_mod
 from . import submittal_review as submittal_review_mod
 from . import vector_store as vector_store_mod
 from . import schemas
@@ -111,7 +109,8 @@ def _log_hooks_path() -> None:
 
     try:
         message = hooks_check.hooks_path_warning()
-    except Exception:  # noqa: BLE001 - boot must not depend on git
+    except Exception as exc:  # noqa: BLE001 - boot must not depend on git
+        errors.fell_back("main: git hooks check failed; no warning", exc, None)
         return
     if message:
         logging.getLogger("uvicorn.error").warning(message)
@@ -258,15 +257,21 @@ app.add_middleware(
 # Routes in their own modules (watched folder; #473 fact confirmation) so this
 # file stays the only place routing is declared without growing a feature.
 from .api import admin as api_admin  # noqa: E402
+from .api import crs_archive as api_crs_archive  # noqa: E402
+from .api import deliverables as api_deliverables  # noqa: E402
 from .api import document_classification as api_document_classification  # noqa: E402
 from .api import document_files as api_document_files  # noqa: E402
 from .api import documents as api_documents  # noqa: E402
 from .api import run_summary as api_run_summary  # noqa: E402
+from .api import standards as api_standards  # noqa: E402
 
 # Order 73: the documents area's routes live in app/api/ (order 95: the run summary too).
 for _r in (api_documents, api_document_classification, api_document_files, api_admin):
     app.include_router(_r.router)
 app.include_router(api_run_summary.router)
+app.include_router(api_standards.router)
+app.include_router(api_crs_archive.router)
+app.include_router(api_deliverables.router)
 app.include_router(watch_api_mod.router)
 app.include_router(fact_api_mod.router)
 app.include_router(sheet_page_mod.router)  # #967: the Sheet's page with every card's value marked
@@ -2040,32 +2045,6 @@ def review_finding_evidence_image(
 
 # ------------------------------------------------------------- deliverables / WBS
 
-def _deliverable_visible(item: dict, scope: access.AccessScope) -> bool:
-    """May this caller touch this deliverable? (r2 S3)
-
-    A deliverable tied to a document follows that document's grant. One with NO
-    document used to be open to every identified caller, including one with no
-    grant at all; it now needs the admin capability or at least one grant.
-    """
-    document_id = item.get("document_id")
-    if document_id:
-        return scope.may_read(document_id)
-    return scope.is_admin or bool(scope.allowed_document_ids)
-
-
-@app.get("/api/deliverables", response_model=schemas.DeliverableList,
-         responses=schemas.ERRORS_422)
-def list_deliverables(scope: access.AccessScope = Depends(access.current_scope)):
-    return {"deliverables": deliverables_mod.list_items(allowed_document_ids=scope.allowed_document_ids)}
-
-
-@app.get("/api/deliverables/expected", response_model=schemas.ExpectedDeliverableList)
-def expected_deliverables(wbs_code: str | None = None,
-                          scope: access.AccessScope = Depends(access.current_scope)):
-    deliverables_mod.infer_expectations(allowed_document_ids=scope.allowed_document_ids)
-    return {"deliverables": deliverables_mod.expected_missing(
-        wbs_code=wbs_code, allowed_document_ids=scope.allowed_document_ids)}
-
 
 @app.get("/api/search/structured", response_model=schemas.StructuredSearchList)
 def structured_search(q: str, kind: str | None = None,
@@ -2137,189 +2116,6 @@ def create_risk(body: schemas.RiskCreate, scope: access.AccessScope = Depends(ac
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "risk owner not found"))
     return risks_mod.create(body.model_dump())
-
-
-@app.post("/api/deliverables", response_model=schemas.Deliverable,
-          responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
-def create_deliverable(body: schemas.DeliverableCreate,
-                       scope: access.AccessScope = Depends(access.current_scope)):
-    _require_identity_to_write(scope)
-    if body.document_id:
-        require_document(body.document_id, scope)
-    if body.parent_id and deliverables_mod.get(body.parent_id) is None:
-        raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "parent WBS node not found"))
-    return deliverables_mod.create(body.model_dump(), created_by=scope.user_id)
-
-
-@app.patch("/api/deliverables/{deliverable_id}", response_model=schemas.Deliverable,
-           responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
-def update_deliverable(deliverable_id: str, body: schemas.DeliverableUpdate,
-                       scope: access.AccessScope = Depends(access.current_scope)):
-    _require_identity_to_write(scope)
-    # AUTHORISE BEFORE WRITING. The read check used to run on the row
-    # `update` RETURNED, so a caller without a grant on the deliverable's
-    # document got a 404 while their change had already been committed
-    # (audit 2026-09-30). The existing row is checked first, then written.
-    existing = deliverables_mod.get(deliverable_id)
-    if existing is None or not _deliverable_visible(existing, scope):
-        raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no deliverable with that id"))
-    changes = body.model_dump(exclude_unset=True)
-    if changes.get("document_id"):
-        require_document(changes["document_id"], scope)
-    if changes.get("parent_id") and deliverables_mod.get(changes["parent_id"]) is None:
-        raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "parent WBS node not found"))
-    try:
-        item = deliverables_mod.update(deliverable_id, changes, actor_user_id=scope.user_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    if item is None or not _deliverable_visible(item, scope):
-        raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no deliverable with that id"))
-    return item
-
-
-@app.get("/api/deliverables/{deliverable_id}/history", response_model=schemas.DeliverableEventList,
-         responses=schemas.ERRORS_404)
-def deliverable_history(deliverable_id: str, scope: access.AccessScope = Depends(access.current_scope)):
-    item = deliverables_mod.get(deliverable_id)
-    if item is None or not _deliverable_visible(item, scope):
-        raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no deliverable with that id"))
-    return {"events": deliverables_mod.history(deliverable_id)}
-
-
-@app.get("/api/deliverables/{deliverable_id}/stakeholders",
-         response_model=schemas.DeliverableStakeholderList,
-         responses=schemas.ERRORS_404)
-def deliverable_stakeholders(deliverable_id: str, scope: access.AccessScope = Depends(access.current_scope)):
-    item = deliverables_mod.get(deliverable_id)
-    if item is None or not _deliverable_visible(item, scope):
-        raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no deliverable with that id"))
-    return {"stakeholders": deliverables_mod.stakeholders(deliverable_id)}
-
-
-@app.put("/api/deliverables/{deliverable_id}/stakeholders",
-         response_model=schemas.DeliverableStakeholderList,
-         responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
-def replace_deliverable_stakeholders(
-    deliverable_id: str, body: schemas.DeliverableStakeholderUpdate,
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    _require_identity_to_write(scope)
-    item = deliverables_mod.get(deliverable_id)
-    if item is None or not _deliverable_visible(item, scope):
-        raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no deliverable with that id"))
-    return {"stakeholders": deliverables_mod.replace_stakeholders(
-        deliverable_id, [a.model_dump() for a in body.assignments], actor_user_id=scope.user_id)}
-
-
-@app.get("/api/deliverables/{deliverable_id}/workspace",
-         response_model=schemas.WbsWorkspace, responses=schemas.ERRORS_404)
-def deliverable_workspace(deliverable_id: str, scope: access.AccessScope = Depends(access.current_scope)):
-    item = deliverables_mod.workspace(
-        deliverable_id, allowed_document_ids=scope.allowed_document_ids)
-    if item is None:
-        raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no deliverable with that id"))
-    return item
-
-
-@app.get("/api/deliverables/alerts", response_model=schemas.DeliverableAlertList)
-def deliverable_alerts(scope: access.AccessScope = Depends(access.current_scope)):
-    return {"alerts": deliverables_mod.alerts(allowed_document_ids=scope.allowed_document_ids)}
-
-
-@app.get("/api/management/reminders", response_model=schemas.ReminderEventList)
-def management_reminders(scope: access.AccessScope = Depends(access.current_scope)):
-    return {"reminders": deliverables_mod.reminder_events(allowed_document_ids=scope.allowed_document_ids)}
-
-
-@app.post("/api/management/reminders/{reminder_id}/ack", response_model=schemas.ReminderEvent,
-          responses=schemas.ERRORS_404)
-def acknowledge_management_reminder(reminder_id: str, scope: access.AccessScope = Depends(access.current_scope)):
-    reminder = next((item for item in deliverables_mod.reminder_events(allowed_document_ids=scope.allowed_document_ids)
-                     if item["id"] == reminder_id), None)
-    if reminder is None:
-        raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no reminder with that id"))
-    item = deliverables_mod.acknowledge_reminder(reminder_id)
-    if item is None:
-        raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no reminder with that id"))
-    return item
-
-
-@app.get("/api/management/summary", response_model=schemas.ManagementSummary)
-def management_summary(scope: access.AccessScope = Depends(access.current_scope)):
-    items = deliverables_mod.list_items(allowed_document_ids=scope.allowed_document_ids)
-    alerts = deliverables_mod.alerts(allowed_document_ids=scope.allowed_document_ids)
-    findings = review_mod.list_findings(allowed_document_ids=scope.allowed_document_ids)
-    by_status = {status: sum(1 for item in items if item["status"] == status)
-                 for status in {item["status"] for item in items}}
-    by_severity = {severity: sum(1 for item in findings if item["severity"] == severity)
-                   for severity in {item["severity"] for item in findings}}
-    by_review_status = {status: sum(1 for item in findings if item["status"] == status)
-                        for status in {item["status"] for item in findings}}
-    escalated = sum(1 for item in findings if item["escalation_level"] > 0)
-    return {"deliverables_total": len(items), "deliverables_by_status": by_status,
-            "review_findings_total": len(findings), "findings_by_severity": by_severity,
-            "findings_by_status": by_review_status, "escalated_findings": escalated,
-            "overdue_alerts": len(alerts), "alerts": alerts}
-
-
-@app.post("/api/management/summary/email", response_model=schemas.NotificationSendResponse,
-          responses=schemas.ERRORS_401)
-def email_management_summary(scope: access.AccessScope = Depends(access.current_scope)):
-    _require_identity_to_write(scope)
-    items = deliverables_mod.list_items(allowed_document_ids=scope.allowed_document_ids)
-    alerts = deliverables_mod.alerts(allowed_document_ids=scope.allowed_document_ids)
-    findings = review_mod.list_findings(allowed_document_ids=scope.allowed_document_ids)
-    summary = {"deliverables_total": len(items), "overdue_alerts": len(alerts),
-               "escalated_findings": sum(1 for item in findings if item["escalation_level"] > 0)}
-    sent = notifications_mod.send_daily_summary(summary, actor_user_id=scope.user_id)
-    return {"sent": sent}
-
-
-@app.get("/api/management/summary/schedule", response_model=schemas.SummarySchedule)
-def get_summary_schedule(scope: access.AccessScope = Depends(access.current_scope)):
-    return {"schedule": settings.summary_schedule, "weekday_utc": settings.summary_weekday_utc, "hour_utc": settings.summary_hour_utc}
-
-
-@app.put("/api/management/summary/schedule", response_model=schemas.SummarySchedule)
-def set_summary_schedule(body: schemas.SummarySchedule,
-                         scope: access.AccessScope = Depends(access.current_scope),
-                         _actor: dict | None = Depends(admin_mod.current_admin)):
-    # GLOBAL SETTING: the admin capability, via the same gate the admin surface
-    # uses (404 to a non-admin). Identity alone let any signed-in engineer
-    # change it for everyone (audit 2026-09-30).
-    _require_identity_to_write(scope)
-    settings.summary_schedule = body.schedule
-    settings.summary_weekday_utc = body.weekday_utc
-    settings.summary_hour_utc = body.hour_utc
-    return body
-
-
-@app.get("/api/management/escalation-rules", response_model=schemas.EscalationRuleList)
-def list_escalation_rules(scope: access.AccessScope = Depends(access.current_scope)):
-    return {"rules": deliverables_mod.escalation_rules()}
-
-
-@app.get("/api/management/report", response_class=FileResponse,
-         responses={200: {"content": {"application/pdf": {}}, "description": "Management PDF"}})
-def management_report(scope: access.AccessScope = Depends(access.current_scope)):
-    path = deliverables_mod.render_management_report(allowed_document_ids=scope.allowed_document_ids)
-    return FileResponse(path, media_type="application/pdf", filename="epc-management-report.pdf",
-                        headers={"Cache-Control": "private, no-store"})
-
-
-@app.put("/api/management/escalation-rules/{level}", response_model=schemas.EscalationRule,
-         responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
-def update_escalation_rule(level: int, body: schemas.EscalationRule,
-                           scope: access.AccessScope = Depends(access.current_scope),
-                           _actor: dict | None = Depends(admin_mod.current_admin)):
-    # GLOBAL SETTING: the admin capability, via the same gate the admin surface
-    # uses (404 to a non-admin). Identity alone let any signed-in engineer
-    # change it for everyone (audit 2026-09-30).
-    _require_identity_to_write(scope)
-    item = deliverables_mod.update_escalation_rule(level, body.model_dump(exclude={"level"}))
-    if item is None:
-        raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no escalation rule with that level"))
-    return item
 
 
 @app.post("/api/conversations", response_model=schemas.Conversation,
@@ -2671,7 +2467,7 @@ async def ask_stream(conversation_id: str, body: schemas.AskRequest, request: Re
                 turn.cancel.set()
             try:
                 item = turn.events.get_nowait()
-            except Exception:  # queue.Empty
+            except chat_stream.Empty:  # nothing queued yet; only this (79c)
                 await asyncio.sleep(0.05)
                 continue
             if item is None:
@@ -2703,423 +2499,6 @@ def cancel_turn(conversation_id: str, turn_id: str, request: Request,
 
 
 # ------------------------------------------------------------------ pages
-
-
-# ------------------------------------------------------------- standards
-#
-# THE LIBRARY IS LOGICALLY SEPARATE AND PHYSICALLY THE SAME DATABASE. These
-# routes read the same `documents` and `chunks` rows as everything else, under
-# the same grants, through the same scope. "A dedicated library" is a statement
-# about what a reader sees, never about where the bytes live.
-
-
-@app.get("/api/standards", response_model=list[schemas.StandardSummary],
-         responses=schemas.ERRORS_422)
-def list_standards(
-    request: Request,
-    include_superseded: bool = Query(True),
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """Every COMPANY_STANDARD the caller may read.
-
-    The role decides what belongs in the library; the grants decide what this
-    caller may see. They are ANDed in the query, so the library is always a
-    subset of what the caller already holds.
-    """
-    reject_unknown_params(request, {"include_superseded"})
-    return standards_mod.list_standards(
-        allowed_document_ids=scope.allowed_document_ids,
-        include_superseded=include_superseded)
-
-
-@app.get("/api/standards/inventory",
-         response_model=list[schemas.StandardInventoryEntry],
-         responses=schemas.ERRORS_422)
-def standards_inventory(
-    request: Request,
-    include_superseded: bool = Query(True),
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """The standards inventory (B5 part 2): every COMPANY_STANDARD the
-    caller may read, with family, licence status, source-file hash, and
-    whether any submittal the caller may read cites it.
-
-    Same scope rule as `/api/standards` (CLAUDE.md rule 5): the role decides
-    what belongs in the library, the grants decide what this caller may see,
-    ANDed - never widened by this route.
-    """
-    reject_unknown_params(request, {"include_superseded"})
-    return standards_inventory_mod.inventory_rows(
-        allowed_document_ids=scope.allowed_document_ids,
-        include_superseded=include_superseded)
-
-
-@app.get("/api/standards/cited-but-not-held",
-         response_model=list[schemas.CitedButNotHeld],
-         responses=schemas.ERRORS_422)
-def standards_cited_but_not_held(
-    request: Request,
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """Every standard cited by a submittal or a SAES requirement's own
-    normative reference that is NOT in the local library, with where it was
-    cited - the missing list for the CRS and for the owner to take to the
-    standards body.
-
-    Same scope rule as every other standards route (CLAUDE.md rule 5): the
-    caller's own grants bound which submittals and which standards this can
-    ever see - never widened by this route.
-    """
-    reject_unknown_params(request, set())
-    return standards_inventory_mod.cited_but_not_held(
-        allowed_document_ids=scope.allowed_document_ids)
-
-
-@app.get("/api/standards/missing",
-         response_model=list[schemas.MissingStandard],
-         responses=schemas.ERRORS_422)
-def standards_missing(
-    request: Request,
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """Standards beyond the library - API, ASME, ASTM, ISO, IEC, NFPA, NACE,
-    NORSOK, and the client's own - that a submittal or a SAES requirement
-    cites and the library does not hold, each with the publisher's own
-    catalogue page and whether it has been requested. Nothing is fetched:
-    every one of these is sold under licence (standards_acquisition.py).
-    Scope: exactly the cited-but-not-held list's (CLAUDE.md rule 5)."""
-    reject_unknown_params(request, set())
-    return standards_acquisition_mod.missing_standards(
-        allowed_document_ids=scope.allowed_document_ids)
-
-
-@app.post("/api/standards/missing/request",
-          response_model=schemas.StandardRequestResult,
-          responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
-def request_missing_standard(
-    body: schemas.StandardRequestBody,
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """Record that a missing standard has been asked for, under the signed-in
-    engineer's name. Only a standard on the caller's own missing list."""
-    _require_named_reviewer(scope, "requesting a standard")
-    try:
-        return standards_acquisition_mod.mark_requested(
-            body.identifier, user_id=scope.user_id, note=body.note,
-            allowed_document_ids=scope.allowed_document_ids)
-    except standards_acquisition_mod.AcquisitionError as exc:
-        raise HTTPException(status_code=404, detail=errors.safe_error(
-            errors.NOT_FOUND, str(exc))) from exc
-
-
-@app.post("/api/standards/{document_id}/provenance",
-          response_model=schemas.StandardProvenance,
-          responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
-def record_standard_provenance(
-    document_id: str,
-    body: schemas.ExternalCopyBody,
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """Mark an uploaded standard as a copy obtained externally - the client's
-    "stored, hashed, cited and marked as externally obtained" - recording
-    where it came from, the file's hash, and who recorded it."""
-    _require_named_reviewer(scope, "recording where a standard came from")
-    try:
-        return standards_acquisition_mod.record_external_copy(
-            document_id, identifier=body.identifier,
-            obtained_from=body.obtained_from, user_id=scope.user_id,
-            allowed_document_ids=scope.allowed_document_ids)
-    except standards_acquisition_mod.AcquisitionError as exc:
-        status = 404 if "no such" in str(exc) else 422
-        raise HTTPException(status_code=status, detail=errors.safe_error(
-            errors.NOT_FOUND if status == 404 else errors.INVALID_PARAMETER, str(exc))) from exc
-
-
-@app.get("/api/standards/{document_id}/provenance",
-         response_model=schemas.StandardProvenanceRead,
-         responses={**schemas.ERRORS_404})
-def get_standard_provenance(
-    document_id: str,
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """Where a held standard's copy came from, or null when nothing was
-    recorded (not claimed either way)."""
-    if document_id not in scope.allowed_document_ids:
-        raise HTTPException(status_code=404, detail=errors.safe_error(
-            errors.NOT_FOUND, "no such standard"))
-    return {"provenance": standards_acquisition_mod.provenance_of(document_id)}
-
-
-@app.get("/api/standards/{document_id}/okf", response_model=schemas.OkfReport,
-         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def standard_okf_report(
-    document_id: str,
-    request: Request,
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """#513: the OKF build report for one standard - how many concepts and
-    cited links its stored requirements give, and how many requirements'
-    citations do not resolve, by reason. Counts and ids only; read only
-    (nothing is written, no file is made)."""
-    reject_unknown_params(request, set())
-    require_document(document_id, scope)
-    built = okf_mod.build([document_id], allowed_document_ids=scope.allowed_document_ids)
-    return {"document_id": document_id, **built["report"],
-            "problems": len(okf_mod.problems(built["concepts"]))}
-
-
-def _okf_concept_or_404(document_id: str, concept_id: str,
-                        scope: access.AccessScope) -> dict:
-    built = okf_mod.build([document_id], allowed_document_ids=scope.allowed_document_ids)
-    concept = next((c for c in built["concepts"] if c["id"] == concept_id), None)
-    if concept is None:
-        raise HTTPException(status_code=404, detail=errors.safe_error(
-            errors.NOT_FOUND, "no such OKF concept"))
-    return concept
-
-
-@app.post("/api/standards/{document_id}/okf/concepts/{concept_id}/approve",
-          response_model=schemas.OkfApproval,
-          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def approve_okf_concept(
-    document_id: str,
-    concept_id: str,
-    request: Request,
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """R29/#833: an engineer confirms one OKF concept, at its CURRENT
-    content hash. Re-deciding an already-confirmed concept at the same
-    content is a no-op in effect (the same decision, re-dated)."""
-    reject_unknown_params(request, set())
-    require_document(document_id, scope)
-    concept = _okf_concept_or_404(document_id, concept_id, scope)
-    okf_mod.approve(concept["id"], concept["content_sha256"], decided_by=scope.user_id)
-    return okf_mod.approval_status(concept)
-
-
-@app.post("/api/standards/{document_id}/okf/concepts/{concept_id}/reject",
-          response_model=schemas.OkfApproval,
-          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def reject_okf_concept(
-    document_id: str,
-    concept_id: str,
-    request: Request,
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """R29/#833: an engineer rejects one OKF concept, at its CURRENT
-    content hash."""
-    reject_unknown_params(request, set())
-    require_document(document_id, scope)
-    concept = _okf_concept_or_404(document_id, concept_id, scope)
-    okf_mod.reject(concept["id"], concept["content_sha256"], decided_by=scope.user_id)
-    return okf_mod.approval_status(concept)
-
-
-@app.get("/api/standards/{document_id}/clauses",
-         response_model=list[schemas.StandardClause],
-         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def standard_clauses(
-    document_id: str,
-    request: Request,
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """The clause hierarchy, read from the chunks the document already has."""
-    reject_unknown_params(request, set())
-    require_document(document_id, scope)
-    return standards_mod.clause_hierarchy(
-        document_id, allowed_document_ids=scope.allowed_document_ids)
-
-
-@app.get("/api/standards/{document_id}/requirements",
-         response_model=list[schemas.StandardRequirement],
-         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def standard_requirements(
-    document_id: str,
-    request: Request,
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    reject_unknown_params(request, set())
-    require_document(document_id, scope)
-    return standards_mod.list_requirements(
-        document_id, allowed_document_ids=scope.allowed_document_ids)
-
-
-@app.post("/api/standards/{document_id}/requirements/extract",
-          response_model=schemas.StandardExtraction,
-          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def extract_standard_requirements(
-    document_id: str,
-    request: Request,
-    acknowledge_orphaned_findings: bool = Query(False),
-    scope: access.AccessScope = Depends(access.current_scope),
-    actor: dict | None = Depends(admin_mod.current_admin),
-):
-    """Re-read a standard and record every obligation it states.
-
-    THE ADMIN CAPABILITY IS REQUIRED. Extraction replaces the unconfirmed rows
-    for a standard, which changes what every later reader sees, so it needs the
-    role that answers for everyone - the same reasoning as classification.
-    Confirmed rows are never deleted. B38: replacing rows review findings cite
-    is refused (409) unless acknowledge_orphaned_findings=true.
-    """
-    reject_unknown_params(request, {"acknowledge_orphaned_findings"})
-    require_document(document_id, scope)
-    return standards_mod.extract_requirements(
-        document_id, allowed_document_ids=scope.allowed_document_ids, actor=actor,
-        acknowledge_orphaned_findings=acknowledge_orphaned_findings)
-
-
-@app.get("/api/standards/{document_id}/tables",
-         response_model=schemas.TableReport,
-         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def standard_tables(
-    document_id: str,
-    request: Request,
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """Every table of a standard, parsed or explicitly UNPARSED.
-
-    The unparsed ones are the point: `parsed_fraction` is the honest measure of
-    how much of a standard's tabular content was actually read, and a
-    requirement set with the sentences and none of the tables looks complete
-    while missing the numbers an engineer checks against.
-    """
-    reject_unknown_params(request, set())
-    require_document(document_id, scope)
-    return standards_mod.table_report(
-        document_id, allowed_document_ids=scope.allowed_document_ids)
-
-
-@app.get("/api/standards/conflicts",
-         response_model=list[schemas.RequirementConflict],
-         responses=schemas.ERRORS_422)
-def standard_conflicts(
-    request: Request,
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """Fields two standards limit differently. SURFACED, NEVER RESOLVED.
-
-    Only over standards the caller may read, so a conflict involving a document
-    they hold no grant for is not shown at all - rather than shown with one
-    side missing, which would disclose that the other side exists.
-    """
-    reject_unknown_params(request, set())
-    return standards_mod.conflicts(allowed_document_ids=scope.allowed_document_ids)
-
-
-@app.get("/api/standards/verification-queue",
-         response_model=list[schemas.StandardRequirement],
-         responses=schemas.ERRORS_422)
-def standard_verification_queue(
-    request: Request,
-    limit: int = Query(200, ge=1, le=500),
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """Requirements awaiting a human, across every standard the caller may read."""
-    reject_unknown_params(request, {"limit"})
-    rows = standards_mod.verification_queue(
-        allowed_document_ids=scope.allowed_document_ids, limit=limit)
-    return [
-        {**row, "exceptions": standards_mod.requirements_3b.decode_exceptions(
-            row.get("exceptions"))}
-        for row in rows
-    ]
-
-
-@app.post("/api/standards/requirements/{requirement_id}/decision",
-          response_model=schemas.RequirementDecisionResult,
-          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def decide_standard_requirement(
-    requirement_id: str,
-    body: schemas.RequirementDecisionRequest,
-    acknowledge_orphaned_findings: bool = Query(False),
-    scope: access.AccessScope = Depends(access.current_scope),
-    actor: dict | None = Depends(admin_mod.current_admin),
-):
-    """Confirm, edit or reject an extracted requirement. ADMIN, and AUDITED.
-
-    A correction sets `extraction_method` to 'human': after it the row is a
-    person's statement rather than a machine's guess, and nothing downstream
-    may present it as extracted. B38: rejecting a requirement review findings
-    cite is refused (409) unless acknowledge_orphaned_findings=true.
-    """
-    try:
-        return standards_mod.decide_requirement(
-            requirement_id, decision=body.decision,
-            allowed_document_ids=scope.allowed_document_ids,
-            actor=actor, edits=body.edits,
-            acknowledge_orphaned_findings=acknowledge_orphaned_findings)
-    except standards_mod.RequirementError as exc:
-        raise HTTPException(status_code=422, detail=errors.safe_error(
-            errors.INVALID_PARAMETER, str(exc))) from exc
-
-
-@app.get("/api/standards/clause-checks",
-         response_model=list[schemas.ClauseCheckDraft],
-         responses=schemas.ERRORS_422)
-def list_clause_checks(
-    request: Request,
-    status: str = Query("draft", pattern="^(draft|accepted|rejected|replaced)$"),
-    limit: int = Query(200, ge=1, le=500),
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """#645: checks the AI proposed for clause sentences and code verified,
-    for the standards the caller may read. Read only."""
-    reject_unknown_params(request, {"status", "limit"})
-    from . import ai_requirements
-    return ai_requirements.list_drafts(
-        allowed_document_ids=scope.allowed_document_ids, status=status, limit=limit)
-
-
-@app.post("/api/standards/clause-checks/{draft_id}/decision",
-          response_model=schemas.ClauseCheckDecisionResult,
-          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def decide_clause_check(
-    draft_id: str,
-    body: schemas.ClauseCheckDecisionRequest,
-    scope: access.AccessScope = Depends(access.current_scope),
-    actor: dict | None = Depends(admin_mod.current_admin),
-):
-    """#645: accept or reject a clause-check draft. ADMIN, and AUDITED.
-
-    Accept is verified by code again and VERSIONED: a new confirmed numeric
-    limit is written and the sentence row is superseded, not deleted. A draft
-    the caller may not read is 404, like every route."""
-    from . import ai_requirements
-    try:
-        return ai_requirements.decide_draft(
-            draft_id, decision=body.decision,
-            allowed_document_ids=scope.allowed_document_ids, actor=actor)
-    except ai_requirements.DraftError as exc:
-        status = 404 if str(exc).startswith("no clause-check draft") else 422
-        raise HTTPException(status_code=status, detail=errors.safe_error(
-            errors.NOT_FOUND if status == 404 else errors.INVALID_PARAMETER,
-            str(exc))) from exc
-
-
-@app.post("/api/standards/{document_id}/requirements/extract-async",
-          response_model=schemas.ExtractionJob,
-          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def queue_standard_extraction(
-    document_id: str,
-    request: Request,
-    scope: access.AccessScope = Depends(access.current_scope),
-    actor: dict | None = Depends(admin_mod.current_admin),
-):
-    """Queue extraction on the EXISTING worker rather than blocking this request.
-
-    Master plan section 26 asks that long-running work use the background job
-    mechanism and expose progress without blocking. Section 24 allows one
-    worker and puts background standard reprocessing LAST, so this queues onto
-    the ingestion worker and is drained only when no document needs processing.
-    """
-    reject_unknown_params(request, set())
-    require_document(document_id, scope)
-    # INTERACTIVE (#177): an administrator is waiting on this one, so it
-    # runs ahead of the backfill the ingestion hook queues for every standard.
-    job_id = standards_mod.enqueue_extraction(
-        document_id, actor=actor, priority=job_queue_mod.PRIORITY_INTERACTIVE)
-    return {"job_id": job_id, "document_id": document_id, "state": "queued"}
 
 
 @app.get("/api/jobs", response_model=schemas.JobList,
@@ -3177,62 +2556,6 @@ def cancel_job(
         raise HTTPException(status_code=409, detail=errors.safe_error(
             errors.INVALID_PARAMETER, f"this job can no longer be cancelled; it is {state}"))
     return job_queue_mod.get_job(job_id, allowed_document_ids=scope.allowed_document_ids)
-
-
-@app.get("/api/standards/{document_id}/extraction-state",
-         response_model=schemas.ExtractionJob,
-         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def standard_extraction_state(
-    document_id: str,
-    request: Request,
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    reject_unknown_params(request, set())
-    require_document(document_id, scope)
-    state = standards_mod.extraction_job_state(
-        document_id, allowed_document_ids=scope.allowed_document_ids)
-    return state or {"state": "none"}
-
-
-@app.get("/api/standards/{document_id}/revisions",
-         response_model=list[schemas.StandardSummary],
-         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def standard_revisions(
-    document_id: str,
-    request: Request,
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """Every revision of the same standard number the caller may read."""
-    reject_unknown_params(request, set())
-    require_document(document_id, scope)
-    return standards_mod.revision_history(
-        document_id, allowed_document_ids=scope.allowed_document_ids)
-
-
-@app.post("/api/standards/{document_id}/supersede",
-          response_model=schemas.SupersedeRequest,
-          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def supersede_standard(
-    document_id: str,
-    body: schemas.SupersedeRequest,
-    scope: access.AccessScope = Depends(access.current_scope),
-    actor: dict | None = Depends(admin_mod.current_admin),
-):
-    """Mark a standard as replaced, or clear the mark. ADMIN, and AUDITED.
-
-    A superseded standard stops being SELECTED for new reviews and stays fully
-    readable and citable - an engineer must still be able to open the revision
-    a submittal was reviewed against last year.
-    """
-    require_document(document_id, scope)
-    try:
-        result = standards_mod.supersede(
-            document_id, body.superseded_by,
-            allowed_document_ids=scope.allowed_document_ids, actor=actor)
-    except standards_mod.RequirementError as exc:
-        raise HTTPException(status_code=422, detail=errors.safe_error(
-            errors.INVALID_PARAMETER, str(exc), document_id=document_id)) from exc
-    return {"superseded_by": result["superseded_by"]}
 
 
 # ----------------------------------------------------------------- chunks
@@ -3723,8 +3046,7 @@ def _readiness_payload(submittal_document_id: str, scope: access.AccessScope) ->
     missing = _missing_references(submittal_document_id, allowed)
     runs = submittal_review_mod.list_review_runs(
         allowed_document_ids=allowed, submittal_document_id=submittal_document_id)
-    # The latest COMPLETED run: a failed or still-running one produced no
-    # result to compare against.
+    # The latest COMPLETED run: a failed or still-running one produced no result to compare against.
     last = next((r for r in runs if r.get("status") == "completed"), None)
     changes: list[str] = []
     if last is not None:
@@ -4011,8 +3333,14 @@ def decide_crs_open_finding(
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "no review finding with that id in this run"))
     try:
-        record = crs_issue_mod.decide_finding(review_run_id, finding_id, body.decision or "",
-                                              reason=body.reason, actor=actor)
+        record = crs_issue_mod.decide_finding(
+            review_run_id,
+            finding_id,
+            body.decision or "",
+            reason=body.reason,
+            actor=actor,
+            reason_code=body.reason_code,
+        )
     except crs_issue_mod.IssueError as exc:
         raise HTTPException(status_code=422, detail=errors.safe_error(
             errors.INVALID_PARAMETER, str(exc))) from exc
@@ -4054,23 +3382,6 @@ def issue_review_crs(
                                    actor=scope.user_id or "unrestricted")
     return _xlsx_response(workbook, filename, {"X-Issued-Copy-Id": record["id"],
                                                "X-Issued-Sha256": record["sha256"]})
-
-
-@app.get("/api/reviews/runs/{review_run_id}/crs/issued",
-         response_model=schemas.CrsIssuedCopyList,
-         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def list_issued_crs(
-    review_run_id: str,
-    request: Request,
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """PF5 (#885): the contractor copies issued for this run. Read only."""
-    reject_unknown_params(request, set())
-    if submittal_review_mod.get_review_run(
-            review_run_id, allowed_document_ids=scope.allowed_document_ids) is None:
-        raise HTTPException(status_code=404, detail=errors.safe_error(
-            errors.NOT_FOUND, "no review run with that id"))
-    return {"copies": crs_issue_mod.issued(review_run_id)}
 
 
 @app.get("/api/reviews/runs/{review_run_id}/crs/issued/{copy_id}",
@@ -4180,15 +3491,6 @@ def _crs_comment(review_run_id: str, crs_ref: str, scope: access.AccessScope) ->
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "no CRS comment with that number on this run"))
     return crs_scope, parsed[1]
-
-
-def _require_named_reviewer(scope: access.AccessScope, what: str) -> None:
-    """A decision nobody signed is not a decision - the rule the finding route
-    applies to a confirmation."""
-    _require_identity_to_write(scope)
-    if scope.user_id is None:
-        raise HTTPException(status_code=401, detail=errors.safe_error(
-            errors.UNAUTHENTICATED, f"{what} must name the person who did it"))
 
 
 @app.post("/api/reviews/runs/{review_run_id}/crs/comments/{crs_ref}/status",

@@ -27,7 +27,7 @@ from . import keyword
 from . import condition_choice as cc
 from . import context_budget
 from . import claims as claims_mod
-from . import coverage
+from . import coverage, errors
 from . import front_matter
 from . import numparse
 from . import progress
@@ -1157,9 +1157,8 @@ def _figure_occurrences(text: str) -> list[dict]:
     return out
 
 
-#: A unit that closes a row label just before its number: after a comma,
-#: semicolon, colon or line start, optionally with its alternative in
-#: brackets - ", psi (kPa) 11.0", "; bar 4.5", "kPa 76".
+#: A unit that closes a row label just before its number: after a comma, semicolon, colon or line
+#: start, optionally with its alternative in brackets - ", psi (kPa) 11.0", "; bar 4.5", "kPa 76".
 _LEADING_UNIT = re.compile(
     r"(?:^|[,;:\n])\s*(?P<unit>[A-Za-z%\u00b0\u00b5][\w%\u00b0\u00b5/.\u00b2\u00b3-]*)"
     r"(?:\s*\(\s*(?P<alt>[A-Za-z%\u00b0\u00b5][\w%\u00b0\u00b5/.\u00b2\u00b3-]*)\s*\))?\s*$")
@@ -1579,6 +1578,7 @@ def generate_from_passages(instruction: str, passages: list[dict], *, history: s
             raise
         except Exception as exc:  # noqa: BLE001
             from . import chat_answers
+            errors.fell_back("answer: model call failed; marked failed", exc, None)
             return chat_answers._failed({**base, "passages": passages}, exc, timer)
         return _finish_generated(raw, passages, base={**base, "passages": passages}, timer=timer)
     finally:
@@ -1949,9 +1949,8 @@ def _answer_from_documents(
         }
 
     if tier == "extract":
-        # Which clause applies, when near-equal clauses set different values
-        # for different conditions - see _condition_choice. None leaves the
-        # answer exactly as it was.
+        # Which clause applies, when near-equal clauses set different values for different
+        # conditions - see _condition_choice. None leaves the answer exactly as it was.
         choice = _condition_choice(
             gate_question, hits, lead, document_id, allowed_document_ids)
         demoted = None
@@ -2126,6 +2125,7 @@ def _answer_from_documents(
             "seconds": timer.seconds(),
         }
     except Exception as exc:  # noqa: BLE001 - the model being down is not a crash
+        errors.fell_back("answer: model call failed; model unavailable", exc, None)
         return {
             **base,
             "answer_type": "model_unavailable",

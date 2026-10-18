@@ -23,6 +23,7 @@ scripts outside the backend can import it. No document text is ever written.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import platform
 import time
@@ -30,6 +31,8 @@ import uuid
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 #: A lock older than this is stale (the issue's rule).
 STALE_AFTER_SECONDS = 3 * 3600
@@ -76,7 +79,8 @@ def _pid_alive(pid: int) -> bool | None:
         return None
     try:
         return bool(psutil.pid_exists(pid))
-    except Exception:  # noqa: BLE001 - "cannot tell" is a valid answer
+    except Exception as exc:  # noqa: BLE001 - "cannot tell" is a valid answer
+        log.debug("heavy_lock: holder could not be checked (%s)", type(exc).__name__)
         return None
 
 

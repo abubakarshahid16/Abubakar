@@ -209,7 +209,8 @@ def load() -> Matrix:
         if token is not None:
             try:
                 m = _from_disk(token)
-            except Exception:  # noqa: BLE001 - a bad cache file must never break search
+            except Exception as exc:  # noqa: BLE001 - a bad cache file must never break search
+                log.info("vectorcache: bad cache file (%s)", type(exc).__name__)
                 m = None
         if m is None:
             m = _build(token)
@@ -224,7 +225,8 @@ def search(query_vec: np.ndarray, limit: int, scope: frozenset[str]) -> list[dic
     documents the caller may search (already intersected by the caller)."""
     try:
         m = load()
-    except Exception:  # noqa: BLE001 - never let a cache fault break retrieval
+    except Exception as exc:  # noqa: BLE001 - never let a cache fault break retrieval
+        log.info("vectorcache: cache not loaded (%s)", type(exc).__name__)
         m = _read_from_db()
     if not m.ids or not scope or limit <= 0:
         return []

@@ -36,7 +36,7 @@ import re
 import statistics
 from typing import Any
 
-from . import blank_markers, claims
+from . import blank_markers, claims, errors
 
 # --------------------------------------------------------------------------
 # Units
@@ -138,9 +138,8 @@ def _bbox(rect: Any) -> list[float] | None:
 # Tables
 # --------------------------------------------------------------------------
 
-#: A cell counts as "spanning" a column when the column's centre lies inside it.
-#: A row is a TITLE row when one of its cells spans at least this share of the
-#: table width (gutter excluded).
+#: A cell counts as "spanning" a column when the column's centre lies inside it. A row is a TITLE
+#: row when one of its cells spans at least this share of the table width (gutter excluded).
 TITLE_SPAN_SHARE = 0.6
 #: A leading column is a row-number GUTTER when at least this share of its
 #: non-empty cells are small integers.
@@ -268,7 +267,8 @@ def text_rotation(page: Any) -> int:
     written: dict[tuple[int, int], int] = {}
     try:
         blocks = page.get_text("dict").get("blocks", [])
-    except Exception:  # a page that cannot be read as text keeps its rotation
+    except Exception as exc:  # a page that cannot be read as text keeps its rotation
+        errors.fell_back("geometry_reader: no page text; rotation kept", exc, None)
         return int(page.rotation)
     for block in blocks:
         for line in block.get("lines", []) if block.get("type") == 0 else []:
@@ -580,6 +580,7 @@ def read_tables(page: Any) -> dict[str, Any]:
         try:
             tables = list(page.find_tables(strategy=strategy).tables)
         except Exception as exc:  # a strategy that crashes simply loses
+            errors.fell_back("geometry_reader: a strategy failed; scores 0", exc, None)
             tables = []
             scores[strategy] = {"score": 0.0, "tables": 0, "error": type(exc).__name__}
             found[strategy] = tables
@@ -601,8 +602,7 @@ def read_tables(page: Any) -> dict[str, Any]:
 # Forms
 # --------------------------------------------------------------------------
 
-#: A value to the right must start within this share of the page width of
-#: the label's right edge.
+#: A value to the right must start within this share of the page width of the label's right edge.
 FORM_MAX_GAP_SHARE = 0.45
 #: A unit in its own phrase attaches to a numeric value within this gap (pt).
 FORM_UNIT_GAP = 80.0

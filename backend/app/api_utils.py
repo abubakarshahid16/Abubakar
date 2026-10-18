@@ -106,3 +106,29 @@ def _require_identity_to_write(scope: access.AccessScope) -> None:
         status_code=401,
         detail=errors.safe_error(errors.UNAUTHENTICATED, "sign in to continue"),
     )
+
+
+def _require_named_reviewer(scope: access.AccessScope, what: str) -> None:
+    """A decision nobody signed is not a decision - the rule the finding route
+    applies to a confirmation."""
+    _require_identity_to_write(scope)
+    if scope.user_id is None:
+        raise HTTPException(
+            status_code=401,
+            detail=errors.safe_error(
+                errors.UNAUTHENTICATED, f"{what} must name the person who did it"
+            ),
+        )
+
+
+def _deliverable_visible(item: dict, scope: access.AccessScope) -> bool:
+    """May this caller touch this deliverable? (r2 S3)
+
+    A deliverable tied to a document follows that document's grant. One with NO
+    document used to be open to every identified caller, including one with no
+    grant at all; it now needs the admin capability or at least one grant.
+    """
+    document_id = item.get("document_id")
+    if document_id:
+        return scope.may_read(document_id)
+    return scope.is_admin or bool(scope.allowed_document_ids)
