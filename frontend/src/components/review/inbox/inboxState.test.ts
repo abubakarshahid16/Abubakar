@@ -34,8 +34,10 @@ describe("inboxStateOf", () => {
   it("a completed run is Ready, and its counts show only when they are known", () => {
     const state = inboxStateOf(run());
     expect(stateLabel(state)).toBe("Ready");
-    expect(stateLabel(state, { comment: 3, needs_you: 1 })).toBe("Ready: 3 comments, 1 needs you");
-    expect(stateLabel(state, { comment: 1, needs_you: 2 })).toBe("Ready: 1 comment, 2 need you");
+    expect(stateLabel(state, { findings: 3, needs_you: 1 })).toBe("Ready: 3 findings to decide, 1 needs you");
+    expect(stateLabel(state, { findings: 1, needs_you: 1 })).toBe("Ready: 1 finding to decide, 1 needs you");
+    // A-1126: findings, never "comments" - and large counts with separators.
+    expect(stateLabel(state, { findings: 6584, needs_you: 6557 })).toBe("Ready: 6,584 findings to decide, 6,557 need you");
   });
 
   it("a run whose contractor copy was issued is Signed, before any other status", () => {
