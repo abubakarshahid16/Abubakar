@@ -91,6 +91,34 @@ def test_a_title_with_no_equipment_word_stays_unknown(lines):
     assert _read(*lines) is None
 
 
+@pytest.mark.parametrize("lines", [
+    # an unlabelled "pumps" in a sentence on the cover, even beside "datasheet"
+    ("This datasheet supports the piping package for the new transfer pumps.",),
+    # a bare equipment word on its own cover line, with no sheet word or label
+    ("MECHANICAL DATASHEET", "SOUR SERVICE DRUM", "Rev. 00"),
+    ("PUMP", "Doc No. 1234-A"),
+    # a near-miss label: only "Equipment:" and "Title:" fields are read
+    ("SERVICE: booster pump", "NOTE: see pump curve"),
+])
+def test_an_unlabelled_equipment_word_in_free_text_is_not_read(lines):
+    """Rule 4: a word in body or cover text is not a title-block reading.
+    Only a labelled "Equipment:"/"Title:" field, or a line that is nothing
+    but the name and the sheet words, names the type; anything else stays
+    unknown rather than being shown as if it had been read."""
+    assert _read(*lines) is None
+
+
+@pytest.mark.parametrize("line, expected", [
+    ("Equipment: Pressure Transmitter", "Pressure Transmitter"),
+    ("TITLE: CONTROL VALVE DATA SHEET", "Control Valve"),
+    ("Data Sheet for Level Transmitters", "Level Transmitter"),
+])
+def test_a_labelled_title_field_is_read(line, expected):
+    evidence = _read("EXAMPLE OPERATING COMPANY", line)
+    assert evidence is not None, line
+    assert evidence.equipment_type == expected
+
+
 def test_a_title_naming_two_different_types_stays_unknown():
     """Neither the first nor the longest: a sheet that calls itself both is
     not decidable from its title, and an undecidable type is reported as

@@ -83,20 +83,6 @@ class Vocabulary:
     def equipment_in(self, text: object) -> set[str]:
         return {t for t in self.types_in(text) if self.kind.get(t) == EQUIPMENT}
 
-    def sure_equipment_in(self, text: object) -> list[tuple[str, str]]:
-        """`(equipment type, the spelling that named it)` for every phrase in
-        the text that means exactly ONE equipment type, in reading order.
-        A spelling listed under several types ("valve") names none of them
-        here: it is unclear, and unclear is not a reading."""
-        if self.pattern is None:
-            return []
-        out: list[tuple[str, str]] = []
-        for match in self.pattern.finditer(_fold(text)):
-            types = {t for t in self.phrases[match.group(0)] if self.kind.get(t) == EQUIPMENT}
-            if len(types) == 1:
-                out.append((types.pop(), match.group(0)))
-        return out
-
 
 def _fold(text: object) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", numparse.fold(text or "")).strip())
@@ -135,10 +121,43 @@ def submittal_equipment(classification: dict | None, facts: list[dict], vocab: V
     return set(), None
 
 
-#: A title line that says it IS a sheet ("CONTROL VALVE DATA SHEET",
-#: "PUMP SPECIFICATION"): the document naming itself, read before the other
-#: edge lines of the page, which may name the equipment next to this one.
-_SHEET_WORD = re.compile(r"\b(?:data ?sheets?|specifications?|spec sheets?)\b")
+#: The words a datasheet uses to call itself a sheet ("CONTROL VALVE DATA
+#: SHEET", "PUMP SPECIFICATION"), matched on `_fold`ed text.
+_SHEET = r"(?:data ?sheets?|specifications?|spec sheets?)"
+#: A line that IS a sheet title and nothing else: the equipment name, then the
+#: sheet word ("CONTROL VALVE DATASHEET"), or the sheet word, "for"/"of", then
+#: the name ("DATA SHEET FOR PRESSURE TRANSMITTERS"). Any other word on the
+#: line (a sentence, a second type joined by "and") and it is not a title.
+_SHEET_TITLE = re.compile(
+    rf"^(?:{_SHEET} (?:for|of) (?P<after>.+)|(?P<before>.+?) {_SHEET})$")
+#: A LABELLED title-block field ("Equipment: Control Valve", "Title: Pressure
+#: Transmitter Data Sheet"): the label, a colon, the value. Read on the raw
+#: line, because folding drops the colon that makes it a label.
+_TITLE_FIELD = re.compile(
+    r"^\s*(?:(?:document\s+)?title|equipment(?:\s+type)?)\s*:\s*(?P<value>\S.*)$",
+    re.IGNORECASE)
+
+
+def _titled_phrase(line: str, vocab: Vocabulary) -> str | None:
+    """The vocabulary spelling a title line names AS ITS WHOLE SUBJECT, else None.
+
+    Only two shapes count (rule 4: a word in free text is not a reading):
+      * a labelled field, "Equipment:" or "Title:", whose value is the name,
+        optionally with the sheet words around it;
+      * an unlabelled line that is ONLY the name plus the sheet words.
+    The name must be one whole spelling of the vocabulary that means exactly
+    one equipment type. "This datasheet supports the ... transfer pumps", a
+    bare "SOUR SERVICE DRUM" or "VALVE DATA SHEET" (three types) name none.
+    """
+    field = _TITLE_FIELD.match(line or "")
+    text = _fold(field.group("value") if field else line)
+    sheet = _SHEET_TITLE.match(text)
+    if sheet is not None:
+        text = sheet.group("after") or sheet.group("before")
+    elif field is None:
+        return None
+    types = {t for t in vocab.phrases.get(text, ()) if vocab.kind.get(t) == EQUIPMENT}
+    return text if len(types) == 1 else None
 
 
 def title_equipment(lines: list[tuple[int, str]] | tuple, vocab: Vocabulary
@@ -147,25 +166,24 @@ def title_equipment(lines: list[tuple[int, str]] | tuple, vocab: Vocabulary
     names exactly ONE equipment type of the vocabulary, else None (#897).
 
     `lines` are `(page, line)` as `classification.title_block_lines` gives
-    them. Read in two passes, each decisive on its own: the lines that call
-    themselves a sheet, then every title line. Within a pass the longest
-    spelling wins at a position ("pressure transmitter", not "pressure";
-    "pressure safety valve", not "valve"), case and spacing do not matter,
-    and a spelling that could mean several types counts for none. One type
-    named: that is the reading. Two different types named: the title is
-    ambiguous and the type stays UNKNOWN - never the first, never a guess.
+    them. A line counts only when it is a genuine title (`_titled_phrase`):
+    a labelled "Equipment:"/"Title:" field, or a line that is nothing but the
+    name and the sheet words. Case and spacing do not matter; the whole name
+    must be one spelling of the vocabulary ("pressure transmitter", never the
+    "pressure" inside it), and a spelling that could mean several types
+    counts for none. One type named: that is the reading. Two different
+    types named: the title is ambiguous and the type stays UNKNOWN - never
+    the first, never a guess. A word in a sentence, a note or a stray edge
+    line is never read, so a cover that names no equipment stays unknown.
     """
-    named = [(page, line, vocab.sure_equipment_in(line)) for page, line in lines]
-    sheet_lines = [n for n in named if _SHEET_WORD.search(_fold(n[1]))]
-    for group in (sheet_lines, named):
-        found = {t for _page, _line, hits in group for t, _phrase in hits}
-        if not found:
-            continue
-        if len(found) > 1:
-            return None
-        page, line, hits = next(n for n in group if n[2])
-        return hits[0][0], page, _quote(line, hits[0][1])
-    return None
+    hits = [(page, line, phrase) for page, line in lines
+            if (phrase := _titled_phrase(line, vocab))]
+    found = {t for _p, _l, phrase in hits for t in vocab.phrases[phrase]
+             if vocab.kind.get(t) == EQUIPMENT}
+    if len(found) != 1:
+        return None
+    page, line, phrase = hits[0]
+    return found.pop(), page, _quote(line, phrase)
 
 
 def _quote(line: str, phrase: str) -> str:
