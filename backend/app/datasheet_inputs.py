@@ -210,16 +210,16 @@ def _render(rows: list[tuple[str, ...]], heading: str | None = None) -> str:
 def _merged_ranges(zf: zipfile.ZipFile, sheet_xml: str) -> list[tuple[int, int, int, int]]:
     """(min_row, min_col, max_row, max_col) of every merged range of a sheet.
 
-    Read from the sheet XML because openpyxl's read-only worksheet does not
-    expose merged cells. Streamed with iterparse; only `mergeCell` elements
-    are kept. The zip's bounds were checked before this is reached.
+    From the sheet XML (openpyxl's read-only sheet hides merged cells), streamed
+    with defusedxml's iterparse; the zip's bounds were checked before this.
     """
+    from defusedxml import ElementTree as SafeET
     from openpyxl.utils.cell import range_boundaries
 
     out: list[tuple[int, int, int, int]] = []
     try:
         with zf.open(sheet_xml) as fh:
-            for _event, elem in ET.iterparse(fh, events=("end",)):
+            for _event, elem in SafeET.iterparse(fh, events=("end",)):
                 if elem.tag.endswith("}mergeCell"):
                     ref = elem.get("ref") or ""
                     try:
@@ -230,7 +230,7 @@ def _merged_ranges(zf: zipfile.ZipFile, sheet_xml: str) -> list[tuple[int, int, 
                     if len(out) > MAX_SHEET_ROWS:
                         break
                 elem.clear()
-    except (KeyError, ET.ParseError):
+    except (KeyError, ET.ParseError, ValueError):  # ValueError: defusedxml refused it
         return []
     return out
 
