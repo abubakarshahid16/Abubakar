@@ -402,8 +402,7 @@ def furniture_labels(pairs_by_page: dict[int, list[tuple[str, str]]],
             pages_per_label.setdefault(name, set()).add(page)
             answered_pages.setdefault(name, set())
             answers_per_label.setdefault(name, set())
-            # Compared as the reader sees it: case and spacing are spelling,
-            # not different answers.
+            # Compared as the reader sees it: case and spacing are spelling, not different answers.
             answer = " ".join((value or "").split()).lower()
             # AN ANSWER IS SOMETHING A FACT COULD BE MADE OF (#179). The
             # vessel sheet's title-block row `<site name> | ... | OF` printed
