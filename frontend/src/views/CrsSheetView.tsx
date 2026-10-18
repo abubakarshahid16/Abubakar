@@ -20,7 +20,7 @@
  * press (`saveCrsDecisions`); Sign and export wait, and leaving warns,
  * while any are not saved.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api, reviews as reviewsApi } from "../api/client";
 import type { DocumentRecord, ReviewFinding, ReviewRunSummary, ReviewRunTierSummary } from "../types/api";
@@ -64,11 +64,18 @@ function useRunData(runId: string) {
   // without the route, or any failure): the screen's own tiers stand in.
   const [summary, setSummary] = useState<ReviewRunTierSummary | null>(null);
 
+  // Order 117 item 6: only the newest load may paint. A slow answer for the
+  // run the reader just left, or a 3-second poll overtaken by the next one,
+  // must never replace what is on screen with an older or another run's data.
+  const latest = useRef(0);
+  useEffect(() => () => { latest.current += 1; }, []);
   const refresh = useCallback(async () => {
+    const mine = ++latest.current;
     const [runs, listed, stds, sum] = await Promise.all([
       reviewsApi.reviewRun(runId), reviewsApi.list({ review_run_id: runId }), reviewsApi.reviewRunStandards(runId),
       reviewsApi.reviewRunSummary(runId),
     ]);
+    if (mine !== latest.current) return;
     if (!runs.ok) { setLoad({ kind: "error", message: runs.error.message }); return; }
     const found = runs.data;
     if (!found) { setLoad({ kind: "error", message: "This review run could not be found." }); return; }
@@ -86,7 +93,9 @@ function useRunData(runId: string) {
   const submittalId = run?.submittal_document_id ?? null;
   useEffect(() => {
     if (!submittalId) return;
-    void api.document(submittalId).then((r) => setSubmittal(r.ok ? r.data : null));
+    let current = true;
+    void api.document(submittalId).then((r) => { if (current) setSubmittal(r.ok ? r.data : null); });
+    return () => { current = false; };
   }, [submittalId]);
 
   const active = run?.status === "queued" || run?.status === "running";
