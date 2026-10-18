@@ -27,6 +27,7 @@ vi.mock("../api/client", () => ({
 vi.mock("../components/review/sheet/SheetPageImage", () => ({ SheetPageImage: () => <p>page</p> }));
 vi.mock("../components/review/EvidencePageImage", () => ({ EvidencePageImage: () => <p>page</p> }));
 vi.mock("../components/DocumentPreview", () => ({ DocumentPreview: () => <p>preview</p> }));
+vi.mock("../components/review/sheet/PlainPageImage", () => ({ PlainPageImage: () => <p>preview</p> }));
 
 function run(over: Partial<ReviewRunSummary>): ReviewRunSummary {
   return { review_run_id: "run-1", submittal_document_id: "d", submittal_filename: "pump.pdf",
