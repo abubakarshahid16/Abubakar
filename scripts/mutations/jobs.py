@@ -43,7 +43,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              path=_Q, anchor='    audit(conn, "job.poisoned", job_id, detail=f"error={code}")\n',
              replacement="", target=_T, keyword="poison_and_completion", tags=("audit",)),
     Mutation(id="M861", phase=74, description="B11: the job list ignores the caller's grants",
-             path=_Q, anchor="    ids = sorted(allowed_document_ids if document_id is None\n                 else allowed_document_ids & {document_id})\n",
+             path=_Q, anchor="    ids = sorted(\n        allowed_document_ids\n        if document_id is None\n        else allowed_document_ids & {document_id}\n    )\n",
              replacement="    ids = sorted(r[0] for r in __import__('app.db', fromlist=['connect']).connect().execute('SELECT id FROM documents'))\n",
              target=_T, keyword="readable_documents", tags=("privacy", "critical")),
     Mutation(id="M862", phase=74, description="B11: one job is readable on a document the caller cannot read",
