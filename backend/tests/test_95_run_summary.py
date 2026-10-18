@@ -6,6 +6,9 @@ guess until confirmed; a removed finding is counted, not tiered. Invented data.
 """
 from __future__ import annotations
 
+import json
+from types import SimpleNamespace
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -130,3 +133,59 @@ def test_an_unknown_run_is_404_and_writes_nothing(temp_storage):  # noqa: F811
     client = TestClient(app)
     assert client.get("/api/reviews/runs/nope/summary").status_code == 404
     assert client.get("/api/reviews/runs/nope/summary?x=1").status_code in (404, 422)
+
+
+# --------------------------------------------- order 96: five more fields
+
+def test_a_finding_resting_on_a_standard_not_held_carries_its_key():
+    from app.applicability import normalise_identifier
+    key = normalise_identifier("API 999")
+    rationale = "Potential, unverified: source not held. AI check. Relates to: API 999."
+    assert T.missing_standard_of({"ai_rationale": rationale}, {key: "API 999"}) == key
+    # a standard the library holds (not in the run's missing list) is not "missing"
+    assert T.missing_standard_of({"ai_rationale": rationale}, {}) is None
+    assert T.missing_standard_of({"ai_rationale": "no relation"}, {key: "API 999"}) is None
+
+
+def _store_outcome(run, **extra):
+    with connect() as conn:
+        row = conn.execute("SELECT refusal_reason FROM review_runs WHERE id = ?", (run,)).fetchone()
+        outcome = {**json.loads(row["refusal_reason"] or "{}"), **extra}
+        conn.execute("UPDATE review_runs SET refusal_reason = ? WHERE id = ?",
+                     (json.dumps(outcome), run))
+    return outcome
+
+
+def test_timed_out_pages_come_from_the_stored_reader_record(review_run):  # noqa: F811
+    run, _ids, scope = review_run
+    comparison.run_comparison(run, allowed_document_ids=scope)
+    client = TestClient(app)
+    split = comparison.run_outcome(run, allowed_document_ids=scope)["requirement_split"]
+    _store_outcome(run, requirement_split={**split, "reader": None})
+    assert client.get(f"/api/reviews/runs/{run}/summary").json()["how_reviewed"][
+        "timed_out_pages"] is None                     # no reader record: null, never []
+    _store_outcome(run, requirement_split={**split, "reader": {"engine": "ollama", "pages": 6,
+                                                               "timed_out": [5, 3]}})
+    assert client.get(f"/api/reviews/runs/{run}/summary").json()["how_reviewed"][
+        "timed_out_pages"] == [3, 5]
+
+
+def test_versions_stages_and_clauses_are_read_from_what_the_run_stored(review_run, monkeypatch):  # noqa: F811
+    from app import clause_coverage, review_jobs, review_trace
+    run, _ids, scope = review_run
+    comparison.run_comparison(run, allowed_document_ids=scope)
+    client = TestClient(app)
+    how = client.get(f"/api/reviews/runs/{run}/summary").json()["how_reviewed"]
+    # no job row and no stored trace: null, never invented
+    assert (how["code_version"], how["config_version"], how["stage_seconds"]) == (None, None, None)
+    cov = clause_coverage.for_run(run, allowed_document_ids=scope)
+    assert sum(sum(s["counts"].values()) for s in how["clauses_by_standard"]) == len(cov["rows"])
+
+    monkeypatch.setattr(review_jobs, "last_run_versions",
+                        lambda rid: {"code_version": "abc123", "config_version": "cfg9"})
+    review_trace.store(run, SimpleNamespace(allowed_document_ids=scope),
+                       {phase: {"started_at": "t", "seconds": 1.5}
+                        for phase in set(review_trace.PHASE_OF.values())})
+    how = client.get(f"/api/reviews/runs/{run}/summary").json()["how_reviewed"]
+    assert (how["code_version"], how["config_version"]) == ("abc123", "cfg9")
+    assert how["stage_seconds"] and set(how["stage_seconds"].values()) == {1.5}

@@ -71,12 +71,27 @@ def tier_of(finding: dict) -> tuple[str, str]:
     return _STATUS.get(status or "", (NEEDS_YOU, "no verdict"))
 
 
+def missing_standard_of(finding: dict, missing: dict[str, str]) -> str | None:
+    """Order 96: the key of the cited standard the library does not hold
+    (MISSING_LOCALLY on the run) that this finding rests on, or None.
+
+    `missing` maps `standards_acquisition`'s normalised identifier key to the
+    identifier, from the run's stored `missing_references`. The finding names
+    its standard where the AI check wrote it ("... Relates to: <name>.")."""
+    text = finding.get("ai_rationale") or ""
+    if not missing or "Relates to: " not in text:
+        return None
+    from .applicability import normalise_identifier
+    key = normalise_identifier(text.split("Relates to: ", 1)[1].rstrip("."))
+    return key if key in missing else None
+
+
 def _order(row: dict) -> tuple:
     page = row["contractor_page"]
     return (TIERS.index(row["tier"]), page is None, page or 0, row["standard_clause"] or "")
 
 
-def summarise(findings: list[dict]) -> dict:
+def summarise(findings: list[dict], missing: dict[str, str] | None = None) -> dict:
     """Headline counts and one row per finding still in a tier, in screen
     order: tier, then contractor page (no page last), then clause."""
     counts = dict.fromkeys((*TIERS, REMOVED), 0)
@@ -89,6 +104,7 @@ def summarise(findings: list[dict]) -> dict:
                          "compliance_status": f.get("compliance_status"),
                          "standard_clause": f.get("standard_clause"),
                          "contractor_page": f.get("contractor_page"),
-                         "equipment_tag": f.get("equipment_tag")})
+                         "equipment_tag": f.get("equipment_tag"),
+                         "missing_standard_id": missing_standard_of(f, missing or {})})
     rows.sort(key=_order)
     return {"counts": {**counts, "total": len(findings)}, "rows": rows}
