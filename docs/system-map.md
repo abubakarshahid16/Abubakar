@@ -28,6 +28,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `ai_applicability` | Choose the standards that apply to a submittal |
 | `ai_engineering_check` | AI engineering check (kind C): observations a reviewer would raise, as DRAFTS |
 | `ai.json_reply` | ONE way to take a model's JSON answer out of a code fence (#455); the first module of the `ai/` folder (target structure) |
+| `ai.output_limits` | ONE output cap per model-call route, and the named reply states `complete` / `truncated` / `unknown` (#456): a length-cut reply is never parsed as a whole answer |
 | `ai_requirements` | AI clause to check (#645): proposes a check per undecided clause sentence, code verifies every part, kept as a DRAFT the engineer accepts (a versioned, confirmed limit) or rejects |
 | `ai_numbers` | #845: a finished run's AI numbers (reader, matcher, AI check, wording) with their denominators, from stored data |
 | `evidence_boxes` | #785: where each side of a finding sits and the box to draw on it (checklist clause page, value position, label) |
@@ -39,6 +40,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `api.document_classification` | Routes: what a document is - classification, kind, the playbook review |
 | `api.document_files` | Routes: a document's pages, page images, original file, workbook, chunks, excluded text and page ledger |
 | `api.admin` | Routes: users, disciplines, grants, the model unload, the read-only database explorer and the document-kind routing run (moved out of main.py, order 79a) |
+| `api.run_summary` | Routes: GET /api/reviews/runs/{id}/summary - the CRS-first screen's tiers, counts and "How this was reviewed" (order 95) |
 | `api_tags` | The API description grouped by area (one tag per route) with every file response typed; documentation only (order 69) |
 | `api_utils` | Shared API validation |
 | `applicability` | Choose the standards that apply to a submittal |
@@ -152,6 +154,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `requirement_split` | Every requirement in a run's scope is in ONE of three honest groups (#678) |
 | `requirements_3b` | Phase 3B: structured requirements - limits, units, conditions, exceptions |
 | `reranker` | Cross-encoder reranking, local and CPU-only |
+| `review_tiers` | Order 95: each finding of a run in ONE tier (comment / needs you / met or not applicable) with a reason word; display only |
 | `review` | Persistent workflow records for AI-assisted engineering reviews |
 | `review_jobs` | P3: a review runs as a background job on the B11 queue, not inside the request |
 | `review_trace` | Show what each step of a finished review produced (REVIEW_DEBUG console and per-run log, #791) |

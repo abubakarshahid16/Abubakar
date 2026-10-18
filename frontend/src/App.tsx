@@ -22,6 +22,7 @@ import { AnalysisModeScreen } from "./views/AnalysisModeScreen";
 import { ReportsScreen } from "./views/ReportsScreen";
 import { DeliverablesView } from "./views/DeliverablesView";
 import { ReviewSheetView } from "./views/ReviewSheetView";
+import { HowReviewedView } from "./views/HowReviewedView";
 import { SubmittalsLandingView } from "./views/SubmittalsLandingView";
 import type { AuthStatus, Me } from "./types/api";
 import { NavigationContext } from "./components/NavLink";
@@ -334,7 +335,17 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
           {/* #967 PR1: the page opens on the landing list of documents from
               contractors; opening or starting a run takes you to the
               existing review screen (unchanged - that is PR2's job). */}
-          {view === "review" && (
+          {/* Order 95 piece 5: "How this was reviewed" is a page of its own
+              (`/review/<run>/how`), not one of the sheet's panels. */}
+          {view === "review" && route.kind === "view" && route.recordId && route.panel === "how" && (
+            <HowReviewedView
+              key={route.recordId} runId={route.recordId}
+              onBack={() => onNavigate("review", route.recordId)}
+              onOpenRun={(runId) => onNavigate("review", runId)}
+              onOpenSteps={() => onNavigate("review", route.recordId, "steps")}
+            />
+          )}
+          {view === "review" && !(route.kind === "view" && route.panel === "how") && (
             route.kind === "view" && route.recordId === INBOX_RECORD && !route.panel ? (
               <SubmittalsLandingView
                 inbox onOpenRun={(runId) => onNavigate("review", runId)}
