@@ -52,7 +52,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import (absence, claims, conditions, datasheets, field_links, match_rules, numparse, page_ledger,
+from . import (absence, claims, conditions, datasheets, errors, field_links, match_rules, numparse, page_ledger,
                 requirements_3b, review, schemas, submittal_review)
 from .config import settings
 from .db import connect
@@ -3750,8 +3750,8 @@ def _ask_claude_for_a_pair(prompt: str) -> tuple[str | None, str | None]:
         return None, MODEL_BUDGET
     except (output_limits.Truncated, output_limits.Unreadable) as exc:
         return None, MODEL_TRUNCATED if exc.state == output_limits.TRUNCATED else MODEL_MALFORMED
-    except Exception:  # noqa: BLE001 - refused, timed out, or answered wrongly
-        return None, MODEL_UNAVAILABLE
+    except Exception as exc:  # noqa: BLE001 - refused, timed out, or answered wrongly
+        return errors.fell_back("comparison: the Claude pair-choice call failed; the pair stays unchosen", exc, (None, MODEL_UNAVAILABLE))
 
 
 def _json_object_in(text: str | None) -> str:
@@ -3799,8 +3799,8 @@ def _ask_model_once(requirement: dict, candidates: list[dict]) -> tuple[object, 
     try:
         raw = model_transport.post_json(
             "/api/generate", body, timeout=settings.match_timeout_seconds)
-    except Exception:  # noqa: BLE001 - refused, timed out, or answered wrongly
-        return None, MODEL_UNAVAILABLE
+    except Exception as exc:  # noqa: BLE001 - refused, timed out, or answered wrongly
+        return errors.fell_back("comparison: the local pair-choice call failed; the pair stays unchosen", exc, (None, MODEL_UNAVAILABLE))
     return _checked_choice((raw or {}).get("response") or "", candidates)
 
 
@@ -3809,7 +3809,7 @@ def _checked_choice(answer: str, candidates: list[dict]) -> tuple[object, str | 
     try:
         payload = json.loads(answer)
         choice = schemas.PairChoice.model_validate(payload)
-    except Exception:  # noqa: BLE001 - not JSON, or not this shape
+    except ValueError:  # not JSON, or not this shape (pydantic's ValidationError is a ValueError)
         return None, MODEL_MALFORMED
     if choice.choice is not None and not 0 <= choice.choice < len(candidates):
         return None, MODEL_OUT_OF_RANGE
@@ -3928,8 +3928,8 @@ def _document_is_tag_scoped(submittal_document_id: str | None) -> bool:
             " WHERE submittal_document_id = ? AND equipment_tag IS NOT NULL"
             " AND superseded_at IS NULL",           # current facts only (#179)
             (submittal_document_id,)).fetchone()
-    except Exception:  # noqa: BLE001 - a database without the column yet
-        return False
+    except sqlite3.OperationalError as exc:  # a database without the column yet
+        return errors.fell_back("comparison: equipment tags could not be counted; not tag-scoped", exc, False)
     return bool(row and row["n"] >= 2)
 
 
@@ -4059,8 +4059,8 @@ def _rejected_keys_for(requirement: dict) -> set[str]:
                 "SELECT fact_key FROM review_pair_rejections"
                 " WHERE requirement_key = ?", (requirement_key(requirement),))
         }
-    except Exception:  # noqa: BLE001 - a database without the table yet
-        return set()
+    except sqlite3.OperationalError as exc:  # a database without the table yet
+        return errors.fell_back("comparison: pair rejections could not be read; none are applied", exc, set())
 
 
 def _normalise_for_match(text: str | None) -> str:

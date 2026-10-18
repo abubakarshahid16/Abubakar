@@ -2043,26 +2043,6 @@ class RiskCreate(BaseModel):
     source_finding_id: str | None = Field(default=None, max_length=200)
 
 
-class Risk(BaseModel):
-    id: str
-    risk_type: RiskType
-    title: str
-    description: str
-    severity: str
-    status: str
-    deliverable_id: str | None
-    document_id: str | None
-    owner_user_id: str | None
-    due_date: str | None
-    source_finding_id: str | None
-    created_at: str
-    updated_at: str
-
-
-class RiskList(BaseModel):
-    risks: list[Risk]
-
-
 class RiskDetectionResult(BaseModel):
     status: Literal["ok", "already_running"]
     created: int
@@ -2775,11 +2755,11 @@ class ReviewRunSummary(BaseModel):
     #: they are about X, this submittal is Y") with the standards and clauses
     #: behind it. Empty for a run that predates it.
     requirements_not_applied: list[dict] = []
-    #: #678: every requirement in the run's scope in ONE of three groups
-    #: (checked / applies but not checked / does not apply), each repeat counted
-    #: once, with the reasons behind the last two. For a run that predates it
-    #: only the counts are known and every reason is "no reason recorded".
+    #: #678: every requirement in the run's scope in ONE of three groups (checked / applies but
+    #: not checked / does not apply), each repeat counted once, with the reasons behind the last
+    #: two. For a run that predates it only the counts are known and every reason is "no reason recorded".
     requirement_split: dict | None = None
+    clause_coverage: dict | None = None  # PF4 (#884): as the run stored it at its end; null before the record
     #: #453: how the requirements that stayed were decided (general, matching,
     #: kept because the equipment is unknown). Null for a run that predates it.
     applicability: dict | None = None

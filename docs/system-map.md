@@ -39,6 +39,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `api.documents` | Routes: upload, list, read and delete documents, the ingest steps and the bulk role change (moved out of main.py, order 73) |
 | `api.document_classification` | Routes: what a document is - classification, kind, the playbook review |
 | `api.document_files` | Routes: a document's pages, page images, original file, workbook, chunks, excluded text and page ledger |
+| `api.admin` | Routes: users, disciplines, grants, the model unload, the read-only database explorer and the document-kind routing run (moved out of main.py, order 79a) |
 | `api_tags` | The API description grouped by area (one tag per route) with every file response typed; documentation only (order 69) |
 | `api_utils` | Shared API validation |
 | `applicability` | Choose the standards that apply to a submittal |
@@ -91,6 +92,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `datasheet_inputs` | Datasheet INPUTS other than a PDF text layer: Excel, Word, scanned pages |
 | `datasheets` | Read a contractor datasheet into facts |
 | `db` | SQLite storage. WAL mode, foreign keys on, one connection per thread |
+| `dashboard_pool` | The dashboard's heavy reads on their own few threads, single-flight (order 84-1) |
 | `deliverables` | Revision-aware EPC deliverable and WBS records |
 | `disciplines` | Raw discipline spellings, and the canonical value they collapse to |
 | `doc_router` | The document-type router (W5b-02, #526) |
@@ -101,6 +103,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `engineer_feedback` | Engineers' accept / edit / reject decisions as precision per standard and rule |
 | `errors` | Error codes and safe error reporting |
 | `extract` | Step 2 - resumable page-batch extraction |
+| `facet_memo` | The facet merge rule asked once per pair of facet versions (#615) |
 | `family_search` | A question that names a FAMILY of standards in general words ("what do the welding standards say about post we |
 | `field_links` | Linking a datasheet field to a clause: synonyms, nozzle marks, and simple categorical values. CRS quick wins, |
 | `field_naming` | Canonical field names for printed labels and numeric requirements (#193 plan B4, orders 5.2 and 5.3). Behind ` |

@@ -47,6 +47,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from . import errors
 from .ai.json_reply import unfenced
 from .model_evidence import _collapse, quote_verified
 
@@ -627,7 +628,7 @@ def _probe_status(now: float) -> dict:
     except (httpx.TimeoutException, httpx.TransportError) as exc:
         return _status("NETWORK_BLOCKED", detail=type(exc).__name__, now=now)
     except Exception as exc:  # noqa: BLE001 - a status line must answer, not raise
-        return _status("UNEXPECTED", detail=type(exc).__name__, now=now)
+        return errors.fell_back("vision_reader: the status check failed; shown as UNEXPECTED", exc, _status("UNEXPECTED", detail=type(exc).__name__, now=now))
     return _status("READY", now=now)
 
 

@@ -74,3 +74,22 @@ describe("#633: a run that could not check everything says so", () => {
     expect(screen.queryByRole("list")).toBeNull();
   });
 });
+
+describe("PF4 step 2 (#884): the clause coverage line", () => {
+  it("prints the run's stored line with its denominator, and warns when the counts do not add up", () => {
+    const cov = { applicable: 9, counts: { checked: 4, engineer: 2, not_checked: 2, covered_by_checklist: 1, does_not_apply: 2 },
+      checked_share: 44.4, adds_up: true,
+      line: "4 of 9 applicable requirement(s) checked (44.4%), 2 sent to the engineer, 2 not checked; 1 covered by a checklist (not proof the whole standard was checked); 2 do not apply" };
+    const { rerender } = render(<RunIncompleteNotes run={run({ clause_coverage: cov })} />);
+    expect(screen.getByTestId("clause-coverage")).toHaveTextContent("Clause coverage: 4 of 9 applicable requirement(s) checked (44.4%)");
+    expect(screen.getByTestId("clause-coverage")).not.toHaveClass("text-warn-500");
+    rerender(<RunIncompleteNotes run={run({ clause_coverage: { ...cov, adds_up: false, line: "THE COUNTS DO NOT ADD UP - report this run" } })} />);
+    expect(screen.getByTestId("clause-coverage")).toHaveClass("text-warn-500");
+  });
+
+  it("shows no coverage line, never a zero, for a run made before the record", () => {
+    render(<RunIncompleteNotes run={run({ recommended_reason: "Checked 4 datasheet fields.", clause_coverage: null })} />);
+    expect(screen.queryByTestId("clause-coverage")).toBeNull();
+    expect(screen.queryByText(/0 of 0/)).toBeNull();
+  });
+});

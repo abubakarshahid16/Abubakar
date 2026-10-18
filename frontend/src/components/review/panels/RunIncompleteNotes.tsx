@@ -30,6 +30,12 @@ export function RunIncompleteNotes({ run }: { run: ReviewRunSummary }) {
       : null,
     run.ai_check_status && !run.ai_check_status.complete
       ? { id: "ai-check-incomplete", text: run.ai_check_status.plain, warn: true } : null,
+    // PF4 step 2 (#884): the run's own clause coverage, with its denominator,
+    // as the run stored it; a run made before the record shows no line, and
+    // a count that does not add up is the warning the line itself carries.
+    run.clause_coverage
+      ? { id: "clause-coverage", text: `Clause coverage: ${run.clause_coverage.line}.`, warn: !run.clause_coverage.adds_up }
+      : null,
   ].filter((line): line is { id: string; text: string; warn: boolean } => line !== null);
   if (lines.length === 0) return null;
   return (

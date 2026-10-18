@@ -294,6 +294,7 @@ def word_run(review_run_id: str, rows: list[dict], *, provider=None) -> dict:
         if provider is None:
             provider, summary["local_instead"] = _provider_for_this_review()
     except Exception as exc:  # noqa: BLE001 - no model: the template stays
+        log.info("crs_wording: no model for the wording step; templates kept (%s)", type(exc).__name__)
         summary["stopped"] = f"no model available ({type(exc).__name__})"
         return _store_summary(review_run_id, summary)
     kept: list[tuple[str, str]] = []
@@ -301,6 +302,7 @@ def word_run(review_run_id: str, rows: list[dict], *, provider=None) -> dict:
         try:
             text, refused, model = _ask(provider, row)
         except Exception as exc:  # noqa: BLE001 - timeout or model down: stop, keep templates
+            log.info("crs_wording: the wording call failed (%s)", type(exc).__name__)
             local = _local_after_a_failed_cloud_call(provider, exc) if own_provider else None
             if local is None:
                 summary["stopped"] = f"the model call failed ({type(exc).__name__}); templates kept"
@@ -311,6 +313,7 @@ def word_run(review_run_id: str, rows: list[dict], *, provider=None) -> dict:
             try:
                 text, refused, model = _ask(provider, row)
             except Exception as again:  # noqa: BLE001 - the local model is down too
+                log.info("crs_wording: the local wording call failed too; templates kept (%s)", type(again).__name__)
                 summary["stopped"] = f"the model call failed ({type(again).__name__}); templates kept"
                 break
         summary["tried"] += 1

@@ -49,7 +49,7 @@ import re
 import time
 from contextvars import ContextVar
 
-from . import claims, claude_datasheet, datasheet_inputs, datasheets
+from . import claims, claude_datasheet, datasheet_inputs, datasheets, errors
 from .ai import output_limits
 from .claude_spend import StopRun
 from .config import settings
@@ -185,7 +185,7 @@ def _ollama_call(packet_shape: dict | None = None):
     try:
         model_transport.endpoint("/api/generate")
     except Exception as exc:  # noqa: BLE001 - a refused host is a reason, not a crash
-        return None, f"ollama engine unavailable ({type(exc).__name__})"
+        return errors.fell_back("datasheet_ai: the local engine is unavailable; no AI read", exc, (None, f"ollama engine unavailable ({type(exc).__name__})"))
     # Owner order 2026-10-11: the local model is slow - every call has its
     # own timeout (DATASHEET_AI_TIMEOUT_SECONDS), not the provider's 15 min.
     model = settings.datasheet_ai_ollama_model or settings.answer_model
@@ -249,7 +249,7 @@ def model_call_for(engine: str | None = None, packet_shape: dict | None = None):
         if name == CLAUDE:
             return _claude_call()
     except Exception as exc:  # noqa: BLE001 - never into ingestion
-        return None, f"{name} engine unavailable ({type(exc).__name__})"
+        return errors.fell_back("datasheet_ai: the AI reader engine could not be built; no AI read", exc, (None, f"{name} engine unavailable ({type(exc).__name__})"))
     return None, f"DATASHEET_AI_READER={name!r} is not one of {', '.join(ENGINES)}"
 
 
@@ -276,6 +276,7 @@ def _read(page_text: str, page_no: int, model_call, engine: str | None) -> dict:
         return _empty(page_no, engine, error=f"stopped by a limit ({exc.count_key})",
                       stopped=exc.count_key)
     except Exception as exc:  # noqa: BLE001 - never into ingestion
+        errors.fell_back("datasheet_ai: the AI read of a page failed; the page is recorded empty", exc, None)
         if is_timeout(exc):
             return _empty(page_no, engine, error=TIMED_OUT.format(
                 seconds=_seconds(settings.datasheet_ai_timeout_seconds)), timed_out=True)
