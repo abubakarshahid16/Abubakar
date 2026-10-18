@@ -2043,26 +2043,6 @@ class RiskCreate(BaseModel):
     source_finding_id: str | None = Field(default=None, max_length=200)
 
 
-class Risk(BaseModel):
-    id: str
-    risk_type: RiskType
-    title: str
-    description: str
-    severity: str
-    status: str
-    deliverable_id: str | None
-    document_id: str | None
-    owner_user_id: str | None
-    due_date: str | None
-    source_finding_id: str | None
-    created_at: str
-    updated_at: str
-
-
-class RiskList(BaseModel):
-    risks: list[Risk]
-
-
 class RiskDetectionResult(BaseModel):
     status: Literal["ok", "already_running"]
     created: int
