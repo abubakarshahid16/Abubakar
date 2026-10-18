@@ -490,7 +490,7 @@ def recognise_batch(stored_path: str, sha256: str, page_nos: list[int]) -> list[
     try:
         ocr = _build_engine()
     except Exception as exc:  # noqa: BLE001 - a missing model is every page failing, not the document
-        errors.fell_back("ocr: no OCR engine; every page fails", exc, None)
+        errors.fell_back("ocr: engine not built; every page fails", exc, None)
         return failed_rows(page_nos, f"engine_unavailable: {type(exc).__name__}: {exc}")
     out: list[tuple] = []
     doc = {"sha256": sha256, "stored_path": stored_path}
