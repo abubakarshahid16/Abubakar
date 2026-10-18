@@ -43,7 +43,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `api.standards` | Routes: the standards library - list, inventory, missing and cited standards, provenance, OKF concepts, clauses, requirements and their extraction, tables, conflicts, the verification queue, clause checks, revisions and supersede (moved out of main.py, order 79a) |
 | `api.admin` | Routes: users, disciplines, grants, the model unload, the read-only database explorer and the document-kind routing run (moved out of main.py, order 79a) |
 | `api.crs_archive` | Routes: a run's CRS record - who decided what, when and why (order 95 piece 6a), and the issued contractor copies (moved out of main.py) |
-| `api.run_summary` | Routes: GET /api/reviews/runs/{id}/summary - the CRS-first screen's tiers, counts and "How this was reviewed" (order 95) |
+| `api.run_summary` | Routes: GET /api/reviews/runs/{id}/summary - the CRS-first screen's tiers, counts and "How this was reviewed" (order 95); GET /api/reviews/runs/{id} - one run (order 109); GET /api/reviews/runs - every run or one page, with its total (order 117 item 5) |
 | `api_tags` | The API description grouped by area (one tag per route) with every file response typed; documentation only (order 69) |
 | `api_utils` | Shared API validation |
 | `applicability` | Choose the standards that apply to a submittal |

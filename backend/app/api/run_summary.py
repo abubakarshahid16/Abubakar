@@ -9,10 +9,11 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 
-from .. import access, errors, review_jobs, review_tiers, review_trace, schemas
+from .. import access, dashboard_pool, errors, review_jobs, review_tiers, review_trace
+from .. import schemas
 from .. import ai_engineering_check as ai_engineering_check_mod
 from .. import ai_numbers as ai_numbers_mod
 from .. import clause_coverage as clause_coverage_mod
@@ -20,13 +21,26 @@ from .. import comparison as comparison_mod
 from .. import crs_wording as crs_wording_mod
 from .. import requirement_split as requirement_split_mod
 from .. import submittal_review as submittal_review_mod
-from ..api_utils import reject_unknown_params
+from ..api_utils import reject_unknown_params, require_document
 from ..db import connect
 
 router = APIRouter()
 
 #: Every count below is over these findings, and no others.
 BOUNDARY = "findings of this run, on the submittal you may read"
+
+#: the largest page `GET /api/reviews/runs` returns (order 117 item 5)
+RUNS_MAX_PAGE_SIZE = 200
+
+
+class ReviewRunList(BaseModel):
+    runs: list[schemas.ReviewRunSummary]
+    total: int = Field(
+        description="every run the caller may read under the same filter, "
+        "whatever page was asked for: the denominator of `runs`"
+    )
+    limit: int | None = Field(None, description="the page size; null means every run")
+    offset: int = 0
 
 
 class TierCounts(BaseModel):
@@ -167,6 +181,50 @@ def review_run_summary(
                 clause_coverage_mod.for_run(review_run_id, allowed_document_ids=allowed)
             ),
         },
+    }
+
+
+@router.get(
+    "/api/reviews/runs",
+    response_model=ReviewRunList,
+    responses=schemas.ERRORS_422,
+)
+@dashboard_pool.heavy_route
+def list_review_runs(
+    request: Request,
+    document_id: str | None = Query(None, description="only this submittal's runs"),
+    limit: int | None = Query(
+        None, ge=1, le=RUNS_MAX_PAGE_SIZE, description="page size; omit for every run"
+    ),
+    offset: int = Query(0, ge=0),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Every review run over a submittal the caller may read, newest first, or
+    one page of them (order 117 item 5). `total` counts every run under the
+    same filter, so a page always states its population.
+
+    The counts are computed here rather than on the screen so that one
+    definition of "how many findings, of what" exists. `findings_total` is the
+    denominator for `by_status`; a screen showing a status count without it
+    would be printing a percentage with no population (CLAUDE.md rule 4).
+    The run rows themselves are one cheap query; the cost is the per-run
+    summary, so only the asked-for page is summarised.
+    """
+    reject_unknown_params(request, {"document_id", "limit", "offset"})
+    if document_id is not None:
+        require_document(document_id, scope)
+    runs = submittal_review_mod.list_review_runs(
+        allowed_document_ids=scope.allowed_document_ids,
+        submittal_document_id=document_id,
+    )
+    page = runs[offset:] if limit is None else runs[offset : offset + limit]
+    from .. import main as main_mod  # main imports this module
+
+    return {
+        "runs": [main_mod._run_summary(run, scope) for run in page],
+        "total": len(runs),
+        "limit": limit,
+        "offset": offset,
     }
 
 

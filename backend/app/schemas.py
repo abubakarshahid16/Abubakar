@@ -2970,10 +2970,6 @@ class ReviewDashboard(BaseModel):
     recent: list[ReviewRunSummary] = []
 
 
-class ReviewRunList(BaseModel):
-    runs: list[ReviewRunSummary]
-
-
 class ReviewRunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     submittal_document_id: str

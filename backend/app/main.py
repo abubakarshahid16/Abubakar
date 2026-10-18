@@ -1621,30 +1621,6 @@ def review_feedback(
         allowed_document_ids=scope.allowed_document_ids, since=since)
 
 
-@app.get("/api/reviews/runs", response_model=schemas.ReviewRunList,
-         responses=schemas.ERRORS_422)
-@dashboard_pool.heavy_route
-def list_review_runs(
-    request: Request,
-    document_id: str | None = Query(None, description="only this submittal's runs"),
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """Every review run over a submittal the caller may read.
-
-    The counts are computed here rather than on the screen so that one
-    definition of "how many findings, of what" exists. `findings_total` is the
-    denominator for `by_status`; a screen showing a status count without it
-    would be printing a percentage with no population (CLAUDE.md rule 4).
-    """
-    reject_unknown_params(request, {"document_id"})
-    if document_id is not None:
-        require_document(document_id, scope)
-    runs = submittal_review_mod.list_review_runs(
-        allowed_document_ids=scope.allowed_document_ids,
-        submittal_document_id=document_id)
-    return {"runs": [_run_summary(run, scope) for run in runs]}
-
-
 @app.get("/api/reviews/runs/{review_run_id}/ai-numbers",
          response_model=schemas.ReviewAiNumbers,
          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
