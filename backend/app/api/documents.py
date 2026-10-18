@@ -320,7 +320,7 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
     reports_mod.on_document_deleted(document_id)
 
     conn = connect()
-    removed = {}
+    removed = {"review_pdfs_of_citing_submittals": document_refs.remove_citing_report_files(document_id)}  # #1053: before the cascade
     actor = {"id": scope.user_id, "email": (_admin or {}).get("email")} if scope.user_id else None
     with conn:
         removed.update(document_refs.erase_document_text(  # #436: its copied text goes too
@@ -344,7 +344,7 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
         for img in cache.glob(f"{doc['sha256'][:16]}_*.png"):
             img.unlink()
             files_removed += 1
-    files_removed += review_mod.remove_report_files(document_id)   # #437: its review PDFs
+    files_removed += review_mod.remove_report_files(document_id) + removed.pop("review_pdfs_of_citing_submittals")  # #437, #1053: audited, not in the response
 
     return {
         "deleted": document_id,

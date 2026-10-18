@@ -59,6 +59,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import re
 from functools import lru_cache
@@ -66,6 +67,8 @@ from pathlib import Path
 
 from . import ai_requirements, field_links, field_naming, requirements_3b, rule_eval
 from .config import settings
+
+log = logging.getLogger(__name__)
 
 COMPLIANT, NON_COMPLIANT = rule_eval.COMPLIANT, rule_eval.NON_COMPLIANT
 NEEDS_ENGINEER_REVIEW = rule_eval.NEEDS_ENGINEER_REVIEW
@@ -229,6 +232,7 @@ def prove_family(rules: list[dict], answer_key: list[dict], evaluate_fn=evaluate
         try:
             got = _status_of(evaluate_fn(rule, case)) if rule else "no such rule in the family"
         except Exception as exc:   # noqa: BLE001 - an evaluation that fails is recorded as an error, not skipped
+            log.info("rule_trust: a rule evaluation failed; recorded as an error (%s)", type(exc).__name__)
             got = f"evaluation failed: {type(exc).__name__}"
         if got == expected:
             correct += 1

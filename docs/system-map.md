@@ -28,6 +28,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `ai_applicability` | Choose the standards that apply to a submittal |
 | `ai_engineering_check` | AI engineering check (kind C): observations a reviewer would raise, as DRAFTS |
 | `ai.json_reply` | ONE way to take a model's JSON answer out of a code fence (#455); the first module of the `ai/` folder (target structure) |
+| `ai.output_limits` | ONE output cap per model-call route, and the named reply states `complete` / `truncated` / `unknown` (#456): a length-cut reply is never parsed as a whole answer |
 | `ai_requirements` | AI clause to check (#645): proposes a check per undecided clause sentence, code verifies every part, kept as a DRAFT the engineer accepts (a versioned, confirmed limit) or rejects |
 | `ai_numbers` | #845: a finished run's AI numbers (reader, matcher, AI check, wording) with their denominators, from stored data |
 | `evidence_boxes` | #785: where each side of a finding sits and the box to draw on it (checklist clause page, value position, label) |
@@ -38,6 +39,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `api.documents` | Routes: upload, list, read and delete documents, the ingest steps and the bulk role change (moved out of main.py, order 73) |
 | `api.document_classification` | Routes: what a document is - classification, kind, the playbook review |
 | `api.document_files` | Routes: a document's pages, page images, original file, workbook, chunks, excluded text and page ledger |
+| `api.admin` | Routes: users, disciplines, grants, the model unload, the read-only database explorer and the document-kind routing run (moved out of main.py, order 79a) |
 | `api_tags` | The API description grouped by area (one tag per route) with every file response typed; documentation only (order 69) |
 | `api_utils` | Shared API validation |
 | `applicability` | Choose the standards that apply to a submittal |
@@ -90,6 +92,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `datasheet_inputs` | Datasheet INPUTS other than a PDF text layer: Excel, Word, scanned pages |
 | `datasheets` | Read a contractor datasheet into facts |
 | `db` | SQLite storage. WAL mode, foreign keys on, one connection per thread |
+| `dashboard_pool` | The dashboard's heavy reads on their own few threads, single-flight (order 84-1) |
 | `deliverables` | Revision-aware EPC deliverable and WBS records |
 | `disciplines` | Raw discipline spellings, and the canonical value they collapse to |
 | `doc_router` | The document-type router (W5b-02, #526) |
@@ -99,7 +102,9 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `embedder` | Step 4 - local ONNX int8 e5-small embeddings |
 | `engineer_feedback` | Engineers' accept / edit / reject decisions as precision per standard and rule |
 | `errors` | Error codes and safe error reporting |
+| `export_status` | #633 items 6-7: what an export says about its run - run code and status, 'Run <status>: <reason>', unread pages, missing standards |
 | `extract` | Step 2 - resumable page-batch extraction |
+| `facet_memo` | The facet merge rule asked once per pair of facet versions (#615) |
 | `family_search` | A question that names a FAMILY of standards in general words ("what do the welding standards say about post we |
 | `field_links` | Linking a datasheet field to a clause: synonyms, nozzle marks, and simple categorical values. CRS quick wins, |
 | `field_naming` | Canonical field names for printed labels and numeric requirements (#193 plan B4, orders 5.2 and 5.3). Behind ` |
@@ -132,6 +137,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `okf` | OKF v1 (#513): one cited concept per standard, clause, requirement and equipment type, from stored facts only; no link without a resolving citation (`docs/okf.md`) |
 | `orphan_guard` | B38: stop NEW findings being orphaned. Record, then refuse by default |
 | `page_ledger` | The page ledger (master order B3): every page accounted for, with a reason |
+| `pdf_flow` | #633 item 6: PDF text that wraps and continues on the next page, never dropped (layout only) |
 | `pageimage` | On-demand page rendering |
 | `passages` | Small-to-big: search small, show big |
 | `playbooks` | Review a written procedure against a playbook (#679, W5b-04) |
@@ -220,6 +226,10 @@ which are areas of their own today.
   NEW backend file or function over the limit, and a listed one that grows. Today's long ones are
   listed in `eval/quality/long_code.json` (34 files, 99 functions on 17 Oct 2026) and may only shrink:
   after a split, `python scripts/quality_ratchet.py record-long-code` moves the bar down in the same PR.
+- `ruff format`, file by file (order 79d): `scripts/quality_ratchet.py format-check` (CI, pull requests)
+  fails a NEW Python file that is not formatted, and a changed one that moves further from the formatter.
+  An untidy file is never reformatted whole; the lines a PR touches are. Code a split moves into a new module (80% or more
+  of its lines deleted elsewhere in the same PR) keeps its formatting, so the move stays verbatim.
 - One module per job, no copies (the known duplicates above are debts with a date).
 - Tests mirror the app folders.
 - Scratch and proof output never live inside the repo.

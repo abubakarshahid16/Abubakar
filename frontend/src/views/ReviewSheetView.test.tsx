@@ -43,6 +43,9 @@ vi.mock("../components/review/sheet/SheetPageImage", () => ({
 vi.mock("../components/review/EvidencePageImage", () => ({
   EvidencePageImage: ({ side, page }: { side: string; page: number }) => <p>{`${side} page ${page}`}</p>,
 }));
+vi.mock("../components/review/sheet/PlainPageImage", () => ({
+  PlainPageImage: ({ page }: { page: number }) => <p>{`preview page ${page}`}</p>,
+}));
 vi.mock("../components/DocumentPreview", () => ({
   DocumentPreview: ({ page }: { page: number }) => <p>{`preview page ${page}`}</p>,
 }));
@@ -127,9 +130,10 @@ describe("ReviewSheetView", () => {
     render(<ReviewSheetView runId="run-1" onBack={vi.fn()} onOpenPanel={vi.fn()} onOpenRun={vi.fn()} />);
     await screen.findByTestId("sheet-headline");
     expect(screen.getByTestId("sheet-headline")).toHaveTextContent("2 things need your answer");
+    // #1090: the selected card ("a", opened first) is on its card, not listed again
     const marks = within(screen.getByRole("list", { name: "Marked on this page" })).getAllByRole("button");
-    expect(marks.map((m) => m.dataset.mark)).toEqual(["open", "tick"]);
-    expect(marks[1]).toHaveTextContent(/Field s meets the standard/);
+    expect(marks.map((m) => m.dataset.mark)).toEqual(["tick"]);
+    expect(marks[0]).toHaveTextContent(/Field s meets the standard/);
   });
 
   it("marks pages with open cards and moves between cards with J and K", async () => {

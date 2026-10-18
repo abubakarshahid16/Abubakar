@@ -58,9 +58,9 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_G, keyword="two_cold_requests", tags=_TAG),
     Mutation(id="M2310", phase=2310, description="GET /api/risks runs detection again",
              path=APP / "main.py",
-             anchor="    # READ ONLY (#478, #608). Detection used to run here on every GET, looping\n",
+             anchor="    return risks_mod.list_page(risk_type=risk_type, allowed_document_ids=scope.allowed_document_ids, limit=limit, offset=offset)\n",
              replacement="    risks_mod.detect_automatic_risks(allowed_document_ids=scope.allowed_document_ids)\n"
-                         "    # READ ONLY (#478, #608). Detection used to run here on every GET, looping\n",
+                         "    return risks_mod.list_page(risk_type=risk_type, allowed_document_ids=scope.allowed_document_ids, limit=limit, offset=offset)\n",
              target=_R, keyword="get_risks_writes_nothing", tags=_TAG),
     Mutation(id="M2311", phase=2311, description="detection forgets the risks that already exist",
              path=APP / "risks.py", anchor="    by_deliverable, by_document_type = _open_risk_keys()\n",
@@ -92,9 +92,9 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_R, keyword="does_not_repair_owners", tags=_TAG),
     Mutation(id="M2317", phase=2317, description="a GET route that writes is not noticed (the walk skips /api/risks)",
              path=APP / "main.py",
-             anchor="    # READ ONLY (#478, #608). Detection used to run here on every GET, looping\n",
+             anchor="    return risks_mod.list_page(risk_type=risk_type, allowed_document_ids=scope.allowed_document_ids, limit=limit, offset=offset)\n",
              replacement="    risks_mod.run_detection()\n"
-                         "    # READ ONLY (#478, #608). Detection used to run here on every GET, looping\n",
+                         "    return risks_mod.list_page(risk_type=risk_type, allowed_document_ids=scope.allowed_document_ids, limit=limit, offset=offset)\n",
              target=_W, keyword="no_get_route_writes", tags=_TAG),
     Mutation(id="M2318", phase=2318, runner="vitest",
              description="one slow panel blocks the WBS register again",
