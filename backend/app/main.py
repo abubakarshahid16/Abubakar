@@ -260,12 +260,12 @@ from .api import admin as api_admin  # noqa: E402
 from .api import document_classification as api_document_classification  # noqa: E402
 from .api import document_files as api_document_files  # noqa: E402
 from .api import documents as api_documents  # noqa: E402
+from .api import run_summary as api_run_summary  # noqa: E402
 
-# Order 73: the documents area's routes live in app/api/ (target structure).
-app.include_router(api_documents.router)
-app.include_router(api_document_classification.router)
-app.include_router(api_document_files.router)
-app.include_router(api_admin.router)
+# Order 73: the documents area's routes live in app/api/ (order 95: the run summary too).
+for _api in (api_documents, api_document_classification, api_document_files, api_admin,
+             api_run_summary):
+    app.include_router(_api.router)
 app.include_router(watch_api_mod.router)
 app.include_router(fact_api_mod.router)
 app.include_router(sheet_page_mod.router)  # #967: the Sheet's page with every card's value marked
