@@ -1803,9 +1803,8 @@ def start_review_run(
         raise HTTPException(status_code=409, detail=errors.safe_error(
             errors.INVALID_PARAMETER,
             f"a review of this submittal is already queued or running ({exc.args[0]})")) from exc
-    return next(r for r in list_review_runs.__wrapped__(
-        request=request, document_id=document_id, scope=scope,
-    )["runs"] if r["review_run_id"] == run_id)
+    return _run_summary(submittal_review_mod.get_review_run(
+        run_id, allowed_document_ids=scope.allowed_document_ids), scope)
 
 
 @app.get("/api/reviews/findings", response_model=schemas.ReviewFindingList,
@@ -1832,8 +1831,8 @@ def list_review_findings(
     reject_unknown_params(request, {"document_id", "status", "review_run_id", "limit", "offset"})
     if document_id is not None:
         require_document(document_id, scope)
-    where = dict(document_id=document_id, status=status, review_run_id=review_run_id,
-                 allowed_document_ids=scope.allowed_document_ids)
+    where = {"document_id": document_id, "status": status, "review_run_id": review_run_id,
+             "allowed_document_ids": scope.allowed_document_ids}
     findings = review_mod.list_findings(**where, limit=limit, offset=offset)
     total = len(findings) if limit is None and not offset else finding_query.count_findings(**where)
     return {"findings": findings, "total": total, "limit": limit, "offset": offset}

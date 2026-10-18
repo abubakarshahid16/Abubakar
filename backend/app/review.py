@@ -613,19 +613,28 @@ def get(finding_id: str) -> dict | None:
     return _row(row) if row else None
 
 
-def list_findings(*, document_id: str | None = None, status: str | None = None,
-                  review_run_id: str | None = None,
-                  allowed_document_ids: frozenset[str] | None = None,
-                  limit: int | None = None, offset: int = 0) -> list[dict]:
+def list_findings(
+    *,
+    document_id: str | None = None,
+    status: str | None = None,
+    review_run_id: str | None = None,
+    allowed_document_ids: frozenset[str] | None = None,
+    limit: int | None = None,
+    offset: int = 0,
+) -> list[dict]:
     """Most severe first; `limit=None` is every finding. Scope: `finding_query`."""
     ensure_schema()
-    found = finding_query.where(document_id, status, review_run_id, allowed_document_ids)
+    found = finding_query.where(
+        document_id, status, review_run_id, allowed_document_ids
+    )
     if found is None:
         return []
     sql, args = "SELECT * FROM review_findings" + found[0], found[1]
     # `id` last, so a page boundary falls in the same place on every call.
-    sql += (" ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'major' THEN 1 "
-            "WHEN 'minor' THEN 2 ELSE 3 END, updated_at DESC, id")
+    sql += (
+        " ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'major' THEN 1 "
+        "WHEN 'minor' THEN 2 ELSE 3 END, updated_at DESC, id"
+    )
     if limit is not None:
         sql += " LIMIT ? OFFSET ?"
         args = [*args, limit, offset]
