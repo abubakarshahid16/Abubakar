@@ -23,6 +23,13 @@ export const INBOX_REFRESH_MS = 15_000;
 
 type Phase = { kind: "loading" } | { kind: "ready" } | { kind: "error"; message: string };
 
+/** Order 95 piece 3: what "Review all not reviewed" did, document by document. */
+interface BatchResult {
+  asked: number;
+  queued: number;
+  refused: { filename: string; message: string }[];
+}
+
 export function SubmittalsLandingView({ onOpenRun }: { onOpenRun: (runId: string) => void }) {
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
@@ -30,6 +37,8 @@ export function SubmittalsLandingView({ onOpenRun }: { onOpenRun: (runId: string
   const [runs, setRuns] = useState<ReviewRunSummary[]>([]);
   const [startingDocumentId, setStartingDocumentId] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
+  const [batch, setBatch] = useState<BatchResult | null>(null);
+  const [batching, setBatching] = useState(false);
 
   const load = useCallback(async () => {
     const [subs, runsResult] = await Promise.all([
@@ -75,6 +84,25 @@ export function SubmittalsLandingView({ onOpenRun }: { onOpenRun: (runId: string
     onOpenRun(result.data.review_run_id);
   }
 
+  /** Order 95 piece 3: queue a background review for each document never
+   *  reviewed, one request each, in list order. The job queue runs them one
+   *  at a time; nothing is opened. A refusal is reported per document, never
+   *  dropped, and never retried silently. */
+  async function reviewAll(targets: { documentId: string; filename: string }[]) {
+    setBatching(true);
+    setBatch(null);
+    const refused: BatchResult["refused"] = [];
+    let queued = 0;
+    for (const target of targets) {
+      const result = await reviewsApi.startReviewRun(target.documentId);
+      if (result.ok) queued += 1;
+      else refused.push({ filename: target.filename, message: result.error.message });
+    }
+    setBatch({ asked: targets.length, queued, refused });
+    setBatching(false);
+    await load();
+  }
+
   return (
     <section className="mx-auto w-full max-w-7xl space-y-6" aria-labelledby="submittals-landing-title">
       <header>
@@ -103,11 +131,24 @@ export function SubmittalsLandingView({ onOpenRun }: { onOpenRun: (runId: string
         </p>
       )}
 
+      {batch && (
+        <div role="status" className="rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 px-4 py-3 text-sm text-slateish-200">
+          <p>Queued {batch.queued} of {batch.asked} reviews asked for.</p>
+          {batch.refused.length > 0 && (
+            <ul className="mt-1 list-disc pl-5 text-danger-500">
+              {batch.refused.map((r) => <li key={r.filename}>{r.filename}: {r.message}</li>)}
+            </ul>
+          )}
+        </div>
+      )}
+
       {phase.kind === "ready" && (
         <DocumentsFromContractors
           documents={documents} runs={runs} submittalsTotal={submittalsTotal}
           onReview={(documentId) => void reviewDocument(documentId)}
           onOpenRun={onOpenRun}
+          onReviewAll={(targets) => void reviewAll(targets)}
+          reviewingAll={batching}
           startingDocumentId={startingDocumentId}
         />
       )}

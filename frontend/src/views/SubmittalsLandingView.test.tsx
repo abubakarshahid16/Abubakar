@@ -83,6 +83,29 @@ describe("SubmittalsLandingView", () => {
     render(<SubmittalsLandingView onOpenRun={vi.fn()} />);
     expect(await screen.findByRole("alert")).toHaveTextContent("offline");
   });
+  it("queues a review of every document never reviewed, reports each refusal by name, and opens nothing", async () => {
+    documents.mockResolvedValue({ ok: true, data: [
+      { id: "a", filename: "a.pdf" }, { id: "b", filename: "b.pdf" }, { id: "c", filename: "c.pdf" },
+    ] });
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [{
+      review_run_id: "run-c", submittal_document_id: "c", submittal_filename: "c.pdf",
+      equipment_tags: [], status: "completed", created_at: "2026-10-01T00:00:00Z",
+      standards_in_scope: 1, findings_total: 0, by_status: {},
+    }] } });
+    startReviewRun
+      .mockResolvedValueOnce({ ok: true, data: { review_run_id: "run-a" } })
+      .mockResolvedValueOnce({ ok: false, error: { message: "a review of this submittal is already running" } });
+    const onOpenRun = vi.fn();
+    render(<SubmittalsLandingView onOpenRun={onOpenRun} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Review all not reviewed (2)" }));
+    const status = await screen.findByRole("status");
+    expect(status).toHaveTextContent("Queued 1 of 2 reviews asked for.");
+    expect(status).toHaveTextContent("b.pdf: a review of this submittal is already running");
+    expect(startReviewRun.mock.calls.map((call) => call[0])).toEqual(["a", "b"]);
+    expect(onOpenRun).not.toHaveBeenCalled();
+    expect(reviewRuns).toHaveBeenCalledTimes(2);
+  });
+
   describe("order 95 piece 3: the list re-reads while a review is moving", () => {
     afterEach(() => { vi.useRealTimers(); });
 

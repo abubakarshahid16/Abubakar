@@ -47,18 +47,22 @@ function rowsFor(documents: DocumentRecord[], runs: ReviewRunSummary[]): Row[] {
 }
 
 export function DocumentsFromContractors(
-  { documents, runs, submittalsTotal, onReview, onOpenRun, startingDocumentId }: {
+  { documents, runs, submittalsTotal, onReview, onOpenRun, onReviewAll, reviewingAll, startingDocumentId }: {
     documents: DocumentRecord[];
     runs: ReviewRunSummary[];
     submittalsTotal: number | null;
     onReview: (documentId: string) => void;
     onOpenRun?: (runId: string) => void;
+    /** Order 95 piece 3: queue a review of every document never reviewed. */
+    onReviewAll?: (targets: { documentId: string; filename: string }[]) => void;
+    reviewingAll?: boolean;
     startingDocumentId: string | null;
   },
 ) {
   const [filter, setFilter] = useState<InboxFilter>("needs_me");
   const rows = rowsFor(documents, runs).map((row) => ({ ...row, state: inboxStateOf(row.latest) }));
   const shown = rows.filter((row) => inFilter(row.state, filter));
+  const notReviewed = rows.filter((row) => row.state.kind === "not_reviewed");
   const boundary = truncationNote(documents.length, submittalsTotal, "contractor submittals");
 
   if (rows.length === 0) {
@@ -102,6 +106,22 @@ export function DocumentsFromContractors(
           );
         })}
       </div>
+      {onReviewAll && notReviewed.length > 0 && (
+        <p className="flex flex-wrap items-center gap-3 text-sm text-slateish-300">
+          <button
+            type="button"
+            disabled={reviewingAll}
+            onClick={() => onReviewAll(notReviewed.map((row) => ({ documentId: row.documentId, filename: row.filename })))}
+            className="rounded-[var(--radius-sm)] border border-signal-500 px-3 py-1.5 text-sm font-semibold text-signal-300 disabled:opacity-50"
+          >
+            {reviewingAll ? "Queuing reviews…" : `Review all not reviewed (${notReviewed.length})`}
+          </button>
+          <span className="text-xs text-slateish-400">
+            Each runs in the background, one at a time; this list shows where each stands.
+            New datasheets are uploaded on the Documents page, several at once.
+          </span>
+        </p>
+      )}
       {shown.length === 0 && (
         <p className="text-sm text-slateish-300" data-testid="inbox-empty">
           No document listed here is in this group.
