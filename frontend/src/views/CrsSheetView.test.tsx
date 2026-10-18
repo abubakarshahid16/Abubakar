@@ -201,6 +201,38 @@ describe("CrsSheetView", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("2 findings are still open.");
   });
 
+  it("piece 4: the drawer moves comment to comment and page to page on a long document", async () => {
+    mount();
+    await screen.findByTestId("crs-headline");
+    await userEvent.click(screen.getByRole("button", { name: /Open evidence for Comment 1/ }));
+    const dialog = () => screen.getByRole("dialog");
+    const position = () => within(dialog()).getByTestId("drawer-position").textContent ?? "";
+    expect(position()).toMatch(/^Row 1 of \d+$/);
+    expect(within(dialog()).getByRole("button", { name: "← Previous" })).toBeDisabled();
+    expect(within(dialog()).getByTestId("drawer-page")).toHaveTextContent("Page 1 of 12");
+    // the strip: the comment pages plus the first and the last page (12)
+    const strip = within(within(dialog()).getByTestId("drawer-strip")).getAllByRole("button").map((b) => b.textContent);
+    expect(strip[0]).toBe("1");
+    expect(strip[strip.length - 1]).toBe("12");
+    // Next, and the J key, move along the rows shown
+    await userEvent.click(within(dialog()).getByRole("button", { name: "Next →" }));
+    expect(position()).toMatch(/^Row 2 of /);
+    await userEvent.keyboard("j");
+    expect(position()).toMatch(/^Row 3 of /);
+    await userEvent.keyboard("k");
+    expect(position()).toMatch(/^Row 2 of /);
+    // a page with no comment can be looked at, and says so
+    await userEvent.type(within(dialog()).getByLabelText("Go to page"), "11{Enter}");
+    expect(within(dialog()).getByTestId("drawer-page")).toHaveTextContent("Page 11 of 12 - no comment on this page");
+    expect(dialog()).toHaveTextContent("submittal page 11");
+    // a page outside the document is refused in words
+    await userEvent.type(within(dialog()).getByLabelText("Go to page"), "40{Enter}");
+    expect(within(dialog()).getByRole("alert")).toHaveTextContent("Type a page from 1 to 12.");
+    // PageUp from page 11 opens the last comment page before it
+    await userEvent.keyboard("{PageUp}");
+    expect(within(dialog()).getByTestId("drawer-page")).toHaveTextContent(/^Page 4 of 12$/);
+  });
+
   it("the keyboard: J / K move, Enter keeps, E edits, R asks why", async () => {
     mount();
     await screen.findByTestId("crs-headline");

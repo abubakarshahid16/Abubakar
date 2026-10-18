@@ -1,18 +1,24 @@
 /**
- * The evidence drawer, the small version (order 95 piece 2). Piece 4
- * replaces it with the page image + clause + comparison + history drawer
- * (spec 1.3). Here: the row's reason first on a "Needs you" row, what was
- * noticed, the rule, the comment, the datasheet page with the value
- * underlined, and a link to the same point on the cards view.
+ * The evidence drawer (order 95 piece 4, absorbing order 94a; Part of #967).
+ * The row's reason first on a "Needs you" row, then one line comparing what
+ * the datasheet says with what the rule asks, what was noticed, the rule and
+ * its clause, the comment, the datasheet page (zoomable, value underlined),
+ * and what happened to the comment so far.
+ *
+ * COMMENT-DRIVEN NAVIGATION for long documents: Previous / Next comment
+ * (J / K), "Page N of M" with a strip of the pages that carry a comment plus
+ * the first and last page, a jump box, and PageUp / PageDown between comment
+ * pages. A page with no comment can still be looked at; it is said so.
  *
  * Read only. Decisions stay on the row.
  */
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { orNothing } from "../reviewFormat";
 import { SheetPageImage } from "../sheet/SheetPageImage";
 import { cardTitle, trustLine } from "../sheet/sheetCards";
 import type { CrsRow } from "./crsRows";
+import { comparisonLine, historyOf, pagerStrip, parsePage, stepPage } from "./evidenceNav";
 
 const REASON_WORDS: Record<string, string> = {
   "page not read": "The reader did not read this page into fields, so the value may still be on the page. Read the page yourself.",
@@ -30,19 +36,53 @@ export interface CrsEvidenceDrawerProps {
   onOpenCards: () => void;
   /** The element to give the keyboard back to on close. */
   returnTo: HTMLElement | null;
+  /** Where this row sits in the list shown, and how to move along it. */
+  nav?: { index: number; total: number; onPrev: (() => void) | null; onNext: (() => void) | null };
+  /** The document's pages: its page count (null when not known), the pages
+   *  that carry a comment, and how to open the first comment on a page. */
+  pager?: { pageCount: number | null; commentPages: number[]; onPage: (page: number) => boolean };
 }
 
-export function CrsEvidenceDrawer({ row, runId, standardNames, onClose, onOpenCards, returnTo }: CrsEvidenceDrawerProps) {
+function isTyping(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+}
+
+export function CrsEvidenceDrawer({ row, runId, standardNames, onClose, onOpenCards, returnTo, nav, pager }: CrsEvidenceDrawerProps) {
   const closeRef = useRef<HTMLButtonElement | null>(null);
+  // The page shown: the row's own, until the engineer looks at another one.
+  const [viewPage, setViewPage] = useState<number | null>(row.page);
+  const [jump, setJump] = useState("");
+  const [jumpError, setJumpError] = useState<string | null>(null);
+  const [viewFor, setViewFor] = useState(row.key);
+  if (viewFor !== row.key) { setViewFor(row.key); setViewPage(row.page); setJumpError(null); }
   useEffect(() => {
     closeRef.current?.focus();
     return () => { returnTo?.focus?.(); };
   }, [row.key, returnTo]);
+
+  const pageCount = pager?.pageCount ?? null;
+  function goPage(page: number) {
+    setJumpError(null);
+    if (!pager?.onPage(page)) setViewPage(page);
+  }
   useEffect(() => {
-    function onKey(e: KeyboardEvent) { if (e.key === "Escape") { e.preventDefault(); onClose(); } }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") { e.preventDefault(); onClose(); return; }
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
+      // Page keys mean nothing in the page box, so they work from it too.
+      const paging = e.key === "PageDown" || e.key === "PageUp";
+      if (isTyping(e.target) && !(paging && (e.target as HTMLElement).id === "crs-drawer-jump")) return;
+      if ((e.key === "j" || e.key === "J") && nav?.onNext) { e.preventDefault(); nav.onNext(); }
+      else if ((e.key === "k" || e.key === "K") && nav?.onPrev) { e.preventDefault(); nav.onPrev(); }
+      else if (paging && pager) {
+        const next = stepPage(pager.commentPages, viewPage, e.key === "PageDown" ? 1 : -1);
+        if (next !== null) { e.preventDefault(); if (!pager.onPage(next)) setViewPage(next); }
+      }
+    }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, nav, pager, viewPage]);
 
   const leader = row.findings[0];
   const card = { key: row.key, findings: row.findings, state: row.priorState, page: row.page, pages: [] };
@@ -59,12 +99,27 @@ export function CrsEvidenceDrawer({ row, runId, standardNames, onClose, onOpenCa
         <button ref={closeRef} type="button" onClick={onClose} aria-label="Close evidence"
           className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-1 text-sm text-slateish-200">Close</button>
       </div>
+      {nav && (
+        <nav aria-label="Comments" className="mt-2 flex items-center gap-2 text-sm text-slateish-300">
+          <button type="button" onClick={nav.onPrev ?? undefined} disabled={!nav.onPrev}
+            className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5 disabled:opacity-40">← Previous</button>
+          <span data-testid="drawer-position">Row {nav.index + 1} of {nav.total}</span>
+          <button type="button" onClick={nav.onNext ?? undefined} disabled={!nav.onNext}
+            className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5 disabled:opacity-40">Next →</button>
+          <span className="text-xs text-slateish-500">J / K</span>
+        </nav>
+      )}
       <div className="mt-3 space-y-4">
         {row.tier.reason && (
           <section className="rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 p-3">
             <h3 className={h}>Why it needs you: {row.tier.reason}</h3>
             <p className="mt-1 text-sm text-slateish-100">{REASON_WORDS[row.tier.reason]}</p>
           </section>
+        )}
+        {comparisonLine(leader) && (
+          <p data-testid="drawer-comparison" className="rounded-[var(--radius-sm)] border border-ink-700 bg-ink-950/40 p-2 text-sm text-slateish-100">
+            {comparisonLine(leader)}
+          </p>
         )}
         <section>
           <h3 className={h}>We noticed</h3>
@@ -95,9 +150,48 @@ export function CrsEvidenceDrawer({ row, runId, standardNames, onClose, onOpenCa
           </section>
         )}
         <p className="text-xs text-slateish-500">{trustLine(card)}</p>
-        {typeof leader.contractor_page === "number" && (
-          <SheetPageImage runId={runId} page={leader.contractor_page}
-            marks={row.findings.filter((f) => f.contractor_page === leader.contractor_page).map((f) => ({ findingId: f.id, state: "open" as const }))} />
+        {pager && (
+          <section aria-label="Pages" className="space-y-2">
+            <p className="text-sm text-slateish-200" data-testid="drawer-page">
+              {viewPage === null ? "This comment has no page." : `Page ${viewPage}${pageCount !== null ? ` of ${pageCount}` : ""}`}
+              {viewPage !== null && viewPage !== row.page && !pager.commentPages.includes(viewPage) ? " - no comment on this page" : ""}
+            </p>
+            <div className="flex flex-wrap gap-1" data-testid="drawer-strip">
+              {pagerStrip(pager.commentPages, pageCount).map((p) => (
+                <button key={p} type="button" onClick={() => goPage(p)} aria-current={p === viewPage ? "page" : undefined}
+                  className={`min-w-8 rounded-[var(--radius-sm)] border px-1.5 py-0.5 text-xs ${p === viewPage ? "border-signal-400 text-signal-300" : "border-ink-600 text-slateish-300"}`}
+                  title={pager.commentPages.includes(p) ? `Page ${p}: has a comment` : `Page ${p}`}>{p}</button>
+              ))}
+            </div>
+            <form className="flex items-center gap-2 text-xs text-slateish-300"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const page = parsePage(jump, pageCount);
+                if (page === null) { setJumpError(pageCount !== null ? `Type a page from 1 to ${pageCount}.` : "Type a page number."); return; }
+                setJump(""); goPage(page);
+              }}>
+              <label htmlFor="crs-drawer-jump">Go to page</label>
+              <input id="crs-drawer-jump" inputMode="numeric" value={jump} onChange={(e) => setJump(e.target.value)}
+                className="w-16 rounded-[var(--radius-sm)] border border-ink-600 bg-ink-950 px-1 py-0.5 text-slateish-100" />
+              <button type="submit" className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5">Go</button>
+              <span className="text-slateish-500">PageUp / PageDown: comment pages</span>
+            </form>
+            {jumpError && <p role="alert" className="text-xs text-danger-500">{jumpError}</p>}
+          </section>
+        )}
+        {typeof viewPage === "number" && (
+          <SheetPageImage runId={runId} page={viewPage}
+            marks={row.findings.filter((f) => f.contractor_page === viewPage).map((f) => ({ findingId: f.id, state: "open" as const }))} />
+        )}
+        {historyOf(row.findings).length > 0 && (
+          <section>
+            <h3 className={h}>History</h3>
+            <ol className="mt-1 space-y-0.5 text-xs text-slateish-300" data-testid="drawer-history">
+              {historyOf(row.findings).map((e, i) => (
+                <li key={i}>{e.when ? <span className="text-slateish-500">{e.when}: </span> : null}{e.what}</li>
+              ))}
+            </ol>
+          </section>
         )}
         <button type="button" onClick={onOpenCards} className="text-sm text-signal-300 underline-offset-2 hover:underline">
           Open this point on the cards view
