@@ -17,7 +17,7 @@ APP = pathlib.Path(__file__).resolve().parent.parent / "app"
 INGESTION = ("datasheet_inputs", "extract", "form_reader", "geometry_reader", "ocr",
              "page_ledger", "tables", "upload", "vector_store", "vectorcache",
              "ingest", "watcher", "classification")
-LOGS = ("log.", "logger.", "logging.", "record_failure", "_say_once(", "log_exception")
+LOGS = ("log.", "logger.", "logging.", "record_failure", "_say_once(", "log_exception", "errors.fell_back(")
 
 
 def _broad(handler: ast.ExceptHandler) -> bool:

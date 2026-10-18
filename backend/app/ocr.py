@@ -53,18 +53,16 @@ from __future__ import annotations
 
 import bisect
 import concurrent.futures as cf
-import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
 
+from . import errors
 from .config import settings
 from .db import connect
 from .quality import normalise_text
 from .rates import Timer
-
-log = logging.getLogger(__name__)
 
 #: What the recogniser produced, and what it ran against. Kept as one string
 #: so a stored row can always answer "which model wrote this".
@@ -195,8 +193,7 @@ def route_page(page, text: str) -> Route:
         images = [_clip(tuple(i["bbox"]), bounds)
                   for i in page.get_image_info(hashes=False, xrefs=False)]
     except Exception as exc:  # noqa: BLE001 - a malformed image stream is not a scan
-        log.debug("ocr: image info could not be read; the page is not treated as a scan (%s)", type(exc).__name__)  # 79c
-        images = []
+        images = errors.fell_back("ocr: image info could not be read; the page is not treated as a scan", exc, [])  # 79c
     image_area = _union_area(images)
     text_area = None
     if page_area > 0 and image_area / page_area >= settings.ocr_image_coverage_min:
@@ -471,8 +468,7 @@ def _box_origin(box) -> tuple[float, float]:
     try:
         return (float(min(pt[1] for pt in box)), float(min(pt[0] for pt in box)))
     except Exception as exc:  # noqa: BLE001 - a box of unexpected shape sorts first
-        log.debug("ocr: a recogniser box of unexpected shape sorts first (%s)", type(exc).__name__)  # 79c
-        return (0.0, 0.0)
+        return errors.fell_back("ocr: a recogniser box of unexpected shape sorts first", exc, (0.0, 0.0))  # 79c
 
 
 def recognise_batch(stored_path: str, sha256: str, page_nos: list[int]) -> list[tuple]:
@@ -496,8 +492,7 @@ def recognise_batch(stored_path: str, sha256: str, page_nos: list[int]) -> list[
     try:
         ocr = _build_engine()
     except Exception as exc:  # noqa: BLE001 - a missing model is every page failing, not the document
-        log.warning("ocr: the OCR engine could not be built; every page of the batch is failed (%s)", type(exc).__name__)  # 79c
-        return failed_rows(page_nos, f"engine_unavailable: {type(exc).__name__}: {exc}")
+        return errors.fell_back("ocr: the OCR engine could not be built; every page of the batch is failed", exc, failed_rows(page_nos, f"engine_unavailable: {type(exc).__name__}: {exc}"))  # 79c
     out: list[tuple] = []
     doc = {"sha256": sha256, "stored_path": stored_path}
     scale = settings.ocr_dpi / 72.0
@@ -512,9 +507,8 @@ def recognise_batch(stored_path: str, sha256: str, page_nos: list[int]) -> list[
             boxes = list(boxes) if boxes is not None else []
             native = _native_lines(stored_path, pno, scale)
         except Exception as exc:  # noqa: BLE001 - one bad page must not kill a batch
-            log.info("ocr: OCR of one page failed; the page is recorded as failed (%s)", type(exc).__name__)  # 79c
-            out.append((pno, "", None, None, 0, 0, round(time.perf_counter() - t0, 3), 0, "",
-                        f"{type(exc).__name__}: {exc}"[:500]))
+            out.append(errors.fell_back("ocr: OCR of one page failed; the page is recorded as failed", exc, (pno, "", None, None, 0, 0, round(time.perf_counter() - t0, 3), 0, "",
+                        f"{type(exc).__name__}: {exc}"[:500])))  # 79c
             continue
         if any(t.strip() for _, _, t in native):
             origins = [_box_origin(boxes[i]) if i < len(boxes) else (float("inf"), float(i))
@@ -726,11 +720,9 @@ def recognise_document(doc_id: str, progress=None, max_pages: int | None = None)
                 try:
                     rows = future.result()
                 except Exception as exc:  # noqa: BLE001 - the worker, not the document, failed
-                    log.warning("ocr: an OCR worker failed; its pages are recorded as failed (%s)", type(exc).__name__)  # 79c
-                    if isinstance(exc, cf.BrokenExecutor):
-                        broken = True
-                    rows = failed_rows(
-                        pages, f"worker_failed: {type(exc).__name__}: {exc}")
+                    broken = broken or isinstance(exc, cf.BrokenExecutor)
+                    rows = errors.fell_back("ocr: an OCR worker failed; its pages are recorded as failed", exc, failed_rows(
+                        pages, f"worker_failed: {type(exc).__name__}: {exc}"))  # 79c
                 counts = _commit_batch(doc_id, nxt, rows, model)
                 recognised += counts["stored"]
                 with_text += counts["with_text"]
