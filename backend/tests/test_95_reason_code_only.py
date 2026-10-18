@@ -59,3 +59,22 @@ def test_without_a_listed_reason_or_on_an_accept_the_sentence_is_still_required(
     assert _decide(client, run, fid, "accept", code="duplicate").status_code == 422
     history = client.get(f"/api/reviews/runs/{run}/crs/decisions").json()
     assert history["decisions"] == []
+
+
+def test_each_of_the_five_listed_reasons_saves_alone_and_an_unknown_code_is_refused():
+    from app import crs_issue
+
+    assert len(crs_issue.REMOVAL_REASONS) == 5
+    doc = _submittal()
+    client = _client(doc)
+    for code, words in crs_issue.REMOVAL_REASONS.items():
+        run = _run(doc)
+        _finding(doc, run, "NON_COMPLIANT")
+        r = _decide(client, run, _fid(run), "reject", code=code)
+        assert r.status_code == 200, (code, r.text)
+        assert (r.json()["reason"], r.json()["reason_code"]) == (words, code)
+    run = _run(doc)
+    _finding(doc, run, "NON_COMPLIANT")
+    assert (
+        _decide(client, run, _fid(run), "reject", code="not_a_code").status_code == 422
+    )
