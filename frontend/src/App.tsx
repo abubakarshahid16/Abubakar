@@ -26,7 +26,7 @@ import { ReviewSheetView } from "./views/ReviewSheetView";
 import { SubmittalsLandingView } from "./views/SubmittalsLandingView";
 import type { AuthStatus, Me } from "./types/api";
 import { NavigationContext } from "./components/NavLink";
-import { parseRoute, pathForView, titleForView, type AppRoute } from "./routing";
+import { CRS_SHEET_IS_DEFAULT, panelForReviewScreen, parseRoute, pathForView, reviewScreenFor, titleForView, type AppRoute } from "./routing";
 
 //: One key, named once. A typo in a second literal is a preference that
 //: silently never persists.
@@ -64,6 +64,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
     return parseRoute(window.location.pathname);
   });
   const view = route.kind === "view" ? route.view : initialView;
+  const reviewScreen = route.kind === "view" && route.view === "review" ? reviewScreenFor(route.panel, CRS_SHEET_IS_DEFAULT) : null;
   const onNavigate = useCallback((next: ViewId, recordId?: string, panel?: string) => {
     const nextPath = pathForView(next, recordId, panel);
     if (import.meta.env.MODE !== "test") window.history.pushState({ __epcRoute: true }, "", nextPath);
@@ -332,16 +333,18 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
           {view === "analysis" && <AnalysisModeScreen />}
           {view === "reports" && <ReportsScreen />}
           {view === "deliverables" && <DeliverablesView />}
-          {/* Order 95 piece 2 (CRS first, Part of #967): `/review/<run>` is
-              the comment sheet; the card view is kept, unchanged, at
-              `/review/<run>/cards` with its behind-the-scenes pages. */}
+          {/* Order 95 piece 2 (Part of #967): which screen `/review/<run>`
+              opens is `routing.CRS_SHEET_IS_DEFAULT` (the card view until
+              the owner switches it). The card view is also at
+              `/review/<run>/cards`, the new comment sheet at
+              `/review/<run>/crs-sheet`, whichever is the default. */}
           {view === "review" && (
             route.kind === "view" && route.recordId ? (
-              route.panel ? (
+              reviewScreen?.screen === "cards" ? (
                 <ReviewSheetView
-                  key={route.recordId} runId={route.recordId} panel={route.panel === "cards" ? undefined : route.panel}
+                  key={route.recordId} runId={route.recordId} panel={reviewScreen.panel}
                   onBack={() => onNavigate("review")}
-                  onOpenPanel={(panel) => onNavigate("review", route.recordId, panel ?? "cards")}
+                  onOpenPanel={(panel) => onNavigate("review", route.recordId, panel ?? panelForReviewScreen("cards", CRS_SHEET_IS_DEFAULT))}
                   onOpenRun={(runId) => onNavigate("review", runId)}
                   onOpenStandards={() => onNavigate("standards")}
                   isAdmin={canAdmin}
@@ -350,7 +353,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
                 <CrsSheetView
                   key={route.recordId} runId={route.recordId}
                   onBack={() => onNavigate("review")}
-                  onOpenCards={() => onNavigate("review", route.recordId, "cards")}
+                  onOpenCards={() => onNavigate("review", route.recordId, panelForReviewScreen("cards", CRS_SHEET_IS_DEFAULT))}
                 />
               )
             ) : (

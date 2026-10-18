@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { parseRoute, pathForView, titleForView } from "./routing";
+import {
+  CRS_SHEET_IS_DEFAULT, panelForReviewScreen, parseRoute, pathForView, reviewScreenFor, titleForView,
+} from "./routing";
 import { ADMIN_NAV, NAV } from "./components/Shell";
 
 describe("application routes", () => {
@@ -22,9 +24,31 @@ describe("application routes", () => {
     expect(pathForView("review", undefined, "crs")).toBe("/review");
   });
 
-  it("order 95 piece 2: the card view is the \"cards\" page behind the sheet", () => {
+  it("order 95 piece 2: the card view is also at \"cards\", the new sheet at \"crs-sheet\"", () => {
     expect(parseRoute("/review/run-1/cards")).toEqual({ kind: "view", view: "review", recordId: "run-1", panel: "cards" });
     expect(pathForView("review", "run-1", "cards")).toBe("/review/run-1/cards");
+    expect(parseRoute("/review/run-1/crs-sheet")).toEqual({ kind: "view", view: "review", recordId: "run-1", panel: "crs-sheet" });
+  });
+
+  it("order 95 piece 2: the card view stays the default until the owner switches it", () => {
+    // MUTATION PROOF: flip CRS_SHEET_IS_DEFAULT without the owner and this fails.
+    expect(CRS_SHEET_IS_DEFAULT).toBe(false);
+    expect(reviewScreenFor(undefined)).toEqual({ screen: "cards" });
+    expect(panelForReviewScreen("crsSheet")).toBe("crs-sheet");
+    expect(panelForReviewScreen("cards")).toBeUndefined();
+  });
+
+  it.each([false, true])("order 95 piece 2: the review screens with CRS_SHEET_IS_DEFAULT = %s", (isDefault) => {
+    expect(reviewScreenFor(undefined, isDefault)).toEqual(isDefault ? { screen: "crsSheet" } : { screen: "cards" });
+    // The explicit addresses open the same screen whichever is the default.
+    expect(reviewScreenFor("crs-sheet", isDefault)).toEqual({ screen: "crsSheet" });
+    expect(reviewScreenFor("cards", isDefault)).toEqual({ screen: "cards" });
+    // Behind-the-scenes pages (the old "crs" page among them) stay the card view's.
+    expect(reviewScreenFor("findings", isDefault)).toEqual({ screen: "cards", panel: "findings" });
+    expect(reviewScreenFor("crs", isDefault)).toEqual({ screen: "cards", panel: "crs" });
+    // A link to the default screen is plain `/review/<run>`; to the other, its own segment.
+    expect(panelForReviewScreen("crsSheet", isDefault)).toBe(isDefault ? undefined : "crs-sheet");
+    expect(panelForReviewScreen("cards", isDefault)).toBe(isDefault ? "cards" : undefined);
   });
 
   it("generates stable links and distinct page titles", () => {

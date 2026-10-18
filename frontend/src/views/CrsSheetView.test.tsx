@@ -361,4 +361,18 @@ describe("CrsSheetView reads the run summary (order 95 piece 1, #1111)", () => {
     await userEvent.click(link);
     expect(navigate).toHaveBeenCalledWith("review", "run-1", "how");
   });
+
+  it("order 95 piece 2: the header goes back to the current review screen at /review/<run>", async () => {
+    const navigate = vi.fn();
+    render(
+      <NavigationContext.Provider value={navigate}>
+        <CrsSheetView runId="run-1" onBack={vi.fn()} onOpenCards={vi.fn()} />
+      </NavigationContext.Provider>,
+    );
+    await screen.findByTestId("crs-headline");
+    const link = screen.getByRole("link", { name: "Back to the current review screen" });
+    expect(link).toHaveAttribute("href", "/review/run-1");
+    await userEvent.click(link);
+    expect(navigate).toHaveBeenCalledWith("review", "run-1");
+  });
 });

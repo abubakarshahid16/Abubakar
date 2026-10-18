@@ -4,6 +4,7 @@
  * sheet actions.
  */
 import type { DocumentRecord, ReviewRunSummary } from "../../../types/api";
+import { CRS_SHEET_IS_DEFAULT, panelForReviewScreen } from "../../../routing";
 import { NavLink } from "../../NavLink";
 import { orNothing } from "../reviewFormat";
 import { type CrsRow, type HeadlineFields, crsHeadline } from "./crsRows";
@@ -29,11 +30,10 @@ export interface CrsHeaderProps {
   acceptAll: { confirming: boolean; onAsk: () => void; onConfirm: () => void; onCancel: () => void; canUndo: boolean; onUndo: () => void; kept: number | null };
   sign: { busy: boolean; onSign: () => void; onWorkingCopy: () => void; message: string | null; error: string | null };
   onBack: () => void;
-  onOpenCards: () => void;
 }
 
 export function CrsHeader({
-  run, submittal, counts, headlineFields, tierSource = "server", unopened, remaining, localDecisions, acceptAll, sign, onBack, onOpenCards,
+  run, submittal, counts, headlineFields, tierSource = "server", unopened, remaining, localDecisions, acceptAll, sign, onBack,
 }: CrsHeaderProps) {
   const equipment = orNothing(submittal?.equipment_type) || run.equipment_tags.join(", ");
   const revision = orNothing(submittal?.revision);
@@ -45,7 +45,12 @@ export function CrsHeader({
     <header className="space-y-3">
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
         <button type="button" onClick={onBack} className="text-signal-300 underline-offset-2 hover:underline">← Reviews</button>
-        <button type="button" onClick={onOpenCards} className="text-signal-300 underline-offset-2 hover:underline">Open cards view</button>
+        {/* Order 95 piece 2: back to the card view, through the app's own
+            navigation; `/review/<run>` while it is the default. */}
+        <NavLink view="review" recordId={run.review_run_id} panel={panelForReviewScreen("cards", CRS_SHEET_IS_DEFAULT)}
+          className="text-signal-300 underline-offset-2 hover:underline">
+          {CRS_SHEET_IS_DEFAULT ? "Open the card view" : "Back to the current review screen"}
+        </NavLink>
         {/* Order 95 piece 5 (#1113): the run's audit page. Through the app's
             own navigation (a plain href reload would sign the reader out);
             an app that does not know the path yet shows its own

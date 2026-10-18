@@ -65,7 +65,9 @@ export function BehindTheScenes(props: BehindTheScenesProps) {
         <button type="button" onClick={() => onOpenPanel(undefined)} className="text-signal-300 underline-offset-2 hover:underline">
           ← Back to the sheet
         </button>
-        {(PANELS.review ?? []).map((name) => (
+        {/* Only the behind-the-scenes pages: "cards" and "crs-sheet" are the
+            two review screens themselves, not pages behind them. */}
+        {(PANELS.review ?? []).filter((name) => name in PANEL_TITLES).map((name) => (
           <button
             key={name} type="button" onClick={() => onOpenPanel(name)}
             aria-current={name === panel ? "page" : undefined}

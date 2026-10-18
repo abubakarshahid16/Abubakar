@@ -4,8 +4,9 @@
  * The comment sheet IS the screen: the client's seven columns, one row per
  * comment, three tier words (Comment / Needs you / Met), Keep / Edit
  * wording / Remove per row, Accept all remaining with one-step undo, Sign
- * and export wired to the existing CRS export. The card view stays at
- * `/review/<run>/cards` as the detail view.
+ * and export wired to the existing CRS export. Served at
+ * `/review/<run>/crs-sheet`; `/review/<run>` stays the card view until the
+ * owner flips `routing.CRS_SHEET_IS_DEFAULT`.
  *
  * NOTHING HERE CHANGES A VERDICT. Tiers come from the server's run summary
  * (order 95 piece 1, #1111: `GET /api/reviews/runs/{id}/summary`), the one
@@ -193,7 +194,7 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
           onUndo: () => { decisions.undo(); setKept(null); },
         }}
         sign={{ busy: sign.busy, message: sign.message, error: sign.error, onSign: () => void exportSheet("issue"), onWorkingCopy: () => void exportSheet("internal") }}
-        onBack={onBack} onOpenCards={onOpenCards}
+        onBack={onBack}
       />
       <CrsTable
         rows={shown} allRows={rows} counts={counts} depth={depth} onDepth={setDepth} showMet={showMet} onShowMet={setShowMet}
