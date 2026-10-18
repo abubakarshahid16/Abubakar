@@ -23,8 +23,12 @@ def _fresh(tmp_path, monkeypatch):
 
 
 def test_a_structured_search_on_a_fresh_database_finds_nothing_and_does_not_fail():
-    assert structured_search.search("pump", allowed_document_ids=frozenset({"d1"}),
-                                    include_unowned=False) == []
+    assert (
+        structured_search.search(
+            "pump", allowed_document_ids=frozenset({"d1"}), include_unowned=False
+        )
+        == []
+    )
 
 
 def test_a_scoped_risk_read_on_a_fresh_database_finds_nothing_and_does_not_fail():

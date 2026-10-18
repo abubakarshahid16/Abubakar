@@ -7,6 +7,7 @@ import uuid
 from datetime import UTC, datetime, timedelta, timezone
 from pydantic import BaseModel
 
+from . import deliverables
 from .config import settings
 from .db import connect, schema_once
 from .schemas import RiskType
@@ -21,7 +22,6 @@ def _now() -> str:
 @schema_once
 def ensure_schema() -> None:
     # A scoped read joins `deliverables` (`_scope_where`), so that table is ensured too.
-    from . import deliverables
     deliverables.ensure_schema()
     with connect() as conn:
         conn.execute("""CREATE TABLE IF NOT EXISTS risks (
