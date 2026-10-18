@@ -170,6 +170,33 @@ def review_run_summary(
     }
 
 
+@router.get(
+    "/api/reviews/runs/{review_run_id}",
+    response_model=schemas.ReviewRunSummary,
+    responses={**schemas.ERRORS_404, **schemas.ERRORS_422},
+)
+def review_run_detail(
+    review_run_id: str,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Order 109: one run, in the same shape as one row of `GET /api/reviews/runs`
+    (`main._run_summary`, one definition). A screen showing one run asks for
+    that run, not for every run. A run the caller may not read is 404."""
+    reject_unknown_params(request, set())
+    run = submittal_review_mod.get_review_run(
+        review_run_id, allowed_document_ids=scope.allowed_document_ids
+    )
+    if run is None:
+        raise HTTPException(
+            status_code=404,
+            detail=errors.safe_error(errors.NOT_FOUND, "no review run with that id"),
+        )
+    from .. import main as main_mod  # main imports this module
+
+    return main_mod._run_summary(run, scope)
+
+
 def _facts(
     review_run_id: str, outcome: dict, timed_out: list[int] | None
 ) -> review_tiers.RunFacts:

@@ -25,6 +25,11 @@ vi.mock("../api/client", () => ({
   api: { document: async () => ({ ok: true, data: { id: "doc-sub", filename: "psv.pdf", page_count: 3 } }) },
   reviews: {
     reviewRuns: (...a: unknown[]) => reviewRuns(...a),
+    // Order 109: the screen asks for its one run; served from the same fixture.
+    reviewRun: async (id: string) => {
+      const r = await reviewRuns();
+      return r?.ok ? { ok: true, data: r.data.runs.find((x: { review_run_id: string }) => x.review_run_id === id) ?? null } : r;
+    },
     list: (...a: unknown[]) => list(...a),
     crsIssueGate: (...a: unknown[]) => crsIssueGate(...a),
     reviewRunStandards: (...a: unknown[]) => reviewRunStandards(...a),
