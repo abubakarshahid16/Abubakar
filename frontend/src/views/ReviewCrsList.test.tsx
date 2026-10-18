@@ -67,13 +67,13 @@ describe("ReviewCrsList pages (#1131)", () => {
       total: 3, limit, offset, runs: [run(1), run(2), run(3)].slice(offset, offset + 2) } }));
     render(<ReviewCrsList />);
     await userEvent.click(screen.getByRole("button", { name: /show the review runs/i }));
-    expect(await screen.findByTestId("crs-runs-count")).toHaveTextContent("Showing 2 of 3 review runs");
+    expect(await screen.findByTestId("crs-runs-count")).toHaveTextContent("Showing 2 of 3 review runs on submittals you can read");
     expect(reviewRunsPage).toHaveBeenCalledWith(0, RUNS_PAGE);
     expect(reviewRuns).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole("button", { name: "Show more" }));
     expect(await screen.findByText("sheet-3.pdf")).toBeTruthy();
     expect(reviewRunsPage).toHaveBeenLastCalledWith(2, RUNS_PAGE);
-    expect(screen.getByTestId("crs-runs-count")).toHaveTextContent("Showing 3 of 3 review runs");
+    expect(screen.getByTestId("crs-runs-count")).toHaveTextContent("Showing 3 of 3 review runs on submittals you can read");
     expect(screen.queryByRole("button", { name: "Show more" })).toBeNull();
   });
 
@@ -86,6 +86,21 @@ describe("ReviewCrsList pages (#1131)", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Show more" }));
     expect(await screen.findByText("sheet-3.pdf")).toBeTruthy();
     expect(screen.getAllByText("sheet-2.pdf")).toHaveLength(1);
+  });
+
+  it("does not skip a run when runs were deleted between pages", async () => {
+    // Page 1 showed run-1, run-2 of 4; run-1 is then deleted, so run-3 moves
+    // to offset 1 and reading on from offset 2 would skip it.
+    reviewRunsPage
+      .mockResolvedValueOnce({ ok: true, data: { total: 4, limit: 2, offset: 0, runs: [run(1), run(2)] } })
+      .mockResolvedValueOnce({ ok: true, data: { total: 3, limit: 2, offset: 2, runs: [run(4)] } })
+      .mockResolvedValueOnce({ ok: true, data: { total: 3, limit: 3, offset: 1, runs: [run(3), run(4)] } });
+    render(<ReviewCrsList />);
+    await userEvent.click(screen.getByRole("button", { name: /show the review runs/i }));
+    await userEvent.click(await screen.findByRole("button", { name: "Show more" }));
+    expect(await screen.findByText("sheet-3.pdf")).toBeTruthy();
+    expect(reviewRunsPage).toHaveBeenLastCalledWith(1, RUNS_PAGE + 1);
+    expect(screen.getAllByText("sheet-4.pdf")).toHaveLength(1);
   });
 });
 

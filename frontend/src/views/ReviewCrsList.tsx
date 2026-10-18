@@ -39,7 +39,14 @@ export function ReviewCrsList() {
   async function showMore() {
     if (runs === null) return;
     setMore(true);
-    const res = await reviewsApi.reviewRunsPage(runs.length, RUNS_PAGE);
+    let res = await reviewsApi.reviewRunsPage(runs.length, RUNS_PAGE);
+    // Runs deleted since the last page move the rest up, so reading on from
+    // runs.length would silently skip as many rows. Read again starting that
+    // many rows earlier; the overlap is dropped below.
+    if (res.ok && total !== null && res.data.total < total) {
+      const removed = total - res.data.total;
+      res = await reviewsApi.reviewRunsPage(Math.max(0, runs.length - removed), RUNS_PAGE + removed);
+    }
     setMore(false);
     if (!res.ok) {
       setError(res.error.message);
@@ -107,7 +114,7 @@ export function ReviewCrsList() {
       {runs !== null && runs.length > 0 && total !== null && (
         <div className="flex flex-wrap items-center gap-3 text-xs text-slateish-400">
           <span data-testid="crs-runs-count">
-            Showing {runs.length.toLocaleString()} of {total.toLocaleString()} review runs
+            Showing {runs.length.toLocaleString()} of {total.toLocaleString()} review runs on submittals you can read
           </span>
           {runs.length < total && (
             <button type="button" disabled={more} onClick={() => void showMore()}
