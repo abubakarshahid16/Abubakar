@@ -49,7 +49,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         id="M2408", phase=2406,
         description="the chosen disciplines are never granted",
-        path=_MAIN,
+        path=APP / "api/documents.py",
         anchor="        access.grant_uploaded_document_to_disciplines(\n"
                "            row[\"id\"], discipline_roles, scope.user_id)",
         replacement="        pass",

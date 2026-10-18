@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from fastapi import HTTPException, Request
 
-from . import errors
+from . import access, errors
 from .db import connect
 
 #: Hard ceiling on any page size. Without one, `limit=999999` returns
@@ -90,3 +90,19 @@ def retrievable_clause(value: str) -> str:
         "false": " AND retrievable = 0",
         "all": "",
     }[value]
+
+
+def _require_identity_to_write(scope: access.AccessScope) -> None:
+    """A conversation nobody owns is one nobody can ever read again.
+
+    Under `demo_required` a caller with no identity resolves to an empty scope,
+    and every READ correctly returns nothing. A WRITE that succeeded would
+    manufacture an orphan - the same shape as #79 on uploads - so it is refused
+    with the same 401 /api/auth/me gives, rather than accepted into a void.
+    """
+    if scope.unrestricted or scope.user_id:
+        return
+    raise HTTPException(
+        status_code=401,
+        detail=errors.safe_error(errors.UNAUTHENTICATED, "sign in to continue"),
+    )
