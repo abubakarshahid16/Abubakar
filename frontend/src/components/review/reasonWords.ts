@@ -5,7 +5,8 @@
  * ("no_field_matched: no field read from this datasheet ..."). The words
  * after the colon are already plain; the code is not for the engineer. This
  * is the one table of every code, each with a sentence, and the one place
- * that splits a code off; the code stays in a tooltip for whoever debugs.
+ * that splits a code off; the code stays in a tooltip for whoever debugs
+ * (`ReasonText.tsx`).
  * `backend/tests/test_order120_reason_words.py` fails when the backend gains
  * a code this table does not name.
  */
@@ -51,18 +52,6 @@ export function splitReason(text: string | null | undefined): SplitReason {
   const lead = LEAD.exec(value);
   if (!lead) return { code: null, words: "", rest: value };
   return { code: lead[1], words: REASON_CODE_WORDS[lead[1]] ?? "", rest: value.slice(lead[0].length) };
-}
-
-/** A text that may open with a reason code: the code's sentence, then the
- *  rest; the code itself only in the tooltip. */
-export function ReasonText({ text }: { text: string }) {
-  const { code, words, rest } = splitReason(text);
-  if (code === null) return <>{text}</>;
-  return (
-    <span title={`Internal reason code: ${code}`} data-reason-code={code}>
-      {[words, rest].filter(Boolean).join(" ")}
-    </span>
-  );
 }
 
 /** Order 120 item 3: an AI engineering check that names no standard is the

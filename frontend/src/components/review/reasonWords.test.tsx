@@ -1,7 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { REASON_CODE_WORDS, ReasonText, SENSE_CHECK_RULE, isSenseCheck, splitReason } from "./reasonWords";
+import { ReasonText } from "./ReasonText";
+import { REASON_CODE_WORDS, SENSE_CHECK_RULE, isSenseCheck, splitReason } from "./reasonWords";
 
 describe("reason words (order 120 item 3)", () => {
   it("splits a known code off and gives its sentence", () => {

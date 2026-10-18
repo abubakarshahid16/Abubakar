@@ -3,7 +3,7 @@ plain sentence on the screen.
 
 The comparison and the rule evaluator write rationales as "<code>: words".
 The screen shows the code's sentence from one table,
-`frontend/src/components/review/reasonWords.tsx`, and keeps the code in a
+`frontend/src/components/review/reasonWords.ts`, and keeps the code in a
 tooltip. This reads the codes from the writers' own source, so a new
 `f"{SOME_CODE}: ..."` rationale fails here until the table names it.
 """
@@ -14,7 +14,7 @@ from pathlib import Path
 from app import comparison, rule_eval
 
 ROOT = Path(__file__).resolve().parents[2]
-TABLE = ROOT / "frontend" / "src" / "components" / "review" / "reasonWords.tsx"
+TABLE = ROOT / "frontend" / "src" / "components" / "review" / "reasonWords.ts"
 # The constant a rationale f-string opens with: f"{NO_FIELD_MATCHED}: ..."
 LEAD = re.compile(r'f"\{([A-Z][A-Z_]+)\}: ')
 

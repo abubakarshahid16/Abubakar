@@ -19,7 +19,8 @@ import { useEffect, useRef, useState } from "react";
 
 import { reviews as reviewsApi } from "../../../api/client";
 import type { CrsIssueDecision } from "../../../types/api";
-import { ReasonText, SENSE_CHECK_RULE, isSenseCheck } from "../reasonWords";
+import { ReasonText } from "../ReasonText";
+import { SENSE_CHECK_RULE, isSenseCheck } from "../reasonWords";
 import { orNothing } from "../reviewFormat";
 import { SheetPageImage } from "../sheet/SheetPageImage";
 import { cardTitle, trustLine } from "../sheet/sheetCards";
