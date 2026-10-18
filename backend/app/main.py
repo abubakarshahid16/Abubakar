@@ -23,6 +23,7 @@ from . import crs_issue as crs_issue_mod
 from . import crs_mapping as crs_mapping_mod
 from . import crs_numbers as crs_numbers_mod
 from . import crs_wording as crs_wording_mod
+from . import export_status as export_status_mod
 from . import review_trace as review_trace_mod
 from . import engineer_feedback as engineer_feedback_mod
 from . import datasheets as datasheets_mod
@@ -1262,28 +1263,10 @@ def _now_date() -> str:
 
 
 def _missing_references(submittal_id: str, allowed: frozenset[str]) -> list[str]:
-    """Standards this submittal CITES that the library does not hold.
-
-    Lifted out of the dashboard, which computed exactly this inline, so the
-    CRS gap rows and the Active Standards tile cannot drift into two answers
-    to one question. Read from the submittal's own chunk text rather than by
-    re-running applicability selection.
-    """
-    text = " ".join(
-        row["text"] or "" for row in connect().execute(
-            "SELECT text FROM chunks WHERE document_id = ?", (submittal_id,)))
-    names = datasheets_mod.referenced_standards(text)
-    # THE RULE LIVES IN applicability.missing_references, and is only CALLED
-    # here. This helper used to carry its own copy, which compared an
-    # identifier against a dict keyed by document id - so every cited
-    # standard was "missing", and the CRS told a contractor that six standards
-    # held in the library were unavailable. See that function's docstring.
-    #
-    # Reported in the submittal's own spelling ("32-SAMSS-004", never
-    # "32SAMSS004"); ordered by the normalised key so the CRS rows are stable.
-    missing = applicability_mod.missing_references(
-        applicability_mod._library(allowed), names)
-    return sorted(missing, key=applicability_mod.normalise_identifier)
+    """Standards this submittal CITES that the library does not hold: the one
+    answer in `export_status.missing_standards`, shared by the CRS gap rows,
+    the Active Standards tile, the readiness strip and the review PDF."""
+    return export_status_mod.missing_standards(submittal_id, allowed)
 
 
 def _standards_change(run: dict, scope: access.AccessScope) -> dict | None:
@@ -3714,8 +3697,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     comparison_mod.attach_crs_context(findings)
     # Owner order 2d/2f: a confirmed AI engineering check item is printed
     # "confirmed by <name>" - the engineer's display name, never their id.
-    # Section 3: an edited comment names its editor the same way. 2d-2: a
-    # confirmed web standards check item does too.
+    # Section 3: an edited comment names its editor the same way; 2d-2: so does a confirmed web standards check item.
     # Audit 2026-09-30: EVERY confirmed comment, not only AI/web items and
     # edits - a plain confirmed requirement comment printed the raw user id.
     confirmers = {f["confirmed_by"] for f in findings if f.get("confirmed_by")}
@@ -3724,8 +3706,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         people = {r["id"]: r["display_name"] for r in connect().execute(
             f"SELECT id, display_name FROM users WHERE id IN ({marks})", tuple(confirmers))}
         for finding in findings:
-            # A name only when one is on record - never invented; the id
-            # stays the fallback in `crs_mapping`.
+            # A name only when one is on record - never invented; the id stays the fallback in `crs_mapping`.
             if people.get(finding.get("confirmed_by")):
                 finding["confirmed_by_name"] = people[finding["confirmed_by"]]
 
@@ -3851,8 +3832,8 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     meta = {
         "document_title": submittal_name,
         "submittal_number": submittal_number,
-        # Never printed. Half of the key each row's stable reference is
-        # minted from, so re-exporting this run quotes the same references.
+        # Never printed. Half of the key each row's stable reference is minted
+        # from, so re-exporting this run quotes the same references.
         "review_run_id": review_run_id,
         "date_issued": stamp,
         # Left blank on purpose - see above. Absent, not invented.
@@ -3879,8 +3860,10 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
             for part in unchecked],
         "unchecked_parts": [part["line"] for part in unchecked],
         "incomplete_notice": absence_mod.notice_for(unchecked),
-        # Never printed: the keys of this run's rejected comments, for
-        # `_mint_crs_numbers` to withdraw.
+        # #633 item 7: row 1 of a sheet whose run did not complete - status, reason,
+        # unread pages, missing standards. "" for a completed run (sheet unchanged).
+        "run_status_note": export_status_mod.crs_header_note(run.get("status"), outcome.get("error"), unread, missing),
+        # Never printed: this run's rejected comment keys, for `_mint_crs_numbers` to withdraw.
         "rejected_row_keys": meta_rejected_keys,
     }
     return rows, meta, submittal_name, stamp

@@ -99,6 +99,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `embedder` | Step 4 - local ONNX int8 e5-small embeddings |
 | `engineer_feedback` | Engineers' accept / edit / reject decisions as precision per standard and rule |
 | `errors` | Error codes and safe error reporting |
+| `export_status` | #633 items 6-7: what an export says about its run - run code and status, 'Run <status>: <reason>', unread pages, missing standards |
 | `extract` | Step 2 - resumable page-batch extraction |
 | `family_search` | A question that names a FAMILY of standards in general words ("what do the welding standards say about post we |
 | `field_links` | Linking a datasheet field to a clause: synonyms, nozzle marks, and simple categorical values. CRS quick wins, |
@@ -132,6 +133,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `okf` | OKF v1 (#513): one cited concept per standard, clause, requirement and equipment type, from stored facts only; no link without a resolving citation (`docs/okf.md`) |
 | `orphan_guard` | B38: stop NEW findings being orphaned. Record, then refuse by default |
 | `page_ledger` | The page ledger (master order B3): every page accounted for, with a reason |
+| `pdf_flow` | #633 item 6: PDF text that wraps and continues on the next page, never dropped (layout only) |
 | `pageimage` | On-demand page rendering |
 | `passages` | Small-to-big: search small, show big |
 | `playbooks` | Review a written procedure against a playbook (#679, W5b-04) |

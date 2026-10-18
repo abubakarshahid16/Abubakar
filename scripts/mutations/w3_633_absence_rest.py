@@ -65,9 +65,11 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(3417, "an engineer-to-check self-check says 'None.' as the action",
        "datasheet_checks.py", '                                else "Engineer to check." if status == NEEDS_ENGINEER_REVIEW',
        '                                else "None." if status == NEEDS_ENGINEER_REVIEW', "revision_block_is_not"),
-    _m(3418, "the PDF cuts a long finding off at a fixed box again",
-       "review.py", "        height = min(700, max(150, int(wrapped_lines * 8.5 * 1.25) + 24))",
-       "        height = 150", "pdf"),
+    _m(3418, "the PDF cuts a long finding off again",
+       # re-anchored 2026-10-18 (#633 items 6-7): the box is drawn by `pdf_flow`
+       # and continues on the next page; the mutation truncates the text instead.
+       "review.py", "        flow.box(block, border=(0.65, 0.72, 0.75), fill=(0.96, 0.98, 0.98))\n",
+       "        flow.box(block[:600], border=(0.65, 0.72, 0.75), fill=(0.96, 0.98, 0.98))\n", "pdf"),
     _m(3419, "an empty PDF report no longer says it is not a pass",
        "review.py", '"This is NOT a statement that the document was reviewed and found acceptable."',
        '""', "pdf"),
