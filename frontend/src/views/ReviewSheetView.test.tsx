@@ -212,7 +212,7 @@ describe("ReviewSheetView", () => {
     expect(onOpenPanel).toHaveBeenLastCalledWith("crs");
   });
 
-  it("order 95 piece 2: the header offers the new comment sheet at /review/<run>/crs-sheet through the app's navigation", async () => {
+  it("order 115: the header goes back to the comment sheet, the default at /review/<run>, through the app's navigation", async () => {
     const navigate = vi.fn();
     render(
       <NavigationContext.Provider value={navigate}>
@@ -220,10 +220,10 @@ describe("ReviewSheetView", () => {
       </NavigationContext.Provider>,
     );
     await screen.findByTestId("sheet-headline");
-    const link = screen.getByRole("link", { name: "Try the new comment sheet" });
-    expect(link).toHaveAttribute("href", "/review/run-1/crs-sheet");
+    const link = screen.getByRole("link", { name: "Back to the comment sheet" });
+    expect(link).toHaveAttribute("href", "/review/run-1");
     await userEvent.click(link);
-    expect(navigate).toHaveBeenCalledWith("review", "run-1", "crs-sheet");
+    expect(navigate).toHaveBeenCalledWith("review", "run-1");
   });
 
   it("the behind-the-scenes menu lists only its pages, not the two review screens", async () => {

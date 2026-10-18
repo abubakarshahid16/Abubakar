@@ -47,8 +47,9 @@ export function CrsHeader({
     <header className="space-y-3">
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
         <button type="button" onClick={onBack} className="text-signal-300 underline-offset-2 hover:underline">← Reviews</button>
-        {/* Order 95 piece 2: back to the card view, through the app's own
-            navigation; `/review/<run>` while it is the default. */}
+        {/* Order 95 piece 2: the way to the card view, through the app's own
+            navigation; `/review/<run>/cards` now that the comment sheet is
+            the default (order 115), plain `/review/<run>` if it ever is not. */}
         <NavLink view="review" recordId={run.review_run_id} panel={panelForReviewScreen("cards", CRS_SHEET_IS_DEFAULT)}
           className="text-signal-300 underline-offset-2 hover:underline">
           {CRS_SHEET_IS_DEFAULT ? "Open the card view" : "Back to the current review screen"}

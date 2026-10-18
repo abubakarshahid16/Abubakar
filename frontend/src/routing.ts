@@ -17,8 +17,9 @@ export type AppRoute =
  *  one, and only the panels it names: any other three-part path stays
  *  "forbidden", as every over-deep path always was. */
 export const PANELS: Partial<Record<ViewId, readonly string[]>> = {
-  // Order 95 piece 2: "cards" is the card view (an alias while it is the
-  // default) and "crs-sheet" the new comment sheet; see CRS_SHEET_IS_DEFAULT.
+  // Order 95 piece 2: "cards" is the card view (its own address now that the
+  // new comment sheet is the default) and "crs-sheet" the new comment sheet
+  // (an alias while it is the default); see CRS_SHEET_IS_DEFAULT.
   // "crs" was already taken: it is the card view's Comment Resolution Sheet
   // page behind the scenes (#967 PR 3), so the new sheet cannot share it.
   // "how" (order 95 piece 5): the audit page "How this was reviewed" - a
@@ -32,12 +33,17 @@ export const PANELS: Partial<Record<ViewId, readonly string[]>> = {
  *   false - the current card view (the review screen people use today);
  *           the new comment sheet is at `/review/<run>/crs-sheet`.
  *   true  - the new comment sheet; the card view stays at `/review/<run>/cards`.
- * Both explicit addresses always work, whichever value this has. Flip it only
- * after the owner has clicked through the new sheet and said so. Every link
+ * Both explicit addresses always work, whichever value this has. Every link
  * between the two screens reads it through `reviewScreenFor` /
  * `panelForReviewScreen`, so this one line is the whole switch.
+ *
+ * Now true: the owner clicked through the new sheet and approved making it
+ * the default review screen on 18 Oct 2026 (order 115). `/review/<run>/cards`
+ * keeps the old card view (and its behind-the-scenes pages, the old "crs"
+ * page among them, keep their addresses). Set it back to false only on the
+ * owner's word.
  */
-export const CRS_SHEET_IS_DEFAULT = false;
+export const CRS_SHEET_IS_DEFAULT = true;
 
 /** The third path segment that always opens each review screen. */
 export const REVIEW_SCREEN_PANELS = { cards: "cards", crsSheet: "crs-sheet" } as const;

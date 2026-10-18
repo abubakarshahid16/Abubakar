@@ -505,7 +505,7 @@ describe("CrsSheetView reads the run summary (order 95 piece 1, #1111)", () => {
     expect(navigate).toHaveBeenCalledWith("review", "run-1", "how");
   });
 
-  it("order 95 piece 2: the header goes back to the current review screen at /review/<run>", async () => {
+  it("order 115: the header opens the card view at /review/<run>/cards", async () => {
     const navigate = vi.fn();
     render(
       <NavigationContext.Provider value={navigate}>
@@ -513,9 +513,9 @@ describe("CrsSheetView reads the run summary (order 95 piece 1, #1111)", () => {
       </NavigationContext.Provider>,
     );
     await screen.findByTestId("crs-headline");
-    const link = screen.getByRole("link", { name: "Back to the current review screen" });
-    expect(link).toHaveAttribute("href", "/review/run-1");
+    const link = screen.getByRole("link", { name: "Open the card view" });
+    expect(link).toHaveAttribute("href", "/review/run-1/cards");
     await userEvent.click(link);
-    expect(navigate).toHaveBeenCalledWith("review", "run-1");
+    expect(navigate).toHaveBeenCalledWith("review", "run-1", "cards");
   });
 });
