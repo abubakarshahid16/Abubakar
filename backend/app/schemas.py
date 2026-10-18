@@ -1977,7 +1977,7 @@ class ReviewTemplate(BaseModel):
     updated_at: str
 
 
-class ReviewTemplateList(BaseModel):
+class ReviewTemplateList(ListPage):
     templates: list[ReviewTemplate]
 
 
@@ -2001,7 +2001,7 @@ class ReviewBaselineRule(BaseModel):
     created_at: str
 
 
-class ReviewBaselineRuleList(BaseModel):
+class ReviewBaselineRuleList(ListPage):
     rules: list[ReviewBaselineRule]
 
 
@@ -2023,7 +2023,7 @@ class ExpectedDeliverable(BaseModel):
     origin: Literal["manual", "inferred"]
 
 
-class ExpectedDeliverableList(BaseModel):
+class ExpectedDeliverableList(ListPage):
     deliverables: list[ExpectedDeliverable]
 
 
@@ -3046,7 +3046,7 @@ class Deliverable(BaseModel):
     updated_at: str
 
 
-class DeliverableList(BaseModel):
+class DeliverableList(ListPage):
     deliverables: list[Deliverable]
 
 
@@ -3097,7 +3097,7 @@ class DeliverableAlert(BaseModel):
     severity: Literal["minor", "major", "critical"]
 
 
-class DeliverableAlertList(BaseModel):
+class DeliverableAlertList(ListPage):
     alerts: list[DeliverableAlert]
 
 
@@ -3120,7 +3120,7 @@ class ReminderEvent(BaseModel):
     created_at: str
 
 
-class ReminderEventList(BaseModel):
+class ReminderEventList(ListPage):
     reminders: list[ReminderEvent]
 
 
@@ -3899,7 +3899,7 @@ class AdminUser(BaseModel):
     warning: Literal["no_discipline"] | None = None
 
 
-class AdminUserList(BaseModel):
+class AdminUserList(ListPage):
     """Note what is NOT here: there is no `setup_token` field on this model,
     so the token cannot be returned by this route even by accident."""
 
@@ -3950,7 +3950,7 @@ class AdminGrantDocument(BaseModel):
         None, description="invisible in every search; looks like a broken upload")
 
 
-class AdminGrantList(BaseModel):
+class AdminGrantList(ListPage):
     documents: list[AdminGrantDocument]
 
 

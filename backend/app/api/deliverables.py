@@ -20,22 +20,42 @@ from ..api_utils import (
     require_document,
 )
 from ..config import settings
+from ..paging import limit_param, offset_param, page_body
 
 router = APIRouter()
 
 
 @router.get("/api/deliverables", response_model=schemas.DeliverableList,
             responses=schemas.ERRORS_422)
-def list_deliverables(scope: access.AccessScope = Depends(access.current_scope)):
-    return {"deliverables": deliverables_mod.list_items(allowed_document_ids=scope.allowed_document_ids)}
+def list_deliverables(
+    limit: int | None = limit_param(),
+    offset: int = offset_param(),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    return page_body(
+        "deliverables",
+        deliverables_mod.list_items(allowed_document_ids=scope.allowed_document_ids),
+        limit,
+        offset,
+    )
 
 
 @router.get("/api/deliverables/expected", response_model=schemas.ExpectedDeliverableList)
-def expected_deliverables(wbs_code: str | None = None,
-                          scope: access.AccessScope = Depends(access.current_scope)):
+def expected_deliverables(
+    wbs_code: str | None = None,
+    limit: int | None = limit_param(),
+    offset: int = offset_param(),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
     deliverables_mod.infer_expectations(allowed_document_ids=scope.allowed_document_ids)
-    return {"deliverables": deliverables_mod.expected_missing(
-        wbs_code=wbs_code, allowed_document_ids=scope.allowed_document_ids)}
+    return page_body(
+        "deliverables",
+        deliverables_mod.expected_missing(
+            wbs_code=wbs_code, allowed_document_ids=scope.allowed_document_ids
+        ),
+        limit,
+        offset,
+    )
 
 
 @router.post("/api/deliverables", response_model=schemas.Deliverable,
@@ -121,13 +141,33 @@ def deliverable_workspace(deliverable_id: str, scope: access.AccessScope = Depen
 
 
 @router.get("/api/deliverables/alerts", response_model=schemas.DeliverableAlertList)
-def deliverable_alerts(scope: access.AccessScope = Depends(access.current_scope)):
-    return {"alerts": deliverables_mod.alerts(allowed_document_ids=scope.allowed_document_ids)}
+def deliverable_alerts(
+    limit: int | None = limit_param(),
+    offset: int = offset_param(),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    return page_body(
+        "alerts",
+        deliverables_mod.alerts(allowed_document_ids=scope.allowed_document_ids),
+        limit,
+        offset,
+    )
 
 
 @router.get("/api/management/reminders", response_model=schemas.ReminderEventList)
-def management_reminders(scope: access.AccessScope = Depends(access.current_scope)):
-    return {"reminders": deliverables_mod.reminder_events(allowed_document_ids=scope.allowed_document_ids)}
+def management_reminders(
+    limit: int | None = limit_param(),
+    offset: int = offset_param(),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    return page_body(
+        "reminders",
+        deliverables_mod.reminder_events(
+            allowed_document_ids=scope.allowed_document_ids
+        ),
+        limit,
+        offset,
+    )
 
 
 @router.post("/api/management/reminders/{reminder_id}/ack", response_model=schemas.ReminderEvent,

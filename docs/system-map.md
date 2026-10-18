@@ -44,6 +44,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `api.admin` | Routes: users, disciplines, grants, the model unload, the read-only database explorer and the document-kind routing run (moved out of main.py, order 79a) |
 | `api.crs_archive` | Routes: a run's CRS record - who decided what, when and why (order 95 piece 6a), and the issued contractor copies (moved out of main.py) |
 | `api.run_summary` | Routes: GET /api/reviews/runs/{id}/summary - the CRS-first screen's tiers, counts and "How this was reviewed" (order 95); GET /api/reviews/runs/{id} - one run (order 109); GET /api/reviews/runs - every run or one page, with its total (order 117 item 5) |
+| `api.review_templates` | Routes: GET /api/reviews/templates and GET /api/reviews/baseline-rules - the lists, each with an optional page and its total (order 117 item 5) |
 | `api_tags` | The API description grouped by area (one tag per route) with every file response typed; documentation only (order 69) |
 | `api_utils` | Shared API validation |
 | `applicability` | Choose the standards that apply to a submittal |
@@ -161,7 +162,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `review_tiers` | Order 95: each finding of a run in ONE tier (comment / needs you / met or not applicable) with a reason word; display only |
 | `review` | Persistent workflow records for AI-assisted engineering reviews |
 | `finding_query` | The one scope filter of the review-findings list and its count, so a page and its total agree (order 117 item 5) |
-| `paging` | The fields every paged list response carries: `total` (the page's denominator), `limit`, `offset` (order 117 item 5) |
+| `paging` | The fields every paged list response carries: `total` (the page's denominator), `limit`, `offset`; a bare-list route's page with its total in `X-Total-Count` (order 117 item 5) |
 | `review_jobs` | P3: a review runs as a background job on the B11 queue, not inside the request |
 | `review_trace` | Show what each step of a finished review produced (REVIEW_DEBUG console and per-run log, #791) |
 | `risks` | Typed EPC risk register, kept separate from evidence-backed findings |
