@@ -15,6 +15,11 @@ import { api, reviews as reviewsApi } from "../api/client";
 import type { DocumentRecord, ReviewRunSummary } from "../types/api";
 import { DocumentsFromContractors } from "../components/review/DocumentsFromContractors";
 import { LIST_MAX, groupRunsByDocument, totalFromResponse } from "../components/review/reviewFormat";
+import { anyMoving, inboxStateOf } from "../components/review/inbox/inboxState";
+
+/** Order 95 piece 3: while a review is queued or running, the list re-reads
+ *  on this interval so its state moves without a refresh. */
+export const INBOX_REFRESH_MS = 15_000;
 
 type Phase = { kind: "loading" } | { kind: "ready" } | { kind: "error"; message: string };
 
@@ -42,6 +47,14 @@ export function SubmittalsLandingView({ onOpenRun }: { onOpenRun: (runId: string
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  const moving = phase.kind === "ready"
+    && anyMoving(groupRunsByDocument(runs).map((group) => inboxStateOf(group.latest)));
+  useEffect(() => {
+    if (!moving) return undefined;
+    const timer = window.setInterval(() => { void load(); }, INBOX_REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, [moving, load]);
 
   async function reviewDocument(documentId: string) {
     const existing = groupRunsByDocument(runs).find((group) => group.documentId === documentId);
@@ -94,6 +107,7 @@ export function SubmittalsLandingView({ onOpenRun }: { onOpenRun: (runId: string
         <DocumentsFromContractors
           documents={documents} runs={runs} submittalsTotal={submittalsTotal}
           onReview={(documentId) => void reviewDocument(documentId)}
+          onOpenRun={onOpenRun}
           startingDocumentId={startingDocumentId}
         />
       )}
