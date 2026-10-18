@@ -35,10 +35,14 @@ reaches the ordinary pipeline unchanged.
 
 from __future__ import annotations
 
+import logging
+
 import re
 
 from . import applicability, chat_comparison, search, understanding as understanding_mod
 from .db import connect
+
+log = logging.getLogger(__name__)
 
 #: The most standards searched for one family question.
 MAX_STANDARDS = 8
@@ -179,7 +183,8 @@ def _topic_evidence(topic: str, want: set[str], document_id: str) -> int:
     try:
         result = search.search(topic, limit=PROBE_LIMIT, rerank=False,
                                allowed_document_ids=frozenset({document_id}))
-    except Exception:  # noqa: BLE001 - a failed probe must not lose the family
+    except Exception as exc:  # noqa: BLE001 - a failed probe must not lose the family
+        log.debug("family_search: probe failed; counts 0 (%s)", type(exc).__name__)
         return 0
     return sum(
         1 for hit in result.get("hits") or []
