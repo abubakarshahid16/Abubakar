@@ -19,7 +19,7 @@ from fastapi import (
 )
 from fastapi.responses import JSONResponse
 
-from .. import access, document_refs, errors, orphan_guard, schemas
+from .. import access, document_refs, errors, orphan_guard, schemas, stored_paths
 from .. import admin as admin_mod
 from .. import chunker as chunk_mod
 from .. import classification as classification_mod
@@ -336,7 +336,7 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
         document_refs.record_document_deleted(conn, document_id, removed, actor=actor)
 
     files_removed = 0
-    stored = Path(doc["stored_path"])
+    stored = Path(stored_paths.local(doc["stored_path"]))
     if stored.exists():
         stored.unlink()
         files_removed += 1

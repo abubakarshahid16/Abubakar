@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 import pymupdf  # PyMuPDF
 
 from . import ocr, states
+from . import stored_paths
 from .config import settings
 from .quality import normalise_text
 from . import tables as tables_mod
@@ -396,7 +397,7 @@ def extract_document(doc_id: str, progress=None) -> dict:
     if job is None:
         raise ValueError(f"no extract job for {doc_id}")
 
-    pdf_path = doc["stored_path"]
+    pdf_path = stored_paths.local(doc["stored_path"])
     if not os.path.exists(pdf_path):
         # Row survived but the bytes did not. Fail loudly in the record
         # rather than crashing the worker mid-queue.
@@ -523,7 +524,7 @@ def reroute_document(doc_id: str, *, apply: bool = True) -> dict:
         raise ValueError(f"unknown document {doc_id}")
     result = {"document_id": doc_id, "pages": 0, "stale": 0, "newly_needs_ocr": 0,
               "no_longer_needs_ocr": 0, "requeued": False, "routes": {}, "error": None}
-    if not doc["stored_path"] or not os.path.exists(doc["stored_path"]):
+    if not os.path.exists(stored_paths.local(doc["stored_path"]) or ""):
         result["error"] = "stored file is missing"
         return result
     rows = conn.execute(
@@ -533,7 +534,7 @@ def reroute_document(doc_id: str, *, apply: bool = True) -> dict:
         "SELECT page_no FROM page_ocr WHERE document_id = ?", (doc_id,))}
     updates = []
     newly_pending = 0
-    with pymupdf.open(doc["stored_path"]) as pdf:
+    with pymupdf.open(stored_paths.local(doc["stored_path"])) as pdf:
         for r in rows:
             if not 1 <= r["page_no"] <= pdf.page_count:
                 continue
