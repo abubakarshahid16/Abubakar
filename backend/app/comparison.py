@@ -53,7 +53,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import (absence, claims, conditions, datasheets, errors, field_links, match_rules, numparse, page_ledger,
-                requirements_3b, review, schemas, submittal_review)
+                requirements_3b, review, run_record, schemas, submittal_review)
 from .config import settings
 from .db import connect
 
@@ -4326,12 +4326,7 @@ def run_outcome(review_run_id: str, *,
     grants."""
     run = submittal_review.get_review_run(
         review_run_id, allowed_document_ids=allowed_document_ids)
-    if run is None:
-        return None
-    try:
-        return json.loads(run.get("refusal_reason") or "{}")
-    except (TypeError, ValueError):
-        return {}
+    return None if run is None else run_record.outcome_of(run)
 
 
 def list_findings(review_run_id: str, *,

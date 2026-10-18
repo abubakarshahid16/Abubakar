@@ -66,6 +66,7 @@ from . import reports as reports_mod
 from . import review as review_mod
 from . import deliverables as deliverables_mod
 from . import notifications as notifications_mod
+from . import run_record as run_record_mod
 from . import structured_search as structured_search_mod
 from . import risks as risks_mod
 from . import standards as standards_mod
@@ -1322,8 +1323,9 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
             " ORDER BY equipment_tag", (run["id"],))
     ]
     job = review_jobs_mod.job_for_run(run["id"])
-    outcome = comparison_mod.run_outcome(
-        run["id"], allowed_document_ids=scope.allowed_document_ids) or {}
+    outcome = run_record_mod.outcome_of(run)
+    ai_check = run_record_mod.ai_check_status_of(run)
+    plain = comparison_mod.plain_outcome(outcome)
     document = connect().execute(
         "SELECT filename FROM documents WHERE id = ?",
         (run["submittal_document_id"],)).fetchone()
@@ -1344,8 +1346,8 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         "recommended_code": outcome.get("recommended_code"),
         # 2g: plain words for the engineer; the technical sentence under "Details".
         # A run stored before 2g gets its plain sentence from the same counts.
-        "recommended_reason": comparison_mod.plain_outcome(outcome)[0],
-        "recommended_details": comparison_mod.plain_outcome(outcome)[1],
+        "recommended_reason": plain[0],
+        "recommended_details": plain[1],
         # The client's configured code labels, in policy order, so the screen
         # offers exactly the labels `record_engineer_code` accepts.
         "review_codes": list(comparison_mod.review_codes()),
@@ -1377,8 +1379,7 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         # silent when it did: a truncated or budget-refused reply is a fact
         # on the run, with the plain-English boundary sentence a reviewer
         # reads directly (`ai_engineering_check._plain_status`).
-        "ai_check_status": ai_engineering_check_mod.ai_check_status(
-            run["id"], allowed_document_ids=scope.allowed_document_ids),
+        "ai_check_status": ai_check,
         # #633: the web standards check's own outcome, same rule.
         "web_check_status": _json_column(run.get("web_check_status")),
         # #633: findings written before a failed run stopped are PARTIAL.
@@ -1386,18 +1387,14 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         # Order 95 piece 3: the inbox's "Signed"; null when nothing was issued.
         "crs_issued_at": crs_issue_mod.last_issued_at(run["id"]),
         # #845: the AI numbers, each with its denominator - stored data, no model call.
-        "ai_numbers": _ai_numbers(run, scope, outcome),
+        "ai_numbers": _ai_numbers(run, outcome, ai_check),
     }
 
 
-def _ai_numbers(run: dict, scope: access.AccessScope, outcome: dict | None) -> dict | None:
+def _ai_numbers(run: dict, outcome: dict | None, ai_check: dict | None) -> dict | None:
     """#845: the run's four AI steps as `ai_numbers.for_run` reads them from
     what the run stored. None when the run holds no record of any of them."""
-    return ai_numbers_mod.for_run(
-        outcome,
-        ai_engineering_check_mod.ai_check_status(
-            run["id"], allowed_document_ids=scope.allowed_document_ids),
-        crs_wording_mod.summary_of(run["id"]))
+    return ai_numbers_mod.for_run(outcome, ai_check, crs_wording_mod.summary_of(run["id"]))
 
 
 def _json_column(raw) -> dict | None:
@@ -1643,9 +1640,8 @@ def review_run_ai_numbers(
     if run is None:
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "no review run with that id"))
-    outcome = comparison_mod.run_outcome(
-        review_run_id, allowed_document_ids=scope.allowed_document_ids)
-    steps = _ai_numbers(run, scope, outcome) or {}
+    outcome = run_record_mod.outcome_of(run)
+    steps = _ai_numbers(run, outcome, run_record_mod.ai_check_status_of(run)) or {}
     return {"review_run_id": review_run_id,
             **{k: steps.get(k) for k in ("reader", "matcher", "engineering_check", "wording",
                                          "clause_checks")}}

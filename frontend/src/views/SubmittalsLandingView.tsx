@@ -9,7 +9,7 @@
  * findings table - is unchanged; this page only decides which run to open,
  * starting one if none exists yet.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, reviews as reviewsApi } from "../api/client";
 import type { DocumentRecord, ReviewRunSummary } from "../types/api";
@@ -48,7 +48,23 @@ export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onO
   const [batch, setBatch] = useState<BatchResult | null>(null);
   const [batching, setBatching] = useState(false);
 
-  const load = useCallback(async () => {
+  // Order 109: ONE list request at a time. React's StrictMode runs the
+  // first effect twice in development (the owner's app runs `npm run dev`),
+  // and the 15 s refresh fired while a slow list was still loading; both
+  // sent a second full list request. A load already on its way is reused.
+  const inFlight = useRef<Promise<void> | null>(null);
+  const load = useCallback(() => {
+    inFlight.current ??= fetchBoth().finally(() => { inFlight.current = null; });
+    return inFlight.current;
+  }, []);
+  /** After the engineer changed something: a fresh list, read after any
+   *  load already on its way (which may predate the change). */
+  const reload = useCallback(async () => {
+    await inFlight.current;
+    await load();
+  }, [load]);
+
+  const fetchBoth = async () => {
     const [subs, runsResult] = await Promise.all([
       api.documents({ document_role: ["CONTRACTOR_SUBMITTAL"], limit: LIST_MAX }),
       reviewsApi.reviewRuns(),
@@ -61,7 +77,7 @@ export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onO
     setDocuments(subs.ok ? subs.data : []);
     setRuns(runsResult.data.runs);
     setPhase({ kind: "ready" });
-  }, []);
+  };
 
   useEffect(() => { void load(); }, [load]);
 
@@ -108,7 +124,7 @@ export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onO
     }
     setBatch({ asked: targets.length, queued, refused });
     setBatching(false);
-    await load();
+    await reload();
   }
 
   return (

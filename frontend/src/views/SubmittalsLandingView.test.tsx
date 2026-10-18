@@ -9,6 +9,7 @@
  * test fails.
  */
 import { render, screen } from "@testing-library/react";
+import { StrictMode } from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -76,6 +77,15 @@ describe("SubmittalsLandingView", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Review" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("a review of this submittal is already running");
     expect(onOpenRun).not.toHaveBeenCalled();
+  });
+
+  it("order 109: asks for the run list once, even under StrictMode's double effect", async () => {
+    documents.mockResolvedValue({ ok: true, data: [{ id: "doc-1", filename: "psv.pdf" }] });
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [] } });
+    render(<StrictMode><SubmittalsLandingView inbox onOpenRun={vi.fn()} /></StrictMode>);
+    expect(await screen.findByText("psv.pdf")).toBeInTheDocument();
+    expect(reviewRuns).toHaveBeenCalledTimes(1);
+    expect(documents).toHaveBeenCalledTimes(1);
   });
 
   it("shows the error when the run list cannot be loaded", async () => {

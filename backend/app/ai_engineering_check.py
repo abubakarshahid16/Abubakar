@@ -721,17 +721,9 @@ def ai_check_status(review_run_id: str, *, allowed_document_ids: frozenset[str])
     """This run's own AI-check outcome, under the caller's grants - the same
     read shape as `comparison.run_outcome`. None when the run does not exist,
     the caller may not read it, or the check never stored one (never ran)."""
-    from . import submittal_review
+    from . import run_record, submittal_review
     run = submittal_review.get_review_run(review_run_id, allowed_document_ids=allowed_document_ids)
-    if run is None:
-        return None
-    raw = run.get("ai_check_status")
-    if not raw:
-        return None
-    try:
-        return json.loads(raw)
-    except (TypeError, ValueError):
-        return None
+    return None if run is None else run_record.ai_check_status_of(run)
 
 
 @claude_approved.for_review      # #806 S3: the packet is the review's submittal and standards
