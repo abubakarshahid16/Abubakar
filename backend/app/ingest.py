@@ -37,6 +37,9 @@ STALL_AFTER_SECONDS = 120
 # Work is waiting but nothing has completed for this long: the queue is stuck
 # even though the worker is alive and looping.
 NO_PROGRESS_SECONDS = 180
+#: /api/health reuses a backlog count at most this old (order 84-1): it runs on
+#: the event loop, and "stalled" is judged on minutes, not seconds.
+HEALTH_BACKLOG_MAX_AGE = 10.0
 
 _worker: IngestionWorker | None = None
 _worker_lock = threading.Lock()
@@ -176,8 +179,19 @@ class IngestionWorker:
         """Distinct documents finished, not stage invocations."""
         return len(self._completed)
 
-    def backlog(self) -> tuple[int, float | None]:
-        """How much non-terminal work is waiting, and how old the oldest is."""
+    def backlog(self, max_age: float = 0.0) -> tuple[int, float | None]:
+        """How much non-terminal work is waiting, and how old the oldest is.
+
+        `max_age` > 0 reuses an answer at most that many seconds old: /api/health
+        runs on the event loop (order 84-1) and asks on every poll."""
+        cached = getattr(self, "_backlog_cache", None)
+        if max_age > 0 and cached and time.monotonic() - cached[0] < max_age:
+            return cached[1]
+        found = self._count_backlog()
+        self._backlog_cache = (time.monotonic(), found)
+        return found
+
+    def _count_backlog(self) -> tuple[int, float | None]:
         clause, args = pending_documents_clause()
         row = connect().execute(
             f"SELECT COUNT(*) AS n, MIN(uploaded_at) AS oldest FROM documents"
@@ -193,7 +207,7 @@ class IngestionWorker:
             return pending, None
         return pending, round(age, 1)
 
-    def status(self) -> dict:
+    def status(self, backlog_max_age: float = 0.0) -> dict:
         """Health that reflects whether work is MOVING, not just whether the
         loop is spinning.
 
@@ -205,7 +219,7 @@ class IngestionWorker:
         now = time.time()
         beat_age = now - self.last_beat
         progress_age = now - self.last_progress
-        pending, oldest_age = self.backlog()
+        pending, oldest_age = self.backlog(max_age=backlog_max_age)
 
         dead = not self.alive
         hung = beat_age > STALL_AFTER_SECONDS

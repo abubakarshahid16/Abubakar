@@ -30,6 +30,7 @@ from . import datasheets as datasheets_mod
 from . import disciplines as disciplines_mod
 from . import extract as extract_mod
 from . import ingest as ingest_mod
+from .dashboard_pool import heavy_route
 from . import job_queue as job_queue_mod
 from . import review_jobs as review_jobs_mod
 from . import document_refs, orphan_guard
@@ -365,7 +366,7 @@ async def security_headers(request: Request, call_next):
 
 
 @app.get("/api/health", response_model=schemas.Health)
-def health():
+async def health():
     """Readiness, and NOTHING ELSE. This is the one unauthenticated route.
 
     It answers two questions: is the service up, and are the models present.
@@ -386,7 +387,7 @@ def health():
     backend has to distinguish "down" from "up but stuck", and neither is
     about anybody's documents.
     """
-    worker = ingest_mod.get_worker().status()
+    worker = ingest_mod.get_worker().status(backlog_max_age=ingest_mod.HEALTH_BACKLOG_MAX_AGE)
     return {
         "ok": True,
         "embed_model_present": (settings.embed_model_dir / "tokenizer.json").exists(),
@@ -409,6 +410,7 @@ def health():
 
 
 @app.get("/api/metrics", response_model=schemas.Metrics, responses=schemas.ERRORS_422)
+@heavy_route
 def metrics(request: Request,
     scope: access.AccessScope = Depends(access.current_scope),
 ):
@@ -2248,6 +2250,7 @@ def review_feedback(
 
 @app.get("/api/reviews/runs", response_model=schemas.ReviewRunList,
          responses=schemas.ERRORS_422)
+@heavy_route
 def list_review_runs(
     request: Request,
     document_id: str | None = Query(None, description="only this submittal's runs"),
@@ -2729,6 +2732,7 @@ def structured_search(q: str, kind: str | None = None,
 
 
 @app.get("/api/risks", response_model=schemas.RiskList)
+@heavy_route
 def list_risks(risk_type: str | None = None,
                scope: access.AccessScope = Depends(access.current_scope)):
     if risk_type is not None and risk_type not in risks_mod.RISK_TYPES:
