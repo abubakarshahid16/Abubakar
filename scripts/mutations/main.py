@@ -209,7 +209,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M225", phase=20,
         description="OPEN THE TABLE LIST TO ANY SIGNED-IN CALLER, which hands "
                     "every table name in the system to a non-admin",
-        path=APP / "main.py",
+        path=APP / "api/admin.py",
         anchor="def admin_db_tables(request: Request,\n"
                "                    actor: dict | None = Depends(admin_mod.current_admin)):",
         replacement="def admin_db_tables(request: Request,\n"
@@ -222,7 +222,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M226", phase=20,
         description="open the ROW reader to any caller - the same hole one "
                     "route further in, where the data actually is",
-        path=APP / "main.py",
+        path=APP / "api/admin.py",
         anchor="    limit: int = Query(50, ge=1, description=\"rows to return; capped server-side\"),\n"
                "    offset: int = Query(0, ge=0, description=\"rows to skip\"),\n"
                "    actor: dict | None = Depends(admin_mod.current_admin),",

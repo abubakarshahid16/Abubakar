@@ -51,7 +51,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(4312, "anyone may confirm a kind", "api/document_classification.py",
        '    actor: dict | None = Depends(admin_mod.current_admin),\n):\n    """A person confirms (or corrects) the document type',
        '    actor: dict | None = None,\n):\n    """A person confirms (or corrects) the document type', "non_admin"),
-    _m(4313, "anyone may route the whole library", "main.py",
+    _m(4313, "anyone may route the whole library", "api/admin.py",
        "def route_document_kinds(_admin: dict | None = Depends(admin_mod.current_admin)):",
        "def route_document_kinds(_admin: dict | None = None):", "route_all_is_admin"),
     _m(4314, "the kinds route counts every document, not the caller's", "api/document_classification.py",
