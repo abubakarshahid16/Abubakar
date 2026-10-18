@@ -11,13 +11,15 @@ import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ReviewFinding, ReviewRunSummary } from "../types/api";
+import { NavigationContext } from "../components/NavLink";
+import type { ReviewFinding, ReviewRunSummary, ReviewRunTierSummary, RunSummaryTierRow } from "../types/api";
 import { CrsSheetView } from "./CrsSheetView";
 
 const reviewRuns = vi.fn();
 const list = vi.fn();
 const exportCrs = vi.fn();
 const reviewRunStandards = vi.fn();
+const reviewRunSummary = vi.fn();
 
 vi.mock("../api/client", () => ({
   api: { document: async () => ({ ok: true, data: { id: "doc-sub", filename: "psv.pdf", page_count: 12, equipment_type: "Pressure safety valve", revision: "B" } }) },
@@ -25,6 +27,7 @@ vi.mock("../api/client", () => ({
     reviewRuns: (...a: unknown[]) => reviewRuns(...a),
     list: (...a: unknown[]) => list(...a),
     reviewRunStandards: (...a: unknown[]) => reviewRunStandards(...a),
+    reviewRunSummary: (...a: unknown[]) => reviewRunSummary(...a),
     exportCrs: (...a: unknown[]) => exportCrs(...a),
     cancelJob: vi.fn(),
   },
@@ -70,6 +73,8 @@ beforeEach(() => {
     standards: [{ standard_document_id: "std-1", filename: "API 520.pdf", included: true }],
     missing_references: [{ identifier: "API 526", status: "MISSING_LOCALLY" }],
   } });
+  // A server without #1111's route: 404, as `request()` reports it.
+  reviewRunSummary.mockReset().mockResolvedValue({ ok: false, disconnected: false, error: { code: "internal", message: "That is not something the backend knows about." } });
   exportCrs.mockReset().mockResolvedValue({ ok: false, error: { code: "conflict", message: "2 findings are still open." } });
 });
 
@@ -282,5 +287,124 @@ describe("CrsSheetView", () => {
     expect(await screen.findByTestId("review-progress")).toBeInTheDocument();
     expect(screen.queryByRole("grid")).not.toBeInTheDocument();
     await act(async () => {});
+  });
+});
+
+function summaryOf(rows: RunSummaryTierRow[], over: Partial<ReviewRunTierSummary> = {}): ReviewRunTierSummary {
+  return {
+    review_run_id: "run-1", status: "completed", boundary: "findings of this run, on the submittal you may read",
+    counts: { met: 40, not_applicable: 2, another_document: 1, comment: 11, needs_you: 3, removed: 4, total: 61 },
+    rows,
+    how_reviewed: {
+      requirement_split: { checked: 90, applies_not_checked: 0, does_not_apply: 1200, total: 1290, applies_not_checked_reasons: [], does_not_apply_reasons: [], repeats_ignored: null, unchecked_share: 0 },
+      page_coverage: { pages_total: 12, fact_pages: [1, 2, 3], pages_not_read_into_fields: [4], not_read_reasons: {} },
+      completeness: null, reader: null, timed_out_pages: [7], code_version: null, config_version: null,
+      stage_seconds: null, clauses_by_standard: null,
+    },
+    ...over,
+  };
+}
+
+function tierRow(finding_id: string, tier: RunSummaryTierRow["tier"], label: RunSummaryTierRow["label"], reason: RunSummaryTierRow["reason"] = null): RunSummaryTierRow {
+  return { finding_id, tier, label, reason };
+}
+
+/** The server's answer for this file's findings when it agrees with the screen. */
+function agreeingRows(): RunSummaryTierRow[] {
+  return [
+    tierRow("a", "B", "Comment"), tierRow("b", "B", "Comment"), tierRow("blank", "B", "Comment"),
+    tierRow("cond", "C", "Needs you", "condition unsettled"), tierRow("unread", "C", "Needs you", "page not read"),
+    tierRow("met", "A", "Met"), tierRow("scope", "A", "Another document"),
+  ];
+}
+
+function tierOfRow(item: string): string {
+  const row = rows().find((r) => within(r).getAllByRole("cell")[3].textContent === item);
+  return within(row as HTMLElement).getAllByRole("cell")[0].textContent ?? "";
+}
+
+describe("CrsSheetView reads the run summary (order 95 piece 1, #1111)", () => {
+  it("when the summary answers, the headline reads the server's counts and stored fields, with no fallback note", async () => {
+    reviewRunSummary.mockResolvedValue({ ok: true, data: summaryOf(agreeingRows()) });
+    mount();
+    // Server counts (11 + 3 comments, 40 met), server does_not_apply (1,200), and the
+    // server's unread pages: not read into fields (4) plus timed out (7).
+    expect(await screen.findByTestId("crs-headline")).toHaveTextContent(
+      "14 comments, 3 need your judgement. 40 values met, 1,200 clauses not applicable (hidden). Read in 18 min; the reader gave up on pages 4 and 7.",
+    );
+    expect(reviewRunSummary).toHaveBeenCalledWith("run-1");
+    expect(screen.queryByTestId("crs-tier-source")).not.toBeInTheDocument();
+    // The engineer-removed count is the server's too.
+    expect(screen.getByTestId("crs-rejected")).toHaveTextContent("Left off this sheet: 4 findings already rejected by an engineer.");
+  });
+
+  it("when the summary 404s (route not on this server), the screen's own tiers stand in and one small note says so", async () => {
+    mount();
+    expect(await screen.findByTestId("crs-headline")).toHaveTextContent(
+      "5 comments, 2 need your judgement. 1 value met, 4,362 clauses not applicable (hidden). Read in 18 min; the reader gave up on pages 4 and 9.",
+    );
+    expect(screen.getByTestId("crs-tier-source")).toHaveTextContent("Tiers worked out on this screen: the run summary was not available from the server.");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(tierOfRow("Field cond")).toContain("Needs you: condition unsettled");
+  });
+
+  it("when the summary read fails outright, the sheet still renders on the screen's tiers", async () => {
+    reviewRunSummary.mockResolvedValue({ ok: false, disconnected: true, error: { code: "internal", message: "Cannot reach the backend." } });
+    mount();
+    await screen.findByTestId("crs-headline");
+    expect(screen.getByTestId("crs-tier-source")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(rowItems()).toEqual(["Field a", "Field blank", "Field b", "Field cond", "Field unread", "Field met"]);
+  });
+
+  it("when server and screen tiers disagree, the server wins", async () => {
+    // The screen would call "a" a Comment (NON_COMPLIANT) and "cond" Needs you
+    // (CONDITIONAL); the server says the opposite, with its own reason.
+    reviewRunSummary.mockResolvedValue({ ok: true, data: summaryOf(agreeingRows().map((r) => (
+      r.finding_id === "a" ? tierRow("a", "C", "Needs you", "value conflict")
+        : r.finding_id === "cond" ? tierRow("cond", "B", "Comment")
+          : r))) });
+    mount();
+    await screen.findByTestId("crs-headline");
+    expect(tierOfRow("Field a")).toContain("Needs you: value conflict");
+    expect(tierOfRow("Field cond")).toBe("Comment");
+    expect(screen.getByTestId("sign-waits")).toHaveTextContent('opened the 2 rows marked "Needs you"');
+    // "a" (page 1) is still comment 1, now a Needs-you row; Sign waits for it and
+    // "unread", not for "cond", which the server calls a plain Comment.
+    expect(rows()[0]).toHaveAttribute("data-tier", "C");
+    await userEvent.click(screen.getByRole("button", { name: "Open evidence for Comment 1: Field a" }));
+    expect(screen.getByRole("dialog")).toHaveTextContent("Why it needs you: value conflict");
+    await userEvent.click(screen.getByRole("button", { name: "Close evidence" }));
+    await userEvent.click(screen.getByRole("button", { name: "Open evidence for Comment 5: Field unread" }));
+    await userEvent.click(screen.getByRole("button", { name: "Close evidence" }));
+    expect(screen.getByRole("button", { name: /Sign and export/ })).toBeEnabled();
+  });
+
+  it("the header links to How this was reviewed at /review/<run>/how through the app's navigation", async () => {
+    const navigate = vi.fn();
+    render(
+      <NavigationContext.Provider value={navigate}>
+        <CrsSheetView runId="run-1" onBack={vi.fn()} onOpenCards={vi.fn()} />
+      </NavigationContext.Provider>,
+    );
+    await screen.findByTestId("crs-headline");
+    const link = screen.getByRole("link", { name: "How this was reviewed" });
+    expect(link).toHaveAttribute("href", "/review/run-1/how");
+    await userEvent.click(link);
+    expect(navigate).toHaveBeenCalledWith("review", "run-1", "how");
+  });
+
+  it("order 95 piece 2: the header goes back to the current review screen at /review/<run>", async () => {
+    const navigate = vi.fn();
+    render(
+      <NavigationContext.Provider value={navigate}>
+        <CrsSheetView runId="run-1" onBack={vi.fn()} onOpenCards={vi.fn()} />
+      </NavigationContext.Provider>,
+    );
+    await screen.findByTestId("crs-headline");
+    const link = screen.getByRole("link", { name: "Back to the current review screen" });
+    expect(link).toHaveAttribute("href", "/review/run-1");
+    await userEvent.click(link);
+    expect(navigate).toHaveBeenCalledWith("review", "run-1");
   });
 });

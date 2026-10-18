@@ -4,11 +4,15 @@
  * The comment sheet IS the screen: the client's seven columns, one row per
  * comment, three tier words (Comment / Needs you / Met), Keep / Edit
  * wording / Remove per row, Accept all remaining with one-step undo, Sign
- * and export wired to the existing CRS export. The card view stays at
- * `/review/<run>/cards` as the detail view.
+ * and export wired to the existing CRS export. Served at
+ * `/review/<run>/crs-sheet`; `/review/<run>` stays the card view until the
+ * owner flips `routing.CRS_SHEET_IS_DEFAULT`.
  *
- * NOTHING HERE CHANGES A VERDICT. Tiers come from `crs/tiers.ts` (display
- * only); the export is the server's existing route and the server still
+ * NOTHING HERE CHANGES A VERDICT. Tiers come from the server's run summary
+ * (order 95 piece 1, #1111: `GET /api/reviews/runs/{id}/summary`), the one
+ * place that decides them; when it does not answer (a server without the
+ * route, or a failed read) the screen falls back to `crs/tiers.ts`, the same
+ * rules, and says so in one small line. Display only; the export is the server's existing route and the server still
  * refuses the contractor's copy while anything is open.
  *
  * TODO(order 95 piece 6, Part of #967): decisions are local state
@@ -17,7 +21,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { api, reviews as reviewsApi } from "../api/client";
-import type { DocumentRecord, ReviewFinding, ReviewRunSummary } from "../types/api";
+import type { DocumentRecord, ReviewFinding, ReviewRunSummary, ReviewRunTierSummary } from "../types/api";
 import { downloadCrs } from "../components/review/downloadCrs";
 import { progressLine, runStatusLabel } from "../components/review/reviewFormat";
 import type { StandardsState } from "../components/review/panels/BehindTheScenes";
@@ -27,9 +31,11 @@ import { CrsFooter } from "../components/review/crs/CrsFooter";
 import { CrsHeader } from "../components/review/crs/CrsHeader";
 import { CrsTable } from "../components/review/crs/CrsTable";
 import type { RowMode } from "../components/review/crs/CrsRow";
-import { type CrsRow, type Depth, buildCrsRows, rowCounts, splitRejected, spotCheckKeys, visibleRows } from "../components/review/crs/crsRows";
+import {
+  type CrsRow, type Depth, buildCrsRows, headlineFieldsOf, rowCounts, splitRejected, spotCheckKeys, visibleRows,
+} from "../components/review/crs/crsRows";
 import { commentPages, firstRowOnPage, stepRow } from "../components/review/crs/evidenceNav";
-import { runFactsOf } from "../components/review/crs/tiers";
+import { countsOfServer, runFactsOf, serverTiersOf } from "../components/review/crs/tiers";
 import { useCrsDecisions } from "../components/review/crs/useCrsDecisions";
 import { useCrsKeys } from "../components/review/crs/useCrsKeys";
 
@@ -48,10 +54,14 @@ function useRunData(runId: string) {
   const [findings, setFindings] = useState<ReviewFinding[]>([]);
   const [standardsState, setStandardsState] = useState<StandardsState>({ standards: null, missing: [], error: null });
   const [submittal, setSubmittal] = useState<DocumentRecord | null>(null);
+  // The server's tiers (#1111). Null = it did not answer (404 on a server
+  // without the route, or any failure): the screen's own tiers stand in.
+  const [summary, setSummary] = useState<ReviewRunTierSummary | null>(null);
 
   const refresh = useCallback(async () => {
-    const [runs, listed, stds] = await Promise.all([
+    const [runs, listed, stds, sum] = await Promise.all([
       reviewsApi.reviewRuns(), reviewsApi.list({ review_run_id: runId }), reviewsApi.reviewRunStandards(runId),
+      reviewsApi.reviewRunSummary(runId),
     ]);
     if (!runs.ok) { setLoad({ kind: "error", message: runs.error.message }); return; }
     const found = runs.data.runs.find((r) => r.review_run_id === runId) ?? null;
@@ -59,6 +69,7 @@ function useRunData(runId: string) {
     if (!listed.ok) { setLoad({ kind: "error", message: listed.error.message }); return; }
     setRun(found);
     setFindings(listed.data.findings);
+    setSummary(sum.ok ? sum.data : null);
     setStandardsState(stds.ok
       ? { standards: stds.data.standards, missing: stds.data.missing_references ?? [], error: null }
       : { standards: null, missing: [], error: stds.error.message });
@@ -79,7 +90,7 @@ function useRunData(runId: string) {
     return () => clearInterval(timer);
   }, [active, refresh]);
 
-  return { load, run, findings, standardsState, submittal, active, refresh };
+  return { load, run, findings, standardsState, submittal, summary, active, refresh };
 }
 
 /** Sign and export = the existing CRS issue route (the same one the card
@@ -131,7 +142,7 @@ function drawerNav(shown: CrsRow[], row: CrsRow, open: (row: CrsRow) => void) {
 }
 
 export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) {
-  const { load, run, findings, standardsState, submittal, active, refresh } = useRunData(runId);
+  const { load, run, findings, standardsState, submittal, summary, active, refresh } = useRunData(runId);
   const [depth, setDepth] = useState<Depth>("standard");
   const [showMet, setShowMet] = useState(false);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -147,9 +158,14 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
     (standardsState.standards ?? []).filter((s) => s.filename).map((s) => [s.standard_document_id, s.filename as string])),
   [standardsState.standards]);
   const facts = useMemo(() => runFactsOf(run, standardsState.standards, standardsState.missing), [run, standardsState]);
-  const rows = useMemo(() => buildCrsRows(findings, facts, standardNames), [findings, facts, standardNames]);
+  const server = useMemo(() => (summary ? serverTiersOf(summary.rows) : null), [summary]);
+  const rows = useMemo(() => buildCrsRows(findings, facts, standardNames, server), [findings, facts, standardNames, server]);
   const counts = useMemo(() => rowCounts(rows), [rows]);
-  const rejected = useMemo(() => splitRejected(findings).rejected, [findings]);
+  // The headline reads the server's counts and stored fields when it sent
+  // them (spec section 2: one source); the table and footer count rows.
+  const headlineCounts = useMemo(() => (summary ? countsOfServer(summary.counts) : counts), [summary, counts]);
+  const headlineFields = useMemo(() => (run ? headlineFieldsOf(run, summary?.how_reviewed ?? null) : undefined), [run, summary]);
+  const rejected = useMemo(() => summary?.counts.removed ?? splitRejected(findings).rejected, [summary, findings]);
   const spot = useMemo(() => spotCheckKeys(rows, runId), [rows, runId]);
   const shown = useMemo(() => visibleRows(rows, depth, showMet, spot), [rows, depth, showMet, spot]);
   const unopened = rows.filter((r) => r.tier.tier === "C" && !decisions.state.opened[r.key]);
@@ -180,7 +196,8 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
   return (
     <section className="mx-auto w-full max-w-7xl space-y-5" aria-labelledby="crs-title">
       <CrsHeader
-        run={run} submittal={submittal} counts={counts} unopened={unopened} remaining={remaining}
+        run={run} submittal={submittal} counts={headlineCounts} headlineFields={headlineFields}
+        tierSource={summary ? "server" : "screen"} unopened={unopened} remaining={remaining}
         localDecisions={Object.keys(decisions.state.decisions).length}
         acceptAll={{
           confirming, kept, canUndo: decisions.canUndo,
@@ -189,7 +206,7 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
           onUndo: () => { decisions.undo(); setKept(null); },
         }}
         sign={{ busy: sign.busy, message: sign.message, error: sign.error, onSign: () => void exportSheet("issue"), onWorkingCopy: () => void exportSheet("internal") }}
-        onBack={onBack} onOpenCards={onOpenCards}
+        onBack={onBack}
       />
       <CrsTable
         rows={shown} allRows={rows} counts={counts} depth={depth} onDepth={setDepth} showMet={showMet} onShowMet={setShowMet}
