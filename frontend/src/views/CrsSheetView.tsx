@@ -5,8 +5,9 @@
  * comment, three tier words (Comment / Needs you / Met), Keep / Edit
  * wording / Remove per row, Accept all remaining with one-step undo, Sign
  * and export wired to the existing CRS export. Served at
- * `/review/<run>/crs-sheet`; `/review/<run>` stays the card view until the
- * owner flips `routing.CRS_SHEET_IS_DEFAULT`.
+ * `/review/<run>/crs-sheet` and, since the owner's yes (order 115,
+ * `routing.CRS_SHEET_IS_DEFAULT`), at `/review/<run>`; the card view is at
+ * `/review/<run>/cards`.
  *
  * NOTHING HERE CHANGES A VERDICT. Tiers come from the server's run summary
  * (order 95 piece 1, #1111: `GET /api/reviews/runs/{id}/summary`), the one

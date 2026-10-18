@@ -34,12 +34,12 @@ describe("application routes", () => {
     expect(parseRoute("/review/run-1/crs-sheet")).toEqual({ kind: "view", view: "review", recordId: "run-1", panel: "crs-sheet" });
   });
 
-  it("order 95 piece 2: the card view stays the default until the owner switches it", () => {
-    // MUTATION PROOF: flip CRS_SHEET_IS_DEFAULT without the owner and this fails.
-    expect(CRS_SHEET_IS_DEFAULT).toBe(false);
-    expect(reviewScreenFor(undefined)).toEqual({ screen: "cards" });
-    expect(panelForReviewScreen("crsSheet")).toBe("crs-sheet");
-    expect(panelForReviewScreen("cards")).toBeUndefined();
+  it("order 115: the new comment sheet is the default review screen (the owner's yes, 18 Oct 2026)", () => {
+    // MUTATION PROOF: flip CRS_SHEET_IS_DEFAULT back without the owner and this fails.
+    expect(CRS_SHEET_IS_DEFAULT).toBe(true);
+    expect(reviewScreenFor(undefined)).toEqual({ screen: "crsSheet" });
+    expect(panelForReviewScreen("crsSheet")).toBeUndefined();
+    expect(panelForReviewScreen("cards")).toBe("cards");
   });
 
   it.each([false, true])("order 95 piece 2: the review screens with CRS_SHEET_IS_DEFAULT = %s", (isDefault) => {
