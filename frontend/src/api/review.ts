@@ -120,6 +120,15 @@ export const reviews = {
       undefined,
       hasArrayField("runs"),
     ),
+  /** Order 109: one run, the same shape as its row in reviewRuns(). A screen
+   *  showing one run asks for that run, not for every run. The server answers
+   *  404 both for a run that is not there and for one the caller may not read;
+   *  either is data null here, so the screen keeps its own "not found" line. */
+  reviewRun: async (runId: string): Promise<Result<ReviewRunSummary | null>> => {
+    const r = await request<ReviewRunSummary>(`/reviews/runs/${encodeURIComponent(runId)}`);
+    if (!r.ok && !r.disconnected && r.error.code === "not_found") return { ok: true, data: null };
+    return r;
+  },
   /** R21 / #508: the page one side of a finding cites, with the finding's
    *  own stored text boxed on it. The text is looked up by finding id on the
    *  server and never travels in this URL. `X-Answer-Located` says whether a

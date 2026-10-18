@@ -20,6 +20,11 @@ const reviewRunStandards = vi.fn();
 vi.mock("../api/client", () => ({
   reviews: {
     reviewRuns: (...a: unknown[]) => reviewRuns(...a),
+    // Order 109: the screen asks for its one run; served from the same fixture.
+    reviewRun: async (id: string) => {
+      const r = await reviewRuns();
+      return r?.ok ? { ok: true, data: r.data.runs.find((x: { review_run_id: string }) => x.review_run_id === id) ?? null } : r;
+    },
     reviewRunStandards: (...a: unknown[]) => reviewRunStandards(...a),
   },
 }));

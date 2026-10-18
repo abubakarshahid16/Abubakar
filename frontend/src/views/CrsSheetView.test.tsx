@@ -16,6 +16,8 @@ import type { ReviewFinding, ReviewRunSummary, ReviewRunTierSummary, RunSummaryT
 import { CrsSheetView } from "./CrsSheetView";
 
 const reviewRuns = vi.fn();
+/** Marks the shim's read of the fixture, so a real list call can be told apart. */
+const FIXTURE = "fixture";
 const list = vi.fn();
 const exportCrs = vi.fn();
 const reviewRunStandards = vi.fn();
@@ -29,6 +31,11 @@ vi.mock("../api/client", () => ({
   api: { document: async () => ({ ok: true, data: { id: "doc-sub", filename: "psv.pdf", page_count: 12, equipment_type: "Pressure safety valve", revision: "B" } }) },
   reviews: {
     reviewRuns: (...a: unknown[]) => reviewRuns(...a),
+    // Order 109: the screen asks for its one run; served from the same fixture.
+    reviewRun: async (id: string) => {
+      const r = await reviewRuns(FIXTURE, id);
+      return r?.ok ? { ok: true, data: r.data.runs.find((x: { review_run_id: string }) => x.review_run_id === id) ?? null } : r;
+    },
     list: (...a: unknown[]) => list(...a),
     reviewRunStandards: (...a: unknown[]) => reviewRunStandards(...a),
     reviewRunSummary: (...a: unknown[]) => reviewRunSummary(...a),
@@ -104,6 +111,13 @@ function rowItems(): string[] {
 }
 
 describe("CrsSheetView", () => {
+  it("order 109: asks the server for its one run, never for the whole list", async () => {
+    mount();
+    await screen.findByTestId("crs-headline");
+    expect(reviewRuns.mock.calls.length).toBeGreaterThan(0);
+    expect(reviewRuns.mock.calls.every((c) => c[0] === FIXTURE && c[1] === "run-1")).toBe(true);
+  });
+
   it("renders the headline from the rows and the run's stored fields, the code and the seven columns", async () => {
     mount();
     expect(await screen.findByTestId("crs-headline")).toHaveTextContent(

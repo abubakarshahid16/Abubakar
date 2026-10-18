@@ -70,11 +70,11 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
 
   const refresh = useCallback(async () => {
     const [runs, listed, gated, stds] = await Promise.all([
-      reviewsApi.reviewRuns(), reviewsApi.list({ review_run_id: runId }),
+      reviewsApi.reviewRun(runId), reviewsApi.list({ review_run_id: runId }),
       reviewsApi.crsIssueGate(runId), reviewsApi.reviewRunStandards(runId),
     ]);
     if (!runs.ok) { setLoad({ kind: "error", message: runs.error.message }); return null; }
-    const found = runs.data.runs.find((r) => r.review_run_id === runId) ?? null;
+    const found = runs.data;
     if (!found) { setLoad({ kind: "error", message: "This review run could not be found." }); return null; }
     if (!listed.ok) { setLoad({ kind: "error", message: listed.error.message }); return null; }
     setRun(found);
