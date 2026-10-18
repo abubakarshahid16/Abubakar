@@ -1060,7 +1060,7 @@ def login(body: schemas.LoginRequest, request: Request):
             status_code=429 if exc.code == errors.RATE_LIMITED else 401,
             detail=errors.safe_error(exc.code, exc.message),
             headers=headers,
-        )
+        ) from exc
 
 
 @app.post("/api/auth/password/reset", response_model=schemas.PasswordResetResult,
@@ -1073,7 +1073,7 @@ def reset_password(body: schemas.PasswordResetRequest):
         raise HTTPException(
             status_code=422 if exc.code == errors.WEAK_PASSWORD else 401,
             detail=errors.safe_error(exc.code, exc.message),
-        )
+        ) from exc
 
 
 @app.get("/api/auth/me", response_model=schemas.AuthStatus,
@@ -1177,7 +1177,7 @@ def _analysis_or_503(fn, *args, **kwargs):
             detail=errors.safe_error(
                 errors.MODEL_UNAVAILABLE,
                 f"the local answer model could not be reached ({exc})"),
-        )
+        ) from exc
 
 
 @app.post("/api/analysis/summary", response_model=schemas.AnalysisSummary,
@@ -1686,7 +1686,7 @@ def _report_or_404(fn, *args):
         raise HTTPException(
             status_code=404,
             detail=errors.safe_error(errors.NOT_FOUND, "no report with that id"),
-        )
+        ) from None
 
 
 @app.post("/api/reports", response_model=schemas.ReportRecord,
@@ -1700,12 +1700,12 @@ def generate_report(body: schemas.GenerateReport,
         raise HTTPException(
             status_code=404,
             detail=errors.safe_error(errors.NOT_FOUND, "no message with that id"),
-        )
+        ) from None
     except reports_mod.NotReportable as exc:
         raise HTTPException(
             status_code=422,
             detail=errors.safe_error(errors.INVALID_PARAMETER, str(exc)),
-        )
+        ) from exc
 
 
 @app.get("/api/reports", response_model=schemas.ReportList,
@@ -1859,7 +1859,7 @@ def export_review_report(
             body.document_id, allowed_document_ids=scope.allowed_document_ids)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=errors.safe_error(
-            errors.NOT_FOUND, "review document not found"))
+            errors.NOT_FOUND, "review document not found")) from None
     return FileResponse(path, media_type="application/pdf",
                         filename=f"engineering-review-{body.document_id}.pdf",
                         headers={"Cache-Control": "private, no-store"})
@@ -3123,7 +3123,7 @@ def ask(conversation_id: str, body: schemas.AskRequest,
             status_code=404,
             detail=errors.safe_error(
                 errors.NOT_FOUND, "no answered message with that id in this conversation"),
-        )
+        ) from None
 
 
 def _picked_documents(body: schemas.AskRequest, scope: access.AccessScope) -> frozenset[str] | None:
@@ -3144,10 +3144,10 @@ def _chat_action_errors(fn):
         return fn()
     except chat_actions.NotFound:
         raise HTTPException(status_code=404, detail=errors.safe_error(
-            errors.NOT_FOUND, "no such answer or comment in this conversation"))
+            errors.NOT_FOUND, "no such answer or comment in this conversation")) from None
     except (chat_actions.NothingToFile, chat_actions.UndoClosed) as exc:
         raise HTTPException(status_code=409, detail=errors.safe_error(
-            errors.INVALID_PARAMETER, str(exc)))
+            errors.INVALID_PARAMETER, str(exc))) from exc
 
 
 @app.post("/api/conversations/{conversation_id}/messages/{message_id}/feedback",
@@ -3186,10 +3186,10 @@ def chat_web_search(conversation_id: str, message_id: str,
                                         allowed_document_ids=scope.allowed_document_ids)
     except chat_web.NotFound:
         raise HTTPException(status_code=404, detail=errors.safe_error(
-            errors.NOT_FOUND, "no web question with that id in this conversation"))
+            errors.NOT_FOUND, "no web question with that id in this conversation")) from None
     except chat_web.Refused as exc:
         raise HTTPException(status_code=409, detail=errors.safe_error(
-            errors.INVALID_PARAMETER, str(exc)))
+            errors.INVALID_PARAMETER, str(exc))) from exc
     _record_market_audit(audit, scope)
     result["route"] = "web"
     result.update(chat_mod.chat_presentation.present(result))
@@ -3608,7 +3608,7 @@ def request_missing_standard(
             allowed_document_ids=scope.allowed_document_ids)
     except standards_acquisition_mod.AcquisitionError as exc:
         raise HTTPException(status_code=404, detail=errors.safe_error(
-            errors.NOT_FOUND, str(exc)))
+            errors.NOT_FOUND, str(exc))) from exc
 
 
 @app.post("/api/standards/{document_id}/provenance",
@@ -3631,7 +3631,7 @@ def record_standard_provenance(
     except standards_acquisition_mod.AcquisitionError as exc:
         status = 404 if "no such" in str(exc) else 422
         raise HTTPException(status_code=status, detail=errors.safe_error(
-            errors.NOT_FOUND if status == 404 else errors.INVALID_PARAMETER, str(exc)))
+            errors.NOT_FOUND if status == 404 else errors.INVALID_PARAMETER, str(exc))) from exc
 
 
 @app.get("/api/standards/{document_id}/provenance",
@@ -4589,13 +4589,10 @@ def _prior_rejections(submittal_id: str, allowed: frozenset[str]
     rejected on ANY run of this submittal the caller may read - the latest
     rejection per key. Read only; keys as `crs_mapping.finding_comment_key`
     gives them, over the same CRS context the rows are built from."""
-    runs = [r["id"] for r in connect().execute(
-        "SELECT id FROM review_runs WHERE submittal_document_id = ?", (submittal_id,))]
-    rejected: list[dict] = []
-    for run_id in runs:
-        rejected.extend(f for f in submittal_review_mod.list_run_findings(
-            run_id, allowed_document_ids=allowed)
-            if f.get("approval_status") == "rejected")
+    # #1066: the rejected rows alone, in one query - this used to load every
+    # finding of every run of the submittal and keep the rejected ones.
+    rejected = submittal_review_mod.list_rejected_findings(
+        submittal_id, allowed_document_ids=allowed)
     if not rejected:
         return {}
     comparison_mod.attach_crs_context(rejected)
@@ -5552,3 +5549,10 @@ def import_crs_reply(
         counts[key] += 1
         rows.append({"row": reply["row"], "item": reply["item"][:80], "outcome": outcome})
     return {"rows_read": len(replies), **counts, "rows": rows}
+
+
+# Order 69: the API description grouped by area, file responses typed. Docs only;
+# a route with no area fails the description build (test_api_tags).
+from . import api_tags as api_tags_mod  # noqa: E402
+
+api_tags_mod.describe(app)

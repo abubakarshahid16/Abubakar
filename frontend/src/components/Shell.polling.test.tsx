@@ -63,10 +63,10 @@ async function advance(ms: number) {
 }
 
 describe("the health poll", () => {
-  it("is every 15 seconds: a visible tab makes at most 5 calls in 60 seconds", async () => {
+  it("is once a minute (#1070): a visible tab makes at most 5 calls in 4 minutes", async () => {
     render(<Probe />);
-    await advance(60_000);
-    expect(HEALTH_POLL_MS).toBe(15_000);
+    await advance(4 * 60_000);
+    expect(HEALTH_POLL_MS).toBe(60_000);
     expect(healthCalls).toBeGreaterThanOrEqual(4);
     expect(healthCalls).toBeLessThanOrEqual(5);
   });
@@ -88,7 +88,7 @@ describe("the health poll", () => {
     act(() => setVisibility("visible"));
     await advance(100);
     expect(healthCalls).toBe(2);                      // one at once, not after a wait
-    await advance(15_000);
+    await advance(HEALTH_POLL_MS);
     expect(healthCalls).toBe(3);                      // then the normal pace
   });
 
@@ -102,8 +102,8 @@ describe("the health poll", () => {
     healthUp = true;
     await advance(HEALTH_MAX_BACKOFF_MS);             // the next poll succeeds
     const after = healthCalls;
-    await advance(60_000);
-    expect(healthCalls - after).toBeGreaterThanOrEqual(4);   // back to every 15 s
+    await advance(4 * HEALTH_POLL_MS);
+    expect(healthCalls - after).toBeGreaterThanOrEqual(4);   // back to once a minute
     expect(healthCalls - after).toBeLessThanOrEqual(5);
   });
 
