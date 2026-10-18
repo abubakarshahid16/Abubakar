@@ -649,6 +649,26 @@ describe("CrsSheetView: Before you sign (order 121)", () => {
     expect(exportCrs).toHaveBeenCalledWith("run-1", "issue");
   });
 
+  it("a sheet row with no comment number is listed with a link to open it, never decided in bulk", async () => {
+    findings = [f("a", { contractor_page: 1 }), f("met", { compliance_status: "COMPLIANT", contractor_page: 2 })];
+    recorded = { code: true, page4: true, a: true, other: false };
+    crsIssueGate.mockImplementation(async () => ({ ok: true, data: {
+      review_run_id: "run-1", issuable: false, final_code_recorded: true, blockers: ["findings"], unread_pages: [],
+      open_findings: [{ finding_id: "met", row_kind: "safety_tick", item: 1 },
+        ...(recorded.other ? [] : [{ finding_id: "row-key-std", row_kind: "standard_not_cited", item: 2 }])] } }));
+    mount();
+    await screen.findByTestId("crs-headline");
+    const listed = await screen.findByTestId("sign-unnumbered");
+    expect(listed).toHaveTextContent("1 row on this sheet has no comment number and no decision yet");
+    expect(screen.getByTestId("sign-left")).toHaveTextContent("decide 1 other row on the sheet");
+    await userEvent.type(screen.getByLabelText("Reason for the other items"), "standard not cited is noted for the record");
+    await userEvent.click(screen.getByRole("button", { name: "Keep them" }));
+    expect(decideCrsFinding).toHaveBeenCalledWith("run-1", "row-key-std", "accept", "standard not cited is noted for the record");
+    expect(decideCrsFinding).not.toHaveBeenCalledWith("run-1", "met", expect.anything(), expect.anything());
+    await userEvent.click(within(listed).getByRole("button"));
+    expect(screen.getByRole("dialog")).toBeTruthy();
+  });
+
   it("when the gate cannot be read, Sign waits and the box says so with a way to check again", async () => {
     crsIssueGate.mockResolvedValue({ ok: false, disconnected: true, error: { code: "internal", message: "Cannot reach the backend." } });
     mount();

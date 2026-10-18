@@ -48,7 +48,11 @@ export interface GateSplit {
   comments: number[];
   /** The first row behind each of those comment numbers. */
   rowFor: Map<number, CrsRow>;
-  /** Undecided items that are not comment rows on this sheet. */
+  /** Rows ON this sheet with an undecided item but no comment number (a Met
+   *  or not-applicable row): each is opened and decided on its own, never in
+   *  bulk, so nothing on the sheet is decided unseen. */
+  unnumbered: CrsRow[];
+  /** Undecided items that are not rows on this sheet at all. */
   others: CrsIssueGate["open_findings"];
 }
 
@@ -56,13 +60,15 @@ export function splitOpenItems(gate: CrsIssueGate, rows: CrsRow[]): GateSplit {
   const byFinding = new Map<string, CrsRow>();
   for (const row of rows) for (const f of row.findings) byFinding.set(f.id, row);
   const rowFor = new Map<number, CrsRow>();
+  const unnumbered = new Map<string, CrsRow>();
   const others: CrsIssueGate["open_findings"] = [];
   for (const item of gate.open_findings) {
     const row = byFinding.get(item.finding_id);
-    if (row && row.commentNo !== null) { if (!rowFor.has(row.commentNo)) rowFor.set(row.commentNo, row); }
-    else others.push(item);
+    if (!row) others.push(item);
+    else if (row.commentNo !== null) { if (!rowFor.has(row.commentNo)) rowFor.set(row.commentNo, row); }
+    else unnumbered.set(row.key, row);
   }
-  return { comments: [...rowFor.keys()].sort((a, b) => a - b), rowFor, others };
+  return { comments: [...rowFor.keys()].sort((a, b) => a - b), rowFor, unnumbered: [...unnumbered.values()], others };
 }
 
 export function plural(n: number, one: string, many: string): string {
@@ -83,6 +89,7 @@ export function signLeft(state: IssueGateState, run: ReviewRunSummary, rows: Crs
   if (gate.unread_pages.length > 0) left.push(`tick ${plural(gate.unread_pages.length, "unread page", "unread pages")}`);
   const split = splitOpenItems(gate, rows);
   if (split.comments.length > 0) left.push(`decide ${commentList(split.comments)}`);
+  if (split.unnumbered.length > 0) left.push(`decide ${plural(split.unnumbered.length, "other row", "other rows")} on the sheet`);
   if (split.others.length > 0) left.push(`decide ${plural(split.others.length, "other item", "other items")} on the issued copy`);
   // A blocker the box has no control for (no page record at all) is passed
   // on in the server's words rather than hidden.
