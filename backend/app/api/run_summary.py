@@ -31,6 +31,7 @@ BOUNDARY = "findings of this run, on the submittal you may read"
 class TierCounts(BaseModel):
     met: int
     not_applicable: int
+    another_document: int
     comment: int
     needs_you: int
     removed: int
@@ -41,10 +42,11 @@ class TierRow(BaseModel):
     finding_id: str
     #: A met / not applicable, B comment, C needs you (tiers.ts `Tier`)
     tier: Literal["A", "B", "C"]
-    label: Literal["Met", "Not applicable", "Comment", "Needs you"]
+    label: Literal["Met", "Not applicable", "Another document", "Comment", "Needs you"]
     #: only a Tier C row carries a reason (tiers.ts `TierReason`)
-    reason: Literal["page not read", "standard not in library", "condition unsettled",
-                    "value conflict", "unit unknown"] | None = None
+    reason: Literal["page not read", "standard not in library", "AI guess", "rule not proven",
+                    "safety field", "condition unsettled", "value conflict",
+                    "unit unknown"] | None = None
     compliance_status: str | None = None
     standard_clause: str | None = None
     contractor_page: int | None = None

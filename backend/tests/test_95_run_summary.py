@@ -1,6 +1,6 @@
 """Order 95 piece 1: the CRS-first Sheet's tiers on the server, and `GET .../summary`.
 
-The tier table is tiers.ts's (order 96 item 5): every case of
+The tier table is tiers.ts's (order 96 item 5; v2 of #1112, order 100): every case of
 `frontend/src/components/review/crs/tiers.test.ts` is here too, so the two
 cannot drift apart. Display only; an unknown status is never Met; a removed
 finding is counted, not tiered. Invented data.
@@ -27,6 +27,7 @@ T = review_tiers
 FACTS = T.RunFacts(pages_not_read=frozenset({4, 9}), reader_timed_out_pages=frozenset({7}),
                    missing_standards=("API 526",), library_standard_ids=frozenset({"std-1"}))
 MET, NA, COMMENT = ("A", "Met", None), ("A", "Not applicable", None), ("B", "Comment", None)
+OTHER_DOC = ("A", "Another document", None)
 
 
 def f(**over) -> dict:
@@ -41,7 +42,7 @@ def you(reason: str) -> tuple:
 @pytest.mark.parametrize("finding, facts, expected", [
     # Tier A
     (f(compliance_status="COMPLIANT"), FACTS, MET),
-    (f(compliance_status="NOT_IN_DOCUMENT_SCOPE"), FACTS, NA),
+    (f(compliance_status="NOT_IN_DOCUMENT_SCOPE"), FACTS, OTHER_DOC),
     (f(compliance_status="NOT_APPLICABLE"), FACTS, NA),
     # Tier B
     (f(), FACTS, COMMENT),
@@ -75,6 +76,17 @@ def you(reason: str) -> tuple:
     (f(compliance_status=None), FACTS, you("condition unsettled")),
     # with no facts at all, only the status decides
     (f(contractor_page=4), T.RunFacts(), COMMENT),
+    # a met value nobody has confirmed yet needs you (tiers.ts v2, #1112)
+    (f(compliance_status="COMPLIANT", show_for_engineer_tick=True), FACTS, you("safety field")),
+    (f(compliance_status="COMPLIANT", show_for_engineer_tick=True, confirmed_by="eng"), FACTS, MET),
+    (f(compliance_status="COMPLIANT", match_method="field_name"), FACTS, you("AI guess")),
+    (f(match_method="field_name"), FACTS, you("AI guess")),
+    (f(compliance_status="NEEDS_ENGINEER_REVIEW", match_method="model"), FACTS, you("AI guess")),
+    (f(compliance_status="COMPLIANT", match_method="model"), FACTS, MET),
+    (f(compliance_status="COMPLIANT", trust_label="UNPROVEN"), FACTS, you("rule not proven")),
+    (f(compliance_status="COMPLIANT", trust_label="AUTO_PROVEN"), FACTS, MET),
+    (f(contractor_page=4, compliance_status="COMPLIANT", match_method="field_name"), FACTS,
+     you("page not read")),
 ])
 def test_each_tier_rule_matches_the_screens_table(finding, facts, expected):
     assert T.tier_of(finding, facts) == expected
@@ -87,13 +99,14 @@ def test_a_finding_citing_a_missing_standard_names_it():
     assert T.missing_standard_of(f(governing_sources=["API 526"]), T.RunFacts()) is None
 
 
-def test_counts_keep_met_and_not_applicable_apart_and_removed_is_not_tiered():
+def test_counts_keep_met_not_applicable_and_another_document_apart_and_removed_is_not_tiered():
     out = T.summarise([f(id="1", compliance_status="COMPLIANT"),
-                       f(id="2", compliance_status="NOT_IN_DOCUMENT_SCOPE"), f(id="3"), f(id="4"),
+                       f(id="2", compliance_status="NOT_IN_DOCUMENT_SCOPE"),
+                       f(id="2b", compliance_status="NOT_APPLICABLE"), f(id="3"), f(id="4"),
                        f(id="5", compliance_status="CONDITIONAL"),
                        f(id="6", approval_status="rejected")], FACTS)
-    assert out["counts"] == {"met": 1, "not_applicable": 1, "comment": 2, "needs_you": 1,
-                             "removed": 1, "total": 6}
+    assert out["counts"] == {"met": 1, "not_applicable": 1, "another_document": 1, "comment": 2,
+                             "needs_you": 1, "removed": 1, "total": 7}
     assert "6" not in {r["finding_id"] for r in out["rows"]}
 
 
@@ -121,7 +134,8 @@ def test_the_summary_route_tiers_every_finding_of_a_stored_run(review_run):  # n
     assert {r["finding_id"] for r in body["rows"]} == {f["id"] for f in findings}
     counts = body["counts"]
     assert counts["total"] == len(findings)
-    assert sum(counts[k] for k in ("met", "not_applicable", "comment", "needs_you")) == len(findings)
+    assert sum(counts[k] for k in ("met", "not_applicable", "another_document", "comment",
+                                   "needs_you")) == len(findings)
     outcome = comparison.run_outcome(run, allowed_document_ids=scope)
     facts = run_summary._facts(run, outcome, None)
     assert facts.library_standard_ids, "the run's included standards are the library"

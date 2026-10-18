@@ -34,4 +34,13 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(6, "a finding citing a missing standard is not flagged",
        "                 if _fold(ident) and _fold(ident) in text), None)\n",
        "                 if False), None)\n", "missing_standard"),
+    _m(7, "a pairing an AI guessed and nobody confirmed is shown as a decided row",
+       "    if _pairing_unconfirmed(finding):\n",
+       "    if False:\n", "matches_the_screens_table"),
+    _m(8, "an unticked safety field is swept into Met",
+       "    return (bool(finding.get(\"show_for_engineer_tick\"))\n",
+       "    return (False\n", "matches_the_screens_table"),
+    _m(9, "a rule not yet proven is shown as decided",
+       "    if finding.get(\"trust_label\") == \"UNPROVEN\":\n",
+       "    if False:\n", "matches_the_screens_table"),
 )

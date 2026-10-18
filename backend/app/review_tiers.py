@@ -4,13 +4,18 @@ THE SAME RULES AS `frontend/src/components/review/crs/tiers.ts` (spec section
 2, order 96 item 5), so the export, the footer and the screen read one answer.
 A change to one is a change to both; `test_95_run_summary.py` pins the table.
 
-  Tier A  "Met" / "Not applicable"  COMPLIANT / NOT_IN_DOCUMENT_SCOPE, NOT_APPLICABLE.
+  Tier A  "Met" / "Not applicable"  COMPLIANT / NOT_APPLICABLE / NOT_IN_DOCUMENT_SCOPE
+          / "Another document"      (the clause names another document).
   Tier B  "Comment"                 NON_COMPLIANT; MISSING_INFORMATION when the
                                     standard IS in the library.
   Tier C  "Needs you" + a reason    NEEDS_ENGINEER_REVIEW, CONDITIONAL, a page not
                                     read into fields or timed out, a standard the
-                                    library does not hold, a value conflict, an
-                                    unknown unit, else "condition unsettled".
+                                    library does not hold, a pairing an AI guessed
+                                    and nobody confirmed ("AI guess", the backend's
+                                    own `comparison._pairing_unconfirmed`), a rule
+                                    not yet proven, an unconfirmed safety tick
+                                    ("safety field"), a value conflict, an unknown
+                                    unit, else "condition unsettled".
 
 The facts that make any finding Tier C come first, so a "met" value on an
 unread page is still shown to the engineer. A status this table does not know
@@ -23,13 +28,14 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from .comparison import _pairing_unconfirmed
+
 A, B, C = "A", "B", "C"
 REMOVED = "removed"
 PAGE_NOT_READ = "page not read"
 NOT_IN_LIBRARY = "standard not in library"
 UNSETTLED = "condition unsettled"
 
-_TIER_A = {"COMPLIANT", "NOT_IN_DOCUMENT_SCOPE", "NOT_APPLICABLE"}
 _TIER_C = {"NEEDS_ENGINEER_REVIEW", "CONDITIONAL"}
 _CONFLICT = re.compile(r"\bvalue conflict\b|\bconflicting values?\b|\bvalues? conflict\b")
 _UNIT = re.compile(r"\bunit unknown\b|\bunknown unit\b"
@@ -87,14 +93,35 @@ def _conflict_word(finding: dict) -> str | None:
     return None
 
 
-def _needs_you_reason(finding: dict, facts: RunFacts) -> str:
+def safety_tick_open(finding: dict) -> bool:
+    """rule_trust (#947): a safety field shown for the engineer's own tick, not ticked yet."""
+    return (bool(finding.get("show_for_engineer_tick"))
+            and finding.get("compliance_status") == "COMPLIANT" and not finding.get("confirmed_by"))
+
+
+def _unsettled_reason(finding: dict, facts: RunFacts) -> str | None:
+    """The fact, other than the status, that makes this finding Tier C, in the
+    order the reason is told (tiers.ts `unsettledReason`); None when none holds."""
     if page_not_read(finding, facts):
         return PAGE_NOT_READ
     if missing_standard_of(finding, facts) is not None:
         return NOT_IN_LIBRARY
+    if _pairing_unconfirmed(finding):
+        return "AI guess"
+    if finding.get("trust_label") == "UNPROVEN":
+        return "rule not proven"
+    if safety_tick_open(finding):
+        return "safety field"
+    return _conflict_word(finding)
+
+
+def _needs_you_reason(finding: dict, facts: RunFacts) -> str:
+    unsettled = _unsettled_reason(finding, facts)
+    if unsettled:
+        return unsettled
     if finding.get("compliance_status") == "MISSING_INFORMATION" and not standard_in_library(finding, facts):
         return NOT_IN_LIBRARY
-    return _conflict_word(finding) or UNSETTLED
+    return UNSETTLED
 
 
 def tier_of(finding: dict, facts: RunFacts = RunFacts()) -> tuple[str, str | None, str | None]:
@@ -103,14 +130,14 @@ def tier_of(finding: dict, facts: RunFacts = RunFacts()) -> tuple[str, str | Non
     if finding.get("approval_status") == "rejected":
         return REMOVED, None, None
     status = finding.get("compliance_status") or ""
-    unsettled = (page_not_read(finding, facts) or missing_standard_of(finding, facts) is not None
-                 or _conflict_word(finding) is not None)
-    if status in _TIER_C or unsettled:
+    if status in _TIER_C or _unsettled_reason(finding, facts) is not None:
         return C, "Needs you", _needs_you_reason(finding, facts)
     if status == "COMPLIANT":
         return A, "Met", None
-    if status in _TIER_A:
+    if status == "NOT_APPLICABLE":
         return A, "Not applicable", None
+    if status == "NOT_IN_DOCUMENT_SCOPE":
+        return A, "Another document", None
     if status == "NON_COMPLIANT":
         return B, "Comment", None
     if status == "MISSING_INFORMATION":
@@ -132,12 +159,14 @@ def summarise(findings: list[dict], facts: RunFacts = RunFacts()) -> dict:
     """Headline counts (tiers.ts `countTiers`, plus removed and total) and one
     row per finding still in a tier, in screen order: Comment, Needs you, Met;
     then contractor page (no page last), then clause."""
-    counts = {"met": 0, "not_applicable": 0, "comment": 0, "needs_you": 0, REMOVED: 0}
+    counts = {"met": 0, "not_applicable": 0, "another_document": 0, "comment": 0, "needs_you": 0,
+              REMOVED: 0}
     rows = []
     for f in findings:
         tier, label, reason = tier_of(f, facts)
         counts[{REMOVED: REMOVED, B: "comment", C: "needs_you"}.get(tier)
-               or ("met" if label == "Met" else "not_applicable")] += 1
+               or {"Met": "met", "Another document": "another_document"}.get(label or "")
+               or "not_applicable"] += 1
         if tier != REMOVED:
             rows.append({"finding_id": f["id"], "tier": tier, "label": label, "reason": reason,
                          "compliance_status": f.get("compliance_status"),
