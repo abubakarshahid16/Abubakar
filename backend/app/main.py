@@ -65,8 +65,7 @@ from . import market_transport as market_transport_mod
 from . import progress as progress_mod
 from . import reports as reports_mod
 from . import review as review_mod
-from . import finding_query
-from . import paging as paging_mod
+from . import finding_query, paging as paging_mod
 from . import deliverables as deliverables_mod
 from . import structured_search as structured_search_mod
 from . import risks as risks_mod
@@ -1148,14 +1147,24 @@ def list_review_templates(
     discipline: str | None = Query(None),
     deliverable_type: str | None = Query(None),
     active_only: bool = Query(True),
+    limit: int | None = paging_mod.limit_param(),
+    offset: int = paging_mod.offset_param(),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """List versioned, governed review templates available to the caller."""
-    reject_unknown_params(request, {"discipline", "deliverable_type", "active_only"})
-    return {"templates": review_mod.list_templates(
-        active_only=active_only, discipline=discipline,
-        deliverable_type=deliverable_type,
-    )}
+    reject_unknown_params(
+        request, {"discipline", "deliverable_type", "active_only", "limit", "offset"}
+    )
+    return paging_mod.page_body(
+        "templates",
+        review_mod.list_templates(
+            active_only=active_only,
+            discipline=discipline,
+            deliverable_type=deliverable_type,
+        ),
+        limit,
+        offset,
+    )
 
 
 @app.post("/api/reviews/templates", response_model=schemas.ReviewTemplate,
@@ -1175,8 +1184,14 @@ def create_review_template(
 
 
 @app.get("/api/reviews/baseline-rules", response_model=schemas.ReviewBaselineRuleList)
-def list_review_baseline_rules(scope: access.AccessScope = Depends(access.current_scope)):
-    return {"rules": review_mod.list_baseline_rules()}
+def list_review_baseline_rules(
+    limit: int | None = paging_mod.limit_param(),
+    offset: int = paging_mod.offset_param(),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    return paging_mod.page_body(
+        "rules", review_mod.list_baseline_rules(), limit, offset
+    )
 
 
 @app.post("/api/reviews/baseline-rules", response_model=schemas.ReviewBaselineRule,

@@ -14,6 +14,7 @@ from .. import errors, schemas
 from .. import model_memory as model_memory_mod
 from ..api_utils import reject_unknown_params
 from ..db import connect
+from ..paging import limit_param, offset_param, page_body
 
 router = APIRouter()
 
@@ -57,15 +58,19 @@ def admin_free_model_memory(request: Request,
 
 @router.get("/api/admin/users", response_model=schemas.AdminUserList,
             responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def admin_list_users(request: Request,
-                     actor: dict | None = Depends(admin_mod.current_admin)):
+def admin_list_users(
+    request: Request,
+    limit: int | None = limit_param(),
+    offset: int = offset_param(),
+    actor: dict | None = Depends(admin_mod.current_admin),
+):
     """Every user, with disciplines and the "no discipline" warning.
 
     Carries NO setup token, for any user, ever - only its SHA-256 is stored,
     so there is no plaintext here to return.
     """
-    reject_unknown_params(request, set())
-    return admin_mod.list_users()
+    reject_unknown_params(request, {"limit", "offset"})
+    return page_body("users", admin_mod.list_users()["users"], limit, offset)
 
 
 @router.post("/api/admin/users", response_model=schemas.AdminUserCreated,
@@ -125,15 +130,19 @@ def admin_list_disciplines(request: Request,
 
 @router.get("/api/admin/grants", response_model=schemas.AdminGrantList,
             responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def admin_list_grants(request: Request,
-                      actor: dict | None = Depends(admin_mod.current_admin)):
+def admin_list_grants(
+    request: Request,
+    limit: int | None = limit_param(),
+    offset: int = offset_param(),
+    actor: dict | None = Depends(admin_mod.current_admin),
+):
     """Documents and the disciplines that can see them.
 
     A document nobody can see is flagged: it is invisible in every search and
     looks like a broken upload.
     """
-    reject_unknown_params(request, set())
-    return admin_mod.list_grants()
+    reject_unknown_params(request, {"limit", "offset"})
+    return page_body("documents", admin_mod.list_grants()["documents"], limit, offset)
 
 
 @router.put("/api/admin/grants", response_model=schemas.AdminGrantResult,

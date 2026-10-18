@@ -30,3 +30,23 @@ def page_of(rows: list, limit: int | None, offset: int, response) -> list:
     `limit=None` is every row from `offset` on."""
     response.headers[TOTAL_HEADER] = str(len(rows))
     return rows[offset:] if limit is None else rows[offset : offset + limit]
+
+
+def page_body(key: str, rows: list, limit: int | None, offset: int) -> dict:
+    """One page of a list held in memory, as a `ListPage` body under `key`:
+    the rows of the page, `total` (every row) and the page asked for."""
+    page = rows[offset:] if limit is None else rows[offset : offset + limit]
+    return {key: page, "total": len(rows), "limit": limit, "offset": offset}
+
+
+def limit_param(maximum: int = 1000):
+    """The optional page size every paged list takes; omitted means every row."""
+    from fastapi import Query
+
+    return Query(None, ge=1, le=maximum, description="page size; omit for every row")
+
+
+def offset_param():
+    from fastapi import Query
+
+    return Query(0, ge=0)
