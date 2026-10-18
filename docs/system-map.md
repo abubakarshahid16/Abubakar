@@ -217,6 +217,9 @@ which are areas of their own today.
   NEW backend file or function over the limit, and a listed one that grows. Today's long ones are
   listed in `eval/quality/long_code.json` (34 files, 99 functions on 17 Oct 2026) and may only shrink:
   after a split, `python scripts/quality_ratchet.py record-long-code` moves the bar down in the same PR.
+- `ruff format`, file by file (order 79d): `scripts/quality_ratchet.py format-check` (CI, pull requests)
+  fails a NEW Python file that is not formatted, and a changed one that moves further from the formatter.
+  An untidy file is never reformatted whole; the lines a PR touches are.
 - One module per job, no copies (the known duplicates above are debts with a date).
 - Tests mirror the app folders.
 - Scratch and proof output never live inside the repo.

@@ -18,6 +18,7 @@ file or function is what the audit graded.
     python scripts/quality_ratchet.py measure                                   # print today's numbers
     python scripts/quality_ratchet.py check --baseline eval/quality/baseline.json
     python scripts/quality_ratchet.py record-baseline --out eval/quality/baseline.json
+    python scripts/quality_ratchet.py format-check --base <commit>             # order 79d, PRs only
 
 `check` exits 1 the moment one measured rule is worse than its baseline.
 """
@@ -155,6 +156,111 @@ def compare_long_code(listed: dict, current: dict) -> tuple[list[str], list[str]
         shrunk += [f"{key} {n} -> {now.get(key, 'under the limit')}"
                    for key, n in was.items() if now.get(key, 0) < n]
     return blocked, shrunk
+
+
+# ----------------------------- order 79d: the formatter, changed files only
+
+#: The trees the lint baseline reads (check_lint_baseline.PATHS).
+FORMAT_TREES = ("backend/", "scripts/", "eval/")
+
+
+def format_drift(source: str, path: str) -> int:
+    """How many lines `ruff format` would add or remove in `source`. Main is
+    far from formatted (958 of 981 files on 18 Oct), so the number is
+    ratcheted per file instead of demanding a whole-file reformat."""
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "ruff",
+            "format",
+            "--diff",
+            "--no-cache",
+            "--config",
+            str(REPO / "ruff.toml"),
+            "--stdin-filename",
+            path,
+            "-",
+        ],
+        input=source,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=REPO,
+    )
+    if proc.returncode not in (0, 1):
+        raise SystemExit(
+            f"ruff format failed on {path} ({proc.returncode}): {proc.stderr.strip()[:300]}"
+        )
+    return sum(
+        1
+        for line in proc.stdout.splitlines()
+        if line[:1] in ("+", "-") and not line.startswith(("+++", "---"))
+    )
+
+
+def changed_python(base: str) -> list[tuple[str | None, str]]:
+    """(path at `base` or None for a new file, path now) for every Python file
+    under FORMAT_TREES that differs from `base`. A rename keeps its old path,
+    so moving an unformatted file is not a new unformatted file."""
+    proc = subprocess.run(
+        ["git", "diff", "--name-status", "-M", "--diff-filter=AMR", base, "HEAD"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=REPO,
+    )
+    if proc.returncode != 0:
+        raise SystemExit(f"git diff against {base} failed: {proc.stderr.strip()[:300]}")
+    pairs = []
+    for row in proc.stdout.splitlines():
+        status, *paths = row.split("\t")
+        now = paths[-1]
+        if now.endswith(".py") and now.startswith(FORMAT_TREES):
+            pairs.append((None if status == "A" else paths[0], now))
+    return pairs
+
+
+def compare_format(
+    drifts: list[tuple[str, int | None, int]],
+) -> tuple[list[str], list[str]]:
+    """(blocked, better) from (path, drift at base or None for a new file,
+    drift now). A new file must be formatted; a changed file may not move
+    further from the formatter. Closer is reported, never a failure."""
+    blocked, better = [], []
+    for path, was, now in drifts:
+        if was is None and now:
+            blocked.append(
+                f"NEW FILE NOT FORMATTED: {path} ({now} lines differ; run `ruff format {path}`)"
+            )
+        elif was is not None and now > was:
+            blocked.append(
+                f"FORMAT DRIFT GREW: {path} {was} -> {now} lines differ from `ruff format`"
+            )
+        elif was is not None and now < was:
+            better.append(f"{path} {was} -> {now}")
+    return blocked, better
+
+
+def format_check(base: str) -> tuple[list[str], list[str], int]:
+    """(blocked, better, files checked) for the files changed since `base`."""
+    drifts = []
+    for old, now in changed_python(base):
+        was = None
+        if old is not None:
+            shown = subprocess.run(
+                ["git", "show", f"{base}:{old}"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                cwd=REPO,
+                check=True,
+            )
+            was = format_drift(shown.stdout, old)
+        drifts.append(
+            (now, was, format_drift((REPO / now).read_text(encoding="utf-8"), now))
+        )
+    return (*compare_format(drifts), len(drifts))
 
 
 def rule_1_length() -> dict:
@@ -387,7 +493,27 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--out", default=str(DEFAULT_BASELINE))
     rl = sub.add_parser("record-long-code")
     rl.add_argument("--out", default=str(DEFAULT_LONG_CODE))
+    fc = sub.add_parser("format-check")
+    fc.add_argument(
+        "--base", required=True, help="the commit to compare with (CI: the PR's base)"
+    )
     args = ap.parse_args(argv)
+
+    if args.cmd == "format-check":
+        blocked, better, checked = format_check(args.base)
+        print(
+            f"  formatter: {checked} changed Python files checked against {args.base}; "
+            f"{len(blocked)} further from `ruff format`, {len(better)} closer"
+        )
+        for line in better:
+            print(f"  closer: {line}")
+        if blocked:
+            print("\nBLOCKED - format the lines this PR touches, or the new file:")
+            for line in blocked:
+                print(f"  - {line}")
+            return 1
+        print("\nOK: no changed file moved further from the formatter.")
+        return 0
 
     if args.cmd == "record-long-code":
         listed = long_code()
