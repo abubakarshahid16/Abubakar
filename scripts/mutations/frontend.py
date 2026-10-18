@@ -387,7 +387,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         id="M961", phase=83, runner="vitest",
         description='the stream is never read: every answer falls back to the plain route',
-        path=FRONTEND_SRC / 'api' / 'client.ts',
+        path=FRONTEND_SRC / 'api' / 'chat.ts',  # order 79b: askStream moved to chat.ts
         anchor='  if (!(response.headers.get("Content-Type") ?? "").includes("text/event-stream")) {\n',
         replacement='  if (true) {\n',
         target="src/views/ChatView.redesign.test.tsx",
