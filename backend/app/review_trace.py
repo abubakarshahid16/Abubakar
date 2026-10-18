@@ -39,6 +39,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
+from . import errors
 from .config import settings
 
 LOGGER_NAME = "review.debug"
@@ -192,8 +193,8 @@ def build(review_run_id: str, scope) -> dict:
     from .main import _crs_content
     try:
         rows, _meta, _name, _stamp = _crs_content(review_run_id, scope, "internal")
-    except Exception:  # noqa: BLE001 - a trace never fails; say why the step is empty
-        rows = None
+    except Exception as exc:  # noqa: BLE001 - a trace never fails; say why the step is empty
+        rows = errors.fell_back("review_trace: the CRS could not be composed for the trace", exc, None)
     if rows is None:
         steps.append(_step("CRS", "could not compose the CRS", warning="CRS not composed",
                            failed=True))

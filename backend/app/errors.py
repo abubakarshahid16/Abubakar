@@ -153,6 +153,20 @@ def record_failure(
     return safe_error(code, str(exc), document_id=document_id, stage=stage)
 
 
+def fell_back(where: str, exc: BaseException | None, fallback: Any) -> Any:
+    """Order 79c: a broad catch that keeps its fallback says so in the log.
+
+    `where` is "<module>: <what failed>; <what happens instead>" and goes to
+    that module's logger with the error's TYPE only - never its message, which
+    can carry document text (the #655 pattern). Returns `fallback` unchanged,
+    so a handler stays one line: `return errors.fell_back(..., exc, value)`.
+    """
+    if exc is not None:
+        logging.getLogger(f"app.{where.split(':', 1)[0]}").info(
+            "%s (%s)", where, type(exc).__name__)
+    return fallback
+
+
 def safe_error(
     code: str,
     message: str,
