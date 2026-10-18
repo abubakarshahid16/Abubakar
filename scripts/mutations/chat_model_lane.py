@@ -32,7 +32,8 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T, keyword="local_preference_narrows", tags=("privacy",)),
     Mutation(id="M916", phase=80, description="chat: the Claude answer keeps the old 250-token cap",
              path=APP / "chat_model.py",
-             anchor="            num_predict=settings.chat_max_output_tokens, temperature=temperature,\n",
+             # re-anchored (#456): the cap comes from the one route table
+             anchor="            num_predict=output_limits.max_tokens_for(output_limits.ROUTE_CHAT), temperature=temperature,\n",
              replacement="            num_predict=settings.max_output_tokens, temperature=temperature,\n",
              target=_T, keyword="claude_answers_the_chat", tags=("chat",)),
     Mutation(id="M917", phase=80, description="chat: document answers lose their own temperature",

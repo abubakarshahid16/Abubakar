@@ -46,6 +46,7 @@ from pathlib import Path
 
 from . import claude_approved
 from . import claims, numparse, standard_ids
+from .ai import output_limits
 from .config import settings
 from .db import connect
 from .reader_api import _contains, _fold
@@ -67,6 +68,10 @@ _OPEN_KINDS = ("missing_information", "needs_engineer_review", "standard_not_cit
 
 #: The reasons a rewrite is refused. Stable strings: a run reports them.
 NO_COMMENT, TOO_LONG, MALFORMED = "no_comment", "too_long", "malformed"
+#: #456: the output cap cut the reply / nothing readable came back. Named
+#: apart from `malformed`: a half-written comment is not a bad answer, it
+#: is no answer, and the count says which cap to look at.
+TRUNCATED, UNKNOWN = output_limits.TRUNCATED, output_limits.UNKNOWN
 NUMBER_CHANGED, UNIT_CHANGED = "number_not_in_template", "unit_not_in_template"
 CLAUSE_DROPPED, STANDARD_CHANGED = "clause_dropped", "standard_changed"
 CLAIM_ADDED, STATUS_REVERSED = "claim_not_in_template", "status_reversed"
@@ -250,9 +255,15 @@ def _ask(provider, row: dict) -> tuple[str | None, str | None, str]:
         .replace("{where}", str(row.get("page_section") or "")) \
         .replace("{comment}", str(row.get("comment") or ""))
     response = provider.reason(rp.Packet(
-        prompt=prompt, num_ctx=4096, num_predict=300, json_schema=SCHEMA, step=STEP,
-        prompt_version=PROMPT_VERSION, timeout_s=float(settings.crs_ai_wording_timeout_s)))
+        prompt=prompt, num_ctx=4096,
+        num_predict=output_limits.max_tokens_for(output_limits.ROUTE_CRS_WORDING),
+        json_schema=SCHEMA, step=STEP, prompt_version=PROMPT_VERSION,
+        timeout_s=float(settings.crs_ai_wording_timeout_s)))
     model = f"{response.provider}:{response.model_tag}"
+    state = output_limits.state_of_response(response)
+    if state != output_limits.COMPLETE:
+        # Never parsed: the template row stands, the refusal is counted by name.
+        return None, state, model
     try:
         text = json.loads(response.text).get("comment")
     except (TypeError, ValueError, AttributeError):
