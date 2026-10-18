@@ -30,7 +30,7 @@ def test_the_running_job_says_which_page_the_reader_is_on(world, monkeypatch):  
 
     monkeypatch.setattr(submittal_review, "ensure_facts_extracted", reading)
     assert review_jobs.run(job_id, W) == "done"
-    assert seen == [f"reading the datasheet: page {n} of 3" for n in (1, 2, 3)]
+    assert seen == [f"reading the datasheet, page {n} of 3" for n in (1, 2, 3)]
     # the step index is the step's, not the page's
     assert _job(job_id)["progress_label"] == "done"
 
@@ -62,4 +62,4 @@ def test_a_progress_line_never_commits_the_readers_unfinished_writes(world):  # 
     conn.rollback()
     assert _job(job_id)["progress_label"] == "queued"
     review_jobs._page(conn, job_id, 2, 5)
-    assert _job(job_id)["progress_label"] == "reading the datasheet: page 2 of 5"
+    assert _job(job_id)["progress_label"] == "reading the datasheet, page 2 of 5"

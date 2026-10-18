@@ -173,7 +173,7 @@ def _step(conn, job_id: str, index: int) -> None:
 
 def _page(conn, job_id: str, done: int, total: int) -> None:
     """Order 95 piece 3b: the page the reader is on, inside step 1's label -
-    "reading the datasheet: page 3 of 11". Progress only: the step index and
+    "reading the datasheet, page 3 of 11". Progress only: the step index and
     the job's claim are left as they are.
 
     SKIPPED INSIDE AN OPEN TRANSACTION. The reader shares this thread's
@@ -181,7 +181,7 @@ def _page(conn, job_id: str, done: int, total: int) -> None:
     unfinished writes with it. A skipped line costs one stale label."""
     if conn.in_transaction:
         return
-    label = f"{STEPS[0]}: page {done} of {total}"
+    label = f"{STEPS[0]}, page {done} of {total}"
     with conn:
         sql = "UPDATE jobs SET progress_label = ?, updated_at = ? WHERE id = ?"
         conn.execute(sql, (label, _now(), job_id))
