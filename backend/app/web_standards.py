@@ -47,10 +47,13 @@ transports it calls into.
 """
 from __future__ import annotations
 
+import logging
 import re
 
 from .config import settings
 from .db import connect
+
+log = logging.getLogger(__name__)
 
 #: `review_findings.origin` for every item this module stores.
 ORIGIN = "web_standard_check"
@@ -168,7 +171,8 @@ def build_requirement(
     fetcher = fetch_text or (lambda u, t: market_transport.fetch_text(u, timeout=t))
     try:
         page_text = fetcher(url, timeout)
-    except Exception:  # noqa: BLE001 - a fetch failure is "no requirement", not a crash
+    except Exception as exc:  # noqa: BLE001 - a fetch failure is "no requirement", not a crash
+        log.info("web_standards: page could not be fetched (%s)", type(exc).__name__)
         return None
     if not _verify_quote(quote, page_text):
         return None

@@ -24,7 +24,7 @@ import json
 import uuid
 from pathlib import Path
 
-from . import access, job_queue, provenance
+from . import access, job_progress, job_queue, provenance
 from .config import config_version, settings
 from .db import connect
 
@@ -171,6 +171,27 @@ def _step(conn, job_id: str, index: int) -> None:
                      (index, STEPS[index], _now(), _now(), job_id))
 
 
+def _page(conn, job_id: str, done: int, total: int) -> None:
+    """Order 95 piece 3b: the page the reader is on, inside step 1's label -
+    "reading the datasheet, page 3 of 11". Progress only: the step index and
+    the job's claim are left as they are.
+
+    SKIPPED INSIDE AN OPEN TRANSACTION. The reader shares this thread's
+    connection; committing a progress line there would commit the reader's
+    unfinished writes with it. A skipped line costs one stale label."""
+    if conn.in_transaction:
+        return
+    label = f"{STEPS[0]}, page {done} of {total}"
+    with conn:
+        sql = "UPDATE jobs SET progress_label = ?, updated_at = ? WHERE id = ?"
+        conn.execute(sql, (label, _now(), job_id))
+
+
+def _reporting_pages(conn, job_id: str):
+    """The reader's page reports go to this job's label for the block (3b)."""
+    return job_progress.reporting(lambda done, total: _page(conn, job_id, done, total))
+
+
 def _record_check_failure(run_id: str, column: str, name: str, exc: BaseException) -> None:
     """Store "<check> could not be checked: <ErrorName>" on the run. The error's
     TYPE only: no text from the failure, which could carry document text."""
@@ -263,7 +284,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
         from . import review_trace
         timings: dict = {}    # #791 part 1: when each phase ran, for the stored trace
         _step(conn, job_id, 0)
-        with review_trace.timed(timings, "read"):
+        with review_trace.timed(timings, "read"), _reporting_pages(conn, job_id):
             submittal_review.ensure_facts_extracted(submittal, scope, review_run_id=run_id)
         _step(conn, job_id, 1)
         with review_trace.timed(timings, "standards"):

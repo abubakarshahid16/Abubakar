@@ -128,6 +128,46 @@ describe("SheetCard", () => {
   });
 });
 
+describe("the rule a card claims (#1094)", () => {
+  it("shows one clause once when every finding on the card shares it", () => {
+    renderCard([f("a"), f("b"), f("c")]);
+    expect(screen.getAllByRole("button", { name: /API 520\.pdf, clause 5\.2/ })).toHaveLength(1);
+    expect(screen.getByText("The orifice shall be stated.")).toBeInTheDocument();
+    expect(screen.queryByText(/clauses/)).toBeNull();
+  });
+
+  it("lists every clause with its count when the findings cite more than one, never the first as THE rule", async () => {
+    const onOpenRule = vi.fn();
+    renderCard([
+      f("a"), f("b", { standard_document_id: "std-2", standard_clause: "7.1", requirement_source_text: "Source code shall be escrowed.", contractor_page: 3 }),
+      f("c", { standard_document_id: "std-2", standard_clause: "7.1", requirement_source_text: "Source code shall be escrowed.", contractor_page: 4 }),
+    ], vi.fn(), onOpenRule);
+    expect(screen.getByText(/^2 clauses across 2 standards/)).toBeInTheDocument();
+    // No single quote stands as the card's rule.
+    expect(screen.queryByText("The orifice shall be stated.")).toBeNull();
+    expect(screen.queryByText("Source code shall be escrowed.")).toBeNull();
+    const items = screen.getAllByRole("listitem").filter((li) => li.closest("[data-testid='clause-list']"));
+    expect(items.map((li) => li.textContent)).toEqual([
+      "API 520.pdf, clause 5.2 · open the rule · 1 blank: Field a",
+      "clause 7.1 · open the rule · 2 blanks: Field b, Field c",
+    ]);
+    await userEvent.click(screen.getByRole("button", { name: /clause 7\.1/ }));
+    expect(onOpenRule).toHaveBeenCalledWith(expect.objectContaining({ id: "b" }));
+  });
+
+  it("says when no clause names a field, alone and inside a list", () => {
+    renderCard([f("a", { standard_document_id: undefined, standard_clause: undefined })]);
+    expect(screen.getByText("No clause names this field.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /open the rule/ })).toBeNull();
+  });
+
+  it("counts the fields no clause names apart from the clauses", () => {
+    renderCard([f("a"), f("b", { standard_document_id: undefined, standard_clause: undefined })]);
+    expect(screen.getByText(/^1 clause of one standard, and 1 blank no clause names/)).toBeInTheDocument();
+    expect(screen.getByText("No clause names this field.")).toBeInTheDocument();
+  });
+});
+
 describe("the safety-tick card (rule_trust #947 step 8)", () => {
   const tick = (id: string, over: Partial<ReviewFinding> = {}) => f(id, {
     compliance_status: "COMPLIANT", show_for_engineer_tick: true, trust_label: "AUTO_PROVEN", tier: "SAFETY",

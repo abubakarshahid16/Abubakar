@@ -2540,8 +2540,7 @@ class VisionReaderStatus(BaseModel):
 
 
 class CrsReviewNote(BaseModel):
-    """Owner order 2f: one of the engineer's internal notes (the "Review
-    notes" sheet) - never a contractor comment."""
+    """Owner order 2f: one of the engineer's internal notes (the "Review notes" sheet) - never a contractor comment."""
 
     note: str
     standard: str = ""
@@ -2576,15 +2575,16 @@ class CrsPreview(BaseModel):
     recommended_code_reason: str = ""
     recommended_code_status: str = ""
     recommended_code_label: str
-    #: #633: "REVIEW INCOMPLETE: N part(s) could not be checked" when the run
-    #: failed, stopped, or left parts unchecked; "" when nothing is known to be
-    #: unchecked. In both copies. `unchecked_parts` lists each part (internal
-    #: copy only).
+    #: #633: "REVIEW INCOMPLETE: N part(s) could not be checked" when the run failed, stopped
+    #: or left parts unchecked; "" when nothing is known to be unchecked. Both copies;
+    #: `unchecked_parts` lists each part (internal copy only). Item 7: `run_status_note` is row 1
+    #: of a sheet whose run did not complete: "REVIEW INCOMPLETE: run <status> - <reason>.
+    #: Unread pages: N (...). Missing standards: M (...)."; "" when it did.
     incomplete_notice: str = ""
     unchecked_parts: list[str] = []
-    #: B5: the standards the review applied and why, the ones considered and
-    #: not applied, and cited ones not held (MISSING_LOCALLY) - the workbook's
-    #: "Applicable standards" sheet.
+    run_status_note: str = ""
+    #: B5: the standards the review applied and why, the ones considered and not applied,
+    #: and cited ones not held (MISSING_LOCALLY): the "Applicable standards" sheet.
     applicable_standards: list[CrsStandardRow] = []
 
 
@@ -2779,6 +2779,9 @@ class ReviewRunSummary(BaseModel):
     #: #633: findings written before a failed run stopped. They are partial and
     #: the run recommends no code.
     partial_findings: int = 0
+    #: Order 95 piece 3: when the newest contractor copy of this run's CRS was
+    #: issued (the inbox's "Signed"). Null when none was.
+    crs_issued_at: str | None = None
     #: #845: the run's AI numbers (reader, matcher, AI check, wording), each
     #: with its denominator and where it ran. Null when the run holds no
     #: record of any AI step; a step with no record is null inside it.

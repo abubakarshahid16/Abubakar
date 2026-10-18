@@ -73,8 +73,7 @@ MAX_CELL_CHARS = 2_000
 #: The unpacked size of ALL zip entries, declared, checked before opening.
 #: The same ceiling the upload applies to a workbook.
 MAX_UNCOMPRESSED_BYTES = 256 * 1024 * 1024
-#: Entries in the zip. Many tiny entries cost nothing in size and a lot in
-#: syscalls.
+#: Entries in the zip. Many tiny entries cost nothing in size and a lot in syscalls.
 MAX_ZIP_ENTRIES = 5_000
 #: `word/document.xml` alone, declared AND read. It is parsed in memory.
 MAX_DOCX_XML_BYTES = 32 * 1024 * 1024
@@ -603,6 +602,7 @@ def office_condition(path: str) -> tuple[str | None, str]:
     except InputError as exc:
         return f"office_{exc.code}", f"the stored file was refused: {exc.message}"
     except Exception as exc:  # noqa: BLE001 - any failure to open is the FILE's condition
+        log.info("datasheet_inputs: Office file unreadable (%s)", type(exc).__name__)
         return "office_damaged", f"the stored file could not be read ({type(exc).__name__})"
     return None, ""
 

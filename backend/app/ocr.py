@@ -58,6 +58,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
 
+from . import errors
 from .config import settings
 from .db import connect
 from .quality import normalise_text
@@ -191,8 +192,8 @@ def route_page(page, text: str) -> Route:
     try:
         images = [_clip(tuple(i["bbox"]), bounds)
                   for i in page.get_image_info(hashes=False, xrefs=False)]
-    except Exception:  # noqa: BLE001 - a malformed image stream is not a scan
-        images = []
+    except Exception as exc:  # noqa: BLE001 - a malformed image stream is not a scan
+        images = errors.fell_back("ocr: no image info; not a scan", exc, [])
     image_area = _union_area(images)
     text_area = None
     if page_area > 0 and image_area / page_area >= settings.ocr_image_coverage_min:
@@ -214,15 +215,13 @@ def _norm(line: str) -> str:
     return _NON_ALNUM.sub(" ", line.casefold()).strip()
 
 
-#: Lines whose tops are this close (image pixels) are one visual row. A
-#: fixed 6-pixel BUCKET used to split a row at every bucket edge (99 and 100
-#: landed in different rows); rows are now grouped by distance to the row's
-#: first line.
+#: Lines whose tops are this close (image pixels) are one visual row. A fixed 6-pixel BUCKET used to
+#: split a row at every bucket edge (99 and 100 landed in different rows); rows are now grouped by
+#: distance to the row's first line.
 _ROW_TOLERANCE = 6.0
-#: A column must hold at least this many lines, and its lines must be at
-#: least this many words long at the median, to be read as a column of TEXT.
-#: A label/value data sheet has the same two x positions, but short cells -
-#: it must keep reading row by row ("Design pressure" then "15 barg").
+#: A column must hold at least this many lines, and its lines must be at least this many words long
+#: at the median, to be read as a column of TEXT. A label/value data sheet has the same two x
+#: positions, but short cells - it must keep reading row by row ("Design pressure" then "15 barg").
 _MIN_COLUMN_LINES = 3
 _MIN_COLUMN_WORDS = 4
 #: The gap between the two x clusters must be this share of the x span.
@@ -466,8 +465,8 @@ def _box_origin(box) -> tuple[float, float]:
     """(y, x) of a recogniser box: its top-left over the four corners."""
     try:
         return (float(min(pt[1] for pt in box)), float(min(pt[0] for pt in box)))
-    except Exception:  # noqa: BLE001 - a box of unexpected shape sorts first
-        return (0.0, 0.0)
+    except Exception as exc:  # noqa: BLE001 - a box of unexpected shape sorts first
+        return errors.fell_back("ocr: odd box shape; sorts first", exc, (0.0, 0.0))
 
 
 def recognise_batch(stored_path: str, sha256: str, page_nos: list[int]) -> list[tuple]:
@@ -484,13 +483,14 @@ def recognise_batch(stored_path: str, sha256: str, page_nos: list[int]) -> list[
     as recognised. A page that raises is returned with its error, never
     dropped: one bad page must not kill a batch or hold the document.
     """
-    from .pageimage import render_page
-
     import time
+
+    from .pageimage import render_page
 
     try:
         ocr = _build_engine()
     except Exception as exc:  # noqa: BLE001 - a missing model is every page failing, not the document
+        errors.fell_back("ocr: engine not built; every page fails", exc, None)
         return failed_rows(page_nos, f"engine_unavailable: {type(exc).__name__}: {exc}")
     out: list[tuple] = []
     doc = {"sha256": sha256, "stored_path": stored_path}
@@ -506,6 +506,7 @@ def recognise_batch(stored_path: str, sha256: str, page_nos: list[int]) -> list[
             boxes = list(boxes) if boxes is not None else []
             native = _native_lines(stored_path, pno, scale)
         except Exception as exc:  # noqa: BLE001 - one bad page must not kill a batch
+            errors.fell_back("ocr: one page failed; recorded as failed", exc, None)
             out.append((pno, "", None, None, 0, 0, round(time.perf_counter() - t0, 3), 0, "",
                         f"{type(exc).__name__}: {exc}"[:500]))
             continue
@@ -622,9 +623,8 @@ def _commit_batch(doc_id: str, batch_no: int,
             " AND rule = 'ocr_not_run'",
             failed_pages,
         )
-        # Only pages that actually produced text count as recognised. A blank
-        # page is not a recognised page, and conflating them would put a false
-        # number on the document record.
+        # Only pages that actually produced text count as recognised. A blank page is not a
+        # recognised page, and conflating them would put a false number on the document record.
         n = conn.execute(
             "SELECT COUNT(*) c FROM page_ocr WHERE document_id = ? AND char_count > 0",
             (doc_id,),
@@ -719,8 +719,8 @@ def recognise_document(doc_id: str, progress=None, max_pages: int | None = None)
                 try:
                     rows = future.result()
                 except Exception as exc:  # noqa: BLE001 - the worker, not the document, failed
-                    if isinstance(exc, cf.BrokenExecutor):
-                        broken = True
+                    broken = broken or isinstance(exc, cf.BrokenExecutor)
+                    errors.fell_back("ocr: a worker failed; its pages fail", exc, None)
                     rows = failed_rows(
                         pages, f"worker_failed: {type(exc).__name__}: {exc}")
                 counts = _commit_batch(doc_id, nxt, rows, model)

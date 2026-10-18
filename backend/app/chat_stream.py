@@ -35,6 +35,9 @@ from dataclasses import dataclass, field
 
 from .sentence_guard import NOT_AN_ABBREVIATION
 
+#: What a turn's event queue raises when it holds nothing yet (main.ask_stream's poll).
+Empty = queue.Empty
+
 #: How long a finished turn stays findable (for a late cancel), seconds.
 TTL_SECONDS = 300
 MAX_TURNS = 256
