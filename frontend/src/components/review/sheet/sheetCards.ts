@@ -63,7 +63,9 @@ export function isAskFinding(f: ReviewFinding): boolean {
   return ASK_STATUSES.has(f.compliance_status ?? "");
 }
 
-function fieldOf(f: ReviewFinding): string {
+/** The datasheet field a finding is about, in the datasheet's own words.
+ *  Shared with the CRS-first Sheet (order 95 piece 2). */
+export function fieldOf(f: ReviewFinding): string {
   return f.matched_phrase || f.contractor_section || f.equipment_tag || "";
 }
 

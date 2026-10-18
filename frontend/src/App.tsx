@@ -21,6 +21,7 @@ import { LoginView, RoleBadge, type LoginOutcome } from "./views/LoginView";
 import { AnalysisModeScreen } from "./views/AnalysisModeScreen";
 import { ReportsScreen } from "./views/ReportsScreen";
 import { DeliverablesView } from "./views/DeliverablesView";
+import { CrsSheetView } from "./views/CrsSheetView";
 import { ReviewSheetView } from "./views/ReviewSheetView";
 import { SubmittalsLandingView } from "./views/SubmittalsLandingView";
 import type { AuthStatus, Me } from "./types/api";
@@ -331,19 +332,27 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
           {view === "analysis" && <AnalysisModeScreen />}
           {view === "reports" && <ReportsScreen />}
           {view === "deliverables" && <DeliverablesView />}
-          {/* #967 PR1: the page opens on the landing list of documents from
-              contractors; opening or starting a run takes you to the
-              existing review screen (unchanged - that is PR2's job). */}
+          {/* Order 95 piece 2 (CRS first, Part of #967): `/review/<run>` is
+              the comment sheet; the card view is kept, unchanged, at
+              `/review/<run>/cards` with its behind-the-scenes pages. */}
           {view === "review" && (
             route.kind === "view" && route.recordId ? (
-              <ReviewSheetView
-                key={route.recordId} runId={route.recordId} panel={route.panel}
-                onBack={() => onNavigate("review")}
-                onOpenPanel={(panel) => onNavigate("review", route.recordId, panel)}
-                onOpenRun={(runId) => onNavigate("review", runId)}
-                onOpenStandards={() => onNavigate("standards")}
-                isAdmin={canAdmin}
-              />
+              route.panel ? (
+                <ReviewSheetView
+                  key={route.recordId} runId={route.recordId} panel={route.panel === "cards" ? undefined : route.panel}
+                  onBack={() => onNavigate("review")}
+                  onOpenPanel={(panel) => onNavigate("review", route.recordId, panel ?? "cards")}
+                  onOpenRun={(runId) => onNavigate("review", runId)}
+                  onOpenStandards={() => onNavigate("standards")}
+                  isAdmin={canAdmin}
+                />
+              ) : (
+                <CrsSheetView
+                  key={route.recordId} runId={route.recordId}
+                  onBack={() => onNavigate("review")}
+                  onOpenCards={() => onNavigate("review", route.recordId, "cards")}
+                />
+              )
             ) : (
               <SubmittalsLandingView onOpenRun={(runId) => onNavigate("review", runId)} />
             )

@@ -1,0 +1,193 @@
+/**
+ * The CRS-first Sheet (order 95 piece 2, spec 1.2; Part of #967).
+ *
+ * The comment sheet IS the screen: KJO's seven columns, one row per
+ * comment, three tier words (Comment / Needs you / Met), Keep / Edit
+ * wording / Remove per row, Accept all remaining with one-step undo, Sign
+ * and export wired to the existing CRS export. The card view stays at
+ * `/review/<run>/cards` as the detail view.
+ *
+ * NOTHING HERE CHANGES A VERDICT. Tiers come from `crs/tiers.ts` (display
+ * only); the export is the server's existing route and the server still
+ * refuses the contractor's copy while anything is open.
+ *
+ * TODO(order 95 piece 6, Part of #967): decisions are local state
+ * (`useCrsDecisions`) until piece 6 persists them.
+ */
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+import { api, reviews as reviewsApi } from "../api/client";
+import type { DocumentRecord, ReviewFinding, ReviewRunSummary } from "../types/api";
+import { downloadCrs } from "../components/review/downloadCrs";
+import { progressLine, runStatusLabel } from "../components/review/reviewFormat";
+import type { StandardsState } from "../components/review/panels/BehindTheScenes";
+import { ReviewJobControl } from "../components/review/panels/ReviewJobControl";
+import { CrsEvidenceDrawer } from "../components/review/crs/CrsEvidenceDrawer";
+import { CrsFooter } from "../components/review/crs/CrsFooter";
+import { CrsHeader } from "../components/review/crs/CrsHeader";
+import { CrsTable } from "../components/review/crs/CrsTable";
+import type { RowMode } from "../components/review/crs/CrsRow";
+import { type CrsRow, type Depth, buildCrsRows, rowCounts, spotCheckKeys, visibleRows } from "../components/review/crs/crsRows";
+import { runFactsOf } from "../components/review/crs/tiers";
+import { useCrsDecisions } from "../components/review/crs/useCrsDecisions";
+import { useCrsKeys } from "../components/review/crs/useCrsKeys";
+
+type Load = { kind: "loading" } | { kind: "ready" } | { kind: "error"; message: string };
+type Sign = { busy: boolean; message: string | null; error: string | null };
+
+export interface CrsSheetViewProps {
+  runId: string;
+  onBack: () => void;
+  onOpenCards: () => void;
+}
+
+function useRunData(runId: string) {
+  const [load, setLoad] = useState<Load>({ kind: "loading" });
+  const [run, setRun] = useState<ReviewRunSummary | null>(null);
+  const [findings, setFindings] = useState<ReviewFinding[]>([]);
+  const [standardsState, setStandardsState] = useState<StandardsState>({ standards: null, missing: [], error: null });
+  const [submittal, setSubmittal] = useState<DocumentRecord | null>(null);
+
+  const refresh = useCallback(async () => {
+    const [runs, listed, stds] = await Promise.all([
+      reviewsApi.reviewRuns(), reviewsApi.list({ review_run_id: runId }), reviewsApi.reviewRunStandards(runId),
+    ]);
+    if (!runs.ok) { setLoad({ kind: "error", message: runs.error.message }); return; }
+    const found = runs.data.runs.find((r) => r.review_run_id === runId) ?? null;
+    if (!found) { setLoad({ kind: "error", message: "This review run could not be found." }); return; }
+    if (!listed.ok) { setLoad({ kind: "error", message: listed.error.message }); return; }
+    setRun(found);
+    setFindings(listed.data.findings);
+    setStandardsState(stds.ok
+      ? { standards: stds.data.standards, missing: stds.data.missing_references ?? [], error: null }
+      : { standards: null, missing: [], error: stds.error.message });
+    setLoad({ kind: "ready" });
+  }, [runId]);
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  const submittalId = run?.submittal_document_id ?? null;
+  useEffect(() => {
+    if (!submittalId) return;
+    void api.document(submittalId).then((r) => setSubmittal(r.ok ? r.data : null));
+  }, [submittalId]);
+
+  const active = run?.status === "queued" || run?.status === "running";
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(() => { void refresh(); }, 3000);
+    return () => clearInterval(timer);
+  }, [active, refresh]);
+
+  return { load, run, findings, standardsState, submittal, active, refresh };
+}
+
+/** Sign and export = the existing CRS issue route (the same one the card
+ *  view's Send uses; the server still refuses it while anything is open);
+ *  the working copy = the internal export. No new endpoint. */
+function useExport(runId: string, refresh: () => Promise<void>) {
+  const [sign, setSign] = useState<Sign>({ busy: false, message: null, error: null });
+  async function exportSheet(copy: "internal" | "issue") {
+    setSign({ busy: true, message: null, error: null });
+    const message = await downloadCrs(runId, copy);
+    if (message) { setSign({ busy: false, message: null, error: message }); return; }
+    setSign({
+      busy: false, error: null,
+      message: copy === "issue" ? "Signed and exported. The issued copy was downloaded and kept on record." : "Working copy downloaded. It is not signed.",
+    });
+    if (copy === "issue") void refresh();
+  }
+  return { sign, exportSheet };
+}
+
+function RunNotReady({ run, active, onBack, onChanged }: { run: ReviewRunSummary; active: boolean; onBack: () => void; onChanged: () => void }) {
+  return (
+    <section className="mx-auto w-full max-w-7xl space-y-3" aria-labelledby="crs-title">
+      <h1 id="crs-title" className="text-2xl font-semibold text-slateish-100">{run.submittal_filename ?? "Review"}</h1>
+      {active ? (
+        <>
+          <p aria-live="polite" className="text-slateish-300" data-testid="review-progress">
+            {run.status === "queued" ? "Waiting to start"
+              : run.job ? progressLine(run.job.progress_done, run.job.progress_total, run.job.progress_label) : runStatusLabel(run.status)}
+          </p>
+          <ReviewJobControl run={run} onChanged={onChanged} />
+        </>
+      ) : (
+        <p role="alert" className="text-danger-500">This review failed{run.failure_reason ? `: ${run.failure_reason}` : "."}</p>
+      )}
+      <button type="button" onClick={onBack} className="text-sm text-signal-300 underline-offset-2 hover:underline">← Reviews</button>
+    </section>
+  );
+}
+
+export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) {
+  const { load, run, findings, standardsState, submittal, active, refresh } = useRunData(runId);
+  const [depth, setDepth] = useState<Depth>("standard");
+  const [showMet, setShowMet] = useState(false);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [drawerKey, setDrawerKey] = useState<string | null>(null);
+  const [mode, setMode] = useState<{ key: string; kind: RowMode } | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [kept, setKept] = useState<number | null>(null);
+  const { sign, exportSheet } = useExport(runId, refresh);
+  const [returnTo, setReturnTo] = useState<HTMLElement | null>(null);
+  const decisions = useCrsDecisions();
+
+  const standardNames = useMemo(() => new Map(
+    (standardsState.standards ?? []).filter((s) => s.filename).map((s) => [s.standard_document_id, s.filename as string])),
+  [standardsState.standards]);
+  const facts = useMemo(() => runFactsOf(run, standardsState.standards, standardsState.missing), [run, standardsState]);
+  const rows = useMemo(() => buildCrsRows(findings, facts, standardNames), [findings, facts, standardNames]);
+  const counts = useMemo(() => rowCounts(rows), [rows]);
+  const spot = useMemo(() => spotCheckKeys(rows, runId), [rows, runId]);
+  const shown = useMemo(() => visibleRows(rows, depth, showMet, spot), [rows, depth, showMet, spot]);
+  const unopened = rows.filter((r) => r.tier.tier === "C" && !decisions.state.opened[r.key]);
+  const drawerRow = rows.find((r) => r.key === drawerKey) ?? null;
+
+  const openEvidence = useCallback((row: CrsRow) => {
+    setReturnTo(document.activeElement as HTMLElement | null);
+    decisions.markOpened(row.key);
+    setDrawerKey(row.key);
+  }, [decisions]);
+
+  const keyActions = useMemo(() => ({
+    select: (row: CrsRow) => setSelectedKey(row.key),
+    edit: (row: CrsRow) => { if (row.tier.tier !== "A") setMode({ key: row.key, kind: "edit" }); },
+    remove: (row: CrsRow) => { if (row.tier.tier !== "A") setMode({ key: row.key, kind: "remove" }); },
+    keep: (row: CrsRow) => { if (row.tier.tier !== "A") decisions.keep(row.key); },
+  }), [decisions]);
+  useCrsKeys(shown, selectedKey, keyActions, drawerRow === null);
+
+  if (load.kind === "loading") return <p className="text-slateish-300">Loading the sheet…</p>;
+  if (load.kind === "error" || !run) {
+    return <p role="alert" className="rounded-[var(--radius-md)] border border-danger-500/40 bg-danger-500/10 px-4 py-3 text-danger-500">{load.kind === "error" ? load.message : "This review run could not be found."}</p>;
+  }
+  if (active || run.status === "failed") return <RunNotReady run={run} active={active} onBack={onBack} onChanged={() => void refresh()} />;
+
+  const remaining = decisions.remaining(rows).length;
+  return (
+    <section className="mx-auto w-full max-w-7xl space-y-5" aria-labelledby="crs-title">
+      <CrsHeader
+        run={run} submittal={submittal} counts={counts} unopened={unopened} remaining={remaining}
+        acceptAll={{
+          confirming, kept, canUndo: decisions.canUndo,
+          onAsk: () => setConfirming(true), onCancel: () => setConfirming(false),
+          onConfirm: () => { setKept(decisions.acceptAll(rows)); setConfirming(false); },
+          onUndo: () => { decisions.undo(); setKept(null); },
+        }}
+        sign={{ busy: sign.busy, message: sign.message, error: sign.error, onSign: () => void exportSheet("issue"), onWorkingCopy: () => void exportSheet("internal") }}
+        onBack={onBack} onOpenCards={onOpenCards}
+      />
+      <CrsTable
+        rows={shown} allRows={rows} counts={counts} depth={depth} onDepth={setDepth} showMet={showMet} onShowMet={setShowMet}
+        spot={spot} selectedKey={selectedKey} onSelect={(row) => setSelectedKey(row.key)} onOpenEvidence={openEvidence}
+        mode={mode} onMode={(key, kind) => setMode(kind ? { key, kind } : null)} decisions={decisions}
+        clausesNotApplicable={run.requirement_split?.does_not_apply ?? null}
+      />
+      <CrsFooter run={run} counts={counts} standards={standardsState.standards} missing={standardsState.missing} standardsError={standardsState.error} />
+      {drawerRow && (
+        <CrsEvidenceDrawer row={drawerRow} runId={runId} standardNames={standardNames} returnTo={returnTo}
+          onClose={() => setDrawerKey(null)} onOpenCards={onOpenCards} />
+      )}
+    </section>
+  );
+}

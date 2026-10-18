@@ -9,7 +9,8 @@ export type AppRoute =
  *  one, and only the panels it names: any other three-part path stays
  *  "forbidden", as every over-deep path always was. */
 export const PANELS: Partial<Record<ViewId, readonly string[]>> = {
-  review: ["findings", "standards", "steps", "numbers", "crs"],
+  // Order 95 piece 2: "cards" is the card view, the detail view behind the sheet.
+  review: ["cards", "findings", "standards", "steps", "numbers", "crs"],
 };
 
 const titles: Record<ViewId, string> = {

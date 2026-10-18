@@ -22,6 +22,11 @@ describe("application routes", () => {
     expect(pathForView("review", undefined, "crs")).toBe("/review");
   });
 
+  it("order 95 piece 2: the card view is the \"cards\" page behind the sheet", () => {
+    expect(parseRoute("/review/run-1/cards")).toEqual({ kind: "view", view: "review", recordId: "run-1", panel: "cards" });
+    expect(pathForView("review", "run-1", "cards")).toBe("/review/run-1/cards");
+  });
+
   it("generates stable links and distinct page titles", () => {
     expect(pathForView("reports")).toBe("/reports");
     expect(pathForView("chat", "review/42")).toBe("/chat/review%2F42");
