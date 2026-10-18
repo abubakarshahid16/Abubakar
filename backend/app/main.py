@@ -114,8 +114,7 @@ def _log_hooks_path() -> None:
     try:
         message = hooks_check.hooks_path_warning()
     except Exception as exc:  # noqa: BLE001 - boot must not depend on git
-        logging.getLogger("uvicorn.error").debug(
-            "main: the git hooks check failed; no hooks warning at boot (%s)", type(exc).__name__)
+        errors.fell_back("main: the git hooks check failed; no hooks warning at boot", exc, None)
         return
     if message:
         logging.getLogger("uvicorn.error").warning(message)
@@ -2694,15 +2693,13 @@ async def ask_stream(conversation_id: str, body: schemas.AskRequest, request: Re
     threading.Thread(target=work, daemon=True, name=f"chat-{turn.id}").start()
 
     async def events():
-        import queue
-
         yield _sse("turn", {"turn_id": turn.id})
         while True:
             if await request.is_disconnected():
                 turn.cancel.set()
             try:
                 item = turn.events.get_nowait()
-            except queue.Empty:
+            except chat_stream.Empty:  # nothing on the turn's queue yet (79c: only this, not every error)
                 await asyncio.sleep(0.05)
                 continue
             if item is None:
@@ -3961,8 +3958,7 @@ def _readiness_payload(submittal_document_id: str, scope: access.AccessScope) ->
     missing = _missing_references(submittal_document_id, allowed)
     runs = submittal_review_mod.list_review_runs(
         allowed_document_ids=allowed, submittal_document_id=submittal_document_id)
-    # The latest COMPLETED run: a failed or still-running one produced no
-    # result to compare against.
+    # The latest COMPLETED run: a failed or still-running one produced no result to compare against.
     last = next((r for r in runs if r.get("status") == "completed"), None)
     changes: list[str] = []
     if last is not None:

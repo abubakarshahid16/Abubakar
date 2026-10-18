@@ -17,7 +17,7 @@ APP = pathlib.Path(__file__).resolve().parent.parent / "app"
 INFRA = ("auth", "chat_web", "claude_spend", "db", "heavy_lock", "job_queue", "live_guard",
          "main", "metrics", "model_memory", "notifications", "progress", "risks",
          "telemetry", "warmup")
-LOGS = ("log.", "logger.", "logging.", "record_failure", "_say_once(", "log_exception")
+LOGS = ("log.", "logger.", "logging.", "record_failure", "_say_once(", "log_exception", "fell_back(")
 
 
 def _silent(module: str) -> list[int]:
@@ -46,7 +46,11 @@ def test_the_chat_stream_poll_catches_only_an_empty_queue():
     polls = [h for h in ast.walk(tree) if isinstance(h, ast.Try)
              and "get_nowait" in ast.unparse(h.body[0])]
     assert polls, "the chat stream's queue poll was not found"
-    assert all(ast.unparse(h.handlers[0].type) == "queue.Empty" for h in polls)
+    assert all(ast.unparse(h.handlers[0].type) == "chat_stream.Empty" for h in polls)
+    import queue
+
+    from app import chat_stream
+    assert chat_stream.Empty is queue.Empty
 
 
 def test_an_unknown_lock_holder_is_still_unknown_and_says_why(caplog, monkeypatch):
