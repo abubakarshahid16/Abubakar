@@ -31,6 +31,8 @@ vi.mock("../api/client", () => ({
   api: { document: async () => ({ ok: true, data: { id: "doc-sub", filename: "psv.pdf", page_count: 12 } }) },
   reviews: {
     reviewRuns: async () => ({ ok: true, data: { runs: [run()] } }),
+    // Since order 109 (#1125) the screen asks for its one run; the same fixture run.
+    reviewRun: async () => ({ ok: true, data: run() }),
     list: (...a: unknown[]) => list(...a),
     reviewRunStandards: async () => ({ ok: true, data: {
       standards: [{ standard_document_id: "std-1", filename: "API 520.pdf", included: true }], missing_references: [],
