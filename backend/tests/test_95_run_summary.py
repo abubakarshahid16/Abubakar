@@ -215,6 +215,7 @@ def test_counts_keep_met_not_applicable_and_another_document_apart_and_removed_i
         "needs_you": 1,
         "removed": 1,
         "total": 7,
+        "crs_rows": None,
     }
     assert "6" not in {r["finding_id"] for r in out["rows"]}
 
@@ -392,7 +393,16 @@ def test_a_finding_on_a_page_the_reader_timed_out_on_needs_you(review_run):  # n
     _store_outcome(run, requirement_split={**split, "reader": None})
     assert (row()["tier"], row()["label"]) == ("A", "Met")
     _store_outcome(
-        run, requirement_split={**split, "reader": {"pages": 9, "timed_out": [7]}}
+        run,
+        requirement_split={
+            **split,
+            "reader": {
+                "engine": "ollama",
+                "pages": 9,
+                "pages_read": 8,
+                "timed_out": [7],
+            },
+        },
     )
     assert (row()["tier"], row()["reason"]) == ("C", "page not read")
 
@@ -412,3 +422,35 @@ def test_a_run_the_caller_may_not_read_is_404_like_one_that_is_not_there(review_
         app.dependency_overrides.pop(access.current_scope, None)
     assert response.status_code == 404
     assert TestClient(app).get(f"/api/reviews/runs/{run}/summary").status_code == 200
+
+
+def test_each_finding_says_which_exported_crs_row_it_prints_in(review_run):  # noqa: F811
+    """Order 103: the sheet groups as the export does - `crs_row` is read from
+    the export's own rows, and `counts.crs_rows` is how many rows it prints."""
+    from app.main import _crs_content
+
+    run, _ids, scope = review_run
+    comparison.run_comparison(run, allowed_document_ids=scope)
+    body = TestClient(app).get(f"/api/reviews/runs/{run}/summary").json()
+    full = SimpleNamespace(allowed_document_ids=scope, user_id=None)
+    export = _crs_content(run, full, "internal")[0]
+    assert export, "the fixture run prints at least one CRS row"
+    assert body["counts"]["crs_rows"] == len(export)
+    placed = [r for r in body["rows"] if r["crs_row"] is not None]
+    assert placed, "some finding prints in a row"
+    for r in body["rows"]:
+        ids_in = [
+            n
+            for n, row in enumerate(export, 1)
+            if r["finding_id"] in (row.get("finding_ids") or [])
+        ]
+        assert r["crs_row"] == (ids_in[0] if ids_in else None)
+
+
+def test_export_rows_of_maps_each_finding_to_its_first_row():
+    rows = [
+        {"finding_ids": ["a", "b"], "crs_ref": "C-1"},
+        {"finding_ids": ["b", "c"]},
+        {},
+    ]
+    assert T.export_rows_of(rows) == {"a": (1, "C-1"), "b": (1, "C-1"), "c": (2, None)}
