@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ReviewFinding, ReviewRunSummary } from "../../../types/api";
 import { EMPTY_FACTS } from "./tiers";
-import { buildCrsRows, crsHeadline, headlineFieldsOf, rowCounts, spotCheckKeys, splitRejected, visibleRows } from "./crsRows";
+import { buildCrsRows, crsHeadline, headlineFieldsOf, plainObservation, rowCounts, spotCheckKeys, splitRejected, visibleRows } from "./crsRows";
 
 function f(id: string, over: Partial<ReviewFinding> = {}): ReviewFinding {
   return {
@@ -134,16 +134,30 @@ describe("crsHeadline", () => {
     created_at: "2026-10-15T08:00:00Z", completed_at: "2026-10-15T08:18:00Z",
     page_coverage: { pages_total: 12, fact_pages: [1, 2, 3], pages_not_read_into_fields: [4, 9], not_read_reasons: {} },
   } as unknown as ReviewRunSummary;
+  const traced = { ...headlineFieldsOf(run), readSeconds: 18 * 60 };
   it("is the spec's one line; the met count is the rows' own, not the run's by_status", () => {
-    expect(crsHeadline(run, { comment: 17, needsYou: 6, met: 94, notApplicable: 0, anotherDocument: 0 })).toBe(
+    expect(crsHeadline(run, { comment: 17, needsYou: 6, met: 94, notApplicable: 0, anotherDocument: 0 }, traced)).toBe(
       "23 comments, 6 need your judgement. 94 values met, 4,362 clauses not applicable (hidden). Read in 18 min; the reader gave up on pages 4 and 9.",
     );
+  });
+  it("order 112: counts the rows; the findings behind the comment rows come second, with thousands separators", () => {
+    expect(crsHeadline(run, { comment: 1, needsYou: 4, met: 0, notApplicable: 0, anotherDocument: 0 }, traced, 6584)).toMatch(
+      /^5 comments \(6,584 findings\), 4 need your judgement\./,
+    );
+    // When every row stands on one finding, the second number is not repeated.
+    expect(crsHeadline(run, { comment: 5, needsYou: 0, met: 0, notApplicable: 0, anotherDocument: 0 }, traced, 5)).toMatch(/^5 comments\. /);
+  });
+  it("order 112: the read time is the stored trace's own total; with no trace, no read time is claimed", () => {
+    expect(crsHeadline(run, { comment: 1, needsYou: 0, met: 0, notApplicable: 0, anotherDocument: 0 }, { ...traced, readSeconds: 3480 }))
+      .toContain("Read in 58 min");
+    // created_at and completed_at are 18 minutes apart here, and still not used.
+    expect(crsHeadline(run, { comment: 1, needsYou: 0, met: 0, notApplicable: 0, anotherDocument: 0 })).not.toContain("Read in");
   });
   it("a field the run does not hold renders as nothing, never 0", () => {
     const bare = { by_status: {}, created_at: null, completed_at: null } as unknown as ReviewRunSummary;
     expect(crsHeadline(bare, { comment: 1, needsYou: 0, met: 0, notApplicable: 0, anotherDocument: 0 })).toBe("1 comment.");
     expect(crsHeadline({ ...run, page_coverage: null }, { comment: 0, needsYou: 1, met: 90, notApplicable: 0, anotherDocument: 0 }))
-      .toBe("1 comment, 1 needs your judgement. 90 values met, 4,362 clauses not applicable (hidden). Read in 18 min.");
+      .toBe("1 comment, 1 needs your judgement. 90 values met, 4,362 clauses not applicable (hidden).");
   });
 });
 
@@ -153,17 +167,31 @@ describe("headlineFieldsOf", () => {
     page_coverage: { pages_total: 12, fact_pages: [], pages_not_read_into_fields: [4, 9], not_read_reasons: {} },
   } as unknown as ReviewRunSummary;
   it("reads the run's stored fields when there is no server summary", () => {
-    expect(headlineFieldsOf(run)).toEqual({ doesNotApply: 4362, unreadPages: [4, 9] });
+    expect(headlineFieldsOf(run)).toEqual({ doesNotApply: 4362, unreadPages: [4, 9], readSeconds: null });
   });
   it("reads the server's record when it sent one: unread plus timed-out pages, once each, in order", () => {
     expect(headlineFieldsOf(run, {
       requirement_split: { does_not_apply: 12 } as never,
       page_coverage: { pages_total: 12, fact_pages: [], pages_not_read_into_fields: [9, 4], not_read_reasons: {} },
       timed_out_pages: [7, 4],
-    })).toEqual({ doesNotApply: 12, unreadPages: [4, 7, 9] });
+      stage_seconds: { extract: 3000.5, compare: 479.5 },
+    })).toEqual({ doesNotApply: 12, unreadPages: [4, 7, 9], readSeconds: 3480 });
   });
   it("a field the server does not hold is nothing, not the runs list's copy and never 0", () => {
     expect(headlineFieldsOf(run, { requirement_split: null, page_coverage: null, timed_out_pages: null }))
-      .toEqual({ doesNotApply: null, unreadPages: [] });
+      .toEqual({ doesNotApply: null, unreadPages: [], readSeconds: null });
   });
 });
+
+describe("order 112: the observation in plain words", () => {
+  it("drops the review's internal reason code before the colon; the plain words stay", () => {
+    expect(plainObservation("no_field_matched: the datasheet has no row for design pressure"))
+      .toBe("the datasheet has no row for design pressure");
+    expect(plainObservation("ambiguous_match: two rows could be the one meant")).toBe("two rows could be the one meant");
+  });
+  it("leaves ordinary sentences alone, even with a colon", () => {
+    expect(plainObservation("Design pressure: 6,900 kPa against 7,000 kPa")).toBe("Design pressure: 6,900 kPa against 7,000 kPa");
+    expect(plainObservation("note: one word is not a code")).toBe("note: one word is not a code");
+  });
+});
+
