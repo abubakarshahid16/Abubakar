@@ -20,6 +20,9 @@ def _now() -> str:
 
 @schema_once
 def ensure_schema() -> None:
+    # A scoped read joins `deliverables` (`_scope_where`), so that table is ensured too.
+    from . import deliverables
+    deliverables.ensure_schema()
     with connect() as conn:
         conn.execute("""CREATE TABLE IF NOT EXISTS risks (
             id TEXT PRIMARY KEY, risk_type TEXT NOT NULL CHECK(risk_type IN ('schedule','review','dependency','compliance')),
