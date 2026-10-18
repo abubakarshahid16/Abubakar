@@ -72,12 +72,25 @@ describe("inboxStateOf", () => {
     const state = inboxStateOf(run({ status: "half_done" }));
     expect(state.kind).toBe("other");
     expect(stateLabel(state)).toBe("half_done");
-    expect(inFilter(state, "needs_me")).toBe(false);
+    // shown as itself AND under the default chip: an unknown state never vanishes
+    expect(inFilter(state, "needs_me")).toBe(true);
+  });
+
+  it("a completed run is Ready even while its job row still says running or queued", () => {
+    expect(inboxStateOf(run({ status: "completed", job: job({}) })).kind).toBe("ready");
+    expect(inboxStateOf(run({ status: "completed", job: job({ state: "queued" }) })).kind).toBe("ready");
+  });
+
+  it("a job finishing its last step never reads step 4 of 3", () => {
+    const label = stateLabel(inboxStateOf(run({
+      status: "running", job: job({ progress_done: 3, progress_total: 3, progress_label: "comparing" }),
+    })));
+    expect(label).toBe("Running: comparing");
   });
 });
 
 describe("inFilter and anyMoving", () => {
-  it("Needs me is Ready, Failed and Not reviewed; not Signed, Queued or Running", () => {
+  it("Needs me is everything but Signed, Queued and Running - a cancelled or unknown state never vanishes", () => {
     const kinds = {
       ready: inboxStateOf(run()),
       failed: inboxStateOf(run({ status: "failed" })),
@@ -85,9 +98,11 @@ describe("inFilter and anyMoving", () => {
       signed: inboxStateOf(run({ crs_issued_at: "2026-10-02T00:00:00Z" })),
       queued: inboxStateOf(run({ status: "queued" })),
       running: inboxStateOf(run({ status: "running", job: job({}) })),
+      cancelled: inboxStateOf(run({ status: "cancelled" })),
+      other: inboxStateOf(run({ status: "half_done" })),
     };
     expect(Object.entries(kinds).filter(([, s]) => inFilter(s, "needs_me")).map(([k]) => k))
-      .toEqual(["ready", "failed", "notReviewed"]);
+      .toEqual(["ready", "failed", "notReviewed", "cancelled", "other"]);
     expect(Object.entries(kinds).filter(([, s]) => inFilter(s, "in_progress")).map(([k]) => k))
       .toEqual(["queued", "running"]);
     expect(anyMoving([kinds.ready, kinds.signed])).toBe(false);
