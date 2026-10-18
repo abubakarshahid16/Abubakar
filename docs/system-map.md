@@ -161,6 +161,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `review_tiers` | Order 95: each finding of a run in ONE tier (comment / needs you / met or not applicable) with a reason word; display only |
 | `review` | Persistent workflow records for AI-assisted engineering reviews |
 | `finding_query` | The one scope filter of the review-findings list and its count, so a page and its total agree (order 117 item 5) |
+| `paging` | The fields every paged list response carries: `total` (the page's denominator), `limit`, `offset` (order 117 item 5) |
 | `review_jobs` | P3: a review runs as a background job on the B11 queue, not inside the request |
 | `review_trace` | Show what each step of a finished review produced (REVIEW_DEBUG console and per-run log, #791) |
 | `risks` | Typed EPC risk register, kept separate from evidence-backed findings |

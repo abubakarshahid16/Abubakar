@@ -2500,19 +2500,29 @@ def cancel_turn(conversation_id: str, turn_id: str, request: Request,
 # ------------------------------------------------------------------ pages
 
 
-@app.get("/api/jobs", response_model=schemas.JobList,
-         responses={**schemas.ERRORS_422})
+@app.get("/api/jobs", response_model=schemas.JobList, responses={**schemas.ERRORS_422})
 def list_jobs(
     request: Request,
     document_id: str | None = Query(None),
     state: str | None = Query(None),
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
-    """B11: background jobs on documents the caller may read."""
-    reject_unknown_params(request, {"document_id", "state"})
-    return {"jobs": job_queue_mod.list_jobs(
-        allowed_document_ids=scope.allowed_document_ids,
-        document_id=document_id, state=state)}
+    """B11: background jobs on documents the caller may read, newest first, one
+    page (100 by default, as before) with `total` (order 117 item 5)."""
+    reject_unknown_params(request, {"document_id", "state", "limit", "offset"})
+    where = {
+        "allowed_document_ids": scope.allowed_document_ids,
+        "document_id": document_id,
+        "state": state,
+    }
+    return {
+        "jobs": job_queue_mod.list_jobs(**where, limit=limit, offset=offset),
+        "total": job_queue_mod.count_jobs(**where),
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 @app.get("/api/jobs/{job_id}", response_model=schemas.Job,

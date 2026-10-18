@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from .. import (
     access,
@@ -30,6 +30,7 @@ from .. import requirement_split as requirement_split_mod
 from .. import submittal_review as submittal_review_mod
 from ..api_utils import reject_unknown_params, require_document
 from ..db import connect
+from ..paging import ListPage
 
 router = APIRouter()
 
@@ -40,14 +41,8 @@ BOUNDARY = "findings of this run, on the submittal you may read"
 RUNS_MAX_PAGE_SIZE = 200
 
 
-class ReviewRunList(BaseModel):
+class ReviewRunList(ListPage):
     runs: list[schemas.ReviewRunSummary]
-    total: int = Field(
-        description="every run the caller may read under the same filter, "
-        "whatever page was asked for: the denominator of `runs`"
-    )
-    limit: int | None = Field(None, description="the page size; null means every run")
-    offset: int = 0
 
 
 class TierCounts(BaseModel):
