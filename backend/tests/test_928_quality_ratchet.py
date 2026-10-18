@@ -6,6 +6,7 @@ rules has an entry - never a rule silently missing.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import sys
 from pathlib import Path
@@ -249,6 +250,14 @@ def test_measure_covers_all_nine_rules_and_never_fabricates_a_value_with_no_note
 # ------------------------------------------- order 79d: formatter, changed files only
 
 
+#: The formatter tests run ruff. The Windows job installs only the backend's
+#: requirements; the Linux shards and the lint job install ruff (tests.yml).
+needs_ruff = pytest.mark.skipif(
+    importlib.util.find_spec("ruff") is None,
+    reason="ruff is installed by the Linux test shards and the lint job, not the Windows job",
+)
+
+
 def test_a_new_file_must_be_formatted_and_a_changed_one_may_not_drift_further():
     blocked, better = qr.compare_format(
         [
@@ -266,6 +275,7 @@ def test_a_new_file_must_be_formatted_and_a_changed_one_may_not_drift_further():
     assert better == ["backend/closer.py 10 -> 3"]
 
 
+@needs_ruff
 def test_format_drift_counts_the_lines_the_formatter_would_change():
     assert qr.format_drift("x = 1\n", "backend/m.py") == 0
     # `x=1` -> `x = 1`: one line out, one line in
@@ -299,6 +309,7 @@ def repo(tmp_path, monkeypatch):
     return tmp_path
 
 
+@needs_ruff
 def test_the_cli_blocks_a_changed_file_that_drifts_further(repo, capsys):
     (repo / "backend" / "old.py").write_text("a=1\nb = 2\nc=3\n", encoding="utf-8")
     _git(repo, "commit", "-qam", "grow")
@@ -306,6 +317,7 @@ def test_the_cli_blocks_a_changed_file_that_drifts_further(repo, capsys):
     assert "FORMAT DRIFT GREW: backend/old.py 2 -> 4" in capsys.readouterr().out
 
 
+@needs_ruff
 def test_the_cli_passes_an_untidy_file_whose_new_lines_are_formatted(repo, capsys):
     (repo / "backend" / "old.py").write_text("a=1\nb = 2\nc = 3\n", encoding="utf-8")
     _git(repo, "commit", "-qam", "tidy addition")
@@ -313,12 +325,14 @@ def test_the_cli_passes_an_untidy_file_whose_new_lines_are_formatted(repo, capsy
     assert "1 changed Python files checked" in capsys.readouterr().out
 
 
+@needs_ruff
 def test_a_renamed_untidy_file_is_not_a_new_file(repo):
     _git(repo, "mv", "backend/old.py", "backend/moved.py")
     _git(repo, "commit", "-qm", "move")
     assert qr.format_check("base") == ([], [], [], 1)
 
 
+@needs_ruff
 def test_a_new_untidy_file_is_blocked_and_files_outside_the_trees_are_not_read(repo):
     (repo / "backend" / "new.py").write_text("z=9\n", encoding="utf-8")
     (repo / "frontend.py").write_text("y=8\n", encoding="utf-8")
@@ -335,6 +349,7 @@ def test_a_new_untidy_file_is_blocked_and_files_outside_the_trees_are_not_read(r
 _UNTIDY = "".join(f"value_{i}={i}\n" for i in range(10))
 
 
+@needs_ruff
 def test_code_moved_out_of_another_file_keeps_its_formatting(repo):
     (repo / "backend" / "long.py").write_text(_UNTIDY + "keep=1\n", encoding="utf-8")
     _git(repo, "add", "-A")
@@ -354,6 +369,7 @@ def test_code_moved_out_of_another_file_keeps_its_formatting(repo):
     ]
 
 
+@needs_ruff
 def test_new_code_beside_a_little_moved_code_must_still_be_formatted(repo):
     # one moved line and four new untidy ones: 20% moved, under the bar
     (repo / "backend" / "old.py").write_text("b = 2\n", encoding="utf-8")
@@ -371,3 +387,11 @@ def test_moved_share_counts_a_route_decorator_as_the_same_line():
     deleted = {'@app.get("/api/x")', "def x():"}
     assert qr.moved_share('@router.get("/api/x")\ndef x():\n\n', deleted) == 1.0
     assert qr.moved_share("", deleted) == 0.0
+
+
+def test_a_missing_ruff_is_a_named_error_never_zero_drift(monkeypatch):
+    # Without the module, `python -m ruff` exits 1 like "would reformat" and
+    # prints no diff: that read as 0 drift, a silent pass (Windows CI, #1092).
+    monkeypatch.setattr(qr.importlib.util, "find_spec", lambda name: None)
+    with pytest.raises(SystemExit, match="ruff is not installed"):
+        qr.format_drift("x=1\n", "backend/m.py")

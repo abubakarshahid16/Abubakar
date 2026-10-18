@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import importlib.util
 import json
 import re
 import shutil
@@ -167,7 +168,14 @@ FORMAT_TREES = ("backend/", "scripts/", "eval/")
 def format_drift(source: str, path: str) -> int:
     """How many lines `ruff format` would add or remove in `source`. Main is
     far from formatted (958 of 981 files on 18 Oct), so the number is
-    ratcheted per file instead of demanding a whole-file reformat."""
+    ratcheted per file instead of demanding a whole-file reformat.
+
+    A missing ruff is a named error, never 0: `python -m ruff` without the
+    module also exits 1, the code for "would reformat", with an empty diff."""
+    if importlib.util.find_spec("ruff") is None:
+        raise SystemExit(
+            "not measured: ruff is not installed for this Python; the formatter check cannot run"
+        )
     proc = subprocess.run(
         [
             sys.executable,
@@ -188,7 +196,9 @@ def format_drift(source: str, path: str) -> int:
         encoding="utf-8",
         cwd=REPO,
     )
-    if proc.returncode not in (0, 1):
+    if proc.returncode not in (0, 1) or (
+        proc.returncode == 1 and not proc.stdout.strip()
+    ):
         raise SystemExit(
             f"ruff format failed on {path} ({proc.returncode}): {proc.stderr.strip()[:300]}"
         )
