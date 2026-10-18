@@ -375,13 +375,13 @@ def build_corpus(root: Path, *, docs: int, sheets: int, pages: int, seed: int) -
     _isolate_settings(root)
     from fastapi.testclient import TestClient
 
-    from app import db, keyword, submittal_review
+    from app import db, fts_index, submittal_review
     from app.ingest import IngestionWorker
     from app.main import app
 
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     submittal_review.ensure_schema()
     rng = random.Random(seed)
     client = TestClient(app)          # no `with`: no lifespan, no worker thread

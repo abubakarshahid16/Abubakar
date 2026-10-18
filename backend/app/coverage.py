@@ -23,7 +23,7 @@ Two rules that are not negotiable, and each has a test rather than a comment.
    would be a stronger claim than the evidence supports. The field is `False`
    or `None`.
 
-2. This module may call `keyword.term_occurrences(term, doc_id,
+2. This module may call `fts_index.term_occurrences(term, doc_id,
    allowed_document_ids=...)` and must NEVER call `lexical.assess` with a
    document_id it derived itself. The absolute presence gate inside `assess`
    is already parameterised by document, so one careless loop turns "does not
@@ -50,7 +50,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from . import keyword, lexical
+from . import fts_index, lexical
 
 #: What the completeness verdict rests on.
 #:
@@ -137,7 +137,7 @@ def distinguishing_terms(
     `distinctive_terms` is reused rather than reimplemented so that a
     multi-word expansion the corpus defines keeps counting as one term.
     """
-    indexed = keyword.indexed_count(allowed_document_ids=allowed_document_ids)
+    indexed = fts_index.indexed_count(allowed_document_ids=allowed_document_ids)
     if not indexed:
         return []
     cutoff = (
@@ -149,7 +149,7 @@ def distinguishing_terms(
     out: list[str] = []
     for term in distinctive_terms_of(
             question, allowed_document_ids=allowed_document_ids):
-        occurrences = keyword.term_occurrences(
+        occurrences = fts_index.term_occurrences(
             term, allowed_document_ids=allowed_document_ids)
         # -1 is a term FTS cannot parse and tells us nothing either way; it is
         # not the same as 0, and neither is treated as distinguishing.
@@ -186,7 +186,7 @@ def _incidence(
     table: dict[str, list[str]] = {doc_id: [] for doc_id in document_ids}
     for term in terms:
         for doc_id in document_ids:
-            if keyword.term_occurrences(
+            if fts_index.term_occurrences(
                     term, doc_id,
                     allowed_document_ids=allowed_document_ids) > 0:
                 table[doc_id].append(term)
@@ -242,7 +242,7 @@ def document_incidence(
     Every row comes from `allowed_document_ids` and nothing else. There is no
     `out_of_scope` status, deliberately - a row saying "expected, out of scope"
     would leak the existence of a document the caller may not be allowed to
-    know about, the precise failure `keyword.py:230-237` argues against.
+    know about, the precise failure `fts_index.py:230-237` argues against.
     """
     if not reranked:
         # Every status below "supporting" turns on the credibility floor, and

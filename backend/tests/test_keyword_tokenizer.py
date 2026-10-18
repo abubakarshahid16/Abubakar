@@ -5,9 +5,9 @@ Audit R1/R2/R3/R4/R7 and ingest F3 (2026-09-27). The FTS tokenizer keeps `.`
 the full stop that ends a sentence: "comply with NACE MR0175." was stored as
 `mr0175.`, a question about MR0175 matched nothing, and the lexical gate told
 the reader "MR0175 does not appear anywhere in the indexed documents". Every
-test here builds a real index through `keyword.index_document` (or the
+test here builds a real index through `fts_index.index_document` (or the
 startup migration) and queries it through the production functions, and each
-one is mutation-proven: scripts/mutations/keyword.py M1200-M1212.
+one is mutation-proven: scripts/mutations/fts_index.py M1200-M1212.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app import db, keyword, lexical
+from app import db, fts_index, lexical
 from app.config import settings
 from app.main import app
 
@@ -27,11 +27,11 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "t.sqlite")
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
-    keyword.reset_vocabulary_cache()
+    fts_index.ensure_schema()
+    fts_index.reset_vocabulary_cache()
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     yield
-    keyword.reset_vocabulary_cache()
+    fts_index.reset_vocabulary_cache()
     db.reset_connection()
 
 
@@ -58,8 +58,8 @@ def _document(doc_id: str, chunks: list[tuple[str, str]]) -> str:
 
 def _indexed(doc_id: str, chunks: list[tuple[str, str]]) -> str:
     _document(doc_id, chunks)
-    keyword.index_document(doc_id)
-    keyword.reset_vocabulary_cache()
+    fts_index.index_document(doc_id)
+    fts_index.reset_vocabulary_cache()
     return doc_id
 
 
@@ -69,7 +69,7 @@ def _everyone() -> frozenset[str]:
 
 
 def _hits(question: str) -> set[str]:
-    return {h["chunk_id"] for h in keyword.search(
+    return {h["chunk_id"] for h in fts_index.search(
         question, limit=30, allowed_document_ids=_everyone())}
 
 
@@ -100,7 +100,7 @@ def test_a_sentence_final_identifier_is_found_by_its_bare_spelling():
     assert "spec-c2" in _hits("A106")
     everyone = _everyone()
     for term in ("MR0175", "HRC", "A106", "NACE MR0175"):
-        assert keyword.term_occurrences(
+        assert fts_index.term_occurrences(
             term, allowed_document_ids=everyone) > 0, term
 
 
@@ -109,7 +109,7 @@ def test_the_query_side_strips_a_trailing_full_stop_the_same_way():
     the term "HRC." - which must ask for the token the index holds."""
     _indexed("spec", [SOUR, HARD, PIPE, FILLER])
     assert "spec-c1" in _hits("Is the limit 22 HRC.")
-    assert keyword.term_occurrences(
+    assert fts_index.term_occurrences(
         "HRC.", allowed_document_ids=_everyone()) > 0
 
 
@@ -119,16 +119,16 @@ def test_every_phrase_the_builder_quotes_is_normalised_like_the_index():
     never through `normalise_query`. It must ask for `hrc`, not `hrc.`."""
     _indexed("spec", [SOUR, HARD, PIPE, FILLER])
     scope = _everyone()
-    hits = keyword._run_match(
-        db.connect(), keyword.build_match_query("HRC."),
-        *keyword._scope_clause(None, scope), 10)
+    hits = fts_index._run_match(
+        db.connect(), fts_index.build_match_query("HRC."),
+        *fts_index._scope_clause(None, scope), 10)
     assert [h["chunk_id"] for h in hits] == ["spec-c1"]
 
 
 def test_index_text_keeps_identifiers_intact():
     """Stripping stops at the edges: inner `.`, `-`, `/` survive, so clause
     numbers, grades and units are still one token each."""
-    stored = keyword.index_text(
+    stored = fts_index.index_text(
         "See 5.3.2. Use A-106, API 610, Sa 2½, 10.9 bolts, 3,300 kW, mm/s.")
     body = stored.split("\n")[0]
     for kept in ("5.3.2", "A-106", "API 610", "Sa 2½", "10.9", "3,300", "mm/s"):
@@ -163,7 +163,7 @@ def test_the_refusal_path_no_longer_calls_a_present_standard_absent():
 
 
 def test_find_designators_keeps_the_whole_dotted_number():
-    assert keyword.find_designators("clause 5.3.2 of table 5.1") == [
+    assert fts_index.find_designators("clause 5.3.2 of table 5.1") == [
         "clause 5.3.2", "table 5.1"]
 
 
@@ -215,7 +215,7 @@ def test_identifier_spellings_match_each_other():
         assert _hits(asked) == every, asked
     # the lexical gate counts presence the same way search finds it
     for term in ("API 610", "API-610", "API610"):
-        assert keyword.term_occurrences(
+        assert fts_index.term_occurrences(
             term, allowed_document_ids=_everyone()) == 3, term
 
 
@@ -232,7 +232,7 @@ def test_an_identifier_number_alone_does_not_satisfy_the_identifier():
     _indexed("x", [("1", "Pumps shall comply with API 610 in full."),
                    ("1", "The flange is 610 mm across and pumps are grey.")])
     assert _hits("API 610 pumps") == {"x-c0"}
-    q = keyword.build_match_query("API 610 pumps")
+    q = fts_index.build_match_query("API 610 pumps")
     assert '"610"' not in q and "610s" not in q
 
 
@@ -248,15 +248,15 @@ def test_singular_and_plural_of_an_ordinary_word_match():
     # "pump." is not a word and gets no plural
     assert "p-c0" in _hits("Do we need a pump.")
     assert "p-c1" in _hits("isolation valves")
-    assert keyword.term_occurrences(
+    assert fts_index.term_occurrences(
         "Valves", allowed_document_ids=_everyone()) > 0
 
 
 def test_identifiers_and_acronyms_are_never_folded():
     for word in ("HRC", "A106", "WCB", "API", "NDFT", "ASME", "CA6NM"):
-        assert keyword.word_forms(word) == [word], word
-    assert keyword.word_forms("assembly") == ["assembly", "assemblies"]
-    assert keyword.word_forms("flanges") == ["flanges", "flange"]
+        assert fts_index.word_forms(word) == [word], word
+    assert fts_index.word_forms("assembly") == ["assembly", "assemblies"]
+    assert fts_index.word_forms("flanges") == ["flanges", "flange"]
 
 
 # ------------------------------------------------ numbers and compounds
@@ -304,19 +304,19 @@ def test_an_index_written_by_older_code_is_detected_and_rebuilt():
     _document("old", [SOUR, FILLER])
     _document("waiting", [HARD])          # chunked, keyword stage not yet run
     _write_old_style_index("old")
-    assert keyword.index_version() is None
-    assert keyword.index_is_stale() is True
+    assert fts_index.index_version() is None
+    assert fts_index.index_is_stale() is True
     assert "old-c0" not in _hits("MR0175"), "precondition: the old index misses"
 
-    result = keyword.migrate_index()
+    result = fts_index.migrate_index()
     assert result["rebuilt"] is True and result["documents"] == 1
-    assert keyword.index_version() == keyword.INDEX_VERSION
-    assert keyword.index_is_stale() is False
+    assert fts_index.index_version() == fts_index.INDEX_VERSION
+    assert fts_index.index_is_stale() is False
     assert "old-c0" in _hits("MR0175")
     # only documents already in the index are rebuilt
     assert "waiting-c0" not in _hits("HRC")
     # idempotent
-    assert keyword.migrate_index()["rebuilt"] is False
+    assert fts_index.migrate_index()["rebuilt"] is False
 
 
 def test_server_startup_rebuilds_a_stale_index():
@@ -324,5 +324,5 @@ def test_server_startup_rebuilds_a_stale_index():
     _write_old_style_index("old")
     with TestClient(app):
         pass
-    assert keyword.index_version() == keyword.INDEX_VERSION
+    assert fts_index.index_version() == fts_index.INDEX_VERSION
     assert "old-c0" in _hits("MR0175")

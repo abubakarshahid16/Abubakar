@@ -48,7 +48,7 @@ def _run() -> int:
     ap.add_argument("--questions", type=Path, default=harness.QUESTIONS)
     args = ap.parse_args()
 
-    from app import access, db, keyword, vector_store
+    from app import access, db, fts_index, vector_store
     from app.config import settings
 
     questions = harness.load_questions(args.questions)
@@ -67,7 +67,7 @@ def _run() -> int:
         settings.auth_mode = access.AUTH_DISABLED
         db.reset_connection()
         db.init_db()
-        keyword.ensure_schema()
+        fts_index.ensure_schema()
         settings.upload_dir.mkdir(parents=True, exist_ok=True)
         harness.ingest_corpus(tmp / "corpus")
         rows = harness.run_questions(questions)

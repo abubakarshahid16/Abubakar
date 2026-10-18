@@ -83,9 +83,9 @@ def test_a_listed_module_that_does_not_exist_is_reported():
 
 def test_an_unrecorded_second_module_for_one_job_is_reported():
     text = system_map.MAP.read_text(encoding="utf-8").replace(
-        "| `keyword` | SQLite FTS5 keyword index |", "| `keyword` | Hybrid retrieval: FTS5 + dense vectors, fused with RRF, then reranked |")
+        "| `fts_index` | SQLite FTS5 keyword index |", "| `fts_index` | Hybrid retrieval: FTS5 + dense vectors, fused with RRF, then reranked |")
     found = system_map.problems(text)
-    assert any("keyword" in p and "not a recorded duplicate" in p for p in found)
+    assert any("fts_index" in p and "not a recorded duplicate" in p for p in found)
 
 
 def test_a_module_listed_twice_is_reported():

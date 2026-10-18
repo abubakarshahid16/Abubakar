@@ -2,7 +2,7 @@
 
 The first attempt hand-rolled the FTS SQL and scored 0/14 - a broken harness,
 not a broken product, proved by a plain LIKE finding the same facts. This
-version imports app.keyword and calls search() exactly as the API does, so a
+version imports app.fts_index and calls search() exactly as the API does, so a
 failure here is the product's failure.
 
 Run: python score2.py <sqlite> <backend-dir>
@@ -29,7 +29,7 @@ def main() -> int:
     settings.db_path = Path(db_path)
     from app import db as db_mod  # noqa: E402
     db_mod.reset_connection()
-    from app import keyword  # noqa: E402
+    from app import fts_index  # noqa: E402
 
     gold = json.loads(GOLD.read_text())
 
@@ -51,7 +51,7 @@ def main() -> int:
     print("=" * 78)
     page_hits = doc_hits = 0
     for f in gold["facts"]:
-        rows = keyword.search(f["question"], limit=20, allowed_document_ids=all_ids)
+        rows = fts_index.search(f["question"], limit=20, allowed_document_ids=all_ids)
         got_doc = got_page = False
         rank = None
         for i, r in enumerate(rows, 1):
@@ -78,7 +78,7 @@ def main() -> int:
     print("LAYER 2 - SCOPE: does a named-document comparison stay on those docs?")
     print("=" * 78)
     for c in gold["comparisons"]:
-        rows = keyword.search(c["question"], limit=24, allowed_document_ids=all_ids)
+        rows = fts_index.search(c["question"], limit=24, allowed_document_ids=all_ids)
         seen: dict[str, int] = {}
         for r in rows:
             seen[r["filename"]] = seen.get(r["filename"], 0) + 1
@@ -103,7 +103,7 @@ def main() -> int:
     print("LAYER 3 - THE FALSE GAP (doc13 35% vs doc16 50%)")
     print("=" * 78)
     q = "compare design submittal percentages in doc13.pdf and doc16.pdf"
-    rows = keyword.search(q, limit=24, allowed_document_ids=all_ids)
+    rows = fts_index.search(q, limit=24, allowed_document_ids=all_ids)
     sides = {}
     for r in rows:
         ps, pe = pages_of(r["chunk_id"])

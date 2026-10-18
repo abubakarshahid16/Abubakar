@@ -3,7 +3,7 @@
 A question typed as an abbreviation matches passages that spell it out, and a
 spelled-out question matches passages that only print the abbreviation, with
 the expansion only ever ADDING match terms and never bypassing the gate.
-Files: backend/app/acronyms.py, keyword.py, search.py, lexical.py.
+Files: backend/app/acronyms.py, fts_index.py, search.py, lexical.py.
 Target: tests/test_r3_retrieval_abbreviations.py.
 """
 
@@ -77,7 +77,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T, keyword="designation", tags=_TAG),
     Mutation(id="M2009", phase=2009,
              description="expansion REPLACES the typed abbreviation instead of adding to it",
-             path=APP / "keyword.py",
+             path=APP / "fts_index.py",
              anchor="            out[key] = list(dict.fromkeys([key, *equivalents, *tails]))",
              replacement="            out[key] = list(dict.fromkeys([*equivalents, *tails]))",
              target=_T, keyword="never_removed", tags=_TAG),

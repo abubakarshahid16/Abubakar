@@ -29,7 +29,7 @@ APP = REPO / "backend" / "app"
 TEST_HOOKS = {
     "acronyms.py": "reset_cache", "auth.py": "reset_limiter", "market_providers.py": "reset_rate_limits",
     "metrics.py": "reset_ollama_cache", "watcher.py": "reset_watcher", "front_matter.py": "reload_vocabulary",
-    "standard_ids.py": "reload_vocabulary", "keyword.py": "reload_prefixes", "market.py": "reload_samples",
+    "standard_ids.py": "reload_vocabulary", "fts_index.py": "reload_prefixes", "market.py": "reload_samples",
 }
 vulture_available = importlib.util.find_spec("vulture") is not None
 
@@ -97,7 +97,7 @@ def test_the_check_reports_a_new_unused_variable_and_the_whitelist_silences_a_li
 
 def test_the_functions_removed_in_this_sweep_are_gone_and_nothing_imports_them():
     gone = {"absence.py": ["not_found_text", "is_unrecognised"], "access.py": ["grant_uploaded_document_to_owner"],
-            "chat_answers.py": ["_engine_label"], "keyword.py": ["drop_document"], "lexical.py": ["uncovered_terms"],
+            "chat_answers.py": ["_engine_label"], "fts_index.py": ["drop_document"], "lexical.py": ["uncovered_terms"],
             "submittal_review.py": ["_new_id"], "synthesis.py": ["_figures_with_units"],
             "answer.py": ["figure_conflict"], "extract.py": ["PageResult"], "ocr.py": ["PageOCR"],
             "schemas.py": ["KeywordSearchResult"]}

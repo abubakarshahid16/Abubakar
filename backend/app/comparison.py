@@ -723,7 +723,7 @@ def _compare(requirement: dict, fact: dict | None, *,
     gate. **Omitting it does not skip the gate — it fails it.** A conditional
     `numeric_limit` with no facts supplied returns NEEDS_ENGINEER_REVIEW rather
     than a verdict, so a caller that forgets cannot get a confident answer. That
-    is the same discipline `keyword.search` applies to `allowed_document_ids`:
+    is the same discipline `fts_index.search` applies to `allowed_document_ids`:
     the unsafe default is not available.
     """
     # ISSUE #163, CRITERION 2 & 4 - BEFORE EVERY OTHER BRANCH, INCLUDING THE

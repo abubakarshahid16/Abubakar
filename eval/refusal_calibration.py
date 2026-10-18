@@ -21,7 +21,7 @@ WHAT IT BUILDS, needing no human-written key:
 
   ANSWER-ABSENT. A candidate list of business/commercial terms an engineering
   standard would not state (warranty period, payment terms, ...), each
-  VERIFIED absent by `keyword.term_occurrences` before use - the same check
+  VERIFIED absent by `fts_index.term_occurrences` before use - the same check
   `eval/run_eval.py`'s `check_ground_truth` already relies on. Plus, for
   every answer-present topic, one REAL-SUBJECT-WRONG-VALUE sibling: the same
   real topic, asking about a number that provably does not appear in that
@@ -137,7 +137,7 @@ _LEADING_JUNK = re.compile(
     r"^\s*(?:\d+(?:\.\d+)*\.?\s+)?(?:the|a|an)\s+", re.IGNORECASE)
 
 #: Business/commercial terms an engineering standard would not state.
-#: Candidates only - each is VERIFIED absent (keyword.term_occurrences == 0)
+#: Candidates only - each is VERIFIED absent (fts_index.term_occurrences == 0)
 #: before it is used as a question topic.
 ABSENT_CANDIDATES = (
     "warranty period", "payment terms", "liquidated damages", "bid bond",
@@ -537,7 +537,7 @@ def main(argv: list[str] | None = None) -> int:
     db.reset_connection()
     db.init_db()
 
-    from app import keyword, search
+    from app import fts_index, search
 
     conn = db.connect()
     scope = search.every_document_id()
@@ -551,7 +551,7 @@ def main(argv: list[str] | None = None) -> int:
 
     absent_terms = []
     for term in ABSENT_CANDIDATES:
-        n = keyword.term_occurrences(term, allowed_document_ids=scope)
+        n = fts_index.term_occurrences(term, allowed_document_ids=scope)
         if n == 0:
             absent_terms.append(term)
     print(f"Absent-topic terms verified absent: {len(absent_terms)} of {len(ABSENT_CANDIDATES)} candidates")

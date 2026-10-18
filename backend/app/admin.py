@@ -111,7 +111,7 @@ def ensure_schema() -> None:
     the route that returns it.
 
     This lives here and not in `db.py` because the schema file is owned by
-    another change in flight; `keyword.ensure_schema()` sets the precedent for
+    another change in flight; `fts_index.ensure_schema()` sets the precedent for
     a module carrying its own table. The equivalent `db.py` diff is in the
     report, and moving it there changes nothing about this module: the
     statement is `IF NOT EXISTS`.

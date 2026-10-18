@@ -15,7 +15,7 @@ import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
-from app import db, keyword, states
+from app import db, fts_index, states
 from app.chunker import chunk_document
 from app.config import settings
 from app.extract import extract_document
@@ -38,7 +38,7 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "t.sqlite")
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     yield
     db.reset_connection()
@@ -78,7 +78,7 @@ def test_a_document_with_a_built_index_is_never_left_at_indexing_keyword():
     chunk_document(doc_id)
     assert status_of(doc_id) == states.INDEXING_KEYWORD
 
-    result = keyword.index_document(
+    result = fts_index.index_document(
         doc_id,
         advance_to=states.PARTIALLY_SEARCHABLE,
         expect_status=states.INDEXING_KEYWORD,
@@ -106,7 +106,7 @@ def test_indexing_and_the_state_advance_are_one_transaction():
 
     # A compare-and-set against the WRONG expected status must leave the
     # document alone; the index may be rebuilt but the status must not move.
-    keyword.index_document(
+    fts_index.index_document(
         doc_id, advance_to=states.READY, expect_status="a_status_that_never_existed"
     )
     assert status_of(doc_id) == states.INDEXING_KEYWORD, (
@@ -151,7 +151,7 @@ def test_no_stage_leaves_work_done_with_the_state_unadvanced():
     chunks = conn.execute(
         "SELECT COUNT(*) FROM chunks WHERE document_id = ?", (doc_id,)
     ).fetchone()[0]
-    indexed = keyword.indexed_count(doc_id, allowed_document_ids=_scope())
+    indexed = fts_index.indexed_count(doc_id, allowed_document_ids=_scope())
     vectors = conn.execute(
         "SELECT COUNT(*) FROM chunk_vectors WHERE document_id = ?", (doc_id,)
     ).fetchone()[0]
@@ -188,7 +188,7 @@ def test_a_document_stranded_by_an_older_build_is_recovered():
             " WHERE id = ?",
             (states.INDEXING_KEYWORD, doc_id),
         )
-    assert keyword.indexed_count(doc_id, allowed_document_ids=_scope()) > 0
+    assert fts_index.indexed_count(doc_id, allowed_document_ids=_scope()) > 0
     assert worker._next_document() == doc_id, "a stranded document is not even queued"
 
     worker.process(doc_id)

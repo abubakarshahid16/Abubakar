@@ -23,7 +23,7 @@ from decimal import ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal, InvalidOperation
 
 from . import corpus as corpus_mod
 from . import intent as intent_mod
-from . import keyword
+from . import fts_index
 from . import condition_choice as cc
 from . import context_budget
 from . import claims as claims_mod
@@ -433,7 +433,7 @@ def _second_passage(
     if not missing:
         return None
 
-    wants_designator = bool(keyword.find_designators(question))
+    wants_designator = bool(fts_index.find_designators(question))
 
     for hit in hits[1:]:
         if hit["section"] and hit["section"] == first["section"]:

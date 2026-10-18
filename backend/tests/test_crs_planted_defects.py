@@ -38,7 +38,7 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture
 def pipeline(tmp_path, monkeypatch):
-    from app import db, submittal_review, keyword, standards, datasheets as ds_mod, page_ledger
+    from app import db, submittal_review, fts_index, standards, datasheets as ds_mod, page_ledger
 
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     monkeypatch.setattr(settings, "db_path", tmp_path / "crs_gold.sqlite")
@@ -48,7 +48,7 @@ def pipeline(tmp_path, monkeypatch):
         monkeypatch.setattr(settings, "applicability_taxonomy_path", None)
     db.reset_connection(); db.init_db()
     submittal_review.ensure_schema(); submittal_review.migrate_facts_to_per_document()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     for mod in (standards, ds_mod, page_ledger):
         fn = getattr(mod, "ensure_schema", None)
         if fn:

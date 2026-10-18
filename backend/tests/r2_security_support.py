@@ -45,8 +45,8 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "claude_spend_log", tmp_path / "spend.jsonl")
     db.reset_connection()
     db.init_db()
-    from app import keyword
-    keyword.ensure_schema()
+    from app import fts_index
+    fts_index.ensure_schema()
     from app import deliverables, review, risks, submittal_review
     for mod in (review, submittal_review, deliverables, risks):
         mod.ensure_schema()

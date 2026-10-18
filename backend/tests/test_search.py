@@ -4,7 +4,7 @@ import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
-from app import db, keyword, reranker, search
+from app import db, fts_index, reranker, search
 from app.config import settings
 from app.ingest import IngestionWorker
 from app.main import app
@@ -41,7 +41,7 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "t.sqlite")
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     yield
     db.reset_connection()
@@ -230,7 +230,7 @@ def test_search_works_keyword_only_before_any_vector_exists():
 
     extract_document(doc_id)
     chunk_document(doc_id)
-    keyword.index_document(doc_id)
+    fts_index.index_document(doc_id)
 
     vectors = db.connect().execute(
         "SELECT COUNT(*) FROM chunk_vectors WHERE document_id = ?", (doc_id,)
@@ -271,7 +271,7 @@ def test_search_never_returns_a_non_retrievable_chunk():
     conn = db.connect()
     with conn:
         conn.execute("UPDATE chunks SET retrievable = 0 WHERE document_id = ?", (doc_id,))
-    keyword.index_document(doc_id)
+    fts_index.index_document(doc_id)
 
     result = search.search("vibration limits API 610", limit=10, allowed_document_ids=_scope())
     assert result["total"] == 0, "an excluded chunk came back through search"

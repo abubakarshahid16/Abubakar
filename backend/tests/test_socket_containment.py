@@ -546,7 +546,7 @@ def test_the_reader_transport_cannot_reach_the_corpus():
     """The lane that carries a client's clause text to a public host, held to
     the same split: `standards` reads the sentence and hands it over; this
     module can send it and cannot fetch one of its own."""
-    forbidden = {"db", "search", "keyword", "chunker", "passages", "claims",
+    forbidden = {"db", "search", "fts_index", "chunker", "passages", "claims",
                  "analysis", "answer", "synthesis", "reports", "standards"}
     leaked = forbidden & _imports(APP / "reader_transport.py")
     assert not leaked, (
@@ -561,7 +561,7 @@ def test_the_model_transport_cannot_reach_the_corpus():
     """The other half of the split, held to the same rule as
     `market_transport`: the module that can SEND must not be able to READ. It
     is handed a body its caller built."""
-    forbidden = {"db", "search", "keyword", "chunker", "passages", "claims",
+    forbidden = {"db", "search", "fts_index", "chunker", "passages", "claims",
                  "analysis", "answer", "synthesis", "reports"}
     leaked = forbidden & _imports(APP / "model_transport.py")
     assert not leaked, (

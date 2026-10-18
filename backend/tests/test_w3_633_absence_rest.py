@@ -13,7 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import (absence, access, ai_engineering_check, analysis, auth, comparison, crs_export,
-                 datasheet_checks, datasheets, db, job_queue, keyword, main as main_mod,
+                 datasheet_checks, datasheets, db, job_queue, fts_index, main as main_mod,
                  review, review_jobs, standards, submittal_review, web_standards)
 from app.config import settings
 
@@ -33,7 +33,7 @@ def temp_storage(tmp_path, monkeypatch):
     db.init_db()
     submittal_review.ensure_schema()
     submittal_review.migrate_facts_to_per_document()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     access.set_user_resolver(auth.resolve_user_id)
     yield
     access.set_user_resolver(None)
@@ -51,7 +51,7 @@ def _doc(doc_id, role, text):
         conn.execute("INSERT INTO chunks (id,document_id,filename,ordinal,page_start,page_end,section,"
                      "kind,text,token_count,content_hash,retrievable) VALUES (?,?,?,0,1,1,'1',"
                      "'prose',?,1,?,1)", (f"{doc_id}-c1", doc_id, f"{doc_id}.pdf", text, f"h-{doc_id}"))
-    keyword.index_document(doc_id)
+    fts_index.index_document(doc_id)
     return doc_id
 
 

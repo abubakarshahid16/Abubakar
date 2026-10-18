@@ -16,7 +16,7 @@ that omitted its term.
 import numpy as np
 import pytest
 
-from app import db, keyword, vectorcache
+from app import db, fts_index, vectorcache
 from app.config import settings
 from app.db import connect
 from app.embedder import EMBEDDING_DIM, embedding_tag
@@ -28,7 +28,7 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "t.sqlite")
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     vectorcache.invalidate()
     yield
     vectorcache.invalidate()

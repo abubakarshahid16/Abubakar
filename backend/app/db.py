@@ -1030,7 +1030,7 @@ def _run_migration(fn, name: str, args, kwargs):
 def schema_once(fn):
     """Decorate an `ensure_schema`: skip it while the schema is unchanged.
 
-    `keyword.ensure_schema` takes an optional connection. Passed THIS thread's
+    `fts_index.ensure_schema` takes an optional connection. Passed THIS thread's
     own connection (what every caller in the app passes) it is memoised like
     the rest; passed any other connection it simply runs, because the memo
     describes the database behind `connect()` and nothing else.
