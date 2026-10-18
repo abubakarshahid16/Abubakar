@@ -53,7 +53,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import (absence, claims, conditions, datasheets, errors, field_links, match_rules, numparse, page_ledger,
-                requirements_3b, review, run_record, schemas, submittal_review)
+                requirements_3b, review, schemas, submittal_review)
+from . import run_record
 from .config import settings
 from .db import connect
 
