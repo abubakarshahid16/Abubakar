@@ -27,7 +27,7 @@ from . import review_trace as review_trace_mod
 from . import engineer_feedback as engineer_feedback_mod
 from . import datasheets as datasheets_mod
 from . import disciplines as disciplines_mod
-from . import ingest as ingest_mod
+from . import ingest as ingest_mod, dashboard_pool
 from . import job_queue as job_queue_mod
 from . import review_jobs as review_jobs_mod
 from . import orphan_guard
@@ -367,7 +367,7 @@ async def security_headers(request: Request, call_next):
 
 
 @app.get("/api/health", response_model=schemas.Health)
-def health():
+async def health():
     """Readiness, and NOTHING ELSE. This is the one unauthenticated route.
 
     It answers two questions: is the service up, and are the models present.
@@ -388,7 +388,7 @@ def health():
     backend has to distinguish "down" from "up but stuck", and neither is
     about anybody's documents.
     """
-    worker = ingest_mod.get_worker().status()
+    worker = dashboard_pool.health_status(ingest_mod.get_worker())
     return {
         "ok": True,
         "embed_model_present": (settings.embed_model_dir / "tokenizer.json").exists(),
@@ -411,6 +411,7 @@ def health():
 
 
 @app.get("/api/metrics", response_model=schemas.Metrics, responses=schemas.ERRORS_422)
+@dashboard_pool.heavy_route
 def metrics(request: Request,
     scope: access.AccessScope = Depends(access.current_scope),
 ):
@@ -1625,6 +1626,7 @@ def review_feedback(
 
 @app.get("/api/reviews/runs", response_model=schemas.ReviewRunList,
          responses=schemas.ERRORS_422)
+@dashboard_pool.heavy_route
 def list_review_runs(
     request: Request,
     document_id: str | None = Query(None, description="only this submittal's runs"),
@@ -1827,7 +1829,7 @@ def start_review_run(
         raise HTTPException(status_code=409, detail=errors.safe_error(
             errors.INVALID_PARAMETER,
             f"a review of this submittal is already queued or running ({exc.args[0]})")) from exc
-    return next(r for r in list_review_runs(
+    return next(r for r in list_review_runs.__wrapped__(
         request=request, document_id=document_id, scope=scope,
     )["runs"] if r["review_run_id"] == run_id)
 
@@ -2105,15 +2107,13 @@ def structured_search(q: str, kind: str | None = None,
         include_unowned=scope.is_admin)}
 
 
-@app.get("/api/risks", response_model=schemas.RiskList)
-def list_risks(risk_type: str | None = None,
+@app.get("/api/risks", response_model=risks_mod.RiskList)
+@dashboard_pool.heavy_route
+def list_risks(risk_type: str | None = None, limit: int = Query(risks_mod.PAGE_SIZE, ge=1, le=risks_mod.MAX_PAGE_SIZE), offset: int = Query(0, ge=0),
                scope: access.AccessScope = Depends(access.current_scope)):
     if risk_type is not None and risk_type not in risks_mod.RISK_TYPES:
         raise HTTPException(status_code=422, detail="unsupported risk type")
-    # READ ONLY (#478, #608). Detection used to run here on every GET, looping
-    # over every finding and emailing per risk. It runs in the background
-    # (`risks_mod.start_background_detection`) and from POST /api/risks/detect.
-    return {"risks": risks_mod.list_items(risk_type=risk_type, allowed_document_ids=scope.allowed_document_ids)}
+    return risks_mod.list_page(risk_type=risk_type, allowed_document_ids=scope.allowed_document_ids, limit=limit, offset=offset)
 
 
 @app.post("/api/risks/detect", response_model=schemas.RiskDetectionResult,
@@ -2132,7 +2132,7 @@ def finding_traceability(finding_id: str, scope: access.AccessScope = Depends(ac
     return item
 
 
-@app.post("/api/risks", response_model=schemas.Risk,
+@app.post("/api/risks", response_model=risks_mod.Risk,
           responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
 def create_risk(body: schemas.RiskCreate, scope: access.AccessScope = Depends(access.current_scope)):
     """Record a risk. The same rules as every other writer (audit 2026-09-30):
