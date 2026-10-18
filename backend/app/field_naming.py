@@ -195,7 +195,7 @@ def stored_names(kind: str, keys: list[str], dictionary: list[str]) -> dict[str,
                     [kind, sha, *chunk]):
                 out[r["subject_key"]] = {"field_name": r["field_name"], "quote": r["quote"]}
     except Exception as exc:  # noqa: BLE001 - no side table: nothing named yet
-        log.debug("field_naming: stored field names could not be read (no side table yet) (%s)", type(exc).__name__)  # 79c
+        log.debug("field_naming: no stored names yet (%s)", type(exc).__name__)
         return {}
     return out
 
@@ -363,7 +363,7 @@ def ensure_names(requirements: list[dict], facts: list[dict], *, provider=None) 
             if label_dictionary and label_items:
                 label_names = name_items(LABEL, label_items, label_dictionary, provider)
         except Exception as exc:  # noqa: BLE001 - ProviderRefused, BudgetExceeded, engine errors
-            log.info("field_naming: field naming was refused or failed; stored names are used (%s)", type(exc).__name__)  # 79c
+            log.info("field_naming: naming refused or failed (%s)", type(exc).__name__)
             refused = f"{type(exc).__name__}: {exc}"
             req_names = req_names or stored_names(REQUIREMENT, [k for k, _t in req_items], dictionary)
             label_dictionary = sorted({v["field_name"] for v in req_names.values() if v.get("field_name")})

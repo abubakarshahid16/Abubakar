@@ -172,7 +172,7 @@ def build_requirement(
     try:
         page_text = fetcher(url, timeout)
     except Exception as exc:  # noqa: BLE001 - a fetch failure is "no requirement", not a crash
-        log.info("web_standards: the web page could not be fetched; no requirement is taken from it (%s)", type(exc).__name__)  # 79c
+        log.info("web_standards: page could not be fetched (%s)", type(exc).__name__)
         return None
     if not _verify_quote(quote, page_text):
         return None

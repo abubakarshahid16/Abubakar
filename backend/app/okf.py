@@ -228,7 +228,7 @@ def _classification(conn, document_id: str) -> dict:
         row = conn.execute("SELECT document_number, revision, title FROM document_classification"
                            " WHERE document_id = ?", (document_id,)).fetchone()
     except Exception as exc:  # noqa: BLE001 - a library with no classification table yet
-        log.debug("okf: the document classification could not be read (no table yet) (%s)", type(exc).__name__)  # 79c
+        log.debug("okf: no classification table yet (%s)", type(exc).__name__)
         return {}
     return dict(row) if row else {}
 

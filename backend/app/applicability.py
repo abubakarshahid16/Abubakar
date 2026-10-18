@@ -806,7 +806,7 @@ def scope_decisions_by_reasoning(library: list[dict], profile: dict,
             # stays with an engineer as "not decided", never crashes the review. #450: AND SAYS SO.
             # It used to be skipped with no record, so a model that was down for every standard read
             # as "scope checked, nothing excluded". The standard is UNKNOWN, with the reason.
-            errors.fell_back("applicability: the scope decision for a standard failed; it stays not decided", exc, None)
+            errors.fell_back("applicability: scope check failed", exc, None)
             from . import applicability_v2
             out[entry["id"]] = {
                 "decision": applicability_v2.UNKNOWN, "quote": None, "page": None,
@@ -1038,7 +1038,7 @@ def _match_semantic(document_id: str, library: list[dict],
         hits = keyword.search(" OR ".join(terms), limit=limit,
                               allowed_document_ids=searchable)
     except Exception as exc:  # noqa: BLE001 - a retrieval failure is not a selection
-        return errors.fell_back("applicability: the keyword search for library citations failed; no standard is selected from it", exc, {})
+        return errors.fell_back("applicability: keyword search failed", exc, {})
     out: dict[str, dict] = {}
     for hit in hits:
         standard_id = hit.get("document_id")
