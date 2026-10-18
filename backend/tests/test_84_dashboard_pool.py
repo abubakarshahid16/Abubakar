@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 
 from app import access, dashboard_pool, db
 from app import main as main_mod
+from app.api import run_summary as api_run_summary
 from app.config import settings
 
 
@@ -37,7 +38,11 @@ def _client():
 
 def test_health_runs_on_the_event_loop_and_the_dashboard_reads_do_not():
     assert inspect.iscoroutinefunction(main_mod.health)
-    for route in (main_mod.metrics, main_mod.list_risks, main_mod.list_review_runs):
+    for route in (
+        main_mod.metrics,
+        main_mod.list_risks,
+        api_run_summary.list_review_runs,
+    ):
         assert inspect.iscoroutinefunction(route), route.__name__
         assert route.__wrapped__.__name__ == route.__name__
 

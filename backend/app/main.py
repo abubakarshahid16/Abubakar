@@ -65,6 +65,7 @@ from . import market_transport as market_transport_mod
 from . import progress as progress_mod
 from . import reports as reports_mod
 from . import review as review_mod
+from . import finding_query
 from . import deliverables as deliverables_mod
 from . import structured_search as structured_search_mod
 from . import risks as risks_mod
@@ -1621,30 +1622,6 @@ def review_feedback(
         allowed_document_ids=scope.allowed_document_ids, since=since)
 
 
-@app.get("/api/reviews/runs", response_model=schemas.ReviewRunList,
-         responses=schemas.ERRORS_422)
-@dashboard_pool.heavy_route
-def list_review_runs(
-    request: Request,
-    document_id: str | None = Query(None, description="only this submittal's runs"),
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """Every review run over a submittal the caller may read.
-
-    The counts are computed here rather than on the screen so that one
-    definition of "how many findings, of what" exists. `findings_total` is the
-    denominator for `by_status`; a screen showing a status count without it
-    would be printing a percentage with no population (CLAUDE.md rule 4).
-    """
-    reject_unknown_params(request, {"document_id"})
-    if document_id is not None:
-        require_document(document_id, scope)
-    runs = submittal_review_mod.list_review_runs(
-        allowed_document_ids=scope.allowed_document_ids,
-        submittal_document_id=document_id)
-    return {"runs": [_run_summary(run, scope) for run in runs]}
-
-
 @app.get("/api/reviews/runs/{review_run_id}/ai-numbers",
          response_model=schemas.ReviewAiNumbers,
          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
@@ -1826,9 +1803,8 @@ def start_review_run(
         raise HTTPException(status_code=409, detail=errors.safe_error(
             errors.INVALID_PARAMETER,
             f"a review of this submittal is already queued or running ({exc.args[0]})")) from exc
-    return next(r for r in list_review_runs.__wrapped__(
-        request=request, document_id=document_id, scope=scope,
-    )["runs"] if r["review_run_id"] == run_id)
+    return _run_summary(submittal_review_mod.get_review_run(
+        run_id, allowed_document_ids=scope.allowed_document_ids), scope)
 
 
 @app.get("/api/reviews/findings", response_model=schemas.ReviewFindingList,
@@ -1839,9 +1815,12 @@ def list_review_findings(
     status: schemas.ReviewStatus | None = Query(None),
     review_run_id: str | None = Query(
         None, description="only this comparison run's findings"),
+    limit: int | None = Query(None, ge=1, le=1000, description="page size; omit for all"),
+    offset: int = Query(0, ge=0),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
-    """List review findings only for documents the caller may read.
+    """List review findings only for documents the caller may read, or one
+    page of them with `total` as its denominator (order 117 item 5).
 
     `review_run_id` NARROWS, IT DOES NOT WIDEN. The document scope is applied
     exactly as before and independently: a run id belonging to a submittal the
@@ -1849,13 +1828,14 @@ def list_review_findings(
     findings the grant tables withhold. That is CLAUDE.md rule 5's shape - a
     filter may only ever intersect with what a caller may already see.
     """
-    reject_unknown_params(request, {"document_id", "status", "review_run_id"})
+    reject_unknown_params(request, {"document_id", "status", "review_run_id", "limit", "offset"})
     if document_id is not None:
         require_document(document_id, scope)
-    return {"findings": review_mod.list_findings(
-        document_id=document_id, status=status, review_run_id=review_run_id,
-        allowed_document_ids=scope.allowed_document_ids,
-    )}
+    where = {"document_id": document_id, "status": status, "review_run_id": review_run_id,
+             "allowed_document_ids": scope.allowed_document_ids}
+    findings = review_mod.list_findings(**where, limit=limit, offset=offset)
+    total = len(findings) if limit is None and not offset else finding_query.count_findings(**where)
+    return {"findings": findings, "total": total, "limit": limit, "offset": offset}
 
 
 @app.post("/api/reviews/findings", response_model=schemas.ReviewFinding,
@@ -2520,19 +2500,29 @@ def cancel_turn(conversation_id: str, turn_id: str, request: Request,
 # ------------------------------------------------------------------ pages
 
 
-@app.get("/api/jobs", response_model=schemas.JobList,
-         responses={**schemas.ERRORS_422})
+@app.get("/api/jobs", response_model=schemas.JobList, responses={**schemas.ERRORS_422})
 def list_jobs(
     request: Request,
     document_id: str | None = Query(None),
     state: str | None = Query(None),
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
-    """B11: background jobs on documents the caller may read."""
-    reject_unknown_params(request, {"document_id", "state"})
-    return {"jobs": job_queue_mod.list_jobs(
-        allowed_document_ids=scope.allowed_document_ids,
-        document_id=document_id, state=state)}
+    """B11: background jobs on documents the caller may read, newest first, one
+    page (100 by default, as before) with `total` (order 117 item 5)."""
+    reject_unknown_params(request, {"document_id", "state", "limit", "offset"})
+    where = {
+        "allowed_document_ids": scope.allowed_document_ids,
+        "document_id": document_id,
+        "state": state,
+    }
+    return {
+        "jobs": job_queue_mod.list_jobs(**where, limit=limit, offset=offset),
+        "total": job_queue_mod.count_jobs(**where),
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 @app.get("/api/jobs/{job_id}", response_model=schemas.Job,

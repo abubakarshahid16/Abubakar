@@ -12,6 +12,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .paging import ListPage
+
 DocStatus = Literal[
     "queued",
     "extracting",
@@ -458,7 +460,7 @@ class Job(BaseModel):
     cancel_requested: bool = False
 
 
-class JobList(BaseModel):
+class JobList(ListPage):
     jobs: list[Job]
 
 
@@ -2970,16 +2972,12 @@ class ReviewDashboard(BaseModel):
     recent: list[ReviewRunSummary] = []
 
 
-class ReviewRunList(BaseModel):
-    runs: list[ReviewRunSummary]
-
-
 class ReviewRunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     submittal_document_id: str
 
 
-class ReviewFindingList(BaseModel):
+class ReviewFindingList(ListPage):
     findings: list[ReviewFinding]
 
 
