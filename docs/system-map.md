@@ -160,7 +160,6 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `reranker` | Cross-encoder reranking, local and CPU-only |
 | `review_tiers` | Order 95: each finding of a run in ONE tier (comment / needs you / met or not applicable) with a reason word; display only |
 | `review` | Persistent workflow records for AI-assisted engineering reviews |
-| `run_record` | Order 109: a review run row's stored JSON columns (outcome, AI-check status), parsed once from the scoped row |
 | `review_jobs` | P3: a review runs as a background job on the B11 queue, not inside the request |
 | `review_trace` | Show what each step of a finished review produced (REVIEW_DEBUG console and per-run log, #791) |
 | `risks` | Typed EPC risk register, kept separate from evidence-backed findings |
