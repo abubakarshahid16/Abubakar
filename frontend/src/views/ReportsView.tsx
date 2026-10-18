@@ -30,8 +30,8 @@ function formatBytes(n: number): string {
  *  backslash key sits by Enter, and "...requirements\" was shown as the
  *  title (order 88c, #1097). Display only - the stored question is part of
  *  the report's frozen, hashed snapshot and is never rewritten. */
-export function displayQuestion(text: string): string {
-  return text.replace(/[\\\s]+$/, "");
+export function displayQuestion(text: string | null): string | null {
+  return text === null ? null : text.replace(/[\\\s]+$/, "");
 }
 
 function formatWhen(iso: string): string {
