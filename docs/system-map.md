@@ -117,6 +117,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `hooks_check` | Say at boot when this checkout's git hooks are not switched on |
 | `ingest` | Background ingestion worker |
 | `intent` | What the reader actually typed |
+| `job_progress` | "Page x of y" while a review job reads its datasheet; display only (order 95 piece 3b) |
 | `job_queue` | Claim, retry, poison and priority on the EXISTING tables (issue #177) |
 | `keyword` | SQLite FTS5 keyword index |
 | `lexical` | The lexical gate: is this passage plausibly about what was asked? |
