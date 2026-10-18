@@ -21,7 +21,7 @@ _T7 = "tests/test_r2_security_s7_identity_required.py"
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1980", phase=1980,
              description="DELETE /api/documents/{id} no longer requires an admin",
-             path=APP / "main.py",
+             path=APP / "api/documents.py",
              anchor='    _admin: dict | None = Depends(admin_mod.current_admin),\n'
                     '):\n    """Remove a document and everything derived from it.',
              replacement='):\n    """Remove a document and everything derived from it.',
