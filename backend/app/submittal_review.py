@@ -329,11 +329,10 @@ def ensure_schema() -> None:
             ("crs_company_transmittal", "TEXT"),
             ("crs_contractor_transmittal", "TEXT"),
         ):
-            add_column_if_missing(conn, "review_runs", _column, _type)
-        conn.execute(  # order 117: copy each pre-move outcome across, once
-            "UPDATE review_runs SET outcome_json = refusal_reason"
-            " WHERE outcome_json IS NULL AND refusal_reason IS NOT NULL"
-        )
+            if add_column_if_missing(conn, "review_runs", _column, _type) and (
+                _column == "outcome_json"  # order 117: a pre-move database, so
+            ):  # its outcomes are copied across once; a read path never writes
+                conn.execute("UPDATE review_runs SET outcome_json = refusal_reason")
         for _index in (
             "idx_review_runs_submittal ON review_runs(submittal_document_id, status, created_at DESC)",
             "idx_review_runs_created ON review_runs(created_at)",  # order 109: the list's order

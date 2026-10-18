@@ -9,6 +9,7 @@ move has each run's outcome copied across when the schema is ensured.
 from __future__ import annotations
 
 import json
+import sqlite3
 
 import pytest
 
@@ -72,23 +73,36 @@ def test_a_database_made_before_the_move_gets_each_outcome_copied_across():
     )
 
 
-def test_an_outcome_written_since_the_move_is_not_overwritten_by_the_copy():
+def test_ensuring_a_current_schema_writes_nothing_so_a_read_path_stays_read_only():
     submittal_review.ensure_schema()
     with db.connect() as conn:
         conn.execute(
-            "INSERT INTO review_runs (id,submittal_document_id,status,refusal_reason,"
-            "outcome_json,created_at,updated_at) VALUES ('run_new','doc_sub','failed',"
-            '\'{"error": "stale"}\',\'{"error": "current"}\','
-            "'2026-10-18T00:00:00Z','2026-10-18T00:00:00Z')"
+            "INSERT INTO review_runs (id,submittal_document_id,status,outcome_json,"
+            "created_at,updated_at) VALUES ('run_new','doc_sub','failed',"
+            "'{\"error\": \"current\"}','2026-10-18T00:00:00Z','2026-10-18T00:00:00Z')"
         )
+    conn = db.connect()
+    writes = (sqlite3.SQLITE_INSERT, sqlite3.SQLITE_UPDATE, sqlite3.SQLITE_DELETE)
 
-    submittal_review.ensure_schema.__wrapped__()  # the copy runs again, as on a restart
+    def deny_writes(action, table, _arg2, dbname, _source):
+        # SQLite's own bookkeeping (sqlite_*, temp) is not a write to the data.
+        if (
+            action in writes
+            and dbname != "temp"
+            and not str(table).startswith("sqlite_")
+        ):
+            return sqlite3.SQLITE_DENY
+        return sqlite3.SQLITE_OK
 
-    row = (
-        db.connect()
-        .execute("SELECT outcome_json FROM review_runs WHERE id = 'run_new'")
-        .fetchone()
-    )
+    conn.set_authorizer(deny_writes)
+    try:
+        submittal_review.ensure_schema.__wrapped__()  # as a GET's first call would
+    finally:
+        conn.set_authorizer(None)
+
+    row = conn.execute(
+        "SELECT outcome_json FROM review_runs WHERE id = 'run_new'"
+    ).fetchone()
     assert json.loads(row["outcome_json"]) == {"error": "current"}
 
 
