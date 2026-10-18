@@ -606,6 +606,11 @@ describe("CrsSheetView: Before you sign (order 121)", () => {
     const box = screen.getByTestId("before-you-sign");
     expect(box).not.toHaveTextContent(/Item \d+ has no engineer's decision/);
     expect(within(box).getByText("Technical details")).toBeTruthy();
+    // Order 121 Part B: the page's line says why in plain words; the reader's
+    // own wording stays folded away.
+    expect(screen.getByTestId("sign-page-4")).toHaveTextContent(
+      "Page 4 was not read: it looks like a cover page (the computer's guess). Tick if you checked it yourself.");
+    expect(screen.getByTestId("sign-page-4")).not.toHaveTextContent("vision reader");
 
     // 1. The final code: the computer's proposal is pre-selected and named.
     const proposal = within(screen.getByTestId("sign-code")).getByRole("radio", { name: /Approved with Comments/ });
