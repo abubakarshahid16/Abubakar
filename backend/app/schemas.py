@@ -2789,6 +2789,9 @@ class ReviewRunSummary(BaseModel):
     #: #633: findings written before a failed run stopped. They are partial and
     #: the run recommends no code.
     partial_findings: int = 0
+    #: Order 95 piece 3: when the newest contractor copy of this run's CRS was
+    #: issued (the inbox's "Signed"). Null when none was.
+    crs_issued_at: str | None = None
     #: #845: the run's AI numbers (reader, matcher, AI check, wording), each
     #: with its denominator and where it ran. Null when the run holds no
     #: record of any AI step; a step with no record is null inside it.

@@ -38,6 +38,7 @@ import time
 
 from . import chat_model, chat_tools, claude_spend
 from . import reasoning_provider as rp
+from .ai import output_limits
 from .config import settings
 
 CHAT_STEP = "chat"
@@ -269,7 +270,7 @@ def answer(question: str, *, history: str, allowed_document_ids: frozenset[str],
                            if tool_calls_made >= settings.chat_tool_max_calls else None)
             offer_tools = tools
             thinking_budget = settings.chat_thinking_budget_tokens if used_thinking else None
-            max_tokens = settings.chat_max_output_tokens + (thinking_budget or 0)
+            max_tokens = output_limits.max_tokens_for(output_limits.ROUTE_CHAT) + (thinking_budget or 0)
             packet = rp.Packet(
                 prompt="", num_ctx=200_000, num_predict=max_tokens,
                 temperature=settings.chat_temperature_document,

@@ -49,7 +49,15 @@ import re
 import time
 from contextvars import ContextVar
 
-from . import claims, claude_datasheet, datasheet_inputs, datasheets, errors
+from . import (
+    claims,
+    claude_datasheet,
+    datasheet_inputs,
+    datasheets,
+    errors,
+    job_progress,
+)
+from .ai import output_limits
 from .claude_spend import StopRun
 from .config import settings
 
@@ -156,10 +164,15 @@ def _claude_call():
     import os
     base = reader_api.ReaderSettings.from_env()
     model = (os.environ.get("STANDARDS_READER_MODEL") or "").strip() or settings.claude_reasoning_model
-    cfg = dataclasses.replace(base, model=model, max_tokens=int(settings.datasheet_ai_claude_max_tokens),
+    cfg = dataclasses.replace(base, model=model,
                               timeout_seconds=float(settings.datasheet_ai_timeout_seconds))
-    call = claude_budget.Budget(reader_api.model_call_via(claude_spend.metered(
-        transport, STEP, unbilled=reader_transport.unbilled), cfg=cfg))
+    # #456: the route table sets the cap (DATASHEET_AI_CLAUDE_MAX_TOKENS); a
+    # cut-off reply keeps its complete facts and is marked `cut_off` by
+    # `claude_datasheet.parse_or_cut` (#501), exactly as the local lane's
+    # `EngineFailed` names a cut-off page - both named, neither parsed whole.
+    call = claude_budget.Budget(output_limits.model_call_for(
+        claude_spend.metered(transport, STEP, unbilled=reader_transport.unbilled),
+        output_limits.ROUTE_DATASHEET_READ, cfg=cfg, salvage=True))
     call.engine = CLAUDE
     call.model = model
     call.step = STEP
@@ -349,7 +362,8 @@ def read_pages(page_texts: dict[int, str], engine_or_callable=None) -> dict:
     timed_out: list[int] = []
     budget = float(settings.datasheet_ai_max_seconds)
     started = time.monotonic()
-    for page_no in sorted(page_texts):
+    for index, page_no in enumerate(sorted(page_texts), start=1):
+        job_progress.page(index, len(page_texts))  # order 95 piece 3b: display only
         text = page_texts[page_no] or ""
         if call is None:
             reasons[page_no] = why

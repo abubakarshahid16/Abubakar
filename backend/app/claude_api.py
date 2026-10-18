@@ -67,9 +67,10 @@ from . import access, errors
 from . import claude_approved, claude_budget, claude_spend
 from . import claude_datasheet, claude_recheck, claude_selection
 from . import classification as classification_mod
-from . import datasheets, reader_api
+from . import datasheets
 from . import reader_transport as reader_transport_mod
 from . import submittal_review as submittal_review_mod
+from .ai import output_limits
 from .api_utils import reject_unknown_params
 from .db import connect
 
@@ -85,6 +86,12 @@ STEP_SELECT_STANDARDS = "claude-select-standards"
 STEP_READ_DATASHEET = "claude-read-datasheet"
 STEP_RECHECK = "claude-recheck"
 STEPS = (STEP_SELECT_STANDARDS, STEP_READ_DATASHEET, STEP_RECHECK)
+#: #456: each step's output cap comes from the ONE route table
+#: (`output_limits.ROUTE_MAX_TOKENS`); a length-cut reply is named
+#: `truncated` there and never reaches a parser as an answer.
+ROUTES = {STEP_SELECT_STANDARDS: output_limits.ROUTE_SELECT_STANDARDS,
+          STEP_READ_DATASHEET: output_limits.ROUTE_DATASHEET_READ,
+          STEP_RECHECK: output_limits.ROUTE_RECHECK}
 
 
 def _run_or_404(review_run_id: str, scope: access.AccessScope) -> dict:
@@ -133,9 +140,11 @@ def _model_call_or_409(step: str):
             MODEL_DISABLED,
             "the standards reader is off: set STANDARDS_READER_ENABLED and "
             "STANDARDS_READER_ALLOW_PUBLIC_EGRESS in backend/.env"))
-    budget = claude_budget.Budget(
-        reader_api.model_call_via(claude_spend.metered(
-            transport, step, unbilled=reader_transport_mod.unbilled)))
+    # The datasheet reader is the one caller that keeps a cut-off reply's
+    # complete facts and marks the page `cut_off` itself (#501).
+    budget = claude_budget.Budget(output_limits.model_call_for(
+        claude_spend.metered(transport, step, unbilled=reader_transport_mod.unbilled),
+        ROUTES[step], salvage=step == STEP_READ_DATASHEET))
     budget.step = step
     return budget, transport
 
@@ -164,9 +173,13 @@ def _local_recheck_call():
     def model_call(prompt: str) -> str:
         if time.monotonic() >= deadline:
             raise LocalTimeUp("the local model's time for this re-check run is spent")
-        return provider.reason(rp.Packet(
-            prompt=prompt, num_ctx=settings.num_ctx, num_predict=600, step=STEP_RECHECK,
-            timeout_s=float(settings.claude_recheck_local_timeout_s))).text
+        # #456: this route's own cap; a cut-off or empty reply is raised by
+        # name (`Truncated` / `Unreadable`), never handed back as an answer.
+        return output_limits.complete_text(provider.reason(rp.Packet(
+            prompt=prompt, num_ctx=settings.num_ctx,
+            num_predict=output_limits.max_tokens_for(output_limits.ROUTE_RECHECK),
+            step=STEP_RECHECK, timeout_s=float(settings.claude_recheck_local_timeout_s))),
+            output_limits.ROUTE_RECHECK)
 
     budget = claude_budget.Budget(model_call)
     budget.step = STEP_RECHECK

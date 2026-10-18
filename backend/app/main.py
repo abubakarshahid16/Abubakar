@@ -111,7 +111,8 @@ def _log_hooks_path() -> None:
 
     try:
         message = hooks_check.hooks_path_warning()
-    except Exception:  # noqa: BLE001 - boot must not depend on git
+    except Exception as exc:  # noqa: BLE001 - boot must not depend on git
+        errors.fell_back("main: git hooks check failed; no warning", exc, None)
         return
     if message:
         logging.getLogger("uvicorn.error").warning(message)
@@ -262,12 +263,12 @@ from .api import crs_archive as api_crs_archive  # noqa: E402
 from .api import document_classification as api_document_classification  # noqa: E402
 from .api import document_files as api_document_files  # noqa: E402
 from .api import documents as api_documents  # noqa: E402
+from .api import run_summary as api_run_summary  # noqa: E402
 
-# Order 73: the documents area's routes live in app/api/ (target structure).
-app.include_router(api_documents.router)
-app.include_router(api_document_classification.router)
-app.include_router(api_document_files.router)
-app.include_router(api_admin.router)
+# Order 73: the documents area's routes live in app/api/ (order 95: the run summary too).
+for _r in (api_documents, api_document_classification, api_document_files, api_admin):
+    app.include_router(_r.router)
+app.include_router(api_run_summary.router)
 app.include_router(api_crs_archive.router)
 app.include_router(watch_api_mod.router)
 app.include_router(fact_api_mod.router)
@@ -1341,9 +1342,8 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         "findings_total": findings_total,
         "by_status": by_status,
         "recommended_code": outcome.get("recommended_code"),
-        # 2g: plain words for the engineer; the technical sentence under
-        # "Details". A run stored before 2g gets its plain sentence derived
-        # from the same stored counts.
+        # 2g: plain words for the engineer; the technical sentence under "Details".
+        # A run stored before 2g gets its plain sentence from the same counts.
         "recommended_reason": comparison_mod.plain_outcome(outcome)[0],
         "recommended_details": comparison_mod.plain_outcome(outcome)[1],
         # The client's configured code labels, in policy order, so the screen
@@ -1383,8 +1383,9 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         "web_check_status": _json_column(run.get("web_check_status")),
         # #633: findings written before a failed run stopped are PARTIAL.
         "partial_findings": outcome.get("partial_findings") or 0,
-        # #845: the AI numbers (reader, matcher, AI check, wording), each with
-        # its denominator and where it ran - from stored data, no model call.
+        # Order 95 piece 3: the inbox's "Signed"; null when nothing was issued.
+        "crs_issued_at": crs_issue_mod.last_issued_at(run["id"]),
+        # #845: the AI numbers, each with its denominator - stored data, no model call.
         "ai_numbers": _ai_numbers(run, scope, outcome),
     }
 
@@ -2673,7 +2674,7 @@ async def ask_stream(conversation_id: str, body: schemas.AskRequest, request: Re
                 turn.cancel.set()
             try:
                 item = turn.events.get_nowait()
-            except Exception:  # queue.Empty
+            except chat_stream.Empty:  # nothing queued yet; only this (79c)
                 await asyncio.sleep(0.05)
                 continue
             if item is None:
@@ -3725,8 +3726,7 @@ def _readiness_payload(submittal_document_id: str, scope: access.AccessScope) ->
     missing = _missing_references(submittal_document_id, allowed)
     runs = submittal_review_mod.list_review_runs(
         allowed_document_ids=allowed, submittal_document_id=submittal_document_id)
-    # The latest COMPLETED run: a failed or still-running one produced no
-    # result to compare against.
+    # The latest COMPLETED run: a failed or still-running one produced no result to compare against.
     last = next((r for r in runs if r.get("status") == "completed"), None)
     changes: list[str] = []
     if last is not None:

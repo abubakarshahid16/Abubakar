@@ -425,6 +425,17 @@ def issued(review_run_id: str) -> list[dict]:
     ]
 
 
+def last_issued_at(review_run_id: str) -> str | None:
+    """Order 95 piece 3: when this run's newest contractor copy was issued -
+    the inbox's "Signed". None when nothing was issued (or the table does not
+    exist yet); read only."""
+    if not _has("crs_issued_copies"):
+        return None
+    sql = "SELECT MAX(issued_at) AS at FROM crs_issued_copies WHERE review_run_id = ?"
+    row = connect().execute(sql, (review_run_id,)).fetchone()
+    return row["at"] if row else None
+
+
 def issued_bytes(review_run_id: str, copy_id: str) -> tuple[dict, bytes] | None:
     """One issued copy exactly as issued, or None. A copy whose stored bytes
     no longer match their sha256 is refused - an archive that cannot prove

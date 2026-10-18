@@ -804,6 +804,9 @@ export interface ReviewRunSummary {
   web_check_status?: RunCheckStatus | null;
   /** #633: findings written before a failed run stopped. Partial. */
   partial_findings?: number;
+  /** Order 95 piece 3: when the newest contractor copy was issued (the
+   *  inbox's "Signed"). Null when none was. */
+  crs_issued_at?: string | null;
   ai_check_status?: {
     ran: boolean;
     complete: boolean;
@@ -820,6 +823,11 @@ export interface ReviewRunSummary {
    *  with its denominator and where it ran, from stored data. Null when the
    *  run holds no record of any AI step; a step with no record is null. */
   ai_numbers?: AiNumbers | null;
+  /** #967 piece 1 (order 95): the review code version (`review@<12 hex>`)
+   *  and settings version stamped on the run's job. Not sent by the runs
+   *  list today; "How this was reviewed" shows absent as "not recorded". */
+  code_version?: string | null;
+  config_version?: string | null;
 }
 
 /** #645: a check the AI proposed for a clause sentence and code verified,
@@ -950,6 +958,22 @@ export interface PageCoverage {
   /** Page number (as a string key) to the recorded or derived reason. */
   not_read_reasons: Record<string, string | null>;
   facts_source?: string | null;
+  /** The ledger's per-state page counts (`page_ledger.coverage`): OCR state
+   *  (`done`, `pending`, `failed`, `not_required`), native text state and
+   *  facts state. Absent on a run stored before the ledger kept them. */
+  ocr?: Record<string, number>;
+  /** The ledger's per-state search-index counts (`index_status`). */
+  index?: Record<string, number>;
+  native?: Record<string, number>;
+  facts?: Record<string, number>;
+  pages_read_only_by_page_reader?: number[];
+  /** PF3 (#883): the pages the configured AI reader did not read, and why. */
+  pages_ai_not_read?: number[];
+  ai_not_read_reasons?: Record<string, string>;
+  reading?: {
+    status: string; pages_total: number | null; incomplete_pages: number[];
+    reasons: Record<string, boolean>; failed_pages?: Record<string, string>; notes?: string[];
+  } | null;
 }
 
 /** The four DEFAULT codes of master plan section 15. The labels a run offers
@@ -2921,10 +2945,59 @@ export interface RequirementSplit {
   total: number;
   applies_not_checked_reasons: RequirementSplitReason[];
   does_not_apply_reasons: RequirementSplitReason[];
+  /** #746: clauses not checked one by one because the equipment type's review
+   *  checklist governs their standard (`requirement_split.build` `not_used`).
+   *  Absent on a run stored before it was counted: "not recorded", never 0. */
+  not_used?: number;
   /** Stored repeats ignored (the same standard and text counted once); null when unknown. */
   repeats_ignored: number | null;
   /** Share of the requirements that APPLY that were not checked; null when none apply. */
   unchecked_share: number | null;
+  /** Owner order 2026-10-11: which reader read the sheet, as the run stored
+   *  it (`datasheets.reader_summary`). Absent on a run made before the
+   *  record; absent renders as "not recorded", never as "code readers only". */
+  reader?: ReaderSummary | null;
+  /** #645: the AI clause checks' counts (`ai_requirements.propose_checks`),
+   *  every one out of `sentences`. Absent when the step did not run. */
+  clause_checks?: ClauseChecksCounts | null;
+}
+
+/** What read a datasheet (`datasheets.reader_summary`): counts and page
+ *  numbers, never a page's words. `engine` "off" = the AI reader was not
+ *  asked and the code readers read every page; the rest is then absent. */
+export interface ReaderSummary {
+  engine: string;
+  pages: number;
+  model?: string | null;
+  pages_read?: number;
+  /** Page (as a string key) left to the code readers, and why. */
+  code_only?: Record<string, string>;
+  unavailable?: string | null;
+  stopped?: string | null;
+  timed_out?: number[];
+  seconds?: number | null;
+  cut_off?: number[];
+  facts_written?: number;
+  agreed?: number;
+  conflicts?: number;
+  ai_only?: number;
+  refused_by_gate?: number;
+  unconfirmed?: number;
+  /** #918: page (string key) to the code readers that failed on it. */
+  page_failures?: Record<string, string[]>;
+  reading_notes?: string[];
+}
+
+/** #645: the AI clause checks' run report. Every count is out of `sentences`. */
+export interface ClauseChecksCounts {
+  sentences: number;
+  asked: number;
+  proposed: number;
+  no_limit?: number;
+  refused?: Record<string, number>;
+  could_not_read?: number;
+  not_asked_budget?: number;
+  model?: string | null;
 }
 
 /** #725 F7: the CRS header's two transmittal numbers, as an engineer entered
