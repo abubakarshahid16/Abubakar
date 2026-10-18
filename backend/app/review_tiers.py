@@ -23,6 +23,7 @@ is never swept quietly: it needs a person. DISPLAY ONLY: stored fields are
 read, nothing is decided or written. A finding an engineer removed
 (``approval_status = 'rejected'``) is in no tier; it is counted as removed.
 """
+
 from __future__ import annotations
 
 import re
@@ -37,14 +38,19 @@ NOT_IN_LIBRARY = "standard not in library"
 UNSETTLED = "condition unsettled"
 
 _TIER_C = {"NEEDS_ENGINEER_REVIEW", "CONDITIONAL"}
-_CONFLICT = re.compile(r"\bvalue conflict\b|\bconflicting values?\b|\bvalues? conflict\b")
-_UNIT = re.compile(r"\bunit unknown\b|\bunknown unit\b"
-                   r"|\bunit (?:not|could not be) (?:read|recognised|recognized|parsed)\b")
+_CONFLICT = re.compile(
+    r"\bvalue conflict\b|\bconflicting values?\b|\bvalues? conflict\b"
+)
+_UNIT = re.compile(
+    r"\bunit unknown\b|\bunknown unit\b"
+    r"|\bunit (?:not|could not be) (?:read|recognised|recognized|parsed)\b"
+)
 
 
 @dataclass(frozen=True)
 class RunFacts:
     """What is known about the run, as data (tiers.ts `RunFacts`)."""
+
     pages_not_read: frozenset[int] = frozenset()
     reader_timed_out_pages: frozenset[int] = frozenset()
     #: identifiers of cited standards the library does not hold (MISSING_LOCALLY)
@@ -70,11 +76,21 @@ def missing_standard_of(finding: dict, facts: RunFacts) -> str | None:
     rationale or clause (tiers.ts `citesMissingStandard`), or None."""
     if not facts.missing_standards:
         return None
-    parts = [*(finding.get("governing_sources") or []), finding.get("requirement"),
-             finding.get("ai_rationale"), finding.get("standard_clause")]
+    parts = [
+        *(finding.get("governing_sources") or []),
+        finding.get("requirement"),
+        finding.get("ai_rationale"),
+        finding.get("standard_clause"),
+    ]
     text = _fold(" \n ".join(str(p) for p in parts if p))
-    return next((ident for ident in facts.missing_standards
-                 if _fold(ident) and _fold(ident) in text), None)
+    return next(
+        (
+            ident
+            for ident in facts.missing_standards
+            if _fold(ident) and _fold(ident) in text
+        ),
+        None,
+    )
 
 
 def standard_in_library(finding: dict, facts: RunFacts) -> bool:
@@ -95,8 +111,11 @@ def _conflict_word(finding: dict) -> str | None:
 
 def safety_tick_open(finding: dict) -> bool:
     """rule_trust (#947): a safety field shown for the engineer's own tick, not ticked yet."""
-    return (bool(finding.get("show_for_engineer_tick"))
-            and finding.get("compliance_status") == "COMPLIANT" and not finding.get("confirmed_by"))
+    return (
+        bool(finding.get("show_for_engineer_tick"))
+        and finding.get("compliance_status") == "COMPLIANT"
+        and not finding.get("confirmed_by")
+    )
 
 
 def _unsettled_reason(finding: dict, facts: RunFacts) -> str | None:
@@ -119,12 +138,16 @@ def _needs_you_reason(finding: dict, facts: RunFacts) -> str:
     unsettled = _unsettled_reason(finding, facts)
     if unsettled:
         return unsettled
-    if finding.get("compliance_status") == "MISSING_INFORMATION" and not standard_in_library(finding, facts):
+    if finding.get(
+        "compliance_status"
+    ) == "MISSING_INFORMATION" and not standard_in_library(finding, facts):
         return NOT_IN_LIBRARY
     return UNSETTLED
 
 
-def tier_of(finding: dict, facts: RunFacts = RunFacts()) -> tuple[str, str | None, str | None]:
+def tier_of(
+    finding: dict, facts: RunFacts = RunFacts()
+) -> tuple[str, str | None, str | None]:
     """(tier, label, reason) for one finding; (``REMOVED``, None, None) when an
     engineer removed it. Only a Tier C row carries a reason."""
     if finding.get("approval_status") == "rejected":
@@ -152,27 +175,47 @@ _SCREEN_ORDER = {B: 0, C: 1, A: 2}
 
 def _order(row: dict) -> tuple:
     page = row["contractor_page"]
-    return (_SCREEN_ORDER[row["tier"]], page is None, page or 0, row["standard_clause"] or "")
+    return (
+        _SCREEN_ORDER[row["tier"]],
+        page is None,
+        page or 0,
+        row["standard_clause"] or "",
+    )
 
 
 def summarise(findings: list[dict], facts: RunFacts = RunFacts()) -> dict:
     """Headline counts (tiers.ts `countTiers`, plus removed and total) and one
     row per finding still in a tier, in screen order: Comment, Needs you, Met;
     then contractor page (no page last), then clause."""
-    counts = {"met": 0, "not_applicable": 0, "another_document": 0, "comment": 0, "needs_you": 0,
-              REMOVED: 0}
+    counts = {
+        "met": 0,
+        "not_applicable": 0,
+        "another_document": 0,
+        "comment": 0,
+        "needs_you": 0,
+        REMOVED: 0,
+    }
     rows = []
     for f in findings:
         tier, label, reason = tier_of(f, facts)
-        counts[{REMOVED: REMOVED, B: "comment", C: "needs_you"}.get(tier)
-               or {"Met": "met", "Another document": "another_document"}.get(label or "")
-               or "not_applicable"] += 1
+        counts[
+            {REMOVED: REMOVED, B: "comment", C: "needs_you"}.get(tier)
+            or {"Met": "met", "Another document": "another_document"}.get(label or "")
+            or "not_applicable"
+        ] += 1
         if tier != REMOVED:
-            rows.append({"finding_id": f["id"], "tier": tier, "label": label, "reason": reason,
-                         "compliance_status": f.get("compliance_status"),
-                         "standard_clause": f.get("standard_clause"),
-                         "contractor_page": f.get("contractor_page"),
-                         "equipment_tag": f.get("equipment_tag"),
-                         "missing_standard_id": missing_standard_of(f, facts)})
+            rows.append(
+                {
+                    "finding_id": f["id"],
+                    "tier": tier,
+                    "label": label,
+                    "reason": reason,
+                    "compliance_status": f.get("compliance_status"),
+                    "standard_clause": f.get("standard_clause"),
+                    "contractor_page": f.get("contractor_page"),
+                    "equipment_tag": f.get("equipment_tag"),
+                    "missing_standard_id": missing_standard_of(f, facts),
+                }
+            )
     rows.sort(key=_order)
     return {"counts": {**counts, "total": len(findings)}, "rows": rows}

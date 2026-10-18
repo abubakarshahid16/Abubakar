@@ -4,6 +4,7 @@ The tiers (`review_tiers`), the headline counts and the "How this was reviewed"
 data, read from what the run stored. No model is called, nothing is written,
 no new counting: the same stored fields the run detail already returns.
 """
+
 from __future__ import annotations
 
 from typing import Literal
@@ -44,9 +45,19 @@ class TierRow(BaseModel):
     tier: Literal["A", "B", "C"]
     label: Literal["Met", "Not applicable", "Another document", "Comment", "Needs you"]
     #: only a Tier C row carries a reason (tiers.ts `TierReason`)
-    reason: Literal["page not read", "standard not in library", "AI guess", "rule not proven",
-                    "safety field", "condition unsettled", "value conflict",
-                    "unit unknown"] | None = None
+    reason: (
+        Literal[
+            "page not read",
+            "standard not in library",
+            "AI guess",
+            "rule not proven",
+            "safety field",
+            "condition unsettled",
+            "value conflict",
+            "unit unknown",
+        ]
+        | None
+    ) = None
     compliance_status: str | None = None
     standard_clause: str | None = None
     contractor_page: int | None = None
@@ -63,6 +74,7 @@ class StandardClauses(BaseModel):
 
 class HowReviewed(BaseModel):
     """The stored fields, as the run detail returns them; null when not stored."""
+
     requirement_split: dict | None = None
     page_coverage: dict | None = None
     completeness: dict | None = None
@@ -88,8 +100,11 @@ class RunSummary(BaseModel):
     how_reviewed: HowReviewed
 
 
-@router.get("/api/reviews/runs/{review_run_id}/summary", response_model=RunSummary,
-            responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+@router.get(
+    "/api/reviews/runs/{review_run_id}/summary",
+    response_model=RunSummary,
+    responses={**schemas.ERRORS_404, **schemas.ERRORS_422},
+)
 def review_run_summary(
     review_run_id: str,
     request: Request,
@@ -99,23 +114,40 @@ def review_run_summary(
     read is 404, indistinguishable from one that is not there. Read only."""
     reject_unknown_params(request, set())
     allowed = scope.allowed_document_ids
-    run = submittal_review_mod.get_review_run(review_run_id, allowed_document_ids=allowed)
+    run = submittal_review_mod.get_review_run(
+        review_run_id, allowed_document_ids=allowed
+    )
     if run is None:
-        raise HTTPException(status_code=404, detail=errors.safe_error(
-            errors.NOT_FOUND, "no review run with that id"))
-    outcome = comparison_mod.run_outcome(review_run_id, allowed_document_ids=allowed) or {}
-    steps = ai_numbers_mod.for_run(
-        outcome,
-        ai_engineering_check_mod.ai_check_status(review_run_id, allowed_document_ids=allowed),
-        crs_wording_mod.summary_of(review_run_id)) or {}
-    split = (outcome.get("requirement_split")
-             or requirement_split_mod.from_counts(outcome.get("unchecked_counts")))
+        raise HTTPException(
+            status_code=404,
+            detail=errors.safe_error(errors.NOT_FOUND, "no review run with that id"),
+        )
+    outcome = (
+        comparison_mod.run_outcome(review_run_id, allowed_document_ids=allowed) or {}
+    )
+    steps = (
+        ai_numbers_mod.for_run(
+            outcome,
+            ai_engineering_check_mod.ai_check_status(
+                review_run_id, allowed_document_ids=allowed
+            ),
+            crs_wording_mod.summary_of(review_run_id),
+        )
+        or {}
+    )
+    split = outcome.get("requirement_split") or requirement_split_mod.from_counts(
+        outcome.get("unchecked_counts")
+    )
     reader_record = (split or {}).get("reader")
-    timed_out = (sorted(reader_record.get("timed_out") or [])
-                 if isinstance(reader_record, dict) else None)
+    timed_out = (
+        sorted(reader_record.get("timed_out") or [])
+        if isinstance(reader_record, dict)
+        else None
+    )
     tiers = review_tiers.summarise(
         comparison_mod.list_findings(review_run_id, allowed_document_ids=allowed),
-        _facts(review_run_id, outcome, timed_out))
+        _facts(review_run_id, outcome, timed_out),
+    )
     versions = review_jobs.last_run_versions(review_run_id) or {}
     return {
         "review_run_id": review_run_id,
@@ -132,32 +164,47 @@ def review_run_summary(
             "config_version": versions.get("config_version"),
             "stage_seconds": _stage_seconds(review_trace.stored(review_run_id, scope)),
             "clauses_by_standard": _clauses_by_standard(
-                clause_coverage_mod.for_run(review_run_id, allowed_document_ids=allowed)),
+                clause_coverage_mod.for_run(review_run_id, allowed_document_ids=allowed)
+            ),
         },
     }
 
 
-def _facts(review_run_id: str, outcome: dict, timed_out: list[int] | None) -> review_tiers.RunFacts:
+def _facts(
+    review_run_id: str, outcome: dict, timed_out: list[int] | None
+) -> review_tiers.RunFacts:
     """The run facts tiers.ts guesses at today, from what the run stored."""
     coverage = outcome.get("page_coverage") or {}
-    library = connect().execute(
-        "SELECT standard_document_id FROM review_applicable_standards"
-        " WHERE review_run_id = ? AND included = 1", (review_run_id,)).fetchall()
+    library = (
+        connect()
+        .execute(
+            "SELECT standard_document_id FROM review_applicable_standards"
+            " WHERE review_run_id = ? AND included = 1",
+            (review_run_id,),
+        )
+        .fetchall()
+    )
     return review_tiers.RunFacts(
         pages_not_read=frozenset(coverage.get("pages_not_read_into_fields") or []),
         reader_timed_out_pages=frozenset(timed_out or []),
-        missing_standards=tuple(m["identifier"] for m in outcome.get("missing_references") or []
-                                if m.get("identifier")
-                                and m.get("status") in (None, "MISSING_LOCALLY")),
-        library_standard_ids=frozenset(r["standard_document_id"] for r in library))
+        missing_standards=tuple(
+            m["identifier"]
+            for m in outcome.get("missing_references") or []
+            if m.get("identifier") and m.get("status") in (None, "MISSING_LOCALLY")
+        ),
+        library_standard_ids=frozenset(r["standard_document_id"] for r in library),
+    )
 
 
 def _stage_seconds(trace: dict | None) -> dict[str, float] | None:
     """Seconds per step of the stored trace; None when no trace was stored."""
     if trace is None:
         return None
-    return {s["step"]: s["timing"]["seconds"] for s in trace.get("steps") or []
-            if isinstance(s.get("timing"), dict) and s["timing"].get("seconds") is not None}
+    return {
+        s["step"]: s["timing"]["seconds"]
+        for s in trace.get("steps") or []
+        if isinstance(s.get("timing"), dict) and s["timing"].get("seconds") is not None
+    }
 
 
 def _clauses_by_standard(coverage: dict) -> list[dict] | None:
