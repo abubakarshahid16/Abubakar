@@ -11,13 +11,17 @@
  */
 import { type ReactNode, useEffect, useState } from "react";
 
-/** Zoom steps, as a share of the frame's width; the first is "fit width". */
-const ZOOM_STEPS = [1, 1.25, 1.5, 2, 2.5, 3] as const;
-/** Clicking the page jumps to this step, and back to fit width. */
-const CLICK_STEP = 3;
+/** Zoom steps, as a share of the frame's width: 75% (a whole page on a
+ *  laptop screen) to 300%. FIT is "fit width". */
+const ZOOM_STEPS = [0.75, 1, 1.25, 1.5, 2, 2.5, 3] as const;
+const FIT = 1;
+/** Clicking the page jumps to this step (200%), and back to fit width. */
+const CLICK_STEP = 4;
 
-export function ZoomablePage({ src, alt, caption }: { src: string; alt: string; caption?: ReactNode }) {
-  const [step, setStep] = useState(0);
+/** `src` null: the page is not here yet (or could not be loaded) and
+ *  `status` says so INSIDE the frame, so the layout does not jump. */
+export function ZoomablePage({ src, alt, caption, status }: { src: string | null; alt: string; caption?: ReactNode; status?: ReactNode }) {
+  const [step, setStep] = useState(FIT);
   const [full, setFull] = useState(false);
   useEffect(() => {
     if (!full) return;
@@ -32,22 +36,26 @@ export function ZoomablePage({ src, alt, caption }: { src: string; alt: string; 
     <figure className="space-y-1" data-page-viewer="">
       {caption}
       <div role="toolbar" aria-label="Page zoom" className="flex flex-wrap items-center gap-2 text-xs">
-        <button type="button" className={button} aria-pressed={step === 0} onClick={() => setStep(0)}>Fit width</button>
+        <button type="button" className={button} aria-pressed={step === FIT} onClick={() => setStep(FIT)}>Fit width</button>
         <button type="button" className={button} aria-label="Zoom out" disabled={step === 0} onClick={() => setStep((s) => Math.max(0, s - 1))}>−</button>
         <span data-testid="page-zoom" className="min-w-10 text-center text-slateish-400">{Math.round(scale * 100)}%</span>
         <button type="button" className={button} aria-label="Zoom in" disabled={step === ZOOM_STEPS.length - 1} onClick={() => setStep((s) => Math.min(ZOOM_STEPS.length - 1, s + 1))}>+</button>
-        <button type="button" className={button} onClick={() => setFull(true)}>Open full page</button>
+        <button type="button" className={button} disabled={!src} onClick={() => setFull(true)}>Open full page</button>
       </div>
       <div data-testid="page-frame" className="h-[80vh] min-h-[24rem] overflow-auto rounded-[var(--radius-sm)] border border-ink-700 bg-white max-sm:h-[60vh]">
-        <img
-          src={src} alt={alt} data-scale={scale}
-          title={step === 0 ? "Click to enlarge" : "Click to fit the width"}
-          onClick={() => setStep((s) => (s === 0 ? CLICK_STEP : 0))}
-          style={{ width: `${scale * 100}%`, maxWidth: "none" }}
-          className={`block h-auto ${step === 0 ? "cursor-zoom-in" : "cursor-zoom-out"}`}
-        />
+        {src ? (
+          <img
+            src={src} alt={alt} data-scale={scale}
+            title={step === FIT ? "Click to enlarge" : "Click to fit the width"}
+            onClick={() => setStep((s) => (s === FIT ? CLICK_STEP : FIT))}
+            style={{ width: `${scale * 100}%`, maxWidth: "none" }}
+            className={`mx-auto block h-auto ${step === FIT ? "cursor-zoom-in" : "cursor-zoom-out"}`}
+          />
+        ) : (
+          <div className="p-3 text-xs text-slateish-600">{status}</div>
+        )}
       </div>
-      {full && (
+      {full && src && (
         <div role="dialog" aria-modal="true" aria-label={`${alt}, full page`} className="fixed inset-0 z-50 overflow-auto bg-ink-950/95 p-4">
           <button type="button" autoFocus onClick={() => setFull(false)} className={`${button} sticky top-0 mb-2 bg-ink-900`}>
             Close full page

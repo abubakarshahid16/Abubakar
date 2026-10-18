@@ -31,7 +31,10 @@ describe("the Sheet's page viewer", () => {
 
   it("zooms in and out, and back to fit width", () => {
     render(<ZoomablePage src="blob:x" alt="Datasheet page 4" />);
+    fireEvent.click(screen.getByRole("button", { name: "Zoom out" }));
+    expect(image().dataset.scale).toBe("0.75");                 // a whole page on a laptop
     expect(screen.getByRole("button", { name: "Zoom out" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Fit width" }));
     fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
     fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
     expect(image().dataset.scale).toBe("1.5");
@@ -64,5 +67,11 @@ describe("the Sheet's page viewer", () => {
     expect(screen.getByTestId("page-frame").className).toMatch(/h-\[80vh\]/);
     expect(container.querySelector("iframe, object, embed")).toBeNull();
     expect(screen.getByText("No value on this page has a card.")).toBeInTheDocument();
+  });
+
+  it("says the page is loading inside the frame, so nothing jumps", () => {
+    render(<ZoomablePage src={null} alt="Datasheet page 4" status="Loading page 4…" />);
+    expect(screen.getByTestId("page-frame")).toHaveTextContent("Loading page 4…");
+    expect(screen.getByRole("button", { name: "Open full page" })).toBeDisabled();
   });
 });
