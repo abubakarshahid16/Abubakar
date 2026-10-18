@@ -126,13 +126,15 @@ def test_an_answer_is_shared_only_with_an_identical_scope():
     assert dashboard_pool._same_question(route, {"x": [1]}) is None
 
 
-def test_health_reuses_a_recent_backlog_count(monkeypatch):
-    worker = main_mod.ingest_mod.get_worker()
-    counted = []
-    monkeypatch.setattr(worker, "_count_backlog", lambda: counted.append(1) or (0, None))
-    monkeypatch.setattr(worker, "_backlog_cache", None, raising=False)
+def test_health_reuses_a_recent_worker_status(monkeypatch):
+    dashboard_pool._health.clear()
     with _client() as client:
+        worker = main_mod.ingest_mod.get_worker()
+        real, counted = worker.status, []
+        monkeypatch.setattr(worker, "status", lambda: counted.append(1) or real())
         for _ in range(5):
             assert client.get("/api/health").status_code == 200
-    assert len(counted) == 1
-    assert worker.backlog() == (0, None) and len(counted) == 2   # default: always fresh
+        assert len(counted) == 1
+        monkeypatch.setattr(dashboard_pool, "HEALTH_STATUS_MAX_AGE", 0.0)
+        client.get("/api/health")
+        assert len(counted) == 2                 # older than the limit: asked again

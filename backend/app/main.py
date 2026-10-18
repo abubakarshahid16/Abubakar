@@ -29,8 +29,7 @@ from . import engineer_feedback as engineer_feedback_mod
 from . import datasheets as datasheets_mod
 from . import disciplines as disciplines_mod
 from . import extract as extract_mod
-from . import ingest as ingest_mod
-from .dashboard_pool import heavy_route
+from . import ingest as ingest_mod, dashboard_pool
 from . import job_queue as job_queue_mod
 from . import review_jobs as review_jobs_mod
 from . import document_refs, orphan_guard
@@ -387,7 +386,7 @@ async def health():
     backend has to distinguish "down" from "up but stuck", and neither is
     about anybody's documents.
     """
-    worker = ingest_mod.get_worker().status(backlog_max_age=ingest_mod.HEALTH_BACKLOG_MAX_AGE)
+    worker = dashboard_pool.health_status(ingest_mod.get_worker())
     return {
         "ok": True,
         "embed_model_present": (settings.embed_model_dir / "tokenizer.json").exists(),
@@ -410,7 +409,7 @@ async def health():
 
 
 @app.get("/api/metrics", response_model=schemas.Metrics, responses=schemas.ERRORS_422)
-@heavy_route
+@dashboard_pool.heavy_route
 def metrics(request: Request,
     scope: access.AccessScope = Depends(access.current_scope),
 ):
@@ -2250,7 +2249,7 @@ def review_feedback(
 
 @app.get("/api/reviews/runs", response_model=schemas.ReviewRunList,
          responses=schemas.ERRORS_422)
-@heavy_route
+@dashboard_pool.heavy_route
 def list_review_runs(
     request: Request,
     document_id: str | None = Query(None, description="only this submittal's runs"),
@@ -2731,16 +2730,13 @@ def structured_search(q: str, kind: str | None = None,
         include_unowned=scope.is_admin)}
 
 
-@app.get("/api/risks", response_model=schemas.RiskList)
-@heavy_route
-def list_risks(risk_type: str | None = None,
+@app.get("/api/risks", response_model=risks_mod.RiskList)
+@dashboard_pool.heavy_route
+def list_risks(risk_type: str | None = None, limit: int = Query(risks_mod.PAGE_SIZE, ge=1, le=risks_mod.MAX_PAGE_SIZE), offset: int = Query(0, ge=0),
                scope: access.AccessScope = Depends(access.current_scope)):
     if risk_type is not None and risk_type not in risks_mod.RISK_TYPES:
         raise HTTPException(status_code=422, detail="unsupported risk type")
-    # READ ONLY (#478, #608). Detection used to run here on every GET, looping
-    # over every finding and emailing per risk. It runs in the background
-    # (`risks_mod.start_background_detection`) and from POST /api/risks/detect.
-    return {"risks": risks_mod.list_items(risk_type=risk_type, allowed_document_ids=scope.allowed_document_ids)}
+    return risks_mod.list_page(risk_type=risk_type, allowed_document_ids=scope.allowed_document_ids, limit=limit, offset=offset)
 
 
 @app.post("/api/risks/detect", response_model=schemas.RiskDetectionResult,
@@ -2759,7 +2755,7 @@ def finding_traceability(finding_id: str, scope: access.AccessScope = Depends(ac
     return item
 
 
-@app.post("/api/risks", response_model=schemas.Risk,
+@app.post("/api/risks", response_model=risks_mod.Risk,
           responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
 def create_risk(body: schemas.RiskCreate, scope: access.AccessScope = Depends(access.current_scope)):
     """Record a risk. The same rules as every other writer (audit 2026-09-30):

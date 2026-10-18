@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import time
 import weakref
 from collections.abc import Callable
 from typing import Any
@@ -82,6 +83,24 @@ def heavy_route(fn: Callable[..., Any]) -> Callable[..., Any]:
             task.add_done_callback(lambda _t: _in_flight.pop(key, None))
         return await asyncio.shield(task)
     return on_dashboard_threads
+
+
+#: /api/health reuses the worker's status at most this old. It runs on the
+#: event loop (no thread to wait for), and the status counts the backlog in the
+#: database; "stalled" is judged on minutes, so 10 s old is still the truth.
+HEALTH_STATUS_MAX_AGE = 10.0
+_health: dict[int, tuple[float, dict]] = {}
+
+
+def health_status(worker: Any) -> dict:
+    """`worker.status()`, reused for up to `HEALTH_STATUS_MAX_AGE` seconds."""
+    cached = _health.get(id(worker))
+    if cached and time.monotonic() - cached[0] < HEALTH_STATUS_MAX_AGE:
+        return cached[1]
+    status = worker.status()
+    _health.clear()
+    _health[id(worker)] = (time.monotonic(), status)
+    return status
 
 
 #: Calls still running, by `_same_question` key. Touched only on the event
