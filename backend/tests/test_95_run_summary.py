@@ -297,11 +297,11 @@ def test_an_unknown_run_is_404_and_writes_nothing(temp_storage):  # noqa: F811
 def _store_outcome(run, **extra):
     with connect() as conn:
         row = conn.execute(
-            "SELECT refusal_reason FROM review_runs WHERE id = ?", (run,)
+            "SELECT outcome_json FROM review_runs WHERE id = ?", (run,)
         ).fetchone()
-        outcome = {**json.loads(row["refusal_reason"] or "{}"), **extra}
+        outcome = {**json.loads(row["outcome_json"] or "{}"), **extra}
         conn.execute(
-            "UPDATE review_runs SET refusal_reason = ? WHERE id = ?",
+            "UPDATE review_runs SET outcome_json = ? WHERE id = ?",
             (json.dumps(outcome), run),
         )
     return outcome

@@ -194,7 +194,7 @@ def test_findings_written_before_a_failure_are_marked_partial_and_the_crs_says_i
     assert review_jobs.run(job_id, W) == job_queue.POISONED
 
     run = _run_row(run_id)
-    stored = json.loads(run["refusal_reason"])
+    stored = json.loads(run["outcome_json"])
     assert run["status"] == "failed"
     assert stored["partial"] is True and stored["partial_findings"] >= 1     # positive first
 
@@ -301,7 +301,7 @@ def test_a_real_run_stores_what_it_left_unchecked_and_feeds_the_code(world):
     run_id, job_id = _enqueue(world)
     review_jobs.claim_next(W)
     assert review_jobs.run(job_id, W) == "done"
-    stored = json.loads(_run_row(run_id)["refusal_reason"])
+    stored = json.loads(_run_row(run_id)["outcome_json"])
     assert "table_values_not_compared" in stored and "requirements_not_applied" in stored
     assert stored["standards_not_checked"] == []
 
@@ -399,8 +399,8 @@ def test_the_run_stores_the_counts_the_share_is_taken_from(world):
     comparison._store_run_outcome(
         run_id, {"code": comparison.CODE_MANUAL, "reason": "r"}, {},
         unchecked_counts={"not_compared": 3, "not_applied": 1, "checked": 4})
-    row = db.connect().execute("SELECT refusal_reason FROM review_runs WHERE id = ?", (run_id,)).fetchone()
-    assert json.loads(row["refusal_reason"])["unchecked_counts"] == {
+    row = db.connect().execute("SELECT outcome_json FROM review_runs WHERE id = ?", (run_id,)).fetchone()
+    assert json.loads(row["outcome_json"])["unchecked_counts"] == {
         "not_compared": 3, "not_applied": 1, "checked": 4}
 
 

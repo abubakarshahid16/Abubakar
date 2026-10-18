@@ -289,9 +289,15 @@ def ensure_schema() -> None:
                     REFERENCES documents(id) ON DELETE CASCADE,
                 template_id TEXT REFERENCES review_templates(id) ON DELETE SET NULL,
                 status TEXT NOT NULL DEFAULT 'pending',
-                -- Why the run ended where it did. A refusal is a result and is
-                -- recorded as one rather than left as an empty finding list.
+                -- LEGACY, READ BY NOTHING. Before order 117 the run's outcome
+                -- JSON lived here under a name that only fit failures; it was
+                -- copied to `outcome_json` below and is no longer written.
                 refusal_reason TEXT,
+                -- Why the run ended where it did, as JSON: the recommended
+                -- code and its reason on a completed run, `error` on a failed
+                -- or cancelled one. A refusal is a result and is recorded as
+                -- one rather than left as an empty finding list.
+                outcome_json TEXT,
                 model_name TEXT,
                 -- config.config_version() at the time of the run: the hash of
                 -- the settings that could change the answer, the same stamp
@@ -305,7 +311,7 @@ def ensure_schema() -> None:
             )"""
         )
         # SECTION 15: the AI recommends, the engineer decides, and both are
-        # kept. The recommendation lives in `refusal_reason` where
+        # kept. The recommendation lives in `outcome_json` where
         # `_store_run_outcome` writes it; the DECISION gets columns of its
         # own, because "which reviews are waiting for an engineer" is a
         # question a dashboard asks in SQL and cannot ask of a JSON blob.
@@ -319,7 +325,7 @@ def ensure_schema() -> None:
             ("decided_by", "TEXT REFERENCES users(id) ON DELETE SET NULL"),
             ("decided_at", "TEXT"),
             # 2026-09-27, AI-check truncation fix: the AI engineering check's own
-            # outcome for this run - JSON, same style as `refusal_reason` above. NULL
+            # outcome for this run - JSON, same style as `outcome_json` above. NULL
             # when the check never ran (off, or the Claude lane is off). Set whether the
             # check finished cleanly, was completed after a capped retry, or is still
             # incomplete - so a truncated reply is a fact on the run a reviewer can see,
@@ -334,6 +340,13 @@ def ensure_schema() -> None:
             ("crs_contractor_transmittal", "TEXT"),
         ):
             add_column_if_missing(conn, "review_runs", _column, _type)
+        # ORDER 117: THE OUTCOME MOVES OUT OF `refusal_reason`. A database made
+        # before the move gets the column, and every run's outcome is copied
+        # across once; `outcome_json IS NULL` keeps a re-run from overwriting
+        # an outcome written since.
+        add_column_if_missing(conn, "review_runs", "outcome_json", "TEXT")
+        conn.execute("UPDATE review_runs SET outcome_json = refusal_reason"
+                     " WHERE outcome_json IS NULL AND refusal_reason IS NOT NULL")
         for _index in (
             "idx_review_runs_submittal ON review_runs(submittal_document_id, status, created_at DESC)",
             "idx_review_runs_created ON review_runs(created_at)",  # order 109: the list's order
@@ -745,7 +758,7 @@ def _extract_facts_if_none(run_id: str, submittal_document_id: str,
         conn = connect()
         with conn:
             conn.execute(
-                "UPDATE review_runs SET status = 'failed', refusal_reason = ?,"
+                "UPDATE review_runs SET status = 'failed', outcome_json = ?,"
                 " updated_at = ? WHERE id = ?",
                 (json.dumps({"error": f"fact extraction failed: {exc}"}),
                  _now(), run_id))
@@ -782,7 +795,7 @@ def fail_orphaned_review_runs() -> int:
     conn = connect()
     with conn:
         cur = conn.execute(
-            "UPDATE review_runs SET status = 'failed', refusal_reason = ?,"
+            "UPDATE review_runs SET status = 'failed', outcome_json = ?,"
             " updated_at = ? WHERE status = 'running'"
             # P3: a run whose review job is still active belongs to the queue,
             # which re-queues it (`review_jobs.recover_stale`) - not to this.

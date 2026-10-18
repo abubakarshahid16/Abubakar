@@ -318,7 +318,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
             from . import review as review_mod
             conn.execute("DELETE FROM review_findings WHERE review_run_id = ?"
                          f" AND {review_mod.UNDECIDED_SQL}", (run_id,))
-            conn.execute("UPDATE review_runs SET status = 'cancelled', refusal_reason = ?,"
+            conn.execute("UPDATE review_runs SET status = 'cancelled', outcome_json = ?,"
                          " updated_at = ? WHERE id = ?",
                          (json.dumps({"error": "cancelled by an engineer before it finished"}),
                           _now(), run_id))
@@ -338,7 +338,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
                 written = conn.execute(
                     "SELECT COUNT(*) FROM review_findings WHERE review_run_id = ?",
                     (run_id,)).fetchone()[0]
-                conn.execute("UPDATE review_runs SET status = 'failed', refusal_reason = ?,"
+                conn.execute("UPDATE review_runs SET status = 'failed', outcome_json = ?,"
                              " updated_at = ? WHERE id = ?",
                              (json.dumps({"error": safe["message"],
                                           **({"partial": True, "partial_findings": written}

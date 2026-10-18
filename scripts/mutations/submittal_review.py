@@ -83,7 +83,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         path=APP / "submittal_review.py",
         # Re-anchored in P3: the line lost its trailing comma to the clause
         # that keeps a run whose review job is still active.
-        anchor='            "UPDATE review_runs SET status = \'failed\', refusal_reason = ?,"\n'
+        anchor='            "UPDATE review_runs SET status = \'failed\', outcome_json = ?,"\n'
                '            " updated_at = ? WHERE status = \'running\'"\n',
         replacement='            "DELETE FROM review_runs WHERE ? IS NOT NULL"\n'
                     '            " AND ? IS NOT NULL AND status = \'running\'"\n',
@@ -156,10 +156,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M319", phase=36,
         description="a run whose extraction failed is left saying 'running'",
         path=APP / "submittal_review.py",
-        anchor="                \"UPDATE review_runs SET status = 'failed', refusal_reason = ?,\"\n"
+        anchor="                \"UPDATE review_runs SET status = 'failed', outcome_json = ?,\"\n"
                "                \" updated_at = ? WHERE id = ?\",\n"
                "                (json.dumps({\"error\": f\"fact extraction failed: {exc}\"}),",
-        replacement="                \"UPDATE review_runs SET status = 'running', refusal_reason = ?,\"\n"
+        replacement="                \"UPDATE review_runs SET status = 'running', outcome_json = ?,\"\n"
                     "                \" updated_at = ? WHERE id = ?\",\n"
                     "                (json.dumps({\"error\": f\"fact extraction failed: {exc}\"}),",
         target=_B19_TEST,

@@ -57,12 +57,12 @@ def latest_run(document_id: str) -> dict | None:
 
     submittal_review.ensure_schema()
     row = connect().execute(
-        "SELECT id, status, refusal_reason FROM review_runs WHERE submittal_document_id = ?"
+        "SELECT id, status, outcome_json FROM review_runs WHERE submittal_document_id = ?"
         " ORDER BY created_at DESC, id DESC LIMIT 1", (document_id,)).fetchone()
     if row is None:
         return None
     try:
-        outcome = json.loads(row["refusal_reason"] or "{}")
+        outcome = json.loads(row["outcome_json"] or "{}")
     except (TypeError, ValueError):
         outcome = {}
     return {"id": row["id"], "status": row["status"] or "unknown",

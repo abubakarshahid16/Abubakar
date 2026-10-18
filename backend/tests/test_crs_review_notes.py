@@ -77,7 +77,7 @@ def test_the_issue_copy_has_no_review_notes_the_internal_copy_does():
 def _scoped_run(doc: str, created_at: str, standards: list[tuple[str, str]]) -> str:
     run_id = str(uuid.uuid4())
     with db.connect() as conn:
-        conn.execute("INSERT INTO review_runs (id,submittal_document_id,status,refusal_reason,"
+        conn.execute("INSERT INTO review_runs (id,submittal_document_id,status,outcome_json,"
                      "created_at,updated_at) VALUES (?,?,'completed',?,?,?)",
                      (run_id, doc, json.dumps({"recommended_code": None, "reason": None}),
                       created_at, created_at))
