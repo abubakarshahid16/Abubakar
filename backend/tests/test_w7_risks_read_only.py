@@ -213,7 +213,8 @@ def test_get_reminders_creates_no_events_and_sends_nothing(world, monkeypatch):
     deliverables.create({"wbs_code": "9.1", "title": "Late", "deliverable_type": "report",
                          "due_date": "2020-01-01"}, created_by=None)
     r = _client().get("/api/management/reminders")
-    assert r.status_code == 200 and r.json()["reminders"] == [] and r.json()["total"] == 0
+    assert r.status_code == 200
+    assert r.json()["reminders"] == [] and r.json()["total"] == 0
     assert world == []
     assert deliverables.generate_reminders() == 1
     assert len(_client().get("/api/management/reminders").json()["reminders"]) == 1
