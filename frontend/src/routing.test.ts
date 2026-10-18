@@ -22,6 +22,11 @@ describe("application routes", () => {
     expect(pathForView("review", undefined, "crs")).toBe("/review");
   });
 
+  it('order 95 piece 5: "How this was reviewed" is /review/<run>/how', () => {
+    expect(parseRoute("/review/run-1/how")).toEqual({ kind: "view", view: "review", recordId: "run-1", panel: "how" });
+    expect(pathForView("review", "run-1", "how")).toBe("/review/run-1/how");
+  });
+
   it("generates stable links and distinct page titles", () => {
     expect(pathForView("reports")).toBe("/reports");
     expect(pathForView("chat", "review/42")).toBe("/chat/review%2F42");

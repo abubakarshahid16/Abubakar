@@ -8,7 +8,6 @@ from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Respo
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
-from . import admin_explorer as explorer_mod
 from . import chat as chat_mod
 from . import classification as classification_mod
 from . import absence as absence_mod
@@ -23,11 +22,12 @@ from . import crs_issue as crs_issue_mod
 from . import crs_mapping as crs_mapping_mod
 from . import crs_numbers as crs_numbers_mod
 from . import crs_wording as crs_wording_mod
+from . import export_status as export_status_mod
 from . import review_trace as review_trace_mod
 from . import engineer_feedback as engineer_feedback_mod
 from . import datasheets as datasheets_mod
 from . import disciplines as disciplines_mod
-from . import ingest as ingest_mod
+from . import ingest as ingest_mod, dashboard_pool
 from . import job_queue as job_queue_mod
 from . import review_jobs as review_jobs_mod
 from . import orphan_guard
@@ -52,10 +52,8 @@ from .api_utils import (
 )
 from . import access
 from . import admin as admin_mod
-from . import doc_router as doc_router_mod
 from . import playbooks as playbooks_mod
 from . import requirement_split as requirement_split_mod
-from . import model_memory as model_memory_mod
 from . import auth as auth_mod
 from . import errors
 from . import analysis as analysis_mod
@@ -260,14 +258,16 @@ app.add_middleware(
 
 # Routes in their own modules (watched folder; #473 fact confirmation) so this
 # file stays the only place routing is declared without growing a feature.
+from .api import admin as api_admin  # noqa: E402
 from .api import document_classification as api_document_classification  # noqa: E402
 from .api import document_files as api_document_files  # noqa: E402
 from .api import documents as api_documents  # noqa: E402
+from .api import run_summary as api_run_summary  # noqa: E402
 
-# Order 73: the documents area's routes live in app/api/ (target structure).
-app.include_router(api_documents.router)
-app.include_router(api_document_classification.router)
-app.include_router(api_document_files.router)
+# Order 73: the documents area's routes live in app/api/ (order 95: the run summary too).
+for _r in (api_documents, api_document_classification, api_document_files, api_admin):
+    app.include_router(_r.router)
+app.include_router(api_run_summary.router)
 app.include_router(watch_api_mod.router)
 app.include_router(fact_api_mod.router)
 app.include_router(sheet_page_mod.router)  # #967: the Sheet's page with every card's value marked
@@ -368,7 +368,7 @@ async def security_headers(request: Request, call_next):
 
 
 @app.get("/api/health", response_model=schemas.Health)
-def health():
+async def health():
     """Readiness, and NOTHING ELSE. This is the one unauthenticated route.
 
     It answers two questions: is the service up, and are the models present.
@@ -389,7 +389,7 @@ def health():
     backend has to distinguish "down" from "up but stuck", and neither is
     about anybody's documents.
     """
-    worker = ingest_mod.get_worker().status()
+    worker = dashboard_pool.health_status(ingest_mod.get_worker())
     return {
         "ok": True,
         "embed_model_present": (settings.embed_model_dir / "tokenizer.json").exists(),
@@ -412,6 +412,7 @@ def health():
 
 
 @app.get("/api/metrics", response_model=schemas.Metrics, responses=schemas.ERRORS_422)
+@dashboard_pool.heavy_route
 def metrics(request: Request,
     scope: access.AccessScope = Depends(access.current_scope),
 ):
@@ -886,15 +887,6 @@ def list_playbooks(scope: access.AccessScope = Depends(access.current_scope)):
         for pb in found.values()], "unusable": broken}
 
 
-@app.post("/api/admin/document-kinds/route", response_model=schemas.DocumentKindRouted,
-          responses={**schemas.ERRORS_404})
-def route_document_kinds(_admin: dict | None = Depends(admin_mod.current_admin)):
-    """Route every document that has no routing yet (or an older router's).
-    Documents already in the library when the router arrived need this once.
-    Confirmed kinds are never touched. Returns counts only."""
-    return doc_router_mod.route_unrouted()
-
-
 # ----------------------------------------------------------------- market
 #
 # No network call happens with the market lane's egress flags off (the
@@ -1263,28 +1255,10 @@ def _now_date() -> str:
 
 
 def _missing_references(submittal_id: str, allowed: frozenset[str]) -> list[str]:
-    """Standards this submittal CITES that the library does not hold.
-
-    Lifted out of the dashboard, which computed exactly this inline, so the
-    CRS gap rows and the Active Standards tile cannot drift into two answers
-    to one question. Read from the submittal's own chunk text rather than by
-    re-running applicability selection.
-    """
-    text = " ".join(
-        row["text"] or "" for row in connect().execute(
-            "SELECT text FROM chunks WHERE document_id = ?", (submittal_id,)))
-    names = datasheets_mod.referenced_standards(text)
-    # THE RULE LIVES IN applicability.missing_references, and is only CALLED
-    # here. This helper used to carry its own copy, which compared an
-    # identifier against a dict keyed by document id - so every cited
-    # standard was "missing", and the CRS told a contractor that six standards
-    # held in the library were unavailable. See that function's docstring.
-    #
-    # Reported in the submittal's own spelling ("32-SAMSS-004", never
-    # "32SAMSS004"); ordered by the normalised key so the CRS rows are stable.
-    missing = applicability_mod.missing_references(
-        applicability_mod._library(allowed), names)
-    return sorted(missing, key=applicability_mod.normalise_identifier)
+    """Standards this submittal CITES that the library does not hold: the one
+    answer in `export_status.missing_standards`, shared by the CRS gap rows,
+    the Active Standards tile, the readiness strip and the review PDF."""
+    return export_status_mod.missing_standards(submittal_id, allowed)
 
 
 def _standards_change(run: dict, scope: access.AccessScope) -> dict | None:
@@ -1626,6 +1600,7 @@ def review_feedback(
 
 @app.get("/api/reviews/runs", response_model=schemas.ReviewRunList,
          responses=schemas.ERRORS_422)
+@dashboard_pool.heavy_route
 def list_review_runs(
     request: Request,
     document_id: str | None = Query(None, description="only this submittal's runs"),
@@ -1828,7 +1803,7 @@ def start_review_run(
         raise HTTPException(status_code=409, detail=errors.safe_error(
             errors.INVALID_PARAMETER,
             f"a review of this submittal is already queued or running ({exc.args[0]})")) from exc
-    return next(r for r in list_review_runs(
+    return next(r for r in list_review_runs.__wrapped__(
         request=request, document_id=document_id, scope=scope,
     )["runs"] if r["review_run_id"] == run_id)
 
@@ -2106,15 +2081,13 @@ def structured_search(q: str, kind: str | None = None,
         include_unowned=scope.is_admin)}
 
 
-@app.get("/api/risks", response_model=schemas.RiskList)
-def list_risks(risk_type: str | None = None,
+@app.get("/api/risks", response_model=risks_mod.RiskList)
+@dashboard_pool.heavy_route
+def list_risks(risk_type: str | None = None, limit: int = Query(risks_mod.PAGE_SIZE, ge=1, le=risks_mod.MAX_PAGE_SIZE), offset: int = Query(0, ge=0),
                scope: access.AccessScope = Depends(access.current_scope)):
     if risk_type is not None and risk_type not in risks_mod.RISK_TYPES:
         raise HTTPException(status_code=422, detail="unsupported risk type")
-    # READ ONLY (#478, #608). Detection used to run here on every GET, looping
-    # over every finding and emailing per risk. It runs in the background
-    # (`risks_mod.start_background_detection`) and from POST /api/risks/detect.
-    return {"risks": risks_mod.list_items(risk_type=risk_type, allowed_document_ids=scope.allowed_document_ids)}
+    return risks_mod.list_page(risk_type=risk_type, allowed_document_ids=scope.allowed_document_ids, limit=limit, offset=offset)
 
 
 @app.post("/api/risks/detect", response_model=schemas.RiskDetectionResult,
@@ -2133,7 +2106,7 @@ def finding_traceability(finding_id: str, scope: access.AccessScope = Depends(ac
     return item
 
 
-@app.post("/api/risks", response_model=schemas.Risk,
+@app.post("/api/risks", response_model=risks_mod.Risk,
           responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422})
 def create_risk(body: schemas.RiskCreate, scope: access.AccessScope = Depends(access.current_scope)):
     """Record a risk. The same rules as every other writer (audit 2026-09-30):
@@ -3266,213 +3239,6 @@ def supersede_standard(
 # ----------------------------------------------------------------- chunks
 
 
-# ------------------------------------------------------------------ admin
-#
-# The administration screen: users, disciplines and document grants, replacing
-# `scripts/seed_access.py`, including one-time password setup and reset. Implements
-# `docs/design-admin-screen.md`, which was written before these routes existed.
-#
-# EVERY ROUTE HERE DEPENDS ON `admin.current_admin`, AND A NON-ADMIN GETS 404.
-# Not 403. A 403 confirms both that the route exists and that the caller found
-# the thing it guards, and the admin surface is the most interesting one on
-# this API to probe. It is the same rule `require_document` already follows for
-# a document the caller may not read, and it is why these routes take
-# `current_admin` rather than `current_scope`: the question is not which
-# documents this request may see, it is whether this request may be here at
-# all.
-
-
-@app.post("/api/admin/models/unload", response_model=schemas.AdminModelsFreed,
-          responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def admin_free_model_memory(request: Request,
-                            actor: dict | None = Depends(admin_mod.current_admin)):
-    """Give back the memory the local models hold (#666): ask Ollama to unload
-    every resident model (keep_alive 0). A non-admin gets the same 404 as every
-    other route here. Nothing is sent but model names; the next question pays a
-    cold load, which the button's label says."""
-    reject_unknown_params(request, set())
-    return model_memory_mod.free_all()
-
-
-@app.get("/api/admin/users", response_model=schemas.AdminUserList,
-         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def admin_list_users(request: Request,
-                     actor: dict | None = Depends(admin_mod.current_admin)):
-    """Every user, with disciplines and the "no discipline" warning.
-
-    Carries NO setup token, for any user, ever - only its SHA-256 is stored,
-    so there is no plaintext here to return.
-    """
-    reject_unknown_params(request, set())
-    return admin_mod.list_users()
-
-
-@app.post("/api/admin/users", response_model=schemas.AdminUserCreated,
-          status_code=201,
-          responses={**schemas.ERRORS_404, **schemas.ERRORS_409,
-                     **schemas.ERRORS_422})
-def admin_create_user(body: admin_mod.CreateUserRequest,
-                      actor: dict | None = Depends(admin_mod.current_admin)):
-    """Create a user and return a one-time setup token.
-
-    NO PASSWORD IS ACCEPTED OR RETURNED, and there is no parameter for one.
-    The reasons are argued in the contract: `seed_access.py` guarantees that a
-    password can only ever arrive by being typed interactively twice, an admin
-    who types someone's password knows it, and a password in a request body is
-    a password in a log - which this project found in a 422 handler that
-    echoed the submitted body back.
-    """
-    return admin_mod.create_user(body, actor)
-
-
-@app.delete("/api/admin/users/{user_id}",
-            response_model=schemas.AdminUserDeactivated,
-            responses={**schemas.ERRORS_404, **schemas.ERRORS_409})
-def admin_deactivate_user(user_id: str,
-                          actor: dict | None = Depends(admin_mod.current_admin)):
-    """Deactivate a user. Idempotent, and never a delete.
-
-    An admin cannot deactivate themselves: without that rule the last admin
-    can lock everyone out of a system whose only other door is a terminal.
-    """
-    return admin_mod.deactivate_user(user_id, actor)
-
-
-@app.post("/api/admin/users/{user_id}/password-reset",
-          response_model=schemas.AdminUserCreated,
-          responses={**schemas.ERRORS_404})
-def admin_issue_password_reset(
-        user_id: str,
-        actor: dict | None = Depends(admin_mod.current_admin)):
-    """Issue a replacement shown-once token; never accept a password here."""
-    return admin_mod.issue_password_reset(user_id, actor)
-
-
-@app.get("/api/admin/disciplines", response_model=schemas.AdminDisciplineList,
-         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def admin_list_disciplines(request: Request,
-                           actor: dict | None = Depends(admin_mod.current_admin)):
-    """Disciplines with user and document counts.
-
-    A discipline with no documents is flagged, because everyone in it logs in
-    successfully and then sees an empty corpus - which during a demo looks
-    exactly like broken search rather than a missing grant.
-    """
-    reject_unknown_params(request, set())
-    return admin_mod.list_disciplines()
-
-
-@app.get("/api/admin/grants", response_model=schemas.AdminGrantList,
-         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def admin_list_grants(request: Request,
-                      actor: dict | None = Depends(admin_mod.current_admin)):
-    """Documents and the disciplines that can see them.
-
-    A document nobody can see is flagged: it is invisible in every search and
-    looks like a broken upload.
-    """
-    reject_unknown_params(request, set())
-    return admin_mod.list_grants()
-
-
-@app.put("/api/admin/grants", response_model=schemas.AdminGrantResult,
-         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def admin_grant(body: admin_mod.GrantRequest,
-                actor: dict | None = Depends(admin_mod.current_admin)):
-    """Grant a document to a discipline. Idempotent - a retried click cannot
-    double-grant and cannot fail."""
-    return admin_mod.grant(body, actor)
-
-
-@app.delete("/api/admin/grants", response_model=schemas.AdminGrantResult,
-            responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def admin_revoke_grant(body: admin_mod.GrantRequest,
-                       actor: dict | None = Depends(admin_mod.current_admin)):
-    """Revoke a document from a discipline. 200 whether or not it was granted.
-
-    The document leaves that discipline's members' search results on their NEXT
-    REQUEST: `access.scope_for_user` re-runs the grant-table join every request
-    and caches nothing, so deleting the row IS the invalidation. See
-    `admin.revoke_grant`, where that is stated at the line it happens.
-    """
-    return admin_mod.revoke_grant(body, actor)
-
-
-# ------------------------------------------ the read-only database explorer
-#
-# THE SAME GATE AS EVERY OTHER ADMIN ROUTE, and that is the point: this is the
-# single most interesting surface on the API to probe, because it names every
-# table in the system. `admin.current_admin` answers a non-admin with 404, so
-# a caller who is not an admin cannot even learn that these routes exist.
-#
-# A WINDOW, NOT A WORKBENCH. Three GETs and nothing else - no POST, no PATCH,
-# no DELETE, and no request model anywhere that accepts a value to store. An
-# explorer that could write would be a second, unaudited path into every table
-# the real endpoints guard with scope checks and honesty invariants.
-#
-# THE EXPLORER READS EVERY TABLE, NOT ONLY WHAT THE ADMIN'S GRANTS COVER. That is
-# a decision, not an oversight (owner, 2026-10-07: "admin can read everything").
-# It is why the gate above matters, why credential columns are masked, and why
-# the document routes' grant-based scope is NOT a statement about this screen.
-# If an administrator must one day be limited to granted documents here too,
-# `admin_explorer.read_rows` is where that filter goes.
-#
-# CREDENTIAL MATERIAL IS MASKED IN `admin_explorer`, before it reaches the
-# wire. Not in the UI: a browser's network tab renders a JSON response just
-# fine, so masking on the client would be decoration over a disclosure.
-
-
-@app.get("/api/admin/db/tables", response_model=schemas.AdminDbTableList,
-         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def admin_db_tables(request: Request,
-                    actor: dict | None = Depends(admin_mod.current_admin)):
-    """Every user table with its row count. SQLite internals excluded."""
-    reject_unknown_params(request, set())
-    return {"tables": explorer_mod.list_tables(connect())}
-
-
-@app.get("/api/admin/db/tables/{name}", response_model=schemas.AdminDbTableInfo,
-         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def admin_db_table(name: str, request: Request,
-                   actor: dict | None = Depends(admin_mod.current_admin)):
-    """One table's columns, with type, nullability and whether its values are
-    masked.
-
-    An unknown table is 404 - the same answer a non-admin gets for the whole
-    route - so probing for a table name tells a caller nothing they did not
-    already have.
-    """
-    reject_unknown_params(request, set())
-    info = explorer_mod.table_info(connect(), name)
-    if info is None:
-        raise HTTPException(status_code=404, detail=errors.safe_error(
-            errors.NOT_FOUND, "no such table"))
-    return info
-
-
-@app.get("/api/admin/db/tables/{name}/rows", response_model=schemas.AdminDbRows,
-         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def admin_db_rows(
-    name: str,
-    request: Request,
-    limit: int = Query(50, ge=1, description="rows to return; capped server-side"),
-    offset: int = Query(0, ge=0, description="rows to skip"),
-    actor: dict | None = Depends(admin_mod.current_admin),
-):
-    """A page of rows, with the whole table's count beside it.
-
-    The cap lives in `admin_explorer.MAX_ROWS` and is applied there whatever
-    this route is asked for, so a caller cannot page the entire corpus into
-    one response by asking loudly.
-    """
-    reject_unknown_params(request, {"limit", "offset"})
-    page = explorer_mod.read_rows(connect(), name, limit=limit, offset=offset)
-    if page is None:
-        raise HTTPException(status_code=404, detail=errors.safe_error(
-            errors.NOT_FOUND, "no such table"))
-    return page
-
-
 # ---------------------------------------------- the Comment Resolution Sheet
 #
 # ONE COMPOSITION, TWO RENDERINGS. The .xlsx a client receives and the preview
@@ -3715,8 +3481,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     comparison_mod.attach_crs_context(findings)
     # Owner order 2d/2f: a confirmed AI engineering check item is printed
     # "confirmed by <name>" - the engineer's display name, never their id.
-    # Section 3: an edited comment names its editor the same way. 2d-2: a
-    # confirmed web standards check item does too.
+    # Section 3: an edited comment names its editor the same way; 2d-2: so does a confirmed web standards check item.
     # Audit 2026-09-30: EVERY confirmed comment, not only AI/web items and
     # edits - a plain confirmed requirement comment printed the raw user id.
     confirmers = {f["confirmed_by"] for f in findings if f.get("confirmed_by")}
@@ -3725,8 +3490,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
         people = {r["id"]: r["display_name"] for r in connect().execute(
             f"SELECT id, display_name FROM users WHERE id IN ({marks})", tuple(confirmers))}
         for finding in findings:
-            # A name only when one is on record - never invented; the id
-            # stays the fallback in `crs_mapping`.
+            # A name only when one is on record - never invented; the id stays the fallback in `crs_mapping`.
             if people.get(finding.get("confirmed_by")):
                 finding["confirmed_by_name"] = people[finding["confirmed_by"]]
 
@@ -3852,8 +3616,8 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     meta = {
         "document_title": submittal_name,
         "submittal_number": submittal_number,
-        # Never printed. Half of the key each row's stable reference is
-        # minted from, so re-exporting this run quotes the same references.
+        # Never printed. Half of the key each row's stable reference is minted
+        # from, so re-exporting this run quotes the same references.
         "review_run_id": review_run_id,
         "date_issued": stamp,
         # Left blank on purpose - see above. Absent, not invented.
@@ -3880,8 +3644,10 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
             for part in unchecked],
         "unchecked_parts": [part["line"] for part in unchecked],
         "incomplete_notice": absence_mod.notice_for(unchecked),
-        # Never printed: the keys of this run's rejected comments, for
-        # `_mint_crs_numbers` to withdraw.
+        # #633 item 7: row 1 of a sheet whose run did not complete - status, reason,
+        # unread pages, missing standards. "" for a completed run (sheet unchanged).
+        "run_status_note": export_status_mod.crs_header_note(run.get("status"), outcome.get("error"), unread, missing),
+        # Never printed: this run's rejected comment keys, for `_mint_crs_numbers` to withdraw.
         "rejected_row_keys": meta_rejected_keys,
     }
     return rows, meta, submittal_name, stamp

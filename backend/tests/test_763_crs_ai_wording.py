@@ -64,7 +64,7 @@ class _Fake:
         if isinstance(answer, Exception):
             raise answer
         return SimpleNamespace(text=json.dumps({"comment": answer}), provider="fake",
-                               model_tag="fake-1", schema_errors=())
+                               model_tag="fake-1", schema_errors=(), finish_reason="stop")
 
 
 @pytest.fixture
@@ -110,7 +110,8 @@ def test_off_asks_no_model_and_says_so(monkeypatch):
 def test_a_malformed_answer_is_refused():
     class Bad(_Fake):
         def reason(self, packet):
-            return SimpleNamespace(text="not json", provider="fake", model_tag="f", schema_errors=())
+            return SimpleNamespace(text="not json", provider="fake", model_tag="f", schema_errors=(),
+                                   finish_reason="stop")
     text, reason, _ = crs_wording._ask(Bad([]), ROW)
     assert text is None and reason == crs_wording.MALFORMED
 
@@ -144,7 +145,8 @@ def test_a_finished_review_prints_the_ai_wording_in_the_internal_copy_only(
             self.asked.append(packet)
             comment = packet.prompt.split("Comment: ", 1)[1].strip()
             return SimpleNamespace(text=json.dumps({"comment": _worded({"comment": comment})}),
-                                   provider="fake", model_tag="fake-1", schema_errors=())
+                                   provider="fake", model_tag="fake-1", schema_errors=(),
+                                   finish_reason="stop")
     fake = Echo([])
     run_id = _review(world, monkeypatch, fake)
     assert fake.asked, "the review asked the model to word its CRS comments"

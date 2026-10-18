@@ -12,29 +12,25 @@
 import { reviews as reviewsApi } from "../../../api/client";
 import { useAuthedImage } from "../../useAuthedImage";
 import { type PageMark, marksSentence } from "./sheetCards";
+import { ZoomablePage } from "./ZoomablePage";
 
 export function SheetPageImage({ runId, page, marks }: { runId: string; page: number; marks: PageMark[] }) {
   const image = useAuthedImage(reviewsApi.sheetPageImageUrl(runId, page, marks));
-  if (image.loading) {
-    return <p className="text-xs text-slateish-400">Loading page {page}…</p>;
-  }
-  if (image.failed || !image.src) {
+  if (image.loading || image.failed || !image.src) {
+    // Order 90a: the status sits inside the page frame, so nothing jumps when the page arrives.
     return (
-      <p role="alert" className="rounded-[var(--radius-sm)] border border-dashed border-ink-600 p-3 text-xs text-slateish-500">
-        Page {page} could not be loaded from this screen.
-      </p>
+      <ZoomablePage
+        src={null} alt={`Datasheet page ${page}, values with a card underlined`}
+        status={image.loading ? `Loading page ${page}…` : <span role="alert">Page {page} could not be loaded from this screen.</span>}
+      />
     );
   }
+  // Order 85a: the readable viewer (80% of the window, zoom, full page),
+  // not a fit-to-512-px thumbnail.
   return (
-    <figure className="space-y-1">
-      <p data-testid="sheet-marks" className="text-xs text-slateish-400">
-        {marksSentence(image.marksLocated, image.marksTotal)}
-      </p>
-      <img
-        src={image.src}
-        alt={`Datasheet page ${page}, values with a card underlined`}
-        className="max-h-[32rem] w-full rounded-[var(--radius-sm)] border border-ink-700 bg-white object-contain max-sm:max-h-[20rem]"
-      />
-    </figure>
+    <ZoomablePage
+      src={image.src} alt={`Datasheet page ${page}, values with a card underlined`}
+      caption={<p data-testid="sheet-marks" className="text-xs text-slateish-400">{marksSentence(image.marksLocated, image.marksTotal)}</p>}
+    />
   );
 }
