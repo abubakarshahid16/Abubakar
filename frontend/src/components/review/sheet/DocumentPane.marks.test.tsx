@@ -2,12 +2,12 @@
  * #967 item 5: the datasheet pane asks the server to mark EVERY card's value
  * on the page shown, with each card's state - not only the selected card's.
  */
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ReviewFinding } from "../../../types/api";
 import { DocumentPane } from "./DocumentPane";
-import { type PageMark, buildCards, marksOn } from "./sheetCards";
+import { type PageMark, buildCards, cardTitle, marksOn } from "./sheetCards";
 
 const seen: { runId: string; page: number; marks: PageMark[] }[] = [];
 
@@ -18,7 +18,7 @@ vi.mock("./SheetPageImage", () => ({
   },
 }));
 vi.mock("../EvidencePageImage", () => ({ EvidencePageImage: () => <p>rule page</p> }));
-vi.mock("../../DocumentPreview", () => ({ DocumentPreview: () => <p>plain page</p> }));
+vi.mock("./PlainPageImage", () => ({ PlainPageImage: () => <p>plain page</p> }));
 
 function finding(id: string, page: number, extra: Partial<ReviewFinding> = {}): ReviewFinding {
   return {
@@ -66,5 +66,14 @@ describe("DocumentPane marks", () => {
     ] });
     rerender(<DocumentPane {...props} view={{ page: 1, rule: null }} />);
     expect(screen.getByText("plain page")).toBeInTheDocument();
+  });
+
+  it("#1090: the selected card's title is not listed again beside the page", () => {
+    const cards = buildCards([finding("set-pressure", 2), finding("orifice", 2, { confirmed_by: "eng", engineer_comment: "checked" })]);
+    expect(cards).toHaveLength(2);
+    render(<DocumentPane runId="run-1" submittal={null} cards={cards} selected={cards[0]}
+      view={{ page: 2, rule: null }} onPage={vi.fn()} onSelectCard={vi.fn()} onCloseRule={vi.fn()} />);
+    const listed = within(screen.getByRole("list", { name: "Marked on this page" })).getAllByRole("button");
+    expect(listed.map((b) => b.textContent)).toEqual([cardTitle(cards[1])]);
   });
 });
