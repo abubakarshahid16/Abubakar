@@ -1,6 +1,6 @@
 {
  "ruff": "0.16.6",
- "total": 1579,
+ "total": 1577,
  "counts": {
   "backend/app/absence.py::E741": 1,
   "backend/app/access.py::UP031": 1,
@@ -148,7 +148,6 @@
   "backend/app/live_guard.py::UP037": 1,
   "backend/app/main.py::ARG001": 8,
   "backend/app/main.py::B905": 1,
-  "backend/app/main.py::BLE001": 1,
   "backend/app/main.py::I001": 1,
   "backend/app/main.py::RUF100": 4,
   "backend/app/main.py::UP017": 1,
@@ -158,7 +157,6 @@
   "backend/app/model_transport.py::UP017": 1,
   "backend/app/notifications.py::UP017": 3,
   "backend/app/ocr.py::B905": 5,
-  "backend/app/ocr.py::I001": 1,
   "backend/app/ocr.py::RUF001": 2,
   "backend/app/ocr.py::RUF003": 2,
   "backend/app/ocr.py::RUF007": 3,
