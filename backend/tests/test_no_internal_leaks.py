@@ -95,6 +95,11 @@ def _all_get_routes() -> list[str]:
         path = getattr(route, "path", "")
         if "GET" in methods and path.startswith("/api"):
             paths.append(path)
+    # Routes from include_router (app/api/ and the other routers) are wrapped
+    # differently across FastAPI versions and are not all in app.routes; the
+    # API description lists every one (order 73).
+    paths += [p for p, item in app.openapi()["paths"].items()
+              if "get" in item and p.startswith("/api") and p not in paths]
     return paths
 
 
