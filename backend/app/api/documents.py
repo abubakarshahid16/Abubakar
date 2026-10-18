@@ -344,7 +344,7 @@ def delete_document(document_id: str, request: Request, confirm: bool = Query(Fa
         for img in cache.glob(f"{doc['sha256'][:16]}_*.png"):
             img.unlink()
             files_removed += 1
-    files_removed += review_mod.remove_report_files(document_id) + removed["review_pdfs_of_citing_submittals"]  # #437, #1053
+    files_removed += review_mod.remove_report_files(document_id) + removed.pop("review_pdfs_of_citing_submittals")  # #437, #1053: audited, not in the response
 
     return {
         "deleted": document_id,

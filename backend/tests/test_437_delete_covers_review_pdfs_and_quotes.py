@@ -130,7 +130,12 @@ def test_1053_deleting_a_standard_takes_the_review_pdfs_of_the_submittals_that_c
     out = _delete(std, acknowledge=True)
     assert not any(p.exists() for p in gone), "a submittal's PDFs still quote the deleted standard"
     assert all(p.exists() for p in kept)
-    assert out["rows_removed"]["review_pdfs_of_citing_submittals"] == 2
+    # the count is audited, not returned: the deleter may not read the citing submittals (s1's review)
+    assert "review_pdfs_of_citing_submittals" not in out["rows_removed"]
+    detail = db.connect().execute(
+        "SELECT detail FROM audit_events WHERE action = 'document.deleted' AND resource_id = ?",
+        (std,)).fetchone()[0]
+    assert "review_pdfs_of_citing_submittals=2" in detail
     assert out["files_removed"] >= 2
     # the finding itself stays: the record survives, its citation nulled by the cascade
     assert db.connect().execute("SELECT COUNT(*) FROM review_findings WHERE document_id = ?",
