@@ -92,9 +92,8 @@ TIER_REFERENCE = "reference"
 #: Order matters: it is the order tiers are attempted and reported in.
 TIERS: tuple[str, ...] = (TIER_WEB, TIER_LITERATURE, TIER_REFERENCE)
 
-#: The label a row carries into the UI. Fixed here, not in the frontend, so
-#: the words a reader sees about provenance come from the layer that knows
-#: where the row came from.
+#: The label a row carries into the UI. Fixed here, not in the frontend, so the words a reader sees
+#: about provenance come from the layer that knows where the row came from.
 TIER_LABELS: Mapping[str, str] = {
     TIER_WEB: "market search",
     TIER_LITERATURE: "published literature",
@@ -786,7 +785,8 @@ def search_all(phrase: str | None, *, fetch: Fetch | None = None,
         except Exception as exc:                    # noqa: BLE001
             # One tier failing is not the search failing. The reason is
             # recorded per tier and the run continues.
-            failures.append(errors.fell_back("market_providers: one market tier failed; the run continues", exc, f"{tier}: {_safe_reason(exc)}"))
+            errors.fell_back("market_providers: a tier failed", exc, None)
+            failures.append(f"{tier}: {_safe_reason(exc)}")
             audit.append(audit_record(phrase, tier=tier, outcome="error"))
             continue
         audit.append(audit_record(phrase, tier=tier, outcome="ok"))

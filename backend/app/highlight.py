@@ -105,7 +105,7 @@ def locate(
             try:
                 found = page.search_for(fragment, quads=False)
             except Exception as exc:  # noqa: BLE001 - a search failure is a miss
-                log.debug("highlight: a highlight search failed; it counts as a miss (%s)", type(exc).__name__)  # 79c
+                log.debug("highlight: search failed; a miss (%s)", type(exc).__name__)
                 continue
             if not found:
                 continue

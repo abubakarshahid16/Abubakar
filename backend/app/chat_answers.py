@@ -101,7 +101,7 @@ def general(question: str, *, styles: list[str], history: str, preference: str |
     try:
         raw = _generate(GENERAL_SYSTEM, prompt, settings.chat_temperature_general, preference)
     except Exception as exc:  # noqa: BLE001 - reported as unavailable, never a crash
-        log.info("chat_answers: the model call failed; reported as unavailable (%s)", type(exc).__name__)  # 79c
+        log.info("chat_answers: model call failed (%s)", type(exc).__name__)
         return _failed(base, exc, timer, preference)
     if raw.get("cancelled"):
         return answer_mod.stopped(base, raw, timer)
@@ -178,7 +178,7 @@ def rewrite(previous: dict | None, *, styles: list[str], history: str, preferenc
         try:
             raw = _generate(GENERAL_SYSTEM, prompt, settings.chat_temperature_general, preference)
         except Exception as exc:  # noqa: BLE001
-            log.info("chat_answers: the model call failed; reported as unavailable (%s)", type(exc).__name__)  # 79c
+            log.info("chat_answers: model call failed (%s)", type(exc).__name__)
             return _failed(base, exc, timer, preference)
         if raw.get("cancelled"):
             return answer_mod.stopped(base, raw, timer)

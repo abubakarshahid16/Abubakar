@@ -6,6 +6,7 @@ Each handler either re-raises or logs what failed and the error's TYPE (the
 stay: a failed model call is still "model unavailable", a failed highlight
 search is still a miss.
 """
+
 from __future__ import annotations
 
 import ast
@@ -15,9 +16,28 @@ import pathlib
 import pytest
 
 APP = pathlib.Path(__file__).resolve().parent.parent / "app"
-CHAT = ("answer", "chat", "chat_answers", "chat_comparison", "chat_model", "chat_tools",
-        "family_search", "highlight", "intent", "market_providers", "reranker")
-LOGS = ("log.", "logger.", "logging.", "record_failure", "_say_once(", "log_exception", "fell_back(")
+CHAT = (
+    "answer",
+    "chat",
+    "chat_answers",
+    "chat_comparison",
+    "chat_model",
+    "chat_tools",
+    "family_search",
+    "highlight",
+    "intent",
+    "market_providers",
+    "reranker",
+)
+LOGS = (
+    "log.",
+    "logger.",
+    "logging.",
+    "record_failure",
+    "_say_once(",
+    "log_exception",
+    "fell_back(",
+)
 
 
 def _silent(module: str) -> list[int]:
@@ -26,9 +46,13 @@ def _silent(module: str) -> list[int]:
         if not isinstance(node, ast.ExceptHandler):
             continue
         t = node.type
-        names = [] if t is None else ([t] if not isinstance(t, ast.Tuple) else list(t.elts))
-        broad = t is None or any(isinstance(n, ast.Name) and n.id in ("Exception", "BaseException")
-                                 for n in names)
+        names = (
+            [] if t is None else ([t] if not isinstance(t, ast.Tuple) else list(t.elts))
+        )
+        broad = t is None or any(
+            isinstance(n, ast.Name) and n.id in ("Exception", "BaseException")
+            for n in names
+        )
         if not broad or any(isinstance(n, ast.Raise) for n in ast.walk(node)):
             continue
         if not any(word in ast.unparse(node) for word in LOGS):
@@ -38,7 +62,9 @@ def _silent(module: str) -> list[int]:
 
 @pytest.mark.parametrize("module", CHAT)
 def test_every_broad_catch_in_the_chat_modules_logs_or_reraises(module):
-    assert _silent(module) == [], f"{module}.py swallows errors silently at lines {_silent(module)}"
+    assert _silent(module) == [], (
+        f"{module}.py swallows errors silently at lines {_silent(module)}"
+    )
 
 
 def test_an_unreadable_provider_still_reports_local_and_says_why(caplog, monkeypatch):
@@ -53,5 +79,8 @@ def test_an_unreadable_provider_still_reports_local_and_says_why(caplog, monkeyp
     with caplog.at_level(logging.DEBUG, logger="app.chat_model"):
         assert chat_model.engine_name("auto") == rp.OLLAMA
     messages = [r.getMessage() for r in caplog.records if r.name == "app.chat_model"]
-    assert any("reasoning provider could not be read" in m and "RuntimeError" in m for m in messages)
+    assert any(
+        "reasoning provider could not be read" in m and "RuntimeError" in m
+        for m in messages
+    )
     assert not any("secret detail" in m for m in messages)

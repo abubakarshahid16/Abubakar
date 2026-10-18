@@ -368,8 +368,9 @@ def compare(
                 # THIS SIDE ONLY (B01): the other sides keep their answers and
                 # this one says it could not be checked. The type name is the
                 # reason; no text from the failure is shown.
-                side = errors.fell_back("chat_comparison: one side of a comparison failed; that side says so", exc, {
-                    "answer_type": "model_unavailable", "reason": f"this side failed ({type(exc).__name__})"})
+                errors.fell_back("chat_comparison: one side failed", exc, None)
+                side = {"answer_type": "model_unavailable",
+                        "reason": f"this side failed ({type(exc).__name__})"}
         if side.get("answer_type") == "cancelled":
             stopped = True
         # WHAT THIS SIDE'S OWN ANSWER ACTUALLY USED - never `side["passages"]`
@@ -399,9 +400,8 @@ def compare(
             entry["text"] = _not_in_library(name)
             parts.append(_not_in_library(name))
         elif state == absence.COULD_NOT_BE_CHECKED:
-            # B01: a side that failed, was stopped, was refused or could not be
-            # supported is NOT an absence. It says so, with the reason, and no
-            # verdict is drawn from it.
+            # B01: a side that failed, was stopped, was refused or could not be supported is NOT an
+            # absence. It says so, with the reason, and no verdict is drawn from it.
             entry["answer_type"] = absence.COULD_NOT_BE_CHECKED
             entry["reason"] = state_reason
             entry["text"] = absence.could_not_be_checked_sentence(state_reason)

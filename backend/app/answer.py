@@ -1157,9 +1157,8 @@ def _figure_occurrences(text: str) -> list[dict]:
     return out
 
 
-#: A unit that closes a row label just before its number: after a comma,
-#: semicolon, colon or line start, optionally with its alternative in
-#: brackets - ", psi (kPa) 11.0", "; bar 4.5", "kPa 76".
+#: A unit that closes a row label just before its number: after a comma, semicolon, colon or line
+#: start, optionally with its alternative in brackets - ", psi (kPa) 11.0", "; bar 4.5", "kPa 76".
 _LEADING_UNIT = re.compile(
     r"(?:^|[,;:\n])\s*(?P<unit>[A-Za-z%\u00b0\u00b5][\w%\u00b0\u00b5/.\u00b2\u00b3-]*)"
     r"(?:\s*\(\s*(?P<alt>[A-Za-z%\u00b0\u00b5][\w%\u00b0\u00b5/.\u00b2\u00b3-]*)\s*\))?\s*$")
@@ -1579,7 +1578,8 @@ def generate_from_passages(instruction: str, passages: list[dict], *, history: s
             raise
         except Exception as exc:  # noqa: BLE001
             from . import chat_answers
-            return errors.fell_back("answer: the model call for an answer failed; marked failed", exc, chat_answers._failed({**base, "passages": passages}, exc, timer))
+            errors.fell_back("answer: model call failed; marked failed", exc, None)
+            return chat_answers._failed({**base, "passages": passages}, exc, timer)
         return _finish_generated(raw, passages, base={**base, "passages": passages}, timer=timer)
     finally:
         _PREFERENCE.reset(token)
@@ -1949,9 +1949,8 @@ def _answer_from_documents(
         }
 
     if tier == "extract":
-        # Which clause applies, when near-equal clauses set different values
-        # for different conditions - see _condition_choice. None leaves the
-        # answer exactly as it was.
+        # Which clause applies, when near-equal clauses set different values for different
+        # conditions - see _condition_choice. None leaves the answer exactly as it was.
         choice = _condition_choice(
             gate_question, hits, lead, document_id, allowed_document_ids)
         demoted = None
@@ -2126,7 +2125,8 @@ def _answer_from_documents(
             "seconds": timer.seconds(),
         }
     except Exception as exc:  # noqa: BLE001 - the model being down is not a crash
-        return errors.fell_back("answer: the model call failed; the answer says the model is unavailable", exc, {
+        errors.fell_back("answer: model call failed; model unavailable", exc, None)
+        return {
             **base,
             "answer_type": "model_unavailable",
             "provider": reasoning_provider.CLAUDE if claude_lane() else reasoning_provider.OLLAMA,
@@ -2136,7 +2136,7 @@ def _answer_from_documents(
             "passages": passages,
             "evidence_removed": evidence_removed,
             "seconds": timer.seconds(),
-        })
+        }
     generation_ms = round(t.elapsed * 1000, 2)
 
     if raw.get("cancelled"):

@@ -337,7 +337,7 @@ def example_questions(
                 sorted(allowed_document_ids),
             ).fetchall()
         except Exception as exc:  # noqa: BLE001 - a suggestion is never worth an error
-            log.debug("intent: the suggestion lookup failed; no suggestion is offered (%s)", type(exc).__name__)  # 79c
+            log.debug("intent: suggestion lookup failed (%s)", type(exc).__name__)
             rows = []
 
         seen_docs: set[str] = set()

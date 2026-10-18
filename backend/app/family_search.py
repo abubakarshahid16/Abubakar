@@ -184,7 +184,7 @@ def _topic_evidence(topic: str, want: set[str], document_id: str) -> int:
         result = search.search(topic, limit=PROBE_LIMIT, rerank=False,
                                allowed_document_ids=frozenset({document_id}))
     except Exception as exc:  # noqa: BLE001 - a failed probe must not lose the family
-        log.debug("family_search: a family probe failed; it counts 0 and the family is kept (%s)", type(exc).__name__)  # 79c
+        log.debug("family_search: probe failed; counts 0 (%s)", type(exc).__name__)
         return 0
     return sum(
         1 for hit in result.get("hits") or []

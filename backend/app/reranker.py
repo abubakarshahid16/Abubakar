@@ -128,7 +128,7 @@ def _load():
 
             _session, _tokenizer = session, tok
         except Exception as exc:  # noqa: BLE001 - never let this break retrieval
-            log.warning("reranker: the reranker could not be loaded; retrieval runs without it (%s)", type(exc).__name__)  # 79c
+            log.warning("reranker: not loaded (%s)", type(exc).__name__)
             _unavailable_reason = f"{type(exc).__name__}: {exc}"
             return None, None
     return _session, _tokenizer

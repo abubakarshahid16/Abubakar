@@ -385,7 +385,7 @@ def run_look_at_page(input: dict, *, allowed_document_ids: frozenset[str],
                                note="page out of range"), None
             image = vision_reader.render(pdf[page_no - 1])
     except Exception as exc:  # noqa: BLE001 - a page that cannot render is reported, not raised
-        log.info("chat_tools: a page could not be rendered for the look_at_page tool (%s)", type(exc).__name__)  # 79c
+        log.info("chat_tools: look_at_page render failed (%s)", type(exc).__name__)
         return ToolRun("look_at_page", input, "Looked at a page", False,
                        note=f"could not render this page: {type(exc).__name__}"), None
     pages_used.append((document_id, page_no))

@@ -90,7 +90,9 @@ def engine_name(preference: str | None = None) -> str:
     try:
         return rp.CLAUDE if isinstance(provider(preference), rp.ClaudeProvider) else rp.OLLAMA
     except Exception as exc:  # noqa: BLE001 - reporting must not crash
-        log.debug("chat_model: the reasoning provider could not be read; the local model is reported (%s)", type(exc).__name__)  # 79c
+        log.debug(
+            "chat_model: reasoning provider could not be read (%s)", type(exc).__name__
+        )
         return rp.OLLAMA
 
 
@@ -110,7 +112,7 @@ def unavailable_words() -> str | None:
     try:
         code, _why = rp.claude_unavailable()
     except Exception as exc:  # noqa: BLE001 - reporting must not crash
-        log.debug("chat_model: the reason Claude is unavailable could not be read; no reason is shown (%s)", type(exc).__name__)  # 79c
+        log.debug("chat_model: Claude reason unreadable (%s)", type(exc).__name__)
         return None
     return _UNAVAILABLE_WORDS.get(code) if code else None
 
