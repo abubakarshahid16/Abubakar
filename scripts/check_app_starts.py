@@ -34,7 +34,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "backend"
-OLD_PATH = "D:\\project\\app\\backend\\data\\uploads\\sheet.pdf"
+#: An absolute path written on another machine (the owner's Mac); the file
+#: itself is in this data folder, as after a copy.
+OLD_PATH = "/Users/owner/project/app/backend/data/uploads/sheet.pdf"
 
 
 def _env(home: Path, port: int) -> dict[str, str]:
