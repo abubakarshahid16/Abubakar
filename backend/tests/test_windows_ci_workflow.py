@@ -182,19 +182,24 @@ def test_the_aggregate_fails_on_a_failed_cancelled_or_skipped_shard(agg, bad):
         s for s in agg["steps"] if s.get("name") == "Every Windows shard passed"
     )
 
-    def run(result, starts="success"):
-        script = (
-            step["run"]
-            .replace("${{ needs.backend-windows-shard.result }}", result)
-            .replace("${{ needs.app-starts-windows.result }}", starts)
-        )
+    starts = next(
+        s for s in agg["steps"] if s.get("name") == "The app started on Windows"
+    )
+
+    def run(script, placeholder, result):
+        script = script.replace(placeholder, result)
         return subprocess.run(
             [bash, "-e", "-c", script], capture_output=True
         ).returncode
 
-    assert run("success") == 0
-    assert run(bad) != 0
-    assert run("success", bad) != 0
+    shards = "${{ needs.backend-windows-shard.result }}"
+    app = "${{ needs.app-starts-windows.result }}"
+    assert run(step["run"], shards, "success") == 0
+    assert run(step["run"], shards, bad) != 0
+    assert run(starts["run"], app, "success") == 0
+    assert run(starts["run"], app, bad) != 0
+    # Last: a failed start must not skip the nightly durations refresh.
+    assert agg["steps"][-1] is starts
 
 
 def test_the_app_start_check_runs_on_windows_too(win):
@@ -247,3 +252,32 @@ def test_windows_durations_never_reach_the_linux_shards(job, agg):
     # operating systems only when both sides allow it.
     assert restore["with"].get("enableCrossOsArchive") is True
     assert save["with"].get("enableCrossOsArchive") is True
+
+
+def test_the_start_check_survives_a_temp_folder_windows_still_holds(monkeypatch):
+    """Order 135: on Windows an indexer can hold server.log for a moment; the
+    temporary folder's cleanup must not turn a passed start into a failure."""
+    import importlib.util
+    import tempfile
+
+    spec = importlib.util.spec_from_file_location(
+        "check_app_starts", WORKFLOWS.parents[1] / "scripts" / "check_app_starts.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    seen = {}
+    real = tempfile.TemporaryDirectory
+
+    def recording(*args, **kwargs):
+        seen.update(kwargs)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(mod.tempfile, "TemporaryDirectory", recording)
+    monkeypatch.setattr(
+        mod, "start_and_check", lambda *a: (True, "stored paths made relative")
+    )
+    monkeypatch.setattr(mod, "seed_old_path", lambda home: None)
+    monkeypatch.setattr(mod, "STARTS", tuple((n, None, m) for n, _, m in mod.STARTS))
+    assert mod.main([]) == 0
+    assert seen.get("ignore_cleanup_errors") is True
+    assert mod._env(Path("x"), 1)["PYTHONUTF8"] == "1"

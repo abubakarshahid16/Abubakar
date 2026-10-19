@@ -143,6 +143,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # `id: py` also keeps M1787's anchor (the shard's setup) unique.
       - uses: actions/setup-python@v7
         id: py
         with:
@@ -169,9 +170,8 @@ jobs:
       # "= success", not "!= failure": a cancelled or skipped shard fails it too.
       - name: Every Windows shard passed
         run: |
-          echo "shards: ${{ needs.backend-windows-shard.result }}, app starts: ${{ needs.app-starts-windows.result }}"
+          echo "shards: ${{ needs.backend-windows-shard.result }}"
           test "${{ needs.backend-windows-shard.result }}" = "success"
-          test "${{ needs.app-starts-windows.result }}" = "success"
 
       - uses: actions/checkout@v7
 
@@ -196,3 +196,9 @@ jobs:
           path: backend/.test_durations
           key: windows-test-durations-${{ github.run_id }}
           enableCrossOsArchive: true
+
+      # Last, so a failed start never skips the nightly durations refresh.
+      - name: The app started on Windows
+        run: |
+          echo "app starts: ${{ needs.app-starts-windows.result }}"
+          test "${{ needs.app-starts-windows.result }}" = "success"
