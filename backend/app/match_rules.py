@@ -450,9 +450,15 @@ def _word_set(key: str) -> frozenset[str]:
     return frozenset(w.lower() for w in _kind_words(key) or [])
 
 
-def quantity_nouns() -> dict[str, str]:
-    """noun -> the `claims.unit_dimension` family of the quantity it names."""
-    return {k.lower(): v for k, v in (_kind_words("quantity_nouns") or {}).items()}
+def quantity_nouns() -> dict[str, frozenset[str]]:
+    """noun -> the `claims.unit_dimension` families of the quantity it names.
+    A SET: vibration is stated as a velocity (mm/s) or a displacement (um,
+    mils), flow as a volume or a mass per time - a noun never refuses a unit
+    that gives one of its kinds."""
+    return {
+        k.lower(): frozenset([v] if isinstance(v, str) else v)
+        for k, v in (_kind_words("quantity_nouns") or {}).items()
+    }
 
 
 def generic_modifiers() -> frozenset[str]:
@@ -504,7 +510,7 @@ def _phrase_heads(text: str | None) -> set[str]:
             if len(w) > 1 and not w.isdigit() and w not in _word_set("generic_heads")
         ]
         if words and words[-1] in nouns:
-            heads.add(nouns[words[-1]])
+            heads.update(nouns[words[-1]])
 
     for token in _tokens(text):
         if token in _CONJUNCTIONS:
@@ -548,22 +554,27 @@ def _field_words(fact: dict) -> list[str]:
     ]
 
 
-def fact_kind(fact: dict) -> tuple[str | None, str | None]:
-    """`(kind, source)` of a datasheet value: its unit (incl. the unit a blank
+def fact_kinds(fact: dict) -> tuple[frozenset[str], str | None]:
+    """`(kinds, source)` of a datasheet value: its unit (incl. the unit a blank
     prints, "unit"), else the quantity noun its field name ends in ("noun")."""
     kind = _unit_kind(printed_unit(fact))
     if kind:
-        return kind, "unit"
+        return frozenset({kind}), "unit"
     heads = _phrase_heads(fact.get("field_name"))
-    return (next(iter(heads)), "noun") if len(heads) == 1 else (None, None)
+    return frozenset(heads), ("noun" if heads else None)
 
 
 def quantity_kind_conflict(requirement: dict, fact: dict) -> bool:
-    """True when both sides name a quantity kind and the kinds differ - a
-    flow against a temperature, a pressure against a duration."""
-    kinds, _source = requirement_kinds(requirement)
-    kind, _fact_source = fact_kind(fact)
-    return bool(kinds) and kind is not None and kind not in kinds
+    """True when both sides name a quantity kind and no kind is shared - a
+    flow against a temperature, a pressure against a duration. A percentage
+    is relative to ANY quantity ("110 % of the rated flow"), so a percent
+    unit on one side never refuses a kind the other side has only by its
+    noun; two units still do (rule 1)."""
+    kinds, source = requirement_kinds(requirement)
+    fact_side, fact_source = fact_kinds(fact)
+    if not kinds or not fact_side or kinds & fact_side:
+        return False
+    return not ("noun" in (source, fact_source) and "percent" in kinds | fact_side)
 
 
 def _field_place(requirement: dict, fact: dict) -> dict | None:
@@ -653,8 +664,8 @@ def quantity_kind_doubt(requirement: dict, fact: dict | None) -> str | None:
     if fact is None:
         return None
     kinds, _source = requirement_kinds(requirement)
-    kind, fact_source = fact_kind(fact)
-    if not kinds and kind is None:
+    fact_side, fact_source = fact_kinds(fact)
+    if not kinds and not fact_side:
         return None
     place = _field_place(requirement, fact)
     if place is None:
@@ -666,7 +677,7 @@ def quantity_kind_doubt(requirement: dict, fact: dict | None) -> str | None:
         nxt in quantity_nouns() or nxt in derived_after() or fact_source == "unit"
     ):
         return QUANTITY_KIND_UNSURE
-    if kinds and kind is None and place["late"]:
+    if kinds and not fact_side and place["late"]:
         return QUANTITY_KIND_UNSURE
     return None
 

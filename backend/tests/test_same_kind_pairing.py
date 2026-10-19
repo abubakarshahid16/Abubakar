@@ -407,3 +407,63 @@ def test_a_same_kind_blank_is_still_the_contractors_to_provide(world):
     )
     assert found["fact_id"] == fact["id"]
     assert found["compliance_status"] == comparison.MISSING_INFORMATION
+
+
+# ------------------------- a noun naming several kinds never refuses one of them
+def test_vibration_is_a_velocity_or_a_displacement():
+    """A vibration limit in um against a field "Vibration" that prints no unit
+    (or a lost-unit clause against a field in um) is one quantity; a noun
+    alone never refuses a unit that gives one of its kinds. Against a flow it
+    is still refused."""
+    in_um = _req("the maximum vibration", "50", "µm")
+    blank = _fact("vibration", printed="____", blank=True)
+    assert match_rules.refusal(in_um, blank, sheet=None) is None
+    lost = _req("the maximum vibration", "50", None)
+    assert match_rules.refusal(lost, _fact("vibration", "30", "µm"), sheet=None) is None
+    assert (
+        match_rules.refusal(lost, _fact("vibration", "2.5", "mm/s"), sheet=None) is None
+    )
+    assert (
+        match_rules.refusal(lost, _fact("vibration", "120", "m3/h"), sheet=None)
+        == match_rules.QUANTITY_KIND
+    )
+
+
+def test_flow_is_a_volume_or_a_mass_per_time():
+    blank = _fact("flow", printed="____", blank=True)
+    assert (
+        match_rules.refusal(_req("the minimum flow", "500", "kg/h"), blank, sheet=None)
+        is None
+    )
+    assert (
+        match_rules.refusal(_req("the minimum flow", "5", "m3/h"), blank, sheet=None)
+        is None
+    )
+    assert (
+        match_rules.refusal(_req("the minimum flow", "5", "°C"), blank, sheet=None)
+        == match_rules.QUANTITY_KIND
+    )
+
+
+def test_a_percentage_never_refuses_a_kind_named_only_by_a_noun():
+    """'3 % of the impeller diameter' is relative to any quantity."""
+    blank = _fact("clearance", printed="____", blank=True)
+    assert (
+        match_rules.refusal(_req("the minimum clearance", "3", "%"), blank, sheet=None)
+        is None
+    )
+    # two units still decide: a percentage is not a flow in m3/h (rule 1)
+    filled = _fact("clearance", "5", "m3/h")
+    assert match_rules.refusal(
+        _req("the minimum clearance", "3", "%"), filled, sheet=None
+    )
+
+
+def test_a_vibration_limit_in_um_pairs_and_decides_against_a_blank(world):
+    _req_row, [fact], found = _review(
+        "The maximum vibration shall not exceed 50 µm.",
+        _limit("the maximum vibration", "50", "µm"),
+        [("Vibration", "______", (True, "______"))],
+    )
+    assert found["fact_id"] == fact["id"]
+    assert found["compliance_status"] == comparison.MISSING_INFORMATION

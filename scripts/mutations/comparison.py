@@ -1036,10 +1036,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="test_review_codes_are_configurable",
         tags=("honesty",),
     ),
-    # ---- order 139 fix 2: same quantity kind (ids renamed to the PR number) --
+    # ---- order 139 fix 2 (#1176): same quantity kind --------------------------
     Mutation(
-        id="M139B-01",
-        phase=139,
+        id="M1176-01",
+        phase=1176,
         description="the unsure-kind hold is never applied: a pump efficiency "
         "reads NON_COMPLIANT against a weld joint efficiency rule",
         path=APP / "comparison.py",
@@ -1050,8 +1050,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         tags=("honesty", "critical"),
     ),
     Mutation(
-        id="M139B-02",
-        phase=139,
+        id="M1176-02",
+        phase=1176,
         description="an unsure-kind pair of a BLANK field keeps MISSING_INFORMATION: "
         "the contractor is asked for a weld value the field is not",
         path=APP / "comparison.py",
@@ -1062,8 +1062,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         tags=("honesty",),
     ),
     Mutation(
-        id="M139B-03",
-        phase=139,
+        id="M1176-03",
+        phase=1176,
         description="the unsure-kind hold stores no reason code, so the CRS cannot "
         "say why the engineer must check",
         path=APP / "comparison.py",
