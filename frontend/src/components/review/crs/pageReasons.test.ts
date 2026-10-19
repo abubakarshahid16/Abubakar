@@ -5,7 +5,7 @@ import { plainPageReason, unreadPageLine } from "./pageReasons";
 describe("unread pages in plain words (order 121 Part B)", () => {
   it("says a page kind as the computer's guess, never as fact", () => {
     const reason = "vision reader: page kind 'cover' (the model's word, unverified); 0 field(s) proposed, 0 proved against the page, 0 recorded, not counted as the page read into fields";
-    expect(unreadPageLine(1, reason)).toBe("Page 1 was not read: it looks like a cover page (the computer's guess).");
+    expect(unreadPageLine(1, reason)).toBe("Page 1 was not fully read: it looks like a cover page (the computer's guess).");
   });
 
   it("turns each reader's own wording into one short clause", () => {
@@ -17,8 +17,8 @@ describe("unread pages in plain words (order 121 Part B)", () => {
     expect(plainPageReason("a reader failed on this page (geometry)")).toBe("a reader failed on it");
   });
 
-  it("says only that the page was not read when no clause fits, or there is no reason", () => {
-    expect(unreadPageLine(7, "something new a reader wrote")).toBe("Page 7 was not read.");
-    expect(unreadPageLine(3, null)).toBe("Page 3 was not read.");
+  it("says only that the page was not fully read when no clause fits, or there is no reason", () => {
+    expect(unreadPageLine(7, "something new a reader wrote")).toBe("Page 7 was not fully read.");
+    expect(unreadPageLine(3, null)).toBe("Page 3 was not fully read.");
   });
 });

@@ -12,6 +12,7 @@
  */
 import type { DocumentRecord, ReviewRunSummary } from "../../types/api";
 import { groupRunsByDocument, runStatusLabel, truncationNote, whenLabel } from "./reviewFormat";
+import { PastReviewsButton } from "./workspace/PastReviewsButton";
 
 /** NULL RENDERS AS NOTHING - a document with no run yet says so in words,
  *  never with an invented status. */
@@ -39,12 +40,16 @@ function rowsFor(documents: DocumentRecord[], runs: ReviewRunSummary[]) {
 }
 
 export function DocumentsFromContractors(
-  { documents, runs, submittalsTotal, onReview, startingDocumentId }: {
+  { documents, runs, submittalsTotal, onReview, startingDocumentId, onOpenPastRun }: {
     documents: DocumentRecord[];
     runs: ReviewRunSummary[];
     submittalsTotal: number | null;
     onReview: (documentId: string) => void;
     startingDocumentId: string | null;
+    /** Workspace v2 (switch on only): when given, each row offers
+     *  "Past reviews (N)" and a picked run opens through this. Absent, the
+     *  list renders exactly as before. */
+    onOpenPastRun?: (runId: string) => void;
   },
 ) {
   const rows = rowsFor(documents, runs);
@@ -91,6 +96,9 @@ export function DocumentsFromContractors(
             >
               {startingDocumentId === row.documentId ? "Starting…" : "Review"}
             </button>
+            {onOpenPastRun && (
+              <PastReviewsButton documentId={row.documentId} runs={runs} onOpenRun={onOpenPastRun} />
+            )}
           </li>
         ))}
       </ul>

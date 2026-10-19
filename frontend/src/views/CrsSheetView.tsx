@@ -30,6 +30,7 @@ import type { StandardsState } from "../components/review/panels/BehindTheScenes
 import { ReviewJobControl } from "../components/review/panels/ReviewJobControl";
 import { BeforeYouSign } from "../components/review/crs/BeforeYouSign";
 import { signLeft, useIssueGate } from "../components/review/crs/issueGate";
+import { type IssueChecks, ISSUED_MESSAGE, issueContractorCopy } from "../components/review/crs/issueContractorCopy";
 import { CrsEvidenceDrawer } from "../components/review/crs/CrsEvidenceDrawer";
 import { CrsFooter } from "../components/review/crs/CrsFooter";
 import { CrsHeader } from "../components/review/crs/CrsHeader";
@@ -110,23 +111,27 @@ function useRunData(runId: string) {
   return { load, run, findings, standardsState, submittal, summary, active, refresh };
 }
 
-/** Sign and export = the existing CRS issue route (the server still refuses
- *  it while anything is open; order 121: the sheet's "Before you sign" box
- *  closes each of those items here, and Sign waits for it);
- *  the working copy = the internal export. No new endpoint. */
+/** Sign and export = `issueContractorCopy`, the one shared way to issue the
+ *  contractor's copy (it checks the same rules as the button: saved,
+ *  "Needs you" rows opened, the "Before you sign" box clear; the server
+ *  still refuses on its own too). The working copy = the internal export.
+ *  No new endpoint. */
 function useExport(runId: string, refresh: () => Promise<void>) {
   const [sign, setSign] = useState<Sign>({ busy: false, message: null, error: null });
-  async function exportSheet(copy: "internal" | "issue") {
+  async function issue(checks: IssueChecks) {
     setSign({ busy: true, message: null, error: null });
-    const message = await downloadCrs(runId, copy);
-    if (message) { setSign({ busy: false, message: null, error: message }); return; }
-    setSign({
-      busy: false, error: null,
-      message: copy === "issue" ? "Signed and exported. The issued copy was downloaded and kept on record." : "Working copy downloaded. It is not signed.",
-    });
-    if (copy === "issue") void refresh();
+    const outcome = await issueContractorCopy(runId, checks);
+    if (!outcome.ok) { setSign({ busy: false, message: null, error: outcome.message }); return; }
+    setSign({ busy: false, error: null, message: ISSUED_MESSAGE });
+    void refresh();
   }
-  return { sign, exportSheet };
+  async function workingCopy() {
+    setSign({ busy: true, message: null, error: null });
+    const message = await downloadCrs(runId, "internal");
+    if (message) { setSign({ busy: false, message: null, error: message }); return; }
+    setSign({ busy: false, error: null, message: "Working copy downloaded. It is not signed." });
+  }
+  return { sign, issue, workingCopy };
 }
 
 function RunNotReady({ run, active, onBack, onChanged }: { run: ReviewRunSummary; active: boolean; onBack: () => void; onChanged: () => void }) {
@@ -180,7 +185,7 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
   const [mode, setMode] = useState<{ key: string; kind: RowMode } | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [kept, setKept] = useState<number | null>(null);
-  const { sign, exportSheet } = useExport(runId, refresh);
+  const { sign, issue, workingCopy } = useExport(runId, refresh);
   // Order 121: what the server still wants before the contractor's copy,
   // read again whenever the run or its findings are.
   const gateVersion = useMemo(() => ({ run, findings }), [run, findings]);
@@ -256,6 +261,7 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
     });
     if (outcome.wrote) void refresh();  // a half-saved row too: its next save sends only the rest
   };
+  const left = signLeft(issueGate, run, rows);
   const leave = () => { if (unsavedCount === 0 || window.confirm(LEAVE_WARNING)) onBack(); };
   return (
     <section className="mx-auto w-full max-w-7xl space-y-5" aria-labelledby="crs-title">
@@ -269,8 +275,9 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
           onConfirm: () => { setKept(decisions.acceptAll(rows)); setConfirming(false); },
           onUndo: () => { decisions.undo(); setKept(null); },
         }}
-        sign={{ busy: sign.busy, message: sign.message, error: sign.error, onSign: () => void exportSheet("issue"), onWorkingCopy: () => void exportSheet("internal") }}
-        signLeft={signLeft(issueGate, run, rows)}
+        sign={{ busy: sign.busy, message: sign.message, error: sign.error, onSign: () => void issue({ unsaved: unsavedCount, unopenedNeedsYou: unopened.length, signLeft: left }),
+          onWorkingCopy: () => void workingCopy() }}
+        signLeft={left}
         onBack={leave}
       />
       <BeforeYouSign run={run} rows={rows} state={issueGate} onRunChanged={() => void refresh()}

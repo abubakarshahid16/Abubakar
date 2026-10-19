@@ -240,3 +240,19 @@ def test_a_finished_review_numbers_its_crs_rows_as_drafts(world):
     assert rows, "a finished review numbered no CRS row"
     assert {r["issued"] for r in rows} == {0}
     assert {r["first_review_run_id"] for r in rows} == {run_id}
+
+
+def test_a_review_that_leaves_a_held_company_standard_out_says_so_on_the_run(
+    world, monkeypatch
+):
+    """#620 (s2's review of #1076): the job records the held standards selection
+    skipped, in the run's stored outcome, after the comparison step wrote it."""
+    from app import company_standard_confirm as csc
+
+    monkeypatch.setattr(csc, "held_readable", lambda scope: ["std-held"])
+    run_id, job_id = _enqueue(world)
+    review_jobs.claim_next(W)
+    assert review_jobs.run(job_id, W) == "done"
+    note = json.loads(_run_row(run_id)["outcome_json"])[csc.RUN_NOTE_KEY]
+    assert note["standard_document_ids"] == ["std-held"]
+    assert "count as confirmed" in note["sentence"]

@@ -3,6 +3,12 @@
 // Pydantic models by scripts/gen_contract_types.py (order 119.1). Backend
 // mirrors the hand-written ones in Pydantic models.
 
+import type {
+  ApprovalStatus, ComplianceStatus, ReviewCategory, ReviewDisposition, ReviewFinding, ReviewSeverity,
+  ReviewStatus,
+} from "./generated/review_findings";
+import type { ReviewRunSummary } from "./generated/review_runs";
+
 // ---------- documents ----------
 
 /** Ingestion order: the keyword index is built BEFORE embedding, so a document
@@ -365,111 +371,9 @@ export interface DeletedConversation {
 
 // ---------- engineering review workflow ----------
 
-export type ReviewCategory =
-  | "missing_information"
-  | "inconsistency"
-  | "requirement_deviation"
-  | "document_control"
-  | "technical_query"
-  | "positive_observation";
-export type ReviewSeverity = "critical" | "major" | "minor" | "observation";
-export type ReviewDisposition = "accepted" | "partially_accepted" | "rejected" | "not_applicable";
-export type ReviewStatus = "open" | "in_progress" | "awaiting_response" | "resolved" | "deferred";
-export type ApprovalStatus = "pending" | "accepted" | "rejected" | "not_required";
-
-export interface ReviewFinding {
-  id: string;
-  document_id: string;
-  baseline_document_id: string | null;
-  template_id: string | null;
-  discipline: string | null;
-  confidence: "low" | "medium" | null;
-  category: ReviewCategory;
-  severity: ReviewSeverity;
-  requirement: string;
-  finding: string;
-  required_action: string;
-  governing_sources: string[];
-  unresolved_evidence: string[];
-  response_text: string | null;
-  disposition: ReviewDisposition | null;
-  citation_ids: string[];
-  owner_user_id: string | null;
-  due_date: string | null;
-  status: ReviewStatus;
-  approval_status: ApprovalStatus;
-  approved_by: string | null;
-  approved_at: string | null;
-  escalation_level: number;
-  created_by: string | null;
-  created_at: string;
-  updated_at: string;
-  // ------------------------------------- the compliance shape (phases 5A/5B)
-  //
-  // Every one is optional: a finding raised by hand through
-  // POST /api/reviews/findings has none of them and is still a finding.
-  review_run_id?: string | null;
-  compliance_status?: ComplianceStatus | null;
-  requirement_id?: string | null;
-  fact_id?: string | null;
-  /** The field name the matcher paired, verbatim from the datasheet. */
-  matched_phrase?: string | null;
-  /** `containment` or `model`. Rule and guess must not read alike. */
-  match_method?: string | null;
-  /** Why the engine decided what it did. Shown verbatim, never re-worded. */
-  ai_rationale?: string | null;
-  /** Which equipment the finding is about. Null renders as nothing. */
-  equipment_tag?: string | null;
-  confirmed_by?: string | null;
-  confirmed_at?: string | null;
-  /** Where the finding came from when not the comparison: "chat" or
-   *  "ai_engineering_check" (a kind C draft, never a verdict). */
-  origin?: string | null;
-  /** Owner order section 3: the engineer's own wording, when edited. The CRS
-   *  prints it in place of the review's text. */
-  engineer_comment?: string | null;
-  //  origin can also be "web_standard_check" (owner order 2d-2, kind D):
-  //  checked against a public web copy of a standard, never the contract
-  //  copy - shown only after an engineer confirms, never counted.
-  standard_document_id?: string | null;
-  standard_clause?: string | null;
-  standard_page?: number | null;
-  requirement_source_text?: string | null;
-  contractor_page?: number | null;
-  contractor_section?: string | null;
-  contractor_evidence_text?: string | null;
-  /** R21 (#785): the requirement's own scope decision from the run's ledger -
-   *  whether it applies here, why (plain words) and who decided. Null when the
-   *  run recorded none, or when the standard is withheld from this caller. */
-  scope_decision?: ReviewScopeDecision | null;
-  /** rule_trust (#947, switch `rule_auto_use_enabled`): who stands behind the
-   *  rule this finding was decided with - ENGINEER_CONFIRMED, AUTO_PROVEN or
-   *  UNPROVEN - its tier, whether a COMPLIANT safety-tier result is shown for
-   *  an engineer's tick, and what the rule said before an UNPROVEN verdict was
-   *  held for the engineer. Null on every finding decided with the switch
-   *  off: nothing was labelled, and null renders as nothing. */
-  trust_label?: string | null;
-  tier?: string | null;
-  show_for_engineer_tick?: boolean | null;
-  rule_said?: string | null;
-}
-
-export interface ReviewScopeDecision {
-  state: string;
-  reason_code: string;
-  reason: string;
-  decided_by: string;
-}
-
-export type ComplianceStatus =
-  | "COMPLIANT"
-  | "NON_COMPLIANT"
-  | "MISSING_INFORMATION"
-  | "CONDITIONAL"
-  | "NOT_APPLICABLE"
-  | "NEEDS_ENGINEER_REVIEW"
-  /** B9: this submittal TYPE cannot answer it; checked in another document. */
-  | "NOT_IN_DOCUMENT_SCOPE";
+/** Order 133: the review finding, its scope decision and its unions. GENERATED from `backend/app/schemas.py` (order 133): edit the backend
+ *  model, then run `python scripts/gen_contract_types.py`; CI fails on drift. */
+export * from "./generated/review_findings";
 
 /** One standard on a run's list, with the reason it is there, verbatim. */
 /** One labelled line of the CRS header block, rows 3-7 of the sheet.
@@ -685,27 +589,9 @@ export interface CrsPreview {
   review_notes?: CrsReviewNote[];
 }
 
-export interface ReviewRunStandard {
-  standard_document_id: string;
-  filename: string | null;
-  selection_method: string | null;
-  selection_reason: string | null;
-  confidence: number | null;
-  included: boolean;
-  exclusion_reason: string | null;
-  /** B5: where the submittal cites it, or the scope clause that decided it.
-   *  Null when there is no such evidence. */
-  evidence_page?: number | null;
-  evidence_quote?: string | null;
-  scope_decision?: string | null;
-}
-
-/** B5: a standard the submittal cites that the library does not hold. */
-export interface ReviewRunMissingReference {
-  identifier: string;
-  /** "MISSING_LOCALLY" */
-  status: string;
-}
+/** Order 133: a run's standards list (`GET /api/reviews/runs/{id}/standards`). GENERATED from `backend/app/schemas.py` (order 133): edit the backend
+ *  model, then run `python scripts/gen_contract_types.py`; CI fails on drift. */
+export * from "./generated/run_standards";
 
 /** Order 95 piece 1 (#1111): `GET /api/reviews/runs/{id}/summary`, the run as
  *  the CRS-first Sheet shows it. GENERATED from `backend/app/api/run_summary.py`
@@ -713,129 +599,55 @@ export interface ReviewRunMissingReference {
  *  `python scripts/gen_contract_types.py`; CI fails on drift. */
 export * from "./generated/run_summary";
 
-/**
- * A review run as the runs list shows it.
- *
- * `by_status` is a map of status to count and `findings_total` is what they
- * are out of. Both travel together so no screen has to invent a denominator.
- */
-/** P3: the background job running a review. Progress is named steps, never a
- *  percentage; `cancel_requested` means it will stop at its next step. */
-export interface ReviewJobState {
-  id: string;
-  state: string;
-  progress_done: number | null;
-  progress_total: number | null;
-  progress_label: string | null;
-  cancel_requested: boolean;
+/** Order 133: a review run as the runs list shows it, its job and its AI
+ *  numbers. GENERATED from `backend/app/schemas.py` and
+ *  `backend/app/api/run_summary.py` (`ReviewRunList`): edit the backend model,
+ *  then run `python scripts/gen_contract_types.py`; CI fails on drift. The
+ *  backend keeps the fields below as `dict`; the screen's shapes for them are
+ *  these named types (`Module.ts_types` in the generator). */
+export * from "./generated/review_runs";
+
+/** `ReviewRunSummary.by_status`: status to count, out of `findings_total`. */
+export type StatusCounts = Partial<Record<ComplianceStatus, number>>;
+
+/** `ReviewRunSummary.completeness`. */
+export interface ReviewRunCompleteness {
+  fields_read?: number;
+  fields_estimated?: number;
+  pages?: number;
+  extraction_coverage?: number | null;
+  completeness?: number | null;
+  sufficient?: boolean;
 }
 
-export interface ReviewRunSummary {
-  /** P3: null for a run made before reviews were queued. */
-  job?: ReviewJobState | null;
-  review_run_id: string;
-  submittal_document_id: string;
-  submittal_filename: string | null;
-  equipment_tags: string[];
-  status: string;
-  created_at: string | null;
-  completed_at: string | null;
-  standards_in_scope: number;
-  findings_total: number;
-  by_status: Partial<Record<ComplianceStatus, number>>;
-  recommended_code: string | null;
-  /** The recommendation's own words, including the nominal-estimate note. */
-  recommended_reason: string | null;
-  /** 2g: the technical sentence behind the plain reason, shown under
-   *  "Details" (the nominal field estimate, engine identifiers). */
-  recommended_details?: string | null;
-  /** The client's configured review-code labels (backend
-   *  reference/review_codes.json), in policy order. Absent or empty: the
-   *  default `REVIEW_CODES`. */
-  review_codes?: string[];
-  /** 2e: standards used in this run's scope and not the previous completed
-   *  run's of the same submittal, and the reverse; null when there is none. */
-  standards_change?: { previous_run_id: string; added: string[]; removed: string[] } | null;
-  /** Why a failed run failed, verbatim. Null on a run that did not fail. */
-  failure_reason?: string | null;
-  /** The engineer's final code, beside the AI's and never instead of it. */
-  engineer_final_code?: string | null;
-  override_reason?: string | null;
-  /** The user id the foreign key holds. Shown only in the tooltip. */
-  decided_by?: string | null;
-  /** The name that id belongs to, resolved server-side in the run's own
-   *  join. Null when the user row is gone; null renders as nothing. */
-  decided_by_name?: string | null;
-  decided_at?: string | null;
-  completeness: {
-    fields_read?: number;
-    fields_estimated?: number;
-    pages?: number;
-    extraction_coverage?: number | null;
-    completeness?: number | null;
-    sufficient?: boolean;
-  } | null;
-  /** B3: the page ledger's summary AS OF THE RUN. Null on a run made before
-   *  the ledger existed - null renders as nothing, never "every page read". */
-  page_coverage?: PageCoverage | null;
-  /** #598: standards-table values this run did NOT compare (the submittal has
-   *  no field that answers them), one grouped line per standard. Empty or
-   *  absent renders as nothing. */
-  table_values_not_compared?: TableValuesNotCompared[];
-  /** #453: requirements about a DIFFERENT kind of equipment than this
-   *  submittal, one grouped line per subject. Counted and shown, never
-   *  dropped silently. Empty or absent renders as nothing. */
-  requirements_not_applied?: RequirementsNotApplied[];
-  /** #678: every requirement in scope in ONE of three groups, each repeat
-   *  counted once. Only "applies but not checked" counts against a run. Null
-   *  when the run has no counts at all. */
-  requirement_split?: RequirementSplit | null;
-  /** PF4 (#884): the clause coverage the run stored at its end - every
-   *  applicable requirement in exactly one state, with the line that says
-   *  it; null on a run made before the record (never 0). */
-  clause_coverage?: {
-    applicable: number; counts: Record<string, number>; checked_share: number | null;
-    adds_up: boolean; line: string;
-  } | null;
-  /** #453: how the rest were decided; null for a run that predates it. */
-  applicability?: {
-    submittal_equipment: string[]; equipment_source: string | null;
-    checked_general: number; checked_matching: number;
-    kept_equipment_unknown: number; not_applied: number;
-  } | null;
-  /** 2026-09-27: the AI engineering check's own outcome for this run. Null
-   *  when it never ran (off, or the Claude lane is off). `complete` is
-   *  false whenever a reply was truncated, only partially recovered after
-   *  the one capped retry, or refused outright - `plain` is the sentence to
-   *  show, and it always states its boundary (how many of how many). */
-  /** #633: the web standards check's own outcome (same shape and rule). */
-  web_check_status?: RunCheckStatus | null;
-  /** #633: findings written before a failed run stopped. Partial. */
-  partial_findings?: number;
-  /** Order 95 piece 3: when the newest contractor copy was issued (the
-   *  inbox's "Signed"). Null when none was. */
-  crs_issued_at?: string | null;
-  ai_check_status?: {
-    ran: boolean;
-    complete: boolean;
-    calls_made: number;
-    requested_items: number;
-    proposed_items: number;
-    kept_items: number;
-    rejected: Record<string, number>;
-    reason: string | null;
-    cost_usd: number | null;
-    plain: string;
-  } | null;
-  /** #845: the run's AI numbers (reader, matcher, AI check, wording), each
-   *  with its denominator and where it ran, from stored data. Null when the
-   *  run holds no record of any AI step; a step with no record is null. */
-  ai_numbers?: AiNumbers | null;
-  /** #967 piece 1 (order 95): the review code version (`review@<12 hex>`)
-   *  and settings version stamped on the run's job. Not sent by the runs
-   *  list today; "How this was reviewed" shows absent as "not recorded". */
-  code_version?: string | null;
-  config_version?: string | null;
+/** `ReviewRunSummary.standards_change` (2e). */
+export interface StandardsChange { previous_run_id: string; added: string[]; removed: string[] }
+
+/** `ReviewRunSummary.clause_coverage` (PF4, #884). */
+export interface RunClauseCoverageSummary {
+  applicable: number; counts: Record<string, number>; checked_share: number | null;
+  adds_up: boolean; line: string;
+}
+
+/** `ReviewRunSummary.applicability` (#453). */
+export interface RunApplicability {
+  submittal_equipment: string[]; equipment_source: string | null;
+  checked_general: number; checked_matching: number;
+  kept_equipment_unknown: number; not_applied: number;
+}
+
+/** `ReviewRunSummary.ai_check_status` (2026-09-27). */
+export interface AiCheckStatus {
+  ran: boolean;
+  complete: boolean;
+  calls_made: number;
+  requested_items: number;
+  proposed_items: number;
+  kept_items: number;
+  rejected: Record<string, number>;
+  reason: string | null;
+  cost_usd: number | null;
+  plain: string;
 }
 
 /** #645: a check the AI proposed for a clause sentence and code verified,
@@ -859,34 +671,9 @@ export interface ClauseCheckDraft {
   new_requirement_id: string | null;
 }
 
-/** PF5 (#885): what still stands between a run and its contractor copy. */
-export interface CrsIssueGate {
-  review_run_id: string;
-  issuable: boolean;
-  final_code_recorded: boolean;
-  blockers: string[];
-  unread_pages: { page: number; reason: string | null }[];
-  open_findings: { finding_id: string; row_kind: string | null; item: number }[];
-}
-
-/** PF5 (#885): one recorded decision on an open item - who, when, why. */
-export interface CrsIssueDecision {
-  id: string;
-  review_run_id: string;
-  kind: string;
-  subject: string;
-  decision: string;
-  reason: string;
-  decided_by: string;
-  decided_at: string;
-  /** Order 95 piece 6a: the removal reason code; null when none was given. */
-  reason_code?: string | null;
-}
-
-/** Order 95 piece 6a: every decision on a run's CRS, newest first. */
-export interface CrsIssueDecisionList {
-  decisions: CrsIssueDecision[];
-}
+/** Order 133: the CRS issue gate and its decisions. GENERATED from `backend/app/schemas.py` (order 133): edit the backend
+ *  model, then run `python scripts/gen_contract_types.py`; CI fails on drift. */
+export * from "./generated/crs_issue";
 
 /** PF4 (#884): a run's applicable rules, each in exactly one state. */
 export interface ClauseCoverage {
@@ -928,33 +715,6 @@ export interface FindingEvidence {
   finding_id: string;
   submittal: EvidenceSide;
   standard: EvidenceSide;
-}
-
-/** #845: one AI step of a run as the run stored it. Every count in `lines`
- *  is printed with what it is out of. */
-export interface AiStepNumbers {
-  step: string;
-  /** off / ran / incomplete / not run */
-  state: string;
-  /** "local model" / "cloud model", or null when the record names neither. */
-  where: string | null;
-  model: string | null;
-  /** #842: why the local model stood in for the cloud model, or null. */
-  local_instead: string | null;
-  lines: string[];
-  /** #791: the numbers the lines print, for the pipeline panel's lights. A
-   *  count the record does not hold is absent, never 0. */
-  counts?: Record<string, number>;
-}
-
-/** #845: the four AI steps of a run. A step with no record is null. */
-export interface AiNumbers {
-  reader: AiStepNumbers | null;
-  matcher: AiStepNumbers | null;
-  engineering_check: AiStepNumbers | null;
-  wording: AiStepNumbers | null;
-  /** #645: proposed checks for the clause sentences the run could not decide. */
-  clause_checks?: AiStepNumbers | null;
 }
 
 /** Which pages of a submittal were read into fields, and why the rest were

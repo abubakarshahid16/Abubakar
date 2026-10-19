@@ -614,6 +614,13 @@ class Settings(BaseSettings):
     #: per call read the page and agreed with all 24 code-read values. A faster
     #: engine may take more. Env: FORM_READER_BATCH_SIZE.
     form_reader_batch_size: int = 8
+    #: #620: a Company standard whose first upload grant is AT OR AFTER this
+    #: time and was granted by a non-admin only is held for an administrator's
+    #: confirmation before reviews use it. Empty = every such standard,
+    #: however old (owner options a/b/c on #620; 272 of 280 standards on the
+    #: 18 Oct data were granted by a non-admin, so "every" would hold them).
+    #: Env: COMPANY_STANDARD_CONFIRM_FROM (ISO time, UTC).
+    company_standard_confirm_from: str = "2026-10-18T00:00:00"
     #: WHICH AI READING runs inside extraction (the engine is still
     #: DATASHEET_AI_READER; with that "off" no AI reading runs in any mode):
     #:   "form"  - THE DEFAULT (planner 17 Oct, #882): `form_reader`: the

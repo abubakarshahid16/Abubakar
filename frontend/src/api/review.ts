@@ -30,8 +30,8 @@ import type {
   CrsResponseCode,
   ReviewReadiness,
   VisionReaderStatus,
-  ReviewRunStandard,
-  ReviewRunMissingReference,
+  ReviewRunList,
+  ReviewRunStandardList,
   ReviewRunSummary,
   ReviewRunTierSummary,
   ReviewRunCountsBatch,
@@ -116,7 +116,7 @@ export const reviews = {
   traceability: (id: string) => request<ReviewTraceability>(`/reviews/findings/${encodeURIComponent(id)}/traceability`),
   /** Review runs, newest first, over submittals the caller may read. */
   reviewRuns: (documentId?: string) =>
-    request<{ runs: ReviewRunSummary[] }>(
+    request<ReviewRunList>(
       `/reviews/runs${documentId ? `?document_id=${encodeURIComponent(documentId)}` : ""}`,
       undefined,
       hasArrayField("runs"),
@@ -124,7 +124,7 @@ export const reviews = {
   /** #1131: one page of the runs, newest first, with `total` - every run the
    *  caller may read - so a screen can say how many it is showing of how many. */
   reviewRunsPage: (offset: number, limit: number) =>
-    request<{ runs: ReviewRunSummary[]; total: number; limit: number | null; offset: number }>(
+    request<ReviewRunList>(
       `/reviews/runs?limit=${limit}&offset=${offset}`,
       undefined,
       (b) => hasArrayField("runs")(b) && hasNumberField("total")(b),
@@ -158,7 +158,7 @@ export const reviews = {
     request<FindingEvidence>(`/reviews/findings/${encodeURIComponent(findingId)}/evidence`),
   /** Which standards a run compared against, and why each one is there. */
   reviewRunStandards: (runId: string) =>
-    request<{ standards: ReviewRunStandard[]; missing_references?: ReviewRunMissingReference[] }>(
+    request<ReviewRunStandardList>(
       `/reviews/runs/${encodeURIComponent(runId)}/standards`,
       undefined,
       hasArrayField("standards"),
@@ -189,7 +189,7 @@ export const reviews = {
   /** Which standards a run considered, INCLUDING the ones not applied - the
    *  engineer's add-a-standard list. */
   reviewRunStandardsAll: (runId: string) =>
-    request<{ standards: ReviewRunStandard[]; missing_references?: ReviewRunMissingReference[] }>(
+    request<ReviewRunStandardList>(
       `/reviews/runs/${encodeURIComponent(runId)}/standards?include_excluded=true`,
       undefined,
       hasArrayField("standards"),
@@ -197,7 +197,7 @@ export const reviews = {
   /** P2: an engineer adds or removes one standard, with a reason; the run's
    *  findings are recomputed. Returns every standard the run considered. */
   overrideRunStandard: (runId: string, body: { standard_document_id: string; include: boolean; reason: string }) =>
-    request<{ standards: ReviewRunStandard[]; missing_references?: ReviewRunMissingReference[] }>(
+    request<ReviewRunStandardList>(
       `/reviews/runs/${encodeURIComponent(runId)}/standards/override`,
       { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
       hasArrayField("standards"),

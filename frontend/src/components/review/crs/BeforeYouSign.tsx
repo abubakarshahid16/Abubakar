@@ -21,7 +21,7 @@ import { reviews as reviewsApi } from "../../../api/client";
 import type { CrsIssueGate, ReviewRunSummary } from "../../../types/api";
 import { REVIEW_CODES } from "../../../types/api";
 import type { CrsRow } from "./crsRows";
-import { type IssueGateState, MIN_SIGN_REASON, plural, signLeft, splitOpenItems } from "./issueGate";
+import { type IssueGateState, MIN_SIGN_REASON, plural, signLeft, splitOpenItems, unreadPagesLine } from "./issueGate";
 import { unreadPageLine } from "./pageReasons";
 
 const OTHER_KIND_WORDS: Record<string, string> = {
@@ -103,10 +103,11 @@ function UnreadPages({ runId, gate, onDecided }: { runId: string; gate: CrsIssue
     await onDecided();
   }
   const details = pages.filter((p) => p.reason);
+  const line = unreadPagesLine(gate);
   return (
     <div className={`${box} ${pages.length ? "border-warn-500/40" : "border-ink-700"}`} data-testid="sign-pages">
       <p className="text-sm text-slateish-100">
-        <Mark done={pages.length === 0} /> {pages.length === 0 ? "Every page was read or checked by an engineer." : `${plural(pages.length, "page was", "pages were")} not read.`}
+        <Mark done={line.done} /> {line.text}
       </p>
       {pages.map((p) => (
         <div key={p.page} className="flex flex-wrap items-center gap-2 text-sm text-slateish-200" data-testid={`sign-page-${p.page}`}>

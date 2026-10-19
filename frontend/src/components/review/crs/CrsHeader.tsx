@@ -81,7 +81,7 @@ export function CrsHeader({
       )}
       {code && (
         <p className="text-sm text-slateish-300" data-testid="crs-code">
-          <span className="font-semibold text-slateish-100">{run.engineer_final_code ? "Code: " : "Proposed code: "}{code}</span>
+          <span className="font-semibold text-slateish-100">{run.engineer_final_code ? "Code: " : "Suggested code: "}{code}</span>
           {orNothing(run.recommended_reason) ? `. ${orNothing(run.recommended_reason)}` : ""}
         </p>
       )}

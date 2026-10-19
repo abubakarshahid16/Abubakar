@@ -75,6 +75,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `claude_recheck` | Recheck findings: the model gives a SECOND OPINION on an engine verdict, and Python decides what that opinion |
 | `claude_selection` | Choose the standards that apply to a submittal |
 | `claude_spend` | What the Claude API has cost, and the refusal before it costs more |
+| `company_standard_confirm` | Hold a non-admin's Company standard for an administrator's confirmation before reviews use it (#620) |
 | `comparison` | Phase 5B: does this submittal meet the requirements that govern it |
 | `comparators` | The one vocabulary of limit-direction words: which way does a sentence say a limit points (#915) |
 | `condition_choice` | Which clause applies: conditions in a question and in a passage |
@@ -160,7 +161,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `requirement_split` | Every requirement in a run's scope is in ONE of three honest groups (#678) |
 | `requirements_3b` | Phase 3B: structured requirements - limits, units, conditions, exceptions |
 | `reranker` | Cross-encoder reranking, local and CPU-only |
-| `review_tiers` | Order 95: each finding of a run in ONE tier (comment / needs you / met or not applicable) with a reason word; display only |
+| `review_tiers` | Order 95: each finding of a run in ONE tier (comment / needs you / met or not applicable) with a reason word; rules from reference/review_tiers.json, the data the screen reads too (order 133); display only |
 | `review` | Persistent workflow records for AI-assisted engineering reviews |
 | `finding_query` | The one scope filter of the review-findings list and its count, so a page and its total agree (order 117 item 5) |
 | `paging` | The fields every paged list response carries: `total` (the page's denominator), `limit`, `offset`; a bare-list route's page with its total in `X-Total-Count` (order 117 item 5) |

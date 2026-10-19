@@ -121,7 +121,7 @@ def file_text(path: Path) -> str:
         wb.close()
         return "\n".join(cells)
     if suffix == ".docx":
-        from xml.etree import ElementTree
+        from defusedxml import ElementTree
         w = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
         with zipfile.ZipFile(path) as z:
             root = ElementTree.fromstring(z.read("word/document.xml"))

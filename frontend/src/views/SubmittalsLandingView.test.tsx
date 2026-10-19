@@ -32,6 +32,11 @@ vi.mock("../api/client", () => ({
   },
 }));
 
+// Order 132 item 3: the drop zone is told who the reader is (its own behaviour is NewReviewDropZone.test.tsx's).
+vi.mock("../components/review/workspace/NewReviewDropZone", () => ({
+  NewReviewDropZone: ({ isAdmin }: { isAdmin?: boolean }) => <p data-testid="drop-zone">{`admin: ${String(isAdmin)}`}</p>,
+}));
+
 beforeEach(() => {
   documents.mockReset();
   reviewRuns.mockReset();
@@ -85,6 +90,15 @@ describe("loadReadyCounts (A-1126, order 117 item 5)", () => {
 });
 
 describe("SubmittalsLandingView", () => {
+  it("order 132: passes isAdmin to New review, so a non-admin is refused before any upload", async () => {
+    documents.mockResolvedValue({ ok: true, data: [] });
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [] } });
+    const { rerender } = render(<SubmittalsLandingView onOpenRun={vi.fn()} workspace isAdmin={false} />);
+    expect(await screen.findByTestId("drop-zone")).toHaveTextContent("admin: false");
+    rerender(<SubmittalsLandingView onOpenRun={vi.fn()} workspace isAdmin />);
+    expect(screen.getByTestId("drop-zone")).toHaveTextContent("admin: true");
+  });
+
   it("opens the existing latest run for a reviewed document, without starting a new one", async () => {
     documents.mockResolvedValue({
       ok: true, data: [{ id: "doc-1", filename: "psv.pdf", document_role: "CONTRACTOR_SUBMITTAL" }],

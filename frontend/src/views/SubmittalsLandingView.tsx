@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, reviews as reviewsApi } from "../api/client";
 import type { DocumentRecord, ReviewRunSummary } from "../types/api";
 import { DocumentsFromContractors } from "../components/review/DocumentsFromContractors";
+import { NewReviewDropZone } from "../components/review/workspace/NewReviewDropZone";
 import { InboxList } from "../components/review/inbox/InboxList";
 import { INBOX_IS_DEFAULT } from "../routing";
 import { LIST_MAX, groupRunsByDocument, totalFromResponse } from "../components/review/reviewFormat";
@@ -60,12 +61,19 @@ export async function loadReadyCounts(runIds: string[]): Promise<Record<string, 
   return out;
 }
 
-export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onOpenInbox, onOpenList }: {
+export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onOpenInbox, onOpenList, workspace = false, isAdmin }: {
   onOpenRun: (runId: string) => void;
+  /** Whether the reader is an administrator; New review refuses a
+   *  non-admin before any upload. Left out, the drop zone asks the server. */
+  isAdmin?: boolean;
   /** Order 95 piece 3: show the inbox (/review/inbox) rather than the list. */
   inbox?: boolean;
   onOpenInbox?: () => void;
   onOpenList?: () => void;
+  /** Review workspace v2 switch (off by default). On: a "New review" drop
+   *  zone above the list, and each row offers its past reviews. Off: the
+   *  page is exactly as before. */
+  workspace?: boolean;
 }) {
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
@@ -210,11 +218,16 @@ export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onO
         </p>
       )}
 
+      {workspace && <NewReviewDropZone onStarted={onOpenRun} isAdmin={isAdmin} />}
+
       {phase.kind === "ready" && !inbox && (
         <DocumentsFromContractors
           documents={documents} runs={runs} submittalsTotal={submittalsTotal}
           onReview={(documentId) => void reviewDocument(documentId)}
           startingDocumentId={startingDocumentId}
+          // "Past reviews" only with the workspace switch on; off, the list
+          // gets undefined here and renders exactly as before.
+          onOpenPastRun={workspace ? onOpenRun : undefined}
         />
       )}
       {phase.kind === "ready" && inbox && (

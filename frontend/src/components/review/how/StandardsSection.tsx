@@ -6,7 +6,9 @@
  * only where the run stored one (`requirements_not_applied`,
  * `table_values_not_compared`); otherwise NOT_RECORDED.
  */
-import type { ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary } from "../../../types/api";
+import type {
+  ReviewRunHeldForConfirmation, ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary,
+} from "../../../types/api";
 import { NavLink } from "../../NavLink";
 import { NOT_RECORDED } from "./howData";
 import { Fact, FactList, HowSection, type HowSectionMeta } from "./HowPrimitives";
@@ -19,6 +21,8 @@ export const STANDARDS_META: HowSectionMeta = {
 export interface StandardsRecord {
   standards: ReviewRunStandard[];
   missing: ReviewRunMissingReference[];
+  /** #620: Company standards left out while they wait for an administrator. */
+  held?: ReviewRunHeldForConfirmation | null;
 }
 
 const STANDARDS_SOURCE = "the run's standards record (GET /api/reviews/runs/{id}/standards)";
@@ -86,6 +90,10 @@ export function StandardsSection({ run, record, error }: {
         </div>
       )}
       {included && included.length === 0 && <p className="text-sm text-slateish-400">No standard was selected for this run.</p>}
+      {record?.held && (
+        // #620: the run's own sentence, with its boundary; never a bare count.
+        <p data-testid="standards-held-for-confirmation" className="text-sm text-warn-500">{record.held.sentence}</p>
+      )}
       {record && record.missing.length > 0 && (
         <div>
           <p className="text-sm text-warn-500">Missing from the library, so not checked:</p>

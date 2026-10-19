@@ -113,8 +113,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         id="M743", phase=66, description="B5 live: the run's standards list hides the missing standards",
         path=APP / "api/run_standards.py",
-        anchor='            "missing_references": outcome.get("missing_references") or []}\n',
-        replacement='            "missing_references": []}\n',
+        anchor='        "missing_references": outcome.get("missing_references") or [],\n',
+        replacement='        "missing_references": [],\n',
         target=_T, keyword="reach_the_run_and_the_crs",
     ),
     Mutation(

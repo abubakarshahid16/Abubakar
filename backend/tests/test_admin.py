@@ -46,6 +46,8 @@ ROUTES = [
     ("DELETE", "/api/admin/users/usr_00000000", None),
     ("GET", "/api/admin/disciplines", None),
     ("GET", "/api/admin/grants", None),
+    ("GET", "/api/admin/company-standards/held", None),
+    ("POST", "/api/admin/company-standards/doc_1/confirm", None),
     ("PUT", "/api/admin/grants", {"document_id": "doc_1", "discipline": "Mechanical"}),
     ("DELETE", "/api/admin/grants", {"document_id": "doc_1", "discipline": "Mechanical"}),
 ]

@@ -38,6 +38,7 @@ function fullRun(): ReviewRunSummary {
     created_at: "2026-10-17T08:00:00Z", completed_at: "2026-10-17T08:12:34Z",
     standards_in_scope: 2, findings_total: 23,
     by_status: { NON_COMPLIANT: 3, COMPLIANT: 20 },
+    review_codes: [], table_values_not_compared: [], partial_findings: 0,
     recommended_code: "Approved with Comments",
     recommended_reason: "3 of 23 checked values do not meet their clause.",
     recommended_details: "Nominal estimate: 94 of approximately 105 fields.",
@@ -96,7 +97,7 @@ function minimalRun(): ReviewRunSummary {
     review_run_id: "run-min", submittal_document_id: "doc-sub", submittal_filename: null,
     equipment_tags: [], status: "completed", created_at: null, completed_at: null,
     standards_in_scope: 0, findings_total: 0, by_status: {}, recommended_code: null, recommended_reason: null,
-    completeness: null,
+    completeness: null, review_codes: [], table_values_not_compared: [], requirements_not_applied: [], partial_findings: 0,
   } as ReviewRunSummary;
 }
 
@@ -229,6 +230,14 @@ describe("HowReviewedView on a full run", () => {
     expect(line).toHaveTextContent(`${expected}% - 20 not checked of the 80 that apply`);
     // the engine's own (here deliberately different) stored share is shown as what it is, beside it
     expect(line).toHaveTextContent("50% (requirement_split.unchecked_share)");
+  });
+
+  it("#620: says which Company standards the run left out while they wait for an administrator", async () => {
+    const sentence = "1 Company standard was not used in this review: uploaded by a non-administrator, "
+      + "waiting for an administrator's confirmation. Company standards uploaded before 2026-10-18 count as confirmed.";
+    mount(fullRun(), { ...standardsRecord, held_for_confirmation: {
+      count: 1, standard_document_ids: ["std-held"], confirm_from: "2026-10-18T00:00:00", sentence } });
+    expect(await screen.findByTestId("standards-held-for-confirmation")).toHaveTextContent(sentence);
   });
 
   it("links each missing standard to the Documents screen for upload", async () => {

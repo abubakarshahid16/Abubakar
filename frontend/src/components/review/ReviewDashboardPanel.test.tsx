@@ -81,6 +81,12 @@ function panel(
 }
 
 describe("four cards, each with its population", () => {
+  it("order 132: the recent table names the computer's code as a suggestion", async () => {
+    panel();
+    expect(await screen.findByRole("columnheader", { name: "Suggested code" })).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Recommended" })).toBeNull();
+  });
+
   it("states the denominator on every count rule 4 covers", async () => {
     panel();
 
