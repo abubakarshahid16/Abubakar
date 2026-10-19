@@ -992,15 +992,6 @@ def finding_member_key(finding: dict) -> str:
     return _subject_key(finding)
 
 
-def row_priority(kind: str, compliance_status: str | None = None) -> int:
-    """Spec f: the rank of a row from what it is. `kind` is a BUCKET_*
-    constant for a finding row (a blank and a not-found share a row_kind but
-    not a rank), or a ROW_KIND_* for a row with no finding
-    (standard_not_cited 2, standard_not_applicable 3, carried_forward 5).
-    `compliance_status` is read only for a datasheet check (NON_COMPLIANT 1,
-    MISSING_INFORMATION 2, otherwise 3)."""
-    raise NotImplementedError("order 139 part 2: Builder A")
-
 
 def crs_groups(findings: list[dict]) -> list[dict]:
     """THE ONE GROUPING (spec a, b, f): the finding rows of the CRS, in sheet
