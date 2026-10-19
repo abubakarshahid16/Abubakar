@@ -36,7 +36,7 @@ vi.mock("../NewReviewDropZone", () => ({
   NewReviewDropZone: ({ isAdmin }: { isAdmin?: boolean }) => <p data-testid="drop-zone">{`admin: ${String(isAdmin)}`}</p>,
 }));
 
-import { NOT_ADMIN_LANDING_MESSAGE, WorkspaceLanding } from "./WorkspaceLanding";
+import { LANDING_COUNTS_NOTE, NOT_ADMIN_LANDING_MESSAGE, WorkspaceLanding } from "./WorkspaceLanding";
 
 function run(over: Partial<ReviewRunSummary>): ReviewRunSummary {
   return {
@@ -213,9 +213,9 @@ describe("WorkspaceLanding: the rows (L2, L3, L4, L9)", () => {
 });
 
 describe("WorkspaceLanding: All reviews and Review all (L5, L7)", () => {
-  it("L5: All reviews (N) shows every review, newest first, each with Open", async () => {
+  it("L5: All reviews you may open (N) shows every review, newest first, each with Open", async () => {
     const { onOpenRun } = renderLanding();
-    await userEvent.click(screen.getByRole("button", { name: "All reviews (4)" }));
+    await userEvent.click(screen.getByRole("button", { name: "All reviews you may open (4)" }));
     const list = screen.getByRole("list", { name: "All reviews" });
     const rows = within(list).getAllByTestId("all-reviews-row");
     expect(rows.map((r) => r.querySelector("p")?.textContent)).toEqual([
@@ -232,7 +232,7 @@ describe("WorkspaceLanding: All reviews and Review all (L5, L7)", () => {
       ? { ok: false, disconnected: false, error: { code: "conflict", message: "A review is already queued or running (run-x)." } }
       : { ok: true, data: { review_run_id: `run-${id}`, submittal_filename: null } }));
     const { onReload, onOpenRun } = renderLanding({ documents: docs });
-    await userEvent.click(screen.getByRole("button", { name: "Review all not reviewed (2)" }));
+    await userEvent.click(screen.getByRole("button", { name: "Review all not reviewed (2 of the contractor documents listed here)" }));
     // Asks once before anything starts.
     expect(screen.getByTestId("review-all-question")).toHaveTextContent("Start 2 reviews? They run one after another.");
     expect(startReviewRun).not.toHaveBeenCalled();
@@ -246,14 +246,71 @@ describe("WorkspaceLanding: All reviews and Review all (L5, L7)", () => {
   });
 });
 
+describe("WorkspaceLanding: every count states its boundary (rule 4)", () => {
+  it("All reviews says it counts the reviews you may open", () => {
+    renderLanding();
+    expect(screen.getByRole("button", { name: "All reviews you may open (4)" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "All reviews (4)" })).toBeNull();
+  });
+
+  it("Review all not reviewed counts the contractor documents listed here, and says when that list is cut short", () => {
+    renderLanding({ submittalsTotal: 9 });
+    expect(screen.getByRole("button", { name: "Review all not reviewed (1 of the contractor documents listed here)" })).toBeInTheDocument();
+    expect(screen.getByTestId("review-all-cut-note")).toHaveTextContent(
+      "Showing the newest 4 of 9 contractor submittals. Older ones are not listed here. Documents not listed are not counted or started.",
+    );
+  });
+
+  it("no cut-short note by Review all when every contractor document is listed", () => {
+    renderLanding({ submittalsTotal: 4 });
+    expect(screen.getByRole("button", { name: /Review all not reviewed/ })).toBeInTheDocument();
+    expect(screen.queryByTestId("review-all-cut-note")).toBeNull();
+  });
+
+  it("one note near the list says the Found by the review counts are comment and Needs-you findings only", async () => {
+    renderLanding();
+    await waitFor(() => expect(within(rowOf("Pump")).getByTestId("row-counts")).toBeInTheDocument());
+    const notes = screen.getAllByTestId("landing-counts-note");
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toHaveTextContent(LANDING_COUNTS_NOTE);
+    expect(LANDING_COUNTS_NOTE).toContain("comment and Needs-you findings only");
+    expect(within(rowOf("Pump")).queryByTestId("landing-counts-note")).toBeNull();
+  });
+
+  it("no counts note while no row shows a count", async () => {
+    loadCounts.mockResolvedValue({ "run-1": null });
+    renderLanding();
+    await waitFor(() => expect(loadCounts).toHaveBeenCalled());
+    expect(screen.queryByTestId("landing-counts-note")).toBeNull();
+  });
+
+  /** #1168 follow-up (test only). MUTATION PROOF: make the counts effect's
+   *  rejection handler set `{ findings: 0, needs_you: 0 }` for each id and
+   *  this fails: a failed counts read must never show 0. */
+  it("when the counts loader rejects, every row shows no count, never 0", async () => {
+    loadCounts.mockRejectedValue(new Error("counts down"));
+    renderLanding();
+    await waitFor(() => expect(loadCounts).toHaveBeenCalledWith(["run-1"]));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryAllByTestId("row-counts")).toHaveLength(0);
+    expect(screen.queryByText(/Found by the review/)).toBeNull();
+    expect(screen.queryByText(/\b0 findings?\b|0 needing/)).toBeNull();
+    expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveTextContent(/^Review ready$/);
+    await userEvent.click(screen.getByRole("button", { name: "All reviews you may open (4)" }));
+    expect(screen.getAllByTestId("all-reviews-row")).toHaveLength(4);
+    expect(screen.queryByText(/Found by the review/)).toBeNull();
+    expect(screen.queryByText(/\b0 findings?\b|0 needing/)).toBeNull();
+  });
+});
+
 describe("WorkspaceLanding: Review all asks once (L7)", () => {
   it("Cancel starts nothing and brings the button back", async () => {
     renderLanding();
-    await userEvent.click(screen.getByRole("button", { name: "Review all not reviewed (1)" }));
+    await userEvent.click(screen.getByRole("button", { name: "Review all not reviewed (1 of the contractor documents listed here)" }));
     expect(screen.getByTestId("review-all-question")).toHaveTextContent("Start 1 review? They run one after another.");
     await userEvent.click(within(screen.getByRole("group", { name: "Start all the reviews?" })).getByRole("button", { name: "Cancel" }));
     expect(startReviewRun).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Review all not reviewed (1)" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Review all not reviewed (1 of the contractor documents listed here)" })).toBeInTheDocument();
   });
 });
 

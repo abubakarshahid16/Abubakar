@@ -120,10 +120,15 @@ vi.mock("./WorkspaceSheet", () => ({
   ),
 }));
 // The header button is a stand-in; `useReviewAgain` (the missing standards
-// panel's "Review again") is the real rule, over the mocked API above.
-vi.mock("./ReviewAgainButton", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./ReviewAgainButton")>()),
-  ReviewAgainButton: ({ documentId, onStarted, mayStart, beforeStart, onOpenRun: openRunning, label }: {
+// panel's "Review again") is the real rule, over the mocked API above. A test
+// that sets `realHeaderButton` gets the real header button, with every prop
+// the workspace hands it.
+let realHeaderButton = false;
+vi.mock("./ReviewAgainButton", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./ReviewAgainButton")>();
+  return {
+  ...real,
+  ReviewAgainButton: (props: Parameters<typeof real.ReviewAgainButton>[0]) => realHeaderButton ? <real.ReviewAgainButton {...props} /> : (({ documentId, onStarted, mayStart, beforeStart, onOpenRun: openRunning, label }: {
     documentId: string; onStarted: (id: string) => void; mayStart?: () => boolean; onOpenRun?: (id: string) => void;
     beforeStart?: (go: () => void) => void; label?: string;
   }) => (
@@ -137,8 +142,9 @@ vi.mock("./ReviewAgainButton", async (importOriginal) => ({
       {/* As the real button: the running review opens through onOpenRun, else onStarted. */}
       <button type="button" onClick={() => (openRunning ?? onStarted)("run-running")}>Open the review that is running</button>
     </>
-  ),
-}));
+  ))(props),
+  };
+});
 vi.mock("../../../views/HowReviewedView", () => ({
   HowReviewedView: ({ runId, onOpenSteps }: { runId: string; onOpenSteps: () => void }) => (
     <div><p>{`how page for ${runId}`}</p><button type="button" onClick={onOpenSteps}>See the steps</button></div>
@@ -199,6 +205,7 @@ beforeEach(() => {
   window.sessionStorage.clear();
   data.mockReturnValue(ready());
   numbersNow = NUMBERS;
+  realHeaderButton = false;
   vi.restoreAllMocks();
 });
 
@@ -265,6 +272,43 @@ describe("ReviewWorkspace", () => {
     expect(reviewAgain).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Yes, start a new review" }));
     await waitFor(() => expect(onOpenRun).toHaveBeenCalledWith("run-9"));
+  });
+
+  /** #1168 follow-up: the runs list read when the workspace opened goes stale
+   *  once the engineer records a final code (or signs). The header's real
+   *  "Review again" must read the latest review again at click time and ask.
+   *  MUTATION PROOF: hand the button `runs={documentRuns}` again and the stale
+   *  list answers "nothing decided": a fresh review starts without asking. */
+  it('the header\'s "Review again" re-reads the latest review at click time: a final code recorded since the page opened asks first', async () => {
+    const user = userEvent.setup();
+    realHeaderButton = true;
+    // What the server holds now: the engineer recorded code "C" after the page opened.
+    const onServer = [run({ engineer_final_code: "C" } as Partial<ReviewRunSummary>)];
+    loadPriorDecision.mockImplementation(async (_id: string, held?: ReviewRunSummary[]) => {
+      const latest = (held ?? onServer)[0];
+      return latest?.engineer_final_code ? { kind: "final_code", finalCode: latest.engineer_final_code } : { kind: "none" };
+    });
+    reviewAgain.mockResolvedValue({ ok: true, runId: "run-9" });
+    // Read when the workspace opened: no final code yet.
+    data.mockReturnValue({ ...ready(), documentRuns: [run()] } as WorkspaceRunData);
+    render(<Harness initial={{}} />);
+    await user.click(screen.getByRole("button", { name: "Review again" }));
+    const ask = await screen.findByRole("group", { name: "Start a new review?" });
+    expect(ask).toHaveTextContent('final code "C"');
+    expect(reviewAgain).not.toHaveBeenCalled();
+    expect(onOpenRun).not.toHaveBeenCalled();
+  });
+
+  it('the header\'s "Review again" asks when the fresh read fails', async () => {
+    const user = userEvent.setup();
+    realHeaderButton = true;
+    loadPriorDecision.mockImplementation(async (_id: string, held?: ReviewRunSummary[]) => (held ? { kind: "none" } : { kind: "unknown" }));
+    data.mockReturnValue({ ...ready(), documentRuns: [run()] } as WorkspaceRunData);
+    render(<Harness initial={{}} />);
+    await user.click(screen.getByRole("button", { name: "Review again" }));
+    const ask = await screen.findByRole("group", { name: "Start a new review?" });
+    expect(ask).toHaveTextContent("Could not check");
+    expect(reviewAgain).not.toHaveBeenCalled();
   });
 
   it('the missing standards panel\'s "Review again" asks about unsaved decisions first, in the page', async () => {
