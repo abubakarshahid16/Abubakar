@@ -43,7 +43,7 @@ function rowsFor(documents: DocumentRecord[], runs: ReviewRunSummary[]): Row[] {
 
 /** Only the asked ids, each a count or null (never undefined). */
 function pick(got: Record<string, ReadyCounts | null>, ids: string[]): Record<string, ReadyCounts | null> {
-  return Object.fromEntries(ids.map((id) => [id, got[id] ?? null]));
+  return Object.fromEntries(ids.map((id) => [id, Object.hasOwn(got, id) ? got[id] : null]));
 }
 
 export function InboxList(

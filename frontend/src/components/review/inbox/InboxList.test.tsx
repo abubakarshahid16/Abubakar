@@ -8,7 +8,7 @@
  * "all" and the Needs-me test fails; drop the earlier runs and the last
  * run test fails.
  */
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -169,6 +169,26 @@ describe("InboxList", () => {
       expect([...load.mock.calls[0][0]].sort()).toEqual(["run-1", "run-2", "run-3"]);
     });
 
+    it("asks only for a Ready run it has not asked about, when a new one arrives", async () => {
+      const load = vi.fn(async (ids: string[]) => Object.fromEntries(ids.map((id) => [id, { findings: 1, needs_you: 0 }])));
+      const second = run({ review_run_id: "run-2", submittal_document_id: "doc-2", submittal_filename: "sheet-2.pdf" });
+      const { rerender } = render(
+        <InboxList
+          documents={[doc(), doc({ id: "doc-2", filename: "sheet-2.pdf" })]} runs={[run()]} submittalsTotal={null}
+          onReview={vi.fn()} startingDocumentId={null} loadReadyCounts={load}
+        />,
+      );
+      await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+      rerender(
+        <InboxList
+          documents={[doc(), doc({ id: "doc-2", filename: "sheet-2.pdf" })]} runs={[run(), second]} submittalsTotal={null}
+          onReview={vi.fn()} startingDocumentId={null} loadReadyCounts={load}
+        />,
+      );
+      await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+      expect(load.mock.calls[1][0]).toEqual(["run-2"]);
+    });
+
     it("says Ready alone, never 0, for a run absent from the answer", async () => {
       const load = vi.fn().mockResolvedValue({});
       render(
@@ -178,6 +198,8 @@ describe("InboxList", () => {
         />,
       );
       await vi.waitFor(() => expect(load).toHaveBeenCalled());
+      // Let the answer arrive and be drawn before reading the row.
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
       expect(screen.getByTestId("inbox-state").textContent).toMatch(/^Ready ·/);
       expect(screen.getByTestId("inbox-state").textContent).not.toMatch(/\d+ finding|need/);
     });
@@ -191,6 +213,8 @@ describe("InboxList", () => {
         />,
       );
       await vi.waitFor(() => expect(load).toHaveBeenCalled());
+      // Let the answer arrive and be drawn before reading the row.
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
       expect(screen.getByTestId("inbox-state").textContent).toMatch(/^Ready ·/);
       expect(screen.getByTestId("inbox-state").textContent).not.toMatch(/\d+ finding|need/);
     });
