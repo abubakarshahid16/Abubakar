@@ -41,16 +41,15 @@ def _value_signature(fact: dict) -> tuple:
         low, high = c.fact_range(fact)
         return ("range", low, high, unit, *kept)
     number = fact.get("normalized_value")
-    if number is not None:
-        try:
-            return (
-                "number",
-                float(number),
-                str(fact.get("normalized_unit") or unit).lower(),
-                *kept,
-            )
-        except (TypeError, ValueError):
-            pass  # not a number after all: compared by its words below
+    # Only a stored number is compared as a number; anything else falls to
+    # its words below.
+    if isinstance(number, (int, float)) and not isinstance(number, bool):
+        return (
+            "number",
+            float(number),
+            str(fact.get("normalized_unit") or unit).lower(),
+            *kept,
+        )
     words = " ".join(
         str(fact.get("raw_value") or fact.get("field_value") or "").lower().split()
     )
