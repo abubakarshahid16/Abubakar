@@ -1,6 +1,6 @@
 /**
  * The honesty footer (order 95 piece 2, spec 1.2): run id, date, code
- * version, pages read / not read, standards used / missing, counts per
+ * version, pages not read (order 127: the run's one list), standards used / missing, counts per
  * tier. Every number is one the run stored or one the table above shows;
  * a value the run does not hold renders as nothing, never 0.
  */
@@ -25,9 +25,14 @@ function pagesLine(run: ReviewRunSummary): string {
   const pc = run.page_coverage;
   if (!pc) return "Pages read: not recorded on this run.";
   if (pc.pages_total === null || pc.pages_total === undefined) return "Pages: none accounted for.";
-  const read = pc.fact_pages.length;
-  const unread = pc.pages_not_read_into_fields;
-  return `Pages read: ${read} of ${pc.pages_total}${unread.length ? `; not read: ${pageList(unread)}` : "; not read: none"}.`;
+  // Order 127: the run's one list of unread pages (the same the header names
+  // and the issue gate asks ticks for), not only the code readers' list.
+  const unread = run.unread_pages;
+  if (unread === null || unread === undefined) return "Pages not read: not recorded on this run.";
+  const pages = [...new Set(unread)].sort((a, b) => a - b);
+  return pages.length
+    ? `Pages not read: ${pages.length} of ${pc.pages_total} (${pageList(pages)}).`
+    : `Pages not read: none of ${pc.pages_total}.`;
 }
 
 export function CrsFooter({ run, counts, standards, missing, standardsError, rejected, codeVersion }: CrsFooterProps) {
