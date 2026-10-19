@@ -624,30 +624,42 @@ _LEADING_CODE = re.compile(r"^(?:[a-z_]+|[A-Z][A-Z_]+):")
 
 
 def _hold_unsure_kind(
-    verdict: dict, requirement: dict, fact: dict | None, match: dict
+    verdict: dict,
+    requirement: dict,
+    fact: dict | None,
+    match: dict,
+    model_reason: str | None = None,
 ) -> dict:
     """ORDER 139: a pair `match_rules.quantity_kind_doubt` cannot show to be the
     same quantity is an engineer's check with a plain reason, never a finding;
     the pair is kept so the suggested field is seen, and what was said before
     (who paired it, a page, a unit or trust note) is kept after the reason. A
     question already asked for its own coded reason keeps that code and gains
-    the kind reason as a note. A statement whose only named field rule 6
-    refused (another kind) is the engineer's to look for, not "no field"."""
+    the kind reason as a note. A field rule 6 refused on ANY path (another
+    kind) is the engineer's to look for - never "not provided", never "no
+    field found": the value may well be on the sheet under that field."""
     old = verdict.get("rationale") or ""
     if fact is None:
-        refused = [
-            r["name"]
-            for r in match.get("refused") or ()
-            if r.get("reason") == match_rules.QUANTITY_KIND
-        ]
-        if not refused or verdict.get("status") != NOT_IN_DOCUMENT_SCOPE:
+        refused = sorted(
+            {
+                r["name"]
+                for r in match.get("refused") or ()
+                if r.get("reason") == match_rules.QUANTITY_KIND
+            }
+        )
+        if model_reason == f"{MODEL_REFUSED} ({match_rules.QUANTITY_KIND})":
+            refused.append("proposed by the AI matcher")
+        if not refused or verdict.get("status") not in (
+            NOT_IN_DOCUMENT_SCOPE,
+            MISSING_INFORMATION,
+        ):
             return verdict
         return {
             **verdict,
             "status": NEEDS_ENGINEER_REVIEW,
             "rationale": (
                 f"{match_rules.QUANTITY_KIND}: the datasheet field "
-                f"'{', '.join(sorted(set(refused)))}' is named in this requirement but "
+                f"'{', '.join(refused)}' was found for this requirement but "
                 "states a different kind of quantity, so it was not paired; the value "
                 "may be elsewhere on the sheet - an engineer must look"
             ),
@@ -2865,7 +2877,9 @@ def _run_comparison(
                     verdict = {**verdict, "rationale": (
                         f"{verdict.get('rationale') or ''} ({'; '.join(notes)})")}
             # ORDER 139: SAME QUANTITY KIND, whichever method made the pair.
-            verdict = _hold_unsure_kind(verdict, governing_requirement, fact, match)
+            verdict = _hold_unsure_kind(
+                verdict, governing_requirement, fact, match, model_reason
+            )
             if (requirement.get("id"), (fact or {}).get("id")) in rejected_pairs:
                 rejected_requirements.add(requirement.get("id"))
                 continue
@@ -3559,6 +3573,9 @@ def match_by_field_name(requirement: dict, facts: list[dict], names: dict, *,
         else:
             refused.append({"name": field, "reason": reason})
     if not allowed:
+        if any(r["reason"] == match_rules.QUANTITY_KIND for r in refused):
+            # ORDER 139: the named field is another kind - not "no field"
+            return {**_none_match(REFUSED_BY_RULE), "refused": refused}
         return None
     if len(allowed) > 1:
         filled = [f for f in allowed if fact_has_number(f) and not f.get("is_blank")]

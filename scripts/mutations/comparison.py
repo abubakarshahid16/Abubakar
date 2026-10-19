@@ -1043,7 +1043,11 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="the unsure-kind hold is never applied: a pump efficiency "
         "reads NON_COMPLIANT against a weld joint efficiency rule",
         path=APP / "comparison.py",
-        anchor="            verdict = _hold_unsure_kind(verdict, governing_requirement, fact, match)\n",
+        anchor=(
+            "            verdict = _hold_unsure_kind(\n"
+            "                verdict, governing_requirement, fact, match, model_reason\n"
+            "            )\n"
+        ),
         replacement="",
         target="tests/test_same_kind_pairing.py",
         keyword="engineer_to_check or ai_matchers_pair",
@@ -1078,10 +1082,34 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="a statement whose only named field rule 6 refused reads "
         "'no field read from this datasheet was found' again",
         path=APP / "comparison.py",
-        anchor='        if not refused or verdict.get("status") != NOT_IN_DOCUMENT_SCOPE:\n',
-        replacement="        if True:\n",
+        anchor='        if not refused or verdict.get("status") not in (\n',
+        replacement='        if True or verdict.get("status") not in (\n',
         target="tests/test_same_kind_pairing.py",
         keyword="not_no_field",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M1176-07",
+        phase=1176,
+        description="a field the AI matcher proposed and rule 6 refused reads "
+        "MISSING_INFORMATION: a value that is on the sheet called not provided",
+        path=APP / "comparison.py",
+        anchor='            refused.append("proposed by the AI matcher")\n',
+        replacement="            pass\n",
+        target="tests/test_same_kind_pairing.py",
+        keyword="ai_matchers_refused_pair",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M1176-08",
+        phase=1176,
+        description="a model-named field rule 6 refused is dropped silently, so "
+        "the requirement reads not provided",
+        path=APP / "comparison.py",
+        anchor='        if any(r["reason"] == match_rules.QUANTITY_KIND for r in refused):\n',
+        replacement="        if False:\n",
+        target="tests/test_same_kind_pairing.py",
+        keyword="field_name_refused_pair",
         tags=("honesty",),
     ),
     Mutation(

@@ -124,14 +124,14 @@ def test_every_pairing_method_meets_rule_6():
         == match_rules.QUANTITY_KIND
     )
     names = {"requirements": {"r": "bearing"}, "facts": {"f-bearing": "bearing"}}
-    assert (
-        comparison.match_by_field_name(
-            _req("the bearing temperature"),
-            [_fact("bearing", printed="___ m3/h", blank=True)],
-            names,
-        )
-        is None
+    by_name = comparison.match_by_field_name(
+        _req("the bearing temperature"),
+        [_fact("bearing", printed="___ m3/h", blank=True)],
+        names,
     )
+    # refused, and SAID to be refused: not "no field" (#1176 review)
+    assert by_name["fact"] is None and by_name["reason"] == comparison.REFUSED_BY_RULE
+    assert [r["reason"] for r in by_name["refused"]] == [match_rules.QUANTITY_KIND]
 
 
 # ------------------------------------------------- same kind, unsure: held
@@ -575,3 +575,105 @@ def test_a_joint_field_is_the_weld_joint():
     assert (
         match_rules.quantity_kind_doubt(weld, _fact("efficiency", "82", "%")) == UNSURE
     )
+
+
+# ------------------------------------------------- #1176 reviews, round 3
+@pytest.mark.parametrize(
+    "name", ["design pressure / temperature", "design pressure, temperature"]
+)
+def test_a_combined_field_states_every_quantity_its_name_lists(name):
+    assert match_rules._phrase_heads(name) == {"pressure", "temperature"}
+    combined = _fact(name, "10", "barg")
+    statement = _req("the design temperature", None, None, kind="statement")
+    assert match_rules.refusal(statement, combined, sheet=None) is None
+
+
+@pytest.mark.parametrize(
+    "subject, name, value, unit",
+    [
+        ("the maximum velocity", "velocity", "5", "kph"),  # claims: speed
+        ("the density", "density", "1.2", "g/l"),  # claims: concentration
+    ],
+)
+def test_one_quantity_under_two_dimension_names_is_never_refused(
+    subject, name, value, unit
+):
+    lost = _req(subject, "10", None)
+    assert match_rules.refusal(lost, _fact(name, value, unit), sheet=None) is None
+
+
+def test_a_length_in_m_may_be_a_pressure_head_so_it_is_unsure_never_refused():
+    lost = _req("the differential pressure", "50", None)
+    head = _fact("rated head", "45", "m")
+    assert match_rules.refusal(lost, head, sheet=None) is None
+    assert match_rules.quantity_kind_doubt(lost, head) == UNSURE
+    in_m = _req("the differential pressure", "50", "m")
+    blank = _fact("differential pressure", printed="____", blank=True)
+    assert match_rules.refusal(in_m, blank, sheet=None) is None
+    assert match_rules.quantity_kind_doubt(in_m, blank) == UNSURE
+
+
+def test_every_word_states_why_it_is_true_for_any_document():
+    data = match_rules._kind_data()
+    assert all(str(why).strip() for why in data["subject_nouns"].values())
+    assert set(data["_why_quantity_nouns"]) == set(data["quantity_nouns"])
+    assert all(str(why).strip() for why in data["_why_quantity_nouns"].values())
+
+
+def test_an_ai_matchers_refused_pair_is_never_not_provided(world, monkeypatch):
+    """A field the AI matcher proposed and rule 6 refused may hold the value:
+    never MISSING_INFORMATION, always the engineer's, with the kind reason."""
+    monkeypatch.setattr(settings, "match_enabled", True)
+    monkeypatch.setattr(settings, "match_ask_max_per_run", 0)
+
+    def proposed(requirement, facts, **_kw):
+        [fact] = facts
+        return {
+            "fact": fact,
+            "matched_phrase": fact["field_name"],
+            "method": comparison.METHOD_MODEL_CHOICE,
+            "reason": "x",
+            "candidates": [],
+        }
+
+    monkeypatch.setattr(comparison, "match_by_model", proposed)
+    _req_row, _facts, found = _review(
+        "The bearing temperature shall not exceed 85.",
+        _limit("the bearing temperature", "85", None),
+        [("Rated flow", "120 m3/h", None)],
+    )
+    assert found["fact_id"] is None
+    assert found["compliance_status"] == comparison.NEEDS_ENGINEER_REVIEW
+    assert found["reason_code"] == match_rules.QUANTITY_KIND
+
+
+def test_a_field_name_refused_pair_is_never_not_provided(world, monkeypatch):
+    from app import field_naming
+
+    """The labelling model named a flow field and a temperature clause the
+    same; rule 6 refused the pair. Not "not provided": the engineer looks."""
+    monkeypatch.setattr(settings, "geometry_reader_enabled", True)
+    names: dict = {}
+    monkeypatch.setattr(field_naming, "ensure_names", lambda *_a, **_k: names)
+    original = standards.create_requirement
+    original_fact = datasheets.create_fact
+
+    def named_req(**kw):
+        row = original(**kw)
+        names.setdefault("requirements", {})[str(row["id"])] = "bearing temperature"
+        return row
+
+    def named_fact(**kw):
+        row = original_fact(**kw)
+        names.setdefault("facts", {})[str(row["id"])] = "bearing temperature"
+        return row
+
+    monkeypatch.setattr(standards, "create_requirement", named_req)
+    monkeypatch.setattr(datasheets, "create_fact", named_fact)
+    _req_row, _facts, found = _review(
+        "The bearing temperature shall not exceed 85.",
+        _limit("the bearing temperature", "85", None),
+        [("Rated flow", "120 m3/h", None)],
+    )
+    assert found["fact_id"] is None
+    assert found["compliance_status"] == comparison.NEEDS_ENGINEER_REVIEW

@@ -404,23 +404,14 @@ def qualifier_conflict(requirement: dict, field_name: str) -> bool:
 
 
 # ------------------------------------------------------------------ rule 6
-# SAME QUANTITY KIND (order 139). A requirement pairs only with a datasheet
-# value of the same kind of quantity. FOUND on a real pump review: a blank
-# field printing "m3/h" was paired with bearing-temperature and vibration
-# clauses, a blank pump efficiency with weld-joint efficiency rules, and the
-# process pumping temperature with a flush-liquid temperature limit - each a
-# real word shared, each a different quantity.
-#
-# THE KIND IS READ, NEVER GUESSED: a side's own unit first (`claims` holds
-# every unit and its dimension; nothing here is a second unit table), the
-# unit a BLANK cell prints beside its empty slot second, and only when a side
-# states no unit, the noun that names its quantity (`quantity_nouns`, mapped
-# onto the same `claims` dimensions). Then:
-#   * two known kinds that differ    -> the pair is REFUSED (rule 6);
-#   * a kind one side cannot tell,
-#     or a subject or medium the
-#     field does not share           -> the pair is UNSURE: kept so the
-#                                       engineer sees it, never a verdict.
+# SAME QUANTITY KIND (order 139): a requirement pairs only with a value of the
+# same kind of quantity (a flow field was paired with bearing-temperature
+# clauses, a pump efficiency with weld-joint rules). The kind is READ: a side's
+# own unit (`claims`; no second unit table here), the unit a blank cell
+# prints, else the noun naming the quantity (`quantity_nouns`, onto the same
+# `claims` dimensions). Two kinds that differ: REFUSED. A kind that cannot be
+# told, or another thing's quantity: UNSURE - kept for the engineer, never a
+# verdict.
 #: Why a pairing that no rule refuses still may not carry a verdict.
 QUANTITY_KIND_UNSURE = "quantity_kind_unsure"
 
@@ -483,9 +474,32 @@ def printed_unit(fact: dict) -> str | None:
     return primary_unit(bracket.group(1) if bracket else text)
 
 
-def _unit_kind(unit: str | None) -> str | None:
+#: PHYSICS, NOT WORDS (order 143(3)). One quantity that `claims` files under
+#: two dimension names: a speed in kph IS a velocity, and a mass per volume
+#: in g/L IS a density.
+_SAME_QUANTITY = {"speed": "velocity", "concentration": "density"}
+#: A unit that also states another quantity: a length in m is also a
+#: pressure stated as head. A pair that meets only through this is unsure,
+#: never refused and never sure.
+_ALSO_STATED_AS = {"length": "pressure"}
+
+
+def _unit_kinds(unit: str | None) -> frozenset[str]:
+    """The kinds a unit states, after the physics above; empty when the unit
+    is not one `claims` gives a dimension (a unit unknown never refuses)."""
     base = claims.base_unit(unit)
-    return claims.unit_dimension(base) if base else None
+    dim = claims.unit_dimension(base) if base else None
+    if not dim:
+        return frozenset()
+    dim = _SAME_QUANTITY.get(dim, dim)
+    return frozenset({dim, _ALSO_STATED_AS[dim]} if dim in _ALSO_STATED_AS else {dim})
+
+
+def _surely(kinds: frozenset[str], source: str | None) -> frozenset[str]:
+    """`kinds` without what a unit only ALSO states (head for a length)."""
+    if source != "unit":
+        return kinds
+    return kinds - {also for dim, also in _ALSO_STATED_AS.items() if dim in kinds}
 
 
 def _phrase_heads(text: str | None) -> set[str]:
@@ -509,7 +523,8 @@ def _phrase_heads(text: str | None) -> set[str]:
             heads.update(nouns[words[-1]])
 
     for token in _tokens(text):
-        if token in _CONJUNCTIONS:
+        if token in _CONJUNCTIONS or token in ("/", ","):
+            # "and", "or", and a list: "design pressure / temperature"
             if not ended:
                 close()
             phrase, ended = [], False
@@ -534,9 +549,9 @@ def requirement_kinds(requirement: dict) -> tuple[frozenset[str], str | None]:
     """`(kinds, source)` of what a requirement constrains. Its OWN unit wins
     ("unit"); a requirement with none is read from the quantity nouns that
     head its subject ("noun"). Empty when it names no quantity."""
-    kind = _unit_kind(requirement.get("raw_unit") or requirement.get("unit"))
-    if kind:
-        return frozenset({kind}), "unit"
+    kinds = _unit_kinds(requirement.get("raw_unit") or requirement.get("unit"))
+    if kinds:
+        return kinds, "unit"
     heads = _phrase_heads(requirement.get("subject"))
     return frozenset(heads), ("noun" if heads else None)
 
@@ -552,12 +567,21 @@ def _field_words(fact: dict) -> list[str]:
 
 def fact_kinds(fact: dict) -> tuple[frozenset[str], str | None]:
     """`(kinds, source)` of a datasheet value: its unit (incl. the unit a blank
-    prints, "unit"), else the quantity noun its field name ends in ("noun")."""
-    kind = _unit_kind(printed_unit(fact))
-    if kind:
-        return frozenset({kind}), "unit"
-    heads = _phrase_heads(fact.get("field_name"))
-    return frozenset(heads), ("noun" if heads else None)
+    prints, "unit"), else the quantity nouns of its field name ("noun").
+    When the unit is one of several quantities the name lists, the field
+    states all of them: a combined "Design pressure / temperature" in barg is
+    a temperature field too. A name that disagrees with its unit does not
+    widen it - the unit is what was read."""
+    return _fact_kinds(fact, sure=False)
+
+
+def _fact_kinds(fact: dict, *, sure: bool) -> tuple[frozenset[str], str | None]:
+    heads = frozenset(_phrase_heads(fact.get("field_name")))
+    kinds = _unit_kinds(printed_unit(fact))
+    if not kinds:
+        return heads, ("noun" if heads else None)
+    stated = _surely(kinds, "unit") if sure else kinds
+    return (stated | heads if kinds & heads else stated), "unit"
 
 
 def quantity_kind_conflict(requirement: dict, fact: dict) -> bool:
@@ -577,14 +601,10 @@ def _field_place(requirement: dict, fact: dict) -> dict | None:
     """Where the field's own words stand in the requirement's subject, or None
     when its last word is not there (a synonym or a model pairing on an idea):
 
-      * `modifiers` - nouns naming ANOTHER THING whose quantity it is (a
-        joint, a liquid, an oil, a seal: `subject_nouns`), right before the
-        field's words ("weld joint" efficiency, "flushing liquid"
-        temperature) or after them through "of" ("the efficiency of the
-        ligaments"), that the fact's name, label and section do not share.
-        An adjective or state word (rated, normal, design, operating) or a
-        part of the same equipment (shaft, casing) does not change whose
-        quantity it is and is not counted;
+      * `modifiers` - nouns naming ANOTHER THING whose quantity it is
+        (`subject_nouns`: "weld JOINT efficiency", "the efficiency of the
+        LIGAMENTS") that the fact's name, label and section do not share;
+        adjectives (rated, design) and parts (shaft, casing) never count;
       * `next_word` - a word right after the field's words in the same
         phrase: the field is then a modifier of something else ("bearing
         TEMPERATURE", "bearing SURFACE", "temperature RISE");
@@ -660,30 +680,23 @@ def _field_end(tokens: list[str], fact: dict, head: str) -> int:
 
 
 def quantity_kind_doubt(requirement: dict, fact: dict | None) -> str | None:
-    """QUANTITY_KIND_UNSURE when the pairing cannot be shown to be the same
-    quantity, else None. A doubt never refuses - it HOLDS the verdict for an
-    engineer, whichever method made the pair (containment, field name, the
-    AI matcher, a question, a rule). Only when a side names a quantity kind
-    (a unit, a quantity noun): a pairing of two categorical words is not this
-    rule's question.
-
-      * the requirement's subject names whose quantity it is and the field
-        does not share it: a pump "Efficiency" against weld joint
-        efficiency, a "Pumping temperature" against flushing liquid
-        temperature;
-      * the field's words modify another word of the subject: "bearing
-        temperature" against a field "Bearing" that states no kind, a field
-        "Bearing" in m3/h against "the bearing surface";
-      * the requirement constrains a quantity and the field, which states
-        none, appears only after a preposition: "the minimum wall thickness
-        for fittings" against a field "Fittings".
-    """
+    """QUANTITY_KIND_UNSURE when the pair cannot be shown to be one quantity,
+    else None. It HOLDS the verdict for an engineer, whatever paired it; only
+    when a side names a kind (two categorical words are not its question):
+    the sides meet only through head in m; the subject names another thing
+    whose quantity it is (weld JOINT efficiency vs a pump "Efficiency"); the
+    field's words modify another word ("bearing TEMPERATURE" vs "Bearing");
+    or a field that states no kind stands only after a preposition ("the wall
+    thickness FOR fittings")."""
     if fact is None:
         return None
-    kinds, _source = requirement_kinds(requirement)
+    kinds, source = requirement_kinds(requirement)
     fact_side, fact_source = fact_kinds(fact)
     if not kinds and not fact_side:
         return None
+    sure_fact, _ = _fact_kinds(fact, sure=True)
+    if (kinds & fact_side) and not (_surely(kinds, source) & sure_fact):
+        return QUANTITY_KIND_UNSURE  # they meet only through head in m
     place = _field_place(requirement, fact)
     if place is None:
         return None
