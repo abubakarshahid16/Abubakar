@@ -1177,7 +1177,8 @@ def crs_groups(findings: list[dict]) -> list[dict]:
         (ROW_KIND_NEEDS_ENGINEER_REVIEW, questions),
     ):
         keys = _final_keys(bucket)
-        for group in sorted(_grouped(bucket), key=_row_order):
+        # The order is set once, over every row kind, by `_sheet_order`.
+        for group in _grouped(bucket):
             items.append(
                 {
                     "key": keys[id(group[0])],

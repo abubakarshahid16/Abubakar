@@ -90,7 +90,9 @@ def test_the_summary_sends_the_rank_of_the_row_the_file_prints(world):  # noqa: 
     rows = _file_rows(run, scope)
     file_rank = {fid: r["priority"] for r in rows for fid in r.get("finding_ids") or []}
     body = TestClient(app).get(f"/api/reviews/runs/{run}/summary").json()
-    sent = {r["finding_id"]: r for r in body["rows"] if r.get("crs_priority") is not None}
+    sent = {
+        r["finding_id"]: r for r in body["rows"] if r.get("crs_priority") is not None
+    }
     assert {fid: sent[fid]["crs_priority"] for fid in file_rank} == file_rank
     assert sent[check]["crs_priority_label"] == crs_mapping.priority_word(1)
     assert sent[blanks[0]]["crs_priority_label"] == crs_mapping.priority_word(2)

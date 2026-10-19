@@ -29,11 +29,12 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(7104, "the row severity is the first finding's, not the worst", _M,
        "    return next((s for s in SEVERITY_ORDER if s in found), \"\")",
        "    return str(group[0].get(\"severity\") or \"\")", "worst_severity"),
-    # Re-anchored (order 139 part 2): rows are placed by ONE sort over every
-    # row kind at the end of build_crs_rows, not per bucket.
+    # Re-anchored (order 139 part 2): the finding rows are placed by the item's
+    # `sort_key` (rank, then page and clause) in `_sheet_order` AND again in
+    # build_crs_rows' final sort; one flat key defeats both.
     _m(7105, "rows are not ordered by page and clause", _M,
-       "    return [rows[i] for i in sorted(range(len(rows)), key=sort_keys.__getitem__)]\n",
-       "    return rows\n", "ordered_by_page"),
+       '        item["sort_key"] = finding_row_sort_key(item["priority"], group, item["key"])\n',
+       '        item["sort_key"] = (0,)\n', "ordered_by_page"),
     _m(7106, "clauses sort as text (8.10 before 8.2)", _M,
        "    return tuple(int(p) if p.isdigit() else 10 ** 6 for p in re.findall(r\"\\w+\", str(clause or \"\"))) or (10 ** 6,)",
        "    return (str(clause or \"\"),)", "ordered_by_page"),
