@@ -1080,10 +1080,19 @@ def _compare(requirement: dict, fact: dict | None, *,
             "observed": _describe(observed, fact),
             "exception_applied": exception, **_cond,
         }
+    # ORDER 141 B: TWO UNITS OF ONE QUANTITY ARE CONVERTED AND COMPARED (°F
+    # against °C, psig against bara, inch against mm). `claims` decides only
+    # when every honest reading agrees - temperature or difference, the
+    # site's atmosphere, the rounding of a converted figure - and otherwise
+    # says why it did not; one unit as written stays the exact test above.
+    crossed = claims.compare_across_units(observed, limit)
+    if crossed is not None:
+        verdict = crossed.verdict
     if verdict is None:
         return {
             "status": NEEDS_ENGINEER_REVIEW,
-            "rationale": (_reference_obstacle(observed, limit)
+            "rationale": ((crossed.obstacle if crossed is not None else None)
+                          or _reference_obstacle(observed, limit)
                           or _unit_obstacle(fact.get("raw_unit"), governing.get("raw_unit"))),
             "limit": _describe(limit, governing),
             "observed": _describe(observed, fact),
@@ -1092,10 +1101,10 @@ def _compare(requirement: dict, fact: dict | None, *,
 
     status = COMPLIANT if verdict else NON_COMPLIANT
     within = "within" if verdict else "outside"
-    note = ""
+    note = f"; {crossed.note}" if crossed is not None and crossed.note else ""
     if exception is not None:
-        note = (f"; the exception for {exception.get('applies_to')!r} governs "
-                f"instead of the general limit")
+        note += (f"; the exception for {exception.get('applies_to')!r} governs "
+                 f"instead of the general limit")
     if fact.get("value_note"):
         # #725 F3: a value the sheet printed beside "By Contractor" (or the
         # like) is compared, and the finding says so - never silently trusted.
@@ -3120,14 +3129,18 @@ def _units_comparable(requirement: dict, fact: dict,
     equality is the right question there, and `_compatible` does the conversion.
 
     But dimension is the WRONG question when a unit has no conversion. `dB(A)`
-    and `dB` share no dimension at all (both are None), and `°F` and `°C` share
-    one while being unconvertible by deliberate design - "a wrong temperature
-    conversion is a safety defect". For those the only safe test is that the
-    spellings match, which is what `same_unit` asks.
+    and `dB` share no dimension at all (both are None). For those the only
+    safe test is that the spellings match, which is what `same_unit` asks.
 
-    So: if both sides normalised, compare dimensions. If either did not, fall
-    back to the spelling. That keeps kPa-against-bar working and keeps
-    dB(A)-against-dB refused.
+    TEMPERATURE SCALES ARE THE EXCEPTION (order 141 B). `°F` has no factor in
+    the unit table (the conversion is affine), but `°F`, `°C` and `K` are one
+    quantity and `compare` converts between them through
+    `claims.compare_across_units`. Refusing them here wrote "not the same
+    quantity" on a °F limit against a °C value, which was false.
+
+    So: if both sides normalised, compare dimensions. If either did not, the
+    spelling, or two temperature scales. That keeps kPa-against-bar working
+    and keeps dB(A)-against-dB refused.
     """
     requirement_measure = _measurement_from_requirement(requirement)
     fact_measure = _measurement_from_fact(fact)
@@ -3140,7 +3153,9 @@ def _units_comparable(requirement: dict, fact: dict,
         left = claims.unit_dimension(requirement_unit.raw_unit or "")
         right = claims.unit_dimension(fact_unit.raw_unit or "")
         return left is not None and left == right
-    return claims.same_unit(requirement_unit, fact_unit)
+    return claims.same_unit(requirement_unit, fact_unit) or (
+        claims.is_temperature_scale(requirement_unit.raw_unit)
+        and claims.is_temperature_scale(fact_unit.raw_unit))
 
 
 def match_by_containment(requirement: dict, facts: list[dict], *,
