@@ -80,14 +80,24 @@
     {
       "name": "questions with no field label keep one row per requirement",
       "findings": [
-        {"id": "f1", "compliance_status": "NEEDS_ENGINEER_REVIEW", "standard_clause": "9.1", "requirement_source_text": "9.1 Materials shall suit the service.", "contractor_page": null, "crs_is_blank": null, "reason_code": "ambiguous_match", "ai_rationale": "ambiguous_match: no single field answered it."},
-        {"id": "f2", "compliance_status": "NEEDS_ENGINEER_REVIEW", "standard_clause": "9.2", "requirement_source_text": "9.2 Coatings shall suit the site climate.", "contractor_page": null, "crs_is_blank": null, "reason_code": "ambiguous_match", "ai_rationale": "ambiguous_match: no single field answered it."}
+        {"id": "f1", "compliance_status": "NEEDS_ENGINEER_REVIEW", "standard_clause": "9.1", "requirement_source_text": "9.1 Materials shall suit the service.", "contractor_page": 3, "crs_is_blank": null, "reason_code": "ambiguous_match", "ai_rationale": "ambiguous_match: no single field answered it."},
+        {"id": "f2", "compliance_status": "NEEDS_ENGINEER_REVIEW", "standard_clause": "9.2", "requirement_source_text": "9.2 Coatings shall suit the site climate.", "contractor_page": 3, "crs_is_blank": null, "reason_code": "ambiguous_match", "ai_rationale": "ambiguous_match: no single field answered it."}
       ],
       "expected_rows": [
         {"finding_ids": ["f1"], "priority": 3, "priority_label": "Engineer to check", "action": null, "clause_count": 1},
         {"finding_ids": ["f2"], "priority": 3, "priority_label": "Engineer to check", "action": null, "clause_count": 1}
       ],
       "not_on_sheet": []
+    },
+    {
+      "name": "questions with no datasheet field and no page are Review notes, never lines (#1177)",
+      "findings": [
+        {"id": "f1", "compliance_status": "NEEDS_ENGINEER_REVIEW", "standard_clause": "9.1", "requirement_source_text": "9.1 Materials shall suit the service.", "contractor_page": null, "crs_is_blank": null, "reason_code": "ambiguous_match", "ai_rationale": "ambiguous_match: no single field answered it."},
+        {"id": "f2", "compliance_status": "NEEDS_ENGINEER_REVIEW", "standard_clause": "9.2", "requirement_source_text": "9.2 Coatings shall suit the site climate.", "contractor_page": null, "crs_is_blank": null, "reason_code": "ambiguous_match", "ai_rationale": "ambiguous_match: no single field answered it."}
+      ],
+      "expected_rows": [],
+      "not_on_sheet": ["f1", "f2"],
+      "review_notes": ["f1", "f2"]
     },
     {
       "name": "the same engineer wording on a field's findings stays one row; a different one splits off",

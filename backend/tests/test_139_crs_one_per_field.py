@@ -114,12 +114,23 @@ def test_blank_and_not_found_stay_separate_rows():
 
 
 def test_rows_without_a_field_label_keep_one_per_requirement():
-    unlabelled = {"matched_phrase": None, "contractor_page": None, "fact_id": None}
+    # No field label, but a datasheet page: still a line, one per requirement.
+    unlabelled = {"matched_phrase": None, "contractor_page": 3, "fact_id": None}
     rows = _rows(
         [_question("q1", "9.1", **unlabelled), _question("q2", "9.2", **unlabelled)]
     )
     assert _partition(rows) == [["q1"], ["q2"]]
     assert all("Supporting clauses" not in r["comment"] for r in rows)
+
+
+def test_a_question_with_no_datasheet_field_and_no_page_is_a_note_not_a_line():
+    """#1177: a standard's question with neither a field nor a page behind it is
+    the engineer's to-do (one Review note per standard), never a CRS line."""
+    unplaced = {"matched_phrase": None, "contractor_page": None, "fact_id": None}
+    rows = _rows(
+        [_question("q1", "9.1", **unplaced), _question("q2", "9.2", **unplaced)]
+    )
+    assert rows == []
 
 
 def test_breaches_stay_one_row_per_problem():
