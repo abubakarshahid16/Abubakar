@@ -3670,10 +3670,10 @@ def _extract_facts(
     # plan pass (`_plan`), which is rolled back and would pay twice. With the
     # flag off `ai_run` is None and nothing below changes.
     #
-    # DATASHEET_READER_MODE (default "form", #882): `form_reader` fills the
-    # equipment type's field list, in the same `ai_run` shape, so the same
-    # merge makes the rule readers its cross-check; "merge" is exactly the
-    # above (`datasheet_ai` reads every row); "rules" asks no model.
+    # DATASHEET_READER_MODE "form" (default, #882): `form_reader` AND `datasheet_ai`
+    # both read; `form_reader_run.add_merge_reading` keeps the merge reading where
+    # the form read nothing or reads differently; the rule readers cross-check.
+    # "merge" is the `datasheet_ai` pass alone; "rules" asks no model.
     ai_run, ai_stats = _read_with_ai(document_id, stored_path, by_page, chunks, _plan)
 
     # B19: ONE DATASHEET, ONE TRANSACTION. Every fact used to commit on its

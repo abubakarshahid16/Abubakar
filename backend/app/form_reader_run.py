@@ -14,7 +14,7 @@ from __future__ import annotations
 import sqlite3
 from collections import Counter
 
-from . import datasheet_ai
+from . import claims, datasheet_ai
 from .config import settings
 from .db import connect
 from .form_reader import NUM_PREDICT, FormReading, read_form
@@ -188,6 +188,38 @@ def as_ai_run(
     }
 
 
+def _number(text: str) -> float | None:
+    try:
+        return float(text.replace(",", ""))
+    except ValueError:
+        return None
+
+
+def _same_reading(a: dict, b: dict) -> bool:
+    """Are two model readings of one field the same reading? Safe side: a
+    different value, or the same number in two different units, is NOT the
+    same (it must reach the engineer as a conflict). A unit only one side
+    carries adds nothing, as in `datasheet_ai.reading_relation`."""
+    va = " ".join(str(a.get("value") or "").lower().split())
+    vb = " ".join(str(b.get("value") or "").lower().split())
+    na, nb = _number(va), _number(vb)
+    if va != vb and (na is None or na != nb):
+        return False
+    ua, ub = datasheet_ai.ai_unit(a), datasheet_ai.ai_unit(b)
+    if not (ua and ub):
+        return True
+    # The same SPELLING and reference only: `datasheet_ai.same_unit` also
+    # calls two convertible units one ("bar" and "psi"), and 10 bar is not
+    # 10 psi.
+    (base_a, ref_a), (base_b, ref_b) = (
+        claims.split_reference(ua),
+        claims.split_reference(ub),
+    )
+    return ref_a == ref_b and claims._fold_unit(base_a or "") == claims._fold_unit(
+        base_b or ""
+    )
+
+
 def add_merge_reading(form_run: dict, merge_run: dict) -> dict:
     """The form ADDS to the whole-page reading, never replaces it (#1004,
     planner order 41, option b). PF1 17 Oct: where the equipment type's form
@@ -197,8 +229,14 @@ def add_merge_reading(form_run: dict, merge_run: dict) -> dict:
     form's; a page the form could not read takes the merge reading whole.
     Both readings were already checked by their own reader (quote on the
     page, two runs agree), and the same merge with the rule readers follows.
-    Pure: no model, no database; `form_run` is returned, updated."""
+    Pure: no model, no database; `form_run` is returned, updated.
+
+    On a field the form DID read, a merge reading is kept too unless it is the
+    same reading as one of the form's (`_same_reading`): a sheet that states a
+    field twice (10 and 16) must reach the engineer as a conflict, never as
+    the form's one value. `replaced_by_form` counts the repeats dropped."""
     added = 0
+    replaced = 0
     for page, extra in (merge_run.get("pages") or {}).items():
         if extra.get("error"):
             continue
@@ -208,15 +246,25 @@ def add_merge_reading(form_run: dict, merge_run: dict) -> dict:
             form_run["reasons"].pop(page, None)
             added += len(extra.get("accepted") or [])
             continue
-        read = {datasheet_ai.field_key(f) for f in mine["accepted"]}
-        more = [
-            f
-            for f in extra.get("accepted") or []
-            if datasheet_ai.field_key(f) not in read
-        ]
+        read: dict[str, list[dict]] = {}
+        for f in mine["accepted"]:
+            read.setdefault(datasheet_ai.field_key(f), []).append(f)
+        more = []
+        for f in extra.get("accepted") or []:
+            theirs = read.get(datasheet_ai.field_key(f))
+            # A field the form read keeps a merge reading that CONTRADICTS
+            # every form value, so `merge_readings` raises the conflict for
+            # the engineer and the sheet's second value is never silently
+            # dropped (cloud-2's review of #1004). Only a reading the form
+            # repeats is replaced, and it is counted.
+            if theirs and any(_same_reading(f, g) for g in theirs):
+                replaced += 1
+            else:
+                more.append(f)
         mine["accepted"] = [*mine["accepted"], *more]
         added += len(more)
     form_run["added_from_merge"] = added
+    form_run["replaced_by_form"] = replaced
     form_run["stopped"] = form_run.get("stopped") or merge_run.get("stopped")
     form_run["seconds"] = round(
         float(form_run.get("seconds") or 0) + float(merge_run.get("seconds") or 0), 1

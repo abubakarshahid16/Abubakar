@@ -598,11 +598,13 @@ class Settings(BaseSettings):
     #: worst case from it before the call leaves. Env:
     #: DATASHEET_AI_CLAUDE_MAX_TOKENS.
     datasheet_ai_claude_max_tokens: int = 8192
-    #: Seconds the AI reader may spend on ONE document; the pages after that
-    #: keep the code readers' reading, each with the reason. Checked before
-    #: each page: a page already started finishes (two calls, each up to
-    #: DATASHEET_AI_TIMEOUT_SECONDS), so a document can run up to two
-    #: timeouts past it (F1 2026-10-11: 907 s and 1056 s against 900).
+    #: Seconds ONE AI reading pass may spend on one document; the pages after
+    #: that keep the code readers' reading, each with the reason. Checked
+    #: before each page: a page already started finishes (two calls, each up
+    #: to DATASHEET_AI_TIMEOUT_SECONDS), so a pass can run up to two timeouts
+    #: past it (F1 2026-10-11: 907 s and 1056 s against 900). PER PASS: in
+    #: DATASHEET_READER_MODE "form" the form reader and the merge reading each
+    #: have this budget, so one document can take up to about twice it.
     #: Env: DATASHEET_AI_MAX_SECONDS.
     datasheet_ai_max_seconds: float = 900.0
     #: The local model the "ollama" engine uses; empty = `answer_model`.
@@ -623,15 +625,18 @@ class Settings(BaseSettings):
     company_standard_confirm_from: str = "2026-10-18T00:00:00"
     #: WHICH AI READING runs inside extraction (the engine is still
     #: DATASHEET_AI_READER; with that "off" no AI reading runs in any mode):
-    #:   "form"  - THE DEFAULT (planner 17 Oct, #882): `form_reader`: the
-    #:             model fills the equipment type's fixed FIELD LIST (from
-    #:             `reference/datasheet_checks.json`, widened by the included
-    #:             standards' requirement subjects) with value, unit and a
-    #:             verbatim quote; code only verifies; the rule readers' facts
-    #:             become the cross-check in the same merge. Any layout, no
-    #:             layout code. First measured gain (17 Oct, PC, qwen3.5:4b,
-    #:             batch 8): a real flow-meter sheet 0 of 10 drawn values read
-    #:             in "merge" -> 8 of 10, 0 wrong, in "form".
+    #:   "form"  - THE DEFAULT (planner 17 Oct, #882): TWO model passes per
+    #:             datasheet. `form_reader` fills the equipment type's fixed
+    #:             FIELD LIST (from `reference/datasheet_checks.json`, widened
+    #:             by the included standards' requirement subjects) with
+    #:             value, unit and a verbatim quote, AND the "merge" reading
+    #:             below runs too: its readings are kept for every field the
+    #:             form did not read, and for a field it did read whenever they
+    #:             contradict the form (a conflict for the engineer). Code
+    #:             only verifies; the rule readers' facts are the cross-check
+    #:             in the same merge. Any layout, no layout code. Measured
+    #:             (PF1 invented group, 19 Oct): the same counts as "merge",
+    #:             0 false Meets, about 12% more minutes (A-1004).
     #:   "merge" - the old default: `datasheet_ai` reads every row it can see
     #:             and the reading is merged with the rule readers'.
     #:   "rules" - no AI reading at all (the rule readers only).

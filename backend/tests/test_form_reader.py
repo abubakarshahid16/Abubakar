@@ -562,19 +562,64 @@ def test_the_merge_reading_of_fields_the_form_did_not_read_is_kept():
     merge = {
         "pages": {
             1: _page(
-                [_fact("design pressure", "11"), _fact("output signal", "4-20 mA")]
+                [_fact("design pressure", "10.0"), _fact("output signal", "4-20 mA")]
             )
         },
         "stopped": None,
         "seconds": 7,
     }
     out = form_reader_run.add_merge_reading(form, merge)
-    got = {f["field_name"]: f["value"] for f in out["pages"][1]["accepted"]}
-    assert got == {
-        "design pressure": "10",
-        "output signal": "4-20 mA",
-    }  # the form's own value wins its field
-    assert out["added_from_merge"] == 1 and out["seconds"] == 12
+    got = [(f["field_name"], f["value"]) for f in out["pages"][1]["accepted"]]
+    # the merge reader's repeat of the form's value is replaced, and counted
+    assert got == [("design pressure", "10"), ("output signal", "4-20 mA")]
+    assert out["added_from_merge"] == 1 and out["replaced_by_form"] == 1
+    assert out["seconds"] == 12
+
+
+def _two_readings(form_value, merge_value, form_unit=None, merge_unit=None):
+    form_fact = {**_fact("design pressure", form_value), "unit": form_unit}
+    merge_fact = {**_fact("design pressure", merge_value), "unit": merge_unit}
+    form = {
+        "pages": {1: _page([form_fact])},
+        "reasons": {},
+        "stopped": None,
+        "seconds": 1,
+    }
+    merge = {"pages": {1: _page([merge_fact])}, "stopped": None, "seconds": 1}
+    return form_reader_run.add_merge_reading(form, merge)
+
+
+def test_a_merge_reading_that_contradicts_the_form_is_kept_for_the_conflict():
+    """cloud-2's review of #1004: the sheet states 10 and 16 for one field.
+    The 16 must reach `merge_readings` and become a CONFLICT for the engineer,
+    never be dropped so that the rules' 10 and the form's 10 read AGREED."""
+    out = _two_readings("10", "16", "barg", "barg")
+    values = [f["value"] for f in out["pages"][1]["accepted"]]
+    assert values == ["10", "16"]
+    assert out["added_from_merge"] == 1 and out["replaced_by_form"] == 0
+    rule = {
+        "id": "r1",
+        "page": 1,
+        "field_name": "design pressure",
+        "field_value": "10 barg",
+        "raw_value": "10",
+        "is_blank": 0,
+        "value_column": None,
+        "normalized_value": None,
+        "normalized_unit": None,
+    }
+    [decision] = datasheet_ai.merge_readings([rule], out["pages"][1]["accepted"])
+    assert decision["outcome"] == datasheet_ai.CONFLICT
+    assert [a["value"] for a in decision["ai"]] == ["16"]
+
+
+def test_the_same_number_in_another_unit_is_kept_a_unit_on_one_side_is_not():
+    kept = _two_readings("10", "10", "barg", "psig")
+    assert [f["unit"] for f in kept["pages"][1]["accepted"]] == ["barg", "psig"]
+    assert kept["replaced_by_form"] == 0
+    one_unit = _two_readings("10", "10", "barg", None)
+    assert len(one_unit["pages"][1]["accepted"]) == 1
+    assert one_unit["replaced_by_form"] == 1
 
 
 def test_a_page_the_form_could_not_read_takes_the_merge_reading():
