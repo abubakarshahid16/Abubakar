@@ -2061,7 +2061,9 @@ class StructuredSearchResult(BaseModel):
     document_id: str | None
 
 
-class StructuredSearchList(BaseModel):
+class StructuredSearchList(ListPage):
+    """One page of the matches; `total` is every match the caller may read."""
+
     results: list[StructuredSearchResult]
 
 

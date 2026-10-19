@@ -2038,17 +2038,26 @@ def review_finding_evidence_image(
 # ------------------------------------------------------------- deliverables / WBS
 
 
+#: order 117 item 5: the structured search's default page (its old silent cap)
+STRUCTURED_SEARCH_PAGE = 100
+
+
 @app.get("/api/search/structured", response_model=schemas.StructuredSearchList)
 def structured_search(q: str, kind: str | None = None,
+                      limit: int = Query(STRUCTURED_SEARCH_PAGE, ge=1, le=1000,
+                                         description="page size; 100 when omitted"),
+                      offset: int = paging_mod.offset_param(),
                       scope: access.AccessScope = Depends(access.current_scope)):
     if kind not in {None, "deliverable", "finding", "risk", "stakeholder"}:
         raise HTTPException(status_code=422, detail="unsupported structured-search kind")
     # B42: `is_admin` is already "unrestricted or holds the admin capability",
     # the same test `owns_conversation` applies to a row with no owner - so the
     # unowned rule is stated once, in access.py, and read from there.
-    return {"results": structured_search_mod.search(
+    # The old silent cap of 100 stays the default page, now with `total`
+    # saying how many matched, so the screens get what they got before.
+    return paging_mod.page_body("results", structured_search_mod.search(
         q, kind=kind, allowed_document_ids=scope.allowed_document_ids,
-        include_unowned=scope.is_admin)}
+        include_unowned=scope.is_admin), limit, offset)
 
 
 @app.get("/api/risks", response_model=risks_mod.RiskList)

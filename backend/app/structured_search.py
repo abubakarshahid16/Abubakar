@@ -74,7 +74,7 @@ def search(query: str, *, allowed_document_ids: frozenset[str],
                                        include_unowned)
         sql = ("SELECT id, 'deliverable' AS kind, title AS label, wbs_code,"
                " document_id FROM deliverables"
-               " WHERE (title LIKE ? OR wbs_code LIKE ?)" + where)
+               " WHERE (title LIKE ? OR wbs_code LIKE ?)" + where + " ORDER BY id")
         out.extend(dict(row) for row in
                    connect().execute(sql, [term, term, *scope_args]).fetchall())
     if kind in (None, "finding"):
@@ -100,7 +100,7 @@ def search(query: str, *, allowed_document_ids: frozenset[str],
         sql = ("SELECT id, 'finding' AS kind, finding AS label,"
                " NULL AS wbs_code, document_id FROM review_findings"
                " WHERE (finding LIKE ? OR requirement LIKE ?"
-               " OR required_action LIKE ?)" + where)
+               " OR required_action LIKE ?)" + where + " ORDER BY id")
         out.extend(dict(row) for row in
                    connect().execute(sql, [term, term, term, *scope_args]).fetchall())
     if kind in (None, "risk"):
@@ -109,7 +109,7 @@ def search(query: str, *, allowed_document_ids: frozenset[str],
         sql = ("SELECT id, 'risk' AS kind, title AS label, NULL AS wbs_code,"
                " document_id FROM risks"
                " WHERE (title LIKE ? OR description LIKE ? OR risk_type LIKE ?)"
-               + where)
+               + where + " ORDER BY id")
         out.extend(dict(row) for row in
                    connect().execute(sql, [term, term, term, *scope_args]).fetchall())
     if kind in (None, "stakeholder"):
@@ -121,10 +121,15 @@ def search(query: str, *, allowed_document_ids: frozenset[str],
         sql = ("SELECT DISTINCT u.id, u.email, u.display_name FROM users u"
                " JOIN deliverable_stakeholders ds ON ds.user_id = u.id"
                " JOIN deliverables d ON d.id = ds.deliverable_id"
-               " WHERE (u.email LIKE ? OR u.display_name LIKE ?)" + where)
+               " WHERE (u.email LIKE ? OR u.display_name LIKE ?)" + where
+               + " ORDER BY u.id")
         out.extend(
             dict(row) | {"kind": "stakeholder",
                          "label": row["display_name"] or row["email"],
                          "wbs_code": None, "document_id": None}
             for row in connect().execute(sql, [term, term, *scope_args]).fetchall())
-    return out[:100]
+    # EVERY MATCH, NEVER A SILENT CUT (order 117 item 5). This used to end in
+    # `out[:100]`, so the 101st match was dropped unannounced and `/records`
+    # in chat said "Found 100" for 400. The route pages it and states the
+    # total; each kind is ordered by id so a page is the same page each time.
+    return out
