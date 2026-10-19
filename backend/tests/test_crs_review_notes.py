@@ -74,22 +74,38 @@ def test_the_issue_copy_has_no_review_notes_the_internal_copy_does():
     assert "name their own evidence" not in text
 
 
-def _scoped_run(doc: str, created_at: str, standards: list[tuple[str, str]],
-                status: str = "completed") -> str:
+def _scoped_run(
+    doc: str,
+    created_at: str,
+    standards: list[tuple[str, str]],
+    status: str = "completed",
+) -> str:
     run_id = str(uuid.uuid4())
     with db.connect() as conn:
-        conn.execute("INSERT INTO review_runs (id,submittal_document_id,status,outcome_json,"
-                     "created_at,updated_at) VALUES (?,?,?,?,?,?)",
-                     (run_id, doc, status, json.dumps({"recommended_code": None, "reason": None}),
-                      created_at, created_at))
+        conn.execute(
+            "INSERT INTO review_runs (id,submittal_document_id,status,outcome_json,"
+            "created_at,updated_at) VALUES (?,?,?,?,?,?)",
+            (
+                run_id,
+                doc,
+                status,
+                json.dumps({"recommended_code": None, "reason": None}),
+                created_at,
+                created_at,
+            ),
+        )
         for std_id, name in standards:
-            conn.execute("INSERT OR IGNORE INTO documents (id,filename,sha256,size_bytes,"
-                         "stored_path,status,page_count,uploaded_at) VALUES (?,?,?,1,'x','ready',1,?)",
-                         (std_id, name, f"sha-{std_id}", NOW))
-            conn.execute("INSERT INTO review_applicable_standards (id,review_run_id,"
-                         "standard_document_id,selection_reason,selection_method,included,"
-                         "created_at) VALUES (?,?,?,'cited','referenced',1,?)",
-                         (str(uuid.uuid4()), run_id, std_id, created_at))
+            conn.execute(
+                "INSERT OR IGNORE INTO documents (id,filename,sha256,size_bytes,"
+                "stored_path,status,page_count,uploaded_at) VALUES (?,?,?,1,'x','ready',1,?)",
+                (std_id, name, f"sha-{std_id}", NOW),
+            )
+            conn.execute(
+                "INSERT INTO review_applicable_standards (id,review_run_id,"
+                "standard_document_id,selection_reason,selection_method,included,"
+                "created_at) VALUES (?,?,?,'cited','referenced',1,?)",
+                (str(uuid.uuid4()), run_id, std_id, created_at),
+            )
     return run_id
 
 
@@ -115,10 +131,15 @@ def test_the_change_is_against_the_previous_completed_run_not_a_failed_one():
     first = _scoped_run(doc, "2026-09-20T00:00:00Z", [a, b])
     _scoped_run(doc, "2026-09-21T00:00:00Z", [a], status="failed")
     third = _scoped_run(doc, "2026-09-22T00:00:00Z", [a, b])
-    runs = {r["review_run_id"]: r for r in _client(doc, "s-a", "s-b")
-            .get("/api/reviews/runs").json()["runs"]}
+    runs = {
+        r["review_run_id"]: r
+        for r in _client(doc, "s-a", "s-b").get("/api/reviews/runs").json()["runs"]
+    }
     assert runs[third]["standards_change"] == {
-        "previous_run_id": first, "added": [], "removed": []}
+        "previous_run_id": first,
+        "added": [],
+        "removed": [],
+    }
 
 
 def test_a_standard_the_caller_cannot_read_is_not_named_in_the_change():
