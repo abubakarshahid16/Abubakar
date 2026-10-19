@@ -7,7 +7,7 @@ sounding confident.
 ## What happens today, in code
 
 `answer.answer()` calls `search_mod.search()` once (`answer.py:374`). `search()`
-builds one global candidate pool from `keyword.search` + `dense_search`
+builds one global candidate pool from `fts_index.search` + `dense_search`
 (`search.py:598-611`), fuses ranks (`search.py:613`), reranks a single shortlist
 of `settings.rerank_candidates = 16` (`search.py:661-666`), and then **discards
 everything outside it**: `pool = shortlist` (`search.py:684`). Tier 1 takes
@@ -48,7 +48,7 @@ field — which makes it correct today and an invariant-3 violation the moment a
 candidate arrives from a different batch.
 
 **The signal to use: per-document term incidence.**
-`keyword.term_occurrences(term, document_id)` (`keyword.py:289-311`) already
+`fts_index.term_occurrences(term, document_id)` (`fts_index.py:289-311`) already
 takes a document and already returns `-1` for unparseable, distinct from `0`
 for absent — the three-way distinction invariant 6 needs.
 
@@ -124,7 +124,7 @@ On `AnswerResult`: `coverage: Coverage | None = None`.
 **`out_of_scope` is deliberately absent from the enum.** Every coverage row must
 come from `allowed_document_ids` and nothing else. A row saying "expected, out of
 scope" leaks the existence of a document the caller may not know exists — the
-precise failure `keyword.py:230-237` argues against.
+precise failure `fts_index.py:230-237` argues against.
 
 ### The two gotchas that will silently swallow this field
 
@@ -173,7 +173,7 @@ is why the null cases behave as they do.
 | reader's own filter in effect | `single_document_scope` | 1 | — |
 
 `basis: "none"` whenever no expectation could be formed — no distinguishing term
-with a usable distribution, or `keyword.indexed_count()` below
+with a usable distribution, or `fts_index.indexed_count()` below
 `MIN_CORPUS_FOR_COMMONNESS = 20` (`lexical.py:86`), where "common in the corpus"
 is not a meaningful idea. Then `expected_documents` and `complete` are **null,
 not 0 and not true**.
@@ -216,7 +216,7 @@ presence-based.** Do not guess it.
 ## The invariant most likely to break, and the test that prevents it
 
 `lexical.assess` (`lexical.py:173`) threads `document_id` into
-`keyword.indexed_count` (line 192) and `keyword.term_occurrences` (line 217).
+`fts_index.indexed_count` (line 192) and `fts_index.term_occurrences` (line 217).
 The `named_absent` rule at `lexical.py:233-251` — the absolute presence gate —
 is therefore **already parameterised by document**, and today is only ever called
 with the caller's own `document_id` (`answer.py:396`).
@@ -227,7 +227,7 @@ silently becomes "does not appear in this document", and the user-visible
 refusal message, which says *anywhere*, becomes false.
 
 **Rule, enforced by a test rather than a comment:** the coverage layer may call
-`keyword.term_occurrences(term, doc_id)` for incidence, and may **never** call
+`fts_index.term_occurrences(term, doc_id)` for incidence, and may **never** call
 `lexical.assess` with a document_id it derived itself. The gate runs exactly
 once, before any per-document reasoning, on the scope the request already had
 (`answer.py:395-406`), and its verdict is final. A refused question has

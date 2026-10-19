@@ -43,3 +43,22 @@ def test_the_baseline_is_recorded_with_the_ruff_ci_installs():
                           (ROOT / ".github" / "workflows" / "tests.yml").read_text()))
     assert pins == {baseline["ruff"]}
     assert baseline["total"] == sum(baseline["counts"].values())
+
+
+def test_the_formatter_report_survives_output_it_could_not_read(monkeypatch):
+    """Order 133: on Windows a byte ruff printed that cp1252 could not decode
+    left stdout None, and `format_report` crashed on None + str."""
+    import subprocess
+
+    mod = _load()
+    seen = {}
+
+    def fake_run(cmd, **kwargs):
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(
+            cmd, 1, stdout=None, stderr="3 files would be reformatted"
+        )
+
+    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+    assert mod.format_report().endswith("3 file(s) would be reformatted")
+    assert seen["encoding"] == "utf-8" and seen["errors"] == "replace"

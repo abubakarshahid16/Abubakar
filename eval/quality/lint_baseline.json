@@ -1,6 +1,6 @@
 {
  "ruff": "0.16.6",
- "total": 1577,
+ "total": 1574,
  "counts": {
   "backend/app/absence.py::E741": 1,
   "backend/app/access.py::UP031": 1,
@@ -146,7 +146,7 @@
   "backend/app/ligatures.py::B905": 1,
   "backend/app/live_guard.py::RUF100": 1,
   "backend/app/live_guard.py::UP037": 1,
-  "backend/app/main.py::ARG001": 8,
+  "backend/app/main.py::ARG001": 6,
   "backend/app/main.py::B905": 1,
   "backend/app/main.py::I001": 1,
   "backend/app/main.py::RUF100": 4,
@@ -556,7 +556,6 @@
   "backend/tests/test_ocr_routing.py::PTH123": 1,
   "backend/tests/test_ocr_routing.py::RUF059": 4,
   "backend/tests/test_p2_standard_override.py::I001": 1,
-  "backend/tests/test_p3_review_jobs.py::F401": 1,
   "backend/tests/test_p3_review_jobs.py::I001": 1,
   "backend/tests/test_partial_standards.py::E702": 2,
   "backend/tests/test_partial_standards.py::I001": 1,

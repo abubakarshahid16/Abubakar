@@ -40,8 +40,17 @@ PATHS = ("backend", "scripts", "eval")
 
 
 def _ruff(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run([sys.executable, "-m", "ruff", *args], cwd=ROOT,
-                          capture_output=True, text=True, check=False)
+    # UTF-8, not the locale: on Windows (cp1252) a byte ruff prints that the
+    # locale cannot decode left stdout None, and the report crashed (order 133).
+    return subprocess.run(
+        [sys.executable, "-m", "ruff", *args],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
 
 
 def ruff_version() -> str:
@@ -72,7 +81,8 @@ def compare(baseline: dict[str, int], current: dict[str, int]) -> tuple[list[str
 
 def format_report() -> str:
     proc = _ruff("format", "--check", "--config", str(CONFIG), "--no-cache", *PATHS)
-    summary = re.search(r"(\d+) files? would be reformatted", proc.stdout + proc.stderr)
+    output = (proc.stdout or "") + (proc.stderr or "")
+    summary = re.search(r"(\d+) files? would be reformatted", output)
     if summary is None:
         return "formatter (report only, never a gate): no file would be reformatted"
     return (f"formatter (report only, never a gate): {summary.group(1)} file(s)"

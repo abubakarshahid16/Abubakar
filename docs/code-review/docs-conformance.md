@@ -396,11 +396,11 @@ at kept the claim alive.
   Its file:line anchors have also drifted unevenly, which matters because the doc's stated
   contract is that every claim carries one: `search.py:661` is now inside the eviction block
   rather than the rerank call; `answer.py:374` is `_build_prompt`, not the `search()` call
-  the sentence attributes to it. Others still hold — `keyword.py:289-311` is
+  the sentence attributes to it. Others still hold — `fts_index.py:289-311` is
   `term_occurrences`, `lexical.py:111-113` is `is_compound_question`.
 - **How I measured it:** `sed -n '655,690p' backend/app/search.py`;
   `grep -n "deduplicate\|dropped\|evicted" backend/app/search.py`;
-  `sed -n '370,380p' backend/app/answer.py`; `sed -n '285,315p' backend/app/keyword.py`;
+  `sed -n '370,380p' backend/app/answer.py`; `sed -n '285,315p' backend/app/fts_index.py`;
   `sed -n '105,120p' backend/app/lexical.py`.
 - **Smallest fix:** replace :22-24 with — "**This premise was wrong and is recorded as entry 12
   of `docs/status-honesty-audit.md`.** The shortlist cut was not the one place: `deduplicate()`
@@ -654,7 +654,7 @@ well-defined enough to check. Finding IDs link to the sections above.
 | 4 | 26 | Not air-gapped, locally-inferencing | TRUE | consistent with ADR-0002 and with `market_transport` being flag-gated |
 | 5 | 33-39 | Ingestion diagram: stream+SHA-256, PyMuPDF, resumable checkpoint | TRUE | `upload.stream_to_temp`, `upload.py:117` `doc_{sha256[:12]}`, `extract.py`, `states.py` non-terminal resume |
 | 6 | 35 | ONNX int8 E5 → **LanceDB** (brute-force) | **FALSE** | H5 |
-| 7 | 36 | → SQLite FTS5 | TRUE | `keyword.py:27` `CREATE VIRTUAL TABLE … USING fts5` |
+| 7 | 36 | → SQLite FTS5 | TRUE | `fts_index.py:27` `CREATE VIRTUAL TABLE … USING fts5` |
 | 8 | 41-42 | dense + FTS → RRF → cross-encoder rerank | TRUE | `search.py:598-613`, `:720` |
 | 9 | 44 | Tier 1 ~1-2 s | **STALE** | L3 |
 | 10 | 46 | Tier 2 budget "2 chunks x 250 tok" | **STALE** | M5 (`generated_context_chars = 1200`) |
@@ -781,7 +781,7 @@ well-defined enough to check. Finding IDs link to the sections above.
 | 121 | `design-analysis-and-synthesis.md:23` | SYSTEM_PROMPT 122 net tokens, `answer.py:34-35` | TRUE, anchor off by two | `answer.py:36` |
 | 122 | `design-multi-document-coverage.md:22` | The shortlist cut is the one place candidates are dropped unrecorded | **FALSE** | M9 |
 | 123 | `design-multi-document-coverage.md:9-14` | Six file:line anchors into `search.py`/`answer.py` | **STALE (mixed)** | M9 |
-| 124 | `design-multi-document-coverage.md:51-54` | Cost is terms × documents FTS counts; "**It does not scale**" — noted, not built | TRUE | `keyword.term_occurrences` (:289) is per-document as described |
+| 124 | `design-multi-document-coverage.md:51-54` | Cost is terms × documents FTS counts; "**It does not scale**" — noted, not built | TRUE | `fts_index.term_occurrences` (:289) is per-document as described |
 | 125 | `design-pdf-report.md:3-8` | Nothing here was executed; capability claims come from reading the installed source | **TRUE, and the honest form of an unverified claim** | it names its own boundary, which is standing rule 7 applied to a design doc |
 | 126 | `design-pdf-report.md:10-12` | `PyMuPDF==1.26.6` at requirements line 9; reportlab/weasyprint/jinja2 absent | **TRUE, line and all** | `grep -inE "pymupdf" backend/requirements.txt` → line 15 today, not 9 (the file has grown); the version is exact and the absences hold |
 | 127 | `design-pdf-report.md:114` | Public-market findings: "No provider, and the machine is offline" | **STALE** | M15 — three tiers of provider now exist behind two flags |

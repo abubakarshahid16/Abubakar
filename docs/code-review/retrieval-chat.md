@@ -3,7 +3,7 @@
 Static review of the files named in the brief, plus their tests and `eval/`.
 Nothing was run on the device (read-only, as instructed) and **no test suite was
 executed**. Two claims below were verified by *executing FTS5 in the cloud
-container* against a reconstruction of `keyword.build_match_query` and the same
+container* against a reconstruction of `fts_index.build_match_query` and the same
 tokenizer string; those are marked **(measured here)** and the transcript is
 reproducible from the quoted regex alone. Everything else is read from the code.
 
@@ -13,7 +13,7 @@ Counts: 1 critical, 3 high, 8 medium, 3 low.
 
 ## 1. CRITICAL — a dotted clause number is truncated to its first digit and then REQUIRED, so clause lookups return zero keyword hits and the wrong table is credited with declaring the designator
 
-**`backend/app/keyword.py:71-77`**, consumed at `keyword.py:205-210` and
+**`backend/app/fts_index.py:71-77`**, consumed at `fts_index.py:205-210` and
 `search.py:325-338`.
 
 ```python
@@ -44,7 +44,7 @@ and returns **0 rows**. Dropping only the designator conjunct returns 1.
 `section 7.1 requirements` → requires `"section 7"`, `table 3.4 values` →
 `"table 3"`, `grade 5.8 bolts` → `"grade 5"`, `rev 2.1` → `"rev 2"`.
 So the *entire keyword side* returns nothing for the clause-and-table lookup
-class that `keyword.py`'s own docstring says lexical search exists to get right
+class that `fts_index.py`'s own docstring says lexical search exists to get right
 ("clause `5.3.2` … destroying exactly the lookups lexical search exists to get
 right"). Before embedding finishes — the state the module is built for, "a
 1,200-page specification is therefore answerable seconds after upload" — that
@@ -66,7 +66,7 @@ For the question `table 3.4`, a passage headed **`Table 3.9`** yields
 and gains precedence *and* escapes `conflicts`/`penalty`. Table 3.9's numbers
 are then quoted as table 3.4's — the "confidently wrong, reads perfectly
 plausible" failure the designator machinery was written to prevent
-(`keyword.py:61-66`).
+(`fts_index.py:61-66`).
 
 **Smallest fix** Widen the value group to carry the whole dotted number and
 keep it one token: `(\d+(?:\.\d+)*[A-Za-z]?)`. That makes the required phrase
@@ -77,7 +77,7 @@ keep it one token: `(\d+(?:\.\d+)*[A-Za-z]?)`. That makes the required phrase
 
 ## 2. HIGH — the lexical gate counts term occurrences across the WHOLE corpus, so its verdict and its user-visible refusal are derived from documents the caller may not read
 
-**`backend/app/keyword.py:289-311`** and **`backend/app/lexical.py:192-251`**;
+**`backend/app/fts_index.py:289-311`** and **`backend/app/lexical.py:192-251`**;
 reached from `answer.py:513`.
 
 ```python
@@ -88,7 +88,7 @@ def term_occurrences(term: str, document_id: str | None = None) -> int:
         where += " AND document_id = ?"
 ```
 
-There is no `allowed_document_ids` parameter — the one parameter `keyword.search`
+There is no `allowed_document_ids` parameter — the one parameter `fts_index.search`
 in the same file calls "REQUIRED and keyword-only … A default would eventually
 come to mean 'every document', which is the one thing this parameter exists to
 prevent". `indexed_count()` is the same shape.
@@ -129,7 +129,7 @@ something adjacent to the truth.
 
 **Smallest fix** Give `term_occurrences` and `indexed_count` a required
 `allowed_document_ids` frozenset, bound into the same
-`AND document_id IN (...)` clause `keyword.search:259-261` already uses, and
+`AND document_id IN (...)` clause `fts_index.search:259-261` already uses, and
 thread the scope from `answer.answer` through `_assess_candidates` into
 `lexical.assess`. Correct the coverage.py comment in the same change.
 
@@ -249,7 +249,7 @@ named defect of `search.py:46-53`, on the path the reranker is mandatory on
 
 ## 6. MEDIUM — every `sqlite3.OperationalError` in the keyword path is reported as "nothing matched"
 
-**`backend/app/keyword.py:264-275`**
+**`backend/app/fts_index.py:264-275`**
 
 ```python
     except sqlite3.OperationalError:
@@ -263,7 +263,7 @@ named defect of `search.py:46-53`, on the path the reranker is mandatory on
 
 **The failure** During ingestion of a large document (this project writes and
 reads one SQLite file, and `docs/…` records contended runs), a locked database
-makes `keyword.search` return `[]`. `search()` then reports
+makes `fts_index.search` return `[]`. `search()` then reports
 `keyword_candidates: 0`, `mode: "hybrid"` if any vector exists, and — because no
 candidate entered the pool — `shortlist_excluded: []` and an empty
 `document_census`. `coverage._classify` files every document as
@@ -296,7 +296,7 @@ limit. The fixture uploads two documents built from the *same* default blocks
 (`upload(client, "visible.pdf")` / `"hidden.pdf"`, `test_search.py:61`), i.e.
 **6 chunks total**, against `settings.search_candidates = 30` and `limit=10`.
 
-**The failure** Mutate `keyword.search` to run the MATCH unfiltered and drop
+**The failure** Mutate `fts_index.search` to run the MATCH unfiltered and drop
 unauthorised rows in Python after `LIMIT`: both calls still return the same
 three visible chunks, and this test stays green. It is a real test of *no leak*
 only because the two sibling tests (`:317`, `:335`) assert `got == {visible}`;
@@ -315,7 +315,7 @@ scoped call returns the *same set*, not the same count.
 
 ```python
 def test_identifiers_survive_tokenisation():
-    q = keyword.build_match_query("what is clause 5.3.2 of API 610")
+    q = fts_index.build_match_query("what is clause 5.3.2 of API 610")
     assert '"5.3.2"' in q
     assert '"API 610"' in q or '"610"' in q
 ```
@@ -346,7 +346,7 @@ Named in the same class, and still passing if the feature were deleted:
   scope (findings 2, 3) — there is nothing to remove.
 
 **Smallest fix** For the first: index a chunk containing "clause 5.3.2" and
-assert `keyword.search("what is clause 5.3.2 of API 610", …)` returns it. That
+assert `fts_index.search("what is clause 5.3.2 of API 610", …)` returns it. That
 assertion goes red today.
 
 ---
@@ -365,9 +365,9 @@ Run: python score2.py <sqlite> <backend-dir>
 """
 ```
 
-**What is wrong** It calls `keyword.search` (`:54`, `:81`, `:106`) — the raw FTS
+**What is wrong** It calls `fts_index.search` (`:54`, `:81`, `:106`) — the raw FTS
 side. The API calls `search.search` (hybrid + RRF + rerank) and the Analysis
-route calls `analysis.gather`. `keyword.search` is not "search() exactly as the
+route calls `analysis.gather`. `fts_index.search` is not "search() exactly as the
 API does".
 
 **The failure** This is recorded defect 22, and the sibling file
@@ -462,7 +462,7 @@ already computes.
 
 ## 12. MEDIUM — an empty or unusable question is a silent zero-result, distinguishable from nothing
 
-**`backend/app/keyword.py:241-243`** with **`search.py:653-662`**
+**`backend/app/fts_index.py:241-243`** with **`search.py:653-662`**
 
 ```python
     match = build_match_query(question)
@@ -562,16 +562,16 @@ answering passage carries its own `filename` and the frontend shows it.)*
 Checked, and sound:
 
 * **Scope reaches the SQL `WHERE` of both sides before any LIMIT.**
-  `keyword.search:251-272` binds `AND document_id IN (?,?,…)` into the same
+  `fts_index.search:251-272` binds `AND document_id IN (?,?,…)` into the same
   statement as `ORDER BY score LIMIT ?`; `dense_search:191-203` masks the score
   vector with `-inf` before `argsort(...)[:limit]` and keeps index alignment
   with `ids`. An empty scope returns `[]` on both sides rather than everything
-  (`keyword.py:247`, `search.py:184`). Routes thread the scope from
+  (`fts_index.py:247`, `search.py:184`). Routes thread the scope from
   `Depends(access.current_scope)` into the call (`main.py:486-494`, `:525-528`,
   `:1209-1218`) — no resolved-and-discarded scope in the paths I read.
 * **No string interpolation of user input into SQL anywhere in these files.**
   Every `f"…IN ({marks})"` interpolates only `?` placeholders
-  (`keyword.py:259`, `search.py:437`, `answer.py:235`, `coverage`,
+  (`fts_index.py:259`, `search.py:437`, `answer.py:235`, `coverage`,
   `classification`). The MATCH expression is a bound parameter.
 * **FTS5 escaping.** `_escape` quoting with `"` → `""` survived every hostile
   input I could construct **(measured here)**: `NEAR`, `NEAR/2`, `OR`, `AND`,

@@ -7,7 +7,7 @@ running it, it is in **Confidence / not reviewed** at the end rather than stated
 as fact.
 
 Boundary of the sweep: `backend/app/{upload,ingest,chunker,ocr,watcher,watch_api,db,metrics,states}.py`
-in full; `extract.py` and `keyword.py` only where they write `documents.status`
+in full; `extract.py` and `fts_index.py` only where they write `documents.status`
 or a count; `backend/tests/*` by name plus the eight test files bearing on the
 guarantees below, read in full or in the relevant part; `scripts/` only by grep
 for a WAL-unsafe copy. `main.py` only at the upload route and the `/api/metrics`
@@ -307,7 +307,7 @@ ingest.py:296     -> extracting         (unknown status; deliberately unchecked)
 ingest.py:425     -> failed             (from ANY state, in the broad handler)
 ingest.py:592     -> no_searchable_content
 ingest.py:614     -> ready
-keyword.py:150    -> partially_searchable
+fts_index.py:150    -> partially_searchable
 ```
 
 **What is wrong.** `docs/status-honesty-audit.md` states: *"Legal transitions
@@ -600,7 +600,7 @@ document to say `indexed_at` means "finished *successfully*" and add
 
 ## 15. MEDIUM — a fully scanned document is labelled answerable, with zero indexed chunks, for the whole recognition run
 
-`backend/app/keyword.py:128`, `:149`
+`backend/app/fts_index.py:128`, `:149`
 
 ```python
     rows = conn.execute(
@@ -818,7 +818,7 @@ Answerable: partially_searchable, ready.
 | `queued` | extracting, failed | `extracting` — `ingest._set_state:307`; `failed` — `ingest.py:425` handler, `extract.py:159` | only `_set_state` |
 | `extracting` | extracting, chunking, failed | `extracting` (self, per batch) — `extract.py:133`; `chunking` — `extract.py:212`; `failed` — `extract.py:159`, `ingest.py:425` | no |
 | `chunking` | indexing_keyword, failed | `indexing_keyword` — `chunker.py:1604` and `:1357` (short-circuit); `failed` — `ingest.py:425` | no |
-| `indexing_keyword` | partially_searchable, **no_searchable_content**, failed | `partially_searchable` — `keyword.py:150` (CAS, unconditional on row count); `failed` — `ingest.py:425`. **no_searchable_content is never written from here** (finding 15) | CAS on status only |
+| `indexing_keyword` | partially_searchable, **no_searchable_content**, failed | `partially_searchable` — `fts_index.py:150` (CAS, unconditional on row count); `failed` — `ingest.py:425`. **no_searchable_content is never written from here** (finding 15) | CAS on status only |
 | `partially_searchable` | partially_searchable, chunking, ready, no_searchable_content, failed | `chunking` — `ingest._set_state:388` (OCR round); `ready` / `no_searchable_content` — `ingest.py:614` / `:592` (CAS); `failed` — `ingest.py:425` | `_set_state` only |
 | `ready` | chunking, failed | **nothing.** `_next_document` excludes `ready`, and no route re-chunks. The "re-ingest on a new revision" comment (`states.py:66`) describes an unimplemented path | — |
 | `no_searchable_content` | chunking, extracting, failed | **nothing.** `process()` returns immediately (`ingest.py:302`) and `_next_document` excludes it | — |
@@ -858,7 +858,7 @@ Notes on reachability, from the code rather than from the table:
 Checked, and I found nothing wrong with them:
 
 - **Stage atomicity.** The index write and the state advance are one
-  transaction with a compare-and-set (`keyword.py:134-152`), and so are the
+  transaction with a compare-and-set (`fts_index.py:134-152`), and so are the
   `ready` / `no_searchable_content` stamps (`ingest.py:590-621`). Extraction and
   recognition both commit batches in order with a contiguous
   `last_completed_batch` (`extract.py:111`, `ocr.py:222`). [Corrected
@@ -913,7 +913,7 @@ Checked, and I found nothing wrong with them:
   the call sites only. Whether the *page classification* itself drops real
   content is out of this review's boundary; findings 11 and 12 are about whether
   a drop is **recorded**, not about whether it is correct.
-- `extract.py` outside its status/count writes; `keyword.py` outside
+- `extract.py` outside its status/count writes; `fts_index.py` outside
   `index_document`; `access.py`, `admin.grant_on_upload`, `telemetry`,
   `rates`, `quality.assess` taken as given.
 - The 76 test files were surveyed by name and test-name; eight were read in the

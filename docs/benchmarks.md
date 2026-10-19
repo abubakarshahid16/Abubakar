@@ -602,7 +602,7 @@ refusals 0/11, length-limited 0.
 `_incidence` runs one query per (term, document) pair; one query per term with
 `GROUP BY document_id` would cut the count twelvefold for an identical result.
 Not done, because 105 ms on a 2.4 s answer does not justify new surface in
-`keyword.py`. It does not scale regardless — at a thousand documents this
+`fts_index.py`. It does not scale regardless — at a thousand documents this
 approach is the entire latency budget and needs a term-to-document posting
 aggregate instead.
 

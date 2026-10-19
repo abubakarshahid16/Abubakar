@@ -303,7 +303,7 @@ piece of evidence. `file:line` references are to the audited commit.
 | R077 | Keep FastAPI, one Uvicorn worker | MET | `app/main.py:65`; `config.py:30-31` binds 127.0.0.1:8000. |
 | R078 | Keep React 19 + TypeScript + Vite + Tailwind | MET | `frontend/package.json`. |
 | R079 | Keep SQLite WAL | MET | `app/db.py`. |
-| R080 | Keep FTS5 + dense vectors + RRF + cross-encoder rerank | MET | `keyword.py`, `vectorcache.py`, `scores.py`, `reranker.py`. |
+| R080 | Keep FTS5 + dense vectors + RRF + cross-encoder rerank | MET | `fts_index.py`, `vectorcache.py`, `scores.py`, `reranker.py`. |
 | R081 | Keep the custom pipeline; no LangChain/LlamaIndex | MET | Absent from `requirements.txt`. |
 | R082 | Keep chunking at 300 target / 480 max / 60 overlap | MET | `config.py:167-169` — exactly those values. |
 | R083 | Keep multilingual-e5-small ONNX int8, 384 dimensions | MET | `embedder.py`, `scripts/fetch_models.py`. |
@@ -539,7 +539,7 @@ piece of evidence. `file:line` references are to the audited commit.
 | R241 | `search()` takes `allowed_document_ids` explicitly | MET | Keyword-only parameter; the honesty audit records the deliberate choice of no default, and that five `eval/` call sites surfaced only because of it. |
 | R242 | The default must never mean "all documents" | MET | `access.py` — "It never defaults to 'everything'. `AccessScope` has no default constructor argument." `unrestricted_scope()` says in its own name what it is. `test_search.py:354` — an empty scope returns nothing rather than everything. |
 | R243 | Never store the current user or allowed IDs in a process global, singleton, environment variable or shared vector-cache state | MET | Enforced by `test_two_concurrent_requests_never_share_scope`, which runs genuinely in parallel; a module-level cache makes it red. |
-| R244 | Parameterized document-ID restrictions, checked against SQLite's variable limit | MET | `keyword.py` parameterizes; no SQL identifier concatenation. |
+| R244 | Parameterized document-ID restrictions, checked against SQLite's variable limit | MET | `fts_index.py` parameterizes; no SQL identifier concatenation. |
 | R245 | Dense filtering uses the same resolved scope before top-k selection | MET | `test_search.py:335` — the dense path cannot reach a document outside the scope. Would fail if filtering moved after selection. |
 | R246 | Cache only by an immutable authorization-version/scope hash; never trust a cached scope because a token is still valid | MET | No scope cache exists; `auth.py:368-380` re-reads `is_active` on every request rather than trusting the token. |
 | R247 | `AUTH_MODE=disabled\|demo_required`; `disabled` only for backward compatibility; `demo_required` required by the Sunday runbook | PARTIAL | Both modes exist and `test_auth_required_mode.py` (52 tests) covers `demo_required`. `disabled` is the shipped default and `docs/runbook.md` does not require the switch. |
