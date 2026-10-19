@@ -18,6 +18,7 @@ import { EMPTY_FACTS } from "../crs/tiers";
 import { useCrsDecisions } from "../crs/useCrsDecisions";
 import type { ReviewNumbers } from "./contract";
 import { computeReviewNumbers } from "./numbers";
+import { REASON_CODE_WORDS } from "../reasonWords";
 import { WorkspaceSheet } from "./WorkspaceSheet";
 
 const crsDecisions = vi.fn();
@@ -108,7 +109,8 @@ describe("WorkspaceSheet", () => {
     expect(rule.length).toBeGreaterThan(0);
     for (const node of [...engine, ...rule]) expect(node).not.toBeVisible();
     expect(within(drawer).queryByText(/no_field_matched:/)).toBeNull();
-    expect(within(drawer).getByText("No field read from the datasheet matched this clause")).toBeVisible();
+    // The engine code's words are main's approved table (reasonWords).
+    expect(within(drawer).getByText(REASON_CODE_WORDS.no_field_matched)).toBeVisible();
     expect(within(drawer).getByText("Review rule 4")).toBeVisible();
 
     for (const summary of within(drawer).getAllByText("Details")) await user.click(summary);

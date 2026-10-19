@@ -26,7 +26,9 @@ import type { FinishedReview } from "./contract";
 /** How often watched runs are read while any is still going. */
 export const WATCH_POLL_MS = 10_000;
 
-/** The sessionStorage key. Versioned so a future shape change can ignore old data. */
+/** The sessionStorage key. Versioned so a future shape change can ignore
+ *  old data. With a signed-in user the key carries their id
+ *  (`watchStorageKey`), so one person's file names never show for another. */
 export const WATCH_STORAGE_KEY = "review-workspace.watched.v1";
 
 interface WatchedRun {
@@ -37,10 +39,28 @@ interface WatchedRun {
 interface WatchState {
   watched: WatchedRun[];
   finished: FinishedReview[];
+  /** Finished runs read from the server in THIS page (not stored). A notice
+   *  restored from storage is shown only once the server has said, again,
+   *  that the run exists for whoever is signed in now. */
+  verified: string[];
 }
+
+const EMPTY: WatchState = { watched: [], finished: [], verified: [] };
 
 const FINISHED_STATUSES = new Set(["completed", "failed"]);
 const DROPPED_STATUSES = new Set(["cancelled"]);
+
+/** Whose watch list this page holds: a user id, or null with sign-in off
+ *  (or before anyone is known). */
+let owner: string | null = null;
+/** Bumped whenever the list is swapped or cleared, so a read that was in
+ *  flight never writes its answers into the next person's list. */
+let epoch = 0;
+
+/** The storage key for a user (null: sign-in off). */
+export function watchStorageKey(user: string | null = owner): string {
+  return user ? `${WATCH_STORAGE_KEY}.${user}` : WATCH_STORAGE_KEY;
+}
 
 function isWatched(value: unknown): value is WatchedRun {
   if (!value || typeof value !== "object") return false;
@@ -55,21 +75,22 @@ function isFinished(value: unknown): value is FinishedReview {
 
 function readStorage(): WatchState {
   try {
-    const raw = window.sessionStorage.getItem(WATCH_STORAGE_KEY);
-    if (!raw) return { watched: [], finished: [] };
+    const raw = window.sessionStorage.getItem(watchStorageKey());
+    if (!raw) return EMPTY;
     const parsed = JSON.parse(raw) as { watched?: unknown; finished?: unknown };
     return {
       watched: Array.isArray(parsed.watched) ? parsed.watched.filter(isWatched) : [],
       finished: Array.isArray(parsed.finished) ? parsed.finished.filter(isFinished) : [],
+      verified: [],
     };
   } catch {
-    return { watched: [], finished: [] };
+    return EMPTY;
   }
 }
 
 function writeStorage(next: WatchState): void {
   try {
-    window.sessionStorage.setItem(WATCH_STORAGE_KEY, JSON.stringify(next));
+    window.sessionStorage.setItem(watchStorageKey(), JSON.stringify({ watched: next.watched, finished: next.finished }));
   } catch {
     /* blocked storage: the list lives in the module only */
   }
@@ -78,10 +99,14 @@ function writeStorage(next: WatchState): void {
 let state: WatchState = readStorage();
 const listeners = new Set<() => void>();
 
+function notify(): void {
+  for (const listener of listeners) listener();
+}
+
 function setState(next: WatchState): void {
   state = next;
   writeStorage(next);
-  for (const listener of listeners) listener();
+  notify();
 }
 
 function subscribe(listener: () => void): () => void {
@@ -91,6 +116,34 @@ function subscribe(listener: () => void): () => void {
 
 function snapshot(): WatchState {
   return state;
+}
+
+/** Say whose watch list this page holds (App, once it knows who is signed
+ *  in; null with sign-in off). A different person gets their own list,
+ *  never the one in memory. */
+export function setWatchOwner(user: string | null): void {
+  if (user === owner) return;
+  owner = user;
+  epoch += 1;
+  checking = false;
+  state = readStorage();
+  notify();
+}
+
+/** Sign-out: forget every watched and finished review, in memory and in
+ *  this tab's storage (the signed-in user's key and the shared one). */
+export function clearWatchedReviews(): void {
+  try {
+    window.sessionStorage.removeItem(watchStorageKey());
+    window.sessionStorage.removeItem(WATCH_STORAGE_KEY);
+  } catch {
+    /* blocked storage: nothing was stored */
+  }
+  owner = null;
+  epoch += 1;
+  checking = false;
+  state = EMPTY;
+  notify();
 }
 
 /** Start watching a run. Watching the same run twice keeps one entry
@@ -111,24 +164,41 @@ export function watchRun(runId: string, filename: string | null = null): void {
     watched: [...state.watched, { runId, filename }],
     // Starting the same run again (unlikely) clears an old notice for it.
     finished: state.finished.filter((f) => f.runId !== runId),
+    verified: state.verified.filter((id) => id !== runId),
   });
 }
 
 function dismiss(runId: string): void {
   if (!state.finished.some((f) => f.runId === runId)) return;
-  setState({ ...state, finished: state.finished.filter((f) => f.runId !== runId) });
+  setState({
+    ...state,
+    finished: state.finished.filter((f) => f.runId !== runId),
+    verified: state.verified.filter((id) => id !== runId),
+  });
+}
+
+function unverified(s: WatchState): FinishedReview[] {
+  return s.finished.filter((f) => !s.verified.includes(f.runId));
 }
 
 let checking = false;
 
-/** Reads every watched run once and moves finished ones. Exported for tests. */
+/** Reads every watched run once and moves finished ones; reads each
+ *  finished run restored from storage once, and drops it when the server
+ *  no longer knows it. Exported for tests. */
 export async function checkWatchedRuns(): Promise<void> {
-  if (checking || state.watched.length === 0) return;
+  const toRecheck = unverified(state);
+  if (checking || (state.watched.length === 0 && toRecheck.length === 0)) return;
   checking = true;
+  const mine = epoch;
   try {
-    const results = await Promise.all(
-      state.watched.map(async (w) => ({ w, result: await reviewsApi.reviewRun(w.runId) })),
-    );
+    const [results, rechecked] = await Promise.all([
+      Promise.all(state.watched.map(async (w) => ({ w, result: await reviewsApi.reviewRun(w.runId) }))),
+      Promise.all(toRecheck.map(async (f) => ({ f, result: await reviewsApi.reviewRun(f.runId) }))),
+    ]);
+    // Signed out (or someone else signed in) while reading: the answers
+    // belong to a list this page no longer holds.
+    if (mine !== epoch) return;
     const done: FinishedReview[] = [];
     const drop = new Set<string>();
     for (const { w, result } of results) {
@@ -143,35 +213,52 @@ export async function checkWatchedRuns(): Promise<void> {
         drop.add(w.runId);
       }
     }
-    if (drop.size === 0) return;
+    const confirmed: string[] = [];
+    const forget = new Set<string>();
+    for (const { f, result } of rechecked) {
+      if (!result.ok) continue; // stays hidden; tried again next time
+      if (result.data === null) forget.add(f.runId);
+      else confirmed.push(f.runId);
+    }
+    if (drop.size === 0 && confirmed.length === 0 && forget.size === 0) return;
+    const finished = [
+      ...state.finished.filter((f) => !forget.has(f.runId) && !done.some((d) => d.runId === f.runId)),
+      ...done,
+    ];
     setState({
       watched: state.watched.filter((w) => !drop.has(w.runId)),
-      finished: [...state.finished.filter((f) => !done.some((d) => d.runId === f.runId)), ...done],
+      finished,
+      verified: [...new Set([...state.verified, ...confirmed, ...done.map((d) => d.runId)])]
+        .filter((id) => finished.some((f) => f.runId === id)),
     });
   } finally {
     checking = false;
   }
 }
 
-/** Finished watched reviews, and a way to dismiss each. Polls while any
- *  watched run is still going. */
+/** Finished watched reviews the server has confirmed in this page, and a
+ *  way to dismiss each. Polls while any watched run is still going, or a
+ *  restored notice still has to be confirmed. */
 export function useFinishedReviews(): { finished: FinishedReview[]; dismiss: (runId: string) => void } {
   const current = useSyncExternalStore(subscribe, snapshot, snapshot);
-  const anyWatched = current.watched.length > 0;
+  const anyToRead = current.watched.length > 0 || unverified(current).length > 0;
 
   useEffect(() => {
-    if (!anyWatched) return undefined;
+    if (!anyToRead) return undefined;
     void checkWatchedRuns();
     const timer = window.setInterval(() => { void checkWatchedRuns(); }, WATCH_POLL_MS);
     return () => window.clearInterval(timer);
-  }, [anyWatched]);
+  }, [anyToRead]);
 
-  return { finished: current.finished, dismiss };
+  const shown = current.finished.filter((f) => current.verified.includes(f.runId));
+  return { finished: shown, dismiss };
 }
 
 /** TESTS ONLY: reload the store from sessionStorage, as a page refresh would. */
 export function reloadWatchStoreForTests(): void {
   checking = false;
+  owner = null;
+  epoch += 1;
   state = readStorage();
-  for (const listener of listeners) listener();
+  notify();
 }

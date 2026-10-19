@@ -10,7 +10,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ReviewFinding, ReviewRunSummary } from "../../../types/api";
-import { useWorkspaceRun } from "./useWorkspaceRun";
+import { COULD_NOT_REFRESH, useWorkspaceRun } from "./useWorkspaceRun";
 
 const reviewRun = vi.fn();
 const list = vi.fn();
@@ -141,5 +141,36 @@ describe("useWorkspaceRun", () => {
     expect(reviewRun.mock.calls.length).toBe(before + 1);
     await act(async () => { await vi.advanceTimersByTimeAsync(9000); });
     expect(reviewRun.mock.calls.length).toBe(before + 1);
+  });
+
+  /** One failed poll keeps the last good data and says it could not
+   *  refresh, instead of replacing the screen with an error.
+   *  MUTATION PROOF: set the load to an error on every failed read again and
+   *  this fails. */
+  it("a failed refresh after a good load keeps the data and says it could not refresh", async () => {
+    const { result } = renderHook(() => useWorkspaceRun("run-1"));
+    await waitFor(() => expect(result.current.readiness).not.toBeNull());
+    expect(result.current.refreshError).toBeNull();
+    reviewRun.mockResolvedValueOnce({ ok: false, error: { message: "Cannot reach the backend." } });
+    await act(async () => { await result.current.refresh(); });
+    expect(result.current.load).toEqual({ kind: "ready" });
+    expect(result.current.run?.review_run_id).toBe("run-1");
+    expect(result.current.findings).toHaveLength(2);
+    expect(result.current.refreshError).toBe(COULD_NOT_REFRESH);
+    // A failed findings read is the same.
+    list.mockResolvedValueOnce({ ok: false, error: { message: "nope" } });
+    await act(async () => { await result.current.refresh(); });
+    expect(result.current.findings).toHaveLength(2);
+    expect(result.current.refreshError).toBe(COULD_NOT_REFRESH);
+    // The next good read clears the line.
+    await act(async () => { await result.current.refresh(); });
+    expect(result.current.refreshError).toBeNull();
+  });
+
+  it("a failed first load is still an error (nothing good to keep)", async () => {
+    reviewRun.mockResolvedValue({ ok: false, error: { message: "Cannot reach the backend." } });
+    const { result } = renderHook(() => useWorkspaceRun("run-1"));
+    await waitFor(() => expect(result.current.load).toEqual({ kind: "error", message: "Cannot reach the backend." }));
+    expect(result.current.refreshError).toBeNull();
   });
 });

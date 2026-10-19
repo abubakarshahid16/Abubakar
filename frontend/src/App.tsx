@@ -27,6 +27,7 @@ import { HowReviewedView } from "./views/HowReviewedView";
 import { SubmittalsLandingView } from "./views/SubmittalsLandingView";
 import type { AuthStatus, Me } from "./types/api";
 import { FinishedReviewNotice } from "./components/review/workspace/FinishedReviewNotice";
+import { clearWatchedReviews, setWatchOwner } from "./components/review/workspace/reviewWatch";
 import { ReviewWorkspace } from "./components/review/workspace/ReviewWorkspace";
 import { TryNewDesignToggle } from "./components/review/workspace/TryNewDesignToggle";
 import { useWorkspaceSwitch } from "./components/review/workspace/useWorkspaceSwitch";
@@ -126,6 +127,14 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
     }
   }, [setOptIn, route, onNavigate]);
   const tryNewDesign = <TryNewDesignToggle on={switchOn} onChange={onTryNewDesign} />;
+  // "Open it" on the finished notice leaves whatever screen the reader is
+  // on, the workspace included, so it asks first about unsaved decisions,
+  // like the switch above. False tells the notice the reader stayed.
+  const openFinishedRun = useCallback((runId: string): boolean => {
+    if (workspaceUnsaved.current > 0 && !window.confirm(LEAVE_WARNING)) return false;
+    openRunInWorkspace(runId);
+    return true;
+  }, [openRunInWorkspace]);
   useEffect(() => {
     const onPopState = () => {
       setSearch(window.location.search);
@@ -195,11 +204,19 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
     if (connection.state === "online" && session.s === "unknown") void check();
   }, [connection.state, session.s, check]);
 
+  // The watch list belongs to whoever is signed in (no one with sign-in off).
+  const watchOwner = session.s === "required" ? session.me?.id ?? null : null;
+  const watchOwnerKnown = session.s === "disabled" || (session.s === "required" && session.me !== null);
+  useEffect(() => {
+    if (watchOwnerKnown) setWatchOwner(watchOwner);
+  }, [watchOwner, watchOwnerKnown]);
+
   // The client clears the token on any 401 and calls this. No auto-retry and
   // no refresh flow: there is no refresh token by design.
   useEffect(() => {
     onSignedOut(() => {
       tokenRef.current = null;
+      clearWatchedReviews();
       setSession({ s: "required", me: null });
     });
     return () => onSignedOut(null);
@@ -227,6 +244,9 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
   const signOut = useCallback(() => {
     setToken(null);
     tokenRef.current = null;
+    // The "review ready" list names files: the next person to sign in on
+    // this tab must not see the last person's.
+    clearWatchedReviews();
     setSession({ s: "required", me: null });
   }, []);
 
@@ -340,7 +360,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
     >
       {/* Workspace v2: "Your review is ready" on any page (it renders
           nothing until a watched review finishes). */}
-      <FinishedReviewNotice onOpenRun={openRunInWorkspace} />
+      <FinishedReviewNotice onOpenRun={openFinishedRun} />
       {/* ONE connection-level error at a time. With the backend down this
           rendered its banner AND let the view render its own failed-request
           card, so an amber "backend is not running" and a red "HTTP 502"

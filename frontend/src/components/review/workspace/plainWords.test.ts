@@ -16,7 +16,8 @@ import type { CrsRow } from "../crs/crsRows";
 import { tierOf } from "../crs/tiers";
 import { RUN_STATUS_LABEL, STATUS_LABEL, TRUST_WORDS } from "../reviewFormat";
 import { PLAIN_KINDS } from "./contract";
-import { CODE_WORDS, LOOKUP_ORDER, PLAIN_WORDS, REASON_WORDS, codesIn, plainRow, plainText, plainWords } from "./plainWords";
+import { REASON_CODE_WORDS } from "../reasonWords";
+import { CODE_WORDS, ENGINE_EXTRA_WORDS, LOOKUP_ORDER, PLAIN_WORDS, REASON_WORDS, codesIn, plainRow, plainText, plainWords } from "./plainWords";
 
 /** The words as they stood in CrsEvidenceDrawer and DecisionCard before they
  *  moved into the table, copied byte for byte from the earlier commit. */
@@ -68,6 +69,32 @@ describe("PLAIN_WORDS keeps every existing word", () => {
     const labels = new Set(statuses.map((s) => tierOf(finding({ compliance_status: s as ReviewFinding["compliance_status"] })).label));
     expect(labels).toEqual(new Set(["Met", "Not applicable", "Another document", "Comment", "Needs you"]));
     for (const label of labels) expect(plainWords(label, "tier")).toEqual({ words: label, detail: null });
+  });
+
+  /** B5: one table for engine reason codes, main's approved one. A forked
+   *  copy once said PAGE_READER_ONLY meant "found only by the page reader"
+   *  when it means the page reader did NOT find it.
+   *  MUTATION PROOF: give PLAIN_WORDS.engine a copy (even an equal one) and
+   *  "is the same table" fails; add a code to ENGINE_EXTRA_WORDS that main
+   *  already names and "extras never fork" fails. */
+  it("engine: is main's REASON_CODE_WORDS itself, not a copy", () => {
+    expect(PLAIN_WORDS.engine).toBe(REASON_CODE_WORDS);
+    for (const [code, words] of Object.entries(REASON_CODE_WORDS)) {
+      expect(plainWords(code, "engine")).toEqual({ words, detail: code });
+    }
+    expect(plainWords("PAGE_READER_ONLY").words).toBe(REASON_CODE_WORDS.PAGE_READER_ONLY);
+    expect(plainWords("PAGE_READER_ONLY").words).toContain("did not find it");
+  });
+
+  it("engine extras never fork a code main's table names", () => {
+    for (const code of Object.keys(ENGINE_EXTRA_WORDS)) expect(REASON_CODE_WORDS).not.toHaveProperty(code);
+    expect(plainWords("refused_by_rule", "engine")).toEqual({ words: ENGINE_EXTRA_WORDS.refused_by_rule, detail: "refused_by_rule" });
+    expect(codesIn("dropped (refused_by_rule) here")).toEqual([{ code: "refused_by_rule", kind: "engine" }]);
+  });
+
+  it("a bare engine code inside a sentence reads as main's words, without its full stop", () => {
+    expect(plainText("Value hidden: PAGE_READER_ONLY for this field"))
+      .toBe(`Value hidden: ${REASON_CODE_WORDS.PAGE_READER_ONLY.charAt(0).toLowerCase()}${REASON_CODE_WORDS.PAGE_READER_ONLY.slice(1, -1)} for this field`);
   });
 
   it("engine and rule tables cover the codes shown today", () => {

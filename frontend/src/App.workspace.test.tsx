@@ -21,6 +21,7 @@ import App from "./App";
 import { setToken } from "./api/client";
 import { WORKSPACE_OPT_IN_KEY } from "./components/review/workspace/workspaceRoute";
 import type { ReviewWorkspaceProps } from "./components/review/workspace/contract";
+import { WATCH_STORAGE_KEY, watchRun, watchStorageKey } from "./components/review/workspace/reviewWatch";
 
 vi.mock("./views/CrsSheetView", () => ({
   CrsSheetView: ({ runId }: { runId: string }) => <p>{`crs sheet for ${runId}`}</p>,
@@ -59,10 +60,12 @@ function json(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
 }
 
-function mockApi() {
+const SIGNED_IN = { id: "user-a", email: "a@example.test", display_name: "Engineer A", roles: ["reviewer"] };
+
+function mockApi(signedIn: typeof SIGNED_IN | null = null) {
   vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.includes("/auth/me")) return Promise.resolve(json({ required: false, user: null }));
+    if (url.includes("/auth/me")) return Promise.resolve(json(signedIn ? { required: true, user: signedIn } : { required: false, user: null }));
     if (url.includes("/documents")) return Promise.resolve(json([]));
     if (url.includes("/metrics")) return Promise.resolve(json({ refresh_seconds: 15 }));
     return Promise.resolve(json({ ok: true, embed_model_present: true, answer_model_configured: true, ingestion: { alive: true, stalled: false, busy: false } }));
@@ -85,6 +88,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   setToken(null);
   try { localStorage.clear(); } catch { /* blocked in one test */ }
+  try { sessionStorage.clear(); } catch { /* blocked in one test */ }
   window.history.pushState({}, "", "/");
 });
 
@@ -248,5 +252,64 @@ describe("the address keeps the place", () => {
     await screen.findByText("landing workspace=true");
     await user.click(screen.getByRole("button", { name: "Open finished review" }));
     expect(await screen.findByText("workspace for run-9")).toBeInTheDocument();
+  });
+});
+
+/** SF1: "Open it" on the finished notice leaves the workspace, so it asks
+ *  about unsaved decisions first, like the switch.
+ *  MUTATION PROOF: pass openRunInWorkspace to the notice again and the
+ *  first half fails (it leaves without asking). */
+describe("the finished notice with unsaved decisions", () => {
+  it("asks first, stays when the reader says no, and goes when they say yes", async () => {
+    const user = userEvent.setup();
+    mockApi();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<App initialView="review" />);
+    await screen.findByText("landing workspace=false");
+    await goTo("/review/run-1/workspace");
+    await screen.findByText("workspace for run-1");
+    await user.click(screen.getByRole("button", { name: "Make an unsaved decision" }));
+    await user.click(screen.getByRole("button", { name: "Open finished review" }));
+    expect(confirm).toHaveBeenCalledWith("Some decisions on this sheet are not saved yet. Leave without saving them?");
+    expect(screen.getByText("workspace for run-1")).toBeInTheDocument();
+
+    confirm.mockReturnValue(true);
+    await user.click(screen.getByRole("button", { name: "Open finished review" }));
+    expect(await screen.findByText("workspace for run-9")).toBeInTheDocument();
+  });
+
+  it("does not ask when nothing is unsaved", async () => {
+    const user = userEvent.setup();
+    mockApi();
+    const confirm = vi.spyOn(window, "confirm");
+    render(<App initialView="review" />);
+    await screen.findByText("landing workspace=false");
+    await user.click(screen.getByRole("button", { name: "Open finished review" }));
+    expect(await screen.findByText("workspace for run-9")).toBeInTheDocument();
+    expect(confirm).not.toHaveBeenCalled();
+  });
+});
+
+/** B6: the "review ready" list names files; it is kept under the signed-in
+ *  user's id and is gone after sign-out.
+ *  MUTATION PROOF: drop clearWatchedReviews() from signOut and this fails. */
+describe("signing out clears the review-ready list", () => {
+  it("keeps the list under the user's id, and sign-out removes it from memory and storage", async () => {
+    const user = userEvent.setup();
+    mockApi(SIGNED_IN);
+    render(<App initialView="review" />);
+    await screen.findByText("landing workspace=false");
+    // Signed in (the badge shows) before anything is watched.
+    const signOut = (await screen.findAllByRole("button", { name: "Sign out" }))[0];
+    act(() => { watchRun("run-1", "Private datasheet.pdf"); });
+    expect(sessionStorage.getItem(watchStorageKey("user-a"))).toContain("Private datasheet.pdf");
+    expect(sessionStorage.getItem(WATCH_STORAGE_KEY)).toBeNull();
+
+    await user.click(signOut);
+    expect(sessionStorage.getItem(watchStorageKey("user-a"))).toBeNull();
+    expect(sessionStorage.getItem(WATCH_STORAGE_KEY)).toBeNull();
+    // Whatever is watched next is not the last person's list.
+    act(() => { watchRun("run-2", null); });
+    expect(sessionStorage.getItem(WATCH_STORAGE_KEY)).not.toContain("Private datasheet.pdf");
   });
 });

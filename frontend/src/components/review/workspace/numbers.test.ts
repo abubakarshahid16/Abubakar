@@ -45,7 +45,7 @@ function readiness(over: Partial<ReviewReadiness> = {}): ReviewReadiness {
   return {
     submittal_document_id: "doc-1", pages_total: 12, pages_read: 9, unread_pages: [], unread_page_reasons: {},
     standards_cited: 2, standards_held: [], standards_missing: [], last_run_id: null, nothing_changed: false, changes: [],
-    ...over,
+    ledger_state: "current", ledger_note: null, ...over,
   };
 }
 
@@ -100,6 +100,16 @@ describe("computeReviewNumbers", () => {
     expect(n.pagesKnown).toBe(true);
     // The gate known, readiness not: pages are still known (the gate says them).
     expect(computeReviewNumbers(input({ readiness: null, gate: gate() })).pagesKnown).toBe(true);
+  });
+
+  it("unread pages: known from readiness only when its page ledger is current", () => {
+    expect(computeReviewNumbers(input({ gate: null })).pagesKnown).toBe(true);
+    for (const ledger of ["missing", "stale", "not_as_submittal", undefined] as const) {
+      const n = computeReviewNumbers(input({ gate: null, readiness: readiness({ ledger_state: ledger }) }));
+      expect(n.pagesKnown, String(ledger)).toBe(false);
+      const pages = actionSteps(n).find((s) => s.id === "pages")!;
+      expect(pages).toMatchObject({ count: null, done: false, enabled: true, label: "Check unread pages (cannot read yet)" });
+    }
   });
 
   it("signLeft: the issue gate's remaining items, never empty while the gate is unknown", () => {

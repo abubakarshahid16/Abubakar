@@ -73,7 +73,7 @@ function RunNotReady({ run, active, onBack, onChanged, onOpenRun, mayLeave }: {
 export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun, onUnsavedChange }: ReviewWorkspaceProps) {
   const { runId } = location;
   const data = useWorkspaceRun(runId);
-  const { load, run, findings, rows, standardsState, missingStandardIds, standardNames, submittal, summary, readiness, active, refresh } = data;
+  const { load, run, findings, rows, standardsState, missingStandardIds, standardNames, submittal, summary, readiness, active, refresh, refreshError } = data;
   const decisions = useCrsDecisions();
   // The issue gate, read exactly as the comment sheet reads it (again
   // whenever the run or its findings are): what the server still wants
@@ -164,7 +164,17 @@ export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun,
       </p>
     );
   }
-  if (active || run.status === "failed") return <RunNotReady run={run} active={active} onBack={leave} onChanged={() => void refresh()} onOpenRun={onOpenRun} mayLeave={mayLeave} />;
+  const refreshLine = refreshError
+    ? <p role="status" data-testid="ws-refresh-error" className="text-sm text-slateish-400">{refreshError}</p>
+    : null;
+  if (active || run.status === "failed") {
+    return (
+      <>
+        <RunNotReady run={run} active={active} onBack={leave} onChanged={() => void refresh()} onOpenRun={onOpenRun} mayLeave={mayLeave} />
+        {refreshLine}
+      </>
+    );
+  }
 
   const tab = location.tab;
   return (
@@ -184,6 +194,7 @@ export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun,
       </header>
 
       <ActionBar run={run} numbers={numbers} steps={steps} onAction={onAction} signOff={signOff} />
+      {refreshLine}
 
       <WorkspaceTabs tab={tab} onTab={onTab}>
         {tab === "sheet" && (

@@ -6,7 +6,9 @@
  * readiness (`reviewsApi.readiness`) for the unread pages list. Only the
  * newest load may paint (a slow answer for a run the reader left, or a poll
  * overtaken by the next one, never replaces newer data). Polls every 3 s
- * while the run is queued or running. Rows are built with `buildCrsRows`,
+ * while the run is queued or running. Once the run has shown, a read that
+ * fails keeps the last good data (`refreshError` says so) instead of
+ * replacing the screen with an error. Rows are built with `buildCrsRows`,
  * exactly as the comment sheet builds them.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -19,8 +21,22 @@ import type { StandardsState, WorkspaceLoad, WorkspaceRunData } from "./contract
 
 export const WORKSPACE_POLL_MS = 3000;
 
-export function useWorkspaceRun(runId: string): WorkspaceRunData {
+/** Said under the bar when a re-read failed but the last good answer is
+ *  still on screen. */
+export const COULD_NOT_REFRESH = "Could not refresh just now; showing what was last read. It will try again.";
+
+/** The workspace's data, plus `refreshError`: set when a later read failed
+ *  and the screen kept the last good answer (null otherwise). */
+export interface WorkspaceRunState extends WorkspaceRunData {
+  refreshError: string | null;
+}
+
+export function useWorkspaceRun(runId: string): WorkspaceRunState {
   const [load, setLoad] = useState<WorkspaceLoad>({ kind: "loading" });
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  // Whether this run has painted once: after that a failed read keeps the
+  // screen as it was and only says it could not refresh.
+  const loadedOnce = useRef(false);
   const [run, setRun] = useState<ReviewRunSummary | null>(null);
   const [findings, setFindings] = useState<ReviewFinding[]>([]);
   const [standardsState, setStandardsState] = useState<StandardsState>({ standards: null, missing: [], error: null });
@@ -30,6 +46,7 @@ export function useWorkspaceRun(runId: string): WorkspaceRunData {
 
   const latest = useRef(0);
   useEffect(() => () => { latest.current += 1; }, []);
+  useEffect(() => { loadedOnce.current = false; }, [runId]);
   const refresh = useCallback(async () => {
     const mine = ++latest.current;
     const [runs, listed, stds, sum] = await Promise.all([
@@ -37,10 +54,18 @@ export function useWorkspaceRun(runId: string): WorkspaceRunData {
       reviewsApi.reviewRunSummary(runId),
     ]);
     if (mine !== latest.current) return;
-    if (!runs.ok) { setLoad({ kind: "error", message: runs.error.message }); return; }
+    if (!runs.ok || !listed.ok) {
+      const message = !runs.ok ? runs.error.message : !listed.ok ? listed.error.message : "";
+      // One failed poll never replaces a screen that was already showing
+      // the run: keep the last good data and say it could not refresh.
+      if (loadedOnce.current) setRefreshError(COULD_NOT_REFRESH);
+      else setLoad({ kind: "error", message });
+      return;
+    }
     const found = runs.data;
     if (!found) { setLoad({ kind: "error", message: "This review run could not be found." }); return; }
-    if (!listed.ok) { setLoad({ kind: "error", message: listed.error.message }); return; }
+    loadedOnce.current = true;
+    setRefreshError(null);
     setRun(found);
     setFindings(listed.data.findings);
     setSummary(sum.ok ? sum.data : null);
@@ -84,5 +109,8 @@ export function useWorkspaceRun(runId: string): WorkspaceRunData {
   const server = useMemo(() => (summary ? serverTiersOf(summary.rows) : null), [summary]);
   const rows = useMemo(() => buildCrsRows(findings, facts, standardNames, server), [findings, facts, standardNames, server]);
 
-  return { load, run, findings, rows, standardsState, missingStandardIds, standardNames, submittal, summary, readiness, active, refresh };
+  return {
+    load, run, findings, rows, standardsState, missingStandardIds, standardNames, submittal, summary, readiness, active, refresh,
+    refreshError,
+  };
 }

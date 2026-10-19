@@ -56,6 +56,7 @@ const RUN = {
 const READINESS: ReviewReadiness = {
   submittal_document_id: "doc-1", pages_total: 12, pages_read: 9, unread_pages: [12, 4], unread_page_reasons: {},
   standards_cited: 3, standards_held: [], standards_missing: ["ISO 5199"], last_run_id: null, nothing_changed: false, changes: [],
+  ledger_state: "current", ledger_note: null,
 };
 
 /** Readiness that answered: nothing unread, nothing missing. */
@@ -383,10 +384,26 @@ describe("Sign and export", () => {
 
   it("the working copy downloads the unsigned internal copy", async () => {
     const refresh = vi.fn().mockResolvedValue(undefined);
-    render(<Harness input={{}} refresh={refresh} decisions={fakeDecisions(ALL_DECIDED, [])} />);
+    render(<Harness input={{ unsaved: [] }} refresh={refresh} decisions={fakeDecisions(ALL_DECIDED, [])} />);
+    expect(screen.queryByTestId("ws-working-copy-waits")).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Download working copy" }));
     expect(downloadCrs).toHaveBeenCalledWith("run-1", "internal");
     expect(await screen.findByRole("status")).toHaveTextContent(/not signed/);
+  });
+
+  /** SF7: the working copy is built from what is saved, so it waits while
+   *  decisions on screen are not saved, and says why.
+   *  MUTATION PROOF: drop `numbers.unsaved > 0` from the button's disabled
+   *  rule and this fails. */
+  it("the working copy waits while decisions are not saved, and says why", async () => {
+    const refresh = vi.fn().mockResolvedValue(undefined);
+    render(<Harness input={{ unsaved: ["b1"] }} refresh={refresh} decisions={fakeDecisions(ALL_DECIDED, ["b1"])} />);
+    const button = screen.getByRole("button", { name: "Download working copy" });
+    expect(button).toBeDisabled();
+    expect(screen.getByTestId("ws-working-copy-waits")).toHaveTextContent("Save your decisions first: the working copy only has what is saved.");
+    expect(button).toHaveAttribute("aria-describedby", "ws-working-copy-waits");
+    await userEvent.click(button);
+    expect(downloadCrs).not.toHaveBeenCalled();
   });
 
   it("a signed run shows Signed and cannot sign again", () => {
@@ -416,7 +433,8 @@ describe("unknown blocker counts never count as done", () => {
     for (const id of unknown) {
       const step = steps.find((s) => s.id === id)!;
       expect(step.done, id).toBe(false);
-      expect(step.enabled, id).toBe(false);
+      // SF8: an unknown step still opens, so the reader can go and look.
+      expect(step.enabled, id).toBe(true);
       expect(step.count, id).toBeNull();
     }
     expect(steps.find((s) => s.id === "sign")?.enabled).toBe(false);
@@ -426,8 +444,9 @@ describe("unknown blocker counts never count as done", () => {
       const button = bar.querySelector(`[data-step="${id}"]`)!;
       expect(button.getAttribute("data-done")).toBe("false");
       expect(button.textContent).not.toContain("✓");
-      expect(button.textContent).toContain("could not read this yet");
+      expect(button.textContent).toContain("cannot read yet");
       expect(button.textContent).not.toMatch(/\d/);
+      expect(button).toBeEnabled();
     }
     for (const b of screen.getAllByRole("button", { name: "Sign and export" })) expect(b).toBeDisabled();
     expect(screen.getByTestId("ws-sign-waits")).toHaveTextContent("Waiting to read the standards and page checks.");
@@ -454,6 +473,42 @@ describe("unknown blocker counts never count as done", () => {
     // Readiness also lists missing standards, so that count is unknown too.
     expect(n.standardsKnown).toBe(false);
     expectWaiting(n, ["standards", "pages"]);
+  });
+
+  /** B2: readiness answered but its page ledger is not current (missing,
+   *  stale, another file) and the issue gate has not answered: the empty
+   *  unread list means "not counted", so no tick and no "(0)".
+   *  MUTATION PROOF: let pagesKnown be `gate !== null || readiness !== null`
+   *  again and this fails (the button reads "✓Check unread pages (0)"). */
+  it.each(["missing", "stale", "not_as_submittal", undefined] as const)(
+    "page ledger %s and no issue gate: the pages count is unknown, never a tick with 0",
+    (ledger) => {
+      const n = numbersFor({ ...allClear, readiness: { ...NONE_LEFT, ledger_state: ledger, pages_read: null }, gate: null });
+      expect(n.pagesKnown).toBe(false);
+      expect(n.standardsKnown).toBe(true);
+      expectWaiting(n, ["pages"]);
+      const pages = screen.getByTestId("ws-action-bar").querySelector('[data-step="pages"]')!;
+      expect(pages.textContent).toBe("Check unread pages (cannot read yet)");
+    },
+  );
+
+  it("page ledger not current but the issue gate answered: the gate's count is known", () => {
+    const n = numbersFor({ ...allClear, readiness: { ...NONE_LEFT, ledger_state: "missing" }, gate: CLEAR_GATE });
+    expect(n.pagesKnown).toBe(true);
+    expect(actionSteps(n).find((s) => s.id === "pages")).toMatchObject({ count: 0, done: true });
+  });
+
+  /** SF8: pressing an unknown pages step opens the pages box, which says the
+   *  pages are not known instead of listing none. */
+  it("an unknown pages step opens and says the pages are not known", async () => {
+    const n = numbersFor({ ...allClear, readiness: null, gate: null });
+    renderAll(n);
+    const bar = screen.getByTestId("ws-action-bar");
+    await userEvent.click(bar.querySelector<HTMLButtonElement>('[data-step="pages"]')!);
+    const box = screen.getByTestId("ws-unread-pages");
+    expect(box).toHaveTextContent("The page checks cannot be read yet");
+    expect(box.textContent).not.toContain("undefined");
+    expect(within(box).getByRole("button", { name: "Read these pages again" })).toBeEnabled();
   });
 
   it("both known and 0: unchanged, the steps are ticks and Sign is on", () => {

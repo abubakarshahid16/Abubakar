@@ -59,7 +59,11 @@ export function computeReviewNumbers(input: ReviewNumbersInput): ReviewNumbers {
     missingStandards: uniqueStrings([...(input.missingStandards ?? []), ...(readiness?.standards_missing ?? [])]),
     // Unknown is never "none": both lists need their reads to have answered.
     standardsKnown: input.missingStandards !== null && readiness !== null,
-    pagesKnown: gate !== null || readiness !== null,
+    // The page count is known only when someone could count it: the issue
+    // gate answered, or readiness answered from a page ledger that is
+    // current. A ledger that is missing, stale or built for another file
+    // gives an empty list that means "not counted", never "none unread".
+    pagesKnown: gate !== null || (readiness !== null && readiness.ledger_state === "current"),
     undecided: undecidedKeys.length,
     undecidedKeys,
     unopenedNeedsYou: rows.filter((r) => r.tier.tier === "C" && !decisions.opened[r.key]).length,
@@ -89,7 +93,7 @@ export function unopenedNeedsYouHelp(count: number): string {
 }
 
 /** Words for a step whose count could not be read (never shown as 0). */
-export const NOT_READ_YET = "could not read this yet";
+export const NOT_READ_YET = "cannot read yet";
 
 /** Why Sign waits while a blocker count is not known. */
 export const WAITING_FOR_CHECKS = "Waiting to read the standards and page checks.";
@@ -97,7 +101,8 @@ export const WAITING_FOR_CHECKS = "Waiting to read the standards and page checks
 /** The four buttons of "What you need to do", always in this order:
  *  standards, pages, decide, sign. A step with nothing left is done (a
  *  quiet tick), never hidden. A step whose count is not known is NOT done,
- *  shows no number and says it could not be read yet. Sign is enabled only
+ *  shows no number and says it cannot be read yet, but still opens (the
+ *  reader can go and look for themselves). Sign is enabled only
  *  when the other three are known and done, every "Needs you" row has been
  *  opened, nothing is unsaved, the issue gate has nothing left (`signLeft`:
  *  final code recorded, unread pages ticked, items decided; as the old
@@ -117,13 +122,13 @@ export function actionSteps(numbers: ReviewNumbers): ActionStep[] {
         : numbers.signLeft.length > 0 ? `Before you sign: ${numbers.signLeft.join("; ")}.` : "";
   return [
     standards === null
-      ? { id: "standards", label: `Upload missing standards (${NOT_READ_YET})`, count: null, done: false, enabled: false }
+      ? { id: "standards", label: `Upload missing standards (${NOT_READ_YET})`, count: null, done: false, enabled: true }
       : {
         id: "standards", label: `Upload missing standards (${standards})`, count: standards,
         done: standards === 0, enabled: standards > 0, ...(standardsHelp ? { detail: standardsHelp } : {}),
       },
     pages === null
-      ? { id: "pages", label: `Check unread pages (${NOT_READ_YET})`, count: null, done: false, enabled: false }
+      ? { id: "pages", label: `Check unread pages (${NOT_READ_YET})`, count: null, done: false, enabled: true }
       : {
         id: "pages", label: `Check unread pages (${pages})`, count: pages,
         done: pages === 0, enabled: pages > 0, ...(pagesHelp ? { detail: pagesHelp } : {}),

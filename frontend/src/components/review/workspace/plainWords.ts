@@ -18,7 +18,8 @@
  *   - status   : reviewFormat STATUS_LABEL (read from there)
  *   - runStatus: reviewFormat RUN_STATUS_LABEL (read from there)
  *   - engine   : the reason codes a finding's text may open with
- *                ("no_field_matched: ..."), new words, written here
+ *                ("no_field_matched: ..."): reasonWords REASON_CODE_WORDS
+ *                itself, plus ENGINE_EXTRA_WORDS for codes it does not name
  *   - rule     : rule ids shown in finding text (the datasheet checks'
  *                "DS-M1"... and short labels such as "p4"), new words
  *
@@ -30,6 +31,7 @@
 import type { PlainEntry, PlainKind } from "./contract";
 import type { CrsRow } from "../crs/crsRows";
 import { REMOVAL_REASON_WORDS } from "../crs/evidenceNav";
+import { REASON_CODE_WORDS } from "../reasonWords";
 import type { TierReason } from "../crs/tiers";
 import { RUN_STATUS_LABEL, STATUS_LABEL, TRUST_WORDS } from "../reviewFormat";
 
@@ -67,24 +69,13 @@ const TIER_WORDS: Record<string, string> = {
 };
 
 /** The reason codes a finding's text or rationale may open with (backend
- *  comparison.py). New words: nothing showed these before but the raw code. */
-const ENGINE_WORDS: Record<string, string> = {
-  no_field_matched: "No field read from the datasheet matched this clause",
-  ambiguous_match: "More than one field could match this clause, so none was picked",
-  requires_other_document: "Another document has to answer this clause",
-  condition_not_met: "The clause's condition does not hold here",
-  outside_the_range: "The value is outside the allowed range",
-  not_the_stated_value: "The value differs from the one the clause states",
-  stated_as_asked: "Stated as the clause asks",
-  named_value: "Checked against the values the clause names",
-  pairing_not_checked: "The field and the clause could not be paired",
-  refused_by_rule: "A possible match was turned down by a checking rule",
-  table_row: "A row of a table in the standard",
-  relative_limit: "The limit is measured from another value, so it was not compared",
-  range_against_exact_value: "A range was compared with a single value",
-  unit_mismatch: "The units do not match",
-  UNREAD_PAGES: "The value may be on a page that was not read",
-  PAGE_READER_ONLY: "Found only by the page reader",
+ *  comparison.py) are main's approved table, `reasonWords.REASON_CODE_WORDS`,
+ *  used as it is (the same object, never a copy), so the workspace and the
+ *  old screens always say the same words for a code. Codes that table does
+ *  not name, and only those, get words here; plainWords.test.ts fails if a
+ *  code appears in both. */
+export const ENGINE_EXTRA_WORDS: Readonly<Record<string, string>> = {
+  refused_by_rule: "A possible match was turned down by a checking rule.",
 };
 
 /** Rule ids that reach finding text (backend datasheet_checks.py writes
@@ -106,7 +97,7 @@ export const PLAIN_WORDS: Record<Exclude<PlainKind, "any">, Readonly<Record<stri
   code: CODE_WORDS,
   status: STATUS_LABEL,
   runStatus: RUN_STATUS_LABEL,
-  engine: ENGINE_WORDS,
+  engine: REASON_CODE_WORDS,
   rule: RULE_WORDS,
 };
 
@@ -129,6 +120,15 @@ function ruleWords(code: string): string | null {
 
 function has(table: Readonly<Record<string, string>>, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(table, key);
+}
+
+/** The words a table gives a code (engine: main's table, then the
+ *  workspace-only extras); null when the table does not list it. */
+function tableWords(kind: Exclude<PlainKind, "any">, code: string): string | null {
+  const table = PLAIN_WORDS[kind];
+  if (has(table, code)) return table[code];
+  if (kind === "engine" && has(ENGINE_EXTRA_WORDS, code)) return ENGINE_EXTRA_WORDS[code];
+  return null;
 }
 
 /** True when the text is a stored code, not words a person wrote:
@@ -155,10 +155,10 @@ export function plainWords(code: string | null | undefined, kind: PlainKind = "a
   if (!raw) return { words: "", detail: null };
   const kinds = kind === "any" ? LOOKUP_ORDER : [kind];
   for (const k of kinds) {
-    const table = PLAIN_WORDS[k];
-    if (has(table, raw)) {
-      const words = table[raw] || raw;
-      return { words, detail: words === raw ? null : raw };
+    const words = tableWords(k, raw);
+    if (words !== null) {
+      const shown = words || raw;
+      return { words: shown, detail: shown === raw ? null : raw };
     }
     if (k === "rule") {
       const words = ruleWords(raw);
@@ -184,7 +184,8 @@ function escape(text: string): string {
  *  ("Approved", "queued", "Met") are left alone in prose. */
 const TEXT_KINDS: Exclude<PlainKind, "any">[] = ["engine", "status", "trust", "removal", "rule"];
 const TEXT_CODES: FoundCode[] = TEXT_KINDS
-  .flatMap((kind) => Object.keys(PLAIN_WORDS[kind]).filter(looksLikeCode).map((code) => ({ code, kind })))
+  .flatMap((kind) => [...Object.keys(PLAIN_WORDS[kind]), ...(kind === "engine" ? Object.keys(ENGINE_EXTRA_WORDS) : [])]
+    .filter(looksLikeCode).map((code) => ({ code, kind })))
   .sort((a, b) => b.code.length - a.code.length);
 const TEXT_CODE_RE = new RegExp(`(?<![\\w-])(${TEXT_CODES.map((c) => escape(c.code)).join("|")})(?![\\w-])`, "g");
 /** A reason code opening a clause: "no_field_matched: ...", "UNREAD_PAGES: ...". */
@@ -244,7 +245,9 @@ export function plainText(text: string): string {
   out = out.replace(RULE_IN_BRACKETS_RE, (_m, label: string) => `(${lowerFirst(plainWords(label, "rule").words)})`);
   out = out.replace(TEXT_CODE_RE, (code: string, _g: string, at: number) => {
     const hit = TEXT_CODES.find((c) => c.code === code);
-    const words = hit ? PLAIN_WORDS[hit.kind][code] : code;
+    // Inside a sentence the code's words stand in for one word, so a full
+    // sentence's closing full stop is left off.
+    const words = (hit ? tableWords(hit.kind, code) ?? code : code).replace(/\.$/, "");
     return at === 0 ? words : lowerFirst(words);
   });
   out = out.replace(OTHER_DATASHEET_RULE_RE, (code: string) => plainWords(code, "rule").words);

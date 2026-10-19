@@ -48,7 +48,8 @@ export function SignOffPanel({ numbers, signOff, run, rows, gate, onRunChanged, 
             className={`${BUTTON} border-ink-600 text-slateish-100`}>
             Save decisions
           </button>
-          <button type="button" disabled={signOff.busy} onClick={() => void signOff.workingCopy()}
+          <button type="button" disabled={signOff.busy || numbers.unsaved > 0} onClick={() => void signOff.workingCopy()}
+            aria-describedby={numbers.unsaved > 0 ? "ws-working-copy-waits" : undefined}
             className={`${BUTTON} border-ink-600 text-slateish-100`}>
             Download working copy
           </button>
@@ -58,6 +59,13 @@ export function SignOffPanel({ numbers, signOff, run, rows, gate, onRunChanged, 
           </button>
         </div>
       </div>
+      {/* The working copy is built from what is saved, so a copy taken now
+          would leave out the decisions on screen. */}
+      {numbers.unsaved > 0 && (
+        <p id="ws-working-copy-waits" data-testid="ws-working-copy-waits" className="text-slateish-400">
+          Save your decisions first: the working copy only has what is saved.
+        </p>
+      )}
     </section>
   );
 }

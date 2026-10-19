@@ -33,7 +33,13 @@ export function FinishedReviewNotice({ onOpenRun }: FinishedReviewNoticeProps) {
           <div className="mt-2 flex gap-3">
             <button
               type="button"
-              onClick={() => { dismiss(review.runId); onOpenRun(review.runId); }}
+              onClick={() => {
+                // The app may refuse to leave (unsaved decisions, and the
+                // reader chose to stay): it says so by returning false, and
+                // the notice stays so the review can still be opened later.
+                const opened: unknown = onOpenRun(review.runId);
+                if (opened !== false) dismiss(review.runId);
+              }}
               className="font-medium text-signal-400 hover:underline"
             >
               Open it
