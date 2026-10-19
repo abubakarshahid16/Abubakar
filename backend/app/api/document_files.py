@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 
 from .. import access, errors, schemas, stored_paths
@@ -24,6 +24,7 @@ from ..api_utils import (
     validate_retrievable,
 )
 from ..db import connect
+from ..paging import limit_param, offset_param, page_of
 
 router = APIRouter()
 
@@ -106,7 +107,10 @@ def document_page_ledger(
             responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
 def document_applicability(
     request: Request,
+    response: Response,
     document_id: str,
+    limit: int | None = limit_param(),
+    offset: int = offset_param(),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """Every standard in the library, classified for THIS submittal into
@@ -117,10 +121,17 @@ def document_applicability(
     `select()`'s own selection is never persisted as a claim about the
     present without being asked to re-run.
     """
-    reject_unknown_params(request, set())
+    reject_unknown_params(request, {"limit", "offset"})
     require_document(document_id, scope)
-    return applicability_mod.applicability_with_reasons(
-        document_id, allowed_document_ids=scope.allowed_document_ids)
+    # optional page; the total is in `X-Total-Count` (order 117 item 5)
+    return page_of(
+        applicability_mod.applicability_with_reasons(
+            document_id, allowed_document_ids=scope.allowed_document_ids
+        ),
+        limit,
+        offset,
+        response,
+    )
 
 
 @router.get("/api/documents/{document_id}/original",

@@ -97,6 +97,9 @@ def standards_inventory(
             responses=schemas.ERRORS_422)
 def standards_cited_but_not_held(
     request: Request,
+    response: Response,
+    limit: int | None = _LIMIT,
+    offset: int = _OFFSET,
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """Every standard cited by a submittal or a SAES requirement's own
@@ -108,9 +111,15 @@ def standards_cited_but_not_held(
     caller's own grants bound which submittals and which standards this can
     ever see - never widened by this route.
     """
-    reject_unknown_params(request, set())
-    return standards_inventory_mod.cited_but_not_held(
-        allowed_document_ids=scope.allowed_document_ids)
+    reject_unknown_params(request, {"limit", "offset"})
+    return page_of(
+        standards_inventory_mod.cited_but_not_held(
+            allowed_document_ids=scope.allowed_document_ids
+        ),
+        limit,
+        offset,
+        response,
+    )
 
 
 @router.get("/api/standards/missing",
@@ -118,6 +127,9 @@ def standards_cited_but_not_held(
             responses=schemas.ERRORS_422)
 def standards_missing(
     request: Request,
+    response: Response,
+    limit: int | None = _LIMIT,
+    offset: int = _OFFSET,
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """Standards beyond the library - API, ASME, ASTM, ISO, IEC, NFPA, NACE,
@@ -126,9 +138,15 @@ def standards_missing(
     catalogue page and whether it has been requested. Nothing is fetched:
     every one of these is sold under licence (standards_acquisition.py).
     Scope: exactly the cited-but-not-held list's (CLAUDE.md rule 5)."""
-    reject_unknown_params(request, set())
-    return standards_acquisition_mod.missing_standards(
-        allowed_document_ids=scope.allowed_document_ids)
+    reject_unknown_params(request, {"limit", "offset"})
+    return page_of(
+        standards_acquisition_mod.missing_standards(
+            allowed_document_ids=scope.allowed_document_ids
+        ),
+        limit,
+        offset,
+        response,
+    )
 
 
 @router.post("/api/standards/missing/request",
@@ -351,6 +369,9 @@ def standard_tables(
             responses=schemas.ERRORS_422)
 def standard_conflicts(
     request: Request,
+    response: Response,
+    limit: int | None = _LIMIT,
+    offset: int = _OFFSET,
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """Fields two standards limit differently. SURFACED, NEVER RESOLVED.
@@ -359,8 +380,13 @@ def standard_conflicts(
     they hold no grant for is not shown at all - rather than shown with one
     side missing, which would disclose that the other side exists.
     """
-    reject_unknown_params(request, set())
-    return standards_mod.conflicts(allowed_document_ids=scope.allowed_document_ids)
+    reject_unknown_params(request, {"limit", "offset"})
+    return page_of(
+        standards_mod.conflicts(allowed_document_ids=scope.allowed_document_ids),
+        limit,
+        offset,
+        response,
+    )
 
 
 @router.get("/api/standards/verification-queue",
@@ -499,13 +525,22 @@ def standard_extraction_state(
 def standard_revisions(
     document_id: str,
     request: Request,
+    response: Response,
+    limit: int | None = _LIMIT,
+    offset: int = _OFFSET,
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """Every revision of the same standard number the caller may read."""
-    reject_unknown_params(request, set())
+    reject_unknown_params(request, {"limit", "offset"})
     require_document(document_id, scope)
-    return standards_mod.revision_history(
-        document_id, allowed_document_ids=scope.allowed_document_ids)
+    return page_of(
+        standards_mod.revision_history(
+            document_id, allowed_document_ids=scope.allowed_document_ids
+        ),
+        limit,
+        offset,
+        response,
+    )
 
 
 @router.post("/api/standards/{document_id}/supersede",

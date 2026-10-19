@@ -116,16 +116,21 @@ def admin_issue_password_reset(
 
 @router.get("/api/admin/disciplines", response_model=schemas.AdminDisciplineList,
             responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def admin_list_disciplines(request: Request,
-                           actor: dict | None = Depends(admin_mod.current_admin)):
+def admin_list_disciplines(
+    request: Request,
+    limit: int | None = limit_param(),
+    offset: int = offset_param(),
+    actor: dict | None = Depends(admin_mod.current_admin),
+):
     """Disciplines with user and document counts.
 
     A discipline with no documents is flagged, because everyone in it logs in
     successfully and then sees an empty corpus - which during a demo looks
     exactly like broken search rather than a missing grant.
     """
-    reject_unknown_params(request, set())
-    return admin_mod.list_disciplines()
+    reject_unknown_params(request, {"limit", "offset"})
+    disciplines = admin_mod.list_disciplines()["disciplines"]
+    return page_body("disciplines", disciplines, limit, offset)
 
 
 @router.get("/api/admin/grants", response_model=schemas.AdminGrantList,
@@ -194,11 +199,15 @@ def admin_revoke_grant(body: admin_mod.GrantRequest,
 
 @router.get("/api/admin/db/tables", response_model=schemas.AdminDbTableList,
             responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def admin_db_tables(request: Request,
-                    actor: dict | None = Depends(admin_mod.current_admin)):
+def admin_db_tables(
+    request: Request,
+    limit: int | None = limit_param(),
+    offset: int = offset_param(),
+    actor: dict | None = Depends(admin_mod.current_admin),
+):
     """Every user table with its row count. SQLite internals excluded."""
-    reject_unknown_params(request, set())
-    return {"tables": explorer_mod.list_tables(connect())}
+    reject_unknown_params(request, {"limit", "offset"})
+    return page_body("tables", explorer_mod.list_tables(connect()), limit, offset)
 
 
 @router.get("/api/admin/db/tables/{name}", response_model=schemas.AdminDbTableInfo,
