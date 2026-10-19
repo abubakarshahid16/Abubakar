@@ -68,12 +68,12 @@ def test_every_gate_reason_has_plain_words():
 
 def test_an_unknown_reason_is_not_guessed_at():
     reason = datasheets._unparsed_reason([("a", "1")], {"some new gate": 1})
-    assert reason.endswith("it holds other text that is not a value.")
+    assert reason.endswith("What the reader found: other text that is not a value.")
 
 
 def test_no_recorded_reason_says_so():
     reason = datasheets._unparsed_reason([("a", "1")], {})
-    assert "reason was not recorded" in reason
+    assert "the reader did not record why" in reason
     assert "No labelled values were found" not in reason
 
 
