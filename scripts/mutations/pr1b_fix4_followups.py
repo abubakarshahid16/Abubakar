@@ -54,8 +54,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(
         "04",
         "every row split off by wording gets the same key (the wording is left out)",
-        '                else comment_key("wording split", natural, group_key.rsplit(":e", 1)[-1])\n',
-        '                else comment_key("wording split", natural)\n',
+        '                    "wording split", natural, group_key.rsplit(":e", 1)[-1]\n',
+        '                    "wording split", natural\n',
         "field_key_stays_with_the_engineers_row",
     ),
     _m(

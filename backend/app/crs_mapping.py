@@ -1207,7 +1207,9 @@ def crs_groups(findings: list[dict]) -> list[dict]:
     return _sheet_order(items)
 
 
-def _split_comment_keys(groups: list[list[dict]], keys: dict[int, str]) -> dict[str, str]:
+def _split_comment_keys(
+    groups: list[list[dict]], keys: dict[int, str]
+) -> dict[str, str]:
     """{group key: the permanent-number key of its row}, over one bucket.
 
     Normally a row's key is its leader's (`finding_comment_key`). When the
@@ -1244,7 +1246,9 @@ def _split_comment_keys(groups: list[list[dict]], keys: dict[int, str]) -> dict[
             out[group_key] = (
                 natural
                 if group is anchor
-                else comment_key("wording split", natural, group_key.rsplit(":e", 1)[-1])
+                else comment_key(
+                    "wording split", natural, group_key.rsplit(":e", 1)[-1]
+                )
             )
     return out
 
