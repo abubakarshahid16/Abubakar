@@ -525,9 +525,17 @@ def test_the_preview_carries_the_seven_columns_the_template_defines():
     # adds "AI Review Comments" LAST (owner decision 2026-09-27), and the
     # copy issued to the contractor is the template exactly.
     # CRS quick wins: "Standard Reference" follows the seven, in both copies.
-    assert body["columns"] == [*HEADERS, "Standard Reference", "Priority", "AI Review Comments",  # order 139 part 2
-                               "Reasoning (internal)",  # #725 F7: Severity (now Priority) after Standard Reference; R30
-                               "Rule trust (internal)"]  # rule_trust (#947): last, internal only
+    assert (
+        body["columns"]
+        == [
+            *HEADERS,
+            "Standard Reference",
+            "Priority",
+            "AI Review Comments",  # order 139 part 2
+            "Reasoning (internal)",  # #725 F7: Severity (now Priority) after Standard Reference; R30
+            "Rule trust (internal)",
+        ]
+    )  # rule_trust (#947): last, internal only
     assert body["columns"][5:7] == ["Contractor's Response", "Final Resolution"]
     issued = _preview(_client(doc).get(f"/api/reviews/runs/{run_id}/crs/preview",
                                        params={"copy": "issue"}))

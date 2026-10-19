@@ -29,7 +29,10 @@ def test_breaches_come_first_then_missing_values_then_questions_never_a_pass():
     the row with a datasheet page comes first."""
     rows = build_crs_rows([MI, NER, OK, NC], [], "sheet.pdf")
     assert [r["row_kind"] for r in rows] == [  # order 139 part 2
-        ROW_KIND_NON_COMPLIANT, ROW_KIND_NEEDS_ENGINEER_REVIEW, ROW_KIND_MISSING_INFORMATION]
+        ROW_KIND_NON_COMPLIANT,
+        ROW_KIND_NEEDS_ENGINEER_REVIEW,
+        ROW_KIND_MISSING_INFORMATION,
+    ]
     assert [r["priority"] for r in rows] == [1, 3, 3]  # order 139 part 2
     assert "8 g/L" in rows[0]["comment"]
     # the question's reason, in words, WITHOUT its machine code

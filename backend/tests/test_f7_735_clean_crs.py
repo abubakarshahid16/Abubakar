@@ -101,5 +101,7 @@ def test_the_workbook_prints_the_severity_column_in_both_copies():
         assert view["rows"][0]["severity"] == "major"
         book = openpyxl.load_workbook(io.BytesIO(crs_export.build_crs(rows, {"copy": copy})))
         ws = book["CRS"]
-        assert ws.cell(row=crs_export.COLUMN_HEADER_ROW, column=9).value == "Priority"  # order 139 part 2
+        assert (
+            ws.cell(row=crs_export.COLUMN_HEADER_ROW, column=9).value == "Priority"
+        )  # order 139 part 2
         assert ws.cell(row=crs_export.COLUMN_HEADER_ROW + 1, column=9).value == "Out of limit"  # order 139 part 2

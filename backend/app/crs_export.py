@@ -94,8 +94,10 @@ PRIORITY_COLUMN_WIDTH = 16.0
 #: says for a row that reached the sheet with no comment text - never an
 #: empty cell. Such a row is never on the issue copy (`build_crs_view`), and
 #: the issue gate refuses a confirmed one (`crs_issue.open_items`).
-EMPTY_COMMENT_TEXT = ("No comment text was produced for this row. An engineer must write it "
-                      "before this row can be issued.")
+EMPTY_COMMENT_TEXT = (
+    "No comment text was produced for this row. An engineer must write it "
+    "before this row can be issued."
+)
 #: OWNER DECISION 2026-09-27 (order 2f): a NEW LAST column for the AI
 #: engineering check's unconfirmed items, so the engineer sees them on the
 #: sheet before confirming. No existing column moves or is renamed.
@@ -283,6 +285,12 @@ def _priority_of(finding: dict) -> int | None:
     return None
 
 
+def _rank_cells(finding: dict, copy: str) -> dict:
+    """Spec f: the row's rank and the word THIS copy prints for it."""
+    priority = _priority_of(finding)
+    return {"priority": priority, "priority_label": priority_word(priority, copy)}
+
+
 def build_crs_view(findings: list[dict], meta: dict) -> dict:
     """What a CRS says, with nothing in it about how it is drawn.
 
@@ -360,7 +368,9 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
     seen: set[str] = set()
     for n, finding in enumerate(findings, start=1):
         comment_missing = _no_text(finding)
-        comment = EMPTY_COMMENT_TEXT if comment_missing else str(finding.get("comment", ""))
+        comment = str(finding.get("comment", ""))
+        if comment_missing:
+            comment = EMPTY_COMMENT_TEXT
         ref = row_reference(run_id, finding)
         # Two DIFFERENT rows landing on one reference would let a contractor
         # answer the wrong comment. Re-mint with a salt until the sheet's
@@ -414,12 +424,6 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
             "row_kind": finding.get("row_kind", ""),
             "standard_reference": str(finding.get("standard_reference") or ""),
             "severity": str(finding.get("severity") or ""),
-            # Order 139 part 2 (spec f): the rank and this copy's word for it.
-            "priority": _priority_of(finding),
-            "priority_label": priority_word(_priority_of(finding), copy),
-            # Spec e: the caller sent no comment text (internal copy only -
-            # the issue copy never carries such a row).
-            "comment_missing": comment_missing,
             "ai_review_comment": _ai_column(finding, copy),
             # R30: internal copy only, like the AI column.
             "reasoning": (str(finding.get("reasoning") or "")
@@ -428,6 +432,10 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
             "rule_trust": (str(finding.get("rule_trust") or "")
                            if copy == COPY_INTERNAL else ""),
         })
+        # Order 139 part 2: the row's rank and this copy's word for it (spec
+        # f), and whether the caller sent no comment text (spec e; internal
+        # copy only - the issue copy never carries such a row).
+        rows[-1].update(_rank_cells(finding, copy), comment_missing=comment_missing)
 
     return {
         # Absent parts print nothing: an unset company must not leave the title starting with a blank line.

@@ -270,9 +270,15 @@ def test_a_row_with_no_finding_id_is_an_open_blocker_not_invisible():
 def test_a_confirmed_row_with_no_finding_id_is_not_a_blocker():
     # order 139 part 2: a confirmed row carries its comment text (a confirmed
     # row with NONE is a blocker of its own - test_139_crs_file_empty_guard).
-    rows = [{"finding_id": "", "row_kind": "standard_not_cited",
-             "crs_row_key": "key-1", "engineer_confirmed": True,
-             "comment": "Contractor did not reference STD-X; confirm compliance."}]
+    rows = [
+        {
+            "finding_id": "",
+            "row_kind": "standard_not_cited",
+            "crs_row_key": "key-1",
+            "engineer_confirmed": True,
+            "comment": "Contractor did not reference STD-X; confirm compliance.",
+        }
+    ]
     gate = crs_issue.open_items("run-1", rows, {"pages_total": 1, "pages_not_read_into_fields": []})
     assert gate["issuable"] is True and gate["open_findings"] == []
 

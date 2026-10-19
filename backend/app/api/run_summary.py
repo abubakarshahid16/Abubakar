@@ -384,7 +384,9 @@ def crs_priorities(findings: list[dict]) -> dict[str, int]:
     guessed one."""
     out: dict[str, int] = {}
     for row in crs_mapping_mod.build_crs_rows(findings, [], ""):
-        ids = row.get("finding_ids") or ([row["finding_id"]] if row.get("finding_id") else [])
+        ids = row.get("finding_ids") or (
+            [row["finding_id"]] if row.get("finding_id") else []
+        )
         for finding_id in ids:
             out.setdefault(finding_id, row["priority"])
     return out

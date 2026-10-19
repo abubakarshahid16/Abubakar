@@ -1018,8 +1018,9 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
         for group in sorted(_grouped(bucket), key=_row_order):
             f = group[0]
             # Spec f: a blank and a not-found share `row_kind`, not a rank.
-            rank_kind = (_FINDING_ROW_BUCKET.get(kind)
-                         or (BUCKET_BLANK if paired(f) else BUCKET_NOT_FOUND))
+            rank_kind = _FINDING_ROW_BUCKET.get(kind) or (
+                BUCKET_BLANK if paired(f) else BUCKET_NOT_FOUND
+            )
             machine = _finding_text(f)  # 95 6b: kept as ai_comment
             if kind != ROW_KIND_DATASHEET_CHECK:
                 machine = engineer_comment_text(group)
@@ -1051,8 +1052,11 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                 # rule_trust (#947): who stands behind the rule, in words.
                 "rule_trust": trust_words(f),
             })
-            sort_keys.append(finding_row_sort_key(rows[-1]["priority"], group,
-                                                  rows[-1]["comment_key"]))
+            sort_keys.append(
+                finding_row_sort_key(
+                    rows[-1]["priority"], group, rows[-1]["comment_key"]
+                )
+            )
 
     # rule_trust (#947 step 8): SAFETY-TIER COMPLIANT, SHOWN FOR A TICK. The
     # rule decided "meets the standard" on its own; because the field is a
@@ -1137,8 +1141,9 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
         # unconfirmed item's cell says, in plain words, that it is a suggestion
         # awaiting an engineer and where its words are - never the draft
         # itself, which stays in "AI Review Comments" (owner order 2d/2f).
-        unconfirmed_comment = (AI_UNCONFIRMED_COMMENT if origin == _AI_ORIGIN
-                               else WEB_UNCONFIRMED_COMMENT)
+        unconfirmed_comment = (
+            AI_UNCONFIRMED_COMMENT if origin == _AI_ORIGIN else WEB_UNCONFIRMED_COMMENT
+        )
         rows.append({
             "finding_id": f.get("id") or "",
             "document_name": submittal_name,
@@ -1162,8 +1167,10 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
 
     # #754 F5b: the required-vs-cited result, one row per standard.
     rows.extend(standards_check_rows(standards_check, submittal_name))
-    sort_keys.extend(standards_row_sort_key(r["priority"], r["standard_reference"], r["comment_key"])
-                     for r in rows[len(sort_keys):])
+    sort_keys.extend(
+        standards_row_sort_key(r["priority"], r["standard_reference"], r["comment_key"])
+        for r in rows[len(sort_keys) :]
+    )
 
     # OWNER ORDER 2f: THE INTERNAL NOTES LEFT THIS SHEET. Requirements that
     # need another document, pages not yet read, values the page reader did
