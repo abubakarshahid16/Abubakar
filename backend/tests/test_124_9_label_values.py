@@ -89,7 +89,6 @@ def _facts(doc_id: str) -> dict[str, str | None]:
         "or Operating temperature",
         "Max. operating temperature",
         "Design pressure",
-        "Body material:",
     ],
 )
 def test_a_label_standing_as_the_value_is_noise(value):
@@ -112,11 +111,29 @@ def test_a_label_standing_as_the_value_is_noise(value):
         "25 barg",
         "Max 150 C",
         "Yes",
+        "As per spec:",
     ],
 )
 def test_a_real_answer_is_not_a_label(value):
-    assert not row_noise.is_label_as_value(value)
+    assert not row_noise.is_label_as_value(value, "Coating")
     assert row_noise.noise_reason("Coating", value) is None
+
+
+@pytest.mark.parametrize(
+    ("label", "value"),
+    [
+        ("Set pressure basis", "Design pressure"),
+        ("Sizing basis", "Rated flow"),
+        ("Basis", "Max. allowable working pressure"),
+        ("Control", "Normal level"),
+    ],
+)
+def test_limit_words_answer_a_field_that_is_not_a_quantity(label, value):
+    """Review finding on #1155: the limit-word shape is a label only under a
+    quantity field. Under a basis or a control field the same words ARE the
+    contractor's answer, and dropping them would ask the contractor for a
+    value the sheet states."""
+    assert row_noise.noise_reason(label, value) is None
 
 
 def test_the_ai_gate_drops_a_label_as_value_and_keeps_free_text():
@@ -138,14 +155,14 @@ def test_the_rule_reader_does_not_store_a_label_as_a_value(tmp_path):
         ("Body material", "Carbon steel"),
         ("Fluid phase", "Liquid"),
         ("Fluid", "or Operating temperature"),
-        ("Spring material", "Max. operating temperature"),
+        ("Design pressure", "Max. operating temperature"),
     )
     datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
     facts = _facts(doc)
     # POSITIVE FIRST: the real answers were read.
     assert {"valve type", "body material", "fluid phase"} <= set(facts), facts
     assert "fluid" not in facts, facts
-    assert "spring material" not in facts, facts
+    assert "design pressure" not in facts, facts
 
 
 def test_a_page_of_only_labels_stores_a_plain_reason_with_the_detail_apart(tmp_path):
@@ -156,7 +173,7 @@ def test_a_page_of_only_labels_stores_a_plain_reason_with_the_detail_apart(tmp_p
     out = datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
     entry = out["unparsed"][0]
     assert entry["reason"].startswith(
-        "Read, but nothing on this page is a datasheet value"
+        "Nothing on this page was read as a datasheet value"
     )
     assert "form labels with no answer beside them" in entry["reason"]
     assert "noise:" not in entry["reason"] and "label-value" not in entry["reason"]

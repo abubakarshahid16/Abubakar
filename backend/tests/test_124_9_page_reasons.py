@@ -45,9 +45,11 @@ def test_a_page_whose_pairs_were_all_filtered_names_what_it_holds():
     dropped = {row_noise.REVISION: 12, row_noise.DOCUMENT_ID: 4}
     reason = datasheets._unparsed_reason([("a", "1")] * 33, dropped)
     assert reason == (
-        "Read, but nothing on this page is a datasheet value: "
-        "it holds a revision table and a title block."
+        "Nothing on this page was read as a datasheet value. "
+        "What the reader found: a revision table and a title block."
     )
+    # Review of #1155: what the reader SAW, never a claim about the page.
+    assert "is a datasheet value" not in reason and "holds" not in reason
     _plain(reason)
 
 
@@ -100,7 +102,7 @@ def test_the_ai_note_is_a_plain_sentence():
         (None, "The picture reader was not used on this page."),
         ("VISION_BUDGET", "its page limit for this document was reached"),
         ("VISION_NO_TEXT_LAYER", "no text layer"),
-        ("VISION_NOT_NEEDED", "a text reader had found fields"),
+        ("VISION_NOT_NEEDED", "a text reader had found labelled text"),
     ],
 )
 def test_the_vision_route_note_is_plain(why, words):

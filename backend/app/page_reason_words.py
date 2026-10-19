@@ -5,7 +5,9 @@ The page ledger stores one sentence per page that produced no fact
 readiness strip. It used to be an engine note - "33 label-value pairs were
 recovered and none became a fact (12 by noise: revision table, ...)". This
 module turns the same counts into a sentence an engineer understands, and
-keeps the engine note as a separate DETAIL the screen does not show.
+keeps the engine note as a separate DETAIL the screen does not show: it is
+in the extraction result's `unparsed` entry and in the server log (counts and
+rule names only, never page text), so the numbers stay findable.
 
 ONE TABLE (`PLAIN`) maps every drop reason the readers count - the
 `row_noise` rules and the extractor's own gates - to the words for what the
@@ -19,7 +21,11 @@ responses, so they get different sentences.
 
 from __future__ import annotations
 
+import logging
+
 from . import row_noise
+
+_log = logging.getLogger("uvicorn.error")
 
 #: Nothing on the page read as a label with a value beside it. The code does
 #: not know why, so the cause is offered as a possibility only.
@@ -42,7 +48,7 @@ PLAIN = {
     row_noise.MERGED_BLOCK: "blocks of text that run several fields together",
     row_noise.IDENTIFIER_NUMBER: "reference numbers (such as job or order numbers)",
     row_noise.LABEL_AS_VALUE: "form labels with no answer beside them",
-    "value gate": "text beside labels that is not a value (such as names or captions)",
+    "value gate": "text the reader could not take as a value",
     "duplicate": "repeats of text already read on this page",
     "furniture": "a header or footer repeated on other pages",
     "furniture, tag, date or blank": "a header, footer, tag, date or blank",
@@ -52,7 +58,7 @@ PLAIN = {
     "read as a tag-column row": "rows already read under the tag columns",
     "read as a grid row": "rows already read as part of a table",
     "checkbox on quantity": "yes/no answers where a measured value belongs",
-    "refused by create_fact": "values that could not be stored",
+    "refused by create_fact": "readings that could not be stored",
     "geometry: unit column": "unit columns",
     "geometry: furniture, tag or date": "a header, footer, tag or date",
     "geometry: same as rule reader": "values already read another way",
@@ -84,21 +90,33 @@ def unparsed_reason(n_pairs: int, dropped: dict[str, int]) -> str:
             phrases.append(words)
     if not phrases:
         return (
-            "Read, but nothing on this page became a datasheet value, "
-            "and the reason was not recorded."
+            "Nothing on this page was read as a datasheet value, "
+            "and the reader did not record why."
         )
-    return f"Read, but nothing on this page is a datasheet value: it holds {_joined(phrases)}."
-
-
-def unparsed_detail(n_pairs: int, dropped: dict[str, int]) -> str:
-    """The engine's note for the same page: counts per drop rule."""
-    if not n_pairs:
-        return NO_PAIRS_DETAIL
-    counts = ", ".join(f"{n} by {reason}" for reason, n in _by_size(dropped))
+    # WHAT THE READER SAW, NOT WHAT THE PAGE IS (review of #1155): the code
+    # knows nothing was READ as a value, never that the page holds none.
     return (
-        f"{n_pairs} label-value pairs were recovered and none became a "
-        f"fact ({counts or 'no reason recorded'})"
+        "Nothing on this page was read as a datasheet value. "
+        f"What the reader found: {_joined(phrases)}."
     )
+
+
+def unparsed_detail(
+    n_pairs: int, dropped: dict[str, int], page: int | None = None
+) -> str:
+    """The engine's note for the same page: counts per drop rule. Logged
+    when the page is named, so the counts outlive the extraction result."""
+    if not n_pairs:
+        detail = NO_PAIRS_DETAIL
+    else:
+        counts = ", ".join(f"{n} by {reason}" for reason, n in _by_size(dropped))
+        detail = (
+            f"{n_pairs} label-value pairs were recovered and none became a "
+            f"fact ({counts or 'no reason recorded'})"
+        )
+    if page is not None:
+        _log.info("datasheet page %s gave no fact: %s", page, detail)
+    return detail
 
 
 def _clause(text: str) -> str:
@@ -120,7 +138,7 @@ def vision_route_note(why: str | None) -> str:
     from . import datasheets
 
     plain = {
-        datasheets.VISION_NOT_NEEDED: "a text reader had found fields on this page",
+        datasheets.VISION_NOT_NEEDED: "a text reader had found labelled text on this page",
         datasheets.VISION_NO_TEXT_LAYER: (
             "the page has no text layer to check a reading against"
         ),

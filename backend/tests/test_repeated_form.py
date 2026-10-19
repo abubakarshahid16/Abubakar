@@ -293,8 +293,8 @@ def test_a_page_whose_pairs_were_filtered_names_the_filters():
 
     # Order 124 item 9: the stored reason is plain words, the counts are
     # the detail.
-    assert reason.startswith("Read, but nothing on this page is a datasheet value")
-    assert "not a value (such as names or captions)" in reason
+    assert reason.startswith("Nothing on this page was read as a datasheet value")
+    assert "text the reader could not take as a value" in reason
     assert "repeats of text already read on this page" in reason
     assert "a header or footer repeated on other pages" in reason
     assert "190 label-value pairs were recovered" in detail

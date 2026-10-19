@@ -4126,7 +4126,7 @@ def _extract_facts(
                               if vision_routing.get(page) != VISION_ROUTED else
                               f"{reason} {_vision_ledger_note(reading, page_vision, vision_unavailable)}")
                 unparsed.append({"page": page, "reason": reason,
-                                 "detail": page_reason_words.unparsed_detail(len(pairs), dropped)})
+                                 "detail": page_reason_words.unparsed_detail(len(pairs), dropped, page)})
                 outcomes[page] = ("no_facts", 0, reason)
             elif page_written == 0:
                 # Read, but only by the page reader: say so, and what the

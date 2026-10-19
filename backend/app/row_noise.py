@@ -146,30 +146,36 @@ def revision_table_ids(rows: list[dict]) -> set[str]:
     }
 
 
-def is_label_as_value(value: str | None) -> bool:
+def is_label_as_value(value: str | None, label: str | None = None) -> bool:
     """Is this "value" really a form LABEL - the next field's name - and no
     answer at all? Order 124 item 9: "Internal design pressure" was stored
     with the value "and External design pressure".
 
     Only text with no digit can be one (a number is an answer), and only in
-    three shapes true of any form: it opens on a connective ("and ...",
-    "or ..."), it ends on the colon a label is printed with, or it names a
-    LIMIT of a measurable quantity ("Max. working pressure", "Operating
-    temperature") - a limit word with the quantity noun last, which states
-    which quantity, never how much. A free-text answer ("Two coat epoxy",
-    "Carbon steel", "Liquid", "Spring loaded") is none of these and stays.
+    two shapes true of any form. It opens on a connective ("and ...",
+    "or ...") - the rest of a label, under any field. Or the FIELD is a
+    measured quantity and the value names a limit of one ("Max. working
+    pressure", "Operating temperature"): a pressure field is answered with
+    how much, never with which quantity. Under a field that is not a
+    quantity ("Set pressure basis | Design pressure", "Control | Normal
+    level") the same words are a real answer and stay; so does any
+    free-text answer ("Two coat epoxy", "Carbon steel", "As per spec:").
+    A dropped row leaves the field unread, which sends it to the engineer;
+    a kept label would be compared as if it were the contractor's answer.
     """
     text = _clean(value)
     if not text or any(ch.isdigit() for ch in text) or not re.search(r"[A-Za-z]", text):
         return False
-    if _CONNECTIVE_START.match(text) or text.endswith(":"):
+    if _CONNECTIVE_START.match(text):
         return True
     from .datasheets import _LIMIT_WORD, quantity_head_noun
 
     return (
-        len(text.split()) >= 2
+        bool(label)
+        and bool(quantity_head_noun(_clean(label)))
+        and len(text.split()) >= 2
         and bool(_LIMIT_WORD.search(text))
-        and quantity_head_noun(text)
+        and bool(quantity_head_noun(text))
     )
 
 
@@ -187,7 +193,7 @@ def noise_reason(label: str | None, value: str | None) -> str | None:
         return HEADER_AS_VALUE
     if _NOTE_REF.match(value) or _CLAUSE_REF.match(value):
         return REFERENCE_ONLY
-    if is_label_as_value(value):
+    if is_label_as_value(value, label):
         return LABEL_AS_VALUE
     if label.lower().rstrip(": ") in _FRAGMENT_WORDS or _NUMBER_KEYED.match(label):
         return FRAGMENT_LABEL
