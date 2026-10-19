@@ -2476,16 +2476,15 @@ class CrsPreviewRow(BaseModel):
     #: #725 F7: the worst severity of the findings the row groups (critical,
     #: major, minor, observation), printed in the "Severity" column after
     #: Standard Reference in both copies. Empty when none is recorded.
-    #: Order 139 part 2 section f (a separate change) is to print a "Priority"
-    #: column in its place; until it lands this column is still printed.
+    #: Order 139 part 2: the "Priority" column replaced it in the printed
+    #: sheet; the severity stays on the row and is no longer printed.
     severity: str = ""
-    #: Order 139 part 2 section f (a separate change): the row's rank (1 out of
-    #: limit, 2 missing value, 3 engineer to check, 4 engineer's comment, 5
-    #: carried forward), which the sheet is to be sorted by. Not sent yet: null
-    #: on every row until that change, and on a row from a caller with no rank.
+    #: Order 139 part 2: the row's rank (1 out of limit, 2 missing value, 3
+    #: engineer to check, 4 engineer's comment, 5 carried forward), which the
+    #: sheet is sorted by. Null on a row from a caller with no rank.
     priority: int | None = None
-    #: The rank's word as THIS copy is to print it in the "Priority" column
-    #: (section f); "" while no rank is sent - never a guessed word.
+    #: The rank's word as THIS copy prints it in the "Priority" column; ""
+    #: when no rank is sent - never a guessed word.
     priority_label: str = ""
     #: Order 139 part 2 (spec e): the caller sent this row with NO comment text;
     #: the internal copy prints `crs_export.EMPTY_COMMENT_TEXT` in COMPANY

@@ -104,11 +104,12 @@ class TierRow(BaseModel):
     #: (`crs_mapping.crs_groups`); findings sharing it are ONE row on screen
     #: and in the file. Null: not a row of the CRS, or not computed (/counts)
     crs_group: str | None = None
-    #: order 139 part 2 section f (a separate change): the row's rank, 1 first
-    #: (`crs_mapping.PRIORITY_WORDS`); not sent yet - null until that change
+    #: order 139 part 2: the rank of the CRS row this finding lands on, 1 first
+    #: (`crs_mapping.PRIORITY_WORDS`), from the rows the file is built from;
+    #: null for a finding on no row, and from `/counts`
     crs_priority: int | None = None
-    #: order 139 part 2 section f: the rank's word, as the internal copy is to
-    #: print it; null until that change
+    #: order 139 part 2: the rank's word, as the internal copy prints it;
+    #: null when there is no rank
     crs_priority_label: (
         Literal[
             "Out of limit", "Missing value", "Engineer to check", "Engineer's comment"

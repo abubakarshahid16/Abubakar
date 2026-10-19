@@ -467,15 +467,15 @@ export interface CrsPreviewRow {
    *  "Standard Reference" column after the client's seven. */
   standard_reference?: string;
   /** #725 F7: worst severity of the grouped findings (critical, major, minor, observation).
-   *  Order 139 part 2 section f (a separate change) is to replace it with a
-   *  "Priority" column; until then it is still printed. */
+   *  Order 139 part 2: the "Priority" column replaced it in the printed sheet;
+   *  it stays on the row and is no longer printed. */
   severity?: string;
-  /** Order 139 part 2 section f (a separate change): the row's rank (1 out
-   *  of limit, 2 missing value, 3 engineer to check, 4 engineer's comment, 5
-   *  carried forward). Not sent yet; null or absent until that change. */
+  /** Order 139 part 2: the row's rank (1 out of limit, 2 missing value, 3
+   *  engineer to check, 4 engineer's comment, 5 carried forward). Null or
+   *  absent from a caller that sent no rank. */
   priority?: number | null;
-  /** Order 139 part 2 section f: the rank's word as this copy is to print it
-   *  in the "Priority" column; "" while no rank is sent (never a guess). */
+  /** Order 139 part 2: the rank's word as this copy prints it in the
+   *  "Priority" column; "" when no rank is sent (never a guess). */
   priority_label?: string;
   /** Order 139 part 2: the row reached the sheet with no comment text; the
    *  internal copy prints a sentence saying so in COMPANY Comments. */

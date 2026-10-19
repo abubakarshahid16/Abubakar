@@ -906,10 +906,9 @@ BUCKET_WEB = "web"  # a public-web standards check item (kind D)
 #: these buckets with no field label keeps today's one-row-per-requirement key.
 FIELD_GROUPED_BUCKETS = (BUCKET_BLANK, BUCKET_NOT_FOUND, BUCKET_QUESTION)
 
-#: The rank of a CRS row, most important first (spec f - a separate change,
-#: not yet wired: nothing sorts by these or prints them yet). Section f is to
-#: sort the sheet by it, then datasheet page, clause and field, and print the
-#: words in a "Priority" column in place of "Severity". Never "high"/"low": a
+#: The rank of a CRS row, most important first (spec f). The sheet is sorted
+#: by it, then datasheet page, clause and field (`_sheet_order`), and the words
+#: print in the "Priority" column in place of "Severity". Never "high"/"low": a
 #: rank is not a confidence.
 PRIORITY_OUT_OF_LIMIT = 1
 PRIORITY_MISSING_VALUE = 2
