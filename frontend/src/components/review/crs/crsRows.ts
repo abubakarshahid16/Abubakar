@@ -14,6 +14,7 @@
  * Display only. Stored statuses do not change here.
  */
 import type { ReviewFinding, ReviewRunSummary, RunSummaryHowReviewed } from "../../../types/api";
+import { splitReason } from "../reasonWords";
 import { orNothing, pageList } from "../reviewFormat";
 import {
   type CardState, type SheetCard, buildCards, fieldOf, groupLine, isNotNeeded, isPageNote, isTickFinding,
@@ -90,9 +91,10 @@ function statusOf(state: CardState, tier: TierResult): string {
 
 /** Order 112: a finding's text may open with the review's internal reason
  *  code ("no_field_matched: ...", "ambiguous_match: ..."). The words after
- *  the colon are already plain; the code itself is not for the engineer. */
+ *  the colon are already plain; the code itself is not for the engineer.
+ *  Order 120: the one split lives in `reasonWords`. */
 export function plainObservation(text: string): string {
-  return text.replace(/^[a-z]+(?:_[a-z]+)+:\s*/, "");
+  return splitReason(text).rest;
 }
 
 function rowOf(key: string, findings: ReviewFinding[], state: CardState, tier: TierResult, standardNames: Map<string, string>): CrsRow {
