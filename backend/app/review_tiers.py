@@ -5,8 +5,11 @@ statuses, labels, reason words and the order they are told in, the phrases,
 the fold, the screen order and the count keys. This module and the screen's
 `frontend/src/components/review/crs/tiers.ts` (through the generated
 `contracts/generated/review_tiers.ts`) both read it; neither keeps a status,
-label, reason word, order or phrase of its own. The logic is pinned on both
-sides by one case table, `contracts/fixtures/review_tier_cases.json`
+label, reason word, order or phrase of its own. The word edge of a phrase and
+the separators the fold joins are explicit data too (order 135), so both
+engines read them the same way, never by their own word-boundary or white-space
+class. The logic is pinned on both sides by one case table,
+`contracts/fixtures/review_tier_cases.json`
 (`test_133_one_truth_tiers.py` and `crs/tiers.parity.test.ts`).
 
   Tier A  "Met" / "Not applicable"  COMPLIANT / NOT_APPLICABLE / NOT_IN_DOCUMENT_SCOPE
@@ -62,7 +65,11 @@ _STATUS_TIERS = {
     status: (row["tier"], row["label"]) for status, row in RULES["status_tiers"].items()
 }
 _MISSING = RULES["missing_information"]
-_PHRASES = {word: re.compile(source) for word, source in RULES["phrases"].items()}
+_WORD = RULES["word_edge"]
+_PHRASES = {
+    word: re.compile(source.replace(_WORD["token"], _WORD["python"]))
+    for word, source in RULES["phrases"].items()
+}
 _FOLD = re.compile(RULES["fold"]["pattern"])
 
 

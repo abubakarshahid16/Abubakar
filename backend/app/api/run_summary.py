@@ -157,6 +157,16 @@ class RunCountsBatch(BaseModel):
     counts: dict[str, TierCounts]
 
 
+def reader_timed_out_pages(split: dict | None) -> list[int] | None:
+    """The pages the AI reader timed out on, from the reader record of the
+    run's requirement split, sorted; None when there is no reader record
+    (unknown, not none). tiers.ts `runFactsOf` reads the same field."""
+    reader_record = (split or {}).get("reader")
+    if not isinstance(reader_record, dict):
+        return None
+    return sorted(reader_record.get("timed_out") or [])
+
+
 def _tiers(review_run_id: str, allowed) -> tuple[dict, dict, dict | None, list | None]:
     """The run's tiers (`counts` and `rows`), the one home of the counting
     for `/summary` and `/counts` (CLAUDE.md rule 8). Also returns the stored
@@ -167,12 +177,7 @@ def _tiers(review_run_id: str, allowed) -> tuple[dict, dict, dict | None, list |
     split = outcome.get("requirement_split") or requirement_split_mod.from_counts(
         outcome.get("unchecked_counts")
     )
-    reader_record = (split or {}).get("reader")
-    timed_out = (
-        sorted(reader_record.get("timed_out") or [])
-        if isinstance(reader_record, dict)
-        else None
-    )
+    timed_out = reader_timed_out_pages(split)
     tiers = review_tiers.summarise(
         comparison_mod.list_findings(review_run_id, allowed_document_ids=allowed),
         _facts(review_run_id, outcome, timed_out),
@@ -348,7 +353,8 @@ def review_run_detail(
 def _facts(
     review_run_id: str, outcome: dict, timed_out: list[int] | None
 ) -> review_tiers.RunFacts:
-    """The run facts tiers.ts guesses at today, from what the run stored."""
+    """The run facts the screen's `runFactsOf` gathers from the same stored
+    run (order 135: both read the reader record for time-outs)."""
     coverage = outcome.get("page_coverage") or {}
     library = (
         connect()
