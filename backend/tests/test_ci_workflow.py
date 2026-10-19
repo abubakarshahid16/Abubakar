@@ -126,10 +126,15 @@ def test_the_aggregate_fails_on_a_failed_cancelled_or_skipped_shard(jobs, bad):
     step = next(s for s in jobs["backend"]["steps"] if s.get("name") == "Every shard and the checks job passed")
 
     def run(shard, checks, starts="success"):
-        script = (step["run"].replace("${{ needs.backend-shard.result }}", shard)
-                  .replace("${{ needs.backend-checks.result }}", checks)
-                  .replace("${{ needs.app-starts.result }}", starts))
-        return subprocess.run([bash, "-e", "-c", script], capture_output=True).returncode
+        script = (
+            step["run"]
+            .replace("${{ needs.backend-shard.result }}", shard)
+            .replace("${{ needs.backend-checks.result }}", checks)
+            .replace("${{ needs.app-starts.result }}", starts)
+        )
+        return subprocess.run(
+            [bash, "-e", "-c", script], capture_output=True
+        ).returncode
 
     assert run("success", "success") == 0
     assert run(bad, "success") != 0
