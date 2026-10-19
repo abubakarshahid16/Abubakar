@@ -238,10 +238,12 @@ def _candidate_findings(allowed_document_ids: frozenset[str] | None) -> list[dic
             return []
         where += " AND document_id IN (" + ",".join("?" for _ in allowed_document_ids) + ")"
         args.extend(sorted(allowed_document_ids))
-    rows = connect().execute(
-        "SELECT id, severity, compliance_status, document_id, owner_user_id, due_date, status,"
-        " updated_at, category, unresolved_evidence FROM review_findings WHERE " + where,
-        args).fetchall()
+    columns = (
+        "id, severity, compliance_status, document_id, owner_user_id, due_date, status,"
+        " updated_at, category, unresolved_evidence"
+    )
+    sql = "SELECT " + columns + " FROM review_findings WHERE " + where
+    rows = connect().execute(sql, args).fetchall()
     return [dict(r) for r in rows]
 
 
