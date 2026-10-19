@@ -1,7 +1,8 @@
 /**
- * OWNER: builder E. "Past reviews (N)" on a Submittals row.
+ * OWNER: builder E. "All reviews of this file (N)" on a Submittals row.
  *
- * N is counted from the runs the landing page already loaded - no request.
+ * N is every review of the file, the latest included (so the button does not
+ * say "Past" while counting the latest). N is counted from the runs the landing page already loaded - no request.
  * The button is hidden when the document has no reviews; pressing it opens
  * the compact list right under the row.
  */
@@ -27,7 +28,7 @@ export function PastReviewsButton({ documentId, runs, onOpenRun }: PastReviewsBu
         onClick={() => setOpen((was) => !was)}
         className="text-xs font-semibold text-signal-400 underline-offset-2 hover:underline"
       >
-        Past reviews ({reviews.length})
+        All reviews of this file ({reviews.length})
       </button>
       {open && (
         <div id={listId} className="mt-2">

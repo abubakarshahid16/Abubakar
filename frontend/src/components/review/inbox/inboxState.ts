@@ -80,6 +80,18 @@ export interface ReadyCounts {
   needs_you: number;
 }
 
+/** "Found by the review: 12 findings, 3 needing your judgement": the
+ *  server's per-run TOTALS, said as what the review found (not what is left
+ *  to decide), and as findings (the sheet groups them into fewer comment
+ *  lines). Nothing when not known. The inbox and the landing both use it. */
+export function foundLine(counts: ReadyCounts | null | undefined): string {
+  if (!counts) return "";
+  const n = counts.findings;
+  const m = counts.needs_you;
+  return `Found by the review: ${n.toLocaleString("en-US")} finding${n === 1 ? "" : "s"}, `
+    + `${m.toLocaleString("en-US")} needing your judgement`;
+}
+
 export function stateLabel(state: InboxState, counts: ReadyCounts | null = null): string {
   switch (state.kind) {
     case "not_reviewed":
@@ -91,9 +103,10 @@ export function stateLabel(state: InboxState, counts: ReadyCounts | null = null)
       return `Running${where}${state.label ? `: ${state.label}` : ""}`;
     }
     case "ready":
-      return counts
-        ? `Ready: ${counts.findings.toLocaleString("en-US")} finding${counts.findings === 1 ? "" : "s"} to decide, ${counts.needs_you.toLocaleString("en-US")} need${counts.needs_you === 1 ? "s" : ""} you`
-        : "Ready";
+      // v2.1 round 2: the server's counts are what the review FOUND, not
+      // what is left to decide (only the comment sheet knows that), so they
+      // are said exactly as the landing says them (foundLine).
+      return counts ? `Ready. ${foundLine(counts)}` : "Ready";
     case "signed":
       return `Signed · ${whenLabel(state.at)}`;
     case "failed":

@@ -10,7 +10,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ReviewFinding, ReviewRunSummary } from "../../../types/api";
-import { COULD_NOT_REFRESH, useWorkspaceRun } from "./useWorkspaceRun";
+import { COULD_NOT_REFRESH, REVIEW_NOT_FOUND, newerReviewOf, useWorkspaceRun } from "./useWorkspaceRun";
 
 const reviewRun = vi.fn();
 const list = vi.fn();
@@ -18,6 +18,7 @@ const reviewRunStandards = vi.fn();
 const reviewRunSummary = vi.fn();
 const readiness = vi.fn();
 const documentRead = vi.fn();
+const reviewRuns = vi.fn();
 
 vi.mock("../../../api/client", () => ({
   api: { document: (...a: unknown[]) => documentRead(...a) },
@@ -27,6 +28,7 @@ vi.mock("../../../api/client", () => ({
     reviewRunStandards: (...a: unknown[]) => reviewRunStandards(...a),
     reviewRunSummary: (...a: unknown[]) => reviewRunSummary(...a),
     readiness: (...a: unknown[]) => readiness(...a),
+    reviewRuns: (...a: unknown[]) => reviewRuns(...a),
   },
 }));
 
@@ -63,6 +65,7 @@ beforeEach(() => {
   reviewRunSummary.mockResolvedValue({ ok: false, error: { message: "not found" } });
   readiness.mockResolvedValue({ ok: true, data: READY });
   documentRead.mockResolvedValue({ ok: true, data: { id: "doc-sub", filename: "Pump datasheet rev B.pdf" } });
+  reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run()] } });
 });
 
 afterEach(() => { vi.useRealTimers(); vi.clearAllMocks(); });
@@ -109,7 +112,7 @@ describe("useWorkspaceRun", () => {
   it("a run that cannot be found is an error in plain words", async () => {
     reviewRun.mockResolvedValue({ ok: true, data: null });
     const { result } = renderHook(() => useWorkspaceRun("run-1"));
-    await waitFor(() => expect(result.current.load).toEqual({ kind: "error", message: "This review run could not be found." }));
+    await waitFor(() => expect(result.current.load).toEqual({ kind: "error", message: REVIEW_NOT_FOUND }));
   });
 
   it("newest load wins: an older, slower answer never paints over a newer one", async () => {
@@ -170,7 +173,76 @@ describe("useWorkspaceRun", () => {
   it("a failed first load is still an error (nothing good to keep)", async () => {
     reviewRun.mockResolvedValue({ ok: false, error: { message: "Cannot reach the backend." } });
     const { result } = renderHook(() => useWorkspaceRun("run-1"));
-    await waitFor(() => expect(result.current.load).toEqual({ kind: "error", message: "Cannot reach the backend." }));
+    await waitFor(() => expect(result.current.load.kind).toBe("error"));
     expect(result.current.refreshError).toBeNull();
+  });
+});
+
+/** v2.1 N2: a failed read is said in plain words first; the server's own
+ *  words follow only as a detail, never alone.
+ *  MUTATION PROOF: put `runs.error.message` back as the load message and the
+ *  first test fails (the message starts with the raw text). */
+describe("useWorkspaceRun: errors in plain words (v2.1 N2)", () => {
+  it("a failed first load starts with a plain sentence and keeps the server's words as a detail", async () => {
+    reviewRun.mockResolvedValue({ ok: false, disconnected: true, error: { code: "internal", message: "Cannot reach the backend. ECONNREFUSED" } });
+    const { result } = renderHook(() => useWorkspaceRun("run-1"));
+    await waitFor(() => expect(result.current.load.kind).toBe("error"));
+    const message = result.current.load.kind === "error" ? result.current.load.message : "";
+    expect(message.startsWith("Could not open this review. The server could not be reached.")).toBe(true);
+    expect(message).toContain("Details: Cannot reach the backend. ECONNREFUSED");
+  });
+
+  it("a signed-out answer says to sign in again", async () => {
+    list.mockResolvedValue({ ok: false, disconnected: false, error: { code: "unauthenticated", message: "token expired" } });
+    const { result } = renderHook(() => useWorkspaceRun("run-1"));
+    await waitFor(() => expect(result.current.load.kind).toBe("error"));
+    expect(result.current.load).toEqual({
+      kind: "error", message: "Could not open this review. Your sign-in has ended. Sign in again to carry on. Details: token expired",
+    });
+  });
+
+  it("a failed standards read is a plain sentence too", async () => {
+    reviewRunStandards.mockResolvedValue({ ok: false, disconnected: false, error: { code: "internal", message: "HTTP 500" } });
+    const { result } = renderHook(() => useWorkspaceRun("run-1"));
+    await waitFor(() => expect(result.current.load.kind).toBe("ready"));
+    expect(result.current.standardsState.error).toBe(
+      "Could not read the list of standards for this review. Try again in a moment. Details: HTTP 500");
+  });
+
+  it("the not-found words name no internal term", () => {
+    expect(REVIEW_NOT_FOUND).not.toMatch(/\brun\b/i);
+  });
+
+  /** Round 2 item 4. MUTATION PROOF: drop the runs read (or compare the
+   *  wrong way round in newerReviewOf) and this fails. */
+  it("reads the document's reviews once and names a newer one", async () => {
+    const newer = run({ review_run_id: "run-2", created_at: "2026-10-17T08:00:00Z" });
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [newer, run()] } });
+    const { result } = renderHook(() => useWorkspaceRun("run-1"));
+    await waitFor(() => expect(result.current.newerRun?.review_run_id).toBe("run-2"));
+    expect(reviewRuns).toHaveBeenCalledTimes(1);
+    expect(reviewRuns).toHaveBeenCalledWith("doc-sub");
+    expect(result.current.documentRuns).toHaveLength(2);
+  });
+
+  it("a failed runs read says nothing about a newer review", async () => {
+    reviewRuns.mockResolvedValue({ ok: false, error: { message: "nope" } });
+    const { result } = renderHook(() => useWorkspaceRun("run-1"));
+    await waitFor(() => expect(result.current.load.kind).toBe("ready"));
+    await waitFor(() => expect(reviewRuns).toHaveBeenCalled());
+    expect(result.current.newerRun).toBeNull();
+    expect(result.current.documentRuns).toBeNull();
+  });
+
+  it("newerReviewOf: only a later review of the same document that did not fail or get cancelled", () => {
+    const me = run();
+    const older = run({ review_run_id: "run-0", created_at: "2026-10-01T08:00:00Z" });
+    const failed = run({ review_run_id: "run-f", created_at: "2026-10-18T08:00:00Z", status: "failed" });
+    const cancelled = run({ review_run_id: "run-c", created_at: "2026-10-18T09:00:00Z", status: "cancelled" });
+    const other = run({ review_run_id: "run-o", created_at: "2026-10-18T09:00:00Z", submittal_document_id: "doc-other" });
+    expect(newerReviewOf(me, [me, older, failed, cancelled, other])).toBeNull();
+    const a = run({ review_run_id: "run-a", created_at: "2026-10-16T08:00:00Z" });
+    const b = run({ review_run_id: "run-b", created_at: "2026-10-17T08:00:00Z", status: "running" });
+    expect(newerReviewOf(me, [a, me, b])?.review_run_id).toBe("run-b");
   });
 });

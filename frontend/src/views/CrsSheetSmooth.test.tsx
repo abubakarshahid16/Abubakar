@@ -110,7 +110,7 @@ describe("CrsSheetView stays smooth (order 117)", () => {
     opener.addEventListener("focus", openerFocus);
     close.addEventListener("focus", closeFocus);
     await userEvent.keyboard("j");
-    expect(within(screen.getByRole("dialog")).getByTestId("drawer-position")).toHaveTextContent(/^Row 2 of /);
+    expect(within(screen.getByRole("dialog")).getByTestId("drawer-position")).toHaveTextContent(/^Item 2 of /);
     expect(openerFocus).not.toHaveBeenCalled();
     expect(closeFocus).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Close evidence" })).toHaveFocus();
@@ -137,7 +137,7 @@ describe("CrsSheetView stays smooth (order 117)", () => {
     await userEvent.click(screen.getByLabelText("Everything"));
     const total = 256;
     expect(rows()).toHaveLength(200);
-    expect(screen.getByTestId("crs-more")).toHaveTextContent(`Showing the first 200 of ${total} rows at this depth.`);
+    expect(screen.getByTestId("crs-more")).toHaveTextContent(`Showing the first 200 of ${total} lines in this list.`);
     await userEvent.click(screen.getByRole("button", { name: "Show 56 more" }));
     expect(rows()).toHaveLength(total);
     expect(screen.queryByTestId("crs-more")).not.toBeInTheDocument();

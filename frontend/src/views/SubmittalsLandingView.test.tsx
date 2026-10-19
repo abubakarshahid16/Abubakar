@@ -93,8 +93,11 @@ describe("SubmittalsLandingView", () => {
   it("order 132: passes isAdmin to New review, so a non-admin is refused before any upload", async () => {
     documents.mockResolvedValue({ ok: true, data: [] });
     reviewRuns.mockResolvedValue({ ok: true, data: { runs: [] } });
+    // v2.1: a non-admin gets a plain message in place of the New review card;
+    // the drop zone is not even drawn, so nothing can be uploaded.
     const { rerender } = render(<SubmittalsLandingView onOpenRun={vi.fn()} workspace isAdmin={false} />);
-    expect(await screen.findByTestId("drop-zone")).toHaveTextContent("admin: false");
+    expect(await screen.findByTestId("not-admin-message")).toHaveTextContent("Only an administrator can start a review.");
+    expect(screen.queryByTestId("drop-zone")).toBeNull();
     rerender(<SubmittalsLandingView onOpenRun={vi.fn()} workspace isAdmin />);
     expect(screen.getByTestId("drop-zone")).toHaveTextContent("admin: true");
   });
@@ -158,6 +161,29 @@ describe("SubmittalsLandingView", () => {
     render(<SubmittalsLandingView onOpenRun={vi.fn()} />);
     expect(await screen.findByRole("alert")).toHaveTextContent("offline");
   });
+
+  it("v2.1 N2: switch on, the load error is said in plain words, the server's words folded under Details", async () => {
+    documents.mockResolvedValue({ ok: true, data: [] });
+    reviewRuns.mockResolvedValue({ ok: false, disconnected: false, error: { code: "internal", message: "sqlite3.OperationalError: locked" } });
+    render(<SubmittalsLandingView onOpenRun={vi.fn()} workspace />);
+    const alert = await screen.findByTestId("landing-load-error");
+    expect(alert.querySelector("p")).toHaveTextContent(/^Could not load the list of reviews\. Try again in a moment\.$/);
+    const details = alert.querySelector("details")!;
+    expect(details).not.toHaveAttribute("open");
+    expect(details).toHaveTextContent("sqlite3.OperationalError: locked");
+  });
+
+  it("v2.1: switch on hides the 'Try the new inbox' teaser; switch off keeps it", async () => {
+    documents.mockResolvedValue({ ok: true, data: [] });
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [] } });
+    const { unmount } = render(<SubmittalsLandingView onOpenRun={vi.fn()} onOpenInbox={vi.fn()} workspace />);
+    await screen.findByTestId("new-review-card");
+    expect(screen.queryByRole("button", { name: "Try the new inbox" })).toBeNull();
+    expect(screen.queryByText(/stays the default/)).toBeNull();
+    unmount();
+    render(<SubmittalsLandingView onOpenRun={vi.fn()} onOpenInbox={vi.fn()} />);
+    expect(await screen.findByRole("button", { name: "Try the new inbox" })).toBeInTheDocument();
+  });
   it("queues a review of every document never reviewed, reports each refusal by name, and opens nothing", async () => {
     documents.mockResolvedValue({ ok: true, data: [
       { id: "a", filename: "a.pdf" }, { id: "b", filename: "b.pdf" }, { id: "c", filename: "c.pdf" },
@@ -194,7 +220,7 @@ describe("SubmittalsLandingView", () => {
       "run-a": tiers(2, 1), "run-b": tiers(0, 0),
     } } });
     render(<SubmittalsLandingView inbox onOpenRun={vi.fn()} />);
-    expect(await screen.findByText(/^Ready: 3 findings to decide, 1 needs you/)).toBeInTheDocument();
+    expect(await screen.findByText(/^Ready\. Found by the review: 3 findings, 1 needing your judgement/)).toBeInTheDocument();
     expect(reviewRunCounts).toHaveBeenCalledTimes(1);
     expect([...reviewRunCounts.mock.calls[0][0]].sort()).toEqual(["run-a", "run-b", "run-c"]);
     expect(reviewRunSummary).not.toHaveBeenCalled();

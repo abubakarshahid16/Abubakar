@@ -23,7 +23,7 @@ import { downloadCrs } from "../downloadCrs";
 export interface IssueChecks {
   /** Decisions on screen that are not saved yet. */
   unsaved: number;
-  /** "Needs you" rows not opened yet. */
+  /** Comments marked "Needs you" not opened yet. */
   unopenedNeedsYou: number;
   /** What the issue gate still wants (`signLeft`); empty when nothing. */
   signLeft: string[];
@@ -31,14 +31,19 @@ export interface IssueChecks {
 
 export const ISSUED_MESSAGE = "Signed and exported. The issued copy was downloaded and kept on record.";
 
+/** Sign waits for the comments only an engineer can judge ("Needs you")
+ *  to be opened; the same words on the old sheet and the workspace. */
+export function needsYouFirst(n: number): string {
+  return `Open the ${n} ${n === 1 ? "comment that needs" : "comments that need"} your judgement (marked "Needs you") first.`;
+}
+
 /** Why the copy cannot be issued yet, in plain words; null when it can. */
 export function issueWaitsFor(checks: IssueChecks): string | null {
   if (checks.unsaved > 0) {
     return `Save the ${checks.unsaved} ${checks.unsaved === 1 ? "decision" : "decisions"} on screen first.`;
   }
   if (checks.unopenedNeedsYou > 0) {
-    const n = checks.unopenedNeedsYou;
-    return `Open the ${n} "Needs you" ${n === 1 ? "row" : "rows"} first.`;
+    return needsYouFirst(checks.unopenedNeedsYou);
   }
   if (checks.signLeft.length > 0) return `Before you sign: ${checks.signLeft.join("; ")}.`;
   return null;

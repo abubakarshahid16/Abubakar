@@ -188,6 +188,6 @@ describe("order 127: the box's words (spec section 5)", () => {
   it("drops 'of T' when the total is not sent, and never calls pages read when the server says no record is stored", () => {
     expect(unreadPagesLine(g([4, 9], undefined, undefined)).text).toBe("2 pages were not fully read. Tick each one once you have checked it yourself.");
     expect(unreadPagesLine(g([], undefined, undefined))).toEqual({ done: true, text: "Every page was read or checked by an engineer." });
-    expect(unreadPagesLine(g([], [], null))).toEqual({ done: false, text: "Which pages were read is not recorded on this run." });
+    expect(unreadPagesLine(g([], [], null))).toEqual({ done: false, text: "Which pages were read is not recorded for this review." });
   });
 });

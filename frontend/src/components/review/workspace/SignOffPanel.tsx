@@ -1,14 +1,23 @@
 /**
- * OWNER: builder B. Sign-off under the comment sheet: the comment sheet's
+ * OWNER: builder C (v2.1; builder B before). Sign-off under the comment sheet: the comment sheet's
  * own "Before you sign" box (record the final code, tick each unread page,
  * the items still open; crs/BeforeYouSign.tsx over the same issue gate),
  * then what is left, what is not saved, and Save / Sign and export /
- * Working copy. Counts come from `computeReviewNumbers`, the Sign rule from
+ * Working copy. Sign and export opens the "Preview and confirm" step
+ * (useSignOff.sign; workspace/sign/SignConfirm.tsx); nothing is issued from
+ * this panel directly. Counts come from `computeReviewNumbers`, the Sign rule from
  * `actionSteps` (the same rule as the bar, which waits for the issue gate
  * too). Messages from saving and signing show in the ActionBar, which stays
  * on screen on every tab.
+ *
+ * v2.1 round 2: once signed, "Download the issued copy" fetches the copy the
+ * server already issued and kept (sign/issuedCopy.ts, read only: it issues
+ * nothing new).
  */
+import { useState } from "react";
+
 import { BeforeYouSign } from "../crs/BeforeYouSign";
+import { downloadIssuedCopy } from "./sign/issuedCopy";
 import type { SignOffPanelProps } from "./contract";
 import { actionSteps, signedDate } from "./numbers";
 
@@ -18,6 +27,12 @@ export function SignOffPanel({ numbers, signOff, run, rows, gate, onRunChanged, 
   const signStep = actionSteps(numbers).find((s) => s.id === "sign");
   const canSign = Boolean(signStep?.enabled) && !signOff.busy;
   const when = signedDate(numbers.signedAt);
+  const [copy, setCopy] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
+  const getCopy = async () => {
+    setCopy({ busy: true, error: null });
+    const problem = await downloadIssuedCopy(run.review_run_id);
+    setCopy({ busy: false, error: problem });
+  };
   return (
     <section data-testid="ws-sign-off" aria-label="Sign-off"
       className="mt-4 space-y-3 rounded-[var(--radius-md)] border border-ink-700 p-3 text-sm text-slateish-300">
@@ -38,16 +53,23 @@ export function SignOffPanel({ numbers, signOff, run, rows, gate, onRunChanged, 
             {numbers.unopenedNeedsYou > 0 && (
               <>
                 {" · "}Sign and export waits until you have opened the {numbers.unopenedNeedsYou.toLocaleString()}{" "}
-                {numbers.unopenedNeedsYou === 1 ? "row" : "rows"} marked &quot;Needs you&quot;.
+                {numbers.unopenedNeedsYou === 1 ? "comment that needs" : "comments that need"} your judgement (marked &quot;Needs you&quot;).
               </>
             )}
           </span>
         )}
         <div className="ml-auto flex flex-wrap gap-2">
-          <button type="button" disabled={numbers.unsaved === 0 || signOff.busy} onClick={() => void signOff.save()}
-            className={`${BUTTON} border-ink-600 text-slateish-100`}>
-            Save decisions
-          </button>
+          {numbers.signed ? (
+            <button type="button" disabled={copy.busy} onClick={() => void getCopy()} data-testid="ws-issued-copy"
+              className={`${BUTTON} border-signal-500 bg-signal-500 text-ink-950`}>
+              {copy.busy ? "Downloading…" : "Download the issued copy"}
+            </button>
+          ) : (
+            <button type="button" disabled={numbers.unsaved === 0 || signOff.busy} onClick={() => void signOff.save()}
+              className={`${BUTTON} border-ink-600 text-slateish-100`}>
+              Save decisions
+            </button>
+          )}
           <button type="button" disabled={signOff.busy || numbers.unsaved > 0} onClick={() => void signOff.workingCopy()}
             aria-describedby={numbers.unsaved > 0 ? "ws-working-copy-waits" : undefined}
             className={`${BUTTON} border-ink-600 text-slateish-100`}>
@@ -59,6 +81,7 @@ export function SignOffPanel({ numbers, signOff, run, rows, gate, onRunChanged, 
           </button>
         </div>
       </div>
+      {copy.error && <p role="alert" data-testid="ws-issued-copy-error" className="text-danger-500">{copy.error}</p>}
       {/* The working copy is built from what is saved, so a copy taken now
           would leave out the decisions on screen. */}
       {numbers.unsaved > 0 && (

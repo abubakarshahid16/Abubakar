@@ -41,7 +41,7 @@ export const REASON_WORDS: Record<TierReason, string> = {
   "page not read": "The reader did not read this page into fields, so the value may still be on the page. Read the page yourself.",
   "standard not in library": "The standard this comment rests on is not in the library, so the clause could not be checked. Upload it, or decide from the datasheet.",
   "AI guess": "The datasheet field was paired with this clause by an AI guess that nobody has confirmed. Check that the field is the one the clause means.",
-  "rule not proven": "The rule behind this row has not been proven yet, so its answer is not trusted on its own. Check it against the standard.",
+  "rule not proven": "The rule behind this comment has not been proven yet, so its answer is not trusted on its own. Check it against the standard.",
   "safety field": "This is a safety field. It meets the standard, but it is shown for your own tick before it goes on the record.",
   "condition unsettled": "The rule has a condition the computer could not settle. Decide whether it applies here.",
   "value conflict": "The datasheet gives two values for this field. Decide which one counts.",

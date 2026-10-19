@@ -12,6 +12,8 @@
  */
 import type { ReactNode } from "react";
 
+import type { LeaveKind } from "./useLeaveGuard";
+
 import type {
   CrsIssueGate, DocumentRecord, ReviewFinding, ReviewReadiness, ReviewRunSummary, ReviewRunTierSummary,
 } from "../../../types/api";
@@ -28,7 +30,7 @@ export type { CrsRow, CrsDecisions, DecisionState, StandardsState };
 /** Same words CrsSheetView uses when leaving with unsaved decisions. */
 export const LEAVE_WARNING = "Some decisions on this sheet are not saved yet. Leave without saving them?";
 
-export const WORKSPACE_TABS = ["sheet", "how", "findings", "standards", "steps", "numbers"] as const;
+export const WORKSPACE_TABS = ["sheet", "how", "findings", "standards", "steps", "numbers", "crs"] as const;
 export type WorkspaceTab = (typeof WORKSPACE_TABS)[number];
 
 /** Plain-English tab names, in display order. */
@@ -39,6 +41,9 @@ export const WORKSPACE_TAB_LABELS: Record<WorkspaceTab, string> = {
   standards: "Standards",
   steps: "Steps",
   numbers: "Numbers",
+  // The comment sheet as issued: the contractor's replies, transmittal
+  // numbers, which comments are open or closed (the old "crs" page).
+  crs: "Contractor copy and replies",
 };
 
 /** The right-hand panel. Only the evidence drawer for now. */
@@ -160,8 +165,19 @@ export interface ReviewNumbers {
   undecided: number;
   /** Their row keys, in sheet order (the "Decide comments" button opens the first). */
   undecidedKeys: string[];
-  /** Tier C rows not opened yet in this session. */
+  /** Tier C rows not opened yet in this session. A row an engineer already
+   *  decided in an earlier session (`priorState` "agreed") counts as opened:
+   *  an old review never has to be opened row by row again. */
   unopenedNeedsYou: number;
+  /** Comment rows "Keep all remaining comments" would keep right now: the
+   *  same rule as `useCrsDecisions.remaining` (Tier B, no decision yet, not
+   *  answered earlier). Never a "Needs you" row. */
+  remainingToKeep: number;
+  /** The engineer's final code once recorded (`run.engineer_final_code`). */
+  finalCode: string | null;
+  /** True when the final code is recorded (the run or the issue gate says
+   *  so); false when the gate says it is not; null while not known. */
+  finalCodeRecorded: boolean | null;
   /** Decisions on screen not saved yet. */
   unsaved: number;
   /** What the issue gate still wants before Sign and export, in plain
@@ -174,7 +190,7 @@ export interface ReviewNumbers {
   signedAt: string | null;
 }
 
-export type ActionStepId = "standards" | "pages" | "decide" | "sign";
+export type ActionStepId = "standards" | "pages" | "decide" | "code" | "sign";
 
 /** One button of the "What you need to do" bar, in bar order. */
 export interface ActionStep {
@@ -273,6 +289,12 @@ export interface ReviewWorkspaceProps {
   /** Told how many decisions are on screen only, so the app can ask before
    *  a move it makes itself (turning off "Try new design") drops them. */
   onUnsavedChange?: (count: number) => void;
+  /** v2.1 (N1): the app's one navigation guard (useLeaveGuard). Every way
+   *  out of the workspace from its own buttons asks through it, so there is
+   *  one in-page question and nobody is asked twice. Left out (a workspace
+   *  drawn on its own, as in tests), the workspace keeps a guard of its own
+   *  and shows the same question. */
+  leaveGuard?: (kind: LeaveKind, go: () => void) => boolean;
 }
 
 export interface WorkspaceTabsProps {
@@ -287,6 +309,23 @@ export interface TryNewDesignToggleProps {
   onChange: (on: boolean) => void;
 }
 
+/** The workspace's automatic saving of decisions (workspace/decide/useAutosave). */
+export interface AutosaveStatus {
+  /** idle: nothing saved yet this visit; saving; saved: everything on
+   *  screen is saved; failed: the last try did not save (see `message`). */
+  phase: "idle" | "saving" | "saved" | "failed";
+  /** Plain words for a failed save; null otherwise. */
+  message: string | null;
+  /** v2.1 round 2: the server's own words for a failed save, shown folded
+   *  under `message`; null (or absent) when there are none. */
+  detail?: string | null;
+  /** True while an "Undo" of "Keep all remaining comments" is offered:
+   *  saving waits until it is gone, so Undo never has to unsave anything. */
+  waiting: boolean;
+  /** Save every unsaved decision now. */
+  saveNow: () => Promise<void>;
+}
+
 export interface ActionBarProps {
   run: ReviewRunSummary;
   numbers: ReviewNumbers;
@@ -294,6 +333,11 @@ export interface ActionBarProps {
   steps: ActionStep[];
   onAction: (id: ActionStepId) => void;
   signOff: SignOff;
+  /** The saving line ("Saved" / "Saving..." / "Not saved: why") and
+   *  "Save now". Absent: no saving line. */
+  autosave?: AutosaveStatus;
+  /** The final code was recorded from the bar: read the run again. */
+  onCodeRecorded?: () => void;
 }
 
 export interface SheetCountsLineProps {

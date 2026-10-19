@@ -3,7 +3,8 @@
  * SAME numbers, all from one `computeReviewNumbers` result. Plus the click
  * paths: Sign waits for the blockers AND the comment sheet's issue gate
  * ("Before you sign": final code, unread page ticks), then calls
- * downloadCrs "issue" through the shared issuing path; the unread pages are
+ * (after the "Preview and confirm" step, v2.1 S2) downloadCrs "issue"
+ * through the shared issuing path; the unread pages are
  * listed with "Read these pages again"; Save and the working copy use the
  * existing routes. Made-up data only.
  *
@@ -24,6 +25,7 @@ import { ActionBar } from "./ActionBar";
 import { SheetCountsLine } from "./SheetCountsLine";
 import { SignOffPanel } from "./SignOffPanel";
 import { actionSteps, computeReviewNumbers } from "./numbers";
+import { SignConfirm } from "./sign/SignConfirm";
 import { useSignOff } from "./useSignOff";
 
 const downloadCrs = vi.fn();
@@ -31,6 +33,7 @@ const saveCrsDecisions = vi.fn();
 const rereadPages = vi.fn();
 const crsIssueGate = vi.fn();
 const decideCrsPage = vi.fn();
+const previewCrs = vi.fn();
 
 vi.mock("../downloadCrs", () => ({ downloadCrs: (...a: unknown[]) => downloadCrs(...a) }));
 vi.mock("../crs/saveCrsDecisions", () => ({ saveCrsDecisions: (...a: unknown[]) => saveCrsDecisions(...a) }));
@@ -39,6 +42,7 @@ vi.mock("../../../api/client", () => ({
     rereadPages: (...a: unknown[]) => rereadPages(...a),
     crsIssueGate: (...a: unknown[]) => crsIssueGate(...a),
     decideCrsPage: (...a: unknown[]) => decideCrsPage(...a),
+    previewCrs: (...a: unknown[]) => previewCrs(...a),
   },
 }));
 
@@ -110,6 +114,7 @@ beforeEach(() => {
   downloadCrs.mockReset().mockResolvedValue(null);
   saveCrsDecisions.mockReset();
   rereadPages.mockReset();
+  previewCrs.mockReset().mockResolvedValue({ ok: false, error: { message: "not in this test" } });
 });
 
 describe("one source of numbers", () => {
@@ -146,8 +151,8 @@ describe("one source of numbers", () => {
     expect(line.querySelector('[data-count="met"]')?.textContent).toBe(String(n.met));
     expect(line.querySelector('[data-count="notApplicableRows"]')?.textContent).toBe(String(n.notApplicableRows));
     expect(line.querySelector('[data-count="notApplicableClauses"]')?.textContent).toBe(String(n.notApplicableClauses));
-    expect(line.textContent).toContain("1 row not applicable");
-    expect(line.textContent).toContain("7 clauses not applicable");
+    expect(line.textContent).toContain("1 not applicable");
+    expect(line.textContent).toContain("7 parts of the standards do not apply");
   });
 
   it("the expected numbers for this fixture", () => {
@@ -164,7 +169,8 @@ describe("one source of numbers", () => {
     const bar = screen.getByTestId("ws-action-bar");
     expect(screen.getByTestId("ws-verdict").textContent).toBe("5 comments, 2 need your judgement. Not signed yet.");
     expect(within(bar).getAllByRole("button").map((b) => b.textContent)).toEqual([
-      "Upload missing standards (2)", "Check unread pages (3)", "Decide comments (3)", "Sign and export",
+      "Upload missing standards (2)", "Check unread pages (3)", "Decide comments (3)", "Record the final code (not known yet)",
+      "Sign and export",
     ]);
   });
 });
@@ -214,6 +220,8 @@ function Harness({ input, refresh, decisions }: { input: Partial<ReviewNumbersIn
       <SheetCountsLine numbers={n} />
       <SignOffPanel numbers={n} signOff={signOff} run={run} rows={ROWS} gate={gateState(input.gate ?? null)}
         onRunChanged={() => {}} onJump={() => {}} />
+      <SignConfirm runId="run-1" open={signOff.confirmOpen} onClose={signOff.closeConfirm} onIssued={() => {}}
+        summary={{ comments: n.comments, finalCode: null, signer: null }} />
     </div>
   );
 }
@@ -232,6 +240,8 @@ function LiveGate({ input, decisions }: { input: Partial<ReviewNumbersInput>; de
       <SheetCountsLine numbers={n} />
       <SignOffPanel numbers={n} signOff={signOff} run={run} rows={ROWS} gate={issueGate}
         onRunChanged={() => {}} onJump={() => {}} />
+      <SignConfirm runId="run-1" open={signOff.confirmOpen} onClose={signOff.closeConfirm} onIssued={() => {}}
+        summary={{ comments: n.comments, finalCode: null, signer: null }} />
     </div>
   );
 }
@@ -260,8 +270,8 @@ describe("Sign and export", () => {
     render(<Harness input={input} refresh={vi.fn().mockResolvedValue(undefined)} decisions={fakeDecisions(notOpened, [])} />);
     for (const b of screen.getAllByRole("button", { name: "Sign and export" })) expect(b).toBeDisabled();
     expect(screen.getByTestId("ws-verdict").textContent).toContain("Not signed yet.");
-    expect(screen.getByTestId("ws-sign-waits")).toHaveTextContent('Open the 1 "Needs you" row first.');
-    expect(screen.getByTestId("ws-sign-off")).toHaveTextContent('opened the 1 row marked "Needs you"');
+    expect(screen.getByTestId("ws-sign-waits")).toHaveTextContent('Open the 1 comment that needs your judgement (marked "Needs you") first.');
+    expect(screen.getByTestId("ws-sign-off")).toHaveTextContent('opened the 1 comment that needs your judgement');
   });
 
   it("stays off until standards, pages and decisions are clear and saved, then calls downloadCrs issue", async () => {
@@ -292,6 +302,9 @@ describe("Sign and export", () => {
     expect(downloadCrs).not.toHaveBeenCalled();
 
     await userEvent.click(barSign);
+    // v2.1 (S2): Sign opens the preview and confirm step; nothing is issued yet.
+    expect(downloadCrs).not.toHaveBeenCalled();
+    await userEvent.click(await screen.findByRole("button", { name: "Issue to contractor" }));
     expect(downloadCrs).toHaveBeenCalledWith("run-1", "issue");
     await waitFor(() => expect(refresh).toHaveBeenCalled());
     expect(await screen.findByRole("status")).toHaveTextContent(/Signed and exported/);
@@ -308,7 +321,8 @@ describe("Sign and export", () => {
     expect(n.unopenedNeedsYou).toBe(0);
     expect(n.signLeft).toEqual(["record the final code"]);
     expect(actionSteps(n).slice(0, 3).every((s) => s.done)).toBe(true);
-    expect(actionSteps(n)[3].enabled).toBe(false);
+    expect(actionSteps(n).find((s) => s.id === "code")?.done).toBe(false);
+    expect(actionSteps(n).find((s) => s.id === "sign")?.enabled).toBe(false);
     render(<Harness input={input} refresh={vi.fn().mockResolvedValue(undefined)} decisions={fakeDecisions(ALL_DECIDED, [])} />);
     for (const b of screen.getAllByRole("button", { name: "Sign and export" })) expect(b).toBeDisabled();
     expect(screen.getByTestId("ws-verdict").textContent).toContain("Not signed yet.");
@@ -353,6 +367,7 @@ describe("Sign and export", () => {
     expect(barSign).toBeEnabled();
     expect(panelSign).toBeEnabled();
     await userEvent.click(panelSign);
+    await userEvent.click(await screen.findByRole("button", { name: "Issue to contractor" }));
     expect(downloadCrs).toHaveBeenCalledWith("run-1", "issue");
   });
 
@@ -365,7 +380,8 @@ describe("Sign and export", () => {
     };
     render(<Harness input={clear} refresh={refresh} decisions={fakeDecisions(ALL_DECIDED, [])} />);
     await userEvent.click(screen.getAllByRole("button", { name: "Sign and export" })[1]);
-    expect(await screen.findByRole("alert")).toHaveTextContent("Comments are still open on this run.");
+    await userEvent.click(await screen.findByRole("button", { name: "Issue to contractor" }));
+    expect(await screen.findByTestId("ws-sign-error")).toHaveTextContent("Comments are still open on this run.");
     expect(refresh).not.toHaveBeenCalled();
   });
 
@@ -444,7 +460,7 @@ describe("unknown blocker counts never count as done", () => {
       const button = bar.querySelector(`[data-step="${id}"]`)!;
       expect(button.getAttribute("data-done")).toBe("false");
       expect(button.textContent).not.toContain("✓");
-      expect(button.textContent).toContain("cannot read yet");
+      expect(button.textContent).toContain("not known yet");
       expect(button.textContent).not.toMatch(/\d/);
       expect(button).toBeEnabled();
     }
@@ -488,7 +504,7 @@ describe("unknown blocker counts never count as done", () => {
       expect(n.standardsKnown).toBe(true);
       expectWaiting(n, ["pages"]);
       const pages = screen.getByTestId("ws-action-bar").querySelector('[data-step="pages"]')!;
-      expect(pages.textContent).toBe("Check unread pages (cannot read yet)");
+      expect(pages.textContent).toBe("Check unread pages (not known yet)");
     },
   );
 
@@ -518,13 +534,13 @@ describe("unknown blocker counts never count as done", () => {
     expect(n.pagesKnown).toBe(false);
     expect(n.pageRecordMissing).toBe(true);
     const step = actionSteps(n).find((s) => s.id === "pages")!;
-    expect(step).toMatchObject({ count: null, done: false, enabled: true, label: "Check unread pages (cannot read yet)" });
+    expect(step).toMatchObject({ count: null, done: false, enabled: true, label: "Check unread pages (not known yet)" });
     expect(actionSteps(n).find((s) => s.id === "sign")?.enabled).toBe(false);
     renderAll(n, IDLE, noRecord, CLEAR_RUN);
     const bar = screen.getByTestId("ws-action-bar");
     const button = bar.querySelector<HTMLButtonElement>('[data-step="pages"]')!;
     expect(button.getAttribute("data-done")).toBe("false");
-    expect(button.textContent).toBe("Check unread pages (cannot read yet)");
+    expect(button.textContent).toBe("Check unread pages (not known yet)");
     expect(button.textContent).not.toContain("✓");
     expect(button.textContent).not.toContain("(0)");
     expect(bar.querySelector('[data-count="unreadPages"]')).toBeNull();
@@ -544,7 +560,7 @@ describe("unknown blocker counts never count as done", () => {
     const bar = screen.getByTestId("ws-action-bar");
     await userEvent.click(bar.querySelector<HTMLButtonElement>('[data-step="pages"]')!);
     const box = screen.getByTestId("ws-unread-pages");
-    expect(box).toHaveTextContent("The page checks cannot be read yet");
+    expect(box).toHaveTextContent("It is not known yet which pages were left unread");
     expect(box.textContent).not.toContain("undefined");
     expect(within(box).getByRole("button", { name: "Read these pages again" })).toBeEnabled();
   });
@@ -554,11 +570,11 @@ describe("unknown blocker counts never count as done", () => {
     expect(n.standardsKnown && n.pagesKnown).toBe(true);
     const steps = actionSteps(n);
     expect(steps.slice(0, 3).every((s) => s.done && !s.enabled && s.count === 0)).toBe(true);
-    expect(steps[3].enabled).toBe(true);
+    expect(steps.find((s) => s.id === "sign")?.enabled).toBe(true);
     renderAll(n, IDLE, CLEAR_GATE, CLEAR_RUN);
     const bar = screen.getByTestId("ws-action-bar");
     expect(within(bar).getAllByRole("button").map((b) => b.textContent)).toEqual([
-      "✓Upload missing standards (0)", "✓Check unread pages (0)", "✓Decide comments (0)", "Sign and export",
+      "✓Upload missing standards (0)", "✓Check unread pages (0)", "✓Decide comments (0)", "✓Final code recorded", "Sign and export",
     ]);
     expect(screen.queryByTestId("ws-sign-waits")).toBeNull();
     expect(screen.getByTestId("ws-verdict").textContent).toBe("5 comments, 2 need your judgement. Ready to sign.");

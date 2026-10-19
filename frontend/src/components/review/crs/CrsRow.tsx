@@ -28,6 +28,8 @@ export interface CrsRowProps {
   onEdit: (key: string, observation: string, requiredAction: string) => void;
   onRemove: (key: string, reason: RemoveReason) => void;
   onClear: (key: string) => void;
+  /** v2.1 round 2: a signed review: no Keep / Edit / Remove (absent = false). */
+  readOnly?: boolean;
 }
 
 const TIER_CLASS: Record<string, string> = {
@@ -69,7 +71,7 @@ export const CrsRow = memo(function CrsRow(props: CrsRowProps) {
       <td className="px-2 py-2 text-sm text-slateish-200">{row.pageOrSection}</td>
       <td className="px-2 py-2 text-sm text-slateish-100">{row.item}</td>
       <td className="px-2 py-2 text-sm text-slateish-300">{row.clauseAndStandard}</td>
-      {mode === "edit" ? (
+      {mode === "edit" && !props.readOnly ? (
         <EditCells row={row} words={words} onSave={(o, a) => { props.onEdit(row.key, o, a); onMode(row.key, null); }} onCancel={() => onMode(row.key, null)} />
       ) : (
         <>
@@ -79,7 +81,7 @@ export const CrsRow = memo(function CrsRow(props: CrsRowProps) {
       )}
       <td className="px-2 py-2 text-sm text-slateish-300" data-testid="row-status">{decisionWords(decision, row)}</td>
       <td className="px-2 py-2 text-xs">
-        {row.tier.tier !== "A" && mode !== "edit" && (
+        {row.tier.tier !== "A" && mode !== "edit" && !props.readOnly && (
           <Actions {...props} />
         )}
       </td>

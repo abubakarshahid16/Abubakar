@@ -8,9 +8,14 @@
  *      are untouched, so history and page marks still line up;
  *   2. a "What the review noted" block lists each code the row's findings
  *      carry, in plain words, the raw code folded under "Details".
- * Nothing here changes a stored value.
+ * Nothing here changes a stored value itself; the optional `decide` block
+ * (builder B's DecisionPanel: Keep / Edit wording / Remove) is shown first,
+ * above the plain words, so a comment is decided where its evidence is.
+ *
+ * W4: the panel sits in its own layer above the app's notices (the
+ * "Your review is ready" notice), so no notice covers it while it is open.
  */
-import { useMemo } from "react";
+import { type ReactNode, useMemo } from "react";
 
 import type { ReviewFinding } from "../../../types/api";
 import { CrsEvidenceDrawer, type CrsEvidenceDrawerProps } from "../crs/CrsEvidenceDrawer";
@@ -44,12 +49,20 @@ function rowCodes(row: CrsRow): FoundCode[] {
   return found.filter((c) => (seen.has(c.code) ? false : (seen.add(c.code), true)));
 }
 
-export function WorkspaceEvidence(props: CrsEvidenceDrawerProps) {
+export type WorkspaceEvidenceProps = CrsEvidenceDrawerProps & {
+  /** The decision buttons for the open comment (absent on a met row). */
+  decide?: ReactNode;
+};
+
+/** The panel's layer: above the app's notices (z-50). */
+export const EVIDENCE_LAYER = "relative z-[60]";
+
+export function WorkspaceEvidence({ decide, ...props }: WorkspaceEvidenceProps) {
   const { row } = props;
   const shown = useMemo(() => ({ ...row, findings: row.findings.map(plainFinding) }), [row]);
   const codes = useMemo(() => rowCodes(row), [row]);
   const h = "text-xs font-semibold uppercase tracking-wide text-slateish-400";
-  const extra = codes.length > 0 ? (
+  const plain = codes.length > 0 ? (
     <section aria-label="What the review noted" data-testid="ws-evidence-plain">
       <h3 className={h}>What the review noted</h3>
       <ul className="mt-1 space-y-1 text-sm text-slateish-200">
@@ -57,5 +70,10 @@ export function WorkspaceEvidence(props: CrsEvidenceDrawerProps) {
       </ul>
     </section>
   ) : null;
-  return <CrsEvidenceDrawer {...props} row={shown} extra={extra} />;
+  const extra = decide || plain ? <>{decide}{plain}</> : null;
+  return (
+    <div className={EVIDENCE_LAYER} data-testid="ws-evidence-layer">
+      <CrsEvidenceDrawer {...props} row={shown} extra={extra} />
+    </div>
+  );
 }

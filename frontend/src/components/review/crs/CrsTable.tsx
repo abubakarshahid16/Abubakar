@@ -16,6 +16,14 @@ import type { CrsDecisions } from "./useCrsDecisions";
 /** Rows drawn at first, and added per "Show more" press. */
 export const ROW_PAGE = 200;
 
+/** v2.1 (W1): each "Show" choice in plain words, shown under the choices
+ *  (the choices' own names stay as they are). */
+export const DEPTH_WORDS: Record<Depth, string> = {
+  critical: "only what needs your judgement and clear failures.",
+  standard: "every comment for the contractor.",
+  everything: "also what met the standard or does not apply.",
+};
+
 export interface CrsTableProps {
   rows: Row[];
   allRows: Row[];
@@ -36,6 +44,10 @@ export interface CrsTableProps {
   /** Workspace v2: the first column's heading. Absent = "Tier" (unchanged
    *  for the old sheet); the workspace passes a plain word. */
   tierHeader?: string;
+  /** v2.1 round 2: a signed review is a record, not a draft: no Keep /
+   *  Edit / Remove on any row and no key hint. Absent (false) on the old
+   *  sheet, which is unchanged. */
+  readOnly?: boolean;
 }
 
 export function CrsTable(props: CrsTableProps) {
@@ -60,7 +72,13 @@ export function CrsTable(props: CrsTableProps) {
             {d.label}
           </label>
         ))}
-        <span className="ml-auto text-xs text-slateish-500">Keys: J / K next and previous · E edit · R remove · Enter keep</span>
+        {!props.readOnly && (
+          <span className="ml-auto text-xs text-slateish-500">Keys: J / K next and previous · E edit · R remove · Enter keep</span>
+        )}
+        {/* v2.1 (W1): what each choice shows, said once in plain words. */}
+        <p className="basis-full text-xs text-slateish-400" data-testid="crs-depth-help">
+          {DEPTHS.map((d) => `${d.label}: ${DEPTH_WORDS[d.id]}`).join(" ")}
+        </p>
       </fieldset>
 
       <div className="overflow-x-auto rounded-[var(--radius-md)] border border-ink-700">
@@ -80,17 +98,18 @@ export function CrsTable(props: CrsTableProps) {
                 mode={mode?.key === row.key ? mode.kind : null}
                 onSelect={props.onSelect} onOpenEvidence={props.onOpenEvidence} onMode={props.onMode}
                 onKeep={decisions.keep} onEdit={decisions.edit} onRemove={decisions.remove} onClear={decisions.clear}
+                readOnly={props.readOnly}
               />
             ))}
             {rows.length === 0 && (
-              <tr><td colSpan={CRS_COLUMNS.length + 2} className="px-3 py-4 text-sm text-slateish-300">No row to show at this depth.</td></tr>
+              <tr><td colSpan={CRS_COLUMNS.length + 2} className="px-3 py-4 text-sm text-slateish-300">Nothing to show with this choice. Pick "Everything" to see all of it.</td></tr>
             )}
           </tbody>
         </table>
       </div>
       {visible.length < rows.length && (
         <p className="flex items-center gap-3 text-sm text-slateish-300" data-testid="crs-more">
-          Showing the first {visible.length.toLocaleString()} of {rows.length.toLocaleString()} rows at this depth.
+          Showing the first {visible.length.toLocaleString()} of {rows.length.toLocaleString()} lines in this list.
           <button type="button" onClick={() => setLimit({ depth, count: drawn + ROW_PAGE })}
             className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-1 text-xs text-slateish-100 hover:border-ink-500">
             Show {Math.min(ROW_PAGE, rows.length - visible.length).toLocaleString()} more
@@ -110,8 +129,8 @@ export function CrsTable(props: CrsTableProps) {
       )}
       {metShown && typeof props.clausesNotApplicable === "number" && props.clausesNotApplicable > 0 && (
         <p className="text-xs text-slateish-400">
-          {props.clausesNotApplicable.toLocaleString()} clauses of the standards were judged not applicable to this equipment
-          and were not compared; they are counted on the run, not listed here.
+          {props.clausesNotApplicable.toLocaleString()} requirements in the standards were judged not to apply to this equipment
+          and were not compared; they are counted for the whole review, not listed here.
         </p>
       )}
     </div>

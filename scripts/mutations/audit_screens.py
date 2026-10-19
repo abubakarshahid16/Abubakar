@@ -152,11 +152,11 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1519", phase=1519, runner="vitest",
              description="a 401 on the CRS workbook leaves the dead token in place",
              path=_REVIEW,
-             anchor="    if (!response.ok) {\n"
-                    "      signOutOn401(response.status);\n"
-                    "      let error: ApiError = {",
-             replacement="    if (!response.ok) {\n"
-                         "      let error: ApiError = {",
+             anchor="  if (!response.ok) {\n"
+                    "    signOutOn401(response.status);\n"
+                    "    let error: ApiError = {",
+             replacement="  if (!response.ok) {\n"
+                         "    let error: ApiError = {",
              target=_T_CLIENT, keyword="CRS workbook is refused",
              tags=("auth",)),
 )

@@ -10,6 +10,7 @@ import type {
   ReviewRunHeldForConfirmation, ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary,
 } from "../../../types/api";
 import { NavLink } from "../../NavLink";
+import { selectionMethodWords } from "../panels/selectionMethodWords";
 import { NOT_RECORDED } from "./howData";
 import { Fact, FactList, HowSection, type HowSectionMeta } from "./HowPrimitives";
 
@@ -47,11 +48,14 @@ function StandardRow({ item, run }: { item: ReviewRunStandard; run: ReviewRunSum
     <li className="py-1.5 text-sm">
       <span className="font-medium text-slateish-100">{item.filename ?? item.standard_document_id}</span>
       <span className="ml-2 text-xs text-slateish-400">
-        {item.selection_method === "referenced" ? "cited by the document" : `selected by: ${item.selection_method ?? "unrecorded"}`}
+        {/* v2.1 (T2): plain words, the stored code in the tooltip. */}
+        <span title={item.selection_method ?? undefined} data-testid="how-standard-chosen-by">
+          {selectionMethodWords(item.selection_method).words}
+        </span>
       </span>
       <p className="text-xs text-slateish-400">
         Clauses contributed: {counts ?? NOT_RECORDED}
-        {counts ? "" : " (the run stores no per-standard clause count)"}
+        {counts ? "" : " (this review stores no count per standard)"}
       </p>
     </li>
   );
@@ -89,7 +93,7 @@ export function StandardsSection({ run, record, error }: {
           </ul>
         </div>
       )}
-      {included && included.length === 0 && <p className="text-sm text-slateish-400">No standard was selected for this run.</p>}
+      {included && included.length === 0 && <p className="text-sm text-slateish-400">No standard was selected for this review.</p>}
       {record?.held && (
         // #620: the run's own sentence, with its boundary; never a bare count.
         <p data-testid="standards-held-for-confirmation" className="text-sm text-warn-500">{record.held.sentence}</p>
