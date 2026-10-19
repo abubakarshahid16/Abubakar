@@ -1,6 +1,6 @@
 """Order 139 part 2 (spec a, c, d): ONE COMMENT PER DATASHEET FIELD, one
 grouping for the screen and the file. `crs_mapping.py` is in the danger zone
-(rule 6). Ids M139-NN / phase 139 are placeholders until the PR exists."""
+(rule 6). PR #1179."""
 from __future__ import annotations
 
 from ._base import APP, Mutation
@@ -12,7 +12,7 @@ _FIELD_BRANCH = '    if label:\n        return ("field", bucket, label)\n'
 
 
 def _m(n: str, description: str, anchor: str, replacement: str, keyword: str) -> Mutation:
-    return Mutation(id=f"M139-{n}", phase=139, description=description, path=_M,
+    return Mutation(id=f"M1179-{n}", phase=1179, description=description, path=_M,
                     anchor=anchor, replacement=replacement, target=_T, keyword=keyword,
                     tags=_TAGS)
 
