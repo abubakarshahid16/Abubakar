@@ -2486,6 +2486,11 @@ class CrsPreviewRow(BaseModel):
     #: The rank's word as THIS copy prints it in the "Priority" column ("" when
     #: the row has no rank - never a guessed word).
     priority_label: str = ""
+    #: Order 139 part 2 (spec e): the caller sent this row with NO comment text;
+    #: the internal copy prints `crs_export.EMPTY_COMMENT_TEXT` in COMPANY
+    #: Comments instead of an empty cell. Never true on the issue copy, which
+    #: leaves such a row out (`CrsPreview.rows_withheld_no_text`).
+    comment_missing: bool = False
     #: Owner decision 2026-09-27 (order 2f): an UNCONFIRMED AI engineering
     #: check item's text, printed in the last column "AI Review Comments" of
     #: the internal review copy, with `comment` left empty. Empty on every
@@ -2611,6 +2616,10 @@ class CrsPreview(BaseModel):
     #: B5: the standards the review applied and why, the ones considered and not applied,
     #: and cited ones not held (MISSING_LOCALLY): the "Applicable standards" sheet.
     applicable_standards: list[CrsStandardRow] = []
+    #: Order 139 part 2 (spec e): rows left off THIS copy because they had no
+    #: comment text - the issue copy only (0 when none; always 0 on the
+    #: internal copy, which prints them with a sentence saying so).
+    rows_withheld_no_text: int = 0
 
 
 class ReviewRunStandard(BaseModel):

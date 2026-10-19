@@ -23,14 +23,18 @@ ROD = {"compliance_status": "NOT_IN_DOCUMENT_SCOPE",
 
 def test_breaches_come_first_then_missing_values_then_questions_never_a_pass():
     """CRS quick wins: NC, then MISSING_INFORMATION (now itemised), then the
-    engineer's questions; a COMPLIANT result is never a row."""
+    engineer's questions; a COMPLIANT result is never a row.
+    Order 139 part 2: by RANK - MI here is a value NOT FOUND (no field
+    paired), which ranks with the engineer's questions (3), and inside a rank
+    the row with a datasheet page comes first."""
     rows = build_crs_rows([MI, NER, OK, NC], [], "sheet.pdf")
-    assert [r["row_kind"] for r in rows] == [
-        ROW_KIND_NON_COMPLIANT, ROW_KIND_MISSING_INFORMATION, ROW_KIND_NEEDS_ENGINEER_REVIEW]
+    assert [r["row_kind"] for r in rows] == [  # order 139 part 2
+        ROW_KIND_NON_COMPLIANT, ROW_KIND_NEEDS_ENGINEER_REVIEW, ROW_KIND_MISSING_INFORMATION]
+    assert [r["priority"] for r in rows] == [1, 3, 3]  # order 139 part 2
     assert "8 g/L" in rows[0]["comment"]
     # the question's reason, in words, WITHOUT its machine code
-    assert "no comparison made" in rows[2]["comment"]
-    assert "table_row" not in rows[2]["comment"]
+    assert "no comparison made" in rows[1]["comment"]  # order 139 part 2
+    assert "table_row" not in rows[1]["comment"]  # order 139 part 2
 
 
 BLANK = {"compliance_status": "MISSING_INFORMATION", "id": "b1",
@@ -98,10 +102,10 @@ def test_the_three_and_a_half_buckets_are_tagged_with_distinct_row_kinds():
     kinds = [r["row_kind"] for r in rows]
     # 2f: the requires-another-document and missing-standard rows are Review
     # notes now, not rows of this sheet.
-    assert kinds == [
+    assert sorted(kinds) == sorted([  # order 139 part 2: the sheet is in rank order now
         ROW_KIND_NON_COMPLIANT, ROW_KIND_MISSING_INFORMATION,
         ROW_KIND_NEEDS_ENGINEER_REVIEW,
-    ]
+    ])
     assert len(set(kinds)) == len(kinds), "two buckets share one row_kind"
 
 

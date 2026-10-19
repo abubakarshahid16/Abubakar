@@ -58,6 +58,11 @@ export const CrsRow = memo(function CrsRow(props: CrsRowProps) {
     >
       <td className={`px-2 py-2 text-xs ${TIER_CLASS[row.tier.tier]}`}>
         {tierWord}
+        {/* Order 139 part 2: the row's rank, the file's Priority column word
+            (server-sent; nothing when the server sent none). */}
+        {row.tier.priorityLabel && (
+          <span className="block text-xs text-slateish-300" data-testid="row-priority">{row.tier.priorityLabel}</span>
+        )}
         {spotCheck && <span className="block text-xs text-slateish-500">sample to check</span>}
         {row.tier.tier === "C" && !opened && <span className="block text-xs text-slateish-400">not opened yet</span>}
       </td>

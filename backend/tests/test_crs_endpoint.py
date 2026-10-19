@@ -525,13 +525,13 @@ def test_the_preview_carries_the_seven_columns_the_template_defines():
     # adds "AI Review Comments" LAST (owner decision 2026-09-27), and the
     # copy issued to the contractor is the template exactly.
     # CRS quick wins: "Standard Reference" follows the seven, in both copies.
-    assert body["columns"] == [*HEADERS, "Standard Reference", "Severity", "AI Review Comments",
-                               "Reasoning (internal)",  # #725 F7: Severity after Standard Reference; R30
+    assert body["columns"] == [*HEADERS, "Standard Reference", "Priority", "AI Review Comments",  # order 139 part 2
+                               "Reasoning (internal)",  # #725 F7: Severity (now Priority) after Standard Reference; R30
                                "Rule trust (internal)"]  # rule_trust (#947): last, internal only
     assert body["columns"][5:7] == ["Contractor's Response", "Final Resolution"]
     issued = _preview(_client(doc).get(f"/api/reviews/runs/{run_id}/crs/preview",
                                        params={"copy": "issue"}))
-    assert issued["columns"] == [*HEADERS, "Standard Reference", "Severity"]
+    assert issued["columns"] == [*HEADERS, "Standard Reference", "Priority"]  # order 139 part 2
 
 
 def test_the_contractor_columns_come_back_empty_rather_than_missing():
@@ -605,7 +605,7 @@ def test_the_preview_is_the_workbook_row_for_row(monkeypatch):
             row["comment"], row["comment_by"], row["contractor_response"],
             row["final_resolution"]], f"row {row['item_no']} disagrees"
         assert _cell(ws, r, 8) == row["standard_reference"]
-        assert _cell(ws, r, 9) == row["severity"]  # #725 F7
+        assert _cell(ws, r, 9) == row["priority_label"]  # order 139 part 2 (was #725 F7's severity)
         assert _cell(ws, r, 10) == row["ai_review_comment"]
         assert _cell(ws, r, 11) == row["reasoning"]  # R30
         assert _cell(ws, r, 12) == row["rule_trust"]  # rule_trust (#947)
@@ -830,10 +830,10 @@ def test_the_additions_left_the_seven_template_columns_in_place():
     ws = load_workbook(io.BytesIO(workbook)).active
     internal = _sheet(_client(doc).get(f"/api/reviews/runs/{run_id}/crs"))
     assert [internal.cell(row=COLUMN_HEADER_ROW, column=c).value
-            for c in range(1, 11)] == [*HEADERS, "Standard Reference", "Severity", "AI Review Comments"]
+            for c in range(1, 11)] == [*HEADERS, "Standard Reference", "Priority", "AI Review Comments"]  # order 139 part 2
 
     assert [ws.cell(row=COLUMN_HEADER_ROW, column=c).value
-            for c in range(1, 10)] == [*HEADERS, "Standard Reference", "Severity"]
+            for c in range(1, 10)] == [*HEADERS, "Standard Reference", "Priority"]  # order 139 part 2
     assert ws.max_column == 9
 
 

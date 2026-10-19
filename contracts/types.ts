@@ -476,6 +476,9 @@ export interface CrsPreviewRow {
   /** Order 139 part 2: the rank's word as this copy prints it in the
    *  "Priority" column; "" when the row has no rank (never a guess). */
   priority_label?: string;
+  /** Order 139 part 2: the row reached the sheet with no comment text; the
+   *  internal copy prints a sentence saying so in COMPANY Comments. */
+  comment_missing?: boolean;
   /** Owner order 2f: an unconfirmed AI engineering check item's text, shown
    *  in the "AI Review Comments" column of the internal copy only. */
   ai_review_comment?: string;
@@ -595,6 +598,9 @@ export interface CrsPreview {
   crs_copy?: "internal" | "issue";
   /** 2f: the "Review notes" sheet; empty in the contractor's copy. */
   review_notes?: CrsReviewNote[];
+  /** Order 139 part 2: rows left off this copy because they had no comment
+   *  text (issue copy only; 0 when none). */
+  rows_withheld_no_text?: number;
 }
 
 /** Order 133: a run's standards list (`GET /api/reviews/runs/{id}/standards`). GENERATED from `backend/app/schemas.py` (order 133): edit the backend

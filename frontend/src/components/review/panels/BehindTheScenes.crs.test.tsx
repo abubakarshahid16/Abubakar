@@ -133,7 +133,8 @@ describe("the CRS preview", () => {
   it("shows each row's reasoning when the internal copy carries the column (R30)", async () => {
     const base = sheet();
     previewCrs.mockResolvedValue({ ok: true, data: sheet({
-      columns: [...base.columns, "Standard Reference", "Severity", "AI Review Comments", "Reasoning (internal)"],
+      // order 139 part 2: the server prints "Priority" where it printed "Severity"
+      columns: [...base.columns, "Standard Reference", "Priority", "AI Review Comments", "Reasoning (internal)"],
       rows: base.rows.map((r, i) => ({ ...r, reasoning: i === 0
         ? "Read: Design pressure = 5,000 kPa (p.4). Clause: SAES-D-001 cl. 6.2.2. Result: does not meet." : "" })),
     }) });
@@ -146,7 +147,8 @@ describe("the CRS preview", () => {
   it("gives the rule-trust column a cell on every row, so the columns line up (#947)", async () => {
     const base = sheet();
     previewCrs.mockResolvedValue({ ok: true, data: sheet({
-      columns: [...base.columns, "Standard Reference", "Severity", "AI Review Comments",
+      // order 139 part 2: the server prints "Priority" where it printed "Severity"
+      columns: [...base.columns, "Standard Reference", "Priority", "AI Review Comments",
                 "Reasoning (internal)", "Rule trust (internal)"],
       rows: base.rows.map((r, i) => ({ ...r, rule_trust: i === 0 ? "automatic rule not yet proven" : "" })),
     }) });

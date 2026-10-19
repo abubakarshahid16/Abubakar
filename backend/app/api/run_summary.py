@@ -27,6 +27,7 @@ from .. import ai_engineering_check as ai_engineering_check_mod
 from .. import ai_numbers as ai_numbers_mod
 from .. import clause_coverage as clause_coverage_mod
 from .. import comparison as comparison_mod
+from .. import crs_mapping as crs_mapping_mod
 from .. import crs_wording as crs_wording_mod
 from .. import page_ledger as page_ledger_mod
 from .. import requirement_split as requirement_split_mod
@@ -268,6 +269,7 @@ def review_run_summary(
             detail=errors.safe_error(errors.NOT_FOUND, "no review run with that id"),
         )
     tiers, outcome, split, timed_out = _tiers(review_run_id, allowed)
+    _attach_crs_priority(tiers["rows"], review_run_id, allowed)
     steps = (
         ai_numbers_mod.for_run(
             outcome,
@@ -371,6 +373,35 @@ def review_run_detail(
     from .. import main as main_mod  # main imports this module
 
     return main_mod._run_summary(run, scope)
+
+
+def crs_priorities(findings: list[dict]) -> dict[str, int]:
+    """Order 139 part 2 (spec f): {finding id: the rank of the CRS row it
+    lands on}, from `crs_mapping.build_crs_rows` - the function the file is
+    built from, so the screen's rank word is the Priority column's. A finding
+    that is no row of the sheet (met, not applicable, a page note, rejected,
+    a datasheet check another row already names) is absent: no rank, never a
+    guessed one."""
+    out: dict[str, int] = {}
+    for row in crs_mapping_mod.build_crs_rows(findings, [], ""):
+        ids = row.get("finding_ids") or ([row["finding_id"]] if row.get("finding_id") else [])
+        for finding_id in ids:
+            out.setdefault(finding_id, row["priority"])
+    return out
+
+
+def _attach_crs_priority(rows: list[dict], review_run_id: str, allowed) -> None:
+    """`crs_priority` / `crs_priority_label` on each tier row whose finding is
+    a row of the CRS. `/summary` only: `/counts` (up to 200 runs) never pays
+    for building the sheet."""
+    findings = comparison_mod.list_findings(review_run_id, allowed_document_ids=allowed)
+    ranks = crs_priorities(findings)
+    for row in rows:
+        rank = ranks.get(row.get("finding_id"))
+        if rank is None:
+            continue
+        row["crs_priority"] = rank
+        row["crs_priority_label"] = crs_mapping_mod.priority_word(rank) or None
 
 
 def _facts(

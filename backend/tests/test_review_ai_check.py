@@ -372,7 +372,7 @@ def test_an_unconfirmed_item_is_only_in_the_ai_column_of_the_internal_copy(world
 
     view = _preview(run)
     # CRS quick wins: "Standard Reference" follows the seven; AI stays last.
-    assert view["columns"] == [*crs_export.HEADERS, "Standard Reference", "Severity", "AI Review Comments",
+    assert view["columns"] == [*crs_export.HEADERS, "Standard Reference", "Priority", "AI Review Comments",  # order 139 part 2
                                crs_export.REASONING_COLUMN,  # R30: reasoning, internal only
                                crs_export.TRUST_COLUMN]      # #947: rule trust last, internal only
     [row] = [r for r in view["rows"] if TEXT in r["ai_review_comment"]]
@@ -420,7 +420,7 @@ def test_the_issue_copy_carries_no_ai_column_and_no_unconfirmed_text(world):
                      " WHERE id = ?", (run,))
 
     view = _preview(run, "issue")
-    assert view["columns"] == [*crs_export.HEADERS, "Standard Reference", "Severity"]
+    assert view["columns"] == [*crs_export.HEADERS, "Standard Reference", "Priority"]  # order 139 part 2
     assert TEXT not in json.dumps(view)
     assert not [r for r in view["rows"] if r["row_kind"] == "ai_engineering_check"], \
         "an unconfirmed item's row was issued, emptied"
