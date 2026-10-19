@@ -47,7 +47,7 @@ from pathlib import Path
 from contextvars import ContextVar
 
 from . import (blank_markers, claims, datasheet_inputs, errors, numparse, orphan_guard, page_ledger,
-               provenance, row_noise, standard_ids, submittal_review, tables)
+               page_reason_words, provenance, row_noise, standard_ids, submittal_review, tables)
 from .config import settings
 from .db import connect
 
@@ -2819,16 +2819,9 @@ def _sum_drops(readings: dict) -> dict[str, int]:
 
 
 def _vision_ledger_note(reading, kept_here: int, unavailable: str | None) -> str:
-    """One clause for the page ledger: what the vision reader did here."""
-    if reading is None:
-        return f"vision reader not run ({unavailable or 'page could not be rendered'})"
-    if reading.refused and not reading.asked:
-        return f"vision reader refused ({reading.refused})"
-    kind = f"page kind '{reading.page_kind}' (the model's word, unverified)" if reading.page_kind \
-        else "page kind not given"
-    return (f"vision reader: {kind}; {reading.proposed} field(s) proposed, "
-            f"{len(reading.kept)} proved against the page, {kept_here} recorded, "
-            "not counted as the page read into fields")
+    """One sentence for the page ledger, in plain words: what the vision
+    reader did here (`page_reason_words.vision_note`)."""
+    return page_reason_words.vision_note(reading, kept_here, unavailable)
 
 
 def geometry_unit_columns(rows: list[dict]) -> set[tuple]:
@@ -3054,21 +3047,15 @@ def _unparsed_reason(pairs: list, dropped: dict[str, int]) -> str:
     reader looking for a parsing problem that was not there.
 
     So the sentence is only used when it is TRUE, and otherwise the page says
-    what it recovered and where it went.
+    what it recovered and where it went. Order 124 item 9: in PLAIN WORDS
+    (`page_reason_words`) - the counts per rule are the entry's "detail".
     """
-    if not pairs:
-        return "no label-value pairs recovered from this page"
-    counts = ", ".join(f"{n} by {reason}"
-                       for reason, n in sorted(dropped.items(),
-                                               key=lambda kv: (-kv[1], kv[0]))
-                       if n)
-    return (f"{len(pairs)} label-value pairs were recovered and none became a "
-            f"fact ({counts or 'no reason recorded'})")
+    return page_reason_words.unparsed_reason(len(pairs), dropped)
 
 
 def _ai_page_note(ai_run: dict, page: int) -> str:
     """What the AI reader did on a page that ended with no fact."""
-    return ai_run["reasons"].get(page) or "read the page; no reading was proved and kept"
+    return page_reason_words.ai_note(ai_run["reasons"].get(page))
 
 
 def _ai_gate(fact: dict, furniture: set[str]) -> str | None:
@@ -4132,14 +4119,14 @@ def _extract_facts(
             page_read = page_written + page_geometry + page_vision + page_ai
             if page_read == 0:
                 reason = _unparsed_reason(pairs, dropped)
-                if ai_run is not None:
-                    reason = f"{reason}; AI reader: {_ai_page_note(ai_run, page)}"
+                reason += f" {_ai_page_note(ai_run, page)}" if ai_run is not None else ""
                 if geometry_on:
                     # B4 item 1: what the vision reader did with this page.
-                    reason = (f"{reason}; vision {vision_routing.get(page, 'not decided')}"
+                    reason = (f"{reason} {page_reason_words.vision_route_note(vision_routing.get(page))}"
                               if vision_routing.get(page) != VISION_ROUTED else
-                              f"{reason}; {_vision_ledger_note(reading, page_vision, vision_unavailable)}")
-                unparsed.append({"page": page, "reason": reason})
+                              f"{reason} {_vision_ledger_note(reading, page_vision, vision_unavailable)}")
+                unparsed.append({"page": page, "reason": reason,
+                                 "detail": page_reason_words.unparsed_detail(len(pairs), dropped)})
                 outcomes[page] = ("no_facts", 0, reason)
             elif page_written == 0:
                 # Read, but only by the page reader: say so, and what the
