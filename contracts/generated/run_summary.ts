@@ -43,6 +43,8 @@ export interface RunSummaryTierRow {
   crs_order?: number | null;
   /** order 139 part 2: the row's first line as the file prints it ("Contractor to provide Corrosion allowance."), on a row listing two or more clauses; null on a row of one clause, whose words are the finding's own */
   crs_action?: string | null;
+  /** order 139 part 2: true on a standard's engineer-to-check finding the CRS file put on NO row - it is counted in the file's Review notes (an unread page, a value only the page reader looked for, a requirement with no datasheet field), the engineer's internal list, so the screen shows it as a note, never as a comment to decide. Null otherwise. */
+  crs_note?: boolean | null;
 }
 
 export interface RunSummaryStandardClauses {

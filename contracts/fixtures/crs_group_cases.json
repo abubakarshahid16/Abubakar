@@ -1,5 +1,5 @@
 {
-  "_about": "Order 139 part 2 (docs/order-139-part2-spec.md): the CRS grouping and order cases BOTH sides must pass. Backend: crs_mapping.crs_groups over each case's findings (base_finding with the case's finding laid over it; a null overrides) must give exactly `expected_rows`, in order: each row's finding ids (compared as a SET - the leader is the server's), its priority and word, its action line (null on a row of one clause) and its clause count (distinct standard_document_id + standard_clause). Every id in `not_on_sheet` is in no row. Frontend: crs/crsGroups.parity.test.ts turns `expected_rows` into the run summary's per-finding fields (crs_group = 'row-<index>', crs_order = index, crs_priority, crs_priority_label, crs_action) and buildCrsRows must show one row per expected row, with exactly those findings, in that order, and none of `not_on_sheet` in a grouped row. The fields under base_finding are the ones the server's grouping reads after comparison.attach_crs_context (crs_field_label, requirement_limit). Invented data only - no client document, no real standard text.",
+  "_about": "Order 139 part 2 (docs/order-139-part2-spec.md): the CRS grouping and order cases BOTH sides must pass. Backend: crs_mapping.crs_groups over each case's findings (base_finding with the case's finding laid over it; a null overrides) must give exactly `expected_rows`, in order: each row's finding ids (compared as a SET - the leader is the server's), its priority and word, its action line (null on a row of one clause) and its clause count (distinct standard_document_id + standard_clause). Every id in `not_on_sheet` is in no row. Frontend: crs/crsGroups.parity.test.ts turns `expected_rows` into the run summary's per-finding fields (crs_group = 'row-<index>', crs_order = index, crs_priority, crs_priority_label, crs_action) and buildCrsRows must show one row per expected row, with exactly those findings, in that order, and none of `not_on_sheet` in a grouped row. `review_notes` (absent = none): the findings the file lists in its Review notes instead of on a row - the summary marks them `crs_note`, and the screen shows them as a note, never as a row to decide. The fields under base_finding are the ones the server's grouping reads after comparison.attach_crs_context (crs_field_label, requirement_limit). Invented data only - no client document, no real standard text.",
   "base_finding": {
     "id": "x",
     "compliance_status": "MISSING_INFORMATION",
@@ -130,6 +130,18 @@
         {"finding_ids": ["i3"], "priority": 3, "priority_label": "Engineer to check", "action": null, "clause_count": 1}
       ],
       "not_on_sheet": []
+    },
+    {
+      "name": "an engineer-to-check question the file puts in its Review notes is a note, not a row (covers #1177's screen gap)",
+      "findings": [
+        {"id": "j1", "compliance_status": "NEEDS_ENGINEER_REVIEW", "standard_clause": "13.1", "requirement_source_text": "13.1 Bearing type shall be stated.", "contractor_page": 6, "crs_is_blank": null, "reason_code": "UNREAD_PAGES", "ai_rationale": "UNREAD_PAGES: the value may be on page 6, which was not read into fields."},
+        {"id": "j2", "standard_clause": "13.2", "requirement_source_text": "13.2 Lubrication shall be stated.", "crs_field_label": "Lubrication", "fact_id": "fact-12", "contractor_page": 2}
+      ],
+      "expected_rows": [
+        {"finding_ids": ["j2"], "priority": 2, "priority_label": "Missing value", "action": null, "clause_count": 1}
+      ],
+      "not_on_sheet": ["j1"],
+      "review_notes": ["j1"]
     }
   ]
 }

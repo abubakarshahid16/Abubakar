@@ -2608,6 +2608,51 @@ def _prior_rejections(submittal_id: str, allowed: frozenset[str]
     return out
 
 
+#: Order 139 part 2 (spec d): the last line of a field row whose clauses an
+#: engineer had already confirmed as comments of their own.
+REPLACES_LINE = "Replaces earlier {word} {refs} (now one comment per field)."
+
+
+def _replaced_numbers(crs_scope: str, rows: list[dict]) -> None:
+    """ORDER 139 PART 2 (spec d): a FIELD ROW (one comment per datasheet
+    field) stands on clauses that were comments of their own before. READ
+    ONLY; marks the rows.
+
+      * Every ISSUED, not withdrawn number of one of its clauses is listed:
+        `replaces_refs`, and a last line of the comment (both copies). The
+        number an engineer confirmed is never silently dropped - it stays
+        Open in its table with its replies, and the reviewer closes it.
+        A machine draft's number (not issued) is not printed again.
+      * The row is the engineer's when EVERY clause was confirmed before
+        (each holds an issued number); some but not all leaves it open, and
+        the line says what was confirmed (#986: decided only when all its
+        findings are).
+
+    A row keyed on its own leader's clause (every row that is not a field
+    row) has nothing to replace."""
+    wanted = {k for row in rows for k in row.get("member_keys") or []
+              if row.get("comment_key") not in (row.get("member_keys") or [])}
+    if not wanted:
+        return
+    records = crs_numbers_mod.lookup(crs_scope, sorted(wanted))
+    for row in rows:
+        members = row.get("member_keys") or []
+        if not members or row.get("comment_key") in members:
+            continue
+        issued = [records[k] for k in members if k in records
+                  and records[k].get("issued", 1)
+                  and records[k].get("status") != crs_numbers_mod.WITHDRAWN]
+        if not issued:
+            continue
+        refs = [r["ref"] for r in sorted(issued, key=lambda r: r["seq"])]
+        row["replaces_refs"] = refs
+        line = REPLACES_LINE.format(word="comment" if len(refs) == 1 else "comments",
+                                    refs=", ".join(refs))
+        row["comment"] = "\n".join(p for p in (row.get("comment") or "", line) if p)
+        if len(issued) == len(members):
+            row["engineer_confirmed"] = True
+
+
 def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "internal"
                  ) -> tuple[list[dict], dict, str, str]:
     """One run's CRS rows and meta, with the scope question asked once.
@@ -2716,12 +2761,19 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     crs_scope, _crs_label = _crs_scope_of(submittal_id)
     crs_keys = crs_numbers_mod.row_keys(rows)
     numbered = crs_numbers_mod.lookup(crs_scope, crs_keys)
+    # ORDER 139 PART 2 (spec d): a field row stands on many clauses, and each
+    # clause's comment had its own key (and maybe its own number) before
+    # rows were one per field. Those MEMBER keys count as present on this
+    # sheet: an Open per-clause comment now inside a field row is not carried
+    # forward beside it as a second row, and is never withdrawn while a row
+    # still stands on it.
+    member_keys = {k for row in rows for k in row.get("member_keys") or []}
     # A REJECTED COMMENT IS NEVER ISSUED (audit 2026-09-30). Its key is not a
     # row of this sheet, so the carry-forward below printed it as "carried
     # forward from an earlier review". Its keys go to `_mint_crs_numbers`
     # (the write that follows every rejection), which withdraws the number.
     meta_rejected_keys = sorted(
-        crs_mapping_mod.rejected_comment_keys(findings) - set(crs_keys))
+        crs_mapping_mod.rejected_comment_keys(findings) - set(crs_keys) - member_keys)
     for row, key in zip(rows, crs_keys):
         row["crs_row_key"] = key
         if key in numbered and numbered[key].get("status") == crs_numbers_mod.WITHDRAWN:
@@ -2745,6 +2797,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
             # states - so the same comment raised again by a re-run or on a
             # resubmittal is the one already confirmed, and is issued as such.
             row["engineer_confirmed"] = True
+    _replaced_numbers(crs_scope, rows)
     crs_issue_mod.apply_row_decisions(review_run_id, rows)  # #986: rows with no finding
     # A DRAFT THE ENGINEER ALREADY REJECTED SAYS SO (audit leftover
     # 2026-09-30). A new run of the same submittal raises the same comment
@@ -2752,7 +2805,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     # the engineer is never asked twice blind: its byline names who rejected
     # it and when, from the rejection on record. Never on a confirmed row.
     rejections = _prior_rejections(submittal_id, allowed)
-    carried = crs_numbers_mod.open_elsewhere(crs_scope, set(crs_keys))
+    carried = crs_numbers_mod.open_elsewhere(crs_scope, set(crs_keys) | member_keys)
     people = _display_names(
         {by for by, _at in rejections.values() if by}
         | {who for who in (crs_mapping_mod.byline_person(r.get("comment_by"))

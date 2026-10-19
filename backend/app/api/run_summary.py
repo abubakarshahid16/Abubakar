@@ -9,6 +9,7 @@ of many runs, from the same helper as the summary's.
 
 from __future__ import annotations
 
+import logging
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -27,6 +28,7 @@ from .. import ai_engineering_check as ai_engineering_check_mod
 from .. import ai_numbers as ai_numbers_mod
 from .. import clause_coverage as clause_coverage_mod
 from .. import comparison as comparison_mod
+from .. import crs_mapping as crs_mapping_mod
 from .. import crs_wording as crs_wording_mod
 from .. import page_ledger as page_ledger_mod
 from .. import requirement_split as requirement_split_mod
@@ -116,6 +118,12 @@ class TierRow(BaseModel):
     #: to provide Corrosion allowance."), on a row listing two or more clauses;
     #: null on a row of one clause, whose words are the finding's own
     crs_action: str | None = None
+    #: order 139 part 2: true on a standard's engineer-to-check finding the
+    #: CRS file put on NO row - it is counted in the file's Review notes (an
+    #: unread page, a value only the page reader looked for, a requirement
+    #: with no datasheet field), the engineer's internal list, so the screen
+    #: shows it as a note, never as a comment to decide. Null otherwise.
+    crs_note: bool | None = None
 
 
 class StandardClauses(BaseModel):
@@ -268,6 +276,13 @@ def review_run_summary(
             detail=errors.safe_error(errors.NOT_FOUND, "no review run with that id"),
         )
     tiers, outcome, split, timed_out = _tiers(review_run_id, allowed)
+    # Order 139 part 2: the CRS row each finding lands on, its place in the
+    # sheet's order and its action line - computed HERE only, never in
+    # `_tiers` (`/counts` asks for up to 200 runs and needs none of it).
+    grouping = crs_fields(review_run_id, allowed)
+    if grouping is not None:
+        tiers = {**tiers, "rows": [{**row, **grouping.get(row["finding_id"], {})}
+                                   for row in tiers["rows"]]}
     steps = (
         ai_numbers_mod.for_run(
             outcome,
@@ -284,6 +299,7 @@ def review_run_summary(
         "status": run.get("status") or "pending",
         "boundary": BOUNDARY,
         **tiers,
+        "crs_grouping": grouping is not None,
         "how_reviewed": {
             "requirement_split": split,
             "page_coverage": outcome.get("page_coverage"),
@@ -371,6 +387,55 @@ def review_run_detail(
     from .. import main as main_mod  # main imports this module
 
     return main_mod._run_summary(run, scope)
+
+
+def crs_row_fields(rows: list[dict], findings: list[dict]) -> dict[str, dict]:
+    """{finding id: {crs_group, crs_order, crs_action}} from the CRS rows
+    `crs_mapping.build_crs_rows` built: the group key of the row the finding
+    lands on, the row's place (0 first) among the sheet's FINDING rows in
+    the sheet's own order, and its action line. The rows are the file's, so
+    the screen groups and orders exactly as the file does (spec b).
+
+    A standard's NEEDS_ENGINEER_REVIEW finding that is on NO row went to the
+    file's Review notes instead (unread page, page reader only, no datasheet
+    field): {crs_note: True}. Read from the rows the file actually built,
+    never from a second copy of the rules that decide it, so it stays true
+    whichever rule moves a question into the notes. Any other finding on no
+    row (met, not applicable, rejected) is absent."""
+    out: dict[str, dict] = {}
+    order = 0
+    for row in rows:
+        group = row.get("crs_group")
+        if not group:
+            continue  # a row with no finding (standards check, carried forward)
+        ids = row.get("finding_ids") or [row.get("finding_id")]
+        for finding_id in ids:
+            if finding_id:
+                out.setdefault(finding_id, {"crs_group": group, "crs_order": order,
+                                            "crs_action": row.get("crs_action")})
+        order += 1
+    for f in findings:
+        if (f.get("id") and f["id"] not in out and not f.get("origin")
+                and f.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"
+                and f.get("approval_status") != "rejected"):
+            out[f["id"]] = {"crs_note": True}
+    return out
+
+
+def crs_fields(review_run_id: str, allowed) -> dict[str, dict] | None:
+    """The run's findings through the ONE grouping the CRS file uses, over
+    the same findings and context `main._crs_content` reads. None when it
+    could not be computed (logged with the run id only): the summary then
+    says `crs_grouping: false` and the screen shows one row per finding and
+    says so - never a grouping of its own."""
+    try:
+        findings = comparison_mod.list_findings(review_run_id, allowed_document_ids=allowed)
+        comparison_mod.attach_crs_context(findings)
+        return crs_row_fields(crs_mapping_mod.build_crs_rows(findings, [], ""), findings)
+    except Exception:  # the tiers still answer; the screen says grouping is missing
+        logging.getLogger(__name__).warning(
+            "run summary: CRS grouping for run %s not computed", review_run_id, exc_info=True)
+        return None
 
 
 def _facts(
