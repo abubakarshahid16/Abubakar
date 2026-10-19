@@ -399,7 +399,8 @@ def _evaluate_numeric(condition: str, facts: list[dict]) -> dict:
             continue
         fact_unit = str(fact.get("raw_unit") or fact.get("unit") or "")
         observed = claims.normalise(str(fact.get("raw_value") or ""), fact_unit)
-        if observed.normalized_value is None and not claims.is_temperature_scale(fact_unit):
+        readable = observed.normalized_value is not None
+        if not readable and not claims.is_temperature_scale(fact_unit):
             continue
         if _low_trust(fact):
             return _result(
@@ -410,13 +411,16 @@ def _evaluate_numeric(condition: str, facts: list[dict]) -> dict:
         # against a temperature is undecidable, never a pass. Two units of one
         # quantity (°F against °C) are converted there (order 141 B).
         crossed = claims.compare_across_units(observed, limit)
-        verdict = crossed.verdict if crossed is not None else claims._compatible(observed, limit)
+        if crossed is not None:
+            verdict = crossed.verdict
+        else:
+            verdict = claims._compatible(observed, limit)
         if verdict is None:
-            return _result(
-                UNKNOWN, SHAPE_NUMERIC, condition,
-                (crossed.obstacle if crossed is not None and crossed.obstacle else
-                 f"{fact.get('field_name')!r} and the threshold cannot be "
-                 f"compared; no conversion is guessed"))
+            why = (crossed.obstacle if crossed is not None else None) or (
+                f"{fact.get('field_name')!r} and the threshold cannot be "
+                f"compared; no conversion is guessed"
+            )
+            return _result(UNKNOWN, SHAPE_NUMERIC, condition, why)
         state = SATISFIED if verdict else NOT_SATISFIED
         return _result(state, SHAPE_NUMERIC, condition,
                        f"{fact.get('field_name')!r} = "

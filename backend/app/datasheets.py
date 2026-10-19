@@ -1935,7 +1935,8 @@ DUAL_UNIT_TOLERANCE = 0.02
 def _celsius(value: float, unit: str) -> float | None:
     """`value` in °C, through the one temperature table (`claims`, order 141 B)."""
     folded = claims._fold_unit(unit.replace("º", "°"))
-    scale = claims.TEMPERATURE_SCALES.get(folded) if folded in ("c", "degc", "f", "degf", "k") else None
+    known = folded in ("c", "degc", "f", "degf", "k")
+    scale = claims.TEMPERATURE_SCALES.get(folded) if known else None
     return None if scale is None else value * scale[0] + scale[1] - 273.15
 
 
