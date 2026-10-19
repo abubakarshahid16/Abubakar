@@ -35,14 +35,18 @@ describe("the sheet's counts: server and screen agree on the shared cases", () =
         crs_grouping: true,
       } as unknown as ReviewRunTierSummary;
       const rows = buildCrsRows(findings, EMPTY_FACTS, new Map(), null, serverGroupsOf(summary));
-      const got = sheetCountsOf(rows, null, false);
       const e = c.expected;
-      expect(got.counts.comment + got.counts.needsYou).toBe(e.comments);
-      expect(got.counts.needsYou).toBe(e.needs_you);
-      expect(got.counts.met).toBe(e.met);
-      expect(got.counts.notApplicable).toBe(e.not_applicable);
-      expect(got.counts.anotherDocument).toBe(e.another_document);
-      expect(got.findingsInComments).toBe(e.findings_in_comments);
+      // The screen's own count of its rows, and the server's `sheet` (the
+      // expected object is what the server sends) read through the switch.
+      const withSheet = { ...summary, sheet: e } as unknown as ReviewRunTierSummary;
+      for (const got of [sheetCountsOf(rows, null, false), sheetCountsOf(rows, withSheet, true)]) {
+        expect(got.counts.comment + got.counts.needsYou).toBe(e.comments);
+        expect(got.counts.needsYou).toBe(e.needs_you);
+        expect(got.counts.met).toBe(e.met);
+        expect(got.counts.notApplicable).toBe(e.not_applicable);
+        expect(got.counts.anotherDocument).toBe(e.another_document);
+        expect(got.findingsInComments).toBe(e.findings_in_comments);
+      }
     });
   }
 });

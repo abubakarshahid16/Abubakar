@@ -205,6 +205,74 @@
         "removed": 1,
         "findings": 4
       }
+    },
+    {
+      "name": "a row of met-type findings takes the label of its first finding in the sheet's order (page, then clause)",
+      "findings": [
+        {
+          "id": "a",
+          "compliance_status": "COMPLIANT",
+          "contractor_page": 5
+        },
+        {
+          "id": "b",
+          "compliance_status": "NOT_IN_DOCUMENT_SCOPE",
+          "contractor_page": 1
+        }
+      ],
+      "groups": {
+        "a": {
+          "crs_group": "g"
+        },
+        "b": {
+          "crs_group": "g"
+        }
+      },
+      "expected": {
+        "comments": 0,
+        "needs_you": 0,
+        "met": 0,
+        "not_applicable": 0,
+        "another_document": 1,
+        "findings_in_comments": 0,
+        "review_notes": 0,
+        "removed": 0,
+        "findings": 2
+      }
+    },
+    {
+      "name": "on one page the clause order is numeric: 4.2 before 4.10",
+      "findings": [
+        {
+          "id": "a",
+          "compliance_status": "COMPLIANT",
+          "standard_clause": "4.10"
+        },
+        {
+          "id": "b",
+          "compliance_status": "NOT_APPLICABLE",
+          "standard_clause": "4.2"
+        }
+      ],
+      "groups": {
+        "a": {
+          "crs_group": "g"
+        },
+        "b": {
+          "crs_group": "g"
+        }
+      },
+      "expected": {
+        "comments": 0,
+        "needs_you": 0,
+        "met": 0,
+        "not_applicable": 1,
+        "another_document": 0,
+        "findings_in_comments": 0,
+        "review_notes": 0,
+        "removed": 0,
+        "findings": 2
+      }
     }
   ]
 }

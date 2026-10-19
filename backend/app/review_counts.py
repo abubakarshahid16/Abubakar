@@ -24,6 +24,8 @@ guess and never zeros.
 
 from __future__ import annotations
 
+import re
+
 from . import comparison, review_tiers
 
 CHAT_ORIGIN = "chat"
@@ -39,14 +41,36 @@ def _on_a_row(finding: dict, groups: dict[str, dict]) -> bool:
     return not (groups.get(finding["id"]) or {}).get("crs_note")
 
 
-def _row_tier(tiers: list[tuple[str, str]]) -> tuple[str, str]:
+def _natural(text: str) -> tuple:
+    """The clause as `localeCompare(..., {numeric: true})` orders it: runs of
+    digits by value, the rest by text, so "4.2" comes before "4.10"."""
+    return tuple(
+        int(part) if part.isdigit() else part.lower()
+        for part in re.split(r"(\d+)", text)
+        if part != ""
+    )
+
+
+def _member_order(finding: dict) -> tuple:
+    """The order the sheet lists a row's findings in (`crsRows.ts`
+    `byPageThenClause`): contractor page (none last), then clause."""
+    page = finding.get("contractor_page")
+    return (
+        page if isinstance(page, int) and not isinstance(page, bool) else float("inf"),
+        _natural(str(finding.get("standard_clause") or "")),
+    )
+
+
+def _row_tier(members: list[tuple[tuple, str, str]]) -> tuple[str, str]:
     """(tier, label) of a row of several findings: needs you first, then a
-    comment, else the first (`tierOfGroup`)."""
+    comment, else the first IN THE SHEET'S ORDER (`tierOfGroup` over the
+    findings `buildCrsRows` has sorted). Members are (order, tier, label)."""
+    ordered = sorted(members, key=lambda m: m[0])
     for wanted in (review_tiers.C, review_tiers.B):
-        for tier, label in tiers:
+        for _order, tier, label in ordered:
             if tier == wanted:
                 return tier, label
-    return tiers[0]
+    return ordered[0][1], ordered[0][2]
 
 
 def sheet_counts(
@@ -66,7 +90,7 @@ def sheet_counts(
     """
     if groups is None:
         return None
-    rows: dict[str, list[tuple[str, str]]] = {}
+    rows: dict[str, list[tuple[tuple, str, str]]] = {}
     sizes: dict[str, int] = {}
     removed = notes = 0
     for finding in findings:
@@ -81,7 +105,7 @@ def sheet_counts(
         key = (groups.get(finding["id"]) or {}).get(
             "crs_group"
         ) or f"one:{finding['id']}"
-        rows.setdefault(key, []).append((tier, label))
+        rows.setdefault(key, []).append((_member_order(finding), tier, label))
         sizes[key] = sizes.get(key, 0) + 1
     out = dict.fromkeys(review_tiers.RULES["count_keys"].values(), 0)
     findings_in_comments = 0
