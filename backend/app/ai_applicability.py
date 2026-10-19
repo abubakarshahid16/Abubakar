@@ -31,28 +31,16 @@ states, code verifies both quotes and decides "not that construction" only
 from the stated material; what code cannot decide is held for the engineer.
 Nothing here names a standard or a datasheet.
 """
-
 from __future__ import annotations
 
 import bisect
 import re
 
-from . import (
-    ai_task_runner,
-    requirement_quality,
-    scope_ledger,
-    service_scope,
-    subject_scope,
-)
+from . import ai_task_runner, requirement_quality, scope_ledger, service_scope, subject_scope
 from .ai import output_limits
 
-CATEGORIES = [
-    "other_equipment",
-    "service_condition_not_met",
-    "informative_note",
-    "definition",
-    "none",
-]
+CATEGORIES = ["other_equipment", "service_condition_not_met", "informative_note",
+              "definition", "none"]
 
 SCHEMA = {
     "type": "object",
@@ -75,17 +63,9 @@ CLAUSE line is the clause. Answer:
 - quote: the exact words of the clause your answer rests on.
 Say "unsure" whenever the clause and the submittal do not settle it."""
 
-TASK = ai_task_runner.register(
-    ai_task_runner.TaskSpec(
-        name="clause_applicability",
-        version="v1",
-        instruction=INSTRUCTION,
-        schema=SCHEMA,
-        num_predict=output_limits.max_tokens_for(
-            output_limits.ROUTE_CLAUSE_APPLICABILITY
-        ),
-    )
-)
+TASK = ai_task_runner.register(ai_task_runner.TaskSpec(
+    name="clause_applicability", version="v1", instruction=INSTRUCTION, schema=SCHEMA,
+    num_predict=output_limits.max_tokens_for(output_limits.ROUTE_CLAUSE_APPLICABILITY)))
 
 _NOTE = re.compile(r"^\s*(?:note|notes|informative|commentary)\b", re.IGNORECASE)
 _MANDATORY = re.compile(r"\b(?:shall|must|is required|are required)\b", re.IGNORECASE)
@@ -98,16 +78,10 @@ def _squash(text: str) -> str:
 def context(classification: dict | None, facts: list[dict]) -> str:
     """The EQUIPMENT and SERVICE lines: what the submittal itself states."""
     equipment = (classification or {}).get("equipment_type") or "not stated"
-    service = [
-        f"{f.get('field_label')}: {f.get('field_value') or f.get('raw_value')}"
-        for f in facts
-        if not f.get("is_blank")
-        and re.search(
-            r"service|fluid|h2s|sour|nace|temperature|pressure",
-            str(f.get("field_label") or ""),
-            re.IGNORECASE,
-        )
-    ][:8]
+    service = [f"{f.get('field_label')}: {f.get('field_value') or f.get('raw_value')}"
+               for f in facts if not f.get("is_blank") and re.search(
+                   r"service|fluid|h2s|sour|nace|temperature|pressure",
+                   str(f.get("field_label") or ""), re.IGNORECASE)][:8]
     return f"EQUIPMENT: {equipment}\nSERVICE: {'; '.join(service) or 'not stated'}"
 
 
@@ -115,17 +89,13 @@ def confirm(reason: str, quote: str, *, equipment: set[str], facts: list[dict]) 
     """Can CODE confirm the model's "does not apply" from stated facts?"""
     if reason == "other_equipment":
         subject, _ = subject_scope.requirement_subject(
-            {"requirement_text": quote}, {}, subject_scope.vocabulary()
-        )
+            {"requirement_text": quote}, {}, subject_scope.vocabulary())
         return bool(subject) and bool(equipment) and not (subject & equipment)
     if reason == "service_condition_not_met":
         for c in service_scope.conditions():
             d = service_scope.declaration(c, facts)
-            if (
-                d is not None
-                and d["present"] is False
-                and service_scope.specific_to(c, {"requirement_text": quote}, "")
-            ):
+            if d is not None and d["present"] is False and service_scope.specific_to(
+                    c, {"requirement_text": quote}, ""):
                 return True
         return False
     if reason == "definition":
@@ -135,39 +105,26 @@ def confirm(reason: str, quote: str, *, equipment: set[str], facts: list[dict]) 
     return False
 
 
-def gate(
-    requirements: list[dict],
-    *,
-    classification: dict | None,
-    facts: list[dict],
-    provider=None,
-    limit: int | None = None,
-) -> dict:
+def gate(requirements: list[dict], *, classification: dict | None, facts: list[dict],
+         provider=None, limit: int | None = None) -> dict:
     """{"kept", "items" (confirmed "does not apply", as {"requirement", "code",
     "detail", "decided_by"}), "notes" {requirement id: what the model suggested
     that code did not confirm}, "asked", "not_asked"}."""
     vocab = subject_scope.vocabulary()
     equipment, _ = subject_scope.submittal_equipment(classification, facts, vocab)
     head = context(classification, facts)
-    model = (
-        getattr(provider, "requested_model", None)
-        or ai_task_runner.settings.ai_task_model
-    )
+    model = getattr(provider, "requested_model", None) or ai_task_runner.settings.ai_task_model
     kept: list[dict] = []
     items: list[dict] = []
     notes: dict = {}
     asked = 0
     for requirement in requirements:
-        clause = (
-            requirement.get("source_text") or requirement.get("requirement_text") or ""
-        ).strip()
+        clause = (requirement.get("source_text") or requirement.get("requirement_text") or "").strip()
         if limit is not None and asked >= limit or not clause:
             kept.append(requirement)
             continue
         asked += 1
-        result = ai_task_runner.run_task(
-            TASK, f"{head}\nCLAUSE: {clause}", provider=provider
-        )
+        result = ai_task_runner.run_task(TASK, f"{head}\nCLAUSE: {clause}", provider=provider)
         data = result.data if result.state == ai_task_runner.STATE_OK else None
         if not data or data.get("applies") == "yes":
             kept.append(requirement)
@@ -175,39 +132,21 @@ def gate(
         quote = data.get("quote") or ""
         in_clause = bool(quote.strip()) and _squash(quote) in _squash(clause)
         reason = data.get("reason") or "none"
-        if (
-            data.get("applies") == "no"
-            and in_clause
-            and reason in scope_ledger.REASONS
-            and confirm(reason, quote, equipment=equipment, facts=facts)
-        ):
-            items.append(
-                {
-                    "requirement": requirement,
-                    "code": reason,
-                    "detail": (
-                        f"{scope_ledger.REASONS[reason][1]}: proposed by the "
-                        f'model, confirmed by code; quoted: "{quote.strip()}"'
-                    ),
-                    "decided_by": f"ai:{model}+code",
-                }
-            )
+        if (data.get("applies") == "no" and in_clause and reason in scope_ledger.REASONS
+                and confirm(reason, quote, equipment=equipment, facts=facts)):
+            items.append({"requirement": requirement, "code": reason,
+                          "detail": (f"{scope_ledger.REASONS[reason][1]}: proposed by the "
+                                     f"model, confirmed by code; quoted: \"{quote.strip()}\""),
+                          "decided_by": f"ai:{model}+code"})
             continue
         kept.append(requirement)
-        said = f'; it quoted: "{quote.strip()}"' if in_clause else ""
+        said = (f'; it quoted: "{quote.strip()}"' if in_clause else "")
         notes[requirement.get("id")] = (
-            "the model was unsure whether it applies"
-            if data.get("applies") == "unsure"
+            "the model was unsure whether it applies" if data.get("applies") == "unsure"
             else f"the model said it may not apply ({reason.replace('_', ' ')}); "
-            f"code could not confirm it{said}"
-        )
-    return {
-        "kept": kept,
-        "items": items,
-        "notes": notes,
-        "asked": asked,
-        "not_asked": len(requirements) - asked,
-    }
+                 f"code could not confirm it{said}")
+    return {"kept": kept, "items": items, "notes": notes, "asked": asked,
+            "not_asked": len(requirements) - asked}
 
 
 # --------------------------------------- #141: a division's own scope sentence
@@ -326,13 +265,15 @@ def scope_passage(text: subject_scope.StandardText, div: dict, end: int | None) 
     scope_at = None
     subs = 0
     for i in range(first + 1, min(first + _SCOPE_LOOK, stop)):
-        if _SCOPE_LINE.search(text.lines[i]):
-            scope_at = i
-            break
+        # the heading first: a scope line of the SECOND sub-clause is not the
+        # division's own
         if subject_scope._heading(text.lines[i]) is not None:
             subs += 1
             if subs > 1:
                 break
+        if _SCOPE_LINE.search(text.lines[i]):
+            scope_at = i
+            break
     words: list[str] = " ".join(text.lines[first:opening]).split()
     if scope_at is not None:
         for i in range(max(scope_at, opening), stop):
@@ -565,6 +506,12 @@ def _construction_text(construction: str, quote: str, stated: list[str]) -> str:
 #: A model that does not answer in time, or cannot be reached: no further
 #: division of the run is asked (each would wait `ai_task_timeout_s`).
 _MODEL_DOWN = ("the model did not answer in time", "the model could not be reached")
+#: A LAYER on a base material (cladding, an overlay, a lining, a coating,
+#: galvanising, plating): true of any document, a layer does not change what
+#: the base is made of, so a value naming one never excludes - it is held.
+_LAYER = re.compile(
+    r"\b(?:clad\w*|overlay\w*|lin(?:ed|ing)|coat\w*|galvani[sz]\w*|plat(?:ed|ing))\b"
+)
 
 
 def _read(task, text: str, provider, run: dict) -> dict | None:
@@ -611,8 +558,11 @@ def _division_decision(
     line = next((s for s in stated if folded_in(first.get("quote"), s, least=4)), None)
     if line is None:
         return "applies", None
+    value = conditions._fold(line.partition(": ")[2] or line)
+    if _LAYER.search(value):
+        return "unsure", None
     other = conditions._names_another_of_the_family(
-        conditions._fold(line.partition(": ")[2] or line),
+        value,
         [conditions._fold(construction)],
         conditions.SHAPE_MATERIAL,
     )

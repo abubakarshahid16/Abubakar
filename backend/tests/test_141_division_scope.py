@@ -380,6 +380,67 @@ def test_the_division_s_own_scope_is_read_never_a_sub_clause_s():
     assert "apply to all vessels" in passage and "jackets" not in passage
 
 
+def test_a_scope_line_of_the_second_sub_clause_is_not_the_division_s():
+    text = subject_scope.StandardText(
+        [
+            (
+                1,
+                "PART AA\nGENERAL REQUIREMENTS\nAA-1 GENERAL\n"
+                "The rules of Part AA apply to all vessels.\n"
+                "AA-2 SCOPE OF STEEL RULES\n"
+                "AA-2 to AA-5 apply only to vessels constructed of carbon and low alloy steels.\n",
+            )
+        ]
+    )
+    [div] = ai_applicability.divisions(text)
+    passage = ai_applicability.scope_passage(text, div, None)
+    assert "apply to all vessels" in passage and "low alloy" not in passage
+
+
+def test_a_layer_on_the_stated_material_is_held_never_an_exclusion(temp_storage):
+    # cladding, an overlay or a coating is in the material family of #920, but
+    # a layer does not change the base material: the engineer decides
+    scope = (
+        "The rules in Part CS are applicable to vessels constructed of carbon steel."
+    )
+    pages = [
+        (
+            1,
+            "PART CS\nCARBON STEEL VESSELS\nCS-1 SCOPE\n"
+            + scope
+            + "\nCS-2 Welds shall be ground.\n",
+        )
+    ]
+    weld = {
+        "id": "cs",
+        "standard_document_id": "std",
+        "page": 1,
+        "requirement_text": "Welds shall be ground.",
+        "source_text": "CS-2 Welds shall be ground.",
+    }
+    clad = [
+        {
+            "field_name": "shell material",
+            "field_label": "Shell material",
+            "field_value": "Grade QX-70 clad",
+        }
+    ]
+    no = {
+        "equipment_is": "Grade QX-70 clad",
+        "quote": "Shell material: Grade QX-70 clad",
+        "is_that": "no",
+    }
+    limited = {
+        "limited": "yes",
+        "construction": "constructed of carbon steel",
+        "quote": scope,
+    }
+    out = _gate(
+        FakeModel(scope=limited, construction=no), facts=clad, pages=pages, reqs=(weld,)
+    )
+    assert out["items"] == [] and _ids(out["held"]) == ["cs"]
+
+
 # ------------------------------------------------------ where a requirement sits
 
 
