@@ -9,13 +9,25 @@
  * v2.1 (N1): on the review workspace the decisions not saved yet are also
  * kept as a DRAFT in this tab's sessionStorage, one per review and per
  * signed-in person. Leaving the screen, pressing Back, or a sign-in that
- * ran out then loses nothing: the draft comes back the next time the same
- * person opens the same review in this tab, and it is removed once nothing
- * is left unsaved (a save, or every decision taken back). The draft is on
- * only where a review id is given (`useCrsDecisions(runId)`, or the
- * `CrsDraftContext` the app puts around the workspace); the old comment
- * sheet passes none and behaves exactly as before. Every storage call is
- * inside try/catch: a private window simply means there is no draft.
+ * ran out then loses nothing. The draft is on only where a review id is
+ * given (`useCrsDecisions(runId)`, or the `CrsDraftContext` the app puts
+ * around the workspace); the old comment sheet passes none and behaves
+ * exactly as before. Every storage call is inside try/catch: a private
+ * window simply means there is no draft.
+ *
+ * v2.1 round 2: a draft never comes back, and never saves, by itself. When
+ * the screen opens with one, the hook offers it (`pendingRestore`) and the
+ * screen asks "N decisions you had not saved were found. Bring them back?"
+ * Only "Yes" (`restoreDraft`) puts them on screen, where they save as any
+ * decision does; "Discard" (`discardDraft`) throws them away. Each entry
+ * carries the record's state of its row when it was kept (`stamps`: the
+ * row's state, and each finding's approval, comment and confirmation); on
+ * "Yes" an entry whose row changed since, or is gone, is dropped and
+ * counted (`restoreDropped`). On a signed review (`observeRecord(rows,
+ * true)`) nothing is offered and the draft is removed.
+ *
+ * The workspace tells the hook what the record holds through
+ * `observeRecord`, which useAutosave calls with the rows it saves against.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
@@ -74,13 +86,28 @@ export interface CrsDecisions {
   acceptAll: (rows: CrsRow[]) => number;
   canUndo: boolean;
   undo: () => void;
-  /** v2.1: how many decisions came back from this tab's draft when the
-   *  screen opened (0 when none did, or there is no draft here). Optional
-   *  so stand-ins in tests need not set it. */
+  /** v2.1: how many decisions came back from this tab's draft after the
+   *  reader chose "Yes" (0 until then, or when there is no draft here).
+   *  Optional so stand-ins in tests need not set it. */
   restored?: number;
+  /** v2.1 round 2: how many draft decisions "Yes" did NOT bring back,
+   *  because their comment changed on the record, or left the sheet, since. */
+  restoreDropped?: number;
+  /** v2.1 round 2: a draft found when the screen opened, waiting for the
+   *  reader's answer (null when there is none, or the review is signed). */
+  pendingRestore?: { count: number } | null;
+  /** "Yes": bring the draft's decisions back (those whose comment did not
+   *  change since). Does nothing until the record has been observed. */
+  restoreDraft?: () => void;
+  /** "Discard": throw the draft away. */
+  discardDraft?: () => void;
+  /** Tell the hook what the record now holds (the sheet's rows), and
+   *  whether the review is signed (`locked`: no draft is kept or offered). */
+  observeRecord?: (rows: CrsRow[], locked: boolean) => void;
+  /** Take these keys' decisions off the screen, the unsaved list and the
+   *  draft (their comment is no longer on the sheet). */
+  forget?: (keys: string[]) => void;
 }
-
-const EMPTY: DecisionState = { decisions: {}, opened: {} };
 
 /** The draft's sessionStorage key prefix. Versioned so a later change of
  *  shape can ignore old drafts. */
@@ -131,13 +158,31 @@ function isDecision(value: unknown): value is Decision {
   return v.kind === "remove" && typeof v.reason === "string" && REASONS.has(v.reason);
 }
 
-/** The draft, or an empty state when there is none (or it cannot be read). */
-export function readDecisionDraft(runId: string | null): DecisionState {
-  if (!runId) return EMPTY;
+/** A draft as kept in storage: the decisions not saved yet, the rows
+ *  opened, and per decision the record's state of its row at the time. */
+export interface DecisionDraft extends DecisionState {
+  stamps: Record<string, string>;
+}
+
+const EMPTY_DRAFT: DecisionDraft = { decisions: {}, opened: {}, stamps: {} };
+
+/** What the record holds for a row, as one string: the row's state and each
+ *  finding's approval, engineer comment and confirmation. Two equal stamps
+ *  mean nobody changed the row on the record in between. */
+export function recordStamp(row: CrsRow): string {
+  return JSON.stringify([
+    row.priorState ?? null,
+    row.findings.map((f) => [f.id, f.approval_status ?? null, f.engineer_comment ?? null, f.confirmed_by ?? null]),
+  ]);
+}
+
+/** The draft, or an empty one when there is none (or it cannot be read). */
+export function readDecisionDraft(runId: string | null): DecisionDraft {
+  if (!runId) return EMPTY_DRAFT;
   try {
     const raw = window.sessionStorage.getItem(draftStorageKey(runId));
-    if (!raw) return EMPTY;
-    const parsed = JSON.parse(raw) as { decisions?: unknown; opened?: unknown };
+    if (!raw) return EMPTY_DRAFT;
+    const parsed = JSON.parse(raw) as { decisions?: unknown; opened?: unknown; stamps?: unknown };
     const decisions: Record<string, Decision> = {};
     if (parsed.decisions && typeof parsed.decisions === "object") {
       for (const [key, value] of Object.entries(parsed.decisions as Record<string, unknown>)) {
@@ -146,22 +191,57 @@ export function readDecisionDraft(runId: string | null): DecisionState {
     }
     const opened: Record<string, true> = {};
     if (Array.isArray(parsed.opened)) for (const key of parsed.opened) if (typeof key === "string") opened[key] = true;
-    return { decisions, opened };
+    const stamps: Record<string, string> = {};
+    if (parsed.stamps && typeof parsed.stamps === "object") {
+      for (const [key, value] of Object.entries(parsed.stamps as Record<string, unknown>)) {
+        if (typeof value === "string") stamps[key] = value;
+      }
+    }
+    return { decisions, opened, stamps };
   } catch {
-    return EMPTY;
+    return EMPTY_DRAFT;
   }
 }
 
-function writeDecisionDraft(runId: string, state: DecisionState, unsaved: string[]): void {
+function removeDecisionDraft(runId: string): void {
+  try { window.sessionStorage.removeItem(draftStorageKey(runId)); } catch { /* blocked storage */ }
+}
+
+function writeDecisionDraft(runId: string, draft: DecisionDraft): void {
   try {
-    const key = draftStorageKey(runId);
-    if (unsaved.length === 0) { window.sessionStorage.removeItem(key); return; }
-    const decisions: Record<string, Decision> = {};
-    for (const k of unsaved) if (state.decisions[k]) decisions[k] = state.decisions[k];
-    window.sessionStorage.setItem(key, JSON.stringify({ decisions, opened: Object.keys(state.opened) }));
+    if (Object.keys(draft.decisions).length === 0) { removeDecisionDraft(runId); return; }
+    window.sessionStorage.setItem(draftStorageKey(runId), JSON.stringify({
+      decisions: draft.decisions, opened: Object.keys(draft.opened), stamps: draft.stamps,
+    }));
   } catch {
     /* blocked or full storage: the decisions live only on screen */
   }
+}
+
+/** The draft to keep now: what is unsaved on screen (stamped with the record
+ *  as it is now), plus a draft still waiting for the reader's answer. */
+function draftToKeep(
+  state: DecisionState, unsaved: string[], rows: CrsRow[] | null, pending: DecisionDraft | null,
+): DecisionDraft {
+  const decisions: Record<string, Decision> = { ...(pending?.decisions ?? {}) };
+  const stamps: Record<string, string> = { ...(pending?.stamps ?? {}) };
+  const byKey = new Map((rows ?? []).map((row) => [row.key, row]));
+  for (const key of unsaved) {
+    const decision = state.decisions[key];
+    if (!decision) continue;
+    decisions[key] = decision;
+    const row = byKey.get(key);
+    if (row) stamps[key] = recordStamp(row); else delete stamps[key];
+  }
+  for (const key of Object.keys(stamps)) if (!decisions[key]) delete stamps[key];
+  return { decisions, opened: { ...(pending?.opened ?? {}), ...state.opened }, stamps };
+}
+
+/** A draft as first read: only decisions wait for an answer; rows opened
+ *  alone come back at once (opening a row changes nothing on the record). */
+function splitDraft(draft: DecisionDraft): { pending: DecisionDraft | null; opened: Record<string, true> } {
+  if (Object.keys(draft.decisions).length === 0) return { pending: null, opened: draft.opened };
+  return { pending: draft, opened: {} };
 }
 
 export function useCrsDecisions(draftRunId?: string | null): CrsDecisions {
@@ -169,21 +249,31 @@ export function useCrsDecisions(draftRunId?: string | null): CrsDecisions {
   const runId = draftRunId === undefined ? fromContext : draftRunId;
   // The draft is read once per review (a different review id reads its own).
   const [draftFor, setDraftFor] = useState(runId);
-  const [state, setState] = useState<DecisionState>(() => readDecisionDraft(runId));
-  const [restored, setRestored] = useState(() => Object.keys(state.decisions).length);
+  const [first] = useState(() => splitDraft(readDecisionDraft(runId)));
+  const [state, setState] = useState<DecisionState>(() => ({ decisions: {}, opened: first.opened }));
+  /** A draft waiting for "Yes" or "Discard": not on screen, never saved. */
+  const [pending, setPending] = useState<DecisionDraft | null>(first.pending);
+  const [restored, setRestored] = useState(0);
+  const [restoreDropped, setRestoreDropped] = useState(0);
+  /** What the record holds (observeRecord); null until it is known. */
+  const [record, setRecord] = useState<{ rows: CrsRow[]; locked: boolean } | null>(null);
   /** The keys the last "Accept all" set to keep; null when there is nothing
    *  to undo. Any other decision clears it: undo is one step, and only
    *  ever touches what Accept all itself did. */
   const [accepted, setAccepted] = useState<string[] | null>(null);
   const [saved, setSaved] = useState<Record<string, Decision>>({});
   if (draftFor !== runId) {
-    const next = readDecisionDraft(runId);
+    const next = splitDraft(readDecisionDraft(runId));
     setDraftFor(runId);
-    setState(next);
+    setState({ decisions: {}, opened: next.opened });
+    setPending(next.pending);
     setSaved({});
     setAccepted(null);
-    setRestored(Object.keys(next.decisions).length);
+    setRestored(0);
+    setRestoreDropped(0);
+    setRecord(null);
   }
+  const locked = record?.locked ?? false;
 
   const set = useCallback((key: string, decision: Decision | null) => {
     setAccepted(null);
@@ -244,17 +334,81 @@ export function useCrsDecisions(draftRunId?: string | null): CrsDecisions {
     setState((s) => (s.opened[key] ? s : { ...s, opened: { ...s.opened, [key]: true } })), []);
   const canUndo = accepted !== null;
 
-  // Keep the draft in step with what is not saved yet; nothing unsaved
-  // removes it (a save clears it this way).
+  const observeRecord = useCallback((rows: CrsRow[], isLocked: boolean) => {
+    setRecord((prev) => (prev && prev.rows === rows && prev.locked === isLocked ? prev : { rows, locked: isLocked }));
+  }, []);
+
+  const forget = useCallback((keys: string[]) => {
+    if (keys.length === 0) return;
+    setAccepted(null);
+    setState((s) => {
+      if (!keys.some((key) => key in s.decisions)) return s;
+      const decisions = { ...s.decisions };
+      for (const key of keys) delete decisions[key];
+      return { ...s, decisions };
+    });
+    setSaved((prev) => {
+      if (!keys.some((key) => key in prev)) return prev;
+      const next = { ...prev };
+      for (const key of keys) delete next[key];
+      return next;
+    });
+    setPending((p) => {
+      if (!p || !keys.some((key) => key in p.decisions)) return p;
+      const decisions = { ...p.decisions };
+      const stamps = { ...p.stamps };
+      for (const key of keys) { delete decisions[key]; delete stamps[key]; }
+      return Object.keys(decisions).length ? { ...p, decisions, stamps } : null;
+    });
+  }, []);
+
+  const restoreDraft = useCallback(() => {
+    if (!pending || !record) return;
+    if (record.locked) { setPending(null); return; }
+    const byKey = new Map(record.rows.map((row) => [row.key, row]));
+    const back: Record<string, Decision> = {};
+    let dropped = 0;
+    for (const [key, decision] of Object.entries(pending.decisions)) {
+      const row = byKey.get(key);
+      const stamp = pending.stamps[key];
+      // Gone from the sheet, kept with no stamp, or changed on the record
+      // since: it is not brought back (the reader decides it afresh).
+      if (!row || !stamp || stamp !== recordStamp(row)) { dropped += 1; continue; }
+      back[key] = decision;
+    }
+    setAccepted(null);
+    // A decision the reader took meanwhile wins over the draft's.
+    setState((s) => ({ decisions: { ...back, ...s.decisions }, opened: { ...pending.opened, ...s.opened } }));
+    setRestored(Object.keys(back).length);
+    setRestoreDropped(dropped);
+    setPending(null);
+  }, [pending, record]);
+
+  const discardDraft = useCallback(() => {
+    setPending(null);
+    setRestored(0);
+    setRestoreDropped(0);
+  }, []);
+
+  // Keep the draft in step with what is not saved yet (and with a draft
+  // still waiting for an answer); nothing left removes it (a save clears
+  // it this way). A signed review keeps no draft at all.
   useEffect(() => {
-    if (runId && draftFor === runId) writeDecisionDraft(runId, state, unsaved);
-  }, [runId, draftFor, state, unsaved]);
+    if (!runId || draftFor !== runId) return;
+    if (locked) { removeDecisionDraft(runId); return; }
+    writeDecisionDraft(runId, draftToKeep(state, unsaved, record?.rows ?? null, pending));
+  }, [runId, draftFor, state, unsaved, record, pending, locked]);
+
+  const pendingRestore = useMemo(
+    () => (pending && !locked ? { count: Object.keys(pending.decisions).length } : null), [pending, locked]);
 
   // One object per change of state, not one per render: what depends on it
   // (the keyboard listener, the row callbacks) stays put between renders.
   return useMemo(() => ({
-    state, unsaved, markSaved, decisionOf, keep, edit, remove, clear, markOpened, remaining, acceptAll, canUndo, undo, restored,
-  }), [state, unsaved, markSaved, decisionOf, keep, edit, remove, clear, markOpened, remaining, acceptAll, canUndo, undo, restored]);
+    state, unsaved, markSaved, decisionOf, keep, edit, remove, clear, markOpened, remaining, acceptAll, canUndo, undo,
+    restored, restoreDropped, pendingRestore, restoreDraft, discardDraft, observeRecord, forget,
+  }), [state, unsaved, markSaved, decisionOf, keep, edit, remove, clear, markOpened, remaining, acceptAll, canUndo, undo,
+    restored, restoreDropped, pendingRestore, restoreDraft, discardDraft, observeRecord, forget]);
 }
 
 function sameDecision(a: Decision | undefined, b: Decision | undefined): boolean {

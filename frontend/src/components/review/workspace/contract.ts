@@ -316,6 +316,9 @@ export interface AutosaveStatus {
   phase: "idle" | "saving" | "saved" | "failed";
   /** Plain words for a failed save; null otherwise. */
   message: string | null;
+  /** v2.1 round 2: the server's own words for a failed save, shown folded
+   *  under `message`; null (or absent) when there are none. */
+  detail?: string | null;
   /** True while an "Undo" of "Keep all remaining comments" is offered:
    *  saving waits until it is gone, so Undo never has to unsave anything. */
   waiting: boolean;

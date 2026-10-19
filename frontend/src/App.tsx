@@ -34,7 +34,7 @@ import { useWorkspaceSwitch } from "./components/review/workspace/useWorkspaceSw
 import { WORKSPACE_PANEL, isWorkspaceScreen, parseWorkspaceQuery, workspaceSearch } from "./components/review/workspace/workspaceRoute";
 import type { WorkspaceLocation } from "./components/review/workspace/contract";
 import { LeaveConfirm } from "./components/review/workspace/LeaveConfirm";
-import { useLeaveGuard } from "./components/review/workspace/useLeaveGuard";
+import { type LeaveSaver, LeaveSaverContext, useLeaveGuard } from "./components/review/workspace/useLeaveGuard";
 import { CrsDraftContext, clearDecisionDrafts, setDraftOwner } from "./components/review/crs/useCrsDecisions";
 import { NavigationContext } from "./components/NavLink";
 import { CRS_SHEET_IS_DEFAULT, INBOX_RECORD, panelForReviewScreen, parseRoute, pathForView, reviewScreenFor, titleForView, type AppRoute } from "./routing";
@@ -133,7 +133,13 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
   // "Review again", "Open" on a past review) ask through this same guard
   // (its `leaveGuard` prop), so they get the plain `onNavigate` and are
   // never asked twice.
-  const leaveGuard = useLeaveGuard(() => workspaceUnsaved.current);
+  // v2.1 round 2: the workspace's automatic saving puts its "save now" here
+  // (LeaveSaverContext), so the question can offer "Save and leave".
+  const workspaceSaver = useRef<LeaveSaver | null>(null);
+  const registerWorkspaceSaver = useCallback((save: LeaveSaver | null) => { workspaceSaver.current = save; }, []);
+  const saveWorkspace = useCallback(
+    () => (workspaceSaver.current ? workspaceSaver.current() : Promise.resolve(false)), []);
+  const leaveGuard = useLeaveGuard(() => workspaceUnsaved.current, saveWorkspace);
   const { guard } = leaveGuard;
   const guardedNavigate = useCallback((next: ViewId, recordId?: string, panel?: string) => {
     guard("navigate", () => onNavigate(next, recordId, panel));
@@ -155,10 +161,14 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
   const openFinishedRun = useCallback((runId: string): boolean =>
     guard("navigate", () => openRunInWorkspace(runId)), [guard, openRunInWorkspace]);
   // Browser Back / Forward. The address has already changed when this
-  // fires, so with unsaved decisions it is put back first; the reader's
-  // answer then decides whether to go on to where Back pointed.
+  // fires, so with unsaved decisions it is put back first (one entry on
+  // top of where Back pointed); the reader's answer then decides. "Leave"
+  // steps back off that entry (history.back, the next popstate shown
+  // without asking): pushing a second entry would leave the review's
+  // address behind it, and the next Back would open the review again.
   const guardRef = useRef(guard);
   useEffect(() => { guardRef.current = guard; }, [guard]);
+  const skipNextPop = useRef(false);
   useEffect(() => {
     const show = (address: string) => {
       const url = new URL(address, window.location.origin);
@@ -168,13 +178,15 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
     };
     const onPopState = () => {
       const target = window.location.pathname + window.location.search;
+      if (skipNextPop.current) { skipNextPop.current = false; show(target); return; }
       const before = shownAddress.current;
       const samePage = new URL(before, window.location.origin).pathname === window.location.pathname;
       if (samePage || workspaceUnsaved.current <= 0) { show(target); return; }
       window.history.pushState({ __epcRoute: true }, "", before);
       guardRef.current("back", () => {
-        window.history.pushState({ __epcRoute: true }, "", target);
-        show(target);
+        // Step back onto where Back pointed; that popstate only shows it.
+        skipNextPop.current = true;
+        window.history.back();
       });
     };
     window.addEventListener("popstate", onPopState);
@@ -411,7 +423,8 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
           nothing until a watched review finishes). */}
       <FinishedReviewNotice onOpenRun={openFinishedRun} panelOpen={workspaceLocation?.panel === "evidence"} />
       {/* v2.1 (N1): the guard's question, in the page. */}
-      <LeaveConfirm pending={leaveGuard.pending} onLeave={leaveGuard.leave} onStay={leaveGuard.stay} />
+      <LeaveConfirm pending={leaveGuard.pending} onLeave={leaveGuard.leave} onStay={leaveGuard.stay}
+        onSaveAndLeave={leaveGuard.saveAndLeave} saving={leaveGuard.saving} saveError={leaveGuard.saveError} />
       {/* ONE connection-level error at a time. With the backend down this
           rendered its banner AND let the view render its own failed-request
           card, so an amber "backend is not running" and a red "HTTP 502"
@@ -492,6 +505,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
               {/* v2.1 (N1): decisions not saved yet are kept as a draft
                   for this review in this tab. */}
               <CrsDraftContext.Provider value={workspaceLocation.runId}>
+                <LeaveSaverContext.Provider value={registerWorkspaceSaver}>
                 <ReviewWorkspace
                   key={workspaceLocation.runId} location={workspaceLocation}
                   onLocationChange={onWorkspaceLocationChange}
@@ -501,6 +515,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
                   leaveGuard={guard}
                   isAdmin={canAdmin}
                 />
+                </LeaveSaverContext.Provider>
               </CrsDraftContext.Provider>
             </>
           )}

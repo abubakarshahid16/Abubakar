@@ -71,33 +71,116 @@ describe("useCrsDecisions: what is not saved yet (order 95 piece 6c)", () => {
   });
 });
 
-/** v2.1 N1: on the workspace (a review id given) the decisions not saved
- *  yet are kept as a draft in this tab, per review and per person, and come
- *  back when the screen opens again; a save clears the draft.
- *  MUTATION PROOF: drop the write effect and "comes back after the screen
- *  closes" fails; drop the owner from the key and "another person never
- *  gets it" fails; stop removing the draft when nothing is unsaved and
- *  "a save clears it" fails. */
-describe("useCrsDecisions: the per-review draft (v2.1 N1)", () => {
+/** v2.1 N1 and round 2: on the workspace (a review id given) the decisions
+ *  not saved yet are kept as a draft in this tab, per review and per
+ *  person. A draft never comes back or saves by itself: the hook offers it
+ *  (`pendingRestore`) and only "Yes" (`restoreDraft`) puts it on screen.
+ *  Each entry carries the record's state of its row; one whose row changed
+ *  since is dropped and counted. A signed review keeps and offers none.
+ *  MUTATION PROOF: read the draft straight into `state` again and "is only
+ *  offered" fails; skip the stamp check in restoreDraft and "a changed row
+ *  is dropped" fails; drop the owner from the key and "another person never
+ *  gets it" fails; stop removing the draft when nothing is unsaved and "a
+ *  save clears it" fails; ignore `locked` and "a signed review" fails. */
+describe("useCrsDecisions: the per-review draft (v2.1 N1, round 2)", () => {
   beforeEach(() => { sessionStorage.clear(); setDraftOwner(null); });
   afterEach(() => { vi.restoreAllMocks(); sessionStorage.clear(); setDraftOwner(null); });
 
-  it("unsaved decisions come back after the screen closes and opens again (as after an expired sign-in)", () => {
+  /** A screen that knows the record (as useAutosave tells it). */
+  function open(runId: string, record = rows, locked = false) {
+    const hook = renderHook(() => useCrsDecisions(runId));
+    act(() => hook.result.current.observeRecord?.(record, locked));
+    return hook;
+  }
+
+  it("a draft is only offered: nothing is on screen or unsaved until Yes", () => {
     setDraftOwner("user-a");
-    const first = renderHook(() => useCrsDecisions("run-1"));
+    const first = open("run-1");
     act(() => first.result.current.keep(a));
     act(() => first.result.current.remove(b, "Duplicate"));
     act(() => first.result.current.markOpened(c));
     first.unmount();
-    const again = renderHook(() => useCrsDecisions("run-1"));
+    const again = open("run-1");
+    expect(again.result.current.state.decisions).toEqual({});
+    expect(again.result.current.unsaved).toEqual([]);
+    expect(again.result.current.pendingRestore).toEqual({ count: 2 });
+    // Still kept while the question waits.
+    expect(sessionStorage.getItem(draftStorageKey("run-1"))).not.toBeNull();
+    act(() => again.result.current.restoreDraft?.());
     expect(again.result.current.state.decisions).toEqual({ [a]: { kind: "keep" }, [b]: { kind: "remove", reason: "Duplicate" } });
     expect(again.result.current.state.opened[c]).toBe(true);
     expect(again.result.current.unsaved.sort()).toEqual([a, b].sort());
     expect(again.result.current.restored).toBe(2);
+    expect(again.result.current.restoreDropped).toBe(0);
+    expect(again.result.current.pendingRestore).toBeNull();
+  });
+
+  it("a decision whose row changed on the record since, or left the sheet, is dropped and counted", () => {
+    const first = open("run-1");
+    act(() => first.result.current.keep(a));
+    act(() => first.result.current.keep(b));
+    act(() => first.result.current.keep(c));
+    first.unmount();
+    const stored = JSON.parse(sessionStorage.getItem(draftStorageKey("run-1")) ?? "{}");
+    expect(Object.keys(stored.stamps).sort()).toEqual([a, b, c].sort());
+    // Someone confirmed comment b meanwhile; comment c left the sheet.
+    const changed = buildCrsRows([f("a", 1), { ...f("b", 2), confirmed_by: "someone" }], EMPTY_FACTS, new Map());
+    expect(changed.map((r) => r.key)).toEqual([a, b]);
+    const again = open("run-1", changed);
+    expect(again.result.current.pendingRestore).toEqual({ count: 3 });
+    act(() => again.result.current.restoreDraft?.());
+    expect(again.result.current.state.decisions).toEqual({ [a]: { kind: "keep" } });
+    expect(again.result.current.restored).toBe(1);
+    expect(again.result.current.restoreDropped).toBe(2);
+  });
+
+  it("Discard throws the draft away", () => {
+    const first = open("run-1");
+    act(() => first.result.current.keep(a));
+    first.unmount();
+    const again = open("run-1");
+    act(() => again.result.current.discardDraft?.());
+    expect(again.result.current.pendingRestore).toBeNull();
+    expect(again.result.current.state.decisions).toEqual({});
+    expect(sessionStorage.getItem(draftStorageKey("run-1"))).toBeNull();
+  });
+
+  it("a decision taken while the question waits is kept with the draft, and wins over it on Yes", () => {
+    const first = open("run-1");
+    act(() => first.result.current.keep(a));
+    first.unmount();
+    const again = open("run-1");
+    act(() => again.result.current.remove(a, "Duplicate"));
+    act(() => again.result.current.keep(b));
+    expect(JSON.parse(sessionStorage.getItem(draftStorageKey("run-1")) ?? "{}").decisions)
+      .toEqual({ [a]: { kind: "remove", reason: "Duplicate" }, [b]: { kind: "keep" } });
+    act(() => again.result.current.restoreDraft?.());
+    expect(again.result.current.state.decisions[a]).toEqual({ kind: "remove", reason: "Duplicate" });
+  });
+
+  it("a signed review offers no draft and removes it", () => {
+    const first = open("run-1");
+    act(() => first.result.current.keep(a));
+    first.unmount();
+    const signed = open("run-1", rows, true);
+    expect(signed.result.current.pendingRestore).toBeNull();
+    act(() => signed.result.current.restoreDraft?.());
+    expect(signed.result.current.state.decisions).toEqual({});
+    expect(sessionStorage.getItem(draftStorageKey("run-1"))).toBeNull();
+  });
+
+  it("forget takes a decision off the screen, the unsaved list and the draft", () => {
+    const { result } = open("run-1");
+    act(() => result.current.keep(a));
+    act(() => result.current.keep(b));
+    act(() => result.current.forget?.([a]));
+    expect(result.current.state.decisions).toEqual({ [b]: { kind: "keep" } });
+    expect(result.current.unsaved).toEqual([b]);
+    expect(Object.keys(JSON.parse(sessionStorage.getItem(draftStorageKey("run-1")) ?? "{}").decisions)).toEqual([b]);
   });
 
   it("a save clears the draft", () => {
-    const { result } = renderHook(() => useCrsDecisions("run-1"));
+    const { result } = open("run-1");
     act(() => result.current.keep(a));
     expect(sessionStorage.getItem(draftStorageKey("run-1"))).not.toBeNull();
     act(() => result.current.markSaved([a]));
@@ -107,14 +190,14 @@ describe("useCrsDecisions: the per-review draft (v2.1 N1)", () => {
 
   it("is kept per review and per person: another review or another person never gets it", () => {
     setDraftOwner("user-a");
-    const first = renderHook(() => useCrsDecisions("run-1"));
+    const first = open("run-1");
     act(() => first.result.current.keep(a));
     first.unmount();
-    expect(renderHook(() => useCrsDecisions("run-2")).result.current.state.decisions).toEqual({});
+    expect(open("run-2").result.current.pendingRestore).toBeNull();
     setDraftOwner("user-b");
-    expect(renderHook(() => useCrsDecisions("run-1")).result.current.state.decisions).toEqual({});
+    expect(open("run-1").result.current.pendingRestore).toBeNull();
     setDraftOwner("user-a");
-    expect(renderHook(() => useCrsDecisions("run-1")).result.current.state.decisions).toEqual({ [a]: { kind: "keep" } });
+    expect(open("run-1").result.current.pendingRestore).toEqual({ count: 1 });
   });
 
   it("clearDecisionDrafts removes only that person's drafts", () => {
@@ -131,16 +214,21 @@ describe("useCrsDecisions: the per-review draft (v2.1 N1)", () => {
     const { result } = renderHook(() => useCrsDecisions());
     act(() => result.current.keep(a));
     expect(sessionStorage.length).toBe(0);
+    expect(result.current.pendingRestore).toBeNull();
   });
 
-  it("junk in storage is ignored, and blocked storage never breaks deciding", () => {
+  it("junk in storage is ignored, an entry with no stamp is dropped, and blocked storage never breaks deciding", () => {
     sessionStorage.setItem(draftStorageKey("run-1"), JSON.stringify({ decisions: { [a]: { kind: "remove", reason: "made up" }, [b]: { kind: "keep" } } }));
-    expect(renderHook(() => useCrsDecisions("run-1")).result.current.state.decisions).toEqual({ [b]: { kind: "keep" } });
+    const old = open("run-1");
+    expect(old.result.current.pendingRestore).toEqual({ count: 1 });
+    act(() => old.result.current.restoreDraft?.());
+    expect(old.result.current.state.decisions).toEqual({});
+    expect(old.result.current.restoreDropped).toBe(1);
     sessionStorage.setItem(draftStorageKey("run-1"), "not json");
-    expect(renderHook(() => useCrsDecisions("run-1")).result.current.state.decisions).toEqual({});
+    expect(open("run-1").result.current.pendingRestore).toBeNull();
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("blocked"); });
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("blocked"); });
-    const { result } = renderHook(() => useCrsDecisions("run-3"));
+    const { result } = open("run-3");
     act(() => result.current.keep(a));
     expect(result.current.unsaved).toEqual([a]);
   });
@@ -148,6 +236,7 @@ describe("useCrsDecisions: the per-review draft (v2.1 N1)", () => {
   it("the review id can come from the app's CrsDraftContext", () => {
     const wrapper = ({ children }: { children: ReactNode }) => createElement(CrsDraftContext.Provider, { value: "run-ctx" }, children);
     const { result } = renderHook(() => useCrsDecisions(), { wrapper });
+    act(() => result.current.observeRecord?.(rows, false));
     act(() => result.current.keep(a));
     expect(JSON.parse(sessionStorage.getItem(draftStorageKey("run-ctx")) ?? "{}").decisions).toEqual({ [a]: { kind: "keep" } });
   });

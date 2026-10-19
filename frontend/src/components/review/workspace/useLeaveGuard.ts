@@ -14,8 +14,21 @@
  * draft in this browser tab (useCrsDecisions), and they come back when the
  * same person opens the same review again. Only signing out removes the
  * draft, and the confirm says so.
+ *
+ * v2.1 round 2: the question also offers "Save and leave" when a save is
+ * known (`save`, given by the app from the workspace's automatic saving,
+ * see `LeaveSaverContext`). It saves first and leaves only if the save
+ * worked; otherwise it stays and says so.
  */
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { createContext, useCallback, useLayoutEffect, useRef, useState } from "react";
+
+/** Saves every unsaved decision now; true when nothing is left unsaved. */
+export type LeaveSaver = () => Promise<boolean>;
+
+/** The app's slot for the workspace's "save now": useAutosave puts its own
+ *  save in it while the workspace is on screen (null when it goes), so the
+ *  app's question can offer "Save and leave". Null outside the app. */
+export const LeaveSaverContext = createContext<((save: LeaveSaver | null) => void) | null>(null);
 
 /** How the reader is leaving: it changes only the words of the question. */
 export type LeaveKind = "navigate" | "back" | "switch" | "signout";
@@ -35,20 +48,36 @@ export interface LeaveGuard {
   leave: () => void;
   /** The reader chose to stay: nothing happens. */
   stay: () => void;
+  /** v2.1 round 2: save, then leave only if the save worked. Undefined
+   *  when no save is known (the question then shows no such button). */
+  saveAndLeave?: () => Promise<void>;
+  /** True while "Save and leave" is saving. */
+  saving: boolean;
+  /** Plain words when "Save and leave" could not save (the reader stays). */
+  saveError: string | null;
 }
+
+/** What "Save and leave" says when the save did not work. */
+export const SAVE_AND_LEAVE_FAILED =
+  "Your decisions could not be saved, so you are still on this review. Try again, or leave and keep them in this browser tab.";
 
 /** `unsaved` reads how many decisions are not saved yet, at the moment of
  *  leaving (the workspace reports it; 0 anywhere else). */
-export function useLeaveGuard(unsaved: () => number): LeaveGuard {
+export function useLeaveGuard(unsaved: () => number, save?: LeaveSaver): LeaveGuard {
   const [pending, setPending] = useState<PendingLeave | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const next = useRef<(() => void) | null>(null);
   const unsavedRef = useRef(unsaved);
   useLayoutEffect(() => { unsavedRef.current = unsaved; }, [unsaved]);
+  const saveRef = useRef(save);
+  useLayoutEffect(() => { saveRef.current = save; }, [save]);
 
   const guard = useCallback((kind: LeaveKind, go: () => void) => {
     const count = unsavedRef.current();
     if (count <= 0) { go(); return true; }
     next.current = go;
+    setSaveError(null);
     setPending({ kind, count });
     return false;
   }, []);
@@ -56,13 +85,30 @@ export function useLeaveGuard(unsaved: () => number): LeaveGuard {
     const go = next.current;
     next.current = null;
     setPending(null);
+    setSaveError(null);
     go?.();
   }, []);
   const stay = useCallback(() => {
     next.current = null;
     setPending(null);
+    setSaveError(null);
   }, []);
-  return { guard, pending, leave, stay };
+  const hasSave = Boolean(save);
+  const saveAndLeave = useCallback(async () => {
+    const saver = saveRef.current;
+    if (!saver || !next.current) return;
+    setSaving(true);
+    setSaveError(null);
+    let ok = false;
+    try { ok = await saver(); } catch { ok = false; }
+    setSaving(false);
+    // Leave only when the save worked, and only if the question is still
+    // open (the reader may have chosen to stay meanwhile).
+    const stillAsked = (): boolean => next.current !== null;
+    if (!stillAsked()) return;
+    if (ok) leave(); else setSaveError(SAVE_AND_LEAVE_FAILED);
+  }, [leave]);
+  return { guard, pending, leave, stay, saveAndLeave: hasSave ? saveAndLeave : undefined, saving, saveError };
 }
 
 function decisions(n: number): string {
@@ -70,22 +116,25 @@ function decisions(n: number): string {
 }
 
 /** The question's words, per way of leaving. Exported for tests. */
-export function leaveWords(kind: LeaveKind, count: number): { text: string; leave: string } {
+export function leaveWords(kind: LeaveKind, count: number): { text: string; leave: string; saveLeave: string } {
   const head = `You have ${decisions(count)} on this review that ${count === 1 ? "is" : "are"} not saved yet.`;
   if (kind === "signout") {
     return {
       text: `${head} Signing out removes ${count === 1 ? "it" : "them"} from this browser tab. Save first if you want to keep ${count === 1 ? "it" : "them"}.`,
       leave: "Sign out without saving",
+      saveLeave: "Save and sign out",
     };
   }
   if (kind === "switch") {
     return {
       text: `${head} The old screen does not show ${count === 1 ? "it" : "them"}; ${count === 1 ? "it is" : "they are"} kept in this browser tab and come back when you open this review in the new design again. Save first to be safe.`,
       leave: "Go to the old screen",
+      saveLeave: "Save and go to the old screen",
     };
   }
   return {
     text: `${head} If you leave, ${count === 1 ? "it is" : "they are"} kept in this browser tab and come back when you open this review again. Save first to be safe.`,
     leave: "Leave this review",
+    saveLeave: "Save and leave",
   };
 }
