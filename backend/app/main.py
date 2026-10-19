@@ -881,17 +881,21 @@ def _applied(wanted: classification_mod.ScopeFilter, applied: bool,
 
 
 @app.get("/api/playbooks", response_model=schemas.PlaybookList, responses={**schemas.ERRORS_404})
-def list_playbooks(scope: access.AccessScope = Depends(access.current_scope)):
+def list_playbooks(limit: int | None = paging_mod.limit_param(),
+                   offset: int = paging_mod.offset_param(),
+                   scope: access.AccessScope = Depends(access.current_scope)):
     """The review playbooks (data files): what each expects a document of its
     kind to contain, the standard clause each element comes from, and whether a
     discipline engineer has signed it off. A file that cannot be used is listed
-    with the reason, never dropped."""
+    with the reason, never dropped - and never paged away: `unusable` is whole
+    on every page (order 117 item 5)."""
     found, broken = playbooks_mod.available()
-    return {"playbooks": [
+    rows = [
         {"id": pb.id, "title": pb.title, "version": pb.version, "document_kind": pb.document_kind,
          "signed_off": pb.signed_off, "sign_off": pb.sign_off, "clauses_verified": pb.clauses_verified,
          "notice": playbooks_mod.notice(pb), "elements": len(pb.elements)}
-        for pb in found.values()], "unusable": broken}
+        for pb in found.values()]
+    return {**paging_mod.page_body("playbooks", rows, limit, offset), "unusable": broken}
 
 
 # ----------------------------------------------------------------- market
@@ -1637,6 +1641,8 @@ def review_run_standards(
     review_run_id: str,
     request: Request,
     include_excluded: bool = Query(False),
+    limit: int | None = paging_mod.limit_param(),
+    offset: int = paging_mod.offset_param(),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """Which standards this run compared against, and WHY each one is there.
@@ -1646,17 +1652,21 @@ def review_run_standards(
     summarised that away would turn "something was retrieved" into "this
     standard applies" - the substitution section 23 forbids.
     """
-    reject_unknown_params(request, {"include_excluded"})
+    reject_unknown_params(request, {"include_excluded", "limit", "offset"})
     if submittal_review_mod.get_review_run(
             review_run_id,
             allowed_document_ids=scope.allowed_document_ids) is None:
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "no review run with that id"))
-    return _run_standards_payload(review_run_id, scope, include_excluded)
+    return _run_standards_payload(review_run_id, scope, include_excluded, limit, offset)
 
 
 def _run_standards_payload(review_run_id: str, scope: access.AccessScope,
-                           include_excluded: bool) -> dict:
+                           include_excluded: bool, limit: int | None = None,
+                           offset: int = 0) -> dict:
+    """The run's standards, one page of them with their total (order 117 item
+    5). The cited-but-missing list is never paged: a page that hid one would
+    read as "the library holds everything this submittal cites"."""
     rows = submittal_review_mod.list_applicable_standards(
         review_run_id, allowed_document_ids=scope.allowed_document_ids,
         include_excluded=include_excluded)
@@ -1679,7 +1689,7 @@ def _run_standards_payload(review_run_id: str, scope: access.AccessScope,
         })
     outcome = comparison_mod.run_outcome(
         review_run_id, allowed_document_ids=scope.allowed_document_ids) or {}
-    return {"standards": out,
+    return {**paging_mod.page_body("standards", out, limit, offset),
             "missing_references": outcome.get("missing_references") or []}
 
 
@@ -1935,6 +1945,8 @@ def reject_review_pair(
          responses=schemas.ERRORS_404)
 def review_finding_history(
     finding_id: str,
+    limit: int | None = paging_mod.limit_param(),
+    offset: int = paging_mod.offset_param(),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """Return the immutable response/approval/disposition audit trail."""
@@ -1942,7 +1954,7 @@ def review_finding_history(
     if current is None or not scope.may_read(current["document_id"]):
         raise HTTPException(status_code=404, detail=errors.safe_error(
             errors.NOT_FOUND, "no review finding with that id"))
-    return {"events": review_mod.history(finding_id)}
+    return paging_mod.page_body("events", review_mod.history(finding_id), limit, offset)
 
 
 def _finding_for_evidence(finding_id: str, scope: access.AccessScope) -> dict:

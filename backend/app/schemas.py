@@ -2378,7 +2378,7 @@ class CrsIssueDecision(BaseModel):
     reason_code: str | None = None
 
 
-class CrsIssueDecisionList(BaseModel):
+class CrsIssueDecisionList(ListPage):
     """Order 95 piece 6a: every decision on a run, newest first."""
 
     decisions: list[CrsIssueDecision]
@@ -2406,7 +2406,7 @@ class CrsIssuedCopy(BaseModel):
     issued_at: str
 
 
-class CrsIssuedCopyList(BaseModel):
+class CrsIssuedCopyList(ListPage):
     copies: list[CrsIssuedCopy]
 
 
@@ -2643,11 +2643,11 @@ class StandardOverrideRequest(BaseModel):
     reason: str = Field(min_length=3, max_length=2000)
 
 
-class ReviewRunStandardList(BaseModel):
+class ReviewRunStandardList(ListPage):
     standards: list[ReviewRunStandard]
     #: B5: standards the submittal CITES that the library does not hold, each
     #: `MISSING_LOCALLY`, as stored on the run. Empty when none, or when the
-    #: run predates this field.
+    #: run predates this field. Never paged: all of them on every page.
     missing_references: list[ReviewRunMissingReference] = []
 
 
@@ -2990,7 +2990,7 @@ class ReviewFindingEvent(BaseModel):
     created_at: str
 
 
-class ReviewFindingEventList(BaseModel):
+class ReviewFindingEventList(ListPage):
     events: list[ReviewFindingEvent]
 
 
@@ -3059,7 +3059,7 @@ class DeliverableEvent(BaseModel):
     created_at: str
 
 
-class DeliverableEventList(BaseModel):
+class DeliverableEventList(ListPage):
     events: list[DeliverableEvent]
 
 
@@ -3083,7 +3083,7 @@ class DeliverableStakeholderUpdate(BaseModel):
     assignments: list[DeliverableStakeholderAssignment] = Field(max_length=100)
 
 
-class DeliverableStakeholderList(BaseModel):
+class DeliverableStakeholderList(ListPage):
     stakeholders: list[DeliverableStakeholder]
 
 
@@ -3153,7 +3153,7 @@ class EscalationRule(BaseModel):
     enabled: bool = True
 
 
-class EscalationRuleList(BaseModel):
+class EscalationRuleList(ListPage):
     rules: list[EscalationRule]
 
 
@@ -3938,7 +3938,7 @@ class AdminDiscipline(BaseModel):
         None, description="everyone in this discipline sees an empty corpus")
 
 
-class AdminDisciplineList(BaseModel):
+class AdminDisciplineList(ListPage):
     disciplines: list[AdminDiscipline]
 
 
@@ -3989,7 +3989,7 @@ class AdminDbTable(BaseModel):
     row_count: int
 
 
-class AdminDbTableList(BaseModel):
+class AdminDbTableList(ListPage):
     tables: list[AdminDbTable]
 
 
@@ -4058,9 +4058,9 @@ class PlaybookUnusable(BaseModel):
     reason: str
 
 
-class PlaybookList(BaseModel):
+class PlaybookList(ListPage):
     playbooks: list[PlaybookSummary]
-    #: Playbook files that could not be loaded, with the reason. Never dropped.
+    #: Files that could not be loaded, with the reason. Never dropped or paged.
     unusable: list[PlaybookUnusable]
 
 
