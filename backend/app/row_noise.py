@@ -30,9 +30,10 @@ REFERENCE_ONLY = "noise: value is only a note or clause reference"
 FRAGMENT_LABEL = "noise: label is a fragment"
 MERGED_BLOCK = "noise: a block of the page read as one field"
 IDENTIFIER_NUMBER = "noise: an identifier's number is not a measurement"
+LABEL_AS_VALUE = "noise: value is another field's label"
 
 RULES = (RULER, REVISION, DOCUMENT_ID, HEADER_AS_VALUE, REFERENCE_ONLY,
-         FRAGMENT_LABEL, MERGED_BLOCK, IDENTIFIER_NUMBER)
+         FRAGMENT_LABEL, MERGED_BLOCK, IDENTIFIER_NUMBER, LABEL_AS_VALUE)
 
 _WS = re.compile(r"\s+")
 
@@ -86,6 +87,10 @@ _FRAGMENT_WORDS = frozenset("to and or of min max min. max. minimum maximum".spl
 #: "1 Facing": a table row keyed by a VALUE (the count 1), not by its heading.
 _NUMBER_KEYED = re.compile(r"^\d+\s+[A-Za-z]+\.?$")
 
+#: Order 124 item 9: a value opening on a connective - "and External design
+#: pressure", "or Vacuum" - is the rest of a label, not an answer.
+_CONNECTIVE_START = re.compile(r"^(?:and|or|&|/)\s+[A-Za-z]", re.IGNORECASE)
+
 _BLOCK_WORDS = 15
 _BLOCK_CHARS = 120
 
@@ -132,6 +137,28 @@ def revision_table_ids(rows: list[dict]) -> set[str]:
     }
 
 
+def is_label_as_value(value: str | None) -> bool:
+    """Is this "value" really a form LABEL - the next field's name - and no
+    answer at all? Order 124 item 9: "Internal design pressure" was stored
+    with the value "and External design pressure".
+
+    Only text with no digit can be one (a number is an answer), and only in
+    three shapes true of any form: it opens on a connective ("and ...",
+    "or ..."), it ends on the colon a label is printed with, or it names a
+    LIMIT of a measurable quantity ("Max. working pressure", "Operating
+    temperature") - a limit word with the quantity noun last, which states
+    which quantity, never how much. A free-text answer ("Two coat epoxy",
+    "Carbon steel", "Liquid", "Spring loaded") is none of these and stays.
+    """
+    text = _clean(value)
+    if not text or any(ch.isdigit() for ch in text) or not re.search(r"[A-Za-z]", text):
+        return False
+    if _CONNECTIVE_START.match(text) or text.endswith(":"):
+        return True
+    from .datasheets import _LIMIT_WORD, quantity_head_noun
+    return len(text.split()) >= 2 and bool(_LIMIT_WORD.search(text)) and quantity_head_noun(text)
+
+
 def noise_reason(label: str | None, value: str | None) -> str | None:
     """The rule this (label, value) row breaks, or None when it may be a field."""
     label, value = _clean(label), _clean(value)
@@ -146,6 +173,8 @@ def noise_reason(label: str | None, value: str | None) -> str | None:
         return HEADER_AS_VALUE
     if _NOTE_REF.match(value) or _CLAUSE_REF.match(value):
         return REFERENCE_ONLY
+    if is_label_as_value(value):
+        return LABEL_AS_VALUE
     if label.lower().rstrip(": ") in _FRAGMENT_WORDS or _NUMBER_KEYED.match(label):
         return FRAGMENT_LABEL
     if len(label.split()) > _BLOCK_WORDS or len(label) > _BLOCK_CHARS:

@@ -345,7 +345,7 @@ def test_a_page_with_only_vision_readings_is_read_by_the_page_reader_and_says_wh
     assert cover["pages_read_only_by_page_reader"] == [1]
     reason = page_ledger.rows(doc)[0]["facts_reason"]
     assert "read only by the page reader" in reason
-    assert "vision reader: page kind 'table'" in reason and "1 recorded" in reason
+    assert "It called the page a 'table'" in reason and "1 recorded" in reason
 
 
 def test_a_vision_value_keeps_a_unit_the_quantity_reader_cannot_join(world, monkeypatch):

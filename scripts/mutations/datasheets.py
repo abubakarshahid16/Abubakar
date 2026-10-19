@@ -346,9 +346,11 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="SAY 'no label-value pairs recovered' WHATEVER HAPPENED, "
                     "so a page whose pairs were all filtered reads like a "
                     "page that could not be parsed",
-        path=APP / "datasheets.py",
-        anchor="    if not pairs:\n        return \"no label-value pairs recovered from this page\"",
-        replacement="    if True:\n        return \"no label-value pairs recovered from this page\"",
+        # Re-anchored for order 124 item 9: the sentence is in plain words,
+        # in page_reason_words.
+        path=APP / "page_reason_words.py",
+        anchor="    if not n_pairs:\n        return NO_PAIRS\n",
+        replacement="    if True:\n        return NO_PAIRS\n",
         target="tests/test_repeated_form.py",
         keyword="names_the_filters or never_claims",
         tags=("honesty",),
@@ -357,9 +359,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M180", phase=13,
         description="report the filter counts in any order, so the biggest "
                     "cause no longer reads first",
-        path=APP / "datasheets.py",
-        anchor="                               key=lambda kv: (-kv[1], kv[0]))",
-        replacement="                               key=lambda kv: (kv[1], kv[0]))",
+        path=APP / "page_reason_words.py",
+        anchor="        key=lambda kv: (-kv[1], kv[0]),",
+        replacement="        key=lambda kv: (kv[1], kv[0]),",
         target="tests/test_repeated_form.py",
         keyword="ordered_by_size",
     ),
