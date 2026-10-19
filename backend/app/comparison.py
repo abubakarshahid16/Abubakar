@@ -1091,9 +1091,11 @@ def _compare(requirement: dict, fact: dict | None, *,
     if verdict is None:
         return {
             "status": NEEDS_ENGINEER_REVIEW,
-            "rationale": ((crossed.obstacle if crossed is not None else None)
-                          or _reference_obstacle(observed, limit)
-                          or _unit_obstacle(fact.get("raw_unit"), governing.get("raw_unit"))),
+            "rationale": (
+                (crossed.obstacle if crossed is not None else None)
+                or _reference_obstacle(observed, limit)
+                or _unit_obstacle(fact.get("raw_unit"), governing.get("raw_unit"))
+            ),
             "limit": _describe(limit, governing),
             "observed": _describe(observed, fact),
             "exception_applied": exception, **_cond,
@@ -1103,8 +1105,10 @@ def _compare(requirement: dict, fact: dict | None, *,
     within = "within" if verdict else "outside"
     note = f"; {crossed.note}" if crossed is not None and crossed.note else ""
     if exception is not None:
-        note += (f"; the exception for {exception.get('applies_to')!r} governs "
-                 f"instead of the general limit")
+        note += (
+            f"; the exception for {exception.get('applies_to')!r} governs "
+            f"instead of the general limit"
+        )
     if fact.get("value_note"):
         # #725 F3: a value the sheet printed beside "By Contractor" (or the
         # like) is compared, and the finding says so - never silently trusted.
@@ -3155,7 +3159,8 @@ def _units_comparable(requirement: dict, fact: dict,
         return left is not None and left == right
     return claims.same_unit(requirement_unit, fact_unit) or (
         claims.is_temperature_scale(requirement_unit.raw_unit)
-        and claims.is_temperature_scale(fact_unit.raw_unit))
+        and claims.is_temperature_scale(fact_unit.raw_unit)
+    )
 
 
 def match_by_containment(requirement: dict, facts: list[dict], *,

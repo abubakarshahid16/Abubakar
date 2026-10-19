@@ -291,9 +291,13 @@ _RECOGNISED_UNITS = set(_UNIT_TABLE) | set(_UNCONVERTED_UNITS)
 #: number. Exact by definition: 1 °F is 1/1.8 K and 0 °F is 459.67 °R.
 #: `compare_across_units` and the API 520 calculations both read this table.
 TEMPERATURE_SCALES: dict[str, tuple[float, float]] = {
-    "c": (1.0, 273.15), "degc": (1.0, 273.15), "k": (1.0, 0.0),
-    "f": (1 / 1.8, 459.67 / 1.8), "degf": (1 / 1.8, 459.67 / 1.8),
-    "r": (1 / 1.8, 0.0), "degr": (1 / 1.8, 0.0),
+    "c": (1.0, 273.15),
+    "degc": (1.0, 273.15),
+    "k": (1.0, 0.0),
+    "f": (1 / 1.8, 459.67 / 1.8),
+    "degf": (1 / 1.8, 459.67 / 1.8),
+    "r": (1 / 1.8, 0.0),
+    "degr": (1 / 1.8, 0.0),
 }
 #: The standard atmosphere, 101.325 kPa (the value API 520-I takes when it
 #: turns a gauge pressure into an absolute one). The only atmospheric
@@ -1502,8 +1506,10 @@ def _compatible(a: Measurement, b: Measurement) -> bool | None:
 
 def is_temperature_scale(unit_str: str | None) -> bool:
     """°C, °F, K (any spelling `_fold_unit` folds to one in `TEMPERATURE_SCALES`)."""
-    return (unit_dimension(unit_str or "") == "temperature"
-            and _fold_unit(unit_str or "") in TEMPERATURE_SCALES)
+    return (
+        unit_dimension(unit_str or "") == "temperature"
+        and _fold_unit(unit_str or "") in TEMPERATURE_SCALES
+    )
 
 
 @dataclass(frozen=True)
@@ -1511,6 +1517,7 @@ class CrossUnit:
     """How a value compares with a limit stated in ANOTHER unit of the same
     quantity (order 141 B). `verdict` None means no answer could be stood
     behind, and `obstacle` says why; `note` says how the units were converted."""
+
     verdict: bool | None
     note: str | None = None
     obstacle: str | None = None
@@ -1522,7 +1529,10 @@ def _dimension_of(m: Measurement) -> str | None:
     was read, the dimension of that normalised unit."""
     canonical = {unit: dimension for dimension, unit in _DIMENSION_UNIT.items()}
     return unit_dimension(m.raw_unit or "") or (
-        canonical.get(m.normalized_unit or "") if m.normalized_value is not None else None)
+        canonical.get(m.normalized_unit or "")
+        if m.normalized_value is not None
+        else None
+    )
 
 
 def _bare(m: Measurement, value: float) -> Measurement:
@@ -1534,14 +1544,60 @@ def _shown(value: float) -> str:
     return f"{value:.5g}"
 
 
-def _readings(observed: Measurement, limit: Measurement, dimension: str,
-              ) -> tuple[list[tuple[str, float, float]], float, float] | None:
-    """`(readings, step, limit in the observed unit)`: each reading names how
-    the two numbers were put in one unit, with both numbers in it; `step` is
-    half the observed value's last printed digit in that unit. None when this
+#: One reading: how the two numbers were put in one unit, and both numbers in it.
+_Reading = tuple[str, float, float]
+
+
+def _temperature_readings(
+    obs: float, lim: float, scale_o: tuple[float, float], scale_l: tuple[float, float]
+) -> list[_Reading]:
+    """A UNIT DOES NOT SAY WHETHER A FIGURE IS A TEMPERATURE OR A TEMPERATURE
+    DIFFERENCE (a rise): 50 K and 50 °C are the same rise and 323 K apart as
+    temperatures. Both readings are made, in kelvin."""
+    return [
+        (
+            "as temperatures",
+            obs * scale_o[0] + scale_o[1],
+            lim * scale_l[0] + scale_l[1],
+        ),
+        ("as temperature differences", obs * scale_o[0], lim * scale_l[0]),
+    ]
+
+
+def _atmosphere_readings(
+    observed: Measurement, limit: Measurement, gauge_is_observed: bool
+) -> list[_Reading]:
+    """A GAUGE AND AN ABSOLUTE PRESSURE differ by the site's atmospheric
+    pressure, which no sheet records. The standard atmosphere is the stated
+    assumption; a site above sea level has less, down to (as a bound) none.
+    Both in absolute MPa; the answer stands only if it is the same at both."""
+    readings = []
+    for label, atmosphere in (
+        (
+            f"with the standard atmospheric pressure ({STANDARD_ATMOSPHERE_KPA:g} kPa)",
+            STANDARD_ATMOSPHERE_KPA / 1000.0,
+        ),
+        ("with a lower atmospheric pressure (a site above sea level)", 0.0),
+    ):
+        gauge_o, gauge_l = (atmosphere, 0.0) if gauge_is_observed else (0.0, atmosphere)
+        readings.append(
+            (
+                label,
+                observed.normalized_value + gauge_o,
+                limit.normalized_value + gauge_l,
+            )
+        )
+    return readings
+
+
+def _readings(
+    observed: Measurement, limit: Measurement, dimension: str
+) -> tuple[list[_Reading], float, float] | None:
+    """`(readings, step, limit in the observed unit)`; `step` is half the
+    observed value's last printed digit in the readings' unit. None when this
     pair is not two different units this module converts between."""
-    obs_text, lim_text = _split_comparator(observed.raw_value)[1], _split_comparator(limit.raw_value)[1]
-    obs, lim = parse_value(obs_text), parse_value(lim_text)
+    obs_text = _split_comparator(observed.raw_value)[1]
+    obs, lim = parse_value(obs_text), parse_value(_split_comparator(limit.raw_value)[1])
     base_o, ref_o = split_reference(observed.raw_unit)
     base_l, ref_l = split_reference(limit.raw_unit)
     fold_o, fold_l = _fold_unit(base_o or ""), _fold_unit(base_l or "")
@@ -1549,46 +1605,72 @@ def _readings(observed: Measurement, limit: Measurement, dimension: str,
         return None
     half = _printed_half(obs_text) or 0.0
     if dimension == "temperature":
-        # A UNIT DOES NOT SAY WHETHER A FIGURE IS A TEMPERATURE OR A
-        # TEMPERATURE DIFFERENCE (a rise): 50 K and 50 °C are the same rise
-        # and 323 K apart as temperatures. Both readings are made.
-        scale_o, scale_l = TEMPERATURE_SCALES.get(fold_o), TEMPERATURE_SCALES.get(fold_l)
+        scale_o, scale_l = (
+            TEMPERATURE_SCALES.get(fold_o),
+            TEMPERATURE_SCALES.get(fold_l),
+        )
         if scale_o is None or scale_l is None or scale_o == scale_l:
-            return None       # one scale ("°C", "deg C"): compared as written
-        readings = [("as temperatures", obs * scale_o[0] + scale_o[1], lim * scale_l[0] + scale_l[1]),
-                    ("as temperature differences", obs * scale_o[0], lim * scale_l[0])]
+            return None  # one scale ("°C", "deg C"): compared as written
+        readings = _temperature_readings(obs, lim, scale_o, scale_l)
         return readings, half * scale_o[0], (readings[0][2] - scale_o[1]) / scale_o[0]
     if observed.normalized_value is None or limit.normalized_value is None:
         return None
     entry_o, entry_l = _UNIT_TABLE.get(fold_o), _UNIT_TABLE.get(fold_l)
-    factor = entry_o[2] if entry_o else (observed.normalized_value / obs if obs else 0.0)
-    in_observed_unit = limit.normalized_value / factor if factor else lim
+    factor = (
+        entry_o[2] if entry_o else (observed.normalized_value / obs if obs else 0.0)
+    )
     references = {ref_o or observed.reference, ref_l or limit.reference}
     if references == {"gauge", "absolute"}:
-        if dimension != "pressure" or {observed.normalized_unit, limit.normalized_unit} != {"MPa"}:
+        if dimension != "pressure" or {
+            observed.normalized_unit,
+            limit.normalized_unit,
+        } != {"MPa"}:
             return None
-        # A GAUGE AND AN ABSOLUTE PRESSURE differ by the site's atmospheric
-        # pressure, which no sheet records. The standard atmosphere is the
-        # stated assumption; a site above sea level has less, down to (as a
-        # bound) none. The answer stands only if it is the same at both ends.
         gauge_is_observed = (ref_o or observed.reference) == "gauge"
-        standard = STANDARD_ATMOSPHERE_KPA / 1000.0
-        readings = []
-        for label, atmosphere in ((f"with the standard atmospheric pressure "
-                                   f"({STANDARD_ATMOSPHERE_KPA:g} kPa)", standard),
-                                  ("with a lower atmospheric pressure (a site above sea level)", 0.0)):
-            readings.append((label,
-                             observed.normalized_value + (atmosphere if gauge_is_observed else 0.0),
-                             limit.normalized_value + (0.0 if gauge_is_observed else atmosphere)))
-        shown = (readings[0][2] - (standard if gauge_is_observed else 0.0)) / factor if factor else lim
-        return readings, half * factor, shown
-    if fold_o == fold_l or (entry_o is not None and entry_o == entry_l) or references == {"absolute", None}:
+        readings = _atmosphere_readings(observed, limit, gauge_is_observed)
+        offset = STANDARD_ATMOSPHERE_KPA / 1000.0 if gauge_is_observed else 0.0
+        return (
+            readings,
+            half * factor,
+            ((readings[0][2] - offset) / factor if factor else lim),
+        )
+    if (
+        fold_o == fold_l
+        or (entry_o is not None and entry_o == entry_l)
+        or references == {"absolute", None}
+    ):
         # One unit, however spelled ("mm/s", "mm/sec"), is compared as
         # written; an absolute pressure against one with no stated reference
         # stays refused (R32, `_compatible`).
         return None
-    return ([("converted", observed.normalized_value, limit.normalized_value)],
-            half * factor, in_observed_unit)
+    readings = [("converted", observed.normalized_value, limit.normalized_value)]
+    return readings, half * factor, (limit.normalized_value / factor if factor else lim)
+
+
+def _disagreement(
+    observed: Measurement,
+    limit: Measurement,
+    dimension: str,
+    readings: list[_Reading],
+    centre: list[bool | None],
+) -> str:
+    """Why the readings gave no verdict, naming what each one said."""
+    said = "; ".join(
+        f"{label} it is {'within' if v else 'outside'} the limit"
+        for (label, _o, _l), v in zip(readings, centre, strict=True)
+    )
+    what = (
+        "a unit alone does not say whether a figure is a temperature or a temperature "
+        "difference (a rise)"
+        if dimension == "temperature"
+        else "one pressure is gauge and the other absolute, and the site's atmospheric "
+        "pressure is not recorded"
+    )
+    return (
+        f"the requirement is in {limit.raw_unit} and the submitted value in "
+        f"{observed.raw_unit}, the same quantity in two units; {what}; the readings "
+        f"disagree ({said}). No comparison was made; engineer to check"
+    )
 
 
 def compare_across_units(observed: Measurement, limit: Measurement) -> CrossUnit | None:
@@ -1618,43 +1700,45 @@ def compare_across_units(observed: Measurement, limit: Measurement) -> CrossUnit
     if built is None:
         return None
     readings, step, in_observed_unit = built
-    centre = [_compatible(_bare(observed, o), _bare(limit, lim)) for _label, o, lim in readings]
+    centre = [
+        _compatible(_bare(observed, o), _bare(limit, lim))
+        for _label, o, lim in readings
+    ]
     # A value that IS the limit after an exact conversion (2 in, 50.8 mm) is
     # compared as written, as one unit would be; only a value NEAR it, closer
     # than its printed precision, may be a rounded conversion of it.
-    edges = {_compatible(_bare(observed, o + shift), _bare(limit, lim))
-             for _label, o, lim in readings for shift in (-step, step)
-             if not math.isclose(o, lim, rel_tol=1e-9, abs_tol=1e-12)}
+    edges = {
+        _compatible(_bare(observed, o + shift), _bare(limit, lim))
+        for _label, o, lim in readings
+        for shift in (-step, step)
+        if not math.isclose(o, lim, rel_tol=1e-9, abs_tol=1e-12)
+    }
     if None in centre or None in edges:
         return None
     if len(set(centre)) > 1:
-        said = "; ".join(f"{label} it is {'within' if v else 'outside'} the limit"
-                         for (label, _o, _l), v in zip(readings, centre, strict=True))
-        what = ("a unit alone does not say whether a figure is a temperature or a temperature "
-                "difference (a rise)" if dimension == "temperature" else
-                "one pressure is gauge and the other absolute, and the site's atmospheric "
-                "pressure is not recorded")
-        return CrossUnit(None, obstacle=(
-            f"the requirement is in {limit.raw_unit} and the submitted value in "
-            f"{observed.raw_unit}, the same quantity in two units; {what}; the readings "
-            f"disagree ({said}). No comparison was made; engineer to check"))
+        return CrossUnit(
+            None, obstacle=_disagreement(observed, limit, dimension, readings, centre)
+        )
+    shown = f"{limit.raw_value} {limit.raw_unit} is {_shown(in_observed_unit)} {observed.raw_unit}"
     if len(edges | set(centre)) > 1:
-        return CrossUnit(None, obstacle=(
-            f"the requirement's {limit.raw_value} {limit.raw_unit} is "
-            f"{_shown(in_observed_unit)} {observed.raw_unit}, and the submitted "
-            f"{observed.raw_value} {observed.raw_unit} is within its printed precision of it, "
-            "so the rounding of a converted figure could decide the answer. No comparison "
-            "was made; engineer to check"))
+        return CrossUnit(
+            None,
+            obstacle=(
+                f"the requirement's {shown}, and the submitted {observed.raw_value} "
+                f"{observed.raw_unit} is within its printed precision of it, so the rounding "
+                "of a converted figure could decide the answer. No comparison was made; "
+                "engineer to check"
+            ),
+        )
+    note = None
     if dimension == "temperature":
-        note = (f"{limit.raw_value} {limit.raw_unit} is {_shown(in_observed_unit)} "
-                f"{observed.raw_unit}; the answer is the same read as temperatures or as "
-                "temperature differences")
+        note = f"{shown}; the answer is the same read as temperatures or as temperature differences"
     elif len(readings) > 1:
-        note = (f"the gauge pressure was converted to absolute with the standard atmospheric "
-                f"pressure ({STANDARD_ATMOSPHERE_KPA:g} kPa); the answer is the same at a "
-                "lower atmospheric pressure")
-    else:
-        note = None
+        note = (
+            "the gauge pressure was converted to absolute with the standard atmospheric "
+            f"pressure ({STANDARD_ATMOSPHERE_KPA:g} kPa); the answer is the same at a "
+            "lower atmospheric pressure"
+        )
     return CrossUnit(centre[0], note=note)
 
 
