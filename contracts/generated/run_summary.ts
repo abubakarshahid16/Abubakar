@@ -18,7 +18,7 @@ export interface RunSummaryTierCounts {
   total: number;
 }
 
-/** One finding still in a tier, in screen order (Comment, Needs you, Met; then page, no page last; then clause). */
+/** One finding still in a tier, in the server's order (Comment, Needs you, Met; then page, no page last; then clause). The sheet keys rows by id and lays out its own order. */
 export interface RunSummaryTierRow {
   finding_id: string;
   /** A met / not applicable, B comment, C needs you (tiers.ts `Tier`) */
@@ -59,7 +59,7 @@ export interface RunSummaryHowReviewed {
   clauses_by_standard?: RunSummaryStandardClauses[] | null;
 }
 
-/** `GET /api/reviews/runs/{id}/summary`, the run as the CRS-first Sheet shows it. The tiers are `review_tiers`'s, the same rules as the screen's `crs/tiers.ts`. Display only. */
+/** `GET /api/reviews/runs/{id}/summary`, the run as the CRS-first Sheet shows it. The tiers are `review_tiers`'s, whose rules are the data in `reference/review_tiers.json` that the screen's `crs/tiers.ts` reads too. Display only. */
 export interface ReviewRunTierSummary {
   review_run_id: string;
   status: string;

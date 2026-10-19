@@ -38,6 +38,7 @@ function fullRun(): ReviewRunSummary {
     created_at: "2026-10-17T08:00:00Z", completed_at: "2026-10-17T08:12:34Z",
     standards_in_scope: 2, findings_total: 23,
     by_status: { NON_COMPLIANT: 3, COMPLIANT: 20 },
+    review_codes: [], table_values_not_compared: [], partial_findings: 0,
     recommended_code: "Approved with Comments",
     recommended_reason: "3 of 23 checked values do not meet their clause.",
     recommended_details: "Nominal estimate: 94 of approximately 105 fields.",
@@ -96,7 +97,7 @@ function minimalRun(): ReviewRunSummary {
     review_run_id: "run-min", submittal_document_id: "doc-sub", submittal_filename: null,
     equipment_tags: [], status: "completed", created_at: null, completed_at: null,
     standards_in_scope: 0, findings_total: 0, by_status: {}, recommended_code: null, recommended_reason: null,
-    completeness: null,
+    completeness: null, review_codes: [], table_values_not_compared: [], requirements_not_applied: [], partial_findings: 0,
   } as ReviewRunSummary;
 }
 

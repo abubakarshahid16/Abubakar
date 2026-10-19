@@ -1,9 +1,10 @@
 """Order 95 piece 1: the CRS-first Sheet's tiers on the server, and `GET .../summary`.
 
-The tier table is tiers.ts's (order 96 item 5; v2 of #1112, order 100): every case of
-`frontend/src/components/review/crs/tiers.test.ts` is here too, so the two
-cannot drift apart. Display only; an unknown status is never Met; a removed
-finding is counted, not tiered. Invented data.
+The tier rules' cases (order 96 item 5; v2 of #1112, order 100) moved in order
+133 to the case table both sides run, `contracts/fixtures/review_tier_cases.json`
+(`test_133_one_truth_tiers.py` here, `crs/tiers.parity.test.ts` on the screen),
+so the two cannot drift apart. Display only; an unknown status is never Met; a
+removed finding is counted, not tiered. Invented data.
 """
 
 from __future__ import annotations
@@ -11,7 +12,6 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-import pytest
 from fastapi.testclient import TestClient
 
 from app import comparison, review_tiers
@@ -27,12 +27,6 @@ FACTS = T.RunFacts(
     missing_standards=("API 526",),
     library_standard_ids=frozenset({"std-1"}),
 )
-MET, NA, COMMENT = (
-    ("A", "Met", None),
-    ("A", "Not applicable", None),
-    ("B", "Comment", None),
-)
-OTHER_DOC = ("A", "Another document", None)
 
 
 def f(**over) -> dict:
@@ -43,143 +37,6 @@ def f(**over) -> dict:
         "standard_document_id": "std-1",
         **over,
     }
-
-
-def you(reason: str) -> tuple:
-    return ("C", "Needs you", reason)
-
-
-@pytest.mark.parametrize(
-    "finding, facts, expected",
-    [
-        # Tier A
-        (f(compliance_status="COMPLIANT"), FACTS, MET),
-        (f(compliance_status="NOT_IN_DOCUMENT_SCOPE"), FACTS, OTHER_DOC),
-        (f(compliance_status="NOT_APPLICABLE"), FACTS, NA),
-        # Tier B
-        (f(), FACTS, COMMENT),
-        (f(compliance_status="MISSING_INFORMATION"), FACTS, COMMENT),
-        # a failed standards list is not an empty one
-        (
-            f(compliance_status="MISSING_INFORMATION"),
-            T.RunFacts(
-                FACTS.pages_not_read,
-                FACTS.reader_timed_out_pages,
-                FACTS.missing_standards,
-                None,
-            ),
-            COMMENT,
-        ),
-        # Tier C
-        (
-            f(compliance_status="NEEDS_ENGINEER_REVIEW"),
-            FACTS,
-            you("condition unsettled"),
-        ),
-        (f(compliance_status="CONDITIONAL"), FACTS, you("condition unsettled")),
-        (f(contractor_page=4), FACTS, you("page not read")),
-        (
-            f(contractor_page=9, compliance_status="MISSING_INFORMATION"),
-            FACTS,
-            you("page not read"),
-        ),
-        (
-            f(contractor_page=4, compliance_status="COMPLIANT"),
-            FACTS,
-            you("page not read"),
-        ),
-        (f(contractor_page=7), FACTS, you("page not read")),
-        (
-            f(standard_document_id=None, governing_sources=["API 526 clause 4.1"]),
-            FACTS,
-            you("standard not in library"),
-        ),
-        (
-            f(ai_rationale="Could not check: API-526 is not held locally"),
-            FACTS,
-            you("standard not in library"),
-        ),
-        (
-            f(compliance_status="MISSING_INFORMATION", standard_document_id="std-gone"),
-            FACTS,
-            you("standard not in library"),
-        ),
-        (
-            f(compliance_status="MISSING_INFORMATION", standard_document_id=None),
-            FACTS,
-            you("standard not in library"),
-        ),
-        (
-            f(ai_rationale="VALUE CONFLICT: page 3 also states 32 bar"),
-            FACTS,
-            you("value conflict"),
-        ),
-        (
-            f(ai_rationale="Unit unknown for 25 (bar or barg?)"),
-            FACTS,
-            you("unit unknown"),
-        ),
-        # the page comes before the missing standard in the reason
-        (
-            f(
-                contractor_page=9,
-                standard_document_id=None,
-                governing_sources=["API 526"],
-            ),
-            FACTS,
-            you("page not read"),
-        ),
-        # a status this table does not know is never swept quietly
-        (f(compliance_status="SOMETHING_NEW"), FACTS, you("condition unsettled")),
-        (f(compliance_status=None), FACTS, you("condition unsettled")),
-        # with no facts at all, only the status decides
-        (f(contractor_page=4), T.RunFacts(), COMMENT),
-        # a met value nobody has confirmed yet needs you (tiers.ts v2, #1112)
-        (
-            f(compliance_status="COMPLIANT", show_for_engineer_tick=True),
-            FACTS,
-            you("safety field"),
-        ),
-        (
-            f(
-                compliance_status="COMPLIANT",
-                show_for_engineer_tick=True,
-                confirmed_by="eng",
-            ),
-            FACTS,
-            MET,
-        ),
-        (
-            f(compliance_status="COMPLIANT", match_method="field_name"),
-            FACTS,
-            you("AI guess"),
-        ),
-        (f(match_method="field_name"), FACTS, you("AI guess")),
-        (
-            f(compliance_status="NEEDS_ENGINEER_REVIEW", match_method="model"),
-            FACTS,
-            you("AI guess"),
-        ),
-        (f(compliance_status="COMPLIANT", match_method="model"), FACTS, MET),
-        (
-            f(compliance_status="COMPLIANT", trust_label="UNPROVEN"),
-            FACTS,
-            you("rule not proven"),
-        ),
-        (f(compliance_status="COMPLIANT", trust_label="AUTO_PROVEN"), FACTS, MET),
-        (
-            f(
-                contractor_page=4,
-                compliance_status="COMPLIANT",
-                match_method="field_name",
-            ),
-            FACTS,
-            you("page not read"),
-        ),
-    ],
-)
-def test_each_tier_rule_matches_the_screens_table(finding, facts, expected):
-    assert T.tier_of(finding, facts) == expected
 
 
 def test_a_finding_citing_a_missing_standard_names_it():

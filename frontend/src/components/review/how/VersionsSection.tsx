@@ -10,7 +10,11 @@ export const VERSIONS_META: HowSectionMeta = {
   explains: "Which version of the review code and settings produced this result, and what changed in the rule books since the previous review of the same document.",
 };
 
-export function VersionsSection({ run, onOpenRun }: { run: ReviewRunSummary; onOpenRun?: (runId: string) => void }) {
+/** The runs list does not send the job's versions (`ReviewRunSummary` has no
+ *  such fields); a run that carries them shows them, absent says NOT_SENT. */
+type RunWithVersions = ReviewRunSummary & { code_version?: string | null; config_version?: string | null };
+
+export function VersionsSection({ run, onOpenRun }: { run: RunWithVersions; onOpenRun?: (runId: string) => void }) {
   const change = run.standards_change ?? null;
   return (
     <HowSection meta={VERSIONS_META}>
