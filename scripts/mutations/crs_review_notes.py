@@ -34,8 +34,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1054", phase=88, runner="vitest",
              description="the run card stops saying which standards left scope",
              path=FRONTEND_SRC / "components/review/reviewFormat.ts",
-             anchor='  const parts = [part(change.removed, "removed"), part(change.added, "added")].filter(Boolean);\n',
-             replacement='  const parts = [part(change.added, "added")].filter(Boolean);\n',
+             anchor='  return [notUsed, newlyUsed].filter(Boolean).join(" ")\n',
+             replacement='  return [newlyUsed].filter(Boolean).join(" ")\n',
              target="src/components/review/reviewFormat.test.ts", keyword="why the in-scope count moved",
              tags=("ui",)),
 )
