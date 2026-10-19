@@ -74,7 +74,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T, keyword="issue_copy_carries_no_ai_column", tags=("honesty", "critical")),
     Mutation(id="M1032", phase=86, description="an unconfirmed AI item is printed in COMPANY Comments",
              path=APP / "crs_mapping.py",
-             anchor='            "comment": text if confirmed else "",\n',
+             anchor='            "comment": text if confirmed else unconfirmed_comment,\n',
              replacement='            "comment": text,\n',
              target=_T, keyword="only_in_the_ai_column", tags=("honesty", "critical")),
     Mutation(id="M1034", phase=86,

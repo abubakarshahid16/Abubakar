@@ -34,10 +34,12 @@ import { type IssueChecks, ISSUED_MESSAGE, issueContractorCopy } from "../compon
 import { CrsEvidenceDrawer } from "../components/review/crs/CrsEvidenceDrawer";
 import { CrsFooter } from "../components/review/crs/CrsFooter";
 import { CrsHeader } from "../components/review/crs/CrsHeader";
+import { SheetGroupingNote } from "../components/review/crs/SheetGroupingNote";
 import { CrsTable } from "../components/review/crs/CrsTable";
 import type { RowMode } from "../components/review/crs/CrsRow";
 import {
-  type CrsRow, type Depth, buildCrsRows, headlineFieldsOf, rowCounts, splitRejected, spotCheckKeys, visibleRows,
+  type CrsRow, type Depth, buildCrsRows, headlineFieldsOf, rowCounts, serverGroupsOf, serverNoteCount, splitRejected,
+  spotCheckKeys, visibleRows,
 } from "../components/review/crs/crsRows";
 import { commentPages, firstRowOnPage, stepRow } from "../components/review/crs/evidenceNav";
 import { runFactsOf, serverTiersOf } from "../components/review/crs/tiers";
@@ -85,7 +87,10 @@ function useRunData(runId: string) {
     if (!listed.ok) { setLoad({ kind: "error", message: listed.error.message }); return; }
     setRun(found);
     setFindings(listed.data.findings);
-    setSummary(sum.ok ? sum.data : null);
+    // Order 139 part 2: a failed summary read keeps this run's last good
+    // summary, so the rows do not flip between the file's grouping and one
+    // row per finding under the engineer's open decisions.
+    setSummary((prev) => (sum.ok ? sum.data : prev?.review_run_id === runId ? prev : null));
     setStandardsState(stds.ok
       ? { standards: stds.data.standards, missing: stds.data.missing_references ?? [], error: null }
       : { standards: null, missing: [], error: stds.error.message });
@@ -206,7 +211,10 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
   [standardsState.standards]);
   const facts = useMemo(() => runFactsOf(run, standardsState.standards, standardsState.missing), [run, standardsState]);
   const server = useMemo(() => (summary ? serverTiersOf(summary.rows) : null), [summary]);
-  const rows = useMemo(() => buildCrsRows(findings, facts, standardNames, server), [findings, facts, standardNames, server]);
+  // Order 139 part 2: the file's rows, as the server grouped them.
+  const groups = useMemo(() => serverGroupsOf(summary), [summary]);
+  const rows = useMemo(
+    () => buildCrsRows(findings, facts, standardNames, server, groups), [findings, facts, standardNames, server, groups]);
   const counts = useMemo(() => rowCounts(rows), [rows]);
   // Order 112: the headline counts the table's rows (their tiers are the
   // server's when it sent them) and names the findings behind the comment
@@ -288,6 +296,7 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
         mode={mode} onMode={changeMode} decisions={decisions}
         clausesNotApplicable={run.requirement_split?.does_not_apply ?? null}
       />
+      <SheetGroupingNote rows={rows} notes={serverNoteCount(findings, groups)} />
       <CrsFooter run={run} counts={counts} standards={standardsState.standards} missing={standardsState.missing} standardsError={standardsState.error} rejected={rejected} />
       {drawerRow && (
         <CrsEvidenceDrawer row={drawerRow} runId={runId} standardNames={standardNames} returnTo={returnTo}

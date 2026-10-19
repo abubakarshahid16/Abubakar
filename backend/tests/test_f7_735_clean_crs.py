@@ -95,8 +95,12 @@ def test_the_workbook_prints_the_severity_column_in_both_copies():
         for r in rows:
             r["engineer_confirmed"] = True
         view = crs_export.build_crs_view(rows, {"copy": copy})
-        assert "Severity" in view["columns"]
+        # order 139 part 2: column I is "Priority" (it replaced "Severity")
+        # and prints the row's rank word; the severity stays on the row only.
+        assert "Priority" in view["columns"] and "Severity" not in view["columns"]
+        assert view["rows"][0]["severity"] == "major"
         book = openpyxl.load_workbook(io.BytesIO(crs_export.build_crs(rows, {"copy": copy})))
         ws = book["CRS"]
-        assert ws.cell(row=crs_export.COLUMN_HEADER_ROW, column=9).value == "Severity"
-        assert ws.cell(row=crs_export.COLUMN_HEADER_ROW + 1, column=9).value == "major"
+        head, first = crs_export.COLUMN_HEADER_ROW, crs_export.COLUMN_HEADER_ROW + 1
+        assert ws.cell(row=head, column=9).value == "Priority"
+        assert ws.cell(row=first, column=9).value == "Out of limit"

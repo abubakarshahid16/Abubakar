@@ -6,6 +6,7 @@ import type { AiStepNumbers, PageCoverage, RequirementSplit, ReviewRunSummary } 
 export type RunSummaryTier = "A" | "B" | "C";
 export type RunSummaryTierLabel = "Met" | "Not applicable" | "Another document" | "Comment" | "Needs you";
 export type RunSummaryTierReason = "page not read" | "standard not in library" | "AI guess" | "rule not proven" | "safety field" | "condition unsettled" | "value conflict" | "unit unknown";
+export type RunSummaryCrsPriorityLabel = "Out of limit" | "Missing value" | "Engineer to check" | "Engineer's comment";
 
 /** Counts over every finding of the run; `removed` = rejected by an engineer (in no tier); `total` includes the removed ones. */
 export interface RunSummaryTierCounts {
@@ -32,6 +33,18 @@ export interface RunSummaryTierRow {
   equipment_tag?: string | null;
   /** order 96: the cited standard not held that this finding rests on */
   missing_standard_id?: string | null;
+  /** order 139 part 2: the CRS row this finding lands on (`crs_mapping.crs_groups`); findings sharing it are ONE row on screen and in the file. Null: not a row of the CRS, or not computed (/counts) */
+  crs_group?: string | null;
+  /** order 139 part 2: the rank of the CRS row this finding lands on, 1 first (`crs_mapping.PRIORITY_WORDS`), from the rows the file is built from; null for a finding on no row, and from `/counts` */
+  crs_priority?: number | null;
+  /** order 139 part 2: the rank's word, as the internal copy prints it; null when there is no rank */
+  crs_priority_label?: RunSummaryCrsPriorityLabel | null;
+  /** order 139 part 2: the row's place in the sheet's order (0 first) among this run's finding rows - the file's order */
+  crs_order?: number | null;
+  /** order 139 part 2: the row's first line as the file prints it ("Contractor to provide Corrosion allowance."), on a field row asking two or more things (clauses, or requirements of one clause); null on a row whose one sentence is the finding's own */
+  crs_action?: string | null;
+  /** order 139 part 2: true on a finding that would be a comment but that the CRS file put on NO row - a standard's engineer-to-check finding counted in the file's Review notes (an unread page, a value only the page reader looked for, a requirement with no datasheet field), or a datasheet check about a value a breach or blank row already raises. The screen shows it as a note, never as a comment to decide. Null otherwise */
+  crs_note?: boolean | null;
 }
 
 export interface RunSummaryStandardClauses {
@@ -67,6 +80,8 @@ export interface ReviewRunTierSummary {
   counts: RunSummaryTierCounts;
   rows: RunSummaryTierRow[];
   how_reviewed: RunSummaryHowReviewed;
+  /** order 139 part 2: set true by a server that sends each row's `crs_group` (the sheet's grouping); absent or false otherwise */
+  crs_grouping?: boolean;
 }
 
 /** `GET /api/reviews/runs/counts`: the tier counts of many runs in one call, each the same as that run's `/summary` `counts`. A run that is not there, or that the caller may not read, is absent, never zeros. */

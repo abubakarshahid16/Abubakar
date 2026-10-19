@@ -170,6 +170,26 @@ describe("useWorkspaceRun", () => {
     expect(result.current.refreshError).toBeNull();
   });
 
+  /** Order 139 part 2: the rows are the server's grouping; one failed
+   *  summary read must not flip them to one row per finding (new keys) under
+   *  the engineer's open decisions.
+   *  MUTATION PROOF: set the summary to null on a failed read again and this fails. */
+  it("a failed summary refresh keeps the last grouping", async () => {
+    reviewRunSummary.mockResolvedValue({
+      ok: true,
+      data: {
+        review_run_id: "run-1", crs_grouping: true,
+        rows: ["a", "b"].map((finding_id) => ({ finding_id, tier: "B", label: "Comment", crs_group: "field:x", crs_order: 0 })),
+      },
+    });
+    const { result } = renderHook(() => useWorkspaceRun("run-1"));
+    await waitFor(() => expect(result.current.rows.map((r) => r.key)).toEqual(["crs:field:x"]));
+    reviewRunSummary.mockResolvedValueOnce({ ok: false, error: { message: "Cannot reach the backend." } });
+    await act(async () => { await result.current.refresh(); });
+    expect(result.current.rows.map((r) => r.key)).toEqual(["crs:field:x"]);
+    expect(result.current.summary?.crs_grouping).toBe(true);
+  });
+
   it("a failed first load is still an error (nothing good to keep)", async () => {
     reviewRun.mockResolvedValue({ ok: false, error: { message: "Cannot reach the backend." } });
     const { result } = renderHook(() => useWorkspaceRun("run-1"));

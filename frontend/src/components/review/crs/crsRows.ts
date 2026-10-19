@@ -3,23 +3,71 @@
  *
  * ONE ROW PER COMMENT, in the client's seven columns: comment no., page or
  * section, item, clause and standard, observation, required action, status.
- * A row is the same group of findings the card view shows as one card
- * (`buildCards`: "13 blanks, one comment"), so the two screens never
- * disagree about what one comment is. Every other finding that is not a
- * note is one row of its own, whatever its status: Met and not-applicable
- * rows hide behind one line by default; anything else needs the engineer.
- * A finding the engineer already rejected is not on the sheet at all; the
- * footer counts it.
+ *
+ * ORDER 139 PART 2: A ROW IS THE FILE'S ROW. The server groups the findings
+ * (`crs_mapping.crs_groups`, one comment per datasheet field) and sends each
+ * finding's row (`crs_group`), the row's place in the file's order
+ * (`crs_order`) and its action line (`crs_action`) on the run summary. The
+ * screen groups by those and never by a rule of its own, so the sheet on
+ * screen and the file cannot disagree about what one comment is. A finding
+ * the server put on no row (a met value, not applicable, a newer finding) is
+ * one row of its own, after the grouped comments. When the server sent no
+ * grouping (an older server, or the summary read failed) every finding is a
+ * row of its own and the sheet says so once (`UNGROUPED_NOTE`) - never the
+ * old screen-side grouping, which would be a guess dressed as the file's.
+ *
+ * Met and not-applicable rows hide behind one line by default; anything else
+ * needs the engineer. A finding the engineer already rejected is not on the
+ * sheet at all; the footer counts it.
  *
  * Display only. Stored statuses do not change here.
  */
-import type { ReviewFinding, ReviewRunSummary, RunSummaryHowReviewed } from "../../../types/api";
+import type { ReviewFinding, ReviewRunSummary, ReviewRunTierSummary, RunSummaryHowReviewed, RunSummaryTierRow } from "../../../types/api";
 import { splitReason } from "../reasonWords";
 import { orNothing, pageList } from "../reviewFormat";
 import {
-  type CardState, type SheetCard, buildCards, fieldOf, groupLine, isNotNeeded, isPageNote, isTickFinding,
+  type CardState, type SheetCard, clauseGroups, fieldOf, groupLine, isAgreed, isNotNeeded, isPageNote, isTickFinding,
 } from "../sheet/sheetCards";
 import { type RunFacts, type ServerTiers, type TierCounts, type TierResult, countTiers, tierFor, tierOfGroup } from "./tiers";
+
+/** Order 139 part 2: said once on the sheet when the server sent no grouping. */
+export const UNGROUPED_NOTE = "Shown one row per finding: the sheet's grouping could not be read from the server.";
+
+/** Order 139 part 2: a row lists at most this many supporting clauses (the
+ *  file's `crs_mapping.MAX_CLAUSE_LINES`), then "and k more of these n". */
+export const MAX_CLAUSE_LINES = 10;
+
+/** The run summary's CRS grouping, per finding id; null when the server sent
+ *  none (`crs_grouping` false or absent, or no summary). */
+export type ServerGroups = ReadonlyMap<string, RunSummaryTierRow>;
+
+export function serverGroupsOf(summary: ReviewRunTierSummary | null | undefined): ServerGroups | null {
+  if (!summary?.crs_grouping) return null;
+  return new Map(summary.rows.filter((r) => r.crs_group || r.crs_note).map((r) => [r.finding_id, r]));
+}
+
+/** Order 139 part 2 (covers #1177's screen gap): a finding the file put on
+ *  no comment row (`crs_note`) - one it counts in its Review notes, or a
+ *  datasheet check about a value another row already raises - is never a
+ *  comment row to decide on screen either. */
+export function isServerNote(f: ReviewFinding, groups: ServerGroups | null): boolean {
+  return Boolean(groups?.get(f.id)?.crs_note);
+}
+
+/** How many of the run's findings (rejected ones aside) the file puts on no
+ *  comment row (`crs_note`) - said once under the sheet. */
+export function serverNoteCount(all: ReviewFinding[], groups: ServerGroups | null): number {
+  return splitRejected(all).findings.filter((f) => isServerNote(f, groups)).length;
+}
+
+/** The line under the sheet for `serverNoteCount`; "" when there are none. */
+export function serverNotesLine(n: number): string {
+  if (n <= 0) return "";
+  const one = n === 1;
+  return `${n.toLocaleString()} ${one ? "finding of this review is not a comment row" : "findings of this review are not comment rows"}`
+    + ` of the sheet: ${one ? "it is" : "they are"} in its Review notes (the engineer's internal list), or`
+    + ` ${one ? "repeats" : "repeat"} a value another comment row already raises.`;
+}
 
 export interface CrsRow {
   key: string;
@@ -43,6 +91,29 @@ export interface CrsRow {
   /** rule_trust (#947): a safety field shown for the engineer's own tick. */
   tick: boolean;
   page: number | null;
+  /* Order 139 part 2 fields below are optional only so a row built by hand
+   * (older tests, contract stubs) still type-checks; `buildCrsRows` always
+   * sets them. */
+  /** Order 139 part 2: "server" when the row is the file's row (the run
+   *  summary's grouping), "none" when the server sent no grouping and every
+   *  finding is shown as a row of its own (the sheet then says
+   *  `UNGROUPED_NOTE`). */
+  grouping?: "server" | "none";
+  /** The file's row this is (`crs_group`), its place in the file's order
+   *  (`crs_order`) and its action line (`crs_action`, on a field row asking
+   *  two or more things); null when the server put the finding on no row. */
+  crsGroup?: string | null;
+  crsOrder?: number | null;
+  crsAction?: string | null;
+  /** The row's rank and its word as the server sent them (order 139 section
+   *  f); null / "" when not sent - never a guessed rank. */
+  priority?: number | null;
+  priorityLabel?: string;
+  /** How many distinct named clauses the row's findings cite (the boundary
+   *  of "Supporting clauses (n)"), and the first MAX_CLAUSE_LINES of them in
+   *  the clause column's own words. */
+  clauseCount?: number;
+  clauses?: string[];
 }
 
 /** The client's seven columns, in the client's order and words (spec 1.2). */
@@ -97,25 +168,56 @@ export function plainObservation(text: string): string {
   return splitReason(text).rest;
 }
 
-function rowOf(key: string, findings: ReviewFinding[], state: CardState, tier: TierResult, standardNames: Map<string, string>): CrsRow {
+/** The row's distinct named clauses, in the clause column's words. */
+function namedClauses(findings: ReviewFinding[], standardNames: Map<string, string>): string[] {
+  const card = { key: "", findings, state: "open", page: null, pages: [] } as SheetCard;
+  return clauseGroups(card)
+    .filter((g) => g.standardId !== "" || g.clause !== "")
+    .map((g) => clauseAndStandardOf(g.leader, standardNames));
+}
+
+function rowOf(
+  key: string, findings: ReviewFinding[], state: CardState, tier: TierResult, standardNames: Map<string, string>,
+  grouping: CrsRow["grouping"], server: RunSummaryTierRow | null,
+): CrsRow {
   const leader = findings[0];
   const extra = findings.length > 1 ? groupLine({ key, findings, state, page: null, pages: [] }) : "";
+  const clauses = namedClauses(findings, standardNames);
+  const crsAction = orNothing(server?.crs_action) || null;
   return {
     key, findings, tier, commentNo: null,
     pageOrSection: pageOrSectionOf(findings),
     item: itemOf(findings),
     clauseAndStandard: clauseAndStandardOf(leader, standardNames),
     observation: [plainObservation(orNothing(leader.finding)), extra].filter(Boolean).join(" "),
-    requiredAction: orNothing(leader.engineer_comment) || orNothing(leader.required_action),
+    // Order 139 part 2: the engineer's words if edited, else the file's
+    // action line for a row of many clauses, else the finding's own.
+    requiredAction: orNothing(leader.engineer_comment) || crsAction || orNothing(leader.required_action),
     status: statusOf(state, tier),
     priorState: state,
     tick: isTickFinding(leader),
     page: leader.contractor_page ?? null,
+    grouping,
+    crsGroup: server?.crs_group ?? null,
+    crsOrder: server?.crs_order ?? null,
+    crsAction,
+    priority: server?.crs_priority ?? null,
+    priorityLabel: server?.crs_priority_label ?? "",
+    clauseCount: clauses.length,
+    clauses: clauses.slice(0, MAX_CLAUSE_LINES),
   };
 }
 
-function cardRow(card: SheetCard, facts: RunFacts, standardNames: Map<string, string>, server: ServerTiers | null): CrsRow {
-  return rowOf(card.key, card.findings, card.state, tierOfGroup(card.findings, facts, server), standardNames);
+/** Order 139 part 2: the "Supporting clauses" lines under a row's required
+ *  action - only on a row the file prints them for (one with an action line,
+ *  i.e. a field row asking two or more things), with the file's cap and
+ *  count: "and k more of these n". [] on any other row. */
+export function supportingClauseLines(row: CrsRow): string[] {
+  const n = row.clauseCount ?? 0;
+  const listed = row.clauses ?? [];
+  if (!row.crsAction || n < 1) return [];
+  const more = n - listed.length;
+  return [`Supporting clauses (${n}):`, ...listed, ...(more > 0 ? [`and ${more} more of these ${n}`] : [])];
 }
 
 /** The findings still on the sheet, and how many the engineer already
@@ -125,27 +227,53 @@ export function splitRejected(findings: ReviewFinding[]): { findings: ReviewFind
   return { findings: kept, rejected: findings.length - kept.length };
 }
 
-/** Every row of the sheet, comments first (Tier B and C, in page order,
- *  numbered), then the Tier A rows in page order. Rejected findings are
- *  filtered out first. A chat note or a page-reading note is not a comment
- *  to the contractor and is not a row; the unread pages are the headline's
- *  and the footer's. Every other finding is a row: one the card view does
- *  not group (a met value, a null or unknown status) takes its own tier,
- *  so nothing is dropped quietly. `server`: the run summary's tier per
- *  finding (#1111); when given it decides every tier, `facts` only fills
- *  in for a finding the server did not name. */
+/** The once-said note when the sheet shows the server's grouping not at
+ *  all; null when the rows are the file's (or there are none). */
+export function groupingNote(rows: CrsRow[]): string | null {
+  return rows.some((r) => r.grouping === "none") ? UNGROUPED_NOTE : null;
+}
+
+function byPageThenClause(a: ReviewFinding, b: ReviewFinding): number {
+  return pageOf(a) - pageOf(b) || orNothing(a.standard_clause).localeCompare(orNothing(b.standard_clause), undefined, { numeric: true });
+}
+
+/** Every row of the sheet: the comments first (Tier B and C) - the server's
+ *  rows in the file's order (`crs_order`), then any finding the server put
+ *  on no row, by page - numbered 1..N; then the Tier A rows by page.
+ *  Rejected findings are filtered out first. A chat note or a page-reading
+ *  note is not a comment to the contractor and is not a row; the unread
+ *  pages are the headline's and the footer's. Every other finding is on a
+ *  row, so nothing is dropped quietly.
+ *
+ *  `server`: the run summary's tier per finding (#1111); when given it
+ *  decides every tier, `facts` only fills in for a finding the server did
+ *  not name. `groups` (order 139 part 2): the run summary's CRS row per
+ *  finding (`serverGroupsOf`); null = no server grouping, and every finding
+ *  is a row of its own (`groupingNote` then says so). A finding the file put
+ *  in its Review notes (`crs_note`) is not a row (`serverNotesLine`). */
 export function buildCrsRows(
   all: ReviewFinding[], facts: RunFacts, standardNames: Map<string, string>, server: ServerTiers | null = null,
+  groups: ServerGroups | null = null,
 ): CrsRow[] {
   const { findings } = splitRejected(all);
-  const cards = buildCards(findings);
-  const onCards = new Set(cards.flatMap((c) => c.findings.map((f) => f.id)));
-  const rows = cards.map((c) => cardRow(c, facts, standardNames, server));
+  const grouping: CrsRow["grouping"] = groups ? "server" : "none";
+  const byGroup = new Map<string, ReviewFinding[]>();
+  const rows: CrsRow[] = [];
   for (const f of findings) {
-    if (onCards.has(f.id) || f.origin === "chat" || isPageNote(f)) continue;
-    rows.push(rowOf(`one:${f.id}`, [f], f.confirmed_by ? "agreed" : "open", tierFor(f, facts, server), standardNames));
+    if (f.origin === "chat" || isPageNote(f) || isServerNote(f, groups)) continue;
+    const group = groups?.get(f.id)?.crs_group;
+    if (group) byGroup.set(group, [...(byGroup.get(group) ?? []), f]);
+    else rows.push(rowOf(`one:${f.id}`, [f], f.confirmed_by ? "agreed" : "open", tierFor(f, facts, server), standardNames, grouping, null));
   }
-  const comments = rows.filter((r) => r.tier.tier !== "A").sort((a, b) => pageOf(a.findings[0]) - pageOf(b.findings[0]));
+  for (const [group, list] of byGroup) {
+    const sorted = [...list].sort(byPageThenClause);
+    const state: CardState = sorted.every(isAgreed) ? "agreed" : "open";
+    rows.push(rowOf(`crs:${group}`, sorted, state, tierOfGroup(sorted, facts, server), standardNames, grouping,
+      groups?.get(sorted[0].id) ?? null));
+  }
+  const order = (r: CrsRow): number => r.crsOrder ?? Number.MAX_SAFE_INTEGER;
+  const comments = rows.filter((r) => r.tier.tier !== "A")
+    .sort((a, b) => order(a) - order(b) || pageOf(a.findings[0]) - pageOf(b.findings[0]));
   const met = rows.filter((r) => r.tier.tier === "A").sort((a, b) => pageOf(a.findings[0]) - pageOf(b.findings[0]));
   comments.forEach((r, i) => { r.commentNo = i + 1; });
   return [...comments, ...met];

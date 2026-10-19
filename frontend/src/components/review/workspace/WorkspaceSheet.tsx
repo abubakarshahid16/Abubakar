@@ -27,6 +27,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { RowMode } from "../crs/CrsRow";
 import { CrsTable } from "../crs/CrsTable";
+import { SheetGroupingNote } from "../crs/SheetGroupingNote";
 import { type CrsRow, type Depth, spotCheckKeys, visibleRows } from "../crs/crsRows";
 import type { TierCounts } from "../crs/tiers";
 import { commentPages, firstRowOnPage, stepRow } from "../crs/evidenceNav";
@@ -43,6 +44,9 @@ export type WorkspaceSheetProps = SheetContractProps & {
   /** v2.2 round 2: key hints ("J / K ...") are drawn in Detailed view only;
    *  Simple view shows none. The keys themselves keep working. */
   showKeys?: boolean;
+  /** Order 139 part 2: how many findings the file lists in its Review notes
+   *  instead of as rows (`serverNoteCount`); said once under the table. */
+  serverNotes?: number;
 };
 
 /** The narrowest "Show" choice that still lists `row` (as visibleRows). */
@@ -63,6 +67,7 @@ function returnTarget(prev: HTMLElement | null, rowKey: string): HTMLElement | n
 
 export function WorkspaceSheet({
   runId, rows, submittal, standardNames, decisions, openRowKey, onOpenRow, numbers, footer, readOnly = false, showKeys = true,
+  serverNotes = 0,
 }: WorkspaceSheetProps) {
   const [depth, setDepth] = useState<Depth>("standard");
   const [showMet, setShowMet] = useState(false);
@@ -180,6 +185,7 @@ export function WorkspaceSheet({
         clausesNotApplicable={numbers.notApplicableClauses}
         tierHeader="Kind" readOnly={readOnly} showKeys={showKeys}
       />
+      <SheetGroupingNote rows={rows} notes={serverNotes} />
       {footer}
       {drawerRow && (
         <WorkspaceEvidence row={drawerRow} runId={runId} standardNames={standardNames} returnTo={returnTo}

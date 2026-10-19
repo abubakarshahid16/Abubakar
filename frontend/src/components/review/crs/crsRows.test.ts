@@ -9,10 +9,11 @@
  */
 import { describe, expect, it } from "vitest";
 
-import type { ReviewFinding, ReviewRunSummary } from "../../../types/api";
+import type { ReviewFinding, ReviewRunSummary, ReviewRunTierSummary, RunSummaryTierRow } from "../../../types/api";
 import { EMPTY_FACTS } from "./tiers";
 import {
-  buildCrsRows, crsHeadline, headlineFieldsOf, plainObservation, rowCounts, spotCheckKeys, splitRejected, unreadPhrase, visibleRows,
+  MAX_CLAUSE_LINES, UNGROUPED_NOTE, buildCrsRows, crsHeadline, groupingNote, headlineFieldsOf, plainObservation, rowCounts,
+  serverGroupsOf, serverNoteCount, serverNotesLine, spotCheckKeys, splitRejected, supportingClauseLines, unreadPhrase, visibleRows,
 } from "./crsRows";
 
 function f(id: string, over: Partial<ReviewFinding> = {}): ReviewFinding {
@@ -24,6 +25,21 @@ function f(id: string, over: Partial<ReviewFinding> = {}): ReviewFinding {
 }
 
 const names = new Map([["std-1", "API 520.pdf"]]);
+
+/** The run summary's per-finding CRS fields (order 139 part 2), as the server sends them. */
+function summaryOf(rows: Partial<RunSummaryTierRow>[], grouping = true): ReviewRunTierSummary {
+  return {
+    review_run_id: "run-1", status: "completed", boundary: "",
+    counts: { met: 0, not_applicable: 0, another_document: 0, comment: 0, needs_you: 0, removed: 0, total: 0 },
+    rows: rows.map((r) => ({ tier: "B", label: "Comment", ...r })), how_reviewed: {}, crs_grouping: grouping,
+  } as unknown as ReviewRunTierSummary;
+}
+
+function groupsOf(list: [string, string, number, string?][]) {
+  return serverGroupsOf(summaryOf(list.map(([finding_id, crs_group, crs_order, crs_action]) => ({
+    finding_id, crs_group, crs_order, crs_action: crs_action ?? null,
+  }))));
+}
 
 describe("buildCrsRows", () => {
   it("one row per comment in page order, numbered; met rows after, unnumbered", () => {
@@ -39,19 +55,27 @@ describe("buildCrsRows", () => {
     expect(rows[0].requiredAction).toBe("Contractor to fix a.");
     expect(rows[0].status).toBe("Open");
   });
-  it("groups the way the card view groups: 13 blanks, one comment", () => {
+  it("groups by the server's crs_group, never its own: 13 blanks, one comment", () => {
     const blanks = Array.from({ length: 13 }, (_, i) => f(`k${i}`, {
       compliance_status: "MISSING_INFORMATION", finding: `Field k${i} is blank`, required_action: `Contractor to give Field k${i}.`,
     }));
-    const rows = buildCrsRows(blanks, EMPTY_FACTS, names);
+    // order 139 part 2: the server's grouping decides; with none, one row each.
+    expect(buildCrsRows(blanks, EMPTY_FACTS, names)).toHaveLength(13);
+    const rows = buildCrsRows(blanks, EMPTY_FACTS, names, null, groupsOf(blanks.map((b) => [b.id, "field:x", 0])));
     expect(rows).toHaveLength(1);
+    expect(rows[0].key).toBe("crs:field:x");
     expect(rows[0].findings).toHaveLength(13);
     expect(rows[0].observation).toContain("13 blanks, one answer");
     expect(rows[0].item).toBe("Field k0, Field k1 and 11 more");
+    // Two findings the screen's old card rule would merge stay apart when the server says so.
+    const same = { required_action: "Contractor to give the value.", finding: "The value is wrong." };
+    const apart = buildCrsRows([f("p", same), f("q", same)], EMPTY_FACTS, names, null, groupsOf([["p", "req:1", 0], ["q", "req:2", 1]]));
+    expect(apart.map((r) => r.key)).toEqual(["crs:req:1", "crs:req:2"]);
   });
   it("a group with one unsettled member needs you as a whole", () => {
     const same = { required_action: "Contractor to give the value.", finding: "The value is wrong." };
-    const rows = buildCrsRows([f("a", same), f("b", { ...same, contractor_page: 4 })], { ...EMPTY_FACTS, pagesNotRead: [4] }, names);
+    const rows = buildCrsRows([f("a", same), f("b", { ...same, contractor_page: 4 })], { ...EMPTY_FACTS, pagesNotRead: [4] }, names,
+      null, groupsOf([["a", "field:v", 0], ["b", "field:v", 0]]));
     expect(rows).toHaveLength(1);
     expect(rows[0].tier).toEqual({ tier: "C", label: "Needs you", reason: "page not read" });
   });
@@ -89,6 +113,67 @@ describe("buildCrsRows", () => {
   it("an unconfirmed safety tick is a Needs-you row", () => {
     const rows = buildCrsRows([f("tick", { compliance_status: "COMPLIANT", show_for_engineer_tick: true })], EMPTY_FACTS, names);
     expect(rows.map((r) => [r.tier.label, r.tier.reason])).toEqual([["Needs you", "safety field"]]);
+  });
+});
+
+describe("order 139 part 2: the server's grouping, one source", () => {
+  it("orders comments by crs_order, then ungrouped by page", () => {
+    const rows = buildCrsRows([
+      f("late", { contractor_page: 1 }), f("first", { contractor_page: 9 }), f("loose", { contractor_page: 2 }),
+      f("second", { contractor_page: 5 }),
+    ], EMPTY_FACTS, names, null, groupsOf([["first", "g1", 0], ["second", "g2", 1], ["late", "g3", 2]]));
+    expect(rows.map((r) => [r.commentNo, r.findings[0].id])).toEqual([[1, "first"], [2, "second"], [3, "late"], [4, "loose"]]);
+  });
+  it("without server grouping shows one row per finding and the note", () => {
+    const same = { required_action: "Contractor to give the value.", finding: "The value is wrong." };
+    for (const groups of [null, serverGroupsOf(summaryOf([{ finding_id: "a", crs_group: "g", crs_order: 0 }], false)), serverGroupsOf(null)]) {
+      const rows = buildCrsRows([f("a", same), f("b", same)], EMPTY_FACTS, names, null, groups);
+      expect(rows.map((r) => r.key)).toEqual(["one:a", "one:b"]);
+      expect(groupingNote(rows)).toBe(UNGROUPED_NOTE);
+    }
+    const grouped = buildCrsRows([f("a", same)], EMPTY_FACTS, names, null, groupsOf([["a", "g", 0]]));
+    expect(groupingNote(grouped)).toBeNull();
+  });
+  it("a finding with no crs_group is its own row, after the grouped comments", () => {
+    const rows = buildCrsRows([f("new", { contractor_page: 1 }), f("a", { contractor_page: 3 }), f("b", { contractor_page: 4 })],
+      EMPTY_FACTS, names, null, groupsOf([["a", "g", 0], ["b", "g", 0]]));
+    expect(rows.map((r) => r.key)).toEqual(["crs:g", "one:new"]);
+    expect(rows[1].grouping).toBe("server");
+    expect(groupingNote(rows)).toBeNull();
+  });
+  it("required action is the engineer's words, else crs_action, else the finding's", () => {
+    const action = "Contractor to provide Field x.";
+    const rows = buildCrsRows([
+      f("own", { engineer_comment: "My words.", contractor_page: 1 }), f("srv", { contractor_page: 2 }), f("plain", { contractor_page: 3 }),
+    ], EMPTY_FACTS, names, null, groupsOf([["own", "g1", 0, action], ["srv", "g2", 1, action], ["plain", "g3", 2]]));
+    expect(rows.map((r) => r.requiredAction)).toEqual(["My words.", action, "Contractor to fix plain."]);
+  });
+  it("the clause list caps at 10 and says how many more of n", () => {
+    const many = Array.from({ length: 12 }, (_, i) => f(`c${i}`, { standard_clause: `3.${i + 1}`, compliance_status: "MISSING_INFORMATION" }));
+    const [row] = buildCrsRows(many, EMPTY_FACTS, names, null, groupsOf(many.map((m) => [m.id, "field:x", 0, "Contractor to provide Field x."])));
+    const lines = supportingClauseLines(row);
+    expect(lines[0]).toBe("Supporting clauses (12):");
+    expect(lines.slice(1, 1 + MAX_CLAUSE_LINES)).toEqual(Array.from({ length: 10 }, (_, i) => `API 520.pdf, clause 3.${i + 1}`));
+    expect(lines.at(-1)).toBe("and 2 more of these 12");
+    expect(lines).toHaveLength(12);
+    // A row of one clause, or one the file gives no action line, lists none.
+    const [single] = buildCrsRows([f("s")], EMPTY_FACTS, names, null, groupsOf([["s", "g", 0]]));
+    expect(supportingClauseLines(single)).toEqual([]);
+  });
+  it("covers #1177's screen gap: a finding the file put in its Review notes is a note, never a row to decide", () => {
+    const question = { compliance_status: "NEEDS_ENGINEER_REVIEW" as const, contractor_page: null };
+    const all = [f("q", question), f("a")];
+    const groups = serverGroupsOf(summaryOf([
+      { finding_id: "q", tier: "C", label: "Needs you", crs_note: true }, { finding_id: "a", crs_group: "g", crs_order: 0 },
+    ]));
+    const rows = buildCrsRows(all, EMPTY_FACTS, names, null, groups);
+    expect(rows.map((r) => r.key)).toEqual(["crs:g"]);
+    expect(serverNoteCount(all, groups)).toBe(1);
+    expect(serverNotesLine(1)).toBe("1 finding of this review is not a comment row of the sheet: it is in its Review notes"
+      + " (the engineer's internal list), or repeats a value another comment row already raises.");
+    expect(serverNotesLine(0)).toBe("");
+    // A rejected one is counted by the footer, not here.
+    expect(serverNoteCount([f("q", { ...question, approval_status: "rejected" })], groups)).toBe(0);
   });
 });
 

@@ -24,7 +24,7 @@
  */
 import { reviews as reviewsApi } from "../../../../api/client";
 import type { ReviewFinding } from "../../../../types/api";
-import { type CrsRow, buildCrsRows } from "../../crs/crsRows";
+import { type CrsRow, buildCrsRows, serverGroupsOf } from "../../crs/crsRows";
 import { runFactsOf, serverTiersOf } from "../../crs/tiers";
 import { fieldOf } from "../../sheet/sheetCards";
 import { dayWords } from "../landing/dateWords";
@@ -153,7 +153,9 @@ export async function loadCommentLines(runId: string): Promise<LoadedLines> {
     const names = new Map((standards ?? []).filter((s) => s.filename).map((s) => [s.standard_document_id, s.filename as string]));
     const facts = runFactsOf(run.data, standards, missing);
     const server = sum.ok ? serverTiersOf(sum.data.rows) : null;
-    return { ok: true, rows: buildCrsRows(listed.data.findings, facts, names, server) };
+    // Order 139 part 2: the lines are the file's rows, grouped by the server.
+    const groups = sum.ok ? serverGroupsOf(sum.data) : null;
+    return { ok: true, rows: buildCrsRows(listed.data.findings, facts, names, server, groups) };
   } catch {
     return { ok: false, error: plainError(COULD_NOT_COMPARE, { disconnected: true }) };
   }

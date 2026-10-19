@@ -12,8 +12,8 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ReviewFinding, ReviewRunSummary } from "../../../types/api";
-import { buildCrsRows, spotCheckKeys } from "../crs/crsRows";
+import type { ReviewFinding, ReviewRunSummary, ReviewRunTierSummary } from "../../../types/api";
+import { UNGROUPED_NOTE, buildCrsRows, serverGroupsOf, spotCheckKeys } from "../crs/crsRows";
 import { EMPTY_FACTS } from "../crs/tiers";
 import { useCrsDecisions } from "../crs/useCrsDecisions";
 import type { ReviewNumbers } from "./contract";
@@ -345,5 +345,30 @@ describe("WorkspaceSheet", () => {
     render(<Three start={metKey} />);
     await screen.findByRole("dialog");
     expect(screen.getAllByRole("row").some((r) => r.getAttribute("data-row-key") === metKey)).toBe(true);
+  });
+});
+
+/** Order 139 part 2: the sheet says once when its rows are not the file's
+ *  grouping, and how many findings the file lists in its Review notes. */
+describe("WorkspaceSheet: the server's grouping", () => {
+  function Sheet({ rows, serverNotes }: { rows: typeof ROWS; serverNotes?: number }) {
+    const decisions = useCrsDecisions();
+    return (
+      <WorkspaceSheet runId="run-1" run={RUN} rows={rows} submittal={null} standardNames={new Map()}
+        decisions={decisions} openRowKey={null} numbers={numbersOf()} onOpenRow={() => undefined} serverNotes={serverNotes} />
+    );
+  }
+  it("says once that the rows are one per finding when the server sent no grouping", () => {
+    render(<Sheet rows={ROWS} />);
+    expect(screen.getAllByText(UNGROUPED_NOTE)).toHaveLength(1);
+  });
+  it("says nothing about grouping when the rows are the file's; names the Review notes when there are some", () => {
+    const groups = serverGroupsOf({
+      review_run_id: "run-1", crs_grouping: true,
+      rows: FINDINGS.map((x, i) => ({ finding_id: x.id, tier: "B", label: "Comment", crs_group: `g${i}`, crs_order: i })),
+    } as unknown as ReviewRunTierSummary);
+    render(<Sheet rows={buildCrsRows(FINDINGS, EMPTY_FACTS, new Map(), null, groups)} serverNotes={2} />);
+    expect(screen.queryByText(UNGROUPED_NOTE)).toBeNull();
+    expect(screen.getByText(/^2 findings of this review are not comment rows of the sheet: they are in its Review notes/)).toBeInTheDocument();
   });
 });

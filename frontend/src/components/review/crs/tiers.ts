@@ -53,6 +53,12 @@ export interface TierResult {
   label: TierLabel;
   /** Only a Tier C row carries a reason. */
   reason: TierReason | null;
+  /** Order 139 part 2: the rank word of the CRS row this finding lands on
+   *  ("Out of limit", "Missing value", "Engineer to check", "Engineer's
+   *  comment"), as the server's run summary sends it (`crs_priority_label`,
+   *  the file's Priority column). Only on a server answer that carried one;
+   *  absent otherwise - the screen never ranks a row itself. */
+  priorityLabel?: string;
 }
 
 /** What is known about the run, as data. Every list may be empty. */
@@ -282,6 +288,7 @@ export type ServerTiers = ReadonlyMap<string, TierResult>;
 export function serverTiersOf(rows: RunSummaryTierRow[]): ServerTiers {
   return new Map(rows.map((r) => [r.finding_id, {
     tier: r.tier, label: r.label, reason: r.tier === NEEDS_YOU.tier ? (r.reason ?? FALLBACK_REASON) : null,
+    ...(r.crs_priority_label ? { priorityLabel: r.crs_priority_label } : {}),
   }]));
 }
 
