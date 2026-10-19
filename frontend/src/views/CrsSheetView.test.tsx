@@ -194,14 +194,14 @@ describe("CrsSheetView", () => {
   it("renders the headline from the rows and the run's stored fields, the code and the seven columns", async () => {
     mount();
     expect(await screen.findByTestId("crs-headline")).toHaveTextContent(
-      "5 comments, 2 need your judgement. 1 value met, 4,362 clauses not applicable (hidden). 2 of 12 pages were not read (4 and 9).",
+      "5 comments, 2 need your judgement. 1 value met, 4,362 clauses not applicable (hidden). 2 of 12 pages were not fully read (4 and 9).",
     );
     expect(screen.getByTestId("crs-code")).toHaveTextContent("Proposed code: Approved with Comments. Two values do not meet the standard.");
     expect(await screen.findByText(/Equipment: Pressure safety valve · Revision B/)).toBeInTheDocument();
     const headers = within(screen.getByRole("grid")).getAllByRole("columnheader").map((h) => h.textContent);
     expect(headers).toEqual(["Tier", "Comment no.", "Page or section", "Item", "Clause and standard", "Observation", "Required action", "Status", "Actions"]);
     expect(screen.getByTestId("crs-footer")).toHaveTextContent("Run run-1");
-    expect(screen.getByTestId("crs-footer")).toHaveTextContent("Pages not read: 2 of 12 (4, 9).");
+    expect(screen.getByTestId("crs-footer")).toHaveTextContent("Pages not fully read: 2 of 12 (4, 9).");
     expect(screen.getByTestId("crs-footer")).toHaveTextContent("Standards used: 1 (API 520.pdf); missing from the library: 1 (API 526).");
     expect(screen.queryByTestId("crs-rejected")).not.toBeInTheDocument();
     expect(screen.getByTestId("crs-footer")).toHaveTextContent("Rows on this sheet: 3 Comment, 2 Needs you, 1 Met, 0 Not applicable, 1 Another document");
@@ -518,7 +518,7 @@ describe("CrsSheetView reads the run summary (order 95 piece 1, #1111)", () => {
     // list `how_reviewed.unread_pages`, 4 and 7) and its stored trace
     // (900 + 180 s) do.
     expect(await screen.findByTestId("crs-headline")).toHaveTextContent(
-      "5 comments, 2 need your judgement. 1 value met, 1,200 clauses not applicable (hidden). Read in 18 min; 2 of 12 pages were not read (4 and 7).",
+      "5 comments, 2 need your judgement. 1 value met, 1,200 clauses not applicable (hidden). Read in 18 min; 2 of 12 pages were not fully read (4 and 7).",
     );
     expect(rows().filter((r) => !/^Met/.test(within(r).getAllByRole("cell")[0].textContent ?? ""))).toHaveLength(5);
     expect(reviewRunSummary).toHaveBeenCalledWith("run-1");
@@ -530,7 +530,7 @@ describe("CrsSheetView reads the run summary (order 95 piece 1, #1111)", () => {
   it("when the summary 404s (route not on this server), the screen's own tiers stand in and one small note says so", async () => {
     mount();
     expect(await screen.findByTestId("crs-headline")).toHaveTextContent(
-      "5 comments, 2 need your judgement. 1 value met, 4,362 clauses not applicable (hidden). 2 of 12 pages were not read (4 and 9).",
+      "5 comments, 2 need your judgement. 1 value met, 4,362 clauses not applicable (hidden). 2 of 12 pages were not fully read (4 and 9).",
     );
     expect(screen.getByTestId("crs-tier-source")).toHaveTextContent("Tiers worked out on this screen: the run summary was not available from the server.");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -641,10 +641,10 @@ describe("CrsSheetView: Before you sign (order 121)", () => {
     // Order 121 Part B: the page's line says why in plain words; the reader's
     // own wording stays folded away.
     expect(screen.getByTestId("sign-page-4")).toHaveTextContent(
-      "Page 4 was not read: it looks like a cover page (the computer's guess). Tick if you checked it yourself.");
+      "Page 4 was not fully read: it looks like a cover page (the computer's guess). Tick if you checked it yourself.");
     expect(screen.getByTestId("sign-page-4")).not.toHaveTextContent("vision reader");
     // Order 127: the count carries its total and says what is left to tick.
-    expect(screen.getByTestId("sign-pages")).toHaveTextContent("1 of 12 pages was not read: 0 checked by an engineer, 1 left to tick.");
+    expect(screen.getByTestId("sign-pages")).toHaveTextContent("1 of 12 pages was not fully read. Tick each one once you have checked it yourself.");
 
     // 1. The final code: the computer's proposal is pre-selected and named.
     const proposal = within(screen.getByTestId("sign-code")).getByRole("radio", { name: /Approved with Comments/ });
@@ -662,7 +662,7 @@ describe("CrsSheetView: Before you sign (order 121)", () => {
     await userEvent.type(screen.getByLabelText("What you checked on page 4"), " - cover page, title block only");
     await userEvent.click(screen.getByRole("button", { name: "I checked page 4" }));
     expect(decideCrsPage).toHaveBeenCalledWith("run-1", 4, "ok - cover page, title block only");
-    await waitFor(() => expect(screen.getByTestId("sign-pages")).toHaveTextContent("1 of 12 pages was not read: checked by an engineer."));
+    await waitFor(() => expect(screen.getByTestId("sign-pages")).toHaveTextContent("1 of 12 pages was not fully read; an engineer checked it."));
 
     // 3. Items on the copy that are not sheet rows: one reason for all.
     expect(screen.getByTestId("sign-items")).toHaveTextContent("a standard the datasheet does not cite");

@@ -140,7 +140,7 @@ describe("crsHeadline", () => {
   const traced = { ...headlineFieldsOf(run), readSeconds: 18 * 60 };
   it("is the spec's one line; the met count is the rows' own, not the run's by_status", () => {
     expect(crsHeadline(run, { comment: 17, needsYou: 6, met: 94, notApplicable: 0, anotherDocument: 0 }, traced)).toBe(
-      "23 comments, 6 need your judgement. 94 values met, 4,362 clauses not applicable (hidden). Read in 18 min; 2 of 12 pages were not read (4 and 9).",
+      "23 comments, 6 need your judgement. 94 values met, 4,362 clauses not applicable (hidden). Read in 18 min; 2 of 12 pages were not fully read (4 and 9).",
     );
   });
   it("order 112: counts the rows; the findings behind the comment rows come second, with thousands separators", () => {
@@ -171,13 +171,13 @@ describe("crsHeadline", () => {
     const all = { ...run, page_coverage: { pages_total: 11, fact_pages: [4], pages_not_read_into_fields: [1, 2, 3, 5, 11], not_read_reasons: {} },
       unread_pages: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] } as unknown as ReviewRunSummary;
     expect(crsHeadline(all, counts, { ...headlineFieldsOf(all), readSeconds: 18 * 60 }))
-      .toBe("5 comments, 2 need your judgement. 1 value met, 4,362 clauses not applicable (hidden). Read in 18 min; 11 of 11 pages were not read (1-11).");
+      .toBe("5 comments, 2 need your judgement. 1 value met, 4,362 clauses not applicable (hidden). Read in 18 min; 11 of 11 pages were not fully read (1-11).");
     expect(crsHeadline(run, counts)).toBe(
-      "5 comments, 2 need your judgement. 1 value met, 4,362 clauses not applicable (hidden). 2 of 12 pages were not read (4 and 9).");
-    expect(crsHeadline({ ...run, unread_pages: [4] }, counts)).toMatch(/ 1 of 12 pages was not read \(4\)\.$/);
+      "5 comments, 2 need your judgement. 1 value met, 4,362 clauses not applicable (hidden). 2 of 12 pages were not fully read (4 and 9).");
+    expect(crsHeadline({ ...run, unread_pages: [4] }, counts)).toMatch(/ 1 of 12 pages was not fully read \(4\)\.$/);
     // Total not known: the count stands alone, with no "of".
-    expect(crsHeadline(run, counts, { ...headlineFieldsOf(run), pagesTotal: null })).toMatch(/ 2 pages were not read \(4 and 9\)\.$/);
-    expect(crsHeadline(run, counts, { ...headlineFieldsOf(run), unreadPages: [9], pagesTotal: null })).toMatch(/ 1 page was not read \(9\)\.$/);
+    expect(crsHeadline(run, counts, { ...headlineFieldsOf(run), pagesTotal: null })).toMatch(/ 2 pages were not fully read \(4 and 9\)\.$/);
+    expect(crsHeadline(run, counts, { ...headlineFieldsOf(run), unreadPages: [9], pagesTotal: null })).toMatch(/ 1 page was not fully read \(9\)\.$/);
     // None unread: nothing said.
     expect(crsHeadline({ ...run, unread_pages: [] }, counts)).not.toMatch(/not read/);
     for (const r of [run, all]) expect(crsHeadline(r, counts)).not.toMatch(/gave up/);
@@ -186,14 +186,14 @@ describe("crsHeadline", () => {
 
 describe("unreadPhrase (order 127, shared with Before you sign)", () => {
   it("says the count against the total when the total is known", () => {
-    expect(unreadPhrase(11, 11)).toBe("11 of 11 pages were not read");
-    expect(unreadPhrase(2, 12)).toBe("2 of 12 pages were not read");
-    expect(unreadPhrase(1, 12)).toBe("1 of 12 pages was not read");
-    expect(unreadPhrase(1, 1)).toBe("1 of 1 page was not read");
+    expect(unreadPhrase(11, 11)).toBe("11 of 11 pages were not fully read");
+    expect(unreadPhrase(2, 12)).toBe("2 of 12 pages were not fully read");
+    expect(unreadPhrase(1, 12)).toBe("1 of 12 pages was not fully read");
+    expect(unreadPhrase(1, 1)).toBe("1 of 1 page was not fully read");
   });
   it("claims no total it does not hold", () => {
-    expect(unreadPhrase(2, null)).toBe("2 pages were not read");
-    expect(unreadPhrase(1, null)).toBe("1 page was not read");
+    expect(unreadPhrase(2, null)).toBe("2 pages were not fully read");
+    expect(unreadPhrase(1, null)).toBe("1 page was not fully read");
   });
 });
 

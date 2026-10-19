@@ -213,14 +213,16 @@ function plural(n: number, one: string, many: string): string {
 
 /** Order 127: the one phrase for the run's unread pages, shared by the
  *  header and the "Before you sign" box. `total` null = the page count is
- *  not known, and then no "of T" is claimed.
- *  `unreadPhrase(11, 11)` -> "11 of 11 pages were not read";
- *  `unreadPhrase(1, 12)` -> "1 of 12 pages was not read";
- *  `unreadPhrase(2, null)` -> "2 pages were not read". */
+ *  not known, and then no "of T" is claimed. "Not fully read": a page the
+ *  AI reader did not read may still have values the code readers took from
+ *  it, so "not read" alone would contradict a met value cited on that page.
+ *  `unreadPhrase(11, 11)` -> "11 of 11 pages were not fully read";
+ *  `unreadPhrase(1, 12)` -> "1 of 12 pages was not fully read";
+ *  `unreadPhrase(2, null)` -> "2 pages were not fully read". */
 export function unreadPhrase(n: number, total: number | null): string {
   return total !== null
-    ? `${n} of ${total} ${total === 1 ? "page" : "pages"} ${n === 1 ? "was" : "were"} not read`
-    : `${n} ${n === 1 ? "page was" : "pages were"} not read`;
+    ? `${n} of ${total} ${total === 1 ? "page" : "pages"} ${n === 1 ? "was" : "were"} not fully read`
+    : `${n} ${n === 1 ? "page was" : "pages were"} not fully read`;
 }
 
 /** The run's stored fields the headline reads: the clauses not applicable

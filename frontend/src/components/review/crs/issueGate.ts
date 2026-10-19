@@ -106,7 +106,8 @@ export function unreadPagesLine(gate: CrsIssueGate): { done: boolean; text: stri
     return { done: true, text: "Every page was read." };
   }
   const head = unreadPhrase(notRead, pagesTotal);
-  if (left === 0) return { done: true, text: `${head}: ${notRead === 1 ? "checked" : `all ${notRead} checked`} by an engineer.` };
+  if (left === 0) return { done: true, text: `${head}; an engineer checked ${notRead === 1 ? "it" : `all ${notRead}`}.` };
+  if (checked === 0) return { done: false, text: `${head}. Tick each one once you have checked it yourself.` };
   return { done: false, text: `${head}: ${checked} checked by an engineer, ${left} left to tick.` };
 }
 

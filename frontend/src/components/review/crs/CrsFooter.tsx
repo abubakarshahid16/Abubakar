@@ -28,11 +28,11 @@ function pagesLine(run: ReviewRunSummary): string {
   // Order 127: the run's one list of unread pages (the same the header names
   // and the issue gate asks ticks for), not only the code readers' list.
   const unread = run.unread_pages;
-  if (unread === null || unread === undefined) return "Pages not read: not recorded on this run.";
+  if (unread === null || unread === undefined) return "Pages not fully read: not recorded on this run.";
   const pages = [...new Set(unread)].sort((a, b) => a - b);
   return pages.length
-    ? `Pages not read: ${pages.length} of ${pc.pages_total} (${pageList(pages)}).`
-    : `Pages not read: none of ${pc.pages_total}.`;
+    ? `Pages not fully read: ${pages.length} of ${pc.pages_total} (${pageList(pages)}).`
+    : `Pages not fully read: none of ${pc.pages_total}.`;
 }
 
 export function CrsFooter({ run, counts, standards, missing, standardsError, rejected, codeVersion }: CrsFooterProps) {

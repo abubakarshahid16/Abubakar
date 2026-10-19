@@ -97,17 +97,17 @@ function theGate(checked: number[] = [4]): CrsIssueGate {
   };
 }
 
-const COUNT = /(\d+) of (\d+) pages? (?:was|were) not read/;
+const COUNT = /(\d+) of (\d+) pages? (?:was|were) not fully read/;
 
 function countIn(testId: string): [number, number] {
   const m = COUNT.exec(screen.getByTestId(testId).textContent ?? "");
-  expect(m, `${testId} names no "N of T pages were not read"`).not.toBeNull();
+  expect(m, `${testId} names no "N of T pages were not fully read"`).not.toBeNull();
   return [Number(m?.[1]), Number(m?.[2])];
 }
 
 function footerCount(): [number, number] {
-  const m = /Pages not read: (\d+) of (\d+)/.exec(screen.getByTestId("crs-footer").textContent ?? "");
-  expect(m, "the footer names no \"Pages not read: N of T\"").not.toBeNull();
+  const m = /Pages not fully read: (\d+) of (\d+)/.exec(screen.getByTestId("crs-footer").textContent ?? "");
+  expect(m, "the footer names no \"Pages not fully read: N of T\"").not.toBeNull();
   return [Number(m?.[1]), Number(m?.[2])];
 }
 
@@ -137,7 +137,7 @@ describe("order 127: header, box and footer name one unread-pages count", () => 
     expect(box).toEqual([11, 11]);
     expect(header).toEqual(box);
     expect(footerCount()).toEqual(box);
-    expect(screen.getByTestId("sign-pages")).toHaveTextContent("11 of 11 pages were not read: 1 checked by an engineer, 10 left to tick.");
+    expect(screen.getByTestId("sign-pages")).toHaveTextContent("11 of 11 pages were not fully read: 1 checked by an engineer, 10 left to tick.");
   });
 
   it("with the summary route missing (404), the runs list's copy gives the header the same count", async () => {
@@ -152,8 +152,8 @@ describe("order 127: header, box and footer name one unread-pages count", () => 
   it("the order's case, nothing ticked yet: the header and the box say the same words", async () => {
     gate = theGate([]);
     mount();
-    expect(await screen.findByTestId("crs-headline")).toHaveTextContent("11 of 11 pages were not read (1-11).");
-    expect(await screen.findByTestId("sign-pages")).toHaveTextContent("11 of 11 pages were not read: 0 checked by an engineer, 11 left to tick.");
+    expect(await screen.findByTestId("crs-headline")).toHaveTextContent("11 of 11 pages were not fully read (1-11).");
+    expect(await screen.findByTestId("sign-pages")).toHaveTextContent("11 of 11 pages were not fully read. Tick each one once you have checked it yourself.");
     expect(screen.getByTestId("crs-headline")).not.toHaveTextContent("gave up");
   });
 
@@ -173,19 +173,19 @@ describe("order 127: the box's words (spec section 5)", () => {
   });
 
   it("says the count with its total, then what is checked and what is left", () => {
-    expect(unreadPagesLine(g(ALL, [], 11))).toEqual({ done: false, text: "11 of 11 pages were not read: 0 checked by an engineer, 11 left to tick." });
-    expect(unreadPagesLine(g([1, 2, 3, 5, 6, 7, 8, 9, 10], [4, 11], 11)).text).toBe("11 of 11 pages were not read: 2 checked by an engineer, 9 left to tick.");
-    expect(unreadPagesLine(g([4], [], 12)).text).toBe("1 of 12 pages was not read: 0 checked by an engineer, 1 left to tick.");
+    expect(unreadPagesLine(g(ALL, [], 11))).toEqual({ done: false, text: "11 of 11 pages were not fully read. Tick each one once you have checked it yourself." });
+    expect(unreadPagesLine(g([1, 2, 3, 5, 6, 7, 8, 9, 10], [4, 11], 11)).text).toBe("11 of 11 pages were not fully read: 2 checked by an engineer, 9 left to tick.");
+    expect(unreadPagesLine(g([4], [], 12)).text).toBe("1 of 12 pages was not fully read. Tick each one once you have checked it yourself.");
   });
 
   it("is done when every unread page was checked, or every page was read", () => {
-    expect(unreadPagesLine(g([], ALL, 11))).toEqual({ done: true, text: "11 of 11 pages were not read: all 11 checked by an engineer." });
-    expect(unreadPagesLine(g([], [4], 12))).toEqual({ done: true, text: "1 of 12 pages was not read: checked by an engineer." });
+    expect(unreadPagesLine(g([], ALL, 11))).toEqual({ done: true, text: "11 of 11 pages were not fully read; an engineer checked all 11." });
+    expect(unreadPagesLine(g([], [4], 12))).toEqual({ done: true, text: "1 of 12 pages was not fully read; an engineer checked it." });
     expect(unreadPagesLine(g([], [], 12))).toEqual({ done: true, text: "Every page was read." });
   });
 
   it("drops 'of T' when the total is not sent, and never calls pages read when the server says no record is stored", () => {
-    expect(unreadPagesLine(g([4, 9], undefined, undefined)).text).toBe("2 pages were not read: 0 checked by an engineer, 2 left to tick.");
+    expect(unreadPagesLine(g([4, 9], undefined, undefined)).text).toBe("2 pages were not fully read. Tick each one once you have checked it yourself.");
     expect(unreadPagesLine(g([], undefined, undefined))).toEqual({ done: true, text: "Every page was read or checked by an engineer." });
     expect(unreadPagesLine(g([], [], null))).toEqual({ done: false, text: "Which pages were read is not recorded on this run." });
   });

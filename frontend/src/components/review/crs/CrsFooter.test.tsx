@@ -33,17 +33,17 @@ function pagesText(run: ReviewRunSummary): string {
 
 describe("CrsFooter pages line (order 127)", () => {
   it("an AI reader that read nothing: every page of 11 is not read, not only the code readers' five", () => {
-    expect(pagesText(runOf({ unread_pages: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] }))).toBe("Pages not read: 11 of 11 (1-11).");
+    expect(pagesText(runOf({ unread_pages: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] }))).toBe("Pages not fully read: 11 of 11 (1-11).");
   });
   it("names the pages of the one list against the total", () => {
-    expect(pagesText(runOf({ unread_pages: [9, 4] }))).toBe("Pages not read: 2 of 11 (4, 9).");
+    expect(pagesText(runOf({ unread_pages: [9, 4] }))).toBe("Pages not fully read: 2 of 11 (4, 9).");
   });
   it("none unread is said as none of the total, never a bare 0", () => {
-    expect(pagesText(runOf({ unread_pages: [] }))).toBe("Pages not read: none of 11.");
+    expect(pagesText(runOf({ unread_pages: [] }))).toBe("Pages not fully read: none of 11.");
   });
   it("a run that does not hold the list says so; it does not fall back to the code readers' list", () => {
-    expect(pagesText(runOf({ unread_pages: null }))).toBe("Pages not read: not recorded on this run.");
-    expect(pagesText(runOf({}))).toBe("Pages not read: not recorded on this run.");
+    expect(pagesText(runOf({ unread_pages: null }))).toBe("Pages not fully read: not recorded on this run.");
+    expect(pagesText(runOf({}))).toBe("Pages not fully read: not recorded on this run.");
   });
   it("no coverage and no total keep their own words", () => {
     expect(pagesText(runOf({ page_coverage: null, unread_pages: [4] }))).toBe("Pages read: not recorded on this run.");
