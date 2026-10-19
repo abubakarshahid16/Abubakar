@@ -186,6 +186,21 @@ def reader_summary_line(reader: dict | None) -> str | None:
     if by_reason:
         line += "; code readers only on " + "; ".join(
             f"page(s) {', '.join(ps)}: {why}" for why, ps in by_reason.items())
+    partly = reader.get("partly_read") or {}
+    if partly:
+        # order 139: read by the AI, but not every part - never a whole reading.
+        line += "; read by the AI only in part on " + "; ".join(
+            f"page {page}: {why}" for page, why in partly.items()
+        )
+    parts = {
+        p: n for p, n in (reader.get("read_in_parts") or {}).items() if p not in partly
+    }
+    if parts:
+        line += (
+            "; page(s) "
+            + ", ".join(parts)
+            + " read in parts (the answer was too long for one)"
+        )
     if reader.get("cut_off"):
         # #501: read, and not to its end - never shown as a whole reading.
         line += ("; on page(s) " + ", ".join(str(p) for p in reader["cut_off"])

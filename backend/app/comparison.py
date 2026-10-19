@@ -52,8 +52,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import (absence, claims, conditions, datasheets, errors, field_links, match_rules, numparse, page_ledger,
-                requirements_3b, review, schemas, stated_value, submittal_review)
+from . import (absence, claims, conditions, datasheets, errors, field_copies, field_links, match_rules, numparse,
+                page_ledger, requirements_3b, review, schemas, stated_value, submittal_review)
 from .config import settings
 from .db import connect
 
@@ -611,6 +611,74 @@ def _hold_low_trust_breach(verdict: dict, fact: dict | None) -> dict:
         f"{verdict.get('rationale') or ''}")}
 
 
+#: Order 139: statuses a pair of unsure quantity kind may not keep - a verdict,
+#: the contractor's blank, a condition, an engineer question asked for less.
+_HELD_ON_UNSURE_KIND = frozenset(
+    {COMPLIANT, NON_COMPLIANT, MISSING_INFORMATION, CONDITIONAL, NEEDS_ENGINEER_REVIEW}
+)
+
+
+#: A rationale that already leads with its own machine reason ("unit_mismatch:",
+#: "LOW_TRUST_VALUE:"): an engineer question asked for that reason keeps it.
+_LEADING_CODE = re.compile(r"^(?:[a-z_]+|[A-Z][A-Z_]+):")
+
+
+def _hold_unsure_kind(
+    verdict: dict,
+    requirement: dict,
+    fact: dict | None,
+    match: dict,
+    model_reason: str | None = None,
+) -> dict:
+    """ORDER 139: a pair `match_rules.quantity_kind_doubt` cannot show to be the
+    same quantity is an engineer's check with a plain reason, never a finding;
+    the pair is kept so the suggested field is seen, and what was said before
+    (who paired it, a page, a unit or trust note) is kept after the reason. A
+    question already asked for its own coded reason keeps that code and gains
+    the kind reason as a note. A field rule 6 refused on ANY path (another
+    kind) is the engineer's to look for - never "not provided", never "no
+    field found": the value may well be on the sheet under that field."""
+    old = verdict.get("rationale") or ""
+    if fact is None:
+        refused = sorted(
+            {
+                r["name"]
+                for r in match.get("refused") or ()
+                if r.get("reason") == match_rules.QUANTITY_KIND
+            }
+        )
+        if model_reason == f"{MODEL_REFUSED} ({match_rules.QUANTITY_KIND})":
+            refused.append("proposed by the AI matcher")
+        if not refused or verdict.get("status") not in (
+            NOT_IN_DOCUMENT_SCOPE,
+            MISSING_INFORMATION,
+        ):
+            return verdict
+        return {
+            **verdict,
+            "status": NEEDS_ENGINEER_REVIEW,
+            "rationale": (
+                f"{match_rules.QUANTITY_KIND}: the datasheet field "
+                f"'{', '.join(refused)}' was found for this requirement but "
+                "states a different kind of quantity, so it was not paired; the value "
+                "may be elsewhere on the sheet - an engineer must look"
+            ),
+        }
+    if (
+        verdict.get("status") not in _HELD_ON_UNSURE_KIND
+        or match_rules.quantity_kind_doubt(requirement, fact) is None
+    ):
+        return verdict
+    reason = match_rules.quantity_kind_reason(requirement, fact)
+    if verdict.get("status") == NEEDS_ENGINEER_REVIEW and _LEADING_CODE.match(old):
+        return {**verdict, "rationale": f"{old} (also {reason})"}
+    return {
+        **verdict,
+        "status": NEEDS_ENGINEER_REVIEW,
+        "rationale": f"{reason}. Set aside: {old}" if old else reason,
+    }
+
+
 def compare(requirement: dict, fact: dict | None, *,
             subject: str | None = None,
             submittal_facts: list[dict] | None = None) -> dict:
@@ -1080,11 +1148,22 @@ def _compare(requirement: dict, fact: dict | None, *,
             "observed": _describe(observed, fact),
             "exception_applied": exception, **_cond,
         }
+    # ORDER 141 B: TWO UNITS OF ONE QUANTITY ARE CONVERTED AND COMPARED (°F
+    # against °C, psig against bara, inch against mm). `claims` decides only
+    # when every honest reading agrees - temperature or difference, the
+    # site's atmosphere, the rounding of a converted figure - and otherwise
+    # says why it did not; one unit as written stays the exact test above.
+    crossed = claims.compare_across_units(observed, limit)
+    if crossed is not None:
+        verdict = crossed.verdict
     if verdict is None:
         return {
             "status": NEEDS_ENGINEER_REVIEW,
-            "rationale": (_reference_obstacle(observed, limit)
-                          or _unit_obstacle(fact.get("raw_unit"), governing.get("raw_unit"))),
+            "rationale": (
+                (crossed.obstacle if crossed is not None else None)
+                or _reference_obstacle(observed, limit)
+                or _unit_obstacle(fact.get("raw_unit"), governing.get("raw_unit"))
+            ),
             "limit": _describe(limit, governing),
             "observed": _describe(observed, fact),
             "exception_applied": exception, **_cond,
@@ -1092,10 +1171,12 @@ def _compare(requirement: dict, fact: dict | None, *,
 
     status = COMPLIANT if verdict else NON_COMPLIANT
     within = "within" if verdict else "outside"
-    note = ""
+    note = f"; {crossed.note}" if crossed is not None and crossed.note else ""
     if exception is not None:
-        note = (f"; the exception for {exception.get('applies_to')!r} governs "
-                f"instead of the general limit")
+        note += (
+            f"; the exception for {exception.get('applies_to')!r} governs "
+            f"instead of the general limit"
+        )
     if fact.get("value_note"):
         # #725 F3: a value the sheet printed beside "By Contractor" (or the
         # like) is compared, and the finding says so - never silently trusted.
@@ -1530,8 +1611,15 @@ def _prepare_finding(
 
 #: #921: the leading token of a rationale, as a stored CODE. The only place
 #: that reads the words is here, where the words are written.
-_REASON_CODES = (REQUIRES_OTHER_DOCUMENT, NO_FIELD_MATCHED, CONDITION_NOT_MET,
-                 "UNREAD_PAGES", "PAGE_READER_ONLY")
+_REASON_CODES = (
+    REQUIRES_OTHER_DOCUMENT,
+    NO_FIELD_MATCHED,
+    CONDITION_NOT_MET,
+    "UNREAD_PAGES",
+    "PAGE_READER_ONLY",
+    match_rules.QUANTITY_KIND_UNSURE,  # before its prefix, `quantity_kind`
+    match_rules.QUANTITY_KIND,
+)
 
 
 def reason_code_of(rationale: str | None) -> str | None:
@@ -1776,6 +1864,22 @@ def completeness_for_run(
     }
 
 
+def _unchecked_causes(counts: dict) -> str:
+    """Why the requirements that apply were not checked, each cause with its
+    count (#139): the cited-clause step's unsure ones are not "no field"."""
+    unsure = min(counts.get("unsure_citation", 0), counts.get("not_compared", 0))
+    rest = counts.get("not_compared", 0) - unsure
+    if not unsure:
+        return "no matching field, or text that could not be read"
+    causes = [
+        f"{unsure} because the datasheet's citation does not say for certain "
+        "which clauses of the standard apply - the engineer decides"
+    ]
+    if rest:
+        causes.append(f"{rest} with no matching field, or text that could not be read")
+    return "; ".join(causes)
+
+
 def recommend_code(findings: list[dict], completeness: dict, *,
                    codes: tuple[str, ...] | None = None,
                    missing_references: list[str] | tuple[str, ...] = (),
@@ -1809,8 +1913,8 @@ def recommend_code(findings: list[dict], completeness: dict, *,
         applies_n = unchecked_n + counts.get("checked", 0)
         result = {**result, "code": codes[3],
                   "reason": (f"Manual review: {unchecked_n} of {applies_n} requirements that apply "
-                             "to this submittal were not checked (no matching field, or text that "
-                             "could not be read), so the rest cannot be called met"),
+                             f"to this submittal were not checked ({_unchecked_causes(counts)}), "
+                             "so the rest cannot be called met"),
                   "unchecked_share": round(share, 3)}
     # PF3 (#883): AN INCOMPLETE READING CANNOT BE APPROVED. A page the AI reader
     # timed out on, or that no reader read into fields, is a page nobody has
@@ -2323,6 +2427,17 @@ def _run_comparison(
     names = {r["id"]: r["filename"] for r in connect().execute(
         "SELECT id, filename FROM documents WHERE id IN (%s)" % ",".join(
             "?" for _ in standard_ids), standard_ids)} if standard_ids else {}
+    # #139 A CODE CITED FOR ONE ITEM applies through the cited clauses only;
+    # the rest does not apply, with the reason (`subject_scope.citation_gate`).
+    from . import applicability as applicability_mod
+    from . import subject_scope
+
+    cited_scope = subject_scope.citation_gate_for_run(
+        requirements, submittal_id, applicable, names, allowed_document_ids
+    )
+    requirements = cited_scope["kept"]
+    extra_not_applied.extend(cited_scope["items"])
+    held_items.extend(cited_scope["unsure"])  # in scope, not checked: the engineer's
     gated = table_gate.gate(requirements, facts, standard_names=names)
     all_requirements = len(requirements)
     requirements = gated["kept"]
@@ -2352,7 +2467,6 @@ def _run_comparison(
     # when it has no specific subject, or when either is unclear; the rest are
     # counted and grouped on the run, never dropped silently. See
     # `subject_scope`.
-    from . import subject_scope
     in_scope = len(requirements)
     scoped = subject_scope.gate(
         requirements, classification=stored, facts=facts,
@@ -2374,7 +2488,6 @@ def _run_comparison(
     # #725 F5 A MATERIALS STANDARD applies only to material fields: NACE's
     # alloy-composition table rows are not checks for a datasheet that states
     # no such material (6,702 of them were on one PSV review).
-    from . import applicability as applicability_mod
     materials = subject_scope.materials_gate(
         requirements, facts=facts, standard_labels=standard_labels,
         is_materials_standard=applicability_mod.is_materials_standard)
@@ -2389,6 +2502,14 @@ def _run_comparison(
         partial_standards=applicability_mod.governing_table()["partial_standards"])
     requirements = partial["kept"]
     extra_not_applied.extend(partial["items"])
+    # #141 A DIVISION LIMITED BY ITS OWN SCOPE to another construction does not
+    # apply; unsure is held for the engineer. See `ai_applicability.division_gate`.
+    from . import ai_applicability as ai_div
+
+    divided = ai_div.division_gate_for_run(requirements, stored, facts, standard_labels)
+    requirements = divided["kept"]
+    extra_not_applied.extend(divided["items"])
+    held_items.extend(divided["held"])
     # #647 AI APPLICABILITY, when switched on: the model proposes "does not
     # apply" with a quoted reason; only what code confirms leaves the check.
     # What it suggested and code did not confirm is kept on the requirement's
@@ -2682,11 +2803,7 @@ def _run_comparison(
                 verdict = {
                     **verdict,
                     "status": NEEDS_ENGINEER_REVIEW,
-                    "rationale": (
-                        f"{AMBIGUOUS_MATCH}: more than one submitted field is named "
-                        f"inside this requirement ({', '.join(match['candidates'])}); "
-                        "no value was chosen, because choosing one arbitrarily "
-                        "would attach a real number to the wrong requirement"),
+                    "rationale": field_copies.ambiguous_rationale(match),
                 }
             # B3: "NOT FOUND" IS NOT "NOT PRESENT". A requirement no field answered
             # is only the contractor's omission if every page was read into fields.
@@ -2795,12 +2912,17 @@ def _run_comparison(
                 if match.get("synonym"):
                     notes.append(f"field linked through the synonym table as "
                                  f"'{match['synonym']}'")
+                notes.extend(field_copies.copies_notes(match))
                 if requirement.get("unit_from_clause_text"):
                     notes.append(f"the clause's unit {requirement.get('raw_unit')!r} was "
                                  "read from its own text beside its number")
                 if notes:
                     verdict = {**verdict, "rationale": (
                         f"{verdict.get('rationale') or ''} ({'; '.join(notes)})")}
+            # ORDER 139: SAME QUANTITY KIND, whichever method made the pair.
+            verdict = _hold_unsure_kind(
+                verdict, governing_requirement, fact, match, model_reason
+            )
             if (requirement.get("id"), (fact or {}).get("id")) in rejected_pairs:
                 rejected_requirements.add(requirement.get("id"))
                 continue
@@ -2920,8 +3042,12 @@ def _run_comparison(
         split = {**split, "clause_checks": clause_checks}
     if checklist_note:
         split = {**split, "checklist": checklist_note}
+    if cited_scope["summary"]:  # #139: standards cited only for named clauses
+        split = {**split, "cited_clauses": cited_scope["summary"]}
     if checklist_coverage:
         split = {**split, "checklist_coverage": checklist_coverage}
+    if divided["summary"]:  # #141: divisions limited by their own scope
+        split = {**split, "division_scope": divided["summary"]}
     # Owner order 2026-10-11: the run says which reader read the sheet - the
     # AI engine and model, or "code readers only", and the pages the AI did
     # not read (timed out, unavailable) with the reason.
@@ -2933,7 +3059,8 @@ def _run_comparison(
     unchecked_counts = {
         "not_compared": split["applies_not_checked"],
         "not_applied": split["does_not_apply"],
-        "checked": split["checked"]}
+        "checked": split["checked"],
+        "unsure_citation": len(cited_scope["unsure"])}
     recommendation = recommend_code(findings, coverage,
                                     missing_references=missing_references or (),
                                     page_coverage=pages_read,
@@ -3120,14 +3247,18 @@ def _units_comparable(requirement: dict, fact: dict,
     equality is the right question there, and `_compatible` does the conversion.
 
     But dimension is the WRONG question when a unit has no conversion. `dB(A)`
-    and `dB` share no dimension at all (both are None), and `°F` and `°C` share
-    one while being unconvertible by deliberate design - "a wrong temperature
-    conversion is a safety defect". For those the only safe test is that the
-    spellings match, which is what `same_unit` asks.
+    and `dB` share no dimension at all (both are None). For those the only
+    safe test is that the spellings match, which is what `same_unit` asks.
 
-    So: if both sides normalised, compare dimensions. If either did not, fall
-    back to the spelling. That keeps kPa-against-bar working and keeps
-    dB(A)-against-dB refused.
+    TEMPERATURE SCALES ARE THE EXCEPTION (order 141 B). `°F` has no factor in
+    the unit table (the conversion is affine), but `°F`, `°C` and `K` are one
+    quantity and `compare` converts between them through
+    `claims.compare_across_units`. Refusing them here wrote "not the same
+    quantity" on a °F limit against a °C value, which was false.
+
+    So: if both sides normalised, compare dimensions. If either did not, the
+    spelling, or two temperature scales. That keeps kPa-against-bar working
+    and keeps dB(A)-against-dB refused.
     """
     requirement_measure = _measurement_from_requirement(requirement)
     fact_measure = _measurement_from_fact(fact)
@@ -3140,7 +3271,10 @@ def _units_comparable(requirement: dict, fact: dict,
         left = claims.unit_dimension(requirement_unit.raw_unit or "")
         right = claims.unit_dimension(fact_unit.raw_unit or "")
         return left is not None and left == right
-    return claims.same_unit(requirement_unit, fact_unit)
+    return claims.same_unit(requirement_unit, fact_unit) or (
+        claims.is_temperature_scale(requirement_unit.raw_unit)
+        and claims.is_temperature_scale(fact_unit.raw_unit)
+    )
 
 
 def match_by_containment(requirement: dict, facts: list[dict], *,
@@ -3358,6 +3492,9 @@ def _resolve_hits(requirement: dict, facts: list[dict], hits: list[dict], *,
                     "method": METHOD_CONTAINMENT, "reason": None, "candidates": [],
                     "refused": refused, "synonym": ordered[0]["synonym"],
                     "items": [h["fact"] for h in ordered]}
+        if len({h["key"] for h in best}) == 1 and len({_item_of(h) for h in best}) == 1:
+            # ONE FIELD READ MORE THAN ONCE is one field (order 142 fix C).
+            return field_copies.resolve(best, refused)
         return {**none, "reason": AMBIGUOUS_MATCH,
                 "candidates": sorted(h["name"] for h in best),
                 "refused": refused}
@@ -3494,6 +3631,9 @@ def match_by_field_name(requirement: dict, facts: list[dict], names: dict, *,
         else:
             refused.append({"name": field, "reason": reason})
     if not allowed:
+        if any(r["reason"] == match_rules.QUANTITY_KIND for r in refused):
+            # ORDER 139: the named field is another kind - not "no field"
+            return {**_none_match(REFUSED_BY_RULE), "refused": refused}
         return None
     if len(allowed) > 1:
         filled = [f for f in allowed if fact_has_number(f) and not f.get("is_blank")]

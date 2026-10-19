@@ -34,7 +34,7 @@ import json
 import re
 from pathlib import Path
 
-from . import absence, blank_markers
+from . import absence, blank_markers, claims
 from .stated_value import fact_value as _shown
 from .stated_value import said as _said
 
@@ -828,8 +828,8 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
 #: reason, never a comment (the `required` items already ask for the field).
 NOT_CALCULATED = "NOT_CALCULATED"
 #: API 520-I takes atmospheric pressure as 101.325 kPa (14.7 psi) when it
-#: turns a gauge relieving pressure into an absolute one.
-ATMOSPHERIC_KPA = 101.325
+#: turns a gauge relieving pressure into an absolute one. One home: `claims`.
+ATMOSPHERIC_KPA = claims.STANDARD_ATMOSPHERE_KPA
 #: Specific gravity is referred to water at 15.6 C (60 F).
 WATER_DENSITY_KG_M3 = 999.0
 #: The effective coefficients of discharge API 520-I gives for preliminary
@@ -839,9 +839,9 @@ KD_LIQUID = 0.65
 MM2_PER_IN2 = 645.16
 _GAUGE_WORDS = re.compile(r"(?<![a-z])(barg|psig|kpag|mpag)(?![a-z])|\(g\)|\bgauge\b")
 _ABSOLUTE_WORDS = re.compile(r"(?<![a-z])(bara|psia|kpaa|mpaa)(?![a-z])|\(a\)|\babs(olute)?\b")
-_TEMPERATURE = {"c": (1.0, 273.15), "degc": (1.0, 273.15), "k": (1.0, 0.0),
-                "f": (1 / 1.8, 459.67 / 1.8), "degf": (1 / 1.8, 459.67 / 1.8),
-                "r": (1 / 1.8, 0.0), "degr": (1 / 1.8, 0.0)}
+#: Order 141 B: the temperature scales have ONE home, `claims` (the review's
+#: unit comparison reads the same table).
+_TEMPERATURE = claims.TEMPERATURE_SCALES
 
 
 class _NotCalculated(Exception):

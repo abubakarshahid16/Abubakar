@@ -5,8 +5,9 @@ returned no number for barg, psig, bara, psia, kPag or kg/cm2g, and
 `comparison._measurement_from_fact` re-read the raw unit and ignored the value
 the extraction had already normalised - so no pressure on that sheet could be
 compared. Now the reference (gauge / absolute) is split off and KEPT, the base
-unit converts, and a gauge value is never compared with an absolute one (they
-differ by an atmosphere nobody recorded). Invented values only.
+unit converts, and a gauge value is compared with an absolute one only when the
+answer is the same at any atmospheric pressure up to the standard one (they
+differ by an atmosphere nobody recorded; order 141 B). Invented values only.
 """
 from __future__ import annotations
 
@@ -77,9 +78,19 @@ def test_a_psig_value_is_compared_with_a_barg_limit():
 
 
 def test_a_gauge_value_against_an_absolute_limit_goes_to_an_engineer_with_the_reason():
-    verdict = comparison.compare(_requirement(raw_unit="bara"), _fact())
+    """Order 141 B: gauge against absolute IS converted, with the standard
+    atmosphere stated - but 340 psig (23.4 barg) against 24 bara is within
+    the limit at a low atmospheric pressure and outside it at the standard
+    one, so the site's atmosphere decides and the engineer is told so."""
+    verdict = comparison.compare(_requirement(raw_value="24", raw_unit="bara"), _fact())
     assert verdict["status"] == comparison.NEEDS_ENGINEER_REVIEW
     assert "gauge" in verdict["rationale"] and "absolute" in verdict["rationale"]
+    assert "atmospheric pressure is not recorded" in verdict["rationale"]
+    # where no conversion is possible the reason is still named (`_reference_obstacle`)
+    why = comparison._reference_obstacle(
+        claims.normalise("340", "psig"), claims.normalise("24", "bara")
+    )
+    assert why and "gauge" in why and "absolute" in why
 
 
 def test_the_stored_normalised_value_of_a_fact_is_used():

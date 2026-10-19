@@ -82,6 +82,8 @@ class Reason(Enum):
     """Why a field's reading was not kept. Always named, always counted."""
 
     MODEL_FAILED = "model_failed"
+    #: The answer reached the output limit (order 139): named, not "failed".
+    MODEL_CUT_OFF = "model_cut_off"
     MODEL_TIMED_OUT = "model_timed_out"
     MODEL_MALFORMED = "model_malformed"
     MODEL_STOPPED = "model_stopped_by_a_limit"
@@ -237,6 +239,9 @@ def _call(model_call, prompt: str) -> tuple[str | None, Reason | None]:
         return model_call(prompt), None
     except StopRun:
         raise
+    except datasheet_ai.AnswerCutOff:
+        log.info("form_reader: the model's answer was cut off by the output limit")
+        return None, Reason.MODEL_CUT_OFF
     except Exception as exc:  # noqa: BLE001 - never into ingestion; the failure is recorded as a named reason
         log.info("form_reader: model call failed (%s)", type(exc).__name__)
         return None, Reason.MODEL_TIMED_OUT if datasheet_ai.is_timeout(exc) else Reason.MODEL_FAILED

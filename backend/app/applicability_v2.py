@@ -191,6 +191,8 @@ def confirm_not_applicable(rereads: list[dict], *, needed: int = 3) -> bool:
 
 # --------------------------------------------------------- number comparison
 
+# Order 141 B: NOT the one unit home (`claims` is: `TEMPERATURE_SCALES`,
+# `compare_across_units`). This module is slated for deletion; left as is.
 _TO_MPA = {"mpa": 1.0, "kpa": 0.001, "bar": 0.1, "barg": 0.1, "psi": 0.00689476, "psig": 0.00689476}
 
 

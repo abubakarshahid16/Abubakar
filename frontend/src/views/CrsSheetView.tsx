@@ -68,6 +68,11 @@ function useRunData(runId: string) {
   // The server's tiers (#1111). Null = it did not answer (404 on a server
   // without the route, or any failure): the screen's own tiers stand in.
   const [summary, setSummary] = useState<ReviewRunTierSummary | null>(null);
+  // Release 1b: a failed summary read after a good one keeps the last
+  // grouping on screen - and the sheet says so.
+  const [staleRun, setStaleRun] = useState<string | null>(null);
+  const summaryReadFor = useRef<string | null>(null);
+  useEffect(() => { summaryReadFor.current = null; }, [runId]);
 
   // Order 117 item 6: only the newest load may paint. A slow answer for the
   // run the reader just left, or a 3-second poll overtaken by the next one,
@@ -90,6 +95,8 @@ function useRunData(runId: string) {
     // Order 139 part 2: a failed summary read keeps this run's last good
     // summary, so the rows do not flip between the file's grouping and one
     // row per finding under the engineer's open decisions.
+    if (sum.ok) summaryReadFor.current = runId;
+    setStaleRun(!sum.ok && summaryReadFor.current === runId ? runId : null);
     setSummary((prev) => (sum.ok ? sum.data : prev?.review_run_id === runId ? prev : null));
     setStandardsState(stds.ok
       ? { standards: stds.data.standards, missing: stds.data.missing_references ?? [], error: null }
@@ -113,7 +120,7 @@ function useRunData(runId: string) {
     return () => clearInterval(timer);
   }, [active, refresh]);
 
-  return { load, run, findings, standardsState, submittal, summary, active, refresh };
+  return { load, run, findings, standardsState, submittal, summary, groupingStale: staleRun === runId, active, refresh };
 }
 
 /** Sign and export = `issueContractorCopy`, the one shared way to issue the
@@ -182,7 +189,7 @@ function returnTarget(prev: HTMLElement | null, rowKey: string): HTMLElement | n
 }
 
 export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) {
-  const { load, run, findings, standardsState, submittal, summary, active, refresh } = useRunData(runId);
+  const { load, run, findings, standardsState, submittal, summary, groupingStale, active, refresh } = useRunData(runId);
   const [depth, setDepth] = useState<Depth>("standard");
   const [showMet, setShowMet] = useState(false);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -296,7 +303,7 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
         mode={mode} onMode={changeMode} decisions={decisions}
         clausesNotApplicable={run.requirement_split?.does_not_apply ?? null}
       />
-      <SheetGroupingNote rows={rows} notes={serverNoteCount(findings, groups)} />
+      <SheetGroupingNote rows={rows} notes={serverNoteCount(findings, groups)} stale={groupingStale} />
       <CrsFooter run={run} counts={counts} standards={standardsState.standards} missing={standardsState.missing} standardsError={standardsState.error} rejected={rejected} />
       {drawerRow && (
         <CrsEvidenceDrawer row={drawerRow} runId={runId} standardNames={standardNames} returnTo={returnTo}

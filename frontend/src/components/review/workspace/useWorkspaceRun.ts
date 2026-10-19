@@ -53,6 +53,10 @@ export interface WorkspaceRunState extends WorkspaceRunData {
   /** Order 139 part 2: how many findings the file lists in its Review notes
    *  instead of as rows (`serverNoteCount`); 0 without a server grouping. */
   serverNotes?: number;
+  /** Release 1b: true when the last summary read failed after one had
+   *  succeeded for this run - the grouping on screen is the last one read,
+   *  kept so rows do not flip under open decisions, and the sheet says so. */
+  groupingStale?: boolean;
 }
 
 /** Statuses of a review that never made a sheet: a newer one of these does
@@ -82,11 +86,14 @@ export function useWorkspaceRun(runId: string): WorkspaceRunState {
   const [standardsState, setStandardsState] = useState<StandardsState>({ standards: null, missing: [], error: null });
   const [submittal, setSubmittal] = useState<DocumentRecord | null>(null);
   const [summary, setSummary] = useState<ReviewRunTierSummary | null>(null);
+  const [staleRun, setStaleRun] = useState<string | null>(null);
+  // The run whose summary read last succeeded (the grouping kept on a failure).
+  const summaryReadFor = useRef<string | null>(null);
   const [readiness, setReadiness] = useState<ReviewReadiness | null>(null);
 
   const latest = useRef(0);
   useEffect(() => () => { latest.current += 1; }, []);
-  useEffect(() => { loadedOnce.current = false; }, [runId]);
+  useEffect(() => { loadedOnce.current = false; summaryReadFor.current = null; }, [runId]);
   const refresh = useCallback(async () => {
     const mine = ++latest.current;
     const [runs, listed, stds, sum] = await Promise.all([
@@ -113,6 +120,9 @@ export function useWorkspaceRun(runId: string): WorkspaceRunState {
     // Order 139 part 2: a failed summary read keeps this run's last good
     // summary, so the rows do not flip between the file's grouping and one
     // row per finding under the engineer's open decisions.
+    // Release 1b: and says so (`groupingStale`) - never a quiet old grouping.
+    if (sum.ok) summaryReadFor.current = runId;
+    setStaleRun(!sum.ok && summaryReadFor.current === runId ? runId : null);
     setSummary((prev) => (sum.ok ? sum.data : prev?.review_run_id === runId ? prev : null));
     setStandardsState(stds.ok
       ? { standards: stds.data.standards, missing: stds.data.missing_references ?? [], error: null }
@@ -178,6 +188,6 @@ export function useWorkspaceRun(runId: string): WorkspaceRunState {
 
   return {
     load, run, findings, rows, standardsState, missingStandardIds, standardNames, submittal, summary, readiness, active, refresh,
-    refreshError, documentRuns, newerRun, serverNotes,
+    refreshError, documentRuns, newerRun, serverNotes, groupingStale: staleRun === runId,
   };
 }

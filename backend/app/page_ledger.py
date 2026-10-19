@@ -341,6 +341,11 @@ def reading_gaps(reader: dict | None, pages: dict) -> dict:
                 reasons.setdefault(int(page), f"the {engine} reader did not read this page ({why})")
         for page in reader.get("cut_off") or []:
             reasons.setdefault(int(page), f"the {engine} reader was cut off before this page")
+        # order 139: a page the AI read only in part is not a clean page.
+        for page, why in (reader.get("partly_read") or {}).items():
+            reasons.setdefault(
+                int(page), f"the {engine} reader read this page in part ({why})"
+            )
         if reader.get("unavailable"):
             for page in range(1, int(total) + 1):
                 reasons.setdefault(page, f"the {engine} reader was unavailable ({reader['unavailable']})")
