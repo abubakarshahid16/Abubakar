@@ -9,9 +9,17 @@ import { resolve } from "node:path";
  * the two runs; a rule changed in `review_tiers.json` (regenerated into
  * `contracts/generated/review_tiers.ts`) moves both at once.
  *
- * `disagreements` are inputs the two sides answer differently TODAY. Each
- * side pins its own answer, and the answers must DIFFER: fixing one side
- * fails here until the case moves into `cases`.
+ * There are no known disagreements (order 135 fixed D1, D2 and D3): the
+ * former pins are ordinary `cases` ("D1: ...", "D2: ..."), the characters
+ * behind them are `text_cases` (the fold and the phrases), and the reader
+ * record behind D3 is `run_facts` (what `runFactsOf` gathers).
+ *
+ * MUTATION PROOF (by hand, order 135): compiling the phrases with
+ * `word_edge.python` (JavaScript's ASCII-only \w) in place of
+ * `word_edge.javascript` fails "D1: ..." and the cases glued to a letter or
+ * digit outside ASCII; folding with the old [\s_-]+ fails the text cases
+ * for U+0085, U+001F, U+200B, U+2060, the trim and the mixed run; putting
+ * the page-note regex back into `runFactsOf` fails every run_facts case.
  *
  * MUTATION PROOF (by hand, order 133): re-adding
  * `const TIER_C = new Set(["NEEDS_ENGINEER_REVIEW", "CONDITIONAL"])` to
@@ -24,7 +32,7 @@ import { TIER_RULES } from "../../../../../contracts/generated/review_tiers";
 import type { ReviewFinding } from "../../../types/api";
 import { splitRejected } from "./crsRows";
 import {
-  PHRASE_PATTERNS, type RunFacts, type Tier, type TierCounts, type TierLabel, type TierReason, type TierResult,
+  PHRASE_PATTERNS, type RunFacts, fold, runFactsOf, type Tier, type TierCounts, type TierLabel, type TierReason, type TierResult,
   UNSETTLED_RULES, countTiers, tierOf,
 } from "./tiers";
 
@@ -39,9 +47,14 @@ interface CaseTable {
   facts: Record<string, FactsJson>;
   base_finding: Over;
   cases: { name: string; finding: Over; facts: string; expected: TierResult }[];
-  disagreements: { id: string; name: string; finding: Over; facts: string; python: TierResult; screen: TierResult }[];
   removed: { name: string; finding: Over; removed: boolean }[];
   counts: { name: string; facts: string; findings: Over[]; expected: Record<string, number> }[];
+  text_cases: { name: string; text: string; folded: string; phrases: string[] }[];
+  run_facts: {
+    name: string;
+    run: Over;
+    expected: { pages_not_read: number[]; reader_timed_out_pages: number[] };
+  }[];
 }
 
 const TABLE: CaseTable = JSON.parse(
@@ -77,13 +90,43 @@ describe("the shared case table, as the screen answers it", () => {
   });
 });
 
-describe("known disagreements stay pinned until fixed on purpose", () => {
-  it.each(TABLE.disagreements.map((d) => [`${d.id}: ${d.name}`, d] as const))("%s", (_name, d) => {
-    const screen = tierOf(findingOf(d.finding), factsOf(d.facts));
-    expect(screen).toEqual(d.screen);
-    // If this fails, the two sides now agree: move the case into `cases`.
-    expect(screen).not.toEqual(d.python);
-    expect(d.screen).not.toEqual(d.python);
+const PHRASE_WORDS = Object.keys(TIER_RULES.phrases) as (keyof typeof PHRASE_PATTERNS)[];
+
+describe("the shared character cases: the fold and the phrases (order 135, D1 and D2)", () => {
+  it.each(TABLE.text_cases.map((c) => [c.name, c] as const))("%s", (_name, c) => {
+    expect(fold(c.text)).toBe(c.folded);
+    for (const word of PHRASE_WORDS) {
+      expect(PHRASE_PATTERNS[word].test(fold(c.text)), word).toBe(c.phrases.includes(word));
+    }
+  });
+});
+
+describe("the shared run facts: what runFactsOf gathers from a stored run (order 135, D3)", () => {
+  it.each(TABLE.run_facts.map((c) => [c.name, c] as const))("%s", (_name, c) => {
+    const facts = runFactsOf(c.run as never, null, []);
+    expect(facts.pagesNotRead).toEqual(c.expected.pages_not_read);
+    expect([...facts.readerTimedOutPages].sort((a, b) => a - b)).toEqual(c.expected.reader_timed_out_pages);
+  });
+});
+
+describe("the fold class holds every white space this engine knows", () => {
+  // A guard against a narrower future class, not a proof of the D2 fix: the
+  // old [\s_-]+ passed this too (JavaScript's \s is inside it). The D2 fix
+  // is proven by the text cases above.
+  it("every code point /^\\s$/u matches is folded", () => {
+    const foldClass = new RegExp(`^(?:${TIER_RULES.fold.pattern})$`);
+    const spaceLike = /^\s$/u;
+    const missed: string[] = [];
+    let seen = 0;
+    for (let cp = 0; cp <= 0x10ffff; cp += 1) {
+      if (cp >= 0xd800 && cp <= 0xdfff) continue;
+      const ch = String.fromCodePoint(cp);
+      if (!spaceLike.test(ch)) continue;
+      seen += 1;
+      if (!foldClass.test(ch)) missed.push(cp.toString(16));
+    }
+    expect(seen).toBeGreaterThan(20);
+    expect(missed).toEqual([]);
   });
 });
 
@@ -108,7 +151,7 @@ function canonical(value: unknown): string {
 }
 
 describe("the table is not vacuous", () => {
-  it("holds at least 30 distinct cases, one per reason word and per tiered status, and both D1 and D2", () => {
+  it("holds at least 30 distinct cases, one per reason word and per tiered status, and the D1, D2 and D3 cases", () => {
     const unique = new Set(TABLE.cases.map((c) => canonical([c.finding, c.facts, c.expected])));
     expect(unique.size).toBeGreaterThanOrEqual(30);
     // a case that repeats another's input and answer adds nothing
@@ -119,7 +162,18 @@ describe("the table is not vacuous", () => {
     for (const status of [
       ...Object.keys(TIER_RULES.status_tiers), ...TIER_RULES.tier_c_statuses, TIER_RULES.missing_information.status,
     ]) expect(statuses, status).toContain(status);
-    expect(TABLE.disagreements.map((d) => d.id)).toEqual(expect.arrayContaining(["D1", "D2"]));
+    // order 135: no disagreement is left; D1 and D2 are ordinary cases, D3 a run_facts case
+    expect("disagreements" in TABLE).toBe(false);
+    expect(TABLE.cases.some((c) => c.name.startsWith("D1:"))).toBe(true);
+    expect(TABLE.cases.some((c) => c.name.startsWith("D2:"))).toBe(true);
+    expect(TABLE.run_facts.some((c) => c.name.startsWith("D3:"))).toBe(true);
+    expect(TABLE.text_cases.length).toBeGreaterThanOrEqual(20);
+    expect(TABLE.text_cases.some((c) => c.phrases.length > 0)).toBe(true);
+    expect(TABLE.text_cases.some((c) => c.phrases.length === 0)).toBe(true);
+    expect(TABLE.text_cases.some((c) => c.folded !== c.text)).toBe(true);
+    expect(TABLE.run_facts.length).toBeGreaterThanOrEqual(3);
+    expect(TABLE.run_facts.some((c) => c.expected.reader_timed_out_pages.length > 0)).toBe(true);
+    expect(TABLE.run_facts.some((c) => c.expected.reader_timed_out_pages.length === 0)).toBe(true);
     expect(TABLE.removed.some((r) => r.removed) && TABLE.removed.some((r) => !r.removed)).toBe(true);
     expect(TABLE.counts.length).toBeGreaterThan(0);
   });
@@ -136,12 +190,16 @@ describe("tiers.ts reads its rules from the generated data", () => {
   it("the word lists agree with the server's TierRow (checked by tsc)", () => {
     expect([_reasonsMatch, _labelsMatch, _tiersMatch]).toEqual([true, true, true]);
   });
-  it("compiles every phrase from the data, with the same source and no flags", () => {
+  it("compiles every phrase from the data, with the data's word edge and flags", () => {
+    const edge = TIER_RULES.word_edge;
     expect(Object.keys(PHRASE_PATTERNS).sort()).toEqual(Object.keys(TIER_RULES.phrases).sort());
     for (const [word, source] of Object.entries(TIER_RULES.phrases)) {
       const compiled = PHRASE_PATTERNS[word as keyof typeof PHRASE_PATTERNS];
-      expect(compiled.source).toBe(new RegExp(source).source);
-      expect(compiled.flags).toBe("");
+      expect(source, word).toContain(edge.token);
+      expect(source, word).not.toContain("\\b");
+      expect(compiled.source).toBe(new RegExp(source.replaceAll(edge.token, edge.javascript), edge.javascript_flags).source);
+      expect(compiled.source, word).not.toContain(edge.token);
+      expect(compiled.flags).toBe(edge.javascript_flags);
     }
   });
   it("has one predicate per reason word of unsettled_order: none missing, none extra", () => {
@@ -169,9 +227,10 @@ describe("source fence: tiers.ts keeps no rule literal of its own", () => {
       for (const use of uses) expect(use, word).toMatch(/:$/);
     }
   });
-  it("holds no phrase or fold pattern", () => {
-    expect(source).not.toMatch(/\\bvalue conflict/);
-    expect(source).not.toMatch(/\\bunit unknown/);
-    expect(source).not.toContain("[\\s_-]");
+  it("holds no phrase, word edge, fold pattern or page-note guess", () => {
+    for (const text of [
+      "conflicting values", "unit unknown|", TIER_RULES.word_edge.token, "\\p{L}", "\\u205f", "\\ufeff", "[\\s_-]",
+    ]) expect(source, text).not.toContain(text);
+    expect(source).not.toMatch(/timed\? \?out/);
   });
 });

@@ -1,5 +1,5 @@
 {
-  "_about": "Order 133 (117a item 4): the review-tier cases BOTH implementations must pass - backend/app/review_tiers.py (pytest: backend/tests/test_133_one_truth_tiers.py) and frontend crs/tiers.ts (vitest: crs/tiers.parity.test.ts). Each case is `base_finding` with `finding` laid over it (a null overrides), judged with the named `facts` set. `disagreements` are inputs on which the two sides answer differently TODAY: each side pins its own answer and both tests fail if the answers become equal, so a fix must move the case into `cases`. Invented data only.",
+  "_about": "Order 133 (117a item 4), order 135: the review-tier cases BOTH implementations must pass - backend/app/review_tiers.py (pytest: backend/tests/test_133_one_truth_tiers.py) and frontend crs/tiers.ts (vitest: crs/tiers.parity.test.ts). Each case is `base_finding` with `finding` laid over it (a null overrides), judged with the named `facts` set. `text_cases` pin the fold and the phrases on characters the two regex engines once read differently (written as \\u escapes); `run_facts` pin the run facts each side gathers from the same stored run (the server's run_summary._facts, the screen's runFactsOf). The three known disagreements of #1166 (D1, D2, D3) were fixed in order 135 and are ordinary cases now, named by their id. Invented data only.",
   "facts": {
     "full": {
       "pages_not_read": [
@@ -557,30 +557,21 @@
         "label": "Needs you",
         "reason": "unit unknown"
       }
-    }
-  ],
-  "disagreements": [
+    },
     {
-      "id": "D1",
-      "name": "a phrase glued to a non-ASCII letter: Python's \\b is Unicode, the screen's is ASCII",
+      "name": "D1: a phrase glued to a letter outside ASCII is not that phrase (the status decides)",
       "finding": {
         "ai_rationale": "\u00e9value conflict on page 3"
       },
       "facts": "full",
-      "python": {
+      "expected": {
         "tier": "B",
         "label": "Comment",
         "reason": null
-      },
-      "screen": {
-        "tier": "C",
-        "label": "Needs you",
-        "reason": "value conflict"
       }
     },
     {
-      "id": "D2",
-      "name": "a byte-order mark between the parts of a missing standard's name: the screen's \\s folds it, Python's does not",
+      "name": "D2: a byte-order mark inside a missing standard's name is a separator: standard not in library",
       "finding": {
         "standard_document_id": null,
         "governing_sources": [
@@ -588,15 +579,88 @@
         ]
       },
       "facts": "full",
-      "python": {
-        "tier": "B",
-        "label": "Comment",
-        "reason": null
-      },
-      "screen": {
+      "expected": {
         "tier": "C",
         "label": "Needs you",
         "reason": "standard not in library"
+      }
+    },
+    {
+      "name": "a phrase followed by a letter outside ASCII is not that phrase either",
+      "finding": {
+        "ai_rationale": "Value conflict\u00e9 between the tables"
+      },
+      "facts": "full",
+      "expected": {
+        "tier": "B",
+        "label": "Comment",
+        "reason": null
+      }
+    },
+    {
+      "name": "a phrase glued to a digit outside ASCII is not that phrase",
+      "finding": {
+        "ai_rationale": "unit unknown\u0663 on page 2"
+      },
+      "facts": "full",
+      "expected": {
+        "tier": "B",
+        "label": "Comment",
+        "reason": null
+      }
+    },
+    {
+      "name": "a phrase after an em dash is still found: value conflict",
+      "finding": {
+        "ai_rationale": "Page 3\u2014value conflict with page 5"
+      },
+      "facts": "full",
+      "expected": {
+        "tier": "C",
+        "label": "Needs you",
+        "reason": "value conflict"
+      }
+    },
+    {
+      "name": "a zero-width space inside a missing standard's name is a separator: standard not in library",
+      "finding": {
+        "standard_document_id": null,
+        "governing_sources": [
+          "API\u200b526 clause 4.1"
+        ]
+      },
+      "facts": "full",
+      "expected": {
+        "tier": "C",
+        "label": "Needs you",
+        "reason": "standard not in library"
+      }
+    },
+    {
+      "name": "a next-line character (U+0085) inside a missing standard's name is a separator: standard not in library",
+      "finding": {
+        "standard_document_id": null,
+        "governing_sources": [
+          "API\u0085526 clause 4.1"
+        ]
+      },
+      "facts": "full",
+      "expected": {
+        "tier": "C",
+        "label": "Needs you",
+        "reason": "standard not in library"
+      }
+    },
+    {
+      "name": "a word joiner between the words of a phrase is a separator: value conflict",
+      "finding": {
+        "ai_rationale": "value\u2060conflict on page 3"
+      },
+      "facts": "full",
+      "expected": {
+        "tier": "C",
+        "label": "Needs you",
+        "reason": "value conflict"
       }
     }
   ],
@@ -642,6 +706,329 @@
         "another_document": 1,
         "comment": 2,
         "needs_you": 1
+      }
+    }
+  ],
+  "text_cases": [
+    {
+      "name": "D1: a letter outside ASCII glued before the phrase",
+      "text": "\u00e9value conflict on page 3",
+      "folded": "\u00e9value conflict on page 3",
+      "phrases": []
+    },
+    {
+      "name": "a letter outside ASCII glued after the phrase",
+      "text": "Value conflict\u00e9 between the tables",
+      "folded": "value conflict\u00e9 between the tables",
+      "phrases": []
+    },
+    {
+      "name": "a title-case letter glued before the phrase",
+      "text": "\u01c5value conflict",
+      "folded": "\u01c6value conflict",
+      "phrases": []
+    },
+    {
+      "name": "a letter outside the BMP glued before the phrase",
+      "text": "\ud835\udc00value conflict",
+      "folded": "\ud835\udc00value conflict",
+      "phrases": []
+    },
+    {
+      "name": "an emoji before the phrase is not a letter",
+      "text": "\ud83d\ude00value conflict",
+      "folded": "\ud83d\ude00value conflict",
+      "phrases": [
+        "value conflict"
+      ]
+    },
+    {
+      "name": "a digit outside ASCII glued after the phrase",
+      "text": "unit unknown\u0663 on page 2",
+      "folded": "unit unknown\u0663 on page 2",
+      "phrases": []
+    },
+    {
+      "name": "an ASCII digit glued after the phrase",
+      "text": "value conflict2",
+      "folded": "value conflict2",
+      "phrases": []
+    },
+    {
+      "name": "a combining accent after the phrase is not a letter",
+      "text": "value conflict\u0301 here",
+      "folded": "value conflict\u0301 here",
+      "phrases": [
+        "value conflict"
+      ]
+    },
+    {
+      "name": "an em dash before the phrase",
+      "text": "Page 3\u2014value conflict with page 5",
+      "folded": "page 3\u2014value conflict with page 5",
+      "phrases": [
+        "value conflict"
+      ]
+    },
+    {
+      "name": "guillemets around the phrase",
+      "text": "\u00abvalue conflict\u00bb",
+      "folded": "\u00abvalue conflict\u00bb",
+      "phrases": [
+        "value conflict"
+      ]
+    },
+    {
+      "name": "a letter outside ASCII elsewhere in the note",
+      "text": "Na\u00efve reading: unit unknown",
+      "folded": "na\u00efve reading: unit unknown",
+      "phrases": [
+        "unit unknown"
+      ]
+    },
+    {
+      "name": "a dotted capital I lower-cases the same on both sides",
+      "text": "\u0130 unit unknown",
+      "folded": "i\u0307 unit unknown",
+      "phrases": [
+        "unit unknown"
+      ]
+    },
+    {
+      "name": "full-width letters are not folded to ASCII",
+      "text": "\uff36\uff21\uff2c\uff35\uff25 conflict",
+      "folded": "\uff56\uff41\uff4c\uff55\uff45 conflict",
+      "phrases": []
+    },
+    {
+      "name": "an underscore is folded before the edges are looked at",
+      "text": "x_value conflict",
+      "folded": "x value conflict",
+      "phrases": [
+        "value conflict"
+      ]
+    },
+    {
+      "name": "a no-break space between the words",
+      "text": "VALUE\u00a0CONFLICT",
+      "folded": "value conflict",
+      "phrases": [
+        "value conflict"
+      ]
+    },
+    {
+      "name": "D2: a byte-order mark between the words",
+      "text": "value\ufeffconflict",
+      "folded": "value conflict",
+      "phrases": [
+        "value conflict"
+      ]
+    },
+    {
+      "name": "a zero-width space between the words",
+      "text": "value\u200bconflict",
+      "folded": "value conflict",
+      "phrases": [
+        "value conflict"
+      ]
+    },
+    {
+      "name": "a word joiner between the words",
+      "text": "value\u2060conflict",
+      "folded": "value conflict",
+      "phrases": [
+        "value conflict"
+      ]
+    },
+    {
+      "name": "a next-line character between the words",
+      "text": "value\u0085conflict",
+      "folded": "value conflict",
+      "phrases": [
+        "value conflict"
+      ]
+    },
+    {
+      "name": "an information separator between the words",
+      "text": "value\u001fconflict",
+      "folded": "value conflict",
+      "phrases": [
+        "value conflict"
+      ]
+    },
+    {
+      "name": "a line separator between the words",
+      "text": "unit\u2028unknown",
+      "folded": "unit unknown",
+      "phrases": [
+        "unit unknown"
+      ]
+    },
+    {
+      "name": "a soft hyphen is not folded",
+      "text": "value\u00adconflict",
+      "folded": "value\u00adconflict",
+      "phrases": []
+    },
+    {
+      "name": "a zero-width non-joiner is not folded",
+      "text": "value\u200cconflict",
+      "folded": "value\u200cconflict",
+      "phrases": []
+    },
+    {
+      "name": "D2: a byte-order mark inside a standard's name",
+      "text": "API\ufeff526",
+      "folded": "api 526",
+      "phrases": []
+    },
+    {
+      "name": "separators at both ends are trimmed after the fold",
+      "text": "\ufeff API_526 \u0085\u2060",
+      "folded": "api 526",
+      "phrases": []
+    },
+    {
+      "name": "a run of mixed separators folds to one space",
+      "text": "API -\u200b_ 526",
+      "folded": "api 526",
+      "phrases": []
+    }
+  ],
+  "run_facts": [
+    {
+      "name": "D3: a page the AI reader timed out on is timed out although its page note does not say so",
+      "run": {
+        "page_coverage": {
+          "pages_total": 10,
+          "fact_pages": [
+            1,
+            2,
+            3
+          ],
+          "pages_not_read_into_fields": [
+            4,
+            9
+          ],
+          "not_read_reasons": {
+            "4": "no value found on this page",
+            "9": "blank page"
+          }
+        },
+        "requirement_split": {
+          "checked": 3,
+          "applies_not_checked": 1,
+          "does_not_apply": 0,
+          "total": 4,
+          "reader": {
+            "engine": "ollama",
+            "pages": 10,
+            "timed_out": [
+              7
+            ]
+          }
+        }
+      },
+      "expected": {
+        "pages_not_read": [
+          4,
+          9
+        ],
+        "reader_timed_out_pages": [
+          7
+        ]
+      }
+    },
+    {
+      "name": "a page note that says timed out is not a time-out the reader record does not hold",
+      "run": {
+        "page_coverage": {
+          "pages_total": 10,
+          "fact_pages": [
+            1,
+            2,
+            3
+          ],
+          "pages_not_read_into_fields": [
+            4,
+            9
+          ],
+          "not_read_reasons": {
+            "4": null,
+            "9": "AI reader timed out"
+          }
+        },
+        "requirement_split": {
+          "checked": 3,
+          "applies_not_checked": 1,
+          "does_not_apply": 0,
+          "total": 4,
+          "reader": {
+            "engine": "ollama",
+            "pages": 10,
+            "timed_out": []
+          }
+        }
+      },
+      "expected": {
+        "pages_not_read": [
+          4,
+          9
+        ],
+        "reader_timed_out_pages": []
+      }
+    },
+    {
+      "name": "no reader record: no page is called timed out",
+      "run": {
+        "page_coverage": {
+          "pages_total": 10,
+          "fact_pages": [
+            1,
+            2,
+            3
+          ],
+          "pages_not_read_into_fields": [
+            4
+          ],
+          "not_read_reasons": {
+            "4": "the reader timed out"
+          }
+        },
+        "requirement_split": null
+      },
+      "expected": {
+        "pages_not_read": [
+          4
+        ],
+        "reader_timed_out_pages": []
+      }
+    },
+    {
+      "name": "a reader record without page coverage still names its time-outs",
+      "run": {
+        "page_coverage": null,
+        "requirement_split": {
+          "checked": 3,
+          "applies_not_checked": 1,
+          "does_not_apply": 0,
+          "total": 4,
+          "reader": {
+            "engine": "ollama",
+            "pages": 5,
+            "timed_out": [
+              5,
+              3
+            ]
+          }
+        }
+      },
+      "expected": {
+        "pages_not_read": [],
+        "reader_timed_out_pages": [
+          3,
+          5
+        ]
       }
     }
   ]

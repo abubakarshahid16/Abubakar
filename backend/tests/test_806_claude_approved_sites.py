@@ -33,9 +33,15 @@ def _approve(document_id):
 
 # ---------------------------------------------------------------- the datasheet reader, end to end
 
-def test_an_unapproved_datasheet_is_not_sent_and_the_code_reading_stands(tmp_path, monkeypatch):
+@pytest.mark.parametrize("mode", ["merge", "form"])
+def test_an_unapproved_datasheet_is_not_sent_and_the_code_reading_stands(
+    tmp_path, monkeypatch, mode
+):
+    """Both AI readings (#882: "form" is the default) name the limit that
+    stopped them - "document_not_approved", never one generic "stopped"."""
     sent = _claude_env(monkeypatch)
     monkeypatch.setattr(settings, "datasheet_ai_reader", "claude")
+    monkeypatch.setattr(settings, "datasheet_reader_mode", mode)
     doc = _ingest(_datasheet_pdf(tmp_path / "d.pdf", ROWS))
     result = datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
     assert sent == []                                              # nothing left the machine
@@ -48,6 +54,7 @@ def test_an_unapproved_datasheet_is_not_sent_and_the_code_reading_stands(tmp_pat
 def test_an_approved_datasheet_is_read_by_the_ai(tmp_path, monkeypatch):
     sent = _claude_env(monkeypatch)
     monkeypatch.setattr(settings, "datasheet_ai_reader", "claude")
+    monkeypatch.setattr(settings, "datasheet_reader_mode", "merge")  # counts the merge reader's two runs
     doc = _ingest(_datasheet_pdf(tmp_path / "d.pdf", ROWS))
     _approve(doc)
     result = datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
