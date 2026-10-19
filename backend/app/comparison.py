@@ -2502,6 +2502,14 @@ def _run_comparison(
         partial_standards=applicability_mod.governing_table()["partial_standards"])
     requirements = partial["kept"]
     extra_not_applied.extend(partial["items"])
+    # #141 A DIVISION LIMITED BY ITS OWN SCOPE to another construction does not
+    # apply; unsure is held for the engineer. See `ai_applicability.division_gate`.
+    from . import ai_applicability as ai_div
+
+    divided = ai_div.division_gate_for_run(requirements, stored, facts, standard_labels)
+    requirements = divided["kept"]
+    extra_not_applied.extend(divided["items"])
+    held_items.extend(divided["held"])
     # #647 AI APPLICABILITY, when switched on: the model proposes "does not
     # apply" with a quoted reason; only what code confirms leaves the check.
     # What it suggested and code did not confirm is kept on the requirement's
@@ -3041,6 +3049,8 @@ def _run_comparison(
         split = {**split, "cited_clauses": cited_scope["summary"]}
     if checklist_coverage:
         split = {**split, "checklist_coverage": checklist_coverage}
+    if divided["summary"]:  # #141: divisions limited by their own scope
+        split = {**split, "division_scope": divided["summary"]}
     # Owner order 2026-10-11: the run says which reader read the sheet - the
     # AI engine and model, or "code readers only", and the pages the AI did
     # not read (timed out, unavailable) with the reason.
