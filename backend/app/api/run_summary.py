@@ -104,9 +104,11 @@ class TierRow(BaseModel):
     #: (`crs_mapping.crs_groups`); findings sharing it are ONE row on screen
     #: and in the file. Null: not a row of the CRS, or not computed (/counts)
     crs_group: str | None = None
-    #: order 139 part 2: the row's rank, 1 first (`crs_mapping.PRIORITY_WORDS`)
+    #: order 139 part 2 section f (a separate change): the row's rank, 1 first
+    #: (`crs_mapping.PRIORITY_WORDS`); not sent yet - null until that change
     crs_priority: int | None = None
-    #: order 139 part 2: the rank's word, as the internal copy prints it
+    #: order 139 part 2 section f: the rank's word, as the internal copy is to
+    #: print it; null until that change
     crs_priority_label: (
         Literal[
             "Out of limit", "Missing value", "Engineer to check", "Engineer's comment"
@@ -117,14 +119,17 @@ class TierRow(BaseModel):
     #: this run's finding rows - the file's order
     crs_order: int | None = None
     #: order 139 part 2: the row's first line as the file prints it ("Contractor
-    #: to provide Corrosion allowance."), on a row listing two or more clauses;
-    #: null on a row of one clause, whose words are the finding's own
+    #: to provide Corrosion allowance."), on a field row asking two or more
+    #: things (clauses, or requirements of one clause); null on a row whose
+    #: one sentence is the finding's own
     crs_action: str | None = None
-    #: order 139 part 2: true on a standard's engineer-to-check finding the
-    #: CRS file put on NO row - it is counted in the file's Review notes (an
-    #: unread page, a value only the page reader looked for, a requirement
-    #: with no datasheet field), the engineer's internal list, so the screen
-    #: shows it as a note, never as a comment to decide. Null otherwise.
+    #: order 139 part 2: true on a finding that would be a comment but that
+    #: the CRS file put on NO row - a standard's engineer-to-check finding
+    #: counted in the file's Review notes (an unread page, a value only the
+    #: page reader looked for, a requirement with no datasheet field), or a
+    #: datasheet check about a value a breach or blank row already raises.
+    #: The screen shows it as a note, never as a comment to decide. Null
+    #: otherwise
     crs_note: bool | None = None
 
 
@@ -402,12 +407,15 @@ def crs_row_fields(rows: list[dict], findings: list[dict]) -> dict[str, dict]:
     the sheet's own order, and its action line. The rows are the file's, so
     the screen groups and orders exactly as the file does (spec b).
 
-    A standard's NEEDS_ENGINEER_REVIEW finding that is on NO row went to the
-    file's Review notes instead (unread page, page reader only, no datasheet
-    field): {crs_note: True}. Read from the rows the file actually built,
-    never from a second copy of the rules that decide it, so it stays true
-    whichever rule moves a question into the notes. Any other finding on no
-    row (met, not applicable, rejected) is absent."""
+    A finding on NO row that would otherwise be a comment is {crs_note: True}:
+    a standard's NEEDS_ENGINEER_REVIEW finding (the file counts it in its
+    Review notes: unread page, page reader only, no datasheet field), or a
+    finding `crs_mapping.crs_bucket` gives a row kind that the list-level
+    rule left off (a datasheet check about a value a breach or blank row
+    already raises). Read from the rows the file actually built, never from
+    a second copy of the rules that decide it, so it stays true whichever
+    rule moves a finding off the rows. Any other finding on no row (met, not
+    applicable, rejected) is absent."""
     out: dict[str, dict] = {}
     order = 0
     for row in rows:
@@ -430,9 +438,14 @@ def crs_row_fields(rows: list[dict], findings: list[dict]) -> dict[str, dict]:
         if (
             f.get("id")
             and f["id"] not in out
-            and not f.get("origin")
-            and f.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"
             and f.get("approval_status") != "rejected"
+            and (
+                (
+                    not f.get("origin")
+                    and f.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"
+                )
+                or crs_mapping_mod.crs_bucket(f) is not None
+            )
         ):
             out[f["id"]] = {"crs_note": True}
     return out

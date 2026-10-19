@@ -2594,23 +2594,50 @@ def _prior_rejections(submittal_id: str, allowed: frozenset[str]
     """{comment key: (rejected by, rejected at)} for every comment an engineer
     rejected on ANY run of this submittal the caller may read - the latest
     rejection per key. Read only; keys as `crs_mapping.finding_comment_key`
-    gives them, over the same CRS context the rows are built from."""
+    gives them (the row a finding lands on), AND as
+    `crs_mapping.finding_member_key` (the finding's own clause, order 139
+    part 2), over the same CRS context the rows are built from."""
     # #1066: the rejected rows alone, in one query - this used to load every
     # finding of every run of the submittal and keep the rejected ones.
     rejected = submittal_review_mod.list_rejected_findings(
-        submittal_id, allowed_document_ids=allowed)
+        submittal_id, allowed_document_ids=allowed
+    )
     if not rejected:
         return {}
     comparison_mod.attach_crs_context(rejected)
     out: dict[str, tuple[str | None, str | None]] = {}
     for f in sorted(rejected, key=lambda f: f.get("approved_at") or ""):
-        out[crs_mapping_mod.finding_comment_key(f)] = (f.get("approved_by"), f.get("approved_at"))
+        seen = (f.get("approved_by"), f.get("approved_at"))
+        out[crs_mapping_mod.finding_comment_key(f)] = seen
+        out[crs_mapping_mod.finding_member_key(f)] = seen
     return out
 
 
+def _rejection_of(row: dict, rejections: dict) -> tuple[str | None, str | None] | None:
+    """The earlier rejection a row repeats, or None. A FIELD row (order 139
+    part 2: one comment per datasheet field, keyed on the field) repeats one
+    only when EVERY clause behind it was rejected before - one rejected
+    per-clause comment does not make a 29-clause row "previously rejected".
+    Any other row: its own key, as before. The latest rejection is named."""
+    members = row.get("member_keys") or []
+    if not members or row.get("comment_key") in members:
+        return rejections.get(row.get("comment_key") or "")
+    hits = [rejections[k] for k in members if k in rejections]
+    if len(hits) < len(members):
+        return None
+    return max(hits, key=lambda seen: seen[1] or "")
+
+
 #: Order 139 part 2 (spec d): the last line of a field row whose clauses an
-#: engineer had already confirmed as comments of their own.
+#: engineer had already confirmed as comments of their own - once the field
+#: row is confirmed (the earlier comments are then not carried forward).
 REPLACES_LINE = "Replaces earlier {word} {refs} (now one comment per field)."
+#: ... and while the field row is NOT confirmed: the earlier issued comments
+#: are still on the sheet (carried forward, in both copies) until it is.
+STAYS_LINE = (
+    "Earlier issued {word} {refs} about this field {verb} on the sheet "
+    "until this comment is confirmed (now one comment per field)."
+)
 
 
 def _replaced_numbers(crs_scope: str, rows: list[dict]) -> None:
@@ -2619,10 +2646,13 @@ def _replaced_numbers(crs_scope: str, rows: list[dict]) -> None:
     ONLY; marks the rows.
 
       * Every ISSUED, not withdrawn number of one of its clauses is listed:
-        `replaces_refs`, and a last line of the comment (both copies). The
-        number an engineer confirmed is never silently dropped - it stays
-        Open in its table with its replies, and the reviewer closes it.
-        A machine draft's number (not issued) is not printed again.
+        `replaces_refs`, and a last line of the comment. While the field row
+        is not confirmed those comments stay on the sheet as carried-forward
+        rows (in the contractor's copy too: `_crs_content` counts a member
+        key as present only on a confirmed row), and the line says so; once
+        it is confirmed, the line says it replaces them. Either way the
+        number stays Open in its table with its replies, and the reviewer
+        closes it. A machine draft's number (not issued) is not printed again.
       * The row is the engineer's when EVERY clause was confirmed before
         (each holds an issued number); some but not all leaves it open, and
         the line says what was confirmed (#986: decided only when all its
@@ -2654,12 +2684,14 @@ def _replaced_numbers(crs_scope: str, rows: list[dict]) -> None:
             continue
         refs = [r["ref"] for r in sorted(issued, key=lambda r: r["seq"])]
         row["replaces_refs"] = refs
-        line = REPLACES_LINE.format(
-            word="comment" if len(refs) == 1 else "comments", refs=", ".join(refs)
-        )
-        row["comment"] = "\n".join(p for p in (row.get("comment") or "", line) if p)
         if len(issued) == len(members):
             row["engineer_confirmed"] = True
+        line = (REPLACES_LINE if row.get("engineer_confirmed") else STAYS_LINE).format(
+            word="comment" if len(refs) == 1 else "comments",
+            refs=", ".join(refs),
+            verb="stays" if len(refs) == 1 else "stay",
+        )
+        row["comment"] = "\n".join(p for p in (row.get("comment") or "", line) if p)
 
 
 def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "internal"
@@ -2814,13 +2846,31 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
     # the engineer is never asked twice blind: its byline names who rejected
     # it and when, from the rejection on record. Never on a confirmed row.
     rejections = _prior_rejections(submittal_id, allowed)
-    carried = crs_numbers_mod.open_elsewhere(crs_scope, set(crs_keys) | member_keys)
+    # Order 139 part 2: a member key counts as present only on a CONFIRMED
+    # row. An issued per-clause comment inside a field row nobody has
+    # confirmed yet keeps being carried forward on its own row - on the
+    # contractor's copy too - until the field row replacing it is confirmed.
+    confirmed_members = {
+        k
+        for row in rows
+        if row.get("engineer_confirmed")
+        for k in row.get("member_keys") or []
+    }
+    carried = crs_numbers_mod.open_elsewhere(
+        crs_scope, set(crs_keys) | confirmed_members
+    )
     people = _display_names(
         {by for by, _at in rejections.values() if by}
-        | {who for who in (crs_mapping_mod.byline_person(r.get("comment_by"))
-                           for r in carried) if who})
+        | {
+            who
+            for who in (
+                crs_mapping_mod.byline_person(r.get("comment_by")) for r in carried
+            )
+            if who
+        }
+    )
     for row in rows:
-        seen = rejections.get(row.get("comment_key") or "")
+        seen = _rejection_of(row, rejections)
         if seen is None or row.get("engineer_confirmed"):
             continue
         by, at = seen

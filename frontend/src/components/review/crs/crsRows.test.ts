@@ -169,8 +169,8 @@ describe("order 139 part 2: the server's grouping, one source", () => {
     const rows = buildCrsRows(all, EMPTY_FACTS, names, null, groups);
     expect(rows.map((r) => r.key)).toEqual(["crs:g"]);
     expect(serverNoteCount(all, groups)).toBe(1);
-    expect(serverNotesLine(1)).toBe(
-      "1 finding of this review is in the sheet's Review notes (the engineer's internal list), not comment rows to decide.");
+    expect(serverNotesLine(1)).toBe("1 finding of this review is not a comment row of the sheet: it is in its Review notes"
+      + " (the engineer's internal list), or repeats a value another comment row already raises.");
     expect(serverNotesLine(0)).toBe("");
     // A rejected one is counted by the footer, not here.
     expect(serverNoteCount([f("q", { ...question, approval_status: "rejected" })], groups)).toBe(0);

@@ -1,7 +1,7 @@
 /**
  * Order 139 part 2 (spec c): under a field row's required action, the clauses
  * behind it - the file's cap and count ("Supporting clauses (n)", at most 10,
- * then "and k more of these n"). Nothing on a row of one clause.
+ * then "and k more of these n"). Nothing on a row with no action line.
  */
 import { type CrsRow, supportingClauseLines } from "./crsRows";
 

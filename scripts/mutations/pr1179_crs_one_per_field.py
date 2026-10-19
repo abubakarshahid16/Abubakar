@@ -124,8 +124,22 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(
         "17",
         "a field row of one clause loses today's sentence",
-        "    if not _is_field_row(group) or clause_count(group) < 2:\n",
-        "    if not _is_field_row(group) or clause_count(group) < 1:\n",
+        "    if not _is_field_row(group) or point_count(group) < 2:\n",
+        "    if not _is_field_row(group) or point_count(group) < 1:\n",
         "single_clause_row_text_is_unchanged",
+    ),
+    _m(
+        "18",
+        "rule 4: two questions of one clause on one field print only the first one's words",
+        "    if not _is_field_row(group) or point_count(group) < 2:\n",
+        "    if not _is_field_row(group) or clause_count(group) < 2:\n",
+        "one_row_never_hides_a_second_question",
+    ),
+    _m(
+        "19",
+        "rule 4: a clause line says only its first requirement or reason",
+        '        words = " ".join(dict.fromkeys(_point_words(m, question) for m in members))\n',
+        "        words = _point_words(g, question)\n",
+        "one_row_never_hides_a_second_question",
     ),
 )

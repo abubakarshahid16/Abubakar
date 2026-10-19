@@ -35,15 +35,15 @@ export interface RunSummaryTierRow {
   missing_standard_id?: string | null;
   /** order 139 part 2: the CRS row this finding lands on (`crs_mapping.crs_groups`); findings sharing it are ONE row on screen and in the file. Null: not a row of the CRS, or not computed (/counts) */
   crs_group?: string | null;
-  /** order 139 part 2: the row's rank, 1 first (`crs_mapping.PRIORITY_WORDS`) */
+  /** order 139 part 2 section f (a separate change): the row's rank, 1 first (`crs_mapping.PRIORITY_WORDS`); not sent yet - null until that change */
   crs_priority?: number | null;
-  /** order 139 part 2: the rank's word, as the internal copy prints it */
+  /** order 139 part 2 section f: the rank's word, as the internal copy is to print it; null until that change */
   crs_priority_label?: RunSummaryCrsPriorityLabel | null;
   /** order 139 part 2: the row's place in the sheet's order (0 first) among this run's finding rows - the file's order */
   crs_order?: number | null;
-  /** order 139 part 2: the row's first line as the file prints it ("Contractor to provide Corrosion allowance."), on a row listing two or more clauses; null on a row of one clause, whose words are the finding's own */
+  /** order 139 part 2: the row's first line as the file prints it ("Contractor to provide Corrosion allowance."), on a field row asking two or more things (clauses, or requirements of one clause); null on a row whose one sentence is the finding's own */
   crs_action?: string | null;
-  /** order 139 part 2: true on a standard's engineer-to-check finding the CRS file put on NO row - it is counted in the file's Review notes (an unread page, a value only the page reader looked for, a requirement with no datasheet field), the engineer's internal list, so the screen shows it as a note, never as a comment to decide. Null otherwise. */
+  /** order 139 part 2: true on a finding that would be a comment but that the CRS file put on NO row - a standard's engineer-to-check finding counted in the file's Review notes (an unread page, a value only the page reader looked for, a requirement with no datasheet field), or a datasheet check about a value a breach or blank row already raises. The screen shows it as a note, never as a comment to decide. Null otherwise */
   crs_note?: boolean | null;
 }
 

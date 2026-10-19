@@ -369,6 +369,6 @@ describe("WorkspaceSheet: the server's grouping", () => {
     } as unknown as ReviewRunTierSummary);
     render(<Sheet rows={buildCrsRows(FINDINGS, EMPTY_FACTS, new Map(), null, groups)} serverNotes={2} />);
     expect(screen.queryByText(UNGROUPED_NOTE)).toBeNull();
-    expect(screen.getByText(/^2 findings of this review are in the sheet's Review notes/)).toBeInTheDocument();
+    expect(screen.getByText(/^2 findings of this review are not comment rows of the sheet: they are in its Review notes/)).toBeInTheDocument();
   });
 });

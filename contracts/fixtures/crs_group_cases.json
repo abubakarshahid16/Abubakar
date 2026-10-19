@@ -1,5 +1,5 @@
 {
-  "_about": "Order 139 part 2 (docs/order-139-part2-spec.md): the CRS grouping and order cases BOTH sides must pass. Backend: crs_mapping.crs_groups over each case's findings (base_finding with the case's finding laid over it; a null overrides) must give exactly `expected_rows`, in order: each row's finding ids (compared as a SET - the leader is the server's), its priority and word, its action line (null on a row of one clause) and its clause count (distinct standard_document_id + standard_clause). Every id in `not_on_sheet` is in no row. Frontend: crs/crsGroups.parity.test.ts turns `expected_rows` into the run summary's per-finding fields (crs_group = 'row-<index>', crs_order = index, crs_priority, crs_priority_label, crs_action) and buildCrsRows must show one row per expected row, with exactly those findings, in that order, and none of `not_on_sheet` in a grouped row. `review_notes` (absent = none): the findings the file lists in its Review notes instead of on a row - the summary marks them `crs_note`, and the screen shows them as a note, never as a row to decide. The fields under base_finding are the ones the server's grouping reads after comparison.attach_crs_context (crs_field_label, requirement_limit). Invented data only - no client document, no real standard text.",
+  "_about": "Order 139 part 2 (docs/order-139-part2-spec.md): the CRS grouping and order cases BOTH sides must pass. Backend: crs_mapping.crs_groups over each case's findings (base_finding with the case's finding laid over it; a null overrides) must give exactly `expected_rows`, in order: each row's finding ids (compared as a SET - the leader is the server's), its priority and word, its action line (null on a row of one clause) and its clause count (distinct standard_document_id + standard_clause). Every id in `not_on_sheet` is in no row. Frontend: crs/crsGroups.parity.test.ts turns `expected_rows` into the run summary's per-finding fields (crs_group = 'row-<index>', crs_order = index, crs_priority, crs_priority_label, crs_action) and buildCrsRows must show one row per expected row, with exactly those findings, in that order, and none of `not_on_sheet` in a grouped row. `review_notes` (absent = none): the findings that would be comments but that the file puts on no row (counted in its Review notes, or a datasheet check about a value another row already raises) - the summary marks them `crs_note`, and the screen shows them as a note, never as a row to decide. The fields under base_finding are the ones the server's grouping reads after comparison.attach_crs_context (crs_field_label, requirement_limit). Invented data only - no client document, no real standard text.",
   "base_finding": {
     "id": "x",
     "compliance_status": "MISSING_INFORMATION",
@@ -142,6 +142,29 @@
       ],
       "not_on_sheet": ["j1"],
       "review_notes": ["j1"]
+    },
+    {
+      "name": "two questions of ONE clause on one field are one row that says both (rule 4)",
+      "findings": [
+        {"id": "k1", "compliance_status": "NEEDS_ENGINEER_REVIEW", "standard_clause": "14.1", "requirement_source_text": "14.1 Motor rating shall be not less than 11 kW.", "matched_phrase": "Motor rating", "fact_id": "fact-13", "contractor_page": 4, "contractor_evidence_text": "15 hp", "crs_is_blank": false, "reason_code": "unit_mismatch", "ai_rationale": "unit_mismatch: the requirement is in kW and the value in hp; they were not compared."},
+        {"id": "k2", "compliance_status": "NEEDS_ENGINEER_REVIEW", "standard_clause": "14.1", "requirement_source_text": "14.1 Motor rating shall include a service factor.", "matched_phrase": "Motor rating", "fact_id": "fact-13", "contractor_page": 4, "contractor_evidence_text": "15 hp", "crs_is_blank": false, "reason_code": "LOW_TRUST_VALUE", "ai_rationale": "LOW_TRUST_VALUE: the value was read with low trust."}
+      ],
+      "expected_rows": [
+        {"finding_ids": ["k1", "k2"], "priority": 3, "priority_label": "Engineer to check", "action": "Engineer to check Motor rating.", "clause_count": 1}
+      ],
+      "not_on_sheet": []
+    },
+    {
+      "name": "a datasheet check about a value a breach row already raises is that row's, not a comment of its own",
+      "findings": [
+        {"id": "l1", "compliance_status": "NON_COMPLIANT", "standard_clause": "15.1", "requirement_source_text": "15.1 Shaft power shall be not less than 20 kW.", "crs_field_label": "Shaft power", "fact_id": "fact-14", "contractor_page": 3, "contractor_evidence_text": "15 kW", "crs_is_blank": false},
+        {"id": "l2", "compliance_status": "NON_COMPLIANT", "origin": "datasheet_check", "standard_document_id": null, "standard_name": null, "standard_page": null, "requirement_source_text": "Datasheet check DS-M1: shaft power must exceed absorbed power.", "contractor_section": "Shaft power", "fact_id": "fact-14", "contractor_page": 3, "contractor_evidence_text": "15 kW", "crs_is_blank": false}
+      ],
+      "expected_rows": [
+        {"finding_ids": ["l1"], "priority": 1, "priority_label": "Out of limit", "action": null, "clause_count": 1}
+      ],
+      "not_on_sheet": ["l2"],
+      "review_notes": ["l2"]
     }
   ]
 }

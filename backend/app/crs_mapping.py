@@ -627,7 +627,7 @@ def engineer_comment_text(group: list[dict]) -> str:
     clause_lines = _supporting_clause_lines(group)
     if clause_lines:
         # ORDER 139 PART 2 (spec c): ONE COMMENT PER DATASHEET FIELD. A field
-        # row citing two or more clauses says what to do once, what the sheet
+        # row asking two or more things says what to do once, what the sheet
         # says once, then every clause behind it (capped, with the count).
         return "\n".join([group_action(group), said, *clause_lines])
     return f"{lead} {said} {_action(f, field)}"
@@ -664,11 +664,39 @@ def _is_field_row(group: list[dict]) -> bool:
     return _group_key(group[0])[0] == "field"
 
 
+def _point_words(g: dict, question: bool) -> str:
+    """What one finding of a field row asks, in the clause line's words: an
+    engineer's question's reason, else the requirement's own sentence."""
+    if question:
+        return _cut(_reason_words(g), CLAUSE_LINE_CHARS) + "."
+    return _requirement_words(g, CLAUSE_LINE_CHARS)
+
+
+def point_count(group: list[dict]) -> int:
+    """Rule 4: how many DIFFERENT things a row's findings ask - each distinct
+    requirement sentence, and on an engineer's question each distinct reason
+    too. A row asking two things never prints only the first one's words:
+    deciding the row decides every finding behind it (#986)."""
+    question = _bucket_of(group[0]) == BUCKET_QUESTION
+    return len(
+        {
+            (
+                str(g.get("standard_document_id") or ""),
+                str(g.get("standard_clause") or ""),
+                _fold(g.get("requirement_source_text")),
+                _point_words(g, question) if question else "",
+            )
+            for g in group
+        }
+    )
+
+
 def group_action(group: list[dict]) -> str | None:
-    """Spec c: the first line of a FIELD row citing two or more clauses - the
-    action once, for the field ("Contractor to provide Corrosion
-    allowance."). None for any other row, whose action is in its sentence."""
-    if not _is_field_row(group) or clause_count(group) < 2:
+    """Spec c: the first line of a FIELD row asking two or more things (two
+    clauses, or two requirements or reasons of one clause) - the action once,
+    for the field ("Contractor to provide Corrosion allowance."). None for any
+    other row, whose one sentence already says everything it asks."""
+    if not _is_field_row(group) or point_count(group) < 2:
         return None
     f = group[0]
     field = _field_label(f)
@@ -679,9 +707,11 @@ def group_action(group: list[dict]) -> str | None:
 
 def _supporting_clause_lines(group: list[dict]) -> list[str]:
     """Spec c: "Supporting clauses (n):" and one line per distinct clause of a
-    field row citing two or more ("- <ref>: <words>"), ordered by clause then
-    reference; at most MAX_CLAUSE_LINES, then "- and k more of these n (see
-    Standard Reference)". [] for any other row."""
+    field row asking two or more things ("- <ref>: <words>"), ordered by
+    clause then reference; a clause behind several requirements or reasons
+    says each of them (rule 4: nothing a decision covers is hidden). At most
+    MAX_CLAUSE_LINES, then "- and k more of these n (see Standard
+    Reference)". [] for any other row."""
     if group_action(group) is None:
         return []
     question = _bucket_of(group[0]) == BUCKET_QUESTION
@@ -689,16 +719,7 @@ def _supporting_clause_lines(group: list[dict]) -> list[str]:
     for members in _clauses(group).values():
         g = members[0]
         ref = _standard_reference(g) or "Requirement"
-        words = (
-            _cut(_reason_words(g), CLAUSE_LINE_CHARS) + "."
-            if question
-            else _requirement_words(g, CLAUSE_LINE_CHARS)
-        )
-        more = len({_fold(m.get("requirement_source_text")) for m in members}) - 1
-        if more > 0:
-            words += (
-                f" (+{more} more requirement{'s' if more != 1 else ''} of this clause)"
-            )
+        words = " ".join(dict.fromkeys(_point_words(m, question) for m in members))
         entries.append(
             (_clause_key(g.get("standard_clause")), ref, f"- {ref}: {words}")
         )
@@ -885,11 +906,11 @@ BUCKET_WEB = "web"  # a public-web standards check item (kind D)
 #: these buckets with no field label keeps today's one-row-per-requirement key.
 FIELD_GROUPED_BUCKETS = (BUCKET_BLANK, BUCKET_NOT_FOUND, BUCKET_QUESTION)
 
-#: The rank of a CRS row, most important first (spec f). The sheet is sorted
-#: by it, then datasheet page, then clause, then field - on screen and in the
-#: file. `priority` (int) rides on every row; the words are printed in the
-#: "Priority" column (it replaces the "Severity" column, which said "minor"
-#: on 324 of 329 rows). Never "high"/"low": a rank is not a confidence.
+#: The rank of a CRS row, most important first (spec f - a separate change,
+#: not yet wired: nothing sorts by these or prints them yet). Section f is to
+#: sort the sheet by it, then datasheet page, clause and field, and print the
+#: words in a "Priority" column in place of "Severity". Never "high"/"low": a
+#: rank is not a confidence.
 PRIORITY_OUT_OF_LIMIT = 1
 PRIORITY_MISSING_VALUE = 2
 PRIORITY_ENGINEER_TO_CHECK = 3
@@ -1037,8 +1058,8 @@ def crs_groups(findings: list[dict]) -> list[dict]:
     """THE ONE GROUPING (spec a, b, f): the finding rows of the CRS, in sheet
     order. Each item: {"key": str (the row's group key, base + any edit
     suffix), "bucket": str, "row_kind": str, "findings": [finding dicts,
-    leader first], "action": str | None (the row's first line when it lists
-    two or more clauses, else None)}. `build_crs_rows` builds its finding
+    leader first], "action": str | None (the row's first line when it asks
+    two or more things, else None)}. `build_crs_rows` builds its finding
     rows from this, and the run summary sends each finding's key, order and
     action to the screen from the rows built from it - so the screen and the
     file cannot group or order differently.
@@ -1246,8 +1267,8 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                     # key, so the numbers earlier per-clause rows hold are found.
                     "member_keys": sorted({finding_member_key(g) for g in group}),
                     # Never printed: the group key the run summary sends the
-                    # screen, and the row's first line when it lists two or more
-                    # clauses.
+                    # screen, and the row's first line when it asks two or more
+                    # things.
                     "crs_group": item["key"],
                     "crs_action": item["action"],
                     # R30: the chain behind the comment (internal copy only).

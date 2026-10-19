@@ -173,7 +173,7 @@ def test_long_clause_list_says_how_many_more():
     assert rows[0]["standard_reference"].count("STD-100") == 12
 
 
-def test_a_long_clause_is_cut_and_a_shared_clause_counts_its_requirements():
+def test_a_long_clause_is_cut_and_a_shared_clause_says_each_requirement():
     long = "word " * 80
     rows = _rows(
         [
@@ -184,9 +184,44 @@ def test_a_long_clause_is_cut_and_a_shared_clause_counts_its_requirements():
     )
     lines = rows[0]["comment"].split("\n")
     assert lines[2] == "Supporting clauses (2):"
+    # order 139 part 2 (review of #1179, rule 4): every requirement is said.
     first = lines[3]
-    assert first.endswith(' ...." (+1 more requirement of this clause)')
-    assert len(first) < crs_mapping.CLAUSE_LINE_CHARS + 80
+    assert first.startswith('- STD-100 cl. 4.1 (p.4): "A long word')
+    assert first.endswith(' ...." "A second requirement of 4.1."')
+
+
+def test_one_row_never_hides_a_second_question_of_the_same_clause():
+    """Rule 4 (review of #1179): two questions on one field from ONE clause,
+    with different reasons, are one row - and the row says both, because
+    deciding it decides both (#986)."""
+    rows = _rows(
+        [
+            _question("a", "5.1"),
+            _question(
+                "b",
+                "5.1",
+                reason_code="LOW_TRUST_VALUE",
+                ai_rationale="LOW_TRUST_VALUE: the value was read with low trust.",
+            ),
+        ]
+    )
+    assert _partition(rows) == [["a", "b"]]
+    [row] = rows
+    assert row["crs_action"] == "Engineer to check Rated power."
+    assert row["comment"].split("\n")[2:] == [
+        "Supporting clauses (1):",
+        "- STD-100 cl. 5.1 (p.4): clause 5.1 is in kW and the value in hp."
+        " the value was read with low trust.",
+    ]
+    # Two blank-value requirements of one clause: both sentences, too.
+    [blank] = _rows(
+        [
+            _f("x", "6.1"),
+            _f("y", "6.1", requirement_source_text="6.1 It shall be given in mm."),
+        ]
+    )
+    assert '"It shall be given in mm."' in blank["comment"]
+    assert '"The value shall be stated per clause 6.1."' in blank["comment"]
 
 
 def test_single_clause_row_text_is_unchanged():

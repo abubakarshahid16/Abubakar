@@ -21,7 +21,16 @@ from __future__ import annotations
 
 import uuid
 
-from app import access, comparison, crs_mapping, crs_numbers, db, main, submittal_review
+from app import (
+    access,
+    comparison,
+    crs_export,
+    crs_mapping,
+    crs_numbers,
+    db,
+    main,
+    submittal_review,
+)
 from tests.test_b3_page_ledger import temp_storage  # noqa: F401 - autouse
 from tests.test_review_screen import world  # noqa: F401
 
@@ -117,15 +126,89 @@ def test_a_field_row_stands_on_both_clauses(world):  # noqa: F811
     assert "Supporting clauses (2):" in row["comment"]
 
 
-def test_an_issued_per_clause_number_is_not_carried_forward_twice(world):  # noqa: F811
+def test_an_issued_comment_stays_on_the_contractor_copy_until_the_field_row_is_confirmed(
+    world,  # noqa: F811
+):
+    """Review of #1179 (#986, spec d): an engineer confirmed a per-clause
+    comment before rows were one per field. While the field row that now
+    holds it is unconfirmed (so not on the contractor's copy), the issued
+    comment stays on that copy, carried forward on its own row; once the
+    field row is confirmed it replaces it, and is not carried twice."""
     sub, run, scope = world
     ids = _add_blanks(run)
     first, _second = _member_keys(run, scope, ids)
     ref = _old_number(sub, run, first)
-    rows, *_ = main._crs_content(run, _scope(scope))
+
+    def issue_copy():
+        rows, meta, *_ = main._crs_content(run, _scope(scope), "issue")
+        return rows, crs_export.build_crs_view(rows, {**meta, "copy": "issue"})["rows"]
+
+    rows, issued = issue_copy()
+    assert ref in [r["crs_ref"] for r in issued], (
+        "the confirmed comment is still issued"
+    )
+    row = _field_row(rows)
+    assert row["engineer_confirmed"] is False
+    assert row["comment"].endswith(
+        f"\nEarlier issued comment {ref} about this field stays on the sheet until"
+        " this comment is confirmed (now one comment per field)."
+    )
+    with db.connect() as conn:
+        conn.executemany(
+            "UPDATE review_findings SET confirmed_by = 'eng-1' WHERE id = ?",
+            [(i,) for i in ids],
+        )
+    rows, issued = issue_copy()
     carried = [r for r in rows if r["row_kind"] == crs_mapping.ROW_KIND_CARRIED_FORWARD]
-    assert carried == [], "the clause is inside the field row: no second row for it"
-    assert ref in _field_row(rows)["comment"]
+    assert carried == [], "the confirmed field row replaces it: no second row"
+    assert ref not in [r["crs_ref"] for r in issued]
+    assert any(
+        r["comment"].endswith(
+            f"Replaces earlier comment {ref} (now one comment per field)."
+        )
+        for r in issued
+    )
+
+
+def test_one_rejected_clause_does_not_mark_a_field_row_previously_rejected(
+    world,  # noqa: F811
+):
+    """Review of #1179: one clause rejected (on this or an earlier run) is not
+    the whole field rejected - the row is not marked "previously rejected"."""
+    _sub, run, scope = world
+    ids = _add_blanks(run)
+    _reject(ids[0])
+    row = _field_row(main._crs_content(run, _scope(scope))[0])
+    assert row["finding_ids"] == [ids[1]]
+    assert "previously_rejected" not in row
+    assert "previously rejected" not in row["comment_by"]
+    # A row still standing on a clause whose twin was rejected, and on a
+    # clause nobody rejected: not every clause was rejected, so not marked.
+    _add_blanks(run, ("7.3",))
+    _reject(_add_blanks(run, ("6.2",))[0])
+    row = _field_row(main._crs_content(run, _scope(scope))[0])
+    assert len(row["member_keys"]) == 2 and len(row["finding_ids"]) == 2
+    assert "previously_rejected" not in row
+
+
+def test_a_field_row_whose_every_clause_was_rejected_says_so(world):  # noqa: F811
+    _sub, run, scope = world
+    [kept] = _add_blanks(run, ("4.1",))
+    [rejected] = _add_blanks(run, ("4.1",))
+    _reject(rejected)
+    row = _field_row(main._crs_content(run, _scope(scope))[0])
+    assert row["finding_ids"] == [kept]
+    assert row["previously_rejected"].startswith("previously rejected by ")
+    assert row["previously_rejected"].endswith(" on 2026-10-01")
+
+
+def _reject(finding_id: str) -> None:
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE review_findings SET approval_status = 'rejected',"
+            " approved_by = 'eng-1', approved_at = '2026-10-01T00:00:00Z' WHERE id = ?",
+            (finding_id,),
+        )
 
 
 def test_grouped_row_lists_the_earlier_comments_it_replaces(world):  # noqa: F811
@@ -157,7 +240,8 @@ def test_grouped_row_is_confirmed_only_when_every_member_was(world):  # noqa: F8
         "one of two clauses confirmed is not the row"
     )
     assert row["comment"].endswith(
-        f"Replaces earlier comment {ref} (now one comment per field)."
+        f"Earlier issued comment {ref} about this field stays on the sheet until"
+        " this comment is confirmed (now one comment per field)."
     )
     _old_number(sub, run, second)
     rows, *_ = main._crs_content(run, _scope(scope))

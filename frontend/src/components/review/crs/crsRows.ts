@@ -46,15 +46,16 @@ export function serverGroupsOf(summary: ReviewRunTierSummary | null | undefined)
   return new Map(summary.rows.filter((r) => r.crs_group || r.crs_note).map((r) => [r.finding_id, r]));
 }
 
-/** Order 139 part 2 (covers #1177's screen gap): a finding the file put in
- *  its Review notes rather than on a row (`crs_note`) is the engineer's
- *  internal note, never a comment row to decide. */
+/** Order 139 part 2 (covers #1177's screen gap): a finding the file put on
+ *  no comment row (`crs_note`) - one it counts in its Review notes, or a
+ *  datasheet check about a value another row already raises - is never a
+ *  comment row to decide on screen either. */
 export function isServerNote(f: ReviewFinding, groups: ServerGroups | null): boolean {
   return Boolean(groups?.get(f.id)?.crs_note);
 }
 
-/** How many of the run's findings (rejected ones aside) the file lists in
- *  its Review notes instead of as rows - said once under the sheet. */
+/** How many of the run's findings (rejected ones aside) the file puts on no
+ *  comment row (`crs_note`) - said once under the sheet. */
 export function serverNoteCount(all: ReviewFinding[], groups: ServerGroups | null): number {
   return splitRejected(all).findings.filter((f) => isServerNote(f, groups)).length;
 }
@@ -62,8 +63,10 @@ export function serverNoteCount(all: ReviewFinding[], groups: ServerGroups | nul
 /** The line under the sheet for `serverNoteCount`; "" when there are none. */
 export function serverNotesLine(n: number): string {
   if (n <= 0) return "";
-  return `${n.toLocaleString()} ${n === 1 ? "finding of this review is" : "findings of this review are"} in the`
-    + " sheet's Review notes (the engineer's internal list), not comment rows to decide.";
+  const one = n === 1;
+  return `${n.toLocaleString()} ${one ? "finding of this review is not a comment row" : "findings of this review are not comment rows"}`
+    + ` of the sheet: ${one ? "it is" : "they are"} in its Review notes (the engineer's internal list), or`
+    + ` ${one ? "repeats" : "repeat"} a value another comment row already raises.`;
 }
 
 export interface CrsRow {
@@ -97,8 +100,8 @@ export interface CrsRow {
    *  `UNGROUPED_NOTE`). */
   grouping?: "server" | "none";
   /** The file's row this is (`crs_group`), its place in the file's order
-   *  (`crs_order`) and its action line (`crs_action`, on a row listing two or
-   *  more clauses); null when the server put the finding on no row. */
+   *  (`crs_order`) and its action line (`crs_action`, on a field row asking
+   *  two or more things); null when the server put the finding on no row. */
   crsGroup?: string | null;
   crsOrder?: number | null;
   crsAction?: string | null;
@@ -207,12 +210,12 @@ function rowOf(
 
 /** Order 139 part 2: the "Supporting clauses" lines under a row's required
  *  action - only on a row the file prints them for (one with an action line,
- *  i.e. a field row citing two or more clauses), with the file's cap and
+ *  i.e. a field row asking two or more things), with the file's cap and
  *  count: "and k more of these n". [] on any other row. */
 export function supportingClauseLines(row: CrsRow): string[] {
   const n = row.clauseCount ?? 0;
   const listed = row.clauses ?? [];
-  if (!row.crsAction || n < 2) return [];
+  if (!row.crsAction || n < 1) return [];
   const more = n - listed.length;
   return [`Supporting clauses (${n}):`, ...listed, ...(more > 0 ? [`and ${more} more of these ${n}`] : [])];
 }

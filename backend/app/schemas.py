@@ -2476,15 +2476,16 @@ class CrsPreviewRow(BaseModel):
     #: #725 F7: the worst severity of the findings the row groups (critical,
     #: major, minor, observation), printed in the "Severity" column after
     #: Standard Reference in both copies. Empty when none is recorded.
-    #: Order 139 part 2: no longer printed - the "Priority" column replaced it.
+    #: Order 139 part 2 section f (a separate change) is to print a "Priority"
+    #: column in its place; until it lands this column is still printed.
     severity: str = ""
-    #: Order 139 part 2: the row's rank (1 out of limit, 2 missing value, 3
-    #: engineer to check, 4 engineer's comment, 5 carried forward;
-    #: `crs_mapping.PRIORITY_WORDS`). The sheet is sorted by it. Null on a row
-    #: from a caller that sent no rank.
+    #: Order 139 part 2 section f (a separate change): the row's rank (1 out of
+    #: limit, 2 missing value, 3 engineer to check, 4 engineer's comment, 5
+    #: carried forward), which the sheet is to be sorted by. Not sent yet: null
+    #: on every row until that change, and on a row from a caller with no rank.
     priority: int | None = None
-    #: The rank's word as THIS copy prints it in the "Priority" column ("" when
-    #: the row has no rank - never a guessed word).
+    #: The rank's word as THIS copy is to print it in the "Priority" column
+    #: (section f); "" while no rank is sent - never a guessed word.
     priority_label: str = ""
     #: Owner decision 2026-09-27 (order 2f): an UNCONFIRMED AI engineering
     #: check item's text, printed in the last column "AI Review Comments" of
