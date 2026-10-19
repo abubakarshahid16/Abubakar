@@ -96,6 +96,7 @@ screens never disagree):
 | removed | `summary?.counts.removed ?? splitRejected(findings).rejected` (exactly what CrsSheetView shows) |
 | unreadPages | union of `headlineFieldsOf(...).unreadPages` and `readiness?.unread_pages ?? []`, unique, ascending |
 | missingStandards | unique of `input.missingStandards` and `readiness?.standards_missing ?? []` |
+| standardsKnown / pagesKnown | false while the standards read failed (`missingStandards` null) or readiness is null (loading or failed). An unknown count is never 0: its step is not done, shows "could not read this yet" with no number, and Sign stays off ("Waiting to read the standards and page checks.") |
 | undecided / undecidedKeys | comment rows where `decisions.decisions[key]` is absent and `priorState !== "agreed"`, in row order |
 | unopenedNeedsYou | tier C rows not in `decisions.opened` |
 | unsaved | `input.unsaved.length` |
@@ -171,7 +172,7 @@ old maps alone.
 data      = useWorkspaceRun(runId)                 // A
 decisions = useCrsDecisions()                      // existing
 numbers   = computeReviewNumbers({ run, findings, rows, summary,
-              missingStandards: standardsState.missing ids,
+              missingStandards: missingStandardIds (null = not known),
               readiness, decisions: decisions.state,
               unsaved: decisions.unsaved })        // B
 steps     = actionSteps(numbers)                   // B

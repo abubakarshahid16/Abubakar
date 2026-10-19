@@ -24,7 +24,7 @@ vi.mock("./useWorkspaceRun", () => ({ useWorkspaceRun: () => data() }));
 
 const NUMBERS: ReviewNumbers = {
   comments: 3, needsYou: 1, findingsInComments: 4, met: 10, notApplicable: 2, anotherDocument: 0, removed: 0,
-  unreadPages: [4], missingStandards: ["API 610"], undecided: 2, undecidedKeys: ["row-b", "row-c"],
+  unreadPages: [4], missingStandards: ["API 610"], standardsKnown: true, pagesKnown: true, undecided: 2, undecidedKeys: ["row-b", "row-c"],
   unopenedNeedsYou: 1, unsaved: 0, signed: false, signedAt: null,
 };
 vi.mock("./numbers", () => ({
@@ -94,6 +94,7 @@ function ready(over: Partial<WorkspaceRunData> = {}): WorkspaceRunData {
     load: { kind: "ready" }, run: run(), findings: [],
     rows: [{ key: "row-a" }, { key: "row-b" }, { key: "row-c" }] as WorkspaceRunData["rows"],
     standardsState: { standards: [], missing: [{ identifier: "API 610", status: "MISSING_LOCALLY" }], error: null },
+    missingStandardIds: ["API 610"],
     standardNames: new Map(), submittal: null, summary: null, readiness: null, active: false,
     refresh: vi.fn(async () => {}), ...over,
   };

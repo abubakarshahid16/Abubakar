@@ -77,9 +77,12 @@ export function useWorkspaceRun(runId: string): WorkspaceRunData {
   const standardNames = useMemo(() => new Map(
     (standardsState.standards ?? []).filter((s) => s.filename).map((s) => [s.standard_document_id, s.filename as string])),
   [standardsState.standards]);
+  // Not known (null) while the standards read failed or has not answered.
+  const missingStandardIds = useMemo(() => (standardsState.error !== null || standardsState.standards === null
+    ? null : standardsState.missing.map((m) => m.identifier)), [standardsState]);
   const facts = useMemo(() => runFactsOf(run, standardsState.standards, standardsState.missing), [run, standardsState]);
   const server = useMemo(() => (summary ? serverTiersOf(summary.rows) : null), [summary]);
   const rows = useMemo(() => buildCrsRows(findings, facts, standardNames, server), [findings, facts, standardNames, server]);
 
-  return { load, run, findings, rows, standardsState, standardNames, submittal, summary, readiness, active, refresh };
+  return { load, run, findings, rows, standardsState, missingStandardIds, standardNames, submittal, summary, readiness, active, refresh };
 }

@@ -47,7 +47,10 @@ export function computeReviewNumbers(input: ReviewNumbersInput): ReviewNumbers {
     anotherDocument: counts.anotherDocument,
     removed: summary?.counts.removed ?? splitRejected(findings).rejected,
     unreadPages: uniqueSortedPages([...fields.unreadPages, ...(readiness?.unread_pages ?? [])]),
-    missingStandards: uniqueStrings([...input.missingStandards, ...(readiness?.standards_missing ?? [])]),
+    missingStandards: uniqueStrings([...(input.missingStandards ?? []), ...(readiness?.standards_missing ?? [])]),
+    // Unknown is never "none": both lists need their reads to have answered.
+    standardsKnown: input.missingStandards !== null && readiness !== null,
+    pagesKnown: readiness !== null,
     undecided: undecidedKeys.length,
     undecidedKeys,
     unopenedNeedsYou: rows.filter((r) => r.tier.tier === "C" && !decisions.opened[r.key]).length,
@@ -75,29 +78,44 @@ export function unopenedNeedsYouHelp(count: number): string {
   return `Open the ${count} "Needs you" ${count === 1 ? "row" : "rows"} first.`;
 }
 
+/** Words for a step whose count could not be read (never shown as 0). */
+export const NOT_READ_YET = "could not read this yet";
+
+/** Why Sign waits while a blocker count is not known. */
+export const WAITING_FOR_CHECKS = "Waiting to read the standards and page checks.";
+
 /** The four buttons of "What you need to do", always in this order:
  *  standards, pages, decide, sign. A step with nothing left is done (a
- *  quiet tick), never hidden. Sign is enabled only when the other three are
- *  done, every "Needs you" row has been opened (as the old sheet's
- *  CrsHeader canSign), nothing is unsaved and the run is not signed yet. */
+ *  quiet tick), never hidden. A step whose count is not known is NOT done,
+ *  shows no number and says it could not be read yet. Sign is enabled only
+ *  when the other three are known and done, every "Needs you" row has been
+ *  opened (as the old sheet's CrsHeader canSign), nothing is unsaved and
+ *  the run is not signed yet. */
 export function actionSteps(numbers: ReviewNumbers): ActionStep[] {
-  const standards = numbers.missingStandards.length;
-  const pages = numbers.unreadPages.length;
+  const standards = numbers.standardsKnown ? numbers.missingStandards.length : null;
+  const pages = numbers.pagesKnown ? numbers.unreadPages.length : null;
   const decide = numbers.undecided;
+  const countsKnown = standards !== null && pages !== null;
   const blockersClear = standards === 0 && pages === 0 && decide === 0;
-  const pagesHelp = pagesDetail(numbers.unreadPages);
-  const standardsHelp = numbers.missingStandards.join(", ");
+  const pagesHelp = pages ? pagesDetail(numbers.unreadPages) : "";
+  const standardsHelp = standards ? numbers.missingStandards.join(", ") : "";
   const unopened = numbers.unopenedNeedsYou;
-  const signHelp = !numbers.signed && unopened > 0 ? unopenedNeedsYouHelp(unopened) : "";
+  const signHelp = numbers.signed ? ""
+    : !countsKnown ? WAITING_FOR_CHECKS
+      : unopened > 0 ? unopenedNeedsYouHelp(unopened) : "";
   return [
-    {
-      id: "standards", label: `Upload missing standards (${standards})`, count: standards,
-      done: standards === 0, enabled: standards > 0, ...(standardsHelp ? { detail: standardsHelp } : {}),
-    },
-    {
-      id: "pages", label: `Check unread pages (${pages})`, count: pages,
-      done: pages === 0, enabled: pages > 0, ...(pagesHelp ? { detail: pagesHelp } : {}),
-    },
+    standards === null
+      ? { id: "standards", label: `Upload missing standards (${NOT_READ_YET})`, count: null, done: false, enabled: false }
+      : {
+        id: "standards", label: `Upload missing standards (${standards})`, count: standards,
+        done: standards === 0, enabled: standards > 0, ...(standardsHelp ? { detail: standardsHelp } : {}),
+      },
+    pages === null
+      ? { id: "pages", label: `Check unread pages (${NOT_READ_YET})`, count: null, done: false, enabled: false }
+      : {
+        id: "pages", label: `Check unread pages (${pages})`, count: pages,
+        done: pages === 0, enabled: pages > 0, ...(pagesHelp ? { detail: pagesHelp } : {}),
+      },
     {
       id: "decide", label: `Decide comments (${decide})`, count: decide,
       done: decide === 0, enabled: decide > 0,
@@ -105,7 +123,7 @@ export function actionSteps(numbers: ReviewNumbers): ActionStep[] {
     {
       id: "sign", label: numbers.signed ? "Signed" : "Sign and export", count: null,
       done: numbers.signed,
-      enabled: blockersClear && unopened === 0 && numbers.unsaved === 0 && !numbers.signed,
+      enabled: countsKnown && blockersClear && unopened === 0 && numbers.unsaved === 0 && !numbers.signed,
       ...(signHelp ? { detail: signHelp } : {}),
     },
   ];

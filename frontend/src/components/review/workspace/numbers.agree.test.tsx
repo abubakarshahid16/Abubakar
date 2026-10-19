@@ -45,6 +45,9 @@ const READINESS: ReviewReadiness = {
   standards_cited: 3, standards_held: [], standards_missing: ["ISO 5199"], last_run_id: null, nothing_changed: false, changes: [],
 };
 
+/** Readiness that answered: nothing unread, nothing missing. */
+const NONE_LEFT: ReviewReadiness = { ...READINESS, unread_pages: [], standards_missing: [] };
+
 const ROWS = [row("b1", "B"), row("b2", "B"), row("b3", "B", "agreed"), row("c1", "C"), row("c2", "C"), row("a1", "A")];
 
 function numbersFor(over: Partial<ReviewNumbersInput> = {}): ReviewNumbers {
@@ -154,7 +157,7 @@ describe("Check unread pages", () => {
   });
 
   it("a done step shows as a tick, not hidden, and cannot be pressed", () => {
-    const n = numbersFor({ readiness: null, run: { ...RUN, page_coverage: null } as unknown as ReviewRunSummary });
+    const n = numbersFor({ readiness: NONE_LEFT, run: { ...RUN, page_coverage: null } as unknown as ReviewRunSummary });
     render(<ActionBar run={RUN} numbers={n} steps={actionSteps(n)} onAction={() => {}} signOff={IDLE} />);
     const pages = screen.getByRole("button", { name: /Check unread pages/ });
     expect(pages).toBeDisabled();
@@ -191,7 +194,7 @@ describe("Sign and export", () => {
     // never opened.
     const notOpened: DecisionState = { decisions: ALL_DECIDED.decisions, opened: { c1: true } };
     const input: Partial<ReviewNumbersInput> = {
-      missingStandards: [], readiness: null, run: { ...RUN, page_coverage: null } as unknown as ReviewRunSummary,
+      missingStandards: [], readiness: NONE_LEFT, run: { ...RUN, page_coverage: null } as unknown as ReviewRunSummary,
       decisions: notOpened, unsaved: [],
     };
     const n = numbersFor(input);
@@ -215,7 +218,7 @@ describe("Sign and export", () => {
 
     // Standards and pages clear, decisions still open: still off.
     const noBlockers: Partial<ReviewNumbersInput> = {
-      missingStandards: [], readiness: null, run: { ...RUN, page_coverage: null } as unknown as ReviewRunSummary, unsaved: [],
+      missingStandards: [], readiness: NONE_LEFT, run: { ...RUN, page_coverage: null } as unknown as ReviewRunSummary, unsaved: [],
     };
     rerender(<Harness input={noBlockers} refresh={refresh} decisions={decisions} />);
     for (const b of signButtons()) expect(b).toBeDisabled();
@@ -241,7 +244,7 @@ describe("Sign and export", () => {
     downloadCrs.mockResolvedValue("Comments are still open on this run.");
     const refresh = vi.fn().mockResolvedValue(undefined);
     const clear: Partial<ReviewNumbersInput> = {
-      missingStandards: [], readiness: null, run: { ...RUN, page_coverage: null } as unknown as ReviewRunSummary,
+      missingStandards: [], readiness: NONE_LEFT, run: { ...RUN, page_coverage: null } as unknown as ReviewRunSummary,
       decisions: ALL_DECIDED, unsaved: [],
     };
     render(<Harness input={clear} refresh={refresh} decisions={fakeDecisions(ALL_DECIDED, [])} />);
@@ -274,10 +277,83 @@ describe("Sign and export", () => {
   it("a signed run shows Signed and cannot sign again", () => {
     const n = numbersFor({
       run: { ...RUN, crs_issued_at: "2026-10-19T10:00:00", page_coverage: null } as unknown as ReviewRunSummary,
-      readiness: null, missingStandards: [], decisions: ALL_DECIDED, unsaved: [],
+      readiness: NONE_LEFT, missingStandards: [], decisions: ALL_DECIDED, unsaved: [],
     });
     renderAll(n);
     expect(screen.getByTestId("ws-verdict").textContent).toBe("Signed on 19 Oct 2026.");
     for (const b of screen.getAllByRole("button", { name: "Signed" })) expect(b).toBeDisabled();
+  });
+});
+
+/** SPEC honesty rule: an unknown number is never shown as 0. A blocker
+ *  count that could not be read is not "done" and keeps Sign off.
+ *
+ *  MUTATION PROOF (done once by hand): make `actionSteps` treat an unknown
+ *  count as 0 again and "standards read failed" fails. */
+describe("unknown blocker counts never count as done", () => {
+  const CLEAR_RUN = { ...RUN, page_coverage: null } as unknown as ReviewRunSummary;
+  const allClear: Partial<ReviewNumbersInput> = {
+    run: CLEAR_RUN, missingStandards: [], readiness: NONE_LEFT, decisions: ALL_DECIDED, unsaved: [],
+  };
+
+  function expectWaiting(n: ReviewNumbers, unknown: Array<"standards" | "pages">) {
+    const steps = actionSteps(n);
+    for (const id of unknown) {
+      const step = steps.find((s) => s.id === id)!;
+      expect(step.done, id).toBe(false);
+      expect(step.enabled, id).toBe(false);
+      expect(step.count, id).toBeNull();
+    }
+    expect(steps.find((s) => s.id === "sign")?.enabled).toBe(false);
+    renderAll(n);
+    const bar = screen.getByTestId("ws-action-bar");
+    for (const id of unknown) {
+      const button = bar.querySelector(`[data-step="${id}"]`)!;
+      expect(button.getAttribute("data-done")).toBe("false");
+      expect(button.textContent).not.toContain("✓");
+      expect(button.textContent).toContain("could not read this yet");
+      expect(button.textContent).not.toMatch(/\d/);
+    }
+    for (const b of screen.getAllByRole("button", { name: "Sign and export" })) expect(b).toBeDisabled();
+    expect(screen.getByTestId("ws-sign-waits")).toHaveTextContent("Waiting to read the standards and page checks.");
+    expect(screen.getByTestId("ws-verdict").textContent).not.toContain("Ready to sign");
+    expect(screen.getByTestId("ws-verdict").textContent).toContain("Not signed yet.");
+    // No number is shown for an unknown count anywhere.
+    const regions = [bar, screen.getByTestId("ws-sheet-counts"), screen.getByTestId("ws-sign-off")];
+    const key = (id: string) => (id === "standards" ? "missingStandards" : "unreadPages");
+    for (const id of unknown) {
+      for (const r of regions) expect(r.querySelector(`[data-count="${key(id)}"]`), id).toBeNull();
+    }
+  }
+
+  it("standards read failed: Sign stays off and the standards step is not done", () => {
+    const n = numbersFor({ ...allClear, missingStandards: null });
+    expect(n.standardsKnown).toBe(false);
+    expect(n.pagesKnown).toBe(true);
+    expectWaiting(n, ["standards"]);
+  });
+
+  it("page checks not read (readiness null): Sign stays off and the pages step is not done", () => {
+    const n = numbersFor({ ...allClear, readiness: null });
+    expect(n.pagesKnown).toBe(false);
+    // Readiness also lists missing standards, so that count is unknown too.
+    expect(n.standardsKnown).toBe(false);
+    expectWaiting(n, ["standards", "pages"]);
+  });
+
+  it("both known and 0: unchanged, the steps are ticks and Sign is on", () => {
+    const n = numbersFor(allClear);
+    expect(n.standardsKnown && n.pagesKnown).toBe(true);
+    const steps = actionSteps(n);
+    expect(steps.slice(0, 3).every((s) => s.done && !s.enabled && s.count === 0)).toBe(true);
+    expect(steps[3].enabled).toBe(true);
+    renderAll(n);
+    const bar = screen.getByTestId("ws-action-bar");
+    expect(within(bar).getAllByRole("button").map((b) => b.textContent)).toEqual([
+      "✓Upload missing standards (0)", "✓Check unread pages (0)", "✓Decide comments (0)", "Sign and export",
+    ]);
+    expect(screen.queryByTestId("ws-sign-waits")).toBeNull();
+    expect(screen.getByTestId("ws-verdict").textContent).toBe("5 comments, 2 need your judgement. Ready to sign.");
+    for (const b of screen.getAllByRole("button", { name: "Sign and export" })) expect(b).toBeEnabled();
   });
 });

@@ -29,7 +29,7 @@ const NO_DECISIONS: DecisionState = { decisions: {}, opened: {} };
 
 function input(over: Partial<ReviewNumbersInput> = {}): ReviewNumbersInput {
   return {
-    run: run(), findings: [], rows: [], summary: null, missingStandards: [], readiness: null,
+    run: run(), findings: [], rows: [], summary: null, missingStandards: [], readiness: readiness(),
     decisions: NO_DECISIONS, unsaved: [], ...over,
   };
 }

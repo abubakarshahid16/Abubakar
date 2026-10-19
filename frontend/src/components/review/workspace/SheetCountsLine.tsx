@@ -23,10 +23,10 @@ export function SheetCountsLine({ numbers }: SheetCountsLineProps) {
   if (numbers.met > 0) parts.push(<Part key="m" n={numbers.met} one="met" many="met" count="met" />);
   if (numbers.notApplicable > 0) parts.push(<Part key="n" n={numbers.notApplicable} one="not applicable" many="not applicable" count="notApplicable" />);
   if (numbers.anotherDocument > 0) parts.push(<Part key="a" n={numbers.anotherDocument} one="for another document" many="for another document" />);
-  if (numbers.unreadPages.length > 0) {
+  if (numbers.pagesKnown && numbers.unreadPages.length > 0) {
     parts.push(<Part key="p" n={numbers.unreadPages.length} one="page not read" many="pages not read" count="unreadPages" />);
   }
-  if (numbers.missingStandards.length > 0) {
+  if (numbers.standardsKnown && numbers.missingStandards.length > 0) {
     parts.push(<Part key="s" n={numbers.missingStandards.length} one="standard missing" many="standards missing" count="missingStandards" />);
   }
   if (numbers.removed > 0) parts.push(<Part key="r" n={numbers.removed} one="removed by an engineer" many="removed by an engineer" />);

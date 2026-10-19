@@ -72,7 +72,7 @@ function RunNotReady({ run, active, onBack, onChanged, onOpenRun, mayLeave }: {
 export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun, onUnsavedChange }: ReviewWorkspaceProps) {
   const { runId } = location;
   const data = useWorkspaceRun(runId);
-  const { load, run, findings, rows, standardsState, standardNames, submittal, summary, readiness, active, refresh } = data;
+  const { load, run, findings, rows, standardsState, missingStandardIds, standardNames, submittal, summary, readiness, active, refresh } = data;
   const decisions = useCrsDecisions();
   const signOff = useSignOff({ runId, rows, decisions, refresh });
   // A count clicked inside the steps panel narrows the findings panel (#791),
@@ -108,9 +108,9 @@ export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun,
 
   const numbers = useMemo(() => (run ? computeReviewNumbers({
     run, findings, rows, summary,
-    missingStandards: standardsState.missing.map((m) => m.identifier),
+    missingStandards: missingStandardIds,
     readiness, decisions: decisions.state, unsaved: decisions.unsaved,
-  }) : null), [run, findings, rows, summary, standardsState.missing, readiness, decisions.state, decisions.unsaved]);
+  }) : null), [run, findings, rows, summary, missingStandardIds, readiness, decisions.state, decisions.unsaved]);
   const steps = useMemo(() => (numbers ? actionSteps(numbers) : []), [numbers]);
 
   const go = (patch: Partial<WorkspaceLocation>) => onLocationChange({ ...location, ...patch });

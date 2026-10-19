@@ -93,6 +93,19 @@ describe("useWorkspaceRun", () => {
     expect(result.current.readiness).toBeNull();
   });
 
+  it("a failed standards read is unknown (null missing ids), never an empty list", async () => {
+    reviewRunStandards.mockResolvedValue({ ok: false, error: { message: "nope" } });
+    const { result } = renderHook(() => useWorkspaceRun("run-1"));
+    await waitFor(() => expect(result.current.load.kind).toBe("ready"));
+    expect(result.current.missingStandardIds).toBeNull();
+  });
+
+  it("a standards read that answered gives the missing ids (empty when none)", async () => {
+    const { result } = renderHook(() => useWorkspaceRun("run-1"));
+    await waitFor(() => expect(result.current.load.kind).toBe("ready"));
+    expect(result.current.missingStandardIds).toEqual([]);
+  });
+
   it("a run that cannot be found is an error in plain words", async () => {
     reviewRun.mockResolvedValue({ ok: true, data: null });
     const { result } = renderHook(() => useWorkspaceRun("run-1"));

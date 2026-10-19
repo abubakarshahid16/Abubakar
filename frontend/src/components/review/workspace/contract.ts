@@ -73,6 +73,10 @@ export interface WorkspaceRunData {
   findings: ReviewFinding[];
   rows: CrsRow[];
   standardsState: StandardsState;
+  /** Identifiers of the missing standards (`standardsState.missing`), or
+   *  null when the standards read failed or has not answered: "not known",
+   *  never an empty list. */
+  missingStandardIds: string[] | null;
   /** standard_document_id -> filename, for the sheet's clause column. */
   standardNames: Map<string, string>;
   submittal: DocumentRecord | null;
@@ -95,8 +99,10 @@ export interface ReviewNumbersInput {
   rows: CrsRow[];
   summary: ReviewRunTierSummary | null;
   /** Identifiers of standards the submittal cites that the library lacks
-   *  (`standardsState.missing` mapped to their identifier strings). */
-  missingStandards: string[];
+   *  (`missingStandardIds` from useWorkspaceRun). null = not known (the
+   *  standards read failed), never treated as none. */
+  missingStandards: string[] | null;
+  /** null = not known (loading or failed), never treated as none. */
   readiness: ReviewReadiness | null;
   decisions: DecisionState;
   /** `CrsDecisions.unsaved`. */
@@ -121,8 +127,17 @@ export interface ReviewNumbers {
   removed: number;
   /** Pages not read, sorted, unique (headlineFieldsOf + readiness). */
   unreadPages: number[];
-  /** Missing standard identifiers, unique. */
+  /** Missing standard identifiers, unique. Only the full list when
+   *  `standardsKnown`; otherwise what was read so far. */
   missingStandards: string[];
+  /** False while the standards read or the page checks (readiness) are
+   *  not known. Then the missing standards count is unknown: the step is
+   *  not done and no number is shown. */
+  standardsKnown: boolean;
+  /** False while the page checks (readiness) are not known. Then the
+   *  unread pages count is unknown: the step is not done and no number is
+   *  shown. */
+  pagesKnown: boolean;
   /** Comment rows with no decision yet and not agreed earlier. */
   undecided: number;
   /** Their row keys, in sheet order (the "Decide comments" button opens the first). */
