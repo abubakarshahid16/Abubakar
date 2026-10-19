@@ -42,13 +42,48 @@ describe("CrsFooter pages line (order 127)", () => {
     expect(pagesText(runOf({ unread_pages: [] }))).toBe("Pages not fully read: none of 11.");
   });
   it("a run that does not hold the list says so; it does not fall back to the code readers' list", () => {
-    expect(pagesText(runOf({ unread_pages: null }))).toBe("Pages not fully read: not recorded on this run.");
-    expect(pagesText(runOf({}))).toBe("Pages not fully read: not recorded on this run.");
+    expect(pagesText(runOf({ unread_pages: null }))).toBe("Pages not fully read: not recorded for this review.");
+    expect(pagesText(runOf({}))).toBe("Pages not fully read: not recorded for this review.");
   });
   it("no coverage and no total keep their own words", () => {
-    expect(pagesText(runOf({ page_coverage: null, unread_pages: [4] }))).toBe("Pages read: not recorded on this run.");
+    expect(pagesText(runOf({ page_coverage: null, unread_pages: [4] }))).toBe("Pages read: not recorded for this review.");
     expect(pagesText(runOf({
       page_coverage: { pages_total: null, fact_pages: [], pages_not_read_into_fields: [], not_read_reasons: {} } as never, unread_pages: [],
     }))).toBe("Pages: none accounted for.");
+  });
+});
+
+/** Round 2 item 2. MUTATION PROOF: print "Not signed yet" whatever the run
+ *  says (or go back to "Run <id>" / "Rows on this sheet") and this fails. */
+describe("CrsFooter plain words and the signed line", () => {
+  function footerText(run: ReviewRunSummary, signedAt?: string | null): string {
+    cleanup();
+    const { getByTestId } = render(
+      <CrsFooter run={run} counts={{ comment: 3, needsYou: 1, met: 2, notApplicable: 0, anotherDocument: 1 }}
+        standards={null} missing={[]} standardsError={null} rejected={0} signedAt={signedAt} />,
+    );
+    return getByTestId("crs-footer").textContent ?? "";
+  }
+
+  it("a signed review says Signed on <date>, never Not signed yet", () => {
+    const at = "2026-10-16T10:00:00Z";
+    const text = footerText(runOf({ crs_issued_at: at }));
+    expect(text).toContain(`Signed on ${new Date(at).toLocaleString()}.`);
+    expect(text).not.toContain("Not signed yet");
+    // Given by the caller, it wins.
+    expect(footerText(runOf({}), at)).toContain(`Signed on ${new Date(at).toLocaleString()}.`);
+  });
+
+  it("an unsigned review still says Not signed yet", () => {
+    expect(footerText(runOf({}))).toContain("Not signed yet.");
+  });
+
+  it("says the review's date and the counts in plain words, without the run id", () => {
+    const at = "2026-10-15T08:18:00Z";
+    const text = footerText(runOf({ completed_at: at }));
+    expect(text).toContain(`Review of ${new Date(at).toLocaleString()}`);
+    expect(text).not.toContain("run-made-up");
+    expect(text).toContain("On this sheet: 3 comments, 1 needs your judgement, 2 met the standard, 0 not applicable, 1 for another document");
+    expect(text).not.toMatch(/Rows on this sheet|\bRun\b/);
   });
 });

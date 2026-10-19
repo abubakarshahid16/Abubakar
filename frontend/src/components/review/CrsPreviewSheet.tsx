@@ -73,7 +73,14 @@ export function CrsTransmittalsForm(
 }
 
 export function CrsPreviewSheet(
-  { preview, runId, onChanged }: { preview: CrsPreview; runId: string; onChanged: () => void },
+  { preview, runId, onChanged, readOnly = false }: {
+    preview: CrsPreview; runId: string; onChanged: () => void;
+    /** v2.1: a look at the sheet only (the "Preview and confirm" step before
+     *  signing): no transmittal form, no reply import, and no History /
+     *  Record reply / Close buttons; each cell shows its plain text. Absent
+     *  (false) everywhere else, so the existing pages are unchanged. */
+    readOnly?: boolean;
+  },
 ) {
   return (
     <section
@@ -101,11 +108,11 @@ export function CrsPreviewSheet(
       </dl>
 
       {/* #725 F7: the two transmittal numbers are entered here, never invented. */}
-      <CrsTransmittalsForm runId={runId} header={preview.header} onChanged={onChanged} />
+      {!readOnly && <CrsTransmittalsForm runId={runId} header={preview.header} onChanged={onChanged} />}
 
       {/* AFTER ISSUE: the contractor's returned sheet, matched by each
           comment's permanent number (never by position). */}
-      <CrsReplyImportControl runId={runId} onChanged={onChanged} />
+      {!readOnly && <CrsReplyImportControl runId={runId} onChanged={onChanged} />}
 
       <table className="w-full min-w-[56rem] border-collapse text-xs">
         <thead>
@@ -124,7 +131,7 @@ export function CrsPreviewSheet(
           {preview.rows.map((row) => (
             <tr key={row.item_no}>
               <td className="border border-ink-600 px-2 py-1 text-center align-top text-slateish-300">
-                <CrsItemCell runId={runId} row={row} />
+                {readOnly ? row.item_no : <CrsItemCell runId={runId} row={row} />}
               </td>
               <td className="border border-ink-600 px-2 py-1 align-top text-slateish-300">
                 {row.document_name}
@@ -145,10 +152,14 @@ export function CrsPreviewSheet(
                   practice). Both come from the server's sheet, so this cell
                   shows exactly what the file says. */}
               <td className="border border-ink-600 px-2 py-1 align-top">
-                <CrsResponseCell runId={runId} row={row} onChanged={onChanged} />
+                {readOnly
+                  ? <span className="whitespace-pre-line text-slateish-200">{row.contractor_response}</span>
+                  : <CrsResponseCell runId={runId} row={row} onChanged={onChanged} />}
               </td>
               <td className="border border-ink-600 px-2 py-1 align-top">
-                <CrsResolutionCell runId={runId} row={row} onChanged={onChanged} />
+                {readOnly
+                  ? <span className="text-slateish-200">{row.final_resolution}</span>
+                  : <CrsResolutionCell runId={runId} row={row} onChanged={onChanged} />}
               </td>
               {/* CRS quick wins: the standard and clause, in their own column
                   after the client's seven (Page/Section is the datasheet's). */}

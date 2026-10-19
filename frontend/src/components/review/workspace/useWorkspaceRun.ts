@@ -10,6 +10,12 @@
  * fails keeps the last good data (`refreshError` says so) instead of
  * replacing the screen with an error. Rows are built with `buildCrsRows`,
  * exactly as the comment sheet builds them.
+ *
+ * v2.1 round 2: once the run names its document, the document's reviews are
+ * read ONCE (`reviewsApi.reviewRuns(documentId)`), so the screen can say
+ * when a newer review of the same document exists (`newerRun`) and hand the
+ * list to "Review again" (no second runs request). A failed read leaves
+ * both unknown (null), and the screen then says nothing about a newer one.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -36,6 +42,28 @@ export const COULD_NOT_READ_STANDARDS = "Could not read the list of standards fo
  *  and the screen kept the last good answer (null otherwise). */
 export interface WorkspaceRunState extends WorkspaceRunData {
   refreshError: string | null;
+  /** Every review of this run's document; null while not read or when the
+   *  read failed. */
+  documentRuns?: ReviewRunSummary[] | null;
+  /** The newest review of the same document started after this one (not a
+   *  failed or cancelled one); null when there is none or it is not known. */
+  newerRun?: ReviewRunSummary | null;
+}
+
+/** Statuses of a review that never made a sheet: a newer one of these does
+ *  not make this review "older". */
+const NO_SHEET = new Set(["failed", "cancelled"]);
+
+/** The newest review of `run`'s document started after it, or null. */
+export function newerReviewOf(run: ReviewRunSummary, runs: ReviewRunSummary[]): ReviewRunSummary | null {
+  const mine = run.created_at ?? "";
+  if (!mine) return null;
+  const later = runs.filter((r) => r.review_run_id !== run.review_run_id
+    && r.submittal_document_id === run.submittal_document_id
+    && !NO_SHEET.has(r.status)
+    && (r.created_at ?? "") > mine);
+  later.sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
+  return later[0] ?? null;
 }
 
 export function useWorkspaceRun(runId: string): WorkspaceRunState {
@@ -101,6 +129,24 @@ export function useWorkspaceRun(runId: string): WorkspaceRunState {
     return () => { current = false; };
   }, [submittalId]);
 
+  // The document's reviews, read once per document (see the header).
+  const [documentRuns, setDocumentRuns] = useState<ReviewRunSummary[] | null>(null);
+  useEffect(() => {
+    setDocumentRuns(null);
+    if (!submittalId) return;
+    let current = true;
+    void (async () => {
+      try {
+        const r = await reviewsApi.reviewRuns(submittalId);
+        if (current) setDocumentRuns(r.ok ? r.data.runs : null);
+      } catch {
+        if (current) setDocumentRuns(null);
+      }
+    })();
+    return () => { current = false; };
+  }, [submittalId]);
+  const newerRun = useMemo(() => (run && documentRuns ? newerReviewOf(run, documentRuns) : null), [run, documentRuns]);
+
   const active = run?.status === "queued" || run?.status === "running";
   useEffect(() => {
     if (!active) return;
@@ -120,6 +166,6 @@ export function useWorkspaceRun(runId: string): WorkspaceRunState {
 
   return {
     load, run, findings, rows, standardsState, missingStandardIds, standardNames, submittal, summary, readiness, active, refresh,
-    refreshError,
+    refreshError, documentRuns, newerRun,
   };
 }

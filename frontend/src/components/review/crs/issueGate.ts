@@ -119,7 +119,7 @@ export function unreadPagesLine(gate: CrsIssueGate): { done: boolean; text: stri
     // An explicit null total is the server saying no page record is stored
     // (its NO_PAGE_COVERAGE blocker): nothing can be called read, so the box
     // must not say "Every page was read" (rule 4).
-    if (gate.pages_total === null) return { done: false, text: "Which pages were read is not recorded on this run." };
+    if (gate.pages_total === null) return { done: false, text: "Which pages were read is not recorded for this review." };
     // A gate from a server before order 127 does not say which pages were
     // ticked, so a ticked page cannot be told from a read one.
     if (gate.checked_pages === undefined) return { done: true, text: "Every page was read or checked by an engineer." };

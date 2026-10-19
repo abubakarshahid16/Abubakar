@@ -173,8 +173,13 @@ export function markOfferWords(offer: OfferMark): string {
     + "It will then be treated as a contractor submittal everywhere, not as what it is marked as now.";
 }
 
-/** Waits until the document is read in, or says why it will not be. */
-async function waitUntilReadIn(
+/** Said when reading a document in takes longer than READ_IN_CAP_MS. */
+export const READ_IN_SLOW_MESSAGE = "The document is taking longer than usual to be read in, so no review was started yet. "
+  + "Start it from the list once the document is ready.";
+
+/** Waits until the document is read in, or says why it will not be.
+ *  (Also used by the missing standards panel after an upload.) */
+export async function waitUntilReadIn(
   documentId: string, options: NewReviewOptions,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   const sleep = options.sleep ?? realSleep;
@@ -194,11 +199,7 @@ async function waitUntilReadIn(
     }
     // Still being read in, or a passing failure: try again until the cap.
     if (now() - started >= capMs) {
-      return {
-        ok: false,
-        message: "The document is taking longer than usual to be read in, so no review was started yet. "
-          + "Start it from the list once the document is ready.",
-      };
+      return { ok: false, message: READ_IN_SLOW_MESSAGE };
     }
     await sleep(pollMs);
   }

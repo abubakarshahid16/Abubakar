@@ -44,6 +44,10 @@ export interface CrsTableProps {
   /** Workspace v2: the first column's heading. Absent = "Tier" (unchanged
    *  for the old sheet); the workspace passes a plain word. */
   tierHeader?: string;
+  /** v2.1 round 2: a signed review is a record, not a draft: no Keep /
+   *  Edit / Remove on any row and no key hint. Absent (false) on the old
+   *  sheet, which is unchanged. */
+  readOnly?: boolean;
 }
 
 export function CrsTable(props: CrsTableProps) {
@@ -68,7 +72,9 @@ export function CrsTable(props: CrsTableProps) {
             {d.label}
           </label>
         ))}
-        <span className="ml-auto text-xs text-slateish-500">Keys: J / K next and previous · E edit · R remove · Enter keep</span>
+        {!props.readOnly && (
+          <span className="ml-auto text-xs text-slateish-500">Keys: J / K next and previous · E edit · R remove · Enter keep</span>
+        )}
         {/* v2.1 (W1): what each choice shows, said once in plain words. */}
         <p className="basis-full text-xs text-slateish-400" data-testid="crs-depth-help">
           {DEPTHS.map((d) => `${d.label}: ${DEPTH_WORDS[d.id]}`).join(" ")}
@@ -92,6 +98,7 @@ export function CrsTable(props: CrsTableProps) {
                 mode={mode?.key === row.key ? mode.kind : null}
                 onSelect={props.onSelect} onOpenEvidence={props.onOpenEvidence} onMode={props.onMode}
                 onKeep={decisions.keep} onEdit={decisions.edit} onRemove={decisions.remove} onClear={decisions.clear}
+                readOnly={props.readOnly}
               />
             ))}
             {rows.length === 0 && (

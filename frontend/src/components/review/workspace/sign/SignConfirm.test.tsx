@@ -15,7 +15,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CrsPreview } from "../../../../types/api";
 import type { CrsDecisions, ReviewNumbers } from "../contract";
 import { NO_SIGN_OFF_MESSAGE, issueConfirmed, useSignOff } from "../useSignOff";
-import { SignConfirm, contractorView, summaryLine } from "./SignConfirm";
+import { SignConfirm, contractorView, olderReviewWarning, summaryLine } from "./SignConfirm";
 
 const downloadCrs = vi.fn();
 const previewCrs = vi.fn();
@@ -38,7 +38,7 @@ function sheet(): CrsPreview {
       "Contractor's Response", "Final Resolution", "AI Review Comments", "Reasoning (internal)"],
     rows: [{ item_no: 1, row_ref: "RF-1", document_name: "Pump datasheet rev B.pdf", page_section: "p4",
       comment: "Design pressure is below API 610.", comment_by: "Reviewer", contractor_response: "",
-      final_resolution: "", ai_review_comment: "internal note", reasoning: "internal reasoning" }],
+      final_resolution: "Open", ai_review_comment: "internal note", reasoning: "internal reasoning", crs_ref: "RF-1" }],
     review_notes: [{ note: "kept inside", standard: "API 610", count: 1, detail: "" }],
     recommended_code: "", recommended_code_label: "Recommended Review Code:", recommended_code_reason: "",
   } as unknown as CrsPreview;
@@ -48,8 +48,9 @@ const CLEAR = { unopenedNeedsYou: 0, signLeft: [] as string[] } as unknown as Re
 const decisions = (unsaved: string[] = []) =>
   ({ state: { decisions: {}, opened: {} }, unsaved, markSaved: vi.fn() }) as unknown as CrsDecisions;
 
-function Harness({ numbers = CLEAR, unsaved = [], onIssued = vi.fn(), refresh = vi.fn().mockResolvedValue(undefined) }: {
+function Harness({ numbers = CLEAR, unsaved = [], onIssued = vi.fn(), refresh = vi.fn().mockResolvedValue(undefined), newerReview = null }: {
   numbers?: ReviewNumbers | null; unsaved?: string[]; onIssued?: () => void; refresh?: () => Promise<void>;
+  newerReview?: { at: string | null } | null;
 }) {
   const signOff = useSignOff({ runId: "run-1", rows: [], decisions: decisions(unsaved), refresh, numbers });
   return (
@@ -58,7 +59,7 @@ function Harness({ numbers = CLEAR, unsaved = [], onIssued = vi.fn(), refresh = 
       {signOff.error && <p data-testid="sign-off-error">{signOff.error}</p>}
       {signOff.message && <p data-testid="sign-off-message">{signOff.message}</p>}
       <SignConfirm runId="run-1" open={signOff.confirmOpen} onClose={signOff.closeConfirm} onIssued={onIssued}
-        summary={{ comments: 12, finalCode: "2", signer: "Sam Lee" }} />
+        summary={{ comments: 12, finalCode: "2", signer: "Sam Lee" }} newerReview={newerReview} />
     </div>
   );
 }
@@ -161,5 +162,73 @@ describe("Preview and confirm (S2)", () => {
     expect(view.columns).not.toContain("Reasoning (internal)");
     expect(view.columns).toContain("Final Resolution");
     expect(view.review_notes).toEqual([]);
+  });
+
+  /** Round 2 item 5. MUTATION PROOF: drop `readOnly` from the preview in
+   *  SignConfirm and this fails (the transmittal form and row buttons show). */
+  it("the preview is a look only: no transmittal form, no reply import, no row buttons", async () => {
+    render(<Harness />);
+    await userEvent.click(screen.getByRole("button", { name: "Sign and export" }));
+    const region = await screen.findByRole("region", { name: /Comment Resolution Sheet preview/i });
+    expect(within(region).queryByRole("form", { name: "Transmittal numbers" })).toBeNull();
+    expect(within(region).queryByLabelText("Import contractor reply")).toBeNull();
+    expect(within(region).queryByRole("button", { name: "History" })).toBeNull();
+    expect(within(region).queryByRole("button", { name: "Record reply" })).toBeNull();
+    expect(within(region).queryByRole("button", { name: "Close" })).toBeNull();
+    // The cells still say what the sheet says.
+    expect(within(region).getByText("Open")).toBeInTheDocument();
+    expect(within(region).queryAllByRole("button")).toHaveLength(0);
+  });
+
+  /** Round 2 item 5. MUTATION PROOF: drop the Tab handling and focus leaves
+   *  the step; drop the focus return and the last check fails. */
+  it("keeps the keyboard inside the step and gives it back to Sign on close", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    const signButton = screen.getByRole("button", { name: "Sign and export" });
+    await user.click(signButton);
+    const dialog = await screen.findByRole("dialog");
+    await screen.findByRole("region", { name: /Comment Resolution Sheet preview/i });
+    const issue = within(dialog).getByRole("button", { name: "Issue to contractor" });
+    const cancel = within(dialog).getByRole("button", { name: "Cancel" });
+    issue.focus();
+    await user.tab();
+    expect(cancel).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(issue).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(signButton).toHaveFocus();
+  });
+
+  it("Escape in a box being typed in does not close the step", async () => {
+    const user = userEvent.setup();
+    render(<Harness newerReview={{ at: "17/10/2026" }} />);
+    await user.click(screen.getByRole("button", { name: "Sign and export" }));
+    const box = await screen.findByRole("checkbox");
+    box.focus();
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  /** Round 2 item 4. MUTATION PROOF: let Issue ignore `newerReview` and this fails. */
+  it("signing an older review asks first: Issue waits for the tick", async () => {
+    const user = userEvent.setup();
+    render(<Harness newerReview={{ at: "17/10/2026" }} />);
+    await user.click(screen.getByRole("button", { name: "Sign and export" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByTestId("ws-sign-older")).toHaveTextContent(olderReviewWarning("17/10/2026"));
+    expect(olderReviewWarning("17/10/2026")).toMatch(/^You are signing an older review/);
+    const issue = within(dialog).getByRole("button", { name: "Issue to contractor" });
+    expect(issue).toBeDisabled();
+    await user.click(within(dialog).getByRole("checkbox", { name: "Yes, sign this older review anyway" }));
+    expect(issue).toBeEnabled();
+    await user.click(issue);
+    expect(downloadCrs).toHaveBeenCalledWith("run-1", "issue");
+  });
+
+  it("says the signer is not known when sign-in is off", () => {
+    expect(summaryLine({ comments: 2, finalCode: "1", signer: null, signInOff: true }))
+      .toBe("2 comments, final code 1, signer not known (sign-in is off).");
   });
 });

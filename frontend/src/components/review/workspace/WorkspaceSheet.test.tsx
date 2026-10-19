@@ -13,7 +13,7 @@ import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ReviewFinding, ReviewRunSummary } from "../../../types/api";
-import { buildCrsRows } from "../crs/crsRows";
+import { buildCrsRows, spotCheckKeys } from "../crs/crsRows";
 import { EMPTY_FACTS } from "../crs/tiers";
 import { useCrsDecisions } from "../crs/useCrsDecisions";
 import type { ReviewNumbers } from "./contract";
@@ -143,7 +143,7 @@ describe("WorkspaceSheet", () => {
     expect(onOpenRow).toHaveBeenLastCalledWith(FLANGE_KEY);
     await user.click(await screen.findByRole("button", { name: "Next →" }));
     expect(onOpenRow).toHaveBeenLastCalledWith(SEAL_KEY);
-    expect(screen.getByTestId("drawer-position")).toHaveTextContent("Item 2 of 2");
+    expect(screen.getByTestId("drawer-position")).toHaveTextContent("Comment 2 of 2");
     await user.click(screen.getByRole("button", { name: "Close evidence" }));
     expect(onOpenRow).toHaveBeenLastCalledWith(null);
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -167,7 +167,7 @@ describe("WorkspaceSheet", () => {
   it("opens the drawer for an openRowKey given from outside", async () => {
     render(<Harness onOpenRow={vi.fn()} start={SEAL_KEY} />);
     const drawer = await screen.findByRole("dialog");
-    expect(within(drawer).getByTestId("drawer-position")).toHaveTextContent("Item 2 of 2");
+    expect(within(drawer).getByTestId("drawer-position")).toHaveTextContent("Comment 2 of 2");
     const row = screen.getAllByRole("row").find((r) => r.getAttribute("data-row-key") === SEAL_KEY)!;
     expect(row).toHaveAttribute("aria-selected", "true");
   });
@@ -207,7 +207,7 @@ describe("WorkspaceSheet", () => {
     expect(panel).toHaveTextContent("No decision yet.");
     await user.click(within(panel).getByRole("button", { name: "Keep" }));
     expect(onOpenRow).toHaveBeenLastCalledWith(SEAL_KEY);
-    expect(within(screen.getByRole("dialog")).getByTestId("drawer-position")).toHaveTextContent("Item 2 of 2");
+    expect(within(screen.getByRole("dialog")).getByTestId("drawer-position")).toHaveTextContent("Comment 2 of 2");
     const flangeRow = screen.getAllByRole("row").find((r) => r.getAttribute("data-row-key") === FLANGE_KEY)!;
     expect(within(flangeRow).getByTestId("row-status")).toHaveTextContent("Kept");
   });
@@ -256,5 +256,69 @@ describe("WorkspaceSheet", () => {
     render(<LiveHarness onOpenRow={vi.fn()} start={FLANGE_KEY} />);
     await screen.findByRole("dialog");
     expect(screen.getByTestId("ws-evidence-layer").className).toContain("z-[60]");
+  });
+
+  /** Round 2 item 1. MUTATION PROOF: drop `readOnly` from the table, the
+   *  decide block or useCrsKeys and this fails. */
+  it("read only (a signed review): no Keep / Edit / Remove, no decision panel, and Enter keeps nothing", async () => {
+    const user = userEvent.setup();
+    function ReadOnlyHarness() {
+      const decisions = useCrsDecisions();
+      const [open, setOpen] = useState<string | null>(null);
+      return (
+        <WorkspaceSheet runId="run-1" run={RUN} rows={ROWS} submittal={null} standardNames={new Map()}
+          decisions={decisions} openRowKey={open} numbers={numbersOf()} onOpenRow={setOpen} readOnly />
+      );
+    }
+    render(<ReadOnlyHarness />);
+    const table = screen.getByRole("grid", { name: "Comment resolution sheet" });
+    expect(within(table).queryByRole("button", { name: /^Keep comment/ })).toBeNull();
+    expect(within(table).queryByRole("button", { name: /^Edit wording of comment/ })).toBeNull();
+    expect(within(table).queryByRole("button", { name: /^Remove comment/ })).toBeNull();
+    expect(screen.queryByText(/E edit · R remove · Enter keep/)).toBeNull();
+
+    // The table's keys are off: J selects nothing, Enter keeps nothing.
+    await user.keyboard("j");
+    await user.keyboard("{Enter}");
+    const flange = screen.getAllByRole("row").find((r) => r.getAttribute("data-row-key") === FLANGE_KEY)!;
+    expect(within(flange).getByTestId("row-status")).not.toHaveTextContent("Kept");
+
+    await user.click(within(table).getByRole("button", { name: /Open evidence for Comment 1/ }));
+    const drawer = await screen.findByRole("dialog");
+    expect(within(drawer).queryByTestId("ws-decide")).toBeNull();
+    expect(within(drawer).queryByRole("button", { name: "Keep" })).toBeNull();
+  });
+
+  /** Round 2 item 9. MUTATION PROOF: drop the widening of the "Show" choice
+   *  and the met row opened from outside is not in the list: this fails. */
+  it("says Comment N of M over the comments, and a row hidden by Show is shown when it is opened", async () => {
+    // Many met values, so most are folded away (only a few show as a spot check).
+    const met = Array.from({ length: 12 }, (_, i) => f(`met${i}`, {
+      matched_phrase: `Value ${i}`, compliance_status: "COMPLIANT", contractor_page: 9, finding: `Value ${i} meets.`,
+    }));
+    const rows3 = buildCrsRows([...FINDINGS, ...met], EMPTY_FACTS, new Map([["std-1", "API 610"]]));
+    const spot = spotCheckKeys(rows3, "run-1");
+    const metKey = rows3.find((r) => r.tier.tier === "A" && !spot.has(r.key))!.key;
+    const numbers = computeReviewNumbers({
+      run: RUN, findings: [...FINDINGS, ...met], rows: rows3, summary: null, missingStandards: [], readiness: null,
+      decisions: { decisions: {}, opened: {} }, unsaved: [], gate: null,
+    });
+    function Three({ start }: { start: string | null }) {
+      const decisions = useCrsDecisions();
+      const [open, setOpen] = useState<string | null>(start);
+      return (
+        <WorkspaceSheet runId="run-1" run={RUN} rows={rows3} submittal={null} standardNames={new Map()}
+          decisions={decisions} openRowKey={open} numbers={numbers} onOpenRow={setOpen} />
+      );
+    }
+    const first = render(<Three start={SEAL_KEY} />);
+    expect(within(await screen.findByRole("dialog")).getByTestId("drawer-position")).toHaveTextContent("Comment 2 of 2");
+    first.unmount();
+
+    // The met row is folded away under "Standard"; opened from outside, the
+    // list widens so it is there.
+    render(<Three start={metKey} />);
+    await screen.findByRole("dialog");
+    expect(screen.getAllByRole("row").some((r) => r.getAttribute("data-row-key") === metKey)).toBe(true);
   });
 });

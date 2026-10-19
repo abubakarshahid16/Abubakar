@@ -200,11 +200,11 @@ describe("CrsSheetView", () => {
     expect(await screen.findByText(/Equipment: Pressure safety valve · Revision B/)).toBeInTheDocument();
     const headers = within(screen.getByRole("grid")).getAllByRole("columnheader").map((h) => h.textContent);
     expect(headers).toEqual(["Tier", "Comment no.", "Page or section", "Item", "Clause and standard", "Observation", "Required action", "Status", "Actions"]);
-    expect(screen.getByTestId("crs-footer")).toHaveTextContent("Run run-1");
+    expect(screen.getByTestId("crs-footer")).toHaveTextContent(`Review of ${new Date("2026-10-15T08:18:00Z").toLocaleString()}`);
     expect(screen.getByTestId("crs-footer")).toHaveTextContent("Pages not fully read: 2 of 12 (4, 9).");
     expect(screen.getByTestId("crs-footer")).toHaveTextContent("Standards used: 1 (API 520.pdf); missing from the library: 1 (API 526).");
     expect(screen.queryByTestId("crs-rejected")).not.toBeInTheDocument();
-    expect(screen.getByTestId("crs-footer")).toHaveTextContent("Rows on this sheet: 3 Comment, 2 Needs you, 1 Met, 0 Not applicable, 1 Another document");
+    expect(screen.getByTestId("crs-footer")).toHaveTextContent("On this sheet: 3 comments, 2 need your judgement, 1 met the standard, 0 not applicable, 1 for another document");
   });
 
   it("hides Tier A by default behind one line, except the spot check, and shows it on click", async () => {
