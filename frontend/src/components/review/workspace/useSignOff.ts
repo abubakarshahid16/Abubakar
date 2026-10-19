@@ -56,7 +56,7 @@ export async function issueConfirmed(runId: string): Promise<IssueOutcome> {
   return issue();
 }
 
-export function useSignOff({ runId, rows, decisions, refresh, numbers }: UseSignOffArgs): WorkspaceSignOff {
+export function useSignOff({ runId, rows, decisions, refresh, numbers, beforeCopy }: UseSignOffArgs): WorkspaceSignOff {
   const [status, setStatus] = useState<Status>({ busy: false, message: null, error: null });
   const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -115,10 +115,14 @@ export function useSignOff({ runId, rows, decisions, refresh, numbers }: UseSign
 
   const workingCopy = useCallback(async () => {
     setStatus({ busy: true, message: null, error: null });
+    // Order 141 D: the copy is built from the record; the decisions on
+    // screen go there first, or nothing is downloaded and the reason shows.
+    const waits = beforeCopy ? await beforeCopy() : null;
+    if (waits) { setStatus({ busy: false, message: null, error: waits }); return; }
     const problem = await downloadCrs(runId, "internal");
     if (problem) { setStatus({ busy: false, message: null, error: problem }); return; }
     setStatus({ busy: false, error: null, message: "Working copy downloaded. It is not signed." });
-  }, [runId]);
+  }, [runId, beforeCopy]);
 
   return { ...status, save, sign, workingCopy, confirmOpen, closeConfirm };
 }

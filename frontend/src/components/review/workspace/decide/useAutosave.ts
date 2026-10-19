@@ -21,7 +21,9 @@
  *
  * A decision whose comment is no longer on the sheet is taken off the
  * screen, the unsaved list and the draft (`decisions.forget`), so Sign is
- * never held by something that can never save.
+ * never held by something that can never save. Order 141 D: how many were
+ * taken off this visit is kept (`dropped`), so a later save that works never
+ * says "every decision is on the record" about them.
  *
  * The hook also tells the decisions what the record holds
  * (`decisions.observeRecord`), which the draft uses, and puts its save in
@@ -78,6 +80,7 @@ export function useAutosave({
   const [phase, setPhase] = useState<AutosaveStatus["phase"]>("idle");
   const [message, setMessage] = useState<string | null>(null);
   const [detail, setDetail] = useState<string | null>(null);
+  const [dropped, setDropped] = useState(0);
   const latest = useRef({ rows, decisions, refresh, paused, disabled, beforeSaveNow });
   useLayoutEffect(() => { latest.current = { rows, decisions, refresh, paused, disabled, beforeSaveNow }; });
   /** Saves run one after another, never two at once. */
@@ -132,7 +135,10 @@ export function useAutosave({
     for (const key of savedNow) putOnRecord.current.set(key, JSON.stringify(sent[key]));
     now.markSaved(savedNow);
     const missing = outcome.missing ?? [];
-    if (missing.length > 0) now.forget?.(missing);
+    if (missing.length > 0) {
+      now.forget?.(missing);
+      setDropped((n) => n + missing.length);
+    }
     let ok: boolean;
     if (outcome.failed.length > 0) {
       failedSig.current = sig;
@@ -182,6 +188,6 @@ export function useAutosave({
     return () => clearTimeout(timer);
   }, [signature, pending, paused, disabled, delayMs, enqueue]);
 
-  return useMemo(() => ({ phase, message, detail, waiting: paused && pending && !disabled, saveNow }),
-    [phase, message, detail, paused, pending, disabled, saveNow]);
+  return useMemo(() => ({ phase, message, detail, waiting: paused && pending && !disabled, dropped, saveNow }),
+    [phase, message, detail, paused, pending, disabled, dropped, saveNow]);
 }

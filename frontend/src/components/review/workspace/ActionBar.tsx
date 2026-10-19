@@ -40,6 +40,15 @@ function StepLabel({ step }: { step: ActionStep }) {
 
 type Reread = { busy: boolean; message: string | null; error: PlainError | null };
 
+/** Order 141 D: "Saved" when decisions were taken off unsaved this visit
+ *  (their comment left the sheet): never "every decision". */
+function savedWords(dropped: number): string {
+  if (dropped <= 0) return "Saved. Every decision is on the record.";
+  return dropped === 1
+    ? "Saved, except 1 decision that was taken off because its comment is no longer on the sheet. Decide that comment again."
+    : `Saved, except ${dropped} decisions that were taken off because their comments are no longer on the sheet. Decide those comments again.`;
+}
+
 /** D4: the one saving line. "Saved" only after something was saved; a
  *  failure says why in plain words and stays until a save works. */
 function SavingLine({ autosave, unsaved }: { autosave: AutosaveStatus; unsaved: number }) {
@@ -47,7 +56,7 @@ function SavingLine({ autosave, unsaved }: { autosave: AutosaveStatus; unsaved: 
     : autosave.phase === "failed" ? (autosave.message ?? "Your decisions were not saved. Try again in a moment.")
       : unsaved > 0 && autosave.waiting ? `${unsaved} ${unsaved === 1 ? "decision" : "decisions"} will save once Undo is gone.`
         : unsaved > 0 ? `${unsaved} ${unsaved === 1 ? "decision" : "decisions"} waiting to save...`
-          : autosave.phase === "saved" ? "Saved. Every decision is on the record." : "Decisions save by themselves as you make them.";
+          : autosave.phase === "saved" ? savedWords(autosave.dropped ?? 0) : "Decisions save by themselves as you make them.";
   return (
     <div className="flex flex-wrap items-center gap-2 text-sm">
       <p role="status" data-testid="ws-autosave" data-phase={autosave.phase}
