@@ -329,6 +329,47 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  # Order 129: #1151 stopped the owner's app from starting and no check
+  # caught it - every test builds the app in-process; none starts it the way a
+  # machine does. This runs `python run.py` in a fresh, checkout-shaped temp
+  # folder with no backup folder and no models (once empty, once holding a
+  # path from another machine) and fails unless /api/health answers ok.
+  app-starts:
+    name: does the app start?
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        id: py
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      # The shards' environment, same key, so a hit skips the install.
+      - name: Restore the Python environment
+        id: venv
+        uses: actions/cache@v6
+        with:
+          path: ~/venv
+          key: venv-${{ runner.os }}-py${{ steps.py.outputs.python-version }}-${{ hashFiles('backend/requirements.txt') }}-ruff0.16.6-split0.11.0
+
+      - name: Install dependencies
+        if: steps.venv.outputs.cache-hit != 'true'
+        run: |
+          python -m venv ~/venv
+          ~/venv/bin/python -m pip install --upgrade pip
+          ~/venv/bin/pip install -r backend/requirements.txt
+          ~/venv/bin/pip install huggingface_hub ruff==0.16.6 pytest-split==0.11.0
+
+      - name: Use the environment
+        run: echo "$HOME/venv/bin" >> "$GITHUB_PATH"
+
+      - name: Start the backend and ask /api/health
+        run: python scripts/check_app_starts.py --timeout 120
+
   backend-slow:
     name: backend slow tests (nightly)
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'

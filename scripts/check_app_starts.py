@@ -1,0 +1,150 @@
+"""Does the app start? (order 129, CI job `app-starts`)
+
+#1151 stopped the owner's app from starting and no check caught it: every test
+builds its own app in-process, none runs `python run.py` the way a machine
+does. This starts the real server twice, each time in a NEW temporary folder
+shaped like a checkout (`<tmp>/backend/data/rag_intelligence.sqlite`, so the
+live-database rules apply) with no backup folder and no models:
+
+1. fresh: an empty data folder;
+2. old paths: a database holding a stored path written on another machine
+   (the #1151 case: the startup migration wants a backup and none can be made).
+
+Each time `/api/health` must answer `ok` within the time limit, or the job
+fails and prints the end of the server's output. Writes only inside its own
+temporary folder; never the checkout's database, never `backend/.env`; no
+network beyond 127.0.0.1.
+
+    python scripts/check_app_starts.py [--timeout 120] [--port 8790]
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sqlite3
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.request
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+BACKEND = ROOT / "backend"
+OLD_PATH = "D:\\project\\app\\backend\\data\\uploads\\sheet.pdf"
+
+
+def _env(home: Path, port: int) -> dict[str, str]:
+    data = home / "backend" / "data"
+    env = dict(os.environ)
+    env.update(
+        DATA_DIR=str(data),
+        UPLOAD_DIR=str(data / "uploads"),
+        DB_PATH=str(data / "rag_intelligence.sqlite"),
+        EMBED_MODEL_DIR=str(home / "no-models"),
+        PORT=str(port),
+        HEAVY_JOB_LOCK="off",
+        PYTHONUNBUFFERED="1",
+    )
+    return env
+
+
+def _health(port: int) -> dict | None:
+    # No proxy: the server is on loopback, and a CI proxy must not answer for it.
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(f"http://127.0.0.1:{port}/api/health", timeout=5) as r:
+            return json.loads(r.read())
+    except (OSError, ValueError):
+        return None
+
+
+def start_and_check(home: Path, port: int, timeout: float) -> tuple[bool, str]:
+    """(health answered ok, the server's output) for one start in `home`."""
+    log_path = home / "server.log"
+    with log_path.open("w") as log:
+        server = subprocess.Popen(
+            [sys.executable, "run.py"],
+            cwd=BACKEND,
+            env=_env(home, port),
+            stdout=log,
+            stderr=subprocess.STDOUT,
+        )
+        ok = False
+        try:
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline and server.poll() is None:
+                answer = _health(port)
+                if answer is not None:
+                    ok = answer.get("ok") is True
+                    break
+                time.sleep(1)
+        finally:
+            server.terminate()
+            try:
+                server.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                server.kill()
+                server.wait()
+    return ok, log_path.read_text(errors="replace")
+
+
+def seed_old_path(home: Path) -> None:
+    """A row written on another machine, in the database the first start
+    created, and its file in this data folder."""
+    data = home / "backend" / "data"
+    (data / "uploads").mkdir(parents=True, exist_ok=True)
+    (data / "uploads" / "sheet.pdf").write_bytes(b"%PDF-1.4\n")
+    conn = sqlite3.connect(data / "rag_intelligence.sqlite")
+    with conn:
+        conn.execute(
+            "INSERT INTO documents (id, filename, sha256, size_bytes, stored_path,"
+            " uploaded_at) VALUES ('d1', 'sheet.pdf', 'abc', 9, ?,"
+            " '2026-10-19T00:00:00+00:00')",
+            (OLD_PATH,),
+        )
+    conn.close()
+
+
+#: (name, how to prepare the folder, lines one of which the server's output
+#: must show). The migration logs that it rewrote the paths or that it left
+#: them; either proves the #1151 path ran.
+STARTS = (
+    ("fresh data folder", None, ()),
+    (
+        "old paths, no backup folder",
+        seed_old_path,
+        ("stored paths made relative", "Stored file paths were left as they are"),
+    ),
+)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--timeout", type=float, default=120.0)
+    parser.add_argument("--port", type=int, default=8790)
+    args = parser.parse_args(argv)
+
+    with tempfile.TemporaryDirectory(prefix="app-starts-") as tmp:
+        home = Path(tmp) / "checkout"
+        (home / "backend" / "data").mkdir(parents=True)
+        failed = False
+        for name, prepare, must_log in STARTS:
+            if prepare:
+                prepare(home)
+            ok, output = start_and_check(home, args.port, args.timeout)
+            # Not vacuous: the old-paths start must have reached the migration.
+            ok = ok and (not must_log or any(line in output for line in must_log))
+            print(f"{'OK  ' if ok else 'FAIL'} app starts: {name}")
+            if not ok:
+                failed = True
+                print("---- end of the server's output ----")
+                print("\n".join(output.splitlines()[-40:]))
+                break
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -98,7 +98,12 @@ def migrate() -> dict:
     A live database is backed up and the backup proved first (the A5 steps).
     Each row is changed only while it still holds the value read, so a path
     written meanwhile is never overwritten (as #1137). Run again, it finds
-    nothing to do."""
+    nothing to do.
+
+    No verified backup (no backup folder, a failed check): the rows are left
+    as they are and the app starts (order 129). `local` already finds a file
+    behind an old absolute path, so nothing is lost; the next start tries
+    again. It once stopped the app from starting at all (#1151)."""
     from . import live_guard
     from .db import connect
 
@@ -106,9 +111,19 @@ def migrate() -> dict:
     pending = _pending(conn)
     if not pending:
         return {"rewritten": 0, "backup_path": None}
+    log = logging.getLogger("uvicorn.error")
     backup = None
     if live_guard.is_live_shaped(settings.db_path):
-        backup = live_guard.verified_rollback_point(settings.db_path)["backup_path"]
+        try:
+            backup = live_guard.verified_rollback_point(settings.db_path)["backup_path"]
+        except Exception as exc:  # noqa: BLE001 - startup must not depend on a backup
+            log.warning(
+                "Stored file paths were left as they are: no verified backup "
+                "could be made (%s). Files are still found by their old paths. "
+                "The app starts normally; the next start tries again.",
+                exc,
+            )
+            return {"rewritten": 0, "backup_path": None, "skipped": str(exc)}
     rewritten = 0
     with conn:
         for table, row_id, value, stored in pending:
@@ -116,7 +131,7 @@ def migrate() -> dict:
                 f"UPDATE {table} SET stored_path = ? WHERE id = ? AND stored_path = ?",
                 (stored, row_id, value),
             ).rowcount
-    logging.getLogger("uvicorn.error").warning(
+    log.warning(
         "stored paths made relative to data_dir: %d rows (backup: %s)",
         rewritten,
         backup,
