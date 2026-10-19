@@ -59,7 +59,13 @@ export function HowReviewedView({ runId, onBack, onOpenRun, onOpenSteps }: {
       // A FAILED LIST IS NOT AN EMPTY ONE: the section says it could not be
       // loaded rather than "no standards were used".
       setStandards(stds.ok
-        ? { record: { standards: stds.data.standards, missing: stds.data.missing_references ?? [] }, error: null }
+        ? {
+          record: {
+            standards: stds.data.standards, missing: stds.data.missing_references ?? [],
+            held: stds.data.held_for_confirmation ?? null,
+          },
+          error: null,
+        }
         : { record: null, error: stds.error.message });
     });
     return () => { alive = false; };

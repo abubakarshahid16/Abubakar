@@ -292,6 +292,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
                                              review_run_id=run_id, persist=True, heartbeat=heartbeat)
             # #620: the Company standards selection left out as held; said on the run below.
             from . import company_standard_confirm
+
             held = company_standard_confirm.held_readable(scope)
         _step(conn, job_id, 2)
         with review_trace.timed(timings, "compare"):

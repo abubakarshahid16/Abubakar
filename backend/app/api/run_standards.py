@@ -77,9 +77,11 @@ def _run_standards_payload(review_run_id: str, scope: access.AccessScope,
         })
     outcome = comparison_mod.run_outcome(
         review_run_id, allowed_document_ids=scope.allowed_document_ids) or {}
-    return {**paging_mod.page_body("standards", out, limit, offset),
-            "missing_references": outcome.get("missing_references") or [],
-            "held_for_confirmation": _held_note(outcome, scope)}
+    return {
+        **paging_mod.page_body("standards", out, limit, offset),
+        "missing_references": outcome.get("missing_references") or [],
+        "held_for_confirmation": _held_note(outcome, scope),
+    }
 
 
 def _held_note(outcome: dict, scope: access.AccessScope) -> dict | None:
@@ -92,8 +94,11 @@ def _held_note(outcome: dict, scope: access.AccessScope) -> dict | None:
     if not note:
         return None
     allowed = scope.allowed_document_ids
-    ids = [i for i in note.get("standard_document_ids") or []
-           if allowed is None or i in allowed]
+    ids = [
+        i
+        for i in note.get("standard_document_ids") or []
+        if allowed is None or i in allowed
+    ]
     return {**note, "standard_document_ids": ids}
 
 

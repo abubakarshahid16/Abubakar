@@ -707,6 +707,16 @@ export interface ReviewRunMissingReference {
   status: string;
 }
 
+/** #620: Company standards a run left out because they wait for an
+ *  administrator's confirmation, in the run's own words (with the boundary). */
+export interface ReviewRunHeldForConfirmation {
+  count: number;
+  /** only those the reader may read (the count is the run's own) */
+  standard_document_ids: string[];
+  confirm_from: string | null;
+  sentence: string;
+}
+
 /** Order 95 piece 1 (#1111): `GET /api/reviews/runs/{id}/summary`, the run as
  *  the CRS-first Sheet shows it. GENERATED from `backend/app/api/run_summary.py`
  *  (order 119.1): edit the backend model, then run
