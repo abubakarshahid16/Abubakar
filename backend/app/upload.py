@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import BinaryIO
 
-from . import access, classification, job_queue, states
+from . import access, classification, job_queue, states, stored_paths
 from .config import settings
 from .db import connect
 from .errors import redact
@@ -457,7 +457,7 @@ def ingest(src: BinaryIO, raw_filename: str, *,
                    (id, filename, sha256, size_bytes, stored_path, status,
                     uploaded_at, priority)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (doc_id, filename, sha256, size, str(final_path), status, now,
+                (doc_id, filename, sha256, size, stored_paths.to_stored(final_path), status, now,
                  priority),
             )
             if indexed:

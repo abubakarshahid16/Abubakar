@@ -23,7 +23,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         # the same two lines, and the harness refuses an ambiguous anchor rather
         # than guessing which route was meant.
         anchor='    doc = require_document(document_id, scope)\n'
-               '    stored = Path(doc["stored_path"])\n'
+               '    stored = Path(stored_paths.local(doc["stored_path"]))\n'
                '    if not stored.exists():',
         # A REAL unscoped read, not a call to a function that does not exist.
         # A NameError would fail the test for the wrong reason and still report
@@ -31,7 +31,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         # the caller holds no grant for), not merely break the route.
         replacement='    doc = connect().execute(\n'
                     '        "SELECT * FROM documents WHERE id = ?", (document_id,)).fetchone()\n'
-                    '    stored = Path(doc["stored_path"])\n'
+                    '    stored = Path(stored_paths.local(doc["stored_path"]))\n'
                     '    if not stored.exists():',
         target="tests/test_document_original_file.py",
         keyword="cannot_download",

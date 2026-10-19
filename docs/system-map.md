@@ -182,6 +182,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `standards_acquisition` | Standards beyond the client's own: WHERE to get a missing one, and a record of getting it |
 | `standards_inventory` | Standards inventory (B5 part 2): family, edition/revision, licence status, cover-page backfill, and which stan |
 | `states` | Document lifecycle state machine |
+| `stored_paths` | A stored file's path, relative to `data_dir`, resolved on read (order 121 C) |
 | `structured_search` | Small, scope-aware search over EPC workflow records |
 | `subject_scope` | What a requirement is ABOUT, and whether it applies to this submittal (#453) |
 | `submittal_review` | Schema and scoped read paths for the AI submittal review workflow |

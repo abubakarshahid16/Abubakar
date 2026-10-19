@@ -13,7 +13,7 @@ import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
-from app import db, fts_index, highlight, pageimage
+from app import db, fts_index, highlight, pageimage, stored_paths
 from app.config import settings
 from app.ingest import IngestionWorker
 from app.main import app
@@ -59,9 +59,10 @@ def upload(client, blocks=(ZINC,), name="spec.pdf") -> str:
 
 
 def stored_path(document_id: str) -> str:
-    return db.connect().execute(
+    """The file on this machine: the column is relative to data_dir (121 C)."""
+    return stored_paths.local(db.connect().execute(
         "SELECT stored_path FROM documents WHERE id = ?", (document_id,)
-    ).fetchone()["stored_path"]
+    ).fetchone()["stored_path"])
 
 
 # ------------------------------------------------------------- locating

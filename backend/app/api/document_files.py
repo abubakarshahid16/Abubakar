@@ -9,7 +9,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 
-from .. import access, errors, schemas
+from .. import access, errors, schemas, stored_paths
 from .. import applicability as applicability_mod
 from .. import highlight as highlight_mod
 from .. import page_ledger as page_ledger_mod
@@ -164,7 +164,7 @@ def document_original(
     """
     reject_unknown_params(request, {"download"})
     doc = require_document(document_id, scope)
-    stored = Path(doc["stored_path"])
+    stored = Path(stored_paths.local(doc["stored_path"]))
     if not stored.exists():
         # The row outlived its bytes. Said plainly rather than served as an
         # empty file, which would read as a blank document.
@@ -207,7 +207,7 @@ def document_workbook(
     """
     reject_unknown_params(request, set())
     doc = require_document(document_id, scope)
-    stored = Path(doc["stored_path"])
+    stored = Path(stored_paths.local(doc["stored_path"]))
     if not str(doc["filename"]).lower().endswith(".xlsx") or not stored.exists():
         # Not a workbook, or the bytes are gone. Both are "there is nothing to
         # preview here", and neither is an error the reader can act on.
