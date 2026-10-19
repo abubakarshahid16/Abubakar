@@ -120,8 +120,9 @@ function commentList(numbers: number[]): string {
 }
 
 /** What still stands between the sheet and Sign and export, in plain words;
- *  empty when nothing does. */
-export function signLeft(state: IssueGateState, run: ReviewRunSummary, rows: CrsRow[]): string[] {
+ *  empty when nothing does. Only the gate is read, so the workspace's one
+ *  numbers helper can call it with the gate alone. */
+export function signLeft(state: Pick<IssueGateState, "gate">, run: ReviewRunSummary, rows: CrsRow[]): string[] {
   const { gate } = state;
   if (!gate) return ["what is left could not be checked"];
   const left: string[] = [];

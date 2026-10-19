@@ -199,10 +199,10 @@ function CrsPage({ run }: BehindTheScenesProps) {
   const [previewError, setPreviewError] = useState<string | null>(null);
   const runId = run.review_run_id;
 
-  async function exportCrs(copy: "internal") {
+  async function exportCrs() {
     setExporting(true);
     setExportError(null);
-    setExportError(await downloadCrs(runId, copy));
+    setExportError(await downloadCrs(runId, "internal"));
     setExporting(false);
   }
 
@@ -230,7 +230,7 @@ function CrsPage({ run }: BehindTheScenesProps) {
       <div className="flex flex-wrap items-center gap-3">
         {/* READ ACCESS SUFFICES and the server says so: exporting writes
             nothing, decides nothing and records no judgement. */}
-        <button type="button" onClick={() => void exportCrs("internal")} disabled={exporting}
+        <button type="button" onClick={() => void exportCrs()} disabled={exporting}
           className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-200 disabled:opacity-50">
           {exporting ? "Preparing…" : "Export CRS - internal review copy"}
         </button>
