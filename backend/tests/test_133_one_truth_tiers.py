@@ -3,9 +3,11 @@
 The rules' data has one home, `backend/app/reference/review_tiers.json`, and the
 logic is pinned by one case table, `contracts/fixtures/review_tier_cases.json`,
 which the screen's `crs/tiers.parity.test.ts` runs too. So a change to one side
-fails until the other side and the table agree. Known disagreements (D1, D2) are
-pinned with each side's own answer and fail here if the answers become equal:
-a fix moves the case into `cases`. Display only. Invented data.
+fails until the other side and the table agree. No disagreement is known: the
+three order 133 found (D1 word edge, D2 separators, D3 reader time-outs) were
+fixed in order 135 and are ordinary cases now, with the table's `text_cases`
+(the fold and the phrases) and `run_facts` (the facts gathered from a stored
+run). Display only. Invented data.
 """
 
 from __future__ import annotations
@@ -13,6 +15,8 @@ from __future__ import annotations
 import ast
 import copy
 import json
+import re
+import unicodedata
 from pathlib import Path
 from typing import Literal, get_args, get_origin
 
@@ -21,6 +25,7 @@ import pytest
 from app import comparison, review_tiers
 from app.api import run_summary
 from app.schemas import ReviewFinding
+from tests.test_w5_677_scope_ledger import temp_storage  # noqa: F401
 
 T = review_tiers
 REPO = Path(__file__).resolve().parents[2]
@@ -61,13 +66,106 @@ def test_every_shared_case_tiers_as_the_table_says(case):
     assert got == answer(case["expected"])
 
 
-@by_name(TABLE["disagreements"])
-def test_a_known_disagreement_stays_pinned_until_it_is_fixed(case):
-    got = T.tier_of(finding_of(case["finding"]), facts_of(case["facts"]))
-    assert got == answer(case["python"])
-    assert answer(case["python"]) != answer(case["screen"]), (
-        f"{case['id']}: the answers became equal: move the case to cases"
+@by_name(TABLE["text_cases"])
+def test_every_text_case_folds_and_finds_phrases_as_the_table_says(case):
+    folded = T._fold(case["text"])
+    assert folded == case["folded"]
+    found = {w for w, pattern in T._PHRASES.items() if pattern.search(folded)}
+    assert found == set(case["phrases"])
+
+
+def _named_code_points():
+    """Every code point Python's Unicode database names (no surrogate, no Cn)."""
+    for cp in range(0x110000):
+        if 0xD800 <= cp <= 0xDFFF:
+            continue
+        ch = chr(cp)
+        category = unicodedata.category(ch)
+        if category != "Cn":
+            yield ch, category
+
+
+def _word_edge_misses(python_spelling: str) -> list[str]:
+    edge = re.compile(python_spelling)
+    return [
+        f"U+{ord(ch):04X}"
+        for ch, category in _named_code_points()
+        if bool(edge.fullmatch(ch)) != (category[0] in "LN" or ch == "_")
+    ]
+
+
+def test_the_python_word_edge_is_letters_numbers_and_underscore():
+    """D1: the server's spelling of the word edge is the class the screen
+    spells [\\p{L}\\p{N}_]: a Unicode letter, number or underscore."""
+    edge = RULES["word_edge"]
+    assert _word_edge_misses(edge["python"]) == []
+    assert edge["javascript"] == "[\\p{L}\\p{N}_]"
+    assert edge["javascript_flags"] == "u"
+    for word, source in RULES["phrases"].items():
+        assert "\\b" not in source, word
+        assert source.startswith(f"(?<!{edge['token']})"), word
+        assert source.endswith(f"(?!{edge['token']})"), word
+        assert edge["token"] not in T._PHRASES[word].pattern, word
+
+
+def test_the_word_edge_sweep_sees_an_ascii_only_class():
+    """The sweep is not vacuous: an ASCII-only edge (JavaScript's \\w) fails it."""
+    assert "U+00E9" in _word_edge_misses("[A-Za-z0-9_]")
+
+
+#: JavaScript's \s (ECMAScript WhiteSpace and LineTerminator), written out:
+#: Python cannot run it, and the fold must hold it too
+JS_WHITE_SPACE = [
+    *range(0x09, 0x0E),
+    0x20,
+    0xA0,
+    0x1680,
+    *range(0x2000, 0x200B),
+    0x2028,
+    0x2029,
+    0x202F,
+    0x205F,
+    0x3000,
+    0xFEFF,
+]
+
+
+def test_the_fold_holds_every_white_space_both_engines_know():
+    python_space = [
+        cp
+        for cp in range(0x110000)
+        if not 0xD800 <= cp <= 0xDFFF and re.fullmatch(r"\s", chr(cp))
+    ]
+    assert len(python_space) > 20
+    missed = [
+        f"U+{cp:04X}"
+        for cp in sorted({*python_space, *JS_WHITE_SPACE})
+        if not T._FOLD.fullmatch(chr(cp))
+    ]
+    assert missed == []
+
+
+@by_name(TABLE["run_facts"])
+def test_the_server_gathers_the_run_facts_the_table_says(case, temp_storage):  # noqa: F811
+    """`_facts` itself, on an empty database: a run it does not know has no
+    library rows, so only the stored run's page facts are compared."""
+    run = case["run"]
+    facts = run_summary._facts(
+        "no-such-run", run, run_summary.reader_timed_out_pages(run["requirement_split"])
     )
+    assert sorted(facts.pages_not_read) == case["expected"]["pages_not_read"]
+    assert (
+        sorted(facts.reader_timed_out_pages)
+        == case["expected"]["reader_timed_out_pages"]
+    )
+
+
+def test_no_reader_record_is_unknown_not_none():
+    """Unknown is not none: without a reader record the helper says None (the
+    "How this was reviewed" null); an empty record says []."""
+    assert run_summary.reader_timed_out_pages(None) is None
+    assert run_summary.reader_timed_out_pages({"checked": 1}) is None
+    assert run_summary.reader_timed_out_pages({"reader": {"timed_out": []}}) == []
 
 
 @by_name(TABLE["removed"])
@@ -173,6 +271,9 @@ RULE_WORDS = {
     RULES["missing_information"]["status"],
     *RULES["phrases"].values(),
     RULES["fold"]["pattern"],
+    RULES["word_edge"]["token"],
+    RULES["word_edge"]["python"],
+    RULES["word_edge"]["javascript"],
     RULES["rule_not_proven_trust_label"],
     RULES["safety_tick_status"],
     RULES["removed"]["approval_status"],
@@ -285,4 +386,18 @@ def test_the_table_is_not_vacuous():
     statuses = {finding_of(c["finding"]).get("compliance_status") for c in cases}
     assert set(RULES["status_tiers"]) <= statuses
     assert {r["removed"] for r in TABLE["removed"]} == {True, False}
-    assert TABLE["disagreements"] and TABLE["counts"]
+    assert TABLE["counts"]
+    assert "disagreements" not in TABLE
+    names = [c["name"] for c in cases]
+    assert any(n.startswith("D1:") for n in names)
+    assert any(n.startswith("D2:") for n in names)
+    texts = TABLE["text_cases"]
+    assert len(texts) >= 20
+    assert len({t["text"] for t in texts}) == len(texts), "a text case repeats"
+    assert any(t["phrases"] for t in texts) and any(not t["phrases"] for t in texts)
+    assert any(t["folded"] != t["text"] for t in texts)
+    runs = TABLE["run_facts"]
+    assert len(runs) >= 3
+    assert any(r["name"].startswith("D3:") for r in runs)
+    timed_out = [r["expected"]["reader_timed_out_pages"] for r in runs]
+    assert any(timed_out) and not all(timed_out)

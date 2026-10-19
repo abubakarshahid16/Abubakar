@@ -32,7 +32,7 @@
  * from the server, and this signature stays.
  */
 import type {
-  PageCoverage, ReviewFinding, ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary, RunSummaryTier,
+  ReviewFinding, ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary, RunSummaryTier,
   RunSummaryTierCounts, RunSummaryTierLabel, RunSummaryTierReason, RunSummaryTierRow,
 } from "../../../types/api";
 import { TIER_RULES } from "../../../../../contracts/generated/review_tiers";
@@ -90,13 +90,23 @@ const PAIRING_ALWAYS: ReadonlySet<string> = new Set(TIER_RULES.pairing_guess.alw
 const PAIRING_HELD = TIER_RULES.pairing_guess.held;
 const FOLD = new RegExp(TIER_RULES.fold.pattern, "g");
 
-/** The phrase rules, compiled once from the data (same source, no flags,
- *  as the server compiles them). */
+const WORD_EDGE = TIER_RULES.word_edge;
+
+/** The phrase rules, compiled once from the data with the data's word edge
+ *  and flags (order 135, D1): the data's token becomes this engine's
+ *  spelling of one class (a Unicode letter, number or underscore), compiled
+ *  with the flag that spelling needs. The server puts its own spelling of the
+ *  same class in place of the same token. */
 export const PHRASE_PATTERNS: Readonly<Record<PhraseWord, RegExp>> = Object.fromEntries(
-  Object.entries(TIER_RULES.phrases).map(([word, source]) => [word, new RegExp(source)]),
+  Object.entries(TIER_RULES.phrases).map(([word, source]) => [
+    word, new RegExp(source.replaceAll(WORD_EDGE.token, WORD_EDGE.javascript), WORD_EDGE.javascript_flags),
+  ]),
 ) as Record<PhraseWord, RegExp>;
 
-function fold(text: string | null | undefined): string {
+/** Lower case, every run of the data's separators (order 135, D2: an
+ *  explicit class, never this engine's own \s) as one space, ends trimmed.
+ *  The server folds with the same class. */
+export function fold(text: string | null | undefined): string {
   return (text ?? "").toLowerCase().replace(FOLD, TIER_RULES.fold.replace).trim();
 }
 
@@ -205,21 +215,19 @@ export function tierOf(finding: ReviewFinding, facts: RunFacts = EMPTY_FACTS): T
   return needsYou(FALLBACK_REASON);
 }
 
-/** The facts from the run and its standards list, as the screen has them
- *  today. Piece 1 of order 95 replaces this with the server's own summary. */
+/** The facts from the run and its standards list: the same stored fields
+ *  the server's `run_summary._facts` reads, `page_coverage.pages_not_read_into_fields`
+ *  and the reader record's `requirement_split.reader.timed_out` (order 135,
+ *  D3: never a guess from a page note's words). No reader record gives no
+ *  timed-out page, as on the server: an empty list makes no claim. */
 export function runFactsOf(
-  run: Pick<ReviewRunSummary, "page_coverage"> | null,
+  run: Pick<ReviewRunSummary, "page_coverage" | "requirement_split"> | null,
   standards: ReviewRunStandard[] | null,
   missing: ReviewRunMissingReference[],
 ): RunFacts {
-  const coverage: PageCoverage | null | undefined = run?.page_coverage;
-  const timedOut = Object.entries(coverage?.not_read_reasons ?? {})
-    .filter(([, reason]) => /timed? ?out/i.test(reason ?? ""))
-    .map(([page]) => Number(page))
-    .filter((p) => Number.isFinite(p));
   return {
-    pagesNotRead: coverage?.pages_not_read_into_fields ?? [],
-    readerTimedOutPages: timedOut,
+    pagesNotRead: run?.page_coverage?.pages_not_read_into_fields ?? [],
+    readerTimedOutPages: run?.requirement_split?.reader?.timed_out ?? [],
     missingStandards: missing.filter((m) => m.status === "MISSING_LOCALLY" || !m.status).map((m) => m.identifier),
     libraryStandardIds: standards ? standards.filter((s) => s.included).map((s) => s.standard_document_id) : null,
   };
