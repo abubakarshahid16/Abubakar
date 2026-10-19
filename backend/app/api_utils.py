@@ -147,6 +147,9 @@ def _actor_from_scope(scope: access.AccessScope) -> dict | None:
     """
     if not scope.user_id:
         return None
-    row = connect().execute("SELECT id, email FROM users WHERE id = ?",
-                            (scope.user_id,)).fetchone()
+    row = (
+        connect()
+        .execute("SELECT id, email FROM users WHERE id = ?", (scope.user_id,))
+        .fetchone()
+    )
     return dict(row) if row else {"id": scope.user_id}
