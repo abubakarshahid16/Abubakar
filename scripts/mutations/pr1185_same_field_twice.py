@@ -7,7 +7,7 @@ from __future__ import annotations
 from ._base import APP, Mutation
 
 _T = "tests/test_142c_same_field_twice.py"
-_C = APP / "comparison.py"
+_C = APP / "field_copies.py"
 _TAGS = ("honesty", "critical", "142c")
 
 MUTATIONS: tuple[Mutation, ...] = (
@@ -49,8 +49,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         phase=1185,
         description="the other copies of a matched field are not named",
         path=_C,
-        anchor="                                  for h in ordered if h is not chosen})}\n",
-        replacement="                                  for h in ordered if False})}\n",
+        anchor='            {_copy_label(h["fact"], name) for h in ordered if h is not chosen}\n',
+        replacement='            {_copy_label(h["fact"], name) for h in ordered if False}\n',
         target=_T,
         keyword="same_value",
         tags=_TAGS,

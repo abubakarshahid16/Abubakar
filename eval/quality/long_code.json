@@ -75,7 +75,7 @@
   "backend/app/comparison.py::_compare": 422,
   "backend/app/comparison.py::_prepare_finding": 134,
   "backend/app/comparison.py::_recommend_code": 202,
-  "backend/app/comparison.py::_run_comparison": 782,
+  "backend/app/comparison.py::_run_comparison": 779,
   "backend/app/comparison.py::match_by_containment": 99,
   "backend/app/config.py::check_model_url": 100,
   "backend/app/coverage.py::document_incidence": 158,
