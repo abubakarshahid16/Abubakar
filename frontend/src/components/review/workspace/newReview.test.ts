@@ -52,7 +52,7 @@ vi.mock("./reviewWatch", () => ({
 import {
   ADMIN_UNKNOWN_MESSAGE, ALREADY_RUNNING_MESSAGE, MARK_UNREADABLE_MESSAGE, NOT_ADMIN_BEFORE_UPLOAD_MESSAGE, NOT_ADMIN_MESSAGE,
   REVIEW_ADMIN_ONLY_MESSAGE, REVIEW_DOCUMENT_UNREADABLE_MESSAGE, REVIEW_REFUSED_UNKNOWN_MESSAGE, ROLE_UNREADABLE_MESSAGE,
-  UPLOADED_UNREADABLE_MESSAGE, loadPriorDecision, markAndReview, markAsContractorSubmittal, priorDecisionOf, reviewAgain, startNewReview,
+  UPLOADED_UNREADABLE_MESSAGE, type AskFirst, continueNewReview, loadPriorDecision, markAndReview, markAsContractorSubmittal, priorDecisionOf, reviewAgain, startNewReview,
 } from "./newReview";
 
 const file = new File(["%PDF-1.7"], "Pump datasheet rev B.pdf", { type: "application/pdf" });
@@ -156,6 +156,7 @@ describe("startNewReview", () => {
     uploadOne.mockResolvedValue({ phase: "done", documentId: "doc-7", duplicateOf: "doc-7", awaitingGrant: false });
     document.mockReset();
     document.mockResolvedValue({ ok: true, data: { id: "doc-7", status: "ready", document_role: "CONTRACTOR_SUBMITTAL" } });
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [] } });
     const phases: NewReviewPhase[] = [];
     const outcome = await startNewReview(file, (p) => phases.push(p), noWait);
 
@@ -164,6 +165,47 @@ describe("startNewReview", () => {
     expect(document).toHaveBeenCalledWith("doc-7");
     expect(startReviewRun).toHaveBeenCalledWith("doc-7");
     expect(phases.some((p) => p.kind === "marking")).toBe(false);
+  });
+
+  it("v2.1: a duplicate submittal whose latest review is signed asks first (same rule as New review); nothing starts until yes", async () => {
+    uploadOne.mockResolvedValue({ phase: "done", documentId: "doc-7", duplicateOf: "doc-7", awaitingGrant: false });
+    document.mockReset();
+    document.mockResolvedValue({ ok: true, data: { id: "doc-7", status: "ready", document_role: "CONTRACTOR_SUBMITTAL" } });
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [{
+      review_run_id: "run-old", submittal_document_id: "doc-7", status: "completed", created_at: "2026-10-01T08:00:00Z",
+      crs_issued_at: "2026-10-02T08:00:00Z", engineer_final_code: "Approved",
+    }] } });
+    const outcome = await startNewReview(file, () => {}, noWait);
+    expect(outcome.ok).toBe(false);
+    expect("askFirst" in outcome && outcome.askFirst).toEqual({
+      documentId: "doc-7", filename: "Pump datasheet rev B.pdf", prior: { kind: "signed", finalCode: "Approved" },
+    });
+    expect(!outcome.ok && outcome.message).toMatch(/already signed/);
+    expect(reviewRuns).toHaveBeenCalledWith("doc-7");
+    expect(startReviewRun).not.toHaveBeenCalled();
+    expect(setRoleBulk).not.toHaveBeenCalled();
+
+    calls.length = 0;
+    const went = await continueNewReview((outcome as { askFirst: AskFirst }).askFirst, () => {}, noWait);
+    expect(went).toEqual({ ok: true, documentId: "doc-7", runId: "run-1" });
+    expect(calls).toEqual(["document", "start", "watch"]);
+  });
+
+  it("v2.1: a duplicate submittal with a final code, or nothing changed since, asks first too", async () => {
+    uploadOne.mockResolvedValue({ phase: "done", documentId: "doc-7", duplicateOf: "doc-7", awaitingGrant: false });
+    document.mockReset();
+    document.mockResolvedValue({ ok: true, data: { id: "doc-7", status: "ready", document_role: "CONTRACTOR_SUBMITTAL" } });
+    const old = { review_run_id: "run-old", submittal_document_id: "doc-7", status: "completed", created_at: "2026-10-01T08:00:00Z" };
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [{ ...old, engineer_final_code: "Rejected" }] } });
+    const coded = await startNewReview(file, () => {}, noWait);
+    expect("askFirst" in coded && coded.askFirst.prior).toEqual({ kind: "final_code", finalCode: "Rejected" });
+
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [old] } });
+    readiness.mockResolvedValue({ ok: true, data: { nothing_changed: true } });
+    const same = await startNewReview(file, () => {}, noWait);
+    expect("askFirst" in same && same.askFirst.prior).toEqual({ kind: "nothing_changed" });
+    expect(startReviewRun).not.toHaveBeenCalled();
+    readiness.mockReset();
   });
 
   it("a duplicate that is a standard is left alone: no role write, no review, plain words", async () => {

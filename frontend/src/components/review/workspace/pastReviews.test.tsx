@@ -2,8 +2,10 @@
  * Builder E: past reviews per document. Made-up sample data only.
  *
  * v2.1 W5: the list reads every unsigned review's counts in ONE batch
- * counts request and shows "N findings, M need you" with a note that these
- * are findings, not comment lines; signed reviews show "Signed".
+ * counts request and shows "Found by the review: N findings, M needing your
+ * judgement" with a note that these are totals the review found (not what
+ * is left to decide) and findings, not comment lines; signed reviews show
+ * "Signed"; a final code without a signature says so.
  *
  * MUTATION PROOF (checked by hand once): drop the document filter in
  * `pastReviewsOf` and "keeps only that document's runs" fails; turn the
@@ -121,7 +123,7 @@ describe("adapters", () => {
 describe("PastReviewsButton", () => {
   it("counts N from the runs already loaded, without any request", () => {
     render(<PastReviewsButton documentId="doc-1" runs={RUNS} onOpenRun={vi.fn()} />);
-    expect(screen.getByRole("button", { name: "Past reviews (3)" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("button", { name: "All reviews of this file (3)" })).toHaveAttribute("aria-expanded", "false");
     expect(reviewRuns).not.toHaveBeenCalled();
     expect(reviewRunSummary).not.toHaveBeenCalled();
     expect(reviewRunCounts).not.toHaveBeenCalled();
@@ -137,18 +139,18 @@ describe("PastReviewsButton", () => {
     reviewRunCounts.mockResolvedValue(batch({ "run-1": [1, 0], "run-3": [5, 0] }));
     const onOpenRun = vi.fn();
     render(<PastReviewsButton documentId="doc-1" runs={RUNS} onOpenRun={onOpenRun} />);
-    expect(screen.queryByRole("list", { name: "Past reviews" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "All reviews of this file" })).not.toBeInTheDocument();
 
-    const toggle = screen.getByRole("button", { name: "Past reviews (3)" });
+    const toggle = screen.getByRole("button", { name: "All reviews of this file (3)" });
     await userEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");
-    const list = screen.getByRole("list", { name: "Past reviews" });
-    await waitFor(() => expect(within(list).getByText("1 finding, 0 need you")).toBeInTheDocument());
+    const list = screen.getByRole("list", { name: "All reviews of this file" });
+    await waitFor(() => expect(within(list).getByText("Found by the review: 1 finding, 0 needing your judgement")).toBeInTheDocument());
     // run-3 is signed: no count, and its count is not asked for.
     expect(within(list).queryByText(/^5 findings/)).not.toBeInTheDocument();
     // Findings, not the comment sheet's rows: never labelled "comments", and said so.
     expect(within(list).queryByText(/comments?$/)).not.toBeInTheDocument();
-    expect(screen.getByTestId("past-counts-note")).toHaveTextContent("Counts are findings");
+    expect(screen.getByTestId("past-counts-note")).toHaveTextContent("Counts are what each review found, not what is left to decide");
     expect(reviewRunCounts).toHaveBeenCalledTimes(1);
     expect(reviewRunCounts).toHaveBeenCalledWith(["run-2", "run-1"]);
     expect(reviewRunSummary).not.toHaveBeenCalled();
@@ -158,7 +160,7 @@ describe("PastReviewsButton", () => {
 
     await userEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByRole("list", { name: "Past reviews" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "All reviews of this file" })).not.toBeInTheDocument();
   });
 });
 
@@ -181,6 +183,16 @@ describe("PastReviewsList", () => {
     expect(screen.queryByTestId("past-counts-note")).toBeNull();
   });
 
+  it("v2.1: a final code recorded but not signed says so; never 'left to decide'", async () => {
+    reviewRunCounts.mockResolvedValue(batch({ "run-c": [3, 1] }));
+    const coded = pastReviewsOf("doc-1", [run({ review_run_id: "run-c", engineer_final_code: "Approved" })]);
+    render(<PastReviewsList reviews={coded} onOpenRun={vi.fn()} />);
+    const row = screen.getByRole("button");
+    expect(row.querySelector('[data-field="signed"]')).toHaveTextContent("Final code recorded, not signed");
+    expect(await screen.findByText("Found by the review: 4 findings, 1 needing your judgement")).toBeInTheDocument();
+    expect(screen.queryByText(/to decide$|need you/)).toBeNull();
+  });
+
   it("v2.1 L9: a failed review says why, in the stored words", () => {
     const failed = pastReviewsOf("doc-1", [run({ review_run_id: "run-f", status: "failed", failure_reason: "The file could not be opened." })]);
     expect(failed[0].result).toBe("Failed: The file could not be opened.");
@@ -196,20 +208,20 @@ describe("PastReviewsList", () => {
     const row = screen.getByRole("button");
     expect(within(row).getByText("Signed")).toBeInTheDocument();
     expect(row.querySelector('[data-field="findings"]')).toBeEmptyDOMElement();
-    expect(screen.queryByText(/need you/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/judgement/)).not.toBeInTheDocument();
     expect(reviewRunCounts).not.toHaveBeenCalled();
   });
 
   it("writes a large count with thousands separators", async () => {
     reviewRunCounts.mockResolvedValue(batch({ "run-1": [1200, 1034] }));
     render(<PastReviewsList reviews={pastReviewsOf("doc-1", RUNS).filter((r) => r.runId === "run-1")} onOpenRun={vi.fn()} />);
-    expect(await screen.findByText("2,234 findings, 1,034 need you")).toBeInTheDocument();
+    expect(await screen.findByText("Found by the review: 2,234 findings, 1,034 needing your judgement")).toBeInTheDocument();
   });
 
   it("a known count of zero is shown as 0 (only an unknown count is blank)", async () => {
     reviewRunCounts.mockResolvedValue(batch({ "run-1": [0, 0] }));
     render(<PastReviewsList reviews={pastReviewsOf("doc-1", RUNS).filter((r) => r.runId === "run-1")} onOpenRun={vi.fn()} />);
-    expect(await screen.findByText("0 findings, 0 need you")).toBeInTheDocument();
+    expect(await screen.findByText("Found by the review: 0 findings, 0 needing your judgement")).toBeInTheDocument();
   });
 });
 
@@ -228,11 +240,11 @@ describe("DocumentsFromContractors with onOpenPastRun", () => {
         onReview={vi.fn()} startingDocumentId={null} onOpenPastRun={onOpenPastRun}
       />,
     );
-    expect(screen.getByRole("button", { name: "Past reviews (3)" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Past reviews (1)" })).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: /Past reviews/ })).toHaveLength(2);
-    await userEvent.click(screen.getByRole("button", { name: "Past reviews (1)" }));
-    await userEvent.click(within(screen.getByRole("list", { name: "Past reviews" })).getByRole("button"));
+    expect(screen.getByRole("button", { name: "All reviews of this file (3)" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "All reviews of this file (1)" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /All reviews of this file/ })).toHaveLength(2);
+    await userEvent.click(screen.getByRole("button", { name: "All reviews of this file (1)" }));
+    await userEvent.click(within(screen.getByRole("list", { name: "All reviews of this file" })).getByRole("button"));
     expect(onOpenPastRun).toHaveBeenCalledWith("run-9");
   });
 
@@ -243,7 +255,7 @@ describe("DocumentsFromContractors with onOpenPastRun", () => {
         onReview={vi.fn()} startingDocumentId={null}
       />,
     );
-    expect(screen.queryByRole("button", { name: /Past reviews/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /All reviews of this file/ })).not.toBeInTheDocument();
     expect(reviewRuns).not.toHaveBeenCalled();
     expect(reviewRunSummary).not.toHaveBeenCalled();
     expect(reviewRunCounts).not.toHaveBeenCalled();

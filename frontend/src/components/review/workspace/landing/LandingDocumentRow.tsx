@@ -5,7 +5,8 @@
  * two actions: "Open" (the latest review) and "New review" (a fresh one,
  * asking first when the latest is signed, coded, or nothing changed). A
  * failed review says why; a running one says its step and offers Cancel
- * (the existing `ReviewJobControl`). "Past reviews (N)" folds out below.
+ * (the existing `ReviewJobControl`). "All reviews of this file (N)" folds out
+ * below.
  * An administrator-only action is not drawn for a non-administrator.
  */
 import type { ReviewRunSummary } from "../../../../types/api";
@@ -36,7 +37,7 @@ export function StatusChip({ tone, text }: { tone: ChipTone; text: string }) {
 export function LandingDocumentRow({ row, counts, allRuns, mayStart, onOpenRun, onChanged }: {
   row: LandingRow;
   counts: ReadyCounts | null;
-  /** The page's whole runs list (Past reviews and the "asks first" check
+  /** The page's whole runs list (All reviews of this file and the "asks first" check
    *  read it; no extra request). */
   allRuns: ReviewRunSummary[];
   /** False for a non-administrator: no New review, no Cancel. */
@@ -45,7 +46,7 @@ export function LandingDocumentRow({ row, counts, allRuns, mayStart, onOpenRun, 
   /** Something changed (a review was cancelled): re-read the list. */
   onChanged: () => void;
 }) {
-  const chip = rowChip(row.state, counts);
+  const chip = rowChip(row.state, row.latest);
   const detail = countsLine(row.state, counts);
   const moving = row.state.kind === "queued" || row.state.kind === "running";
   const step = row.state.kind === "running" && row.state.label ? row.state.label : "";

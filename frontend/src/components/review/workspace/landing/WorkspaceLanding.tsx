@@ -9,9 +9,10 @@
  *   +--------------------------------------------------------------------+
  *   [Review all not reviewed (N)]                                  (L7)
  *   [Search by file name]                    [All reviews (N)]  (L4, L5)
- *   - Pump datasheet rev B.pdf  [3 need you] 12 findings  date
+ *   - Pump datasheet rev B.pdf  [Review ready]
+ *       Found by the review: 12 findings, 3 needing your judgement  date
  *                                            [Open] [New review]  (L2, L3)
- *     Past reviews (2)                                            (W5)
+ *     All reviews of this file (2)                                (W5)
  *
  * Every start from this page is watched (`watchRun`), so the "ready" notice
  * appears wherever the reader goes (L6). A non-administrator sees a plain
@@ -63,6 +64,8 @@ export function WorkspaceLanding({
   const [counts, setCounts] = useState<Record<string, ReadyCounts | null>>({});
   const [batch, setBatch] = useState<BatchResult | null>(null);
   const [batching, setBatching] = useState(false);
+  /** L7: "Review all" asks once before it starts anything. */
+  const [confirmAll, setConfirmAll] = useState(false);
   const asked = useRef(new Set<string>());
 
   const rows = useMemo(() => landingRowsOf(documents, runs), [documents, runs]);
@@ -93,6 +96,7 @@ export function WorkspaceLanding({
    *  in list order; each queued review is watched (L6). A refusal is named
    *  per document in plain words, never retried silently. Nothing opens. */
   async function reviewAll() {
+    setConfirmAll(false);
     if (!mayStart || batching) return;
     setBatching(true);
     setBatch(null);
@@ -137,19 +141,43 @@ export function WorkspaceLanding({
       </section>
 
       {mayStart && notReviewed.length > 0 && (
-        <p className="flex flex-wrap items-center gap-3 text-sm text-slateish-300">
-          <button
-            type="button"
-            disabled={batching}
-            onClick={() => void reviewAll()}
-            className="rounded-[var(--radius-sm)] border border-signal-500 px-3 py-1.5 text-sm font-semibold text-signal-300 disabled:opacity-50"
-          >
-            {batching ? "Queuing reviews…" : `Review all not reviewed (${notReviewed.length})`}
-          </button>
-          <span className="text-xs text-slateish-400">
-            Each runs in the background, one at a time. You get a notice when each one is ready.
-          </span>
-        </p>
+        <div className="flex flex-wrap items-center gap-3 text-sm text-slateish-300">
+          {confirmAll && !batching ? (
+            <span role="group" aria-label="Start all the reviews?" className="flex flex-wrap items-center gap-2 text-slateish-200">
+              <span data-testid="review-all-question">
+                Start {notReviewed.length.toLocaleString("en-US")} review{notReviewed.length === 1 ? "" : "s"}? They run one after another.
+              </span>
+              <button
+                type="button"
+                onClick={() => void reviewAll()}
+                className="rounded-[var(--radius-sm)] bg-signal-500 px-3 py-1.5 text-sm font-semibold text-ink-950"
+              >
+                Yes
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmAll(false)}
+                className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1.5 text-sm font-medium text-slateish-100"
+              >
+                Cancel
+              </button>
+            </span>
+          ) : (
+            <>
+              <button
+                type="button"
+                disabled={batching}
+                onClick={() => setConfirmAll(true)}
+                className="rounded-[var(--radius-sm)] border border-signal-500 px-3 py-1.5 text-sm font-semibold text-signal-300 disabled:opacity-50"
+              >
+                {batching ? "Queuing reviews…" : `Review all not reviewed (${notReviewed.length})`}
+              </button>
+              <span className="text-xs text-slateish-400">
+                Each runs in the background, one at a time. You get a notice when each one is ready.
+              </span>
+            </>
+          )}
+        </div>
       )}
       {batch && (
         <div role="status" className="rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 px-4 py-3 text-sm text-slateish-200">

@@ -14,7 +14,8 @@
 import { useEffect, useRef, useState } from "react";
 
 import type { NewReviewDropZoneProps, NewReviewPhase } from "./contract";
-import { type OfferMark, markAndReview, markOfferWords, startNewReview } from "./newReview";
+import { type AskFirst, type OfferMark, continueNewReview, markAndReview, markOfferWords, startNewReview } from "./newReview";
+import { priorDecisionWords } from "./priorDecisionWords";
 
 function phaseWords(phase: NewReviewPhase, filename: string | null): string | null {
   const name = filename ?? "your file";
@@ -45,6 +46,9 @@ export function NewReviewDropZone({ onStarted, isAdmin, heading = "New review" }
    *  role; an administrator may choose to re-mark it (one confirm). */
   const [offer, setOffer] = useState<OfferMark | null>(null);
   const [confirming, setConfirming] = useState(false);
+  /** v2.1: the dropped file is already a contractor submittal whose latest
+   *  review is signed, coded or unchanged; asked before anything starts. */
+  const [ask, setAsk] = useState<AskFirst | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const mounted = useRef(true);
   useEffect(() => {
@@ -61,10 +65,12 @@ export function NewReviewDropZone({ onStarted, isAdmin, heading = "New review" }
     setOnlyFirst(all.length > 1 ? file.name : null);
     setOffer(null);
     setConfirming(false);
+    setAsk(null);
     const outcome = await startNewReview(file, (next) => {
       if (mounted.current) setPhase(next);
     }, { isAdmin });
     if (!outcome.ok && "offerMark" in outcome && mounted.current) setOffer(outcome.offerMark);
+    if (!outcome.ok && "askFirst" in outcome && mounted.current) setAsk(outcome.askFirst);
     // Gone (the reader left): the review runs on, but never drag them back.
     if (outcome.ok && mounted.current) onStarted(outcome.runId);
   }
@@ -77,6 +83,17 @@ export function NewReviewDropZone({ onStarted, isAdmin, heading = "New review" }
     setOffer(null);
     setConfirming(false);
     const outcome = await markAndReview(target, filename ?? "your file", (next) => {
+      if (mounted.current) setPhase(next);
+    }, { isAdmin });
+    if (outcome.ok && mounted.current) onStarted(outcome.runId);
+  }
+
+  /** The reader said yes to the ask-first question. */
+  async function goOn() {
+    if (!ask || busy) return;
+    const target = ask;
+    setAsk(null);
+    const outcome = await continueNewReview(target, (next) => {
       if (mounted.current) setPhase(next);
     }, { isAdmin });
     if (outcome.ok && mounted.current) onStarted(outcome.runId);
@@ -144,6 +161,23 @@ export function NewReviewDropZone({ onStarted, isAdmin, heading = "New review" }
         )}
         {phase.kind === "error" && (
           <p role="alert" className="mt-3 text-sm text-danger-500">{phase.message}</p>
+        )}
+        {ask && (
+          <span role="group" aria-label="Start a new review?" data-testid="drop-ask-first" className="mt-3 flex flex-wrap items-center justify-center gap-2 text-sm text-slateish-200">
+            <span>{ask.filename}: {priorDecisionWords(ask.prior)}</span>
+            <button
+              type="button" onClick={() => void goOn()}
+              className="rounded-[var(--radius-md)] bg-signal-500 px-3 py-1.5 text-sm font-medium text-ink-950 hover:bg-signal-400"
+            >
+              Yes, start a new review
+            </button>
+            <button
+              type="button" onClick={() => setAsk(null)}
+              className="rounded-[var(--radius-md)] border border-ink-600 px-3 py-1.5 text-sm font-medium text-slateish-100 hover:border-signal-500"
+            >
+              Cancel
+            </button>
+          </span>
         )}
         {offer && phase.kind === "error" && isAdmin !== false && (
           <div className="mt-3 text-sm text-slateish-200" data-testid="mark-offer">
