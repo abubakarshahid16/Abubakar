@@ -32,8 +32,17 @@ MERGED_BLOCK = "noise: a block of the page read as one field"
 IDENTIFIER_NUMBER = "noise: an identifier's number is not a measurement"
 LABEL_AS_VALUE = "noise: value is another field's label"
 
-RULES = (RULER, REVISION, DOCUMENT_ID, HEADER_AS_VALUE, REFERENCE_ONLY,
-         FRAGMENT_LABEL, MERGED_BLOCK, IDENTIFIER_NUMBER, LABEL_AS_VALUE)
+RULES = (
+    RULER,
+    REVISION,
+    DOCUMENT_ID,
+    HEADER_AS_VALUE,
+    REFERENCE_ONLY,
+    FRAGMENT_LABEL,
+    MERGED_BLOCK,
+    IDENTIFIER_NUMBER,
+    LABEL_AS_VALUE,
+)
 
 _WS = re.compile(r"\s+")
 
@@ -156,7 +165,12 @@ def is_label_as_value(value: str | None) -> bool:
     if _CONNECTIVE_START.match(text) or text.endswith(":"):
         return True
     from .datasheets import _LIMIT_WORD, quantity_head_noun
-    return len(text.split()) >= 2 and bool(_LIMIT_WORD.search(text)) and quantity_head_noun(text)
+
+    return (
+        len(text.split()) >= 2
+        and bool(_LIMIT_WORD.search(text))
+        and quantity_head_noun(text)
+    )
 
 
 def noise_reason(label: str | None, value: str | None) -> str | None:

@@ -272,9 +272,11 @@ def test_a_single_equipment_sheet_still_strips_its_header():
 
 def test_a_page_with_no_pairs_says_exactly_that():
     assert datasheets._unparsed_reason([], {}) == (
-        "No labelled values were found on this page (it may be a drawing or a scan).")
+        "No labelled values were found on this page (it may be a drawing or a scan)."
+    )
     assert page_reason_words.unparsed_detail(0, {}) == (
-        "no label-value pairs recovered from this page")
+        "no label-value pairs recovered from this page"
+    )
 
 
 def test_a_page_whose_pairs_were_filtered_names_the_filters():
@@ -300,7 +302,8 @@ def test_a_page_whose_pairs_were_filtered_names_the_filters():
     assert "50 by duplicate" in detail
     assert "20 by furniture" in detail
     assert "No labelled values were found" not in reason, (
-        "the page reported the one failure it did NOT have")
+        "the page reported the one failure it did NOT have"
+    )
 
 
 def test_the_counts_are_ordered_by_size_so_the_cause_reads_first():
@@ -318,4 +321,7 @@ def test_a_page_that_recovered_pairs_never_claims_it_recovered_none():
     for dropped in ({"furniture": 3}, {"value gate": 3}, {}):
         reason = datasheets._unparsed_reason([("a", "1")] * 3, dropped)
         assert "No labelled values were found" not in reason
-        assert "no label-value pairs recovered" not in page_reason_words.unparsed_detail(3, dropped)
+        assert (
+            "no label-value pairs recovered"
+            not in page_reason_words.unparsed_detail(3, dropped)
+        )
