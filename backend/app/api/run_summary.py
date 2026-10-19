@@ -70,8 +70,9 @@ class TierCounts(BaseModel):
 
 
 class TierRow(BaseModel):
-    """One finding still in a tier, in screen order (Comment, Needs you, Met;
-    then page, no page last; then clause)."""
+    """One finding still in a tier, in the server's order (Comment, Needs you,
+    Met; then page, no page last; then clause). The sheet keys rows by id and
+    lays out its own order."""
 
     finding_id: str
     #: A met / not applicable, B comment, C needs you (tiers.ts `Tier`)
@@ -135,8 +136,9 @@ class HowReviewed(BaseModel):
 
 class RunSummary(BaseModel):
     """`GET /api/reviews/runs/{id}/summary`, the run as the CRS-first Sheet
-    shows it. The tiers are `review_tiers`'s, the same rules as the screen's
-    `crs/tiers.ts`. Display only."""
+    shows it. The tiers are `review_tiers`'s, whose rules are the data in
+    `reference/review_tiers.json` that the screen's `crs/tiers.ts` reads too.
+    Display only."""
 
     review_run_id: str
     status: str

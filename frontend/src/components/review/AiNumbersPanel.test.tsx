@@ -10,7 +10,7 @@ import { AiNumbersPanel } from "./AiNumbersPanel";
 
 const step = (over: Partial<AiStepNumbers>): AiStepNumbers => ({
   step: "AI matcher", state: "ran", where: "local model", model: "ollama:m",
-  local_instead: null, lines: [], ...over,
+  local_instead: null, lines: [], counts: {}, ...over,
 });
 
 const NUMBERS: AiNumbers = {

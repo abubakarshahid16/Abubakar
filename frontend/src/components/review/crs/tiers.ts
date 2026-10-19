@@ -5,36 +5,37 @@
  * the collapsed "met" line, the footer counts and the keyboard flow read
  * the result of `tierOf`, never a status of their own.
  *
- *   Tier A  "Met" / "Not applicable"   COMPLIANT ("Met"), NOT_APPLICABLE
- *           / "Another document"       (does-not-apply), NOT_IN_DOCUMENT_SCOPE
- *                                      (the clause names another document).
- *   Tier B  "Comment"                  NON_COMPLIANT; MISSING_INFORMATION
- *                                      when the page WAS read into fields and
- *                                      the standard IS in the library.
- *   Tier C  "Needs you" + a reason     NEEDS_ENGINEER_REVIEW, CONDITIONAL, a
- *                                      page not read into fields or timed out
- *                                      ("page not read"), a standard the
- *                                      library does not hold ("standard not
- *                                      in library"), a pairing an AI guessed
- *                                      and nobody confirmed ("AI guess",
- *                                      mirrors comparison._pairing_unconfirmed),
- *                                      a rule not yet proven ("rule not
- *                                      proven"), an unconfirmed safety tick
- *                                      ("safety field"), a value conflict, an
- *                                      unknown unit, else "condition
- *                                      unsettled". These apply whatever the
- *                                      status: a "met" nobody can stand behind
- *                                      is shown to the engineer.
+ * THE RULES ARE DATA (order 133): every status, label, reason word, the
+ * order the reasons are told in, the phrases and the pairing-guess rule
+ * live in `backend/app/reference/review_tiers.json`, generated for the
+ * screen into `contracts/generated/review_tiers.ts` (`TIER_RULES`). The
+ * server's `backend/app/review_tiers.py` reads the same file, and both run
+ * the same cases (`contracts/fixtures/review_tier_cases.json`; here
+ * `tiers.parity.test.ts`). This file keeps only the logic:
+ *
+ *   Tier C (`needs_you`) + a reason: a status in `tier_c_statuses`, or any
+ *           fact of `unsettled_order` that holds (unread or timed-out page,
+ *           a standard the library does not hold, an AI pairing guess -
+ *           mirrors comparison._pairing_unconfirmed -, a rule not proven,
+ *           an unconfirmed safety tick, a value conflict, an unknown unit),
+ *           whatever the status: a "met" nobody can stand behind is shown
+ *           to the engineer. The first fact in `unsettled_order` names it.
+ *   Else    `status_tiers[status]` (Tier A "Met" / "Not applicable" /
+ *           "Another document", Tier B "Comment").
+ *   Else    `missing_information`: Tier B when the standard IS in the
+ *           library, else Tier C "standard not in library".
+ *   Else    a status the table does not know: Tier C `fallback_reason`.
  *
  * DISPLAY ONLY. No stored status changes here, and the run's verdicts are
  * untouched (rule 3 of #805: display, no verdict change). The inputs are
- * data-shaped on purpose: piece 1 of order 95 (the run summary endpoint)
- * will hand the same facts from the server, and this signature stays.
+ * data-shaped on purpose: the run summary endpoint hands the same facts
+ * from the server, and this signature stays.
  */
 import type {
   PageCoverage, ReviewFinding, ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary, RunSummaryTier,
   RunSummaryTierCounts, RunSummaryTierLabel, RunSummaryTierReason, RunSummaryTierRow,
 } from "../../../types/api";
+import { TIER_RULES } from "../../../../../contracts/generated/review_tiers";
 
 /** The tier words are the server's (`backend/app/api/run_summary.py`
  *  `TierRow`, generated into contracts/generated/run_summary.ts, order
@@ -73,10 +74,30 @@ export const EMPTY_FACTS: RunFacts = {
   pagesNotRead: [], readerTimedOutPages: [], missingStandards: [], libraryStandardIds: null,
 };
 
-const TIER_C = new Set(["NEEDS_ENGINEER_REVIEW", "CONDITIONAL"]);
+type Placed = Pick<TierResult, "tier" | "label">;
+type Predicate = (finding: ReviewFinding, facts: RunFacts) => boolean;
+/** A reason word of `unsettled_order`: a fact, other than the status, that makes a finding Tier C. */
+type UnsettledWord = (typeof TIER_RULES.unsettled_order)[number];
+type PhraseWord = keyof typeof TIER_RULES.phrases;
+
+const NEEDS_YOU: Placed = TIER_RULES.needs_you;
+const MISSING_INFORMATION = TIER_RULES.missing_information;
+const FALLBACK_REASON: TierReason = TIER_RULES.fallback_reason;
+const TIER_C_STATUSES: ReadonlySet<string> = new Set(TIER_RULES.tier_c_statuses);
+/** A Map, not an object: a status named like an Object.prototype key must not find a tier. */
+const STATUS_TIERS: ReadonlyMap<string, Placed> = new Map(Object.entries(TIER_RULES.status_tiers));
+const PAIRING_ALWAYS: ReadonlySet<string> = new Set(TIER_RULES.pairing_guess.always);
+const PAIRING_HELD = TIER_RULES.pairing_guess.held;
+const FOLD = new RegExp(TIER_RULES.fold.pattern, "g");
+
+/** The phrase rules, compiled once from the data (same source, no flags,
+ *  as the server compiles them). */
+export const PHRASE_PATTERNS: Readonly<Record<PhraseWord, RegExp>> = Object.fromEntries(
+  Object.entries(TIER_RULES.phrases).map(([word, source]) => [word, new RegExp(source)]),
+) as Record<PhraseWord, RegExp>;
 
 function fold(text: string | null | undefined): string {
-  return (text ?? "").toLowerCase().replace(/[\s_-]+/g, " ").trim();
+  return (text ?? "").toLowerCase().replace(FOLD, TIER_RULES.fold.replace).trim();
 }
 
 /** The finding's page is one the reader did not read into fields, or gave up on. */
@@ -107,70 +128,81 @@ export function standardInLibrary(finding: ReviewFinding, facts: RunFacts): bool
   return facts.libraryStandardIds.includes(finding.standard_document_id);
 }
 
-/** Mirrors `_pairing_unconfirmed` in backend/app/comparison.py (#921): a
- *  field paired by its name alone (METHOD_FIELD_NAME, always held), or a
- *  model's pairing held for review (METHOD_MODEL_CHOICE with
- *  NEEDS_ENGINEER_REVIEW), is a guess waiting for an engineer. */
+/** Mirrors `_pairing_unconfirmed` in backend/app/comparison.py (#921), from
+ *  `pairing_guess`: a field paired by its name alone (`always`), or a
+ *  model's pairing held for review (`held`), is a guess waiting for an
+ *  engineer. */
 export function pairingUnconfirmed(finding: ReviewFinding): boolean {
-  if (finding.match_method === "field_name") return true;
-  return finding.match_method === "model" && finding.compliance_status === "NEEDS_ENGINEER_REVIEW";
+  if (PAIRING_ALWAYS.has(finding.match_method ?? "")) return true;
+  return finding.match_method === PAIRING_HELD.match_method && finding.compliance_status === PAIRING_HELD.compliance_status;
 }
 
 /** rule_trust (#947): the rule behind the finding has not been proven yet. */
 export function ruleUnproven(finding: ReviewFinding): boolean {
-  return finding.trust_label === "UNPROVEN";
+  return finding.trust_label === TIER_RULES.rule_not_proven_trust_label;
 }
 
 /** rule_trust (#947): a safety field shown for the engineer's own tick,
  *  which no engineer has ticked yet. */
 export function safetyTickOpen(finding: ReviewFinding): boolean {
-  return Boolean(finding.show_for_engineer_tick) && finding.compliance_status === "COMPLIANT" && !finding.confirmed_by;
+  return Boolean(finding.show_for_engineer_tick) && finding.compliance_status === TIER_RULES.safety_tick_status
+    && !finding.confirmed_by;
 }
 
-function conflictWord(finding: ReviewFinding): TierReason | null {
-  const why = fold(finding.ai_rationale);
-  if (/\bvalue conflict\b|\bconflicting values?\b|\bvalues? conflict\b/.test(why)) return "value conflict";
-  if (/\bunit unknown\b|\bunknown unit\b|\bunit (?:not|could not be) (?:read|recognised|recognized|parsed)\b/.test(why)) return "unit unknown";
-  return null;
+function phrase(word: PhraseWord): Predicate {
+  return (finding) => PHRASE_PATTERNS[word].test(fold(finding.ai_rationale));
 }
+
+/** One predicate per reason word of `unsettled_order`, keyed by the word.
+ *  The keys are type-checked against the data (none missing, none extra);
+ *  the ORDER they are tried in is the data's, never this object's. */
+export const UNSETTLED_RULES: Readonly<Record<UnsettledWord, Predicate>> = {
+  "page not read": pageNotRead,
+  [MISSING_INFORMATION.not_in_library_reason]: citesMissingStandard,
+  "AI guess": pairingUnconfirmed,
+  "rule not proven": ruleUnproven,
+  "safety field": safetyTickOpen,
+  ...(Object.fromEntries(
+    (Object.keys(TIER_RULES.phrases) as PhraseWord[]).map((word) => [word, phrase(word)]),
+  ) as Record<PhraseWord, Predicate>),
+};
 
 /** The fact, other than the status, that makes this finding Tier C, in the
- *  order the reason is told. The page comes first: nothing about an unread
- *  page is settled. Null when no such fact holds. */
+ *  order the reason is told (`unsettled_order`: the page comes first, since
+ *  nothing about an unread page is settled). Null when no such fact holds. */
 function unsettledReason(finding: ReviewFinding, facts: RunFacts): TierReason | null {
-  if (pageNotRead(finding, facts)) return "page not read";
-  if (citesMissingStandard(finding, facts)) return "standard not in library";
-  if (pairingUnconfirmed(finding)) return "AI guess";
-  if (ruleUnproven(finding)) return "rule not proven";
-  if (safetyTickOpen(finding)) return "safety field";
-  return conflictWord(finding);
+  return TIER_RULES.unsettled_order.find((word) => UNSETTLED_RULES[word](finding, facts)) ?? null;
+}
+
+function needsYou(reason: TierReason): TierResult {
+  return { tier: NEEDS_YOU.tier, label: NEEDS_YOU.label, reason };
 }
 
 /** Why a Tier C row needs the engineer, in the spec's reason words. */
 function needsYouReason(finding: ReviewFinding, facts: RunFacts): TierReason {
   const unsettled = unsettledReason(finding, facts);
   if (unsettled) return unsettled;
-  if (finding.compliance_status === "MISSING_INFORMATION" && !standardInLibrary(finding, facts)) return "standard not in library";
-  return "condition unsettled";
+  if (finding.compliance_status === MISSING_INFORMATION.status && !standardInLibrary(finding, facts)) {
+    return MISSING_INFORMATION.not_in_library_reason;
+  }
+  return FALLBACK_REASON;
 }
 
 /** Spec section 2, in order: the facts that make any finding Tier C come
  *  first, so a "met" value on an unread page is still shown to the engineer. */
 export function tierOf(finding: ReviewFinding, facts: RunFacts = EMPTY_FACTS): TierResult {
   const status = finding.compliance_status ?? "";
-  if (TIER_C.has(status) || unsettledReason(finding, facts) !== null) {
-    return { tier: "C", label: "Needs you", reason: needsYouReason(finding, facts) };
+  if (TIER_C_STATUSES.has(status) || unsettledReason(finding, facts) !== null) {
+    return needsYou(needsYouReason(finding, facts));
   }
-  if (status === "COMPLIANT") return { tier: "A", label: "Met", reason: null };
-  if (status === "NOT_APPLICABLE") return { tier: "A", label: "Not applicable", reason: null };
-  if (status === "NOT_IN_DOCUMENT_SCOPE") return { tier: "A", label: "Another document", reason: null };
-  if (status === "NON_COMPLIANT") return { tier: "B", label: "Comment", reason: null };
-  if (status === "MISSING_INFORMATION") {
-    if (standardInLibrary(finding, facts)) return { tier: "B", label: "Comment", reason: null };
-    return { tier: "C", label: "Needs you", reason: "standard not in library" };
+  const placed = STATUS_TIERS.get(status);
+  if (placed) return { tier: placed.tier, label: placed.label, reason: null };
+  if (status === MISSING_INFORMATION.status) {
+    if (standardInLibrary(finding, facts)) return { ...MISSING_INFORMATION.in_library, reason: null };
+    return needsYou(MISSING_INFORMATION.not_in_library_reason);
   }
   // A status this table does not know is never swept quietly: it needs a person.
-  return { tier: "C", label: "Needs you", reason: "condition unsettled" };
+  return needsYou(FALLBACK_REASON);
 }
 
 /** The facts from the run and its standards list, as the screen has them
@@ -202,15 +234,33 @@ export interface TierCounts {
   needsYou: number;
 }
 
+/** `count_keys` (the server's snake_case count names) in the screen's camelCase. */
+function countKey(label: string): keyof TierCounts | undefined {
+  const key = (TIER_RULES.count_keys as Readonly<Record<string, string>>)[label];
+  return key === undefined ? undefined : key.replace(/_(\w)/g, (_m, c: string) => c.toUpperCase()) as keyof TierCounts;
+}
+
+/** Every label each tier can carry, from the rule data. */
+const LABELS_OF_TIER: ReadonlyMap<Tier, ReadonlySet<string>> = (() => {
+  const placed: Placed[] = [...STATUS_TIERS.values(), MISSING_INFORMATION.in_library, NEEDS_YOU];
+  const byTier = new Map<Tier, Set<string>>();
+  for (const p of placed) byTier.set(p.tier, (byTier.get(p.tier) ?? new Set()).add(p.label));
+  return byTier;
+})();
+
+/** A tier with one label only (Comment, Needs you) is counted by its tier
+ *  whatever the label says; a tier with several (Met, Not applicable,
+ *  Another document) by its label, and a label that tier does not carry
+ *  counts as not applicable. */
+function countKeyOf(r: TierResult): keyof TierCounts {
+  const labels = LABELS_OF_TIER.get(r.tier);
+  if (labels?.size === 1) return countKey([...labels][0]) ?? "notApplicable";
+  return (labels?.has(r.label) ? countKey(r.label) : undefined) ?? "notApplicable";
+}
+
 export function countTiers(results: TierResult[]): TierCounts {
   const counts: TierCounts = { met: 0, notApplicable: 0, anotherDocument: 0, comment: 0, needsYou: 0 };
-  for (const r of results) {
-    if (r.tier === "B") counts.comment += 1;
-    else if (r.tier === "C") counts.needsYou += 1;
-    else if (r.label === "Met") counts.met += 1;
-    else if (r.label === "Another document") counts.anotherDocument += 1;
-    else counts.notApplicable += 1;
-  }
+  for (const r of results) counts[countKeyOf(r)] += 1;
   return counts;
 }
 
@@ -223,7 +273,7 @@ export type ServerTiers = ReadonlyMap<string, TierResult>;
 
 export function serverTiersOf(rows: RunSummaryTierRow[]): ServerTiers {
   return new Map(rows.map((r) => [r.finding_id, {
-    tier: r.tier, label: r.label, reason: r.tier === "C" ? (r.reason ?? "condition unsettled") : null,
+    tier: r.tier, label: r.label, reason: r.tier === NEEDS_YOU.tier ? (r.reason ?? FALLBACK_REASON) : null,
   }]));
 }
 
@@ -244,9 +294,11 @@ export function countsOfServer(counts: RunSummaryTierCounts): TierCounts {
 }
 
 /** A group of findings shown as one row takes the most demanding tier of
- *  its members: C over B over A. */
+ *  its members: C (Needs you) over B (Comment) over A. */
 export function tierOfGroup(findings: ReviewFinding[], facts: RunFacts, server: ServerTiers | null = null): TierResult {
   const results = findings.map((f) => tierFor(f, facts, server));
-  return results.find((r) => r.tier === "C") ?? results.find((r) => r.tier === "B") ?? results[0]
-    ?? { tier: "C", label: "Needs you", reason: "condition unsettled" };
+  return results.find((r) => r.tier === NEEDS_YOU.tier)
+    ?? results.find((r) => r.tier === MISSING_INFORMATION.in_library.tier)
+    ?? results[0]
+    ?? needsYou(FALLBACK_REASON);
 }

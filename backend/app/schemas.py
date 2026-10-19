@@ -2349,10 +2349,10 @@ class CrsIssueGate(BaseModel):
     issuable: bool
     final_code_recorded: bool
     blockers: list[str]
-    unread_pages: list[CrsUnreadPage]  # order 127: the pages left to tick
+    unread_pages: list[CrsUnreadPage]  #: order 127: the pages left to tick
     open_findings: list[CrsOpenFinding]
-    checked_pages: list[int] = []  # order 127: ticked; + unread_pages = the run's list
-    pages_total: int | None = None  # order 127: null = not known, never 0
+    checked_pages: list[int] = []  #: order 127: ticked; + unread_pages = the run's list
+    pages_total: int | None = None  #: order 127: null = not known, never 0
 
 
 class CrsIssueDecisionRequest(BaseModel):
