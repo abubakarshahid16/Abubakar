@@ -17,6 +17,7 @@ access control, CLAUDE.md rule 5); only review SELECTION skips it
 (`standards.selectable_standard_ids`), and a review that skips one says so.
 Confirming is admin-only, idempotent and audited.
 """
+
 from __future__ import annotations
 
 import json
@@ -63,9 +64,14 @@ def held_ids(document_ids: frozenset[str]) -> frozenset[str]:
         return frozenset()
     marks = ",".join("?" for _ in document_ids)
     clause, params = held_clause("d.id")
-    rows = connect().execute(
-        f"SELECT d.id FROM documents d WHERE d.id IN ({marks}) AND {clause}",
-        [*sorted(document_ids), *params]).fetchall()
+    rows = (
+        connect()
+        .execute(
+            f"SELECT d.id FROM documents d WHERE d.id IN ({marks}) AND {clause}",
+            [*sorted(document_ids), *params],
+        )
+        .fetchall()
+    )
     return frozenset(r["id"] for r in rows)
 
 
@@ -74,6 +80,7 @@ def confirm(document_id: str, *, actor_user_id: str, actor_username: str) -> boo
     this call confirmed it, False when it was already confirmed (idempotent:
     no second row, no second audit event). Raises NotAnAdministrator."""
     from . import access
+
     if not access.is_admin(actor_user_id):
         raise NotAnAdministrator("only an administrator may confirm a Company standard")
     conn = connect()
@@ -81,16 +88,30 @@ def confirm(document_id: str, *, actor_user_id: str, actor_username: str) -> boo
         cur = conn.execute(
             "INSERT OR IGNORE INTO company_standard_confirmations"
             " (document_id, confirmed_by, confirmed_by_name, confirmed_at) VALUES (?, ?, ?, ?)",
-            (document_id, actor_user_id, actor_username, _now()))
+            (document_id, actor_user_id, actor_username, _now()),
+        )
         if cur.rowcount == 0:
             return False
         conn.execute(
             "INSERT INTO audit_events (at, actor_user_id, actor_username, action,"
             " resource_type, resource_id, outcome, detail)"
             " VALUES (?, ?, ?, ?, 'document', ?, 'ok', ?)",
-            (_now(), actor_user_id, actor_username, CONFIRMED_ACTION, document_id,
-             json.dumps({"issue": 620})))
+            (
+                _now(),
+                actor_user_id,
+                actor_username,
+                CONFIRMED_ACTION,
+                document_id,
+                json.dumps({"issue": 620}),
+            ),
+        )
     return True
 
 
-__all__ = ["CONFIRMED_ACTION", "NotAnAdministrator", "confirm", "held_clause", "held_ids"]
+__all__ = [
+    "CONFIRMED_ACTION",
+    "NotAnAdministrator",
+    "confirm",
+    "held_clause",
+    "held_ids",
+]
