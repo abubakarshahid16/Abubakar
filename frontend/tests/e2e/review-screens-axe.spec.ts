@@ -43,6 +43,12 @@ const answers: Array<[RegExp, unknown]> = [
     standards: [{ standard_document_id: "doc-std", filename: "sample-standard.pdf", included: true }], missing_references: [],
   }],
   [new RegExp(`/api/reviews/runs/${RUN}/crs/decisions`), { decisions: [] }],
+  // Order 121: the sheet's "Before you sign" box, with every kind of item open.
+  [new RegExp(`/api/reviews/runs/${RUN}/crs/issue-gate`), {
+    review_run_id: RUN, issuable: false, final_code_recorded: false, blockers: ["open"],
+    unread_pages: [{ page: 2, reason: "vision reader: page kind 'cover'" }],
+    open_findings: [{ finding_id: "a", row_kind: "non_compliant", item: 1 }, { finding_id: "k", row_kind: "standard_not_cited", item: 2 }],
+  }],
   [/\/api\/documents\/doc-sub$/, { id: "doc-sub", filename: "sample-datasheet.pdf", page_count: 2, status: "ready" }],
 ];
 
