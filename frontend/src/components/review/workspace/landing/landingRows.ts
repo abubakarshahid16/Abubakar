@@ -94,12 +94,14 @@ export interface Chip {
   tone: ChipTone;
 }
 
-/** L3: the status chip, from the run's own state only. It never claims
- *  what is left to decide: the server's per-run counts are what the review
- *  FOUND, not what the engineer has still to decide, so no chip says "Ready
- *  to sign" or "N need you". A finished review whose engineer already chose
- *  a final code (but nobody signed) says exactly that. */
-export function rowChip(state: InboxState, run: ReviewRunSummary | null = null): Chip {
+/** L3: the status chip, from the run's own state, plus (v2.2) the exact
+ *  number still waiting for a decision when the server knows it:
+ *  `counts.undecided` a number above 0 says "N left to decide"; exactly 0
+ *  (and not signed) says "Ready to sign". When `undecided` is null or absent
+ *  the chip keeps the honest wording ("Review ready", or a final code
+ *  recorded): the server's other counts are what the review FOUND, not what
+ *  is left, so an unknown number is never shown, and never as 0. */
+export function rowChip(state: InboxState, run: ReviewRunSummary | null = null, counts: ReadyCounts | null = null): Chip {
   switch (state.kind) {
     case "not_reviewed":
       return { text: "Not reviewed", tone: "quiet" };
@@ -109,9 +111,13 @@ export function rowChip(state: InboxState, run: ReviewRunSummary | null = null):
       const where = state.step !== null && state.of !== null ? ` (step ${state.step} of ${state.of})` : "";
       return { text: `Running${where}`, tone: "moving" };
     }
-    case "ready":
+    case "ready": {
+      const left = undecidedOf(counts);
+      if (left !== null && left > 0) return { text: `${left.toLocaleString("en-US")} left to decide`, tone: "attention" };
+      if (left === 0) return { text: "Ready to sign", tone: "ready" };
       if (run?.engineer_final_code) return { text: "Final code recorded, not signed", tone: "ready" };
       return { text: "Review ready", tone: "ready" };
+    }
     case "signed":
       return { text: "Signed", tone: "done" };
     case "failed":
@@ -121,6 +127,18 @@ export function rowChip(state: InboxState, run: ReviewRunSummary | null = null):
     case "other":
       return { text: runStatusLabel(state.status) || state.status, tone: "quiet" };
   }
+}
+
+/** The exact number still to decide, or null when not known (never 0 for unknown). */
+export function undecidedOf(counts: ReadyCounts | null | undefined): number | null {
+  const n = counts?.undecided;
+  return typeof n === "number" && Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
+}
+
+/** Whether "Preview CRS" may be offered: the latest review has finished
+ *  (not waiting, running, failed or cancelled). */
+export function hasFinishedReview(row: LandingRow): boolean {
+  return row.latest !== null && (row.state.kind === "ready" || row.state.kind === "signed");
 }
 
 /** The landing's "Found by the review: ..." words are the inbox's own. */

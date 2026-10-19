@@ -15,7 +15,7 @@ import { ReviewJobControl } from "../../panels/ReviewJobControl";
 import { whenLabel } from "../../reviewFormat";
 import { PastReviewsButton } from "../PastReviewsButton";
 import { ReviewAgainButton } from "../ReviewAgainButton";
-import { type ChipTone, type LandingRow, countsLine, rowChip } from "./landingRows";
+import { type ChipTone, type LandingRow, countsLine, hasFinishedReview, rowChip } from "./landingRows";
 
 const TONE: Record<ChipTone, string> = {
   attention: "border-warn-500/50 bg-warn-500/10 text-warn-500",
@@ -34,7 +34,7 @@ export function StatusChip({ tone, text }: { tone: ChipTone; text: string }) {
   );
 }
 
-export function LandingDocumentRow({ row, counts, allRuns, mayStart, onOpenRun, onChanged }: {
+export function LandingDocumentRow({ row, counts, allRuns, mayStart, onOpenRun, onOpenCrs, simple = false, onChanged }: {
   row: LandingRow;
   counts: ReadyCounts | null;
   /** The page's whole runs list (All reviews of this file and the "asks first" check
@@ -43,11 +43,16 @@ export function LandingDocumentRow({ row, counts, allRuns, mayStart, onOpenRun, 
   /** False for a non-administrator: no New review, no Cancel. */
   mayStart: boolean;
   onOpenRun: (runId: string) => void;
+  /** v2.2: open the latest review straight on its CRS tab. Left out, no
+   *  "Preview CRS" button. Offered only once the latest review has finished. */
+  onOpenCrs?: (runId: string) => void;
+  /** v2.2 Simple view: the long "Found by the review" line is folded away. */
+  simple?: boolean;
   /** Something changed (a review was cancelled): re-read the list. */
   onChanged: () => void;
 }) {
-  const chip = rowChip(row.state, row.latest);
-  const detail = countsLine(row.state, counts);
+  const chip = rowChip(row.state, row.latest, counts);
+  const detail = simple ? "" : countsLine(row.state, counts);
   const moving = row.state.kind === "queued" || row.state.kind === "running";
   const step = row.state.kind === "running" && row.state.label ? row.state.label : "";
 
@@ -71,6 +76,16 @@ export function LandingDocumentRow({ row, counts, allRuns, mayStart, onOpenRun, 
             className="rounded-[var(--radius-sm)] bg-signal-500 px-4 py-2 text-sm font-semibold text-ink-950"
           >
             Open
+          </button>
+        )}
+        {onOpenCrs && hasFinishedReview(row) && (
+          <button
+            type="button"
+            onClick={() => onOpenCrs(row.latest!.review_run_id)}
+            aria-label={`Preview the CRS of ${row.filename}`}
+            className="rounded-[var(--radius-sm)] border border-signal-500 px-3 py-2 text-sm font-semibold text-signal-300"
+          >
+            Preview CRS
           </button>
         )}
         {mayStart && !moving && (

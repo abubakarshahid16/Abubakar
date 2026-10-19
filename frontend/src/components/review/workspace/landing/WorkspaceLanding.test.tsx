@@ -36,7 +36,8 @@ vi.mock("../NewReviewDropZone", () => ({
   NewReviewDropZone: ({ isAdmin }: { isAdmin?: boolean }) => <p data-testid="drop-zone">{`admin: ${String(isAdmin)}`}</p>,
 }));
 
-import { NOT_ADMIN_LANDING_MESSAGE, WorkspaceLanding } from "./WorkspaceLanding";
+import { LANDING_HELP_HIDDEN_KEY, LANDING_HELP_TEXT, NOT_ADMIN_LANDING_MESSAGE, WorkspaceLanding } from "./WorkspaceLanding";
+import { VIEW_MODE_KEY } from "../useViewMode";
 
 function run(over: Partial<ReviewRunSummary>): ReviewRunSummary {
   return {
@@ -73,18 +74,22 @@ beforeEach(() => {
   readiness.mockResolvedValue({ ok: true, data: { nothing_changed: false } });
   cancelJob.mockResolvedValue({ ok: true, data: {} });
   loadCounts.mockResolvedValue({ "run-1": { findings: 12, needs_you: 3 } });
+  localStorage.clear();
+  // The older tests below read the full page; the v2.2 tests set Simple themselves.
+  localStorage.setItem(VIEW_MODE_KEY, "detailed");
 });
 
 function renderLanding(over: Partial<Parameters<typeof WorkspaceLanding>[0]> = {}) {
   const onOpenRun = vi.fn();
+  const onOpenRunTab = vi.fn();
   const onReload = vi.fn();
   render(
     <WorkspaceLanding
-      documents={DOCS} runs={RUNS} submittalsTotal={4} onOpenRun={onOpenRun} onReload={onReload}
+      documents={DOCS} runs={RUNS} submittalsTotal={4} onOpenRun={onOpenRun} onOpenRunTab={onOpenRunTab} onReload={onReload}
       loadReadyCounts={loadCounts} isAdmin {...over}
     />,
   );
-  return { onOpenRun, onReload };
+  return { onOpenRun, onOpenRunTab, onReload };
 }
 
 const rowOf = (name: string) => screen.getAllByTestId("landing-row").find((r) => r.textContent?.includes(name))!;
@@ -274,5 +279,92 @@ describe("WorkspaceLanding: who may start (admin only) and the empty page (L8)",
     renderLanding({ documents: [], runs: [] });
     expect(screen.getByTestId("landing-empty")).toHaveTextContent("Start one with the New review card above");
     expect(screen.getByTestId("landing-empty")).not.toHaveTextContent("Documents page");
+  });
+});
+
+describe("WorkspaceLanding v2.2: Simple | Detailed, Preview CRS, exact counts, help", () => {
+  it("Simple (the default) folds the long counts line and the flat list; Detailed shows them", async () => {
+    localStorage.removeItem(VIEW_MODE_KEY);
+    renderLanding();
+    const simpleBtn = screen.getByRole("button", { name: "Simple" });
+    const detailedBtn = screen.getByRole("button", { name: "Detailed" });
+    expect(simpleBtn).toHaveAttribute("aria-pressed", "true");
+    expect(detailedBtn).toHaveAttribute("aria-pressed", "false");
+    await waitFor(() => expect(loadCounts).toHaveBeenCalled());
+    expect(within(rowOf("Pump")).queryByTestId("row-counts")).toBeNull();
+    // The flat list is still one press away (folded, not removed).
+    expect(screen.getByRole("button", { name: "All reviews (4)" })).toHaveAttribute("aria-pressed", "false");
+    await userEvent.click(detailedBtn);
+    expect(detailedBtn).toHaveAttribute("aria-pressed", "true");
+    expect(localStorage.getItem(VIEW_MODE_KEY)).toBe("detailed");
+    expect(await within(rowOf("Pump")).findByTestId("row-counts")).toHaveTextContent("Found by the review: 12 findings");
+    await userEvent.click(screen.getByRole("button", { name: "All reviews (4)" }));
+    expect(screen.getByRole("list", { name: "All reviews" })).toBeInTheDocument();
+    // Back to Simple: the flat list folds again.
+    await userEvent.click(screen.getByRole("button", { name: "Simple" }));
+    expect(screen.queryByRole("list", { name: "All reviews" })).toBeNull();
+  });
+
+  it("Preview CRS opens a finished review on the CRS tab; not drawn for waiting, running, failed or unreviewed rows", async () => {
+    const { onOpenRunTab, onOpenRun } = renderLanding();
+    await userEvent.click(within(rowOf("Pump")).getByRole("button", { name: "Preview the CRS of Pump datasheet rev B.pdf" }));
+    expect(onOpenRunTab).toHaveBeenCalledWith("run-1", "crs");
+    expect(onOpenRun).not.toHaveBeenCalled();
+    for (const name of ["Valve", "Motor", "Heat exchanger"]) {
+      expect(within(rowOf(name)).queryByRole("button", { name: /Preview the CRS/ })).toBeNull();
+    }
+  });
+
+  it("Preview CRS is offered on a signed review too", () => {
+    renderLanding({ runs: [run({ review_run_id: "run-0", submittal_document_id: "doc-1", crs_issued_at: "2026-09-21T08:00:00Z" })] });
+    expect(within(rowOf("Pump")).getByRole("button", { name: /Preview the CRS/ })).toBeInTheDocument();
+  });
+
+  it("no onOpenRunTab: no Preview CRS button", () => {
+    renderLanding({ onOpenRunTab: undefined });
+    expect(screen.queryByRole("button", { name: /Preview the CRS/ })).toBeNull();
+  });
+
+  it("the chip says the exact number left to decide when it is known", async () => {
+    loadCounts.mockResolvedValue({ "run-1": { findings: 12, needs_you: 3, undecided: 5 } });
+    renderLanding();
+    await waitFor(() => expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveTextContent(/^5 left to decide$/));
+  });
+
+  it("undecided 0 says Ready to sign, in green", async () => {
+    loadCounts.mockResolvedValue({ "run-1": { findings: 12, needs_you: 3, undecided: 0 } });
+    renderLanding();
+    await waitFor(() => expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveTextContent(/^Ready to sign$/));
+    expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveAttribute("data-tone", "ready");
+  });
+
+  it("undecided null keeps Review ready and never shows 0", async () => {
+    loadCounts.mockResolvedValue({ "run-1": { findings: 12, needs_you: 3, undecided: null } });
+    renderLanding();
+    await waitFor(() => expect(loadCounts).toHaveBeenCalled());
+    await waitFor(() => expect(within(rowOf("Pump")).getByTestId("row-counts")).toBeInTheDocument());
+    expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveTextContent(/^Review ready$/);
+    expect(screen.queryByText(/0 left to decide/)).toBeNull();
+  });
+
+  it("the help line shows on top, and Hide is remembered", async () => {
+    const { unmount } = render(
+      <WorkspaceLanding documents={DOCS} runs={RUNS} submittalsTotal={4} onOpenRun={vi.fn()} onReload={vi.fn()} loadReadyCounts={loadCounts} isAdmin />,
+    );
+    expect(screen.getByTestId("landing-help")).toHaveTextContent(LANDING_HELP_TEXT);
+    await userEvent.click(screen.getByRole("button", { name: "Hide this help" }));
+    expect(screen.queryByTestId("landing-help")).toBeNull();
+    expect(localStorage.getItem(LANDING_HELP_HIDDEN_KEY)).toBe("1");
+    unmount();
+    renderLanding();
+    expect(screen.queryByTestId("landing-help")).toBeNull();
+  });
+
+  it("the help still hides when storage throws", async () => {
+    const spy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("blocked"); });
+    renderLanding();
+    await userEvent.click(screen.getByRole("button", { name: "Hide this help" }));
+    expect(screen.queryByTestId("landing-help")).toBeNull();
+    spy.mockRestore();
   });
 });

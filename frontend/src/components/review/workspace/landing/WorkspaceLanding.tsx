@@ -14,6 +14,13 @@
  *                                            [Open] [New review]  (L2, L3)
  *     All reviews of this file (2)                                (W5)
  *
+ * v2.2: a "Simple | Detailed" switch at the top right (shared with the
+ * review page). Simple folds away the engineer extras (the long "Found by
+ * the review" line; the flat "All reviews" list starts folded); Detailed
+ * shows everything. A one-line help sits on top (Hide is remembered). A
+ * finished review offers "Preview CRS", which opens it on the CRS tab. The
+ * chip says the exact number left to decide when the server knows it.
+ *
  * Every start from this page is watched (`watchRun`), so the "ready" notice
  * appears wherever the reader goes (L6). A non-administrator sees a plain
  * message in place of the New review card and no start or cancel buttons;
@@ -24,7 +31,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { reviews as reviewsApi } from "../../../../api/client";
 import type { DocumentRecord, ReviewRunSummary } from "../../../../types/api";
 import type { ReadyCounts } from "../../inbox/inboxState";
+import type { WorkspaceTab } from "../contract";
 import { NewReviewDropZone } from "../NewReviewDropZone";
+import { type ViewMode, useViewMode } from "../useViewMode";
 import { startRefusal } from "../newReview";
 import { watchRun } from "../reviewWatch";
 import { AllReviewsList } from "./AllReviewsList";
@@ -32,6 +41,48 @@ import { LandingDocumentRow } from "./LandingDocumentRow";
 import { StartReviewBar } from "./StartReviewBar";
 import { allRunsOf, landingRowsOf, matchesName } from "./landingRows";
 import { loadReadyCounts as defaultLoadReadyCounts } from "./readyCounts";
+
+export const LANDING_HELP_TEXT =
+  "Pick a submittal and press Start review, or open one below. Green rows are ready for you to sign.";
+export const LANDING_HELP_HIDDEN_KEY = "rag.workspace.landingHelpHidden";
+
+function readHelpHidden(): boolean {
+  try {
+    return localStorage.getItem(LANDING_HELP_HIDDEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeHelpHidden(): void {
+  try {
+    localStorage.setItem(LANDING_HELP_HIDDEN_KEY, "1");
+  } catch {
+    /* storage unavailable: hidden for this page only */
+  }
+}
+
+/** The small two-button "Simple | Detailed" switch. */
+export function ViewModeSwitch({ mode, onMode }: { mode: ViewMode; onMode: (mode: ViewMode) => void }) {
+  const button = (value: ViewMode, label: string) => (
+    <button
+      type="button"
+      aria-pressed={mode === value}
+      onClick={() => onMode(value)}
+      className={`px-3 py-1 text-xs font-semibold ${
+        mode === value ? "bg-signal-500/15 text-signal-300" : "text-slateish-300"
+      }`}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <div role="group" aria-label="How much to show" className="inline-flex overflow-hidden rounded-full border border-ink-600" data-testid="view-mode-switch">
+      {button("simple", "Simple")}
+      {button("detailed", "Detailed")}
+    </div>
+  );
+}
 
 export const NOT_ADMIN_LANDING_MESSAGE =
   "Only an administrator can start a review. You can open any review listed below.";
@@ -43,7 +94,7 @@ interface BatchResult {
 }
 
 export function WorkspaceLanding({
-  documents, runs, submittalsTotal, documentsFailed = false, isAdmin, onOpenRun, onReload,
+  documents, runs, submittalsTotal, documentsFailed = false, isAdmin, onOpenRun, onOpenRunTab, onReload,
   loadReadyCounts = defaultLoadReadyCounts,
 }: {
   documents: DocumentRecord[];
@@ -55,10 +106,16 @@ export function WorkspaceLanding({
    *  not known yet; the server decides and refuses in plain words. */
   isAdmin?: boolean;
   onOpenRun: (runId: string) => void;
+  /** v2.2: open a review straight on one tab (same navigation as Open).
+   *  Left out, no "Preview CRS" button is drawn. */
+  onOpenRunTab?: (runId: string, tab: WorkspaceTab) => void;
   onReload: () => Promise<void> | void;
   loadReadyCounts?: (runIds: string[]) => Promise<Record<string, ReadyCounts | null>>;
 }) {
   const mayStart = isAdmin !== false;
+  const { mode, setMode } = useViewMode();
+  const simple = mode === "simple";
+  const [helpHidden, setHelpHidden] = useState(readHelpHidden);
   const [query, setQuery] = useState("");
   const [showAll, setShowAll] = useState(false);
   const [counts, setCounts] = useState<Record<string, ReadyCounts | null>>({});
@@ -67,6 +124,11 @@ export function WorkspaceLanding({
   /** L7: "Review all" asks once before it starts anything. */
   const [confirmAll, setConfirmAll] = useState(false);
   const asked = useRef(new Set<string>());
+  // Simple view folds the flat "All reviews" list away (one press opens it).
+  useEffect(() => {
+    if (simple) setShowAll(false);
+  }, [simple]);
+  const onOpenCrs = onOpenRunTab ? (runId: string) => onOpenRunTab(runId, "crs") : undefined;
 
   const rows = useMemo(() => landingRowsOf(documents, runs), [documents, runs]);
   const allItems = useMemo(() => allRunsOf(documents, runs), [documents, runs]);
@@ -118,6 +180,22 @@ export function WorkspaceLanding({
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-end gap-3">
+        {!helpHidden && (
+          <p className="mr-auto flex flex-wrap items-center gap-2 text-sm text-slateish-300" data-testid="landing-help">
+            <span>{LANDING_HELP_TEXT}</span>
+            <button
+              type="button"
+              onClick={() => { writeHelpHidden(); setHelpHidden(true); }}
+              aria-label="Hide this help"
+              className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5 text-xs font-medium text-slateish-300"
+            >
+              Hide
+            </button>
+          </p>
+        )}
+        <ViewModeSwitch mode={mode} onMode={setMode} />
+      </div>
       <section
         aria-labelledby="new-review-card-title"
         className="space-y-4 rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 p-4"
@@ -239,6 +317,8 @@ export function WorkspaceLanding({
                     allRuns={runs}
                     mayStart={mayStart}
                     onOpenRun={onOpenRun}
+                    onOpenCrs={onOpenCrs}
+                    simple={simple}
                     onChanged={() => void onReload()}
                   />
                 ))}

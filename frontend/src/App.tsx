@@ -32,7 +32,7 @@ import { ReviewWorkspace } from "./components/review/workspace/ReviewWorkspace";
 import { TryNewDesignToggle } from "./components/review/workspace/TryNewDesignToggle";
 import { useWorkspaceSwitch } from "./components/review/workspace/useWorkspaceSwitch";
 import { WORKSPACE_PANEL, isWorkspaceScreen, parseWorkspaceQuery, workspaceSearch } from "./components/review/workspace/workspaceRoute";
-import type { WorkspaceLocation } from "./components/review/workspace/contract";
+import type { WorkspaceLocation, WorkspaceTab } from "./components/review/workspace/contract";
 import { LeaveConfirm } from "./components/review/workspace/LeaveConfirm";
 import { type LeaveSaver, LeaveSaverContext, useLeaveGuard } from "./components/review/workspace/useLeaveGuard";
 import { CrsDraftContext, clearDecisionDrafts, setDraftOwner } from "./components/review/crs/useCrsDecisions";
@@ -121,6 +121,16 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
     (runId: string) => onNavigate("review", runId, switchOn ? undefined : WORKSPACE_PANEL),
     [onNavigate, switchOn],
   );
+  // v2.2: "Preview CRS" on the first page opens a review straight on one tab.
+  const openRunOnTab = useCallback((runId: string, tab: WorkspaceTab) => {
+    const nextSearch = workspaceSearch({ runId, tab, row: null, panel: null, documentId: null });
+    const panel = switchOn ? undefined : WORKSPACE_PANEL;
+    const nextPath = pathForView("review", runId, panel) + nextSearch;
+    if (import.meta.env.MODE !== "test") window.history.pushState({ __epcRoute: true }, "", nextPath);
+    shownAddress.current = nextPath;
+    setSearch(nextSearch);
+    setRoute({ kind: "view", view: "review", recordId: runId, ...(panel ? { panel } : {}) });
+  }, [switchOn]);
   const { setOptIn } = workspaceSwitch;
   // Decisions on the workspace screen that are not saved yet (it reports
   // them; 0 on every other screen).
@@ -552,6 +562,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
                 <SubmittalsLandingView
                   workspace={switchOn} isAdmin={canAdmin}
                   onOpenRun={(runId) => onNavigate("review", runId)}
+                  onOpenRunTab={openRunOnTab}
                   onOpenInbox={() => onNavigate("review", INBOX_RECORD)}
                 />
               </>

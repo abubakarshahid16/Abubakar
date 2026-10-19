@@ -34,8 +34,13 @@ vi.mock("./views/ReviewSheetView", () => ({
   ReviewSheetView: ({ runId, panel }: { runId: string; panel?: string }) => <p>{`cards for ${runId}${panel ? ` panel ${panel}` : ""}`}</p>,
 }));
 vi.mock("./views/SubmittalsLandingView", () => ({
-  SubmittalsLandingView: ({ workspace, inbox }: { workspace?: boolean; inbox?: boolean }) => (
-    <p>{`landing${inbox ? " inbox" : ""} workspace=${String(Boolean(workspace))}`}</p>
+  SubmittalsLandingView: ({ workspace, inbox, onOpenRunTab }: {
+    workspace?: boolean; inbox?: boolean; onOpenRunTab?: (runId: string, tab: "crs") => void;
+  }) => (
+    <div>
+      <p>{`landing${inbox ? " inbox" : ""} workspace=${String(Boolean(workspace))}`}</p>
+      {onOpenRunTab && <button type="button" onClick={() => onOpenRunTab("run-7", "crs")}>Preview CRS</button>}
+    </div>
   ),
 }));
 vi.mock("./components/review/workspace/ReviewWorkspace", () => ({
@@ -212,6 +217,17 @@ describe("the address keeps the place", () => {
     await goTo("/review/run-1/workspace?tab=standards&row=row-x&panel=evidence");
     expect(await screen.findByText("workspace for run-1")).toBeInTheDocument();
     expect(where()).toEqual({ runId: "run-1", tab: "standards", row: "row-x", panel: "evidence", documentId: null });
+  });
+
+  it("v2.2: Preview CRS on the first page opens that review straight on the CRS tab", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem(WORKSPACE_OPT_IN_KEY, "on");
+    mockApi();
+    render(<App initialView="review" />);
+    await screen.findByText("landing workspace=true");
+    await user.click(screen.getByRole("button", { name: "Preview CRS" }));
+    expect(await screen.findByText("workspace for run-7")).toBeInTheDocument();
+    expect(where()).toEqual({ runId: "run-7", tab: "crs", row: null, panel: null, documentId: null });
   });
 
   it("a junk query opens the default place", async () => {
