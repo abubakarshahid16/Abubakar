@@ -27,15 +27,22 @@ def _value_signature(fact: dict) -> tuple:
     by its two ends; otherwise the stated words (`raw_value`, or
     `field_value` for a categorical field) with case and spacing folded. The
     gauge/absolute reference and the table column the reader kept are part of
-    it, so two columns of one table are never "the same copy". A copy that
+    it, as is the comparator written with the number (">= 10" is not "<= 10"),
+    so two columns of one table, or a minimum and a maximum, are never "the
+    same copy". A copy that
     states nothing readable agrees with no other copy: its own id is its
     signature, so it can never be merged into "the same value"."""
+    from . import claims
     from . import comparison as c
 
     unit = " ".join(str(fact.get("raw_unit") or "").lower().split())
+    # The comparator is part of what a value says: ">= 10 bar" and "<= 10 bar"
+    # share one normalised number but are two statements, never one field.
+    comparator = claims._split_comparator(str(fact.get("raw_value") or ""))[0] or ""
     kept = (
         str(fact.get("unit_reference") or "").lower(),
         str(fact.get("value_column") or "").lower(),
+        comparator,
     )
     if c.fact_range(fact) is not None:
         low, high = c.fact_range(fact)

@@ -10,7 +10,7 @@ engineer's question, each copy named once with its page and value - and so
 does a value on one copy beside a blank ("to be provided") on another.
 
 Invented field names and values only (CLAUDE.md rules 1 and 3).
-Mutation proofs: M1185-01 .. M1185-06 (scripts/mutations/pr1185_same_field_twice.py).
+Mutation proofs: M1185-01 .. M1185-07 (scripts/mutations/pr1185_same_field_twice.py).
 """
 
 from __future__ import annotations
@@ -221,6 +221,27 @@ def test_a_value_beside_a_blank_copy_is_an_engineer_question_on_the_statement_pa
         "flange rating (page 2): Class 300",
         "flange rating (page 5): left blank",
     ]
+
+
+def test_a_minimum_and_a_maximum_of_the_same_number_are_not_one_copy():
+    # ">= 10" and "<= 10" share one normalised number but are two statements
+    got = match(
+        [
+            fact("flange rating", "a", page=1, value=10.0, raw=">= 10", unit="bar"),
+            fact("flange rating", "b", page=2, value=10.0, raw="<= 10", unit="bar"),
+        ]
+    )
+
+    assert got["fact"] is None and got["reason"] == comparison.AMBIGUOUS_MATCH
+    assert got["same_field_copies"] is True
+
+    same = match(
+        [
+            fact("flange rating", "a", page=1, value=10.0, raw=">= 10", unit="bar"),
+            fact("flange rating", "b", page=2, value=10.0, raw="≥ 10", unit="bar"),
+        ]
+    )
+    assert same["reason"] is None and same["fact"]["id"] == "a"
 
 
 def test_two_table_columns_with_the_same_number_are_not_one_copy():

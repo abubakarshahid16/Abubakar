@@ -77,4 +77,15 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="table_columns",
         tags=_TAGS,
     ),
+    Mutation(
+        id="M1185-07",
+        phase=1185,
+        description="a minimum and a maximum of the same number are merged as one copy",
+        path=_C,
+        anchor="        comparator,\n",
+        replacement='        "",\n',
+        target=_T,
+        keyword="minimum_and_a_maximum",
+        tags=_TAGS,
+    ),
 )
