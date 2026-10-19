@@ -257,24 +257,31 @@ def is_materials_standard(entry_or_label: dict | str, table: dict | None = None)
     return any(standard_ids.same_standard(entry_or_label, m) for m in table["materials_standards"])
 
 
+def _equipment_reading(
+    submittal_document_id: str, allowed_document_ids: frozenset[str]
+) -> tuple[set[str], str | None, dict | None, list[dict]]:
+    """(equipment, source, doubt, facts): `subject_scope.read_equipment` on the
+    submittal's own record and facts. Unsure (order 142): empty equipment."""
+    from . import classification, subject_scope
+
+    facts = datasheets.list_facts(submittal_document_id, allowed_document_ids=allowed_document_ids)
+    equipment, source, doubt = subject_scope.read_equipment(
+        classification.of_document(submittal_document_id) or {}, facts, subject_scope.vocabulary()
+    )
+    return set(equipment), source, doubt, facts
+
+
 def governing_standards(submittal_document_id: str, library: list[dict],
                         allowed_document_ids: frozenset[str]) -> tuple[dict[str, dict], list[dict]]:
     """#725 F5: the standards that GOVERN this submittal's equipment type.
 
-    The type is read by `subject_scope.submittal_equipment` - THE one reader
-    of what a submittal is (classification, then title, then its own type
-    fields) - and the reason says where it was read. Each governing identifier
-    the library holds is selected (`governing_standard`, included); one it does
-    not hold is returned as not held, never as met. Unknown type: nothing.
+    The type is read by `subject_scope` - THE one reader of what a submittal
+    is (classification, then title, then its own type fields) - and the reason
+    says where it was read. Each governing identifier the library holds is
+    selected (`governing_standard`, included); one it does not hold is
+    returned as not held, never as met. Unknown or unsure type: nothing.
     Returns (candidates by standard id, not-held rows)."""
-    from . import subject_scope
-
-    row = connect().execute(
-        "SELECT equipment_type, title FROM document_classification WHERE document_id = ?",
-        (submittal_document_id,)).fetchone()
-    facts = datasheets.list_facts(submittal_document_id, allowed_document_ids=allowed_document_ids)
-    equipment, source = subject_scope.submittal_equipment(dict(row) if row else {}, facts,
-                                                          subject_scope.vocabulary())
+    equipment, source, _doubt, _facts = _equipment_reading(submittal_document_id, allowed_document_ids)
     if not equipment:
         return {}, []
     table = governing_table()["equipment_types"]
@@ -307,6 +314,44 @@ def _cited_by(cited: list[str], identifier: str) -> bool:
     return any(standard_ids.same_standard(c, identifier) for c in cited)
 
 
+def _cited_other_type(
+    cited: list[str], equipment: set[str], source: str | None, own: list[str],
+    stated: list[dict], unsure: bool, gov: dict,
+) -> tuple[list[dict], list[dict]]:
+    """#754 / order 142: the cited codes that govern only OTHER equipment
+    types, as (not applicable, declared check). A code the datasheet states
+    as a field VALUE (`stated`), or one a type of this submittal takes in part
+    (`partial_standards`), is never called not applicable: it is listed for
+    the engineer to check. `own`: the required codes. Unknown type: nothing;
+    unsure type: only the stated codes, for the engineer."""
+    if not (equipment or unsure):
+        return [], []
+    table, this = gov["equipment_types"], ", ".join(sorted(equipment))
+    not_applicable: list[dict] = []
+    declared: list[dict] = []
+    for c in dict.fromkeys([*cited, *(s["identifier"] for s in stated)]):
+        others = sorted(k for k, ids in table.items() if k not in equipment and _cited_by(ids, c))
+        if not others or _cited_by(own, c) or (c not in cited and _cited_by(cited, c)):
+            continue
+        said = next((s for s in stated if standard_ids.same_standard(c, s["identifier"])), None)
+        part = next((e for k in sorted(equipment) for e in gov["partial_standards"].get(k, [])
+                     if standard_ids.same_standard(c, e["standard"])), None)
+        if said is not None:
+            page = f" (page {said['page']})" if said.get("page") is not None else ""
+            declared.append({"identifier": c, "reason": (
+                f"the datasheet states {c} as its {said['label'] or 'own field value'}{page}; it is "
+                f"a code for a {', '.join(others)} - engineer to check which equipment this is")})
+        elif part is not None:
+            declared.append({"identifier": c, "reason": (
+                f"a {this} takes {c} in part ({part.get('applies_to') or 'some clauses'}); it is "
+                f"also a code for a {', '.join(others)} - engineer to check which clauses apply")})
+        elif equipment:
+            not_applicable.append({"identifier": c, "reason": (
+                f"it governs {', '.join(others)}, and this submittal is a {this} "
+                f"(read from its {source})")})
+    return not_applicable, declared
+
+
 def standards_check(submittal_document_id: str, *, allowed_document_ids: frozenset[str],
                     library: list[dict] | None = None) -> dict:
     """#754 F5b: the standards that APPLY to this submittal, against the ones
@@ -327,9 +372,11 @@ def standards_check(submittal_document_id: str, *, allowed_document_ids: frozens
       * `cited_not_applicable`: a cited standard that governs only OTHER
         equipment types, or belongs to a service condition the datasheet
         declares absent - a note asking to confirm, never a verdict;
+      * `declared_check`: a code the datasheet states as a field value, or
+        one its type takes in part, that governs another type - engineer to check;
+      * `equipment_unsure`: why the type is unsure (order 142), else None;
       * `not_used`: every other library standard, counted, not listed.
-    An unknown equipment type and no declared condition give nothing new:
-    the review behaves as before.
+    Unknown type, no declared condition: the review behaves as before.
     """
     from . import service_scope, subject_scope
 
@@ -339,14 +386,9 @@ def standards_check(submittal_document_id: str, *, allowed_document_ids: frozens
     cited = list(dict.fromkeys([*referenced, *(
         r["identifier"] for r in library_citations(library, text).values()
         if r["method"] == METHOD_REFERENCED)]))
-    row = connect().execute(
-        "SELECT equipment_type, title FROM document_classification WHERE document_id = ?",
-        (submittal_document_id,)).fetchone()
-    facts = datasheets.list_facts(submittal_document_id, allowed_document_ids=allowed_document_ids)
-    equipment, source = subject_scope.submittal_equipment(dict(row) if row else {}, facts,
-                                                          subject_scope.vocabulary())
-    equipment = set(equipment or ())
-    table = governing_table()["equipment_types"]
+    equipment, source, doubt, facts = _equipment_reading(submittal_document_id, allowed_document_ids)
+    gov = governing_table()
+    table = gov["equipment_types"]
 
     required: list[dict] = []
     for kind in sorted(equipment):
@@ -384,18 +426,9 @@ def standards_check(submittal_document_id: str, *, allowed_document_ids: frozens
         required_not_cited.append({**r, "held": entry is not None,
                                    "standard_document_id": entry["id"] if entry else None})
 
-    cited_not_applicable: list[dict] = []
-    if equipment:
-        own = [i for kind in equipment for i in table.get(kind, [])]
-        for c in cited:
-            others = sorted(kind for kind, ids in table.items()
-                            if kind not in equipment and any(standard_ids.same_standard(c, i) for i in ids))
-            if others and not any(standard_ids.same_standard(c, i) for i in own) \
-                    and not any(standard_ids.same_standard(c, r["identifier"]) for r in required):
-                cited_not_applicable.append({
-                    "identifier": c,
-                    "reason": (f"it governs {', '.join(others)}, and this submittal is a "
-                               f"{', '.join(sorted(equipment))} (read from its {source})")})
+    cited_not_applicable, declared_check = _cited_other_type(
+        cited, equipment, source, [r["identifier"] for r in required],
+        subject_scope.stated_codes(facts), doubt is not None, gov)
     for condition, where in declared_absent:
         for c in cited:
             if any(standard_ids.same_standard(c, s) for s in condition["standards"]) \
@@ -415,6 +448,8 @@ def standards_check(submittal_document_id: str, *, allowed_document_ids: frozens
         "required_not_cited": required_not_cited,
         "cited_not_held": missing_references(library, referenced),
         "cited_not_applicable": cited_not_applicable,
+        "declared_check": declared_check,
+        "equipment_unsure": doubt["reason"] if doubt else None,
         "not_used": max(0, len(library) - len(used)),
     }
 
@@ -437,15 +472,11 @@ def citation_evidence(document_id: str, identifier: str,
     the caller may see a citation - read under the caller's grants, with the
     same detector selection uses - and the PAGE's own text decides where it is.
 
-    THE DEFECT THIS REPLACED. It returned the chunk's `page_start` and the
-    chunk's first "line". A prose chunk joins its sentences with spaces, so
-    its first line is the whole chunk: on a real datasheet the citation of a
-    standard sat at character 735 of a 741-character chunk spanning pages 4
-    and 5, and the evidence published was "page 4" and 200 characters of the
-    page header - a quote that did not contain the standard it was evidence
-    for, on the wrong page. Now the page is the one whose text carries the
-    citation, and the quote is the printed line it is on (with the line above
-    when the line is only a label's value, as a datasheet cell usually is).
+    THE DEFECT THIS REPLACED: the chunk's `page_start` and first "line" (a
+    whole prose chunk) were published - a quote of the page header, without
+    the standard, on the wrong page. Now the page is the one whose text holds
+    the citation, and the quote its printed line (with the line above when
+    the line is only a label's value).
 
     (None, None) when no chunk carries it. When the page text is unavailable
     the chunk's own line is quoted, with its page only if the chunk lies on ONE
@@ -659,39 +690,18 @@ def _cached_scope_decision(standard_document_id: str, equipment_type: str,
     memoised per (standard, equipment type, exact scope-record content,
     prompt version) - B5 cost fix, owner request 2026-09-28.
 
-    WHY THIS EXISTS. Before it, `scope_decisions_by_reasoning` asked the
-    reasoning model "does this standard apply to equipment type X" fresh on
-    EVERY review, for every standard in the library that has a scope record -
-    hundreds of live API calls per review, most of them asking a question
-    already answered on a previous review with the same answer. That made
-    review cost and latency scale with library size, not with the submittal,
-    and blocked the server's other background work while it ran (see
-    `docs/code-review/` applicability-reasoning-cost finding, 2026-09-28).
+    WHY: the model was asked afresh on EVERY review for every standard with
+    a scope record - hundreds of calls, mostly repeats, so cost scaled with
+    the library and blocked other background work (`docs/code-review/`,
+    2026-09-28). A cache, not a shortcut: the full call (with its 3x
+    NOT_APPLICABLE confirmation) runs once per (standard, equipment type,
+    scope-record content, prompt version). A row is never served stale:
+    `record_hash` changes with the scope record and `prompt_version` with
+    `applicability_reasoning.PROMPT_VERSION`; a miss recomputes and overwrites.
 
-    The fix is a cache, not a shortcut: nothing here is skipped or guessed.
-    The full reasoning call (with its 3x NOT_APPLICABLE re-read confirmation,
-    unchanged) still runs, exactly once, the FIRST time a given
-    (standard, equipment type) pair is asked about with a given scope-record
-    content and prompt version. Every review after that reads the stored
-    answer instead of re-asking. A cache row can only ever be SKIPPED, never
-    served when stale: `record_hash` changes the moment the standard's scope
-    record changes (re-read via `generate_scope_records.py`), and
-    `prompt_version` changes the moment the reasoning prompt itself changes
-    (`applicability_reasoning.PROMPT_VERSION`) - either miss recomputes and
-    overwrites the row, so a stale answer is never returned, only re-asked.
-
-    THE EVIDENCE BACKFILL RUNS HERE, ON EVERY RETURN - cache hit or miss -
-    never inside what gets STORED. `applicability_reasoning.with_covered_
-    evidence` is applied to the decision right before it is handed back,
-    whichever path produced it. This is deliberate (bug fix 2026-09-28,
-    caught verifying the first version of this fix against real cached
-    data): baking the backfill into what `decide_with_confirmation_by_
-    reasoning` returns would freeze it into the cache row at write time, so
-    every row cached before that fix shipped would keep coming back with no
-    quote forever, since a cache hit never recomputes anything. Applying it
-    here instead - after the SELECT, after the INSERT - costs nothing extra
-    (`record` is already an argument) and fixes every already-cached row the
-    moment this ships, not only ones computed after it.
+    THE EVIDENCE BACKFILL (`with_covered_evidence`) RUNS ON EVERY RETURN, hit
+    or miss, never in what is STORED (bug fix 2026-09-28): stored, it would
+    freeze into old rows, which would come back without a quote forever.
     """
     from . import applicability_reasoning
     record_hash = _scope_decision_record_hash(record)
@@ -767,20 +777,10 @@ def scope_decisions_by_reasoning(library: list[dict], profile: dict,
     taxonomy path skips one - `scripts/generate_scope_records.py` is the
     explicit step that creates them; this function only reads.
 
-    `heartbeat`, optional: called after every standard THAT HAS A STORED
-    SCOPE RECORD, cache hit or miss (a standard with none is skipped above
-    this call and never ticks it - `scope_record()` is a fast indexed read,
-    not the cost this exists to cover) (`ingest.IngestionWorker` passes its
-    own `_beat`). Before the B5 cache,
-    this loop's own single-worker `_run` never got a turn between iterations
-    while it ran - the worker's heartbeat only ticks at its OUTER loop
-    boundary, and this ONE call could run for 15-20+ minutes making 200+
-    sequential reasoning calls. That read as "no heartbeat for Ns" / the
-    worker "not moving" on the Documents page, even though it was actively
-    working - and starved real ingestion of its turn for the same span. The
-    B5 cache fixes almost all of this by making repeat calls free; this
-    keeps the worker's OWN reported liveness honest for the case that
-    still remains - the first, uncached run for a new equipment type.
+    `heartbeat`, optional (`ingest.IngestionWorker` passes its `_beat`):
+    called after every standard WITH a stored scope record, hit or miss. One
+    uncached call can run 15-20+ minutes, and the worker's own heartbeat
+    only ticks between jobs, so without it the worker read as "not moving".
     """
     equipment_type = profile.get("equipment_type")
     if not equipment_type:
@@ -947,29 +947,15 @@ def library_citations(library: list[dict], text: str) -> dict[str, dict]:
 def missing_references(library: list[dict], referenced: list[str]) -> list[str]:
     """The standards a submittal CITES that the library does not hold.
 
-    ONE HOME FOR THIS RULE, because two copies of it were both wrong. The
-    dashboard (phase 6) and the CRS export (phase 7) each did:
+    ONE HOME FOR THIS RULE, because two copies were both wrong: the dashboard
+    and the CRS export checked identifiers against `_match_referenced`, which
+    is keyed by DOCUMENT ID, so EVERY cited standard was reported missing
+    (15 of 15 on one sheet, six of them in the library).
 
-        matched = _match_referenced(library, names)
-        missing = [n for n in names if normalise_identifier(n) not in matched]
-
-    - and `_match_referenced` is keyed by DOCUMENT ID ("doc_a3df..."), not by
-    identifier ("SAESL132"). An identifier never equals a document id, so
-    EVERY cited standard was reported missing, always. On the drum sheet that
-    was 15 of 15, when six - SAES-A-133, SAES-A-206, SAES-L-109, SAES-L-132,
-    SAES-W-010, SAES-W-016 - are in the library. The dashboard printed "21 of
-    21 cited standards are not in the library", and the CRS told a contractor
-    six standards were unavailable that were sitting in the library.
-
-    Asked PER NAME, of `find_standard` itself, rather than by reading the
-    identifiers back out of one combined result: that result is keyed by
-    document, so when two citations reach the SAME standard under DIFFERENT
-    spellings - "API RP 520 Pt-1" and "API RP 520" are both API 520 - only
-    the last one's identifier survives, and the other would be reported
-    missing. The same defect, one level down. Per name reuses the exact
-    matching rule (`find_standard`, #452) and cannot drift from what selection
-    considers a match. `select` used to keep a second copy of this list built
-    from the surviving identifiers - exactly that defect - and now asks here.
+    Asked PER NAME, of `find_standard` itself (#452): a result keyed by
+    document keeps one identifier when two spellings reach the same standard
+    ("API RP 520 Pt-1" and "API RP 520"), and the other would read missing.
+    `select` used to keep such a second copy; it now asks here.
 
     Returns the cited names in the submittal's own spelling, one per standard
     (two spellings of one missing standard are listed once), in citation order.
@@ -1097,6 +1083,32 @@ def _semantic_cannot_cover_a_missing_reference(
     return selected, missing
 
 
+def _hold_on_unsure_type(selected: dict[str, dict], check: dict) -> None:
+    """Order 142: when the equipment type is unsure, nothing is ruled in or
+    out by it. AI-first: the scope reasoning still ran; its exclusion becomes
+    "engineer to check", never applied. A row included only by the disputed
+    type is held for the engineer; a declared code says so. Service, project,
+    manual and referenced rows keep their result."""
+    unsure = check.get("equipment_unsure")
+    if not unsure:
+        return
+    declared = check.get("declared_check") or []
+    for row in selected.values():
+        scoped_out = row.pop("excluded_by_scope", None)
+        if scoped_out:
+            row["reason"] = (f"{row['reason']}; {scoped_out} - the equipment type "
+                             "is unsure, engineer to check")
+        if row["method"] in (METHOD_EQUIPMENT, METHOD_SCOPE):
+            row["held_for_engineer"] = (
+                f"held for the engineer to check: it came only from the equipment type ({unsure})")
+        elif row["method"] == METHOD_REFERENCED and row.get("identifier"):
+            said = next((d for d in declared
+                         if standard_ids.same_standard(d["identifier"], row["identifier"])), None)
+            if said is not None:
+                row["reason"] = (f"{row['reason']}; {said['reason']}; the equipment type "
+                                 "is unsure - engineer to confirm")
+
+
 def select(
     submittal_document_id: str, *, allowed_document_ids: frozenset[str],
     review_run_id: str | None = None, persist: bool = True,
@@ -1193,15 +1205,10 @@ def select(
         evidence = {"evidence_page": decision.get("page"),
                     "evidence_quote": decision.get("quote"),
                     "scope_decision": verdict}
-        # HONEST RENDERING (bug found reviewing EF1975-DAS-M-03, 2026-09-28):
-        # `decision.get('quote') or ''` used to print `""` as though an empty
-        # string were a citation - a claim with nothing behind it, on the
-        # honesty-invariant rule that no claim renders without a resolving
-        # citation. `applicability_reasoning.decide_by_reasoning` now backs
-        # every APPLICABLE/APPLICABLE_CANDIDATE with the record's own
-        # verified covered-item quote when the model gave none; a NULL that
-        # survives that (a `generic_scope` record naming no specific item)
-        # says so in plain words instead of showing an empty pair of quotes.
+        # HONEST RENDERING (2026-09-28): an empty quote once printed `""` as a
+        # citation. `decide_by_reasoning` backs every APPLICABLE(_CANDIDATE)
+        # with the record's verified quote; a NULL that survives (a generic
+        # scope naming no item) says so in plain words.
         cited = (f"\"{decision.get('quote')}\" (page {decision.get('page')})"
                  if decision.get("quote") else "no specific quoted clause")
         row = selected.get(standard_id)
@@ -1222,6 +1229,7 @@ def select(
                     f"its scope clause excludes this equipment: {cited}")
         elif row is not None:
             row["scope_decision"] = verdict
+    _hold_on_unsure_type(selected, check)  # order 142: unsure type, the engineer decides
 
     if persist:
         _persist(submittal_document_id, review_run_id, selected, allowed_document_ids,
@@ -1349,25 +1357,14 @@ STATUS_NOT_APPLICABLE = "not_applicable"
 STATUS_UNKNOWN = "unknown"
 
 #: THE FIELDS THIS FUNCTION MAY COMPARE FOR A "DOES NOT MATCH" CLAIM.
-#: `discipline` IS DELIBERATELY EXCLUDED, found and fixed 2026-09-25 by the
-#: owner's own spot-check of "not applicable" verdicts: `document_classification
-#: .discipline` for a COMPANY_STANDARD is the committee that owns it - "Piping
-#: Standards Committee", "Loss Prevention Standards Committee" - read verbatim
-#: off the cover page's "Document Responsibility" line (178 of 179 standards
-#: that have a discipline recorded are committee-shaped, measured on the live
-#: corpus). For a CONTRACTOR_SUBMITTAL, `discipline` is a broad category -
-#: "Mechanical" - read off the submittal's own title block
-#: (`classify_metadata_for_submittal`). These are two DIFFERENT VOCABULARIES,
-#: not two spellings of the same fact, and comparing them for equality can
-#: never produce a true confirmation - only a false "does not match". 9 of 10
-#: sampled `not_applicable` verdicts on the first regression submittal were
-#: exactly this: "discipline 'Piping Standards Committee' does not match the
-#: submittal's 'Mechanical'" - a standard whose governing committee is Piping
-#: reported as not applicable to a Mechanical submittal, which is backwards.
-#: No committee-to-category mapping exists in this codebase (`disciplines.py`'s
-#: `canonical()` only collapses SPELLING variants of the SAME committee name,
-#: it does not translate "Piping Standards Committee" to "Mechanical") - until
-#: one does, `discipline` is evidence to SHOW, never a fact to COMPARE here.
+#: `discipline` IS DELIBERATELY EXCLUDED (owner spot-check, 2026-09-25): for a
+#: COMPANY_STANDARD it is the owning committee ("Piping Standards Committee",
+#: read off the cover page; 178 of 179 on the live corpus), for a
+#: CONTRACTOR_SUBMITTAL a broad category ("Mechanical", from its title block).
+#: Two DIFFERENT VOCABULARIES: equality can only give a false "does not match"
+#: (9 of 10 sampled `not_applicable` verdicts were exactly this). No
+#: committee-to-category mapping exists (`disciplines.canonical` only folds
+#: spellings), so `discipline` is evidence to SHOW, never to COMPARE here.
 _COMPARABLE_FIELDS = ("equipment_type", "service", "project")
 
 
@@ -1379,19 +1376,16 @@ def applicability_with_reasons(submittal_document_id: str, *,
     unknown - per the master order.
 
     BUILT ENTIRELY FROM WHAT `select()` AND `standards.list_standards`
-    ALREADY COMPUTE. No new inference, no new confidence score, no claim
-    this system could not already support before this function existed -
-    it only RECLASSIFIES `select()`'s own output into the four buckets the
-    order asks for, and states a reason using the same attribute
-    comparisons `_match_attribute` already makes (never a semantic
-    judgement this system cannot back with a field-for-field comparison).
+    ALREADY COMPUTE. No new inference or confidence score: it only
+    RECLASSIFIES `select()`'s output into the four buckets, with a reason from
+    the attribute comparisons `_match_attribute` already makes (never a
+    semantic judgement no field-for-field comparison backs). An unsure
+    equipment type (order 142) is not compared.
 
-    "NOT APPLICABLE" IS NEVER GUESSED FROM SILENCE. A standard with no
-    recorded equipment_type/service/project of its own, or a submittal with
-    none of its own, cannot be compared on those axes at all - that is
-    `STATUS_UNKNOWN`, not a "not applicable" this system has no basis to
-    assert. `discipline` is deliberately not one of the comparable axes -
-    see `_COMPARABLE_FIELDS`.
+    "NOT APPLICABLE" IS NEVER GUESSED FROM SILENCE. A standard, or a
+    submittal, with no recorded equipment_type/service/project cannot be
+    compared on those axes - that is `STATUS_UNKNOWN`, never "not
+    applicable". `discipline` is not a comparable axis (`_COMPARABLE_FIELDS`).
     """
     result = select(submittal_document_id,
                     allowed_document_ids=allowed_document_ids, persist=False)
@@ -1403,6 +1397,8 @@ def applicability_with_reasons(submittal_document_id: str, *,
     considered_by_id = {row["standard_document_id"]: row
                         for row in result["selected"] if not row["included"]}
     profile = _submittal_profile(submittal_document_id)
+    if result["standards_check"]["equipment_unsure"]:  # order 142: not an axis
+        profile = {**profile, "equipment_type": None}
     library = _library(allowed_document_ids)
     requirement_counts = {
         row["id"]: row["requirement_count"]
@@ -1440,7 +1436,7 @@ def applicability_with_reasons(submittal_document_id: str, *,
                 "document_number": entry.get("document_number"),
                 "filename": entry.get("filename"),
                 "status": STATUS_NOT_APPLICABLE if scoped_out else STATUS_UNKNOWN,
-                "reason": scoped_out or (
+                "reason": scoped_out or considered.get("held_for_engineer") or (
                     f"considered ({considered['method']}): {considered['reason']} - "
                     + CANDIDATE_ONLY_REASON.get(considered["method"], "not included")),
             })
@@ -1608,7 +1604,10 @@ def record_selection(
 def is_included(row: dict) -> bool:
     """B5: applied to the review only on EVIDENCE - a citation, an equipment,
     service or project classification, a scope clause, or an engineer - and
-    never when a confirmed scope reading excludes it."""
+    never when a confirmed scope reading excludes it, nor while it is held
+    for the engineer (order 142)."""
+    if row.get("held_for_engineer"):
+        return False
     return row["method"] in INCLUDING_METHODS and not row.get("excluded_by_scope")
 
 
@@ -1630,8 +1629,9 @@ def _persist(submittal_document_id: str, review_run_id: str | None,
         included = is_included(row)
         exclusion = None
         if not included:
-            exclusion = row.get("excluded_by_scope") or CANDIDATE_ONLY_REASON.get(
-                row["method"], "not evidence that this standard governs the submittal")
+            exclusion = (row.get("excluded_by_scope") or row.get("held_for_engineer")
+                         or CANDIDATE_ONLY_REASON.get(
+                             row["method"], "not evidence that this standard governs the submittal"))
             if scope_not_run and not row.get("excluded_by_scope"):
                 exclusion = f"{exclusion}; {scope_not_run}"
         record_selection(
