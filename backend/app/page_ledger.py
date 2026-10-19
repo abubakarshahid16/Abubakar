@@ -399,16 +399,19 @@ def run_unread_pages(page_coverage: dict | None, reader: dict | None = None) -> 
     """Order 127: THE run's unread pages, one definition for the issue gate, the
     run summary and the runs list. Union of `pages_not_read_into_fields`,
     `pages_ai_not_read` and (runs stored before PF3 kept `pages_ai_not_read`)
-    the AI reader's own `timed_out` pages, limited to 1..pages_total when the
-    total is known. Sorted, no duplicates. Pure: reads nothing."""
+    the AI reader's own `timed_out` pages. Only those legacy time-out pages are
+    limited to 1..pages_total: `pages_total` counts ledger rows, not the highest
+    page number, and the gate must never drop a page it asked for before.
+    Sorted, no duplicates. Pure: reads nothing."""
     cov = page_coverage if isinstance(page_coverage, dict) else {}
     pages = {int(p) for p in cov.get("pages_not_read_into_fields") or []}
     pages |= {int(p) for p in cov.get("pages_ai_not_read") or []}
     if isinstance(reader, dict):
-        pages |= {int(p) for p in reader.get("timed_out") or []}
-    total = cov.get("pages_total")
-    if total is not None:
-        pages = {p for p in pages if 1 <= p <= int(total)}
+        timed_out = {int(p) for p in reader.get("timed_out") or []}
+        total = cov.get("pages_total")
+        if total is not None:
+            timed_out = {p for p in timed_out if 1 <= p <= int(total)}
+        pages |= timed_out
     return sorted(pages)
 
 

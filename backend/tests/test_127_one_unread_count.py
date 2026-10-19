@@ -196,3 +196,16 @@ def test_run_unread_reasons_prefers_the_code_readers_then_the_legacy_words():
     }
     # pages_to_check keeps its one-argument form
     assert crs_issue.pages_to_check(cov) == [2, 3]
+
+
+def test_the_gate_never_drops_a_code_reader_page_past_the_row_count():
+    # `pages_total` counts ledger rows, not the highest page number: a ledger
+    # holding pages 1, 2, 3 and 5 has a total of 4. Page 5 was not read, and
+    # the gate asked a tick for it before order 127; it still must.
+    cov = {
+        "pages_total": 4,
+        "pages_not_read_into_fields": [5],
+        "pages_ai_not_read": [0],
+    }
+    assert page_ledger.run_unread_pages(cov) == [0, 5]
+    assert crs_issue.pages_to_check(cov) == [0, 5]
