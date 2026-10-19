@@ -5,9 +5,11 @@ submittal or any UNDECIDED FINDING or question. While either exists the
 contractor copy is refused; the internal copy stays available.
 
 WHAT COUNTS:
-  * an unread page: a page the run could not read into fields, as stored on
-    the run (`page_coverage.pages_not_read_into_fields`, the same pages the
-    CRS names), unless an engineer has recorded that they checked it by eye.
+  * an unread page: a page of the run's one unread list (order 127,
+    `page_ledger.run_unread_pages`: pages the code readers could not read
+    into fields, pages the configured AI reader did not read, and on an older
+    run the AI reader's time-outs - the same list the run summary shows),
+    unless an engineer has recorded that they checked it by eye.
     A run with NO page coverage on record is unfinished too - "nothing was
     accounted for" is not "every page was read".
   * an undecided finding: a CRS row that stands on a finding no engineer has
@@ -33,6 +35,7 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
+from . import page_ledger
 from .config import settings
 from .db import connect
 
@@ -143,26 +146,31 @@ def history(review_run_id: str) -> list[dict]:
     return [{**dict(r), "reason_code": dict(r).get("reason_code")} for r in rows]
 
 
-def pages_to_check(page_coverage: dict | None) -> list[int]:
+def pages_to_check(page_coverage: dict | None, reader: dict | None = None) -> list[int]:
     """The pages an engineer must check before the contractor's copy is issued:
-    pages the code readers did not read into fields AND (PF3, #883) pages the
-    AI reader was asked to read and did not (time-out, unavailable, failed)."""
-    coverage = page_coverage or {}
-    return sorted(
-        {int(p) for p in (coverage.get("pages_not_read_into_fields") or [])}
-        | {int(p) for p in (coverage.get("pages_ai_not_read") or [])}
-    )
+    the run's unread pages, one definition (order 127,
+    `page_ledger.run_unread_pages`): pages the code readers did not read into
+    fields, pages (PF3, #883) the AI reader was asked to read and did not
+    (time-out, unavailable, failed), and on a run stored before PF3 the AI
+    reader's own time-outs (`reader` is the run's `requirement_split.reader`)."""
+    return page_ledger.run_unread_pages(page_coverage, reader)
 
 
 def open_items(
-    review_run_id: str, rows: list[dict], page_coverage: dict | None
+    review_run_id: str,
+    rows: list[dict],
+    page_coverage: dict | None,
+    reader: dict | None = None,
 ) -> dict:
     """What still stands between this run and its contractor copy.
 
     `rows` are the run's CRS rows (internal composition); `page_coverage` is
-    the run's stored page coverage. Returns {unread_pages: [{page, reason}],
-    open_findings: [{finding_id, row_kind, item}], blockers: [plain words],
-    issuable: bool}. Read only."""
+    the run's stored page coverage; `reader` its `requirement_split.reader`.
+    Returns {unread_pages: [{page, reason}] (left to tick), checked_pages
+    (pages of the same list an engineer ticked), pages_total, open_findings:
+    [{finding_id, row_kind, item}], blockers: [plain words], issuable: bool}.
+    `unread_pages` and `checked_pages` together are exactly
+    `page_ledger.run_unread_pages` (order 127). Read only."""
     checked = {
         d["subject"]
         for d in decisions(review_run_id)
@@ -170,15 +178,19 @@ def open_items(
     }
     blockers: list[str] = []
     unread: list[dict] = []
+    checked_pages: list[int] = []
+    pages_total = None
     if not page_coverage or page_coverage.get("pages_total") is None:
         blockers.append(NO_PAGE_COVERAGE)
     else:
-        reasons = {
-            **(page_coverage.get("ai_not_read_reasons") or {}),
-            **(page_coverage.get("not_read_reasons") or {}),
-        }
-        for page in pages_to_check(page_coverage):
-            if str(page) not in checked:
+        pages_total = page_coverage.get("pages_total")
+        reasons = page_ledger.run_unread_reasons(page_coverage, reader)
+        for page in pages_to_check(page_coverage, reader):
+            if str(page) in checked:
+                # order 127: a stale tick on a page no longer in the list
+                # is not counted - only pages of the list
+                checked_pages.append(int(page))
+            else:
                 unread.append(
                     {"page": int(page), "reason": reasons.get(str(page)) or None}
                 )
@@ -222,6 +234,8 @@ def open_items(
         )
     return {
         "unread_pages": unread,
+        "checked_pages": checked_pages,
+        "pages_total": pages_total,
         "open_findings": findings,
         "blockers": blockers,
         "issuable": not blockers,

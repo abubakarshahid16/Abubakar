@@ -28,6 +28,7 @@ from .. import ai_numbers as ai_numbers_mod
 from .. import clause_coverage as clause_coverage_mod
 from .. import comparison as comparison_mod
 from .. import crs_wording as crs_wording_mod
+from .. import page_ledger as page_ledger_mod
 from .. import requirement_split as requirement_split_mod
 from .. import submittal_review as submittal_review_mod
 from ..api_utils import reject_unknown_params, require_document
@@ -259,6 +260,10 @@ def review_run_summary(
             "completeness": outcome.get("completeness"),
             "reader": steps.get("reader"),
             "timed_out_pages": timed_out,
+            # order 127: one definition, the same the issue gate asks ticks for
+            "unread_pages": page_ledger_mod.run_unread_pages_shown(
+                outcome.get("page_coverage"), page_ledger_mod.run_reader(outcome)
+            ),
             "code_version": versions.get("code_version"),
             "config_version": versions.get("config_version"),
             "stage_seconds": _stage_seconds(review_trace.stored(review_run_id, scope)),
