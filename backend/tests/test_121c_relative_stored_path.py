@@ -62,10 +62,14 @@ def _stored(doc_id: str) -> str:
 
 
 def _move(home, tmp_path, monkeypatch):
+    """The data folder taken to another machine. Copied, then the old uploads
+    removed so only the copy can answer: the test client's request threads
+    keep their own SQLite connection open, and Windows refuses to move a
+    folder holding an open file (the PDFs are always opened and closed)."""
     db.reset_connection()
     moved = tmp_path / "mac" / "data"
-    moved.parent.mkdir(parents=True)
-    shutil.move(str(home), str(moved))
+    shutil.copytree(home, moved)
+    shutil.rmtree(home / "uploads")
     _use(monkeypatch, moved)
     return moved
 
