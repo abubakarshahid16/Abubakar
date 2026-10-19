@@ -32,6 +32,7 @@ from .. import crs_mapping as crs_mapping_mod
 from .. import crs_wording as crs_wording_mod
 from .. import page_ledger as page_ledger_mod
 from .. import requirement_split as requirement_split_mod
+from .. import review_counts as review_counts_mod
 from .. import submittal_review as submittal_review_mod
 from ..api_utils import reject_unknown_params, require_document
 from ..db import connect
@@ -69,6 +70,26 @@ class TierCounts(BaseModel):
     needs_you: int
     removed: int
     total: int
+
+
+class SheetCounts(BaseModel):
+    """The sheet's counts (order 152.2, `review_counts.sheet_counts`), each in
+    the unit its field names: `comments`, `needs_you`, `met`,
+    `not_applicable` and `another_document` are ROWS of the CRS sheet;
+    `findings_in_comments` is the findings those comment rows hold;
+    `review_notes` the findings the file puts in its Review notes; `removed`
+    the findings an engineer removed; `findings` every finding of the run.
+    The inbox's `/counts` are findings (TierCounts), not rows."""
+
+    comments: int
+    needs_you: int
+    met: int
+    not_applicable: int
+    another_document: int
+    findings_in_comments: int
+    review_notes: int
+    removed: int
+    findings: int
 
 
 class TierRow(BaseModel):
@@ -183,6 +204,9 @@ class RunSummary(BaseModel):
     #: order 139 part 2: set true by a server that sends each row's
     #: `crs_group` (the sheet's grouping); absent or false otherwise
     crs_grouping: bool = False
+    #: order 152.2: the sheet's counts in rows, from the same grouping; null
+    #: when the grouping could not be computed (never zeros)
+    sheet: SheetCounts | None = None
 
 
 class RunCountsBatch(BaseModel):
@@ -293,6 +317,15 @@ def review_run_summary(
                 {**row, **grouping.get(row["finding_id"], {})} for row in tiers["rows"]
             ],
         }
+    sheet = (
+        review_counts_mod.sheet_counts(
+            comparison_mod.list_findings(review_run_id, allowed_document_ids=allowed),
+            _facts(review_run_id, outcome, timed_out),
+            grouping,
+        )
+        if grouping is not None
+        else None
+    )
     steps = (
         ai_numbers_mod.for_run(
             outcome,
@@ -310,6 +343,7 @@ def review_run_summary(
         "boundary": BOUNDARY,
         **tiers,
         "crs_grouping": grouping is not None,
+        "sheet": sheet,
         "how_reviewed": {
             "requirement_split": split,
             "page_coverage": outcome.get("page_coverage"),

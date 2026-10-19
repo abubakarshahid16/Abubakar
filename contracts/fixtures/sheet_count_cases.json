@@ -1,0 +1,210 @@
+{
+  "base_finding": {
+    "compliance_status": "NON_COMPLIANT",
+    "approval_status": "pending",
+    "contractor_page": 1,
+    "standard_document_id": "std-1",
+    "standard_clause": "4.1",
+    "finding": "x",
+    "required_action": "y",
+    "matched_phrase": "Field"
+  },
+  "cases": [
+    {
+      "name": "13 blanks on one row are one comment and 13 findings",
+      "findings": [
+        {
+          "id": "b0",
+          "compliance_status": "MISSING_INFORMATION"
+        },
+        {
+          "id": "b1",
+          "compliance_status": "MISSING_INFORMATION"
+        },
+        {
+          "id": "b2",
+          "compliance_status": "MISSING_INFORMATION"
+        },
+        {
+          "id": "b3",
+          "compliance_status": "MISSING_INFORMATION"
+        },
+        {
+          "id": "b4",
+          "compliance_status": "MISSING_INFORMATION"
+        },
+        {
+          "id": "b5",
+          "compliance_status": "MISSING_INFORMATION"
+        },
+        {
+          "id": "b6",
+          "compliance_status": "MISSING_INFORMATION"
+        },
+        {
+          "id": "b7",
+          "compliance_status": "MISSING_INFORMATION"
+        },
+        {
+          "id": "b8",
+          "compliance_status": "MISSING_INFORMATION"
+        },
+        {
+          "id": "b9",
+          "compliance_status": "MISSING_INFORMATION"
+        },
+        {
+          "id": "b10",
+          "compliance_status": "MISSING_INFORMATION"
+        },
+        {
+          "id": "b11",
+          "compliance_status": "MISSING_INFORMATION"
+        },
+        {
+          "id": "b12",
+          "compliance_status": "MISSING_INFORMATION"
+        },
+        {
+          "id": "x1"
+        }
+      ],
+      "groups": {
+        "b0": {
+          "crs_group": "field:a"
+        },
+        "b1": {
+          "crs_group": "field:a"
+        },
+        "b2": {
+          "crs_group": "field:a"
+        },
+        "b3": {
+          "crs_group": "field:a"
+        },
+        "b4": {
+          "crs_group": "field:a"
+        },
+        "b5": {
+          "crs_group": "field:a"
+        },
+        "b6": {
+          "crs_group": "field:a"
+        },
+        "b7": {
+          "crs_group": "field:a"
+        },
+        "b8": {
+          "crs_group": "field:a"
+        },
+        "b9": {
+          "crs_group": "field:a"
+        },
+        "b10": {
+          "crs_group": "field:a"
+        },
+        "b11": {
+          "crs_group": "field:a"
+        },
+        "b12": {
+          "crs_group": "field:a"
+        },
+        "x1": {
+          "crs_group": "req:x1"
+        }
+      },
+      "expected": {
+        "comments": 2,
+        "needs_you": 0,
+        "met": 0,
+        "not_applicable": 0,
+        "another_document": 0,
+        "findings_in_comments": 14,
+        "review_notes": 0,
+        "removed": 0,
+        "findings": 14
+      }
+    },
+    {
+      "name": "a row takes the worst tier of its findings; met rows are not comments",
+      "findings": [
+        {
+          "id": "a",
+          "compliance_status": "COMPLIANT"
+        },
+        {
+          "id": "b"
+        },
+        {
+          "id": "c",
+          "compliance_status": "NEEDS_ENGINEER_REVIEW"
+        },
+        {
+          "id": "d",
+          "compliance_status": "COMPLIANT"
+        }
+      ],
+      "groups": {
+        "a": {
+          "crs_group": "g"
+        },
+        "b": {
+          "crs_group": "g"
+        },
+        "c": {
+          "crs_group": "g"
+        },
+        "d": {
+          "crs_group": "h"
+        }
+      },
+      "expected": {
+        "comments": 1,
+        "needs_you": 1,
+        "met": 1,
+        "not_applicable": 0,
+        "another_document": 0,
+        "findings_in_comments": 3,
+        "review_notes": 0,
+        "removed": 0,
+        "findings": 4
+      }
+    },
+    {
+      "name": "removed, chat and review-note findings are on no row",
+      "findings": [
+        {
+          "id": "r",
+          "approval_status": "rejected"
+        },
+        {
+          "id": "c",
+          "origin": "chat"
+        },
+        {
+          "id": "n",
+          "compliance_status": "NEEDS_ENGINEER_REVIEW"
+        },
+        {
+          "id": "k"
+        }
+      ],
+      "groups": {
+        "n": {
+          "crs_note": true
+        }
+      },
+      "expected": {
+        "comments": 1,
+        "needs_you": 0,
+        "met": 0,
+        "not_applicable": 0,
+        "another_document": 0,
+        "findings_in_comments": 1,
+        "review_notes": 1,
+        "removed": 1,
+        "findings": 4
+      }
+    }
+  ]
+}
