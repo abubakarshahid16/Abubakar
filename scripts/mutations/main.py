@@ -210,11 +210,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="OPEN THE TABLE LIST TO ANY SIGNED-IN CALLER, which hands "
                     "every table name in the system to a non-admin",
         path=APP / "api/admin.py",
-        anchor="    actor: dict | None = Depends(admin_mod.current_admin),\n"
-               "):\n"
+        anchor="    actor: dict | None = Depends(admin_mod.current_admin),\n):\n"
                "    \"\"\"Every user table with its row count.",
-        replacement="    actor: dict | None = None,\n"
-                    "):\n"
+        replacement="    actor: dict | None = None,\n):\n"
                     "    \"\"\"Every user table with its row count.",
         target="tests/test_admin_db_routes.py",
         keyword="real_non_admin_with_a_real_token or unauthenticated_caller",
@@ -335,8 +333,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="hand the unowned rows back to every caller, not the admin "
                     "capability alone",
         path=APP / "main.py",
-        anchor="        include_unowned=scope.is_admin)}",
-        replacement="        include_unowned=True)}",
+        anchor="        include_unowned=scope.is_admin), limit, offset)",
+        replacement="        include_unowned=True), limit, offset)",
         target=_B42_TEST, keyword="route_gives_the_unowned_rows",
         tags=("privacy",),
     ),

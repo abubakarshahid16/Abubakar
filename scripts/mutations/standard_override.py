@@ -5,7 +5,7 @@ from __future__ import annotations
 from ._base import APP, FRONTEND_SRC, Mutation
 
 _T = "tests/test_p2_standard_override.py"
-_M = APP / "main.py"
+_M = APP / "api/run_standards.py"
 
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M870", phase=76, description="P2: an automatic selection replaces the engineer's row",

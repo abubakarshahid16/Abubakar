@@ -2062,8 +2062,6 @@ class StructuredSearchResult(BaseModel):
 
 
 class StructuredSearchList(ListPage):
-    """One page of the matches; `total` is every match the caller may read."""
-
     results: list[StructuredSearchResult]
 
 
@@ -2650,7 +2648,7 @@ class ReviewRunStandardList(ListPage):
     #: B5: standards the submittal CITES that the library does not hold, each
     #: `MISSING_LOCALLY`, as stored on the run. Empty when none, or when the
     #: run predates this field. Never paged: all of them on every page.
-    missing_references: list[ReviewRunMissingReference] = []
+    missing_references: list[ReviewRunMissingReference] = Field(default_factory=list)
 
 
 class ReviewJobState(BaseModel):

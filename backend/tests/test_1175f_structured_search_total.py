@@ -77,5 +77,7 @@ def test_chat_records_states_the_true_count(many_risks):
     answer = chat_answers.records(
         "late package", allowed_document_ids=EVERYTHING, include_unowned=True
     )
-    assert answer["answer"].startswith(f"Found {MATCHES} workflow records")
+    assert answer["answer"].startswith(
+        f'Found {MATCHES} workflow records for "late package" (the first 10 shown):'
+    )
     assert len(answer["records"]) == 10

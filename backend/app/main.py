@@ -43,6 +43,7 @@ from . import watch_api as watch_api_mod
 from . import sheet_page as sheet_page_mod
 from . import warmup as warmup_mod
 from .api_utils import (
+    _actor_from_scope,
     _require_identity_to_write,
     _deliverable_visible,
     _require_named_reviewer,
@@ -264,6 +265,7 @@ from .api import document_classification as api_document_classification  # noqa:
 from .api import document_files as api_document_files  # noqa: E402
 from .api import documents as api_documents  # noqa: E402
 from .api import review_templates as api_review_templates  # noqa: E402
+from .api import run_standards as api_run_standards  # noqa: E402
 from .api import run_summary as api_run_summary  # noqa: E402
 from .api import standards as api_standards  # noqa: E402
 
@@ -274,6 +276,7 @@ app.include_router(api_run_summary.router)
 app.include_router(api_review_templates.router)
 app.include_router(api_standards.router)
 app.include_router(api_crs_archive.router)
+app.include_router(api_run_standards.router)
 app.include_router(api_deliverables.router)
 app.include_router(watch_api_mod.router)
 app.include_router(fact_api_mod.router)
@@ -608,24 +611,6 @@ def _require_owned_conversation(conversation_id: str, scope: access.AccessScope)
             detail=errors.safe_error(errors.NOT_FOUND, "no conversation with that id"),
         )
     return row
-
-
-def _actor_from_scope(scope: access.AccessScope) -> dict | None:
-    """Who to name in the audit trail for an ENGINEER'S action.
-
-    `admin.current_admin` is the wrong dependency for these: it is a GATE as
-    well as a lookup, and a non-admin gets its deliberately silent 404. That
-    is right for the admin surface and wrong for an engineer's own work - it
-    made recording a final review code (section 15, an engineer's action)
-    impossible for anyone but an admin, and said "not found" while doing it.
-    This resolves the name without deciding anything about permission; the
-    route's own scope has already done that.
-    """
-    if not scope.user_id:
-        return None
-    row = connect().execute("SELECT id, email FROM users WHERE id = ?",
-                            (scope.user_id,)).fetchone()
-    return dict(row) if row else {"id": scope.user_id}
 
 
 # ------------------------------------------------------------------- auth
@@ -1632,129 +1617,6 @@ def review_run_ai_numbers(
     return {"review_run_id": review_run_id,
             **{k: steps.get(k) for k in ("reader", "matcher", "engineering_check", "wording",
                                          "clause_checks")}}
-
-
-@app.get("/api/reviews/runs/{review_run_id}/standards",
-         response_model=schemas.ReviewRunStandardList,
-         responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def review_run_standards(
-    review_run_id: str,
-    request: Request,
-    include_excluded: bool = Query(False),
-    limit: int | None = paging_mod.limit_param(),
-    offset: int = paging_mod.offset_param(),
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """Which standards this run compared against, and WHY each one is there.
-
-    The reason and the method are passed through unchanged. A semantic match
-    says in its own words that it is not a citation, and a screen that
-    summarised that away would turn "something was retrieved" into "this
-    standard applies" - the substitution section 23 forbids.
-    """
-    reject_unknown_params(request, {"include_excluded", "limit", "offset"})
-    if submittal_review_mod.get_review_run(
-            review_run_id,
-            allowed_document_ids=scope.allowed_document_ids) is None:
-        raise HTTPException(status_code=404, detail=errors.safe_error(
-            errors.NOT_FOUND, "no review run with that id"))
-    return _run_standards_payload(review_run_id, scope, include_excluded, limit, offset)
-
-
-def _run_standards_payload(review_run_id: str, scope: access.AccessScope,
-                           include_excluded: bool, limit: int | None = None,
-                           offset: int = 0) -> dict:
-    """The run's standards, one page of them with their total (order 117 item
-    5). The cited-but-missing list is never paged: a page that hid one would
-    read as "the library holds everything this submittal cites"."""
-    rows = submittal_review_mod.list_applicable_standards(
-        review_run_id, allowed_document_ids=scope.allowed_document_ids,
-        include_excluded=include_excluded)
-    out = []
-    for row in rows:
-        document = connect().execute(
-            "SELECT filename FROM documents WHERE id = ?",
-            (row["standard_document_id"],)).fetchone()
-        out.append({
-            "standard_document_id": row["standard_document_id"],
-            "filename": document["filename"] if document else None,
-            "selection_method": row.get("selection_method"),
-            "selection_reason": row.get("selection_reason"),
-            "confidence": row.get("confidence"),
-            "included": bool(row.get("included", 1)),
-            "exclusion_reason": row.get("exclusion_reason"),
-            "evidence_page": row.get("evidence_page"),
-            "evidence_quote": row.get("evidence_quote"),
-            "scope_decision": row.get("scope_decision"),
-        })
-    outcome = comparison_mod.run_outcome(
-        review_run_id, allowed_document_ids=scope.allowed_document_ids) or {}
-    return {**paging_mod.page_body("standards", out, limit, offset),
-            "missing_references": outcome.get("missing_references") or []}
-
-
-@app.post("/api/reviews/runs/{review_run_id}/standards/override",
-          response_model=schemas.ReviewRunStandardList,
-          responses={**schemas.ERRORS_401, **schemas.ERRORS_404,
-                     **schemas.ERRORS_409, **schemas.ERRORS_422})
-def override_review_standard(
-    review_run_id: str,
-    body: schemas.StandardOverrideRequest,
-    request: Request,
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """P2: an engineer adds or removes a standard, with a reason, and the run's
-    findings are recomputed from the new list.
-
-    THE ENGINEER'S OWN ACT: a signed-in caller, named in the audit row (written
-    in the same transaction as the selection). Both documents must be readable
-    - a hidden one is the same 404 as a missing one. REFUSED (409) when the
-    run carries an engineer's final code (that decision was made about these
-    findings; start a new review), while it is still running, or when the
-    caller cannot read every standard the run already uses - recomputing under
-    a narrower view would silently drop another engineer's requirements.
-    Cited standards the library does not hold stay MISSING_LOCALLY: adding a
-    different standard does not make a missing one present.
-    """
-    reject_unknown_params(request, set())
-    _require_identity_to_write(scope)
-    if not scope.user_id:
-        raise HTTPException(status_code=401, detail=errors.safe_error(
-            errors.UNAUTHENTICATED, "an override must name the engineer who made it"))
-    run = submittal_review_mod.get_review_run(
-        review_run_id, allowed_document_ids=scope.allowed_document_ids)
-    if run is None or not scope.may_read(body.standard_document_id):
-        raise HTTPException(status_code=404, detail=errors.safe_error(
-            errors.NOT_FOUND, "no review run or standard with that id"))
-    if run.get("engineer_final_code"):
-        raise HTTPException(status_code=409, detail=errors.safe_error(
-            errors.INVALID_PARAMETER,
-            "this run carries an engineer's final code; start a new review to change its standards"))
-    if (run.get("status") or "") == "running":
-        raise HTTPException(status_code=409, detail=errors.safe_error(
-            errors.INVALID_PARAMETER, "this review is still running"))
-    in_use = {r["standard_document_id"] for r in connect().execute(
-        "SELECT standard_document_id FROM review_applicable_standards"
-        " WHERE review_run_id = ? AND included = 1", (review_run_id,))}
-    if not in_use <= scope.allowed_document_ids:
-        raise HTTPException(status_code=409, detail=errors.safe_error(
-            errors.INVALID_PARAMETER,
-            "you cannot read every standard this review uses, so it cannot be recomputed under your view"))
-    outcome = comparison_mod.run_outcome(
-        review_run_id, allowed_document_ids=scope.allowed_document_ids) or {}
-    try:
-        applicability_mod.override(
-            review_run_id, body.standard_document_id, include=body.include,
-            reason=body.reason, allowed_document_ids=scope.allowed_document_ids,
-            actor=_actor_from_scope(scope))
-    except applicability_mod.ApplicabilityError as exc:
-        raise HTTPException(status_code=422, detail=errors.safe_error(
-            errors.INVALID_PARAMETER, str(exc))) from exc
-    comparison_mod.run_comparison(
-        review_run_id, allowed_document_ids=scope.allowed_document_ids,
-        reference_coverage=(outcome.get("completeness") or {}).get("reference_coverage"),
-        missing_references=[m["identifier"] for m in outcome.get("missing_references") or []])
-    return _run_standards_payload(review_run_id, scope, include_excluded=True)
 
 
 @app.post("/api/reviews/run", response_model=schemas.ReviewRunSummary,
