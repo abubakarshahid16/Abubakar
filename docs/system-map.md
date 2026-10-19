@@ -113,6 +113,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `extract` | Step 2 - resumable page-batch extraction |
 | `facet_memo` | The facet merge rule asked once per pair of facet versions (#615) |
 | `family_search` | A question that names a FAMILY of standards in general words ("what do the welding standards say about post we |
+| `field_copies` | One datasheet field read more than once: the same value (or all blank) is one field; different values, or a value beside a blank, stay the engineer's question (order 142 fix C, #1185) |
 | `field_links` | Linking a datasheet field to a clause: synonyms, nozzle marks, and simple categorical values. CRS quick wins, |
 | `field_naming` | Canonical field names for printed labels and numeric requirements (#193 plan B4, orders 5.2 and 5.3). Behind ` |
 | `front_matter` | Front matter: passages that describe a document rather than answer from it |
