@@ -15,7 +15,7 @@
  *
  * Read only. Decisions stay on the row.
  */
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { reviews as reviewsApi } from "../../../api/client";
 import type { CrsIssueDecision } from "../../../types/api";
@@ -26,18 +26,7 @@ import { SheetPageImage } from "../sheet/SheetPageImage";
 import { cardTitle, trustLine } from "../sheet/sheetCards";
 import type { CrsRow } from "./crsRows";
 import { comparisonLine, historyOf, pagerStrip, parsePage, stepPage } from "./evidenceNav";
-import type { TierReason } from "./tiers";
-
-const REASON_WORDS: Record<TierReason, string> = {
-  "page not read": "The reader did not read this page into fields, so the value may still be on the page. Read the page yourself.",
-  "standard not in library": "The standard this comment rests on is not in the library, so the clause could not be checked. Upload it, or decide from the datasheet.",
-  "AI guess": "The datasheet field was paired with this clause by an AI guess that nobody has confirmed. Check that the field is the one the clause means.",
-  "rule not proven": "The rule behind this row has not been proven yet, so its answer is not trusted on its own. Check it against the standard.",
-  "safety field": "This is a safety field. It meets the standard, but it is shown for your own tick before it goes on the record.",
-  "condition unsettled": "The rule has a condition the computer could not settle. Decide whether it applies here.",
-  "value conflict": "The datasheet gives two values for this field. Decide which one counts.",
-  "unit unknown": "The unit of the value could not be read, so it was not compared. Check the unit on the page.",
-};
+import { REASON_WORDS } from "../workspace/plainWords";
 
 export interface CrsEvidenceDrawerProps {
   row: CrsRow;
@@ -52,6 +41,9 @@ export interface CrsEvidenceDrawerProps {
   /** The document's pages: its page count (null when not known), the pages
    *  that carry a comment, and how to open the first comment on a page. */
   pager?: { pageCount: number | null; commentPages: number[]; onPage: (page: number) => boolean };
+  /** Optional block shown under the row's reason (the review workspace's
+   *  plain words with their codes under "Details"). Absent: nothing changes. */
+  extra?: ReactNode;
 }
 
 function isTyping(target: EventTarget | null): boolean {
@@ -59,7 +51,7 @@ function isTyping(target: EventTarget | null): boolean {
   return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
 }
 
-export function CrsEvidenceDrawer({ row, runId, standardNames, onClose, onOpenCards, returnTo, nav, pager }: CrsEvidenceDrawerProps) {
+export function CrsEvidenceDrawer({ row, runId, standardNames, onClose, onOpenCards, returnTo, nav, pager, extra }: CrsEvidenceDrawerProps) {
   const closeRef = useRef<HTMLButtonElement | null>(null);
   // The page shown: the row's own, until the engineer looks at another one.
   const [viewPage, setViewPage] = useState<number | null>(row.page);
@@ -142,6 +134,7 @@ export function CrsEvidenceDrawer({ row, runId, standardNames, onClose, onOpenCa
             <p className="mt-1 text-sm text-slateish-100">{REASON_WORDS[row.tier.reason]}</p>
           </section>
         )}
+        {extra}
         {comparisonLine(leader) && (
           <p data-testid="drawer-comparison" className="rounded-[var(--radius-sm)] border border-ink-700 bg-ink-950/40 p-2 text-sm text-slateish-100">
             {comparisonLine(leader)}

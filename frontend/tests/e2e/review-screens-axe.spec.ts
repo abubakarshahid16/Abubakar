@@ -5,11 +5,12 @@
  * The main gate (`contrast-root-cause.spec.ts`) opens a fresh, empty app, where
  * no review run exists, so it never reached these screens. Here every `/api`
  * call is answered from made-up fixtures in the page itself (`page.route`), so
- * the CRS sheet, its drawer, the card view and "How this was reviewed" render
- * with rows in both themes, and no backend or document is involved.
+ * the CRS sheet, its drawer, the card view, "How this was reviewed" and the
+ * review workspace (switch on, in this browser only) render with rows in
+ * both themes, and no backend or document is involved.
  */
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page, type Route } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 
 const RUN = "run-axe";
 const run = {
@@ -49,6 +50,13 @@ const answers: Array<[RegExp, unknown]> = [
     unread_pages: [{ page: 2, reason: "vision reader: page kind 'cover'" }],
     open_findings: [{ finding_id: "a", row_kind: "non_compliant", item: 1 }, { finding_id: "k", row_kind: "standard_not_cited", item: 2 }],
   }],
+  // Workspace v2: the submittal's readiness (pages read, standards missing).
+  [/\/api\/reviews\/readiness\/doc-sub$/, {
+    submittal_document_id: "doc-sub", pages_total: 2, pages_read: 1, unread_pages: [2],
+    unread_page_reasons: { "2": "vision reader: page kind 'cover'" }, ledger_state: "current", ledger_note: null,
+    standards_cited: 1, standards_held: ["sample-standard.pdf"], standards_missing: [],
+    last_run_id: RUN, nothing_changed: true, changes: [],
+  }],
   [/\/api\/documents\/doc-sub$/, { id: "doc-sub", filename: "sample-datasheet.pdf", page_count: 2, status: "ready" }],
 ];
 
@@ -73,11 +81,17 @@ async function seriousOrCritical(page: Page) {
     .flatMap((v) => v.nodes.map((n) => ({ rule: v.id, impact: v.impact, target: n.target, summary: n.failureSummary })));
 }
 
-const screens = [
+/** The "Try new design" switch's storage key (workspaceRoute.WORKSPACE_OPT_IN_KEY).
+ *  Off by default; this audit turns it on in its own browser only. */
+const WORKSPACE_OPT_IN_KEY = "rag-intelligence-workspace-v2";
+
+const screens: ReadonlyArray<{ name: string; path: string; ready: (p: Page) => Locator; switchOn?: boolean }> = [
   { name: "CRS sheet", path: `/review/${RUN}/crs-sheet`, ready: (p: Page) => p.getByRole("grid", { name: "Comment resolution sheet" }) },
   { name: "card view", path: `/review/${RUN}/cards`, ready: (p: Page) => p.getByTestId("sheet-headline") },
   { name: "How this was reviewed", path: `/review/${RUN}/how`, ready: (p: Page) => p.getByTestId("how-reviewed") },
-] as const;
+  // Workspace v2 with the switch on: the plain run address opens it.
+  { name: "review workspace", path: `/review/${RUN}`, ready: (p: Page) => p.getByTestId("ws-action-bar"), switchOn: true },
+];
 
 for (const theme of ["light", "dark"] as const) {
   test(`review screens and the evidence drawer have no serious/critical axe violations (${theme})`, async ({ page }) => {
@@ -89,6 +103,9 @@ for (const theme of ["light", "dark"] as const) {
     await page.setViewportSize({ width: 1600, height: 900 });
     const found: Record<string, unknown[]> = {};
     for (const screen of screens) {
+      // Earlier screens left the page on the app's origin, so its storage
+      // can be written before the workspace address is opened.
+      if (screen.switchOn) await page.evaluate((key) => localStorage.setItem(key, "on"), WORKSPACE_OPT_IN_KEY);
       await page.goto(screen.path);
       await expect(screen.ready(page)).toBeVisible({ timeout: 15_000 });
       // The app's own theme switch, as the main gate does.
@@ -107,9 +124,9 @@ for (const theme of ["light", "dark"] as const) {
       }
     }
     console.log(`${theme}: API paths answered 404 (not needed for these screens): ${[...unanswered].sort().join(", ") || "none"}`);
-    expect(Object.keys(found)).toEqual(["CRS sheet", "evidence drawer", "card view", "How this was reviewed"]);
+    expect(Object.keys(found)).toEqual(["CRS sheet", "evidence drawer", "card view", "How this was reviewed", "review workspace"]);
     expect(found, "serious/critical accessibility violations").toEqual({
-      "CRS sheet": [], "evidence drawer": [], "card view": [], "How this was reviewed": [],
+      "CRS sheet": [], "evidence drawer": [], "card view": [], "How this was reviewed": [], "review workspace": [],
     });
   });
 }
