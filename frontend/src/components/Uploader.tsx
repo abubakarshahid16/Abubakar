@@ -43,7 +43,7 @@ export interface UploadItem {
   state: UploadState;
 }
 
-function uploadOne(
+export function uploadOne(
   file: File,
   disciplines: string[],
   onProgress: (percent: number) => void,

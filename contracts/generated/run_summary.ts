@@ -48,6 +48,8 @@ export interface RunSummaryHowReviewed {
   reader?: AiStepNumbers | null;
   /** order 96: pages the AI reader timed out on; null when no reader record */
   timed_out_pages?: number[] | null;
+  /** order 127: THE run's unread pages, one definition (`page_ledger.run_unread_pages`, the same the issue gate asks ticks for), before any engineer's tick; null when the run stored no page coverage or no page total (not known, never "none") */
+  unread_pages?: number[] | null;
   /** order 96: stamped on the run's job; null when the run has no job row */
   code_version?: string | null;
   config_version?: string | null;

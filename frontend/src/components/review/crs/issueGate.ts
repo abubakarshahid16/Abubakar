@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { reviews as reviewsApi } from "../../../api/client";
 import type { CrsIssueGate, ReviewRunSummary } from "../../../types/api";
-import type { CrsRow } from "./crsRows";
+import { type CrsRow, unreadPhrase } from "./crsRows";
 
 /** The server's own floor (`crs_issue.MIN_REASON_LENGTH`): asked for here
  *  first, so its refusal is not news. */
@@ -71,6 +71,46 @@ export function splitOpenItems(gate: CrsIssueGate, rows: CrsRow[]): GateSplit {
   return { comments: [...rowFor.keys()].sort((a, b) => a - b), rowFor, unnumbered: [...unnumbered.values()], others };
 }
 
+/** Order 127: the box's page counts, from the gate alone. `left` is what is
+ *  still to tick (`gate.unread_pages`), `checked` the pages of the same list an
+ *  engineer ticked (`gate.checked_pages`, absent = none), `notRead` their sum:
+ *  the run's unread pages, the same list the header counts
+ *  (`how_reviewed.unread_pages`). `pagesTotal` is null when not known, never 0. */
+export interface UnreadPagesCount {
+  left: number;
+  checked: number;
+  notRead: number;
+  pagesTotal: number | null;
+}
+
+export function unreadPagesCount(gate: CrsIssueGate): UnreadPagesCount {
+  const left = gate.unread_pages.length;
+  const checked = (gate.checked_pages ?? []).length;
+  return { left, checked, notRead: left + checked, pagesTotal: gate.pages_total ?? null };
+}
+
+/** Order 127: the box's count line, in the header's own words
+ *  (`unreadPhrase`, the phrase the header uses). The count is
+ *  every unread page of the run (left to tick + already ticked), so it is the
+ *  same number the header names; what is left to tick is said after it. */
+export function unreadPagesLine(gate: CrsIssueGate): { done: boolean; text: string } {
+  const { left, checked, notRead, pagesTotal } = unreadPagesCount(gate);
+  if (notRead === 0) {
+    // An explicit null total is the server saying no page record is stored
+    // (its NO_PAGE_COVERAGE blocker): nothing can be called read, so the box
+    // must not say "Every page was read" (rule 4).
+    if (gate.pages_total === null) return { done: false, text: "Which pages were read is not recorded on this run." };
+    // A gate from a server before order 127 does not say which pages were
+    // ticked, so a ticked page cannot be told from a read one.
+    if (gate.checked_pages === undefined) return { done: true, text: "Every page was read or checked by an engineer." };
+    return { done: true, text: "Every page was read." };
+  }
+  const head = unreadPhrase(notRead, pagesTotal);
+  if (left === 0) return { done: true, text: `${head}; an engineer checked ${notRead === 1 ? "it" : `all ${notRead}`}.` };
+  if (checked === 0) return { done: false, text: `${head}. Tick each one once you have checked it yourself.` };
+  return { done: false, text: `${head}: ${checked} checked by an engineer, ${left} left to tick.` };
+}
+
 export function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
 }
@@ -80,8 +120,9 @@ function commentList(numbers: number[]): string {
 }
 
 /** What still stands between the sheet and Sign and export, in plain words;
- *  empty when nothing does. */
-export function signLeft(state: IssueGateState, run: ReviewRunSummary, rows: CrsRow[]): string[] {
+ *  empty when nothing does. Only the gate is read, so the workspace's one
+ *  numbers helper can call it with the gate alone. */
+export function signLeft(state: Pick<IssueGateState, "gate">, run: ReviewRunSummary, rows: CrsRow[]): string[] {
   const { gate } = state;
   if (!gate) return ["what is left could not be checked"];
   const left: string[] = [];

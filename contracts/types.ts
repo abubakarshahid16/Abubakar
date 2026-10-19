@@ -778,6 +778,9 @@ export interface ReviewRunSummary {
   /** B3: the page ledger's summary AS OF THE RUN. Null on a run made before
    *  the ledger existed - null renders as nothing, never "every page read". */
   page_coverage?: PageCoverage | null;
+  /** Order 127: the run's unread pages, one definition (`page_ledger.run_unread_pages`),
+   *  the same list as the run summary's `how_reviewed.unread_pages`; null when not known. */
+  unread_pages?: number[] | null;
   /** #598: standards-table values this run did NOT compare (the submittal has
    *  no field that answers them), one grouped line per standard. Empty or
    *  absent renders as nothing. */
@@ -865,8 +868,14 @@ export interface CrsIssueGate {
   issuable: boolean;
   final_code_recorded: boolean;
   blockers: string[];
+  /** The unread pages no engineer has ticked yet (what is left to tick). */
   unread_pages: { page: number; reason: string | null }[];
   open_findings: { finding_id: string; row_kind: string | null; item: number }[];
+  /** Order 127: the unread pages an engineer ticked as checked. With
+   *  `unread_pages` it is exactly the run summary's `how_reviewed.unread_pages`. */
+  checked_pages?: number[];
+  /** Order 127: the submittal's page count as the run stored it; null when not known. */
+  pages_total?: number | null;
 }
 
 /** PF5 (#885): one recorded decision on an open item - who, when, why. */

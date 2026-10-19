@@ -24,7 +24,9 @@ export const PANELS: Partial<Record<ViewId, readonly string[]>> = {
   // page behind the scenes (#967 PR 3), so the new sheet cannot share it.
   // "how" (order 95 piece 5): the audit page "How this was reviewed" - a
   // page of its own (`HowReviewedView`), not a Behind-the-scenes panel.
-  review: ["cards", "crs-sheet", "findings", "standards", "steps", "numbers", "crs", "how"],
+  // "workspace" (workspace v2): the one-screen review workspace. Its own
+  // address always opens it, whichever value WORKSPACE_IS_DEFAULT has.
+  review: ["cards", "crs-sheet", "findings", "standards", "steps", "numbers", "crs", "how", "workspace"],
 };
 
 /**
@@ -44,6 +46,16 @@ export const PANELS: Partial<Record<ViewId, readonly string[]>> = {
  * owner's word.
  */
 export const CRS_SHEET_IS_DEFAULT = true;
+
+/**
+ * THE WORKSPACE SWITCH (workspace v2, planner team). When true, `/review/<run>`
+ * opens the one-screen review workspace (`components/review/workspace`).
+ * False: nothing changes for anyone who has not pressed "Try new design"
+ * (a per-browser choice, see `workspace/useWorkspaceSwitch.ts`). The
+ * workspace's own address `/review/<run>/workspace` (builder A adds it to
+ * PANELS) works whichever value this has. Flip only on the owner's word.
+ */
+export const WORKSPACE_IS_DEFAULT = false;
 
 /** The third path segment that always opens each review screen. */
 export const REVIEW_SCREEN_PANELS = { cards: "cards", crsSheet: "crs-sheet" } as const;

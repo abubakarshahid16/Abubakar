@@ -29,10 +29,61 @@ describe("the old issue gate is fenced off (order 121)", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("only the comment sheet issues the contractor's copy", () => {
-    const issuers = Object.entries(sources)
-      .filter(([, text]) => /downloadCrs\(\w+, "issue"\)|exportSheet\("issue"\)/.test(text))
-      .map(([name]) => name.replace(/^\//, ""));
-    expect(issuers).toEqual(["src/views/CrsSheetView.tsx"]);
+  // ONE issuing path (order 121, #1158): the contractor's copy is asked for
+  // in exactly one file, crs/issueContractorCopy.ts, which applies the
+  // comment sheet's "Before you sign" rules; only the comment sheet and the
+  // new workspace's sign-off call it. Every other export is the internal
+  // working copy, spelled out as a literal "internal" so no variable can
+  // carry "issue" past this check.
+  const ISSUER = "src/components/review/crs/issueContractorCopy.ts";
+
+  /** Every call `name(first, second...)` in a file, with its second argument
+   *  as written (a definition `function name(...)` is not a call). */
+  function secondArgs(text: string, name: string): string[] {
+    const out: string[] = [];
+    const call = new RegExp(`(?<!function )\\b${name}\\(([^()]*)\\)`, "g");
+    for (const m of text.matchAll(call)) {
+      const args = m[1].split(",").map((a) => a.trim());
+      out.push(args[1] ?? "");
+    }
+    return out;
+  }
+
+  it("only one file asks for the contractor's copy, through downloadCrs, and it asks for it once", () => {
+    const issuers: string[] = [];
+    const others: string[] = [];
+    for (const [name, text] of Object.entries(sources)) {
+      const file = name.replace(/^\//, "");
+      for (const arg of secondArgs(text, "downloadCrs")) {
+        if (arg === '"issue"') issuers.push(file);
+        else if (arg !== '"internal"') others.push(`${file}: downloadCrs(..., ${arg || "nothing"})`);
+      }
+    }
+    expect(issuers).toEqual([ISSUER]);
+    expect(others).toEqual([]);
+  });
+
+  it("the server's export route is reached only through downloadCrs (or for the internal copy)", () => {
+    const offenders: string[] = [];
+    for (const [name, text] of Object.entries(sources)) {
+      const file = name.replace(/^\//, "");
+      if (file === "src/api/review.ts" || file === "src/components/review/downloadCrs.ts") continue;
+      // No second argument = the API's default, the internal copy.
+      for (const arg of secondArgs(text, "exportCrs")) if (arg && arg !== '"internal"') offenders.push(`${file}: exportCrs(..., ${arg})`);
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("only the comment sheet and the workspace sign-off issue the contractor's copy, both through the shared path", () => {
+    const callers = Object.entries(sources)
+      .map(([name, text]) => [name.replace(/^\//, ""), text] as const)
+      .filter(([file, text]) => file !== ISSUER && /\bissueContractorCopy\(/.test(text))
+      .map(([file]) => file)
+      .sort();
+    expect(callers).toEqual(["src/components/review/workspace/useSignOff.ts", "src/views/CrsSheetView.tsx"]);
+    // The shared path applies the issue gate itself (it is not just a rename
+    // of downloadCrs): it refuses while anything is left.
+    expect(sources[`/${ISSUER}`]).toMatch(/issueWaitsFor\(checks\)/);
+    expect(sources[`/${ISSUER}`]).toMatch(/signLeft/);
   });
 });

@@ -33,6 +33,9 @@ export interface CrsTableProps {
   decisions: CrsDecisions;
   /** #678: clauses the run judged not applicable; counted on the run, not rows here. */
   clausesNotApplicable: number | null;
+  /** Workspace v2: the first column's heading. Absent = "Tier" (unchanged
+   *  for the old sheet); the workspace passes a plain word. */
+  tierHeader?: string;
 }
 
 export function CrsTable(props: CrsTableProps) {
@@ -64,7 +67,7 @@ export function CrsTable(props: CrsTableProps) {
         <table role="grid" className="w-full min-w-[64rem] border-collapse text-left" aria-label="Comment resolution sheet">
           <thead className="bg-ink-850 text-xs uppercase tracking-wide text-slateish-400">
             <tr>
-              <th scope="col" className="px-2 py-2">Tier</th>
+              <th scope="col" className="px-2 py-2">{props.tierHeader ?? "Tier"}</th>
               {CRS_COLUMNS.map((c) => <th key={c} scope="col" className="px-2 py-2">{c}</th>)}
               <th scope="col" className="px-2 py-2"><span className="sr-only">Actions</span></th>
             </tr>

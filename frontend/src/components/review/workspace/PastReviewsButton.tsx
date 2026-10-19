@@ -1,0 +1,39 @@
+/**
+ * OWNER: builder E. "Past reviews (N)" on a Submittals row.
+ *
+ * N is counted from the runs the landing page already loaded - no request.
+ * The button is hidden when the document has no reviews; pressing it opens
+ * the compact list right under the row.
+ */
+import { useId, useMemo, useState } from "react";
+
+import type { PastReviewsButtonProps } from "./contract";
+import { PastReviewsList } from "./PastReviewsList";
+import { pastReviewsOf } from "./pastReviews";
+
+export function PastReviewsButton({ documentId, runs, onOpenRun }: PastReviewsButtonProps) {
+  const reviews = useMemo(() => pastReviewsOf(documentId, runs), [documentId, runs]);
+  const [open, setOpen] = useState(false);
+  const listId = useId();
+
+  if (reviews.length === 0) return null;
+
+  return (
+    <div className="w-full">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={listId}
+        onClick={() => setOpen((was) => !was)}
+        className="text-xs font-semibold text-signal-400 underline-offset-2 hover:underline"
+      >
+        Past reviews ({reviews.length})
+      </button>
+      {open && (
+        <div id={listId} className="mt-2">
+          <PastReviewsList reviews={reviews} onOpenRun={onOpenRun} />
+        </div>
+      )}
+    </div>
+  );
+}
