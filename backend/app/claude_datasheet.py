@@ -667,8 +667,15 @@ def _identity(p: dict) -> tuple:
     )
 
 
-def read_page(page_text: str, page_no: int, known_fields: list[str] | None,
-              model_call, second_call=None) -> dict:
+def read_page(
+    page_text: str,
+    page_no: int,
+    known_fields: list[str] | None,
+    model_call,
+    second_call=None,
+    *,
+    gate_text: str | None = None,
+) -> dict:
     """One page through the model TWICE and then through the gate.
 
     RULE 6, AND IT IS NOT OPTIONAL. `second_call` defaults to calling the
@@ -676,16 +683,15 @@ def read_page(page_text: str, page_no: int, known_fields: list[str] | None,
     produced is a fact the page does not compel. An unstable proposal is
     REPORTED with `model_unstable`, never dropped quietly.
 
-    Returns the `accept()` shape plus `page`, and `error` when a run's answer
-    was not JSON.
-    """
+    `gate_text` (order 139): the whole page when `page_text` is one part of
+    it - each quote is checked against the page it is cited to. Returns the
+    `accept()` shape plus `page`, and `error` when a run's answer was not JSON."""
     known_fields = list(known_fields or [])
     prompt = build_prompt(page_text, page_no, known_fields)
     first, err, cut_first = parse_or_cut(model_call(prompt))
-    if not err:
-        first = atomise(first)
     if err:
         return {"page": page_no, "accepted": [], "rejected": [], "counts": {}, "error": err}
+    first = atomise(first)
     again = second_call if second_call is not None else model_call
     second, err2, cut_second = parse_or_cut(again(prompt))
     if err2:
@@ -695,7 +701,7 @@ def read_page(page_text: str, page_no: int, known_fields: list[str] | None,
     stable = [p for p in first if _identity(p) in seen]
     unstable = [{**p, "reason": Reason.MODEL_UNSTABLE.value}
                 for p in first if _identity(p) not in seen]
-    gate = accept(stable, page_text, known_fields)
+    gate = accept(stable, gate_text or page_text, known_fields)
     gate["rejected"].extend(unstable)
     gate["counts"] = rejection_counts(gate["rejected"])
     gate["page"] = page_no

@@ -134,6 +134,23 @@ class EngineFailed(RuntimeError):
     """The engine answered, but not in a way that can be read (truncated)."""
 
 
+class AnswerCutOff(EngineFailed):
+    """The local engine's answer reached the output limit (Ollama's
+    `done_reason` "length"); `text` is what it wrote before the cut.
+
+    Order 139 (#882): on a dense page the model writes a long, VALID list of
+    facts and is cut off at `OLLAMA_NUM_PREDICT` - measured on a real 7-page
+    sheet, 3 pages lost every reading as "engine failed". A cut-off answer is
+    still never parsed as a whole one: `_read` reads the page again in smaller
+    parts (`split_text`), and only a part still cut off at the last split
+    keeps the facts it had FINISHED (`claude_datasheet.parse_or_cut`, the
+    Claude lane's rule), marked `cut_off`."""
+
+    def __init__(self, text: str | None):
+        super().__init__("the answer was truncated")
+        self.text = text or ""
+
+
 # ------------------------------------------------------------ the engines
 
 def engine_setting() -> str:
@@ -168,8 +185,9 @@ def _claude_call():
                               timeout_seconds=float(settings.datasheet_ai_timeout_seconds))
     # #456: the route table sets the cap (DATASHEET_AI_CLAUDE_MAX_TOKENS); a
     # cut-off reply keeps its complete facts and is marked `cut_off` by
-    # `claude_datasheet.parse_or_cut` (#501), exactly as the local lane's
-    # `EngineFailed` names a cut-off page - both named, neither parsed whole.
+    # `claude_datasheet.parse_or_cut` (#501). The local lane's cut-off
+    # (`AnswerCutOff`) reads the page again in parts first, and keeps the
+    # finished facts the same way only at the last split - neither parsed whole.
     call = claude_budget.Budget(output_limits.model_call_for(
         claude_spend.metered(transport, STEP, unbilled=reader_transport.unbilled),
         output_limits.ROUTE_DATASHEET_READ, cfg=cfg, salvage=True))
@@ -207,7 +225,8 @@ def _ollama_call(packet_shape: dict | None = None):
             prompt_version=shape["prompt_version"]))
         if response.truncated:
             # A cut-off JSON answer is not an answer; never parsed as one.
-            raise EngineFailed("the answer was truncated")
+            # Its text goes with the refusal, for `_read`'s smaller parts.
+            raise AnswerCutOff(response.text)
         return response.text
 
     call.engine = OLLAMA
@@ -267,18 +286,181 @@ def _empty(page_no: int, engine: str | None, **extra) -> dict:
             "counts": {}, **extra}
 
 
-def _read(page_text: str, page_no: int, model_call, engine: str | None) -> dict:
+#: A page whose answer is cut off is read again in two halves, and a half
+#: still cut off in two quarters: at most 2 ** MAX_SPLITS parts, two runs
+#: each - a bounded number of calls, inside the pass's time budget.
+MAX_SPLITS = 2
+
+
+def split_text(text: str) -> list[str]:
+    """Two parts of about equal length, cut at the line end nearest the
+    middle (a space when the text is one line). [] when it cannot be cut.
+    Nothing is dropped or repeated: the parts are the text, in order."""
+    text = (text or "").strip()
+    middle = len(text) // 2
+    for sep in ("\n", " "):
+        cuts = [i for i, ch in enumerate(text) if ch == sep]
+        if cuts:
+            at = min(cuts, key=lambda i: (abs(i - middle), i))
+            head, tail = text[:at].strip(), text[at + 1 :].strip()
+            if head and tail:
+                return [head, tail]
+    return []
+
+
+def _keeping_the_cut(model_call):
+    """`model_call`, but a cut-off answer is RETURNED (its text) instead of
+    raised, so `claude_datasheet.parse_or_cut` keeps the facts the model
+    finished and `read_page` marks the reading `cut_off`."""
+
+    def call(prompt: str) -> str:
+        try:
+            return model_call(prompt)
+        except AnswerCutOff as exc:
+            return exc.text
+
+    return call
+
+
+def _part_failure(exc: BaseException) -> str:
+    if is_timeout(exc):
+        return TIMED_OUT.format(seconds=_seconds(settings.datasheet_ai_timeout_seconds))
+    return f"engine failed ({type(exc).__name__})"
+
+
+def _read_part(
+    state: dict, part: str, depth: int, page_text: str, page_no: int, model_call
+) -> list:
+    """One part of a cut-off page, its outcome added to `state`. Returns the
+    parts to read next in its place: its halves when it was cut off again."""
+    last = depth >= MAX_SPLITS
+    call = _keeping_the_cut(model_call) if last else model_call
+    try:
+        got = claude_datasheet.read_page(part, page_no, None, call, gate_text=page_text)
+    except AnswerCutOff:
+        state["cut_again"] += 1
+        return [(p, depth + 1) for p in split_text(part)] or [(part, MAX_SPLITS)]
+    except StopRun as exc:
+        state["stopped"] = exc.count_key
+        state["unread"].append(f"a limit stopped the AI reader ({exc.count_key})")
+        return []
+    except Exception as exc:  # noqa: BLE001 - never into ingestion; the part is counted unread
+        errors.fell_back("datasheet_ai: the AI read of a page part failed", exc, None)
+        state["timed_out"] = state["timed_out"] or is_timeout(exc)
+        state["unread"].append(_part_failure(exc))
+        return []
+    if got.get("error"):
+        state["unread"].append(f"engine answer unusable ({got['error']})")
+        return []
+    state["read"] += 1
+    state["cut"] = state["cut"] or bool(got.get("cut_off"))
+    for p in got["accepted"]:
+        key = tuple(p.get(k) for k in ("field_name", "value", "unit", "kind", "quote"))
+        if key not in state["seen"]:
+            state["seen"].add(key)
+            state["accepted"].append({**p, "page": page_no})
+    state["rejected"].extend(got["rejected"])
+    return []
+
+
+def _parts_outcome(state: dict, page_no: int, engine: str | None) -> dict:
+    """The page's reading from its parts, in `_read`'s shape."""
+    read, unread = state["read"], state["unread"]
+    out = {
+        "page": page_no,
+        "engine": engine,
+        "accepted": state["accepted"],
+        "rejected": state["rejected"],
+        "counts": claude_datasheet.rejection_counts(state["rejected"]),
+        "parts": {
+            "read": read,
+            "not_read": len(unread),
+            "cut_again": state["cut_again"],
+        },
+    }
+    if state["cut"]:
+        out["cut_off"] = True
+    if state["stopped"] is not None:
+        out["stopped"] = state["stopped"]
+    if state["timed_out"]:
+        out["timed_out"] = True
+    why = "; ".join(dict.fromkeys(unread))
+    if not read:
+        out["error"] = f"{CUT_OFF_UNREAD} ({why})"
+    elif unread:
+        out["partial"] = (
+            f"read in {read + len(unread)} parts after the answer was cut off; "
+            f"{len(unread)} part(s) not read ({why})"
+        )
+    return out
+
+
+#: Said on a page whose answer was cut off and no part of which was read.
+CUT_OFF_UNREAD = (
+    "the answer was cut off by the output limit and no part of the page was read"
+)
+
+
+def _read_in_parts(
+    page_text: str, page_no: int, model_call, engine: str | None, deadline: float | None
+) -> dict:
+    """A page whose answer was cut off, read again part by part (order 139).
+
+    Each part is read with the same two runs and the same gate as a page, and
+    the gate checks every quote against the WHOLE page (`gate_text`). A part
+    still cut off is halved again up to `MAX_SPLITS`; at the last split its
+    finished facts are kept and the page is marked `cut_off`. Nothing is
+    silent: a part not read (time budget, failure, limit) is counted and
+    named in `partial`, and a page no part of which was read is an `error`."""
+    pending = [(part, 1) for part in split_text(page_text)] or [(page_text, MAX_SPLITS)]
+    state = {
+        "accepted": [],
+        "rejected": [],
+        "unread": [],
+        "seen": set(),
+        "read": 0,
+        "cut_again": 0,
+        "cut": False,
+        "timed_out": False,
+        "stopped": None,
+    }
+    while pending:
+        part, depth = pending.pop(0)
+        if state["stopped"] is not None:
+            state["unread"].append(
+                f"a limit stopped the AI reader ({state['stopped']})"
+            )
+        elif deadline is not None and time.monotonic() >= deadline:
+            state["unread"].append("the time budget ran out")
+        else:
+            pending[0:0] = _read_part(
+                state, part, depth, page_text, page_no, model_call
+            )
+    return _parts_outcome(state, page_no, engine)
+
+
+def _read(
+    page_text: str,
+    page_no: int,
+    model_call,
+    engine: str | None,
+    deadline: float | None = None,
+) -> dict:
     """`claude_datasheet.read_page` for one page, WITHOUT the rule readers'
     fields as `known_fields`: this is a second, independent reading, and a
     field the rules also read is exactly what agreement is measured on.
 
     Returns the read_page shape plus `engine`; `error` when the page could
     not be read (engine failure, malformed answer) and `stopped` (the limit's
-    count key) when a budget cap refused a call. Only the exception's TYPE is
-    kept - a message could carry a URL, never a page's words, but the type is
-    all a reader of the result needs."""
+    count key) when a budget cap refused a call. An answer cut off by the
+    output limit reads the page again in parts (`_read_in_parts`), within
+    `deadline` (`time.monotonic()`). Only the exception's TYPE is kept - a
+    message could carry a URL, never a page's words, but the type is all a
+    reader of the result needs."""
     try:
         out = claude_datasheet.read_page(page_text, page_no, None, model_call)
+    except AnswerCutOff:
+        return _read_in_parts(page_text, page_no, model_call, engine, deadline)
     except StopRun as exc:
         return _empty(page_no, engine, error=f"stopped by a limit ({exc.count_key})",
                       stopped=exc.count_key)
@@ -379,14 +561,16 @@ def read_pages(page_texts: dict[int, str], engine_or_callable=None) -> dict:
         if not text.strip():
             reasons[page_no] = "no text on this page"
             continue
-        out = _read(text, page_no, call, engine)
+        out = _read(text, page_no, call, engine, deadline=started + budget)
         pages[page_no] = out
         if out.get("stopped"):
             stopped = out["stopped"]
         if out.get("timed_out"):
             timed_out.append(page_no)
-        if out.get("error"):
-            reasons[page_no] = out["error"]
+        if out.get("error") or out.get("partial"):
+            # order 139: a page read only in part keeps its readings AND says
+            # which parts were not read - never a clean page.
+            reasons[page_no] = out.get("error") or out["partial"]
     return {"engine": engine, "model": getattr(call, "model", None), "unavailable": why,
             "pages": pages, "reasons": reasons, "stopped": stopped, "timed_out": timed_out,
             "seconds": round(time.monotonic() - started, 1)}
@@ -685,6 +869,7 @@ __all__ = [
     "DIFFERENT",
     "ENGINES",
     "EXTRACTION_METHOD",
+    "MAX_SPLITS",
     "OFF",
     "OLLAMA",
     "READER",
@@ -693,6 +878,7 @@ __all__ = [
     "STEP",
     "UNCONFIRMED",
     "UNIT_DIFFERS",
+    "AnswerCutOff",
     "ai_unit",
     "engine_setting",
     "field_key",
@@ -706,6 +892,7 @@ __all__ = [
     "rule_kind",
     "rule_unit",
     "same_unit",
+    "split_text",
     "unit_in_quote",
     "using_model_call",
     "values_agree",

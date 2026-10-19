@@ -220,6 +220,30 @@ def _same_reading(a: dict, b: dict) -> bool:
     )
 
 
+#: Said on a page the whole-page (merge) pass did not read, or read only in
+#: part, while the form read it.
+MERGE_GAP = "the whole-page AI reading: {why}"
+
+
+def _carry_merge_gaps(form_run: dict, merge_run: dict) -> None:
+    """Order 139: the merge pass's own gaps are the run's gaps too. A page
+    the form read but the whole-page reader could not (cut off, timed out,
+    out of time, failed) used to vanish - the form's page looked clean. Now
+    its reason is kept (`reasons`, which `datasheets.reader_summary` shows
+    as `code_only`) and its time-outs are the run's; the page stays read."""
+    reasons = form_run.setdefault("reasons", {})
+    for page, why in (merge_run.get("reasons") or {}).items():
+        if page not in reasons and why:
+            reasons[page] = MERGE_GAP.format(why=why)
+    for page, extra in (merge_run.get("pages") or {}).items():
+        why = extra.get("error") or extra.get("partial")
+        if why and page not in reasons:
+            reasons[page] = MERGE_GAP.format(why=why)
+    form_run["timed_out"] = sorted(
+        {*(form_run.get("timed_out") or []), *(merge_run.get("timed_out") or [])}
+    )
+
+
 def add_merge_reading(form_run: dict, merge_run: dict) -> dict:
     """The form ADDS to the whole-page reading, never replaces it (#1004,
     planner order 41, option b). PF1 17 Oct: where the equipment type's form
@@ -237,6 +261,7 @@ def add_merge_reading(form_run: dict, merge_run: dict) -> dict:
     the form's one value. `replaced_by_form` counts the repeats dropped."""
     added = 0
     replaced = 0
+    _carry_merge_gaps(form_run, merge_run)
     for page, extra in (merge_run.get("pages") or {}).items():
         if extra.get("error"):
             continue
@@ -244,6 +269,8 @@ def add_merge_reading(form_run: dict, merge_run: dict) -> dict:
         if mine is None or mine.get("error"):
             form_run["pages"][page] = extra
             form_run["reasons"].pop(page, None)
+            if extra.get("partial"):
+                form_run["reasons"][page] = MERGE_GAP.format(why=extra["partial"])
             added += len(extra.get("accepted") or [])
             continue
         read: dict[str, list[dict]] = {}
@@ -262,6 +289,8 @@ def add_merge_reading(form_run: dict, merge_run: dict) -> dict:
             else:
                 more.append(f)
         mine["accepted"] = [*mine["accepted"], *more]
+        if extra.get("cut_off"):
+            mine["cut_off"] = True
         added += len(more)
     form_run["added_from_merge"] = added
     form_run["replaced_by_form"] = replaced
