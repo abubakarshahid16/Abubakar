@@ -11,7 +11,9 @@ import { describe, expect, it } from "vitest";
 
 import type { ReviewFinding, ReviewRunSummary } from "../../../types/api";
 import { EMPTY_FACTS } from "./tiers";
-import { buildCrsRows, crsHeadline, headlineFieldsOf, plainObservation, rowCounts, spotCheckKeys, splitRejected, visibleRows } from "./crsRows";
+import {
+  buildCrsRows, crsHeadline, headlineFieldsOf, plainObservation, rowCounts, spotCheckKeys, splitRejected, unreadPhrase, visibleRows,
+} from "./crsRows";
 
 function f(id: string, over: Partial<ReviewFinding> = {}): ReviewFinding {
   return {
@@ -133,11 +135,12 @@ describe("crsHeadline", () => {
     by_status: { COMPLIANT: 94, NON_COMPLIANT: 17 }, requirement_split: { does_not_apply: 4362 },
     created_at: "2026-10-15T08:00:00Z", completed_at: "2026-10-15T08:18:00Z",
     page_coverage: { pages_total: 12, fact_pages: [1, 2, 3], pages_not_read_into_fields: [4, 9], not_read_reasons: {} },
+    unread_pages: [4, 9],
   } as unknown as ReviewRunSummary;
   const traced = { ...headlineFieldsOf(run), readSeconds: 18 * 60 };
   it("is the spec's one line; the met count is the rows' own, not the run's by_status", () => {
     expect(crsHeadline(run, { comment: 17, needsYou: 6, met: 94, notApplicable: 0, anotherDocument: 0 }, traced)).toBe(
-      "23 comments, 6 need your judgement. 94 values met, 4,362 clauses not applicable (hidden). Read in 18 min; the reader gave up on pages 4 and 9.",
+      "23 comments, 6 need your judgement. 94 values met, 4,362 clauses not applicable (hidden). Read in 18 min; 2 of 12 pages were not read (4 and 9).",
     );
   });
   it("order 112: counts the rows; the findings behind the comment rows come second, with thousands separators", () => {
@@ -156,30 +159,67 @@ describe("crsHeadline", () => {
   it("a field the run does not hold renders as nothing, never 0", () => {
     const bare = { by_status: {}, created_at: null, completed_at: null } as unknown as ReviewRunSummary;
     expect(crsHeadline(bare, { comment: 1, needsYou: 0, met: 0, notApplicable: 0, anotherDocument: 0 })).toBe("1 comment.");
-    expect(crsHeadline({ ...run, page_coverage: null }, { comment: 0, needsYou: 1, met: 90, notApplicable: 0, anotherDocument: 0 }))
+    expect(crsHeadline({ ...run, page_coverage: null, unread_pages: null }, { comment: 0, needsYou: 1, met: 90, notApplicable: 0, anotherDocument: 0 }))
       .toBe("1 comment, 1 needs your judgement. 90 values met, 4,362 clauses not applicable (hidden).");
+    // Order 127: a run that does not hold the one list says nothing about pages (null is nothing, never "0").
+    expect(crsHeadline({ ...run, unread_pages: null }, { comment: 1, needsYou: 0, met: 0, notApplicable: 0, anotherDocument: 0 }))
+      .toBe("1 comment. 4,362 clauses not applicable (hidden).");
+  });
+  it("order 127: the pages not read are the run's one list, counted against the page total", () => {
+    const counts = { comment: 3, needsYou: 2, met: 1, notApplicable: 0, anotherDocument: 0 };
+    // AI reader unavailable: every page of 11 is unread, though the code readers missed only 1-3, 5 and 11.
+    const all = { ...run, page_coverage: { pages_total: 11, fact_pages: [4], pages_not_read_into_fields: [1, 2, 3, 5, 11], not_read_reasons: {} },
+      unread_pages: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] } as unknown as ReviewRunSummary;
+    expect(crsHeadline(all, counts, { ...headlineFieldsOf(all), readSeconds: 18 * 60 }))
+      .toBe("5 comments, 2 need your judgement. 1 value met, 4,362 clauses not applicable (hidden). Read in 18 min; 11 of 11 pages were not read (1-11).");
+    expect(crsHeadline(run, counts)).toBe(
+      "5 comments, 2 need your judgement. 1 value met, 4,362 clauses not applicable (hidden). 2 of 12 pages were not read (4 and 9).");
+    expect(crsHeadline({ ...run, unread_pages: [4] }, counts)).toMatch(/ 1 of 12 pages was not read \(4\)\.$/);
+    // Total not known: the count stands alone, with no "of".
+    expect(crsHeadline(run, counts, { ...headlineFieldsOf(run), pagesTotal: null })).toMatch(/ 2 pages were not read \(4 and 9\)\.$/);
+    expect(crsHeadline(run, counts, { ...headlineFieldsOf(run), unreadPages: [9], pagesTotal: null })).toMatch(/ 1 page was not read \(9\)\.$/);
+    // None unread: nothing said.
+    expect(crsHeadline({ ...run, unread_pages: [] }, counts)).not.toMatch(/not read/);
+    for (const r of [run, all]) expect(crsHeadline(r, counts)).not.toMatch(/gave up/);
+  });
+});
+
+describe("unreadPhrase (order 127, shared with Before you sign)", () => {
+  it("says the count against the total when the total is known", () => {
+    expect(unreadPhrase(11, 11)).toBe("11 of 11 pages were not read");
+    expect(unreadPhrase(2, 12)).toBe("2 of 12 pages were not read");
+    expect(unreadPhrase(1, 12)).toBe("1 of 12 pages was not read");
+    expect(unreadPhrase(1, 1)).toBe("1 of 1 page was not read");
+  });
+  it("claims no total it does not hold", () => {
+    expect(unreadPhrase(2, null)).toBe("2 pages were not read");
+    expect(unreadPhrase(1, null)).toBe("1 page was not read");
   });
 });
 
 describe("headlineFieldsOf", () => {
   const run = {
     requirement_split: { does_not_apply: 4362 },
-    page_coverage: { pages_total: 12, fact_pages: [], pages_not_read_into_fields: [4, 9], not_read_reasons: {} },
+    page_coverage: { pages_total: 12, fact_pages: [], pages_not_read_into_fields: [4], not_read_reasons: {} },
+    unread_pages: [9, 4, 9],
   } as unknown as ReviewRunSummary;
-  it("reads the run's stored fields when there is no server summary", () => {
-    expect(headlineFieldsOf(run)).toEqual({ doesNotApply: 4362, unreadPages: [4, 9], readSeconds: null });
+  it("reads the run's stored fields when there is no server summary: the run's one list, not the code readers' alone", () => {
+    expect(headlineFieldsOf(run)).toEqual({ doesNotApply: 4362, unreadPages: [4, 9], pagesTotal: 12, readSeconds: null });
   });
-  it("reads the server's record when it sent one: unread plus timed-out pages, once each, in order", () => {
+  it("reads the server's record when it sent one: its one list, once each, in order; no client-side union", () => {
     expect(headlineFieldsOf(run, {
       requirement_split: { does_not_apply: 12 } as never,
-      page_coverage: { pages_total: 12, fact_pages: [], pages_not_read_into_fields: [9, 4], not_read_reasons: {} },
+      page_coverage: { pages_total: 11, fact_pages: [], pages_not_read_into_fields: [9, 4], not_read_reasons: {} },
       timed_out_pages: [7, 4],
+      unread_pages: [11, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
       stage_seconds: { extract: 3000.5, compare: 479.5 },
-    })).toEqual({ doesNotApply: 12, unreadPages: [4, 7, 9], readSeconds: 3480 });
+    })).toEqual({ doesNotApply: 12, unreadPages: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], pagesTotal: 11, readSeconds: 3480 });
   });
   it("a field the server does not hold is nothing, not the runs list's copy and never 0", () => {
-    expect(headlineFieldsOf(run, { requirement_split: null, page_coverage: null, timed_out_pages: null }))
-      .toEqual({ doesNotApply: null, unreadPages: [], readSeconds: null });
+    expect(headlineFieldsOf(run, { requirement_split: null, page_coverage: null, timed_out_pages: [7], unread_pages: null }))
+      .toEqual({ doesNotApply: null, unreadPages: [], pagesTotal: null, readSeconds: null });
+    expect(headlineFieldsOf({ ...run, unread_pages: undefined, page_coverage: null } as ReviewRunSummary))
+      .toEqual({ doesNotApply: 4362, unreadPages: [], pagesTotal: null, readSeconds: null });
   });
 });
 
