@@ -1358,6 +1358,10 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         "decided_at": run.get("decided_at"),
         "completeness": outcome.get("completeness"),
         "page_coverage": outcome.get("page_coverage"),
+        # Order 127: the run's unread pages, one definition (the issue gate's
+        # and the summary's); null when not known, never "none".
+        "unread_pages": page_ledger_mod.run_unread_pages_shown(
+            outcome.get("page_coverage"), page_ledger_mod.run_reader(outcome)),
         "table_values_not_compared": outcome.get("table_values_not_compared") or [],
         "requirements_not_applied": outcome.get("requirements_not_applied") or [],
         "requirement_split": (outcome.get("requirement_split")
@@ -3135,7 +3139,10 @@ def _crs_issue_gate(review_run_id: str, scope: access.AccessScope) -> dict:
     rows, _meta, _name, _stamp = _crs_content(review_run_id, scope, "internal")
     outcome = comparison_mod.run_outcome(
         review_run_id, allowed_document_ids=scope.allowed_document_ids) or {}
-    gate = crs_issue_mod.open_items(review_run_id, rows, outcome.get("page_coverage"))
+    # order 127: the reader record too, so the gate, the tick route and the
+    # summary count the same pages (page_ledger.run_unread_pages)
+    gate = crs_issue_mod.open_items(review_run_id, rows, outcome.get("page_coverage"),
+                                    page_ledger_mod.run_reader(outcome))
     final = bool(run.get("engineer_final_code"))
     if not final:
         gate["blockers"].insert(0, "an engineer has not recorded the final code")
@@ -3184,7 +3191,8 @@ def decide_crs_unread_page(
     actor = _crs_decision_actor(review_run_id, scope)
     outcome = comparison_mod.run_outcome(
         review_run_id, allowed_document_ids=scope.allowed_document_ids) or {}
-    unread = crs_issue_mod.pages_to_check(outcome.get("page_coverage"))
+    unread = crs_issue_mod.pages_to_check(outcome.get("page_coverage"),
+                                          page_ledger_mod.run_reader(outcome))
     try:
         return crs_issue_mod.decide_page(review_run_id, page_no, unread=unread,
                                          reason=body.reason, actor=actor)

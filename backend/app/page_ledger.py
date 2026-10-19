@@ -372,6 +372,78 @@ def reading_gaps(reader: dict | None, pages: dict) -> dict:
     }
 
 
+
+# ------------------------------------------- order 127: one unread-pages count
+#
+# ONE FACT ON ONE SCREEN HAS ONE SOURCE. The comment sheet's header, its footer
+# and "Before you sign" each named the run's unread pages from different keys
+# of the same stored record, and disagreed (5 pages, 2 pages, 11 pages). A page
+# of a run is "not read" when the run's stored record says some reader the run
+# was set to use did not read it: the code readers read no value from it
+# (`pages_not_read_into_fields`), or the configured AI reader did not read it
+# (`pages_ai_not_read`, PF3 #883). A run stored before `pages_ai_not_read`
+# existed (12-14 Oct 2026) also counts the AI reader's own `timed_out` pages.
+#
+# Pure: it reads the record it is given, never a database.
+
+
+def run_reader(outcome: dict | None) -> dict | None:
+    """The AI reader's record a run stored (`requirement_split.reader`), or
+    None when the run stored none."""
+    split = (outcome or {}).get("requirement_split")
+    reader = split.get("reader") if isinstance(split, dict) else None
+    return reader if isinstance(reader, dict) else None
+
+
+def run_unread_pages(page_coverage: dict | None, reader: dict | None = None) -> list[int]:
+    """Order 127: THE run's unread pages, one definition for the issue gate, the
+    run summary and the runs list. Union of `pages_not_read_into_fields`,
+    `pages_ai_not_read` and (runs stored before PF3 kept `pages_ai_not_read`)
+    the AI reader's own `timed_out` pages, limited to 1..pages_total when the
+    total is known. Sorted, no duplicates. Pure: reads nothing."""
+    cov = page_coverage if isinstance(page_coverage, dict) else {}
+    pages = {int(p) for p in cov.get("pages_not_read_into_fields") or []}
+    pages |= {int(p) for p in cov.get("pages_ai_not_read") or []}
+    if isinstance(reader, dict):
+        pages |= {int(p) for p in reader.get("timed_out") or []}
+    total = cov.get("pages_total")
+    if total is not None:
+        pages = {p for p in pages if 1 <= p <= int(total)}
+    return sorted(pages)
+
+
+def run_unread_reasons(page_coverage: dict | None, reader: dict | None = None) -> dict[str, str]:
+    """Why each of those pages was not read, keyed by the page as a string:
+    `not_read_reasons` wins over `ai_not_read_reasons` (the gate's order since
+    PF5), and a legacy time-out page with neither gets "the AI reader timed out
+    on this page". A page with no recorded reason is absent."""
+    cov = page_coverage if isinstance(page_coverage, dict) else {}
+    recorded = {
+        **{str(k): v for k, v in (cov.get("ai_not_read_reasons") or {}).items()},
+        **{str(k): v for k, v in (cov.get("not_read_reasons") or {}).items()},
+    }
+    timed_out = (
+        {int(p) for p in reader.get("timed_out") or []} if isinstance(reader, dict) else set()
+    )
+    reasons: dict[str, str] = {}
+    for page in run_unread_pages(cov, reader):
+        why = recorded.get(str(page))
+        if not why and page in timed_out:
+            why = "the AI reader timed out on this page"
+        if why:
+            reasons[str(page)] = why
+    return reasons
+
+
+def run_unread_pages_shown(page_coverage: dict | None, reader: dict | None = None) -> list[int] | None:
+    """The list as a screen shows it: None (not known, rendered as nothing)
+    when the run stored no page coverage or no page total; otherwise
+    `run_unread_pages`, where [] means every page was read."""
+    if not isinstance(page_coverage, dict) or page_coverage.get("pages_total") is None:
+        return None
+    return run_unread_pages(page_coverage, reader)
+
+
 def rows(document_id: str) -> list[dict]:
     return [dict(r) for r in connect().execute(
         "SELECT * FROM page_ledger WHERE document_id = ? ORDER BY page_no", (document_id,))]
