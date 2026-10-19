@@ -475,11 +475,11 @@ def cited_standards(text: str) -> list[str]:
 
 # ---------------------------------------- #139: the clauses a citation names
 #
-# A datasheet that cites a code FOR ONE ITEM ("<code>, UW-52 (for spot
+# A datasheet that cites a code FOR ONE ITEM ("<code>, AB-12 (for spot
 # radiography)", "XYZ-100 Section 4", "clause 4.2 of XYZ-100") applies that
 # part of the code, not every requirement in it. The grammar is generic: clause
 # identifiers printed NEXT TO the standard's identifier, with an optional
-# keyword, a list joined by "," / "and", a range ("UG-20 to UG-25", "4.1-4.5"),
+# keyword, a list joined by "," / "and", a range ("AB-20 to AB-25", "4.1-4.5"),
 # and an optional parenthesised purpose. Nothing here names a standard, a
 # datasheet or a layout. A bare number with no keyword ("API 610 (6.12.1.1)",
 # "NACE MR 0175 11") is never read as a clause: datasheets print form-item
@@ -487,20 +487,32 @@ def cited_standards(text: str) -> list[str]:
 # whose two ends are not of one numbering) reads as None: the citation is then
 # taken to cite the WHOLE standard - never narrowed on a guess.
 
-#: The kind of clause each keyword introduces.
+#: The kind of clause each keyword introduces. "clause", "paragraph", "§" and
+#: "article" can only name a clause: SURE. "section", "annex", "appendix" and
+#: "cl" can also name a part of the code's structure, a datasheet's own
+#: heading ("SECTION 3 MATERIALS") or a rating ("CL 150"): UNSURE - read,
+#: but never used alone to rule a requirement out (`CitedClause.sure`).
 _CLAUSE_KEYWORD = re.compile(
     r"(?P<appendix>(?:(?:non-?)?mandatory\s+|normative\s+|informative\s+)?"
     r"(?:appendix|appendices|annex(?:es)?))\b\.?"
     r"|(?P<article>articles?)\b\.?"
-    r"|(?P<number>paragraphs?|paras?|clauses?|cl|sections?|sec|§{1,2})(?:\b\.?|(?<=§))",
+    r"|(?P<number>paragraphs?|paras?|clauses?|§{1,2})(?:\b\.?|(?<=§))"
+    r"|(?P<section>sections?|sec|cl)\b\.?",
     re.IGNORECASE,
 )
+#: Keyword group -> (kind of id it takes, sure).
+_KEYWORD_KIND = {
+    "appendix": ("appendix", False),
+    "article": ("article", True),
+    "number": ("number", True),
+    "section": ("number", False),
+}
 _CLAUSE_ID = {
     "appendix": re.compile(r"(?:[A-Z]{1,3}|\d{1,3})(?![A-Za-z0-9])"),
     "article": re.compile(r"\d{1,3}(?![\d.])"),
     "number": re.compile(r"\d{1,3}(?:\.\d{1,3}){0,5}(?![\d])"),
 }
-#: A lettered paragraph id that needs no keyword ("UW-52", "UG-99(b)"):
+#: A lettered paragraph id that needs no keyword ("AB-12", "AB-19(b)"):
 #: letters, a dash, a number; any "(b)(1)" sub-paragraph marks are read and
 #: the paragraph itself is what is cited (the wider, safer reading).
 _LETTERED_ID = re.compile(
@@ -521,44 +533,57 @@ _LEAD = re.compile(r"[\s,;:]*")
 _BEFORE_JOIN = re.compile(r"\s*\b(?:of|in)\s+(?:the\s+)?\Z", re.IGNORECASE)
 
 
-def _clause_item(
-    text: str, pos: int, kind: str | None
-) -> tuple[list[tuple[str, str]], int, str | None]:
-    """One clause reference at `pos`: (clauses, end, kind). A keyword sets the
-    kind; a list after it ("Articles 2 and 22") keeps it. `kind` is the kind
-    carried from the item before, for a bare id in a list."""
-    keyword = _CLAUSE_KEYWORD.match(text, pos)
-    if keyword is not None:
-        kind = next(k for k in ("appendix", "article", "number") if keyword.group(k))
-        at = keyword.end()
-        while at < len(text) and text[at] in " \t":
-            at += 1
-        found = _CLAUSE_ID[kind].match(text, at)
-        return (
-            ([(kind, found.group(0).upper())], found.end(), kind)
-            if found
-            else ([], pos, None)
-        )
-    lettered = _LETTERED_ID.match(text, pos)
-    if lettered is not None:
-        return [("lettered", lettered.group("id"))], lettered.end(), "lettered"
-    if kind in _CLAUSE_ID:
-        found = _CLAUSE_ID[kind].match(text, pos)
-        if found is not None:
-            return [(kind, found.group(0).upper())], found.end(), kind
-    return [], pos, None
-
-
 class CitedClause(tuple):
     """A cited clause, (kind, id) - equal to the plain pair - that knows
     whether the datasheet printed it or it lies INSIDE a printed range
-    ("UG-21" of "UG-20 to UG-25"): a numbering may skip an id inside a range,
-    so only the printed ends must exist in the standard."""
+    ("AB-21" of "AB-20 to AB-25"): a numbering may skip an id inside a range,
+    so only the printed ends must exist in the standard - and whether its
+    keyword can only name a clause (`sure`; see `_CLAUSE_KEYWORD`)."""
 
-    def __new__(cls, kind: str, ident: str, in_range: bool = False):
+    def __new__(cls, kind: str, ident: str, in_range: bool = False, sure: bool = True):
         clause = super().__new__(cls, (kind, ident))
         clause.in_range = in_range
+        clause.sure = sure
         return clause
+
+
+def _clause_item(
+    text: str, pos: int, ctx: tuple[str, bool] | None
+) -> tuple[list[CitedClause], int, tuple[str, bool] | None]:
+    """One clause reference at `pos`: (clauses, end, (kind, sure)). A keyword
+    sets the kind and whether it is sure; a list after it ("Articles 2 and
+    22") keeps them. `ctx` is carried from the item before, for a bare id in
+    a list."""
+    keyword = _CLAUSE_KEYWORD.match(text, pos)
+    if keyword is not None:
+        ctx = next(_KEYWORD_KIND[g] for g in _KEYWORD_KIND if keyword.group(g))
+        at = keyword.end()
+        while at < len(text) and text[at] in " \t":
+            at += 1
+        found = _CLAUSE_ID[ctx[0]].match(text, at)
+        if found is None:
+            return [], pos, None
+        return (
+            [CitedClause(ctx[0], found.group(0).upper(), sure=ctx[1])],
+            found.end(),
+            ctx,
+        )
+    lettered = _LETTERED_ID.match(text, pos)
+    if lettered is not None:
+        return (
+            [CitedClause("lettered", lettered.group("id"))],
+            lettered.end(),
+            ("lettered", True),
+        )
+    if ctx and ctx[0] in _CLAUSE_ID:
+        found = _CLAUSE_ID[ctx[0]].match(text, pos)
+        if found is not None:
+            return (
+                [CitedClause(ctx[0], found.group(0).upper(), sure=ctx[1])],
+                found.end(),
+                ctx,
+            )
+    return [], pos, None
 
 
 def _range(
@@ -590,7 +615,8 @@ def _range(
         return None
     if not 0 <= hi - lo < _RANGE_MAX:
         return None
-    return [CitedClause(kind, make(n), lo < n < hi) for n in range(lo, hi + 1)]
+    sure = getattr(first, "sure", True) and getattr(last, "sure", True)
+    return [CitedClause(kind, make(n), lo < n < hi, sure) for n in range(lo, hi + 1)]
 
 
 def _clause_list(text: str, pos: int) -> tuple[list[tuple[str, str]] | None, int]:
@@ -628,7 +654,7 @@ def _clause_list(text: str, pos: int) -> tuple[list[tuple[str, str]] | None, int
 
 def clause_qualifiers(text: str, start: int, stop: int) -> list[tuple[str, str]] | None:
     """The clauses a citation at `text[start:stop]` names, in order: after it
-    ("<code>, UW-51 and UW-52 (for spot radiography)", "XYZ-100 Section 4") or
+    ("<code>, AB-11 and AB-12 (for spot radiography)", "XYZ-100 Section 4") or
     before it with "of" / "in" ("clause 4.2 of XYZ-100"). [] when the citation
     names the standard alone - then the WHOLE standard is what is cited - and
     None when the clauses cannot be read for certain (treated the same way).

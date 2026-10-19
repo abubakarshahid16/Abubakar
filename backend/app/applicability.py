@@ -651,9 +651,13 @@ def cited_clause_scope(
             continue
         into = found.setdefault(entry["id"], {"clauses": [], "pages": []})
         for c in clauses:
-            # a clause printed outright wins over the same id inside a range
-            if c in into["clauses"] and getattr(c, "in_range", False):
-                continue
+            # one entry per clause: printed outright if printed anywhere, and
+            # unsure if read unsure anywhere
+            old = next((k for k in into["clauses"] if k == c), None)
+            if old is not None:
+                c = standard_ids.CitedClause(
+                    *c, in_range=old.in_range and c.in_range, sure=old.sure and c.sure
+                )
             into["clauses"] = [k for k in into["clauses"] if k != c] + [c]
         page = max(p for at, p in starts if at <= s)
         if page not in into["pages"]:

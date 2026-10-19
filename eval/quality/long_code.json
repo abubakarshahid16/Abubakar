@@ -8,7 +8,7 @@
   "backend/app/ai_requirements.py": 1006,
   "backend/app/analysis.py": 1548,
   "backend/app/answer.py": 2329,
-  "backend/app/applicability.py": 1830,
+  "backend/app/applicability.py": 1832,
   "backend/app/chat.py": 1256,
   "backend/app/chunker.py": 3282,
   "backend/app/claims.py": 1780,
@@ -35,6 +35,7 @@
   "backend/app/schemas.py": 4130,
   "backend/app/search.py": 1229,
   "backend/app/standards.py": 1924,
+  "backend/app/subject_scope.py": 843,
   "backend/app/submittal_review.py": 1188,
   "backend/app/synthesis.py": 1823,
   "backend/app/watcher.py": 903

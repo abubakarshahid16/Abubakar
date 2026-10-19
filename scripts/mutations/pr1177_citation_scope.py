@@ -77,4 +77,15 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="applies_only_the_cited_clause",
         tags=("scope",),
     ),
+    Mutation(
+        id="M1177-07",
+        phase=1177,
+        description="an unsure reading's outside requirements get no decision (lost)",
+        path=APP / "comparison.py",
+        anchor='    held_items.extend(cited_scope["unsure"])',
+        replacement="    pass",
+        target=_T,
+        keyword="unsure_reading_leaves_the_rest",
+        tags=("scope", "honesty"),
+    ),
 )

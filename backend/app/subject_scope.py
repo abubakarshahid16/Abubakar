@@ -394,7 +394,7 @@ def materials_gate(requirements: list[dict], *, facts: list[dict], standard_labe
 
 # ------------------------------------------------- #139: the cited clauses only
 #
-# A datasheet that cites a code for ONE ITEM ("<code>, UW-52 (for spot
+# A datasheet that cites a code for ONE ITEM ("<code>, AB-12 (for spot
 # radiography)") applies that clause, not the whole code. Which standards are
 # cited that way, and for which clauses, is `applicability.cited_clause_scope`;
 # this gate finds those clauses in the standard's OWN text and keeps only the
@@ -405,25 +405,37 @@ def materials_gate(requirements: list[dict], *, facts: list[dict], standard_labe
 #: The rest of a heading line after its id: nothing, a bracket ("(normative)"),
 #: or a title whose first word is capitalised, after a space or a " - " / ":"
 #: separator ("APPENDIX Q - ROUNDED INDICATIONS", "Annex A: Title"). A running
-#: footer ("UW-51 - UW-52": the "title" is another id) and a sentence ("UW-52
+#: footer ("AB-11 - AB-12": the "title" is another id) and a sentence ("AB-12
 #: shall apply") are not headings. Case-sensitive.
 _TITLE_WORD = r"[A-Z][A-Za-z]{2,}(?![-\d])"
 _TITLE_REST = (
     r"(?=\s*$|\s+\(|\s*[-\u2013\u2014:]\s*" + _TITLE_WORD + r"|\s+[A-Z][A-Za-z]+)"
 )
+#: A full stop after the id, only when a title follows ("ZT-32. Spot
+#: examination"): "AB-12." ending a sentence on its own line, and "AB-12.
+#: Spot radiographs ... shall" starting one, are no headings.
+_ID_DOT = r"(?:\.(?=\s+[A-Z])(?!.*\b(?:shall|must|should)\b))?"
 _HEADINGS = (
     (
         "appendix",
         re.compile(
             r"^(?i:(?:(?:non-?)?mandatory\s+|normative\s+|informative\s+)?"
             r"(?:appendix|annex))\s+(?P<id>[A-Z]{1,3}|\d{1,3})(?![A-Za-z0-9])"
+            + _ID_DOT
             + _TITLE_REST
         ),
     ),
-    ("article", re.compile(r"^(?i:article)\s+(?P<id>\d{1,3})(?![\d.])" + _TITLE_REST)),
+    (
+        "article",
+        re.compile(
+            r"^(?i:article)\s+(?P<id>\d{1,3})(?!\d|\.\d)" + _ID_DOT + _TITLE_REST
+        ),
+    ),
     (
         "lettered",
-        re.compile(r"^(?P<id>[A-Z]{1,4}-\d{1,4}[A-Z]?)(?![A-Za-z0-9-])" + _TITLE_REST),
+        re.compile(
+            r"^(?P<id>[A-Z]{1,4}-\d{1,4}[A-Z]?)(?![A-Za-z0-9-])" + _ID_DOT + _TITLE_REST
+        ),
     ),
     # A numbered clause needs a title word of three letters or more: "6 in."
     # and "3 L" inside a sentence are not clause 6 and clause 3.
@@ -446,12 +458,79 @@ def _key(text: object) -> str:
     return re.sub(r"[^0-9a-z]", "", numparse.fold(text or ""))
 
 
-def _heading(line: str) -> tuple[str, str] | None:
+#: A contents entry or a table row, never a heading: its title ends in a
+#: number ("Spot Examination 146", "Carbon steel 19.6") or has dot leaders.
+_NOT_A_TITLE = re.compile(r"\s[\d.,]+$|\.{4,}|(?:\.\s){3,}")
+#: A numbered id alone on its line, its title on the next ("6.1" / "Casing").
+_BARE_NUMBER = re.compile(r"^(?P<id>\d{1,3}(?:\.\d{1,3}){0,5})\.?$")
+#: A page where at least this share of the heading-shaped lines - 5 or more
+#: of them - are contents entries is a table of contents: none of its lines
+#: is a heading (an entry printed without a page number included).
+_CONTENTS_SHARE = 0.5
+_CONTENTS_LEAST = 5
+
+
+def _heading_shape(line: str) -> tuple[str, str, bool] | None:
+    """(kind, id, is a contents entry or table row) for a heading-shaped line."""
     for kind, pattern in _HEADINGS:
         found = pattern.match(line)
         if found is not None:
-            return kind, found.group("id").upper()
+            entry = bool(_NOT_A_TITLE.search(line[found.end("id") :]))
+            return kind, found.group("id").upper(), entry
     return None
+
+
+def _heading(line: str) -> tuple[str, str] | None:
+    shape = _heading_shape(line)
+    return shape[:2] if shape and not shape[2] else None
+
+
+def _next_number(ident: str, last: str | None) -> bool:
+    """Is numbered clause `ident` plausible after the last numbered heading
+    `last` - its first child, its next sibling, or the next of a parent?"""
+    if last is None:
+        return True
+    return ident.startswith(last + ".") or _follows(_numbers(ident), _numbers(last))
+
+
+def _headings(pages: list[list[str]]) -> list[tuple[str, str] | None]:
+    """The heading each line opens (None for a line that opens none), in
+    reading order. Never a heading: a running header or footer, a contents
+    entry or a table row (`_NOT_A_TITLE`), any line of a contents page. A
+    numbered id alone on its line with a title on the next line is one, when
+    it is a plausible next numbered clause (`_next_number`)."""
+    running = _running_lines(pages)
+    out: list[tuple[str, str] | None] = []
+    last: str | None = None
+    for lines in pages:
+        shapes = [s for s in map(_heading_shape, lines) if s]
+        if len(shapes) >= _CONTENTS_LEAST and (
+            sum(s[2] for s in shapes) >= _CONTENTS_SHARE * len(shapes)
+        ):
+            out.extend([None] * len(lines))  # a contents page
+            continue
+        heads: list[tuple[str, str] | None] = []
+        page_last = last
+        for i, line in enumerate(lines):
+            head = None if re.sub(r"\d+", "#", line) in running else _heading(line)
+            bare = _BARE_NUMBER.match(line)
+            if (
+                head is None
+                and bare
+                and i + 1 < len(lines)
+                and re.match(_TITLE_WORD, lines[i + 1])
+            ):
+                head = (
+                    ("number", bare.group("id"))
+                    if _next_number(bare.group("id"), page_last)
+                    else None
+                )
+            if head and head[0] == "number":
+                page_last = head[1]
+            heads.append(head)
+        last = page_last
+        out.extend(heads)
+    return out
 
 
 def _numbers(ident: str) -> tuple[int, ...]:
@@ -499,7 +578,7 @@ def _running_lines(pages: list[list[str]]) -> set[str]:
     seen: dict[str, set[int]] = {}
     for number, lines in enumerate(pages):
         for line in lines[:_RUNNING_EDGE] + lines[-_RUNNING_EDGE:]:
-            # a bare clause id ("UW-52", "4.1") is never a running line: with
+            # a bare clause id ("AB-12", "4.1") is never a running line: with
             # its digits gone, every heading of a part would look alike
             if len(re.findall(r"[A-Za-z]", line)) >= _RUNNING_LETTERS:
                 seen.setdefault(re.sub(r"\d+", "#", line), set()).add(number)
@@ -521,7 +600,7 @@ class StandardText:
             [" ".join(r.split()) for r in (t or "").splitlines() if r.strip()]
             for _, t in pages
         ]
-        self.running = _running_lines(split)
+        self.heads = _headings(split)
         for (page, _text), lines in zip(pages, split, strict=True):
             start = at
             for line in lines:
@@ -539,9 +618,8 @@ class StandardText:
         that closes it (the end of the text for the last)."""
         out: list[tuple[int, int]] = []
         opened: int | None = None
-        for index, line in enumerate(self.lines):
-            head = _heading(line)
-            if head is None or re.sub(r"\d+", "#", line) in self.running:
+        for index, head in enumerate(self.heads):
+            if head is None:
                 continue
             if opened is not None and _ends(clause, head):
                 out.append((self.offsets[opened], self.offsets[index]))
@@ -612,8 +690,12 @@ def _inside(requirement: dict, text: StandardText, spans: dict) -> bool:
     clauses the standard's text shows, each with where it runs)? Its stored
     clause number first, then where its sentence sits. A sentence that cannot
     be placed is outside only when its whole page lies outside every clause;
-    a page touching one keeps it a check."""
+    a page touching one keeps it a check. A clause found only by stored
+    clause numbers has no place in the text, so a requirement with no stored
+    number cannot be shown to lie outside it: it stays a check."""
     if any(_stored_clause_in(requirement.get("clause"), c) for c in spans):
+        return True
+    if not requirement.get("clause") and any(not runs for runs in spans.values()):
         return True
     runs = [run for clause_runs in spans.values() for run in clause_runs]
     at = text.place(requirement)
@@ -621,6 +703,41 @@ def _inside(requirement: dict, text: StandardText, spans: dict) -> bool:
         return any(lo <= at < hi for lo, hi in runs)
     bounds = text.page_bounds.get(_page_of(requirement))
     return bounds is None or any(lo < bounds[1] and bounds[0] < hi for lo, hi in runs)
+
+
+def _found_clauses(text: StandardText, rows: list[dict], clauses: list) -> dict:
+    """{clause: where it runs} for the cited clauses FOUND: one of the
+    standard's own requirements is placed inside it, or carries its number.
+    A heading alone - a contents line, a heading printed in a form not read
+    here - finds nothing, and an unfound clause narrows nothing."""
+    placed = [at for at in (text.place(r) for r in rows) if at is not None]
+    found = {}
+    for c in clauses:
+        runs = text.spans(c)
+        if any(_stored_clause_in(r.get("clause"), c) for r in rows) or any(
+            lo <= at < hi for at in placed for lo, hi in runs
+        ):
+            found[c] = runs
+    return found
+
+
+def _outside_item(name: str, cited_for: str, sure: bool) -> dict:
+    """The decision for a requirement outside the cited clauses. #143(2): on
+    an UNSURE reading ("Section 3", "Annex E", "CL 150" can name a part of
+    the code or a rating) it is never "does not apply": it stays in scope,
+    not checked, for the engineer."""
+    if sure:
+        return {
+            "code": "outside_cited_clauses",
+            "detail": f"the datasheet cites {name} only for {cited_for}, "
+            "and this requirement is outside them",
+        }
+    return {
+        "code": "applicability_unsure",
+        "detail": f"the datasheet cites {name} for {cited_for}, in words that "
+        "may name a part of the code or a rating; this requirement is "
+        "outside them - the engineer decides whether it applies",
+    }
 
 
 def citation_gate(
@@ -638,29 +755,26 @@ def citation_gate(
     `applicability.cited_clause_scope`. A requirement is inside a clause when
     its stored clause number is that clause or a part of it, or its sentence
     lies between the clause's heading and the next heading in the standard's
-    own text (`_inside`). The standard is narrowed only when its text shows
-    EVERY clause the datasheet printed (a clause inside a printed range may be
-    skipped by the numbering): one it does not show means the citation was not
-    read for certain, and nothing of that standard is narrowed - the summary
-    says which clause and that it was not narrowed. Every standard not in
-    `cited` passes untouched. Returns {"kept", "items", "summary"}; items
-    carry `outside_cited_clauses`."""
+    own text (`_inside`). The standard is narrowed only when EVERY printed
+    clause is found (`_found_clauses`; one inside a printed range may be
+    skipped by the numbering) - otherwise nothing of it is, and the summary
+    says which clause. On a reading that is not sure (`CitedClause.sure`) the
+    requirements outside go to "unsure" - in scope, not checked, the
+    engineer decides - never to "does not apply". Every standard not in
+    `cited` passes untouched. Returns {"kept", "items", "unsure", "summary"}."""
     from .standard_ids import clause_label
 
     label = label or clause_label
     out_ids: set[int] = set()
     items: list[dict] = []
+    unsure: list[dict] = []
     summary: list[dict] = []
     for sid, scope in cited.items():
         rows = [r for r in requirements if r.get("standard_document_id") == sid]
         if not rows:
             continue
         text = StandardText(pages_of(sid))
-        found = {}
-        for c in scope["clauses"]:
-            runs = text.spans(c)
-            if runs or any(_stored_clause_in(r.get("clause"), c) for r in rows):
-                found[c] = runs
+        found = _found_clauses(text, rows, scope["clauses"])
         missing = [
             c
             for c in scope["clauses"]
@@ -668,18 +782,14 @@ def citation_gate(
         ]
         name = standard_labels.get(sid) or sid
         where = ", ".join(str(p) for p in scope.get("pages") or [])
-        detail = (
-            f"the datasheet cites {name} only for "
-            + ", ".join(label(c) for c in found)
-            + (f" (page {where})" if where else "")
-            + ", and this requirement is outside them"
+        cited_for = ", ".join(label(c) for c in found) + (
+            f" (page {where})" if where else ""
         )
+        sure = all(getattr(c, "sure", True) for c in scope["clauses"])
+        item = _outside_item(name, cited_for, sure)
         out = [] if missing else [r for r in rows if not _inside(r, text, found)]
         out_ids.update(id(r) for r in out)
-        items.extend(
-            {"requirement": r, "code": "outside_cited_clauses", "detail": detail}
-            for r in out
-        )
+        (items if sure else unsure).extend({"requirement": r, **item} for r in out)
         summary.append(
             {
                 "standard_document_id": sid,
@@ -687,13 +797,14 @@ def citation_gate(
                 "clauses": [label(c) for c in scope["clauses"]],
                 "clauses_not_found": [label(c) for c in missing],
                 "narrowed": not missing,
+                "sure": sure,
                 "pages": list(scope.get("pages") or []),
                 "kept": len(rows) - len(out),
-                "not_applied": len(out),
+                "outside": len(out),
             }
         )
     kept = [r for r in requirements if id(r) not in out_ids]
-    return {"kept": kept, "items": items, "summary": summary}
+    return {"kept": kept, "items": items, "unsure": unsure, "summary": summary}
 
 
 def citation_gate_for_run(
@@ -723,5 +834,10 @@ def citation_gate_for_run(
         return errors.fell_back(
             "subject_scope: the cited-clause scope failed; nothing is narrowed",
             exc,
-            {"kept": list(requirements), "items": [], "summary": [not_run]},
+            {
+                "kept": list(requirements),
+                "items": [],
+                "unsure": [],
+                "summary": [not_run],
+            },
         )

@@ -2333,6 +2333,7 @@ def _run_comparison(
     )
     requirements = cited_scope["kept"]
     extra_not_applied.extend(cited_scope["items"])
+    held_items.extend(cited_scope["unsure"])  # in scope, not checked: the engineer's
     gated = table_gate.gate(requirements, facts, standard_names=names)
     all_requirements = len(requirements)
     requirements = gated["kept"]
