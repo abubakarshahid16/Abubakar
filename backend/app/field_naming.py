@@ -38,12 +38,15 @@ the flag off nothing creates it and nothing reads it.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import datetime, timezone
 
 from .ai.json_reply import unfenced
 from .db import connect
 from .model_evidence import quote_verified
+
+log = logging.getLogger(__name__)
 
 #: The claude_spend step every naming call is charged to.
 #: v2 (B4 item 2): every numeric AND blank datasheet label is named.
@@ -191,7 +194,8 @@ def stored_names(kind: str, keys: list[str], dictionary: list[str]) -> dict[str,
                     f" WHERE subject_kind = ? AND dictionary_sha256 = ? AND subject_key IN ({marks})",
                     [kind, sha, *chunk]):
                 out[r["subject_key"]] = {"field_name": r["field_name"], "quote": r["quote"]}
-    except Exception:  # noqa: BLE001 - no side table: nothing named yet
+    except Exception as exc:  # noqa: BLE001 - no side table: nothing named yet
+        log.debug("field_naming: no stored names yet (%s)", type(exc).__name__)
         return {}
     return out
 
@@ -359,6 +363,7 @@ def ensure_names(requirements: list[dict], facts: list[dict], *, provider=None) 
             if label_dictionary and label_items:
                 label_names = name_items(LABEL, label_items, label_dictionary, provider)
         except Exception as exc:  # noqa: BLE001 - ProviderRefused, BudgetExceeded, engine errors
+            log.info("field_naming: naming refused or failed (%s)", type(exc).__name__)
             refused = f"{type(exc).__name__}: {exc}"
             req_names = req_names or stored_names(REQUIREMENT, [k for k, _t in req_items], dictionary)
             label_dictionary = sorted({v["field_name"] for v in req_names.values() if v.get("field_name")})

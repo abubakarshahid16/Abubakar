@@ -166,14 +166,26 @@ _CMP_RE = (
     # `\b` on both sides, so this never matches inside a longer word.
     r"|\b(?:below|under|beneath|above|over)\b")
 
+#: #889: A SPACE AS THE THOUSANDS SEPARATOR. "25 000 hours" was stored as the
+#: limit 25 with no unit ("000" is not a unit). Space-separated groups are ONE
+#: number only when every group after the first is exactly three digits AND a
+#: unit-shaped word follows at once; a digit next ("pages 4 5", "Class 150
+#: 300"), a list word ("150 300 and 600") or the end of the phrase leaves them
+#: the separate numbers they were. `_ungrouped` vets the unit itself.
+_SPACE_GROUPED = (r"\d{1,3}(?:[ \u00a0\u202f\u2009]\d{3})+(?:[.,]\d+)?(?![\d.,])"
+                  r"(?=\s*(?!(?:and|or|to|through|thru|by|x)\b)[A-Za-z%µμ°])")
+_VALUE = r"(?:" + _SPACE_GROUPED + r"|\d[\d.,]*)"
 _LIMIT = re.compile(
-    r"(?P<cmp>" + _CMP_RE + r")\s*"
-    r"(?:of\s+)?"
-    r"(?P<value>[-+]?\d[\d.,]*)\s*"
-    r"(?P<unit>[A-Za-z%µμ°][A-Za-z0-9()/%µμ°.\-]{0,15}"
-    r"(?:\s*\([A-Za-z]\))?)?",
+    r"(?P<cmp>" + _CMP_RE + r")\s*(?:of\s+)?(?P<value>[-+]?" + _VALUE + r")\s*"
+    r"(?P<unit>[A-Za-z%µμ°][A-Za-z0-9()/%µμ°.\-]{0,15}(?:\s*\([A-Za-z]\))?)?",
     re.IGNORECASE,
 )
+
+
+def _ungrouped(raw_value: str, raw_unit: str | None) -> str:
+    """A space-grouped value keeps its thousands only with a recognised unit;
+    without one the first group is the number, as it read before #889."""
+    return raw_value if raw_unit or not re.search(r"\s", raw_value) else raw_value.split()[0]
 
 #: How a comparator phrase maps onto an operator. `claims.parse_comparator`
 #: handles the bare forms; these are the multi-word ones a specification uses.
@@ -204,10 +216,8 @@ _OPERATOR = {
 #: the long-range "in no case shall it be".
 _NEGATION = re.compile(r"^(?:" + _IN_NO_CASE_RE + r"|(?:no|not)\s+(?:be\s+)?)")
 
-
 #: Any negated "in excess of", however many words sit in its middle.
 _IN_EXCESS_FOLD = re.compile(r"\bnot\b.*\bin\s+excess\s+of\b")
-
 
 _NEGATED_TAIL = re.compile(
     r"^" + _NEGATED_RE + r"(?P<tail>" + _COMPARATIVE_THAN + r"|(?:" + "|".join(_BELOW + _ABOVE) + r"))$")
@@ -223,8 +233,7 @@ def _canonical_comparator(phrase: str) -> str:
     # negated phrase folds onto "not exceed", which `_OPERATOR` already maps.
     if _IN_EXCESS_FOLD.search(folded):
         return "not exceed"
-    folded = re.sub(r"^(?:shall|must|may|should|will)\s+not\s+exceed$",
-                    "not exceed", folded)
+    folded = re.sub(r"^(?:shall|must|may|should|will)\s+not\s+exceed$", "not exceed", folded)
     # #894: "shall not be set higher than" / "never fall below" -> "not higher
     # than" / "not below": the negation and the comparative, nothing between.
     negated = _NEGATED_TAIL.match(folded)
@@ -919,8 +928,8 @@ def measure(raw_value: str, raw_unit: str | None) -> claims.Measurement:
 _UNIT = r"[A-Za-z%\u00b5\u03bc\u00b0][A-Za-z0-9()/%\u00b5\u03bc\u00b0.\-]{0,15}(?:\s*\([A-Za-z]\))?"
 _RANGE_SENTENCE = re.compile(
     r"\b(?:between|from|in\s+the\s+range\s+(?:of\s+)?|within\s+(?:the\s+)?range\s+(?:of\s+)?)\s*"
-    r"(?P<low>[-+]?\d[\d.,]*)\s*(?P<u1>" + _UNIT + r")?\s*(?:and|to)\s+"
-    r"(?P<high>[-+]?\d[\d.,]*)\s*(?P<u2>" + _UNIT + r")?", re.IGNORECASE)
+    r"(?P<low>[-+]?" + _VALUE + r")\s*(?P<u1>" + _UNIT + r")?\s*(?:and|to)\s+"
+    r"(?P<high>[-+]?" + _VALUE + r")\s*(?P<u2>" + _UNIT + r")?", re.IGNORECASE)
 _NEGATED_BEFORE = re.compile(r"\b(?:not|never|no)\b[^.;]{0,40}$", re.IGNORECASE)
 
 
@@ -958,13 +967,13 @@ def parse_range(sentence: str) -> dict | None:
 _NOMINAL_SENTENCE = re.compile(
     r"\b(?:shall|must|is\s+to)\s+(?:be(?:\s+(?:supplied|powered|rated|set|designed)\s+(?:at|for|to|by|from|with))?"
     r"|operate\s+(?:from|at|on)|be\s+(?:supplied|powered|rated|set|designed)\s+(?:at|for|to|by|from|with))\s+"
-    r"(?:(?:a|an|the)\s+)?(?P<value>[-+]?\d[\d.,]*)\s*(?P<unit>" + _UNIT + r")", re.IGNORECASE)
+    r"(?:(?:a|an|the)\s+)?(?P<value>[-+]?" + _VALUE + r")\s*(?P<unit>" + _UNIT + r")", re.IGNORECASE)
 
 
 def _half_unit(raw_value: str) -> float | None:
     """Half a unit of the last printed digit of `raw_value`: "24" -> 0.5,
     "2.50" -> 0.005. The precision the clause itself states."""
-    text = raw_value.strip().lstrip("+-")
+    text = re.sub(r"\s", "", raw_value).lstrip("+-")
     if not re.fullmatch(r"\d+(?:\.\d+)?", text):
         return None
     decimals = len(text.split(".")[1]) if "." in text else 0
@@ -993,8 +1002,8 @@ def parse_nominal(sentence: str) -> dict | None:
     if not raw_unit or half is None or value is None:
         return None
     # A second quantity in the sentence ("24 V DC at 50 Hz") is a second claim.
-    others = [m for m in claims._MEASUREMENT.finditer(text) if m.start("value") != match.start("value")]
-    if others:
+    if any(not match.start("value") <= m.start("value") < match.end("value")
+           for m in claims._MEASUREMENT.finditer(text)):
         return None
     measurement = measure(raw_value, raw_unit)
     return {"operator": NOMINAL_OPERATOR, "raw_value": raw_value, "raw_unit": raw_unit,
@@ -1009,7 +1018,7 @@ _CROSS_SENTENCE = re.compile(
     r"(?P<cmp>" + _CMP_RE + r")\s*(?:of\s+)?"
     r"(?:(?P<mult>half|twice|double|\d+(?:\.\d+)?\s*(?:x|times))\s+(?:of\s+)?)?"
     r"(?:the\s+)?(?P<ref>[A-Za-z][A-Za-z0-9 \-/]{1,60}?)"
-    r"(?:\s+(?P<sign>plus|minus)\s+(?P<ov>\d[\d.,]*)\s*(?P<ou>" + _UNIT + r"))?"
+    r"(?:\s+(?P<sign>plus|minus)\s+(?P<ov>" + _VALUE + r")\s*(?P<ou>" + _UNIT + r"))?"
     r"\s*(?:[.;,]|\s+(?:of|for|in|at|on|but)\b|$)", re.IGNORECASE)
 _CROSS_FACTOR = {"half": 0.5, "twice": 2.0, "double": 2.0}
 #: Words that make a "reference" something other than another field of the sheet.
@@ -1054,10 +1063,8 @@ def parse_cross_field(sentence: str) -> dict | None:
             or parse_range(text) is not None or _states_its_own_limit(text, match.group("mult"))):
         return None
     mult = (match.group("mult") or "").lower()
-    if not mult:
-        factor = 1.0
-    elif mult in _CROSS_FACTOR:
-        factor = _CROSS_FACTOR[mult]
+    if not mult or mult in _CROSS_FACTOR:
+        factor = _CROSS_FACTOR.get(mult, 1.0)
     else:
         factor = claims.parse_value(re.sub(r"\s*(?:x|times)$", "", mult))
     offset, unit = 0.0, None
@@ -1098,7 +1105,7 @@ def parse_limit_or_range(sentence: str) -> dict | None:
 #: stated a limit and the engine read none. The direction is the shared
 #: vocabulary's (`comparators`), never a second list here.
 _TRAILING_LIMIT = re.compile(
-    r"(?P<value>[-+]?\d[\d.,]*)\s*(?P<unit>" + _UNIT + r")\s+(?P<cmp>or\s+[A-Za-z]+)\b", re.IGNORECASE)
+    r"(?P<value>[-+]?" + _VALUE + r")\s*(?P<unit>" + _UNIT + r")\s+(?P<cmp>or\s+[A-Za-z]+)\b", re.IGNORECASE)
 
 
 def _parse_trailing_limit(sentence: str) -> dict | None:
@@ -1129,25 +1136,18 @@ def parse_limit(sentence: str) -> dict | None:
     operator = _OPERATOR.get(phrase)
     if operator is None:
         return None
-    raw_value = match.group("value")
     raw_unit = unit_token(match.group("unit"))
+    raw_value = _ungrouped(match.group("value"), raw_unit)
     measurement = measure(raw_value, raw_unit)
-    return {
-        "operator": operator,
-        "raw_value": raw_value,
-        "raw_unit": raw_unit,
-        "value": measurement.normalized_value,
-        "unit": measurement.normalized_unit,
-    }
+    return {"operator": operator, "raw_value": raw_value, "raw_unit": raw_unit,
+            "value": measurement.normalized_value, "unit": measurement.normalized_unit}
 
 
 #: Operators that point the OPPOSITE way to each other. `=` and None are
 #: absent deliberately: neither contradicts anything, and a check that fires on
 #: "cannot tell" is a check people learn to ignore.
-_OPPOSITE: dict[str, frozenset[str]] = {
-    "<=": frozenset({">=", ">"}), "<": frozenset({">=", ">"}),
-    ">=": frozenset({"<=", "<"}), ">": frozenset({"<=", "<"}),
-}
+_OPPOSITE: dict[str, frozenset[str]] = {"<=": frozenset({">=", ">"}), "<": frozenset({">=", ">"}),
+                                        ">=": frozenset({"<=", "<"}), ">": frozenset({"<=", "<"})}
 
 
 def contradicts_source(limit: dict | None, sentence: str) -> bool:

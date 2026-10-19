@@ -9,7 +9,7 @@ something else has to hold the client, and this is that something: one file,
 one function, easy to read in full before deciding whether to trust it.
 
 The mirror of that rule applies here. This module may open sockets and MUST
-NOT be able to reach the corpus - it imports no `db`, `search`, `keyword`,
+NOT be able to reach the corpus - it imports no `db`, `search`, `fts_index`,
 `chunker`, `passages`, `claims` or `analysis`, and the same AST test checks
 it. The two halves of the leak are therefore in different files, and neither
 file can perform both.

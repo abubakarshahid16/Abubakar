@@ -76,6 +76,7 @@ from enum import Enum
 
 from . import claude_approved
 from . import comparison, numparse
+from .ai import output_limits
 from .claude_spend import StopRun
 from .db import connect
 from .reader_api import _contains, _fold
@@ -333,6 +334,17 @@ def _empty(finding: dict, error: str | None = None, rejected=None) -> dict:
     return out
 
 
+def _ask(model_call, prompt: str) -> tuple[dict | None, str | None]:
+    """`parse_response` of one call. #456: a reply the output cap cut off,
+    or one with nothing readable, is a NAMED error (`truncated` /
+    `unknown`) - never parsed, so no half-answer becomes a proposal."""
+    try:
+        raw = model_call(prompt)
+    except (output_limits.Truncated, output_limits.Unreadable) as exc:
+        return None, exc.state
+    return parse_response(raw)
+
+
 def recheck_finding(finding: dict, model_call, second_call=None) -> dict:
     """One finding through the model TWICE and then through the gate.
 
@@ -344,11 +356,11 @@ def recheck_finding(finding: dict, model_call, second_call=None) -> dict:
     changed by the model's answer - the state describes what the ENGINE
     could do.
     """
-    first, err = parse_response(model_call(build_prompt(finding)))
+    first, err = _ask(model_call, build_prompt(finding))
     if err:
         return _empty(finding, error=err)
     again = second_call if second_call is not None else model_call
-    second, err2 = parse_response(again(build_prompt(finding)))
+    second, err2 = _ask(again, build_prompt(finding))
     if err2:
         return _empty(finding, error=err2)
     if first["agree"] != second["agree"]:

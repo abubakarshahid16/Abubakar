@@ -375,13 +375,13 @@ def build_corpus(root: Path, *, docs: int, sheets: int, pages: int, seed: int) -
     _isolate_settings(root)
     from fastapi.testclient import TestClient
 
-    from app import db, keyword, submittal_review
+    from app import db, fts_index, submittal_review
     from app.ingest import IngestionWorker
     from app.main import app
 
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     submittal_review.ensure_schema()
     rng = random.Random(seed)
     client = TestClient(app)          # no `with`: no lifespan, no worker thread
@@ -425,7 +425,7 @@ def _insert_review_run(conn, submittal_id: str, standard_id: str, rng: random.Ra
     outcome = json.dumps({"recommended_code": "Manual Review Required",
                           "reason": "synthetic load-test run"})
     with conn:
-        conn.execute("INSERT INTO review_runs (id,submittal_document_id,status,refusal_reason,"
+        conn.execute("INSERT INTO review_runs (id,submittal_document_id,status,outcome_json,"
                      "created_at,updated_at) VALUES (?,?,'completed',?,?,?)",
                      (run_id, submittal_id, outcome, now, now))
         for i in range(12):

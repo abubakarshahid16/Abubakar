@@ -7,7 +7,7 @@ existing here is not a claim that anything fills it yet.
 
 WHY EVERY READ PATH TAKES `allowed_document_ids` KEYWORD-ONLY WITH NO DEFAULT
 
-The same reason `search.search` and `keyword.search` do, recorded as entry 11
+The same reason `search.search` and `fts_index.search` do, recorded as entry 11
 of the honesty audit: a default is a filter that can be forgotten. A caller
 that omits the argument here raises TypeError at the call site, which a test
 catches and a reviewer sees. A caller that omits a defaulted argument reads the
@@ -289,8 +289,7 @@ def ensure_schema() -> None:
                     REFERENCES documents(id) ON DELETE CASCADE,
                 template_id TEXT REFERENCES review_templates(id) ON DELETE SET NULL,
                 status TEXT NOT NULL DEFAULT 'pending',
-                -- Why the run ended where it did. A refusal is a result and is
-                -- recorded as one rather than left as an empty finding list.
+                -- Legacy: the run's outcome moved to `outcome_json` (order 117).
                 refusal_reason TEXT,
                 model_name TEXT,
                 -- config.config_version() at the time of the run: the hash of
@@ -304,12 +303,12 @@ def ensure_schema() -> None:
                 updated_at TEXT NOT NULL
             )"""
         )
-        # SECTION 15: the AI recommends, the engineer decides, and both are
-        # kept. The recommendation lives in `refusal_reason` where
-        # `_store_run_outcome` writes it; the DECISION gets columns of its
-        # own, because "which reviews are waiting for an engineer" is a
+        # SECTION 15: the AI recommends, the engineer decides, and both are kept.
+        # The recommendation lives in `outcome_json`; the DECISION gets columns of
+        # its own, because "which reviews are waiting for an engineer" is a
         # question a dashboard asks in SQL and cannot ask of a JSON blob.
         for _column, _type in (
+            ("outcome_json", "TEXT"),  # why the run ended: code and reason, or error
             # One of the four codes in section 15. NULL until an engineer
             # decides, which is the state "awaiting engineer decision".
             ("engineer_final_code", "TEXT"),
@@ -318,13 +317,8 @@ def ensure_schema() -> None:
             ("override_reason", "TEXT"),
             ("decided_by", "TEXT REFERENCES users(id) ON DELETE SET NULL"),
             ("decided_at", "TEXT"),
-            # 2026-09-27, AI-check truncation fix: the AI engineering check's
-            # own outcome for this run - JSON, same style as `refusal_reason`
-            # above. NULL when the check never ran (off, or the Claude lane is
-            # off). Set whether the check finished cleanly, was completed
-            # after a capped retry, or is still incomplete - so a truncated
-            # reply is a fact on the run a reviewer can see, never a run that
-            # silently looks like it raised nothing to say.
+            # 2026-09-27: the AI engineering check's own outcome, JSON like
+            # `outcome_json`; NULL when it never ran. A truncated reply shows on the run.
             ("ai_check_status", "TEXT"),
             # #633: the web standards check's own outcome, stored the same way.
             ("web_check_status", "TEXT"),
@@ -334,11 +328,17 @@ def ensure_schema() -> None:
             ("crs_company_transmittal", "TEXT"),
             ("crs_contractor_transmittal", "TEXT"),
         ):
-            add_column_if_missing(conn, "review_runs", _column, _type)
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_review_runs_submittal "
-            "ON review_runs(submittal_document_id, status, created_at DESC)")
-
+            added = add_column_if_missing(conn, "review_runs", _column, _type)
+            if added and _column == "outcome_json":  # order 117: a pre-move db
+                conn.execute(  # copied once, never over a newer outcome (#1137)
+                    "UPDATE review_runs SET outcome_json = refusal_reason"
+                    " WHERE outcome_json IS NULL"
+                )
+        for _index in (
+            "idx_review_runs_submittal ON review_runs(submittal_document_id, status, created_at DESC)",
+            "idx_review_runs_created ON review_runs(created_at)",  # order 109: the list's order
+        ):
+            conn.execute("CREATE INDEX IF NOT EXISTS " + _index)
         # ------------------------------------------------- the submittal side
         conn.execute(
             """CREATE TABLE IF NOT EXISTS submittal_facts (
@@ -745,7 +745,7 @@ def _extract_facts_if_none(run_id: str, submittal_document_id: str,
         conn = connect()
         with conn:
             conn.execute(
-                "UPDATE review_runs SET status = 'failed', refusal_reason = ?,"
+                "UPDATE review_runs SET status = 'failed', outcome_json = ?,"
                 " updated_at = ? WHERE id = ?",
                 (json.dumps({"error": f"fact extraction failed: {exc}"}),
                  _now(), run_id))
@@ -782,7 +782,7 @@ def fail_orphaned_review_runs() -> int:
     conn = connect()
     with conn:
         cur = conn.execute(
-            "UPDATE review_runs SET status = 'failed', refusal_reason = ?,"
+            "UPDATE review_runs SET status = 'failed', outcome_json = ?,"
             " updated_at = ? WHERE status = 'running'"
             # P3: a run whose review job is still active belongs to the queue,
             # which re-queues it (`review_jobs.recover_stale`) - not to this.

@@ -26,7 +26,7 @@ import time
 from dataclasses import dataclass
 from typing import Literal
 
-from . import acronyms, keyword, lexical, numparse
+from . import acronyms, facet_memo, fts_index, lexical, numparse
 from .sentence_guard import NOT_AN_ABBREVIATION
 
 NORMALIZER_VERSION = "1"
@@ -711,11 +711,11 @@ def split_sentences(text: str) -> list[str]:
 
 
 def _identifier_spans(text: str) -> list[tuple[int, int]]:
-    return [m.span() for m in keyword.IDENTIFIER.finditer(text)]
+    return [m.span() for m in fts_index.IDENTIFIER.finditer(text)]
 
 
 _DECIMAL = re.compile(r"\d+\.\d+")
-#: keyword.IDENTIFIER's "API 610" alternative also matches "MDFT 280": letters,
+#: fts_index.IDENTIFIER's "API 610" alternative also matches "MDFT 280": letters,
 #: a space, digits. When those digits carry a recognised unit ("MDFT 280 um")
 #: the number is a measurement and the letters are the subject, not a code.
 _WORD_SPACE_NUMBER = re.compile(r"[A-Z]{2,}\s\d+(?:[.,]\d+)?")
@@ -772,7 +772,7 @@ def _identifiers_for(sentence: str, measurements: tuple[Measurement, ...]) -> tu
     """IDENTIFIER matches minus those that turned out to be measurements."""
     measured = {m.raw_value for m in measurements}
     out = []
-    for ident in dict.fromkeys(keyword.IDENTIFIER.findall(sentence)):
+    for ident in dict.fromkeys(fts_index.IDENTIFIER.findall(sentence)):
         if _DECIMAL.fullmatch(ident) and ident in measured:
             continue
         if _WORD_SPACE_NUMBER.fullmatch(ident) and ident.split()[-1] in measured:
@@ -813,7 +813,7 @@ def _glued_designator_list(sentence: str, start: int, end: int) -> bool:
 
 
 def extract_measurements(sentence: str, skips: dict[str, int] | None = None) -> tuple[Measurement, ...]:
-    """Numbers with a recognised unit. keyword.IDENTIFIER also matches "9.0"
+    """Numbers with a recognised unit. fts_index.IDENTIFIER also matches "9.0"
     (its clause-number alternative), so a plain decimal that is itself an
     identifier match AND is followed by a unit is a measurement, not a clause;
     "5.3.2" or "8501-1" glued to an identifier is never a measurement."""
@@ -967,8 +967,8 @@ def extract_claims(
             with numparse.document_context(str(item.get("filename", "")) in comma_files):
                 measurements = extract_measurements(sentence)
             identifiers = _identifiers_for(sentence, measurements)
-            dropped = {i.lower() for i in keyword.IDENTIFIER.findall(sentence)} - {i.lower() for i in identifiers}
-            designators = tuple(dict.fromkeys(keyword.find_designators(sentence)))
+            dropped = {i.lower() for i in fts_index.IDENTIFIER.findall(sentence)} - {i.lower() for i in identifiers}
+            designators = tuple(dict.fromkeys(fts_index.find_designators(sentence)))
             if not (identifiers or designators or measurements):
                 continue
             claims.append(
@@ -1684,12 +1684,12 @@ def _merge_facets(groups: dict[frozenset[str], list[Claim]], *, budget=None
     Applied to a fixpoint and in a deterministic order - fewest terms first,
     then the sorted key - so the same corpus always produces the same facets.
 
-    Pairwise in the number of facets (each merge restarts the scan), so it is
-    BOUNDED by `budget` (#606): past the deadline merging stops, the facets
+    Each merge restarts the scan; the rule is asked once per pair of facet
+    versions (#615, `facet_memo`). BOUNDED by `budget` (#606): past the deadline merging stops, the facets
     found so far are returned UNMERGED-FURTHER (still true, only less
     consolidated) and the budget records why.
     """
-    items: list[list] = [[key, list(rows)] for key, rows in groups.items()]
+    items, asked = [[key, list(rows)] for key, rows in groups.items()], {}  # asked: facet_memo
     items.sort(key=lambda it: (len(subject_terms(it[0])), sorted(it[0])))
     changed = True
     while changed:
@@ -1708,7 +1708,7 @@ def _merge_facets(groups: dict[frozenset[str], list[Claim]], *, budget=None
                     # is "detail into subject" - and it makes the fold acyclic,
                     # which a symmetric rule (equal phrases) otherwise is not.
                     continue
-                if _can_merge(small[0], small[1], big[0], big[1]):
+                if facet_memo.ask(asked, _can_merge, small, big):
                     target = j
                     break
             if target is not None:

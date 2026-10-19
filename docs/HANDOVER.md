@@ -240,7 +240,7 @@ Nine parallel static reviews on 2026-09-08 (Cowork). Summary of what matters:
 7. `admin.py:193,372` — admin gate reads `roles.name`, not `roles.kind='capability'`.
 8. `market_providers.py:282` — `check_host` bypass via `https://evil.test?@api.openalex.org/`.
 9. `watch_api.py:233,304` — recent events unscoped; leaks filenames + grants.
-10. `keyword.py:289`, `lexical.py` — answerability oracle over unreadable documents.
+10. `fts_index.py:289`, `lexical.py` — answerability oracle over unreadable documents.
 11. `intent.py:212` — `example_questions()` unscoped.
 12. `metrics.py:378-410` — three aggregates with no WHERE beside `corpus_wide:false`.
 13–14. `auth.py` — rate limiter keyed on attacker input; zero-length key accepted.
@@ -256,7 +256,7 @@ Nine parallel static reviews on 2026-09-08 (Cowork). Summary of what matters:
     row counted as "Met", OCR warning can never clear, `ocr_failed` dead code.
 
 **P3 — functional**
-28. `keyword.py:71` — `clause 5.3.2` → required phrase `"clause 5"` → zero hits. **Measured.**
+28. `fts_index.py:71` — `clause 5.3.2` → required phrase `"clause 5"` → zero hits. **Measured.**
 29. `ingest.py:418` — any exception → permanent `failed`; nothing can resume; re-upload dedups to the dead row.
 30–33. 1-of-9 status writers guarded; identifier boost on wrong scale; OperationalError reported as "nothing matched"; double synthesis.
 
@@ -314,7 +314,7 @@ when the demo interrupted it.
   A) egress + privacy: `config.py`, `market_*.py`, `answer.py`, `analysis.py` ·
   B) access: `auth.py`, `admin.py`, `access.py`, seed ·
   C) routes/metrics/schemas: `main.py`, `metrics.py`, `watch_api.py`, `schemas.py` ·
-  D) ingestion + retrieval: `upload.py`, `ingest.py`, `chunker.py`, `ocr.py`, `keyword.py`, `lexical.py`, `intent.py`, `search.py` ·
+  D) ingestion + retrieval: `upload.py`, `ingest.py`, `chunker.py`, `ocr.py`, `fts_index.py`, `lexical.py`, `intent.py`, `search.py` ·
   E) honesty of output: `synthesis.py`, `claims.py`, `reports.py` ·
   Cowork itself: all of `frontend/` and `contracts/types.ts`.
 - Every fix ships with a test proven red-then-green (by reverting the fix once;

@@ -13,7 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import (absence, access, ai_engineering_check, analysis, auth, comparison, crs_export,
-                 datasheet_checks, datasheets, db, job_queue, keyword, main as main_mod,
+                 datasheet_checks, datasheets, db, job_queue, fts_index, main as main_mod,
                  review, review_jobs, standards, submittal_review, web_standards)
 from app.config import settings
 
@@ -33,7 +33,7 @@ def temp_storage(tmp_path, monkeypatch):
     db.init_db()
     submittal_review.ensure_schema()
     submittal_review.migrate_facts_to_per_document()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     access.set_user_resolver(auth.resolve_user_id)
     yield
     access.set_user_resolver(None)
@@ -51,7 +51,7 @@ def _doc(doc_id, role, text):
         conn.execute("INSERT INTO chunks (id,document_id,filename,ordinal,page_start,page_end,section,"
                      "kind,text,token_count,content_hash,retrievable) VALUES (?,?,?,0,1,1,'1',"
                      "'prose',?,1,?,1)", (f"{doc_id}-c1", doc_id, f"{doc_id}.pdf", text, f"h-{doc_id}"))
-    keyword.index_document(doc_id)
+    fts_index.index_document(doc_id)
     return doc_id
 
 
@@ -194,7 +194,7 @@ def test_findings_written_before_a_failure_are_marked_partial_and_the_crs_says_i
     assert review_jobs.run(job_id, W) == job_queue.POISONED
 
     run = _run_row(run_id)
-    stored = json.loads(run["refusal_reason"])
+    stored = json.loads(run["outcome_json"])
     assert run["status"] == "failed"
     assert stored["partial"] is True and stored["partial_findings"] >= 1     # positive first
 
@@ -301,7 +301,7 @@ def test_a_real_run_stores_what_it_left_unchecked_and_feeds_the_code(world):
     run_id, job_id = _enqueue(world)
     review_jobs.claim_next(W)
     assert review_jobs.run(job_id, W) == "done"
-    stored = json.loads(_run_row(run_id)["refusal_reason"])
+    stored = json.loads(_run_row(run_id)["outcome_json"])
     assert "table_values_not_compared" in stored and "requirements_not_applied" in stored
     assert stored["standards_not_checked"] == []
 
@@ -399,8 +399,8 @@ def test_the_run_stores_the_counts_the_share_is_taken_from(world):
     comparison._store_run_outcome(
         run_id, {"code": comparison.CODE_MANUAL, "reason": "r"}, {},
         unchecked_counts={"not_compared": 3, "not_applied": 1, "checked": 4})
-    row = db.connect().execute("SELECT refusal_reason FROM review_runs WHERE id = ?", (run_id,)).fetchone()
-    assert json.loads(row["refusal_reason"])["unchecked_counts"] == {
+    row = db.connect().execute("SELECT outcome_json FROM review_runs WHERE id = ?", (run_id,)).fetchone()
+    assert json.loads(row["outcome_json"])["unchecked_counts"] == {
         "not_compared": 3, "not_applied": 1, "checked": 4}
 
 

@@ -28,6 +28,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `ai_applicability` | Choose the standards that apply to a submittal |
 | `ai_engineering_check` | AI engineering check (kind C): observations a reviewer would raise, as DRAFTS |
 | `ai.json_reply` | ONE way to take a model's JSON answer out of a code fence (#455); the first module of the `ai/` folder (target structure) |
+| `ai.output_limits` | ONE output cap per model-call route, and the named reply states `complete` / `truncated` / `unknown` (#456): a length-cut reply is never parsed as a whole answer |
 | `ai_requirements` | AI clause to check (#645): proposes a check per undecided clause sentence, code verifies every part, kept as a DRAFT the engineer accepts (a versioned, confirmed limit) or rejects |
 | `ai_numbers` | #845: a finished run's AI numbers (reader, matcher, AI check, wording) with their denominators, from stored data |
 | `evidence_boxes` | #785: where each side of a finding sits and the box to draw on it (checklist clause page, value position, label) |
@@ -35,6 +36,16 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `analysis` | The three engines joined to retrieval, the model and the access scope |
 | `answer` | Answer a chat question from the documents |
 | `answerability` | B8: the answer-level safety gate - does the evidence ANSWER the question? |
+| `api.documents` | Routes: upload, list, read and delete documents, the ingest steps and the bulk role change (moved out of main.py, order 73) |
+| `api.document_classification` | Routes: what a document is - classification, kind, the playbook review |
+| `api.document_files` | Routes: a document's pages, page images, original file, workbook, chunks, excluded text and page ledger |
+| `api.deliverables` | Routes: the deliverables register, expected deliverables, history, stakeholders, workspace and alerts; management reminders, summary and schedule, escalation rules and the report (moved out of main.py, order 79a) |
+| `api.standards` | Routes: the standards library - list, inventory, missing and cited standards, provenance, OKF concepts, clauses, requirements and their extraction, tables, conflicts, the verification queue, clause checks, revisions and supersede (moved out of main.py, order 79a) |
+| `api.admin` | Routes: users, disciplines, grants, the model unload, the read-only database explorer and the document-kind routing run (moved out of main.py, order 79a) |
+| `api.crs_archive` | Routes: a run's CRS record - who decided what, when and why (order 95 piece 6a), and the issued contractor copies (moved out of main.py) |
+| `api.run_summary` | Routes: GET /api/reviews/runs/{id}/summary - the CRS-first screen's tiers, counts and "How this was reviewed" (order 95); GET /api/reviews/runs/{id} - one run (order 109); GET /api/reviews/runs - every run or one page, with its total (order 117 item 5); GET /api/reviews/runs/counts - the tier counts of many runs in one call, the same as each run's summary counts (order 117 item 5) |
+| `api.run_standards` | Routes: GET /api/reviews/runs/{id}/standards - the standards a run compared against and why, one page with its total (order 117 item 5); POST /api/reviews/runs/{id}/standards/override - the engineer adds or removes a standard (P2). Moved out of main.py |
+| `api.review_templates` | Routes: GET /api/reviews/templates and GET /api/reviews/baseline-rules - the lists, each with an optional page and its total (order 117 item 5) |
 | `api_tags` | The API description grouped by area (one tag per route) with every file response typed; documentation only (order 69) |
 | `api_utils` | Shared API validation |
 | `applicability` | Choose the standards that apply to a submittal |
@@ -87,6 +98,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `datasheet_inputs` | Datasheet INPUTS other than a PDF text layer: Excel, Word, scanned pages |
 | `datasheets` | Read a contractor datasheet into facts |
 | `db` | SQLite storage. WAL mode, foreign keys on, one connection per thread |
+| `dashboard_pool` | The dashboard's heavy reads on their own few threads, single-flight (order 84-1) |
 | `deliverables` | Revision-aware EPC deliverable and WBS records |
 | `disciplines` | Raw discipline spellings, and the canonical value they collapse to |
 | `doc_router` | The document-type router (W5b-02, #526) |
@@ -96,7 +108,9 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `embedder` | Step 4 - local ONNX int8 e5-small embeddings |
 | `engineer_feedback` | Engineers' accept / edit / reject decisions as precision per standard and rule |
 | `errors` | Error codes and safe error reporting |
+| `export_status` | #633 items 6-7: what an export says about its run - run code and status, 'Run <status>: <reason>', unread pages, missing standards |
 | `extract` | Step 2 - resumable page-batch extraction |
+| `facet_memo` | The facet merge rule asked once per pair of facet versions (#615) |
 | `family_search` | A question that names a FAMILY of standards in general words ("what do the welding standards say about post we |
 | `field_links` | Linking a datasheet field to a clause: synonyms, nozzle marks, and simple categorical values. CRS quick wins, |
 | `field_naming` | Canonical field names for printed labels and numeric requirements (#193 plan B4, orders 5.2 and 5.3). Behind ` |
@@ -108,8 +122,9 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `hooks_check` | Say at boot when this checkout's git hooks are not switched on |
 | `ingest` | Background ingestion worker |
 | `intent` | What the reader actually typed |
+| `job_progress` | "Page x of y" while a review job reads its datasheet; display only (order 95 piece 3b) |
 | `job_queue` | Claim, retry, poison and priority on the EXISTING tables (issue #177) |
-| `keyword` | SQLite FTS5 keyword index |
+| `fts_index` | SQLite FTS5 keyword index |
 | `lexical` | The lexical gate: is this passage plausibly about what was asked? |
 | `ligatures` | Repairing ligatures that failed to extract |
 | `live_guard` | The ONE way anything other than the server writes to a live database |
@@ -129,6 +144,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `okf` | OKF v1 (#513): one cited concept per standard, clause, requirement and equipment type, from stored facts only; no link without a resolving citation (`docs/okf.md`) |
 | `orphan_guard` | B38: stop NEW findings being orphaned. Record, then refuse by default |
 | `page_ledger` | The page ledger (master order B3): every page accounted for, with a reason |
+| `pdf_flow` | #633 item 6: PDF text that wraps and continues on the next page, never dropped (layout only) |
 | `pageimage` | On-demand page rendering |
 | `passages` | Small-to-big: search small, show big |
 | `playbooks` | Review a written procedure against a playbook (#679, W5b-04) |
@@ -144,11 +160,15 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `requirement_split` | Every requirement in a run's scope is in ONE of three honest groups (#678) |
 | `requirements_3b` | Phase 3B: structured requirements - limits, units, conditions, exceptions |
 | `reranker` | Cross-encoder reranking, local and CPU-only |
+| `review_tiers` | Order 95: each finding of a run in ONE tier (comment / needs you / met or not applicable) with a reason word; display only |
 | `review` | Persistent workflow records for AI-assisted engineering reviews |
+| `finding_query` | The one scope filter of the review-findings list and its count, so a page and its total agree (order 117 item 5) |
+| `paging` | The fields every paged list response carries: `total` (the page's denominator), `limit`, `offset`; a bare-list route's page with its total in `X-Total-Count` (order 117 item 5) |
 | `review_jobs` | P3: a review runs as a background job on the B11 queue, not inside the request |
 | `review_trace` | Show what each step of a finished review produced (REVIEW_DEBUG console and per-run log, #791) |
 | `risks` | Typed EPC risk register, kept separate from evidence-backed findings |
 | `row_noise` | Page furniture and fragments that are not fields (#193 plan B4, item 3) |
+| `page_reason_words` | Plain words for why a datasheet page gave no value (the stored page reason); the engine counts kept apart as detail (order 124 item 9) |
 | `rule_trust` | Decide when an AI-compiled rule may be used: tier, family proof, second check, audit sample, trust labels |
 | `rule_eval` | Table and formula rules, evaluated in code (owner order 2026-09-26, 2a + 2b) |
 | `schemas` | Typed response models |
@@ -162,7 +182,9 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `standards` | The Standards Library: clause hierarchy, atomic requirements, revisions |
 | `standards_acquisition` | Standards beyond the client's own: WHERE to get a missing one, and a record of getting it |
 | `standards_inventory` | Standards inventory (B5 part 2): family, edition/revision, licence status, cover-page backfill, and which stan |
+| `stated_value` | Order 124 item 9: a long stated value is quoted in a finding's text as a marked excerpt ending " …", never a raw table chunk; verdicts still use the whole value |
 | `states` | Document lifecycle state machine |
+| `stored_paths` | A stored file's path, relative to `data_dir`, resolved on read (order 121 C) |
 | `structured_search` | Small, scope-aware search over EPC workflow records |
 | `subject_scope` | What a requirement is ABOUT, and whether it applies to this submittal (#453) |
 | `submittal_review` | Schema and scoped read paths for the AI submittal review workflow |
@@ -217,6 +239,10 @@ which are areas of their own today.
   NEW backend file or function over the limit, and a listed one that grows. Today's long ones are
   listed in `eval/quality/long_code.json` (34 files, 99 functions on 17 Oct 2026) and may only shrink:
   after a split, `python scripts/quality_ratchet.py record-long-code` moves the bar down in the same PR.
+- `ruff format`, file by file (order 79d): `scripts/quality_ratchet.py format-check` (CI, pull requests)
+  fails a NEW Python file that is not formatted, and a changed one that moves further from the formatter.
+  An untidy file is never reformatted whole; the lines a PR touches are. Code a split moves into a new module (80% or more
+  of its lines deleted elsewhere in the same PR) keeps its formatting, so the move stays verbatim.
 - One module per job, no copies (the known duplicates above are debts with a date).
 - Tests mirror the app folders.
 - Scratch and proof output never live inside the repo.

@@ -117,7 +117,7 @@ def test_a_real_ask_reports_every_stage_it_passed_through(monkeypatch):
     import pymupdf
 
     from app import answer as answer_mod
-    from app import chat, db, keyword
+    from app import chat, db, fts_index
     from app.config import settings
 
     doc = pymupdf.open()
@@ -163,7 +163,7 @@ def test_a_real_ask_reports_every_stage_it_passed_through(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def temp_storage(tmp_path, monkeypatch):
-    from app import db, keyword
+    from app import db, fts_index
     from app.config import settings
 
     monkeypatch.setattr(settings, "data_dir", tmp_path)
@@ -171,7 +171,7 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "t.sqlite")
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     (tmp_path / "uploads").mkdir(parents=True, exist_ok=True)
     yield
     db.reset_connection()

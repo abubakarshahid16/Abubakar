@@ -10,12 +10,12 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from app import db, review
+from app import db, document_refs, review
 from app.config import settings
 from app.field_naming import LABEL, REQUIREMENT, label_key
 from app.main import app
 from tests.test_crs_submittal_delete_orphan_guard import (  # noqa: F401 - fixtures and helpers
-    NOW, _requirement, _uploaded, temp_storage)
+    NOW, _finding_against, _requirement, _uploaded, temp_storage)
 
 _TABLE = """CREATE TABLE IF NOT EXISTS canonical_field_names (
     subject_kind TEXT NOT NULL, subject_key TEXT NOT NULL, dictionary_sha256 TEXT NOT NULL,
@@ -23,8 +23,9 @@ _TABLE = """CREATE TABLE IF NOT EXISTS canonical_field_names (
     created_at TEXT NOT NULL, PRIMARY KEY (subject_kind, subject_key, dictionary_sha256))"""
 
 
-def _delete(document_id: str) -> dict:
-    r = TestClient(app).delete(f"/api/documents/{document_id}?confirm=true")
+def _delete(document_id: str, *, acknowledge: bool = False) -> dict:
+    extra = "&acknowledge_orphaned_findings=true" if acknowledge else ""
+    r = TestClient(app).delete(f"/api/documents/{document_id}?confirm=true{extra}")
     assert r.status_code == 200, r.text
     return r.json()
 
@@ -113,3 +114,47 @@ def test_a_database_that_never_named_a_field_deletes_as_before():
     assert "canonical_field_names" not in tables
     out = _delete(sub)
     assert out["rows_removed"]["canonical_field_names"] == 0 and out["deleted"] == sub
+
+
+def test_1053_deleting_a_standard_takes_the_review_pdfs_of_the_submittals_that_cite_it():
+    """#1053: the review PDF prints each finding's requirement text, taken
+    from the STANDARD; a submittal reviewed against a deleted standard kept
+    PDFs that still quoted it."""
+    std, other_std = _uploaded("std.pdf"), _uploaded("std2.pdf")
+    sub, other_sub = _uploaded("sub.pdf"), _uploaded("sub2.pdf")
+    _finding_against(sub, _requirement(std))
+    _finding_against(other_sub, _requirement(other_std))
+    gone = [review.render_report(sub), review.render_report(sub)]
+    kept = [review.render_report(other_sub), review.render_report(other_std)]
+    assert document_refs.submittals_citing(std) == [sub]
+    out = _delete(std, acknowledge=True)
+    assert not any(p.exists() for p in gone), "a submittal's PDFs still quote the deleted standard"
+    assert all(p.exists() for p in kept)
+    # the count is audited, not returned: the deleter may not read the citing submittals (s1's review)
+    assert "review_pdfs_of_citing_submittals" not in out["rows_removed"]
+    detail = db.connect().execute(
+        "SELECT detail FROM audit_events WHERE action = 'document.deleted' AND resource_id = ?",
+        (std,)).fetchone()[0]
+    assert "review_pdfs_of_citing_submittals=2" in detail
+    assert out["files_removed"] >= 2
+    # the finding itself stays: the record survives, its citation nulled by the cascade
+    assert db.connect().execute("SELECT COUNT(*) FROM review_findings WHERE document_id = ?",
+                                (sub,)).fetchone()[0] == 1
+
+
+def test_1053_a_library_that_never_ran_a_review_cites_nothing_and_does_not_fail(tmp_path, monkeypatch):
+    """The delete route asks which submittals cite the standard before it
+    deletes. A database where no review ever ran has no findings table yet:
+    the answer is "none", never an error that blocks the delete (CI caught
+    this on test_worker_health and test_keyword's delete tests)."""
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    monkeypatch.setattr(settings, "db_path", tmp_path / "fresh.sqlite")
+    db.reset_connection()
+    db.init_db()
+    try:
+        tables = {r[0] for r in db.connect().execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'")}
+        assert "review_findings" not in tables, "the fixture must start with no review tables"
+        assert document_refs.submittals_citing("doc_never_reviewed") == []
+    finally:
+        db.reset_connection()

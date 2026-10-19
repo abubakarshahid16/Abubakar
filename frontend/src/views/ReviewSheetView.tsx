@@ -12,11 +12,10 @@
  * technical panels are kept, unchanged, behind "Behind the scenes" - each
  * a route of its own (`/review/<run>/<panel>`, #967 PR 3).
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api, reviews as reviewsApi } from "../api/client";
 import type { CrsIssueGate, DocumentRecord, ReviewFinding, ReviewRunSummary } from "../types/api";
-import { downloadCrs } from "../components/review/downloadCrs";
 import { progressLine, runStatusLabel } from "../components/review/reviewFormat";
 import { DecisionCard } from "../components/review/sheet/DecisionCard";
 import { DocumentPane, type PaneView } from "../components/review/sheet/DocumentPane";
@@ -30,6 +29,8 @@ import { BehindTheScenes, PANEL_TITLES, type StandardsState } from "../component
 import { ReviewJobControl } from "../components/review/panels/ReviewJobControl";
 import { RunIncompleteNotes } from "../components/review/panels/RunIncompleteNotes";
 import { RunReviewControl } from "../components/review/panels/RunReviewControl";
+import { NavLink } from "../components/NavLink";
+import { CRS_SHEET_IS_DEFAULT, panelForReviewScreen } from "../routing";
 
 type Load = { kind: "loading" } | { kind: "ready" } | { kind: "error"; message: string };
 
@@ -57,7 +58,6 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
   const [view, setView] = useState<PaneView>({ page: null, rule: null });
   // #791: the status a count in the review steps was clicked for.
   const [focusStatus, setFocusStatus] = useState<string | null>(null);
-  const [send, setSend] = useState<{ kind: "idle" | "sending" | "sent" } | { kind: "error"; message: string }>({ kind: "idle" });
   // #967 PR 4: "show it on the page" (T, or the card's link) - counted, so
   // each ask scrolls the datasheet into view and pulses its frame once.
   const [pulse, setPulse] = useState(0);
@@ -66,13 +66,19 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
     setPulse((n) => n + 1);
   }, []);
 
+  // Order 117 item 6: only the newest load may paint (the CRS sheet's rule):
+  // a slower, older answer - another run's, or an overtaken poll - is dropped.
+  const latest = useRef(0);
+  useEffect(() => () => { latest.current += 1; }, []);
   const refresh = useCallback(async () => {
+    const mine = ++latest.current;
     const [runs, listed, gated, stds] = await Promise.all([
-      reviewsApi.reviewRuns(), reviewsApi.list({ review_run_id: runId }),
+      reviewsApi.reviewRun(runId), reviewsApi.list({ review_run_id: runId }),
       reviewsApi.crsIssueGate(runId), reviewsApi.reviewRunStandards(runId),
     ]);
+    if (mine !== latest.current) return null;
     if (!runs.ok) { setLoad({ kind: "error", message: runs.error.message }); return null; }
-    const found = runs.data.runs.find((r) => r.review_run_id === runId) ?? null;
+    const found = runs.data;
     if (!found) { setLoad({ kind: "error", message: "This review run could not be found." }); return null; }
     if (!listed.ok) { setLoad({ kind: "error", message: listed.error.message }); return null; }
     setRun(found);
@@ -90,7 +96,9 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
   const submittalId = run?.submittal_document_id ?? null;
   useEffect(() => {
     if (!submittalId) return;
-    void api.document(submittalId).then((r) => setSubmittal(r.ok ? r.data : null));
+    let current = true;
+    void api.document(submittalId).then((r) => { if (current) setSubmittal(r.ok ? r.data : null); });
+    return () => { current = false; };
   }, [submittalId]);
 
   const active = run?.status === "queued" || run?.status === "running";
@@ -149,22 +157,24 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
   const done = progress(cards);
   const allAnswered = done.answered === done.total;
   const finalCode = run?.engineer_final_code ?? null;
-  const canSend = allAnswered && Boolean(finalCode) && Boolean(gate?.issuable) && send.kind !== "sending";
-
-  async function sendToContractor() {
-    setSend({ kind: "sending" });
-    const message = await downloadCrs(runId, "issue");
-    if (message) { setSend({ kind: "error", message }); return; }
-    setSend({ kind: "sent" });
-    void refresh();
-  }
+  // Order 121: the comment sheet is where a review is signed. This older
+  // view sends the engineer there; it no longer issues the copy itself.
+  const sheetPanel = panelForReviewScreen("crsSheet", CRS_SHEET_IS_DEFAULT);
 
   return (
     <section className="mx-auto w-full max-w-7xl space-y-5" aria-labelledby="sheet-title">
       <header className="space-y-3">
-        <button type="button" onClick={onBack} className="text-sm text-signal-300 underline-offset-2 hover:underline">
-          ← Documents from contractors
-        </button>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+          <button type="button" onClick={onBack} className="text-signal-300 underline-offset-2 hover:underline">
+            ← Documents from contractors
+          </button>
+          {/* Order 95 piece 2: the way to the new comment sheet, through the
+              app's own navigation (a reload would sign the reader out). */}
+          <NavLink view="review" recordId={runId} panel={panelForReviewScreen("crsSheet", CRS_SHEET_IS_DEFAULT)}
+            className="text-signal-300 underline-offset-2 hover:underline">
+            {CRS_SHEET_IS_DEFAULT ? "Back to the comment sheet" : "Try the new comment sheet"}
+          </NavLink>
+        </div>
         <div className="flex flex-wrap items-center gap-4">
           <div className="w-full min-w-0 sm:w-auto sm:flex-1">
             <h1 id="sheet-title" className="break-words text-2xl font-semibold text-slateish-100 sm:truncate">
@@ -175,16 +185,18 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
             )}
           </div>
           {cards.length > 0 && <ProgressRing answered={done.answered} total={done.total} />}
-          <button type="button" onClick={() => void sendToContractor()} disabled={!canSend}
-            className="rounded-[var(--radius-sm)] bg-signal-500 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50">
-            {send.kind === "sending" ? "Sending…" : "Send comments to contractor"}
-          </button>
+          <NavLink view="review" recordId={runId} panel={sheetPanel}
+            className="rounded-[var(--radius-sm)] bg-signal-500 px-4 py-2 text-sm font-semibold text-ink-950">
+            Sign and export on the comment sheet
+          </NavLink>
         </div>
+        <p role="note" data-testid="older-view" className="rounded-[var(--radius-sm)] border border-warn-500/40 bg-warn-500/10 px-3 py-2 text-sm text-slateish-200">
+          Older view. Decisions are made on the comment sheet.{" "}
+          <NavLink view="review" recordId={runId} panel={sheetPanel} className="font-semibold text-slateish-100 underline underline-offset-2">
+            Go to the comment sheet
+          </NavLink>
+        </p>
         {run && <RunIncompleteNotes run={run} />}
-        {send.kind === "sent" && <p role="status" className="text-sm text-signal-300">Sent. The issued copy was downloaded and kept on record.</p>}
-        {send.kind === "error" && (
-          <p role="alert" className="rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-sm text-danger-500">{send.message}</p>
-        )}
       </header>
 
       {load.kind === "loading" && <p className="text-slateish-300">Loading the review…</p>}

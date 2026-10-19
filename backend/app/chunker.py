@@ -26,7 +26,7 @@ from .config import settings
 from .db import connect
 from .rates import Timer, rate
 from . import states
-from . import keyword
+from . import fts_index
 from . import orphan_guard
 from .ocr import failed_page_reason
 from .quality import MIN_CLAUSE_WORDS, assess, longest_clause
@@ -2885,7 +2885,7 @@ def chunk_document(doc_id: str, force: bool = False,
     `acknowledge_orphaned_findings` is kept for callers and is not needed."""
     timer = Timer()
     conn = connect()
-    keyword.ensure_schema(conn)
+    fts_index.ensure_schema(conn)
     doc = conn.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()
     if doc is None:
         raise ValueError(f"unknown document {doc_id}")
@@ -2944,10 +2944,10 @@ def chunk_document(doc_id: str, force: bool = False,
     paths: dict[str, str | None] = {}
     stray: list[Block] = []     # #918: fragments the runt pass dropped
     if flow:
-        from . import docx_chunks, docx_reader
+        from . import docx_chunks, docx_reader, stored_paths
 
         running, removed = set(), 0
-        chunks = docx_chunks.build_chunks(docx_reader.read_structure(doc["stored_path"]))
+        chunks = docx_chunks.build_chunks(docx_reader.read_structure(stored_paths.local(doc["stored_path"])))
     else:
         running = detect_running_lines(pages)
         # Ruled tables replace their own lines with one structured stand-in

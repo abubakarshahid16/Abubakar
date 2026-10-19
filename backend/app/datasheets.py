@@ -46,8 +46,9 @@ import json
 from pathlib import Path
 from contextvars import ContextVar
 
-from . import (blank_markers, claims, datasheet_inputs, numparse, orphan_guard, page_ledger,
-               provenance, row_noise, standard_ids, submittal_review, tables)
+from . import (blank_markers, claims, datasheet_inputs, errors, numparse, orphan_guard, page_ledger,
+               page_reason_words, provenance, row_noise, standard_ids, stored_paths,
+               submittal_review, tables)
 from .config import settings
 from .db import connect
 
@@ -402,8 +403,7 @@ def furniture_labels(pairs_by_page: dict[int, list[tuple[str, str]]],
             pages_per_label.setdefault(name, set()).add(page)
             answered_pages.setdefault(name, set())
             answers_per_label.setdefault(name, set())
-            # Compared as the reader sees it: case and spacing are spelling,
-            # not different answers.
+            # Compared as the reader sees it: case and spacing are spelling, not different answers.
             answer = " ".join((value or "").split()).lower()
             # AN ANSWER IS SOMETHING A FACT COULD BE MADE OF (#179). The
             # vessel sheet's title-block row `<site name> | ... | OF` printed
@@ -2444,8 +2444,8 @@ def _pairs_from_pdf_page(stored_path: str, page_no: int) -> list[tuple[str, str]
             return pairs_from_blocks(blocks)
     except (pymupdf.FileNotFoundError, pymupdf.FileDataError):
         return []  # the FILE; named by pdf_condition, not guessed at here
-    except Exception:  # noqa: BLE001 - a failure inside one page of a readable file
-        _page_failed(page_no, "pairs")
+    except Exception as exc:  # noqa: BLE001 - a failure inside one page of a readable file
+        _page_failed(page_no, "pairs", exc)
         return []
 
 
@@ -2664,8 +2664,8 @@ def _grid_facts_from_pdf_page(stored_path: str | None, page_no: int) -> list[dic
                 return []
             from . import geometry_reader
             return grid_facts(geometry_reader.upright_words(doc[page_no - 1]))
-    except Exception:  # noqa: BLE001 - the file's condition is pdf_condition's to name
-        _page_failed(page_no, "grid")
+    except Exception as exc:  # noqa: BLE001 - the file's condition is pdf_condition's to name
+        _page_failed(page_no, "grid", exc)
         return []
 
 
@@ -2710,8 +2710,8 @@ def _geometry_rows_from_pdf_page(stored_path: str | None, page_no: int,
             if not (1 <= page_no <= doc.page_count):
                 return []
             rows = geometry_reader.read_page_rows(doc[page_no - 1])
-    except Exception:  # noqa: BLE001 - the file's condition is pdf_condition's to name
-        _page_failed(page_no, "geometry")
+    except Exception as exc:  # noqa: BLE001 - the file's condition is pdf_condition's to name
+        _page_failed(page_no, "geometry", exc)
         return []
     if page_needs_ocr:
         rows = [{**row, "page_needs_ocr": True} for row in rows]
@@ -2765,8 +2765,8 @@ def _text_layer_words(stored_path: str | None, page_no: int) -> int:
             if not (1 <= page_no <= doc.page_count):
                 return 0
             return len(doc[page_no - 1].get_text("words"))
-    except Exception:  # noqa: BLE001 - the file's condition is pdf_condition's to name
-        _page_failed(page_no, "text_layer")
+    except Exception as exc:  # noqa: BLE001 - the file's condition is pdf_condition's to name
+        _page_failed(page_no, "text_layer", exc)
         return 0
 
 
@@ -2786,8 +2786,8 @@ def _vision_reading(stored_path: str | None, page_no: int, geometry_rows: list[d
                 return None
             return vision_reader.read_page(doc[page_no - 1], page_no, provider,
                                            geometry_rows=geometry_rows)
-    except Exception:  # noqa: BLE001 - the file's condition is pdf_condition's to name
-        _page_failed(page_no, "vision_open")
+    except Exception as exc:  # noqa: BLE001 - the file's condition is pdf_condition's to name
+        _page_failed(page_no, "vision_open", exc)
         return None
 
 
@@ -2820,16 +2820,9 @@ def _sum_drops(readings: dict) -> dict[str, int]:
 
 
 def _vision_ledger_note(reading, kept_here: int, unavailable: str | None) -> str:
-    """One clause for the page ledger: what the vision reader did here."""
-    if reading is None:
-        return f"vision reader not run ({unavailable or 'page could not be rendered'})"
-    if reading.refused and not reading.asked:
-        return f"vision reader refused ({reading.refused})"
-    kind = f"page kind '{reading.page_kind}' (the model's word, unverified)" if reading.page_kind \
-        else "page kind not given"
-    return (f"vision reader: {kind}; {reading.proposed} field(s) proposed, "
-            f"{len(reading.kept)} proved against the page, {kept_here} recorded, "
-            "not counted as the page read into fields")
+    """One sentence for the page ledger, in plain words: what the vision
+    reader did here (`page_reason_words.vision_note`)."""
+    return page_reason_words.vision_note(reading, kept_here, unavailable)
 
 
 def geometry_unit_columns(rows: list[dict]) -> set[tuple]:
@@ -3055,21 +3048,15 @@ def _unparsed_reason(pairs: list, dropped: dict[str, int]) -> str:
     reader looking for a parsing problem that was not there.
 
     So the sentence is only used when it is TRUE, and otherwise the page says
-    what it recovered and where it went.
+    what it recovered and where it went. Order 124 item 9: in PLAIN WORDS
+    (`page_reason_words`) - the counts per rule are the entry's "detail".
     """
-    if not pairs:
-        return "no label-value pairs recovered from this page"
-    counts = ", ".join(f"{n} by {reason}"
-                       for reason, n in sorted(dropped.items(),
-                                               key=lambda kv: (-kv[1], kv[0]))
-                       if n)
-    return (f"{len(pairs)} label-value pairs were recovered and none became a "
-            f"fact ({counts or 'no reason recorded'})")
+    return page_reason_words.unparsed_reason(len(pairs), dropped)
 
 
 def _ai_page_note(ai_run: dict, page: int) -> str:
     """What the AI reader did on a page that ended with no fact."""
-    return ai_run["reasons"].get(page) or "read the page; no reading was proved and kept"
+    return page_reason_words.ai_note(ai_run["reasons"].get(page))
 
 
 def _ai_gate(fact: dict, furniture: set[str]) -> str | None:
@@ -3315,8 +3302,9 @@ PAGE_READ_FAILED = {
 }
 
 
-def _page_failed(page_no: int, reader: str) -> None:
+def _page_failed(page_no: int, reader: str, exc: BaseException | None = None) -> None:
     """Record that `reader` failed on `page_no` (when a run is collecting)."""
+    errors.fell_back(f"datasheets: the {reader} reader failed on a page; the page is recorded", exc, None)
     failures = _PAGE_FAILURES.get()
     if failures is not None:
         failures.setdefault(int(page_no), set()).add(reader)
@@ -3331,10 +3319,9 @@ def extract_facts(
     seam; off, or for a PDF, this is exactly the call it wraps)."""
     method = None
     if settings.datasheet_office_input:
-        row = connect().execute(
-            "SELECT stored_path FROM documents WHERE id = ?", (document_id,)).fetchone()
-        if row is not None and datasheet_inputs.is_office_input(row["stored_path"]):
-            method = datasheet_inputs.extraction_method(row["stored_path"])
+        path = stored_paths.of_document(document_id)
+        if path and datasheet_inputs.is_office_input(path):
+            method = datasheet_inputs.extraction_method(path)
     token = _OFFICE_METHOD.set(method)
     failures_token = _PAGE_FAILURES.set({})
     try:
@@ -3491,7 +3478,7 @@ def _extract_facts(
         page_ledger.refresh(document_id, as_submittal=True)
         return empty
 
-    stored_path = chunks[0]["stored_path"]
+    stored_path = stored_paths.local(chunks[0]["stored_path"])
     # #177 PROVENANCE: the code that reads this sheet (this module and the
     # table parser it leans on) and exactly what it read - the stored file's
     # hash plus every chunk's text, in order. See `provenance.py`. NOT
@@ -4133,14 +4120,14 @@ def _extract_facts(
             page_read = page_written + page_geometry + page_vision + page_ai
             if page_read == 0:
                 reason = _unparsed_reason(pairs, dropped)
-                if ai_run is not None:
-                    reason = f"{reason}; AI reader: {_ai_page_note(ai_run, page)}"
+                reason += f" {_ai_page_note(ai_run, page)}" if ai_run is not None else ""
                 if geometry_on:
                     # B4 item 1: what the vision reader did with this page.
-                    reason = (f"{reason}; vision {vision_routing.get(page, 'not decided')}"
+                    reason = (f"{reason} {page_reason_words.vision_route_note(vision_routing.get(page))}"
                               if vision_routing.get(page) != VISION_ROUTED else
-                              f"{reason}; {_vision_ledger_note(reading, page_vision, vision_unavailable)}")
-                unparsed.append({"page": page, "reason": reason})
+                              f"{reason} {_vision_ledger_note(reading, page_vision, vision_unavailable)}")
+                unparsed.append({"page": page, "reason": reason,
+                                 "detail": page_reason_words.unparsed_detail(len(pairs), dropped, page)})
                 outcomes[page] = ("no_facts", 0, reason)
             elif page_written == 0:
                 # Read, but only by the page reader: say so, and what the
@@ -4248,11 +4235,11 @@ def _record_run_summary(document_id: str, extractor_version: str | None, ai_run:
 
 def _office_notes_of(document_id: str) -> list[str]:
     """What the office reader deliberately left out of this file (#918)."""
-    row = connect().execute("SELECT stored_path FROM documents WHERE id = ?", (document_id,)).fetchone()
-    if row is None or not row["stored_path"] or not datasheet_inputs.is_office_input(row["stored_path"]):
+    path = stored_paths.of_document(document_id)
+    if not path or not datasheet_inputs.is_office_input(path):
         return []
     try:
-        return list(datasheet_inputs.office_notes(row["stored_path"]))
+        return list(datasheet_inputs.office_notes(path))
     except OSError:
         return []
 

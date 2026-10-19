@@ -26,7 +26,7 @@ import pytest
 
 from app import answer as answer_mod
 from app import chat as chat_mod
-from app import chat_stream, db, keyword, lexical, passages, reranker, search
+from app import chat_stream, db, fts_index, lexical, passages, reranker, search
 from app.config import settings
 
 REPO = Path(__file__).resolve().parents[2]
@@ -40,7 +40,7 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "t.sqlite")
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     yield
     db.reset_connection()
 
@@ -234,7 +234,7 @@ def _pipeline(monkeypatch, texts_scores: list[tuple[str, float]]):
                       "retrievable": 1, "text_source": "extracted", "ocr_min_conf": None,
                       "ocr_alphabet_violations": 0, "ocr_alphabet_sample": None}
             for i, (t, _) in enumerate(texts_scores)}
-    monkeypatch.setattr(search.keyword, "search", lambda q, limit=30, document_id=None, *,
+    monkeypatch.setattr(search.fts_index, "search", lambda q, limit=30, document_id=None, *,
                         allowed_document_ids, corrections=None:
                         [{"chunk_id": cid, "bm25": -1.0} for cid in rows])
     monkeypatch.setattr(search, "_hydrate", lambda ids: {i: rows[i] for i in ids})
@@ -330,15 +330,15 @@ def test_only_carried_identifiers_are_soft():
 
 
 def test_a_carried_identifier_cannot_exclude_a_passage_from_the_keyword_side(monkeypatch):
-    """keyword.search ANDs identifiers; a carried one must not."""
+    """fts_index.search ANDs identifiers; a carried one must not."""
     corpus = {"a": "API 610 vibration tolerance 0.05 mm",
               "b": "shaft tolerance is 0.02 mm for all pumps"}
 
     def fake(question, limit=30, document_id=None, *, allowed_document_ids, corrections=None):
-        need = [i.lower() for i in keyword.IDENTIFIER.findall(question)]
+        need = [i.lower() for i in fts_index.IDENTIFIER.findall(question)]
         return [{"chunk_id": k, "bm25": -1.0} for k, t in corpus.items()
                 if all(n in t.lower() for n in need)]
-    monkeypatch.setattr(search.keyword, "search", fake)
+    monkeypatch.setattr(search.fts_index, "search", fake)
     hits = search._keyword_candidates("what is the tolerance API 610", 30, None, SCOPE, {},
                                       ("API 610",))
     assert [h["chunk_id"] for h in hits] == ["a", "b"]  # carried subject first, not only

@@ -241,11 +241,20 @@ describe("2e: why the in-scope count moved", () => {
   it("names what was added and removed since the previous run", () => {
     expect(standardsChangeLine({ ...base, standards_change: {
       previous_run_id: "r0", added: ["STD-C.pdf"], removed: ["STD-A.pdf", "STD-B.pdf"] } }))
-      .toBe("Since the previous run: 2 standards removed (STD-A.pdf, STD-B.pdf); 1 standard added (STD-C.pdf).");
+      .toBe("2 standards were not used in this review (they were used last time): STD-A.pdf, STD-B.pdf."
+        + " 1 standard was used in this review but not last time: STD-C.pdf.");
+  });
+  // Order 124 item 9 (the 120.2 finding): never "removed", which read as
+  // deleted from the library; nothing was deleted.
+  it("never says a standard was removed", () => {
+    const line = standardsChangeLine({ ...base, standards_change: {
+      previous_run_id: "r0", added: [], removed: ["STD-A.pdf"] } });
+    expect(line).toBe("1 standard was not used in this review (it was used last time): STD-A.pdf.");
+    expect(line).not.toMatch(/removed/i);
   });
   it("says nothing changed, and nothing at all for a first run", () => {
     expect(standardsChangeLine({ ...base, standards_change: { previous_run_id: "r0", added: [], removed: [] } }))
-      .toBe("Same standards in scope as the previous run.");
+      .toBe("The same standards were used as in the last review.");
     expect(standardsChangeLine({ ...base, standards_change: null })).toBe("");
   });
 });

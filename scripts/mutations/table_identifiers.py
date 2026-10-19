@@ -6,7 +6,7 @@ from __future__ import annotations
 from ._base import APP, Mutation
 
 _T = "tests/test_table_identifiers.py"
-_K = APP / "keyword.py"
+_K = APP / "fts_index.py"
 _A = APP / "answer.py"
 
 MUTATIONS: tuple[Mutation, ...] = (
@@ -28,12 +28,12 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T, keyword="what_an_optional_prefix_drops or editable_file", tags=("honesty", "critical")),
     Mutation(id="M3504", phase=3504, description="the gate does not read the bare code on the passage",
              path=APP / "lexical.py",
-             anchor="        forms.extend(keyword.unprefixed_forms(term))\n",
+             anchor="        forms.extend(fts_index.unprefixed_forms(term))\n",
              replacement="",
              target=_T, keyword="prefixed_identifier_finds or gate_counts_the_table_row", tags=("honesty",)),
     Mutation(id="M3505", phase=3505, description="the ranking boost does not see the bare code",
              path=APP / "search.py",
-             anchor="            f.lower() for f in keyword.unprefixed_forms(ident))]\n",
+             anchor="            f.lower() for f in fts_index.unprefixed_forms(ident))]\n",
              replacement="            f.lower() for f in [])]\n",
              target=_T, keyword="bare_code_names", tags=("honesty",)),
     Mutation(id="M3506", phase=3506, description="a table row naming the bare code does not name the identifier",

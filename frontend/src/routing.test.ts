@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { parseRoute, pathForView, titleForView } from "./routing";
+import {
+  CRS_SHEET_IS_DEFAULT, INBOX_RECORD, panelForReviewScreen, parseRoute, pathForView, reviewScreenFor, titleForView,
+} from "./routing";
 import { ADMIN_NAV, NAV } from "./components/Shell";
 
 describe("application routes", () => {
   it("parses views and record deep links", () => {
     expect(parseRoute("/analysis")).toEqual({ kind: "view", view: "analysis", recordId: undefined });
     expect(parseRoute("/deliverables/WBS%201.2")).toEqual({ kind: "view", view: "deliverables", recordId: "WBS 1.2" });
+  });
+
+  it("order 95 piece 3: /review/inbox is a record route of the review view", () => {
+    expect(parseRoute("/review/inbox")).toEqual({ kind: "view", view: "review", recordId: INBOX_RECORD });
   });
 
   it("rejects unknown or over-deep paths", () => {
@@ -20,6 +26,38 @@ describe("application routes", () => {
     expect(pathForView("review", "run-1", "crs")).toBe("/review/run-1/crs");
     expect(parseRoute(pathForView("review", "run/1", "steps"))).toEqual({ kind: "view", view: "review", recordId: "run/1", panel: "steps" });
     expect(pathForView("review", undefined, "crs")).toBe("/review");
+  });
+
+  it("order 95 piece 2: the card view is also at \"cards\", the new sheet at \"crs-sheet\"", () => {
+    expect(parseRoute("/review/run-1/cards")).toEqual({ kind: "view", view: "review", recordId: "run-1", panel: "cards" });
+    expect(pathForView("review", "run-1", "cards")).toBe("/review/run-1/cards");
+    expect(parseRoute("/review/run-1/crs-sheet")).toEqual({ kind: "view", view: "review", recordId: "run-1", panel: "crs-sheet" });
+  });
+
+  it("order 115: the new comment sheet is the default review screen (the owner's yes, 18 Oct 2026)", () => {
+    // MUTATION PROOF: flip CRS_SHEET_IS_DEFAULT back without the owner and this fails.
+    expect(CRS_SHEET_IS_DEFAULT).toBe(true);
+    expect(reviewScreenFor(undefined)).toEqual({ screen: "crsSheet" });
+    expect(panelForReviewScreen("crsSheet")).toBeUndefined();
+    expect(panelForReviewScreen("cards")).toBe("cards");
+  });
+
+  it.each([false, true])("order 95 piece 2: the review screens with CRS_SHEET_IS_DEFAULT = %s", (isDefault) => {
+    expect(reviewScreenFor(undefined, isDefault)).toEqual(isDefault ? { screen: "crsSheet" } : { screen: "cards" });
+    // The explicit addresses open the same screen whichever is the default.
+    expect(reviewScreenFor("crs-sheet", isDefault)).toEqual({ screen: "crsSheet" });
+    expect(reviewScreenFor("cards", isDefault)).toEqual({ screen: "cards" });
+    // Behind-the-scenes pages (the old "crs" page among them) stay the card view's.
+    expect(reviewScreenFor("findings", isDefault)).toEqual({ screen: "cards", panel: "findings" });
+    expect(reviewScreenFor("crs", isDefault)).toEqual({ screen: "cards", panel: "crs" });
+    // A link to the default screen is plain `/review/<run>`; to the other, its own segment.
+    expect(panelForReviewScreen("crsSheet", isDefault)).toBe(isDefault ? undefined : "crs-sheet");
+    expect(panelForReviewScreen("cards", isDefault)).toBe(isDefault ? "cards" : undefined);
+  });
+
+  it('order 95 piece 5: "How this was reviewed" is /review/<run>/how', () => {
+    expect(parseRoute("/review/run-1/how")).toEqual({ kind: "view", view: "review", recordId: "run-1", panel: "how" });
+    expect(pathForView("review", "run-1", "how")).toBe("/review/run-1/how");
   });
 
   it("generates stable links and distinct page titles", () => {

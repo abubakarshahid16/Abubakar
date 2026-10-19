@@ -31,7 +31,7 @@ then starts **exactly two background threads**: `IngestionWorker` (`ingest.py:90
 | Text | `extract.extract_document` (`extract.py:138`), PyMuPDF in a process pool, writes `pages` | worker; `POST .../extract` (`main.py:588`) | `extract_processes=1` | test_extract | LIVE |
 | OCR | `ocr.recognise_document` (`ocr.py:274`), RapidOCR + PP-OCRv6 det/rec tiny ONNX, writes `page_ocr`; only pages flagged `needs_ocr`; runs AFTER the keyword index | worker | `ocr_dpi=150`, `ocr_processes=1`, `ocr_threads=1` | test_ocr | LIVE (0 scanned pages in this corpus — untested on real scans) |
 | Chunking | `chunker.chunk_document` + `quality.py` gate, writes `chunks`, `exclusions` | worker; `POST .../chunk` (`main.py:598`) | `chunk_target_tokens=300`, overlap 60, max 480 | test_chunker, test_quality_gate | LIVE |
-| Keyword index | `keyword.index_document`, FTS5 `chunks_fts` (`keyword.py:28`) + `chunks_vocab` | worker | — | test_keyword | LIVE |
+| Keyword index | `fts_index.index_document`, FTS5 `chunks_fts` (`fts_index.py:28`) + `chunks_vocab` | worker | — | test_keyword | LIVE |
 | Embeddings | `IngestionWorker.embed_pending` (`ingest.py:578`) → `Embedder.embed_passages`; e5-small ONNX int8; float32 BLOBs in SQLite `chunk_vectors` | worker; `POST .../embed` (`main.py:618`) | `embed_model_dir`, `embed_batch_size=16` | test_embedder, test_vectorcache | LIVE |
 | READY hooks | `_finish_if_embedded` (`ingest.py:716`): queue requirement extraction (COMPANY_STANDARD); extract facts, classify equipment type, classify metadata (CONTRACTOR_SUBMITTAL) | worker | keyed on `document_role` | test_ingest_fact_extraction, test_submittal_metadata_classification | LIVE — **see gap G1** |
 | Requirement extraction | `standards.extract_requirements` (`standards.py:608`): deterministic sentence split + mandatory-verb regex, **no model**; queued via `enqueue_extraction`, claimed atomically by `next_extraction_job` (:1120), run by `run_extraction_job` (:1152), drained by the worker only when no document needs work (`ingest.py:300`) | READY hook, `set_role`, `POST .../requirements/extract-async` (`main.py:2693`), sync admin route (`main.py:2583`) | — | test_standards_3b, test_job_queue_177 | LIVE |
@@ -79,11 +79,21 @@ running) calls, in order:
 5. CRS: `GET /api/reviews/runs/{id}/crs` (`main.py:3251`) and `/crs/preview` (:3297) →
    `_crs_content` → `crs_mapping.build_crs_rows` → `crs_export.build_crs` / `build_crs_view`.
 
-**What this means, plainly: the live review makes no model call by default.** Findings come
-from deterministic containment pairing plus deterministic comparison. There is no quote
-validation on the production review path because no model output reaches a finding:
-`quotes.py` (B23) has no importer in `app/`. Measured consequence on the regression
-documents: issue #193 (290 current facts, 2 pairings, 0 COMPLIANT/NON_COMPLIANT).
+**Corrected 2026-10-18 (order 117 item 8): the live review DOES call the model by default.**
+The paragraph that stood here described `1b445af` (2026-09-24) and said the review made no
+model call and that no model output reached a finding; both are no longer true:
+
+- **The AI datasheet reader** (`datasheet_ai.py`, `settings.datasheet_ai_reader = "ollama"`)
+  reads fields during extraction, each value with its page quote. A value decides like a
+  code-read fact only when code has proved its quote on the page (`quote_on_page` in its
+  provenance, `comparison.ai_quote_proved`).
+- **The requirement matcher** (`settings.match_enabled = True`, `match_engine = "ollama"`)
+  pairs a requirement with a submitted field (`comparison`); its choice is checked
+  (`_checked_choice`), and a malformed or failed one is recorded as such.
+- Both run on the local model through `model_transport.py`; either uses the Claude API only
+  under the gates of CLAUDE.md rule 1. `quotes.py` (B23) no longer exists.
+
+Section 2's line references above are still those of `1b445af`.
 
 ## 3. Model and network layer
 

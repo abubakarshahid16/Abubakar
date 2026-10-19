@@ -31,7 +31,7 @@ import pytest
 from fastapi.testclient import TestClient
 from openpyxl import load_workbook
 
-from app import (access, applicability, comparison, db, keyword, standards,
+from app import (access, applicability, comparison, db, fts_index, standards,
                  submittal_review)
 from app.config import settings
 from app.crs_export import STANDARDS_SHEET
@@ -49,7 +49,7 @@ def temp_storage(tmp_path, monkeypatch):
     db.reset_connection()
     db.init_db()
     submittal_review.ensure_schema()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     yield
     app.dependency_overrides.clear()
     db.reset_connection()
@@ -70,7 +70,7 @@ def _doc(doc_id, filename, role, text="", page=1, **meta):
              text,token_count,content_hash,retrievable)
             VALUES (?,?,?,0,?,?,NULL,'prose',?,1,?,1)""",
             (f"{doc_id}-c1", doc_id, filename, page, page, text or filename, f"h-{doc_id}"))
-    keyword.index_document(doc_id)
+    fts_index.index_document(doc_id)
     return doc_id
 
 

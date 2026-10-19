@@ -182,24 +182,70 @@ _JOB_COLUMNS = ("id, document_id, stage, state, priority, retries, error_code,"
                 " progress_done, progress_total, progress_label, cancel_requested")
 
 
-def list_jobs(*, allowed_document_ids: frozenset[str], document_id: str | None = None,
-              state: str | None = None, limit: int = 100) -> list[dict]:
-    """B11: jobs on documents the caller may read. Scope first, filters after:
-    a filter can only narrow it (CLAUDE.md rule 5)."""
-    from .db import connect
-    ids = sorted(allowed_document_ids if document_id is None
-                 else allowed_document_ids & {document_id})
+def _jobs_where(
+    allowed_document_ids: frozenset[str], document_id: str | None, state: str | None
+) -> tuple[str, list] | None:
+    """Scope first, filters after: a filter can only narrow it (CLAUDE.md
+    rule 5). None when nothing is readable."""
+    ids = sorted(
+        allowed_document_ids
+        if document_id is None
+        else allowed_document_ids & {document_id}
+    )
     if not ids:
-        return []
+        return None
     where = [f"document_id IN ({','.join('?' * len(ids))})"]
     args: list = list(ids)
     if state:
         where.append("state = ?")
         args.append(state)
-    rows = connect().execute(
-        f"SELECT {_JOB_COLUMNS} FROM jobs WHERE {' AND '.join(where)}"
-        " ORDER BY updated_at DESC LIMIT ?", (*args, limit)).fetchall()
+    return " WHERE " + " AND ".join(where), args
+
+
+def list_jobs(
+    *,
+    allowed_document_ids: frozenset[str],
+    document_id: str | None = None,
+    state: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[dict]:
+    """B11: jobs on documents the caller may read, newest first, one page.
+    `count_jobs` is the page's denominator."""
+    from .db import connect
+
+    found = _jobs_where(allowed_document_ids, document_id, state)
+    if found is None:
+        return []
+    rows = (
+        connect()
+        .execute(
+            f"SELECT {_JOB_COLUMNS} FROM jobs{found[0]}"
+            " ORDER BY updated_at DESC, id LIMIT ? OFFSET ?",
+            (*found[1], limit, offset),
+        )
+        .fetchall()
+    )
     return [dict(r) for r in rows]
+
+
+def count_jobs(
+    *,
+    allowed_document_ids: frozenset[str],
+    document_id: str | None = None,
+    state: str | None = None,
+) -> int:
+    """How many jobs `list_jobs` pages through (order 117 item 5)."""
+    from .db import connect
+
+    found = _jobs_where(allowed_document_ids, document_id, state)
+    if found is None:
+        return 0
+    return (
+        connect()
+        .execute("SELECT COUNT(*) FROM jobs" + found[0], found[1])
+        .fetchone()[0]
+    )
 
 
 def get_job(job_id: str, *, allowed_document_ids: frozenset[str]) -> dict | None:

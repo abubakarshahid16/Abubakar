@@ -441,11 +441,11 @@ def test_no_second_index_was_created():
 
 def test_a_requirement_points_at_a_chunk_retrieval_can_also_see():
     """The same chunk id the keyword index carries - one corpus, one path."""
-    from app import keyword
+    from app import fts_index
     doc = _standard(_doc("doc_std"))
     _chunk("c1", doc, SHALL, section="5.1 Coating", page=4)
-    keyword.ensure_schema()
-    keyword.index_document(doc)
+    fts_index.ensure_schema()
+    fts_index.index_document(doc)
     standards.extract_requirements(doc, allowed_document_ids=_scope(doc))
     row = standards.list_requirements(doc, allowed_document_ids=_scope(doc))[0]
     indexed = db.connect().execute(

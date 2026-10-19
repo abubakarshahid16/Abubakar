@@ -72,7 +72,7 @@ def test_get_risks_writes_nothing_and_emails_nothing_on_100000_findings(world, m
     start = time.perf_counter()
     r = _client().get("/api/risks")
     took = time.perf_counter() - start
-    assert r.status_code == 200 and r.json() == {"risks": []}
+    assert r.status_code == 200 and r.json()["risks"] == [] and r.json()["total"] == 0
     assert took < 2.0, f"GET /api/risks took {took:.2f}s on 100,000 findings"
     assert spied == [], f"GET /api/risks ran {spied}"
     assert world == [], "GET /api/risks sent an email"
@@ -213,7 +213,8 @@ def test_get_reminders_creates_no_events_and_sends_nothing(world, monkeypatch):
     deliverables.create({"wbs_code": "9.1", "title": "Late", "deliverable_type": "report",
                          "due_date": "2020-01-01"}, created_by=None)
     r = _client().get("/api/management/reminders")
-    assert r.status_code == 200 and r.json() == {"reminders": []}
+    assert r.status_code == 200
+    assert r.json()["reminders"] == [] and r.json()["total"] == 0
     assert world == []
     assert deliverables.generate_reminders() == 1
     assert len(_client().get("/api/management/reminders").json()["reminders"]) == 1

@@ -29,7 +29,7 @@ from __future__ import annotations
 import re
 
 #: typed word -> (document phrasings, why). Multi-word phrasings are searched as
-#: phrases ("relative humidity"), exactly as keyword.search quotes them.
+#: phrases ("relative humidity"), exactly as fts_index.search quotes them.
 GLOSSARY: dict[str, tuple[tuple[str, ...], str]] = {
     "humid": (("relative humidity",), "measured miss, docs/limitations.md"),
     "humidity": (("relative humidity",), "a bare 'humidity' question is about RH"),

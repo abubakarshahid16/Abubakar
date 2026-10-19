@@ -46,8 +46,7 @@ MUTATIONS: tuple[Mutation, ...] = (
        "gates_issue_until_ticked"),
     _m(6, "an engineer's decision on a proven rule's finding is not an audit outcome",
        APP / "crs_issue.py",
-       "    rule_trust.record_engineer_decision(review.get(finding_id) or {}, decision,\n"
-       "                                        actor=actor, note=reason)\n",
+       "    rule_trust.record_engineer_decision(\n        review.get(finding_id) or {}, decision, actor=actor, note=reason\n    )\n",
        "    pass\n",
        "tick_is_a_correct_audit or something_is_off"),
     _m(7, "a proof made under another revision of the standard still counts",
@@ -61,8 +60,8 @@ MUTATIONS: tuple[Mutation, ...] = (
        "                \"rule_trust\": rule_trust or {},\n",
        "off_uses_no_draft"),
     _m(9, "the Review notes sheet drops the rule_trust notes (fields no rule checked, spot-check)",
-       APP / "crs_mapping.py",
-       "    if outcome:\n        from .rule_trust import review_notes\n",
-       "    if False:\n        from .rule_trust import review_notes\n",
+       APP / "clause_coverage.py",
+       "    if outcome:\n        from .rule_trust import review_notes as trust_notes\n",
+       "    if False:\n        from .rule_trust import review_notes as trust_notes\n",
        "internal_crs_shows_the_trust"),
 )

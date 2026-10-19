@@ -12,6 +12,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .paging import ListPage
+
 DocStatus = Literal[
     "queued",
     "extracting",
@@ -458,7 +460,7 @@ class Job(BaseModel):
     cancel_requested: bool = False
 
 
-class JobList(BaseModel):
+class JobList(ListPage):
     jobs: list[Job]
 
 
@@ -1975,7 +1977,7 @@ class ReviewTemplate(BaseModel):
     updated_at: str
 
 
-class ReviewTemplateList(BaseModel):
+class ReviewTemplateList(ListPage):
     templates: list[ReviewTemplate]
 
 
@@ -1999,7 +2001,7 @@ class ReviewBaselineRule(BaseModel):
     created_at: str
 
 
-class ReviewBaselineRuleList(BaseModel):
+class ReviewBaselineRuleList(ListPage):
     rules: list[ReviewBaselineRule]
 
 
@@ -2021,7 +2023,7 @@ class ExpectedDeliverable(BaseModel):
     origin: Literal["manual", "inferred"]
 
 
-class ExpectedDeliverableList(BaseModel):
+class ExpectedDeliverableList(ListPage):
     deliverables: list[ExpectedDeliverable]
 
 
@@ -2043,26 +2045,6 @@ class RiskCreate(BaseModel):
     source_finding_id: str | None = Field(default=None, max_length=200)
 
 
-class Risk(BaseModel):
-    id: str
-    risk_type: RiskType
-    title: str
-    description: str
-    severity: str
-    status: str
-    deliverable_id: str | None
-    document_id: str | None
-    owner_user_id: str | None
-    due_date: str | None
-    source_finding_id: str | None
-    created_at: str
-    updated_at: str
-
-
-class RiskList(BaseModel):
-    risks: list[Risk]
-
-
 class RiskDetectionResult(BaseModel):
     status: Literal["ok", "already_running"]
     created: int
@@ -2079,7 +2061,7 @@ class StructuredSearchResult(BaseModel):
     document_id: str | None
 
 
-class StructuredSearchList(BaseModel):
+class StructuredSearchList(ListPage):
     results: list[StructuredSearchResult]
 
 
@@ -2373,10 +2355,14 @@ class CrsIssueGate(BaseModel):
 
 class CrsIssueDecisionRequest(BaseModel):
     """The engineer's decision on one open item, with their reason. Who and
-    when come from the signed-in caller and the clock, never the body."""
-    reason: str = Field(min_length=3, max_length=2000)
+    when come from the signed-in caller and the clock, never the body.
+    A removal with a listed `reason_code` may leave `reason` empty: the
+    code's own words are stored (order 95 piece 6a (a))."""
+    reason: str = Field(default="", max_length=2000)
     #: findings only: accept (the comment goes to the contractor) or reject
     decision: Literal["accept", "reject"] | None = None
+    #: order 95 piece 6a: on a reject, why - one of crs_issue.REMOVAL_REASONS
+    reason_code: str | None = None
 
 
 class CrsIssueDecision(BaseModel):
@@ -2388,6 +2374,14 @@ class CrsIssueDecision(BaseModel):
     reason: str
     decided_by: str
     decided_at: str
+    #: order 95 piece 6a: the removal reason code; null when none was given
+    reason_code: str | None = None
+
+
+class CrsIssueDecisionList(ListPage):
+    """Order 95 piece 6a: every decision on a run, newest first."""
+
+    decisions: list[CrsIssueDecision]
 
 
 class FactConfirmation(BaseModel):
@@ -2412,7 +2406,7 @@ class CrsIssuedCopy(BaseModel):
     issued_at: str
 
 
-class CrsIssuedCopyList(BaseModel):
+class CrsIssuedCopyList(ListPage):
     copies: list[CrsIssuedCopy]
 
 
@@ -2560,8 +2554,7 @@ class VisionReaderStatus(BaseModel):
 
 
 class CrsReviewNote(BaseModel):
-    """Owner order 2f: one of the engineer's internal notes (the "Review
-    notes" sheet) - never a contractor comment."""
+    """Owner order 2f: one of the engineer's internal notes (the "Review notes" sheet) - never a contractor comment."""
 
     note: str
     standard: str = ""
@@ -2596,15 +2589,16 @@ class CrsPreview(BaseModel):
     recommended_code_reason: str = ""
     recommended_code_status: str = ""
     recommended_code_label: str
-    #: #633: "REVIEW INCOMPLETE: N part(s) could not be checked" when the run
-    #: failed, stopped, or left parts unchecked; "" when nothing is known to be
-    #: unchecked. In both copies. `unchecked_parts` lists each part (internal
-    #: copy only).
+    #: #633: "REVIEW INCOMPLETE: N part(s) could not be checked" when the run failed, stopped
+    #: or left parts unchecked; "" when nothing is known to be unchecked. Both copies;
+    #: `unchecked_parts` lists each part (internal copy only). Item 7: `run_status_note` is row 1
+    #: of a sheet whose run did not complete: "REVIEW INCOMPLETE: run <status> - <reason>.
+    #: Unread pages: N (...). Missing standards: M (...)."; "" when it did.
     incomplete_notice: str = ""
     unchecked_parts: list[str] = []
-    #: B5: the standards the review applied and why, the ones considered and
-    #: not applied, and cited ones not held (MISSING_LOCALLY) - the workbook's
-    #: "Applicable standards" sheet.
+    run_status_note: str = ""
+    #: B5: the standards the review applied and why, the ones considered and not applied,
+    #: and cited ones not held (MISSING_LOCALLY): the "Applicable standards" sheet.
     applicable_standards: list[CrsStandardRow] = []
 
 
@@ -2649,12 +2643,12 @@ class StandardOverrideRequest(BaseModel):
     reason: str = Field(min_length=3, max_length=2000)
 
 
-class ReviewRunStandardList(BaseModel):
+class ReviewRunStandardList(ListPage):
     standards: list[ReviewRunStandard]
     #: B5: standards the submittal CITES that the library does not hold, each
     #: `MISSING_LOCALLY`, as stored on the run. Empty when none, or when the
-    #: run predates this field.
-    missing_references: list[ReviewRunMissingReference] = []
+    #: run predates this field. Never paged: all of them on every page.
+    missing_references: list[ReviewRunMissingReference] = Field(default_factory=list)
 
 
 class ReviewJobState(BaseModel):
@@ -2745,7 +2739,7 @@ class ReviewRunSummary(BaseModel):
     #: that predates it; the screen then falls back to the default labels.
     review_codes: list[str] = []
     #: 2e: {previous_run_id, added: [names], removed: [names]} against the
-    #: previous run of the same submittal; null when there is none.
+    #: previous completed run of the same submittal; null when there is none.
     standards_change: dict | None = None
     #: Why a failed run failed, verbatim. None on a run that did not fail.
     failure_reason: str | None = None
@@ -2775,11 +2769,11 @@ class ReviewRunSummary(BaseModel):
     #: they are about X, this submittal is Y") with the standards and clauses
     #: behind it. Empty for a run that predates it.
     requirements_not_applied: list[dict] = []
-    #: #678: every requirement in the run's scope in ONE of three groups
-    #: (checked / applies but not checked / does not apply), each repeat counted
-    #: once, with the reasons behind the last two. For a run that predates it
-    #: only the counts are known and every reason is "no reason recorded".
+    #: #678: every requirement in the run's scope in ONE of three groups (checked / applies but
+    #: not checked / does not apply), each repeat counted once, with the reasons behind the last
+    #: two. For a run that predates it only the counts are known and every reason is "no reason recorded".
     requirement_split: dict | None = None
+    clause_coverage: dict | None = None  # PF4 (#884): as the run stored it at its end; null before the record
     #: #453: how the requirements that stayed were decided (general, matching,
     #: kept because the equipment is unknown). Null for a run that predates it.
     applicability: dict | None = None
@@ -2799,6 +2793,9 @@ class ReviewRunSummary(BaseModel):
     #: #633: findings written before a failed run stopped. They are partial and
     #: the run recommends no code.
     partial_findings: int = 0
+    #: Order 95 piece 3: when the newest contractor copy of this run's CRS was
+    #: issued (the inbox's "Signed"). Null when none was.
+    crs_issued_at: str | None = None
     #: #845: the run's AI numbers (reader, matcher, AI check, wording), each
     #: with its denominator and where it ran. Null when the run holds no
     #: record of any AI step; a step with no record is null inside it.
@@ -2975,16 +2972,12 @@ class ReviewDashboard(BaseModel):
     recent: list[ReviewRunSummary] = []
 
 
-class ReviewRunList(BaseModel):
-    runs: list[ReviewRunSummary]
-
-
 class ReviewRunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     submittal_document_id: str
 
 
-class ReviewFindingList(BaseModel):
+class ReviewFindingList(ListPage):
     findings: list[ReviewFinding]
 
 
@@ -2997,7 +2990,7 @@ class ReviewFindingEvent(BaseModel):
     created_at: str
 
 
-class ReviewFindingEventList(BaseModel):
+class ReviewFindingEventList(ListPage):
     events: list[ReviewFindingEvent]
 
 
@@ -3053,7 +3046,7 @@ class Deliverable(BaseModel):
     updated_at: str
 
 
-class DeliverableList(BaseModel):
+class DeliverableList(ListPage):
     deliverables: list[Deliverable]
 
 
@@ -3066,7 +3059,7 @@ class DeliverableEvent(BaseModel):
     created_at: str
 
 
-class DeliverableEventList(BaseModel):
+class DeliverableEventList(ListPage):
     events: list[DeliverableEvent]
 
 
@@ -3090,7 +3083,7 @@ class DeliverableStakeholderUpdate(BaseModel):
     assignments: list[DeliverableStakeholderAssignment] = Field(max_length=100)
 
 
-class DeliverableStakeholderList(BaseModel):
+class DeliverableStakeholderList(ListPage):
     stakeholders: list[DeliverableStakeholder]
 
 
@@ -3104,7 +3097,7 @@ class DeliverableAlert(BaseModel):
     severity: Literal["minor", "major", "critical"]
 
 
-class DeliverableAlertList(BaseModel):
+class DeliverableAlertList(ListPage):
     alerts: list[DeliverableAlert]
 
 
@@ -3127,7 +3120,7 @@ class ReminderEvent(BaseModel):
     created_at: str
 
 
-class ReminderEventList(BaseModel):
+class ReminderEventList(ListPage):
     reminders: list[ReminderEvent]
 
 
@@ -3160,7 +3153,7 @@ class EscalationRule(BaseModel):
     enabled: bool = True
 
 
-class EscalationRuleList(BaseModel):
+class EscalationRuleList(ListPage):
     rules: list[EscalationRule]
 
 
@@ -3906,7 +3899,7 @@ class AdminUser(BaseModel):
     warning: Literal["no_discipline"] | None = None
 
 
-class AdminUserList(BaseModel):
+class AdminUserList(ListPage):
     """Note what is NOT here: there is no `setup_token` field on this model,
     so the token cannot be returned by this route even by accident."""
 
@@ -3945,7 +3938,7 @@ class AdminDiscipline(BaseModel):
         None, description="everyone in this discipline sees an empty corpus")
 
 
-class AdminDisciplineList(BaseModel):
+class AdminDisciplineList(ListPage):
     disciplines: list[AdminDiscipline]
 
 
@@ -3957,7 +3950,7 @@ class AdminGrantDocument(BaseModel):
         None, description="invisible in every search; looks like a broken upload")
 
 
-class AdminGrantList(BaseModel):
+class AdminGrantList(ListPage):
     documents: list[AdminGrantDocument]
 
 
@@ -3996,7 +3989,7 @@ class AdminDbTable(BaseModel):
     row_count: int
 
 
-class AdminDbTableList(BaseModel):
+class AdminDbTableList(ListPage):
     tables: list[AdminDbTable]
 
 
@@ -4065,9 +4058,9 @@ class PlaybookUnusable(BaseModel):
     reason: str
 
 
-class PlaybookList(BaseModel):
+class PlaybookList(ListPage):
     playbooks: list[PlaybookSummary]
-    #: Playbook files that could not be loaded, with the reason. Never dropped.
+    #: Files that could not be loaded, with the reason. Never dropped or paged.
     unusable: list[PlaybookUnusable]
 
 

@@ -16,7 +16,7 @@ import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
-from app import db, keyword, lexical
+from app import db, fts_index, lexical
 from app.config import settings
 from app.ingest import IngestionWorker
 from app.main import app
@@ -47,7 +47,7 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "t.sqlite")
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     yield
     db.reset_connection()
@@ -80,7 +80,10 @@ def test_the_answering_page_passes_inside_its_own_standard():
     scope."""
     client = TestClient(app)
     a = upload(client, [COVER, PWHT_PAGE, STRESS_PAGE], "SAES-W-017.pdf")
-    assert keyword.term_occurrences("SAES-W-017", allowed_document_ids=frozenset({a})) > 0
+    assert (
+        fts_index.term_occurrences("SAES-W-017", allowed_document_ids=frozenset({a}))
+        > 0
+    )
 
     verdict = lexical.assess(QUESTION, PASSAGE, allowed_document_ids=frozenset({a}))
     assert verdict["ok"] is True, verdict

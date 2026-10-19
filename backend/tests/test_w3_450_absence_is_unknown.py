@@ -206,8 +206,8 @@ def test_a_run_with_no_recommendation_cannot_be_approved_without_a_reason():
 # ------------------------------------------- applicability: no data is not "not applicable"
 
 def _std_and_sub(std_fields, sub_fields):
-    from app import keyword, submittal_review
-    submittal_review.ensure_schema(); keyword.ensure_schema()
+    from app import fts_index, submittal_review
+    submittal_review.ensure_schema(); fts_index.ensure_schema()
     for doc_id, role, fields in (("std", "COMPANY_STANDARD", std_fields),
                                  ("sub", "CONTRACTOR_SUBMITTAL", sub_fields)):
         with db.connect() as conn:
@@ -226,7 +226,7 @@ def _std_and_sub(std_fields, sub_fields):
                 (f"{doc_id}-c", doc_id, f"{doc_id}.pdf",
                  "zinc coating thickness for galvanised pipe racks" if doc_id == "std"
                  else "centrifugal pump bearing housing vibration limits", f"h-{doc_id}"))
-        keyword.index_document(doc_id)
+        fts_index.index_document(doc_id)
     return frozenset({"std", "sub"})
 
 

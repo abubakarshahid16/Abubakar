@@ -59,7 +59,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     ),
     Mutation(
         id="M796", phase=67, description="B6: keyword permission clause removed - FTS5 searches every document",
-        path=APP / "keyword.py",
+        path=APP / "fts_index.py",
         anchor='    where += f" AND document_id IN ({marks})"\n    params.extend(sorted(allowed_document_ids))\n',
         replacement="",
         target=_T, keyword="grants", tags=("access",),

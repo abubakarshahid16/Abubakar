@@ -8,7 +8,7 @@ petroleum standard exercised a layout two textbooks never did.
 
 import pytest
 
-from app import keyword, search
+from app import fts_index, search
 from app.chunker import (
     _split_line_heading,
     detect_running_lines,
@@ -159,21 +159,21 @@ def test_designators_are_extracted(question, expected):
     """These are not code-shaped, so the identifier pattern misses them - and
     missing one is worse than missing a code, because the passage retrieved is
     about a DIFFERENT system and reads perfectly plausible."""
-    assert expected in keyword.find_designators(question)
+    assert expected in fts_index.find_designators(question)
 
 
 def test_designator_spellings_are_all_matched():
-    variants = keyword.designator_variants("system 1")
+    variants = fts_index.designator_variants("system 1")
     assert "system 1" in variants
     assert "system no. 1" in variants
     assert "system number 1" in variants
 
 
 def test_a_designator_is_required_in_the_match_expression():
-    expr = keyword.build_match_query("NDFT for coating system no. 1")
+    expr = fts_index.build_match_query("NDFT for coating system no. 1")
     # "no." is asked for as `no`: the index strips a full stop that is not
     # between two letters/digits, and the query phrase must match what the
-    # index holds (keyword.strip_edge_punctuation).
+    # index holds (fts_index.strip_edge_punctuation).
     assert '"system no 1"' in expr
     assert " AND " in expr
 

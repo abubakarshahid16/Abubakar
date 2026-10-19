@@ -46,6 +46,7 @@ from pathlib import Path
 
 from . import claude_approved
 from . import claims, numparse, standard_ids
+from .ai import output_limits
 from .config import settings
 from .db import connect
 from .reader_api import _contains, _fold
@@ -67,6 +68,10 @@ _OPEN_KINDS = ("missing_information", "needs_engineer_review", "standard_not_cit
 
 #: The reasons a rewrite is refused. Stable strings: a run reports them.
 NO_COMMENT, TOO_LONG, MALFORMED = "no_comment", "too_long", "malformed"
+#: #456: the output cap cut the reply / nothing readable came back. Named
+#: apart from `malformed`: a half-written comment is not a bad answer, it
+#: is no answer, and the count says which cap to look at.
+TRUNCATED, UNKNOWN = output_limits.TRUNCATED, output_limits.UNKNOWN
 NUMBER_CHANGED, UNIT_CHANGED = "number_not_in_template", "unit_not_in_template"
 CLAUSE_DROPPED, STANDARD_CHANGED = "clause_dropped", "standard_changed"
 CLAIM_ADDED, STATUS_REVERSED = "claim_not_in_template", "status_reversed"
@@ -250,9 +255,15 @@ def _ask(provider, row: dict) -> tuple[str | None, str | None, str]:
         .replace("{where}", str(row.get("page_section") or "")) \
         .replace("{comment}", str(row.get("comment") or ""))
     response = provider.reason(rp.Packet(
-        prompt=prompt, num_ctx=4096, num_predict=300, json_schema=SCHEMA, step=STEP,
-        prompt_version=PROMPT_VERSION, timeout_s=float(settings.crs_ai_wording_timeout_s)))
+        prompt=prompt, num_ctx=4096,
+        num_predict=output_limits.max_tokens_for(output_limits.ROUTE_CRS_WORDING),
+        json_schema=SCHEMA, step=STEP, prompt_version=PROMPT_VERSION,
+        timeout_s=float(settings.crs_ai_wording_timeout_s)))
     model = f"{response.provider}:{response.model_tag}"
+    state = output_limits.state_of_response(response)
+    if state != output_limits.COMPLETE:
+        # Never parsed: the template row stands, the refusal is counted by name.
+        return None, state, model
     try:
         text = json.loads(response.text).get("comment")
     except (TypeError, ValueError, AttributeError):
@@ -283,6 +294,7 @@ def word_run(review_run_id: str, rows: list[dict], *, provider=None) -> dict:
         if provider is None:
             provider, summary["local_instead"] = _provider_for_this_review()
     except Exception as exc:  # noqa: BLE001 - no model: the template stays
+        log.info("crs_wording: no model for the wording step; templates kept (%s)", type(exc).__name__)
         summary["stopped"] = f"no model available ({type(exc).__name__})"
         return _store_summary(review_run_id, summary)
     kept: list[tuple[str, str]] = []
@@ -290,6 +302,7 @@ def word_run(review_run_id: str, rows: list[dict], *, provider=None) -> dict:
         try:
             text, refused, model = _ask(provider, row)
         except Exception as exc:  # noqa: BLE001 - timeout or model down: stop, keep templates
+            log.info("crs_wording: the wording call failed (%s)", type(exc).__name__)
             local = _local_after_a_failed_cloud_call(provider, exc) if own_provider else None
             if local is None:
                 summary["stopped"] = f"the model call failed ({type(exc).__name__}); templates kept"
@@ -300,6 +313,7 @@ def word_run(review_run_id: str, rows: list[dict], *, provider=None) -> dict:
             try:
                 text, refused, model = _ask(provider, row)
             except Exception as again:  # noqa: BLE001 - the local model is down too
+                log.info("crs_wording: the local wording call failed too; templates kept (%s)", type(again).__name__)
                 summary["stopped"] = f"the model call failed ({type(again).__name__}); templates kept"
                 break
         summary["tried"] += 1

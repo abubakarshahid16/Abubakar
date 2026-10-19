@@ -34,7 +34,7 @@ def _run(doc_id: str, *, unread: list[int] | None = None, total: int | None = 4,
                **({"page_coverage": coverage} if coverage else {})}
     with db.connect() as conn:
         conn.execute(
-            "INSERT INTO review_runs (id,submittal_document_id,status,refusal_reason,"
+            "INSERT INTO review_runs (id,submittal_document_id,status,outcome_json,"
             "engineer_final_code,created_at,updated_at) VALUES (?,?,'completed',?,?,?,?)",
             (run_id, doc_id, json.dumps(outcome), final_code, NOW, NOW))
     return run_id

@@ -33,7 +33,7 @@ TWO GATES, on the market lane's precedent:
      deliberate exfiltration hard; this file is what makes an accident loud.
 
 THIS MODULE MUST NOT BE ABLE TO REACH THE CORPUS - it imports no `db`,
-`search`, `keyword`, `chunker`, `passages`, `claims` or `analysis`, and
+`search`, `fts_index`, `chunker`, `passages`, `claims` or `analysis`, and
 tests/test_socket_containment.py checks that by parsing the source. The two
 halves of a leak - reading document content and being able to send - stay in
 different files. Its callers hand it a body they built; it never fetches one.

@@ -26,11 +26,15 @@ either. The filtering happens before a single character is assembled.
 """
 from __future__ import annotations
 
+import logging
 import re
 
 from . import claude_spend, model_transport
 from . import reasoning_provider as rp
+from .ai import output_limits
 from .config import settings
+
+log = logging.getLogger(__name__)
 
 #: The budget step every chat call is charged to in the Claude ledger.
 CHAT_STEP = "chat"
@@ -85,7 +89,10 @@ def engine_name(preference: str | None = None) -> str:
     raises: a failure notice must not itself fail."""
     try:
         return rp.CLAUDE if isinstance(provider(preference), rp.ClaudeProvider) else rp.OLLAMA
-    except Exception:  # noqa: BLE001 - reporting must not crash
+    except Exception as exc:  # noqa: BLE001 - reporting must not crash
+        log.debug(
+            "chat_model: reasoning provider could not be read (%s)", type(exc).__name__
+        )
         return rp.OLLAMA
 
 
@@ -104,7 +111,8 @@ def unavailable_words() -> str | None:
     be used or the cause cannot be read. Never raises, never the key."""
     try:
         code, _why = rp.claude_unavailable()
-    except Exception:  # noqa: BLE001 - reporting must not crash
+    except Exception as exc:  # noqa: BLE001 - reporting must not crash
+        log.debug("chat_model: Claude reason unreadable (%s)", type(exc).__name__)
         return None
     return _UNAVAILABLE_WORDS.get(code) if code else None
 
@@ -237,7 +245,7 @@ def generate(system: str, prompt: str, *, temperature: float, preference: str | 
     if isinstance(engine, rp.ClaudeProvider):
         response = engine.reason(rp.Packet(
             prompt=prompt, system=system, num_ctx=settings.num_ctx,
-            num_predict=settings.chat_max_output_tokens, temperature=temperature,
+            num_predict=output_limits.max_tokens_for(output_limits.ROUTE_CHAT), temperature=temperature,
             step=CHAT_STEP, prompt_version="chat-v1", timeout_s=timeout))
         return {
             "response": response.text,
@@ -280,7 +288,8 @@ def _streamed(engine, turn, system: str, prompt: str, *, temperature: float, tim
                 "provider": rp.CLAUDE if claude else rp.OLLAMA, "cost_usd": None}
     packet = rp.Packet(
         prompt=prompt, system=system, num_ctx=settings.num_ctx,
-        num_predict=settings.chat_max_output_tokens if claude else settings.max_output_tokens,
+        num_predict=(output_limits.max_tokens_for(output_limits.ROUTE_CHAT) if claude
+                     else settings.max_output_tokens),
         temperature=temperature, step=CHAT_STEP, prompt_version="chat-v1", timeout_s=timeout,
         options={} if claude else {"num_thread": settings.num_thread, "num_batch": settings.num_batch})
     turn.emit("step", {"label": "Writing the answer", "count": None, "done": False})

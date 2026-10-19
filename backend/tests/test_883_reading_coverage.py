@@ -124,7 +124,7 @@ def _run(doc_id, coverage):
     run_id = str(uuid.uuid4())
     outcome = {"recommended_code": "Manual Review Required", "reason": "r", "page_coverage": coverage}
     with db.connect() as conn:
-        conn.execute("INSERT INTO review_runs (id,submittal_document_id,status,refusal_reason,"
+        conn.execute("INSERT INTO review_runs (id,submittal_document_id,status,outcome_json,"
                      "engineer_final_code,created_at,updated_at) VALUES (?,?,'completed',?,?,?,?)",
                      (run_id, doc_id, json.dumps(outcome), "Approved", NOW, NOW))
     return run_id

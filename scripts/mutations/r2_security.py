@@ -21,7 +21,7 @@ _T7 = "tests/test_r2_security_s7_identity_required.py"
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1980", phase=1980,
              description="DELETE /api/documents/{id} no longer requires an admin",
-             path=APP / "main.py",
+             path=APP / "api/documents.py",
              anchor='    _admin: dict | None = Depends(admin_mod.current_admin),\n'
                     '):\n    """Remove a document and everything derived from it.',
              replacement='):\n    """Remove a document and everything derived from it.',
@@ -42,7 +42,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              target=_T2, keyword="crs", tags=_TAG),
     Mutation(id="M1983", phase=1983,
              description="a deliverable with no document is open to a caller with no grant",
-             path=APP / "main.py",
+             path=APP / "api_utils.py",
              anchor='    return scope.is_admin or bool(scope.allowed_document_ids)',
              replacement='    return True',
              target=_T3, keyword="no_grants_cannot_write", tags=_TAG),

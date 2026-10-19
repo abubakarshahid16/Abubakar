@@ -63,7 +63,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         id="M1483", phase=_PHASE,
         description="the deliverable PATCH writes before it checks the scope",
-        path=_MAIN,
+        path=APP / "api/deliverables.py",
         anchor=("    existing = deliverables_mod.get(deliverable_id)\n"
                 "    if existing is None or not _deliverable_visible(existing, scope):"),
         replacement=("    existing = deliverables_mod.get(deliverable_id)\n"
@@ -108,14 +108,14 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         id="M1487", phase=_PHASE,
         description="any signed-in user changes the summary schedule",
-        path=_MAIN, anchor=_SCHEDULE[0], replacement=_SCHEDULE[1],
+        path=APP / "api/deliverables.py", anchor=_SCHEDULE[0], replacement=_SCHEDULE[1],
         target=_T, keyword="summary_schedule",
         tags=("security",),
     ),
     Mutation(
         id="M1488", phase=_PHASE,
         description="any signed-in user changes an escalation rule",
-        path=_MAIN, anchor=_ESCALATION[0], replacement=_ESCALATION[1],
+        path=APP / "api/deliverables.py", anchor=_ESCALATION[0], replacement=_ESCALATION[1],
         target=_T, keyword="escalation_rule",
         tags=("security",),
     ),

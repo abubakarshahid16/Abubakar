@@ -61,12 +61,15 @@ MUTATIONS: tuple[Mutation, ...] = (
              anchor='      el.scrollIntoView({ block: "nearest", behavior: still ? "auto" : "smooth" });\n',
              replacement='      void still;\n',
              target='src/components/review/sheet/SheetCard.test.tsx', keyword='scrolls the opened card', tags=('ui',)),
+    # Order 121: the contractor's copy is issued from the comment sheet only;
+    # the same safety now guards its Sign and export (the final code is one
+    # of the things the issue gate says is left).
     Mutation(id='M1131', phase=95, runner="vitest",
-             description='safety: the issue-to-contractor button is no longer disabled before an engineer decides',
-             path=FRONTEND_SRC / 'components' / 'review' / 'panels' / 'BehindTheScenes.tsx',
-             anchor='          disabled={exporting || !run.engineer_final_code}\n',
-             replacement='          disabled={exporting}\n',
-             target='src/components/review/panels/BehindTheScenes.crs.test.tsx', keyword='SAFETY GATE', tags=('safety', 'ui')),
+             description='safety: Sign and export is no longer disabled before an engineer records the final code and clears the gate',
+             path=FRONTEND_SRC / 'components' / 'review' / 'crs' / 'CrsHeader.tsx',
+             anchor='  const canSign = canExport && unopened.length === 0 && signLeft.length === 0;\n',
+             replacement='  const canSign = canExport && unopened.length === 0;\n',
+             target='src/views/CrsSheetView.test.tsx', keyword='signs a run from the sheet alone', tags=('safety', 'ui')),
     Mutation(id='M888', phase=77, runner="vitest",
              description='P3 UI: the cancel control is never offered',
              path=FRONTEND_SRC / 'components' / 'review' / 'panels' / 'ReviewJobControl.tsx',

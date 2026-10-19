@@ -18,12 +18,12 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         id="M13", phase=2,
         description="drop the scope check from the original-file download",
-        path=APP / "main.py",
+        path=APP / "api/document_files.py",
         # Disambiguated by the line that follows: `document_workbook` opens with
         # the same two lines, and the harness refuses an ambiguous anchor rather
         # than guessing which route was meant.
         anchor='    doc = require_document(document_id, scope)\n'
-               '    stored = Path(doc["stored_path"])\n'
+               '    stored = Path(stored_paths.local(doc["stored_path"]))\n'
                '    if not stored.exists():',
         # A REAL unscoped read, not a call to a function that does not exist.
         # A NameError would fail the test for the wrong reason and still report
@@ -31,7 +31,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         # the caller holds no grant for), not merely break the route.
         replacement='    doc = connect().execute(\n'
                     '        "SELECT * FROM documents WHERE id = ?", (document_id,)).fetchone()\n'
-                    '    stored = Path(doc["stored_path"])\n'
+                    '    stored = Path(stored_paths.local(doc["stored_path"]))\n'
                     '    if not stored.exists():',
         target="tests/test_document_original_file.py",
         keyword="cannot_download",
@@ -49,7 +49,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M78", phase=8,
         description="DROP THE ADMIN GATE FROM THE BULK ROUTE, so any signed-in "
                     "caller can re-tag the corpus",
-        path=APP / "main.py",
+        path=APP / "api/documents.py",
         anchor="    scope: access.AccessScope = Depends(access.current_scope),\n"
                "    actor: dict | None = Depends(admin_mod.current_admin),\n"
                "):\n"
@@ -65,7 +65,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         id="M79", phase=8,
         description="stop re-asking scope inside the bulk loop",
-        path=APP / "main.py",
+        path=APP / "api/documents.py",
         anchor="            require_document(document_id, scope)\n"
                "        except HTTPException:",
         replacement="            pass\n"
@@ -77,7 +77,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         id="M80", phase=8,
         description="report bulk failures as a silent count instead of by id",
-        path=APP / "main.py",
+        path=APP / "api/documents.py",
         anchor='            failed.append({"document_id": document_id, "reason": "not_found"})',
         replacement="            pass",
         target="tests/test_document_roles.py",
@@ -209,11 +209,11 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M225", phase=20,
         description="OPEN THE TABLE LIST TO ANY SIGNED-IN CALLER, which hands "
                     "every table name in the system to a non-admin",
-        path=APP / "main.py",
-        anchor="def admin_db_tables(request: Request,\n"
-               "                    actor: dict | None = Depends(admin_mod.current_admin)):",
-        replacement="def admin_db_tables(request: Request,\n"
-                    "                    actor: dict | None = None):",
+        path=APP / "api/admin.py",
+        anchor="    actor: dict | None = Depends(admin_mod.current_admin),\n):\n"
+               "    \"\"\"Every user table with its row count.",
+        replacement="    actor: dict | None = None,\n):\n"
+                    "    \"\"\"Every user table with its row count.",
         target="tests/test_admin_db_routes.py",
         keyword="real_non_admin_with_a_real_token or unauthenticated_caller",
         tags=("permission", "critical"),
@@ -222,7 +222,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M226", phase=20,
         description="open the ROW reader to any caller - the same hole one "
                     "route further in, where the data actually is",
-        path=APP / "main.py",
+        path=APP / "api/admin.py",
         anchor="    limit: int = Query(50, ge=1, description=\"rows to return; capped server-side\"),\n"
                "    offset: int = Query(0, ge=0, description=\"rows to skip\"),\n"
                "    actor: dict | None = Depends(admin_mod.current_admin),",
@@ -319,7 +319,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         id="M330", phase=38,
         description="path 4: deleting a cited standard cascades unguarded",
-        path=APP / "main.py",
+        path=APP / "api/documents.py",
         anchor='    orphan_guard.check(\n        "document_delete",',
         replacement=f'    {_B38_NOOP}\n        "document_delete",',
         target=_B38_TEST, keyword="deleting_a_cited_standard",
@@ -333,8 +333,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="hand the unowned rows back to every caller, not the admin "
                     "capability alone",
         path=APP / "main.py",
-        anchor="        include_unowned=scope.is_admin)}",
-        replacement="        include_unowned=True)}",
+        anchor="        include_unowned=scope.is_admin), limit, offset)",
+        replacement="        include_unowned=True), limit, offset)",
         target=_B42_TEST, keyword="route_gives_the_unowned_rows",
         tags=("privacy",),
     ),
@@ -345,7 +345,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M458", phase=57,
         description="the page-ledger route stops checking the caller may read "
                     "the document (B3)",
-        path=APP / "main.py",
+        path=APP / "api/document_files.py",
         anchor="    reject_unknown_params(request, set())\n"
                "    require_document(document_id, scope)\n"
                "    return {\"document_id\": document_id,\n"

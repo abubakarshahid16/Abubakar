@@ -22,7 +22,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import answer as answer_mod
-from app import answerability, db, keyword, lexical, schemas
+from app import answerability, db, fts_index, lexical, schemas
 from app import condition_choice as cc
 from app.config import settings
 from app.ingest import IngestionWorker
@@ -119,7 +119,7 @@ def _library(tmp_path, monkeypatch, pages: dict[str, list[list[str]]]) -> dict[s
     monkeypatch.setattr(settings, "db_path", tmp_path / "t.sqlite")
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     ids = {}
     for name, blocks in pages.items():
@@ -225,7 +225,7 @@ def empty_db(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "e.sqlite")
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     yield
     db.reset_connection()
 

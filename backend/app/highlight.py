@@ -20,9 +20,14 @@ a box around the wrong clause has no reason to trust any box again.
 
 from __future__ import annotations
 
+import logging
 import re
 
 import pymupdf
+
+from . import stored_paths
+
+log = logging.getLogger(__name__)
 
 #: Below this many characters a fragment is too generic to locate safely.
 #: "3" or "of the" would match dozens of places on a specification page.
@@ -92,7 +97,7 @@ def locate(
     if not fragments:
         return [], None
 
-    with pymupdf.open(pdf_path) as doc:
+    with pymupdf.open(stored_paths.local(pdf_path)) as doc:
         if not 1 <= page_no <= doc.page_count:
             return [], None
         page = doc.load_page(page_no - 1)
@@ -101,7 +106,8 @@ def locate(
         for fragment in fragments:
             try:
                 found = page.search_for(fragment, quads=False)
-            except Exception:  # noqa: BLE001 - a search failure is a miss
+            except Exception as exc:  # noqa: BLE001 - a search failure is a miss
+                log.debug("highlight: search failed; a miss (%s)", type(exc).__name__)
                 continue
             if not found:
                 continue

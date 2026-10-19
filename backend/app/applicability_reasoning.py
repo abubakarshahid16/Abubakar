@@ -30,13 +30,14 @@ from __future__ import annotations
 import json
 
 from . import applicability_v2
+from .ai import output_limits
 from .reasoning_provider import Packet
 
 PROMPT_VERSION = "scope-reasoning-v1"
 
-#: Output cap. A decision is a few sentences at most; generous headroom
-#: against a rambling answer costs little and a truncated one is unusable.
-NUM_PREDICT = 400
+#: Output cap, from the one route table (#456). A decision is a few
+#: sentences at most; a truncated one is unusable and is named so.
+NUM_PREDICT = output_limits.max_tokens_for(output_limits.ROUTE_APPLICABILITY)
 
 SCHEMA = {"type": "object", "properties": {
     "decision": {"type": "string", "enum": [applicability_v2.APPLICABLE, applicability_v2.NOT_APPLICABLE,

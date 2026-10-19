@@ -16,7 +16,7 @@ import uuid
 import pytest
 from fastapi.testclient import TestClient
 
-from app import (access, applicability, auth, comparison, datasheets, db, keyword,
+from app import (access, applicability, auth, comparison, datasheets, db, fts_index,
                  standards, submittal_review)
 from app.config import settings
 from app.main import app
@@ -35,7 +35,7 @@ def temp_storage(tmp_path, monkeypatch):
     db.init_db()
     submittal_review.ensure_schema()
     submittal_review.migrate_facts_to_per_document()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     access.set_user_resolver(auth.resolve_user_id)
     yield
     access.set_user_resolver(None)
@@ -53,7 +53,7 @@ def _doc(doc_id, role, text):
         conn.execute("INSERT INTO chunks (id,document_id,filename,ordinal,page_start,page_end,section,"
                      "kind,text,token_count,content_hash,retrievable) VALUES (?,?,?,0,1,1,'5.1 Noise',"
                      "'prose',?,1,?,1)", (f"{doc_id}-c1", doc_id, f"{doc_id}.pdf", text, f"h-{doc_id}"))
-    keyword.index_document(doc_id)
+    fts_index.index_document(doc_id)
     return doc_id
 
 
@@ -85,7 +85,7 @@ def world():
                            field_label="Noise level", raw_value="95", unit="dB(A)", page=1)
     run = str(uuid.uuid4())
     with db.connect() as conn:
-        conn.execute("INSERT INTO review_runs (id,submittal_document_id,status,refusal_reason,"
+        conn.execute("INSERT INTO review_runs (id,submittal_document_id,status,outcome_json,"
                      "created_at,updated_at) VALUES (?,?,'completed',?,?,?)",
                      (run, sub, json.dumps({"recommended_code": "Manual Review Required",
                                              "missing_references": [{"identifier": "STD-MISSING-1",
@@ -142,7 +142,7 @@ def test_an_engineer_removes_a_standard_with_a_reason(world):
 def test_missing_standards_stay_missing_and_the_run_is_not_approved(world):
     r = _override(world, world["engineer"])
     assert [m["identifier"] for m in r.json()["missing_references"]] == ["STD-MISSING-1"]
-    out = json.loads(db.connect().execute("SELECT refusal_reason FROM review_runs WHERE id = ?",
+    out = json.loads(db.connect().execute("SELECT outcome_json FROM review_runs WHERE id = ?",
                                           (world["run"],)).fetchone()[0])
     assert out["recommended_code"] not in (comparison.CODE_APPROVED, comparison.CODE_APPROVED_WITH_COMMENTS)
 

@@ -26,6 +26,14 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** The question as typed, less a trailing backslash or space: on Windows the
+ *  backslash key sits by Enter, and "...requirements\" was shown as the
+ *  title (order 88c, #1097). Display only - the stored question is part of
+ *  the report's frozen, hashed snapshot and is never rewritten. */
+export function displayQuestion(text: string | null): string | null {
+  return text === null ? null : text.replace(/[\\\s]+$/, "");
+}
+
 function formatWhen(iso: string): string {
   return iso.replace("T", " ").replace(/\.\d+/, "").replace("Z", " UTC");
 }
@@ -137,10 +145,11 @@ function ReportRow({
     <li className="card-3d surface-card overflow-hidden rounded-[var(--radius-md)] border border-ink-700 bg-ink-850">
       <div className="flex flex-wrap items-start justify-between gap-3 p-4">
         <div className="min-w-0 flex-1">
-          <h3 className="font-medium text-slateish-200">{report.question}</h3>
-          {report.resolved_question && report.resolved_question !== report.question && (
+          <h3 className="font-medium text-slateish-200">{displayQuestion(report.question)}</h3>
+          {report.resolved_question &&
+            displayQuestion(report.resolved_question) !== displayQuestion(report.question) && (
             <p className="mt-0.5 text-xs text-slateish-400">
-              Read as: {report.resolved_question}
+              Read as: {displayQuestion(report.resolved_question)}
             </p>
           )}
 

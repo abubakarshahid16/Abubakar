@@ -5,7 +5,7 @@ weld heat treatment" was refused with "SAES-W-010 does not appear anywhere in
 the indexed documents", while the same answer card listed that standard's own
 pages as read. The cause: `lexical.assess`'s named-subject check counts an
 identifier as absent when it is never printed INSIDE any chunk's text -
-`keyword.term_occurrences` is a content search, and a standard's own pages
+`fts_index.term_occurrences` is a content search, and a standard's own pages
 almost never spell out its own designation. The document is not missing; the
 document's own text just never says its own name.
 
@@ -21,7 +21,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import answer as answer_mod
-from app import db, keyword, lexical
+from app import db, fts_index, lexical
 from app.config import settings
 from app.ingest import IngestionWorker
 from app.main import app
@@ -51,7 +51,7 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "t.sqlite")
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     yield
     db.reset_connection()
@@ -88,7 +88,7 @@ def test_the_defect_a_standards_own_pages_never_print_its_own_name(monkeypatch):
     # The content search this defect relies on: the term really is absent
     # from every chunk's TEXT, confirming the document itself never quotes
     # its own name (the premise of the bug, not just its symptom).
-    assert keyword.term_occurrences("SAES-W-010", allowed_document_ids=_scope()) == 0
+    assert fts_index.term_occurrences("SAES-W-010", allowed_document_ids=_scope()) == 0
 
 
 def test_a_question_naming_an_indexed_standard_is_not_refused(monkeypatch):

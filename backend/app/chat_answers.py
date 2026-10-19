@@ -16,6 +16,8 @@ action answer returns a DRAFT for the reader to confirm (section 2g).
 """
 from __future__ import annotations
 
+import logging
+
 from . import answer as answer_mod
 from . import chat_model
 from . import claude_spend
@@ -23,6 +25,8 @@ from . import intent as intent_mod
 from . import reasoning_provider as rp
 from .config import settings
 from .rates import Timer
+
+log = logging.getLogger(__name__)
 
 GENERAL_SYSTEM = """You are the chat assistant in an engineering document system. This question is answered from your GENERAL knowledge, not from the user's documents.
 
@@ -97,6 +101,7 @@ def general(question: str, *, styles: list[str], history: str, preference: str |
     try:
         raw = _generate(GENERAL_SYSTEM, prompt, settings.chat_temperature_general, preference)
     except Exception as exc:  # noqa: BLE001 - reported as unavailable, never a crash
+        log.info("chat_answers: model call failed (%s)", type(exc).__name__)
         return _failed(base, exc, timer, preference)
     if raw.get("cancelled"):
         return answer_mod.stopped(base, raw, timer)
@@ -173,6 +178,7 @@ def rewrite(previous: dict | None, *, styles: list[str], history: str, preferenc
         try:
             raw = _generate(GENERAL_SYSTEM, prompt, settings.chat_temperature_general, preference)
         except Exception as exc:  # noqa: BLE001
+            log.info("chat_answers: model call failed (%s)", type(exc).__name__)
             return _failed(base, exc, timer, preference)
         if raw.get("cancelled"):
             return answer_mod.stopped(base, raw, timer)
@@ -209,7 +215,10 @@ def records(query: str, *, allowed_document_ids: frozenset[str], include_unowned
                                      include_unowned=include_unowned)
     lines = [f"- **{r.get('title') or r.get('label') or r.get('id')}**"
              + (f" - {r['kind']}" if r.get("kind") else "") for r in found[:10]]
-    text = (f"Found {len(found)} workflow record{'' if len(found) == 1 else 's'} for \"{query}\":\n"
+    # Every match is counted now (order 117 item 5), so a long result says
+    # that only the first 10 are listed rather than implying they are all.
+    shown = f" (the first {len(lines)} shown)" if len(found) > len(lines) else ""
+    text = (f"Found {len(found)} workflow record{'' if len(found) == 1 else 's'} for \"{query}\"{shown}:\n"
             + "\n".join(lines)) if found else f"No workflow records match \"{query}\"."
     return {**base, "answer_type": "records", "answer": text, "reason": None,
             "records": found[:10], "seconds": timer.seconds()}
