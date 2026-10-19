@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ReviewFinding } from "../../../types/api";
 import {
-  EMPTY_FACTS, type RunFacts, countTiers, countsOfServer, runFactsOf, serverTiersOf, tierFor, tierOf, tierOfGroup,
+  EMPTY_FACTS, type RunFacts, blankReason, citesMissingStandard, countTiers, countsOfServer, runFactsOf, serverTiersOf, tierFor, tierOf, tierOfGroup,
 } from "./tiers";
 
 function f(over: Partial<ReviewFinding>): ReviewFinding {
@@ -98,5 +98,37 @@ describe("server tiers (order 95 piece 1, #1111)", () => {
   it("the server's counts map to the screen's shape", () => {
     expect(countsOfServer({ met: 1, not_applicable: 2, another_document: 3, comment: 4, needs_you: 5, removed: 6, total: 21 }))
       .toEqual({ met: 1, notApplicable: 2, anotherDocument: 3, comment: 4, needsYou: 5 });
+  });
+});
+
+describe("blankReason: the true word for a blank (order 152.2)", () => {
+  const blank = (over: Partial<ReviewFinding>) => f({ compliance_status: "MISSING_INFORMATION", ...over });
+  it("no standard behind the blank says so, whatever the list is", () => {
+    expect(blankReason(blank({ standard_document_id: null }), facts)).toBe("no standard linked");
+    expect(blankReason(blank({ standard_document_id: null }), { ...facts, libraryStandardIds: null })).toBe("no standard linked");
+  });
+  it("a standard outside this review's list is not called missing from the library", () => {
+    expect(blankReason(blank({ standard_document_id: "std-9" }), facts)).toBe("standard outside this review");
+  });
+  it("a standard in the list is a Comment (null); a list that failed to load claims nothing", () => {
+    expect(blankReason(blank({ standard_document_id: "std-1" }), facts)).toBeNull();
+    expect(blankReason(blank({ standard_document_id: "std-9" }), { ...facts, libraryStandardIds: null })).toBeNull();
+  });
+  it("tierOf uses the same word on both paths (blank alone, and blank with an unsettled fact)", () => {
+    expect(tierOf(blank({ standard_document_id: null }), facts).reason).toBe("no standard linked");
+    expect(tierOf(blank({ standard_document_id: "std-9", contractor_page: 4 }), { ...facts, pagesNotRead: [] }).reason).toBe("standard outside this review");
+  });
+});
+
+describe("citesMissingStandard: a name is not found inside a longer one", () => {
+  const one: RunFacts = { ...facts, missingStandards: ["STD-Q 5"] };
+  it("'STD-Q 5' is not found in a clause of 'STD-Q 52'", () => {
+    expect(citesMissingStandard(f({ standard_clause: "STD-Q 52 clause 3" }), one)).toBe(false);
+    expect(citesMissingStandard(f({ standard_clause: "STD-Q 5 clause 3" }), one)).toBe(true);
+  });
+  it("a regex character in the name is only text", () => {
+    const dotted: RunFacts = { ...facts, missingStandards: ["STD.Q (5)"] };
+    expect(citesMissingStandard(f({ standard_clause: "STDxQ (5)" }), dotted)).toBe(false);
+    expect(citesMissingStandard(f({ standard_clause: "see STD.Q (5)." }), dotted)).toBe(true);
   });
 });

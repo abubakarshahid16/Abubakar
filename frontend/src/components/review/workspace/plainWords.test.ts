@@ -31,6 +31,12 @@ const OLD_REASON_WORDS: Record<string, string> = {
   "value conflict": "The datasheet gives two values for this field. Decide which one counts.",
   "unit unknown": "The unit of the value could not be read, so it was not compared. Check the unit on the page.",
 };
+/** The two reasons of order 152.2: new words, so they are pinned apart from
+ *  the old table above. */
+const NEW_REASON_WORDS: Record<string, string> = {
+  "no standard linked": "This is a blank value with no standard behind it, so there was no clause to check. Decide from the datasheet.",
+  "standard outside this review": "The standard this comment rests on was not part of this review (it may be in the library). Add it to the scope, or decide from the datasheet.",
+};
 const OLD_CODE_WORDS: Record<string, string> = {
   "Approved": "Everything checked meets the standard; the contractor may go ahead.",
   "Approved with Comments": "The contractor may go ahead and must answer our comments.",
@@ -42,9 +48,24 @@ function finding(over: Partial<ReviewFinding> = {}): ReviewFinding {
   return { id: "f-1", compliance_status: "NON_COMPLIANT", finding: "x", ...over } as ReviewFinding;
 }
 
+describe("the two blank reasons have plain sentences (order 152.2)", () => {
+  it("each reason a blank can get is said in its own plain sentence", () => {
+    const facts = { pagesNotRead: [], readerTimedOutPages: [], missingStandards: [], libraryStandardIds: ["std-in"] };
+    const noStandard = tierOf(finding({ compliance_status: "MISSING_INFORMATION", standard_document_id: null }), facts);
+    const outside = tierOf(finding({ compliance_status: "MISSING_INFORMATION", standard_document_id: "std-out" }), facts);
+    expect(noStandard.reason).toBe("no standard linked");
+    expect(outside.reason).toBe("standard outside this review");
+    expect(REASON_WORDS[noStandard.reason!]).toBe(NEW_REASON_WORDS["no standard linked"]);
+    expect(REASON_WORDS[outside.reason!]).toBe(NEW_REASON_WORDS["standard outside this review"]);
+    // Neither sentence says the standard is missing from the library.
+    expect(REASON_WORDS["no standard linked"]).not.toMatch(/not in the library/);
+    expect(REASON_WORDS["standard outside this review"]).not.toMatch(/is not in the library/);
+  });
+});
+
 describe("PLAIN_WORDS keeps every existing word", () => {
   const sources: [keyof typeof PLAIN_WORDS, Record<string, string>][] = [
-    ["reason", OLD_REASON_WORDS],
+    ["reason", { ...OLD_REASON_WORDS, ...NEW_REASON_WORDS }],
     ["code", OLD_CODE_WORDS],
     ["removal", REMOVAL_REASON_WORDS],
     ["trust", TRUST_WORDS],

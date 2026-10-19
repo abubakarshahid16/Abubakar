@@ -135,6 +135,52 @@ export function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
 }
 
+/** The items on the issued copy that are not rows on this sheet, named by
+ *  kind. `one`/`many` are the count words ("2 standards not cited"); `line`
+ *  is the words for one item in the list. A kind not in this table is said
+ *  to be unrecognised, never guessed. "not in the library" belongs to
+ *  `missing_reference` alone: only that kind is a standard the library does
+ *  not hold. */
+const OTHER_KINDS: Record<string, { one: string; many: string; line: string }> = {
+  standard_not_cited: { one: "standard not cited", many: "standards not cited", line: "a standard the datasheet does not cite" },
+  standard_not_applicable: { one: "standard found not to apply", many: "standards found not to apply", line: "a standard found not to apply" },
+  pages_not_readable: { one: "set of pages that could not be read", many: "sets of pages that could not be read", line: "pages that could not be read" },
+  page_reader_only: { one: "value only the page reader looked for", many: "values only the page reader looked for", line: "a value only the page reader looked for" },
+  missing_reference: { one: "not in the library", many: "not in the library", line: "a standard that is not in the library" },
+};
+const UNKNOWN_KIND = { one: "of a kind not recognised", many: "of a kind not recognised", line: "an item on the issued copy (kind not recognised)" };
+
+/** At most this many "other items" are listed; the rest are counted. */
+export const OTHER_ITEMS_SHOWN = 10;
+
+function kindOf(item: CrsIssueGate["open_findings"][number]) {
+  return OTHER_KINDS[item.row_kind ?? ""] ?? UNKNOWN_KIND;
+}
+
+/** Per-kind counts of the other items, in the table's order, unknown last:
+ *  "2 standards not cited, 1 not in the library". */
+export function otherItemCounts(items: CrsIssueGate["open_findings"]): string {
+  const kinds = [...Object.values(OTHER_KINDS), UNKNOWN_KIND];
+  return kinds
+    .map((k) => [k, items.filter((i) => kindOf(i) === k).length] as const)
+    .filter(([, n]) => n > 0)
+    .map(([k, n]) => `${n} ${n === 1 ? k.one : k.many}`)
+    .join(", ");
+}
+
+/** One line per other item: "<kind words>: <standard>" when the server named
+ *  the row's standard, the kind words alone when it did not (a name is never
+ *  guessed). The standard names are document-derived: they stay on this
+ *  local screen and are never logged or sent anywhere. At most
+ *  `OTHER_ITEMS_SHOWN` lines; `more` counts the rest of `total`. */
+export function otherItemLines(items: CrsIssueGate["open_findings"]): { lines: { id: string; text: string }[]; more: number; total: number } {
+  const lines = items.slice(0, OTHER_ITEMS_SHOWN).map((item) => {
+    const standard = (item.standard ?? "").trim();
+    return { id: item.finding_id, text: standard ? `${kindOf(item).line}: ${standard}` : kindOf(item).line };
+  });
+  return { lines, more: Math.max(0, items.length - lines.length), total: items.length };
+}
+
 function commentList(numbers: number[]): string {
   return `${numbers.length === 1 ? "comment" : "comments"} ${numbers.join(", ")}`;
 }
@@ -151,7 +197,9 @@ export function signLeft(state: Pick<IssueGateState, "gate">, run: ReviewRunSumm
   const split = splitOpenItems(gate, rows);
   if (split.comments.length > 0) left.push(`decide ${commentList(split.comments)}`);
   if (split.unnumbered.length > 0) left.push(`decide ${plural(split.unnumbered.length, "other line", "other lines")} on the sheet`);
-  if (split.others.length > 0) left.push(`decide ${plural(split.others.length, "other item", "other items")} on the issued copy`);
+  if (split.others.length > 0) {
+    left.push(`decide ${plural(split.others.length, "other item", "other items")} on the issued copy (${otherItemCounts(split.others)})`);
+  }
   // A blocker the box has no control for (no page record at all) is passed
   // on (in plain words where it has them) rather than hidden.
   if (left.length === 0 && !gate.issuable) left.push(...gate.blockers.map(plainBlocker));

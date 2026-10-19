@@ -40,6 +40,8 @@ import { RUN_STATUS_LABEL, STATUS_LABEL, TRUST_WORDS } from "../reviewFormat";
 export const REASON_WORDS: Record<TierReason, string> = {
   "page not read": "The reader did not read this page into fields, so the value may still be on the page. Read the page yourself.",
   "standard not in library": "The standard this comment rests on is not in the library, so the clause could not be checked. Upload it, or decide from the datasheet.",
+  "no standard linked": "This is a blank value with no standard behind it, so there was no clause to check. Decide from the datasheet.",
+  "standard outside this review": "The standard this comment rests on was not part of this review (it may be in the library). Add it to the scope, or decide from the datasheet.",
   "AI guess": "The datasheet field was paired with this clause by an AI guess that nobody has confirmed. Check that the field is the one the clause means.",
   "rule not proven": "The rule behind this comment has not been proven yet, so its answer is not trusted on its own. Check it against the standard.",
   "safety field": "This is a safety field. It meets the standard, but it is shown for your own tick before it goes on the record.",
