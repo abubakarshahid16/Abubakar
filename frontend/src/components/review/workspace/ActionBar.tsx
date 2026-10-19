@@ -106,9 +106,12 @@ export function ActionBar({ run, numbers, steps, onAction, signOff, autosave, on
           ? <span key={i} data-count={piece.count}>{piece.text}</span>
           : <span key={i}>{piece.text}</span>))}
       </p>
+      {/* v2.2 round 2: all six steps in one wrapping row, Sign last and drawn
+          as the main button. No ml-auto: it pushed Sign alone onto its own
+          line on screens up to 1440px wide. */}
       <ol aria-label="Steps, in order" className="flex flex-wrap items-center gap-2">
         {steps.map((step, i) => (
-          <li key={step.id} className={`flex items-center gap-1 ${step.id === "sign" ? "ml-auto" : ""}`}>
+          <li key={step.id} data-step-item={step.id} className="flex items-center gap-1">
             {/* The step number is drawn beside the button, not in its name:
                 the list already says the order to a screen reader. */}
             <span aria-hidden="true" data-step-number={i + 1}
@@ -125,7 +128,7 @@ export function ActionBar({ run, numbers, steps, onAction, signOff, autosave, on
               title={step.id === "sign" && step.detail ? step.detail : undefined}
               onClick={() => press(step)}
               className={`${BUTTON} ${step.id === "sign"
-                ? (step.enabled ? "border-signal-500 bg-signal-500 text-ink-950" : "border-ink-700 text-slateish-500")
+                ? `font-semibold ${step.enabled ? "border-signal-500 bg-signal-500 text-ink-950" : "border-signal-500/60 text-slateish-400"}`
                 : step.done ? "border-ink-700 text-slateish-500" : "border-ink-600 text-slateish-100"}`}
             >
               {step.done && step.id !== "sign" && <span aria-label="done">{"✓"}</span>}

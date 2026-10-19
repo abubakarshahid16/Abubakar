@@ -210,10 +210,10 @@ describe("CrsSheetView", () => {
   it("hides Tier A by default behind one line, except the spot check, and shows it on click", async () => {
     mount();
     await screen.findByTestId("crs-headline");
-    // One Met row exists, so the spot check (at least one) surfaces it; the not-applicable row stays hidden.
+    // One Met row exists, so the sample to check (at least one) surfaces it; the not-applicable row stays hidden.
     expect(rowItems()).toEqual(["Field a", "Field blank", "Field b", "Field cond", "Field unread", "Field met"]);
-    expect(screen.getByText("spot check")).toBeInTheDocument();
-    expect(screen.getByTestId("met-line")).toHaveTextContent("1 met, 0 not applicable, 1 for another document (1 shown above as a spot check): show");
+    expect(screen.getByText("sample to check")).toBeInTheDocument();
+    expect(screen.getByTestId("met-line")).toHaveTextContent("1 met, 0 not applicable, 1 for another document (1 shown above as a sample to check): show");
     await userEvent.click(screen.getByRole("button", { name: "show" }));
     expect(rowItems()).toContain("Field scope");
     expect(screen.getByText(/4,362 requirements in the standards were judged not to apply/)).toBeInTheDocument();

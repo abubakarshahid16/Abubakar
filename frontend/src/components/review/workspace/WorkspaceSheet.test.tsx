@@ -61,15 +61,15 @@ function numbersOf(run: ReviewRunSummary = RUN): ReviewNumbers {
   });
 }
 
-function Harness({ onOpenRow, start = null, numbers = numbersOf() }: {
-  onOpenRow: (key: string | null) => void; start?: string | null; numbers?: ReviewNumbers;
+function Harness({ onOpenRow, start = null, numbers = numbersOf(), showKeys }: {
+  onOpenRow: (key: string | null) => void; start?: string | null; numbers?: ReviewNumbers; showKeys?: boolean;
 }) {
   const decisions = useCrsDecisions();
   const [open, setOpen] = useState<string | null>(start);
   return (
     <WorkspaceSheet
       runId="run-1" run={RUN} rows={ROWS} submittal={null} standardNames={new Map([["std-1", "API 610"]])}
-      decisions={decisions} openRowKey={open} numbers={numbers}
+      decisions={decisions} openRowKey={open} numbers={numbers} showKeys={showKeys}
       onOpenRow={(key) => { onOpenRow(key); setOpen(key); }}
       footer={<p data-testid="footer">Sign-off goes here</p>}
     />
@@ -196,6 +196,22 @@ describe("WorkspaceSheet", () => {
     expect(screen.getByLabelText("Why remove comment 2?")).toBeInTheDocument();
   });
 
+  /** v2.2 round 2: Simple view shows no key hints (table, drawer, panel);
+   *  Detailed view shows them. The keys still work. MUTATION PROOF: ignore
+   *  `showKeys` in CrsTable, CrsEvidenceDrawer or DecisionPanel and this fails. */
+  it("shows the key hints only when asked (Detailed view), and none in Simple view", async () => {
+    const { unmount } = render(<Harness onOpenRow={vi.fn()} start={FLANGE_KEY} showKeys={false} />);
+    const drawer = await screen.findByRole("dialog");
+    expect(document.body.textContent).not.toMatch(/J \/ K/);
+    expect(screen.queryByTestId("ws-decide-keys")).toBeNull();
+    expect(within(drawer).getByTestId("drawer-position")).toBeInTheDocument();
+    unmount();
+    render(<Harness onOpenRow={vi.fn()} start={FLANGE_KEY} />);
+    await screen.findByRole("dialog");
+    expect(screen.getByText(/Keys: J \/ K next and previous/)).toBeInTheDocument();
+    expect(screen.getByTestId("ws-decide-keys")).toBeInTheDocument();
+  });
+
   /** D1. MUTATION PROOF: drop the `decide` block in WorkspaceSheet (or the
    *  `onDecided` call in DecisionPanel's keep) and this fails. */
   it("the evidence panel decides: Keep moves to the next undecided comment by itself", async () => {
@@ -292,7 +308,7 @@ describe("WorkspaceSheet", () => {
   /** Round 2 item 9. MUTATION PROOF: drop the widening of the "Show" choice
    *  and the met row opened from outside is not in the list: this fails. */
   it("says Comment N of M over the comments, and a row hidden by Show is shown when it is opened", async () => {
-    // Many met values, so most are folded away (only a few show as a spot check).
+    // Many met values, so most are folded away (only a few show as a sample to check).
     const met = Array.from({ length: 12 }, (_, i) => f(`met${i}`, {
       matched_phrase: `Value ${i}`, compliance_status: "COMPLIANT", contractor_page: 9, finding: `Value ${i} meets.`,
     }));

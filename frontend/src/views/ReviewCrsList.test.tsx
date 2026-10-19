@@ -110,8 +110,8 @@ describe("CrsTransmittalsForm", () => {
     const onChanged = vi.fn();
     render(<CrsTransmittalsForm runId="run-1" onChanged={onChanged}
       header={[{ label: "COMPANY Transmittal No.:", value: "" }, { label: "CONTRACTOR  Transmittal No.:", value: "XT-9" }]} />);
-    const company = screen.getByLabelText(/company transmittal no/i);
-    expect((screen.getByLabelText(/contractor transmittal no/i) as HTMLInputElement).value).toBe("XT-9");
+    const company = screen.getByLabelText(/company transmittal number/i);
+    expect((screen.getByLabelText(/contractor transmittal number/i) as HTMLInputElement).value).toBe("XT-9");
     await userEvent.type(company, "CT-1");
     await userEvent.click(screen.getByRole("button", { name: /save transmittal numbers/i }));
     expect(setCrsTransmittals).toHaveBeenCalledWith("run-1", { company_transmittal: "CT-1", contractor_transmittal: "XT-9" });

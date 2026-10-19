@@ -51,12 +51,12 @@ export function CrsTransmittalsForm(
       onSubmit={(e) => { e.preventDefault(); void save(); }}
     >
       <label className="flex flex-col text-slateish-300">
-        Company transmittal no.
+        Company transmittal number
         <input value={company} maxLength={80} onChange={(e) => setCompany(e.target.value)}
           className="mt-1 rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-2 py-1 text-slateish-100" />
       </label>
       <label className="flex flex-col text-slateish-300">
-        Contractor transmittal no.
+        Contractor transmittal number
         <input value={contractor} maxLength={80} onChange={(e) => setContractor(e.target.value)}
           className="mt-1 rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-2 py-1 text-slateish-100" />
       </label>

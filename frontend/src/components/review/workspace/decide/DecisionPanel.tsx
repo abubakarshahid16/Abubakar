@@ -27,6 +27,8 @@ export interface DecisionPanelProps {
   onDecided: (rowKey: string) => void;
   /** Said under the buttons (e.g. "That was the last comment to decide."). */
   note?: string | null;
+  /** v2.2 round 2: the key hint; hidden in the workspace's Simple view. */
+  showKeys?: boolean;
 }
 
 /** What the keys do in the panel; the words of the hint shown under it. */
@@ -39,7 +41,7 @@ function isTyping(target: EventTarget | null): boolean {
   return !!el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable);
 }
 
-export function DecisionPanel({ row, decisions, onDecided, note = null }: DecisionPanelProps) {
+export function DecisionPanel({ row, decisions, onDecided, note = null, showKeys = true }: DecisionPanelProps) {
   const [mode, setMode] = useState<"edit" | "remove" | null>(null);
   const [action, setAction] = useState("");
   const [reason, setReason] = useState<RemoveReason | "">("");
@@ -153,7 +155,7 @@ export function DecisionPanel({ row, decisions, onDecided, note = null }: Decisi
       )}
       {error && <p role="alert" className="text-sm text-danger-500">{error}</p>}
       {note && <p role="status" data-testid="ws-decide-note" className="text-sm text-slateish-300">{note}</p>}
-      <p className="text-xs text-slateish-500" data-testid="ws-decide-keys">{PANEL_KEYS_HINT}</p>
+      {showKeys && <p className="text-xs text-slateish-500" data-testid="ws-decide-keys">{PANEL_KEYS_HINT}</p>}
     </section>
   );
 }

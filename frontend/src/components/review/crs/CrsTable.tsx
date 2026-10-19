@@ -48,6 +48,8 @@ export interface CrsTableProps {
    *  Edit / Remove on any row and no key hint. Absent (false) on the old
    *  sheet, which is unchanged. */
   readOnly?: boolean;
+  /** v2.2 round 2: the key hint line; the workspace's Simple view hides it. */
+  showKeys?: boolean;
 }
 
 export function CrsTable(props: CrsTableProps) {
@@ -72,7 +74,7 @@ export function CrsTable(props: CrsTableProps) {
             {d.label}
           </label>
         ))}
-        {!props.readOnly && (
+        {!props.readOnly && props.showKeys !== false && (
           <span className="ml-auto text-xs text-slateish-500">Keys: J / K next and previous · E edit · R remove · Enter keep</span>
         )}
         {/* v2.1 (W1): what each choice shows, said once in plain words. */}
@@ -121,7 +123,7 @@ export function CrsTable(props: CrsTableProps) {
         <p className="text-sm text-slateish-300" data-testid="met-line">
           {counts.met.toLocaleString()} met, {counts.notApplicable.toLocaleString()} not applicable
           {counts.anotherDocument > 0 ? `, ${counts.anotherDocument.toLocaleString()} for another document` : ""}
-          {!showMet && spot.size > 0 ? ` (${spot.size} shown above as a spot check)` : ""}:{" "}
+          {!showMet && spot.size > 0 ? ` (${spot.size} shown above as a sample to check)` : ""}:{" "}
           <button type="button" onClick={() => onShowMet(!showMet)} className="text-signal-300 underline-offset-2 hover:underline">
             {showMet ? "hide" : "show"}
           </button>

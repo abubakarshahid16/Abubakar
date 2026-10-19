@@ -42,6 +42,9 @@ import { nextUndecided } from "./decide/nextUndecided";
 export type WorkspaceSheetProps = SheetContractProps & {
   /** A signed review: the sheet is a record to read, nothing to decide. */
   readOnly?: boolean;
+  /** v2.2 round 2: key hints ("J / K ...") are drawn in Detailed view only;
+   *  Simple view shows none. The keys themselves keep working. */
+  showKeys?: boolean;
 };
 
 /** The narrowest "Show" choice that still lists `row` (as visibleRows). */
@@ -61,7 +64,7 @@ function returnTarget(prev: HTMLElement | null, rowKey: string): HTMLElement | n
 }
 
 export function WorkspaceSheet({
-  runId, rows, submittal, standardNames, decisions, openRowKey, onOpenRow, numbers, footer, readOnly = false,
+  runId, rows, submittal, standardNames, decisions, openRowKey, onOpenRow, numbers, footer, readOnly = false, showKeys = true,
 }: WorkspaceSheetProps) {
   const [depth, setDepth] = useState<Depth>("standard");
   const [showMet, setShowMet] = useState(false);
@@ -181,14 +184,14 @@ export function WorkspaceSheet({
         spot={spot} selectedKey={selectedKey} onSelect={selectRow} onOpenEvidence={openEvidence}
         mode={mode} onMode={changeMode} decisions={decisions}
         clausesNotApplicable={numbers.notApplicableClauses}
-        tierHeader="Kind" readOnly={readOnly}
+        tierHeader="Kind" readOnly={readOnly} showKeys={showKeys}
       />
       {footer}
       {drawerRow && (
         <WorkspaceEvidence row={drawerRow} runId={runId} standardNames={standardNames} returnTo={returnTo}
-          onClose={closeDrawer} onOpenCards={openCards} nav={nav} pager={pager}
+          onClose={closeDrawer} onOpenCards={openCards} nav={nav} pager={pager} showKeys={showKeys}
           decide={drawerRow.tier.tier !== "A" && !readOnly ? (
-            <DecisionPanel row={drawerRow} decisions={decisions} onDecided={onDecided}
+            <DecisionPanel row={drawerRow} decisions={decisions} onDecided={onDecided} showKeys={showKeys}
               note={doneNote?.key === drawerRow.key ? doneNote.text : null} />
           ) : null} />
       )}

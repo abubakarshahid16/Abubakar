@@ -91,7 +91,7 @@ vi.mock("./standards/MissingStandardsPanel", () => ({
 vi.mock("./crs/CrsTabPanel", () => ({ CrsTabPanel: ({ runId }: { runId: string }) => <p>{`crs page for ${runId}`}</p> }));
 vi.mock("./SheetCountsLine", () => ({ SheetCountsLine: () => <p data-testid="ws-sheet-counts">counts</p> }));
 vi.mock("./SignOffPanel", () => ({
-  SignOffPanel: () => <div data-testid="ws-sign-off">sign-off<div data-testid="sign-pages">tick boxes</div></div>,
+  SignOffPanel: ({ folded }: { folded?: boolean }) => <div data-testid="ws-sign-off" data-folded={String(Boolean(folded))}>sign-off<div data-testid="sign-pages">tick boxes</div></div>,
 }));
 /** As the real hook: sign() runs the checks (rawSign) and opens the one
  *  confirm step; nothing here ever issues. */
@@ -733,6 +733,30 @@ describe("ReviewWorkspace v2.2: Simple / Detailed view", () => {
     expect(within(screen.getByRole("tablist", { name: "Review sections" })).getAllByRole("tab")).toHaveLength(7);
     expect(screen.queryByRole("tab", { name: "Details" })).toBeNull();
     expect(window.localStorage.getItem(VIEW_MODE_KEY)).toBe("detailed");
+  });
+
+  /** v2.2 round 2: Simple view is short for a manager. "Before you sign"
+   *  folds behind one line that says how much is left (open while something
+   *  there stops Sign); the honesty footer folds behind "How these comments
+   *  were counted" but stays in the page. Detailed view shows both open.
+   *  MUTATION PROOF: drop `folded` / FoldInSimple and this fails; render the
+   *  footer only in Detailed and the "stays in the page" check fails. */
+  it("Simple view folds Before you sign and the honesty footer; Detailed shows both open", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={{}} />);
+    // "Before you sign" is told to fold (SignOffPanel.test.tsx checks the fold itself).
+    expect(screen.getByTestId("ws-sign-off")).toHaveAttribute("data-folded", "true");
+    const footFold = screen.getByTestId("ws-honesty-fold");
+    expect(footFold.tagName).toBe("DETAILS");
+    expect(footFold).not.toHaveAttribute("open");
+    expect(within(footFold).getByText("How these comments were counted").tagName).toBe("SUMMARY");
+    // The honesty rule: the footer is in the page, only folded.
+    expect(footFold).toContainElement(screen.getByTestId("crs-footer"));
+
+    await user.click(within(screen.getByRole("group", { name: "View" })).getByRole("button", { name: "Detailed" }));
+    expect(screen.getByTestId("ws-sign-off")).toHaveAttribute("data-folded", "false");
+    expect(screen.queryByTestId("ws-honesty-fold")).toBeNull();
+    expect(screen.getByTestId("crs-footer").closest("details")).toBeNull();
   });
 
   it("a link to ?tab=steps in Simple view opens the steps tab with the Details row open", () => {

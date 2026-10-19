@@ -96,6 +96,19 @@ describe("Preview CRS (v2.2)", () => {
     expect(within(items[4]).getByRole("button", { name: "Preview CRS" })).toBeEnabled();
   });
 
+  /** v2.2 round 2: "ml-auto" on Sign pushed it alone onto its own line at
+   *  1440px and below. All six steps share one wrapping row; Sign is last and
+   *  drawn as the main button. MUTATION PROOF: put ml-auto back and this fails. */
+  it("keeps Sign in the same wrapping row, last, drawn as the main button", () => {
+    renderBar(numbers());
+    const list = screen.getByRole("list", { name: "Steps, in order" });
+    expect(list.className).toContain("flex-wrap");
+    const items = within(list).getAllByRole("listitem");
+    for (const item of items) expect(item.className).not.toContain("ml-auto");
+    expect(items[items.length - 1]).toHaveAttribute("data-step-item", "sign");
+    expect(within(items[items.length - 1]).getByRole("button").className).toContain("font-semibold");
+  });
+
   it("opens the sheet under the bar, tells the parent, and closes again", async () => {
     const onAction = renderBar(numbers());
     expect(screen.queryByTestId("ws-crs-preview")).toBeNull();

@@ -36,7 +36,7 @@
  *    says so with a link to the newer one, and Sign asks first.
  *  - "Review again" is not offered to someone who is not an administrator.
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary } from "../../../types/api";
 import { HowReviewedView } from "../../../views/HowReviewedView";
@@ -193,6 +193,21 @@ function RunNotReady({ run, active, onBack, onChanged, onOpenRun, openRun, befor
   );
 }
 
+/** v2.2 round 2: in Simple view a part a manager rarely needs is folded
+ *  behind one summary line. It stays in the page, only folded (the honesty
+ *  footer must always be there). Detailed view shows it open, as before. */
+function FoldInSimple({ simple, summary, testId, children }: {
+  simple: boolean; summary: string; testId: string; children: ReactNode;
+}) {
+  if (!simple) return <>{children}</>;
+  return (
+    <details data-testid={testId}>
+      <summary className="cursor-pointer text-xs text-slateish-300">{summary}</summary>
+      <div className="mt-2">{children}</div>
+    </details>
+  );
+}
+
 export function ReviewWorkspace({
   location, onLocationChange, onBack, onOpenRun, onUnsavedChange, leaveGuard, isAdmin,
 }: ReviewWorkspaceProps) {
@@ -310,6 +325,9 @@ export function ReviewWorkspace({
   useEffect(() => {
     if (pagesAsked === 0 || tabNow !== "sheet") return;
     const box = document.querySelector<HTMLElement>('[data-testid="sign-pages"]');
+    // Simple view: "Before you sign" may be folded; open it so the ticks show.
+    const fold = box?.closest("details");
+    if (fold) fold.open = true;
     box?.scrollIntoView?.({ block: "center", behavior: "smooth" });
   }, [pagesAsked, tabNow]);
 
@@ -472,21 +490,28 @@ export function ReviewWorkspace({
             <WorkspaceSheet
               runId={runId} run={run} rows={rows} submittal={submittal} standardNames={standardNames}
               decisions={decisions} openRowKey={openRowKey} onOpenRow={onOpenRow} numbers={numbers} readOnly={readOnly}
+              showKeys={view.mode === "detailed"}
               footer={(
                 <>
                   <SignOffPanel numbers={numbers} signOff={signOff} run={run} rows={rows} gate={issueGate}
-                    onRunChanged={() => void refresh()} onJump={(row) => onOpenRow(row.key)} />
-                  {/* S4: the honesty footer, as under the comment sheet. */}
-                  <CrsFooter
-                    run={run}
-                    counts={{
-                      met: numbers.met, notApplicable: numbers.notApplicableRows, anotherDocument: numbers.anotherDocument,
-                      comment: numbers.comments - numbers.needsYou, needsYou: numbers.needsYou,
-                    }}
-                    standards={standardsState.standards} missing={standardsState.missing}
-                    standardsError={standardsState.error} rejected={numbers.removed}
-                    signedAt={numbers.signedAt}
-                  />
+                    onRunChanged={() => void refresh()} onJump={(row) => onOpenRow(row.key)}
+                    folded={view.mode === "simple"} />
+                  {/* S4: the honesty footer, as under the comment sheet. v2.2
+                      round 2: Simple view folds it behind one line; it stays
+                      on the page (the honesty rule), only folded. */}
+                  <FoldInSimple simple={view.mode === "simple"} testId="ws-honesty-fold"
+                    summary="How these comments were counted">
+                    <CrsFooter
+                      run={run}
+                      counts={{
+                        met: numbers.met, notApplicable: numbers.notApplicableRows, anotherDocument: numbers.anotherDocument,
+                        comment: numbers.comments - numbers.needsYou, needsYou: numbers.needsYou,
+                      }}
+                      standards={standardsState.standards} missing={standardsState.missing}
+                      standardsError={standardsState.error} rejected={numbers.removed}
+                      signedAt={numbers.signedAt}
+                    />
+                  </FoldInSimple>
                 </>
               )}
             />
