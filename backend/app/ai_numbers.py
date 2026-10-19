@@ -63,21 +63,43 @@ def reader(summary: dict | None) -> dict | None:
     for why in (summary.get("code_only") or {}).values():
         left[str(why)] = left.get(str(why), 0) + 1
     timed_out = len(summary.get("timed_out") or [])
-    lines = [f"{read} of {pages} page(s) read by the AI"
-             + (f"; {timed_out} timed out" if timed_out else "")
-             + (f"; {sum(left.values())} left to the code readers ({_reasons(left)})" if left else "")
-             + "."]
-    agreed, conflicts, ai_only = (_n(summary.get(k)) for k in ("agreed", "conflicts", "ai_only"))
+    partly = len(summary.get("partly_read") or {})  # order 139: of the pages read
+    lines = [
+        f"{read} of {pages} page(s) read by the AI"
+        + (f" ({partly} only in part)" if partly else "")
+        + (f"; {timed_out} timed out" if timed_out else "")
+        + (
+            f"; {sum(left.values())} left to the code readers ({_reasons(left)})"
+            if left
+            else ""
+        )
+        + "."
+    ]
+    agreed, conflicts, ai_only = (
+        _n(summary.get(k)) for k in ("agreed", "conflicts", "ai_only")
+    )
     merged = agreed + conflicts + ai_only
     lines.append(f"Of {merged} value(s) the AI read: {agreed} agreed with the code readers, "
                  f"{conflicts} in conflict, {ai_only} read by the AI only.")
     if isinstance(summary.get("refused_by_gate"), int):
         refused = summary["refused_by_gate"]
-        lines.append(f"{refused} of {refused + merged} AI reading(s) refused by the code gate.")
-    state = "incomplete" if summary.get("stopped") or summary.get("unavailable") else "ran"
-    counts = {"pages": pages, "pages_read": read, "timed_out": timed_out,
-              "left_to_code": sum(left.values()), "agreed": agreed, "conflicts": conflicts,
-              "ai_only": ai_only}
+        lines.append(
+            f"{refused} of {refused + merged} AI reading(s) refused by the code gate."
+        )
+    state = (
+        "incomplete"
+        if summary.get("stopped") or summary.get("unavailable") or partly
+        else "ran"
+    )
+    counts = {
+        "pages": pages,
+        "pages_read": read,
+        "timed_out": timed_out,
+        "left_to_code": sum(left.values()),
+        "agreed": agreed,
+        "conflicts": conflicts,
+        "ai_only": ai_only,
+    }
     if isinstance(summary.get("refused_by_gate"), int):
         counts["refused_by_gate"] = summary["refused_by_gate"]
     return _step("AI reader", state, lines, engine=summary.get("engine"),

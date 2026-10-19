@@ -4263,6 +4263,9 @@ def reader_summary(ai_run: dict | None, ai_stats: dict, *, pages: list[int],
         extra["reading_notes"] = list(reading_notes)
     if ai_run is None:
         return {"engine": "off", "pages": len(pages), **extra}
+    from .datasheet_ai import parts_summary  # order 139
+
+    extra.update(parts_summary(ai_run))
     read = sorted(p for p, out in ai_run["pages"].items() if not out.get("error"))
     return {"engine": ai_run["engine"], "model": ai_run.get("model"), "pages": len(pages),
             "pages_read": len(read),

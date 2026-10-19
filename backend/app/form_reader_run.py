@@ -225,23 +225,26 @@ def _same_reading(a: dict, b: dict) -> bool:
 MERGE_GAP = "the whole-page AI reading: {why}"
 
 
+def _form_read(form_run: dict, page) -> bool:
+    mine = form_run["pages"].get(page)
+    return mine is not None and not mine.get("error")
+
+
 def _carry_merge_gaps(form_run: dict, merge_run: dict) -> None:
     """Order 139: the merge pass's own gaps are the run's gaps too. A page
-    the form read but the whole-page reader could not (cut off, timed out,
-    out of time, failed) used to vanish - the form's page looked clean. Now
-    its reason is kept (`reasons`, which `datasheets.reader_summary` shows
-    as `code_only`) and its time-outs are the run's; the page stays read."""
-    reasons = form_run.setdefault("reasons", {})
-    for page, why in (merge_run.get("reasons") or {}).items():
-        if page not in reasons and why:
-            reasons[page] = MERGE_GAP.format(why=why)
+    the form read but the whole-page reader did not read, or read only in
+    part (cut off, timed out, out of time, failed), used to vanish - the
+    form's page looked clean. It is now PARTLY read (`partly_read`): it has
+    an AI reading, so it is never "left to the code readers" (`reasons`) nor
+    timed out. A page the form did not read keeps the form's own reason."""
+    partly = form_run.setdefault("partly_read", {})
+    gaps = {**(merge_run.get("reasons") or {}), **(merge_run.get("partly_read") or {})}
     for page, extra in (merge_run.get("pages") or {}).items():
-        why = extra.get("error") or extra.get("partial")
-        if why and page not in reasons:
-            reasons[page] = MERGE_GAP.format(why=why)
-    form_run["timed_out"] = sorted(
-        {*(form_run.get("timed_out") or []), *(merge_run.get("timed_out") or [])}
-    )
+        if extra.get("error") or extra.get("partial"):
+            gaps.setdefault(page, extra.get("error") or extra["partial"])
+    for page, why in gaps.items():
+        if why and _form_read(form_run, page):
+            partly.setdefault(page, MERGE_GAP.format(why=why))
 
 
 def add_merge_reading(form_run: dict, merge_run: dict) -> dict:
@@ -270,7 +273,7 @@ def add_merge_reading(form_run: dict, merge_run: dict) -> dict:
             form_run["pages"][page] = extra
             form_run["reasons"].pop(page, None)
             if extra.get("partial"):
-                form_run["reasons"][page] = MERGE_GAP.format(why=extra["partial"])
+                form_run["partly_read"][page] = MERGE_GAP.format(why=extra["partial"])
             added += len(extra.get("accepted") or [])
             continue
         read: dict[str, list[dict]] = {}
@@ -289,8 +292,7 @@ def add_merge_reading(form_run: dict, merge_run: dict) -> dict:
             else:
                 more.append(f)
         mine["accepted"] = [*mine["accepted"], *more]
-        if extra.get("cut_off"):
-            mine["cut_off"] = True
+        mine.update({k: extra[k] for k in ("cut_off", "parts") if extra.get(k)})
         added += len(more)
     form_run["added_from_merge"] = added
     form_run["replaced_by_form"] = replaced
