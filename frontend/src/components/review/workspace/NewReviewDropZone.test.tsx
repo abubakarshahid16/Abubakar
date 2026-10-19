@@ -116,9 +116,12 @@ describe("SubmittalsLandingView with the workspace switch", () => {
     render(<SubmittalsLandingView onOpenRun={vi.fn()} />);
     await screen.findByText("documents list");
     expect(screen.queryByTestId("new-review-drop-zone")).toBeNull();
-    expect(Object.keys(listProps.mock.lastCall?.[0] ?? {}).sort()).toEqual(
-      ["documents", "onReview", "runs", "startingDocumentId", "submittalsTotal"],
-    );
+    // The old props, and no "Past reviews" hook (passed as undefined, which
+    // DocumentsFromContractors treats exactly as absent).
+    const props = listProps.mock.lastCall?.[0] ?? {};
+    const given = Object.keys(props).filter((k) => props[k] !== undefined).sort();
+    expect(given).toEqual(["documents", "onReview", "runs", "startingDocumentId", "submittalsTotal"]);
+    expect(props.onOpenPastRun).toBeUndefined();
   });
 
   it("on: the drop zone opens the started run, and each row can open past reviews", async () => {

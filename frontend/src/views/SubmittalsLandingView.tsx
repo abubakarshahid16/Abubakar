@@ -42,14 +42,6 @@ export async function loadReadyCounts(runId: string): Promise<ReadyCounts | null
   return { findings: comment + needs_you, needs_you };
 }
 
-/** Props of the documents list, plus the optional "Past reviews" hook-up
- *  (`onOpenPastRun`) that builder E adds to DocumentsFromContractors. Typed
- *  here as an optional extra so this file compiles whether or not E's prop
- *  is on the base; it is passed only when the workspace switch is on. */
-type DocumentsListProps = Parameters<typeof DocumentsFromContractors>[0] & {
-  onOpenPastRun?: (runId: string) => void;
-};
-
 export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onOpenInbox, onOpenList, workspace = false }: {
   onOpenRun: (runId: string) => void;
   /** Order 95 piece 3: show the inbox (/review/inbox) rather than the list. */
@@ -208,11 +200,12 @@ export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onO
 
       {phase.kind === "ready" && !inbox && (
         <DocumentsFromContractors
-          {...documentsListProps({
-            documents, runs, submittalsTotal,
-            onReview: (documentId) => void reviewDocument(documentId),
-            startingDocumentId,
-          }, workspace ? onOpenRun : undefined)}
+          documents={documents} runs={runs} submittalsTotal={submittalsTotal}
+          onReview={(documentId) => void reviewDocument(documentId)}
+          startingDocumentId={startingDocumentId}
+          // "Past reviews" only with the workspace switch on; off, the list
+          // gets undefined here and renders exactly as before.
+          onOpenPastRun={workspace ? onOpenRun : undefined}
         />
       )}
       {phase.kind === "ready" && inbox && (
@@ -228,12 +221,4 @@ export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onO
       )}
     </section>
   );
-}
-
-/** The list's props; `onOpenPastRun` only when given, so with the switch off
- *  the list receives exactly the props it always did. */
-function documentsListProps(
-  base: DocumentsListProps, onOpenPastRun: ((runId: string) => void) | undefined,
-): DocumentsListProps {
-  return onOpenPastRun ? { ...base, onOpenPastRun } : base;
 }

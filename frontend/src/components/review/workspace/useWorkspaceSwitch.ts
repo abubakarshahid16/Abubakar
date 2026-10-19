@@ -1,5 +1,5 @@
 /**
- * OWNER: builder A. The "Try new design" switch (PLACEHOLDER - planner team).
+ * OWNER: builder A. The "Try new design" switch.
  * On = routing.WORKSPACE_IS_DEFAULT || this browser opted in. Storage is
  * wrapped in try/catch: a private window throws on read and on write.
  */

@@ -114,6 +114,7 @@ export function WorkspaceSheet({
         spot={spot} selectedKey={selectedKey} onSelect={selectRow} onOpenEvidence={openEvidence}
         mode={mode} onMode={changeMode} decisions={decisions}
         clausesNotApplicable={run.requirement_split?.does_not_apply ?? null}
+        tierHeader="Kind"
       />
       {footer}
       {drawerRow && (

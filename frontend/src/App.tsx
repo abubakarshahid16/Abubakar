@@ -120,9 +120,6 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
     }
   }, [setOptIn, route, onNavigate]);
   const tryNewDesign = <TryNewDesignToggle on={switchOn} onChange={onTryNewDesign} />;
-  // SubmittalsLandingView takes `workspace` once builder D adds the prop
-  // (SPEC section 9). A spread, so this compiles before and after that merge.
-  const landingFlags = { workspace: switchOn };
   useEffect(() => {
     const onPopState = () => {
       setSearch(window.location.search);
@@ -429,7 +426,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
               <>
                 {tryNewDesign}
                 <SubmittalsLandingView
-                  {...landingFlags}
+                  workspace={switchOn}
                   inbox onOpenRun={(runId) => onNavigate("review", runId)}
                   onOpenList={() => onNavigate("review")}
                 />
@@ -455,7 +452,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
               <>
                 {tryNewDesign}
                 <SubmittalsLandingView
-                  {...landingFlags}
+                  workspace={switchOn}
                   onOpenRun={(runId) => onNavigate("review", runId)}
                   onOpenInbox={() => onNavigate("review", INBOX_RECORD)}
                 />
