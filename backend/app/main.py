@@ -70,6 +70,7 @@ from . import deliverables as deliverables_mod
 from . import structured_search as structured_search_mod
 from . import risks as risks_mod
 from . import standards as standards_mod
+from . import stored_paths as stored_paths_mod
 from . import submittal_review as submittal_review_mod
 from . import vector_store as vector_store_mod
 from . import schemas
@@ -117,10 +118,17 @@ def _log_hooks_path() -> None:
         logging.getLogger("uvicorn.error").warning(message)
 
 
+def _init_db() -> None:
+    """The schema, then the stored file paths made relative to `data_dir`, once
+    (order 121 C), before anything reads them."""
+    init_db()
+    stored_paths_mod.migrate()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings.ensure_dirs()
-    init_db()
+    _init_db()
     # The ONLY wiring authentication needs. It hands access.py an identity
     # resolver and refuses to start on a weak secret when auth is required -
     # at startup rather than at first login, because a system that boots and

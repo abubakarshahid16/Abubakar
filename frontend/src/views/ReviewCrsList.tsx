@@ -11,8 +11,15 @@ import { useState } from "react";
 import { reviews as reviewsApi } from "../api/client";
 import type { ReviewRunSummary } from "../types/api";
 
+/** Runs fetched per page (#1131). */
+export const RUNS_PAGE = 50;
+
 export function ReviewCrsList() {
   const [runs, setRuns] = useState<ReviewRunSummary[] | null>(null);
+  // The server's count of every run the caller may read: the list says how
+  // many it shows of how many, never a page passed off as the whole.
+  const [total, setTotal] = useState<number | null>(null);
+  const [more, setMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -22,9 +29,33 @@ export function ReviewCrsList() {
   // for an answer report, and a list nobody opened is a request nobody made.
   async function show() {
     setOpen(true);
-    const res = await reviewsApi.reviewRuns();
-    if (res.ok) setRuns(res.data.runs);
-    else setError(res.error.message);
+    const res = await reviewsApi.reviewRunsPage(0, RUNS_PAGE);
+    if (res.ok) {
+      setRuns(res.data.runs);
+      setTotal(res.data.total);
+    } else setError(res.error.message);
+  }
+
+  async function showMore() {
+    if (runs === null) return;
+    setMore(true);
+    let res = await reviewsApi.reviewRunsPage(runs.length, RUNS_PAGE);
+    // Runs deleted since the last page move the rest up, so reading on from
+    // runs.length would silently skip as many rows. Read again starting that
+    // many rows earlier; the overlap is dropped below.
+    if (res.ok && total !== null && res.data.total < total) {
+      const removed = total - res.data.total;
+      res = await reviewsApi.reviewRunsPage(Math.max(0, runs.length - removed), RUNS_PAGE + removed);
+    }
+    setMore(false);
+    if (!res.ok) {
+      setError(res.error.message);
+      return;
+    }
+    // A run already listed (the list moved while reading) is not shown twice.
+    const seen = new Set(runs.map((r) => r.review_run_id));
+    setRuns([...runs, ...res.data.runs.filter((r) => !seen.has(r.review_run_id))]);
+    setTotal(res.data.total);
   }
 
   async function download(runId: string) {
@@ -79,6 +110,19 @@ export function ReviewCrsList() {
             </li>
           ))}
         </ul>
+      )}
+      {runs !== null && runs.length > 0 && total !== null && (
+        <div className="flex flex-wrap items-center gap-3 text-xs text-slateish-400">
+          <span data-testid="crs-runs-count">
+            Showing {runs.length.toLocaleString()} of {total.toLocaleString()} review runs on submittals you can read
+          </span>
+          {runs.length < total && (
+            <button type="button" disabled={more} onClick={() => void showMore()}
+              className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-xs text-slateish-200">
+              {more ? "Loading…" : "Show more"}
+            </button>
+          )}
+        </div>
       )}
     </section>
   );

@@ -23,7 +23,7 @@ import zipfile
 
 import pytest
 
-from app import db, states, upload
+from app import db, states, stored_paths, upload
 from app.config import settings
 
 
@@ -74,7 +74,7 @@ def test_a_workbook_is_accepted_and_stored_as_xlsx():
     assert row["filename"] == "CRS Template.xlsx"
     assert row["stored_path"].endswith(".xlsx"), row["stored_path"]
     from pathlib import Path
-    assert Path(row["stored_path"]).exists()
+    assert Path(stored_paths.local(row["stored_path"])).exists()
 
 
 def test_the_stored_workbook_is_byte_identical_to_what_was_uploaded():
@@ -82,7 +82,7 @@ def test_the_stored_workbook_is_byte_identical_to_what_was_uploaded():
     from pathlib import Path
     payload = _workbook()
     row, _, _ = upload.ingest(io.BytesIO(payload), "book.xlsx")
-    assert Path(row["stored_path"]).read_bytes() == payload
+    assert Path(stored_paths.local(row["stored_path"])).read_bytes() == payload
 
 
 def test_the_suffix_comes_from_the_bytes_not_the_filename():

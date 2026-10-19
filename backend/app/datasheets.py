@@ -47,7 +47,7 @@ from pathlib import Path
 from contextvars import ContextVar
 
 from . import (blank_markers, claims, datasheet_inputs, errors, numparse, orphan_guard, page_ledger,
-               provenance, row_noise, standard_ids, submittal_review, tables)
+               provenance, row_noise, standard_ids, stored_paths, submittal_review, tables)
 from .config import settings
 from .db import connect
 
@@ -3331,10 +3331,9 @@ def extract_facts(
     seam; off, or for a PDF, this is exactly the call it wraps)."""
     method = None
     if settings.datasheet_office_input:
-        row = connect().execute(
-            "SELECT stored_path FROM documents WHERE id = ?", (document_id,)).fetchone()
-        if row is not None and datasheet_inputs.is_office_input(row["stored_path"]):
-            method = datasheet_inputs.extraction_method(row["stored_path"])
+        path = stored_paths.of_document(document_id)
+        if path and datasheet_inputs.is_office_input(path):
+            method = datasheet_inputs.extraction_method(path)
     token = _OFFICE_METHOD.set(method)
     failures_token = _PAGE_FAILURES.set({})
     try:
@@ -3490,7 +3489,7 @@ def _extract_facts(
         page_ledger.refresh(document_id, as_submittal=True)
         return empty
 
-    stored_path = chunks[0]["stored_path"]
+    stored_path = stored_paths.local(chunks[0]["stored_path"])
     # #177 PROVENANCE: the code that reads this sheet (this module and the
     # table parser it leans on) and exactly what it read - the stored file's
     # hash plus every chunk's text, in order. See `provenance.py`. NOT
@@ -4247,11 +4246,11 @@ def _record_run_summary(document_id: str, extractor_version: str | None, ai_run:
 
 def _office_notes_of(document_id: str) -> list[str]:
     """What the office reader deliberately left out of this file (#918)."""
-    row = connect().execute("SELECT stored_path FROM documents WHERE id = ?", (document_id,)).fetchone()
-    if row is None or not row["stored_path"] or not datasheet_inputs.is_office_input(row["stored_path"]):
+    path = stored_paths.of_document(document_id)
+    if not path or not datasheet_inputs.is_office_input(path):
         return []
     try:
-        return list(datasheet_inputs.office_notes(row["stored_path"]))
+        return list(datasheet_inputs.office_notes(path))
     except OSError:
         return []
 
