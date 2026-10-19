@@ -985,9 +985,12 @@ def carry_issued_wording(row: dict, snapshot: dict) -> None:
     if words in WAITING_COMMENTS:
         words = ""
     row["comment"] = words
-    by = str(snapshot.get("comment_by") or "").strip()
-    if words and by:
-        row["comment_by"] = by
+    if words:
+        # The byline of the words, never the draft's: a snapshot kept no byline
+        # (an older build) leaves it BLANK - the engineer's words are still
+        # issued and counted, never hidden, and never under "AI - engineer to
+        # confirm".
+        row["comment_by"] = str(snapshot.get("comment_by") or "").strip()
 
 
 #: Spec c: a grouped row lists at most this many supporting clauses, then

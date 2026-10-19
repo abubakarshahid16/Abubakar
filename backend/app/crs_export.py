@@ -393,7 +393,13 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         comment_missing = _no_text(finding)
         comment = str(finding.get("comment", ""))
         if comment_missing:
-            comment = empty_comment_text(str(finding.get("crs_ref") or ""))
+            # "was issued" is true only of an engineer's confirmed comment; a
+            # machine draft's number (not issued) has the plain sentence.
+            comment = empty_comment_text(
+                str(finding.get("crs_ref") or "")
+                if finding.get("engineer_confirmed") is True
+                else ""
+            )
         ref = row_reference(run_id, finding)
         # Two DIFFERENT rows landing on one reference would let a contractor
         # answer the wrong comment. Re-mint with a salt until the sheet's

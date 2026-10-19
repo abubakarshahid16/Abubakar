@@ -130,8 +130,28 @@ MUTATIONS: tuple[Mutation, ...] = (
         "11",
         "the issued byline is not carried with the issued words",
         _M,
-        '    if words and by:\n        row["comment_by"] = by\n',
-        "",
+        '        row["comment_by"] = str(snapshot.get("comment_by") or "").strip()\n',
+        "        pass\n",
         "issued_ai_comment_stays_on_a_later_runs_contractor_copy",
+    ),
+    _m(
+        "12",
+        "a machine draft's empty comment is said to have been issued",
+        _E,
+        '                str(finding.get("crs_ref") or "")\n'
+        '                if finding.get("engineer_confirmed") is True\n'
+        '                else ""\n',
+        '                str(finding.get("crs_ref") or "")\n',
+        "unconfirmed_numbered_draft_with_no_text_is_not_said_to_be_issued",
+    ),
+    _m(
+        "13",
+        "issued words keep the AI draft's byline when the snapshot has none",
+        _M,
+        '        row["comment_by"] = str(snapshot.get("comment_by") or "").strip()\n',
+        '        row["comment_by"] = (\n'
+        '            str(snapshot.get("comment_by") or "").strip() or row["comment_by"]\n'
+        "        )\n",
+        "issued_words_with_no_stored_byline_never_sit_under_the_drafts_byline",
     ),
 )

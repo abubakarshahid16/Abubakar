@@ -168,7 +168,14 @@ MUTATIONS: tuple[Mutation, ...] = (
         "15",
         "the internal copy prints an empty COMPANY Comments cell",
         _E,
-        '        if comment_missing:\n            comment = empty_comment_text(str(finding.get("crs_ref") or ""))\n',
+        "        if comment_missing:\n"
+        '            # "was issued" is true only of an engineer\'s confirmed comment; a\n'
+        "            # machine draft's number (not issued) has the plain sentence.\n"
+        "            comment = empty_comment_text(\n"
+        '                str(finding.get("crs_ref") or "")\n'
+        '                if finding.get("engineer_confirmed") is True\n'
+        '                else ""\n'
+        "            )\n",
         "",
         _TE,
         "internal_copy_names_a_row_with_no_text",

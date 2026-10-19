@@ -260,3 +260,37 @@ def test_a_carried_forward_comment_saved_empty_is_named_by_the_gate():
     text = internal["rows"][0]["comment"]
     assert text == crs_export.empty_comment_text("CRS-INV-007")
     assert "CRS-INV-007" in text and "An engineer must write it" not in text
+
+
+def test_an_unconfirmed_numbered_draft_with_no_text_is_not_said_to_be_issued():
+    """Review of #1188: a machine draft's number is not issued. Its empty
+    comment keeps the plain sentence, not "was issued but its wording was not
+    kept" beside Final Resolution "Draft (not issued)"."""
+    draft = _row(
+        comment="",
+        ai_review_comment="",
+        engineer_confirmed=False,
+        crs_status="Draft (not issued)",
+    )
+    view = crs_export.build_crs_view([draft], {"copy": crs_export.COPY_INTERNAL})
+    text = view["rows"][0]["comment"]
+    assert text == crs_export.EMPTY_COMMENT_TEXT
+    assert "was issued" not in text
+    assert view["rows"][0]["final_resolution"] == "Draft (not issued)"
+
+
+def test_issued_words_with_no_stored_byline_never_sit_under_the_drafts_byline():
+    """Review of #1188: older snapshots kept no byline. The issued words are
+    still carried (a comment is never hidden), but the row must not keep the
+    AI draft's byline beside the engineer's text."""
+    row = {
+        "comment": crs_mapping.AI_UNCONFIRMED_COMMENT,
+        "comment_by": "AI - engineer to confirm",
+        "ai_review_comment": DRAFT,
+    }
+    crs_mapping.carry_issued_wording(row, {"comment": WORDS, "comment_by": ""})
+    assert row["comment"] == WORDS
+    assert row["comment_by"] == ""
+    assert "AI - engineer to confirm" not in row["comment_by"]
+    view = crs_export.build_crs_view([_row(**row)], {"copy": crs_export.COPY_ISSUE})
+    assert view["rows"][0]["comment"] == WORDS and view["rows_withheld_no_text"] == 0
