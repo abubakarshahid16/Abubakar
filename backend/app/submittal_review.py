@@ -409,8 +409,8 @@ def ensure_schema() -> None:
             # and the difference runs in the direction that makes a vessel look
             # compliant. The reference is split off the unit so `bar` reaches
             # the conversion table, and kept here so the distinction survives.
-            # Nothing converts between the two - that needs an ambient pressure
-            # nobody has recorded.
+            # Nothing converts between the two unless the answer is the same at
+            # any atmospheric pressure (`claims.compare_across_units`).
             ("unit_reference", "TEXT"),
             # A RANGE HAS TWO NUMBERS AND NEITHER IS "THE" VALUE. `-3 to 55 C`
             # is an ambient band; averaging it invents a number the sheet does
