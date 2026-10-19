@@ -5,7 +5,8 @@
  * `pastReviewsOf` and "keeps only that document's runs" fails; turn the
  * failed-count branch of `loadCommentCount` into `return 0` and "a failed
  * count shows nothing" fails; count N with a request and "counts N without
- * a request" fails.
+ * a request" fails; show recommended_code bare and "says the result in
+ * plain words" fails.
  */
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -62,10 +63,11 @@ describe("pastReviewsOf", () => {
     expect(pastReviewsOf("doc-none", RUNS)).toEqual([]);
   });
 
-  it("says the result in plain words: engineer's code, else recommended code, else the status", () => {
+  it("says the result in plain words: engineer's code as is, else the AI's code as proposed, else the status", () => {
     const byId = Object.fromEntries(pastReviewsOf("doc-1", RUNS).map((r) => [r.runId, r]));
     expect(byId["run-3"].result).toBe("Rejected / Revise and Resubmit");
-    expect(byId["run-1"].result).toBe("Approved with Comments");
+    // Only proposed by the AI: never shown like the engineer's own code.
+    expect(byId["run-1"].result).toBe("Proposed: Approved with Comments");
     expect(byId["run-2"].result).toBe("Failed");
     expect(byId["run-2"].result).not.toBe("failed");
   });
@@ -148,6 +150,7 @@ describe("PastReviewsList", () => {
     expect(within(rows[0]).getByText("Signed: yes")).toBeInTheDocument();
     expect(within(rows[1]).getByText("Signed: no")).toBeInTheDocument();
     expect(within(rows[1]).getByText("Failed")).toBeInTheDocument();
+    expect(within(rows[2]).getByText("Proposed: Approved with Comments")).toBeInTheDocument();
     for (const row of rows) {
       expect(row.querySelector('[data-field="comments"]')).toBeEmptyDOMElement();
       expect(row.querySelector('[data-field="date"]')?.textContent).not.toBe("");

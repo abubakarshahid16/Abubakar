@@ -2,10 +2,17 @@
  * OWNER: builder D. New review in three clicks, and "Review again".
  *
  * `startNewReview(file, onPhase)` runs, in this order, existing calls only:
+ *   0. who may   - only an administrator may mark a document as one from a
+ *      contractor, so a non-administrator is told so BEFORE anything is
+ *      uploaded (the `isAdmin` option, else `auth.me()`).
  *   1. uploading - Uploader's XHR path (`uploadOne`), with its percent;
  *      disciplines are the uploader's own default when sign-in is on
  *      (`api.uploadDisciplines`), none when it is off.
- *   2. marking   - `markAsContractorSubmittal` (the one TODO ADAPTER).
+ *   2. marking   - `markAsContractorSubmittal` (the one TODO ADAPTER). A file
+ *      that is ALREADY in the library is never re-marked: its current role is
+ *      read, and only one already marked as a contractor submittal goes on.
+ *      Any other role (a standard, a contract document...) or a role that
+ *      cannot be read stops here with nothing changed.
  *   3. waiting   - `api.document(id)` until the document is read in, with a
  *      time cap so the screen never waits forever.
  *   4. starting  - `reviewsApi.startReviewRun(documentId)`.
@@ -14,8 +21,10 @@
  * Any step that fails stops there with plain words and NO review is started.
  * A refusal from the review API is shown exactly as the API worded it.
  */
-import { api, classification, reviews as reviewsApi } from "../../../api/client";
+import { api, auth, classification, reviews as reviewsApi } from "../../../api/client";
+import { hasAdminCapability } from "../../Shell";
 import { uploadOne } from "../../Uploader";
+import { ROLE_OPTIONS } from "../../classification/MetadataEditor";
 import type { NewReviewOutcome, NewReviewPhase, ReviewAgainOutcome } from "./contract";
 import { watchRun } from "./reviewWatch";
 
@@ -38,8 +47,42 @@ export const NOT_ADMIN_MESSAGE =
   "Your file was uploaded, but only an administrator can mark it as a document from a contractor. "
   + "Ask an administrator to mark it, then start the review from the list. No review was started.";
 
-/** Optional knobs for tests: a fake clock and sleep. */
+/** Said BEFORE anything is uploaded, so a non-administrator never leaves an
+ *  unmarked file behind. */
+export const NOT_ADMIN_BEFORE_UPLOAD_MESSAGE =
+  "Only an administrator can start a new review from a file, because the file must be marked as a document from a contractor. "
+  + "Ask an administrator to upload it. Nothing was uploaded and no review was started.";
+
+export const ADMIN_UNKNOWN_MESSAGE =
+  "Could not check whether you may start a new review, so nothing was uploaded. Try again in a moment.";
+
+/** The role the submittal must already hold for a re-dropped file to go on. */
+const SUBMITTAL_ROLE = "CONTRACTOR_SUBMITTAL";
+
+/** A role in plain words, from the one list that names roles
+ *  (`MetadataEditor.ROLE_OPTIONS`): "a company standard". */
+function roleInPlainWords(role: string | null | undefined): string {
+  if (!role) return "a document with no role set";
+  const label = ROLE_OPTIONS.find((o) => o.value === role)?.label;
+  if (!label) return `a document with the role "${role}"`;
+  // "Company standard" -> "company standard", but "CRS template" stays.
+  const lowered = /^[A-Z][a-z]/.test(label) ? label[0].toLowerCase() + label.slice(1) : label;
+  return `${/^[aeiou]/i.test(lowered) ? "an" : "a"} ${lowered}`;
+}
+
+export function alreadyInLibraryMessage(role: string | null | undefined): string {
+  return `This file is already in the library as ${roleInPlainWords(role)}. It was not changed and no review was started. `
+    + "Open it on the Documents page if you want to review it.";
+}
+
+export const ROLE_UNREADABLE_MESSAGE =
+  "This file is already in the library, but what it is marked as could not be checked. It was not changed and no review was started. "
+  + "Open it on the Documents page if you want to review it.";
+
+/** Optional knobs: whether the caller is an administrator (when the screen
+ *  already knows; otherwise it is asked), and for tests a fake clock and sleep. */
 export interface NewReviewOptions {
+  isAdmin?: boolean;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
   pollMs?: number;
@@ -59,6 +102,27 @@ async function uploadDisciplines(): Promise<{ ok: true; disciplines: string[] } 
     };
   }
   return { ok: true, disciplines: r.data.default };
+}
+
+/** Only an administrator may mark a document (the role write is admin
+ *  only), so this is asked before the upload. Unknown means no. */
+async function mayStartNewReview(options: NewReviewOptions): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (options.isAdmin === true) return { ok: true };
+  if (options.isAdmin === false) return { ok: false, message: NOT_ADMIN_BEFORE_UPLOAD_MESSAGE };
+  const r = await auth.me();
+  if (!r.ok) return { ok: false, message: ADMIN_UNKNOWN_MESSAGE };
+  return hasAdminCapability(r.data) ? { ok: true } : { ok: false, message: NOT_ADMIN_BEFORE_UPLOAD_MESSAGE };
+}
+
+/** A file already in the library is reviewed only if it is ALREADY a
+ *  contractor submittal. Nothing is ever re-marked: dropping a standard here
+ *  must not quietly take it out of the standards set. */
+async function checkDuplicateRole(documentId: string): Promise<{ ok: true } | { ok: false; message: string }> {
+  const r = await api.document(documentId);
+  if (!r.ok) return { ok: false, message: ROLE_UNREADABLE_MESSAGE };
+  const role = r.data.document_role;
+  if (role === SUBMITTAL_ROLE) return { ok: true };
+  return { ok: false, message: alreadyInLibraryMessage(role) };
 }
 
 /** Waits until the document is read in, or says why it will not be. */
@@ -102,6 +166,9 @@ export async function startNewReview(
     return { ok: false, message };
   };
 
+  const may = await mayStartNewReview(options);
+  if (!may.ok) return fail(may.message);
+
   onPhase({ kind: "uploading", percent: 0 });
   const who = await uploadDisciplines();
   if (!who.ok) return fail(who.message);
@@ -111,12 +178,19 @@ export async function startNewReview(
   if (uploaded.awaitingGrant) {
     return fail("Your file was uploaded, but an administrator must give access to it before it can be reviewed. No review was started.");
   }
-  const documentId = uploaded.documentId || uploaded.duplicateOf || "";
+  const documentId = uploaded.duplicateOf || uploaded.documentId || "";
   if (!documentId) return fail("The upload finished but the document could not be identified, so no review was started.");
 
-  onPhase({ kind: "marking" });
-  const marked = await markAsContractorSubmittal(documentId);
-  if (!marked.ok) return fail(marked.message);
+  if (uploaded.duplicateOf) {
+    // Already in the library: read its role, never write one (so no
+    // "Marking..." line either).
+    const held = await checkDuplicateRole(documentId);
+    if (!held.ok) return fail(held.message);
+  } else {
+    onPhase({ kind: "marking" });
+    const marked = await markAsContractorSubmittal(documentId);
+    if (!marked.ok) return fail(marked.message);
+  }
 
   onPhase({ kind: "waiting" });
   const readIn = await waitUntilReadIn(documentId, options);
@@ -138,7 +212,8 @@ export async function startNewReview(
  * `classification.setRoleBulk`, which is ADMIN ONLY: a non-admin gets a 404
  * that says nothing about the document, so a 404 here means "you may not do
  * this". The bulk write answers 207 with the untouched documents named in
- * `failed`, so `ok` alone is not success.
+ * `failed`, so `ok` alone is not success. Only ever called for a NEW
+ * upload, never for a file that was already in the library.
  */
 export async function markAsContractorSubmittal(documentId: string): Promise<{ ok: true } | { ok: false; message: string }> {
   const r = await classification.setRoleBulk({ document_ids: [documentId], document_role: "CONTRACTOR_SUBMITTAL" });

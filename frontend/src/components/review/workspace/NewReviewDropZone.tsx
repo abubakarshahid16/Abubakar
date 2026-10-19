@@ -5,8 +5,12 @@
  *
  * Each step is said in plain words while it runs; a failure stops there and
  * says why, and no review is started.
+ *
+ * Leaving the page mid-way does not cancel the review (it may still start,
+ * and the finished notice still says so), but nothing moves the reader to
+ * the new run once this zone is gone.
  */
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { NewReviewDropZoneProps, NewReviewPhase } from "./contract";
 import { startNewReview } from "./newReview";
@@ -23,19 +27,29 @@ function phaseWords(phase: NewReviewPhase, filename: string | null): string | nu
   }
 }
 
-export function NewReviewDropZone({ onStarted }: NewReviewDropZoneProps) {
+/** `isAdmin`: whether the reader is an administrator, when the screen
+ *  already knows. Left out, it is asked before anything is uploaded. */
+export function NewReviewDropZone({ onStarted, isAdmin }: NewReviewDropZoneProps & { isAdmin?: boolean }) {
   const [phase, setPhase] = useState<NewReviewPhase>({ kind: "idle" });
   const [filename, setFilename] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
   const busy = phase.kind !== "idle" && phase.kind !== "error" && phase.kind !== "started";
 
   async function begin(files: FileList | File[] | null) {
     const file = files ? Array.from(files)[0] : undefined;
     if (!file || busy) return;
     setFilename(file.name);
-    const outcome = await startNewReview(file, setPhase);
-    if (outcome.ok) onStarted(outcome.runId);
+    const outcome = await startNewReview(file, (next) => {
+      if (mounted.current) setPhase(next);
+    }, { isAdmin });
+    // Gone (the reader left): the review runs on, but never drag them back.
+    if (outcome.ok && mounted.current) onStarted(outcome.runId);
   }
 
   const words = phaseWords(phase, filename);
