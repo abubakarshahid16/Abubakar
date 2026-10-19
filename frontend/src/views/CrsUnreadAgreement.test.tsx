@@ -70,6 +70,7 @@ function theRun(): ReviewRunSummary {
     standards_in_scope: 1, findings_total: 1, by_status: { NON_COMPLIANT: 1 },
     recommended_code: "Approved with Comments", recommended_reason: "One value does not meet the standard.",
     requirement_split: null, completeness: null, page_coverage: COVERAGE, unread_pages: ALL, engineer_final_code: "Approved with Comments",
+    review_codes: [], table_values_not_compared: [], requirements_not_applied: [], partial_findings: 0,
   } as ReviewRunSummary;
 }
 
