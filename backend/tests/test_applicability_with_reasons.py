@@ -118,6 +118,9 @@ def test_a_standard_with_no_comparable_fields_is_unknown_not_not_applicable():
         sub, allowed_document_ids=_scope(std, sub))
     row = _status_of(rows, "SAES-X-001")
     assert row["status"] == applicability.STATUS_UNKNOWN
+    # The reason names the side with nothing recorded: THIS STANDARD, not
+    # the generic "no shared field" fallback (M523 reaches that instead).
+    assert "this standard has no recorded" in row["reason"]
 
 
 def test_a_submittal_with_no_profile_at_all_makes_every_unselected_standard_unknown():
