@@ -10,6 +10,9 @@
  * Leaving the page mid-way does not cancel the review (it may still start,
  * and the finished notice still says so), but nothing moves the reader to
  * the new run once this zone is gone.
+ *
+ * A file that already has a review, or whose review is already running,
+ * starts nothing; the zone offers a button that opens that review instead.
  */
 import { useEffect, useRef, useState } from "react";
 
@@ -36,6 +39,9 @@ export function NewReviewDropZone({ onStarted, isAdmin }: NewReviewDropZoneProps
   /** Said when several files were dropped: one review takes one file. */
   const [onlyFirst, setOnlyFirst] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  /** The review to open instead, when the file already has one (`existing`)
+   *  or one is already running (`running`). */
+  const [openInstead, setOpenInstead] = useState<{ runId: string; kind: "existing" | "running" } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const mounted = useRef(true);
   useEffect(() => {
@@ -50,11 +56,19 @@ export function NewReviewDropZone({ onStarted, isAdmin }: NewReviewDropZoneProps
     if (!file || busy) return;
     setFilename(file.name);
     setOnlyFirst(all.length > 1 ? file.name : null);
+    setOpenInstead(null);
     const outcome = await startNewReview(file, (next) => {
       if (mounted.current) setPhase(next);
     }, { isAdmin });
     // Gone (the reader left): the review runs on, but never drag them back.
-    if (outcome.ok && mounted.current) onStarted(outcome.runId);
+    if (!mounted.current) return;
+    if (outcome.ok) {
+      onStarted(outcome.runId);
+    } else if ("existingRunId" in outcome) {
+      setOpenInstead({ runId: outcome.existingRunId, kind: "existing" });
+    } else if ("runningRunId" in outcome) {
+      setOpenInstead({ runId: outcome.runningRunId, kind: "running" });
+    }
   }
 
   const words = phaseWords(phase, filename);
@@ -117,6 +131,15 @@ export function NewReviewDropZone({ onStarted, isAdmin }: NewReviewDropZoneProps
         )}
         {phase.kind === "error" && (
           <p role="alert" className="mt-3 text-sm text-danger-500">{phase.message}</p>
+        )}
+        {phase.kind === "error" && openInstead && (
+          <button
+            type="button"
+            onClick={() => { if (mounted.current) onStarted(openInstead.runId); }}
+            className="mt-2 rounded border border-signal-500 px-3 py-1 text-sm font-medium text-signal-400 hover:text-signal-300"
+          >
+            {openInstead.kind === "existing" ? "Open the existing review" : "Open the review that is running"}
+          </button>
         )}
       </div>
     </section>

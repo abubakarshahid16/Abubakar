@@ -18,6 +18,17 @@
  *   4. starting  - `reviewsApi.startReviewRun(documentId)`.
  *   then `watchRun(runId, filename)` so the finished notice can say so.
  *
+ * A file that is already in the library AND already has a review is not
+ * reviewed again from here: the answer names that review (`existingRunId`)
+ * so the screen can open it; "Review again" starts a new one on purpose.
+ * When those runs cannot be read, nothing is started either.
+ *
+ * The signed-in person may change while this waits (up to READ_IN_CAP_MS).
+ * `watchGeneration` is read at the start and checked before every later
+ * call: when it changed, this stops with SIGNED_OUT_MESSAGE and sends
+ * nothing more, so no call goes out with the next person's sign-in and no
+ * file name lands in their list.
+ *
  * Any step that fails stops there with plain words and NO review is started.
  * A refusal from the review API is put in plain words by `startRefusal`
  * (already running, administrators only, document not readable); any other
@@ -30,7 +41,7 @@ import { ROLE_OPTIONS } from "../../classification/MetadataEditor";
 import type { ApiError, ReviewRunSummary } from "../../../types/api";
 import { groupRunsByDocument } from "../reviewFormat";
 import type { NewReviewOutcome, NewReviewPhase, ReviewAgainOutcome } from "./contract";
-import { watchRun } from "./reviewWatch";
+import { watchGeneration, watchRun } from "./reviewWatch";
 
 /** How often the document is re-read while it is being read in. */
 export const READ_IN_POLL_MS = 3_000;
@@ -101,6 +112,38 @@ export const ROLE_UNREADABLE_MESSAGE =
   "This file is already in the library, but what it is marked as could not be checked. It was not changed and no review was started. "
   + "Open it on the Documents page if you want to review it.";
 
+/** Said when the signed-in person changed (signed out, or someone else
+ *  signed in) while a new review was on its way. */
+export const SIGNED_OUT_MESSAGE = "You signed out, so this new review was stopped. Nothing more was sent.";
+
+/** Said when a re-dropped file's earlier reviews could not be read: never
+ *  guessed as "none", so no review is started. */
+export const EXISTING_REVIEW_UNKNOWN_MESSAGE =
+  "This file is already in the library, but whether it was reviewed before could not be checked, so no review was started. "
+  + "Try again in a moment.";
+
+/** A re-dropped file that already has a review: no new review, and the
+ *  words say what that review holds (signed, the engineer's final code). */
+export function reviewedBeforeMessage(prior: PriorDecision): string {
+  let what = "This file was reviewed before.";
+  if (prior.kind === "signed") {
+    what = prior.finalCode
+      ? `This file was reviewed before, and that review was signed with the final code "${prior.finalCode}".`
+      : "This file was reviewed before, and that review was signed.";
+  } else if (prior.kind === "final_code") {
+    what = `This file was reviewed before, and the engineer gave that review the final code "${prior.finalCode}".`;
+  }
+  return `${what} Open that review, or use Review again on it to start a new one. No new review was started.`;
+}
+
+/** A new review's answer: as the contract's, plus the run to open instead
+ *  when the file already has a review (`existingRunId`) or one is already
+ *  running (`runningRunId`, when the API named it). */
+export type NewReviewResult =
+  | NewReviewOutcome
+  | { ok: false; message: string; existingRunId: string }
+  | { ok: false; message: string; runningRunId: string };
+
 /** Optional knobs: whether the caller is an administrator (when the screen
  *  already knows; otherwise it is asked), and for tests a fake clock and sleep. */
 export interface NewReviewOptions {
@@ -152,7 +195,7 @@ async function checkDuplicateRole(documentId: string): Promise<{ ok: true } | { 
 
 /** Waits until the document is read in, or says why it will not be. */
 async function waitUntilReadIn(
-  documentId: string, options: NewReviewOptions,
+  documentId: string, options: NewReviewOptions, changed: () => boolean,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   const sleep = options.sleep ?? realSleep;
   const now = options.now ?? Date.now;
@@ -160,6 +203,7 @@ async function waitUntilReadIn(
   const capMs = options.capMs ?? READ_IN_CAP_MS;
   const started = now();
   for (;;) {
+    if (changed()) return { ok: false, message: SIGNED_OUT_MESSAGE };
     const r = await api.document(documentId);
     if (r.ok) {
       const status = r.data.status;
@@ -181,22 +225,44 @@ async function waitUntilReadIn(
   }
 }
 
+/** The document's newest review, read from its runs. `null`: none yet.
+ *  Never throws; a failure is `ok: false` (never guessed as "none"). */
+async function existingReview(
+  documentId: string,
+): Promise<{ ok: true; latest: { runId: string; prior: PriorDecision } | null } | { ok: false }> {
+  try {
+    const r = await reviewsApi.reviewRuns(documentId);
+    if (!r.ok) return { ok: false };
+    const mine = r.data.runs.filter((run) => run.submittal_document_id === documentId);
+    const latest = groupRunsByDocument(mine)[0]?.latest;
+    if (!latest) return { ok: true, latest: null };
+    return { ok: true, latest: { runId: latest.review_run_id, prior: priorDecisionOf(documentId, mine) } };
+  } catch {
+    return { ok: false };
+  }
+}
+
 export async function startNewReview(
   file: File,
   onPhase: (phase: NewReviewPhase) => void,
   options: NewReviewOptions = {},
-): Promise<NewReviewOutcome> {
+): Promise<NewReviewResult> {
   const fail = (message: string): NewReviewOutcome => {
     onPhase({ kind: "error", message });
     return { ok: false, message };
   };
+  // Who was signed in when this began; checked before every later call.
+  const generation = watchGeneration();
+  const changed = () => watchGeneration() !== generation;
 
   const may = await mayStartNewReview(options);
   if (!may.ok) return fail(may.message);
+  if (changed()) return fail(SIGNED_OUT_MESSAGE);
 
   onPhase({ kind: "uploading", percent: 0 });
   const who = await uploadDisciplines();
   if (!who.ok) return fail(who.message);
+  if (changed()) return fail(SIGNED_OUT_MESSAGE);
   const uploaded = await uploadOne(file, who.disciplines, (percent) => onPhase({ kind: "uploading", percent }));
   if (uploaded.phase === "error") return fail(uploaded.message);
   if (uploaded.phase !== "done") return fail("The upload did not finish.");
@@ -205,12 +271,24 @@ export async function startNewReview(
   }
   const documentId = uploaded.duplicateOf || uploaded.documentId || "";
   if (!documentId) return fail("The upload finished but the document could not be identified, so no review was started.");
+  if (changed()) return fail(SIGNED_OUT_MESSAGE);
 
   if (uploaded.duplicateOf) {
     // Already in the library: read its role, never write one (so no
     // "Marking..." line either).
     const held = await checkDuplicateRole(documentId);
     if (!held.ok) return fail(held.message);
+    if (changed()) return fail(SIGNED_OUT_MESSAGE);
+    // Already reviewed: open that review instead of quietly starting a
+    // second one. Runs that cannot be read are never taken as "none".
+    const prior = await existingReview(documentId);
+    if (changed()) return fail(SIGNED_OUT_MESSAGE);
+    if (!prior.ok) return fail(EXISTING_REVIEW_UNKNOWN_MESSAGE);
+    if (prior.latest) {
+      const message = reviewedBeforeMessage(prior.latest.prior);
+      onPhase({ kind: "error", message });
+      return { ok: false, message, existingRunId: prior.latest.runId };
+    }
   } else {
     onPhase({ kind: "marking" });
     const marked = await markAsContractorSubmittal(documentId);
@@ -218,12 +296,21 @@ export async function startNewReview(
   }
 
   onPhase({ kind: "waiting" });
-  const readIn = await waitUntilReadIn(documentId, options);
+  const readIn = await waitUntilReadIn(documentId, options, changed);
   if (!readIn.ok) return fail(readIn.message);
+  if (changed()) return fail(SIGNED_OUT_MESSAGE);
 
   onPhase({ kind: "starting" });
   const started = await reviewsApi.startReviewRun(documentId);
-  if (!started.ok) return fail((await startRefusal(started)).message);
+  if (changed()) return fail(SIGNED_OUT_MESSAGE);
+  if (!started.ok) {
+    const refusal = await startRefusal(started);
+    if (changed()) return fail(SIGNED_OUT_MESSAGE);
+    onPhase({ kind: "error", message: refusal.message });
+    return refusal.runningRunId
+      ? { ok: false, message: refusal.message, runningRunId: refusal.runningRunId }
+      : { ok: false, message: refusal.message };
+  }
   const runId = started.data.review_run_id;
   watchRun(runId, started.data.submittal_filename ?? file.name);
   onPhase({ kind: "started", runId });

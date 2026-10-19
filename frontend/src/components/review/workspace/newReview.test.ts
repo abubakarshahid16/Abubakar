@@ -9,6 +9,11 @@
  * duplicate through `markAsContractorSubmittal` and "a duplicate that is a
  * standard" fails; move the admin check below `uploadOne` and "a non-admin
  * is stopped before anything is uploaded" fails.
+ *
+ * S1/S3 of #1158 (checked by hand once): drop the generation checks and
+ * "a sign-out while the document is read in" fails (the review starts and
+ * the file lands in the list); drop the earlier-review read and "a re-dropped
+ * file that already has a review" fails (a second run starts).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -43,12 +48,23 @@ vi.mock("../../../api/client", () => ({
 vi.mock("../../Uploader", () => ({
   uploadOne: (...a: unknown[]) => { calls.push("upload"); return uploadOne(...a); },
 }));
-vi.mock("./reviewWatch", () => ({
-  watchRun: (...a: unknown[]) => { calls.push("watch"); return watchRun(...a); },
-}));
+// The real store (so a sign-out really bumps its generation and the list
+// really fills), with watchRun also recorded.
+vi.mock("./reviewWatch", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./reviewWatch")>();
+  return {
+    ...real,
+    watchRun: (runId: string, filename?: string | null) => {
+      calls.push("watch");
+      real.watchRun(runId, filename);
+      return watchRun(runId, filename);
+    },
+  };
+});
 
+import { WATCH_STORAGE_KEY, clearWatchedReviews, setWatchOwner, watchStorageKey } from "./reviewWatch";
 import {
-  ADMIN_UNKNOWN_MESSAGE, ALREADY_RUNNING_MESSAGE, MARK_UNREADABLE_MESSAGE, NOT_ADMIN_BEFORE_UPLOAD_MESSAGE, NOT_ADMIN_MESSAGE,
+  ADMIN_UNKNOWN_MESSAGE, ALREADY_RUNNING_MESSAGE, EXISTING_REVIEW_UNKNOWN_MESSAGE, SIGNED_OUT_MESSAGE, MARK_UNREADABLE_MESSAGE, NOT_ADMIN_BEFORE_UPLOAD_MESSAGE, NOT_ADMIN_MESSAGE,
   REVIEW_ADMIN_ONLY_MESSAGE, REVIEW_DOCUMENT_UNREADABLE_MESSAGE, REVIEW_REFUSED_UNKNOWN_MESSAGE, ROLE_UNREADABLE_MESSAGE,
   UPLOADED_UNREADABLE_MESSAGE, loadPriorDecision, markAsContractorSubmittal, priorDecisionOf, reviewAgain, startNewReview,
 } from "./newReview";
@@ -58,6 +74,8 @@ const noWait = { sleep: async () => {}, pollMs: 1, capMs: 60_000 };
 
 beforeEach(() => {
   calls.length = 0;
+  clearWatchedReviews();
+  sessionStorage.clear();
   for (const m of [me, uploadDisciplines, document, setRoleBulk, startReviewRun, reviewRuns, uploadOne, watchRun]) m.mockReset();
   me.mockResolvedValue({ ok: true, data: { required: true, user: { id: "u-1", email: "sample.admin@example.test", roles: ["admin"] } } });
   uploadDisciplines.mockResolvedValue({ ok: true, data: { required: true, choices: ["Mechanical", "Piping"], default: ["Mechanical"] } });
@@ -150,18 +168,69 @@ describe("startNewReview", () => {
     expect(uploadOne).not.toHaveBeenCalled();
   });
 
-  it("a duplicate that is already a contractor submittal is reviewed, and its role is not written", async () => {
+  it("a duplicate that is already a contractor submittal, never reviewed, is reviewed, and its role is not written", async () => {
     uploadOne.mockResolvedValue({ phase: "done", documentId: "doc-7", duplicateOf: "doc-7", awaitingGrant: false });
     document.mockReset();
     document.mockResolvedValue({ ok: true, data: { id: "doc-7", status: "ready", document_role: "CONTRACTOR_SUBMITTAL" } });
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [] } });
     const phases: NewReviewPhase[] = [];
     const outcome = await startNewReview(file, (p) => phases.push(p), noWait);
 
     expect(outcome).toEqual({ ok: true, documentId: "doc-7", runId: "run-1" });
+    expect(calls).toEqual(["me", "disciplines", "upload", "document", "runs", "document", "start", "watch"]);
+    expect(reviewRuns).toHaveBeenCalledWith("doc-7");
     expect(setRoleBulk).not.toHaveBeenCalled();
     expect(document).toHaveBeenCalledWith("doc-7");
     expect(startReviewRun).toHaveBeenCalledWith("doc-7");
     expect(phases.some((p) => p.kind === "marking")).toBe(false);
+  });
+
+  it("a re-dropped file that already has a review: no second run, and the review to open is named", async () => {
+    uploadOne.mockResolvedValue({ phase: "done", documentId: "doc-7", duplicateOf: "doc-7", awaitingGrant: false });
+    document.mockReset();
+    document.mockResolvedValue({ ok: true, data: { id: "doc-7", status: "ready", document_role: "CONTRACTOR_SUBMITTAL" } });
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [
+      { review_run_id: "run-old", submittal_document_id: "doc-7", created_at: "2026-03-01T08:00:00Z", crs_issued_at: null, engineer_final_code: null },
+      { review_run_id: "run-9", submittal_document_id: "doc-7", created_at: "2026-03-05T08:00:00Z", crs_issued_at: null, engineer_final_code: null },
+    ] } });
+    const phases: NewReviewPhase[] = [];
+    const outcome = await startNewReview(file, (p) => phases.push(p), noWait);
+
+    const words = "This file was reviewed before. Open that review, or use Review again on it to start a new one. No new review was started.";
+    expect(outcome).toEqual({ ok: false, message: words, existingRunId: "run-9" });
+    expect(phases.at(-1)).toEqual({ kind: "error", message: words });
+    expect(startReviewRun).not.toHaveBeenCalled();
+    expect(watchRun).not.toHaveBeenCalled();
+    expect(setRoleBulk).not.toHaveBeenCalled();
+  });
+
+  it("a re-dropped file whose review was signed says so, with the engineer's code, and never 'compliant'", async () => {
+    uploadOne.mockResolvedValue({ phase: "done", documentId: "doc-7", duplicateOf: "doc-7", awaitingGrant: false });
+    document.mockReset();
+    document.mockResolvedValue({ ok: true, data: { id: "doc-7", status: "ready", document_role: "CONTRACTOR_SUBMITTAL" } });
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [
+      { review_run_id: "run-9", submittal_document_id: "doc-7", created_at: "2026-03-05T08:00:00Z", crs_issued_at: "2026-03-06T08:00:00Z", engineer_final_code: "Approved with Comments" },
+    ] } });
+    const outcome = await startNewReview(file, () => {}, noWait);
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.message).toBe('This file was reviewed before, and that review was signed with the final code "Approved with Comments". '
+        + "Open that review, or use Review again on it to start a new one. No new review was started.");
+      expect(outcome.message).not.toMatch(/compliant/i);
+    }
+    expect(outcome).toMatchObject({ existingRunId: "run-9" });
+    expect(startReviewRun).not.toHaveBeenCalled();
+  });
+
+  it("a re-dropped file whose earlier reviews cannot be read starts nothing", async () => {
+    uploadOne.mockResolvedValue({ phase: "done", documentId: "doc-7", duplicateOf: "doc-7", awaitingGrant: false });
+    document.mockReset();
+    document.mockResolvedValue({ ok: true, data: { id: "doc-7", status: "ready", document_role: "CONTRACTOR_SUBMITTAL" } });
+    reviewRuns.mockResolvedValue({ ok: false, disconnected: true, error: { code: "internal", message: "Cannot reach the backend." } });
+    const outcome = await startNewReview(file, () => {}, noWait);
+    expect(outcome).toEqual({ ok: false, message: EXISTING_REVIEW_UNKNOWN_MESSAGE });
+    expect(startReviewRun).not.toHaveBeenCalled();
+    expect(calls).not.toContain("start");
   });
 
   it("a duplicate that is a standard is left alone: no role write, no review, plain words", async () => {
@@ -259,8 +328,49 @@ describe("startNewReview", () => {
     const words = "a review of this submittal is already queued or running (run-0)";
     startReviewRun.mockResolvedValue({ ok: false, disconnected: false, error: { code: "invalid_parameter", message: words } });
     const outcome = await startNewReview(file, () => {}, noWait);
-    expect(outcome).toEqual({ ok: false, message: ALREADY_RUNNING_MESSAGE });
+    // The running review's id comes back (to open it), never in the words.
+    expect(outcome).toEqual({ ok: false, message: ALREADY_RUNNING_MESSAGE, runningRunId: "run-0" });
     expect(watchRun).not.toHaveBeenCalled();
+  });
+
+  it("a sign-out while the document is read in stops: nothing more is sent and the list stays empty", async () => {
+    document.mockReset();
+    document.mockResolvedValue({ ok: true, data: { id: "doc-1", status: "extracting" } });
+    const phases: NewReviewPhase[] = [];
+    const outcome = await startNewReview(file, (p) => phases.push(p), {
+      ...noWait, sleep: async () => { clearWatchedReviews(); },
+    });
+
+    expect(outcome).toEqual({ ok: false, message: SIGNED_OUT_MESSAGE });
+    expect(phases.at(-1)).toEqual({ kind: "error", message: SIGNED_OUT_MESSAGE });
+    expect(calls).toEqual(["me", "disciplines", "upload", "mark", "document"]);
+    expect(startReviewRun).not.toHaveBeenCalled();
+    expect(watchRun).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(WATCH_STORAGE_KEY)).toBeNull();
+  });
+
+  it("someone else signing in meanwhile stops it too: their list never gets the file", async () => {
+    setWatchOwner("u-A");
+    document.mockReset();
+    document.mockResolvedValue({ ok: true, data: { id: "doc-1", status: "extracting" } });
+    const outcome = await startNewReview(file, () => {}, {
+      ...noWait, sleep: async () => { setWatchOwner("u-B"); },
+    });
+
+    expect(outcome).toEqual({ ok: false, message: SIGNED_OUT_MESSAGE });
+    expect(startReviewRun).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(watchStorageKey("u-B"))).toBeNull();
+    expect(sessionStorage.getItem(watchStorageKey("u-A"))).toBeNull();
+  });
+
+  it("a sign-out during the upload stops before the role is written", async () => {
+    uploadOne.mockImplementation(async () => {
+      clearWatchedReviews();
+      return { phase: "done", documentId: "doc-1", duplicateOf: null, awaitingGrant: false };
+    });
+    const outcome = await startNewReview(file, () => {}, noWait);
+    expect(outcome).toEqual({ ok: false, message: SIGNED_OUT_MESSAGE });
+    expect(calls).toEqual(["me", "disciplines", "upload"]);
   });
 
   it("any other refusal to start is shown exactly as the API worded it", async () => {

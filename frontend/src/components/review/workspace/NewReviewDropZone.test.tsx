@@ -136,6 +136,45 @@ describe("NewReviewDropZone", () => {
     expect(screen.queryByTestId("only-first-file")).toBeNull();
   });
 
+  it("a re-dropped file that already has a review offers to open it, and starts nothing", async () => {
+    uploadOne.mockResolvedValue({ phase: "done", documentId: "doc-7", duplicateOf: "doc-7", awaitingGrant: false });
+    document.mockResolvedValue({ ok: true, data: { id: "doc-7", status: "ready", document_role: "CONTRACTOR_SUBMITTAL" } });
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [
+      { review_run_id: "run-9", submittal_document_id: "doc-7", created_at: "2026-03-05T08:00:00Z", crs_issued_at: null, engineer_final_code: null },
+    ] } });
+    const onStarted = vi.fn();
+    render(<NewReviewDropZone onStarted={onStarted} />);
+    await userEvent.upload(screen.getByLabelText("Choose a contractor file to review"), file);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("This file was reviewed before.");
+    expect(startReviewRun).not.toHaveBeenCalled();
+    expect(onStarted).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Open the existing review" }));
+    expect(onStarted).toHaveBeenCalledWith("run-9");
+    expect(screen.queryByRole("button", { name: "Open the review that is running" })).toBeNull();
+  });
+
+  it("a review already running offers to open that one", async () => {
+    const words = "a review of this submittal is already queued or running (run-0)";
+    startReviewRun.mockResolvedValue({ ok: false, disconnected: false, error: { code: "invalid_parameter", message: words } });
+    const onStarted = vi.fn();
+    render(<NewReviewDropZone onStarted={onStarted} />);
+    await userEvent.upload(screen.getByLabelText("Choose a contractor file to review"), file);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("A review of this document is already running.");
+    expect(screen.getByRole("alert").textContent).not.toContain("run-0");
+    await userEvent.click(screen.getByRole("button", { name: "Open the review that is running" }));
+    expect(onStarted).toHaveBeenCalledWith("run-0");
+  });
+
+  it("a plain refusal offers no open button", async () => {
+    startReviewRun.mockResolvedValue({ ok: false, disconnected: false, error: { code: "invalid_parameter", message: "The standards are still being read." } });
+    render(<NewReviewDropZone onStarted={vi.fn()} />);
+    await userEvent.upload(screen.getByLabelText("Choose a contractor file to review"), file);
+    expect(await screen.findByRole("alert")).toHaveTextContent("The standards are still being read.");
+    expect(screen.queryByRole("button", { name: /^Open the/ })).toBeNull();
+  });
+
   it("a server refusal of the role write (404) sees plain words and no review starts", async () => {
     setRoleBulk.mockResolvedValue({ ok: false, disconnected: false, error: { code: "not_found", message: "That is not something the backend knows about." } });
     const onStarted = vi.fn();
