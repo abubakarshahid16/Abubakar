@@ -93,6 +93,9 @@ TEST_PINS: dict[str, object] = {
     # On by default since #645 (owner rule "AI-first", 11 Oct); in tests it
     # would be a model call per undecided clause sentence per review.
     "ai_clause_checks_enabled": False,
+    # On by default since #141 (owner rule "AI-first"); in tests it would be a
+    # model call per division of a standard per review.
+    "ai_division_scope_enabled": False,
     # #882 technique 2, on by default under `match_enabled`; in tests it would
     # be two model calls per requirement left without a value.
     "match_ask_max_per_run": 0,
@@ -146,6 +149,8 @@ EGRESS_SAFE: dict[str, object] = {
     # #645: one local model call per undecided clause sentence - off, like
     # the applicability tier; its own tests switch it on with a fake model.
     "ai_clause_checks_enabled": False,
+    # #141: a local model call per division of a standard a review holds.
+    "ai_division_scope_enabled": False,
     # --- notifications (SMTP)
     "smtp_enabled": False,
     "smtp_host": "",

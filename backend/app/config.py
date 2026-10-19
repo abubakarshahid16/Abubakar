@@ -435,6 +435,11 @@ class Settings(BaseSettings):
     #: `ai_task_model`. At most this many requirements per run are asked.
     ai_applicability_enabled: bool = False
     ai_applicability_max_per_run: int = 200
+    #: #141 a DIVISION of a standard limited by its own scope sentence to one
+    #: construction (`ai_applicability.division_gate`). ON (#805 rule 1); off
+    #: or failing, nothing changes. At most this many divisions read per run.
+    ai_division_scope_enabled: bool = True
+    ai_division_scope_max_per_run: int = 120
     #: #645 clause to check: for each clause sentence stored with no limit
     #: that the review could not decide, the local model PROPOSES a check
     #: (field, limit, unit, condition, quote); code verifies every part
@@ -1532,6 +1537,7 @@ ANSWER_AFFECTING_SETTINGS = (
     # no change in the version a report compares against.
     "ai_task_model", "datasheet_ai_reader", "match_engine",
     "ai_applicability_enabled", "applicability_reasoning_enabled",
+    "ai_division_scope_enabled",
 )
 
 
