@@ -94,6 +94,28 @@ def test_a_dash_that_is_not_a_range_ends_the_list():
     ]
 
 
+def test_words_that_can_name_a_part_or_a_rating_are_read_unsure():
+    for text, expected in (
+        ("XYZ-100 Section 4", ("number", "4")),
+        ("XYZ-100 SECTION 3 MATERIALS", ("number", "3")),
+        ("XYZ-100 Annex E", ("appendix", "E")),
+        ("XYZ-100 Appendix 7", ("appendix", "7")),
+        ("XYZ-100 CL 150", ("number", "150")),
+    ):
+        [clause] = _qualifiers(text, "XYZ-100")
+        assert clause == expected and clause.sure is False, text
+    for text in (
+        "XYZ-100 clause 4.2",
+        "XYZ-100, para. 6.3",
+        "XYZ-100, ZT-32",
+        "XYZ-100, Article 3",
+        "XYZ-100 § 5.1",
+    ):
+        assert all(c.sure for c in _qualifiers(text, "XYZ-100")), text
+    # a range keeps its ends' sureness
+    assert not any(c.sure for c in _qualifiers("XYZ-100 Sections 4 to 6", "XYZ-100"))
+
+
 def test_a_clause_printed_before_a_citation_with_of_is_read():
     assert _qualifiers("Marking per clause 4.2 of XYZ-100.", "XYZ-100") == [
         ("number", "4.2")
@@ -185,7 +207,7 @@ def test_a_cited_clause_narrows_its_standard_to_that_clause():
     [summary] = out["summary"]
     assert (
         summary["kept"] == 2
-        and summary["not_applied"] == 3
+        and summary["outside"] == 3
         and summary["clauses_not_found"] == []
     )
     assert out["items"][0]["code"] in scope_ledger.REASONS
@@ -223,7 +245,11 @@ def test_one_cited_clause_the_standard_does_not_show_narrows_nothing_of_it():
 def test_a_range_inside_which_the_numbering_skips_an_id_still_narrows():
     # the standard has no ZT-31 heading; only the ends ZT-30 and ZT-32 are printed
     clauses = standard_ids.clause_qualifiers("QRS 12, ZT-30 to ZT-32", 0, 6)
-    pages = [PAGES[0], (2, PAGES[1][1].replace("ZT-31\n", "")), *PAGES[2:]]
+    pages = [
+        (1, PAGES[0][1].replace("ZT-31 Full Examination\n", "")),
+        (2, PAGES[1][1].replace("ZT-31\n", "")),
+        *PAGES[2:],
+    ]
     out = subject_scope.citation_gate(
         [FULL, SPOT, HARD],
         {"std": {"clauses": clauses, "pages": []}},
@@ -265,7 +291,8 @@ def test_a_running_header_or_a_table_row_does_not_end_a_numbered_clause():
         (2, header.format(n=6) + "\n6 Materials\nThe material shall be stated.\n"),
         (
             3,
-            header.format(n=7) + "\nThe bolting grade shall be stated.\n"
+            header.format(n=7)
+            + "\nThe bolting grade shall be stated.\n150 Carbon Steel\n"
             "150 Carbon steel 19.6\nThe flange rating shall be stated.\n",
         ),
         (
@@ -292,6 +319,244 @@ def test_a_running_header_or_a_table_row_does_not_end_a_numbered_clause():
         pages_of=lambda sid: pages,
     )
     assert [r["id"] for r in out["kept"]] == ["material", "bolting", "flange", "gasket"]
+
+
+def test_a_heading_with_no_requirement_inside_finds_nothing():
+    # the only ZT-32 "heading" is the contents line; the body prints it in a
+    # form not read as a heading - the cited clause is NOT found, so nothing
+    # of the standard is dropped (it used to keep 0 of 3)
+    pages = [
+        (1, "CONTENTS\nZT-31 Full Examination\nZT-32 Spot Examination\n"),
+        (
+            2,
+            "ZT-31\nFULL EXAMINATION\nEvery butt joint shall be examined over its full length.\n",
+        ),
+        (
+            3,
+            "ZT-32 - spot examination\n(a) One spot shall be examined for each twenty "
+            "metres of weld.\n",
+        ),
+        (4, PAGES[3][1]),
+    ]
+    out = subject_scope.citation_gate(
+        [FULL, SPOT, HARD],
+        {"std": {"clauses": [("lettered", "ZT-32")], "pages": []}},
+        {},
+        pages_of=lambda sid: pages,
+    )
+    assert [r["id"] for r in out["kept"]] == ["full", "spot", "hard"]
+    assert out["summary"][0]["clauses_not_found"] == ["ZT-32"]
+
+
+def test_contents_entries_and_table_rows_are_not_headings():
+    for line in (
+        "ZT-32 Spot Examination 146",
+        "ZT-32 Spot Examination ........ 146",
+        "6.1 Casing 2",
+        "5 Carbon steel 19.6",
+        "UW-52.",
+        "UW-52. Spot radiographs required by this paragraph shall",
+    ):
+        assert subject_scope._heading(line) is None, line
+    for line, head in (
+        ("ZT-32 Spot Examination", ("lettered", "ZT-32")),
+        ("ZT-32. Spot examination", ("lettered", "ZT-32")),
+        ("ARTICLE 2", ("article", "2")),
+        ("MANDATORY APPENDIX 7", ("appendix", "7")),
+    ):
+        assert subject_scope._heading(line) == head, line
+
+
+def test_a_contents_page_has_no_headings():
+    # most entries carry a page number; the one that does not is skipped too
+    contents = [
+        "CONTENTS",
+        "ZT-30 General Rules 2",
+        "ZT-31 Full Examination 2",
+        "ZT-32 Spot Examination",
+        "ZT-33 Hardness Testing 4",
+        "ZT-34 Marking 5",
+    ]
+    body = ["ZT-32", "SPOT EXAMINATION", "One spot shall be examined."]
+    assert subject_scope._headings([contents, body])[0] == [None] * 6 + [
+        ("lettered", "ZT-32"),
+        None,
+        None,
+    ]
+
+
+def test_a_numbered_id_alone_with_its_title_on_the_next_line_is_a_heading():
+    pages = [
+        (
+            1,
+            "6 Materials\n6.1\nCasing\nThe casing material shall be stated.\n"
+            "150\nCarbon steel\nThe casing grade shall be stated.\n"
+            "5 Carbon steel 19.6\nThe casing finish shall be stated.\n"
+            "6.2 Impeller\nThe impeller material shall be stated.\n"
+            "7 Testing\nThe test pressure shall be recorded.\n",
+        )
+    ]
+    reqs = [
+        _req(k, 1, f"The {k} shall be stated.")
+        for k in (
+            "casing material",
+            "casing grade",
+            "casing finish",
+            "impeller material",
+        )
+    ]
+    out = subject_scope.citation_gate(
+        reqs,
+        {"std": {"clauses": [("number", "6.1")], "pages": []}},
+        {},
+        pages_of=lambda sid: pages,
+    )
+    # "150" (not a next clause) and the table row "5 Carbon steel 19.6" do not end 6.1
+    assert [r["id"] for r in out["kept"]] == [
+        "casing material",
+        "casing grade",
+        "casing finish",
+    ]
+
+
+def test_a_page_number_alone_never_ends_a_cited_clause():
+    # "12" on its own line, then the running header: no clause 12 here
+    pages = [
+        (1, "10\nQRS Widget Standard\n10 Scope\nThe scope shall be stated.\n"),
+        (2, "11\nQRS Widget Standard\n11 Pumps\nThe pump shall be stated.\n"),
+        (3, "12\nQRS Widget Standard\nThe seal shall be stated.\n"),
+        (4, "13\nQRS Widget Standard\n12 Testing\nThe test shall be recorded.\n"),
+    ]
+    reqs = [
+        _req(k, page, f"The {k} shall be {v}.")
+        for k, page, v in (
+            ("scope", 1, "stated"),
+            ("pump", 2, "stated"),
+            ("seal", 3, "stated"),
+            ("test", 4, "recorded"),
+        )
+    ]
+    out = subject_scope.citation_gate(
+        reqs,
+        {"std": {"clauses": [("number", "11")], "pages": []}},
+        {},
+        pages_of=lambda sid: pages,
+    )
+    assert [r["id"] for r in out["kept"]] == ["pump", "seal"]
+    # nor does it OPEN clause 12: the real heading "12 Testing" does
+    out = subject_scope.citation_gate(
+        reqs,
+        {"std": {"clauses": [("number", "12")], "pages": []}},
+        {},
+        pages_of=lambda sid: pages,
+    )
+    assert [r["id"] for r in out["kept"]] == ["test"]
+
+
+def test_a_bare_number_heading_opens_but_never_ends_a_clause():
+    pages = [
+        (
+            1,
+            "11 Pumps\nThe pump shall be stated.\n12\nSeal chamber notes\n"
+            "The seal shall be stated.\n12 Testing\nThe test shall be recorded.\n",
+        )
+    ]
+    reqs = [
+        _req(k, 1, f"The {k} shall be {v}.")
+        for k, v in (("pump", "stated"), ("seal", "stated"), ("test", "recorded"))
+    ]
+    out = subject_scope.citation_gate(
+        reqs,
+        {"std": {"clauses": [("number", "11")], "pages": []}},
+        {},
+        pages_of=lambda sid: pages,
+    )
+    assert [r["id"] for r in out["kept"]] == ["pump", "seal"]
+
+
+def test_after_an_end_not_read_for_certain_the_rest_is_the_engineers():
+    # "5 Carbon steel flanges" may be a table row inside 4.1: what follows it
+    # is unsure until 4.2, which ends 4.1 for certain
+    pages = [
+        (
+            1,
+            "4.1 Pressure\nThe design pressure shall be stated.\n"
+            "5 Carbon steel flanges\nThe flange class shall be stated.\n"
+            "4.2 Temperature\nThe design temperature shall be stated.\n",
+        )
+    ]
+    reqs = [
+        _req(k, 1, f"The {k} shall be stated.")
+        for k in ("design pressure", "flange class", "design temperature")
+    ]
+    out = subject_scope.citation_gate(
+        reqs,
+        {"std": {"clauses": [("number", "4.1")], "pages": []}},
+        {},
+        pages_of=lambda sid: pages,
+    )
+    assert [r["id"] for r in out["kept"]] == ["design pressure"]
+    assert [i["requirement"]["id"] for i in out["unsure"]] == ["flange class"]
+    assert all(i["code"] == "applicability_unsure" for i in out["unsure"])
+    assert [i["requirement"]["id"] for i in out["items"]] == ["design temperature"]
+    assert out["summary"][0]["unsure"] == 1
+
+
+def test_an_unsure_reading_never_rules_a_requirement_out():
+    # #143(2): outside an unsure reading's clause is the engineer's question,
+    # in scope and not checked - never "does not apply"
+    unsure = standard_ids.CitedClause("lettered", "ZT-32", sure=False)
+    out = _gate([unsure])
+    assert [r["id"] for r in out["kept"]] == ["spot", "spot_b", "other"]
+    assert out["items"] == []
+    assert {i["requirement"]["id"] for i in out["unsure"]} == {
+        "general",
+        "full",
+        "hard",
+    }
+    assert all(i["code"] == "applicability_unsure" for i in out["unsure"])
+    assert "the engineer decides" in out["unsure"][0]["detail"]
+    assert out["summary"][0]["sure"] is False
+
+
+def test_a_clause_found_only_by_stored_numbers_keeps_rows_with_no_number():
+    # ZT-40 has no heading in the text; one requirement carries its number.
+    # A requirement with no stored number cannot be shown outside it.
+    numbered = _req(
+        "numbered", 4, "Words that appear on no page of the standard.", clause="ZT-40"
+    )
+    out = _gate([("lettered", "ZT-40")], reqs=(numbered, GENERAL, HARD))
+    assert [r["id"] for r in out["kept"]] == ["numbered", "general", "hard"]
+
+
+def test_a_bare_number_that_is_not_the_next_clause_opens_nothing():
+    # a table cell "6.1" inside clause 4 is not clause 6.1
+    pages = [
+        (
+            1,
+            "4 Design\n4.1 Pressure\nThe design pressure shall be stated.\n"
+            "6.1\nCasing grade table\nThe flange class shall be stated.\n"
+            "5 Testing\nThe test pressure shall be recorded.\n"
+            "6 Materials\n6.1\nCasing\nThe casing material shall be stated.\n"
+            "7 Marking\nThe name plate shall be fitted.\n",
+        )
+    ]
+    reqs = [
+        _req(k, 1, t)
+        for k, t in (
+            ("pressure", "The design pressure shall be stated."),
+            ("flange", "The flange class shall be stated."),
+            ("casing", "The casing material shall be stated."),
+            ("plate", "The name plate shall be fitted."),
+        )
+    ]
+    out = subject_scope.citation_gate(
+        reqs,
+        {"std": {"clauses": [("number", "6.1")], "pages": []}},
+        {},
+        pages_of=lambda sid: pages,
+    )
+    assert [r["id"] for r in out["kept"]] == ["casing"]
 
 
 def test_a_stored_clause_number_inside_the_cited_clause_is_kept():
@@ -401,13 +666,15 @@ def _review(
     std_meta=None,
     scope_decision=None,
     next_page=None,
+    std_number="XYZ-100",
+    sub_meta=None,
 ):
     _doc(
         "std",
-        "XYZ-100.pdf",
+        f"{std_number}.pdf",
         "COMPANY_STANDARD",
         PAGES,
-        document_number="XYZ-100",
+        document_number=std_number,
         **(std_meta or {}),
     )
     page = f"WELD EXAMINATION\nDESIGN PRESSURE 10 barg\n{datasheet_line}\n"
@@ -416,7 +683,7 @@ def _review(
         "sheet.pdf",
         "CONTRACTOR_SUBMITTAL",
         [(1, page), *([(2, next_page)] if next_page else [])],
-        equipment_type="Widget",
+        **(sub_meta or {"equipment_type": "Widget"}),
     )
     ids = {}
     for key, req in (("full", FULL), ("spot", SPOT), ("hard", HARD)):
@@ -470,7 +737,7 @@ def test_a_review_applies_only_the_cited_clause(temp_storage):
         # a requirement outside the cited clause never reaches a finding
         assert not any(f.get("requirement_id") == ids[key] for f in result["findings"])
     [summary] = result["requirement_split"]["cited_clauses"]
-    assert summary["clauses"] == ["ZT-32"] and summary["not_applied"] == 2
+    assert summary["clauses"] == ["ZT-32"] and summary["outside"] == 2
 
 
 def test_a_review_of_a_bare_citation_applies_the_whole_standard(temp_storage):
@@ -572,6 +839,26 @@ def test_a_standard_classified_for_this_equipment_applies_whole(temp_storage):
     assert _all_checked(stored, ids)
 
 
+def test_a_standard_the_equipment_type_requires_applies_whole(temp_storage):
+    # the governing table requires API 610 for a pump: cited for one clause or
+    # not, it is reviewed whole
+    _result, stored, ids = _review(
+        "Spot examination to API 610, ZT-32 (for spot examination)",
+        std_number="API 610",
+        sub_meta={"equipment_type": "Centrifugal Pump"},
+    )
+    assert _all_checked(stored, ids)
+
+
+def test_a_standard_classified_for_the_same_service_applies_whole(temp_storage):
+    _result, stored, ids = _review(
+        CITED_LINE,
+        std_meta={"service": "Seawater"},
+        sub_meta={"equipment_type": "Widget", "service": "Seawater"},
+    )
+    assert _all_checked(stored, ids)
+
+
 def test_a_standard_whose_scope_covers_this_equipment_applies_whole(temp_storage):
     _result, stored, ids = _review(CITED_LINE, scope_decision="APPLICABLE")
     assert _all_checked(stored, ids)
@@ -600,6 +887,35 @@ def test_a_failing_cited_clause_step_narrows_nothing_and_never_fails_the_review(
     assert not any("invented failure" in r.getMessage() for r in caplog.records)
 
 
+def test_a_review_on_an_unsure_reading_leaves_the_rest_for_the_engineer(
+    temp_storage, monkeypatch
+):
+    from app import applicability
+
+    unsure = standard_ids.CitedClause("lettered", "ZT-32", sure=False)
+    monkeypatch.setattr(
+        applicability,
+        "cited_clause_scope",
+        lambda *_a, **_k: {"std": {"clauses": [unsure], "pages": [1]}},
+    )
+    seen = {}
+    real = comparison.recommend_code
+
+    def spy(*args, **kwargs):
+        seen.update(kwargs.get("unchecked_counts") or {})
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(comparison, "recommend_code", spy)
+    result, stored, ids = _review(CITED_LINE)
+    # the review code is told how many were left unchecked for this cause
+    assert seen["unsure_citation"] == 2
+    assert stored[ids["spot"]]["state"] == scope_ledger.CHECKED
+    for key in ("full", "hard"):
+        assert stored[ids[key]]["state"] == scope_ledger.APPLIES_NOT_CHECKED
+        assert stored[ids[key]]["reason_code"] == "applicability_unsure"
+        assert not any(f.get("requirement_id") == ids[key] for f in result["findings"])
+
+
 def test_a_verdict_held_for_an_unproven_rule_stays_a_crs_line():
     held = _finding("h1", rule_said="COMPLIANT")
     rows = crs_mapping.build_crs_rows([held], [], "sheet.pdf")
@@ -610,3 +926,30 @@ def test_the_note_counts_findings():
     notes = crs_mapping.build_review_notes([_finding("u1"), _finding("u2")], [])
     [note] = [n for n in notes if n["note"] == crs_mapping.NOTE_FIELD_NOT_IDENTIFIED]
     assert note["count"] == 2 and "2 of this run's findings" in note["detail"]
+
+
+def test_the_manual_review_reason_names_the_unsure_citation_cause():
+    met = [{"compliance_status": comparison.COMPLIANT}] * 3
+    sufficient = {
+        "sufficient": True,
+        "fields_read": 100,
+        "fields_estimated": 100,
+        "extraction_coverage": 1.0,
+    }
+    result = comparison.recommend_code(
+        met,
+        sufficient,
+        unchecked_counts={"not_compared": 120, "checked": 3, "unsure_citation": 100},
+    )
+    assert result["code"] == comparison.CODE_MANUAL
+    assert (
+        "120 of 123 requirements that apply to this submittal were not checked (100 "
+        "because the datasheet's citation does not say for certain which clauses of the "
+        "standard apply - the engineer decides; 20 with no matching field, or text that "
+        "could not be read)"
+    ) in result["reason"]
+    # with no unsure citation, the cause reads as before
+    plain = comparison.recommend_code(
+        met, sufficient, unchecked_counts={"not_compared": 900, "checked": 3}
+    )
+    assert "(no matching field, or text that could not be read)" in plain["reason"]

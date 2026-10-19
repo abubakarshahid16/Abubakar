@@ -167,6 +167,15 @@ _DIVISION = re.compile(
 )
 #: A contents-page entry: a heading with a title that ends in a page number.
 _CONTENTS_TAIL = re.compile(r"[A-Za-z)]\s*[.\s]*\s\d{1,4}$")
+
+
+def _page_lines(text: subject_scope.StandardText, lo: int, hi: int) -> list[int]:
+    """The indices of the lines of the page that runs from `lo` to `hi`."""
+    first = bisect.bisect_left(text.offsets, lo, hi=len(text.lines))
+    last = bisect.bisect_left(text.offsets, hi, lo=first, hi=len(text.lines))
+    return list(range(first, last))
+
+
 #: A division heading is among this many first lines of its page.
 _DIVISION_TOP = 5
 #: How far into a division its scope clause is looked for (lines), and how
@@ -190,15 +199,15 @@ def divisions(text: subject_scope.StandardText) -> list[dict]:
     to the next one's requirements. A running header, and a heading repeated
     for the division it is already in (a "(continued)" title), are neither."""
     out: list[dict] = []
-    for lo, hi in text.page_bounds.values():
-        first = bisect.bisect_left(text.offsets, lo, hi=len(text.lines))
+    pages = [_page_lines(text, lo, hi) for lo, hi in text.page_bounds.values()]
+    running = subject_scope._running_lines([[text.lines[i] for i in p] for p in pages])
+    for indices in pages:
+        first = indices[0] if indices else 0
         heads: list[tuple[int, tuple[str, str], bool]] = []
-        for index in range(first, len(text.lines)):
-            if text.offsets[index] >= hi:
-                break
+        for index in indices:
             line = text.lines[index]
             match = _DIVISION.match(line)
-            if match is None or re.sub(r"\d+", "#", line) in text.running:
+            if match is None or re.sub(r"\d+", "#", line) in running:
                 continue
             listed = bool(line[match.end("id") :].strip()) and bool(
                 _CONTENTS_TAIL.search(line)
