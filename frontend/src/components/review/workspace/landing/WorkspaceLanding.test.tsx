@@ -352,6 +352,10 @@ describe("WorkspaceLanding v2.2: Simple | Detailed, Preview CRS, exact counts, h
       <WorkspaceLanding documents={DOCS} runs={RUNS} submittalsTotal={4} onOpenRun={vi.fn()} onReload={vi.fn()} loadReadyCounts={loadCounts} isAdmin />,
     );
     expect(screen.getByTestId("landing-help")).toHaveTextContent(LANDING_HELP_TEXT);
+    // Review 2: rows are not green (only the small label is), and a green
+    // "Review ready" label can still have comments to decide.
+    expect(LANDING_HELP_TEXT).not.toMatch(/green/i);
+    expect(LANDING_HELP_TEXT).not.toMatch(/\u2014/);
     await userEvent.click(screen.getByRole("button", { name: "Hide this help" }));
     expect(screen.queryByTestId("landing-help")).toBeNull();
     expect(localStorage.getItem(LANDING_HELP_HIDDEN_KEY)).toBe("1");

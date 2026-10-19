@@ -703,6 +703,19 @@ describe("ReviewWorkspace saving", () => {
 });
 
 describe("ReviewWorkspace v2.2: Simple / Detailed view", () => {
+  /** Review 2: the switch was drawn absolutely above the title and covered
+   *  the file name on a phone. It now sits in the title row, in the flow. */
+  it("the Simple | Detailed switch sits in the title row, not floating over it", () => {
+    render(<Harness initial={{}} />);
+    const title = screen.getByRole("heading", { level: 1 });
+    const header = title.closest("header")!;
+    expect(within(header).getByRole("group", { name: "View" })).toBeInTheDocument();
+    expect(header.querySelector(".absolute")).toBeNull();
+    // The title keeps room on a phone: the switch wraps to the next line
+    // instead of squeezing the file name to one letter.
+    expect(title.className).toMatch(/min-w-\[12rem\]/);
+  });
+
   /** MUTATION PROOF: drop `mode={view.mode}` from WorkspaceTabs and the
    *  Simple strip shows every tab, so this fails. */
   it("Simple is the default: Comment sheet, CRS preview and replies and Details; the switch shows Detailed", async () => {

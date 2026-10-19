@@ -235,7 +235,7 @@ export function CrsPreviewSheet(
           <span className="font-semibold">{preview.recommended_code_label}</span>{" "}
           <span className="font-semibold">{preview.recommended_code}</span>
           {preview.recommended_code_reason
-            ? <span className="text-slateish-400"> — {preview.recommended_code_reason}</span>
+            ? <span className="text-slateish-400">. {preview.recommended_code_reason}</span>
             : null}
         </p>
       )}

@@ -61,7 +61,8 @@ import { useLeaveGuard } from "./useLeaveGuard";
 import { SheetCountsLine } from "./SheetCountsLine";
 import { SignOffPanel } from "./SignOffPanel";
 import { useSignOff } from "./useSignOff";
-import { useViewMode, type ViewMode } from "./useViewMode";
+import { useViewMode } from "./useViewMode";
+import { ViewModeSwitch } from "./ViewModeSwitch";
 import { useWorkspaceRun } from "./useWorkspaceRun";
 import { WorkspaceSheet } from "./WorkspaceSheet";
 import { PastReviewsButton } from "./PastReviewsButton";
@@ -138,29 +139,6 @@ function ReviewHelpLine({ words }: { words: string | null }) {
         Hide
       </button>
     </p>
-  );
-}
-
-/** v2.2: the small "Simple | Detailed" switch, top right next to "Try new
- *  design". It takes no line of its own (zero height, like that switch). */
-export function ViewModeSwitch({ mode, onMode }: { mode: ViewMode; onMode: (mode: ViewMode) => void }) {
-  const option = (value: ViewMode, label: string) => (
-    <button type="button" aria-pressed={mode === value} onClick={() => onMode(value)}
-      className={mode === value
-        ? "rounded-[var(--radius-sm)] bg-ink-700 px-1.5 text-slateish-100"
-        : "px-1.5 text-slateish-400 hover:text-slateish-200"}>
-      {label}
-    </button>
-  );
-  return (
-    <div className="relative h-0" data-testid="ws-view-mode">
-      <div role="group" aria-label="View"
-        className="absolute -top-5 right-36 inline-flex items-center gap-0.5 text-xs leading-4">
-        {option("simple", "Simple")}
-        <span aria-hidden="true" className="text-slateish-500">|</span>
-        {option("detailed", "Detailed")}
-      </div>
-    </div>
   );
 }
 
@@ -426,12 +404,12 @@ export function ReviewWorkspace({
       data-testid="review-workspace" data-run={runId} data-panel-open={panelOpen ? "true" : "false"}
     >
       {leaveQuestion}
-      <ViewModeSwitch mode={view.mode} onMode={view.setMode} />
       <header className="flex flex-wrap items-center gap-3">
         <button type="button" onClick={leave} className="text-sm text-signal-300 underline-offset-2 hover:underline">← Reviews</button>
-        <h1 id="ws-title" className="min-w-0 flex-1 truncate text-2xl font-semibold text-slateish-100">
+        <h1 id="ws-title" className="min-w-[12rem] flex-1 truncate text-2xl font-semibold text-slateish-100">
           {run.submittal_filename ?? "Review"}
         </h1>
+        <ViewModeSwitch mode={view.mode} onMode={view.setMode} />
         {run.submittal_document_id && isAdmin !== false && (
           <ReviewAgainButton documentId={run.submittal_document_id} filename={run.submittal_filename}
             runs={documentRuns} beforeStart={beforeLeave} onStarted={onOpenRun} onOpenRun={openRun} />

@@ -29,10 +29,12 @@ function StepLabel({ step }: { step: ActionStep }) {
   if (step.id === "sign" || step.id === "code" || step.id === "preview" || step.count === null) return <>{step.label}</>;
   // The label carries "(N)"; N is shown from `step.count` so it can be marked.
   const words = step.label.replace(/\s*\(\d[\d,]*\)\s*$/, "");
+  // One span: the button is a flex box, and loose text pieces would each
+  // get the flex gap ("Decide comments ( 4 )").
   return (
-    <>
+    <span data-testid="ws-step-label">
       {words} (<span data-count={STEP_COUNT[step.id]}>{step.count.toLocaleString()}</span>)
-    </>
+    </span>
   );
 }
 

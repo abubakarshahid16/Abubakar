@@ -33,7 +33,8 @@ import type { DocumentRecord, ReviewRunSummary } from "../../../../types/api";
 import type { ReadyCounts } from "../../inbox/inboxState";
 import type { WorkspaceTab } from "../contract";
 import { NewReviewDropZone } from "../NewReviewDropZone";
-import { type ViewMode, useViewMode } from "../useViewMode";
+import { useViewMode } from "../useViewMode";
+import { ViewModeSwitch } from "../ViewModeSwitch";
 import { startRefusal } from "../newReview";
 import { watchRun } from "../reviewWatch";
 import { AllReviewsList } from "./AllReviewsList";
@@ -43,7 +44,7 @@ import { allRunsOf, landingRowsOf, matchesName } from "./landingRows";
 import { loadReadyCounts as defaultLoadReadyCounts } from "./readyCounts";
 
 export const LANDING_HELP_TEXT =
-  "Pick a submittal and press Start review, or open one below. Green rows are ready for you to sign.";
+  "To check a new file, pick it and press Start review. To finish one, press Open, decide each comment, then sign.";
 export const LANDING_HELP_HIDDEN_KEY = "rag.workspace.landingHelpHidden";
 
 function readHelpHidden(): boolean {
@@ -60,28 +61,6 @@ function writeHelpHidden(): void {
   } catch {
     /* storage unavailable: hidden for this page only */
   }
-}
-
-/** The small two-button "Simple | Detailed" switch. */
-export function ViewModeSwitch({ mode, onMode }: { mode: ViewMode; onMode: (mode: ViewMode) => void }) {
-  const button = (value: ViewMode, label: string) => (
-    <button
-      type="button"
-      aria-pressed={mode === value}
-      onClick={() => onMode(value)}
-      className={`px-3 py-1 text-xs font-semibold ${
-        mode === value ? "bg-signal-500/15 text-signal-300" : "text-slateish-300"
-      }`}
-    >
-      {label}
-    </button>
-  );
-  return (
-    <div role="group" aria-label="How much to show" className="inline-flex overflow-hidden rounded-full border border-ink-600" data-testid="view-mode-switch">
-      {button("simple", "Simple")}
-      {button("detailed", "Detailed")}
-    </div>
-  );
 }
 
 export const NOT_ADMIN_LANDING_MESSAGE =

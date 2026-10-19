@@ -75,6 +75,17 @@ beforeEach(() => {
 });
 
 describe("Preview CRS (v2.2)", () => {
+  /** Review 2: the step button is a flex box with a gap, so loose text
+   *  pieces drew "Decide comments ( 4 )". The words and the count must be one
+   *  element. MUTATION PROOF: return the fragment again and this fails. */
+  it("a counted step's words and number are one piece of text", () => {
+    renderBar(numbers());
+    const decide = screen.getByTestId("ws-action-bar").querySelector('[data-step="decide"]')!;
+    const label = within(decide as HTMLElement).getByTestId("ws-step-label");
+    expect(label.textContent).toMatch(/^Decide comments \(\d+\)$/);
+    expect(Array.from(decide.childNodes).filter((n) => n.nodeType === Node.TEXT_NODE && n.textContent!.trim())).toHaveLength(0);
+  });
+
   it("is step 5 of 6, just before Sign", () => {
     renderBar(numbers());
     const bar = screen.getByTestId("ws-action-bar");

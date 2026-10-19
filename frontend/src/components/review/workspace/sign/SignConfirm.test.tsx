@@ -232,3 +232,17 @@ describe("Preview and confirm (S2)", () => {
       .toBe("2 comments, final code 1, signer not known (sign-in is off).");
   });
 });
+
+describe("the sheet's code line (review 2)", () => {
+  /** No em dash on screen: the reason follows the code after a full stop. */
+  it("shows the code and its reason without an em dash", async () => {
+    const { CrsPreviewSheet } = await import("../../CrsPreviewSheet");
+    const withCode = { ...sheet(), recommended_code: "2", recommended_code_label: "Approved with comments",
+      recommended_code_reason: "Two comments to answer." } as CrsPreview;
+    render(<CrsPreviewSheet preview={withCode} runId="run-1" onChanged={vi.fn()} readOnly />);
+    const line = screen.getByText("Two comments to answer.", { exact: false }).closest("p")!;
+    expect(line.textContent).toBe("Approved with comments 2. Two comments to answer.");
+    expect(line.textContent).not.toContain("\u2014");
+  });
+});
+
