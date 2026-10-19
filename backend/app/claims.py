@@ -285,6 +285,28 @@ _UNCONVERTED_UNITS: dict[str, str | None] = {
 }
 _RECOGNISED_UNITS = set(_UNIT_TABLE) | set(_UNCONVERTED_UNITS)
 
+#: THE TEMPERATURE SCALES (order 141 B): a folded spelling ->
+#: (kelvin per degree, kelvin at the scale's zero). AFFINE, which is why they
+#: are not in `_UNIT_TABLE` (factors only) and `normalise` still gives °F no
+#: number. Exact by definition: 1 °F is 1/1.8 K and 0 °F is 459.67 °R.
+#: Read by `compare_across_units` (the review, the v1 condition gate), the
+#: API 520 calculations and the dual-unit cell check (`datasheets._celsius`).
+#: Still separate: the condition reader (`condition_choice`, °F and °C only)
+#: and `applicability_v2` (slated for deletion).
+TEMPERATURE_SCALES: dict[str, tuple[float, float]] = {
+    "c": (1.0, 273.15),
+    "degc": (1.0, 273.15),
+    "k": (1.0, 0.0),
+    "f": (1 / 1.8, 459.67 / 1.8),
+    "degf": (1 / 1.8, 459.67 / 1.8),
+    "r": (1 / 1.8, 0.0),
+    "degr": (1 / 1.8, 0.0),
+}
+#: The standard atmosphere, 101.325 kPa (the value API 520-I takes when it
+#: turns a gauge pressure into an absolute one). The only atmospheric
+#: pressure this system assumes, and every use of it says so.
+STANDARD_ATMOSPHERE_KPA = 101.325
+
 
 # ------------------------------------------------------- compound rates
 #: THE GRAMMAR FOR "<quantity>/<per>", so a rate is recognised by what it IS
@@ -401,6 +423,8 @@ def split_reference(unit_str: str | None) -> tuple[str | None, str | None]:
     becomes `bar`, which the table knows, and the fact carries the fact that it
     was gauge. Nothing here converts between them - that needs an ambient
     pressure nobody has recorded - it only stops the distinction being lost.
+    (`compare_across_units` compares the two only when the answer is the same
+    at any atmospheric pressure up to the standard one.)
 
     A unit with no reference comes back unchanged with None, which is every
     non-pressure unit and plain `bar`.
@@ -1483,6 +1507,268 @@ def _compatible(a: Measurement, b: Measurement) -> bool | None:
     return lo < hi
 
 
+def is_temperature_scale(unit_str: str | None) -> bool:
+    """°C, °F, K (any spelling `_fold_unit` folds to one in `TEMPERATURE_SCALES`)."""
+    return (
+        unit_dimension(unit_str or "") == "temperature"
+        and _fold_unit(unit_str or "") in TEMPERATURE_SCALES
+    )
+
+
+@dataclass(frozen=True)
+class CrossUnit:
+    """How a value compares with a limit stated in ANOTHER unit of the same
+    quantity (order 141 B). `verdict` None means no answer could be stood
+    behind, and `obstacle` says why; `note` says how the units were converted."""
+
+    verdict: bool | None
+    note: str | None = None
+    obstacle: str | None = None
+
+
+def _dimension_of(m: Measurement) -> str | None:
+    """The unit's dimension; for a value whose printed unit carries more than
+    a unit ("psig (By Contractor)") but whose number was normalised when it
+    was read, the dimension of that normalised unit."""
+    canonical = {unit: dimension for dimension, unit in _DIMENSION_UNIT.items()}
+    return unit_dimension(m.raw_unit or "") or (
+        canonical.get(m.normalized_unit or "")
+        if m.normalized_value is not None
+        else None
+    )
+
+
+def _bare(m: Measurement, value: float) -> Measurement:
+    """`m`'s number replaced by `value` in a common unit, for `_compatible`."""
+    return Measurement(m.raw_value, "", value, "common", m.comparator)
+
+
+def _shown(value: float) -> str:
+    return f"{value:.5g}"
+
+
+#: One reading: how the value was put in the limit's unit, the range of values
+#: that reading allows (low, high; one point unless the site's atmosphere is
+#: unknown) and the limit, all in one unit.
+_Reading = tuple[str, float, float, float]
+
+
+def _temperature_readings(
+    obs: float, lim: float, scale_o: tuple[float, float], scale_l: tuple[float, float]
+) -> list[_Reading]:
+    """A UNIT DOES NOT SAY WHETHER A FIGURE IS A TEMPERATURE OR A TEMPERATURE
+    DIFFERENCE (a rise, an approach, a superheat): 50 K and 50 °C are the same
+    rise and 323 K apart as temperatures. Both readings are made, in kelvin."""
+    absolute = obs * scale_o[0] + scale_o[1]
+    rise = obs * scale_o[0]
+    return [
+        ("as temperatures", absolute, absolute, lim * scale_l[0] + scale_l[1]),
+        ("as temperature differences", rise, rise, lim * scale_l[0]),
+    ]
+
+
+def _atmosphere_reading(
+    observed: Measurement, limit: Measurement, gauge_is_observed: bool
+) -> _Reading:
+    """A GAUGE AND AN ABSOLUTE PRESSURE differ by the site's atmospheric
+    pressure, which no sheet records: anything from the standard atmosphere
+    (sea level) down to, as a bound, none. The value is carried in the limit's
+    reference as the whole range that allows, in MPa."""
+    o, standard = observed.normalized_value, STANDARD_ATMOSPHERE_KPA / 1000.0
+    low, high = (o, o + standard) if gauge_is_observed else (o - standard, o)
+    return (
+        "for an atmospheric pressure from none to the standard "
+        f"{STANDARD_ATMOSPHERE_KPA:g} kPa",
+        low,
+        high,
+        limit.normalized_value,
+    )
+
+
+def _readings(
+    observed: Measurement, limit: Measurement, dimension: str
+) -> tuple[list[_Reading], float, float, float] | None:
+    """`(readings, value point, tolerance, limit in the observed unit)`.
+    `value point` is the value as written in the readings' unit (at the
+    standard atmosphere for a gauge/absolute pair); `tolerance` is half the
+    last printed digit of the value or of the limit, whichever is finer, in
+    that unit. None when this pair is not two different units this module
+    converts between."""
+    obs_text = _split_comparator(observed.raw_value)[1]
+    lim_text = _split_comparator(limit.raw_value)[1]
+    obs, lim = parse_value(obs_text), parse_value(lim_text)
+    base_o, ref_o = split_reference(observed.raw_unit)
+    base_l, ref_l = split_reference(limit.raw_unit)
+    fold_o, fold_l = _fold_unit(base_o or ""), _fold_unit(base_l or "")
+    if obs is None or lim is None or not fold_o or not fold_l:
+        return None
+    half_o, half_l = _printed_half(obs_text) or 0.0, _printed_half(lim_text) or 0.0
+    if dimension == "temperature":
+        scale_o = TEMPERATURE_SCALES.get(fold_o)
+        scale_l = TEMPERATURE_SCALES.get(fold_l)
+        if scale_o is None or scale_l is None or scale_o == scale_l:
+            return None  # one scale ("°C", "deg C"): compared as written
+        readings = _temperature_readings(obs, lim, scale_o, scale_l)
+        tolerance = min(half_o * scale_o[0], half_l * scale_l[0])
+        shown = (readings[0][3] - scale_o[1]) / scale_o[0]
+        return readings, readings[0][1], tolerance, shown
+    if observed.normalized_value is None or limit.normalized_value is None:
+        return None
+    entry_o, entry_l = _UNIT_TABLE.get(fold_o), _UNIT_TABLE.get(fold_l)
+    factor_o = (
+        entry_o[2] if entry_o else (observed.normalized_value / obs if obs else 0.0)
+    )
+    factor_l = entry_l[2] if entry_l else (limit.normalized_value / lim if lim else 0.0)
+    tolerance = min(half_o * factor_o, half_l * factor_l)
+    shown = limit.normalized_value / factor_o if factor_o else lim
+    references = {ref_o or observed.reference, ref_l or limit.reference}
+    if references == {"gauge", "absolute"}:
+        units = {observed.normalized_unit, limit.normalized_unit}
+        if dimension != "pressure" or units != {"MPa"}:
+            return None
+        gauge_is_observed = (ref_o or observed.reference) == "gauge"
+        reading = _atmosphere_reading(observed, limit, gauge_is_observed)
+        standard = STANDARD_ATMOSPHERE_KPA / 1000.0
+        point = observed.normalized_value + (
+            standard if gauge_is_observed else -standard
+        )
+        offset = -standard if gauge_is_observed else standard
+        return (
+            [reading],
+            point,
+            tolerance,
+            shown + (offset / factor_o if factor_o else 0.0),
+        )
+    if (
+        fold_o == fold_l
+        or (entry_o is not None and entry_o == entry_l)
+        or references == {"absolute", None}
+    ):
+        # One unit, however spelled ("mm/s", "mm/sec"), is compared as
+        # written; an absolute pressure against one with no stated reference
+        # stays refused (R32, `_compatible`).
+        return None
+    o = observed.normalized_value
+    return [("converted", o, o, limit.normalized_value)], o, tolerance, shown
+
+
+def _answer_over(
+    observed: Measurement, low: float, high: float, limit: Measurement
+) -> bool | None:
+    """The answer for EVERY value from `low` to `high` against `limit`, or
+    None when the range holds values on both sides of it. The whole range is
+    tested, never only its two ends: an exact-value limit can sit between
+    them."""
+    if math.isclose(low, high, rel_tol=1e-12, abs_tol=1e-12):
+        return _compatible(_bare(observed, low), limit)
+    bounds = _interval(limit)
+    if bounds is None:
+        return None
+    lo, hi, lo_closed, hi_closed = bounds
+
+    def above_lo(x: float) -> bool:
+        return x > lo or (lo_closed and math.isclose(x, lo, rel_tol=1e-9, abs_tol=1e-9))
+
+    def below_hi(x: float) -> bool:
+        return x < hi or (hi_closed and math.isclose(x, hi, rel_tol=1e-9, abs_tol=1e-9))
+
+    if above_lo(low) and below_hi(high):
+        return True
+    if not below_hi(low) or not above_lo(high):
+        return False
+    return None
+
+
+def _disagreement(
+    observed: Measurement,
+    limit: Measurement,
+    dimension: str,
+    readings: list[_Reading],
+    answers: list[bool | None],
+) -> str:
+    """Why the readings gave no verdict, naming what each one said."""
+    said = "; ".join(
+        f"{label} it is "
+        + ("within" if v else "outside" if v is False else "on both sides of")
+        + " the limit"
+        for (label, _lo, _hi, _l), v in zip(readings, answers, strict=True)
+    )
+    what = (
+        "a unit alone does not say whether a figure is a temperature or a temperature "
+        "difference (a rise)"
+        if dimension == "temperature"
+        else "one pressure is gauge and the other absolute, and the site's atmospheric "
+        "pressure is not recorded"
+    )
+    return (
+        f"the requirement is in {limit.raw_unit} and the submitted value in "
+        f"{observed.raw_unit}, the same quantity in two units; {what}; the answer "
+        f"depends on it ({said}). No comparison was made; engineer to check"
+    )
+
+
+def compare_across_units(observed: Measurement, limit: Measurement) -> CrossUnit | None:
+    """ORDER 141 B: a value and a limit in two units of ONE quantity are
+    converted and compared - °F, °C and K; psi, bar, kPa and MPa; inch and
+    mm. "Not the same quantity, not compared" was false for them.
+
+    THE VALUE IS DECIDED AS WRITTEN, as one unit is; it is held for the
+    engineer only when something the units leave open would change the answer:
+      * a temperature is read both as a temperature and as a temperature
+        difference, because the unit alone cannot say which it is;
+      * a gauge pressure against an absolute one is read for EVERY atmospheric
+        pressure from none to the standard one (the site's is not recorded),
+        and the whole range must give one answer;
+      * a value that is the limit to the precision BOTH are printed to ("149
+        °C" against "300 °F", 148.9 °C) may be the limit printed in another
+        unit, so it is held when the limit itself would get another answer.
+    Otherwise the answer stands, and `note` says how the units were converted.
+
+    None when the two are in ONE unit (compared exactly, as written), when
+    they are different quantities, or when either is a unit this module does
+    not convert - the caller refuses those as before. The arithmetic is exact
+    (`_compatible`'s interval test); nothing is rounded before it."""
+    dimension = _dimension_of(observed)
+    if dimension is None or dimension != _dimension_of(limit):
+        return None
+    built = _readings(observed, limit, dimension)
+    if built is None:
+        return None
+    readings, point, tolerance, in_observed_unit = built
+    answers = [
+        _answer_over(observed, lo, hi, _bare(limit, lim))
+        for _x, lo, hi, lim in readings
+    ]
+    if None in answers or len(set(answers)) > 1:
+        return CrossUnit(
+            None, obstacle=_disagreement(observed, limit, dimension, readings, answers)
+        )
+    answer, lim = answers[0], readings[0][3]
+    shown = f"{limit.raw_value} {limit.raw_unit} is {_shown(in_observed_unit)} {observed.raw_unit}"
+    at_limit = _compatible(_bare(observed, lim), _bare(limit, lim))
+    if abs(point - lim) <= tolerance * (1 + 1e-9) and at_limit != answer:
+        return CrossUnit(
+            None,
+            obstacle=(
+                f"the requirement's {shown}, and the submitted {observed.raw_value} "
+                f"{observed.raw_unit} is that limit to the precision both are printed to, "
+                "so it may be the limit written in another unit; read as written it is "
+                f"{'within' if answer else 'outside'} the limit. No comparison was made; "
+                "engineer to check"
+            ),
+        )
+    note = None
+    if dimension == "temperature":
+        note = f"{shown}; the answer is the same read as temperatures or as temperature differences"
+    elif readings[0][1] != readings[0][2]:
+        note = (
+            "the gauge and absolute pressures were compared for every atmospheric pressure "
+            f"from none to the standard {STANDARD_ATMOSPHERE_KPA:g} kPa, and the answer is "
+            "the same for all of them"
+        )
+    return CrossUnit(answer, note=note)
+
+
 def _designators_conflict(rows: tuple[Claim, ...]) -> tuple[str, str] | None:
     """Two rows that both name designators with no spelling in common."""
     named = [(r, set(r.designators)) for r in rows if r.designators]
@@ -1510,17 +1796,25 @@ def _distinct_same_direction_limits(a: Measurement, b: Measurement) -> bool:
         a.normalized_value, b.normalized_value, rel_tol=1e-9, abs_tol=1e-9)
 
 
-def _last_digit_half(m: Measurement) -> float | None:
-    """Half a unit of the last printed digit, in the canonical unit."""
-    entry = _UNIT_TABLE.get(_fold_unit(m.raw_unit or ""))
-    value = parse_value(m.raw_value)
-    if entry is None or value is None:
+def _printed_half(raw_value: str) -> float | None:
+    """Half a unit of the last printed digit, in the value's OWN unit: 0.05
+    for "148.9", 0.5 for "149". None when the value is not a number."""
+    if parse_value(raw_value) is None:
         return None
-    text = m.raw_value.strip().replace(" ", "")
+    text = raw_value.strip().replace(" ", "")
     if re.fullmatch(r"[-+]?(?!0,)\d{1,3}(?:,\d{3})+(?:\.\d+)?", text):
         text = text.replace(",", "")
     decimals = len(re.split(r"[.,]", text)[1]) if re.search(r"[.,]\d", text) else 0
-    return 0.5 * 10 ** (-decimals) * entry[2]
+    return 0.5 * 10 ** (-decimals)
+
+
+def _last_digit_half(m: Measurement) -> float | None:
+    """Half a unit of the last printed digit, in the canonical unit."""
+    entry = _UNIT_TABLE.get(_fold_unit(m.raw_unit or ""))
+    half = _printed_half(m.raw_value)
+    if entry is None or half is None:
+        return None
+    return half * entry[2]
 
 
 def _same_printed_quantity(a: Measurement, b: Measurement, *,

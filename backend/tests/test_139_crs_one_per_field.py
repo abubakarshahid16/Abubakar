@@ -114,12 +114,23 @@ def test_blank_and_not_found_stay_separate_rows():
 
 
 def test_rows_without_a_field_label_keep_one_per_requirement():
-    unlabelled = {"matched_phrase": None, "contractor_page": None, "fact_id": None}
+    # No field label, but a datasheet page: still a line, one per requirement.
+    unlabelled = {"matched_phrase": None, "contractor_page": 3, "fact_id": None}
     rows = _rows(
         [_question("q1", "9.1", **unlabelled), _question("q2", "9.2", **unlabelled)]
     )
     assert _partition(rows) == [["q1"], ["q2"]]
     assert all("Supporting clauses" not in r["comment"] for r in rows)
+
+
+def test_a_question_with_no_datasheet_field_and_no_page_is_a_note_not_a_line():
+    """#1177: a standard's question with neither a field nor a page behind it is
+    the engineer's to-do (one Review note per standard), never a CRS line."""
+    unplaced = {"matched_phrase": None, "contractor_page": None, "fact_id": None}
+    rows = _rows(
+        [_question("q1", "9.1", **unplaced), _question("q2", "9.2", **unplaced)]
+    )
+    assert rows == []
 
 
 def test_breaches_stay_one_row_per_problem():
@@ -275,8 +286,8 @@ def test_different_engineer_wordings_split_same_wording_stays_one():
     assert _partition(rows) == [["w1", "w2"], ["w3"]]
     assert rows[0]["comment"] == words and rows[0]["engineer_confirmed"] is True
     assert rows[1]["engineer_confirmed"] is False
-    # The two parts share the field's key: the sheet numbers the second "#2".
-    assert rows[0]["comment_key"] == rows[1]["comment_key"]
+    # 1b: the two parts do NOT share a number key (see the tests below).
+    assert rows[0]["comment_key"] != rows[1]["comment_key"]
     assert rows[0]["crs_group"] != rows[1]["crs_group"]
     # One wording on every finding (the screen edits a whole row): one row.
     same = _rows(
@@ -286,6 +297,107 @@ def test_different_engineer_wordings_split_same_wording_stays_one():
         ]
     )
     assert _partition(same) == [["s1", "s2"]]
+
+
+def _wording(fid, clause, words, **over):
+    return _f(fid, clause, engineer_comment=words, confirmed_by="eng-1", **over)
+
+
+def test_rows_split_by_wording_carry_distinct_stable_keys():
+    """1b: a field group whose findings carry different engineer wordings is
+    several rows; they must not share one comment key (the sheet would give
+    one the field's number and the others "#2", by where each happens to
+    land). The row an engineer made theirs keeps the field's key; the other
+    gets its own, made from its wording only."""
+    field_key = crs_mapping.field_comment_key(
+        crs_mapping.BUCKET_BLANK, "corrosion allowance"
+    )
+    words, other = "Contractor to state it per part.", "State it for the shell."
+    edited = [_wording(f"w{i}", f"10.{i}", words) for i in range(3)]
+    rows = _rows([*edited, _f("d", "9.9")])
+    by_ids = {tuple(sorted(r["finding_ids"])): r for r in rows}
+    kept = by_ids[("w0", "w1", "w2")]
+    draft = by_ids[("d",)]
+    assert kept["comment_key"] == field_key, "the engineer's row keeps the number key"
+    assert draft["comment_key"] not in ("", field_key)
+    assert draft["comment_key"] not in draft["member_keys"], "still a field row"
+    # Stable: the same on every run, whatever the order of the findings or the
+    # clause that leads the row, and it depends on the wording alone.
+    again = _rows([_f("d", "0.1"), *reversed(edited)])
+    again_draft = next(r for r in again if r["finding_ids"] == ["d"])
+    assert again_draft["comment_key"] == draft["comment_key"]
+    # Two edited wordings: each wording keeps its key whichever row sorts first.
+    both = [
+        _wording("a1", "1.1", words),
+        _wording("a2", "1.2", words),
+        _wording("b1", "2.1", other, contractor_page=1),
+    ]
+    first = {r["comment"].split("\n")[0]: r["comment_key"] for r in _rows(both)}
+    moved = [{**f, "contractor_page": 9} if f["id"] == "a1" else f for f in both]
+    moved = [{**f, "contractor_page": 1} if f["id"] == "b1" else f for f in moved]
+    second = {r["comment"].split("\n")[0]: r["comment_key"] for r in _rows(moved)}
+    assert first == second and len(set(first.values())) == 2
+
+
+def test_the_field_key_stays_with_the_engineers_row_then_the_larger_one():
+    """1b: which split row keeps the field's key does not depend on where the
+    rows sort: the row an engineer made theirs first (even when smaller), then
+    the larger, whatever the wordings' digests."""
+    field_key = crs_mapping.field_comment_key(
+        crs_mapping.BUCKET_BLANK, "corrosion allowance"
+    )
+
+    def holder(findings):
+        [kept] = [r for r in _rows(findings) if r["comment_key"] == field_key]
+        return sorted(kept["finding_ids"])
+
+    # One confirmed edit against two drafts (no wording, not confirmed): the edit.
+    assert holder(
+        [
+            _wording("e", "1.1", "Engineer words."),
+            _f("d1", "2.1"),
+            _f("d2", "2.2"),
+        ]
+    ) == ["e"]
+    # Two confirmed wordings: the larger keeps it, whichever wording it is.
+    for big, small in (("Words A.", "Words B."), ("Words B.", "Words A.")):
+        assert holder(
+            [
+                _wording("b1", "1.1", big),
+                _wording("b2", "1.2", big),
+                _wording("s1", "2.1", small),
+            ]
+        ) == ["b1", "b2"]
+    # Three wordings: three distinct keys.
+    three = _rows([_wording(f"x{i}", f"{i}.1", f"Words {i}.") for i in range(3)])
+    assert len({r["comment_key"] for r in three}) == 3
+
+
+def test_a_row_split_off_a_non_field_group_is_not_taken_for_a_field_row():
+    """1b: a breach group spanning two standards split by wording whose two
+    leaders share a subject key: the second row's own key is in its
+    member_keys, so `main` does not treat it as a field row replacing
+    clauses."""
+
+    def breach(fid, **over):
+        return _f(
+            fid,
+            "7.1",
+            compliance_status="NON_COMPLIANT",
+            contractor_evidence_text="1 mm",
+            **over,
+        )
+
+    rows = _rows(
+        [
+            breach("x1", engineer_comment="Words one.", confirmed_by="e"),
+            breach("x2", engineer_comment="Words two.", confirmed_by="e"),
+        ]
+    )
+    assert len(rows) == 2
+    assert rows[0]["comment_key"] != rows[1]["comment_key"]
+    for row in rows:
+        assert row["comment_key"] in row["member_keys"]
 
 
 def test_a_field_row_carries_every_member_key():
@@ -344,3 +456,35 @@ def test_crs_groups_is_the_grouping_build_crs_rows_prints():
     ] == _partition(rows)
     assert [g["key"] for g in groups] == [r["crs_group"] for r in rows]
     assert [g["action"] for g in groups] == [r["crs_action"] for r in rows]
+
+
+def test_a_non_field_group_keeps_its_number_key_whichever_finding_leads():
+    """1b: `_leader_order` now breaks a tie by clause, requirement words and
+    id, so a different finding can lead a breach group that spans two
+    standards. The row's permanent-number key must not depend on who leads:
+    the key has no clause or standard in it, and every tied leader shares the
+    requirement words, field, value and page it is made from."""
+
+    def breach(fid, clause, doc):
+        return _f(
+            fid,
+            clause,
+            compliance_status="NON_COMPLIANT",
+            contractor_evidence_text="1 mm",
+            requirement_source_text="The value shall not exceed 2 mm.",
+            standard_document_id=doc,
+            standard_name=f"{doc}.pdf",
+        )
+
+    findings = [breach("z", "9.1", "std-9"), breach("a", "2.2", "std-2")]
+    [forward] = _rows([dict(f) for f in findings])
+    [backward] = _rows([dict(f) for f in reversed(findings)])
+    assert forward["finding_ids"] == backward["finding_ids"] == ["a", "z"]
+    assert forward["finding_id"] == backward["finding_id"] == "a"
+    assert forward["comment_key"] == backward["comment_key"]
+    # ... and whichever of the two leads, it is the same key.
+    assert (
+        crs_mapping.finding_comment_key(findings[0])
+        == crs_mapping.finding_comment_key(findings[1])
+        == forward["comment_key"]
+    )

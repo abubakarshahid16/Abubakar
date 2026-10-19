@@ -1378,8 +1378,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="a page-reader absence reaches the contractor as its own CRS row",
         path=APP / 'crs_mapping.py',
         # Re-anchored 2026-10-19 (order 139 part 2): `_bucket_of` decides it.
-        anchor='        if not _unread(f) and not _page_reader_only(f):\n',
-        replacement='        if not _unread(f):\n',
+        anchor='            not _unread(f)\n            and not _page_reader_only(f)\n',
+        replacement='            not _unread(f)\n',
         target='tests/test_b3_page_ledger.py',
         keyword='read_only_by_the_page_reader_is_for_an_engineer',
         tags=('honesty', 'crs'),

@@ -13,7 +13,7 @@ import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ReviewFinding, ReviewRunSummary, ReviewRunTierSummary } from "../../../types/api";
-import { UNGROUPED_NOTE, buildCrsRows, serverGroupsOf, spotCheckKeys } from "../crs/crsRows";
+import { STALE_GROUPING_NOTE, UNGROUPED_NOTE, buildCrsRows, serverGroupsOf, spotCheckKeys } from "../crs/crsRows";
 import { EMPTY_FACTS } from "../crs/tiers";
 import { useCrsDecisions } from "../crs/useCrsDecisions";
 import type { ReviewNumbers } from "./contract";
@@ -351,13 +351,18 @@ describe("WorkspaceSheet", () => {
 /** Order 139 part 2: the sheet says once when its rows are not the file's
  *  grouping, and how many findings the file lists in its Review notes. */
 describe("WorkspaceSheet: the server's grouping", () => {
-  function Sheet({ rows, serverNotes }: { rows: typeof ROWS; serverNotes?: number }) {
+  function Sheet({ rows, serverNotes, groupingStale }: { rows: typeof ROWS; serverNotes?: number; groupingStale?: boolean }) {
     const decisions = useCrsDecisions();
     return (
       <WorkspaceSheet runId="run-1" run={RUN} rows={rows} submittal={null} standardNames={new Map()}
-        decisions={decisions} openRowKey={null} numbers={numbersOf()} onOpenRow={() => undefined} serverNotes={serverNotes} />
+        decisions={decisions} openRowKey={null} numbers={numbersOf()} onOpenRow={() => undefined} serverNotes={serverNotes} groupingStale={groupingStale} />
     );
   }
+  /** Release 1b. MUTATION PROOF: stop passing `groupingStale` to the note and this fails. */
+  it("says once that the grouping is the last one that could be read when a refresh could not read it", () => {
+    render(<Sheet rows={ROWS} groupingStale />);
+    expect(screen.getAllByText(STALE_GROUPING_NOTE)).toHaveLength(1);
+  });
   it("says once that the rows are one per finding when the server sent no grouping", () => {
     render(<Sheet rows={ROWS} />);
     expect(screen.getAllByText(UNGROUPED_NOTE)).toHaveLength(1);

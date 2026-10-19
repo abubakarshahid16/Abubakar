@@ -463,6 +463,26 @@ def test_the_applicability_list_reports_a_discipline_match_as_unknown_not_applic
     assert "discipline" not in entry["reason"]
 
 
+def test_the_applicability_list_reports_a_possible_citation_as_unknown_not_applicable():
+    """THE MUTATION TARGET (M744). A standard `select()` CONSIDERED but did
+    not include - here a possible citation, the submittal naming the number
+    at the start of the standard's file name - is "unknown" with the
+    considered reason, never "applicable"."""
+    std = _doc("std_q", "STD-Q-210_Ed2024.pdf", "COMPANY_STANDARD")
+    sub = _doc("sub", "pump.pdf", "CONTRACTOR_SUBMITTAL", text="Coating per STD-Q-210.")
+    result = applicability.select(
+        sub, allowed_document_ids=_scope(std, sub), persist=False
+    )
+    [row] = result["selected"]
+    assert row["method"] == applicability.METHOD_POSSIBLE
+    assert row["included"] is False
+    [entry] = applicability.applicability_with_reasons(
+        sub, allowed_document_ids=_scope(std, sub)
+    )
+    assert entry["status"] == applicability.STATUS_UNKNOWN
+    assert entry["reason"].startswith("considered (possible_citation)")
+
+
 def test_an_empty_taxonomy_setting_is_no_taxonomy(monkeypatch, tmp_path):
     """`APPLICABILITY_TAXONOMY_PATH=` in .env parses as Path("."), a directory."""
     from pathlib import Path

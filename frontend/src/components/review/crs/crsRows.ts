@@ -33,6 +33,13 @@ import { type RunFacts, type ServerTiers, type TierCounts, type TierResult, coun
 /** Order 139 part 2: said once on the sheet when the server sent no grouping. */
 export const UNGROUPED_NOTE = "Shown one row per finding: the sheet's grouping could not be read from the server.";
 
+/** Release 1b: said once when a refresh could not read the sheet's grouping
+ *  and the screen kept the last grouping it had read (so the rows do not
+ *  flip under open decisions): that grouping may be older than the findings
+ *  just loaded. Never silent. */
+export const STALE_GROUPING_NOTE =
+  "The sheet's grouping could not be refreshed; rows are shown as of the last time it could be read.";
+
 /** Order 139 part 2: a row lists at most this many supporting clauses (the
  *  file's `crs_mapping.MAX_CLAUSE_LINES`), then "and k more of these n". */
 export const MAX_CLAUSE_LINES = 10;

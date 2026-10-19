@@ -212,7 +212,12 @@ def test_a_real_run_puts_other_equipment_in_does_not_apply_and_keeps_it_out_of_t
     split = stored["requirement_split"]
     assert (split["checked"], split["applies_not_checked"], split["does_not_apply"]) == (1, 0, 1)
     assert "turbine" in split["does_not_apply_reasons"][0]["reason"]
-    assert stored["unchecked_counts"] == {"not_compared": 0, "not_applied": 1, "checked": 1}
+    assert stored["unchecked_counts"] == {
+        "not_compared": 0,
+        "not_applied": 1,
+        "checked": 1,
+        "unsure_citation": 0,
+    }
     assert split["unchecked_share"] == 0.0
 
 

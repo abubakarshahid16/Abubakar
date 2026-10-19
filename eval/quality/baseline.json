@@ -23,15 +23,15 @@
   },
   "max_backend_file_lines": {
    "note": null,
-   "value": 4362
+   "value": 4501
   },
   "max_backend_function_lines": {
    "note": null,
-   "value": 787
+   "value": 808
   },
   "max_cyclomatic_complexity": {
    "note": null,
-   "value": 76
+   "value": 75
   },
   "max_frontend_component_lines": {
    "note": null,

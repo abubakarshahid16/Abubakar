@@ -69,6 +69,17 @@ REASONS: dict[str, tuple[str, str]] = {
                               "the equipment type takes this standard only in part, and not this rule"),
     "not_material_field": (DOES_NOT_APPLY,
                            "a materials standard applies only to the material fields this datasheet states"),
+    # #141: a division ("This Part applies to vessels constructed of ...")
+    # limited by its own scope sentence to a construction this equipment is not
+    "outside_division_scope": (
+        DOES_NOT_APPLY,
+        "its division of the standard is limited by its own scope to another construction",
+    ),
+    # #139: "<code>, <clause> (for <item>)" cites that clause, not the whole code
+    "outside_cited_clauses": (
+        DOES_NOT_APPLY,
+        "the datasheet cites its standard only for named clauses, and not this one",
+    ),
 }
 
 

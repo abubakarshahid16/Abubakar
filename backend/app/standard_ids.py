@@ -473,6 +473,221 @@ def cited_standards(text: str) -> list[str]:
     return list(seen.values())
 
 
+# ---------------------------------------- #139: the clauses a citation names
+#
+# A datasheet that cites a code FOR ONE ITEM ("<code>, AB-12 (for spot
+# radiography)", "XYZ-100 Section 4", "clause 4.2 of XYZ-100") applies that
+# part of the code, not every requirement in it. The grammar is generic: clause
+# identifiers printed NEXT TO the standard's identifier, with an optional
+# keyword, a list joined by "," / "and", a range ("AB-20 to AB-25", "4.1-4.5"),
+# and an optional parenthesised purpose. Nothing here names a standard, a
+# datasheet or a layout. A bare number with no keyword ("API 610 (6.12.1.1)",
+# "NACE MR 0175 11") is never read as a clause: datasheets print form-item
+# numbers and editions there. A list that cannot be read for certain (a range
+# whose two ends are not of one numbering) reads as None: the citation is then
+# taken to cite the WHOLE standard - never narrowed on a guess.
+
+#: The kind of clause each keyword introduces. "clause", "paragraph", "§" and
+#: "article" can only name a clause: SURE. "section", "annex", "appendix" and
+#: "cl" can also name a part of the code's structure, a datasheet's own
+#: heading ("SECTION 3 MATERIALS") or a rating ("CL 150"): UNSURE - read,
+#: but never used alone to rule a requirement out (`CitedClause.sure`).
+_CLAUSE_KEYWORD = re.compile(
+    r"(?P<appendix>(?:(?:non-?)?mandatory\s+|normative\s+|informative\s+)?"
+    r"(?:appendix|appendices|annex(?:es)?))\b\.?"
+    r"|(?P<article>articles?)\b\.?"
+    r"|(?P<number>paragraphs?|paras?|clauses?|§{1,2})(?:\b\.?|(?<=§))"
+    r"|(?P<section>sections?|sec|cl)\b\.?",
+    re.IGNORECASE,
+)
+#: Keyword group -> (kind of id it takes, sure).
+_KEYWORD_KIND = {
+    "appendix": ("appendix", False),
+    "article": ("article", True),
+    "number": ("number", True),
+    "section": ("number", False),
+}
+_CLAUSE_ID = {
+    "appendix": re.compile(r"(?:[A-Z]{1,3}|\d{1,3})(?![A-Za-z0-9])"),
+    "article": re.compile(r"\d{1,3}(?![\d.])"),
+    "number": re.compile(r"\d{1,3}(?:\.\d{1,3}){0,5}(?![\d])"),
+}
+#: A lettered paragraph id that needs no keyword ("AB-12", "AB-19(b)"):
+#: letters, a dash, a number; any "(b)(1)" sub-paragraph marks are read and
+#: the paragraph itself is what is cited (the wider, safer reading).
+_LETTERED_ID = re.compile(
+    r"(?P<id>[A-Z]{1,4}-\d{1,4}[A-Z]?)(?:\([a-z0-9]{1,3}\))*(?![A-Za-z0-9-])"
+)
+#: "(for spot radiography)" - what the clause is cited for; read past, kept as words.
+_PURPOSE = re.compile(r"\s*\((?P<purpose>[^()]{1,80})\)")
+_LIST_JOIN = re.compile(r"\s*(?:,|;|&|/|\band\b|\bor\b)\s*", re.IGNORECASE)
+#: Between the two ends of a range: "to", "through", "thru", a dash.
+_RANGE_JOIN = re.compile(
+    r"\s*(?:\bto\b|\bthrough\b|\bthru\b|[-\u2013\u2014])\s*", re.IGNORECASE
+)
+#: The most clauses one range is read as; a longer one is not a citation of
+#: "one item" and is not narrowed on.
+_RANGE_MAX = 60
+_LEAD = re.compile(r"[\s,;:]*")
+#: "<clause> of <standard>": the joining word before a citation.
+_BEFORE_JOIN = re.compile(r"\s*\b(?:of|in)\s+(?:the\s+)?\Z", re.IGNORECASE)
+
+
+class CitedClause(tuple):
+    """A cited clause, (kind, id) - equal to the plain pair - that knows
+    whether the datasheet printed it or it lies INSIDE a printed range
+    ("AB-21" of "AB-20 to AB-25"): a numbering may skip an id inside a range,
+    so only the printed ends must exist in the standard - and whether its
+    keyword can only name a clause (`sure`; see `_CLAUSE_KEYWORD`)."""
+
+    def __new__(cls, kind: str, ident: str, in_range: bool = False, sure: bool = True):
+        clause = super().__new__(cls, (kind, ident))
+        clause.in_range = in_range
+        clause.sure = sure
+        return clause
+
+
+def _clause_item(
+    text: str, pos: int, ctx: tuple[str, bool] | None
+) -> tuple[list[CitedClause], int, tuple[str, bool] | None]:
+    """One clause reference at `pos`: (clauses, end, (kind, sure)). A keyword
+    sets the kind and whether it is sure; a list after it ("Articles 2 and
+    22") keeps them. `ctx` is carried from the item before, for a bare id in
+    a list."""
+    keyword = _CLAUSE_KEYWORD.match(text, pos)
+    if keyword is not None:
+        ctx = next(_KEYWORD_KIND[g] for g in _KEYWORD_KIND if keyword.group(g))
+        at = keyword.end()
+        while at < len(text) and text[at] in " \t":
+            at += 1
+        found = _CLAUSE_ID[ctx[0]].match(text, at)
+        if found is None:
+            return [], pos, None
+        return (
+            [CitedClause(ctx[0], found.group(0).upper(), sure=ctx[1])],
+            found.end(),
+            ctx,
+        )
+    lettered = _LETTERED_ID.match(text, pos)
+    if lettered is not None:
+        return (
+            [CitedClause("lettered", lettered.group("id"))],
+            lettered.end(),
+            ("lettered", True),
+        )
+    if ctx and ctx[0] in _CLAUSE_ID:
+        found = _CLAUSE_ID[ctx[0]].match(text, pos)
+        if found is not None:
+            return (
+                [CitedClause(ctx[0], found.group(0).upper(), sure=ctx[1])],
+                found.end(),
+                ctx,
+            )
+    return [], pos, None
+
+
+def _range(
+    first: tuple[str, str], last: tuple[str, str]
+) -> list[tuple[str, str]] | None:
+    """Every clause from `first` to `last`, or None when the two ends are not
+    of one numbering (another kind, another letter prefix, another parent
+    clause, another depth), run backwards, or span more than `_RANGE_MAX`."""
+    kind, a = first
+    if last[0] != kind:
+        return None
+    b = last[1]
+    if kind == "lettered":
+        (pa, na), (pb, nb) = a.split("-", 1), b.split("-", 1)
+        if pa != pb or not (na.isdigit() and nb.isdigit()):
+            return None
+        make, lo, hi = (lambda n: f"{pa}-{n}"), int(na), int(nb)
+    elif kind == "number":
+        ha, _, ta = a.rpartition(".")
+        hb, _, tb = b.rpartition(".")
+        if ha != hb:
+            return None
+        make, lo, hi = (lambda n: f"{ha}.{n}" if ha else str(n)), int(ta), int(tb)
+    elif a.isdigit() and b.isdigit():
+        make, lo, hi = str, int(a), int(b)
+    elif len(a) == len(b) == 1 and a.isalpha() and b.isalpha():
+        make, lo, hi = chr, ord(a), ord(b)
+    else:
+        return None
+    if not 0 <= hi - lo < _RANGE_MAX:
+        return None
+    sure = getattr(first, "sure", True) and getattr(last, "sure", True)
+    return [CitedClause(kind, make(n), lo < n < hi, sure) for n in range(lo, hi + 1)]
+
+
+def _clause_list(text: str, pos: int) -> tuple[list[tuple[str, str]] | None, int]:
+    """Clause references from `pos` on, joined by "," / "and", each a clause
+    or a range, with an optional purpose in brackets. ([], pos) when none
+    starts there; (None, pos) when a range cannot be read for certain."""
+    clauses: list[tuple[str, str]] = []
+    kind: str | None = None
+    end = pos
+    at = pos
+    while True:
+        found, stop, kind = _clause_item(text, at, kind if clauses else None)
+        if not found:
+            break
+        dash = _RANGE_JOIN.match(text, stop)
+        last, after, _ = (
+            _clause_item(text, dash.end(), kind)
+            if dash and dash.end() > stop
+            else ([], stop, None)
+        )
+        if last:
+            found = _range(found[0], last[0])
+            if found is None:
+                return None, pos
+            stop = after
+        clauses.extend(found)
+        purpose = _PURPOSE.match(text, stop)
+        end = purpose.end() if purpose else stop
+        join = _LIST_JOIN.match(text, end)
+        if join is None or join.end() == end:
+            break
+        at = join.end()
+    return clauses, end
+
+
+def clause_qualifiers(text: str, start: int, stop: int) -> list[tuple[str, str]] | None:
+    """The clauses a citation at `text[start:stop]` names, in order: after it
+    ("<code>, AB-11 and AB-12 (for spot radiography)", "XYZ-100 Section 4") or
+    before it with "of" / "in" ("clause 4.2 of XYZ-100"). [] when the citation
+    names the standard alone - then the WHOLE standard is what is cited - and
+    None when the clauses cannot be read for certain (treated the same way).
+    Each clause is (kind, id): kind is "lettered", "number", "appendix" or
+    "article"."""
+    lead = _LEAD.match(text, stop)
+    after, _ = _clause_list(text, lead.end() if lead else stop)
+    if after is None or after:
+        return after
+    window = text[max(0, start - 160) : start]
+    join = _BEFORE_JOIN.search(window)
+    if join is None:
+        return []
+    head = window[: join.start()]
+    for at in range(len(head)):
+        if at and head[at - 1].isalnum():
+            continue
+        found, end = _clause_list(head, at)
+        if found is None or (found and not head[end:].strip()):
+            return found
+    return []
+
+
+def clause_label(clause: tuple[str, str]) -> str:
+    """A cited clause as an engineer writes it."""
+    kind, ident = clause
+    return {
+        "appendix": f"Appendix {ident}",
+        "article": f"Article {ident}",
+        "number": f"clause {ident}",
+    }.get(kind, ident)
+
+
 # ------------------------------------------------------------------ the edition
 
 #: A four-digit year in a filename or a title: the edition it is a copy of.

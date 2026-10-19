@@ -353,3 +353,82 @@ def test_closed_old_numbers_never_confirm_the_field_row(world):  # noqa: F811
     assert "replaces_refs" not in row and "Replaces earlier" not in row["comment"]
     view = crs_export.build_crs_view(rows, {**meta, "copy": "issue"})["rows"]
     assert not any("Replaces earlier" in r["comment"] for r in view)
+
+
+def _word(ids, words: str) -> None:
+    """The screen's whole-row edit: one wording on every finding of the row."""
+    with db.connect() as conn:
+        conn.executemany(
+            "UPDATE review_findings SET engineer_comment = ?, confirmed_by = 'eng-1'"
+            " WHERE id = ?",
+            [(words, i) for i in ids],
+        )
+
+
+def _rows_of(rows, ids):
+    return {
+        tuple(sorted(r["finding_ids"])): r
+        for r in rows
+        if set(r["finding_ids"]) & set(ids)
+    }
+
+
+def test_rows_split_by_wording_hold_distinct_numbers_that_do_not_swap(world):  # noqa: F811
+    """1b (follow-up of #1179): the findings of one field carry two different
+    engineer wordings, so the field is two rows. They must hold two different
+    permanent numbers, and each keeps its own whichever row the sheet lists
+    first - not the field's number for one and "#2" for the other, by place."""
+    _sub, run, scope = world
+    ids = _add_blanks(run, ("4.1", "6.2", "7.3"))
+    pair, last = ids[:2], ids[2:]
+    _word(pair, "Contractor to state it per part.")
+    _word(last, "State it for the shell only.")
+    field_key = crs_mapping.field_comment_key(crs_mapping.BUCKET_BLANK, FIELD.lower())
+    main._mint_crs_numbers(run, _scope(scope))
+
+    def refs():
+        rows, *_ = main._crs_content(run, _scope(scope))
+        mine = _rows_of(rows, ids)
+        assert len(mine) == 2
+        keys = [r["crs_row_key"] for r in mine.values()]
+        assert len(set(keys)) == 2 and not any("#" in k for k in keys)
+        assert all(r["crs_ref"] for r in mine.values()), "both are numbered"
+        return {k: (r["crs_ref"], r["crs_row_key"]) for k, r in mine.items()}
+
+    before = refs()
+    assert before[tuple(sorted(pair))][1] == field_key, (
+        "the larger row keeps the field's key"
+    )
+    assert len({ref for ref, _key in before.values()}) == 2
+    # The lone finding now sorts first on the sheet (an earlier datasheet page).
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE review_findings SET contractor_page = 0 WHERE id = ?", (last[0],)
+        )
+    rows, *_ = main._crs_content(run, _scope(scope))
+    assert next(iter(_rows_of(rows, ids))) == tuple(last), "it really sorts first now"
+    assert refs() == before, "no number moved to the other row"
+
+
+def test_a_row_split_by_wording_still_names_the_clause_numbers_it_replaces(
+    world,  # noqa: F811
+):
+    """1b: the row split off by its wording is still a field row for
+    `_replaced_numbers`: an issued per-clause number behind it is listed."""
+    sub, run, scope = world
+    ids = _add_blanks(run, ("4.1", "6.2", "7.3"))
+    pair, last = ids[:2], ids[2:]
+    _word(pair, "Contractor to state it per part.")
+    [last_member] = _member_keys(run, scope, last)
+    ref = _old_number(sub, run, last_member)
+    rows, *_ = main._crs_content(run, _scope(scope))
+    mine = _rows_of(rows, ids)
+    split = mine[tuple(last)]
+    assert split["comment_key"] != crs_mapping.field_comment_key(
+        crs_mapping.BUCKET_BLANK, FIELD.lower()
+    )
+    assert split["replaces_refs"] == [ref]
+    assert split["comment"].endswith(
+        f"Replaces earlier comment {ref} (now one comment per field)."
+    )
+    assert "replaces_refs" not in mine[tuple(sorted(pair))]

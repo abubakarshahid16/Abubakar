@@ -93,6 +93,25 @@ def test_a_standard_named_in_the_datasheet_is_selected_as_referenced():
     assert "API 610" not in missing
 
 
+def test_a_standard_named_in_the_datasheet_is_selected_by_its_file_name_number():
+    """THE MUTATION TARGET (M57), with no other path to the same answer.
+    Above, `library_citations` also reaches METHOD_REFERENCED through the
+    recorded document_number. Here no number is recorded, so only the
+    citation lookup (`_match_referenced`, via the file name) makes this a
+    referenced, included standard; without it the row is a possible match."""
+    std = _doc("std_610", "API-610.pdf", "COMPANY_STANDARD")
+    sub = _doc("sub", "pump-datasheet.pdf", "CONTRACTOR_SUBMITTAL", text=CITES_610)
+    result = applicability.select(
+        sub, allowed_document_ids=_scope(std, sub), persist=False
+    )
+    chosen = {s["standard_document_id"]: s for s in result["selected"]}
+    assert std in chosen, "a standard the datasheet names was not selected"
+    assert chosen[std]["method"] == applicability.METHOD_REFERENCED
+    assert chosen[std]["included"] is True
+    assert chosen[std]["reason"].startswith("named in the submittal as API 610")
+    assert "API 610" not in {m["identifier"] for m in result["missing_references"]}
+
+
 def test_a_one_letter_koc_discipline_code_is_read_as_a_citation():
     """#161: a real client pump datasheet's reference list names standards under
     BOTH one-letter (KOC-E-003, electrical) and two-letter (KOC-ME-008,

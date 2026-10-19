@@ -60,7 +60,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              replacement='    if False:\n',
              target=_T, keyword="overpressure_stated_as_a_pressure", tags=("calc",)),
     Mutation(id="M798-15", phase=798, description="Fahrenheit is converted without its offset",
-             path=_C, anchor='"degf": (1 / 1.8, 459.67 / 1.8),',
+             path=APP / "claims.py", anchor='"degf": (1 / 1.8, 459.67 / 1.8),',  # order 141 B: one home
              replacement='"degf": (1 / 1.8, 0.0),',
              target=_T, keyword="us_units_on_the_sheet", tags=("calc", "units")),
     Mutation(id="M798-16", phase=798, description="the sheet's own required area gets no rounding allowance",

@@ -291,7 +291,12 @@ class TestCompoundTerm:
             "the pump bearing temperature shall be monitored continuously",
             requirement_type="statement", value=None, raw_value=None,
             unit=None, raw_unit=None)
-        result = comparison.match_by_containment(req, [fact("Bearing", is_blank=True, raw_value=None)])
+        # a blank with no unit printed: a field in bar would be another
+        # quantity than a temperature (rule 6) and is refused for that
+        result = comparison.match_by_containment(
+            req,
+            [fact("Bearing", is_blank=True, raw_value=None, raw_unit=None, unit=None)],
+        )
         assert result["fact"]["field_name"] == "Bearing"
         assert result["refused"] == []
 
@@ -327,8 +332,13 @@ class TestRefusal:
 
     def test_every_reason_is_listed(self):
         assert set(match_rules.REASONS) == {
-            match_rules.UNIT_DIMENSION, match_rules.EQUIPMENT_DOMAIN,
-            match_rules.TABLE_LOOKUP_INPUT, match_rules.COMPOUND_TERM, match_rules.QUALIFIER}
+            match_rules.UNIT_DIMENSION,
+            match_rules.EQUIPMENT_DOMAIN,
+            match_rules.TABLE_LOOKUP_INPUT,
+            match_rules.COMPOUND_TERM,
+            match_rules.QUALIFIER,
+            match_rules.QUANTITY_KIND,
+        }
 
     def test_no_rule_fires_on_the_plain_case(self):
         """The existing containment behaviour is untouched when nothing is
