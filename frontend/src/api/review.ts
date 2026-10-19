@@ -31,7 +31,7 @@ import type {
   ReviewReadiness,
   VisionReaderStatus,
   ReviewRunStandard,
-  ReviewRunMissingReference,
+  ReviewRunHeldForConfirmation, ReviewRunMissingReference,
   ReviewRunSummary,
   ReviewRunTierSummary,
   ReviewRunCountsBatch,
@@ -158,7 +158,11 @@ export const reviews = {
     request<FindingEvidence>(`/reviews/findings/${encodeURIComponent(findingId)}/evidence`),
   /** Which standards a run compared against, and why each one is there. */
   reviewRunStandards: (runId: string) =>
-    request<{ standards: ReviewRunStandard[]; missing_references?: ReviewRunMissingReference[] }>(
+    request<{
+      standards: ReviewRunStandard[];
+      missing_references?: ReviewRunMissingReference[];
+      held_for_confirmation?: ReviewRunHeldForConfirmation | null;
+    }>(
       `/reviews/runs/${encodeURIComponent(runId)}/standards`,
       undefined,
       hasArrayField("standards"),

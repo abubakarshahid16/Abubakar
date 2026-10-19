@@ -290,12 +290,17 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
         with review_trace.timed(timings, "standards"):
             selection = applicability.select(submittal, allowed_document_ids=scope,
                                              review_run_id=run_id, persist=True, heartbeat=heartbeat)
+            # #620: the Company standards selection left out as held; said on the run below.
+            from . import company_standard_confirm
+
+            held = company_standard_confirm.held_readable(scope)
         _step(conn, job_id, 2)
         with review_trace.timed(timings, "compare"):
             comparison.run_comparison(
                 run_id, allowed_document_ids=scope,
                 reference_coverage=selection.get("reference_coverage"),
                 missing_references=[m["identifier"] for m in selection["missing_references"]])
+            company_standard_confirm.record_on_run(run_id, held)
         with review_trace.timed(timings, "checks"):
             _ai_check(run_id, scope, [m["identifier"] for m in selection["missing_references"]])
             _web_check(run_id, scope, [m["identifier"] for m in selection["missing_references"]])

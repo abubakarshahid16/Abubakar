@@ -173,6 +173,87 @@ def admin_revoke_grant(body: admin_mod.GrantRequest,
     return admin_mod.revoke_grant(body, actor)
 
 
+@router.get(
+    "/api/admin/company-standards/held",
+    response_model=schemas.HeldCompanyStandardList,
+    responses={**schemas.ERRORS_404, **schemas.ERRORS_422},
+)
+def admin_held_company_standards(
+    request: Request,
+    limit: int | None = limit_param(),
+    offset: int = offset_param(),
+    _actor: dict | None = Depends(admin_mod.current_admin),
+):
+    """#620 (owner's option a): the Company standards a non-administrator
+    uploaded on or after the cut-off that wait for an administrator's
+    confirmation before reviews use them. `confirm_from` states the boundary:
+    standards uploaded before it count as confirmed and are not listed."""
+    from .. import company_standard_confirm as csc
+    from ..config import settings
+
+    reject_unknown_params(request, {"limit", "offset"})
+    return {
+        **page_body("standards", csc.list_held(), limit, offset),
+        "confirm_from": str(settings.company_standard_confirm_from or "") or None,
+    }
+
+
+@router.post(
+    "/api/admin/company-standards/{document_id}/confirm",
+    response_model=schemas.CompanyStandardConfirmed,
+    responses={**schemas.ERRORS_404, **schemas.ERRORS_422},
+)
+def admin_confirm_company_standard(
+    document_id: str,
+    actor: dict | None = Depends(admin_mod.current_admin),
+):
+    """#620: an administrator confirms one held Company standard, so reviews
+    use it from the next run. Idempotent (`confirmed: false` when it already
+    was) and audited once. An unknown id is a 404, and so is a caller with no
+    identity (a confirmation always names an administrator); a document that
+    is not a Company standard is a 422."""
+    from .. import company_standard_confirm as csc
+    from .. import standards as standards_mod
+
+    if (
+        actor is None
+        or connect()
+        .execute("SELECT 1 FROM documents WHERE id = ?", (document_id,))
+        .fetchone()
+        is None
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail=errors.safe_error(errors.NOT_FOUND, "no document with that id"),
+        )
+    if (
+        connect()
+        .execute(
+            "SELECT 1 FROM document_classification WHERE document_id = ? AND document_role = ?",
+            (document_id, standards_mod.COMPANY_STANDARD),
+        )
+        .fetchone()
+        is None
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=errors.safe_error(
+                errors.INVALID_PARAMETER, "that document is not a Company standard"
+            ),
+        )
+    try:
+        confirmed = csc.confirm(
+            document_id,
+            actor_user_id=actor["id"],
+            actor_username=actor.get("email") or actor["id"],
+        )
+    except csc.NotAnAdministrator:
+        raise HTTPException(
+            status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "not found")
+        ) from None
+    return {"document_id": document_id, "confirmed": confirmed}
+
+
 # ------------------------------------------ the read-only database explorer
 #
 # THE SAME GATE AS EVERY OTHER ADMIN ROUTE, and that is the point: this is the

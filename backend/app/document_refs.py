@@ -56,6 +56,10 @@ REGISTRY: dict[tuple[str, str], tuple[str, str]] = {
     # ---- removed with the document by the foreign key -------------------
     ("chunk_vectors", "document_id"): (FK_CASCADE, "derived from the document's chunks"),
     ("chunks", "document_id"): (FK_CASCADE, "the document's own text"),
+    ("company_standard_confirmations", "document_id"): (
+        FK_CASCADE,
+        "an administrator's confirmation of this Company standard (#620)",
+    ),
     ("document_classification", "document_id"): (FK_CASCADE, "metadata about this document"),
     ("document_kinds", "document_id"): (FK_CASCADE, "the document-type router's suggestion or a person's confirmed kind"),
     ("document_role_access", "document_id"): (FK_CASCADE, "grants on a document that is gone"),

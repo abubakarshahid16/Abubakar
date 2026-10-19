@@ -496,6 +496,16 @@ CREATE TABLE IF NOT EXISTS document_role_access (
 );
 
 CREATE INDEX IF NOT EXISTS idx_dra_role ON document_role_access(role_id, permission);
+
+-- #620: an administrator's confirmation that a Company standard uploaded by a
+-- non-admin may be used by reviews (`company_standard_confirm`). One row per
+-- document; the confirmer's name is kept as at the time, like audit_events.
+CREATE TABLE IF NOT EXISTS company_standard_confirmations (
+    document_id       TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+    confirmed_by      TEXT REFERENCES users(id) ON DELETE SET NULL,
+    confirmed_by_name TEXT,
+    confirmed_at      TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_user_roles_user ON user_roles(user_id);
 
 -- Append-only record of who did what. `actor_user_id` is nullable and

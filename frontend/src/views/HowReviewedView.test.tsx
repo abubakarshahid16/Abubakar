@@ -231,6 +231,14 @@ describe("HowReviewedView on a full run", () => {
     expect(line).toHaveTextContent("50% (requirement_split.unchecked_share)");
   });
 
+  it("#620: says which Company standards the run left out while they wait for an administrator", async () => {
+    const sentence = "1 Company standard was not used in this review: uploaded by a non-administrator, "
+      + "waiting for an administrator's confirmation. Company standards uploaded before 2026-10-18 count as confirmed.";
+    mount(fullRun(), { ...standardsRecord, held_for_confirmation: {
+      count: 1, standard_document_ids: ["std-held"], confirm_from: "2026-10-18T00:00:00", sentence } });
+    expect(await screen.findByTestId("standards-held-for-confirmation")).toHaveTextContent(sentence);
+  });
+
   it("links each missing standard to the Documents screen for upload", async () => {
     const navigate = mount(fullRun());
     const missing = await screen.findByTestId("standards-missing");
