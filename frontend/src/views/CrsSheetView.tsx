@@ -28,6 +28,8 @@ import { downloadCrs } from "../components/review/downloadCrs";
 import { progressLine, runStatusLabel } from "../components/review/reviewFormat";
 import type { StandardsState } from "../components/review/panels/BehindTheScenes";
 import { ReviewJobControl } from "../components/review/panels/ReviewJobControl";
+import { BeforeYouSign } from "../components/review/crs/BeforeYouSign";
+import { signLeft, useIssueGate } from "../components/review/crs/issueGate";
 import { CrsEvidenceDrawer } from "../components/review/crs/CrsEvidenceDrawer";
 import { CrsFooter } from "../components/review/crs/CrsFooter";
 import { CrsHeader } from "../components/review/crs/CrsHeader";
@@ -108,8 +110,9 @@ function useRunData(runId: string) {
   return { load, run, findings, standardsState, submittal, summary, active, refresh };
 }
 
-/** Sign and export = the existing CRS issue route (the same one the card
- *  view's Send uses; the server still refuses it while anything is open);
+/** Sign and export = the existing CRS issue route (the server still refuses
+ *  it while anything is open; order 121: the sheet's "Before you sign" box
+ *  closes each of those items here, and Sign waits for it);
  *  the working copy = the internal export. No new endpoint. */
 function useExport(runId: string, refresh: () => Promise<void>) {
   const [sign, setSign] = useState<Sign>({ busy: false, message: null, error: null });
@@ -178,6 +181,10 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
   const [confirming, setConfirming] = useState(false);
   const [kept, setKept] = useState<number | null>(null);
   const { sign, exportSheet } = useExport(runId, refresh);
+  // Order 121: what the server still wants before the contractor's copy,
+  // read again whenever the run or its findings are.
+  const gateVersion = useMemo(() => ({ run, findings }), [run, findings]);
+  const issueGate = useIssueGate(runId, gateVersion);
   const [returnTo, setReturnTo] = useState<HTMLElement | null>(null);
   const decisions = useCrsDecisions();
   const [save, setSave] = useState<Save>({ busy: false, message: null, error: null });
@@ -263,8 +270,11 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
           onUndo: () => { decisions.undo(); setKept(null); },
         }}
         sign={{ busy: sign.busy, message: sign.message, error: sign.error, onSign: () => void exportSheet("issue"), onWorkingCopy: () => void exportSheet("internal") }}
+        signLeft={signLeft(issueGate, run, rows)}
         onBack={leave}
       />
+      <BeforeYouSign run={run} rows={rows} state={issueGate} onRunChanged={() => void refresh()}
+        onJump={(row) => { setSelectedKey(row.key); openEvidence(row); }} />
       <CrsTable
         rows={shown} allRows={rows} counts={counts} depth={depth} onDepth={setDepth} showMet={showMet} onShowMet={setShowMet}
         spot={spot} selectedKey={selectedKey} onSelect={selectRow} onOpenEvidence={openEvidence}

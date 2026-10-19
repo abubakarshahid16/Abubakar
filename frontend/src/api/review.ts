@@ -120,6 +120,14 @@ export const reviews = {
       undefined,
       hasArrayField("runs"),
     ),
+  /** #1131: one page of the runs, newest first, with `total` - every run the
+   *  caller may read - so a screen can say how many it is showing of how many. */
+  reviewRunsPage: (offset: number, limit: number) =>
+    request<{ runs: ReviewRunSummary[]; total: number; limit: number | null; offset: number }>(
+      `/reviews/runs?limit=${limit}&offset=${offset}`,
+      undefined,
+      (b) => hasArrayField("runs")(b) && hasNumberField("total")(b),
+    ),
   /** Order 109: one run, the same shape as its row in reviewRuns(). A screen
    *  showing one run asks for that run, not for every run. The server answers
    *  404 both for a run that is not there and for one the caller may not read;
