@@ -116,6 +116,11 @@ export const ROLE_UNREADABLE_MESSAGE =
  *  signed in) while a new review was on its way. */
 export const SIGNED_OUT_MESSAGE = "You signed out, so this new review was stopped. Nothing more was sent.";
 
+/** Said when the person changed just after the server took the review: it
+ *  was started, so it is never called "stopped"; it is not watched here. */
+export const SIGNED_OUT_AFTER_START_MESSAGE =
+  "You signed out just after the review was started. It runs on; open it from the list when you sign in again.";
+
 /** Said when a re-dropped file's earlier reviews could not be read: never
  *  guessed as "none", so no review is started. */
 export const EXISTING_REVIEW_UNKNOWN_MESSAGE =
@@ -225,18 +230,26 @@ async function waitUntilReadIn(
   }
 }
 
+/** Run statuses that ended without a review to open: a new one starts. */
+const ENDED_WITHOUT_REVIEW = new Set(["failed", "cancelled"]);
+/** Run statuses still on their way (the inbox's queued and running). */
+const STILL_RUNNING = new Set(["queued", "pending", "retrying", "running"]);
+
 /** The document's newest review, read from its runs. `null`: none yet.
  *  Never throws; a failure is `ok: false` (never guessed as "none"). */
 async function existingReview(
   documentId: string,
-): Promise<{ ok: true; latest: { runId: string; prior: PriorDecision } | null } | { ok: false }> {
+): Promise<{ ok: true; latest: { runId: string; status: string; prior: PriorDecision } | null } | { ok: false }> {
   try {
     const r = await reviewsApi.reviewRuns(documentId);
     if (!r.ok) return { ok: false };
     const mine = r.data.runs.filter((run) => run.submittal_document_id === documentId);
     const latest = groupRunsByDocument(mine)[0]?.latest;
     if (!latest) return { ok: true, latest: null };
-    return { ok: true, latest: { runId: latest.review_run_id, prior: priorDecisionOf(documentId, mine) } };
+    return {
+      ok: true,
+      latest: { runId: latest.review_run_id, status: latest.status ?? "", prior: priorDecisionOf(documentId, mine) },
+    };
   } catch {
     return { ok: false };
   }
@@ -284,10 +297,18 @@ export async function startNewReview(
     const prior = await existingReview(documentId);
     if (changed()) return fail(SIGNED_OUT_MESSAGE);
     if (!prior.ok) return fail(EXISTING_REVIEW_UNKNOWN_MESSAGE);
-    if (prior.latest) {
-      const message = reviewedBeforeMessage(prior.latest.prior);
+    const latest = prior.latest;
+    // A failed or cancelled last review is not a review that happened: a
+    // new one starts. One still queued or running is opened, in the same
+    // words as the API's "already running" refusal.
+    if (latest && !ENDED_WITHOUT_REVIEW.has(latest.status)) {
+      if (STILL_RUNNING.has(latest.status)) {
+        onPhase({ kind: "error", message: ALREADY_RUNNING_MESSAGE });
+        return { ok: false, message: ALREADY_RUNNING_MESSAGE, runningRunId: latest.runId };
+      }
+      const message = reviewedBeforeMessage(latest.prior);
       onPhase({ kind: "error", message });
-      return { ok: false, message, existingRunId: prior.latest.runId };
+      return { ok: false, message, existingRunId: latest.runId };
     }
   } else {
     onPhase({ kind: "marking" });
@@ -302,7 +323,7 @@ export async function startNewReview(
 
   onPhase({ kind: "starting" });
   const started = await reviewsApi.startReviewRun(documentId);
-  if (changed()) return fail(SIGNED_OUT_MESSAGE);
+  if (changed()) return fail(started.ok ? SIGNED_OUT_AFTER_START_MESSAGE : SIGNED_OUT_MESSAGE);
   if (!started.ok) {
     const refusal = await startRefusal(started);
     if (changed()) return fail(SIGNED_OUT_MESSAGE);
