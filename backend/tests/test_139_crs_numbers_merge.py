@@ -314,3 +314,42 @@ def test_a_member_key_still_on_the_sheet_is_never_withdrawn(world):  # noqa: F81
     main._mint_crs_numbers(run, _scope(scope))
     crs_scope, _label = main._crs_scope_of(sub)
     assert crs_numbers.lookup(crs_scope, [member])[member]["status"] == crs_numbers.OPEN
+
+
+def _close(sub, ref: str) -> None:
+    crs_scope, label = main._crs_scope_of(sub)
+    seq = crs_numbers.parse_ref(ref)[1]
+    crs_numbers.set_status(crs_scope, seq, crs_numbers.CLOSED, user_id="eng-1")
+
+
+def test_a_closed_old_number_is_not_listed_or_kept_on_the_sheet(world):  # noqa: F811
+    """cloud's #1179 review: a number the reviewer already CLOSED is not
+    carried forward (`open_elsewhere` is Open only), so the row must not say
+    it "stays on the sheet", nor list it among the comments it replaces."""
+    sub, run, scope = world
+    ids = _add_blanks(run)
+    first, second = _member_keys(run, scope, ids)
+    open_ref = _old_number(sub, run, first)
+    closed_ref = _old_number(sub, run, second)
+    _close(sub, closed_ref)
+    row = _field_row(main._crs_content(run, _scope(scope), "issue")[0])
+    assert row["replaces_refs"] == [open_ref]
+    assert closed_ref not in row["comment"] and open_ref in row["comment"]
+    assert row["engineer_confirmed"] is False
+
+
+def test_closed_old_numbers_never_confirm_the_field_row(world):  # noqa: F811
+    """If every clause's old number is Closed, nothing confirms the field row:
+    it is still the machine's draft, not on the contractor's copy, and its
+    text claims no "Replaces earlier comments" for comments already closed."""
+    sub, run, scope = world
+    ids = _add_blanks(run)
+    refs = [_old_number(sub, run, k) for k in _member_keys(run, scope, ids)]
+    for ref in refs:
+        _close(sub, ref)
+    rows, meta, *_ = main._crs_content(run, _scope(scope), "issue")
+    row = _field_row(rows)
+    assert row["engineer_confirmed"] is False
+    assert "replaces_refs" not in row and "Replaces earlier" not in row["comment"]
+    view = crs_export.build_crs_view(rows, {**meta, "copy": "issue"})["rows"]
+    assert not any("Replaces earlier" in r["comment"] for r in view)

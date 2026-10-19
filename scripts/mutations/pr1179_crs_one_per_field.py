@@ -142,4 +142,15 @@ MUTATIONS: tuple[Mutation, ...] = (
         "        words = _point_words(g, question)\n",
         "one_row_never_hides_a_second_question",
     ),
+    Mutation(
+        id="M1179-20",
+        phase=1179,
+        description="a CLOSED old per-clause number counts as still on the sheet and confirms the field row",
+        path=APP / "main.py",
+        anchor='            and records[k].get("status") == crs_numbers_mod.OPEN\n',
+        replacement='            and records[k].get("status") != crs_numbers_mod.WITHDRAWN\n',
+        target="tests/test_139_crs_numbers_merge.py",
+        keyword="closed_old_number",
+        tags=_TAGS,
+    ),
 )
