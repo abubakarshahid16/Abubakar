@@ -100,7 +100,15 @@ function uploadOne(
   });
 }
 
-export function Uploader({ onUploaded }: { onUploaded: () => void }) {
+export function Uploader({ onUploaded, onFileDone, single = false }: {
+  onUploaded: () => void;
+  /** Order 123 item 1: told about each file once its upload has finished,
+   *  successfully or not, so a caller can carry on with it (the Submittals
+   *  page marks it a contractor submittal and starts its review). */
+  onFileDone?: (name: string, state: UploadState) => void;
+  /** One file only: the drop takes the first file and the picker allows one. */
+  single?: boolean;
+}) {
   const [items, setItems] = useState<UploadItem[]>([]);
   const [dragging, setDragging] = useState(false);
   const [picker, setPicker] = useState<Picker>({ s: "loading" });
@@ -143,7 +151,7 @@ export function Uploader({ onUploaded }: { onUploaded: () => void }) {
 
   const start = useCallback(
     async (files: FileList | File[]) => {
-      const list = Array.from(files);
+      const list = Array.from(files).slice(0, single ? 1 : undefined);
       if (list.length === 0 || blocked) return;
 
       const queued: UploadItem[] = list.map((f, i) => ({
@@ -165,9 +173,10 @@ export function Uploader({ onUploaded }: { onUploaded: () => void }) {
         );
         setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, state } : it)));
         onUploaded();
+        onFileDone?.(item.name, state);
       }
     },
-    [onUploaded, blocked, chosen],
+    [onUploaded, onFileDone, single, blocked, chosen],
   );
 
   return (
@@ -231,25 +240,25 @@ export function Uploader({ onUploaded }: { onUploaded: () => void }) {
         ].join(" ")}
       >
         <p className="text-sm text-slateish-300">
-          Drag PDF or Word (.docx) files here, or{" "}
+          {single ? "Drag one PDF or Word (.docx) file here" : "Drag PDF or Word (.docx) files here"}, or{" "}
           <button
             type="button"
             disabled={blocked}
             onClick={() => inputRef.current?.click()}
             className="underline decoration-dotted underline-offset-4 hover:text-slateish-200"
           >
-            choose files
+            {single ? "choose a file" : "choose files"}
           </button>
         </p>
         <p className="mt-1 text-xs text-slateish-400">
-          Files are stored on this machine. Multiple files are uploaded one after another.
+          {single ? "The file is stored on this machine." : "Files are stored on this machine. Multiple files are uploaded one after another."}
         </p>
         <input
           ref={inputRef}
           type="file"
           accept="application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx"
-          multiple
-          aria-label="Choose PDF or Word files to upload"
+          multiple={!single}
+          aria-label={single ? "Choose a PDF or Word file to upload" : "Choose PDF or Word files to upload"}
           className="sr-only"
           onChange={(e) => {
             if (e.target.files) void start(e.target.files);

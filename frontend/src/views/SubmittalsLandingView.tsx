@@ -15,6 +15,7 @@ import { api, reviews as reviewsApi } from "../api/client";
 import type { DocumentRecord, ReviewRunSummary } from "../types/api";
 import { DocumentsFromContractors } from "../components/review/DocumentsFromContractors";
 import { InboxList } from "../components/review/inbox/InboxList";
+import { NewReview } from "../components/review/NewReview";
 import { INBOX_IS_DEFAULT } from "../routing";
 import { LIST_MAX, groupRunsByDocument, totalFromResponse } from "../components/review/reviewFormat";
 import { type ReadyCounts, anyMoving, inboxStateOf } from "../components/review/inbox/inboxState";
@@ -151,6 +152,8 @@ export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onO
           citations.
         </p>
       </header>
+
+      <NewReview onUploaded={() => void reload()} onReady={(documentId) => void reviewDocument(documentId)} />
 
       {phase.kind === "loading" && <p className="text-slateish-300">Loading documents…</p>}
       {phase.kind === "error" && (
