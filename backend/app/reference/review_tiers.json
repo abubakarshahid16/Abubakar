@@ -35,11 +35,22 @@
     "unit unknown"
   ],
   "fallback_reason": "condition unsettled",
-  "phrases": {
-    "value conflict": "\\bvalue conflict\\b|\\bconflicting values?\\b|\\bvalues? conflict\\b",
-    "unit unknown": "\\bunit unknown\\b|\\bunknown unit\\b|\\bunit (?:not|could not be) (?:read|recognised|recognized|parsed)\\b"
+  "word_edge": {
+    "_about": "Order 135 (D1): a phrase is found only between word edges, and both engines mean the same thing by a word character: a Unicode letter (L*), a Unicode number (N*) or an underscore. Each phrase writes its edges as (?<!TOKEN) and (?!TOKEN); each engine puts its own spelling of that one class in place of the token. Python's str \\w is exactly that class (test_133 checks every code point Python knows); JavaScript spells it [\\p{L}\\p{N}_] and needs the u flag. Known limit: a character first assigned after Unicode 15.0 (the database of Python 3.12) is no letter to the server and may be one to the screen. Never \\b: JavaScript's \\b knows only ASCII letters, so 'évalue conflict' read as 'value conflict' on the screen only.",
+    "token": "{word}",
+    "python": "\\w",
+    "javascript": "[\\p{L}\\p{N}_]",
+    "javascript_flags": "u"
   },
-  "fold": {"pattern": "[\\s_-]+", "replace": " "},
+  "phrases": {
+    "value conflict": "(?<!{word})(?:value conflict|conflicting values?|values? conflict)(?!{word})",
+    "unit unknown": "(?<!{word})(?:unit unknown|unknown unit|unit (?:not|could not be) (?:read|recognised|recognized|parsed))(?!{word})"
+  },
+  "fold": {
+    "_about": "Order 135 (D2): the separators folded to one space, written out so both engines fold the same characters (Python's \\s and JavaScript's \\s differ: only JavaScript's has U+FEFF, only Python's has U+001C-U+001F and U+0085). The class is every character either engine calls white space, plus the invisible spaces U+200B (zero width space) and U+2060 (word joiner), plus underscore and hyphen. It holds every character Python's strip() and JavaScript's trim() remove, so after the fold both trim only spaces.",
+    "pattern": "[\\t\\n\\v\\f\\r \\u001c-\\u001f\\u0085\\u00a0\\u1680\\u2000-\\u200b\\u2028\\u2029\\u202f\\u205f\\u2060\\u3000\\ufeff_-]+",
+    "replace": " "
+  },
   "pairing_guess": {
     "always": ["field_name"],
     "held": {"match_method": "model", "compliance_status": "NEEDS_ENGINEER_REVIEW"}
