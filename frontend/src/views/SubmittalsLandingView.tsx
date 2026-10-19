@@ -32,13 +32,32 @@ interface BatchResult {
   refused: { filename: string; message: string }[];
 }
 
-/** #1114: the Ready label's counts come from the run's own summary (#1111);
- *  any failure (a server without the route answers 404) leaves them out. */
-export async function loadReadyCounts(runId: string): Promise<ReadyCounts | null> {
-  const res = await reviewsApi.reviewRunSummary(runId);
-  if (!res.ok) return null;
-  const { comment, needs_you } = res.data.counts;
-  return { findings: comment + needs_you, needs_you };
+/** Order 117 item 5: the most run ids one counts request may carry; the
+ *  server answers 422 above this. */
+export const RUN_COUNTS_MAX_IDS = 200;
+
+/** #1114 / order 117 item 5: the Ready labels' counts, for many runs at once
+ *  - one counts request per RUN_COUNTS_MAX_IDS ids, not one full summary per
+ *  run. A run absent from the answer, or in a request that failed, maps to
+ *  null and its row says "Ready" alone; a failure never shows 0. */
+export async function loadReadyCounts(runIds: string[]): Promise<Record<string, ReadyCounts | null>> {
+  const out: Record<string, ReadyCounts | null> = {};
+  const chunks: string[][] = [];
+  for (let i = 0; i < runIds.length; i += RUN_COUNTS_MAX_IDS) chunks.push(runIds.slice(i, i + RUN_COUNTS_MAX_IDS));
+  await Promise.all(chunks.map(async (chunk) => {
+    let got: Record<string, { comment: number; needs_you: number }> | null = null;
+    try {
+      const res = await reviewsApi.reviewRunCounts(chunk);
+      if (res.ok) got = res.data.counts;
+    } catch {
+      got = null;
+    }
+    for (const id of chunk) {
+      const c = got && Object.prototype.hasOwnProperty.call(got, id) ? got[id] : undefined;
+      out[id] = c ? { findings: c.comment + c.needs_you, needs_you: c.needs_you } : null;
+    }
+  }));
+  return out;
 }
 
 export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onOpenInbox, onOpenList }: {
