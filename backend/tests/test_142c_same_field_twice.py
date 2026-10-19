@@ -6,10 +6,11 @@ the same field about different named items, so a field captured twice with the
 same value went to the engineer as AMBIGUOUS_MATCH with a rationale repeating
 one name ("X, X"). Now the copies are compared with each other: same value (or
 all blank) is one field, the other copies are named; different values stay an
-engineer's question, each copy named once with its page and value.
+engineer's question, each copy named once with its page and value - and so
+does a value on one copy beside a blank ("to be provided") on another.
 
 Invented field names and values only (CLAUDE.md rules 1 and 3).
-Mutation proofs: M1185-01 .. M1185-04 (scripts/mutations/pr1185_same_field_twice.py).
+Mutation proofs: M1185-01 .. M1185-06 (scripts/mutations/pr1185_same_field_twice.py).
 """
 
 from __future__ import annotations
@@ -44,10 +45,10 @@ def fact(field_name, fid, *, page=1, value=300.0, raw="300", unit="psi", **over)
         "field_name": field_name,
         "field_label": field_name,
         "page": page,
-        "value": value,
+        "normalized_value": value,
+        "normalized_unit": unit,
         "raw_value": raw,
         "raw_unit": unit,
-        "unit": unit,
     }
     return {**base, **over}
 
@@ -58,10 +59,10 @@ def blank(field_name, fid, *, page=1, **over):
         "field_name": field_name,
         "field_label": field_name,
         "page": page,
-        "value": None,
+        "normalized_value": None,
+        "normalized_unit": None,
         "raw_value": None,
         "raw_unit": None,
-        "unit": None,
         "is_blank": 1,
         **over,
     }
@@ -112,7 +113,8 @@ def test_one_filled_copy_and_a_blank_copy_uses_the_filled_one():
     got = match(
         [fact("flange rating", "a", page=5), blank("flange rating", "b", page=2)]
     )
-    # a number answers the clause; the blank is not consulted at all
+    # the numeric pass never takes a blank while a number hits, so the
+    # blank is not a copy here at all
     assert got["reason"] is None and got["fact"]["id"] == "a"
 
     both = comparison.match_by_containment(
@@ -183,6 +185,53 @@ def test_categorical_copies_compare_by_their_words():
         "Casing material (page 2): Cast iron",
         "Casing material (page 5): Carbon steel",
     ]
+
+
+def test_a_value_beside_a_blank_copy_is_an_engineer_question_on_the_statement_path():
+    # the statement path takes blanks and filled copies together: one copy
+    # states the rating, another leaves it to be provided - not one field
+    req = requirement(
+        "nozzle flanges shall have a minimum pressure rating of class 300",
+        requirement_type="statement",
+        raw_value="Class 300",
+        raw_unit=None,
+        value=None,
+        unit=None,
+    )
+    stated = {
+        "id": "a",
+        "field_name": "flange rating",
+        "field_label": "flange rating",
+        "page": 2,
+        "raw_value": "Class 300",
+        "raw_unit": None,
+    }
+    open_copy = {
+        **stated,
+        "id": "b",
+        "page": 5,
+        "raw_value": "By vendor",
+        "is_blank": 1,
+    }
+    got = comparison.match_statement(req, [stated, open_copy])
+
+    assert got["fact"] is None and got["reason"] == comparison.AMBIGUOUS_MATCH
+    assert got["same_field_copies"] is True
+    assert got["candidates"] == [
+        "flange rating (page 2): Class 300",
+        "flange rating (page 5): left blank",
+    ]
+
+
+def test_two_table_columns_with_the_same_number_are_not_one_copy():
+    got = match(
+        [
+            fact("flange rating", "a", page=2, value_column="maximum"),
+            fact("flange rating", "b", page=2, value_column="rated"),
+        ]
+    )
+
+    assert got["fact"] is None and got["reason"] == comparison.AMBIGUOUS_MATCH
 
 
 def test_two_copies_with_different_values_are_never_picked_between():
