@@ -174,7 +174,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         "            comment = empty_comment_text(\n"
         '                str(finding.get("crs_ref") or "")\n'
         '                if finding.get("engineer_confirmed") is True\n'
-        '                else ""\n'
+        '                else "",\n'
+        '                finding.get("row_kind") == ROW_KIND_CARRIED_FORWARD,\n'
         "            )\n",
         "",
         _TE,

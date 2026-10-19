@@ -105,15 +105,23 @@ EMPTY_COMMENT_TEXT = (
 #: it was issued, and the sentence says which comment and what to do.
 EMPTY_ISSUED_COMMENT_TEXT = (
     "Comment {ref} was issued but its wording was not kept. Confirm or edit "
+    "the same item in a review of this submittal to write it again."
+)
+#: ... and for a comment CARRIED FORWARD from an earlier run (no row of this
+#: run stands on it), where closing the comment also clears it. Closing does
+#: NOT clear a row this run raised again: that row stays until it has words.
+EMPTY_CARRIED_COMMENT_TEXT = (
+    "Comment {ref} was issued but its wording was not kept. Confirm or edit "
     "the same item in a review of this submittal to write it again, or "
     "close the comment."
 )
 
 
-def empty_comment_text(crs_ref: str = "") -> str:
+def empty_comment_text(crs_ref: str = "", carried: bool = False) -> str:
     """The internal copy's COMPANY Comments for a row with no text."""
     if crs_ref:
-        return EMPTY_ISSUED_COMMENT_TEXT.format(ref=crs_ref)
+        template = EMPTY_CARRIED_COMMENT_TEXT if carried else EMPTY_ISSUED_COMMENT_TEXT
+        return template.format(ref=crs_ref)
     return EMPTY_COMMENT_TEXT
 
 
@@ -398,7 +406,8 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
             comment = empty_comment_text(
                 str(finding.get("crs_ref") or "")
                 if finding.get("engineer_confirmed") is True
-                else ""
+                else "",
+                finding.get("row_kind") == ROW_KIND_CARRIED_FORWARD,
             )
         ref = row_reference(run_id, finding)
         # Two DIFFERENT rows landing on one reference would let a contractor

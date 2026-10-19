@@ -37,7 +37,11 @@ from pathlib import Path
 
 from . import page_ledger
 from .config import settings
-from .crs_mapping import ROW_KIND_SAFETY_TICK, row_has_no_issuable_text
+from .crs_mapping import (
+    ROW_KIND_CARRIED_FORWARD,
+    ROW_KIND_SAFETY_TICK,
+    row_has_no_issuable_text,
+)
 from .db import connect
 
 PAGE, FINDING = "page", "finding"
@@ -61,20 +65,27 @@ NO_PAGE_COVERAGE = (
 )
 
 
-def no_text_blocker(refs: list[str]) -> str:
+def no_text_blocker(refs: list[str], closable: list[str] | None = None) -> str:
     """Order 139 part 2 (spec e): the blocker for confirmed rows that would
     reach the contractor with an empty COMPANY Comments cell. 1b: it NAMES
-    the comments (their numbers) and says what to do."""
+    the comments (their numbers) and says what to do. `closable` are the ones
+    CARRIED FORWARD from an earlier run: closing those clears them. Closing a
+    comment this run raised again does not, so it is never offered there."""
     named = ", ".join(refs)
+    closable = [r for r in closable or [] if r in refs]
     if len(refs) == 1:
         return (
             f"Comment {named} has no text, so it cannot be issued: confirm or "
-            "edit the same item in a review, or close the comment"
+            "edit the same item in a review"
+            + (", or close the comment" if closable else "")
         )
-    return (
+    text = (
         f"{len(refs)} confirmed comments have no text, so they cannot be "
-        f"issued ({named}): confirm or edit each in a review, or close it"
+        f"issued ({named}): confirm or edit each in a review"
     )
+    if closable:
+        text += f"; {', '.join(closable)} can also be closed"
+    return text
 
 
 def _issued_without_text(row: dict) -> bool:
@@ -88,6 +99,25 @@ def _issued_without_text(row: dict) -> bool:
         and not row.get("engineer_rejected")
         and row.get("row_kind") != ROW_KIND_SAFETY_TICK
         and row_has_no_issuable_text(row)
+    )
+
+
+def _no_text_blocker_of(rows: list[dict]) -> str | None:
+    """The blocker for confirmed rows with no issuable text, or None."""
+    no_text = [
+        (str(row.get("crs_ref") or f"on row {n}"), row)
+        for n, row in enumerate(rows, start=1)
+        if _issued_without_text(row)
+    ]
+    if not no_text:
+        return None
+    return no_text_blocker(
+        [ref for ref, _row in no_text],
+        [
+            ref
+            for ref, row in no_text
+            if row.get("row_kind") == ROW_KIND_CARRIED_FORWARD
+        ],
     )
 
 
@@ -273,13 +303,9 @@ def open_items(
         )
     # Order 139 part 2 (spec e): every line issued has plain text, or is not
     # issued - a confirmed row with an empty comment blocks the issue.
-    no_text = [
-        str(row.get("crs_ref") or f"on row {n}")
-        for n, row in enumerate(rows, start=1)
-        if _issued_without_text(row)
-    ]
+    no_text = _no_text_blocker_of(rows)
     if no_text:
-        blockers.append(no_text_blocker(no_text))
+        blockers.append(no_text)
     return {
         "unread_pages": unread,
         "checked_pages": checked_pages,

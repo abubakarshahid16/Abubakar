@@ -2851,7 +2851,7 @@ def _crs_content(review_run_id: str, scope: access.AccessScope, copy: str = "int
             # resubmittal is the one already confirmed, and is issued as such.
             row["engineer_confirmed"] = True
             # 1b: a draft re-raised under an issued number keeps the words issued.
-            crs_mapping_mod.carry_issued_wording(row, record)
+            crs_mapping_mod.carry_issued_wording(row, record, _display_names)
     _replaced_numbers(crs_scope, rows)
     crs_issue_mod.apply_row_decisions(review_run_id, rows)  # #986: rows with no finding
     # A DRAFT THE ENGINEER ALREADY REJECTED SAYS SO (audit leftover

@@ -2,7 +2,7 @@
 stays on a later run's contractor copy, and an issued number with no stored
 wording is counted and named, never dropped unseen. `crs_mapping.py`,
 `crs_export.py` and `crs_issue.py` are in the danger zone (rule 6). Ids
-M1b1-01.. (the integrator renames them to the PR number, rule 12)."""
+M1188-01.. (named after the PR, rule 12)."""
 
 from __future__ import annotations
 
@@ -18,8 +18,8 @@ _TAGS = ("honesty", "critical")
 
 def _m(n: str, desc: str, path, anchor: str, repl: str, kw: str) -> Mutation:
     return Mutation(
-        id=f"M1b1-{n}",
-        phase=1001,
+        id=f"M1188-{n}",
+        phase=1188,
         description=desc,
         path=path,
         anchor=anchor,
@@ -104,8 +104,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         "08",
         "the gate names a numbered row by its position instead of its number",
         _I,
-        '        str(row.get("crs_ref") or f"on row {n}")\n',
-        '        f"on row {n}"\n',
+        '        (str(row.get("crs_ref") or f"on row {n}"), row)\n',
+        '        (f"on row {n}", row)\n',
         "carried_forward_comment_saved_empty_is_named_by_the_gate",
     ),
     _m(
@@ -113,8 +113,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         "a numbered row with no text says the old 'An engineer must write it' "
         "sentence again, naming no comment",
         _E,
-        "    if crs_ref:\n        return EMPTY_ISSUED_COMMENT_TEXT.format(ref=crs_ref)\n",
-        "    if False and crs_ref:\n        return EMPTY_ISSUED_COMMENT_TEXT.format(ref=crs_ref)\n",
+        "    if crs_ref:\n"
+        "        template = EMPTY_CARRIED_COMMENT_TEXT if carried else EMPTY_ISSUED_COMMENT_TEXT\n",
+        "    if False and crs_ref:\n"
+        "        template = EMPTY_CARRIED_COMMENT_TEXT if carried else EMPTY_ISSUED_COMMENT_TEXT\n",
         "carried_forward_comment_saved_empty_is_named_by_the_gate",
     ),
     _m(
@@ -122,7 +124,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         "the composition no longer carries an issued number's words onto a "
         "re-raised draft",
         _MAIN,
-        "            crs_mapping_mod.carry_issued_wording(row, record)\n",
+        "            crs_mapping_mod.carry_issued_wording(row, record, _display_names)\n",
         "",
         "internal_copy_does_not_say_not_issued_beside_an_issued_number",
     ),
@@ -130,28 +132,57 @@ MUTATIONS: tuple[Mutation, ...] = (
         "11",
         "the issued byline is not carried with the issued words",
         _M,
-        '        row["comment_by"] = str(snapshot.get("comment_by") or "").strip()\n',
-        "        pass\n",
+        '    row["comment_by"] = resolve_byline(by, names)\n',
+        "    pass\n",
         "issued_ai_comment_stays_on_a_later_runs_contractor_copy",
     ),
     _m(
         "12",
         "a machine draft's empty comment is said to have been issued",
         _E,
-        '                str(finding.get("crs_ref") or "")\n'
         '                if finding.get("engineer_confirmed") is True\n'
-        '                else ""\n',
-        '                str(finding.get("crs_ref") or "")\n',
+        '                else "",\n',
+        '                if True\n                else "",\n',
         "unconfirmed_numbered_draft_with_no_text_is_not_said_to_be_issued",
     ),
     _m(
         "13",
         "issued words keep the AI draft's byline when the snapshot has none",
         _M,
-        '        row["comment_by"] = str(snapshot.get("comment_by") or "").strip()\n',
-        '        row["comment_by"] = (\n'
-        '            str(snapshot.get("comment_by") or "").strip() or row["comment_by"]\n'
-        "        )\n",
+        '    row["comment_by"] = resolve_byline(by, names)\n',
+        '    row["comment_by"] = resolve_byline(by, names) or row["comment_by"]\n',
         "issued_words_with_no_stored_byline_never_sit_under_the_drafts_byline",
+    ),
+    _m(
+        "14",
+        "the blocker offers to close every comment, even one closing does not clear",
+        _I,
+        '            + (", or close the comment" if closable else "")\n',
+        '            + ", or close the comment"\n',
+        "offers_to_close_only_a_comment_that_closing_clears",
+    ),
+    _m(
+        "15",
+        "the gate says a re-raised comment can be closed (it lists every row as closable)",
+        _I,
+        '            if row.get("row_kind") == ROW_KIND_CARRIED_FORWARD\n',
+        "            if True\n",
+        "following_the_advice_clears_a_re_raised_comment",
+    ),
+    _m(
+        "16",
+        "the internal copy tells a re-raised comment it can be closed",
+        _E,
+        '                finding.get("row_kind") == ROW_KIND_CARRIED_FORWARD,\n',
+        "                True,\n",
+        "following_the_advice_clears_a_re_raised_comment",
+    ),
+    _m(
+        "17",
+        "an older snapshot byline prints the raw user id",
+        _M,
+        '    row["comment_by"] = resolve_byline(by, names)\n',
+        '    row["comment_by"] = by\n',
+        "older_snapshot_byline_shows_the_display_name",
     ),
 )

@@ -245,7 +245,10 @@ def test_a_carried_forward_waiting_sentence_is_never_issued():
         assert internal["comment_missing"] is True
         assert sentence not in internal["comment"]
         gate = crs_issue.open_items("run-1", [carried], COVERED)
-        assert gate["blockers"] == [crs_issue.no_text_blocker(["on row 1"])]
+        # a carried-forward comment: closing it also clears it (1b)
+        assert gate["blockers"] == [
+            crs_issue.no_text_blocker(["on row 1"], ["on row 1"])
+        ]
     # beside its draft the sentence IS the row's text (internal copy)
     draft = _row(2, comment=m.AI_UNCONFIRMED_COMMENT, ai_review_comment="a draft")
     assert m.row_has_no_text(draft) is False
