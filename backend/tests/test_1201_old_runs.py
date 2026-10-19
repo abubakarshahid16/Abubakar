@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from app import db, review, severity_rule
+from app import db, review, risks, severity_rule
 from app.api import deliverables as deliverables_api
 from tests.test_crs_endpoint import _submittal, temp_db  # noqa: F401
 
@@ -87,3 +87,17 @@ def test_the_sql_rank_and_the_python_rule_agree():
     for row in rows:
         word = severity_rule.effective_severity(dict(row))
         assert row["r"] == severity_rule.ORDER.index(word)
+
+
+def test_the_risk_register_reads_the_floored_word_for_an_old_run():
+    """A risk is as severe as the worst finding behind it. The query must carry
+    the status, or a failed requirement stored "minor" would stay minor here."""
+    doc = _submittal()
+    _stored(doc, "NON_COMPLIANT", "minor", "failed")
+    _stored(doc, "MISSING_INFORMATION", "minor", "blank")
+    rows = risks._candidate_findings(None)
+    mine = [r for r in rows if r["document_id"] == doc]
+    assert mine and all("compliance_status" in r for r in mine)
+    assert risks._worst_severity(mine) == "major"
+    blanks = [r for r in mine if r["compliance_status"] == "MISSING_INFORMATION"]
+    assert risks._worst_severity(blanks) == "minor"

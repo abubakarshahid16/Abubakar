@@ -7,7 +7,7 @@ import uuid
 from datetime import UTC, datetime, timedelta, timezone
 from pydantic import BaseModel
 
-from . import deliverables
+from . import deliverables, severity_rule
 from .config import settings
 from .db import connect, schema_once
 from .schemas import RiskType
@@ -239,8 +239,9 @@ def _candidate_findings(allowed_document_ids: frozenset[str] | None) -> list[dic
         where += " AND document_id IN (" + ",".join("?" for _ in allowed_document_ids) + ")"
         args.extend(sorted(allowed_document_ids))
     rows = connect().execute(
-        "SELECT id, severity, document_id, owner_user_id, due_date, status, updated_at, category,"
-        " unresolved_evidence FROM review_findings WHERE " + where, args).fetchall()
+        "SELECT id, severity, compliance_status, document_id, owner_user_id, due_date, status,"
+        " updated_at, category, unresolved_evidence FROM review_findings WHERE " + where,
+        args).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -326,7 +327,7 @@ _SEVERITY_ORDER = ("critical", "major", "minor")
 
 
 def _worst_severity(group: list[dict]) -> str:
-    found = {str(f.get("severity") or "").lower() for f in group}
+    found = {severity_rule.effective_severity(f) for f in group}
     return next((s for s in _SEVERITY_ORDER if s in found), "medium")
 
 
