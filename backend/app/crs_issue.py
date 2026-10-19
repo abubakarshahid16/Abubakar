@@ -214,8 +214,9 @@ def open_items(
     the run's stored page coverage; `reader` its `requirement_split.reader`.
     Returns {unread_pages: [{page, reason}] (left to tick), checked_pages
     (pages of the same list an engineer ticked), pages_total, open_findings:
-    [{finding_id, row_kind, item}], blockers: [plain words], issuable: bool}.
-    `unread_pages` and `checked_pages` together are exactly
+    [{finding_id, row_kind, item, standard}], blockers: [plain words], issuable: bool}.
+    `standard` is the row's standard as the sheet prints it: document-derived,
+    for the local screen only, never logged. `unread_pages` and `checked_pages` together are exactly
     `page_ledger.run_unread_pages` (order 127). Read only."""
     blockers: list[str] = []
     unread, checked_pages, pages_total = _page_items(
@@ -250,7 +251,12 @@ def open_items(
         # real review_findings id, when the row has none. #986: the decide
         # route accepts that key and records the decision against it.
         findings.append(
-            {"finding_id": subject, "row_kind": row.get("row_kind") or None, "item": n}
+            {
+                "finding_id": subject,
+                "row_kind": row.get("row_kind") or None,
+                "item": n,
+                "standard": row.get("standard_reference") or None,
+            }
         )
     if unread:
         blockers.append(

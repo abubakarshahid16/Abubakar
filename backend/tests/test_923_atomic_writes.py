@@ -264,7 +264,14 @@ def test_a_row_with_no_finding_id_is_an_open_blocker_not_invisible():
              "crs_row_key": "key-1", "engineer_confirmed": False}]
     gate = crs_issue.open_items("run-1", rows, {"pages_total": 1, "pages_not_read_into_fields": []})
     assert gate["issuable"] is False
-    assert gate["open_findings"] == [{"finding_id": "key-1", "row_kind": "standard_not_cited", "item": 1}]
+    assert gate["open_findings"] == [
+        {
+            "finding_id": "key-1",
+            "row_kind": "standard_not_cited",
+            "item": 1,
+            "standard": None,
+        }
+    ]
 
 
 def test_a_confirmed_row_with_no_finding_id_is_not_a_blocker():
