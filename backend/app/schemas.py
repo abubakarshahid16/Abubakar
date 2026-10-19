@@ -2643,12 +2643,45 @@ class StandardOverrideRequest(BaseModel):
     reason: str = Field(min_length=3, max_length=2000)
 
 
+class HeldForConfirmation(BaseModel):
+    """#620: the run's own words for the held Company standards it skipped."""
+
+    count: int
+    standard_document_ids: list[str] = Field(default_factory=list)
+    confirm_from: str | None = None
+    sentence: str
+
+
 class ReviewRunStandardList(ListPage):
     standards: list[ReviewRunStandard]
     #: B5: standards the submittal CITES that the library does not hold, each
     #: `MISSING_LOCALLY`, as stored on the run. Empty when none, or when the
     #: run predates this field. Never paged: all of them on every page.
     missing_references: list[ReviewRunMissingReference] = Field(default_factory=list)
+    #: #620: Company standards this run left out because they wait for an
+    #: administrator's confirmation; null when none (or an older run).
+    held_for_confirmation: HeldForConfirmation | None = None
+
+
+class HeldCompanyStandard(BaseModel):
+    """#620: one Company standard waiting for an administrator's confirmation."""
+
+    id: str
+    filename: str | None = None
+    #: when its uploader's grant was written (the first upload)
+    uploaded_at: str | None = None
+
+
+class HeldCompanyStandardList(ListPage):
+    standards: list[HeldCompanyStandard]
+    #: the boundary (owner's option a): uploads before this count as confirmed
+    confirm_from: str | None = None
+
+
+class CompanyStandardConfirmed(BaseModel):
+    document_id: str
+    #: true when this call confirmed it; false when it already was
+    confirmed: bool
 
 
 class ReviewJobState(BaseModel):

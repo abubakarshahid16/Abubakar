@@ -14,7 +14,11 @@ HELD when all of these hold:
 
 A held standard stays READABLE by its disciplines (classification is not
 access control, CLAUDE.md rule 5); only review SELECTION skips it
-(`standards.selectable_standard_ids`), and a review that skips one says so.
+(`standards.selectable_standard_ids`). A review that skips one SAYS SO: the
+review job stores `standards_held_for_confirmation` on the run
+(`record_on_run`), with the option-(a) boundary in plain words, and
+`GET /api/reviews/runs/{id}/standards` returns it. An administrator lists
+held standards and confirms one through `/api/admin/company-standards/...`.
 Confirming is admin-only, idempotent and audited.
 """
 
@@ -75,6 +79,100 @@ def held_ids(document_ids: frozenset[str]) -> frozenset[str]:
     return frozenset(r["id"] for r in rows)
 
 
+#: The run outcome key that says a review left held standards out.
+RUN_NOTE_KEY = "standards_held_for_confirmation"
+
+
+def _held_current(allowed_document_ids: frozenset[str] | None) -> list[dict]:
+    """Current (not superseded) Company standards the caller may read that are
+    held right now, with when they were first uploaded. The same scope and
+    supersession rule as `standards.selectable_standard_ids`, so these are
+    exactly the standards a review by this caller leaves out. `None` = every
+    held standard, for the administrator's list only (`list_held`): the
+    grants scope has no corpus-wide value (`standards._scope_clause`)."""
+    from .standards import COMPANY_STANDARD, _scope_clause
+
+    if allowed_document_ids is None:
+        where, args = " WHERE 1 = 1", []
+    else:
+        where, args = _scope_clause(allowed_document_ids, "d.id")
+    clause, params = held_clause("d.id")
+    rows = (
+        connect()
+        .execute(
+            "SELECT d.id, d.filename,"
+            " (SELECT MIN(a.granted_at) FROM document_role_access a"
+            "   WHERE a.document_id = d.id AND a.granted_by IS NOT NULL) AS uploaded_at"
+            " FROM documents d JOIN document_classification c ON c.document_id = d.id"
+            + where
+            + " AND c.document_role = ? AND c.superseded_by IS NULL AND "
+            + clause
+            + " ORDER BY d.id",
+            [*args, COMPANY_STANDARD, *params],
+        )
+        .fetchall()
+    )
+    return [dict(r) for r in rows]
+
+
+def held_readable(allowed_document_ids: frozenset[str]) -> list[str]:
+    """The ids of `_held_current`: what a review by this caller leaves out."""
+    return [row["id"] for row in _held_current(allowed_document_ids)]
+
+
+def list_held() -> list[dict]:
+    """Every held Company standard, for the administrator's list: id, file
+    name and first upload time. Admin-only at the route."""
+    return _held_current(None)
+
+
+def run_note(held: list[str]) -> dict | None:
+    """The run's note for the held standards it left out, or None for none.
+    Says the boundary (owner's option a, 19 Oct 2026): standards uploaded
+    before the cut-off count as confirmed."""
+    if not held:
+        return None
+    cutoff = str(settings.company_standard_confirm_from or "")
+    n = len(held)
+    noun = "Company standard was" if n == 1 else "Company standards were"
+    boundary = (
+        f" Company standards uploaded before {cutoff[:10]} count as confirmed."
+        if cutoff
+        else " Every Company standard a non-administrator uploaded waits for confirmation."
+    )
+    return {
+        "count": n,
+        "standard_document_ids": list(held),
+        "confirm_from": cutoff or None,
+        "sentence": (
+            f"{n} {noun} not used in this review: uploaded by a non-administrator, "
+            "waiting for an administrator's confirmation." + boundary
+        ),
+    }
+
+
+def record_on_run(review_run_id: str, held: list[str]) -> None:
+    """Add the run note to the run's stored outcome (written once by the
+    comparison step before this is called). Nothing is written when no
+    standard was held."""
+    note = run_note(held)
+    if note is None:
+        return
+    conn = connect()
+    with conn:
+        row = conn.execute(
+            "SELECT outcome_json FROM review_runs WHERE id = ?", (review_run_id,)
+        ).fetchone()
+        if row is None:
+            return
+        outcome = json.loads(row["outcome_json"] or "{}")
+        outcome[RUN_NOTE_KEY] = note
+        conn.execute(
+            "UPDATE review_runs SET outcome_json = ? WHERE id = ?",
+            (json.dumps(outcome), review_run_id),
+        )
+
+
 def confirm(document_id: str, *, actor_user_id: str, actor_username: str) -> bool:
     """An administrator confirms one Company standard for reviews. True when
     this call confirmed it, False when it was already confirmed (idempotent:
@@ -110,8 +208,13 @@ def confirm(document_id: str, *, actor_user_id: str, actor_username: str) -> boo
 
 __all__ = [
     "CONFIRMED_ACTION",
+    "RUN_NOTE_KEY",
     "NotAnAdministrator",
     "confirm",
     "held_clause",
     "held_ids",
+    "held_readable",
+    "list_held",
+    "record_on_run",
+    "run_note",
 ]
