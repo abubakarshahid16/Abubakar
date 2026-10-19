@@ -88,7 +88,7 @@ finding contradicts it directly.
 | 7 | The whole `/api/admin/*` gate reads `roles.name`, not `roles.kind='capability'`. A row named `admin` with `kind='discipline'` is a full administrator to every admin route and an ordinary engineer to `AccessScope.is_admin`; `create_user` attaches it by name with no kind check | `admin.py:193,372` |
 | 8 | `check_host` parses the host by string splitting, so `https://evil.test?@api.openalex.org/…` is approved as allowlisted and requested against `evil.test`, carrying the phrase and the Bearer key | `market_providers.py:282` |
 | 9 | `/api/watch/status` resolves an `AccessScope` and uses it only for `folder_name`; `recent_events()` has no scope predicate, so ten real document filenames plus grant lists in `detail` go to a caller for whom `/api/documents` returns `[]` | `watch_api.py:233,304` |
-| 10 | `term_occurrences`/`indexed_count` take no scope, so the answerability verdict and the user-visible "does not appear anywhere in the indexed documents" are a presence oracle over documents the caller has no grant on | `fts_index.py:289`, `lexical.py:192-251` |
+| 10 | `term_occurrences`/`indexed_count` take no scope, so the answerability verdict and the user-visible "does not appear anywhere in the indexed documents" are a presence oracle over documents the caller has no grant on | `keyword.py:289`, `lexical.py:192-251` |
 | 11 | `example_questions()` is unscoped: typing "hi" returns filenames and clause headings of unreadable documents, embedded in the answer and persisted to the transcript | `intent.py:212` via `answer.py:457` |
 | 12 | Three dashboard ingestion aggregates (`needs_ocr_pages`, `recognised_pages`, `equation_pages`) are summed with no `WHERE`, shipped beside `"corpus_wide": false` | `metrics.py:378-381,408-410` |
 | 13 | The login rate limiter's refusal writes an unauthenticated `audit_events` row, and its key is the caller's own email — a fresh email per request meets no bucket and reaches a 64 MiB Argon2 verify | `auth.py:280-287` |
@@ -146,11 +146,11 @@ instead of substituting a generic citation message. Regression coverage is in
 
 | # | Defect | Where |
 |---|---|---|
-| 28 | `DESIGNATOR`'s value group cannot span a dot, so `clause 5.3.2` becomes the *required* phrase `"clause 5"`, which no chunk can match (`.` is a tokenchar) — measured: zero rows against a chunk containing "clause 5.3.2". The same regex makes a heading `Table 3.9` declare `table 3` for a question about table 3.4 | `fts_index.py:71-77` |
+| 28 | `DESIGNATOR`'s value group cannot span a dot, so `clause 5.3.2` becomes the *required* phrase `"clause 5"`, which no chunk can match (`.` is a tokenchar) — measured: zero rows against a chunk containing "clause 5.3.2". The same regex makes a heading `Table 3.9` declare `table 3` for a question about table 3.4 | `keyword.py:71-77` |
 | 29 | One broad `except` turns any exception — a locked DB, one bad page image — into terminal `failed`, and **nothing can resume it**: `_next_document` excludes terminal states, no reprocess route exists, and re-upload dedups to the same dead row | `ingest.py:418` |
 | 30 | `check_transition` guards 1 of 9 status writers, though the audit describes the state machine as enforced by it. Three dead edges are listed in the report's derived transition table | `ingest.py` |
 | 31 | The identifier boost adds RRF units to rerank scores — two different scales — with a comment claiming it protects the result | `search.py` |
-| 32 | Every `sqlite3.OperationalError` in the keyword path is reported to the user as "nothing matched" | `fts_index.py` |
+| 32 | Every `sqlite3.OperationalError` in the keyword path is reported to the user as "nothing matched" | `keyword.py` |
 | 33 | The double synthesis: `recommendation()` re-synthesises its own summary, so it can refuse beside a summary panel full of citations. Mitigated in the frontend by sequencing; the backend cause stands | `analysis.py:1012` |
 
 ### P4 — tests that do not hold what they claim

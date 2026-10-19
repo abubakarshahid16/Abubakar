@@ -17,7 +17,7 @@ the disagreement is filed in `findings/docs-conformance.md`.
 **Scale, measured.** 52 modules and 22,775 lines under `backend/app/`
 (`ls backend/app/*.py | wc -l`, `cat backend/app/*.py | wc -l`); 46 HTTP routes, all on
 `main.py` (`grep -c "^@app\.\(get\|post\|put\|delete\|patch\)" backend/app/main.py`); 23 tables
-declared in `db.py` plus the FTS5 virtual table in `fts_index.py:27`.
+declared in `db.py` plus the FTS5 virtual table in `fts_index.py:66`.
 
 **Reading rule.** Anything not stated as measured or as a file:line is marked *not verified*.
 No suite was run in producing this document.
@@ -157,7 +157,7 @@ Twenty-three tables. These are the ones that decide something.
 | `page_ocr` | recognised text and its provenance, keyed `(document_id, page_no)`, **in a table extraction never writes** — `extract.py` uses `INSERT OR REPLACE` on `pages`, which would destroy a provenance column on every re-extraction (ADR-0006 §1A) |
 | `chunks` | the retrievable unit, and `text_source` — `'extracted'` or `'recognised'` — carried on the row rather than joined back, so retrieval and the UI see provenance without a join |
 | `chunk_vectors` | the dense vectors: a `BLOB` per chunk in SQLite, **not LanceDB**, tagged with `embedding_tag()` (model + input format). The source of truth for `vector_store.py`, which searches a derived sqlite-vec `vec0` index in `data/vector_index.sqlite` (or, as fallback, `vectorcache.py`'s memory-mapped numpy matrix). Both are kept current by the `vector_generation` tokens that triggers replace on every relevant write (`db.py`) |
-| `chunks_fts` | the keyword index (FTS5, `fts_index.py:27`) |
+| `chunks_fts` | the keyword index (FTS5, `fts_index.py:66`) |
 | `exclusions` | why a chunk or page is not retrievable. Every drop carries a reason slug |
 | `jobs`, `stage_runs`, `watch_events` | work attempted and observed, for the metrics lane |
 

@@ -341,10 +341,7 @@ def read_xlsx(path: str | os.PathLike) -> Reading:
 
 def _parse_bounded(zf: zipfile.ZipFile, name: str,
                    limit: int = MAX_DOCX_XML_BYTES) -> ET.Element:
-    """Parse one XML part, refusing an oversized part or any DOCTYPE.
-
-    No DOCTYPE, so no entity (XXE or bomb); the read is capped at `limit + 1` bytes.
-    """
+    """Parse one XML part, capped at `limit` bytes, refusing any DOCTYPE or entity."""
     info = zf.getinfo(name)
     if info.file_size > limit:
         raise InputError("too_large_unpacked",
@@ -357,7 +354,10 @@ def _parse_bounded(zf: zipfile.ZipFile, name: str,
         raise InputError("doctype", f"{name} declares a DOCTYPE or entity")
     from defusedxml import ElementTree as SafeET  # not the regex alone (order 133)
 
-    return SafeET.fromstring(data)
+    try:
+        return SafeET.fromstring(data, forbid_dtd=True)
+    except ValueError as exc:  # defusedxml: a DOCTYPE the regex missed (UTF-16)
+        raise InputError("doctype", f"{name} declares a DOCTYPE or entity") from exc
 
 
 def refuse_doctype(zf: zipfile.ZipFile) -> None:

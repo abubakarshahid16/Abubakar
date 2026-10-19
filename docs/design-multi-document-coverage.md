@@ -48,7 +48,7 @@ field — which makes it correct today and an invariant-3 violation the moment a
 candidate arrives from a different batch.
 
 **The signal to use: per-document term incidence.**
-`fts_index.term_occurrences(term, document_id)` (`fts_index.py:289-311`) already
+`fts_index.term_occurrences(term, document_id)` (`fts_index.py`) already
 takes a document and already returns `-1` for unparseable, distinct from `0`
 for absent — the three-way distinction invariant 6 needs.
 
@@ -124,7 +124,7 @@ On `AnswerResult`: `coverage: Coverage | None = None`.
 **`out_of_scope` is deliberately absent from the enum.** Every coverage row must
 come from `allowed_document_ids` and nothing else. A row saying "expected, out of
 scope" leaks the existence of a document the caller may not know exists — the
-precise failure `fts_index.py:230-237` argues against.
+precise failure in `fts_index.py` argues against.
 
 ### The two gotchas that will silently swallow this field
 
@@ -216,7 +216,7 @@ presence-based.** Do not guess it.
 ## The invariant most likely to break, and the test that prevents it
 
 `lexical.assess` (`lexical.py:173`) threads `document_id` into
-`fts_index.indexed_count` (line 192) and `fts_index.term_occurrences` (line 217).
+`fts_index.indexed_count` and `fts_index.term_occurrences`.
 The `named_absent` rule at `lexical.py:233-251` — the absolute presence gate —
 is therefore **already parameterised by document**, and today is only ever called
 with the caller's own `document_id` (`answer.py:396`).

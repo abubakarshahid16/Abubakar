@@ -813,7 +813,7 @@ Claude must confirm names against the repository, then use this map to minimize 
 | `backend/app/main.py` | Minimal modification | Register new routers/dependencies; avoid adding all new business logic to this already large module |
 | `backend/app/schemas.py` | Additive | Auth, access, analysis, feedback and report contracts; strict enums and bounded input sizes |
 | `backend/app/search.py` | Surgical | Accept immutable `allowed_document_ids`; pass it to both lexical and dense paths before candidate selection |
-| `backend/app/fts_index.py` | Surgical | Parameterized FTS5 restriction to authorized document IDs; never concatenate SQL identifiers/IDs |
+| `backend/app/keyword.py` | Surgical | Parameterized FTS5 restriction to authorized document IDs; never concatenate SQL identifiers/IDs |
 | `backend/app/vectorcache.py` | Surgical | Construct an authorized row mask/index per request or safely cached by immutable scope key; never use global mutable filters |
 | `backend/app/answer.py` | Additive/surgical | Preserve Tier 1 exactly; reuse citation validation for synthesis; label OCR and generated claims correctly |
 | `backend/app/chat.py` | Surgical | Fix follow-up leakage; bind conversations/messages to an owner; never treat assistant history as evidence |

@@ -774,7 +774,7 @@ Traced, and the invariant holds. Where it holds, this says what enforces it.
   rendered, no route called. The severities above rest on reading; the claims about what a test
   asserts are checkable from the quoted lines, but I did not watch any test pass or fail.
 - **Files outside my assignment**, except where I followed a value into them to confirm a
-  finding: `search.py`, `fts_index.py`, `lexical.py`, `passages.py`, `chunker.py`, `ocr.py`,
+  finding: `search.py`, `keyword.py`, `lexical.py`, `passages.py`, `chunker.py`, `ocr.py`,
   `context_budget.py` internals (I confirmed only that `fit_passages` is called before the prompt
   is numbered), `market*.py`, `access.py`, `auth.py`, `db.py`, `metrics.py`, `chat.py` beyond the
   payload round-trip.
