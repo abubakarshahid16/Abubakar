@@ -1351,13 +1351,13 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         "engineer_final_code": run.get("engineer_final_code"),
         "override_reason": run.get("override_reason"),
         "decided_by": run.get("decided_by"),
-        # THE NAME A READER RECOGNISES, carried by the run's own join rather
-        # than a lookup per row. Null when the decision's user row is gone
-        # (`decided_by` is ON DELETE SET NULL), and null renders as nothing.
+        # THE NAME A READER RECOGNISES, from the run's own join (no lookup per row);
+        # null, rendered as nothing, when the user row is gone (ON DELETE SET NULL).
         "decided_by_name": run.get("decided_by_name"),
         "decided_at": run.get("decided_at"),
         "completeness": outcome.get("completeness"),
         "page_coverage": outcome.get("page_coverage"),
+        "unread_pages": page_ledger_mod.run_unread_pages_of(outcome),  # order 127
         "table_values_not_compared": outcome.get("table_values_not_compared") or [],
         "requirements_not_applied": outcome.get("requirements_not_applied") or [],
         "requirement_split": (outcome.get("requirement_split")
@@ -3135,7 +3135,14 @@ def _crs_issue_gate(review_run_id: str, scope: access.AccessScope) -> dict:
     rows, _meta, _name, _stamp = _crs_content(review_run_id, scope, "internal")
     outcome = comparison_mod.run_outcome(
         review_run_id, allowed_document_ids=scope.allowed_document_ids) or {}
-    gate = crs_issue_mod.open_items(review_run_id, rows, outcome.get("page_coverage"))
+    # order 127: the reader record too, so the gate, the tick route and the
+    # summary count the same pages (page_ledger.run_unread_pages)
+    gate = crs_issue_mod.open_items(
+        review_run_id,
+        rows,
+        outcome.get("page_coverage"),
+        page_ledger_mod.run_reader(outcome),
+    )
     final = bool(run.get("engineer_final_code"))
     if not final:
         gate["blockers"].insert(0, "an engineer has not recorded the final code")
@@ -3184,7 +3191,9 @@ def decide_crs_unread_page(
     actor = _crs_decision_actor(review_run_id, scope)
     outcome = comparison_mod.run_outcome(
         review_run_id, allowed_document_ids=scope.allowed_document_ids) or {}
-    unread = crs_issue_mod.pages_to_check(outcome.get("page_coverage"))
+    unread = crs_issue_mod.pages_to_check(
+        outcome.get("page_coverage"), page_ledger_mod.run_reader(outcome)
+    )
     try:
         return crs_issue_mod.decide_page(review_run_id, page_no, unread=unread,
                                          reason=body.reason, actor=actor)

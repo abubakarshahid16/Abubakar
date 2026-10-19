@@ -25,7 +25,7 @@ const PATTERNS: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
 ];
 
 /** The plain clause for a reader's reason, or "" when none fits (the line
- *  then says only that the page was not read). */
+ *  then says only that the page was not fully read). */
 export function plainPageReason(reason: string | null | undefined): string {
   if (!reason) return "";
   for (const [pattern, words] of PATTERNS) {
@@ -35,8 +35,8 @@ export function plainPageReason(reason: string | null | undefined): string {
   return "";
 }
 
-/** "Page 1 was not read: it looks like a cover page (the computer's guess)." */
+/** "Page 1 was not fully read: it looks like a cover page (the computer's guess)." */
 export function unreadPageLine(page: number, reason: string | null | undefined): string {
   const why = plainPageReason(reason);
-  return why ? `Page ${page} was not read: ${why}.` : `Page ${page} was not read.`;
+  return why ? `Page ${page} was not fully read: ${why}.` : `Page ${page} was not fully read.`;
 }

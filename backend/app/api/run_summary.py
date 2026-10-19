@@ -28,6 +28,7 @@ from .. import ai_numbers as ai_numbers_mod
 from .. import clause_coverage as clause_coverage_mod
 from .. import comparison as comparison_mod
 from .. import crs_wording as crs_wording_mod
+from .. import page_ledger as page_ledger_mod
 from .. import requirement_split as requirement_split_mod
 from .. import submittal_review as submittal_review_mod
 from ..api_utils import reject_unknown_params, require_document
@@ -117,6 +118,11 @@ class HowReviewed(BaseModel):
     reader: dict | None = Field(None, json_schema_extra=_ts("AiStepNumbers"))
     #: order 96: pages the AI reader timed out on; null when no reader record
     timed_out_pages: list[int] | None = None
+    #: order 127: THE run's unread pages, one definition
+    #: (`page_ledger.run_unread_pages`, the same the issue gate asks ticks
+    #: for), before any engineer's tick; null when the run stored no page
+    #: coverage or no page total (not known, never "none")
+    unread_pages: list[int] | None = None
     #: order 96: stamped on the run's job; null when the run has no job row
     code_version: str | None = None
     config_version: str | None = None
@@ -254,6 +260,8 @@ def review_run_summary(
             "completeness": outcome.get("completeness"),
             "reader": steps.get("reader"),
             "timed_out_pages": timed_out,
+            # order 127: one definition, the same the issue gate asks ticks for
+            "unread_pages": page_ledger_mod.run_unread_pages_of(outcome),
             "code_version": versions.get("code_version"),
             "config_version": versions.get("config_version"),
             "stage_seconds": _stage_seconds(review_trace.stored(review_run_id, scope)),
