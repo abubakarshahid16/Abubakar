@@ -3196,10 +3196,18 @@ def _write_ai_reading(conn, ai_run: dict, stats: dict, rule_rows: list[dict], *,
                 extraction_method=datasheet_ai.EXTRACTION_METHOD,
                 equipment_tag=equipment_tag, commit=False,
                 # A form-reader value two pages state differently is a
-                # conflict for the engineer as well (`form_conflict`).
-                validation_state=(GEOMETRY_CONFLICT if conflicts_with or fact.get("form_conflict")
-                                  else None),
-                extractor_version=stats["version"], input_hash=input_hash,
+                # conflict for the engineer as well (`form_conflict`). Order
+                # 139: so is a value read from part of a split page whose own
+                # lines do not name its column (`kind_unconfirmed`).
+                validation_state=(
+                    GEOMETRY_CONFLICT
+                    if conflicts_with or fact.get("form_conflict")
+                    else NEEDS_ENGINEER_REVIEW
+                    if fact.get("kind_unconfirmed")
+                    else None
+                ),
+                extractor_version=stats["version"],
+                input_hash=input_hash,
                 bbox=provenance_box(fact, conflicts_with=conflicts_with or None),
                 unit=printed_unit, printed_unit=printed_unit)
         except FactError:
@@ -4263,6 +4271,9 @@ def reader_summary(ai_run: dict | None, ai_stats: dict, *, pages: list[int],
         extra["reading_notes"] = list(reading_notes)
     if ai_run is None:
         return {"engine": "off", "pages": len(pages), **extra}
+    from .datasheet_ai import parts_summary  # order 139
+
+    extra.update(parts_summary(ai_run))
     read = sorted(p for p, out in ai_run["pages"].items() if not out.get("error"))
     return {"engine": ai_run["engine"], "model": ai_run.get("model"), "pages": len(pages),
             "pages_read": len(read),

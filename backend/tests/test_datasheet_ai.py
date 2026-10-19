@@ -236,6 +236,34 @@ def test_a_free_text_answer_is_kept_when_its_quote_is_on_the_page(tmp_path, monk
     assert result["ai_reader"]["ai_only"] == 1
 
 
+def test_a_value_from_a_split_part_that_does_not_name_its_column_waits_for_an_engineer(
+    tmp_path, monkeypatch
+):
+    """Order 139 (cloud-2's blocker on #1175): the page's answer was cut off
+    and the page was read in parts; the part holding "Paint system" prints no
+    Required / Offered column name, so the kind the model gave is a guess. The
+    value is written, and held for an engineer - it never decides a verdict."""
+    from app import comparison
+
+    def cut_page_then_parts(prompt):
+        text = prompt.rsplit("\nPAGE ", 1)[1].split("\n", 1)[1]
+        if text.startswith(datasheet_ai.CONTEXT_OPEN):
+            text = text.split(datasheet_ai.CONTEXT_CLOSE, 1)[1]
+        if "Design pressure" in text and "Casing material" in text:
+            raise datasheet_ai.AnswerCutOff('{"facts": [')
+        return json.dumps({"facts": [FREE_TEXT] if "Paint system" in text else []})
+
+    cut_page_then_parts.engine = "fake-engine"
+    _use(monkeypatch, cut_page_then_parts)
+    result, facts = _extract(tmp_path)
+    [fact] = _by(facts, "paint system")
+    assert fact["extraction_method"] == "model"
+    assert fact["validation_state"] == datasheets.NEEDS_ENGINEER_REVIEW
+    assert json.loads(fact["bbox"])["kind_unconfirmed"] == datasheet_ai.KIND_UNCONFIRMED
+    assert comparison.low_trust_reason(fact) is not None
+    assert result["ai_reader"]["ai_only"] == 1
+
+
 def test_a_free_text_answer_whose_quote_is_not_on_the_page_is_dropped(tmp_path, monkeypatch):
     _use(monkeypatch, FakeModel([NOT_ON_PAGE]))
     result, facts = _extract(tmp_path)
