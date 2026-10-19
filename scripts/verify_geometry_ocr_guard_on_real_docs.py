@@ -50,7 +50,7 @@ def main(argv: list[str] | None = None) -> int:
     import pymupdf
 
     from app import geometry_reader as gr
-    from app import live_guard
+    from app import live_guard, stored_paths
     from app.config import settings
     from app.db import connect as _connect_module  # noqa: F401 - module, not called live
 
@@ -80,7 +80,9 @@ def main(argv: list[str] | None = None) -> int:
         totals["docs_by_role"][role] = len(docs)
         print(f"\n=== {role}: {len(docs)} document(s) sampled ===")
         for doc in docs:
-            doc_id, stored_path, page_count = doc["id"], doc["stored_path"], doc["page_count"] or 0
+            # Order 121 C: a stored path is relative to data_dir; read it here.
+            stored_path = stored_paths.local(doc["stored_path"])
+            doc_id, page_count = doc["id"], doc["page_count"] or 0
             if not Path(stored_path).is_file():
                 print(f"  {doc_id[:12]}...  SKIP - stored file not present on this machine")
                 continue
