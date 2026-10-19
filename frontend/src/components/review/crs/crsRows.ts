@@ -211,14 +211,29 @@ function plural(n: number, one: string, many: string): string {
   return `${n.toLocaleString()} ${n === 1 ? one : many}`;
 }
 
+/** Order 127: the one phrase for the run's unread pages, shared by the
+ *  header and the "Before you sign" box. `total` null = the page count is
+ *  not known, and then no "of T" is claimed.
+ *  `unreadPhrase(11, 11)` -> "11 of 11 pages were not read";
+ *  `unreadPhrase(1, 12)` -> "1 of 12 pages was not read";
+ *  `unreadPhrase(2, null)` -> "2 pages were not read". */
+export function unreadPhrase(n: number, total: number | null): string {
+  return total !== null
+    ? `${n} of ${total} ${total === 1 ? "page" : "pages"} ${n === 1 ? "was" : "were"} not read`
+    : `${n} ${n === 1 ? "page was" : "pages were"} not read`;
+}
+
 /** The run's stored fields the headline reads: the clauses not applicable
- *  and the pages the reader did not read. */
+ *  and the pages not read. */
 export interface HeadlineFields {
   /** `requirement_split.does_not_apply`; null when the run does not hold it. */
   doesNotApply: number | null;
-  /** Pages not read into fields, and (from the server) pages the AI reader
-   *  timed out on; both make a finding "page not read". */
+  /** Order 127: the run's unread pages, one definition (the server's
+   *  `unread_pages`, the same list the issue gate asks ticks for, before any
+   *  tick). Empty when none, or when the run does not hold the list. */
   unreadPages: number[];
+  /** The submittal's page count as the run stored it; null when not known. */
+  pagesTotal: number | null;
   /** Order 112: the seconds the run's stored trace adds up to, step by step;
    *  null when no trace was stored (then no read time is shown). */
   readSeconds: number | null;
@@ -228,19 +243,25 @@ export interface HeadlineFields {
  *  server sent one, else from the runs list's copy of the same stored fields. */
 export function headlineFieldsOf(run: ReviewRunSummary, how: RunSummaryHowReviewed | null = null): HeadlineFields {
   if (how) {
-    const pages = [...(how.page_coverage?.pages_not_read_into_fields ?? []), ...(how.timed_out_pages ?? [])];
     const steps = Object.values(how.stage_seconds ?? {});
     return {
       doesNotApply: how.requirement_split?.does_not_apply ?? null,
-      unreadPages: [...new Set(pages)].sort((a, b) => a - b),
+      unreadPages: sortedPages(how.unread_pages),
+      pagesTotal: how.page_coverage?.pages_total ?? null,
       readSeconds: steps.length ? steps.reduce((a, b) => a + b, 0) : null,
     };
   }
   return {
     doesNotApply: run.requirement_split?.does_not_apply ?? null,
-    unreadPages: run.page_coverage?.pages_not_read_into_fields ?? [],
+    unreadPages: sortedPages(run.unread_pages),
+    pagesTotal: run.page_coverage?.pages_total ?? null,
     readSeconds: null,
   };
+}
+
+/** The server's list, once each, in order; null or absent (not known) is []. */
+function sortedPages(pages: number[] | null | undefined): number[] {
+  return [...new Set(pages ?? [])].sort((a, b) => a - b);
 }
 
 /** The one headline line (spec 1.2). The comment, needs-you and met counts
@@ -274,8 +295,8 @@ export function crsHeadline(
   const unread = fields.unreadPages;
   const reading = [
     minutes !== null ? `Read in ${minutes < 1 ? "under a minute" : `${minutes} min`}` : "",
-    unread.length ? `the reader gave up on ${unread.length === 1 ? "page" : "pages"} ${spoken(pageList(unread))}` : "",
+    unread.length ? `${unreadPhrase(unread.length, fields.pagesTotal)} (${spoken(pageList(unread))})` : "",
   ].filter(Boolean);
-  const third = reading.length ? ` ${reading.join("; ").replace(/^the/, "The")}.` : "";
+  const third = reading.length ? ` ${reading.join("; ")}.` : "";
   return `${first}${second}${third}`;
 }
