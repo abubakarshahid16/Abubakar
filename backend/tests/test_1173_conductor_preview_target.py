@@ -19,7 +19,9 @@ from pathlib import Path
 
 import pytest
 
-SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "conductor" / "run-screens.sh"
+SCRIPT = (
+    Path(__file__).resolve().parents[2] / "scripts" / "conductor" / "run-screens.sh"
+)
 
 pytestmark = pytest.mark.skipif(
     sys.platform == "win32" or shutil.which("bash") is None,
@@ -34,11 +36,20 @@ def _run(tmp_path: Path, **env: str) -> subprocess.CompletedProcess:
     fake = bin_dir / "npx"
     fake.write_text('#!/bin/bash\necho "VITE STARTED target=$VITE_API_TARGET"\n')
     fake.chmod(0o755)
-    base = {k: v for k, v in os.environ.items()
-            if k not in ("VITE_API_TARGET", "PREVIEW_AGAINST_LIVE")}
-    base.update(PATH=f"{bin_dir}{os.pathsep}{base.get('PATH', '')}",
-                CONDUCTOR_WORKSPACE_PATH=str(tmp_path), CONDUCTOR_PORT="5199", **env)
-    return subprocess.run(["bash", str(SCRIPT)], env=base, capture_output=True, text=True, timeout=30)
+    base = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in ("VITE_API_TARGET", "PREVIEW_AGAINST_LIVE")
+    }
+    base.update(
+        PATH=f"{bin_dir}{os.pathsep}{base.get('PATH', '')}",
+        CONDUCTOR_WORKSPACE_PATH=str(tmp_path),
+        CONDUCTOR_PORT="5199",
+        **env,
+    )
+    return subprocess.run(
+        ["bash", str(SCRIPT)], env=base, capture_output=True, text=True, timeout=30
+    )
 
 
 def test_no_server_chosen_does_not_start(tmp_path):
@@ -49,7 +60,11 @@ def test_no_server_chosen_does_not_start(tmp_path):
 
 
 def test_a_target_on_the_live_port_is_refused_without_the_flag(tmp_path):
-    for target in ("http://127.0.0.1:8000", "http://localhost:8000/", "http://0.0.0.0:8000"):
+    for target in (
+        "http://127.0.0.1:8000",
+        "http://localhost:8000/",
+        "http://0.0.0.0:8000",
+    ):
         out = _run(tmp_path, VITE_API_TARGET=target)
         assert out.returncode == 2, target
         assert "VITE STARTED" not in out.stdout, target
