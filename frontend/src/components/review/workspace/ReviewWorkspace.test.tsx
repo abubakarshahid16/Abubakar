@@ -302,7 +302,7 @@ describe("ReviewWorkspace", () => {
   it("S3: the contractor copy and replies page is a tab", async () => {
     const user = userEvent.setup();
     render(<Harness initial={{}} />);
-    await user.click(screen.getByRole("tab", { name: "Contractor copy and replies" }));
+    await user.click(screen.getByRole("tab", { name: "CRS preview and replies" }));
     expect(changes.at(-1)?.tab).toBe("crs");
     expect(screen.getByText("crs page for run-1")).toBeInTheDocument();
   });

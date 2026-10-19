@@ -43,7 +43,7 @@ export const WORKSPACE_TAB_LABELS: Record<WorkspaceTab, string> = {
   numbers: "Numbers",
   // The comment sheet as issued: the contractor's replies, transmittal
   // numbers, which comments are open or closed (the old "crs" page).
-  crs: "Contractor copy and replies",
+  crs: "CRS preview and replies",
 };
 
 /** The right-hand panel. Only the evidence drawer for now. */
