@@ -23,6 +23,8 @@ import { REVIEW_CODES } from "../../../types/api";
 import type { CrsRow } from "./crsRows";
 import { type IssueGateState, MIN_SIGN_REASON, plural, signLeft, splitOpenItems, unreadPagesLine } from "./issueGate";
 import { unreadPageLine } from "./pageReasons";
+import { type PlainError, plainError } from "../workspace/plainError";
+import { PlainErrorLine } from "../workspace/PlainErrorLine";
 
 const OTHER_KIND_WORDS: Record<string, string> = {
   standard_not_cited: "a standard the datasheet does not cite",
@@ -45,7 +47,7 @@ export function FinalCode({ run, onChanged }: { run: ReviewRunSummary; onChanged
   const codes: readonly string[] = run.review_codes?.length ? run.review_codes : REVIEW_CODES;
   const [code, setCode] = useState(run.recommended_code ?? "");
   const [why, setWhy] = useState("");
-  const [state, setState] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
+  const [state, setState] = useState<{ busy: boolean; error: PlainError | null }>({ busy: false, error: null });
   const differs = Boolean(run.recommended_code && code && code !== run.recommended_code);
   if (run.engineer_final_code) {
     return (
@@ -55,10 +57,13 @@ export function FinalCode({ run, onChanged }: { run: ReviewRunSummary; onChanged
     );
   }
   async function record() {
-    if (differs && !why.trim()) { setState({ busy: false, error: "Say why your code differs from the computer's proposal." }); return; }
+    if (differs && !why.trim()) {
+      setState({ busy: false, error: { words: "Say why your code differs from the computer's proposal.", detail: null } });
+      return;
+    }
     setState({ busy: true, error: null });
     const result = await reviewsApi.decideCode(run.review_run_id, code, why.trim() || null);
-    if (!result.ok) { setState({ busy: false, error: result.error.message }); return; }
+    if (!result.ok) { setState({ busy: false, error: plainError("The final code was not recorded.", result) }); return; }
     setState({ busy: false, error: null });
     onChanged();
   }
@@ -81,7 +86,7 @@ export function FinalCode({ run, onChanged }: { run: ReviewRunSummary; onChanged
       <button type="button" onClick={() => void record()} disabled={!code || state.busy} className={button}>
         {state.busy ? "Recording…" : "Record the final code"}
       </button>
-      {state.error && <p role="alert" className="text-sm text-danger-500">{state.error}</p>}
+      {state.error && <PlainErrorLine error={state.error} className="text-sm text-danger-500" testId="sign-code-error" />}
     </fieldset>
   );
 }

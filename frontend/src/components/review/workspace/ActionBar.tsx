@@ -11,6 +11,8 @@ import { reviews as reviewsApi } from "../../../api/client";
 import { FinalCode } from "../crs/BeforeYouSign";
 import type { ActionBarProps, ActionStep, ActionStepId, AutosaveStatus } from "./contract";
 import { verdictPieces } from "./numbers";
+import { type PlainError, plainError } from "./plainError";
+import { PlainErrorLine } from "./PlainErrorLine";
 
 /** The data-count name of each step's number (the shared counts). */
 const STEP_COUNT: Record<Exclude<ActionStepId, "sign" | "code">, "missingStandards" | "unreadPages" | "undecided"> = {
@@ -32,13 +34,13 @@ function StepLabel({ step }: { step: ActionStep }) {
   );
 }
 
-type Reread = { busy: boolean; message: string | null; error: string | null };
+type Reread = { busy: boolean; message: string | null; error: PlainError | null };
 
 /** D4: the one saving line. "Saved" only after something was saved; a
  *  failure says why in plain words and stays until a save works. */
 function SavingLine({ autosave, unsaved }: { autosave: AutosaveStatus; unsaved: number }) {
   const words = autosave.phase === "saving" ? "Saving..."
-    : autosave.phase === "failed" ? `Not saved: ${autosave.message ?? "the record did not answer"}`
+    : autosave.phase === "failed" ? (autosave.message ?? "Your decisions were not saved. Try again in a moment.")
       : unsaved > 0 && autosave.waiting ? `${unsaved} ${unsaved === 1 ? "decision" : "decisions"} will save once Undo is gone.`
         : unsaved > 0 ? `${unsaved} ${unsaved === 1 ? "decision" : "decisions"} waiting to save...`
           : autosave.phase === "saved" ? "Saved. Every decision is on the record." : "Decisions save by themselves as you make them.";
@@ -48,6 +50,12 @@ function SavingLine({ autosave, unsaved }: { autosave: AutosaveStatus; unsaved: 
         className={autosave.phase === "failed" ? "text-red-400" : "text-slateish-300"}>
         {words}
       </p>
+      {autosave.phase === "failed" && autosave.detail && (
+        <details data-testid="ws-autosave-detail" className="text-xs text-slateish-400">
+          <summary className="cursor-pointer">Details</summary>
+          <p className="mt-1 break-words">{autosave.detail}</p>
+        </details>
+      )}
       <button type="button" disabled={unsaved === 0 || autosave.phase === "saving"} onClick={() => void autosave.saveNow()}
         className={`${BUTTON} border-ink-600 text-slateish-100`}>
         Save now
@@ -73,7 +81,10 @@ export function ActionBar({ run, numbers, steps, onAction, signOff, autosave, on
   const readAgain = async () => {
     setReread({ busy: true, message: null, error: null });
     const result = await reviewsApi.rereadPages(run.submittal_document_id);
-    if (!result.ok) { setReread({ busy: false, message: null, error: result.error.message }); return; }
+    if (!result.ok) {
+      setReread({ busy: false, message: null, error: plainError("The pages could not be sent to be read again.", result) });
+      return;
+    }
     setReread({
       busy: false, error: null,
       message: "Asked to read these pages again. Run the review again to use what was read.",
@@ -138,7 +149,7 @@ export function ActionBar({ run, numbers, steps, onAction, signOff, autosave, on
       )}
       {autosave && <SavingLine autosave={autosave} unsaved={numbers.unsaved} />}
       {reread.message && <p role="status" className="text-sm text-slateish-300">{reread.message}</p>}
-      {reread.error && <p role="alert" className="text-sm text-red-400">{reread.error}</p>}
+      {reread.error && <PlainErrorLine error={reread.error} testId="ws-reread-error" />}
       {signOff.message && <p role="status" className="text-sm text-slateish-300">{signOff.message}</p>}
       {signOff.error && <p role="alert" className="text-sm text-red-400">{signOff.error}</p>}
     </section>
