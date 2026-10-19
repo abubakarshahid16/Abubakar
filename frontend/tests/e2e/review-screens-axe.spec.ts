@@ -81,16 +81,15 @@ async function seriousOrCritical(page: Page) {
     .flatMap((v) => v.nodes.map((n) => ({ rule: v.id, impact: v.impact, target: n.target, summary: n.failureSummary })));
 }
 
-/** The "Try new design" switch's storage key (workspaceRoute.WORKSPACE_OPT_IN_KEY).
- *  Off by default; this audit turns it on in its own browser only. */
-const WORKSPACE_OPT_IN_KEY = "rag-intelligence-workspace-v2";
-
-const screens: ReadonlyArray<{ name: string; path: string; ready: (p: Page) => Locator; switchOn?: boolean }> = [
-  { name: "CRS sheet", path: `/review/${RUN}/crs-sheet`, ready: (p: Page) => p.getByRole("grid", { name: "Comment resolution sheet" }) },
-  { name: "card view", path: `/review/${RUN}/cards`, ready: (p: Page) => p.getByTestId("sheet-headline") },
-  { name: "How this was reviewed", path: `/review/${RUN}/how`, ready: (p: Page) => p.getByTestId("how-reviewed") },
-  // Workspace v2 with the switch on: the plain run address opens it.
-  { name: "review workspace", path: `/review/${RUN}`, ready: (p: Page) => p.getByTestId("ws-action-bar"), switchOn: true },
+// Order 137: the review workspace is the only review design. Every old
+// review address (cards, crs-sheet, how, ...) now leads into it, so the audit
+// opens the workspace's own addresses: the comment sheet tab (with its
+// evidence drawer and the action bar) and the "How this was reviewed" tab.
+const screens: ReadonlyArray<{ name: string; path: string; ready: (p: Page) => Locator }> = [
+  { name: "review workspace: comment sheet", path: `/review/${RUN}/workspace`,
+    ready: (p: Page) => p.getByRole("grid", { name: "Comment resolution sheet" }) },
+  { name: "review workspace: How this was reviewed", path: `/review/${RUN}/workspace?tab=how`,
+    ready: (p: Page) => p.getByTestId("how-reviewed") },
 ];
 
 for (const theme of ["light", "dark"] as const) {
@@ -103,9 +102,6 @@ for (const theme of ["light", "dark"] as const) {
     await page.setViewportSize({ width: 1600, height: 900 });
     const found: Record<string, unknown[]> = {};
     for (const screen of screens) {
-      // Earlier screens left the page on the app's origin, so its storage
-      // can be written before the workspace address is opened.
-      if (screen.switchOn) await page.evaluate((key) => localStorage.setItem(key, "on"), WORKSPACE_OPT_IN_KEY);
       await page.goto(screen.path);
       await expect(screen.ready(page)).toBeVisible({ timeout: 15_000 });
       // The app's own theme switch, as the main gate does.
@@ -115,7 +111,8 @@ for (const theme of ["light", "dark"] as const) {
       await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
       await page.waitForTimeout(1_000);
       found[screen.name] = await seriousOrCritical(page);
-      if (screen.name === "CRS sheet") {
+      if (screen.name === "review workspace: comment sheet") {
+        await expect(page.getByTestId("ws-action-bar")).toBeVisible();
         const grid = page.getByRole("grid", { name: "Comment resolution sheet" });
         await grid.getByRole("row").nth(1).click();
         await expect(page.getByRole("dialog")).toBeVisible({ timeout: 10_000 });
@@ -124,9 +121,11 @@ for (const theme of ["light", "dark"] as const) {
       }
     }
     console.log(`${theme}: API paths answered 404 (not needed for these screens): ${[...unanswered].sort().join(", ") || "none"}`);
-    expect(Object.keys(found)).toEqual(["CRS sheet", "evidence drawer", "card view", "How this was reviewed", "review workspace"]);
+    expect(Object.keys(found)).toEqual([
+      "review workspace: comment sheet", "evidence drawer", "review workspace: How this was reviewed",
+    ]);
     expect(found, "serious/critical accessibility violations").toEqual({
-      "CRS sheet": [], "evidence drawer": [], "card view": [], "How this was reviewed": [], "review workspace": [],
+      "review workspace: comment sheet": [], "evidence drawer": [], "review workspace: How this was reviewed": [],
     });
   });
 }
