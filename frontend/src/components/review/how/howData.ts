@@ -15,7 +15,7 @@ import type { PageCoverage, ReaderSummary, ReviewRunSummary } from "../../../typ
 import { pageList } from "../reviewFormat";
 
 /** The one wording for a field the run does not carry. */
-export const NOT_RECORDED = "not recorded on this run";
+export const NOT_RECORDED = "not recorded on this review";
 
 /** The wording for a field the runs list does not send to this page at all
  *  (absent, as opposed to sent as null): the run may hold it elsewhere. */
@@ -98,7 +98,7 @@ export function pagesMeaning(run: ReviewRunSummary): string {
   const pc = run.page_coverage ?? null;
   const p = pageFacts(run);
   if (!pc || p.total.value === null) {
-    return "No page of this document was accounted for on this run, so nothing can be called read or unread.";
+    return "No page of this document was accounted for on this review, so nothing can be called read or unread.";
   }
   const total = p.total.value;
   const reading = p.reading;
@@ -126,7 +126,7 @@ export function pagesMeaning(run: ReviewRunSummary): string {
     if (aiMissed && aiMissed.length) sentences.push(`The AI reader did not read ${plural(aiMissed.length, "page")} (pages ${pageList(aiMissed)}).`);
   }
   if (p.notRead.value === null) {
-    sentences.push("Which pages were not read into fields is not recorded on this run.");
+    sentences.push("Which pages were not read into fields is not recorded on this review.");
   }
   return sentences.join(" ");
 }
@@ -200,7 +200,7 @@ export const AI_STEP_DEFAULTS: Record<string, { label: string; onByDefault: bool
   applicability: { label: "AI applicability (does-not-apply proposals)", onByDefault: false, setting: "AI_APPLICABILITY_ENABLED" },
   applicability_reasoning: { label: "Applicability reasoning (scope decision)", onByDefault: true, setting: "APPLICABILITY_REASONING_ENABLED" },
   engineering_check: { label: "AI engineering check", onByDefault: true, setting: "REVIEW_AI_CHECK_ENABLED" },
-  wording: { label: "AI wording of the CRS rows", onByDefault: true, setting: "CRS_AI_WORDING_ENABLED" },
+  wording: { label: "AI wording of the comments", onByDefault: true, setting: "CRS_AI_WORDING_ENABLED" },
 };
 
 export function defaultLine(key: string): string {

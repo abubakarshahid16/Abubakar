@@ -37,10 +37,30 @@ export function useIssueGate(runId: string, version: unknown): IssueGateState {
     }
     if (mine !== latest.current) return;
     if (result?.ok) { setGate(result.data); setError(null); }
-    else { setGate(null); setError(result?.error.message || "Could not check what is left before signing."); }
+    else { setGate(null); setError(gateReadError(result?.error.message)); }
   }, [runId]);
   useEffect(() => { void reload(); }, [reload, version]);
   return { gate, error, reload };
+}
+
+/** v2.1 (N2): a failed read of what is left before signing, in a plain
+ *  sentence; the server's own words, when it sent any, follow as a detail. */
+export const GATE_READ_FAILED = "Could not check what is left before signing. Try again in a moment.";
+
+export function gateReadError(detail: string | null | undefined): string {
+  const raw = (detail ?? "").trim();
+  return raw ? `${GATE_READ_FAILED} Details: ${raw}` : GATE_READ_FAILED;
+}
+
+/** v2.1 (W1): the server's blockers that have plain words of their own. Any
+ *  other blocker is already plain words from the server and passes as is. */
+const BLOCKER_WORDS: Record<string, string> = {
+  "no page coverage is recorded for this run, so no page can be called read":
+    "the record of which pages were read is missing for this review, so no page can be called read yet",
+};
+
+export function plainBlocker(blocker: string): string {
+  return BLOCKER_WORDS[blocker] ?? blocker;
 }
 
 export interface GateSplit {
@@ -99,7 +119,7 @@ export function unreadPagesLine(gate: CrsIssueGate): { done: boolean; text: stri
     // An explicit null total is the server saying no page record is stored
     // (its NO_PAGE_COVERAGE blocker): nothing can be called read, so the box
     // must not say "Every page was read" (rule 4).
-    if (gate.pages_total === null) return { done: false, text: "Which pages were read is not recorded on this run." };
+    if (gate.pages_total === null) return { done: false, text: "Which pages were read is not recorded for this review." };
     // A gate from a server before order 127 does not say which pages were
     // ticked, so a ticked page cannot be told from a read one.
     if (gate.checked_pages === undefined) return { done: true, text: "Every page was read or checked by an engineer." };
@@ -130,10 +150,10 @@ export function signLeft(state: Pick<IssueGateState, "gate">, run: ReviewRunSumm
   if (gate.unread_pages.length > 0) left.push(`tick ${plural(gate.unread_pages.length, "unread page", "unread pages")}`);
   const split = splitOpenItems(gate, rows);
   if (split.comments.length > 0) left.push(`decide ${commentList(split.comments)}`);
-  if (split.unnumbered.length > 0) left.push(`decide ${plural(split.unnumbered.length, "other row", "other rows")} on the sheet`);
+  if (split.unnumbered.length > 0) left.push(`decide ${plural(split.unnumbered.length, "other line", "other lines")} on the sheet`);
   if (split.others.length > 0) left.push(`decide ${plural(split.others.length, "other item", "other items")} on the issued copy`);
   // A blocker the box has no control for (no page record at all) is passed
-  // on in the server's words rather than hidden.
-  if (left.length === 0 && !gate.issuable) left.push(...gate.blockers);
+  // on (in plain words where it has them) rather than hidden.
+  if (left.length === 0 && !gate.issuable) left.push(...gate.blockers.map(plainBlocker));
   return left;
 }

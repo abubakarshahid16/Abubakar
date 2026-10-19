@@ -2,6 +2,26 @@
  *  its method, reason and evidence, and the cited ones the library does not
  *  hold. Moved verbatim from `ReviewRunsView.tsx` (#967 PR 3). */
 import type { ReviewRunMissingReference, ReviewRunStandard } from "../../../types/api";
+import { selectionMethodWords } from "./selectionMethodWords";
+
+/** v2.1 (T2): how the standard was chosen, in plain words; the stored code
+ *  stays one click away under "Details". */
+function ChosenBy({ method }: { method: string | null | undefined }) {
+  const entry = selectionMethodWords(method);
+  return (
+    <span data-testid="standard-chosen-by" className="ml-2 inline-flex flex-wrap items-baseline gap-x-2">
+      <span className="rounded-full border border-ink-600 bg-ink-800 px-2 py-0.5 text-xs text-slateish-300">
+        {entry.words}
+      </span>
+      {entry.detail && (
+        <details className="inline-block text-xs text-slateish-500">
+          <summary className="cursor-pointer select-none">Details</summary>
+          <code className="font-mono">{entry.detail}</code>
+        </details>
+      )}
+    </span>
+  );
+}
 
 export function StandardsInScope({ standards, missing, error }: {
   standards: ReviewRunStandard[] | null; missing: ReviewRunMissingReference[];
@@ -49,9 +69,7 @@ export function StandardsInScope({ standards, missing, error }: {
       {standards.map((item) => (
         <li key={item.standard_document_id} className="text-sm">
           <span className="font-medium text-slateish-100">{item.filename ?? item.standard_document_id}</span>
-          <span className="ml-2 rounded-full border border-ink-600 bg-ink-800 px-2 py-0.5 text-xs text-slateish-300">
-            {item.selection_method ?? "unrecorded"}
-          </span>
+          <ChosenBy method={item.selection_method} />
           {/* THE REASON, VERBATIM. A semantic match says in its own words
               that it is not a citation; re-wording it here would turn
               "something was retrieved" into "this standard applies". */}

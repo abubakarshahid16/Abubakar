@@ -28,7 +28,7 @@ describe("WorkspaceTabs", () => {
     expect(list).toBeInTheDocument();
     const tabs = screen.getAllByRole("tab");
     expect(tabs.map((t) => t.textContent)).toEqual(
-      ["Comment sheet", "How this was reviewed", "Findings", "Standards", "Steps", "Numbers"]);
+      ["Comment sheet", "How this was reviewed", "Findings", "Standards", "Steps", "Numbers", "Contractor copy and replies"]);
     expect(screen.getByRole("tab", { name: "Comment sheet" })).toHaveAttribute("aria-selected", "true");
     expect(tabs.filter((t) => t.tabIndex === 0)).toHaveLength(1);
     expect(screen.getByRole("tabpanel")).toHaveAccessibleName("Comment sheet");
@@ -44,12 +44,12 @@ describe("WorkspaceTabs", () => {
     expect(screen.getByRole("tab", { name: "How this was reviewed" })).toHaveFocus();
     expect(screen.getByText("showing how")).toBeInTheDocument();
     await user.keyboard("{ArrowLeft}{ArrowLeft}");
-    expect(screen.getByRole("tab", { name: "Numbers" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Contractor copy and replies" })).toHaveAttribute("aria-selected", "true");
     await user.keyboard("{Home}");
     expect(screen.getByRole("tab", { name: "Comment sheet" })).toHaveFocus();
     await user.keyboard("{End}");
-    expect(screen.getByRole("tab", { name: "Numbers" })).toHaveFocus();
-    expect(onTab).toHaveBeenLastCalledWith("numbers");
+    expect(screen.getByRole("tab", { name: "Contractor copy and replies" })).toHaveFocus();
+    expect(onTab).toHaveBeenLastCalledWith("crs");
   });
 
   it("a click selects a tab", async () => {

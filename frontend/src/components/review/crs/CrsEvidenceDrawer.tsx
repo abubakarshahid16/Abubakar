@@ -37,7 +37,11 @@ export interface CrsEvidenceDrawerProps {
   /** The element to give the keyboard back to on close. */
   returnTo: HTMLElement | null;
   /** Where this row sits in the list shown, and how to move along it. */
-  nav?: { index: number; total: number; onPrev: (() => void) | null; onNext: (() => void) | null };
+  nav?: {
+    index: number; total: number; onPrev: (() => void) | null; onNext: (() => void) | null;
+    /** v2.1: the position line in full ("Comment 3 of 12"). Absent: "Item N of M", as before. */
+    position?: string;
+  };
   /** The document's pages: its page count (null when not known), the pages
    *  that carry a comment, and how to open the first comment on a page. */
   pager?: { pageCount: number | null; commentPages: number[]; onPage: (page: number) => boolean };
@@ -121,7 +125,7 @@ export function CrsEvidenceDrawer({ row, runId, standardNames, onClose, onOpenCa
         <nav aria-label="Comments" className="mt-2 flex items-center gap-2 text-sm text-slateish-300">
           <button type="button" onClick={nav.onPrev ?? undefined} disabled={!nav.onPrev}
             className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5 disabled:opacity-40">← Previous</button>
-          <span data-testid="drawer-position">Row {nav.index + 1} of {nav.total}</span>
+          <span data-testid="drawer-position">{nav.position ?? `Item ${nav.index + 1} of ${nav.total}`}</span>
           <button type="button" onClick={nav.onNext ?? undefined} disabled={!nav.onNext}
             className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5 disabled:opacity-40">Next →</button>
           <span className="text-xs text-slateish-500">J / K</span>

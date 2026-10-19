@@ -23,6 +23,8 @@ import { REVIEW_CODES } from "../../../types/api";
 import type { CrsRow } from "./crsRows";
 import { type IssueGateState, MIN_SIGN_REASON, plural, signLeft, splitOpenItems, unreadPagesLine } from "./issueGate";
 import { unreadPageLine } from "./pageReasons";
+import { type PlainError, plainError } from "../workspace/plainError";
+import { PlainErrorLine } from "../workspace/PlainErrorLine";
 
 const OTHER_KIND_WORDS: Record<string, string> = {
   standard_not_cited: "a standard the datasheet does not cite",
@@ -41,11 +43,11 @@ function Mark({ done }: { done: boolean }) {
   return <span aria-hidden="true">{done ? "✅" : "❌"}</span>;
 }
 
-function FinalCode({ run, onChanged }: { run: ReviewRunSummary; onChanged: () => void }) {
+export function FinalCode({ run, onChanged }: { run: ReviewRunSummary; onChanged: () => void }) {
   const codes: readonly string[] = run.review_codes?.length ? run.review_codes : REVIEW_CODES;
   const [code, setCode] = useState(run.recommended_code ?? "");
   const [why, setWhy] = useState("");
-  const [state, setState] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
+  const [state, setState] = useState<{ busy: boolean; error: PlainError | null }>({ busy: false, error: null });
   const differs = Boolean(run.recommended_code && code && code !== run.recommended_code);
   if (run.engineer_final_code) {
     return (
@@ -55,10 +57,13 @@ function FinalCode({ run, onChanged }: { run: ReviewRunSummary; onChanged: () =>
     );
   }
   async function record() {
-    if (differs && !why.trim()) { setState({ busy: false, error: "Say why your code differs from the computer's proposal." }); return; }
+    if (differs && !why.trim()) {
+      setState({ busy: false, error: { words: "Say why your code differs from the computer's proposal.", detail: null } });
+      return;
+    }
     setState({ busy: true, error: null });
     const result = await reviewsApi.decideCode(run.review_run_id, code, why.trim() || null);
-    if (!result.ok) { setState({ busy: false, error: result.error.message }); return; }
+    if (!result.ok) { setState({ busy: false, error: plainError("The final code was not recorded.", result) }); return; }
     setState({ busy: false, error: null });
     onChanged();
   }
@@ -81,7 +86,7 @@ function FinalCode({ run, onChanged }: { run: ReviewRunSummary; onChanged: () =>
       <button type="button" onClick={() => void record()} disabled={!code || state.busy} className={button}>
         {state.busy ? "Recording…" : "Record the final code"}
       </button>
-      {state.error && <p role="alert" className="text-sm text-danger-500">{state.error}</p>}
+      {state.error && <PlainErrorLine error={state.error} className="text-sm text-danger-500" testId="sign-code-error" />}
     </fieldset>
   );
 }
@@ -173,7 +178,7 @@ function OpenItems({ runId, gate, rows, onJump, onDecided }: {
       </p>
       {split.unnumbered.length > 0 && (
         <div className="space-y-1 text-sm text-slateish-200" data-testid="sign-unnumbered">
-          <p>{plural(split.unnumbered.length, "row on this sheet has", "rows on this sheet have")} no comment number and no decision yet. Open each one:</p>
+          <p>{plural(split.unnumbered.length, "comment on this sheet has", "comments on this sheet have")} no comment number and no decision yet. Open each one:</p>
           <ul className="list-disc pl-5 text-xs">
             {split.unnumbered.map((row) => (
               <li key={row.key}>
@@ -186,7 +191,7 @@ function OpenItems({ runId, gate, rows, onJump, onDecided }: {
       {split.others.length > 0 && (
         <div className="space-y-2 text-sm text-slateish-200">
           <p>
-            {plural(split.others.length, "other item", "other items")} on the issued copy {split.others.length === 1 ? "is" : "are"} not a row on this sheet and {split.others.length === 1 ? "has" : "have"} no decision:
+            {plural(split.others.length, "other item", "other items")} on the issued copy {split.others.length === 1 ? "is" : "are"} not on this sheet and {split.others.length === 1 ? "has" : "have"} no decision:
           </p>
           <ul className="list-disc pl-5 text-xs text-slateish-300">
             {split.others.map((item) => (

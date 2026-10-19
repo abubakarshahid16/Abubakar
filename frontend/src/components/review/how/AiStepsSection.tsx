@@ -28,7 +28,7 @@ const COUNT_UNITS: Record<string, Partial<Record<Column, string>>> = {
   matcher: { asked: "requirements", proposed: "requirements", confirmed: "requirements", refused: "requirements", timed_out: "requirements" },
   clause_checks: { asked: "sentences", proposed: "sentences", refused: "sentences", timed_out: "sentences" },
   engineering_check: { asked: "items", proposed: "items", confirmed: "items", refused: "items" },
-  wording: { asked: "CRS rows", proposed: "CRS rows", confirmed: "CRS rows", refused: "CRS rows" },
+  wording: { asked: "comments on the sheet", proposed: "comments on the sheet", confirmed: "comments on the sheet", refused: "comments on the sheet" },
 };
 const COUNT_KEYS: Record<string, Partial<Record<Column, string>>> = {
   reader: { asked: "pages", proposed: "pages_read", confirmed: "agreed", refused: "refused_by_gate", timed_out: "timed_out" },

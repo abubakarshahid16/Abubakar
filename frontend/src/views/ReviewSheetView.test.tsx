@@ -244,7 +244,7 @@ describe("ReviewSheetView", () => {
     render(<ReviewSheetView runId="run-1" panel="crs" onBack={vi.fn()} onOpenPanel={vi.fn()} onOpenRun={vi.fn()} />);
     const nav = await screen.findByRole("navigation", { name: "Behind the scenes" });
     expect(within(nav).getAllByRole("button").map((b) => b.textContent)).toEqual([
-      "← Back to the sheet", "All findings", "The rule books used", "How we checked this document", "AI numbers for this run", "Comment Resolution Sheet",
+      "← Back to the sheet", "All findings", "The rule books used", "How we checked this document", "What each AI step did on this review", "Comment Resolution Sheet",
     ]);
   });
 

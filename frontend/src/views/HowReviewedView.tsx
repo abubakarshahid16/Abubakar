@@ -11,7 +11,7 @@
  * fields) or the run's stored standards record; each is printed with the
  * field it came from. Nothing is counted here beyond the length of a stored
  * list or the sum of stored fields (named beside the number). A field the
- * run does not hold reads "not recorded on this run" - never 0, never
+ * run does not hold reads "not recorded on this review" - never 0, never
  * blank; a field the runs list does not send at all (the code and settings
  * versions today) reads "not sent to this page".
  */
@@ -54,7 +54,7 @@ export function HowReviewedView({ runId, onBack, onOpenRun, onOpenSteps }: {
       if (!alive) return;
       if (!runs.ok) { setLoad({ kind: "error", message: runs.error.message }); return; }
       const found = runs.data;
-      if (!found) { setLoad({ kind: "error", message: "This review run could not be found." }); return; }
+      if (!found) { setLoad({ kind: "error", message: "This review could not be found." }); return; }
       setLoad({ kind: "ready", run: found });
       // A FAILED LIST IS NOT AN EMPTY ONE: the section says it could not be
       // loaded rather than "no standards were used".
@@ -87,11 +87,11 @@ export function HowReviewedView({ runId, onBack, onOpenRun, onOpenSteps }: {
         )}
         <p className="text-sm text-slateish-400">
           Every number on this page is one the review stored when it ran, printed with the field it came from.
-          Nothing is recounted here. A field this run did not store reads "not recorded on this run".
+          Nothing is recounted here. A field this review did not store reads "not recorded on this review".
         </p>
       </header>
 
-      {load.kind === "loading" && <p className="text-slateish-300">Loading the run record…</p>}
+      {load.kind === "loading" && <p className="text-slateish-300">Loading the review record…</p>}
       {load.kind === "error" && (
         <p role="alert" className="rounded-[var(--radius-md)] border border-danger-500/40 bg-danger-500/10 px-4 py-3 text-danger-500">
           {load.message}

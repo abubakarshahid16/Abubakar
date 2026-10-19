@@ -40,14 +40,19 @@ describe("#1124 follow-up: a grouped row that fails half-way", () => {
     const out = await saveCrsDecisions("run-1", [r], { r1: { kind: "keep" } }, ["r1"]);
 
     expect(out.saved).toEqual([]);
-    expect(out.failed).toEqual([{ key: "r1", message: "Comment 1: saved 1 of 3; Not allowed." }]);
+    expect(out.failed).toEqual([{
+      key: "r1", message: "Comment 1: saved 1 of 3; Not allowed.",
+      words: "Comment 1 was not saved. Try again in a moment.", detail: "saved 1 of 3; Not allowed.",
+    }]);
     expect(out.wrote).toBe(true);
   });
 
   it("a row refused at its first finding wrote nothing and says only why", async () => {
     confirm.mockResolvedValue(REFUSED);
     const out = await saveCrsDecisions("run-1", [row("r1", [finding("a")])], { r1: { kind: "keep" } }, ["r1"]);
-    expect(out.failed).toEqual([{ key: "r1", message: "Comment 1: Not allowed." }]);
+    expect(out.failed).toEqual([{
+      key: "r1", message: "Comment 1: Not allowed.", words: "Comment 1 was not saved. Try again in a moment.", detail: "Not allowed.",
+    }]);
     expect(out.wrote).toBe(false);
   });
 });
@@ -77,6 +82,29 @@ describe("#1124 follow-up: a decision the record already holds is not sent again
     const r = row("r1", [finding("a", { confirmed_by: "eng" })]);
     const out = await saveCrsDecisions("run-1", [r], { r1: { kind: "keep" } }, ["r1"]);
     expect(confirm).not.toHaveBeenCalled();
-    expect(out).toEqual({ saved: ["r1"], failed: [], wrote: false });
+    expect(out).toEqual({ saved: ["r1"], failed: [], missing: [], wrote: false });
+  });
+});
+
+/** v2.1 round 2: a decision whose comment left the sheet is never skipped
+ *  quietly (it would stay "not saved" for ever and hold Sign).
+ *  MUTATION PROOF: put back `if (!row || !decision) continue` and this fails. */
+describe("v2.1 round 2: a comment that is no longer on the sheet", () => {
+  it("is reported as failed, in plain words, and listed as missing", async () => {
+    const out = await saveCrsDecisions("run-1", [row("r1", [finding("a")])],
+      { r1: { kind: "keep" }, gone: { kind: "keep" } }, ["r1", "gone"]);
+    expect(out.saved).toEqual(["r1"]);
+    expect(out.missing).toEqual(["gone"]);
+    expect(out.failed).toHaveLength(1);
+    expect(out.failed[0].key).toBe("gone");
+    expect(out.failed[0].message).toContain("this comment is no longer on the sheet");
+    expect(out.failed[0].words).toContain("this comment is no longer on the sheet");
+  });
+
+  it("a sign-in that ended says so in plain words, the server's words kept as detail", async () => {
+    confirm.mockResolvedValue({ ok: false, disconnected: false, error: { code: "unauthenticated", message: "Token expired (401)." } });
+    const out = await saveCrsDecisions("run-1", [{ ...row("r1", [finding("a")]), commentNo: 3 } as CrsRow], { r1: { kind: "keep" } }, ["r1"]);
+    expect(out.failed[0].words).toBe("Comment 3 was not saved. Your sign-in has ended. Sign in again to carry on.");
+    expect(out.failed[0].detail).toBe("Token expired (401).");
   });
 });

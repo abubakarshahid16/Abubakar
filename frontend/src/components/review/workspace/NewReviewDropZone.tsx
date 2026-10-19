@@ -10,14 +10,12 @@
  * Leaving the page mid-way does not cancel the review (it may still start,
  * and the finished notice still says so), but nothing moves the reader to
  * the new run once this zone is gone.
- *
- * A file that already has a review, or whose review is already running,
- * starts nothing; the zone offers a button that opens that review instead.
  */
 import { useEffect, useRef, useState } from "react";
 
 import type { NewReviewDropZoneProps, NewReviewPhase } from "./contract";
-import { startNewReview } from "./newReview";
+import { type AskFirst, type OfferMark, continueNewReview, markAndReview, markOfferWords, startNewReview } from "./newReview";
+import { priorDecisionWords } from "./priorDecisionWords";
 
 function phaseWords(phase: NewReviewPhase, filename: string | null): string | null {
   const name = filename ?? "your file";
@@ -32,16 +30,25 @@ function phaseWords(phase: NewReviewPhase, filename: string | null): string | nu
 }
 
 /** `isAdmin`: whether the reader is an administrator, when the screen
- *  already knows. Left out, it is asked before anything is uploaded. */
-export function NewReviewDropZone({ onStarted, isAdmin }: NewReviewDropZoneProps & { isAdmin?: boolean }) {
+ *  already knows. Left out, it is asked before anything is uploaded.
+ *  `heading`: the zone's own title; null when it sits inside a card that
+ *  already has one (the v2.1 landing's "New review" card). */
+export function NewReviewDropZone({ onStarted, isAdmin, heading = "New review" }: NewReviewDropZoneProps & {
+  isAdmin?: boolean;
+  heading?: string | null;
+}) {
   const [phase, setPhase] = useState<NewReviewPhase>({ kind: "idle" });
   const [filename, setFilename] = useState<string | null>(null);
   /** Said when several files were dropped: one review takes one file. */
   const [onlyFirst, setOnlyFirst] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
-  /** The review to open instead, when the file already has one (`existing`)
-   *  or one is already running (`running`). */
-  const [openInstead, setOpenInstead] = useState<{ runId: string; kind: "existing" | "running" } | null>(null);
+  /** v2.1 L10: the dropped file is already in the library under another
+   *  role; an administrator may choose to re-mark it (one confirm). */
+  const [offer, setOffer] = useState<OfferMark | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  /** v2.1: the dropped file is already a contractor submittal whose latest
+   *  review is signed, coded or unchanged; asked before anything starts. */
+  const [ask, setAsk] = useState<AskFirst | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const mounted = useRef(true);
   useEffect(() => {
@@ -56,26 +63,49 @@ export function NewReviewDropZone({ onStarted, isAdmin }: NewReviewDropZoneProps
     if (!file || busy) return;
     setFilename(file.name);
     setOnlyFirst(all.length > 1 ? file.name : null);
-    setOpenInstead(null);
+    setOffer(null);
+    setConfirming(false);
+    setAsk(null);
     const outcome = await startNewReview(file, (next) => {
       if (mounted.current) setPhase(next);
     }, { isAdmin });
+    if (!outcome.ok && "offerMark" in outcome && mounted.current) setOffer(outcome.offerMark);
+    if (!outcome.ok && "askFirst" in outcome && mounted.current) setAsk(outcome.askFirst);
     // Gone (the reader left): the review runs on, but never drag them back.
-    if (!mounted.current) return;
-    if (outcome.ok) {
-      onStarted(outcome.runId);
-    } else if ("existingRunId" in outcome) {
-      setOpenInstead({ runId: outcome.existingRunId, kind: "existing" });
-    } else if ("runningRunId" in outcome) {
-      setOpenInstead({ runId: outcome.runningRunId, kind: "running" });
-    }
+    if (outcome.ok && mounted.current) onStarted(outcome.runId);
+  }
+
+  /** The administrator confirmed: re-mark through the existing role write,
+   *  then the review starts like a new upload. */
+  async function markAndStart() {
+    if (!offer || busy) return;
+    const target = offer;
+    setOffer(null);
+    setConfirming(false);
+    const outcome = await markAndReview(target, filename ?? "your file", (next) => {
+      if (mounted.current) setPhase(next);
+    }, { isAdmin });
+    if (outcome.ok && mounted.current) onStarted(outcome.runId);
+  }
+
+  /** The reader said yes to the ask-first question. */
+  async function goOn() {
+    if (!ask || busy) return;
+    const target = ask;
+    setAsk(null);
+    const outcome = await continueNewReview(target, (next) => {
+      if (mounted.current) setPhase(next);
+    }, { isAdmin });
+    if (outcome.ok && mounted.current) onStarted(outcome.runId);
   }
 
   const words = phaseWords(phase, filename);
 
   return (
-    <section aria-labelledby="new-review-heading" data-testid="new-review-drop-zone">
-      <h2 id="new-review-heading" className="text-lg font-semibold text-slateish-100">New review</h2>
+    <section aria-labelledby={heading !== null ? "new-review-heading" : undefined} aria-label={heading === null ? "Drop a file to start a new review" : undefined} data-testid="new-review-drop-zone">
+      {heading !== null && (
+        <h2 id="new-review-heading" className="text-lg font-semibold text-slateish-100">{heading}</h2>
+      )}
       <div
         onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
@@ -132,14 +162,50 @@ export function NewReviewDropZone({ onStarted, isAdmin }: NewReviewDropZoneProps
         {phase.kind === "error" && (
           <p role="alert" className="mt-3 text-sm text-danger-500">{phase.message}</p>
         )}
-        {phase.kind === "error" && openInstead && (
-          <button
-            type="button"
-            onClick={() => { if (mounted.current) onStarted(openInstead.runId); }}
-            className="mt-2 rounded border border-signal-500 px-3 py-1 text-sm font-medium text-signal-400 hover:text-signal-300"
-          >
-            {openInstead.kind === "existing" ? "Open the existing review" : "Open the review that is running"}
-          </button>
+        {ask && (
+          <span role="group" aria-label="Start a new review?" data-testid="drop-ask-first" className="mt-3 flex flex-wrap items-center justify-center gap-2 text-sm text-slateish-200">
+            <span>{ask.filename}: {priorDecisionWords(ask.prior)}</span>
+            <button
+              type="button" onClick={() => void goOn()}
+              className="rounded-[var(--radius-md)] bg-signal-500 px-3 py-1.5 text-sm font-medium text-ink-950 hover:bg-signal-400"
+            >
+              Yes, start a new review
+            </button>
+            <button
+              type="button" onClick={() => setAsk(null)}
+              className="rounded-[var(--radius-md)] border border-ink-600 px-3 py-1.5 text-sm font-medium text-slateish-100 hover:border-signal-500"
+            >
+              Cancel
+            </button>
+          </span>
+        )}
+        {offer && phase.kind === "error" && isAdmin !== false && (
+          <div className="mt-3 text-sm text-slateish-200" data-testid="mark-offer">
+            {confirming ? (
+              <span role="group" aria-label="Mark as contractor submittal?" className="flex flex-wrap items-center justify-center gap-2">
+                <span>{markOfferWords(offer)}</span>
+                <button
+                  type="button" onClick={() => void markAndStart()}
+                  className="rounded-[var(--radius-md)] bg-signal-500 px-3 py-1.5 text-sm font-medium text-ink-950 hover:bg-signal-400"
+                >
+                  Yes, mark it and start the review
+                </button>
+                <button
+                  type="button" onClick={() => setConfirming(false)}
+                  className="rounded-[var(--radius-md)] border border-ink-600 px-3 py-1.5 text-sm font-medium text-slateish-100 hover:border-signal-500"
+                >
+                  Cancel
+                </button>
+              </span>
+            ) : (
+              <button
+                type="button" onClick={() => setConfirming(true)}
+                className="rounded-[var(--radius-md)] border border-ink-600 px-3 py-1.5 text-sm font-medium text-slateish-100 hover:border-signal-500"
+              >
+                Mark as contractor submittal and review
+              </button>
+            )}
+          </div>
         )}
       </div>
     </section>

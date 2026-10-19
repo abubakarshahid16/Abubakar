@@ -136,45 +136,6 @@ describe("NewReviewDropZone", () => {
     expect(screen.queryByTestId("only-first-file")).toBeNull();
   });
 
-  it("a re-dropped file that already has a review offers to open it, and starts nothing", async () => {
-    uploadOne.mockResolvedValue({ phase: "done", documentId: "doc-7", duplicateOf: "doc-7", awaitingGrant: false });
-    document.mockResolvedValue({ ok: true, data: { id: "doc-7", status: "ready", document_role: "CONTRACTOR_SUBMITTAL" } });
-    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [
-      { review_run_id: "run-9", submittal_document_id: "doc-7", created_at: "2026-03-05T08:00:00Z", crs_issued_at: null, engineer_final_code: null },
-    ] } });
-    const onStarted = vi.fn();
-    render(<NewReviewDropZone onStarted={onStarted} />);
-    await userEvent.upload(screen.getByLabelText("Choose a contractor file to review"), file);
-
-    expect(await screen.findByRole("alert")).toHaveTextContent("This file was reviewed before.");
-    expect(startReviewRun).not.toHaveBeenCalled();
-    expect(onStarted).not.toHaveBeenCalled();
-    await userEvent.click(screen.getByRole("button", { name: "Open the existing review" }));
-    expect(onStarted).toHaveBeenCalledWith("run-9");
-    expect(screen.queryByRole("button", { name: "Open the review that is running" })).toBeNull();
-  });
-
-  it("a review already running offers to open that one", async () => {
-    const words = "a review of this submittal is already queued or running (run-0)";
-    startReviewRun.mockResolvedValue({ ok: false, disconnected: false, error: { code: "invalid_parameter", message: words } });
-    const onStarted = vi.fn();
-    render(<NewReviewDropZone onStarted={onStarted} />);
-    await userEvent.upload(screen.getByLabelText("Choose a contractor file to review"), file);
-
-    expect(await screen.findByRole("alert")).toHaveTextContent("A review of this document is already running.");
-    expect(screen.getByRole("alert").textContent).not.toContain("run-0");
-    await userEvent.click(screen.getByRole("button", { name: "Open the review that is running" }));
-    expect(onStarted).toHaveBeenCalledWith("run-0");
-  });
-
-  it("a plain refusal offers no open button", async () => {
-    startReviewRun.mockResolvedValue({ ok: false, disconnected: false, error: { code: "invalid_parameter", message: "The standards are still being read." } });
-    render(<NewReviewDropZone onStarted={vi.fn()} />);
-    await userEvent.upload(screen.getByLabelText("Choose a contractor file to review"), file);
-    expect(await screen.findByRole("alert")).toHaveTextContent("The standards are still being read.");
-    expect(screen.queryByRole("button", { name: /^Open the/ })).toBeNull();
-  });
-
   it("a server refusal of the role write (404) sees plain words and no review starts", async () => {
     setRoleBulk.mockResolvedValue({ ok: false, disconnected: false, error: { code: "not_found", message: "That is not something the backend knows about." } });
     const onStarted = vi.fn();
@@ -234,16 +195,88 @@ describe("SubmittalsLandingView with the workspace switch", () => {
     expect(props.onOpenPastRun).toBeUndefined();
   });
 
-  it("on: the drop zone opens the started run, and each row can open past reviews", async () => {
+  it("on (v2.1): the New review card holds the drop zone, which opens the started run; the old list is replaced", async () => {
     const onOpenRun = vi.fn();
     const user = userEvent.setup();
     render(<SubmittalsLandingView onOpenRun={onOpenRun} workspace />);
-    await screen.findByText("documents list");
-    expect(listProps.mock.lastCall?.[0]?.onOpenPastRun).toBe(onOpenRun);
+    const card = await screen.findByTestId("new-review-card");
+    expect(screen.queryByText("documents list")).toBeNull();
+    // L8: the empty list points to the New review card, not the Documents page.
+    expect(screen.getByTestId("landing-empty")).toHaveTextContent("New review card above");
+    expect(screen.getByTestId("landing-empty")).not.toHaveTextContent("Documents page");
 
-    const zone = screen.getByTestId("new-review-drop-zone");
+    const zone = within(card).getByTestId("new-review-drop-zone");
     await user.click(within(zone).getByRole("button", { name: "choose a file" }));
     await user.upload(within(zone).getByLabelText("Choose a contractor file to review"), file);
     await vi.waitFor(() => expect(onOpenRun).toHaveBeenCalledWith("run-1"));
+  });
+});
+
+describe("NewReviewDropZone: a file already in the library under another role (v2.1 L10)", () => {
+  beforeEach(() => {
+    uploadOne.mockResolvedValue({ phase: "done", documentId: "doc-8", duplicateOf: "doc-8", awaitingGrant: false });
+    document.mockResolvedValueOnce({ ok: true, data: { id: "doc-8", status: "ready", document_role: "COMPANY_STANDARD" } });
+    document.mockResolvedValue({ ok: true, data: { id: "doc-8", status: "ready", document_role: "CONTRACTOR_SUBMITTAL" } });
+  });
+
+  it("offers an administrator a confirmed re-mark; nothing changes until Yes, then mark -> wait -> start -> open", async () => {
+    const onStarted = vi.fn();
+    const user = userEvent.setup();
+    render(<NewReviewDropZone onStarted={onStarted} isAdmin />);
+    await user.upload(screen.getByLabelText("Choose a contractor file to review"), file);
+    expect(await screen.findByRole("alert")).toHaveTextContent("already in the library as a company standard");
+    expect(setRoleBulk).not.toHaveBeenCalled();
+    expect(startReviewRun).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Mark as contractor submittal and review" }));
+    // One confirm: Cancel changes nothing.
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(setRoleBulk).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Mark as contractor submittal and review" }));
+    expect(screen.getByRole("group", { name: "Mark as contractor submittal?" })).toHaveTextContent("company standard");
+    calls.length = 0;
+    await user.click(screen.getByRole("button", { name: "Yes, mark it and start the review" }));
+    await vi.waitFor(() => expect(onStarted).toHaveBeenCalledWith("run-1"));
+    expect(setRoleBulk).toHaveBeenCalledWith({ document_ids: ["doc-8"], document_role: "CONTRACTOR_SUBMITTAL" });
+    expect(calls).toEqual(["mark", "document", "start"]);
+  });
+
+  it("a non-administrator never sees the offer (and nothing is uploaded)", async () => {
+    render(<NewReviewDropZone onStarted={vi.fn()} isAdmin={false} />);
+    await userEvent.upload(screen.getByLabelText("Choose a contractor file to review"), file);
+    expect(await screen.findByRole("alert")).toHaveTextContent(NOT_ADMIN_BEFORE_UPLOAD_MESSAGE);
+    expect(screen.queryByRole("button", { name: "Mark as contractor submittal and review" })).toBeNull();
+    expect(uploadOne).not.toHaveBeenCalled();
+  });
+});
+
+describe("NewReviewDropZone: a file already in the library as a contractor submittal (v2.1)", () => {
+  beforeEach(() => {
+    uploadOne.mockResolvedValue({ phase: "done", documentId: "doc-7", duplicateOf: "doc-7", awaitingGrant: false });
+    document.mockResolvedValue({ ok: true, data: { id: "doc-7", status: "ready", document_role: "CONTRACTOR_SUBMITTAL" } });
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [{
+      review_run_id: "run-old", submittal_document_id: "doc-7", status: "completed", created_at: "2026-10-01T08:00:00Z",
+      crs_issued_at: "2026-10-02T08:00:00Z",
+    }] } });
+  });
+
+  it("asks first when its latest review is signed; Cancel starts nothing, Yes starts and opens it", async () => {
+    const onStarted = vi.fn();
+    const user = userEvent.setup();
+    render(<NewReviewDropZone onStarted={onStarted} isAdmin />);
+    await user.upload(screen.getByLabelText("Choose a contractor file to review"), file);
+    const ask = await screen.findByTestId("drop-ask-first");
+    expect(ask).toHaveTextContent("already signed");
+    expect(startReviewRun).not.toHaveBeenCalled();
+    await user.click(within(ask).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByTestId("drop-ask-first")).toBeNull();
+    expect(startReviewRun).not.toHaveBeenCalled();
+
+    await user.upload(screen.getByLabelText("Choose a contractor file to review"), file);
+    await user.click(within(await screen.findByTestId("drop-ask-first")).getByRole("button", { name: "Yes, start a new review" }));
+    await vi.waitFor(() => expect(onStarted).toHaveBeenCalledWith("run-1"));
+    expect(startReviewRun).toHaveBeenCalledTimes(1);
+    expect(setRoleBulk).not.toHaveBeenCalled();
   });
 });

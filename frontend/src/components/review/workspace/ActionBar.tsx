@@ -1,17 +1,21 @@
 /**
  * OWNER: builder B. "What you need to do": the verdict in one sentence and
- * the four buttons in fixed order (standards, pages, decide, sign). Every
- * number here comes from `computeReviewNumbers` / `actionSteps`; this file
- * counts nothing itself.
+ * the five buttons in fixed order (standards, pages, decide, final code,
+ * sign), the saving line with "Save now", and the final code control that
+ * opens from the bar. Every number here comes from `computeReviewNumbers` /
+ * `actionSteps`; this file counts nothing itself.
  */
 import { useState } from "react";
 
 import { reviews as reviewsApi } from "../../../api/client";
-import type { ActionBarProps, ActionStep, ActionStepId } from "./contract";
+import { FinalCode } from "../crs/BeforeYouSign";
+import type { ActionBarProps, ActionStep, ActionStepId, AutosaveStatus } from "./contract";
 import { verdictPieces } from "./numbers";
+import { type PlainError, plainError } from "./plainError";
+import { PlainErrorLine } from "./PlainErrorLine";
 
 /** The data-count name of each step's number (the shared counts). */
-const STEP_COUNT: Record<Exclude<ActionStepId, "sign">, "missingStandards" | "unreadPages" | "undecided"> = {
+const STEP_COUNT: Record<Exclude<ActionStepId, "sign" | "code">, "missingStandards" | "unreadPages" | "undecided"> = {
   standards: "missingStandards",
   pages: "unreadPages",
   decide: "undecided",
@@ -20,7 +24,7 @@ const STEP_COUNT: Record<Exclude<ActionStepId, "sign">, "missingStandards" | "un
 const BUTTON = "inline-flex items-center gap-1 rounded-[var(--radius-sm)] border px-3 py-1.5 text-sm disabled:cursor-not-allowed";
 
 function StepLabel({ step }: { step: ActionStep }) {
-  if (step.id === "sign" || step.count === null) return <>{step.label}</>;
+  if (step.id === "sign" || step.id === "code" || step.count === null) return <>{step.label}</>;
   // The label carries "(N)"; N is shown from `step.count` so it can be marked.
   const words = step.label.replace(/\s*\(\d[\d,]*\)\s*$/, "");
   return (
@@ -30,10 +34,39 @@ function StepLabel({ step }: { step: ActionStep }) {
   );
 }
 
-type Reread = { busy: boolean; message: string | null; error: string | null };
+type Reread = { busy: boolean; message: string | null; error: PlainError | null };
 
-export function ActionBar({ run, numbers, steps, onAction, signOff }: ActionBarProps) {
+/** D4: the one saving line. "Saved" only after something was saved; a
+ *  failure says why in plain words and stays until a save works. */
+function SavingLine({ autosave, unsaved }: { autosave: AutosaveStatus; unsaved: number }) {
+  const words = autosave.phase === "saving" ? "Saving..."
+    : autosave.phase === "failed" ? (autosave.message ?? "Your decisions were not saved. Try again in a moment.")
+      : unsaved > 0 && autosave.waiting ? `${unsaved} ${unsaved === 1 ? "decision" : "decisions"} will save once Undo is gone.`
+        : unsaved > 0 ? `${unsaved} ${unsaved === 1 ? "decision" : "decisions"} waiting to save...`
+          : autosave.phase === "saved" ? "Saved. Every decision is on the record." : "Decisions save by themselves as you make them.";
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <p role="status" data-testid="ws-autosave" data-phase={autosave.phase}
+        className={autosave.phase === "failed" ? "text-red-400" : "text-slateish-300"}>
+        {words}
+      </p>
+      {autosave.phase === "failed" && autosave.detail && (
+        <details data-testid="ws-autosave-detail" className="text-xs text-slateish-400">
+          <summary className="cursor-pointer">Details</summary>
+          <p className="mt-1 break-words">{autosave.detail}</p>
+        </details>
+      )}
+      <button type="button" disabled={unsaved === 0 || autosave.phase === "saving"} onClick={() => void autosave.saveNow()}
+        className={`${BUTTON} border-ink-600 text-slateish-100`}>
+        Save now
+      </button>
+    </div>
+  );
+}
+
+export function ActionBar({ run, numbers, steps, onAction, signOff, autosave, onCodeRecorded }: ActionBarProps) {
   const [pagesOpen, setPagesOpen] = useState(false);
+  const [codeOpen, setCodeOpen] = useState(false);
   const [reread, setReread] = useState<Reread>({ busy: false, message: null, error: null });
   const pagesStep = steps.find((s) => s.id === "pages");
   const signHelp = steps.find((s) => s.id === "sign")?.detail ?? null;
@@ -41,13 +74,17 @@ export function ActionBar({ run, numbers, steps, onAction, signOff }: ActionBarP
   const press = (step: ActionStep) => {
     if (step.id === "sign") { void signOff.sign(); return; }
     if (step.id === "pages") setPagesOpen((open) => !open);
+    if (step.id === "code") setCodeOpen((open) => !open);
     onAction(step.id);
   };
 
   const readAgain = async () => {
     setReread({ busy: true, message: null, error: null });
     const result = await reviewsApi.rereadPages(run.submittal_document_id);
-    if (!result.ok) { setReread({ busy: false, message: null, error: result.error.message }); return; }
+    if (!result.ok) {
+      setReread({ busy: false, message: null, error: plainError("The pages could not be sent to be read again.", result) });
+      return;
+    }
     setReread({
       busy: false, error: null,
       message: "Asked to read these pages again. Run the review again to use what was read.",
@@ -68,7 +105,8 @@ export function ActionBar({ run, numbers, steps, onAction, signOff }: ActionBarP
           <button
             key={step.id} type="button" data-step={step.id} data-done={step.done ? "true" : "false"}
             disabled={!step.enabled || signOff.busy}
-            aria-expanded={step.id === "pages" && step.enabled ? pagesOpen : undefined}
+            aria-expanded={step.id === "pages" && step.enabled ? pagesOpen
+              : step.id === "code" && step.enabled ? codeOpen : undefined}
             title={step.id === "sign" && step.detail ? step.detail : undefined}
             onClick={() => press(step)}
             className={`${BUTTON} ${step.id === "sign"
@@ -89,8 +127,8 @@ export function ActionBar({ run, numbers, steps, onAction, signOff }: ActionBarP
             </span>
           ) : pagesStep.count === null ? (
             <span>
-              The page checks cannot be read yet, so it is not known which pages were left unread. Look through
-              the pages yourself, or ask for the pages to be read again.
+              It is not known yet which pages were left unread. Look through the pages yourself, or ask for the
+              pages to be read again.
             </span>
           ) : (
             <span>
@@ -104,8 +142,14 @@ export function ActionBar({ run, numbers, steps, onAction, signOff }: ActionBarP
           </button>
         </div>
       )}
+      {codeOpen && !numbers.signed && numbers.finalCodeRecorded !== true && (
+        <div data-testid="ws-final-code">
+          <FinalCode run={run} onChanged={() => { setCodeOpen(false); onCodeRecorded?.(); }} />
+        </div>
+      )}
+      {autosave && <SavingLine autosave={autosave} unsaved={numbers.unsaved} />}
       {reread.message && <p role="status" className="text-sm text-slateish-300">{reread.message}</p>}
-      {reread.error && <p role="alert" className="text-sm text-red-400">{reread.error}</p>}
+      {reread.error && <PlainErrorLine error={reread.error} testId="ws-reread-error" />}
       {signOff.message && <p role="status" className="text-sm text-slateish-300">{signOff.message}</p>}
       {signOff.error && <p role="alert" className="text-sm text-red-400">{signOff.error}</p>}
     </section>

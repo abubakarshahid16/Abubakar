@@ -19,7 +19,7 @@ describe("issueContractorCopy", () => {
   it("waits for each rule, in plain words, and never asks the server meanwhile", async () => {
     const cases: Array<[Partial<IssueChecks>, string]> = [
       [{ unsaved: 2 }, "Save the 2 decisions on screen first."],
-      [{ unopenedNeedsYou: 1 }, 'Open the 1 "Needs you" row first.'],
+      [{ unopenedNeedsYou: 1 }, 'Open the 1 comment that needs your judgement (marked "Needs you") first.'],
       [{ signLeft: ["record the final code"] }, "Before you sign: record the final code."],
       [{ signLeft: ["tick 2 unread pages"] }, "Before you sign: tick 2 unread pages."],
     ];

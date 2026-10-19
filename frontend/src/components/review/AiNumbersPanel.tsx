@@ -19,8 +19,8 @@ export function AiNumbersPanel({ numbers }: { numbers: AiNumbers | null | undefi
   const steps = ORDER.map((key) => numbers?.[key]).filter((s): s is AiStepNumbers => Boolean(s));
   if (steps.length === 0) return null;
   return (
-    <section aria-label="AI numbers for this run" data-testid="ai-numbers" className="text-sm">
-      <p className="text-slateish-300">AI numbers for this run</p>
+    <section aria-label="What each AI step did on this review" data-testid="ai-numbers" className="text-sm">
+      <p className="text-slateish-300">What each AI step did on this review</p>
       <ul className="mt-1 space-y-1">
         {steps.map((step) => (
           <li key={step.step} data-testid={`ai-step-${step.step}`}>

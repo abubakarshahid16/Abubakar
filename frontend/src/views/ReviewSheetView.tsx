@@ -79,7 +79,7 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
     if (mine !== latest.current) return null;
     if (!runs.ok) { setLoad({ kind: "error", message: runs.error.message }); return null; }
     const found = runs.data;
-    if (!found) { setLoad({ kind: "error", message: "This review run could not be found." }); return null; }
+    if (!found) { setLoad({ kind: "error", message: "This review could not be found." }); return null; }
     if (!listed.ok) { setLoad({ kind: "error", message: listed.error.message }); return null; }
     setRun(found);
     setFindings(listed.data.findings);

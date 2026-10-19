@@ -32,7 +32,10 @@ import { ReviewWorkspace } from "./components/review/workspace/ReviewWorkspace";
 import { TryNewDesignToggle } from "./components/review/workspace/TryNewDesignToggle";
 import { useWorkspaceSwitch } from "./components/review/workspace/useWorkspaceSwitch";
 import { WORKSPACE_PANEL, isWorkspaceScreen, parseWorkspaceQuery, workspaceSearch } from "./components/review/workspace/workspaceRoute";
-import { LEAVE_WARNING, type WorkspaceLocation } from "./components/review/workspace/contract";
+import type { WorkspaceLocation } from "./components/review/workspace/contract";
+import { LeaveConfirm } from "./components/review/workspace/LeaveConfirm";
+import { type LeaveSaver, LeaveSaverContext, useLeaveGuard } from "./components/review/workspace/useLeaveGuard";
+import { CrsDraftContext, clearDecisionDrafts, setDraftOwner } from "./components/review/crs/useCrsDecisions";
 import { NavigationContext } from "./components/NavLink";
 import { CRS_SHEET_IS_DEFAULT, INBOX_RECORD, panelForReviewScreen, parseRoute, pathForView, reviewScreenFor, titleForView, type AppRoute } from "./routing";
 
@@ -81,9 +84,14 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
   });
   const view = route.kind === "view" ? route.view : initialView;
   const reviewScreen = route.kind === "view" && route.view === "review" ? reviewScreenFor(route.panel, CRS_SHEET_IS_DEFAULT) : null;
+  // v2.1 (N1): the address the app is showing now, so a Back press that
+  // the reader takes back (unsaved decisions, "Stay here") can put it back.
+  const shownAddress = useRef<string>(
+    import.meta.env.MODE === "test" ? "/" : window.location.pathname + window.location.search);
   const onNavigate = useCallback((next: ViewId, recordId?: string, panel?: string) => {
     const nextPath = pathForView(next, recordId, panel);
     if (import.meta.env.MODE !== "test") window.history.pushState({ __epcRoute: true }, "", nextPath);
+    shownAddress.current = nextPath;
     setSearch("");
     setRoute({ kind: "view", view: next, recordId, ...(panel ? { panel } : {}) });
   }, []);
@@ -103,6 +111,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
     const nextSearch = workspaceSearch(next);
     const nextPath = pathForView("review", next.runId, workspacePanel) + nextSearch;
     window.history.replaceState({ ...(window.history.state ?? {}), __epcRoute: true }, "", nextPath);
+    shownAddress.current = nextPath;
     setSearch(nextSearch);
   }, [workspacePanel]);
   // Links from the workspace's own pieces (the finished notice, "Review
@@ -114,31 +123,71 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
   );
   const { setOptIn } = workspaceSwitch;
   // Decisions on the workspace screen that are not saved yet (it reports
-  // them). Turning the switch off swaps the screen, so ask first, with the
-  // same words as every other way out of the sheet.
+  // them; 0 on every other screen).
   const workspaceUnsaved = useRef(0);
   const onWorkspaceUnsaved = useCallback((count: number) => { workspaceUnsaved.current = count; }, []);
+  // v2.1 (N1): THE ONE NAVIGATION GUARD. Every way out of the workspace
+  // below asks through it, in the page, while anything is unsaved; the
+  // decisions are also kept as a draft in this tab (useCrsDecisions), so
+  // leaving loses nothing. The workspace's own buttons (its "Reviews" link,
+  // "Review again", "Open" on a past review) ask through this same guard
+  // (its `leaveGuard` prop), so they get the plain `onNavigate` and are
+  // never asked twice.
+  // v2.1 round 2: the workspace's automatic saving puts its "save now" here
+  // (LeaveSaverContext), so the question can offer "Save and leave".
+  const workspaceSaver = useRef<LeaveSaver | null>(null);
+  const registerWorkspaceSaver = useCallback((save: LeaveSaver | null) => { workspaceSaver.current = save; }, []);
+  const saveWorkspace = useCallback(
+    () => (workspaceSaver.current ? workspaceSaver.current() : Promise.resolve(false)), []);
+  const leaveGuard = useLeaveGuard(() => workspaceUnsaved.current, saveWorkspace);
+  const { guard } = leaveGuard;
+  const guardedNavigate = useCallback((next: ViewId, recordId?: string, panel?: string) => {
+    guard("navigate", () => onNavigate(next, recordId, panel));
+  }, [guard, onNavigate]);
   const onTryNewDesign = useCallback((on: boolean) => {
-    if (!on && workspaceUnsaved.current > 0 && !window.confirm(LEAVE_WARNING)) return;
-    setOptIn(on);
-    // Off while on the workspace's own address: back to the old screen.
-    if (!on && route.kind === "view" && route.view === "review" && route.recordId && route.panel === WORKSPACE_PANEL) {
-      onNavigate("review", route.recordId);
-    }
-  }, [setOptIn, route, onNavigate]);
+    const go = () => {
+      setOptIn(on);
+      // Off while on the workspace's own address: back to the old screen.
+      if (!on && route.kind === "view" && route.view === "review" && route.recordId && route.panel === WORKSPACE_PANEL) {
+        onNavigate("review", route.recordId);
+      }
+    };
+    if (on) go(); else guard("switch", go);
+  }, [setOptIn, route, onNavigate, guard]);
   const tryNewDesign = <TryNewDesignToggle on={switchOn} onChange={onTryNewDesign} />;
   // "Open it" on the finished notice leaves whatever screen the reader is
-  // on, the workspace included, so it asks first about unsaved decisions,
-  // like the switch above. False tells the notice the reader stayed.
-  const openFinishedRun = useCallback((runId: string): boolean => {
-    if (workspaceUnsaved.current > 0 && !window.confirm(LEAVE_WARNING)) return false;
-    openRunInWorkspace(runId);
-    return true;
-  }, [openRunInWorkspace]);
+  // on, the workspace included, so it goes through the guard. False tells
+  // the notice the reader has not left (yet), so it stays on screen.
+  const openFinishedRun = useCallback((runId: string): boolean =>
+    guard("navigate", () => openRunInWorkspace(runId)), [guard, openRunInWorkspace]);
+  // Browser Back / Forward. The address has already changed when this
+  // fires, so with unsaved decisions it is put back first (one entry on
+  // top of where Back pointed); the reader's answer then decides. "Leave"
+  // steps back off that entry (history.back, the next popstate shown
+  // without asking): pushing a second entry would leave the review's
+  // address behind it, and the next Back would open the review again.
+  const guardRef = useRef(guard);
+  useEffect(() => { guardRef.current = guard; }, [guard]);
+  const skipNextPop = useRef(false);
   useEffect(() => {
+    const show = (address: string) => {
+      const url = new URL(address, window.location.origin);
+      shownAddress.current = url.pathname + url.search;
+      setSearch(url.search);
+      setRoute(parseRoute(url.pathname));
+    };
     const onPopState = () => {
-      setSearch(window.location.search);
-      setRoute(parseRoute(window.location.pathname));
+      const target = window.location.pathname + window.location.search;
+      if (skipNextPop.current) { skipNextPop.current = false; show(target); return; }
+      const before = shownAddress.current;
+      const samePage = new URL(before, window.location.origin).pathname === window.location.pathname;
+      if (samePage || workspaceUnsaved.current <= 0) { show(target); return; }
+      window.history.pushState({ __epcRoute: true }, "", before);
+      guardRef.current("back", () => {
+        // Step back onto where Back pointed; that popstate only shows it.
+        skipNextPop.current = true;
+        window.history.back();
+      });
     };
     window.addEventListener("popstate", onPopState);
     return () => {
@@ -181,6 +230,10 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
   const check = useCallback(async () => {
     const r = await auth.me();
     if (r.ok) {
+      // Whose decision drafts may come back, said BEFORE the workspace can
+      // draw (it reads its draft as it first draws).
+      if (!r.data.required) setDraftOwner(null);
+      else if (r.data.user) setDraftOwner(r.data.user.id);
       setSession(r.data.required ? { s: "required", me: r.data.user } : { s: "disabled" });
     } else if (r.disconnected) {
       // A disconnected backend is NOT a signed-out user, and it is not a
@@ -213,6 +266,9 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
 
   // The client clears the token on any 401 and calls this. No auto-retry and
   // no refresh flow: there is no refresh token by design.
+  // v2.1 (N1): a sign-in that ran out keeps the decision drafts (they are
+  // kept under the person's id): signing in again as the same person brings
+  // them back on the same review. Only a chosen sign-out removes them.
   useEffect(() => {
     onSignedOut(() => {
       tokenRef.current = null;
@@ -228,6 +284,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
       if (r.ok) {
         setToken(r.data.token);
         tokenRef.current = r.data.token;
+        setDraftOwner(r.data.user?.id ?? null);
         setSession({ s: "required", me: r.data.user });
         return { ok: true };
       }
@@ -247,8 +304,12 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
     // The "review ready" list names files: the next person to sign in on
     // this tab must not see the last person's.
     clearWatchedReviews();
+    // The reader chose to sign out (and was asked first if anything was
+    // unsaved): their decision drafts in this tab go too.
+    clearDecisionDrafts();
     setSession({ s: "required", me: null });
   }, []);
+  const guardedSignOut = useCallback(() => { guard("signout", signOut); }, [guard, signOut]);
 
   const resetPassword = useCallback(async (resetToken: string, password: string) => {
     const result = await auth.resetPassword(resetToken, password);
@@ -325,10 +386,10 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
   }
 
   return (
-    <NavigationContext.Provider value={onNavigate}>
+    <NavigationContext.Provider value={guardedNavigate}>
     <Shell
       view={view}
-      onNavigate={onNavigate}
+      onNavigate={guardedNavigate}
       connection={connection}
       auth={authStatus}
       theme={theme}
@@ -353,14 +414,17 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
         session.s === "unknown" || session.s === "checking" ? undefined : (
           <RoleBadge
             me={session.s === "required" ? session.me : null}
-            onLogout={signOut}
+            onLogout={guardedSignOut}
           />
         )
       }
     >
       {/* Workspace v2: "Your review is ready" on any page (it renders
           nothing until a watched review finishes). */}
-      <FinishedReviewNotice onOpenRun={openFinishedRun} />
+      <FinishedReviewNotice onOpenRun={openFinishedRun} panelOpen={workspaceLocation?.panel === "evidence"} />
+      {/* v2.1 (N1): the guard's question, in the page. */}
+      <LeaveConfirm pending={leaveGuard.pending} onLeave={leaveGuard.leave} onStay={leaveGuard.stay}
+        onSaveAndLeave={leaveGuard.saveAndLeave} saving={leaveGuard.saving} saveError={leaveGuard.saveError} />
       {/* ONE connection-level error at a time. With the backend down this
           rendered its banner AND let the view render its own failed-request
           card, so an amber "backend is not running" and a red "HTTP 502"
@@ -395,7 +459,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
         </section>
       ) : (
         <>
-          <CommandPalette onNavigate={onNavigate} auth={authStatus} connection={connection} />
+          <CommandPalette onNavigate={guardedNavigate} auth={authStatus} connection={connection} />
           {view === "documents" && (
             <DocumentsView connection={connection} onRetryConnection={recheck} isAdmin={canAdmin} />
           )}
@@ -438,14 +502,21 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
           {view === "review" && workspaceLocation && (
             <>
               {tryNewDesign}
-              <ReviewWorkspace
-                key={workspaceLocation.runId} location={workspaceLocation}
-                onLocationChange={onWorkspaceLocationChange}
-                onBack={() => onNavigate("review")}
-                onOpenRun={openRunInWorkspace}
-                onUnsavedChange={onWorkspaceUnsaved}
-                isAdmin={canAdmin}
-              />
+              {/* v2.1 (N1): decisions not saved yet are kept as a draft
+                  for this review in this tab. */}
+              <CrsDraftContext.Provider value={workspaceLocation.runId}>
+                <LeaveSaverContext.Provider value={registerWorkspaceSaver}>
+                <ReviewWorkspace
+                  key={workspaceLocation.runId} location={workspaceLocation}
+                  onLocationChange={onWorkspaceLocationChange}
+                  onBack={() => onNavigate("review")}
+                  onOpenRun={openRunInWorkspace}
+                  onUnsavedChange={onWorkspaceUnsaved}
+                  leaveGuard={guard}
+                  isAdmin={canAdmin}
+                />
+                </LeaveSaverContext.Provider>
+              </CrsDraftContext.Provider>
             </>
           )}
           {view === "review" && !workspaceLocation && !(route.kind === "view" && route.panel === "how") && (
