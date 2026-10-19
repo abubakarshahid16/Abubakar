@@ -45,6 +45,16 @@ export const PANELS: Partial<Record<ViewId, readonly string[]>> = {
  */
 export const CRS_SHEET_IS_DEFAULT = true;
 
+/**
+ * THE WORKSPACE SWITCH (workspace v2, planner team). When true, `/review/<run>`
+ * opens the one-screen review workspace (`components/review/workspace`).
+ * False: nothing changes for anyone who has not pressed "Try new design"
+ * (a per-browser choice, see `workspace/useWorkspaceSwitch.ts`). The
+ * workspace's own address `/review/<run>/workspace` (builder A adds it to
+ * PANELS) works whichever value this has. Flip only on the owner's word.
+ */
+export const WORKSPACE_IS_DEFAULT = false;
+
 /** The third path segment that always opens each review screen. */
 export const REVIEW_SCREEN_PANELS = { cards: "cards", crsSheet: "crs-sheet" } as const;
 
