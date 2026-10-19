@@ -54,8 +54,24 @@ describe("downloadIssuedCopy", () => {
     crsIssuedCopies.mockResolvedValue({ ok: true, data: { copies: [] } });
     expect(await downloadIssuedCopy("run-1")).toBe(NO_ISSUED_COPY_MESSAGE);
     crsIssuedCopies.mockResolvedValue({ ok: false, error: { message: "server busy" } });
-    expect(await downloadIssuedCopy("run-1")).toBe("Could not find the issued copy: server busy");
+    expect(await downloadIssuedCopy("run-1"))
+      .toBe("Could not find the issued copy. Try again in a moment. Details: server busy");
     expect(issuedCrsCopy).not.toHaveBeenCalled();
+  });
+
+  /** #1168 follow-up. MUTATION PROOF (done once by hand): return the
+   *  server's message as it came (the old code) and this fails. */
+  it("a failure is said in plain words first, the server's words only as a detail", async () => {
+    crsIssuedCopies.mockResolvedValue({ ok: false, disconnected: true, error: { message: "Failed to fetch" } });
+    const listFailed = await downloadIssuedCopy("run-1");
+    expect(listFailed).toBe(
+      "Could not find the issued copy. The server could not be reached. Check your connection, then try again. Details: Failed to fetch");
+    crsIssuedCopies.mockResolvedValue({ ok: true, data: { copies: COPIES } });
+    issuedCrsCopy.mockResolvedValue({ ok: false, error: { code: "not_found", message: "copy_missing" } });
+    const fileFailed = await downloadIssuedCopy("run-1");
+    expect(fileFailed).toBe(
+      "Could not download the issued copy. It could not be found. It may have been removed, or the link may be wrong. Details: copy_missing");
+    expect(fileFailed?.startsWith("copy_missing")).toBe(false);
   });
 });
 
@@ -85,6 +101,6 @@ describe("SignOffPanel after signing", () => {
     render(<SignOffPanel numbers={numbers} signOff={signOff} run={run} rows={[]} gate={gate} onRunChanged={vi.fn()} onJump={vi.fn()} />);
     await userEvent.click(screen.getByRole("button", { name: "Download the issued copy" }));
     expect(await screen.findByTestId("ws-issued-copy-error"))
-      .toHaveTextContent("Could not download the issued copy: the archived copy no longer matches");
+      .toHaveTextContent("Could not download the issued copy. Try again in a moment. Details: the archived copy no longer matches");
   });
 });

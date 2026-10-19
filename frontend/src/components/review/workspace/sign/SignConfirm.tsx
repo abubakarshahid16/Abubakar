@@ -21,6 +21,11 @@
  * close the keyboard goes back to the Sign button that opened it. Signing
  * an older review (a newer review of the same document exists) asks first:
  * "Issue to contractor" waits for a tick saying so.
+ *
+ * #1168 follow-up: that check fails closed. When the document's other
+ * reviews could not be read, it is not known whether a newer one exists
+ * (`newerReview="unknown"`): the step says so in one plain line and asks
+ * for the same tick before "Issue to contractor".
  */
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
@@ -40,8 +45,10 @@ export interface SignConfirmProps {
     signInOff?: boolean | null;
   };
   /** A newer review of the same document exists (its date, when known):
-   *  signing this older one asks first. Absent or null: this is the newest. */
-  newerReview?: { at: string | null } | null;
+   *  signing this older one asks first. "unknown": the document's other
+   *  reviews could not be read, so it could not be checked; this asks
+   *  first too (fails closed). Absent or null: known to be the newest. */
+  newerReview?: { at: string | null } | null | "unknown";
 }
 
 /** Columns and notes the server marks as internal: the contractor's copy
@@ -78,6 +85,9 @@ export function olderReviewWarning(at: string | null): string {
   return `You are signing an older review. A newer review of this document exists${at ? ` (${at})` : ""}; `
     + "the contractor would get this older sheet, not the newer one.";
 }
+
+/** Said when the document's other reviews could not be read. */
+export const NEWER_REVIEW_UNKNOWN = "Whether a newer review of this document exists could not be checked.";
 
 function isTyping(el: Element | null): boolean {
   const node = el as HTMLElement | null;
@@ -159,6 +169,9 @@ export function SignConfirm({ runId, open, onClose, onIssued, summary, newerRevi
 
   if (!open) return null;
 
+  /** Issue waits for the tick unless this is known to be the newest review. */
+  const asksFirst = newerReview !== null;
+
   const issue = async () => {
     setBusy(true);
     setError(null);
@@ -195,10 +208,12 @@ export function SignConfirm({ runId, open, onClose, onIssued, summary, newerRevi
               onChanged={() => void load(() => true)} />
           </div>
         )}
-        {newerReview && (
+        {asksFirst && (
           <div role="group" aria-label="Signing an older review" data-testid="ws-sign-older"
             className="space-y-1 rounded-[var(--radius-sm)] border border-warn-500/50 bg-warn-500/10 p-2">
-            <p className="text-warn-500">{olderReviewWarning(newerReview.at)}</p>
+            <p className="text-warn-500">
+              {newerReview === "unknown" ? NEWER_REVIEW_UNKNOWN : olderReviewWarning(newerReview.at)}
+            </p>
             <label className="flex items-center gap-2 text-slateish-100">
               <input type="checkbox" checked={olderOk} onChange={(e) => setOlderOk(e.target.checked)} />
               Yes, sign this older review anyway
@@ -210,7 +225,7 @@ export function SignConfirm({ runId, open, onClose, onIssued, summary, newerRevi
           <button type="button" onClick={onClose} disabled={busy} className={`${BUTTON} border-ink-600 text-slateish-100`}>
             Cancel
           </button>
-          <button type="button" onClick={() => void issue()} disabled={busy || (newerReview !== null && !olderOk)}
+          <button type="button" onClick={() => void issue()} disabled={busy || (asksFirst && !olderOk)}
             className={`${BUTTON} border-signal-500 bg-signal-500 text-ink-950`}>
             {busy ? "Issuing…" : "Issue to contractor"}
           </button>
