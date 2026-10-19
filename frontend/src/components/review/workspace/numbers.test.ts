@@ -108,7 +108,7 @@ describe("computeReviewNumbers", () => {
       const n = computeReviewNumbers(input({ gate: null, readiness: readiness({ ledger_state: ledger }) }));
       expect(n.pagesKnown, String(ledger)).toBe(false);
       const pages = actionSteps(n).find((s) => s.id === "pages")!;
-      expect(pages).toMatchObject({ count: null, done: false, enabled: true, label: "Check unread pages (cannot read yet)" });
+      expect(pages).toMatchObject({ count: null, done: false, enabled: true, label: "Check unread pages (not known yet)" });
     }
   });
 
@@ -181,6 +181,25 @@ describe("computeReviewNumbers", () => {
     expect(n.unsaved).toBe(2);
   });
 
+  /** D5. MUTATION PROOF: drop `&& r.priorState !== "agreed"` from
+   *  unopenedNeedsYou and this fails. */
+  it("a Needs you row decided in an earlier session counts as opened", () => {
+    const rows = [row("c-old", "C", { prior: "agreed" }), row("c-new", "C")];
+    const n = computeReviewNumbers(input({ rows }));
+    expect(n.unopenedNeedsYou).toBe(1);
+    expect(computeReviewNumbers(input({ rows, decisions: { decisions: {}, opened: { "c-new": true } } })).unopenedNeedsYou).toBe(0);
+  });
+
+  /** D3: the count "Keep all remaining comments" shows is acceptAll's own
+   *  rule: ordinary comments, no decision, not answered earlier; never a
+   *  Needs you row. */
+  it("remainingToKeep: undecided ordinary comments only, never Needs you", () => {
+    const decisions: DecisionState = { decisions: { b1: { kind: "keep" } }, opened: {} };
+    const rows = [row("b1", "B"), row("b3", "B"), row("b4", "B"), row("b2", "B", { prior: "agreed" }), row("c1", "C"), row("a1", "A")];
+    expect(computeReviewNumbers(input({ rows, decisions })).remainingToKeep).toBe(2);
+    expect(computeReviewNumbers(input({ rows: [row("c1", "C")] })).remainingToKeep).toBe(0);
+  });
+
   it("signed from crs_issued_at", () => {
     expect(computeReviewNumbers(input()).signed).toBe(false);
     expect(computeReviewNumbers(input()).signedAt).toBeNull();
@@ -201,29 +220,51 @@ describe("actionSteps", () => {
   const busy = computeReviewNumbers(input({
     rows: ROWS, missingStandards: ["API 610", "ISO 5199"], readiness: readiness({ unread_pages: [4, 9, 12] }),
   }));
+  const step = (steps: ReturnType<typeof actionSteps>, id: string) => steps.find((s) => s.id === id)!;
 
-  it("gives the four steps in fixed order with their counts", () => {
+  it("gives the five steps in fixed order with their counts; the final code is a step before Sign (S1)", () => {
     const steps = actionSteps(busy);
-    expect(steps.map((s) => s.id)).toEqual(["standards", "pages", "decide", "sign"]);
+    expect(steps.map((s) => s.id)).toEqual(["standards", "pages", "decide", "code", "sign"]);
     expect(steps.map((s) => s.label)).toEqual([
-      "Upload missing standards (2)", "Check unread pages (3)", "Decide comments (3)", "Sign and export",
+      "Upload missing standards (2)", "Check unread pages (3)", "Decide comments (3)",
+      "Record the final code (not known yet)", "Sign and export",
     ]);
     expect(steps[1].detail).toBe("Pages 4, 9 and 12");
-    expect(steps[3].enabled).toBe(false);
-    expect(steps.slice(0, 3).every((s) => s.enabled && !s.done)).toBe(true);
+    expect(step(steps, "sign").enabled).toBe(false);
+    expect(steps.slice(0, 4).every((s) => s.enabled && !s.done)).toBe(true);
+  });
+
+  it("the final code step: open while the gate says no code, done with the code once recorded", () => {
+    const noCode = computeReviewNumbers(input({ gate: gate({ final_code_recorded: false }) }));
+    expect(step(actionSteps(noCode), "code")).toMatchObject({ label: "Record the final code", done: false, enabled: true });
+    const recorded = computeReviewNumbers(input({ run: run({ engineer_final_code: "B" }), gate: gate({ final_code_recorded: false }) }));
+    expect(recorded.finalCode).toBe("B");
+    expect(recorded.finalCodeRecorded).toBe(true);
+    expect(step(actionSteps(recorded), "code")).toMatchObject({ label: "Final code: B", done: true, enabled: false });
+    expect(computeReviewNumbers(input()).finalCodeRecorded).toBeNull();
   });
 
   it("a step with 0 is done (shown, not hidden); sign opens only when all are clear and saved", () => {
     const clear = computeReviewNumbers(input({ rows: [row("a1", "A")], gate: gate() }));
     const steps = actionSteps(clear);
-    expect(steps).toHaveLength(4);
-    expect(steps.slice(0, 3).every((s) => s.done && !s.enabled)).toBe(true);
-    expect(steps[3].enabled).toBe(true);
-    expect(actionSteps({ ...clear, unsaved: 1 })[3].enabled).toBe(false);
-    expect(actionSteps({ ...clear, unreadPages: [2] })[3].enabled).toBe(false);
-    expect(actionSteps({ ...clear, missingStandards: ["API 610"] })[3].enabled).toBe(false);
-    expect(actionSteps({ ...clear, undecided: 1 })[3].enabled).toBe(false);
-    expect(actionSteps({ ...clear, signLeft: ["record the final code"] })[3].enabled).toBe(false);
+    expect(steps).toHaveLength(5);
+    expect(steps.slice(0, 4).every((s) => s.done && !s.enabled)).toBe(true);
+    expect(step(steps, "sign").enabled).toBe(true);
+    expect(step(actionSteps({ ...clear, unsaved: 1 }), "sign").enabled).toBe(false);
+    expect(step(actionSteps({ ...clear, unreadPages: [2] }), "sign").enabled).toBe(false);
+    expect(step(actionSteps({ ...clear, missingStandards: ["API 610"] }), "sign").enabled).toBe(false);
+    expect(step(actionSteps({ ...clear, undecided: 1 }), "sign").enabled).toBe(false);
+    expect(step(actionSteps({ ...clear, signLeft: ["record the final code"] }), "sign").enabled).toBe(false);
+  });
+
+  /** D4. MUTATION PROOF: drop `&& unsaved === 0` from the decide step's
+   *  `done`, or move the save message below the others, and this fails. */
+  it("Decide is not done while a decision is unsaved, and Sign says to save first before anything else", () => {
+    const clear = computeReviewNumbers(input({ rows: [row("a1", "A")], gate: gate() }));
+    const steps = actionSteps({ ...clear, unsaved: 2, unopenedNeedsYou: 1, signLeft: ["record the final code"] });
+    expect(step(steps, "decide")).toMatchObject({ done: false, enabled: true, detail: "2 decisions are not saved yet." });
+    expect(step(steps, "sign").detail).toBe("Save your 2 decisions first.");
+    expect(step(actionSteps({ ...clear, unsaved: 1, standardsKnown: false }), "sign").detail).toBe("Save your 1 decision first.");
   });
 
   it("sign waits for the issue gate: no final code, unread pages to tick, or the gate unknown", () => {
@@ -231,26 +272,28 @@ describe("actionSteps", () => {
     // Every comment decided and saved, but no final code: off, and says why.
     const noCode = actionSteps(computeReviewNumbers(input({ ...base, gate: gate({ final_code_recorded: false, issuable: false }) })));
     expect(noCode.slice(0, 3).every((s) => s.done)).toBe(true);
-    expect(noCode[3].enabled).toBe(false);
-    expect(noCode[3].detail).toBe("Before you sign: record the final code.");
+    expect(step(noCode, "code").done).toBe(false);
+    expect(step(noCode, "sign").enabled).toBe(false);
+    expect(step(noCode, "sign").detail).toBe("Before you sign: record the final code.");
     // A page still to tick: the pages step is open and Sign is off.
     const page = actionSteps(computeReviewNumbers(input({
       ...base, gate: gate({ issuable: false, unread_pages: [{ page: 6, reason: null }] } as Partial<CrsIssueGate>),
     })));
     expect(page[1]).toMatchObject({ count: 1, done: false, enabled: true, detail: "Page 6" });
-    expect(page[3].enabled).toBe(false);
+    expect(step(page, "sign").enabled).toBe(false);
     // The gate not read: off.
-    expect(actionSteps(computeReviewNumbers(input(base)))[3].enabled).toBe(false);
+    expect(step(actionSteps(computeReviewNumbers(input(base))), "sign").enabled).toBe(false);
     // All clear: on.
-    expect(actionSteps(computeReviewNumbers(input({ ...base, gate: gate() })))[3].enabled).toBe(true);
+    expect(step(actionSteps(computeReviewNumbers(input({ ...base, gate: gate() }))), "sign").enabled).toBe(true);
   });
 
   it("a signed run says Signed and cannot be signed again", () => {
     const signed = computeReviewNumbers(input({ run: run({ crs_issued_at: "2026-10-19T10:00:00" }) }));
-    const sign = actionSteps(signed)[3];
+    const sign = step(actionSteps(signed), "sign");
     expect(sign.label).toBe("Signed");
     expect(sign.done).toBe(true);
     expect(sign.enabled).toBe(false);
+    expect(step(actionSteps(signed), "code")).toMatchObject({ done: true, enabled: false });
   });
 
   it("pages detail says pages the way a person does", () => {

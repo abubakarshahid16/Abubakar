@@ -216,7 +216,7 @@ describe("CrsSheetView", () => {
     expect(screen.getByTestId("met-line")).toHaveTextContent("1 met, 0 not applicable, 1 for another document (1 shown above as a spot check): show");
     await userEvent.click(screen.getByRole("button", { name: "show" }));
     expect(rowItems()).toContain("Field scope");
-    expect(screen.getByText(/4,362 clauses of the standards were judged not applicable/)).toBeInTheDocument();
+    expect(screen.getByText(/4,362 requirements in the standards were judged not to apply/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "hide" }));
     expect(rowItems()).not.toContain("Field scope");
   });
@@ -396,7 +396,7 @@ describe("CrsSheetView", () => {
     await userEvent.click(screen.getByRole("button", { name: /Open evidence for Comment 1/ }));
     const dialog = () => screen.getByRole("dialog");
     const position = () => within(dialog()).getByTestId("drawer-position").textContent ?? "";
-    expect(position()).toMatch(/^Row 1 of \d+$/);
+    expect(position()).toMatch(/^Item 1 of \d+$/);
     expect(within(dialog()).getByRole("button", { name: "← Previous" })).toBeDisabled();
     expect(within(dialog()).getByTestId("drawer-page")).toHaveTextContent("Page 1 of 12");
     // the strip: the comment pages plus the first and the last page (12)
@@ -405,11 +405,11 @@ describe("CrsSheetView", () => {
     expect(strip[strip.length - 1]).toBe("12");
     // Next, and the J key, move along the rows shown
     await userEvent.click(within(dialog()).getByRole("button", { name: "Next →" }));
-    expect(position()).toMatch(/^Row 2 of /);
+    expect(position()).toMatch(/^Item 2 of /);
     await userEvent.keyboard("j");
-    expect(position()).toMatch(/^Row 3 of /);
+    expect(position()).toMatch(/^Item 3 of /);
     await userEvent.keyboard("k");
-    expect(position()).toMatch(/^Row 2 of /);
+    expect(position()).toMatch(/^Item 2 of /);
     // a page with no comment can be looked at, and says so
     await userEvent.type(within(dialog()).getByLabelText("Go to page"), "11{Enter}");
     expect(within(dialog()).getByTestId("drawer-page")).toHaveTextContent("Page 11 of 12 - no comment on this page");
@@ -693,8 +693,8 @@ describe("CrsSheetView: Before you sign (order 121)", () => {
     mount();
     await screen.findByTestId("crs-headline");
     const listed = await screen.findByTestId("sign-unnumbered");
-    expect(listed).toHaveTextContent("1 row on this sheet has no comment number and no decision yet");
-    expect(screen.getByTestId("sign-left")).toHaveTextContent("decide 1 other row on the sheet");
+    expect(listed).toHaveTextContent("1 comment on this sheet has no comment number and no decision yet");
+    expect(screen.getByTestId("sign-left")).toHaveTextContent("decide 1 other line on the sheet");
     await userEvent.type(screen.getByLabelText("Reason for the other items"), "standard not cited is noted for the record");
     await userEvent.click(screen.getByRole("button", { name: "Keep them" }));
     expect(decideCrsFinding).toHaveBeenCalledWith("run-1", "row-key-std", "accept", "standard not cited is noted for the record");

@@ -10,7 +10,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ReviewFinding, ReviewRunSummary } from "../../../types/api";
-import { COULD_NOT_REFRESH, useWorkspaceRun } from "./useWorkspaceRun";
+import { COULD_NOT_REFRESH, REVIEW_NOT_FOUND, useWorkspaceRun } from "./useWorkspaceRun";
 
 const reviewRun = vi.fn();
 const list = vi.fn();
@@ -109,7 +109,7 @@ describe("useWorkspaceRun", () => {
   it("a run that cannot be found is an error in plain words", async () => {
     reviewRun.mockResolvedValue({ ok: true, data: null });
     const { result } = renderHook(() => useWorkspaceRun("run-1"));
-    await waitFor(() => expect(result.current.load).toEqual({ kind: "error", message: "This review run could not be found." }));
+    await waitFor(() => expect(result.current.load).toEqual({ kind: "error", message: REVIEW_NOT_FOUND }));
   });
 
   it("newest load wins: an older, slower answer never paints over a newer one", async () => {
@@ -170,7 +170,43 @@ describe("useWorkspaceRun", () => {
   it("a failed first load is still an error (nothing good to keep)", async () => {
     reviewRun.mockResolvedValue({ ok: false, error: { message: "Cannot reach the backend." } });
     const { result } = renderHook(() => useWorkspaceRun("run-1"));
-    await waitFor(() => expect(result.current.load).toEqual({ kind: "error", message: "Cannot reach the backend." }));
+    await waitFor(() => expect(result.current.load.kind).toBe("error"));
     expect(result.current.refreshError).toBeNull();
+  });
+});
+
+/** v2.1 N2: a failed read is said in plain words first; the server's own
+ *  words follow only as a detail, never alone.
+ *  MUTATION PROOF: put `runs.error.message` back as the load message and the
+ *  first test fails (the message starts with the raw text). */
+describe("useWorkspaceRun: errors in plain words (v2.1 N2)", () => {
+  it("a failed first load starts with a plain sentence and keeps the server's words as a detail", async () => {
+    reviewRun.mockResolvedValue({ ok: false, disconnected: true, error: { code: "internal", message: "Cannot reach the backend. ECONNREFUSED" } });
+    const { result } = renderHook(() => useWorkspaceRun("run-1"));
+    await waitFor(() => expect(result.current.load.kind).toBe("error"));
+    const message = result.current.load.kind === "error" ? result.current.load.message : "";
+    expect(message.startsWith("Could not open this review. The server could not be reached.")).toBe(true);
+    expect(message).toContain("Details: Cannot reach the backend. ECONNREFUSED");
+  });
+
+  it("a signed-out answer says to sign in again", async () => {
+    list.mockResolvedValue({ ok: false, disconnected: false, error: { code: "unauthenticated", message: "token expired" } });
+    const { result } = renderHook(() => useWorkspaceRun("run-1"));
+    await waitFor(() => expect(result.current.load.kind).toBe("error"));
+    expect(result.current.load).toEqual({
+      kind: "error", message: "Could not open this review. Your sign-in has ended. Sign in again to carry on. Details: token expired",
+    });
+  });
+
+  it("a failed standards read is a plain sentence too", async () => {
+    reviewRunStandards.mockResolvedValue({ ok: false, disconnected: false, error: { code: "internal", message: "HTTP 500" } });
+    const { result } = renderHook(() => useWorkspaceRun("run-1"));
+    await waitFor(() => expect(result.current.load.kind).toBe("ready"));
+    expect(result.current.standardsState.error).toBe(
+      "Could not read the list of standards for this review. Try again in a moment. Details: HTTP 500");
+  });
+
+  it("the not-found words name no internal term", () => {
+    expect(REVIEW_NOT_FOUND).not.toMatch(/\brun\b/i);
   });
 });

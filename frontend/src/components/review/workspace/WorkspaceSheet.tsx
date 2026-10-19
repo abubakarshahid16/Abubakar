@@ -27,6 +27,8 @@ import { useCrsKeys } from "../crs/useCrsKeys";
 import type { WorkspaceSheetProps } from "./contract";
 import { WorkspaceEvidence } from "./WorkspaceEvidence";
 import { plainRow } from "./plainWords";
+import { DecisionPanel } from "./decide/DecisionPanel";
+import { nextUndecided } from "./decide/nextUndecided";
 
 /** Where the keyboard goes back to when the drawer closes (as CrsSheetView). */
 function returnTarget(prev: HTMLElement | null, rowKey: string): HTMLElement | null {
@@ -86,6 +88,23 @@ export function WorkspaceSheet({
   const selectRow = useCallback((row: CrsRow) => setSelectedKey(row.key), []);
   const changeMode = useCallback((key: string, kind: RowMode) => setMode(kind ? { key, kind } : null), []);
   const closeDrawer = useCallback(() => onOpenRow(null), [onOpenRow]);
+
+  // D1: after a decision in the panel, move to the next comment still to
+  // decide (the one source's undecidedKeys, in sheet order); when none is
+  // left, stay and say so.
+  const [doneNote, setDoneNote] = useState<{ key: string; text: string } | null>(null);
+  const orderKeys = useMemo(() => plain.map((r) => r.key), [plain]);
+  const onDecided = useCallback((rowKey: string) => {
+    const next = nextUndecided(orderKeys, numbers.undecidedKeys, rowKey);
+    if (next) {
+      setDoneNote(null);
+      markOpened(next);
+      setSelectedKey(next);
+      onOpenRow(next);
+    } else {
+      setDoneNote({ key: rowKey, text: "That was the last comment to decide." });
+    }
+  }, [orderKeys, numbers.undecidedKeys, markOpened, onOpenRow]);
   const openCards = useCallback(() => {
     navigate?.("review", runId, panelForReviewScreen("cards", CRS_SHEET_IS_DEFAULT));
   }, [navigate, runId]);
@@ -128,7 +147,11 @@ export function WorkspaceSheet({
       {footer}
       {drawerRow && (
         <WorkspaceEvidence row={drawerRow} runId={runId} standardNames={standardNames} returnTo={returnTo}
-          onClose={closeDrawer} onOpenCards={openCards} nav={nav} pager={pager} />
+          onClose={closeDrawer} onOpenCards={openCards} nav={nav} pager={pager}
+          decide={drawerRow.tier.tier !== "A" ? (
+            <DecisionPanel row={drawerRow} decisions={decisions} onDecided={onDecided}
+              note={doneNote?.key === drawerRow.key ? doneNote.text : null} />
+          ) : null} />
       )}
     </div>
   );

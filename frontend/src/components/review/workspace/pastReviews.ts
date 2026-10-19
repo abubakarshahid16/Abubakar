@@ -9,6 +9,8 @@ import { reviews as reviewsApi } from "../../../api/client";
 import type { ReviewRunSummary } from "../../../types/api";
 import { groupRunsByDocument, runStatusLabel } from "../reviewFormat";
 import type { PastReview } from "./contract";
+import type { ReadyCounts } from "../inbox/inboxState";
+import { loadReadyCounts } from "./landing/readyCounts";
 
 /** What a past review came to, in plain words. The engineer's final code
  *  is shown as it is; when there is none, the AI's recommended code is shown
@@ -21,6 +23,8 @@ import type { PastReview } from "./contract";
 function resultWords(run: ReviewRunSummary): string {
   if (run.engineer_final_code) return run.engineer_final_code;
   if (run.recommended_code) return `Suggested: ${run.recommended_code}`;
+  // v2.1 L9: a failed review says why, in the words the run stored.
+  if (run.status === "failed" && run.failure_reason) return `${runStatusLabel(run.status)}: ${run.failure_reason}`;
   return runStatusLabel(run.status);
 }
 
@@ -71,3 +75,36 @@ export async function loadCommentCount(runId: string): Promise<number | null> {
     return null;
   }
 }
+
+/**
+ * v2.1 W5 - TODO ADAPTER: the counts of several past reviews in ONE request
+ * (the batch counts route the landing's chips use), instead of one full
+ * summary per review. `findings` = comment + needs-you findings, `needs_you`
+ * = those that need the engineer's judgement.
+ *
+ * HONEST LABEL: the comment sheet's own rule ("N comments, M left to
+ * decide") groups findings into rows with `buildCrsRows` and needs the
+ * run's findings, decisions and summary - four reads per review that the
+ * landing does not have. So the list shows the SERVER'S count of findings
+ * and says it counts findings, not comment lines. A review whose count is
+ * not known maps to null and shows nothing, never 0.
+ */
+export async function loadPastReviewCounts(runIds: string[]): Promise<Record<string, ReadyCounts | null>> {
+  if (runIds.length === 0) return {};
+  try {
+    return await loadReadyCounts(runIds);
+  } catch {
+    return Object.fromEntries(runIds.map((id) => [id, null]));
+  }
+}
+
+/** "6 findings, 2 need you"; nothing when not known. */
+export function pastCountsLabel(counts: ReadyCounts | null | undefined): string {
+  if (!counts) return "";
+  const n = counts.findings;
+  const m = counts.needs_you;
+  return `${n.toLocaleString("en-US")} ${n === 1 ? "finding" : "findings"}, ${m.toLocaleString("en-US")} need${m === 1 ? "s" : ""} you`;
+}
+
+export const PAST_COUNTS_NOTE =
+  "Counts are findings, as the review counted them. The comment sheet groups findings into fewer comment lines.";

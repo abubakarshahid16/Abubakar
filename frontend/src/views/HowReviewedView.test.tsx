@@ -250,7 +250,7 @@ describe("HowReviewedView on a full run", () => {
 });
 
 describe("HowReviewedView on a minimal run", () => {
-  it('shows "not recorded on this run" instead of 0 or blank for every missing field', async () => {
+  it('shows "not recorded on this review" instead of 0 or blank for every missing field', async () => {
     mount(minimalRun(), { standards: [], missing_references: [] });
     await screen.findByTestId("how-pages");
     for (const id of ["pages-total", "pages-code", "pages-ai", "pages-ai-not-read", "pages-timed-out", "pages-not-read",
@@ -260,13 +260,13 @@ describe("HowReviewedView on a minimal run", () => {
                       "versions-previous", "versions-added",
                       "result-code", "result-reason", "result-details", "result-final"]) {
       const el = screen.getByTestId(id);
-      expect(el, id).toHaveTextContent("not recorded on this run");
+      expect(el, id).toHaveTextContent("not recorded on this review");
       expect(within(el).queryByText(/^0$/), id).toBeNull();
     }
-    expect(screen.getByTestId("clauses-unchecked-share")).toHaveTextContent("not recorded on this run");
-    expect(screen.getByTestId("clauses-applicability")).toHaveTextContent("not recorded on this run");
+    expect(screen.getByTestId("clauses-unchecked-share")).toHaveTextContent("not recorded on this review");
+    expect(screen.getByTestId("clauses-applicability")).toHaveTextContent("not recorded on this review");
     for (const key of ["reader", "matcher", "clause_checks", "engineering_check", "wording"]) {
-      expect(screen.getByTestId(`ai-step-${key}`)).toHaveTextContent("not recorded on this run");
+      expect(screen.getByTestId(`ai-step-${key}`)).toHaveTextContent("not recorded on this review");
     }
     expect(screen.getByTestId("pages-meaning")).toHaveTextContent(/No page of this document was accounted for/);
   });
@@ -277,13 +277,13 @@ describe("HowReviewedView on a minimal run", () => {
     render(<HowReviewedView runId="run-min" onBack={vi.fn()} />);
     expect(await screen.findByRole("alert")).toHaveTextContent(/standards record for this run could not be loaded/);
     expect(screen.queryByText(/No standard was selected/)).toBeNull();
-    expect(screen.getByTestId("standards-cited")).toHaveTextContent("not recorded on this run");
+    expect(screen.getByTestId("standards-cited")).toHaveTextContent("not recorded on this review");
   });
 
   it("says when the run is not in the list", async () => {
     reviewRuns.mockResolvedValue({ ok: true, data: { runs: [] } });
     reviewRunStandards.mockResolvedValue({ ok: true, data: { standards: [] } });
     render(<HowReviewedView runId="run-none" onBack={vi.fn()} />);
-    expect(await screen.findByRole("alert")).toHaveTextContent("This review run could not be found.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("This review could not be found.");
   });
 });

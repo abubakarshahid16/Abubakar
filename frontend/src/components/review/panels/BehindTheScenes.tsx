@@ -5,7 +5,7 @@
  * built from the panels the old stacked page showed - moved, not rewritten,
  * so what they say is unchanged (rule 2: one version of each part).
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { reviews as reviewsApi } from "../../../api/client";
 import type {
@@ -32,7 +32,7 @@ export const PANEL_TITLES: Record<string, string> = {
   findings: "All findings",
   standards: "The rule books used",
   steps: "How we checked this document",
-  numbers: "AI numbers for this run",
+  numbers: "What each AI step did on this review",
   crs: "Comment Resolution Sheet",
 };
 
@@ -54,38 +54,47 @@ export interface BehindTheScenesProps {
   onFocusStatus: (status: string) => void;
   onStandardsChanged: (changed: ReviewRunStandard[], missing: ReviewRunMissingReference[]) => void;
   onChanged: () => void;
+  /** v2.1 (W2): shown inside the review workspace, whose own tab strip
+   *  already names the page. Hides this component's own navigation and
+   *  heading, so the reader sees one set of tabs. Default false: the old
+   *  screens are unchanged. */
+  embedded?: boolean;
 }
 
 export function BehindTheScenes(props: BehindTheScenesProps) {
-  const { panel, run, onOpenPanel } = props;
+  const { panel, run, onOpenPanel, embedded = false } = props;
   const known = (PANELS.review ?? []).includes(panel);
   return (
     <div className="space-y-4">
-      <nav aria-label="Behind the scenes" className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-        <button type="button" onClick={() => onOpenPanel(undefined)} className="text-signal-300 underline-offset-2 hover:underline">
-          ← Back to the sheet
-        </button>
-        {/* Only the behind-the-scenes pages: "cards" and "crs-sheet" are the
-            two review screens themselves, not pages behind them. */}
-        {(PANELS.review ?? []).filter((name) => name in PANEL_TITLES).map((name) => (
-          <button
-            key={name} type="button" onClick={() => onOpenPanel(name)}
-            aria-current={name === panel ? "page" : undefined}
-            className={name === panel ? "font-semibold text-slateish-100" : "text-slateish-300 hover:text-slateish-100"}
-          >
-            {PANEL_TITLES[name]}
+      {!embedded && (
+        <>
+        <nav aria-label="Behind the scenes" className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+          <button type="button" onClick={() => onOpenPanel(undefined)} className="text-signal-300 underline-offset-2 hover:underline">
+            ← Back to the sheet
           </button>
-        ))}
-      </nav>
-      <h2 className="text-lg font-semibold text-slateish-100">
-        {PANEL_TITLES[panel] ?? "Behind the scenes"} · {run.submittal_filename}
-      </h2>
+          {/* Only the behind-the-scenes pages: "cards" and "crs-sheet" are the
+              two review screens themselves, not pages behind them. */}
+          {(PANELS.review ?? []).filter((name) => name in PANEL_TITLES).map((name) => (
+            <button
+              key={name} type="button" onClick={() => onOpenPanel(name)}
+              aria-current={name === panel ? "page" : undefined}
+              className={name === panel ? "font-semibold text-slateish-100" : "text-slateish-300 hover:text-slateish-100"}
+            >
+              {PANEL_TITLES[name]}
+            </button>
+          ))}
+        </nav>
+        <h2 className="text-lg font-semibold text-slateish-100">
+          {PANEL_TITLES[panel] ?? "Behind the scenes"} · {run.submittal_filename}
+        </h2>
+        </>
+      )}
       {!known && <p className="text-sm text-slateish-400">There is no such page for this review.</p>}
       {panel === "findings" && <AllFindingsPage {...props} />}
       {panel === "standards" && <StandardsPage {...props} />}
       {panel === "steps" && <StepsPage {...props} />}
       {panel === "numbers" && <NumbersPage {...props} />}
-      {panel === "crs" && <CrsPage {...props} />}
+      {panel === "crs" && <CrsSheetPage runId={run.review_run_id} inWorkspace={embedded} />}
     </div>
   );
 }
@@ -190,14 +199,32 @@ function NumbersPage({ run, findings }: BehindTheScenesProps) {
 
 /** The deliverable without leaving the application: the sheet on screen from
  *  the same builder as the file, the two exports, and what still stands
- *  between this run and the contractor's copy (PF5). */
-function CrsPage({ run }: BehindTheScenesProps) {
+ *  between this run and the contractor's copy (PF5).
+ *
+ *  v2.1 (S3): also the workspace's "CRS" tab (workspace/crs/CrsTabPanel).
+ *  There (`inWorkspace`) the sheet opens by itself, since opening the tab is
+ *  asking to see it, and the link to sign on the old comment sheet becomes a
+ *  pointer to the workspace's own Sign and export, so the reader never
+ *  leaves the workspace to sign. */
+export function CrsSheetPage({ runId, inWorkspace = false }: { runId: string; inWorkspace?: boolean }) {
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [preview, setPreview] = useState<CrsPreview | null>(null);
-  const [previewing, setPreviewing] = useState(false);
+  const [previewing, setPreviewing] = useState(inWorkspace);
   const [previewError, setPreviewError] = useState<string | null>(null);
-  const runId = run.review_run_id;
+
+  // Inside the workspace the tab itself is the request to see the sheet.
+  useEffect(() => {
+    if (!inWorkspace) return;
+    let live = true;
+    void reviewsApi.previewCrs(runId).then((result) => {
+      if (!live) return;
+      setPreviewing(false);
+      if (result.ok) setPreview(result.data);
+      else setPreviewError(`The sheet could not be loaded: ${result.error.message}`);
+    });
+    return () => { live = false; };
+  }, [inWorkspace, runId]);
 
   async function exportCrs() {
     setExporting(true);
@@ -235,15 +262,26 @@ function CrsPage({ run }: BehindTheScenesProps) {
           {exporting ? "Preparing…" : "Export CRS - internal review copy"}
         </button>
         {/* Order 121: the contractor's copy is signed on the comment sheet
-            ("Before you sign"), never here; this page only links there. */}
-        <NavLink view="review" recordId={runId} panel={panelForReviewScreen("crsSheet", CRS_SHEET_IS_DEFAULT)}
-          className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-signal-300">
-          Sign and export on the comment sheet
-        </NavLink>
-        <button type="button" onClick={() => void togglePreview()} disabled={previewing} aria-expanded={preview !== null}
-          className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-200 disabled:opacity-50">
-          {previewing ? "Loading…" : preview ? "Hide CRS preview" : "Preview CRS"}
-        </button>
+            ("Before you sign"), never here; this page only links there.
+            Inside the workspace, signing is its own Sign and export. */}
+        {inWorkspace ? (
+          <span data-testid="crs-tab-sign-hint" className="text-sm text-slateish-400">
+            To send it to the contractor, use Sign and export at the top.
+          </span>
+        ) : (
+          <NavLink view="review" recordId={runId} panel={panelForReviewScreen("crsSheet", CRS_SHEET_IS_DEFAULT)}
+            className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-signal-300">
+            Sign and export on the comment sheet
+          </NavLink>
+        )}
+        {inWorkspace ? (
+          previewing && <span className="text-sm text-slateish-400">Loading the sheet…</span>
+        ) : (
+          <button type="button" onClick={() => void togglePreview()} disabled={previewing} aria-expanded={preview !== null}
+            className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-200 disabled:opacity-50">
+            {previewing ? "Loading…" : preview ? "Hide CRS preview" : "Preview CRS"}
+          </button>
+        )}
       </div>
       {exportError && (
         <p role="alert" className="rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-xs text-danger-500">{exportError}</p>

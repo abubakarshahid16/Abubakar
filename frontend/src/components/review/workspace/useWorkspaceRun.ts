@@ -18,12 +18,19 @@ import type { DocumentRecord, ReviewFinding, ReviewReadiness, ReviewRunSummary, 
 import { buildCrsRows } from "../crs/crsRows";
 import { runFactsOf, serverTiersOf } from "../crs/tiers";
 import type { StandardsState, WorkspaceLoad, WorkspaceRunData } from "./contract";
+import { plainErrorText } from "./plainError";
 
 export const WORKSPACE_POLL_MS = 3000;
 
 /** Said under the bar when a re-read failed but the last good answer is
  *  still on screen. */
 export const COULD_NOT_REFRESH = "Could not refresh just now; showing what was last read. It will try again.";
+
+/** v2.1 (N2/W1): the plain words when the review is not there. */
+export const REVIEW_NOT_FOUND = "This review could not be found. It may have been removed, or the link may be wrong.";
+/** What could not be done, said before the plain reason (plainError). */
+export const COULD_NOT_OPEN = "Could not open this review.";
+export const COULD_NOT_READ_STANDARDS = "Could not read the list of standards for this review.";
 
 /** The workspace's data, plus `refreshError`: set when a later read failed
  *  and the screen kept the last good answer (null otherwise). */
@@ -55,7 +62,9 @@ export function useWorkspaceRun(runId: string): WorkspaceRunState {
     ]);
     if (mine !== latest.current) return;
     if (!runs.ok || !listed.ok) {
-      const message = !runs.ok ? runs.error.message : !listed.ok ? listed.error.message : "";
+      // v2.1 (N2): a plain sentence first; the server's words only as a
+      // detail after it, never alone.
+      const message = plainErrorText(COULD_NOT_OPEN, !runs.ok ? runs : !listed.ok ? listed : null);
       // One failed poll never replaces a screen that was already showing
       // the run: keep the last good data and say it could not refresh.
       if (loadedOnce.current) setRefreshError(COULD_NOT_REFRESH);
@@ -63,7 +72,7 @@ export function useWorkspaceRun(runId: string): WorkspaceRunState {
       return;
     }
     const found = runs.data;
-    if (!found) { setLoad({ kind: "error", message: "This review run could not be found." }); return; }
+    if (!found) { setLoad({ kind: "error", message: REVIEW_NOT_FOUND }); return; }
     loadedOnce.current = true;
     setRefreshError(null);
     setRun(found);
@@ -71,7 +80,7 @@ export function useWorkspaceRun(runId: string): WorkspaceRunState {
     setSummary(sum.ok ? sum.data : null);
     setStandardsState(stds.ok
       ? { standards: stds.data.standards, missing: stds.data.missing_references ?? [], error: null }
-      : { standards: null, missing: [], error: stds.error.message });
+      : { standards: null, missing: [], error: plainErrorText(COULD_NOT_READ_STANDARDS, stds) });
     setLoad({ kind: "ready" });
     // Readiness (unread pages, missing standards) is read after the run,
     // because it is keyed by the run's submittal. A failure leaves it null

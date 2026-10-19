@@ -12,13 +12,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, reviews as reviewsApi } from "../api/client";
+import { loadReadyCounts } from "../components/review/workspace/landing/readyCounts";
+import { WorkspaceLanding } from "../components/review/workspace/landing/WorkspaceLanding";
 import type { DocumentRecord, ReviewRunSummary } from "../types/api";
 import { DocumentsFromContractors } from "../components/review/DocumentsFromContractors";
 import { NewReviewDropZone } from "../components/review/workspace/NewReviewDropZone";
 import { InboxList } from "../components/review/inbox/InboxList";
 import { INBOX_IS_DEFAULT } from "../routing";
 import { LIST_MAX, groupRunsByDocument, totalFromResponse } from "../components/review/reviewFormat";
-import { type ReadyCounts, anyMoving, inboxStateOf } from "../components/review/inbox/inboxState";
+import { anyMoving, inboxStateOf } from "../components/review/inbox/inboxState";
 
 /** Order 95 piece 3: while a review is queued or running, the list re-reads
  *  on this interval so its state moves without a refresh. */
@@ -33,33 +35,9 @@ interface BatchResult {
   refused: { filename: string; message: string }[];
 }
 
-/** Order 117 item 5: the most run ids one counts request may carry; the
- *  server answers 422 above this. */
-export const RUN_COUNTS_MAX_IDS = 200;
-
-/** #1114 / order 117 item 5: the Ready labels' counts, for many runs at once
- *  - one counts request per RUN_COUNTS_MAX_IDS ids, not one full summary per
- *  run. A run absent from the answer, or in a request that failed, maps to
- *  null and its row says "Ready" alone; a failure never shows 0. */
-export async function loadReadyCounts(runIds: string[]): Promise<Record<string, ReadyCounts | null>> {
-  const out: Record<string, ReadyCounts | null> = {};
-  const chunks: string[][] = [];
-  for (let i = 0; i < runIds.length; i += RUN_COUNTS_MAX_IDS) chunks.push(runIds.slice(i, i + RUN_COUNTS_MAX_IDS));
-  await Promise.all(chunks.map(async (chunk) => {
-    let got: Record<string, { comment: number; needs_you: number }> | null = null;
-    try {
-      const res = await reviewsApi.reviewRunCounts(chunk);
-      if (res.ok) got = res.data.counts;
-    } catch {
-      got = null;
-    }
-    for (const id of chunk) {
-      const c = got && Object.prototype.hasOwnProperty.call(got, id) ? got[id] : undefined;
-      out[id] = c ? { findings: c.comment + c.needs_you, needs_you: c.needs_you } : null;
-    }
-  }));
-  return out;
-}
+/** Order 117 item 5 / #1114: the batch counts loader now lives with the
+ *  landing pieces; re-exported here unchanged for the old screens and tests. */
+export { RUN_COUNTS_MAX_IDS, loadReadyCounts } from "../components/review/workspace/landing/readyCounts";
 
 export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onOpenInbox, onOpenList, workspace = false, isAdmin }: {
   onOpenRun: (runId: string) => void;
@@ -70,14 +48,17 @@ export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onO
   inbox?: boolean;
   onOpenInbox?: () => void;
   onOpenList?: () => void;
-  /** Review workspace v2 switch (off by default). On: a "New review" drop
-   *  zone above the list, and each row offers its past reviews. Off: the
-   *  page is exactly as before. */
+  /** Review workspace switch (off by default). On (v2.1): the first page is
+   *  `WorkspaceLanding` - a "New review" card (choose a submittal + Start
+   *  review, and the drop zone), rows with status chips, Open / New review,
+   *  past reviews, and "All reviews". On the inbox address the drop zone sits
+   *  above the inbox as before. Off: the page is exactly as before. */
   workspace?: boolean;
 }) {
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [submittalsTotal, setSubmittalsTotal] = useState<number | null>(null);
+  const [documentsFailed, setDocumentsFailed] = useState(false);
   const [runs, setRuns] = useState<ReviewRunSummary[]>([]);
   const [startingDocumentId, setStartingDocumentId] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
@@ -110,6 +91,7 @@ export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onO
       return;
     }
     setSubmittalsTotal(subs.ok ? totalFromResponse(subs.response) : null);
+    setDocumentsFailed(!subs.ok);
     setDocuments(subs.ok ? subs.data : []);
     setRuns(runsResult.data.runs);
     setPhase({ kind: "ready" });
@@ -117,7 +99,9 @@ export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onO
 
   useEffect(() => { void load(); }, [load]);
 
-  const moving = inbox && phase.kind === "ready"
+  // The inbox and (switch on) the new first page show where a running
+  // review is, so both re-read while one moves; the old list does not.
+  const moving = (inbox || workspace) && phase.kind === "ready"
     && anyMoving(groupRunsByDocument(runs).map((group) => inboxStateOf(group.latest)));
   useEffect(() => {
     if (!moving) return undefined;
@@ -218,16 +202,24 @@ export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onO
         </p>
       )}
 
-      {workspace && <NewReviewDropZone onStarted={onOpenRun} isAdmin={isAdmin} />}
+      {workspace && inbox && <NewReviewDropZone onStarted={onOpenRun} isAdmin={isAdmin} />}
 
-      {phase.kind === "ready" && !inbox && (
+      {phase.kind === "ready" && workspace && !inbox && (
+        <WorkspaceLanding
+          documents={documents} runs={runs} submittalsTotal={submittalsTotal}
+          documentsFailed={documentsFailed} isAdmin={isAdmin}
+          onOpenRun={onOpenRun} onReload={reload}
+          loadReadyCounts={loadReadyCounts}
+        />
+      )}
+      {phase.kind === "ready" && !workspace && !inbox && (
         <DocumentsFromContractors
           documents={documents} runs={runs} submittalsTotal={submittalsTotal}
           onReview={(documentId) => void reviewDocument(documentId)}
           startingDocumentId={startingDocumentId}
-          // "Past reviews" only with the workspace switch on; off, the list
-          // gets undefined here and renders exactly as before.
-          onOpenPastRun={workspace ? onOpenRun : undefined}
+          // Switch off only (on, WorkspaceLanding above replaces this list):
+          // no "Past reviews", exactly as before.
+          onOpenPastRun={undefined}
         />
       )}
       {phase.kind === "ready" && inbox && (

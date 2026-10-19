@@ -54,7 +54,7 @@ export function CrsFooter({ run, counts, standards, missing, standardsError, rej
       {standardsLine && <p>{standardsLine}</p>}
       <p>
         Rows on this sheet: {counts.comment} Comment, {counts.needsYou} Needs you, {counts.met} Met, {counts.notApplicable} Not applicable, {counts.anotherDocument} Another document
-        {run.requirement_split ? ` · clauses: ${run.requirement_split.checked} checked, ${run.requirement_split.applies_not_checked} apply but not checked, ${run.requirement_split.does_not_apply} not applicable` : ""}.
+        {run.requirement_split ? ` · requirements: ${run.requirement_split.checked} checked, ${run.requirement_split.applies_not_checked} apply but not checked, ${run.requirement_split.does_not_apply} not applicable` : ""}.
       </p>
       {rejected > 0 && (
         <p data-testid="crs-rejected">

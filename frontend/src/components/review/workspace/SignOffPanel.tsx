@@ -1,9 +1,11 @@
 /**
- * OWNER: builder B. Sign-off under the comment sheet: the comment sheet's
+ * OWNER: builder C (v2.1; builder B before). Sign-off under the comment sheet: the comment sheet's
  * own "Before you sign" box (record the final code, tick each unread page,
  * the items still open; crs/BeforeYouSign.tsx over the same issue gate),
  * then what is left, what is not saved, and Save / Sign and export /
- * Working copy. Counts come from `computeReviewNumbers`, the Sign rule from
+ * Working copy. Sign and export opens the "Preview and confirm" step
+ * (useSignOff.sign; workspace/sign/SignConfirm.tsx); nothing is issued from
+ * this panel directly. Counts come from `computeReviewNumbers`, the Sign rule from
  * `actionSteps` (the same rule as the bar, which waits for the issue gate
  * too). Messages from saving and signing show in the ActionBar, which stays
  * on screen on every tab.
@@ -38,7 +40,7 @@ export function SignOffPanel({ numbers, signOff, run, rows, gate, onRunChanged, 
             {numbers.unopenedNeedsYou > 0 && (
               <>
                 {" · "}Sign and export waits until you have opened the {numbers.unopenedNeedsYou.toLocaleString()}{" "}
-                {numbers.unopenedNeedsYou === 1 ? "row" : "rows"} marked &quot;Needs you&quot;.
+                {numbers.unopenedNeedsYou === 1 ? "comment that needs" : "comments that need"} your judgement (marked &quot;Needs you&quot;).
               </>
             )}
           </span>

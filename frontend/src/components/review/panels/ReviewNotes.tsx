@@ -24,7 +24,7 @@ export function ReviewNotes({ runId }: { runId: string }) {
       {error && <p role="alert" className="mt-1 text-xs text-danger-500">{error}</p>}
       {notes === null && !error && <p className="mt-1 text-xs text-slateish-400">Loading…</p>}
       {notes !== null && notes.length === 0 && (
-        <p className="mt-1 text-xs text-slateish-400">No internal notes for this run.</p>
+        <p className="mt-1 text-xs text-slateish-400">No internal notes for this review.</p>
       )}
       {notes !== null && notes.length > 0 && (
         <ul className="mt-2 space-y-1 text-xs text-slateish-300">

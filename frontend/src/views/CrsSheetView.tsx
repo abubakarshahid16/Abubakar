@@ -81,7 +81,7 @@ function useRunData(runId: string) {
     if (mine !== latest.current) return;
     if (!runs.ok) { setLoad({ kind: "error", message: runs.error.message }); return; }
     const found = runs.data;
-    if (!found) { setLoad({ kind: "error", message: "This review run could not be found." }); return; }
+    if (!found) { setLoad({ kind: "error", message: "This review could not be found." }); return; }
     if (!listed.ok) { setLoad({ kind: "error", message: listed.error.message }); return; }
     setRun(found);
     setFindings(listed.data.findings);
@@ -243,7 +243,7 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
 
   if (load.kind === "loading") return <p className="text-slateish-300">Loading the sheet…</p>;
   if (load.kind === "error" || !run) {
-    return <p role="alert" className="rounded-[var(--radius-md)] border border-danger-500/40 bg-danger-500/10 px-4 py-3 text-danger-500">{load.kind === "error" ? load.message : "This review run could not be found."}</p>;
+    return <p role="alert" className="rounded-[var(--radius-md)] border border-danger-500/40 bg-danger-500/10 px-4 py-3 text-danger-500">{load.kind === "error" ? load.message : "This review could not be found."}</p>;
   }
   if (active || run.status === "failed") return <RunNotReady run={run} active={active} onBack={onBack} onChanged={() => void refresh()} />;
 

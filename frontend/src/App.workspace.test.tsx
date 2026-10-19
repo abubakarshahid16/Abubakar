@@ -179,24 +179,28 @@ describe("Try new design", () => {
 });
 
 describe("turning the switch off with unsaved decisions", () => {
-  it("asks first and stays on the workspace when the reader says no", async () => {
+  /** v2.1 N1: asked in the page, not with a browser pop-up. */
+  it("asks first in the page and stays on the workspace when the reader says stay", async () => {
     const user = userEvent.setup();
     localStorage.setItem(WORKSPACE_OPT_IN_KEY, "on");
     mockApi();
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const confirm = vi.spyOn(window, "confirm");
     render(<App initialView="review" />);
     await screen.findByText("landing workspace=true");
     await goTo("/review/run-1");
     await screen.findByText("workspace for run-1");
     await user.click(screen.getByRole("button", { name: "Make an unsaved decision" }));
     await user.click(screen.getByRole("switch", { name: "Try new design" }));
-    expect(confirm).toHaveBeenCalledWith("Some decisions on this sheet are not saved yet. Leave without saving them?");
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("You have 1 decision on this review that is not saved yet.");
+    await user.click(screen.getByRole("button", { name: "Stay here" }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
     expect(screen.getByText("workspace for run-1")).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: "Try new design" })).toBeChecked();
 
-    confirm.mockReturnValue(true);
     await user.click(screen.getByRole("switch", { name: "Try new design" }));
+    await user.click(screen.getByRole("button", { name: "Go to the old screen" }));
     expect(await screen.findByText("crs sheet for run-1")).toBeInTheDocument();
+    expect(confirm).not.toHaveBeenCalled();
   });
 });
 
@@ -261,21 +265,21 @@ describe("the address keeps the place", () => {
  *  MUTATION PROOF: pass openRunInWorkspace to the notice again and the
  *  first half fails (it leaves without asking). */
 describe("the finished notice with unsaved decisions", () => {
-  it("asks first, stays when the reader says no, and goes when they say yes", async () => {
+  it("asks first, stays when the reader says stay, and goes when they say leave", async () => {
     const user = userEvent.setup();
     mockApi();
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     render(<App initialView="review" />);
     await screen.findByText("landing workspace=false");
     await goTo("/review/run-1/workspace");
     await screen.findByText("workspace for run-1");
     await user.click(screen.getByRole("button", { name: "Make an unsaved decision" }));
     await user.click(screen.getByRole("button", { name: "Open finished review" }));
-    expect(confirm).toHaveBeenCalledWith("Some decisions on this sheet are not saved yet. Leave without saving them?");
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("not saved yet");
+    await user.click(screen.getByRole("button", { name: "Stay here" }));
     expect(screen.getByText("workspace for run-1")).toBeInTheDocument();
 
-    confirm.mockReturnValue(true);
     await user.click(screen.getByRole("button", { name: "Open finished review" }));
+    await user.click(screen.getByRole("button", { name: "Leave this review" }));
     expect(await screen.findByText("workspace for run-9")).toBeInTheDocument();
   });
 

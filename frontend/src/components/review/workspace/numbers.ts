@@ -12,6 +12,7 @@ import type { ActionStep, ReviewNumbers, ReviewNumbersInput } from "./contract";
 import type { ReviewRunSummary } from "../../../types/api";
 import { headlineFieldsOf, rowCounts, splitRejected } from "../crs/crsRows";
 import { signLeft } from "../crs/issueGate";
+import { needsYouFirst } from "../crs/issueContractorCopy";
 import { pageList } from "../reviewFormat";
 
 function uniqueSortedPages(pages: number[]): number[] {
@@ -78,7 +79,14 @@ export function computeReviewNumbers(input: ReviewNumbersInput): ReviewNumbers {
     pageRecordMissing,
     undecided: undecidedKeys.length,
     undecidedKeys,
-    unopenedNeedsYou: rows.filter((r) => r.tier.tier === "C" && !decisions.opened[r.key]).length,
+    // D5: a "Needs you" row decided in an earlier session ("agreed" on the
+    // record) counts as opened, so an old review is not opened row by row
+    // again before Sign.
+    unopenedNeedsYou: rows.filter((r) => r.tier.tier === "C" && !decisions.opened[r.key] && r.priorState !== "agreed").length,
+    // The same rule as useCrsDecisions.remaining (what acceptAll keeps).
+    remainingToKeep: rows.filter((r) => r.tier.tier === "B" && !decisions.decisions[r.key] && r.priorState === "open").length,
+    finalCode: run.engineer_final_code || null,
+    finalCodeRecorded: run.engineer_final_code ? true : gate ? Boolean(gate.final_code_recorded) : null,
     unsaved: input.unsaved.length,
     signLeft: signLeft({ gate }, run, rows),
     signed: Boolean(signedAt),
@@ -101,7 +109,12 @@ export function pagesDetail(pages: number[]): string {
 /** The old sheet's words for Sign waiting on unopened "Needs you" rows
  *  (CrsHeader). */
 export function unopenedNeedsYouHelp(count: number): string {
-  return `Open the ${count} "Needs you" ${count === 1 ? "row" : "rows"} first.`;
+  return needsYouFirst(count);
+}
+
+/** D4: what Sign says first while decisions are not saved. */
+export function saveFirstHelp(count: number): string {
+  return `Save your ${count} ${count === 1 ? "decision" : "decisions"} first.`;
 }
 
 /** The issue gate's blocker for a run with no page record (backend
@@ -115,33 +128,38 @@ export const PAGE_RECORD_MISSING =
   "The record of which pages were read is missing for this review, so no page can be called read yet.";
 
 /** Words for a step whose count could not be read (never shown as 0). */
-export const NOT_READ_YET = "cannot read yet";
+export const NOT_READ_YET = "not known yet";
 
 /** Why Sign waits while a blocker count is not known. */
 export const WAITING_FOR_CHECKS = "Waiting to read the standards and page checks.";
 
-/** The four buttons of "What you need to do", always in this order:
- *  standards, pages, decide, sign. A step with nothing left is done (a
- *  quiet tick), never hidden. A step whose count is not known is NOT done,
- *  shows no number and says it cannot be read yet, but still opens (the
- *  reader can go and look for themselves). Sign is enabled only
- *  when the other three are known and done, every "Needs you" row has been
- *  opened, nothing is unsaved, the issue gate has nothing left (`signLeft`:
- *  final code recorded, unread pages ticked, items decided; as the old
- *  sheet's CrsHeader canSign) and the run is not signed yet. */
+/** The five buttons of "What you need to do", always in this order:
+ *  standards, pages, decide, final code, sign. A step with nothing left is
+ *  done (a quiet tick), never hidden. A step whose count is not known is NOT
+ *  done, shows no number and says it is not known yet, but still opens (the
+ *  reader can go and look for themselves). "Decide comments" is not done
+ *  while any decision is unsaved. Sign is enabled only when the other steps
+ *  are known and done, every "Needs you" row has been opened, nothing is
+ *  unsaved, the issue gate has nothing left (`signLeft`: final code
+ *  recorded, unread pages ticked, items decided; as the old sheet's
+ *  CrsHeader canSign) and the run is not signed yet. What Sign waits for is
+ *  said in that order, "Save your N decisions first" before anything else. */
 export function actionSteps(numbers: ReviewNumbers): ActionStep[] {
   const standards = numbers.standardsKnown ? numbers.missingStandards.length : null;
   const pages = numbers.pagesKnown ? numbers.unreadPages.length : null;
   const decide = numbers.undecided;
+  const unsaved = numbers.unsaved;
   const countsKnown = standards !== null && pages !== null;
   const blockersClear = standards === 0 && pages === 0 && decide === 0;
   const pagesHelp = pages ? pagesDetail(numbers.unreadPages) : "";
   const standardsHelp = standards ? numbers.missingStandards.join(", ") : "";
   const unopened = numbers.unopenedNeedsYou;
   const signHelp = numbers.signed ? ""
-    : !countsKnown ? (numbers.pageRecordMissing ? PAGE_RECORD_MISSING : WAITING_FOR_CHECKS)
-      : unopened > 0 ? unopenedNeedsYouHelp(unopened)
-        : numbers.signLeft.length > 0 ? `Before you sign: ${numbers.signLeft.join("; ")}.` : "";
+    : unsaved > 0 ? saveFirstHelp(unsaved)
+      : !countsKnown ? (numbers.pageRecordMissing ? PAGE_RECORD_MISSING : WAITING_FOR_CHECKS)
+        : unopened > 0 ? unopenedNeedsYouHelp(unopened)
+          : numbers.signLeft.length > 0 ? `Before you sign: ${numbers.signLeft.join("; ")}.` : "";
+  const code = numbers.finalCodeRecorded;
   return [
     standards === null
       ? { id: "standards", label: `Upload missing standards (${NOT_READ_YET})`, count: null, done: false, enabled: true }
@@ -160,12 +178,22 @@ export function actionSteps(numbers: ReviewNumbers): ActionStep[] {
       },
     {
       id: "decide", label: `Decide comments (${decide})`, count: decide,
-      done: decide === 0, enabled: decide > 0,
+      done: decide === 0 && unsaved === 0, enabled: decide > 0 || unsaved > 0,
+      ...(unsaved > 0 ? { detail: `${unsaved} ${unsaved === 1 ? "decision is" : "decisions are"} not saved yet.` } : {}),
     },
+    code === true || numbers.signed
+      ? {
+        id: "code", label: numbers.finalCode ? `Final code: ${numbers.finalCode}` : "Final code recorded",
+        count: null, done: true, enabled: false,
+      }
+      : {
+        id: "code", label: code === null ? `Record the final code (${NOT_READ_YET})` : "Record the final code",
+        count: null, done: false, enabled: !numbers.signed,
+      },
     {
       id: "sign", label: numbers.signed ? "Signed" : "Sign and export", count: null,
       done: numbers.signed,
-      enabled: countsKnown && blockersClear && unopened === 0 && numbers.unsaved === 0
+      enabled: countsKnown && blockersClear && unopened === 0 && unsaved === 0
         && numbers.signLeft.length === 0 && !numbers.signed,
       ...(signHelp ? { detail: signHelp } : {}),
     },

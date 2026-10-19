@@ -213,3 +213,32 @@ describe("Open it when the app stays", () => {
     expect(screen.getByText("Your review of Pump datasheet rev B.pdf is ready")).toBeInTheDocument();
   });
 });
+
+/** v2.1 W4: the notice never covers the open evidence panel: with the
+ *  panel open it moves to the left, and it always sits below the panel's
+ *  layer (the panel is z-30).
+ *  MUTATION PROOF: put the old "fixed bottom-4 right-4 z-50" back and both
+ *  tests fail. */
+describe("placement beside the evidence panel (v2.1 W4)", () => {
+  it("sits bottom right, below the panel's layer, when no panel is open", async () => {
+    reviewRun.mockResolvedValue(completed);
+    watchRun("run-1", "Pump datasheet rev B.pdf");
+    render(<FinishedReviewNotice onOpenRun={vi.fn()} />);
+    const notice = await screen.findByTestId("finished-review-notice");
+    expect(notice).toHaveAttribute("data-placement", "right");
+    expect(notice.className).toContain("right-4");
+    expect(notice.className).toContain("z-20");
+    expect(notice.className).not.toContain("z-50");
+  });
+
+  it("moves to the left while the evidence panel is open", async () => {
+    reviewRun.mockResolvedValue(completed);
+    watchRun("run-1", "Pump datasheet rev B.pdf");
+    render(<FinishedReviewNotice onOpenRun={vi.fn()} panelOpen />);
+    const notice = await screen.findByTestId("finished-review-notice");
+    expect(notice).toHaveAttribute("data-placement", "left");
+    expect(notice.className).toContain("left-4");
+    expect(notice.className).not.toContain("right-4");
+    expect(notice.className).toContain("z-20");
+  });
+});

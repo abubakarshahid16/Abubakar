@@ -121,7 +121,7 @@ export function CrsEvidenceDrawer({ row, runId, standardNames, onClose, onOpenCa
         <nav aria-label="Comments" className="mt-2 flex items-center gap-2 text-sm text-slateish-300">
           <button type="button" onClick={nav.onPrev ?? undefined} disabled={!nav.onPrev}
             className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5 disabled:opacity-40">← Previous</button>
-          <span data-testid="drawer-position">Row {nav.index + 1} of {nav.total}</span>
+          <span data-testid="drawer-position">Item {nav.index + 1} of {nav.total}</span>
           <button type="button" onClick={nav.onNext ?? undefined} disabled={!nav.onNext}
             className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5 disabled:opacity-40">Next →</button>
           <span className="text-xs text-slateish-500">J / K</span>

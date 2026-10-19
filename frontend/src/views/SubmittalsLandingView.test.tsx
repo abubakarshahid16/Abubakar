@@ -93,8 +93,11 @@ describe("SubmittalsLandingView", () => {
   it("order 132: passes isAdmin to New review, so a non-admin is refused before any upload", async () => {
     documents.mockResolvedValue({ ok: true, data: [] });
     reviewRuns.mockResolvedValue({ ok: true, data: { runs: [] } });
+    // v2.1: a non-admin gets a plain message in place of the New review card;
+    // the drop zone is not even drawn, so nothing can be uploaded.
     const { rerender } = render(<SubmittalsLandingView onOpenRun={vi.fn()} workspace isAdmin={false} />);
-    expect(await screen.findByTestId("drop-zone")).toHaveTextContent("admin: false");
+    expect(await screen.findByTestId("not-admin-message")).toHaveTextContent("Only an administrator can start a review.");
+    expect(screen.queryByTestId("drop-zone")).toBeNull();
     rerender(<SubmittalsLandingView onOpenRun={vi.fn()} workspace isAdmin />);
     expect(screen.getByTestId("drop-zone")).toHaveTextContent("admin: true");
   });

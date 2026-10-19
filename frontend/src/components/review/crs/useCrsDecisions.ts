@@ -5,8 +5,19 @@
  * decisions" press (`saveCrsDecisions`). The hook knows which decisions
  * differ from what was last saved; the screen holds Sign and export, and
  * warns before leaving, while any do.
+ *
+ * v2.1 (N1): on the review workspace the decisions not saved yet are also
+ * kept as a DRAFT in this tab's sessionStorage, one per review and per
+ * signed-in person. Leaving the screen, pressing Back, or a sign-in that
+ * ran out then loses nothing: the draft comes back the next time the same
+ * person opens the same review in this tab, and it is removed once nothing
+ * is left unsaved (a save, or every decision taken back). The draft is on
+ * only where a review id is given (`useCrsDecisions(runId)`, or the
+ * `CrsDraftContext` the app puts around the workspace); the old comment
+ * sheet passes none and behaves exactly as before. Every storage call is
+ * inside try/catch: a private window simply means there is no draft.
  */
-import { useCallback, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 import type { CrsRow } from "./crsRows";
 
@@ -63,17 +74,116 @@ export interface CrsDecisions {
   acceptAll: (rows: CrsRow[]) => number;
   canUndo: boolean;
   undo: () => void;
+  /** v2.1: how many decisions came back from this tab's draft when the
+   *  screen opened (0 when none did, or there is no draft here). Optional
+   *  so stand-ins in tests need not set it. */
+  restored?: number;
 }
 
 const EMPTY: DecisionState = { decisions: {}, opened: {} };
 
-export function useCrsDecisions(): CrsDecisions {
-  const [state, setState] = useState<DecisionState>(EMPTY);
+/** The draft's sessionStorage key prefix. Versioned so a later change of
+ *  shape can ignore old drafts. */
+export const DRAFT_STORAGE_KEY = "crs-decisions.draft.v1";
+
+/** Whose drafts this page reads and writes: a user id, or null with
+ *  sign-in off. Set by the app (`setDraftOwner`) as soon as it knows who
+ *  signed in, before the workspace draws, so one person never gets
+ *  another's draft. */
+let draftOwner: string | null = null;
+
+export function setDraftOwner(user: string | null): void {
+  draftOwner = user;
+}
+
+/** The storage key of one review's draft for a person. */
+export function draftStorageKey(runId: string, user: string | null = draftOwner): string {
+  return `${DRAFT_STORAGE_KEY}.${user ?? "anyone"}.${runId}`;
+}
+
+/** Sign-out (the reader chose it): forget every draft this person kept in
+ *  this tab. A sign-in that simply ran out does NOT call this. */
+export function clearDecisionDrafts(user: string | null = draftOwner): void {
+  try {
+    const prefix = `${DRAFT_STORAGE_KEY}.${user ?? "anyone"}.`;
+    const doomed: string[] = [];
+    for (let i = 0; i < window.sessionStorage.length; i += 1) {
+      const key = window.sessionStorage.key(i);
+      if (key?.startsWith(prefix)) doomed.push(key);
+    }
+    for (const key of doomed) window.sessionStorage.removeItem(key);
+  } catch {
+    /* blocked storage: nothing was kept */
+  }
+}
+
+/** The review whose decisions get a draft, given by the app around the
+ *  workspace. Null (the default) means no draft. */
+export const CrsDraftContext = createContext<string | null>(null);
+
+const REASONS = new Set<string>(REMOVE_REASONS);
+
+function isDecision(value: unknown): value is Decision {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  if (v.kind === "keep") return true;
+  if (v.kind === "edit") return typeof v.observation === "string" && typeof v.requiredAction === "string";
+  return v.kind === "remove" && typeof v.reason === "string" && REASONS.has(v.reason);
+}
+
+/** The draft, or an empty state when there is none (or it cannot be read). */
+export function readDecisionDraft(runId: string | null): DecisionState {
+  if (!runId) return EMPTY;
+  try {
+    const raw = window.sessionStorage.getItem(draftStorageKey(runId));
+    if (!raw) return EMPTY;
+    const parsed = JSON.parse(raw) as { decisions?: unknown; opened?: unknown };
+    const decisions: Record<string, Decision> = {};
+    if (parsed.decisions && typeof parsed.decisions === "object") {
+      for (const [key, value] of Object.entries(parsed.decisions as Record<string, unknown>)) {
+        if (isDecision(value)) decisions[key] = value;
+      }
+    }
+    const opened: Record<string, true> = {};
+    if (Array.isArray(parsed.opened)) for (const key of parsed.opened) if (typeof key === "string") opened[key] = true;
+    return { decisions, opened };
+  } catch {
+    return EMPTY;
+  }
+}
+
+function writeDecisionDraft(runId: string, state: DecisionState, unsaved: string[]): void {
+  try {
+    const key = draftStorageKey(runId);
+    if (unsaved.length === 0) { window.sessionStorage.removeItem(key); return; }
+    const decisions: Record<string, Decision> = {};
+    for (const k of unsaved) if (state.decisions[k]) decisions[k] = state.decisions[k];
+    window.sessionStorage.setItem(key, JSON.stringify({ decisions, opened: Object.keys(state.opened) }));
+  } catch {
+    /* blocked or full storage: the decisions live only on screen */
+  }
+}
+
+export function useCrsDecisions(draftRunId?: string | null): CrsDecisions {
+  const fromContext = useContext(CrsDraftContext);
+  const runId = draftRunId === undefined ? fromContext : draftRunId;
+  // The draft is read once per review (a different review id reads its own).
+  const [draftFor, setDraftFor] = useState(runId);
+  const [state, setState] = useState<DecisionState>(() => readDecisionDraft(runId));
+  const [restored, setRestored] = useState(() => Object.keys(state.decisions).length);
   /** The keys the last "Accept all" set to keep; null when there is nothing
    *  to undo. Any other decision clears it: undo is one step, and only
    *  ever touches what Accept all itself did. */
   const [accepted, setAccepted] = useState<string[] | null>(null);
   const [saved, setSaved] = useState<Record<string, Decision>>({});
+  if (draftFor !== runId) {
+    const next = readDecisionDraft(runId);
+    setDraftFor(runId);
+    setState(next);
+    setSaved({});
+    setAccepted(null);
+    setRestored(Object.keys(next.decisions).length);
+  }
 
   const set = useCallback((key: string, decision: Decision | null) => {
     setAccepted(null);
@@ -134,11 +244,17 @@ export function useCrsDecisions(): CrsDecisions {
     setState((s) => (s.opened[key] ? s : { ...s, opened: { ...s.opened, [key]: true } })), []);
   const canUndo = accepted !== null;
 
+  // Keep the draft in step with what is not saved yet; nothing unsaved
+  // removes it (a save clears it this way).
+  useEffect(() => {
+    if (runId && draftFor === runId) writeDecisionDraft(runId, state, unsaved);
+  }, [runId, draftFor, state, unsaved]);
+
   // One object per change of state, not one per render: what depends on it
   // (the keyboard listener, the row callbacks) stays put between renders.
   return useMemo(() => ({
-    state, unsaved, markSaved, decisionOf, keep, edit, remove, clear, markOpened, remaining, acceptAll, canUndo, undo,
-  }), [state, unsaved, markSaved, decisionOf, keep, edit, remove, clear, markOpened, remaining, acceptAll, canUndo, undo]);
+    state, unsaved, markSaved, decisionOf, keep, edit, remove, clear, markOpened, remaining, acceptAll, canUndo, undo, restored,
+  }), [state, unsaved, markSaved, decisionOf, keep, edit, remove, clear, markOpened, remaining, acceptAll, canUndo, undo, restored]);
 }
 
 function sameDecision(a: Decision | undefined, b: Decision | undefined): boolean {

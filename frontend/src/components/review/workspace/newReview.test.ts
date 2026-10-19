@@ -23,6 +23,7 @@ const startReviewRun = vi.fn();
 const reviewRuns = vi.fn();
 const uploadOne = vi.fn();
 const watchRun = vi.fn();
+const readiness = vi.fn();
 
 vi.mock("../../../api/client", () => ({
   api: {
@@ -38,6 +39,7 @@ vi.mock("../../../api/client", () => ({
   reviews: {
     startReviewRun: (...a: unknown[]) => { calls.push("start"); return startReviewRun(...a); },
     reviewRuns: (...a: unknown[]) => { calls.push("runs"); return reviewRuns(...a); },
+    readiness: (...a: unknown[]) => { calls.push("readiness"); return readiness(...a); },
   },
 }));
 vi.mock("../../Uploader", () => ({
@@ -50,7 +52,7 @@ vi.mock("./reviewWatch", () => ({
 import {
   ADMIN_UNKNOWN_MESSAGE, ALREADY_RUNNING_MESSAGE, MARK_UNREADABLE_MESSAGE, NOT_ADMIN_BEFORE_UPLOAD_MESSAGE, NOT_ADMIN_MESSAGE,
   REVIEW_ADMIN_ONLY_MESSAGE, REVIEW_DOCUMENT_UNREADABLE_MESSAGE, REVIEW_REFUSED_UNKNOWN_MESSAGE, ROLE_UNREADABLE_MESSAGE,
-  UPLOADED_UNREADABLE_MESSAGE, loadPriorDecision, markAsContractorSubmittal, priorDecisionOf, reviewAgain, startNewReview,
+  UPLOADED_UNREADABLE_MESSAGE, loadPriorDecision, markAndReview, markAsContractorSubmittal, priorDecisionOf, reviewAgain, startNewReview,
 } from "./newReview";
 
 const file = new File(["%PDF-1.7"], "Pump datasheet rev B.pdf", { type: "application/pdf" });
@@ -173,7 +175,9 @@ describe("startNewReview", () => {
 
     const words = "This file is already in the library as a company standard. It was not changed and no review was started. "
       + "Open it on the Documents page if you want to review it.";
-    expect(outcome).toEqual({ ok: false, message: words });
+    // v2.1 L10: nothing is changed, but the screen is told it MAY offer the
+    // administrator a confirmed re-mark.
+    expect(outcome).toEqual({ ok: false, message: words, offerMark: { documentId: "doc-8", role: "COMPANY_STANDARD" } });
     expect(phases.at(-1)).toEqual({ kind: "error", message: words });
     expect(setRoleBulk).not.toHaveBeenCalled();
     expect(startReviewRun).not.toHaveBeenCalled();
@@ -342,5 +346,49 @@ describe("priorDecisionOf / loadPriorDecision", () => {
     expect(await loadPriorDecision("doc-1")).toEqual({ kind: "unknown" });
     reviewRuns.mockRejectedValueOnce(new Error("boom"));
     expect(await loadPriorDecision("doc-1")).toEqual({ kind: "unknown" });
+  });
+});
+
+describe("v2.1 L2: nothing changed since the last review asks first", () => {
+  const run = (id: string, extra: Record<string, unknown> = {}) =>
+    ({ review_run_id: id, submittal_document_id: "doc-1", created_at: "2026-03-06T08:00:00Z", crs_issued_at: null, engineer_final_code: null, ...extra }) as never;
+
+  beforeEach(() => { readiness.mockReset(); reviewRuns.mockReset(); });
+
+  it("uses the runs the page holds (no runs request) and the readiness answer", async () => {
+    readiness.mockResolvedValue({ ok: true, data: { nothing_changed: true } });
+    expect(await loadPriorDecision("doc-1", [run("run-1")])).toEqual({ kind: "nothing_changed" });
+    expect(readiness).toHaveBeenCalledWith("doc-1");
+    expect(reviewRuns).not.toHaveBeenCalled();
+  });
+
+  it("something changed, or readiness failed: no question (a new review never overwrites the old)", async () => {
+    readiness.mockResolvedValueOnce({ ok: true, data: { nothing_changed: false } });
+    expect(await loadPriorDecision("doc-1", [run("run-1")])).toEqual({ kind: "none" });
+    readiness.mockRejectedValueOnce(new Error("boom"));
+    expect(await loadPriorDecision("doc-1", [run("run-1")])).toEqual({ kind: "none" });
+  });
+
+  it("signed wins over readiness, and a document never reviewed asks nothing", async () => {
+    expect(await loadPriorDecision("doc-1", [run("run-1", { crs_issued_at: "2026-03-07T08:00:00Z" })])).toEqual({ kind: "signed", finalCode: null });
+    expect(await loadPriorDecision("doc-1", [])).toEqual({ kind: "none" });
+    expect(readiness).not.toHaveBeenCalled();
+  });
+});
+
+describe("v2.1 L10: markAndReview (only after the administrator confirmed)", () => {
+  it("re-marks through the existing role write, waits, starts and watches, in that order", async () => {
+    document.mockReset().mockResolvedValue({ ok: true, data: { id: "doc-8", status: "ready" } });
+    const outcome = await markAndReview({ documentId: "doc-8", role: "COMPANY_STANDARD" }, "Pump datasheet rev B.pdf", () => {}, { ...noWait, isAdmin: true });
+    expect(outcome.ok).toBe(true);
+    expect(setRoleBulk).toHaveBeenCalledWith({ document_ids: ["doc-8"], document_role: "CONTRACTOR_SUBMITTAL" });
+    expect(calls).toEqual(["mark", "document", "start", "watch"]);
+  });
+
+  it("a non-administrator is refused before any role write", async () => {
+    const outcome = await markAndReview({ documentId: "doc-8", role: null }, "x.pdf", () => {}, { ...noWait, isAdmin: false });
+    expect(outcome).toEqual({ ok: false, message: NOT_ADMIN_BEFORE_UPLOAD_MESSAGE });
+    expect(setRoleBulk).not.toHaveBeenCalled();
+    expect(startReviewRun).not.toHaveBeenCalled();
   });
 });

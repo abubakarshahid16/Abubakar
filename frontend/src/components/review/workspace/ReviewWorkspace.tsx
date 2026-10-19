@@ -8,8 +8,23 @@
  * reader's place (tab, open row, panel) lives in the address; this
  * component only reads `location` and asks for changes via
  * `onLocationChange`, so a refresh reopens the same place.
+ *
+ * v2.1 (builder B): decisions save by themselves (decide/useAutosave), with
+ * "Keep all remaining comments" and its Undo above the sheet; Sign opens the
+ * preview-and-confirm step (sign/SignConfirm) instead of issuing at once;
+ * "Upload missing standards" opens the missing standards panel; the
+ * contractor's copy and replies are a tab; the honesty footer sits under the
+ * sheet; and the page makes room for the open evidence panel.
+ *
+ * v2.1 (integrator): ONE sign flow. Sign (bar or sign-off panel) -> the
+ * checks in useSignOff.sign -> the one SignConfirm below (always mounted,
+ * open while useSignOff says so) -> "Issue to contractor" ->
+ * issueConfirmed -> issueContractorCopy. Leaving asks through the app's one
+ * in-page guard (`leaveGuard`, useLeaveGuard), never window.confirm. Every
+ * "Review again" (header and missing standards panel) uses the same rule,
+ * useReviewAgain.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary } from "../../../types/api";
 import { HowReviewedView } from "../../../views/HowReviewedView";
@@ -18,9 +33,18 @@ import { BehindTheScenes } from "../panels/BehindTheScenes";
 import { ReviewJobControl } from "../panels/ReviewJobControl";
 import { useCrsDecisions } from "../crs/useCrsDecisions";
 import { useIssueGate } from "../crs/issueGate";
+import { CrsFooter } from "../crs/CrsFooter";
+import { CrsTabPanel } from "./crs/CrsTabPanel";
+import { KeepAllRemaining } from "./decide/KeepAllRemaining";
+import { useAutosave } from "./decide/useAutosave";
+import { useSignerName } from "./decide/useSignerName";
+import { SignConfirm } from "./sign/SignConfirm";
+import { MissingStandardsPanel } from "./standards/MissingStandardsPanel";
 import { ActionBar } from "./ActionBar";
 import { actionSteps, computeReviewNumbers } from "./numbers";
-import { ReviewAgainButton } from "./ReviewAgainButton";
+import { ReviewAgainButton, useReviewAgain } from "./ReviewAgainButton";
+import { LeaveConfirm } from "./LeaveConfirm";
+import { useLeaveGuard } from "./useLeaveGuard";
 import { SheetCountsLine } from "./SheetCountsLine";
 import { SignOffPanel } from "./SignOffPanel";
 import { useSignOff } from "./useSignOff";
@@ -28,8 +52,18 @@ import { useWorkspaceRun } from "./useWorkspaceRun";
 import { WorkspaceSheet } from "./WorkspaceSheet";
 import { WorkspaceTabs } from "./WorkspaceTabs";
 import {
-  LEAVE_WARNING, WORKSPACE_TABS, type ActionStepId, type ReviewWorkspaceProps, type WorkspaceLocation, type WorkspaceTab,
+  LEAVE_WARNING, WORKSPACE_TABS, type ActionStepId, type ReviewWorkspaceProps, type SignOff, type WorkspaceLocation,
+  type WorkspaceTab,
 } from "./contract";
+
+/** How long "Undo" stays on offer after "Keep all remaining comments";
+ *  those decisions save once it is gone. */
+export const UNDO_WINDOW_MS = 10_000;
+
+/** W4 / D2: while the evidence panel is open on a wide screen, the page
+ *  keeps the panel's width free on the right, so the table's buttons, the
+ *  bar's Save now and Sign are never under it. */
+export const PANEL_ROOM = "lg:pr-[37rem]";
 
 /** The behind-the-scenes panels that are tabs here. */
 const PANEL_TABS: readonly WorkspaceTab[] = ["findings", "standards", "steps", "numbers"];
@@ -41,9 +75,9 @@ function isTab(value: string | undefined): value is WorkspaceTab {
 /** Queued / running / failed: the same states and words CrsSheetView shows.
  *  A failed run also offers "Review again", so a document whose last review
  *  failed is never a dead end. */
-function RunNotReady({ run, active, onBack, onChanged, onOpenRun, openRun, mayLeave }: {
+function RunNotReady({ run, active, onBack, onChanged, onOpenRun, openRun, beforeStart }: {
   run: ReviewRunSummary; active: boolean; onBack: () => void; onChanged: () => void;
-  onOpenRun: (runId: string) => void; openRun: (runId: string) => void; mayLeave: () => boolean;
+  onOpenRun: (runId: string) => void; openRun: (runId: string) => void; beforeStart: (go: () => void) => void;
 }) {
   return (
     <section className="mx-auto w-full max-w-7xl space-y-3" aria-labelledby="ws-title" data-testid="review-workspace">
@@ -61,7 +95,7 @@ function RunNotReady({ run, active, onBack, onChanged, onOpenRun, openRun, mayLe
           <p role="alert" className="text-danger-500">This review failed{run.failure_reason ? `: ${run.failure_reason}` : "."}</p>
           {run.submittal_document_id && (
             <ReviewAgainButton documentId={run.submittal_document_id} filename={run.submittal_filename}
-              mayStart={mayLeave} onStarted={onOpenRun} onOpenRun={openRun} />
+              beforeStart={beforeStart} onStarted={onOpenRun} onOpenRun={openRun} />
           )}
         </>
       )}
@@ -70,7 +104,7 @@ function RunNotReady({ run, active, onBack, onChanged, onOpenRun, openRun, mayLe
   );
 }
 
-export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun, onUnsavedChange }: ReviewWorkspaceProps) {
+export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun, onUnsavedChange, leaveGuard }: ReviewWorkspaceProps) {
   const { runId } = location;
   const data = useWorkspaceRun(runId);
   const { load, run, findings, rows, standardsState, missingStandardIds, standardNames, submittal, summary, readiness, active, refresh, refreshError } = data;
@@ -98,13 +132,19 @@ export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun,
   // about decisions that no longer exist.
   useEffect(() => () => onUnsavedChange?.(0), [onUnsavedChange]);
 
-  // Every move away inside the app asks first, as CrsSheetView's `leave`
-  // does: the decisions live only in this screen until they are saved.
-  const mayLeave = useCallback(() => unsavedCount === 0 || window.confirm(LEAVE_WARNING), [unsavedCount]);
-  const leave = useCallback(() => { if (mayLeave()) onBack(); }, [mayLeave, onBack]);
-  const openRun = useCallback((id: string) => { if (mayLeave()) onOpenRun(id); }, [mayLeave, onOpenRun]);
-  // "Review again" asks before it starts anything (mayStart), so it opens
-  // the new run without asking a second time.
+  // v2.1 (N1): every move away from the workspace's own buttons asks
+  // through the app's ONE guard (in the page, never a browser pop-up), so
+  // the reader sees one style of question and is never asked twice. Drawn
+  // on its own (no app guard), the workspace keeps the same guard itself.
+  const unsavedRef = useRef(unsavedCount);
+  useLayoutEffect(() => { unsavedRef.current = unsavedCount; }, [unsavedCount]);
+  const ownGuard = useLeaveGuard(useCallback(() => unsavedRef.current, []));
+  const guard = leaveGuard ?? ownGuard.guard;
+  const beforeLeave = useCallback((go: () => void) => { guard("navigate", go); }, [guard]);
+  const leave = useCallback(() => beforeLeave(onBack), [beforeLeave, onBack]);
+  const openRun = useCallback((id: string) => beforeLeave(() => onOpenRun(id)), [beforeLeave, onOpenRun]);
+  // "Review again" asks before it starts anything (beforeStart), so it
+  // opens the new run without asking a second time.
 
   // Keep the document in the address once the run names it, so a refresh
   // before the run loads still knows the document.
@@ -113,13 +153,60 @@ export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun,
     if (runDocumentId && location.documentId !== runDocumentId) onLocationChange({ ...location, documentId: runDocumentId });
   }, [runDocumentId, location, onLocationChange]);
 
+  // D3: "Keep all remaining comments" offers Undo for a short while; saving
+  // waits until it is gone, so Undo never has to take back a saved decision.
+  const [undoOffered, setUndoOffered] = useState(false);
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (undoTimer.current) clearTimeout(undoTimer.current); }, []);
+  const endUndo = useCallback(() => {
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    undoTimer.current = null;
+    setUndoOffered(false);
+  }, []);
+  const keepAll = useCallback(() => {
+    const kept = decisions.acceptAll(rows);
+    if (kept > 0) {
+      if (undoTimer.current) clearTimeout(undoTimer.current);
+      setUndoOffered(true);
+      undoTimer.current = setTimeout(() => { undoTimer.current = null; setUndoOffered(false); }, UNDO_WINDOW_MS);
+    }
+    return kept;
+  }, [decisions, rows]);
+  const undoKeepAll = useCallback(() => { decisions.undo(); endUndo(); }, [decisions, endUndo]);
+  const canUndo = undoOffered && decisions.canUndo;
+
+  // D4: decisions save by themselves.
+  const autosaveRaw = useAutosave({ runId, rows, decisions, refresh, paused: canUndo });
+  // "Save now" ends the Undo offer: the reader chose to put them on record.
+  const autosave = useMemo(() => ({
+    ...autosaveRaw, saveNow: async () => { endUndo(); await autosaveRaw.saveNow(); },
+  }), [autosaveRaw, endUndo]);
+
   const numbers = useMemo(() => (run ? computeReviewNumbers({
     run, findings, rows, summary,
     missingStandards: missingStandardIds,
     readiness, decisions: decisions.state, unsaved: decisions.unsaved, gate: issueGate.gate,
   }) : null), [run, findings, rows, summary, missingStandardIds, readiness, decisions.state, decisions.unsaved, issueGate.gate]);
   const steps = useMemo(() => (numbers ? actionSteps(numbers) : []), [numbers]);
-  const signOff = useSignOff({ runId, rows, decisions, refresh, numbers });
+  const signOffRaw = useSignOff({ runId, rows, decisions, refresh, numbers });
+  const signer = useSignerName();
+  // S2: Sign (from the bar or the sign-off panel) runs the issuing checks in
+  // useSignOff and, when nothing is left, opens the ONE preview-and-confirm
+  // step below (useSignOff owns whether it is open). Only its "Issue to
+  // contractor" issues, through issueConfirmed. Save goes through the same
+  // automatic saving, so two saves never race.
+  const [standardsOpen, setStandardsOpen] = useState(false);
+  // v2.1: "N decisions you had not saved were brought back" (the draft kept
+  // in this tab, useCrsDecisions), until the reader hides it.
+  const [restoredSeen, setRestoredSeen] = useState(false);
+  // T1: "Review again" in the missing standards panel asks exactly what the
+  // header's "Review again" asks (unsaved decisions, then signed / final
+  // code / nothing changed), through the same rule.
+  const standardsAgain = useReviewAgain({
+    documentId: run?.submittal_document_id ?? "", filename: run?.submittal_filename ?? null,
+    onStarted: onOpenRun, onOpenRun: openRun, beforeStart: beforeLeave,
+    disabled: !run?.submittal_document_id,
+  });
 
   const tabNow = location.tab;
   useEffect(() => {
@@ -133,11 +220,29 @@ export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun,
   const openRowKey = location.panel === "evidence" ? location.row : null;
   const onOpenRow = (rowKey: string | null) => go({ row: rowKey, panel: rowKey ? "evidence" : null });
 
+  const signOff: SignOff = useMemo(() => ({
+    ...signOffRaw,
+    save: autosave.saveNow,
+    sign: async () => {
+      // The preview is a dialog of its own: the evidence panel closes first.
+      if (location.panel) onLocationChange({ ...location, row: null, panel: null });
+      await signOffRaw.sign();
+    },
+  }), [signOffRaw, autosave.saveNow, location, onLocationChange]);
+
   const onAction = (id: ActionStepId) => {
-    if (id === "standards") go({ tab: "standards" });
+    if (id === "standards") {
+      // T1 / S1: the missing standards panel opens under the bar.
+      setStandardsOpen((open) => !open);
+    }
     else if (id === "decide") {
       const first = numbers?.undecidedKeys[0] ?? null;
+      // Nothing left to decide but something unsaved: save it now.
+      if (!first && (numbers?.unsaved ?? 0) > 0) { void autosave.saveNow(); return; }
       go({ tab: "sheet", row: first, panel: first ? "evidence" : null });
+    }
+    else if (id === "code") {
+      // The control opens in the bar itself (ActionBar).
     }
     else if (id === "pages") {
       // The ActionBar lists the pages and offers "read again"; the ticks
@@ -153,14 +258,17 @@ export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun,
   // panel that is not a tab here (the old "crs" page) land on the sheet.
   const onOpenPanel = (panel?: string) => {
     if (!panel) setFocusStatus(null);
-    go({ tab: isTab(panel) && PANEL_TABS.includes(panel) ? panel : "sheet" });
+    go({ tab: isTab(panel) && (PANEL_TABS.includes(panel) || panel === "crs") ? panel : "sheet" });
   };
+
+  const leaveQuestion = leaveGuard ? null
+    : <LeaveConfirm pending={ownGuard.pending} onLeave={ownGuard.leave} onStay={ownGuard.stay} />;
 
   if (load.kind === "loading") return <p className="text-slateish-300" data-testid="review-workspace">Loading the sheet…</p>;
   if (load.kind === "error" || !run || !numbers) {
     return (
       <p role="alert" data-testid="review-workspace" className="rounded-[var(--radius-md)] border border-danger-500/40 bg-danger-500/10 px-4 py-3 text-danger-500">
-        {load.kind === "error" ? load.message : "This review run could not be found."}
+        {load.kind === "error" ? load.message : "This review could not be found."}
       </p>
     );
   }
@@ -170,18 +278,27 @@ export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun,
   if (active || run.status === "failed") {
     return (
       <>
-        <RunNotReady run={run} active={active} onBack={leave} onChanged={() => void refresh()} onOpenRun={onOpenRun} openRun={openRun} mayLeave={mayLeave} />
+        {leaveQuestion}
+        <RunNotReady run={run} active={active} onBack={leave} onChanged={() => void refresh()} onOpenRun={onOpenRun} openRun={openRun} beforeStart={beforeLeave} />
         {refreshLine}
       </>
     );
   }
 
+  const restored = decisions.restored ?? 0;
   const tab = location.tab;
+  const panelOpen = tab === "sheet" && openRowKey !== null;
+  const missingNames = numbers.standardsKnown ? numbers.missingStandards : (missingStandardIds ?? []);
+  const missingList = missingNames.map((name) => {
+    const ref = standardsState.missing.find((m) => m.identifier === name) as { id?: string } | undefined;
+    return ref?.id ? { id: ref.id, name } : { name };
+  });
   return (
     <section
-      className="mx-auto w-full max-w-7xl space-y-4" aria-labelledby="ws-title"
-      data-testid="review-workspace" data-run={runId}
+      className={`mx-auto w-full max-w-7xl space-y-4 ${panelOpen ? PANEL_ROOM : ""}`} aria-labelledby="ws-title"
+      data-testid="review-workspace" data-run={runId} data-panel-open={panelOpen ? "true" : "false"}
     >
+      {leaveQuestion}
       <header className="flex flex-wrap items-center gap-3">
         <button type="button" onClick={leave} className="text-sm text-signal-300 underline-offset-2 hover:underline">← Reviews</button>
         <h1 id="ws-title" className="min-w-0 flex-1 truncate text-2xl font-semibold text-slateish-100">
@@ -189,23 +306,66 @@ export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun,
         </h1>
         {run.submittal_document_id && (
           <ReviewAgainButton documentId={run.submittal_document_id} filename={run.submittal_filename}
-            mayStart={mayLeave} onStarted={onOpenRun} onOpenRun={openRun} />
+            beforeStart={beforeLeave} onStarted={onOpenRun} onOpenRun={openRun} />
         )}
       </header>
 
-      <ActionBar run={run} numbers={numbers} steps={steps} onAction={onAction} signOff={signOff} />
+      <ActionBar run={run} numbers={numbers} steps={steps} onAction={onAction} signOff={signOff}
+        autosave={autosave} onCodeRecorded={() => { void refresh(); void issueGate.reload(); }} />
       {refreshLine}
+      {restored > 0 && !restoredSeen && (
+        <p role="status" data-testid="ws-restored" className="flex flex-wrap items-center gap-2 text-sm text-slateish-300">
+          <span>
+            {restored.toLocaleString()} {restored === 1 ? "decision" : "decisions"} you had not saved{" "}
+            {restored === 1 ? "was" : "were"} brought back.
+          </span>
+          <button type="button" onClick={() => setRestoredSeen(true)}
+            className="text-signal-300 underline-offset-2 hover:underline">Hide</button>
+        </p>
+      )}
+      {standardsOpen && (
+        <div className="space-y-2">
+          <MissingStandardsPanel runId={runId} documentId={run.submittal_document_id ?? null} missing={missingList}
+            onReviewAgain={standardsAgain.press} />
+          {standardsAgain.busy && <p role="status" className="text-sm text-slateish-400">Starting a new review…</p>}
+          <div className="flex flex-col items-start gap-1">{standardsAgain.question}</div>
+          <button type="button" onClick={() => { setStandardsOpen(false); go({ tab: "standards" }); }}
+            className="text-sm text-signal-300 underline-offset-2 hover:underline">
+            See every standard this review used
+          </button>
+        </div>
+      )}
+      <SignConfirm
+        runId={runId} open={signOffRaw.confirmOpen} onClose={signOffRaw.closeConfirm}
+        onIssued={() => { void issueGate.reload(); }}
+        summary={{ comments: numbers.comments, finalCode: numbers.finalCode, signer }}
+      />
 
       <WorkspaceTabs tab={tab} onTab={onTab}>
         {tab === "sheet" && (
           <div className="space-y-2">
             <SheetCountsLine numbers={numbers} />
+            {!numbers.signed && (
+              <KeepAllRemaining count={numbers.remainingToKeep} onKeep={keepAll} canUndo={canUndo} onUndo={undoKeepAll} />
+            )}
             <WorkspaceSheet
               runId={runId} run={run} rows={rows} submittal={submittal} standardNames={standardNames}
               decisions={decisions} openRowKey={openRowKey} onOpenRow={onOpenRow} numbers={numbers}
               footer={(
-                <SignOffPanel numbers={numbers} signOff={signOff} run={run} rows={rows} gate={issueGate}
-                  onRunChanged={() => void refresh()} onJump={(row) => onOpenRow(row.key)} />
+                <>
+                  <SignOffPanel numbers={numbers} signOff={signOff} run={run} rows={rows} gate={issueGate}
+                    onRunChanged={() => void refresh()} onJump={(row) => onOpenRow(row.key)} />
+                  {/* S4: the honesty footer, as under the comment sheet. */}
+                  <CrsFooter
+                    run={run}
+                    counts={{
+                      met: numbers.met, notApplicable: numbers.notApplicableRows, anotherDocument: numbers.anotherDocument,
+                      comment: numbers.comments - numbers.needsYou, needsYou: numbers.needsYou,
+                    }}
+                    standards={standardsState.standards} missing={standardsState.missing}
+                    standardsError={standardsState.error} rejected={numbers.removed}
+                  />
+                </>
               )}
             />
           </div>
@@ -218,8 +378,10 @@ export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun,
             onOpenSteps={() => onTab("steps")}
           />
         )}
+        {tab === "crs" && <CrsTabPanel runId={runId} />}
         {PANEL_TABS.includes(tab) && (
           <BehindTheScenes
+            embedded
             panel={tab} run={run} findings={findings} documents={submittal ? [submittal] : []}
             standardsState={standardsState} focusStatus={focusStatus}
             onOpenPanel={onOpenPanel}
