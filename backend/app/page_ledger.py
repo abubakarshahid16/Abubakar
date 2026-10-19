@@ -372,7 +372,6 @@ def reading_gaps(reader: dict | None, pages: dict) -> dict:
     }
 
 
-
 # ------------------------------------------- order 127: one unread-pages count
 #
 # ONE FACT ON ONE SCREEN HAS ONE SOURCE. The comment sheet's header, its footer
@@ -395,7 +394,9 @@ def run_reader(outcome: dict | None) -> dict | None:
     return reader if isinstance(reader, dict) else None
 
 
-def run_unread_pages(page_coverage: dict | None, reader: dict | None = None) -> list[int]:
+def run_unread_pages(
+    page_coverage: dict | None, reader: dict | None = None
+) -> list[int]:
     """Order 127: THE run's unread pages, one definition for the issue gate, the
     run summary and the runs list. Union of `pages_not_read_into_fields`,
     `pages_ai_not_read` and (runs stored before PF3 kept `pages_ai_not_read`)
@@ -415,7 +416,9 @@ def run_unread_pages(page_coverage: dict | None, reader: dict | None = None) -> 
     return sorted(pages)
 
 
-def run_unread_reasons(page_coverage: dict | None, reader: dict | None = None) -> dict[str, str]:
+def run_unread_reasons(
+    page_coverage: dict | None, reader: dict | None = None
+) -> dict[str, str]:
     """Why each of those pages was not read, keyed by the page as a string:
     `not_read_reasons` wins over `ai_not_read_reasons` (the gate's order since
     PF5), and a legacy time-out page with neither gets "the AI reader timed out
@@ -426,7 +429,9 @@ def run_unread_reasons(page_coverage: dict | None, reader: dict | None = None) -
         **{str(k): v for k, v in (cov.get("not_read_reasons") or {}).items()},
     }
     timed_out = (
-        {int(p) for p in reader.get("timed_out") or []} if isinstance(reader, dict) else set()
+        {int(p) for p in reader.get("timed_out") or []}
+        if isinstance(reader, dict)
+        else set()
     )
     reasons: dict[str, str] = {}
     for page in run_unread_pages(cov, reader):
@@ -438,7 +443,9 @@ def run_unread_reasons(page_coverage: dict | None, reader: dict | None = None) -
     return reasons
 
 
-def run_unread_pages_shown(page_coverage: dict | None, reader: dict | None = None) -> list[int] | None:
+def run_unread_pages_shown(
+    page_coverage: dict | None, reader: dict | None = None
+) -> list[int] | None:
     """The list as a screen shows it: None (not known, rendered as nothing)
     when the run stored no page coverage or no page total; otherwise
     `run_unread_pages`, where [] means every page was read."""
@@ -450,7 +457,9 @@ def run_unread_pages_shown(page_coverage: dict | None, reader: dict | None = Non
 def run_unread_pages_of(outcome: dict | None) -> list[int] | None:
     """`run_unread_pages_shown` for a run's stored outcome: its page coverage
     and its reader record. One call for the run summary and the runs list."""
-    return run_unread_pages_shown((outcome or {}).get("page_coverage"), run_reader(outcome))
+    return run_unread_pages_shown(
+        (outcome or {}).get("page_coverage"), run_reader(outcome)
+    )
 
 
 def rows(document_id: str) -> list[dict]:
