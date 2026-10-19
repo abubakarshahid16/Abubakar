@@ -257,7 +257,7 @@ describe("WorkspaceLanding: every count states its boundary (rule 4)", () => {
   it("All reviews says it counts the reviews you may open", () => {
     renderLanding();
     expect(screen.getByRole("button", { name: "All reviews you may open (4)" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "All reviews you may open (4)" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "All reviews (4)" })).toBeNull();
   });
 
   it("Review all not reviewed counts the contractor documents listed here, and says when that list is cut short", () => {
