@@ -3,6 +3,8 @@
 The tiers (`review_tiers`), the headline counts and the "How this was reviewed"
 data, read from what the run stored. No model is called, nothing is written,
 no new counting: the same stored fields the run detail already returns.
+`GET /api/reviews/runs/counts` (order 117 item 5) gives only the tier counts
+of many runs, from the same helper as the summary's.
 """
 
 from __future__ import annotations
@@ -39,6 +41,9 @@ BOUNDARY = "findings of this run, on the submittal you may read"
 
 #: the largest page `GET /api/reviews/runs` returns (order 117 item 5)
 RUNS_MAX_PAGE_SIZE = 200
+
+#: the most runs one `GET /api/reviews/runs/counts` asks for (order 117 item 5)
+RUN_COUNTS_MAX_IDS = 200
 
 
 def _ts(name: str) -> dict:
@@ -135,6 +140,75 @@ class RunSummary(BaseModel):
     how_reviewed: HowReviewed
 
 
+class RunCountsBatch(BaseModel):
+    """`GET /api/reviews/runs/counts`: the tier counts of many runs in one
+    call, each the same as that run's `/summary` `counts`. A run that is not
+    there, or that the caller may not read, is absent, never zeros."""
+
+    boundary: str
+    counts: dict[str, TierCounts]
+
+
+def _tiers(review_run_id: str, allowed) -> tuple[dict, dict, dict | None, list | None]:
+    """The run's tiers (`counts` and `rows`), the one home of the counting
+    for `/summary` and `/counts` (CLAUDE.md rule 8). Also returns the stored
+    outcome, requirement split and timed-out pages it was built from."""
+    outcome = (
+        comparison_mod.run_outcome(review_run_id, allowed_document_ids=allowed) or {}
+    )
+    split = outcome.get("requirement_split") or requirement_split_mod.from_counts(
+        outcome.get("unchecked_counts")
+    )
+    reader_record = (split or {}).get("reader")
+    timed_out = (
+        sorted(reader_record.get("timed_out") or [])
+        if isinstance(reader_record, dict)
+        else None
+    )
+    tiers = review_tiers.summarise(
+        comparison_mod.list_findings(review_run_id, allowed_document_ids=allowed),
+        _facts(review_run_id, outcome, timed_out),
+    )
+    return tiers, outcome, split, timed_out
+
+
+@router.get(
+    "/api/reviews/runs/counts",
+    response_model=RunCountsBatch,
+    responses=schemas.ERRORS_422,
+)
+@dashboard_pool.heavy_route
+def review_run_counts(
+    request: Request,
+    ids: list[str] = Query(
+        ...,
+        min_length=1,
+        max_length=RUN_COUNTS_MAX_IDS,
+        description="review run ids, repeated: ?ids=a&ids=b",
+    ),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Order 117 item 5: the review inbox's tier counts in one call instead
+    of one `/summary` per row. Only the counts: no trace, coverage or AI
+    numbers are read. A run the caller may not read, or that is not there, is
+    left out (rule 5: intersection with what the caller may read). Read only.
+    Declared before `/api/reviews/runs/{review_run_id}` so "counts" is not
+    read as a run id."""
+    reject_unknown_params(request, {"ids"})
+    allowed = scope.allowed_document_ids
+    counts: dict[str, dict] = {}
+    for review_run_id in dict.fromkeys(ids):
+        if (
+            submittal_review_mod.get_review_run(
+                review_run_id, allowed_document_ids=allowed
+            )
+            is None
+        ):
+            continue
+        counts[review_run_id] = _tiers(review_run_id, allowed)[0]["counts"]
+    return {"boundary": BOUNDARY, "counts": counts}
+
+
 @router.get(
     "/api/reviews/runs/{review_run_id}/summary",
     response_model=RunSummary,
@@ -157,9 +231,7 @@ def review_run_summary(
             status_code=404,
             detail=errors.safe_error(errors.NOT_FOUND, "no review run with that id"),
         )
-    outcome = (
-        comparison_mod.run_outcome(review_run_id, allowed_document_ids=allowed) or {}
-    )
+    tiers, outcome, split, timed_out = _tiers(review_run_id, allowed)
     steps = (
         ai_numbers_mod.for_run(
             outcome,
@@ -169,19 +241,6 @@ def review_run_summary(
             crs_wording_mod.summary_of(review_run_id),
         )
         or {}
-    )
-    split = outcome.get("requirement_split") or requirement_split_mod.from_counts(
-        outcome.get("unchecked_counts")
-    )
-    reader_record = (split or {}).get("reader")
-    timed_out = (
-        sorted(reader_record.get("timed_out") or [])
-        if isinstance(reader_record, dict)
-        else None
-    )
-    tiers = review_tiers.summarise(
-        comparison_mod.list_findings(review_run_id, allowed_document_ids=allowed),
-        _facts(review_run_id, outcome, timed_out),
     )
     versions = review_jobs.last_run_versions(review_run_id) or {}
     return {

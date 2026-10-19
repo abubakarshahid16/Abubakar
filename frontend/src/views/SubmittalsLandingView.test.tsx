@@ -13,13 +13,14 @@ import { StrictMode } from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { INBOX_REFRESH_MS, SubmittalsLandingView, loadReadyCounts } from "./SubmittalsLandingView";
+import { INBOX_REFRESH_MS, RUN_COUNTS_MAX_IDS, SubmittalsLandingView, loadReadyCounts } from "./SubmittalsLandingView";
 import { INBOX_IS_DEFAULT } from "../routing";
 
 const documents = vi.fn();
 const reviewRuns = vi.fn();
 const startReviewRun = vi.fn();
 const reviewRunSummary = vi.fn();
+const reviewRunCounts = vi.fn();
 
 vi.mock("../api/client", () => ({
   api: { documents: (...args: unknown[]) => documents(...args) },
@@ -27,6 +28,7 @@ vi.mock("../api/client", () => ({
     reviewRuns: (...args: unknown[]) => reviewRuns(...args),
     startReviewRun: (...args: unknown[]) => startReviewRun(...args),
     reviewRunSummary: (...args: unknown[]) => reviewRunSummary(...args),
+    reviewRunCounts: (...args: unknown[]) => reviewRunCounts(...args),
   },
 }));
 
@@ -34,20 +36,51 @@ beforeEach(() => {
   documents.mockReset();
   reviewRuns.mockReset();
   startReviewRun.mockReset();
+  reviewRunSummary.mockReset();
+  reviewRunCounts.mockReset().mockResolvedValue({ ok: true, data: { boundary: "", counts: {} } });
 });
 
-describe("loadReadyCounts (A-1126)", () => {
-  it("counts the findings in a comment or needs-you tier, never Met or removed ones", async () => {
-    reviewRunSummary.mockResolvedValue({ ok: true, data: { counts: {
-      met: 90, not_applicable: 4, another_document: 7, comment: 27, needs_you: 6557, removed: 3, total: 6688,
+const tiers = (comment: number, needs_you: number) => ({
+  met: 90, not_applicable: 4, another_document: 7, comment, needs_you, removed: 3, total: 104 + comment + needs_you,
+});
+
+describe("loadReadyCounts (A-1126, order 117 item 5)", () => {
+  it("counts the findings in a comment or needs-you tier, never Met or removed ones, from ONE counts request", async () => {
+    reviewRunCounts.mockResolvedValue({ ok: true, data: { boundary: "your runs", counts: {
+      "run-1": tiers(27, 6557), "run-2": tiers(1, 0),
     } } });
-    expect(await loadReadyCounts("run-1")).toEqual({ findings: 6584, needs_you: 6557 });
-    expect(reviewRunSummary).toHaveBeenCalledWith("run-1");
+    expect(await loadReadyCounts(["run-1", "run-2"])).toEqual({
+      "run-1": { findings: 6584, needs_you: 6557 },
+      "run-2": { findings: 1, needs_you: 0 },
+    });
+    expect(reviewRunCounts).toHaveBeenCalledTimes(1);
+    expect(reviewRunCounts).toHaveBeenCalledWith(["run-1", "run-2"]);
+    expect(reviewRunSummary).not.toHaveBeenCalled();
   });
 
-  it("is null when the summary cannot be read", async () => {
-    reviewRunSummary.mockResolvedValue({ ok: false, error: { code: "internal", message: "no route" } });
-    expect(await loadReadyCounts("run-1")).toBeNull();
+  it(`splits ${RUN_COUNTS_MAX_IDS + 50} ids into two requests: ${RUN_COUNTS_MAX_IDS} then 50`, async () => {
+    const ids = Array.from({ length: 250 }, (_, i) => `run-${i}`);
+    const got = await loadReadyCounts(ids);
+    expect(RUN_COUNTS_MAX_IDS).toBe(200);
+    expect(reviewRunCounts).toHaveBeenCalledTimes(2);
+    expect(reviewRunCounts.mock.calls[0][0]).toEqual(ids.slice(0, 200));
+    expect(reviewRunCounts.mock.calls[1][0]).toEqual(ids.slice(200));
+    expect(Object.keys(got)).toHaveLength(250);
+  });
+
+  it("is null, never 0, for a run absent from the answer", async () => {
+    reviewRunCounts.mockResolvedValue({ ok: true, data: { boundary: "", counts: { "run-1": tiers(2, 1) } } });
+    expect(await loadReadyCounts(["run-1", "gone"])).toEqual({
+      "run-1": { findings: 3, needs_you: 1 }, gone: null,
+    });
+  });
+
+  it("is null for every run of a request that failed or threw", async () => {
+    reviewRunCounts
+      .mockResolvedValueOnce({ ok: false, error: { code: "internal", message: "no route" } });
+    expect(await loadReadyCounts(["run-1", "run-2"])).toEqual({ "run-1": null, "run-2": null });
+    reviewRunCounts.mockRejectedValueOnce(new Error("network"));
+    expect(await loadReadyCounts(["run-3"])).toEqual({ "run-3": null });
   });
 });
 
@@ -132,6 +165,25 @@ describe("SubmittalsLandingView", () => {
     expect(startReviewRun.mock.calls.map((call) => call[0])).toEqual(["a", "b"]);
     expect(onOpenRun).not.toHaveBeenCalled();
     expect(reviewRuns).toHaveBeenCalledTimes(2);
+  });
+
+  it("order 117 item 5: the inbox asks for every Ready row's counts in one request, never the full summary", async () => {
+    documents.mockResolvedValue({ ok: true, data: [
+      { id: "a", filename: "a.pdf" }, { id: "b", filename: "b.pdf" }, { id: "c", filename: "c.pdf" },
+    ] });
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: ["a", "b", "c"].map((d) => ({
+      review_run_id: `run-${d}`, submittal_document_id: d, submittal_filename: `${d}.pdf`,
+      equipment_tags: [], status: "completed", created_at: "2026-10-01T00:00:00Z",
+      standards_in_scope: 1, findings_total: 0, by_status: {},
+    })) } });
+    reviewRunCounts.mockResolvedValue({ ok: true, data: { boundary: "", counts: {
+      "run-a": tiers(2, 1), "run-b": tiers(0, 0),
+    } } });
+    render(<SubmittalsLandingView inbox onOpenRun={vi.fn()} />);
+    expect(await screen.findByText(/^Ready: 3 findings to decide, 1 needs you/)).toBeInTheDocument();
+    expect(reviewRunCounts).toHaveBeenCalledTimes(1);
+    expect([...reviewRunCounts.mock.calls[0][0]].sort()).toEqual(["run-a", "run-b", "run-c"]);
+    expect(reviewRunSummary).not.toHaveBeenCalled();
   });
 
   describe("order 104: the inbox is switched off by default", () => {
