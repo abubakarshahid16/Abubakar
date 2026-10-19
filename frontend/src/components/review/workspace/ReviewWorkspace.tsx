@@ -17,6 +17,7 @@ import { progressLine, runStatusLabel } from "../reviewFormat";
 import { BehindTheScenes } from "../panels/BehindTheScenes";
 import { ReviewJobControl } from "../panels/ReviewJobControl";
 import { useCrsDecisions } from "../crs/useCrsDecisions";
+import { useIssueGate } from "../crs/issueGate";
 import { ActionBar } from "./ActionBar";
 import { actionSteps, computeReviewNumbers } from "./numbers";
 import { ReviewAgainButton } from "./ReviewAgainButton";
@@ -74,7 +75,13 @@ export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun,
   const data = useWorkspaceRun(runId);
   const { load, run, findings, rows, standardsState, missingStandardIds, standardNames, submittal, summary, readiness, active, refresh } = data;
   const decisions = useCrsDecisions();
-  const signOff = useSignOff({ runId, rows, decisions, refresh });
+  // The issue gate, read exactly as the comment sheet reads it (again
+  // whenever the run or its findings are): what the server still wants
+  // before the contractor's copy.
+  const gateVersion = useMemo(() => ({ run, findings }), [run, findings]);
+  const issueGate = useIssueGate(runId, gateVersion);
+  // "Check unread pages" leads to the tick boxes in "Before you sign".
+  const [pagesAsked, setPagesAsked] = useState(0);
   // A count clicked inside the steps panel narrows the findings panel (#791),
   // exactly as on the card view's behind-the-scenes pages.
   const [focusStatus, setFocusStatus] = useState<string | null>(null);
@@ -109,9 +116,17 @@ export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun,
   const numbers = useMemo(() => (run ? computeReviewNumbers({
     run, findings, rows, summary,
     missingStandards: missingStandardIds,
-    readiness, decisions: decisions.state, unsaved: decisions.unsaved,
-  }) : null), [run, findings, rows, summary, missingStandardIds, readiness, decisions.state, decisions.unsaved]);
+    readiness, decisions: decisions.state, unsaved: decisions.unsaved, gate: issueGate.gate,
+  }) : null), [run, findings, rows, summary, missingStandardIds, readiness, decisions.state, decisions.unsaved, issueGate.gate]);
   const steps = useMemo(() => (numbers ? actionSteps(numbers) : []), [numbers]);
+  const signOff = useSignOff({ runId, rows, decisions, refresh, numbers });
+
+  const tabNow = location.tab;
+  useEffect(() => {
+    if (pagesAsked === 0 || tabNow !== "sheet") return;
+    const box = document.querySelector<HTMLElement>('[data-testid="sign-pages"]');
+    box?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+  }, [pagesAsked, tabNow]);
 
   const go = (patch: Partial<WorkspaceLocation>) => onLocationChange({ ...location, ...patch });
   const onTab = (tab: WorkspaceTab) => go({ tab });
@@ -124,7 +139,12 @@ export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun,
       const first = numbers?.undecidedKeys[0] ?? null;
       go({ tab: "sheet", row: first, panel: first ? "evidence" : null });
     }
-    // "pages" is handled inside the ActionBar (list + read again);
+    else if (id === "pages") {
+      // The ActionBar lists the pages and offers "read again"; the ticks
+      // live in "Before you sign" under the sheet, so go there.
+      go({ tab: "sheet" });
+      setPagesAsked((n) => n + 1);
+    }
     // "sign" calls signOff.sign() inside the ActionBar.
   };
 
@@ -172,7 +192,10 @@ export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun,
             <WorkspaceSheet
               runId={runId} run={run} rows={rows} submittal={submittal} standardNames={standardNames}
               decisions={decisions} openRowKey={openRowKey} onOpenRow={onOpenRow} numbers={numbers}
-              footer={<SignOffPanel numbers={numbers} signOff={signOff} />}
+              footer={(
+                <SignOffPanel numbers={numbers} signOff={signOff} run={run} rows={rows} gate={issueGate}
+                  onRunChanged={() => void refresh()} onJump={(row) => onOpenRow(row.key)} />
+              )}
             />
           </div>
         )}

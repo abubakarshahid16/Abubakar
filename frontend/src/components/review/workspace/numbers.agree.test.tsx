@@ -1,19 +1,24 @@
 /**
  * Builder B: the bar, the sheet's count line and the sign-off panel show the
  * SAME numbers, all from one `computeReviewNumbers` result. Plus the click
- * paths: Sign waits for the blockers, then calls downloadCrs "issue"; the
- * unread pages are listed with "Read these pages again"; Save and the
- * working copy use the existing routes. Made-up data only.
+ * paths: Sign waits for the blockers AND the comment sheet's issue gate
+ * ("Before you sign": final code, unread page ticks), then calls
+ * downloadCrs "issue" through the shared issuing path; the unread pages are
+ * listed with "Read these pages again"; Save and the working copy use the
+ * existing routes. Made-up data only.
  *
  * MUTATION PROOF (done once by hand): make SheetCountsLine show
  * `numbers.comments + 1` (a component counting on its own) and
- * "every shared count agrees" fails.
+ * "every shared count agrees" fails. Drop `numbers.signLeft.length === 0`
+ * from the Sign rule in `actionSteps` and "Sign is off with no final code"
+ * fails.
  */
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ReviewReadiness, ReviewRunSummary } from "../../../types/api";
+import type { CrsIssueGate, ReviewReadiness, ReviewRunSummary } from "../../../types/api";
+import { type IssueGateState, useIssueGate } from "../crs/issueGate";
 import type { CrsDecisions, CrsRow, DecisionState, ReviewNumbers, ReviewNumbersInput, SignOff } from "./contract";
 import { ActionBar } from "./ActionBar";
 import { SheetCountsLine } from "./SheetCountsLine";
@@ -24,10 +29,18 @@ import { useSignOff } from "./useSignOff";
 const downloadCrs = vi.fn();
 const saveCrsDecisions = vi.fn();
 const rereadPages = vi.fn();
+const crsIssueGate = vi.fn();
+const decideCrsPage = vi.fn();
 
 vi.mock("../downloadCrs", () => ({ downloadCrs: (...a: unknown[]) => downloadCrs(...a) }));
 vi.mock("../crs/saveCrsDecisions", () => ({ saveCrsDecisions: (...a: unknown[]) => saveCrsDecisions(...a) }));
-vi.mock("../../../api/client", () => ({ reviews: { rereadPages: (...a: unknown[]) => rereadPages(...a) } }));
+vi.mock("../../../api/client", () => ({
+  reviews: {
+    rereadPages: (...a: unknown[]) => rereadPages(...a),
+    crsIssueGate: (...a: unknown[]) => crsIssueGate(...a),
+    decideCrsPage: (...a: unknown[]) => decideCrsPage(...a),
+  },
+}));
 
 type Tier = "A" | "B" | "C";
 const LABEL: Record<Tier, string> = { A: "Met", B: "Comment", C: "Needs you" };
@@ -48,23 +61,36 @@ const READINESS: ReviewReadiness = {
 /** Readiness that answered: nothing unread, nothing missing. */
 const NONE_LEFT: ReviewReadiness = { ...READINESS, unread_pages: [], standards_missing: [] };
 
+/** The issue gate as the server answers it; by default nothing is left. */
+function gate(over: Partial<CrsIssueGate> = {}): CrsIssueGate {
+  return {
+    review_run_id: "run-1", issuable: true, final_code_recorded: true, blockers: [], unread_pages: [], open_findings: [], ...over,
+  } as CrsIssueGate;
+}
+const CLEAR_GATE = gate();
+
+function gateState(g: CrsIssueGate | null): IssueGateState {
+  return { gate: g, error: null, reload: vi.fn().mockResolvedValue(undefined) };
+}
+
 const ROWS = [row("b1", "B"), row("b2", "B"), row("b3", "B", "agreed"), row("c1", "C"), row("c2", "C"), row("a1", "A")];
 
 function numbersFor(over: Partial<ReviewNumbersInput> = {}): ReviewNumbers {
   return computeReviewNumbers({
     run: RUN, findings: [], rows: ROWS, summary: null, missingStandards: ["API 610"], readiness: READINESS,
-    decisions: { decisions: { b1: { kind: "keep" } }, opened: {} }, unsaved: ["b1"], ...over,
+    decisions: { decisions: { b1: { kind: "keep" } }, opened: {} }, unsaved: ["b1"], gate: null, ...over,
   });
 }
 
 const IDLE: SignOff = { busy: false, message: null, error: null, save: vi.fn(), sign: vi.fn(), workingCopy: vi.fn() };
 
-function renderAll(numbers: ReviewNumbers, signOff: SignOff = IDLE) {
+function renderAll(numbers: ReviewNumbers, signOff: SignOff = IDLE, g: CrsIssueGate | null = null, run: ReviewRunSummary = RUN) {
   return render(
     <div>
-      <ActionBar run={RUN} numbers={numbers} steps={actionSteps(numbers)} onAction={() => {}} signOff={signOff} />
+      <ActionBar run={run} numbers={numbers} steps={actionSteps(numbers)} onAction={() => {}} signOff={signOff} />
       <SheetCountsLine numbers={numbers} />
-      <SignOffPanel numbers={numbers} signOff={signOff} />
+      <SignOffPanel numbers={numbers} signOff={signOff} run={run} rows={ROWS} gate={gateState(g)}
+        onRunChanged={() => {}} onJump={() => {}} />
     </div>,
   );
 }
@@ -78,6 +104,8 @@ function helperValue(n: ReviewNumbers, key: (typeof SHARED)[number]): number {
 }
 
 beforeEach(() => {
+  crsIssueGate.mockReset();
+  decideCrsPage.mockReset();
   downloadCrs.mockReset().mockResolvedValue(null);
   saveCrsDecisions.mockReset();
   rereadPages.mockReset();
@@ -104,14 +132,21 @@ describe("one source of numbers", () => {
     expect(where("missingStandards")).toBe(2);
   });
 
-  it("met and not applicable on the count line are the helper's (clauses when the run has them)", () => {
-    const n = numbersFor({ run: { ...RUN, requirement_split: { does_not_apply: 7 } } as unknown as ReviewRunSummary });
+  it("met and not applicable on the count line are the helper's: rows and clauses each in their own words", () => {
+    const naRow = { ...row("na", "A"), tier: { tier: "A", label: "Not applicable", reason: null } } as unknown as CrsRow;
+    const n = numbersFor({
+      run: { ...RUN, requirement_split: { does_not_apply: 7 } } as unknown as ReviewRunSummary, rows: [...ROWS, naRow],
+    });
     expect(n.met).toBe(1);
-    expect(n.notApplicable).toBe(7);
+    expect(n.notApplicableRows).toBe(1);
+    expect(n.notApplicableClauses).toBe(7);
     renderAll(n);
     const line = screen.getByTestId("ws-sheet-counts");
     expect(line.querySelector('[data-count="met"]')?.textContent).toBe(String(n.met));
-    expect(line.querySelector('[data-count="notApplicable"]')?.textContent).toBe(String(n.notApplicable));
+    expect(line.querySelector('[data-count="notApplicableRows"]')?.textContent).toBe(String(n.notApplicableRows));
+    expect(line.querySelector('[data-count="notApplicableClauses"]')?.textContent).toBe(String(n.notApplicableClauses));
+    expect(line.textContent).toContain("1 row not applicable");
+    expect(line.textContent).toContain("7 clauses not applicable");
   });
 
   it("the expected numbers for this fixture", () => {
@@ -169,13 +204,33 @@ describe("Check unread pages", () => {
 /** The real useSignOff wired to the three components, with the decisions
  *  and blockers the test controls. */
 function Harness({ input, refresh, decisions }: { input: Partial<ReviewNumbersInput>; refresh: () => Promise<void>; decisions: CrsDecisions }) {
-  const signOff = useSignOff({ runId: "run-1", rows: ROWS, decisions, refresh });
   const n = numbersFor(input);
+  const signOff = useSignOff({ runId: "run-1", rows: ROWS, decisions, refresh, numbers: n });
+  const run = input.run ?? RUN;
   return (
     <div>
-      <ActionBar run={RUN} numbers={n} steps={actionSteps(n)} onAction={() => {}} signOff={signOff} />
+      <ActionBar run={run} numbers={n} steps={actionSteps(n)} onAction={() => {}} signOff={signOff} />
       <SheetCountsLine numbers={n} />
-      <SignOffPanel numbers={n} signOff={signOff} />
+      <SignOffPanel numbers={n} signOff={signOff} run={run} rows={ROWS} gate={gateState(input.gate ?? null)}
+        onRunChanged={() => {}} onJump={() => {}} />
+    </div>
+  );
+}
+
+/** The workspace's real wiring: the issue gate read by `useIssueGate` (the
+ *  comment sheet's hook) feeds the one numbers helper and the sign-off box. */
+function LiveGate({ input, decisions }: { input: Partial<ReviewNumbersInput>; decisions: CrsDecisions }) {
+  const issueGate = useIssueGate("run-1", 0);
+  const n = numbersFor({ ...input, gate: issueGate.gate });
+  const refresh = async () => { await issueGate.reload(); };
+  const signOff = useSignOff({ runId: "run-1", rows: ROWS, decisions, refresh, numbers: n });
+  const run = input.run ?? RUN;
+  return (
+    <div>
+      <ActionBar run={run} numbers={n} steps={actionSteps(n)} onAction={() => {}} signOff={signOff} />
+      <SheetCountsLine numbers={n} />
+      <SignOffPanel numbers={n} signOff={signOff} run={run} rows={ROWS} gate={issueGate}
+        onRunChanged={() => {}} onJump={() => {}} />
     </div>
   );
 }
@@ -219,6 +274,7 @@ describe("Sign and export", () => {
     // Standards and pages clear, decisions still open: still off.
     const noBlockers: Partial<ReviewNumbersInput> = {
       missingStandards: [], readiness: NONE_LEFT, run: { ...RUN, page_coverage: null } as unknown as ReviewRunSummary, unsaved: [],
+      gate: CLEAR_GATE,
     };
     rerender(<Harness input={noBlockers} refresh={refresh} decisions={decisions} />);
     for (const b of signButtons()) expect(b).toBeDisabled();
@@ -240,12 +296,71 @@ describe("Sign and export", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(/Signed and exported/);
   });
 
+  it("Sign is off with no final code even when every comment is decided and saved; the bar and Before you sign say so alike", () => {
+    const noCode = gate({ final_code_recorded: false, issuable: false });
+    const input: Partial<ReviewNumbersInput> = {
+      missingStandards: [], readiness: NONE_LEFT, run: { ...RUN, page_coverage: null } as unknown as ReviewRunSummary,
+      decisions: ALL_DECIDED, unsaved: [], gate: noCode,
+    };
+    const n = numbersFor(input);
+    expect(n.undecided).toBe(0);
+    expect(n.unopenedNeedsYou).toBe(0);
+    expect(n.signLeft).toEqual(["record the final code"]);
+    expect(actionSteps(n).slice(0, 3).every((s) => s.done)).toBe(true);
+    expect(actionSteps(n)[3].enabled).toBe(false);
+    render(<Harness input={input} refresh={vi.fn().mockResolvedValue(undefined)} decisions={fakeDecisions(ALL_DECIDED, [])} />);
+    for (const b of screen.getAllByRole("button", { name: "Sign and export" })) expect(b).toBeDisabled();
+    expect(screen.getByTestId("ws-verdict").textContent).toContain("Not signed yet.");
+    expect(screen.getByTestId("ws-sign-waits")).toHaveTextContent("Before you sign: record the final code.");
+    // The comment sheet's own box, inside the sign-off, offers the control
+    // and names the same thing left.
+    const signOff = screen.getByTestId("ws-sign-off");
+    expect(within(signOff).getByRole("button", { name: "Record the final code" })).toBeInTheDocument();
+    expect(within(signOff).getByTestId("sign-left")).toHaveTextContent("Sign and export waits until you record the final code.");
+    expect(downloadCrs).not.toHaveBeenCalled();
+  });
+
+  it("unread pages: the bar, the count line and the tick boxes show the gate's pages; Sign waits until they are ticked", async () => {
+    let pagesLeft = [{ page: 9, reason: null }];
+    crsIssueGate.mockImplementation(async () => ({
+      ok: true, data: gate({ issuable: pagesLeft.length === 0, unread_pages: pagesLeft } as Partial<CrsIssueGate>),
+    }));
+    decideCrsPage.mockImplementation(async () => { pagesLeft = []; return { ok: true, data: {} }; });
+    const input: Partial<ReviewNumbersInput> = {
+      missingStandards: [], readiness: NONE_LEFT, run: { ...RUN, page_coverage: null } as unknown as ReviewRunSummary,
+      decisions: ALL_DECIDED, unsaved: [],
+    };
+    render(<LiveGate input={input} decisions={fakeDecisions(ALL_DECIDED, [])} />);
+    const pagesStep = await screen.findByRole("button", { name: "Check unread pages (1)" });
+    expect(pagesStep).toBeEnabled();
+    expect(screen.getByTestId("ws-sheet-counts").querySelector('[data-count="unreadPages"]')?.textContent).toBe("1");
+    for (const b of screen.getAllByRole("button", { name: "Sign and export" })) expect(b).toBeDisabled();
+    expect(screen.getByTestId("ws-sign-waits")).toHaveTextContent("Before you sign: tick 1 unread page.");
+    const signOff = screen.getByTestId("ws-sign-off");
+    expect(within(signOff).getByTestId("sign-left")).toHaveTextContent("Sign and export waits until you tick 1 unread page.");
+
+    // Tick page 9 in the sign-off's "Before you sign" box.
+    const page = within(signOff).getByTestId("sign-page-9");
+    await userEvent.type(within(page).getByLabelText("What you checked on page 9"), "Checked the nozzle table by hand.");
+    await act(async () => { await userEvent.click(within(page).getByRole("button", { name: "I checked page 9" })); });
+    expect(decideCrsPage).toHaveBeenCalledWith("run-1", 9, "Checked the nozzle table by hand.");
+
+    // The gate is read again: the page drops off everywhere and Sign is on.
+    expect(await screen.findByRole("button", { name: /Check unread pages \(0\)/ })).toBeDisabled();
+    expect(screen.queryByTestId("ws-sign-waits")).toBeNull();
+    const [barSign, panelSign] = screen.getAllByRole("button", { name: "Sign and export" });
+    expect(barSign).toBeEnabled();
+    expect(panelSign).toBeEnabled();
+    await userEvent.click(panelSign);
+    expect(downloadCrs).toHaveBeenCalledWith("run-1", "issue");
+  });
+
   it("a refused sign shows the API's words and does not refresh", async () => {
     downloadCrs.mockResolvedValue("Comments are still open on this run.");
     const refresh = vi.fn().mockResolvedValue(undefined);
     const clear: Partial<ReviewNumbersInput> = {
       missingStandards: [], readiness: NONE_LEFT, run: { ...RUN, page_coverage: null } as unknown as ReviewRunSummary,
-      decisions: ALL_DECIDED, unsaved: [],
+      decisions: ALL_DECIDED, unsaved: [], gate: CLEAR_GATE,
     };
     render(<Harness input={clear} refresh={refresh} decisions={fakeDecisions(ALL_DECIDED, [])} />);
     await userEvent.click(screen.getAllByRole("button", { name: "Sign and export" })[1]);
@@ -293,7 +408,7 @@ describe("Sign and export", () => {
 describe("unknown blocker counts never count as done", () => {
   const CLEAR_RUN = { ...RUN, page_coverage: null } as unknown as ReviewRunSummary;
   const allClear: Partial<ReviewNumbersInput> = {
-    run: CLEAR_RUN, missingStandards: [], readiness: NONE_LEFT, decisions: ALL_DECIDED, unsaved: [],
+    run: CLEAR_RUN, missingStandards: [], readiness: NONE_LEFT, decisions: ALL_DECIDED, unsaved: [], gate: CLEAR_GATE,
   };
 
   function expectWaiting(n: ReviewNumbers, unknown: Array<"standards" | "pages">) {
@@ -333,8 +448,8 @@ describe("unknown blocker counts never count as done", () => {
     expectWaiting(n, ["standards"]);
   });
 
-  it("page checks not read (readiness null): Sign stays off and the pages step is not done", () => {
-    const n = numbersFor({ ...allClear, readiness: null });
+  it("page checks not read (readiness null, issue gate not read): Sign stays off and the pages step is not done", () => {
+    const n = numbersFor({ ...allClear, readiness: null, gate: null });
     expect(n.pagesKnown).toBe(false);
     // Readiness also lists missing standards, so that count is unknown too.
     expect(n.standardsKnown).toBe(false);
@@ -347,7 +462,7 @@ describe("unknown blocker counts never count as done", () => {
     const steps = actionSteps(n);
     expect(steps.slice(0, 3).every((s) => s.done && !s.enabled && s.count === 0)).toBe(true);
     expect(steps[3].enabled).toBe(true);
-    renderAll(n);
+    renderAll(n, IDLE, CLEAR_GATE, CLEAR_RUN);
     const bar = screen.getByTestId("ws-action-bar");
     expect(within(bar).getAllByRole("button").map((b) => b.textContent)).toEqual([
       "✓Upload missing standards (0)", "✓Check unread pages (0)", "✓Decide comments (0)", "Sign and export",

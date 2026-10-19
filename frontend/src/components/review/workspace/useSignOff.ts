@@ -2,16 +2,22 @@
  * OWNER: builder B. Sign-off for the workspace: save the on-screen
  * decisions, sign and export the contractor copy, or download the unsigned
  * working copy. Existing routes only, the same ones CrsSheetView uses.
+ *
+ * Signing goes through `issueContractorCopy` (crs/issueContractorCopy.ts),
+ * the one shared issuing path the comment sheet uses too: it checks the
+ * same rules (everything saved, every "Needs you" row opened, the issue
+ * gate clear) before it asks the server.
  */
 import { useCallback, useState } from "react";
 
 import type { SignOff, UseSignOffArgs } from "./contract";
 import { downloadCrs } from "../downloadCrs";
+import { ISSUED_MESSAGE, issueContractorCopy } from "../crs/issueContractorCopy";
 import { saveCrsDecisions } from "../crs/saveCrsDecisions";
 
 type Status = { busy: boolean; message: string | null; error: string | null };
 
-export function useSignOff({ runId, rows, decisions, refresh }: UseSignOffArgs): SignOff {
+export function useSignOff({ runId, rows, decisions, refresh, numbers }: UseSignOffArgs): SignOff {
   const [status, setStatus] = useState<Status>({ busy: false, message: null, error: null });
   const save = useCallback(async () => {
     if (decisions.unsaved.length === 0) return;
@@ -28,25 +34,25 @@ export function useSignOff({ runId, rows, decisions, refresh }: UseSignOffArgs):
     if (outcome.wrote) await refresh();
   }, [runId, rows, decisions, refresh]);
 
-  const exportCopy = useCallback(async (copy: "internal" | "issue") => {
+  const sign = useCallback(async () => {
     setStatus({ busy: true, message: null, error: null });
-    const problem = await downloadCrs(runId, copy);
-    if (problem) { setStatus({ busy: false, message: null, error: problem }); return; }
-    setStatus({
-      busy: false, error: null,
-      message: copy === "issue"
-        ? "Signed and exported. The signed copy was downloaded and kept on record."
-        : "Working copy downloaded. It is not signed.",
+    const outcome = await issueContractorCopy(runId, {
+      unsaved: decisions.unsaved.length,
+      unopenedNeedsYou: numbers ? numbers.unopenedNeedsYou : 0,
+      // Not loaded yet is never "nothing left".
+      signLeft: numbers ? numbers.signLeft : ["what is left could not be checked"],
     });
+    if (!outcome.ok) { setStatus({ busy: false, message: null, error: outcome.message }); return; }
+    setStatus({ busy: false, error: null, message: ISSUED_MESSAGE });
     await refresh();
-  }, [runId, refresh]);
+  }, [runId, decisions.unsaved.length, numbers, refresh]);
 
-  /** NOTE: #1150 (a dedicated sign-off route) is NOT on main. Signing uses
-   *  the existing path CrsSheetView's "Sign and export" uses today:
-   *  `downloadCrs(runId, "issue")`, which the server still refuses while
-   *  anything is open. Swap it here when #1150 lands. */
-  const sign = useCallback(() => exportCopy("issue"), [exportCopy]);
-  const workingCopy = useCallback(() => exportCopy("internal"), [exportCopy]);
+  const workingCopy = useCallback(async () => {
+    setStatus({ busy: true, message: null, error: null });
+    const problem = await downloadCrs(runId, "internal");
+    if (problem) { setStatus({ busy: false, message: null, error: problem }); return; }
+    setStatus({ busy: false, error: null, message: "Working copy downloaded. It is not signed." });
+  }, [runId]);
 
   return { ...status, save, sign, workingCopy };
 }

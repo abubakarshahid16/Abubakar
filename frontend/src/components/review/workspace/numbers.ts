@@ -11,6 +11,7 @@
 import type { ActionStep, ReviewNumbers, ReviewNumbersInput } from "./contract";
 import type { ReviewRunSummary } from "../../../types/api";
 import { headlineFieldsOf, rowCounts, splitRejected } from "../crs/crsRows";
+import { signLeft } from "../crs/issueGate";
 import { pageList } from "../reviewFormat";
 
 function uniqueSortedPages(pages: number[]): number[] {
@@ -30,7 +31,7 @@ function uniqueStrings(list: string[]): string[] {
 }
 
 export function computeReviewNumbers(input: ReviewNumbersInput): ReviewNumbers {
-  const { run, findings, rows, summary, readiness, decisions } = input;
+  const { run, findings, rows, summary, readiness, decisions, gate } = input;
   const counts = rowCounts(rows);
   const fields = headlineFieldsOf(run, summary?.how_reviewed ?? null);
   const commentRows = rows.filter((r) => r.tier.tier !== "A");
@@ -43,18 +44,27 @@ export function computeReviewNumbers(input: ReviewNumbersInput): ReviewNumbers {
     needsYou: counts.needsYou,
     findingsInComments: commentRows.reduce((sum, r) => sum + r.findings.length, 0),
     met: counts.met,
-    notApplicable: typeof fields.doesNotApply === "number" ? fields.doesNotApply : counts.notApplicable,
+    // Rows and clauses are different things: the table folds ROWS (as
+    // CrsSheetView's rowCounts), the clause count is said on its own.
+    notApplicableRows: counts.notApplicable,
+    notApplicableClauses: typeof fields.doesNotApply === "number" ? fields.doesNotApply : null,
     anotherDocument: counts.anotherDocument,
     removed: summary?.counts.removed ?? splitRejected(findings).rejected,
-    unreadPages: uniqueSortedPages([...fields.unreadPages, ...(readiness?.unread_pages ?? [])]),
+    // Once the issue gate answers, the pages left are the ones it still
+    // wants ticked: the bar, the count line and "Before you sign" then say
+    // the same number, and a ticked page drops off everywhere.
+    unreadPages: gate
+      ? uniqueSortedPages(gate.unread_pages.map((p) => p.page))
+      : uniqueSortedPages([...fields.unreadPages, ...(readiness?.unread_pages ?? [])]),
     missingStandards: uniqueStrings([...(input.missingStandards ?? []), ...(readiness?.standards_missing ?? [])]),
     // Unknown is never "none": both lists need their reads to have answered.
     standardsKnown: input.missingStandards !== null && readiness !== null,
-    pagesKnown: readiness !== null,
+    pagesKnown: gate !== null || readiness !== null,
     undecided: undecidedKeys.length,
     undecidedKeys,
     unopenedNeedsYou: rows.filter((r) => r.tier.tier === "C" && !decisions.opened[r.key]).length,
     unsaved: input.unsaved.length,
+    signLeft: signLeft({ gate }, run, rows),
     signed: Boolean(signedAt),
     signedAt,
   };
@@ -89,8 +99,9 @@ export const WAITING_FOR_CHECKS = "Waiting to read the standards and page checks
  *  quiet tick), never hidden. A step whose count is not known is NOT done,
  *  shows no number and says it could not be read yet. Sign is enabled only
  *  when the other three are known and done, every "Needs you" row has been
- *  opened (as the old sheet's CrsHeader canSign), nothing is unsaved and
- *  the run is not signed yet. */
+ *  opened, nothing is unsaved, the issue gate has nothing left (`signLeft`:
+ *  final code recorded, unread pages ticked, items decided; as the old
+ *  sheet's CrsHeader canSign) and the run is not signed yet. */
 export function actionSteps(numbers: ReviewNumbers): ActionStep[] {
   const standards = numbers.standardsKnown ? numbers.missingStandards.length : null;
   const pages = numbers.pagesKnown ? numbers.unreadPages.length : null;
@@ -102,7 +113,8 @@ export function actionSteps(numbers: ReviewNumbers): ActionStep[] {
   const unopened = numbers.unopenedNeedsYou;
   const signHelp = numbers.signed ? ""
     : !countsKnown ? WAITING_FOR_CHECKS
-      : unopened > 0 ? unopenedNeedsYouHelp(unopened) : "";
+      : unopened > 0 ? unopenedNeedsYouHelp(unopened)
+        : numbers.signLeft.length > 0 ? `Before you sign: ${numbers.signLeft.join("; ")}.` : "";
   return [
     standards === null
       ? { id: "standards", label: `Upload missing standards (${NOT_READ_YET})`, count: null, done: false, enabled: false }
@@ -123,7 +135,8 @@ export function actionSteps(numbers: ReviewNumbers): ActionStep[] {
     {
       id: "sign", label: numbers.signed ? "Signed" : "Sign and export", count: null,
       done: numbers.signed,
-      enabled: countsKnown && blockersClear && unopened === 0 && numbers.unsaved === 0 && !numbers.signed,
+      enabled: countsKnown && blockersClear && unopened === 0 && numbers.unsaved === 0
+        && numbers.signLeft.length === 0 && !numbers.signed,
       ...(signHelp ? { detail: signHelp } : {}),
     },
   ];

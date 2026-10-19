@@ -56,7 +56,7 @@ const SEAL_KEY = ROWS.find((r) => r.findings[0].id === "seal")!.key;
 function numbersOf(run: ReviewRunSummary = RUN): ReviewNumbers {
   return computeReviewNumbers({
     run, findings: FINDINGS, rows: ROWS, summary: null, missingStandards: [], readiness: null,
-    decisions: { decisions: {}, opened: {} }, unsaved: [],
+    decisions: { decisions: {}, opened: {} }, unsaved: [], gate: null,
   });
 }
 
@@ -130,15 +130,19 @@ describe("WorkspaceSheet", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("the folded met / not applicable line shows the workspace's numbers, not its own row count", () => {
-    // 7 clauses judged not applicable on the run, no not-applicable rows: the
-    // count line says 7, so the table's fold must say 7 too.
+  it("the folded met / not applicable line counts ROWS (as the comment sheet), from the workspace's numbers", () => {
+    // 7 clauses judged not applicable on the run, but no not-applicable ROW:
+    // the table's fold counts rows, so it says 0 (CrsSheetView's rowCounts),
+    // and the 7 clauses are said on their own clause line.
     const numbers = numbersOf({ ...RUN, requirement_split: { does_not_apply: 7 } } as unknown as ReviewRunSummary);
-    expect(numbers.notApplicable).toBe(7);
+    expect(numbers.notApplicableRows).toBe(0);
+    expect(numbers.notApplicableClauses).toBe(7);
+    expect(numbers.met).toBe(0);
     render(<Harness onOpenRow={vi.fn()} numbers={numbers} />);
-    expect(screen.getByTestId("met-line").textContent).toContain(
-      `${numbers.met} met, ${numbers.notApplicable} not applicable`,
-    );
+    // No met, not-applicable or other-document ROW: nothing to fold, exactly
+    // as the comment sheet (the clauses are not rows and are not folded).
+    expect(screen.queryByTestId("met-line")).toBeNull();
+    expect(screen.queryByText(/7 not applicable/)).toBeNull();
   });
 
   it("opens the drawer for an openRowKey given from outside", async () => {

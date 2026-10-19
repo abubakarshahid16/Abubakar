@@ -21,7 +21,14 @@ export function SheetCountsLine({ numbers }: SheetCountsLineProps) {
     <Part key="y" n={numbers.needsYou} one="needs you" many="need you" count="needsYou" />,
   ];
   if (numbers.met > 0) parts.push(<Part key="m" n={numbers.met} one="met" many="met" count="met" />);
-  if (numbers.notApplicable > 0) parts.push(<Part key="n" n={numbers.notApplicable} one="not applicable" many="not applicable" count="notApplicable" />);
+  // Rows on the sheet and clauses of the standards are different things, so
+  // each is said in its own words.
+  if (numbers.notApplicableRows > 0) {
+    parts.push(<Part key="n" n={numbers.notApplicableRows} one="row not applicable" many="rows not applicable" count="notApplicableRows" />);
+  }
+  if (numbers.notApplicableClauses !== null && numbers.notApplicableClauses > 0) {
+    parts.push(<Part key="nc" n={numbers.notApplicableClauses} one="clause not applicable" many="clauses not applicable" count="notApplicableClauses" />);
+  }
   if (numbers.anotherDocument > 0) parts.push(<Part key="a" n={numbers.anotherDocument} one="for another document" many="for another document" />);
   if (numbers.pagesKnown && numbers.unreadPages.length > 0) {
     parts.push(<Part key="p" n={numbers.unreadPages.length} one="page not read" many="pages not read" count="unreadPages" />);

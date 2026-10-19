@@ -73,8 +73,13 @@ Landing /review: (D: NewReviewDropZone) + each row (E: Past reviews (N))
 ```
 
 Bar order is fixed: standards, pages, decide, sign. Sign is enabled only
-when the other three are done AND nothing is unsaved AND the run is not
-already signed.
+when the other three are done AND every "Needs you" row was opened AND
+nothing is unsaved AND the comment sheet's issue gate has nothing left
+(`signLeft`: final code recorded, unread pages ticked, items decided) AND
+the run is not already signed. The sign-off shows the comment sheet's own
+"Before you sign" box (crs/BeforeYouSign.tsx); "Check unread pages" leads
+to its tick boxes. Signing goes through crs/issueContractorCopy.ts, the one
+shared issuing path the comment sheet uses too.
 
 ## 4. One source of numbers (builder B)
 
@@ -92,11 +97,13 @@ screens never disagree):
 | needsYou | rows with tier C |
 | findingsInComments | sum of `row.findings.length` over comment rows |
 | met, anotherDocument | `rowCounts(rows)` |
-| notApplicable | `headlineFieldsOf(run, summary?.how_reviewed).doesNotApply` when a number, else `rowCounts(rows).notApplicable` |
+| notApplicableRows | `rowCounts(rows).notApplicable` (rows; what the table folds, as CrsSheetView) |
+| notApplicableClauses | `headlineFieldsOf(run, summary?.how_reviewed).doesNotApply` when a number, else null (clauses of the standards, not rows) |
 | removed | `summary?.counts.removed ?? splitRejected(findings).rejected` (exactly what CrsSheetView shows) |
-| unreadPages | union of `headlineFieldsOf(...).unreadPages` and `readiness?.unread_pages ?? []`, unique, ascending |
+| unreadPages | when the issue gate is known: its `unread_pages` (pages still to tick); else union of `headlineFieldsOf(...).unreadPages` and `readiness?.unread_pages ?? []`; unique, ascending |
+| signLeft | `signLeft({ gate }, run, rows)` from crs/issueGate.ts; never empty while the gate is unknown |
 | missingStandards | unique of `input.missingStandards` and `readiness?.standards_missing ?? []` |
-| standardsKnown / pagesKnown | false while the standards read failed (`missingStandards` null) or readiness is null (loading or failed). An unknown count is never 0: its step is not done, shows "could not read this yet" with no number, and Sign stays off ("Waiting to read the standards and page checks.") |
+| standardsKnown / pagesKnown | standardsKnown: false while the standards read failed (`missingStandards` null) or readiness is null. pagesKnown: false while both the issue gate and readiness are not known (loading or failed). An unknown count is never 0: its step is not done, shows "could not read this yet" with no number, and Sign stays off ("Waiting to read the standards and page checks.") |
 | undecided / undecidedKeys | comment rows where `decisions.decisions[key]` is absent and `priorState !== "agreed"`, in row order |
 | unopenedNeedsYou | tier C rows not in `decisions.opened` |
 | unsaved | `input.unsaved.length` |

@@ -13,11 +13,12 @@
 import type { ReactNode } from "react";
 
 import type {
-  DocumentRecord, ReviewFinding, ReviewReadiness, ReviewRunSummary, ReviewRunTierSummary,
+  CrsIssueGate, DocumentRecord, ReviewFinding, ReviewReadiness, ReviewRunSummary, ReviewRunTierSummary,
 } from "../../../types/api";
 import type { StandardsState } from "../panels/BehindTheScenes";
 import type { CrsRow } from "../crs/crsRows";
 import type { CrsDecisions, DecisionState } from "../crs/useCrsDecisions";
+import type { IssueGateState } from "../crs/issueGate";
 
 export type { CrsRow, CrsDecisions, DecisionState, StandardsState };
 
@@ -107,6 +108,10 @@ export interface ReviewNumbersInput {
   decisions: DecisionState;
   /** `CrsDecisions.unsaved`. */
   unsaved: string[];
+  /** The run's issue gate (`useIssueGate(...).gate`, the same read the
+   *  comment sheet's "Before you sign" box uses). null = not known (loading
+   *  or failed), never treated as clear. */
+  gate: CrsIssueGate | null;
 }
 
 /** THE ONE SOURCE OF NUMBERS. Every count the workspace shows comes from
@@ -119,13 +124,19 @@ export interface ReviewNumbers {
   /** Findings behind the comment rows (a row can stand on many). */
   findingsInComments: number;
   met: number;
-  /** Clauses that do not apply (requirement_split.does_not_apply when the
-   *  run holds it, else the rows' not-applicable count). */
-  notApplicable: number;
+  /** ROWS on the sheet whose kind is "not applicable" (`rowCounts(rows)`),
+   *  exactly what CrsSheetView hands its table. */
+  notApplicableRows: number;
+  /** CLAUSES of the standards judged not to apply
+   *  (`headlineFieldsOf(...).doesNotApply`); not rows on the sheet. null =
+   *  the run does not say. */
+  notApplicableClauses: number | null;
   anotherDocument: number;
   /** Findings an engineer already removed. */
   removed: number;
-  /** Pages not read, sorted, unique (headlineFieldsOf + readiness). */
+  /** Pages not read, sorted, unique. When the issue gate is known: the
+   *  pages it still wants ticked (so the bar and "Before you sign" agree);
+   *  else headlineFieldsOf + readiness. */
   unreadPages: number[];
   /** Missing standard identifiers, unique. Only the full list when
    *  `standardsKnown`; otherwise what was read so far. */
@@ -134,7 +145,8 @@ export interface ReviewNumbers {
    *  not known. Then the missing standards count is unknown: the step is
    *  not done and no number is shown. */
   standardsKnown: boolean;
-  /** False while the page checks (readiness) are not known. Then the
+  /** False while neither the issue gate nor the page checks (readiness)
+   *  are known. Then the
    *  unread pages count is unknown: the step is not done and no number is
    *  shown. */
   pagesKnown: boolean;
@@ -146,6 +158,11 @@ export interface ReviewNumbers {
   unopenedNeedsYou: number;
   /** Decisions on screen not saved yet. */
   unsaved: number;
+  /** What the issue gate still wants before Sign and export, in plain
+   *  words (`signLeft` from crs/issueGate.ts, the comment sheet's rule):
+   *  "record the final code", "tick 2 unread pages", ... Empty when nothing
+   *  is left; never empty while the gate is not known. */
+  signLeft: string[];
   /** True when a contractor copy was issued (run.crs_issued_at). */
   signed: boolean;
   signedAt: string | null;
@@ -169,8 +186,9 @@ export interface ActionStep {
   detail?: string;
 }
 
-/** What `useSignOff` returns: the existing sign path (downloadCrs "issue",
- *  the same route CrsSheetView's Sign and export uses) plus saving. */
+/** What `useSignOff` returns: saving, the working copy, and Sign and
+ *  export through `issueContractorCopy` (crs/issueContractorCopy.ts), the one
+ *  shared issuing path CrsSheetView uses too. */
 export interface SignOff {
   busy: boolean;
   message: string | null;
@@ -279,6 +297,15 @@ export interface SheetCountsLineProps {
 export interface SignOffPanelProps {
   numbers: ReviewNumbers;
   signOff: SignOff;
+  run: ReviewRunSummary;
+  rows: CrsRow[];
+  /** The issue gate the comment sheet uses (`useIssueGate`), shown as its
+   *  "Before you sign" box: final code, unread page ticks, open items. */
+  gate: IssueGateState;
+  /** The run changed (the final code was recorded): read it again. */
+  onRunChanged: () => void;
+  /** Open a comment row's evidence on the sheet. */
+  onJump: (row: CrsRow) => void;
 }
 
 export interface UseSignOffArgs {
@@ -286,6 +313,9 @@ export interface UseSignOffArgs {
   rows: CrsRow[];
   decisions: CrsDecisions;
   refresh: () => Promise<void>;
+  /** The shared numbers: Sign checks `unsaved`, `unopenedNeedsYou` and
+   *  `signLeft` from here before it asks the server. null = not loaded. */
+  numbers: ReviewNumbers | null;
 }
 
 export interface WorkspaceSheetProps {

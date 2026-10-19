@@ -38,7 +38,7 @@ function returnTarget(prev: HTMLElement | null, rowKey: string): HTMLElement | n
 }
 
 export function WorkspaceSheet({
-  runId, run, rows, submittal, standardNames, decisions, openRowKey, onOpenRow, numbers, footer,
+  runId, rows, submittal, standardNames, decisions, openRowKey, onOpenRow, numbers, footer,
 }: WorkspaceSheetProps) {
   const [depth, setDepth] = useState<Depth>("standard");
   const [showMet, setShowMet] = useState(false);
@@ -57,10 +57,12 @@ export function WorkspaceSheet({
   const plain = useMemo(() => rows.map(plainRow), [rows]);
   // The folded "met / not applicable" line shows the workspace's one set of
   // numbers (computeReviewNumbers), so it matches the count line above.
+  // These are ROW counts, as CrsSheetView hands its table `rowCounts(rows)`;
+  // the clause count goes to the table's own clause line.
   const counts = useMemo<TierCounts>(() => ({
-    met: numbers.met, notApplicable: numbers.notApplicable, anotherDocument: numbers.anotherDocument,
+    met: numbers.met, notApplicable: numbers.notApplicableRows, anotherDocument: numbers.anotherDocument,
     comment: numbers.comments - numbers.needsYou, needsYou: numbers.needsYou,
-  }), [numbers.met, numbers.notApplicable, numbers.anotherDocument, numbers.comments, numbers.needsYou]);
+  }), [numbers.met, numbers.notApplicableRows, numbers.anotherDocument, numbers.comments, numbers.needsYou]);
   const spot = useMemo(() => spotCheckKeys(rows, runId), [rows, runId]);
   const shown = useMemo(() => visibleRows(plain, depth, showMet, spot), [plain, depth, showMet, spot]);
   const pagesWithComments = useMemo(() => commentPages(shown), [shown]);
@@ -120,7 +122,7 @@ export function WorkspaceSheet({
         rows={shown} allRows={plain} counts={counts} depth={depth} onDepth={setDepth} showMet={showMet} onShowMet={setShowMet}
         spot={spot} selectedKey={selectedKey} onSelect={selectRow} onOpenEvidence={openEvidence}
         mode={mode} onMode={changeMode} decisions={decisions}
-        clausesNotApplicable={run.requirement_split?.does_not_apply ?? null}
+        clausesNotApplicable={numbers.notApplicableClauses}
         tierHeader="Kind"
       />
       {footer}

@@ -23,10 +23,15 @@ const startReviewRun = vi.fn();
 vi.mock("./useWorkspaceRun", () => ({ useWorkspaceRun: () => data() }));
 
 const NUMBERS: ReviewNumbers = {
-  comments: 3, needsYou: 1, findingsInComments: 4, met: 10, notApplicable: 2, anotherDocument: 0, removed: 0,
+  comments: 3, needsYou: 1, findingsInComments: 4, met: 10, notApplicableRows: 2, notApplicableClauses: null, anotherDocument: 0, removed: 0,
   unreadPages: [4], missingStandards: ["API 610"], standardsKnown: true, pagesKnown: true, undecided: 2, undecidedKeys: ["row-b", "row-c"],
-  unopenedNeedsYou: 1, unsaved: 0, signed: false, signedAt: null,
+  unopenedNeedsYou: 1, unsaved: 0, signLeft: ["tick 1 unread page"], signed: false, signedAt: null,
 };
+/** The issue gate the workspace reads (as the comment sheet): a stand-in. */
+const issueGateFor = vi.fn();
+vi.mock("../crs/issueGate", () => ({
+  useIssueGate: (runId: string) => { issueGateFor(runId); return { gate: null, error: null, reload: vi.fn() }; },
+}));
 vi.mock("./numbers", () => ({
   computeReviewNumbers: () => NUMBERS,
   actionSteps: () => [
@@ -45,7 +50,9 @@ vi.mock("./ActionBar", () => ({
   ),
 }));
 vi.mock("./SheetCountsLine", () => ({ SheetCountsLine: () => <p data-testid="ws-sheet-counts">counts</p> }));
-vi.mock("./SignOffPanel", () => ({ SignOffPanel: () => <div data-testid="ws-sign-off">sign-off</div> }));
+vi.mock("./SignOffPanel", () => ({
+  SignOffPanel: () => <div data-testid="ws-sign-off">sign-off<div data-testid="sign-pages">tick boxes</div></div>,
+}));
 vi.mock("./useSignOff", () => ({
   useSignOff: () => ({ busy: false, message: null, error: null, save: vi.fn(), sign: vi.fn(), workingCopy: vi.fn() }),
 }));
@@ -142,6 +149,18 @@ describe("ReviewWorkspace", () => {
     await user.click(screen.getByRole("button", { name: "Decide comments (2)" }));
     expect(changes.at(-1)).toMatchObject({ tab: "sheet", row: "row-b", panel: "evidence" });
     expect(screen.getByText("open row: row-b")).toBeInTheDocument();
+  });
+
+  it('"Check unread pages" goes to the sheet, where the tick boxes of "Before you sign" are', async () => {
+    const user = userEvent.setup();
+    const scrolled = vi.fn();
+    Element.prototype.scrollIntoView = scrolled;
+    render(<Harness initial={{ tab: "numbers" }} />);
+    expect(issueGateFor).toHaveBeenCalledWith("run-1");
+    await user.click(screen.getByRole("button", { name: "Check unread pages (1)" }));
+    expect(changes.at(-1)?.tab).toBe("sheet");
+    expect(screen.getByTestId("ws-sign-off")).toContainElement(screen.getByTestId("sign-pages"));
+    expect(scrolled).toHaveBeenCalled();
   });
 
   it('"Upload missing standards" opens the Standards tab', async () => {

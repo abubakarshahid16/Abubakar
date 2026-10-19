@@ -83,7 +83,10 @@ export function ActionBar({ run, numbers, steps, onAction, signOff }: ActionBarP
       {signHelp && <p data-testid="ws-sign-waits" className="text-sm text-slateish-300">{signHelp}</p>}
       {pagesOpen && pagesStep && !pagesStep.done && (
         <div data-testid="ws-unread-pages" className="flex flex-wrap items-center gap-2 text-sm text-slateish-300">
-          <span>{pagesStep.detail}</span>
+          <span>
+            {pagesStep.detail}. Tick each page you checked yourself in &quot;Before you sign&quot; under the sheet,
+            or ask for the pages to be read again.
+          </span>
           <button type="button" disabled={reread.busy} onClick={() => void readAgain()}
             className={`${BUTTON} border-ink-600 text-slateish-100`}>
             {reread.busy ? "Reading..." : "Read these pages again"}

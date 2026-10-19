@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import type { ReviewFinding, ReviewReadiness, ReviewRunSummary, ReviewRunTierSummary } from "../../../types/api";
+import type { CrsIssueGate, ReviewFinding, ReviewReadiness, ReviewRunSummary, ReviewRunTierSummary } from "../../../types/api";
 import type { CrsRow, DecisionState, ReviewNumbersInput } from "./contract";
 import { actionSteps, computeReviewNumbers, pagesDetail, verdictLine } from "./numbers";
 
@@ -30,8 +30,15 @@ const NO_DECISIONS: DecisionState = { decisions: {}, opened: {} };
 function input(over: Partial<ReviewNumbersInput> = {}): ReviewNumbersInput {
   return {
     run: run(), findings: [], rows: [], summary: null, missingStandards: [], readiness: readiness(),
-    decisions: NO_DECISIONS, unsaved: [], ...over,
+    decisions: NO_DECISIONS, unsaved: [], gate: null, ...over,
   };
+}
+
+/** The issue gate as the server answers it; by default nothing is left. */
+function gate(over: Partial<CrsIssueGate> = {}): CrsIssueGate {
+  return {
+    review_run_id: "run-1", issuable: true, final_code_recorded: true, blockers: [], unread_pages: [], open_findings: [], ...over,
+  } as CrsIssueGate;
 }
 
 function readiness(over: Partial<ReviewReadiness> = {}): ReviewReadiness {
@@ -67,12 +74,46 @@ describe("computeReviewNumbers", () => {
     expect(n.anotherDocument).toBe(1);
   });
 
-  it("not applicable: the run's stored does_not_apply when it holds one, else the rows'", () => {
-    expect(computeReviewNumbers(input({ rows: ROWS })).notApplicable).toBe(1);
-    expect(computeReviewNumbers(input({ rows: ROWS, run: run({ requirement_split: { does_not_apply: 7 } } as Partial<ReviewRunSummary>) })).notApplicable).toBe(7);
-    // The server summary's how_reviewed wins over the run row.
+  it("not applicable: rows and clauses are kept apart", () => {
+    // Rows: always the sheet's own not-applicable rows (CrsSheetView's rowCounts).
+    const plain = computeReviewNumbers(input({ rows: ROWS }));
+    expect(plain.notApplicableRows).toBe(1);
+    expect(plain.notApplicableClauses).toBeNull();
+    const split = run({ requirement_split: { does_not_apply: 7 } } as Partial<ReviewRunSummary>);
+    const withClauses = computeReviewNumbers(input({ rows: ROWS, run: split }));
+    expect(withClauses.notApplicableRows).toBe(1);
+    expect(withClauses.notApplicableClauses).toBe(7);
+    // The server summary's how_reviewed wins over the run row for clauses.
     const s = summary(0, { requirement_split: { does_not_apply: 9 } });
-    expect(computeReviewNumbers(input({ rows: ROWS, summary: s, run: run({ requirement_split: { does_not_apply: 7 } } as Partial<ReviewRunSummary>) })).notApplicable).toBe(9);
+    const fromSummary = computeReviewNumbers(input({ rows: ROWS, summary: s, run: split }));
+    expect(fromSummary.notApplicableClauses).toBe(9);
+    expect(fromSummary.notApplicableRows).toBe(1);
+  });
+
+  it("unread pages: once the issue gate answers, the pages it still wants ticked", () => {
+    const r = run({ page_coverage: { pages_not_read_into_fields: [3, 4] } } as Partial<ReviewRunSummary>);
+    const n = computeReviewNumbers(input({
+      run: r, readiness: readiness({ unread_pages: [3, 4, 9] }),
+      gate: gate({ unread_pages: [{ page: 9, reason: null }, { page: 4, reason: "scan" }] } as Partial<CrsIssueGate>),
+    }));
+    expect(n.unreadPages).toEqual([4, 9]);
+    expect(n.pagesKnown).toBe(true);
+    // The gate known, readiness not: pages are still known (the gate says them).
+    expect(computeReviewNumbers(input({ readiness: null, gate: gate() })).pagesKnown).toBe(true);
+  });
+
+  it("signLeft: the issue gate's remaining items, never empty while the gate is unknown", () => {
+    expect(computeReviewNumbers(input()).signLeft).toEqual(["what is left could not be checked"]);
+    expect(computeReviewNumbers(input({ gate: gate() })).signLeft).toEqual([]);
+    const left = computeReviewNumbers(input({
+      gate: gate({ final_code_recorded: false, issuable: false, unread_pages: [{ page: 2, reason: null }] } as Partial<CrsIssueGate>),
+    })).signLeft;
+    expect(left).toEqual(["record the final code", "tick 1 unread page"]);
+    // A code the engineer recorded on the run counts as recorded.
+    const recorded = computeReviewNumbers(input({
+      run: run({ engineer_final_code: "B" } as Partial<ReviewRunSummary>), gate: gate({ final_code_recorded: false }),
+    }));
+    expect(recorded.signLeft).toEqual([]);
   });
 
   it("removed: the summary's count, else the rejected findings (summary null)", () => {
@@ -157,7 +198,7 @@ describe("actionSteps", () => {
   });
 
   it("a step with 0 is done (shown, not hidden); sign opens only when all are clear and saved", () => {
-    const clear = computeReviewNumbers(input({ rows: [row("a1", "A")] }));
+    const clear = computeReviewNumbers(input({ rows: [row("a1", "A")], gate: gate() }));
     const steps = actionSteps(clear);
     expect(steps).toHaveLength(4);
     expect(steps.slice(0, 3).every((s) => s.done && !s.enabled)).toBe(true);
@@ -166,6 +207,26 @@ describe("actionSteps", () => {
     expect(actionSteps({ ...clear, unreadPages: [2] })[3].enabled).toBe(false);
     expect(actionSteps({ ...clear, missingStandards: ["API 610"] })[3].enabled).toBe(false);
     expect(actionSteps({ ...clear, undecided: 1 })[3].enabled).toBe(false);
+    expect(actionSteps({ ...clear, signLeft: ["record the final code"] })[3].enabled).toBe(false);
+  });
+
+  it("sign waits for the issue gate: no final code, unread pages to tick, or the gate unknown", () => {
+    const base = { rows: [row("b1", "B")], decisions: { decisions: { b1: { kind: "keep" } }, opened: {} } as DecisionState };
+    // Every comment decided and saved, but no final code: off, and says why.
+    const noCode = actionSteps(computeReviewNumbers(input({ ...base, gate: gate({ final_code_recorded: false, issuable: false }) })));
+    expect(noCode.slice(0, 3).every((s) => s.done)).toBe(true);
+    expect(noCode[3].enabled).toBe(false);
+    expect(noCode[3].detail).toBe("Before you sign: record the final code.");
+    // A page still to tick: the pages step is open and Sign is off.
+    const page = actionSteps(computeReviewNumbers(input({
+      ...base, gate: gate({ issuable: false, unread_pages: [{ page: 6, reason: null }] } as Partial<CrsIssueGate>),
+    })));
+    expect(page[1]).toMatchObject({ count: 1, done: false, enabled: true, detail: "Page 6" });
+    expect(page[3].enabled).toBe(false);
+    // The gate not read: off.
+    expect(actionSteps(computeReviewNumbers(input(base)))[3].enabled).toBe(false);
+    // All clear: on.
+    expect(actionSteps(computeReviewNumbers(input({ ...base, gate: gate() })))[3].enabled).toBe(true);
   });
 
   it("a signed run says Signed and cannot be signed again", () => {
@@ -192,7 +253,10 @@ describe("verdictLine", () => {
   });
 
   it("no comments and nothing blocking: ready to sign", () => {
-    expect(verdictLine(computeReviewNumbers(input({ rows: [row("a", "A")] })), run())).toBe("No comments. Ready to sign.");
+    expect(verdictLine(computeReviewNumbers(input({ rows: [row("a", "A")], gate: gate() })), run())).toBe("No comments. Ready to sign.");
+    // No final code yet: not ready.
+    const noCode = computeReviewNumbers(input({ rows: [row("a", "A")], gate: gate({ final_code_recorded: false }) }));
+    expect(verdictLine(noCode, run())).toBe("No comments. Not signed yet.");
   });
 
   it("signed: says when", () => {
