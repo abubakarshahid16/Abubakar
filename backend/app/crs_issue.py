@@ -267,9 +267,7 @@ def open_items(
     if no_text:
         blockers.append(no_text_blocker(no_text))
     # Order 152.2: no machine wording in a cell written for the contractor.
-    machine = crs_machine_words.blocker(crs_machine_words.scan_issue_rows(rows))
-    if machine:
-        blockers.append(machine)
+    blockers.extend(crs_machine_words.blockers(crs_machine_words.scan_issue_rows(rows)))
     return {
         "unread_pages": unread,
         "checked_pages": checked_pages,
