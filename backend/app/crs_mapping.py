@@ -26,7 +26,7 @@ kind its own colour without re-deciding what the sheet says.
 import hashlib
 import re
 
-from . import standard_ids
+from . import severity_rule, standard_ids
 
 INCLUDED_STATUSES = ("NON_COMPLIANT", "NEEDS_ENGINEER_REVIEW", "MISSING_INFORMATION")
 
@@ -938,12 +938,12 @@ def _final_keys(ordered: list[dict]) -> dict[int, str]:
 
 
 #: Worst first. A row carries the worst severity of the findings it groups.
-SEVERITY_ORDER = ("critical", "major", "minor", "observation")
+SEVERITY_ORDER = severity_rule.ORDER
 
 
 def row_severity(group: list[dict]) -> str:
     """The worst severity in the group; "" when none is recorded."""
-    found = {str(g.get("severity") or "").lower() for g in group}
+    found = {severity_rule.effective_severity(g) for g in group}
     return next((s for s in SEVERITY_ORDER if s in found), "")
 
 
