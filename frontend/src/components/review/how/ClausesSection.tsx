@@ -48,9 +48,11 @@ export function ClausesSection({ run }: { run: ReviewRunSummary }) {
       <p className="text-sm text-slateish-300" data-testid="clauses-applicability">
         How "does not apply" was decided (from applicability):{" "}
         {applicability
-          ? `the document's equipment is ${applicability.submittal_equipment.length ? applicability.submittal_equipment.join(", ") : "not named"} (source: ${applicability.equipment_source ?? "not recorded"}); `
+          ? (applicability.equipment_unsure
+            ? `${applicability.equipment_unsure} `
+            : `the document's equipment is ${applicability.submittal_equipment.length ? applicability.submittal_equipment.join(", ") : "not named"} (source: ${applicability.equipment_source ?? "not recorded"}); `)
             + `${applicability.checked_general.toLocaleString()} general clauses checked, ${applicability.checked_matching.toLocaleString()} matching-equipment clauses checked, `
-            + `${applicability.kept_equipment_unknown.toLocaleString()} kept because the equipment was unknown, ${applicability.not_applied.toLocaleString()} not applied.`
+            + `${applicability.kept_equipment_unknown.toLocaleString()} kept because the equipment ${applicability.equipment_unsure ? "type is unsure" : "was unknown"}, ${applicability.not_applied.toLocaleString()} not applied.`
           : NOT_RECORDED}
       </p>
       <p className="text-sm text-slateish-300" data-testid="clauses-coverage-line">

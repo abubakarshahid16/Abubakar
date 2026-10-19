@@ -1,8 +1,9 @@
 {
-  "_about": "The equipment and component types a standard's clause or a submittal can be about (#453). ONE shared, editable vocabulary: read by app/subject_scope.py to decide what a requirement is about (from its own wording and its heading path) and what a submittal is (from its equipment type, title and fields). Each type lists the other spellings that mean it. 'kind' is 'equipment' (a machine or vessel: a clause about a DIFFERENT one does not apply to this submittal) or 'component' (a part that every kind of equipment has: a clause about it can apply to anything, so it never excludes). A spelling listed under two types is ambiguous on purpose: it matches both, and the requirement is kept. Edit here, not in code. A change takes effect on the next review run.",
+  "_about": "The equipment and component types a standard's clause or a submittal can be about (#453). ONE shared, editable vocabulary: read by app/subject_scope.py to decide what a requirement is about (from its own wording and its heading path) and what a submittal is (from its equipment type, title and fields). Each type lists the other spellings that mean it. 'kind' is 'equipment' (a machine or vessel: a clause about a DIFFERENT one does not apply to this submittal) or 'component' (a part that every kind of equipment has: a clause about it can apply to anything, so it never excludes). A spelling listed under two types is ambiguous on purpose: it matches both, and the requirement is kept. 'driver': true marks a machine that drives another (a motor or turbine drives a pump or compressor): a code for it stated on a datasheet describes that driver, so it never puts the sheet's own equipment type in doubt (order 142). Edit here, not in code. A change takes effect on the next review run.",
   "types": {
     "steam turbine": {
       "kind": "equipment",
+      "driver": true,
       "synonyms": [
         "steam turbines",
         "turbine driver",
@@ -15,6 +16,7 @@
     },
     "gas turbine": {
       "kind": "equipment",
+      "driver": true,
       "synonyms": [
         "gas turbines",
         "combustion turbine",
@@ -158,6 +160,7 @@
     },
     "motor": {
       "kind": "equipment",
+      "driver": true,
       "synonyms": [
         "motors",
         "electric motor",

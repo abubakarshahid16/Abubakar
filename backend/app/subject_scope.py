@@ -24,6 +24,12 @@ THE RULES
     equipment type, its title, and its equipment-describing fields (the first
     that names an equipment type). If none does, the submittal's equipment is
     UNKNOWN and every requirement is kept: nothing is hidden when unsure.
+  * THE DOCUMENT OUTRANKS THE GUESS (order 142): with no engineer
+    confirmation, the reading is UNSURE, and treated as unknown, when a code
+    the datasheet states as a field VALUE governs another equipment type and
+    the sheet names no code of the type read, or when the title names another
+    type than the classification. Which code governs what is data
+    (`reference/governing_standards.json`); no field label or tag is read.
   * A spelling listed under two types matches both ("valve"), so an unclear
     subject is kept.
   * A requirement about a different equipment type is NOT dropped silently:
@@ -52,10 +58,13 @@ class Vocabulary:
 
     def __init__(self, data: dict) -> None:
         self.kind: dict[str, str] = {}
+        self.drivers: set[str] = set()
         self.phrases: dict[str, set[str]] = {}
         for name, entry in (data.get("types") or {}).items():
             canonical = _fold(name)
             self.kind[canonical] = (entry or {}).get("kind", EQUIPMENT)
+            if (entry or {}).get("driver"):
+                self.drivers.add(canonical)
             for spelling in [name, *((entry or {}).get("synonyms") or ())]:
                 folded = _fold(spelling)
                 if folded:
@@ -101,24 +110,180 @@ def vocabulary(path: Path | str | None = None) -> Vocabulary:
 
 # ---------------------------------------------------------------- the submittal
 
-def submittal_equipment(classification: dict | None, facts: list[dict], vocab: Vocabulary
-                        ) -> tuple[set[str], str | None]:
-    """(equipment types, where they were read), or (empty, None) when unknown."""
+SOURCE_UNSURE = "unsure"
+
+
+def submittal_equipment(
+    classification: dict | None, facts: list[dict], vocab: Vocabulary
+) -> tuple[set[str], str | None]:
+    """(equipment types, where they were read), or (empty, None) when unknown.
+    (empty, "unsure") when the reading is in doubt (`read_equipment`)."""
+    equipment, source, _doubt = read_equipment(classification, facts, vocab)
+    return equipment, source
+
+
+def read_equipment(
+    classification: dict | None, facts: list[dict], vocab: Vocabulary
+) -> tuple[set[str], str | None, dict | None]:
+    """(equipment types, where they were read, the doubt or None).
+
+    The first of classification, title and equipment-describing fields that
+    names an equipment type is the reading. When `equipment_doubt` finds the
+    datasheet itself disagrees, the equipment is read as UNKNOWN (empty) with
+    source "unsure", so nothing is ruled out by equipment type."""
     classification = classification or {}
     sources = (
         ("classification", classification.get("equipment_type")),
         ("title", classification.get("title")),
-        ("fields", " ; ".join(
-            str(f.get("field_value") or f.get("raw_value") or "")
-            for f in facts
-            if not f.get("is_blank")
-            and _fold(f.get("field_label") or f.get("field_name")) in vocab.field_labels)),
+        (
+            "fields",
+            " ; ".join(
+                str(f.get("field_value") or f.get("raw_value") or "")
+                for f in facts
+                if not f.get("is_blank")
+                and _fold(f.get("field_label") or f.get("field_name"))
+                in vocab.field_labels
+            ),
+        ),
     )
     for source, text in sources:
         found = vocab.equipment_in(text)
         if found:
-            return found, source
-    return set(), None
+            doubt = equipment_doubt(classification, facts, found, source, vocab)
+            if doubt is not None:
+                return set(), SOURCE_UNSURE, doubt
+            return found, source, None
+    return set(), None, None
+
+
+def stated_codes(facts: list[dict]) -> list[dict]:
+    """[{identifier, page, label}] for every standard a non-blank fact states
+    as its VALUE. The label is only quoted back; a code inside a label with
+    no value is not stated."""
+    from . import standard_ids
+
+    out: list[dict] = []
+    for fact in facts:
+        if fact.get("is_blank"):
+            continue
+        value = str(fact.get("field_value") or fact.get("raw_value") or "")
+        for identifier in standard_ids.cited_standards(value):
+            out.append(
+                {
+                    "identifier": identifier,
+                    "page": fact.get("page"),
+                    "label": str(
+                        fact.get("field_label") or fact.get("field_name") or ""
+                    ),
+                }
+            )
+    return out
+
+
+def _codes_of(types: set[str], table: dict) -> list[str]:
+    """The codes the table says these types take, in whole or in part."""
+    codes: list[str] = []
+    for kind in sorted(types):
+        codes.extend(table["equipment_types"].get(kind, []))
+        codes.extend(e["standard"] for e in table["partial_standards"].get(kind, []))
+    return codes
+
+
+def _governed_types(identifier: str, table: dict, vocab: Vocabulary) -> list[str]:
+    """The equipment types whose governing codes include it: not components,
+    and not drivers (a motor's code on a pump sheet is about its motor)."""
+    from . import standard_ids
+
+    return sorted(
+        kind
+        for kind, codes in table["equipment_types"].items()
+        if vocab.kind.get(kind) == EQUIPMENT and kind not in vocab.drivers
+        and any(standard_ids.same_standard(identifier, c) for c in codes)
+    )
+
+
+def _sheet_text(classification: dict) -> str:
+    """The submittal's own retrievable text, when the record names it. Rule 5:
+    only the submittal under review, which its caller already reads; the text
+    never leaves this module, it only decides whether the sheet names a code."""
+    document_id = classification.get("document_id")
+    if not document_id:
+        return ""
+    from .db import connect
+
+    rows = connect().execute(
+        "SELECT text FROM chunks WHERE document_id=? AND retrievable=1", (document_id,)
+    )
+    return "\n".join(str(r["text"] or "") for r in rows)
+
+
+def equipment_doubt(
+    classification: dict | None,
+    facts: list[dict],
+    named: set[str],
+    source: str | None,
+    vocab: Vocabulary,
+) -> dict | None:
+    """Why the equipment reading `named` is in doubt, or None (order 142).
+
+    In doubt, with no engineer confirmation, when a code a fact states as its
+    value governs another equipment type, is none of the named types' own or
+    partial codes, and the sheet names no such code anywhere (fact values or
+    its own text). A fact whose own label names a type the code governs is
+    about that sub-item ("Motor: IEC 60034"), not the sheet. The title alone
+    is never a doubt: it often names the protected or driven equipment.
+    Returns {"named", "declared": [{identifier, governs, page, label}],
+    "reason"}."""
+    classification = classification or {}
+    if (
+        not named
+        or classification.get("confirmed_by")
+        or classification.get("confirmed")
+    ):
+        return None
+    from . import applicability, standard_ids
+
+    table = applicability.governing_table()
+    own = _codes_of(named, table)
+
+    def is_own(identifier: str) -> bool:
+        return any(standard_ids.same_standard(identifier, c) for c in own)
+
+    stated = stated_codes(facts)
+    declared = []
+    for code in stated:
+        governs = _governed_types(code["identifier"], table, vocab)
+        about = named | vocab.equipment_in(code["label"] or "")
+        if governs and not set(governs) & about and not is_own(code["identifier"]):
+            declared.append({**code, "governs": governs})
+    if declared and (
+        any(is_own(c["identifier"]) for c in stated)
+        or any(
+            is_own(i) for i in standard_ids.cited_standards(_sheet_text(classification))
+        )
+    ):
+        declared = []
+    if not declared:
+        return None
+    return {
+        "named": sorted(named),
+        "declared": declared,
+        "reason": _doubt_reason(sorted(named), source, declared),
+    }
+
+
+def _doubt_reason(named: list[str], source: str | None, declared: list[dict]) -> str:
+    """The plain sentence for the engineer. Built from data, no fixed names."""
+    this, first = " / ".join(named), declared[0]
+    where = f"its {first['label']}" if first["label"] else "one of its field values"
+    page = f" (page {first['page']})" if first.get("page") is not None else ""
+    return (
+        f"equipment type unsure: read as {this} (from its {source or 'record'}), but "
+        f"the datasheet states {first['identifier']} as {where}{page}, a code for a "
+        f"{' / '.join(first['governs'])}, and names no code for a {this}. An "
+        "engineer should confirm the equipment type; until then no requirement "
+        "is ruled out, and no standard added, by equipment type."
+    )
 
 
 #: The words a datasheet uses to call itself a sheet ("CONTROL VALVE DATA
@@ -260,12 +425,14 @@ def gate(requirements: list[dict], *, classification: dict | None, facts: list[d
     "summary": {...counts...}}. Order of `kept` is the order given.
     """
     vocab = vocab or vocabulary()
-    equipment, source = submittal_equipment(classification, facts, vocab)
+    equipment, source, doubt = read_equipment(classification, facts, vocab)
     headings_by_standard = headings_by_standard or {}
     kept: list[dict] = []
     summary = {"submittal_equipment": sorted(equipment), "equipment_source": source,
                "checked_general": 0, "checked_matching": 0,
                "kept_equipment_unknown": 0, "not_applied": 0}
+    # Order 142: why the equipment was read as unsure, for the engineer.
+    summary["equipment_unsure"] = doubt["reason"] if doubt else None
     groups: dict[str, dict] = {}
     not_applied_items: list[dict] = []
     for requirement in requirements:

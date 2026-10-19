@@ -649,6 +649,8 @@ export interface RunApplicability {
   submittal_equipment: string[]; equipment_source: string | null;
   checked_general: number; checked_matching: number;
   kept_equipment_unknown: number; not_applied: number;
+  /** Order 142: why the equipment type is unsure (the engineer confirms it), or null. */
+  equipment_unsure?: string | null;
 }
 
 /** `ReviewRunSummary.ai_check_status` (2026-09-27). */
