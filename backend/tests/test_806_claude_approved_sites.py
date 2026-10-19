@@ -34,7 +34,9 @@ def _approve(document_id):
 # ---------------------------------------------------------------- the datasheet reader, end to end
 
 @pytest.mark.parametrize("mode", ["merge", "form"])
-def test_an_unapproved_datasheet_is_not_sent_and_the_code_reading_stands(tmp_path, monkeypatch, mode):
+def test_an_unapproved_datasheet_is_not_sent_and_the_code_reading_stands(
+    tmp_path, monkeypatch, mode
+):
     """Both AI readings (#882: "form" is the default) name the limit that
     stopped them - "document_not_approved", never one generic "stopped"."""
     sent = _claude_env(monkeypatch)

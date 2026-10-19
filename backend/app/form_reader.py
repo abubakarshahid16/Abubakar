@@ -358,10 +358,14 @@ def _read_page(reading: FormReading, page: int, text: str, model_call, rules: di
     groups = batches(reading.fields, batch_size)
     for group in groups:
         try:
-            facts, rejected, gone, err = read_batch(group, text, page, model_call, rules, runs)
+            facts, rejected, gone, err = read_batch(
+                group, text, page, model_call, rules, runs
+            )
         except StopRun as exc:
             facts, gone, err = [], set(), Reason.MODEL_STOPPED
-            rejected = [{"field_key": f.key, "page": page, "reason": err.value} for f in group]
+            rejected = [
+                {"field_key": f.key, "page": page, "reason": err.value} for f in group
+            ]
             reading.stopped = exc.count_key
         reading.rejected.extend(rejected)
         absent.update(gone)

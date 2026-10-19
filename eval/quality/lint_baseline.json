@@ -1,6 +1,6 @@
 {
  "ruff": "0.16.6",
- "total": 1574,
+ "total": 1573,
  "counts": {
   "backend/app/absence.py::E741": 1,
   "backend/app/access.py::UP031": 1,
@@ -124,7 +124,6 @@
   "backend/app/field_links.py::SIM102": 1,
   "backend/app/field_naming.py::SIM905": 2,
   "backend/app/field_naming.py::UP017": 1,
-  "backend/app/form_reader_run.py::I001": 1,
   "backend/app/fts_index.py::I001": 1,
   "backend/app/geometry_reader.py::B905": 2,
   "backend/app/geometry_reader.py::BLE001": 2,

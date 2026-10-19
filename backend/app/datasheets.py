@@ -3428,9 +3428,12 @@ def _read_with_ai(document_id: str, stored_path: str | None, by_page: dict, chun
                         *(("form_reader", "form_reader_fields", "form_reader_run")
                           if mode == FORM else ()))}
         if mode == FORM:
-            ai_stats.update(reader="form_reader", form=ai_run.get("form"),
-                            equipment_type=ai_run.get("equipment_type"),
-                            added_from_merge=ai_run.get("added_from_merge", 0))
+            ai_stats.update(
+                reader="form_reader",
+                form=ai_run.get("form"),
+                equipment_type=ai_run.get("equipment_type"),
+                added_from_merge=ai_run.get("added_from_merge", 0),
+            )
     return ai_run, ai_stats
 
 
