@@ -35,7 +35,7 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import page_ledger
+from . import crs_machine_words, page_ledger
 from .config import settings
 from .crs_mapping import ROW_KIND_SAFETY_TICK, row_has_no_text
 from .db import connect
@@ -266,6 +266,8 @@ def open_items(
     no_text = sum(1 for row in rows if _issued_without_text(row))
     if no_text:
         blockers.append(no_text_blocker(no_text))
+    # Order 152.2: no machine wording in a cell written for the contractor.
+    blockers.extend(crs_machine_words.blockers(crs_machine_words.scan_issue_rows(rows)))
     return {
         "unread_pages": unread,
         "checked_pages": checked_pages,
