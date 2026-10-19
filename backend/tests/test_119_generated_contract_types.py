@@ -61,7 +61,7 @@ def test_every_generated_module_is_registered():
         "review_runs.ts",
         "run_standards.ts",
     } <= set(MODULES)
-    assert sum(len(module.models) for module in MODULES.values()) == 6 + 16
+    assert sum(len(module.models) for module in MODULES.values()) == 7 + 16
 
 
 @pytest.mark.parametrize("module", ALL, ids=lambda module: module.filename)
