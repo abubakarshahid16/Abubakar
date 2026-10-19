@@ -48,7 +48,7 @@ import { BehindTheScenes } from "../panels/BehindTheScenes";
 import { ReviewJobControl } from "../panels/ReviewJobControl";
 import { useCrsDecisions } from "../crs/useCrsDecisions";
 import { useIssueGate } from "../crs/issueGate";
-import { CrsFooter } from "../crs/CrsFooter";
+import { CrsFooter, standardsErrorLine } from "../crs/CrsFooter";
 import { CrsTabPanel } from "./crs/CrsTabPanel";
 import { KeepAllRemaining } from "./decide/KeepAllRemaining";
 import { RestoreDraftLine } from "./decide/RestoreDraftLine";
@@ -501,6 +501,14 @@ export function ReviewWorkspace({
                   <SignOffPanel numbers={numbers} signOff={signOff} run={run} rows={rows} gate={issueGate}
                     onRunChanged={() => void refresh()} onJump={(row) => onOpenRow(row.key)}
                     folded={view.mode === "simple"} />
+                  {/* #1171 review, item 6: a standards list that could not be
+                      loaded is a problem with this review, not a detail, so
+                      Simple view says it outside the fold too. */}
+                  {view.mode === "simple" && standardsState.error && (
+                    <p role="status" className="text-xs text-warn-500" data-testid="ws-standards-error">
+                      {standardsErrorLine(standardsState.error)}
+                    </p>
+                  )}
                   {/* S4: the honesty footer, as under the comment sheet. v2.2
                       round 2: Simple view folds it behind one line; it stays
                       on the page (the honesty rule), only folded. */}

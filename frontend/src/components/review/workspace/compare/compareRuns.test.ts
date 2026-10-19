@@ -4,7 +4,9 @@
  * MUTATION PROOF (checked by hand once): match by finding id instead of
  * `findingIdentity` and "matches by requirement although ids differ" fails;
  * drop pass 2 and "falls back to the comment text" fails; drop the
- * `commentLines` filter and "leaves out lines that met the standard" fails.
+ * `commentLines` filter and "leaves out lines that met the standard" fails;
+ * drop the identity check in pass 2 and "never pairs two lines whose
+ * identities differ" fails.
  */
 import { describe, expect, it } from "vitest";
 
@@ -63,6 +65,25 @@ describe("compareRuns", () => {
     expect(got.still.map((r) => r.key)).toEqual(["c1"]);
     expect(got.gone.map((r) => r.key)).toEqual(["e2"]);
     expect(got.added).toEqual([]);
+  });
+
+  it("never pairs two lines whose identities differ, even with the same words (#1171 review, item 3)", () => {
+    // Same requirement, a different item, identical text: two different comments.
+    const earlier = [line("e1", { requirement_id: "r-1", matched_phrase: "Inlet" }, "Flange rating is not stated")];
+    const current = [line("c1", { requirement_id: "r-1", matched_phrase: "Outlet" }, "Flange rating is not stated")];
+    const got = compareRuns(current, earlier);
+    expect(got.still).toEqual([]);
+    expect(got.added.map((r) => r.key)).toEqual(["c1"]);
+    expect(got.gone.map((r) => r.key)).toEqual(["e1"]);
+  });
+
+  it("pairs by text when only one of the two lines has an identity", () => {
+    const earlier = [line("e1", {}, "Flange rating is not stated")];
+    const current = [line("c1", { requirement_id: "r-1", matched_phrase: "Outlet" }, "Flange rating is not stated")];
+    const got = compareRuns(current, earlier);
+    expect(got.still.map((r) => r.key)).toEqual(["c1"]);
+    expect(got.added).toEqual([]);
+    expect(got.gone).toEqual([]);
   });
 
   it("matches each earlier line at most once", () => {

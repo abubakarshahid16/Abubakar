@@ -72,6 +72,15 @@ export function ActionBar({ run, numbers, steps, onAction, signOff, autosave, on
   const [pagesOpen, setPagesOpen] = useState(false);
   const [codeOpen, setCodeOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  // #1171 review, item 7: each finished save makes the open preview read the
+  // sheet again, so it never shows the sheet from before the save. Adjusted
+  // during render when the phase changes (no effect, no extra render pass).
+  const [seenPhase, setSeenPhase] = useState(autosave?.phase);
+  const [saves, setSaves] = useState(0);
+  if (autosave?.phase !== seenPhase) {
+    setSeenPhase(autosave?.phase);
+    if (autosave?.phase === "saved") setSaves((n) => n + 1);
+  }
   const [reread, setReread] = useState<Reread>({ busy: false, message: null, error: null });
   const pagesStep = steps.find((s) => s.id === "pages");
   const signHelp = steps.find((s) => s.id === "sign")?.detail ?? null;
@@ -180,7 +189,14 @@ export function ActionBar({ run, numbers, steps, onAction, signOff, autosave, on
               Close preview
             </button>
           </div>
-          <CrsLook runId={run.review_run_id} errorTestId="ws-crs-preview-error" />
+          {!numbers.signed && numbers.unsaved > 0 && (
+            <p role="status" className="text-warn-500" data-testid="ws-crs-preview-unsaved">
+              {numbers.unsaved === 1
+                ? "1 decision is not saved yet, so this preview does not show it. The preview reads the sheet again after each save."
+                : `${numbers.unsaved.toLocaleString()} decisions are not saved yet, so this preview does not show them. The preview reads the sheet again after each save.`}
+            </p>
+          )}
+          <CrsLook key={saves} runId={run.review_run_id} errorTestId="ws-crs-preview-error" />
         </div>
       )}
       {autosave && <SavingLine autosave={autosave} unsaved={numbers.unsaved} />}

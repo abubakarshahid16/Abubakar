@@ -94,16 +94,13 @@ export interface Chip {
   tone: ChipTone;
 }
 
-/** L3: the status chip, from the run's own state, plus (v2.2) the exact
- *  number still waiting for a decision when the server knows it:
- *  `counts.undecided` a number above 0 says "N left to decide"; exactly 0
- *  (and not signed) says "All comments decided" (not "Ready to sign": the
- *  final code, pages and standards may still be open). When `undecided` is
- *  null or absent and the server says some findings need the engineer
- *  (`needs_you` > 0), the finished review says "Waiting for you" in the
- *  attention tone, never a calm green. Otherwise the honest wording stays
- *  ("Review ready", or a final code recorded). An unknown number is never
- *  shown, and never as 0. */
+/** L3: the status chip, from the run's own state. When the server says some
+ *  findings need the engineer (`needs_you` > 0), the finished review says
+ *  "Waiting for you" in the attention tone, never a calm green. Otherwise
+ *  the honest wording stays ("Review ready", or a final code recorded).
+ *  The chip never says how many comments are left to decide: no server
+ *  sends that number (#1171 review, item 1), and the landing never guesses
+ *  it from findings, which the sheet groups into fewer rows (A-1126). */
 export function rowChip(state: InboxState, run: ReviewRunSummary | null = null, counts: ReadyCounts | null = null): Chip {
   switch (state.kind) {
     case "not_reviewed":
@@ -115,10 +112,7 @@ export function rowChip(state: InboxState, run: ReviewRunSummary | null = null, 
       return { text: `Running${where}`, tone: "moving" };
     }
     case "ready": {
-      const left = undecidedOf(counts);
-      if (left !== null && left > 0) return { text: `${left.toLocaleString("en-US")} left to decide`, tone: "attention" };
-      if (left === 0) return { text: "All comments decided", tone: "ready" };
-      if (left === null && needsYouOf(counts) > 0) return { text: "Waiting for you", tone: "attention" };
+      if (needsYouOf(counts) > 0) return { text: "Waiting for you", tone: "attention" };
       if (run?.engineer_final_code) return { text: "Final code recorded, not signed", tone: "ready" };
       return { text: "Review ready", tone: "ready" };
     }
@@ -133,19 +127,13 @@ export function rowChip(state: InboxState, run: ReviewRunSummary | null = null, 
   }
 }
 
-/** The exact number still to decide, or null when not known (never 0 for unknown). */
-export function undecidedOf(counts: ReadyCounts | null | undefined): number | null {
-  const n = counts?.undecided;
-  return typeof n === "number" && Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
-}
-
 /** The server's "needing your judgement" total, or 0 when not known. */
 function needsYouOf(counts: ReadyCounts | null | undefined): number {
   const n = counts?.needs_you;
   return typeof n === "number" && Number.isFinite(n) && n > 0 ? n : 0;
 }
 
-/** Whether "Preview CRS" may be offered: the latest review has finished
+/** Whether "Open CRS" may be offered: the latest review has finished
  *  (not waiting, running, failed or cancelled). */
 export function hasFinishedReview(row: LandingRow): boolean {
   return row.latest !== null && (row.state.kind === "ready" || row.state.kind === "signed");
