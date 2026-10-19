@@ -261,9 +261,7 @@ def review_run_summary(
             "reader": steps.get("reader"),
             "timed_out_pages": timed_out,
             # order 127: one definition, the same the issue gate asks ticks for
-            "unread_pages": page_ledger_mod.run_unread_pages_shown(
-                outcome.get("page_coverage"), page_ledger_mod.run_reader(outcome)
-            ),
+            "unread_pages": page_ledger_mod.run_unread_pages_of(outcome),
             "code_version": versions.get("code_version"),
             "config_version": versions.get("config_version"),
             "stage_seconds": _stage_seconds(review_trace.stored(review_run_id, scope)),

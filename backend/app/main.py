@@ -1351,17 +1351,13 @@ def _run_summary(run: dict, scope: access.AccessScope) -> dict:
         "engineer_final_code": run.get("engineer_final_code"),
         "override_reason": run.get("override_reason"),
         "decided_by": run.get("decided_by"),
-        # THE NAME A READER RECOGNISES, carried by the run's own join rather
-        # than a lookup per row. Null when the decision's user row is gone
-        # (`decided_by` is ON DELETE SET NULL), and null renders as nothing.
+        # THE NAME A READER RECOGNISES, from the run's own join (no lookup per row);
+        # null, rendered as nothing, when the user row is gone (ON DELETE SET NULL).
         "decided_by_name": run.get("decided_by_name"),
         "decided_at": run.get("decided_at"),
         "completeness": outcome.get("completeness"),
         "page_coverage": outcome.get("page_coverage"),
-        # Order 127: the run's unread pages, one definition (the issue gate's
-        # and the summary's); null when not known, never "none".
-        "unread_pages": page_ledger_mod.run_unread_pages_shown(
-            outcome.get("page_coverage"), page_ledger_mod.run_reader(outcome)),
+        "unread_pages": page_ledger_mod.run_unread_pages_of(outcome),  # order 127
         "table_values_not_compared": outcome.get("table_values_not_compared") or [],
         "requirements_not_applied": outcome.get("requirements_not_applied") or [],
         "requirement_split": (outcome.get("requirement_split")

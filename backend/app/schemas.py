@@ -2349,15 +2349,10 @@ class CrsIssueGate(BaseModel):
     issuable: bool
     final_code_recorded: bool
     blockers: list[str]
-    #: the unread pages NO engineer has ticked yet (what is left to tick)
-    unread_pages: list[CrsUnreadPage]
+    unread_pages: list[CrsUnreadPage]  # order 127: the pages left to tick
     open_findings: list[CrsOpenFinding]
-    #: order 127: the unread pages an engineer ticked as checked; with
-    #: `unread_pages` it is exactly the run summary's `unread_pages`
-    checked_pages: list[int] = []
-    #: order 127: the submittal's page count as the run stored it; null when
-    #: not known (no page coverage), never 0
-    pages_total: int | None = None
+    checked_pages: list[int] = []  # order 127: ticked; + unread_pages = the run's list
+    pages_total: int | None = None  # order 127: null = not known, never 0
 
 
 class CrsIssueDecisionRequest(BaseModel):
@@ -2724,9 +2719,8 @@ class ReviewRunSummary(BaseModel):
     review_run_id: str
     submittal_document_id: str
     submittal_filename: str | None = None
-    #: Every distinct equipment tag the run's findings name, in order. Empty
-    #: when the datasheet states none - which renders as nothing, never as a
-    #: guess at what the equipment might be.
+    #: Every distinct equipment tag the run's findings name, in order; empty
+    #: (shown as nothing, never a guess) when the datasheet states none.
     equipment_tags: list[str] = []
     status: str
     created_at: str | None = None
@@ -2757,20 +2751,15 @@ class ReviewRunSummary(BaseModel):
     override_reason: str | None = None
     #: The user id, because that is what the foreign key holds.
     decided_by: str | None = None
-    #: And the name that id belongs to, resolved in the run's own join. A
-    #: screen shows this and keeps the id for the tooltip: an engineer knows
-    #: their name, not their primary key. Null when the user row is gone.
+    #: And that id's name, from the run's own join (null when the user row is
+    #: gone): a screen shows it, keeping the id for the tooltip.
     decided_by_name: str | None = None
     decided_at: str | None = None
     completeness: dict | None = None
-    # B3: the page ledger's summary AS OF THE RUN - which pages were read into
-    # fields, which were not and why. Null for a run made before the ledger
-    # existed; null renders as nothing, never as "every page read".
+    # B3: the page ledger's summary AS OF THE RUN (pages read into fields, not, why);
+    # null before the ledger existed, rendered as nothing, never "every page read".
     page_coverage: dict | None = None
-    #: order 127: the run's unread pages, one definition
-    #: (`page_ledger.run_unread_pages`), the same list as the run summary's
-    #: `how_reviewed.unread_pages`; null when not known, never "none"
-    unread_pages: list[int] | None = None
+    unread_pages: list[int] | None = None  # order 127: page_ledger.run_unread_pages
     #: #598: standards-table values this run did NOT compare because the
     #: submittal has no field that answers them, one grouped line per
     #: standard with the tables behind it. Empty for a run that predates it.

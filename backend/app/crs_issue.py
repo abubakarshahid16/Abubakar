@@ -156,6 +156,31 @@ def pages_to_check(page_coverage: dict | None, reader: dict | None = None) -> li
     return page_ledger.run_unread_pages(page_coverage, reader)
 
 
+def _page_items(
+    review_run_id: str, page_coverage: dict | None, reader: dict | None
+) -> tuple[list[dict], list[int], int | None]:
+    """The run's unread pages split into those left to tick ([{page, reason}])
+    and those an engineer ticked, with the page total; ([], [], None) when the
+    run stored no page coverage or no total. A stale tick on a page no longer
+    in the list is not counted (order 127)."""
+    if not page_coverage or page_coverage.get("pages_total") is None:
+        return [], [], None
+    checked = {
+        d["subject"]
+        for d in decisions(review_run_id)
+        if d["kind"] == PAGE and d["decision"] == CHECKED
+    }
+    reasons = page_ledger.run_unread_reasons(page_coverage, reader)
+    unread: list[dict] = []
+    checked_pages: list[int] = []
+    for page in pages_to_check(page_coverage, reader):
+        if str(page) in checked:
+            checked_pages.append(int(page))
+        else:
+            unread.append({"page": int(page), "reason": reasons.get(str(page)) or None})
+    return unread, checked_pages, page_coverage.get("pages_total")
+
+
 def open_items(
     review_run_id: str,
     rows: list[dict],
@@ -171,29 +196,12 @@ def open_items(
     [{finding_id, row_kind, item}], blockers: [plain words], issuable: bool}.
     `unread_pages` and `checked_pages` together are exactly
     `page_ledger.run_unread_pages` (order 127). Read only."""
-    checked = {
-        d["subject"]
-        for d in decisions(review_run_id)
-        if d["kind"] == PAGE and d["decision"] == CHECKED
-    }
     blockers: list[str] = []
-    unread: list[dict] = []
-    checked_pages: list[int] = []
-    pages_total = None
-    if not page_coverage or page_coverage.get("pages_total") is None:
+    unread, checked_pages, pages_total = _page_items(
+        review_run_id, page_coverage, reader
+    )
+    if pages_total is None:
         blockers.append(NO_PAGE_COVERAGE)
-    else:
-        pages_total = page_coverage.get("pages_total")
-        reasons = page_ledger.run_unread_reasons(page_coverage, reader)
-        for page in pages_to_check(page_coverage, reader):
-            if str(page) in checked:
-                # order 127: a stale tick on a page no longer in the list
-                # is not counted - only pages of the list
-                checked_pages.append(int(page))
-            else:
-                unread.append(
-                    {"page": int(page), "reason": reasons.get(str(page)) or None}
-                )
     seen: set[str] = set()
     findings: list[dict] = []
     for n, row in enumerate(rows, start=1):

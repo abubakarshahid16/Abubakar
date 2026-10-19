@@ -447,6 +447,12 @@ def run_unread_pages_shown(page_coverage: dict | None, reader: dict | None = Non
     return run_unread_pages(page_coverage, reader)
 
 
+def run_unread_pages_of(outcome: dict | None) -> list[int] | None:
+    """`run_unread_pages_shown` for a run's stored outcome: its page coverage
+    and its reader record. One call for the run summary and the runs list."""
+    return run_unread_pages_shown((outcome or {}).get("page_coverage"), run_reader(outcome))
+
+
 def rows(document_id: str) -> list[dict]:
     return [dict(r) for r in connect().execute(
         "SELECT * FROM page_ledger WHERE document_id = ? ORDER BY page_no", (document_id,))]
