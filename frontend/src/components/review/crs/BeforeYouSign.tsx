@@ -22,6 +22,7 @@ import type { CrsIssueGate, ReviewRunSummary } from "../../../types/api";
 import { REVIEW_CODES } from "../../../types/api";
 import type { CrsRow } from "./crsRows";
 import { type IssueGateState, MIN_SIGN_REASON, plural, signLeft, splitOpenItems } from "./issueGate";
+import { unreadPageLine } from "./pageReasons";
 
 const OTHER_KIND_WORDS: Record<string, string> = {
   standard_not_cited: "a standard the datasheet does not cite",
@@ -109,7 +110,7 @@ function UnreadPages({ runId, gate, onDecided }: { runId: string; gate: CrsIssue
       </p>
       {pages.map((p) => (
         <div key={p.page} className="flex flex-wrap items-center gap-2 text-sm text-slateish-200" data-testid={`sign-page-${p.page}`}>
-          <span>Page {p.page} was not read. Check it yourself, then tick.</span>
+          <span>{unreadPageLine(p.page, p.reason)} Tick if you checked it yourself.</span>
           <input aria-label={`What you checked on page ${p.page}`} value={reasons[p.page] ?? ""} placeholder="What you checked"
             onChange={(e) => setReasons((r) => ({ ...r, [p.page]: e.target.value }))} className={input} />
           <button type="button" disabled={busy === p.page} onClick={() => void tick(p.page)} className={button}>
