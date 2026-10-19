@@ -342,7 +342,7 @@ describe("WorkspaceLanding: who may start (admin only) and the empty page (L8)",
   });
 });
 
-describe("WorkspaceLanding v2.2: Simple | Detailed, Preview CRS, exact counts, help", () => {
+describe("WorkspaceLanding v2.2: Simple | Detailed, Open CRS, counts, help", () => {
   it("Simple (the default) folds the long counts line and the flat list; Detailed shows them", async () => {
     localStorage.removeItem(VIEW_MODE_KEY);
     renderLanding();
@@ -365,48 +365,62 @@ describe("WorkspaceLanding v2.2: Simple | Detailed, Preview CRS, exact counts, h
     expect(screen.queryByRole("list", { name: "All reviews" })).toBeNull();
   });
 
-  it("Preview CRS opens a finished review on the CRS tab; not drawn for waiting, running, failed or unreviewed rows", async () => {
+  /** Rule 4 note follows its count line. MUTATION PROOF: show the note on
+   *  `anyCountKnown` alone and the Simple check fails; hide it in Simple
+   *  outright and the "All reviews" check fails. */
+  it("the counts note shows only where a count line shows: not with Simple's folded rows, yes in Detailed and in All reviews", async () => {
+    localStorage.removeItem(VIEW_MODE_KEY);
+    renderLanding();
+    await waitFor(() => expect(loadCounts).toHaveBeenCalled());
+    // Simple: the rows hide their count line, so no note about it.
+    await waitFor(() => expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveTextContent(/^Waiting for you$/));
+    expect(within(rowOf("Pump")).queryByTestId("row-counts")).toBeNull();
+    expect(screen.queryByTestId("landing-counts-note")).toBeNull();
+    // Simple, but the All reviews list is open: it shows counts, so the note shows.
+    await userEvent.click(screen.getByRole("button", { name: "All reviews you may open (4)" }));
+    expect(await screen.findByTestId("landing-counts-note")).toHaveTextContent('"Found by the review" counts');
+    await userEvent.click(screen.getByRole("button", { name: "All reviews you may open (4)" }));
+    expect(screen.queryByTestId("landing-counts-note")).toBeNull();
+    // Detailed: the rows show their count line and the note with it.
+    await userEvent.click(screen.getByRole("button", { name: "Detailed" }));
+    expect(await within(rowOf("Pump")).findByTestId("row-counts")).toBeInTheDocument();
+    expect(screen.getByTestId("landing-counts-note")).toBeInTheDocument();
+  });
+
+  it("Open CRS opens a finished review on the CRS tab; not drawn for waiting, running, failed or unreviewed rows", async () => {
     const { onOpenRunTab, onOpenRun } = renderLanding();
-    await userEvent.click(within(rowOf("Pump")).getByRole("button", { name: "Preview the CRS of Pump datasheet rev B.pdf" }));
+    await userEvent.click(within(rowOf("Pump")).getByRole("button", { name: "Open the CRS of Pump datasheet rev B.pdf" }));
     expect(onOpenRunTab).toHaveBeenCalledWith("run-1", "crs");
     expect(onOpenRun).not.toHaveBeenCalled();
     for (const name of ["Valve", "Motor", "Heat exchanger"]) {
-      expect(within(rowOf(name)).queryByRole("button", { name: /Preview the CRS/ })).toBeNull();
+      expect(within(rowOf(name)).queryByRole("button", { name: /Open the CRS/ })).toBeNull();
     }
   });
 
-  it("Preview CRS is offered on a signed review too", () => {
+  /** #1171 review, item 5: "Preview CRS" is the bar's read-only look at the
+   *  contractor's copy; this button opens the CRS tab, so it has its own name. */
+  it("the landing button is called Open CRS, never Preview CRS", () => {
+    renderLanding();
+    expect(within(rowOf("Pump")).getByRole("button", { name: "Open the CRS of Pump datasheet rev B.pdf" })).toHaveTextContent(/^Open CRS$/);
+    expect(screen.queryByText(/Preview CRS/)).toBeNull();
+  });
+
+  it("Open CRS is offered on a signed review too", () => {
     renderLanding({ runs: [run({ review_run_id: "run-0", submittal_document_id: "doc-1", crs_issued_at: "2026-09-21T08:00:00Z" })] });
-    expect(within(rowOf("Pump")).getByRole("button", { name: /Preview the CRS/ })).toBeInTheDocument();
+    expect(within(rowOf("Pump")).getByRole("button", { name: /Open the CRS/ })).toBeInTheDocument();
   });
 
-  it("no onOpenRunTab: no Preview CRS button", () => {
+  it("no onOpenRunTab: no Open CRS button", () => {
     renderLanding({ onOpenRunTab: undefined });
-    expect(screen.queryByRole("button", { name: /Preview the CRS/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Open the CRS/ })).toBeNull();
   });
 
-  it("the chip says the exact number left to decide when it is known", async () => {
-    loadCounts.mockResolvedValue({ "run-1": { findings: 12, needs_you: 3, undecided: 5 } });
+  it("the chip never says how many are left to decide, even if a server sent a number (#1171 review, item 1)", async () => {
+    loadCounts.mockResolvedValue({ "run-1": { findings: 12, needs_you: 0, undecided: 5 } });
     renderLanding();
-    await waitFor(() => expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveTextContent(/^5 left to decide$/));
-  });
-
-  it("undecided 0 says All comments decided, in green (never Ready to sign)", async () => {
-    loadCounts.mockResolvedValue({ "run-1": { findings: 12, needs_you: 3, undecided: 0 } });
-    renderLanding();
-    await waitFor(() => expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveTextContent(/^All comments decided$/));
-    expect(screen.queryByText(/Ready to sign/)).toBeNull();
-    expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveAttribute("data-tone", "ready");
-  });
-
-  it("undecided null with some needing the engineer says Waiting for you and never shows 0", async () => {
-    loadCounts.mockResolvedValue({ "run-1": { findings: 12, needs_you: 3, undecided: null } });
-    renderLanding();
-    await waitFor(() => expect(loadCounts).toHaveBeenCalled());
     await waitFor(() => expect(within(rowOf("Pump")).getByTestId("row-counts")).toBeInTheDocument());
-    expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveTextContent(/^Waiting for you$/);
-    expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveAttribute("data-tone", "attention");
-    expect(screen.queryByText(/0 left to decide/)).toBeNull();
+    expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveTextContent(/^Review ready$/);
+    expect(screen.queryByText(/left to decide|All comments decided/)).toBeNull();
   });
 
   it("the help line shows on top, and Hide is remembered", async () => {

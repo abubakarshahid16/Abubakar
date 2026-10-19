@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import type { DocumentRecord, ReviewRunSummary } from "../../../../types/api";
 import { inboxStateOf } from "../../inbox/inboxState";
-import { allRunsOf, countsLine, hasFinishedReview, landingRowsOf, matchesName, rowChip, undecidedOf } from "./landingRows";
+import { allRunsOf, countsLine, hasFinishedReview, landingRowsOf, matchesName, rowChip } from "./landingRows";
 
 function run(over: Partial<ReviewRunSummary>): ReviewRunSummary {
   return {
@@ -87,44 +87,36 @@ describe("allRunsOf (L5)", () => {
   });
 });
 
-describe("rowChip exact counts (v2.2)", () => {
+describe("rowChip counts (v2.2)", () => {
   const done = run({ status: "completed" });
   const ready = inboxStateOf(done);
-  it("a known number above 0 says how many are left to decide", () => {
-    expect(rowChip(ready, done, { findings: 9, needs_you: 2, undecided: 4 })).toEqual({ text: "4 left to decide", tone: "attention" });
-    expect(rowChip(ready, done, { findings: 9, needs_you: 2, undecided: 1234 }).text).toBe("1,234 left to decide");
-  });
-  it("exactly 0 (and not signed) says All comments decided, even with a final code; never Ready to sign", () => {
-    expect(rowChip(ready, done, { findings: 9, needs_you: 0, undecided: 0 })).toEqual({ text: "All comments decided", tone: "ready" });
-    const coded = run({ status: "completed", engineer_final_code: "Approved" });
-    expect(rowChip(inboxStateOf(coded), coded, { findings: 1, needs_you: 0, undecided: 0 }).text).toBe("All comments decided");
-    expect(rowChip(ready, done, { findings: 9, needs_you: 3, undecided: 0 }).text).not.toMatch(/Ready to sign/);
+  it("never says how many are left to decide: no server sends that number (#1171 review, item 1)", () => {
+    // A stray field from a future or wrong server is not read.
+    const stray = { findings: 9, needs_you: 0, undecided: 4 } as never;
+    expect(rowChip(ready, done, stray).text).toBe("Review ready");
+    const zero = { findings: 9, needs_you: 0, undecided: 0 } as never;
+    expect(rowChip(ready, done, zero).text).not.toMatch(/decided|to decide|Ready to sign/);
   });
   it("a finished, unsigned review that needs the engineer says Waiting for you, not a calm green", () => {
     expect(rowChip(ready, done, { findings: 9, needs_you: 2 })).toEqual({ text: "Waiting for you", tone: "attention" });
-    expect(rowChip(ready, done, { findings: 9, needs_you: 2, undecided: null })).toEqual({ text: "Waiting for you", tone: "attention" });
     const coded = run({ status: "completed", engineer_final_code: "Approved" });
-    expect(rowChip(inboxStateOf(coded), coded, { findings: 1, needs_you: 1, undecided: null })).toEqual({ text: "Waiting for you", tone: "attention" });
-    // A known number still wins.
-    expect(rowChip(ready, done, { findings: 9, needs_you: 2, undecided: 3 }).text).toBe("3 left to decide");
+    expect(rowChip(inboxStateOf(coded), coded, { findings: 1, needs_you: 1 })).toEqual({ text: "Waiting for you", tone: "attention" });
     // Signed stays Signed.
     const signed = run({ status: "completed", crs_issued_at: "2026-10-18T09:00:00Z" });
     expect(rowChip(inboxStateOf(signed), signed, { findings: 9, needs_you: 2 }).text).toBe("Signed");
   });
-  it("null or absent keeps today's words and never shows 0", () => {
-    expect(rowChip(ready, done, { findings: 9, needs_you: 0, undecided: null }).text).toBe("Review ready");
+  it("nothing needing the engineer keeps today's words and never shows 0", () => {
     expect(rowChip(ready, done, { findings: 9, needs_you: 0 }).text).toBe("Review ready");
     expect(rowChip(ready, done, null).text).toBe("Review ready");
     const coded = run({ status: "completed", engineer_final_code: "Approved" });
-    expect(rowChip(inboxStateOf(coded), coded, { findings: 1, needs_you: 0, undecided: null }).text).toBe("Final code recorded, not signed");
-    expect(undecidedOf({ findings: 1, needs_you: 0, undecided: Number.NaN })).toBeNull();
+    expect(rowChip(inboxStateOf(coded), coded, { findings: 1, needs_you: 0 }).text).toBe("Final code recorded, not signed");
   });
   it("a signed review still says Signed whatever the counts", () => {
     const signed = run({ crs_issued_at: "2026-10-09T08:00:00Z" });
-    expect(rowChip(inboxStateOf(signed), signed, { findings: 1, needs_you: 0, undecided: 3 }).text).toBe("Signed");
-    expect(rowChip(inboxStateOf(signed), signed, { findings: 1, needs_you: 0, undecided: 0 }).text).toBe("Signed");
+    expect(rowChip(inboxStateOf(signed), signed, { findings: 1, needs_you: 0 }).text).toBe("Signed");
+    expect(rowChip(inboxStateOf(signed), signed, { findings: 1, needs_you: 3 }).text).toBe("Signed");
   });
-  it("Preview CRS is offered only for a finished (ready or signed) latest review", () => {
+  it("Open CRS is offered only for a finished (ready or signed) latest review", () => {
     const rows = landingRowsOf(
       [doc("doc-1", "A.pdf", "2026-09-01T08:00:00Z"), doc("doc-2", "B.pdf", "2026-09-01T08:00:00Z"), doc("doc-3", "C.pdf", "2026-09-01T08:00:00Z"),
         doc("doc-4", "D.pdf", "2026-09-01T08:00:00Z"), doc("doc-5", "E.pdf", "2026-09-01T08:00:00Z")],
