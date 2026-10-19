@@ -202,6 +202,11 @@ describe("HowReviewedView on a full run", () => {
     expect(screen.getByTestId("versions-previous")).toHaveTextContent("run-prev");
     expect(screen.getByTestId("versions-added")).toHaveTextContent("API 526");
     expect(screen.getByTestId("versions-removed")).toHaveTextContent("none");
+    // Order 124 item 9: a scope difference against the previous COMPLETED
+    // run, never "removed" (which read as deleted from the library).
+    expect(screen.getByText("Previous completed run")).toBeInTheDocument();
+    expect(screen.getByText("Standards not used in this review (used last time)")).toBeInTheDocument();
+    expect(screen.queryByText(/removed since the previous run/)).toBeNull();
     // absent from the runs list = not sent; null would be "not recorded"
     expect(screen.getByTestId("versions-code")).toHaveTextContent("not sent to this page");
     expect(screen.getByTestId("versions-settings")).toHaveTextContent("not sent to this page");

@@ -168,6 +168,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `review_trace` | Show what each step of a finished review produced (REVIEW_DEBUG console and per-run log, #791) |
 | `risks` | Typed EPC risk register, kept separate from evidence-backed findings |
 | `row_noise` | Page furniture and fragments that are not fields (#193 plan B4, item 3) |
+| `page_reason_words` | Plain words for why a datasheet page gave no value (the stored page reason); the engine counts kept apart as detail (order 124 item 9) |
 | `rule_trust` | Decide when an AI-compiled rule may be used: tier, family proof, second check, audit sample, trust labels |
 | `rule_eval` | Table and formula rules, evaluated in code (owner order 2026-09-26, 2a + 2b) |
 | `schemas` | Typed response models |
@@ -181,6 +182,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `standards` | The Standards Library: clause hierarchy, atomic requirements, revisions |
 | `standards_acquisition` | Standards beyond the client's own: WHERE to get a missing one, and a record of getting it |
 | `standards_inventory` | Standards inventory (B5 part 2): family, edition/revision, licence status, cover-page backfill, and which stan |
+| `stated_value` | Order 124 item 9: a long stated value is quoted in a finding's text as a marked excerpt ending " …", never a raw table chunk; verdicts still use the whole value |
 | `states` | Document lifecycle state machine |
 | `stored_paths` | A stored file's path, relative to `data_dir`, resolved on read (order 121 C) |
 | `structured_search` | Small, scope-aware search over EPC workflow records |

@@ -1247,13 +1247,14 @@ def _standards_change(run: dict, scope: access.AccessScope) -> dict | None:
     """Owner order 2e: WHY THE IN-SCOPE COUNT MOVED BETWEEN RUNS.
 
     The applicability decision is stored per run (`review_applicable_standards`),
-    so the change is a diff against the previous run of the same submittal:
-    which standards were added and which removed, by name, under the caller's
-    grants. None when there is no earlier run to compare with.
+    so the change is a diff against the previous COMPLETED run of the same
+    submittal (a failed or cancelled run never chose its scope for good;
+    order 124 item 9): which standards were added and which left, by name,
+    under the caller's grants. None when there is no such run.
     """
     previous = connect().execute(
         "SELECT id FROM review_runs WHERE submittal_document_id = ? AND id != ?"
-        " AND created_at < ? ORDER BY created_at DESC LIMIT 1",
+        " AND status = 'completed' AND created_at < ? ORDER BY created_at DESC LIMIT 1",
         (run["submittal_document_id"], run["id"], run.get("created_at") or "")).fetchone()
     if previous is None:
         return None

@@ -2739,7 +2739,7 @@ class ReviewRunSummary(BaseModel):
     #: that predates it; the screen then falls back to the default labels.
     review_codes: list[str] = []
     #: 2e: {previous_run_id, added: [names], removed: [names]} against the
-    #: previous run of the same submittal; null when there is none.
+    #: previous completed run of the same submittal; null when there is none.
     standards_change: dict | None = None
     #: Why a failed run failed, verbatim. None on a run that did not fail.
     failure_reason: str | None = None

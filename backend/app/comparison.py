@@ -53,7 +53,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import (absence, claims, conditions, datasheets, errors, field_links, match_rules, numparse, page_ledger,
-                requirements_3b, review, schemas, submittal_review)
+                requirements_3b, review, schemas, stated_value, submittal_review)
 from .config import settings
 from .db import connect
 
@@ -661,7 +661,7 @@ def _compare_range(requirement: dict, fact: dict, *, subject: str | None,
                                         f"{verdict['rationale']}", "limit": shown}
     if all(v["status"] == COMPLIANT for _op, _bound, v in ends):
         first = ends[0][2]
-        return {**first, "rationale": (f"the submitted value {fact.get('raw_value')} "
+        return {**first, "rationale": (f"the submitted value {stated_value.stated(fact.get('raw_value'))} "
                                        f"{fact.get('raw_unit') or ''}".rstrip()
                                        + f" is within the required range {shown}"), "limit": shown}
     other = next(v for _op, _bound, v in ends if v["status"] != COMPLIANT)
@@ -682,7 +682,7 @@ def _compare_nominal(requirement: dict, fact: dict, *, subject: str | None,
     stated = f"{requirement.get('raw_value')} {requirement.get('raw_unit') or ''}".strip()
     verdict = _compare_range({**requirement, "requirement_type": requirements_3b.RANGE_LIMIT},
                              fact, subject=subject, submittal_facts=submittal_facts)
-    observed = " ".join(str(fact.get("field_value") or fact.get("raw_value") or "").split())
+    observed = stated_value.flat(fact.get("field_value") or fact.get("raw_value"))
     if verdict["status"] == COMPLIANT:
         return {**verdict, "limit": stated,
                 "rationale": f"the submitted value {observed} is the stated value {stated} within the precision it is written to"}
@@ -960,17 +960,17 @@ def _compare(requirement: dict, fact: dict | None, *,
         if stated and field_links.asks_only_to_be_stated(clause):
             return {"status": COMPLIANT,
                     "rationale": (f"{STATED_AS_ASKED}: the clause asks for this to be stated on the "
-                                  f"datasheet, and the sheet states it: {stated}"),
+                                  f"datasheet, and the sheet states it: {stated_value.stated(stated)}"),
                     "limit": None, "observed": stated, "exception_applied": None}
         names = field_links.named_values(clause)
         if stated and names and not fact_has_number(fact):
             if field_links.is_named_value(stated, names):
                 return {"status": COMPLIANT,
-                        "rationale": (f"{NAMED_VALUE}: the sheet states {stated!r}, which is one of the "
+                        "rationale": (f"{NAMED_VALUE}: the sheet states {stated_value.stated(stated)!r}, which is one of the "
                                       f"values the clause names ({'; '.join(names)})"),
                         "limit": "; ".join(names), "observed": stated, "exception_applied": None}
             return {"status": NEEDS_ENGINEER_REVIEW,
-                    "rationale": (f"{NAMED_VALUE}: the sheet states {stated!r}; the clause names "
+                    "rationale": (f"{NAMED_VALUE}: the sheet states {stated_value.stated(stated)!r}; the clause names "
                                   f"{'; '.join(names)}. As written it is not one of them. Another name for "
                                   "the same thing is not judged by code: engineer to decide"),
                     "limit": "; ".join(names), "observed": stated, "exception_applied": None}
@@ -1000,7 +1000,7 @@ def _compare(requirement: dict, fact: dict | None, *,
     if spread is not None:
         side = _range_side(governing.get("operator"))
         if side is None:
-            quoted = " ".join((fact.get("field_value") or "").split())
+            quoted = stated_value.flat(fact.get("field_value"))
             return {
                 "status": NEEDS_ENGINEER_REVIEW,
                 "rationale": (
@@ -1018,8 +1018,7 @@ def _compare(requirement: dict, fact: dict | None, *,
         # "-3 to 55 C" is a half-truth a reviewer cannot check.
         fact = {**fact, "raw_value": _plain(chosen),
                 "compared_end": side,
-                "compared_from": " ".join(
-                    (fact.get("field_value") or "").split())}
+                "compared_from": stated_value.flat(fact.get("field_value"))}
 
     if limit is None:
         return {
@@ -1075,7 +1074,7 @@ def _compare(requirement: dict, fact: dict | None, *,
                         else ("required", limit.raw_value))
         return {
             "status": NEEDS_ENGINEER_REVIEW,
-            "rationale": (f"the {which} value {value!r} could not be read as a "
+            "rationale": (f"the {which} value {stated_value.stated(value)!r} could not be read as a "
                           "number, so no comparison was made"),
             "limit": _describe(limit, governing),
             "observed": _describe(observed, fact),
@@ -1108,7 +1107,7 @@ def _compare(requirement: dict, fact: dict | None, *,
     return {
         "status": status,
         "rationale": (
-            f"the submitted value {fact.get('raw_value')} "
+            f"the submitted value {stated_value.stated(fact.get('raw_value'))} "
             f"{fact.get('raw_unit') or ''}".rstrip() +
             f" is {within} the required "
             f"{governing.get('operator') or ''} {governing.get('raw_value')} "
