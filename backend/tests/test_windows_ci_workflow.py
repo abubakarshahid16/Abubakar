@@ -218,3 +218,7 @@ def test_windows_durations_never_reach_the_linux_shards(job, agg):
         save["with"]["key"],
     ):
         assert not key.startswith(linux_prefix), key
+    # Saved on Linux, restored on Windows: actions/cache matches across
+    # operating systems only when both sides allow it.
+    assert restore["with"].get("enableCrossOsArchive") is True
+    assert save["with"].get("enableCrossOsArchive") is True

@@ -26,7 +26,9 @@
 # aggregate proves every collected test ran in exactly one shard (#589). The
 # nightly run on main stores Windows durations in their own cache
 # (`windows-test-durations-`, a prefix the Linux restore never matches); until
-# the first one, the shards split from the committed Linux file.
+# the first one, the shards split from the committed Linux file. Durations
+# are stored on the nightly only: a train's dispatch runs on a train branch,
+# whose cache no later run can read.
 
 name: tests-windows
 
@@ -92,6 +94,9 @@ jobs:
           path: backend/.test_durations
           key: windows-test-durations-${{ github.run_id }}
           restore-keys: windows-test-durations-
+          # Saved by the aggregate on Linux: without this a Windows runner
+          # never matches a cache written on another OS.
+          enableCrossOsArchive: true
 
       - name: Run this shard of the suite
         working-directory: backend
@@ -161,3 +166,4 @@ jobs:
         with:
           path: backend/.test_durations
           key: windows-test-durations-${{ github.run_id }}
+          enableCrossOsArchive: true
