@@ -1594,26 +1594,33 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
         unconfirmed_comment = (
             AI_UNCONFIRMED_COMMENT if origin == _AI_ORIGIN else WEB_UNCONFIRMED_COMMENT
         )
-        rows.append({
-            "finding_id": f.get("id") or "",
-            "document_name": submittal_name,
-            "page_section": where,
-            "comment": text if confirmed else unconfirmed_comment,
-            "comment_by": (f"{confirmed_by_prefix}{f.get('confirmed_by_name') or f['confirmed_by']}"
-                           if confirmed else unconfirmed_by),
-            "ai_review_comment": "" if confirmed else text,
-            "standard_reference": relates if origin == _AI_ORIGIN and not f.get("engineer_comment") else "",
-            "row_kind": row_kind,
-            "severity": row_severity([f]),
-            "engineer_confirmed": confirmed,
-            "engineer_worded": bool(f.get("engineer_comment")),
-            # The machine's finding text, not the engineer's edit of it, so
-            # confirming or re-wording an AI/web item keeps its number.
-            "comment_key": finding_comment_key(f),
-            "crs_group": _key_text(_group_key(f)),
-            # R30: the chain behind the item (internal copy only).
-            "reasoning": reasoning_text([f]),
-        })
+        rows.append(
+            {
+                "finding_id": f.get("id") or "",
+                "document_name": submittal_name,
+                "page_section": where,
+                "comment": text if confirmed else unconfirmed_comment,
+                "comment_by": (
+                    f"{confirmed_by_prefix}{f.get('confirmed_by_name') or f['confirmed_by']}"
+                    if confirmed
+                    else unconfirmed_by
+                ),
+                "ai_review_comment": "" if confirmed else text,
+                "standard_reference": relates
+                if origin == _AI_ORIGIN and not f.get("engineer_comment")
+                else "",
+                "row_kind": row_kind,
+                "severity": row_severity([f]),
+                "engineer_confirmed": confirmed,
+                "engineer_worded": bool(f.get("engineer_comment")),
+                # The machine's finding text, not the engineer's edit of it, so
+                # confirming or re-wording an AI/web item keeps its number.
+                "comment_key": finding_comment_key(f),
+                "crs_group": _key_text(_group_key(f)),
+                # R30: the chain behind the item (internal copy only).
+                "reasoning": reasoning_text([f]),
+            }
+        )
         rank = row_priority(BUCKET_AI if origin == _AI_ORIGIN else BUCKET_WEB)
         sort_keys.append(_rank_row(rows[-1], rank, [f]))
 

@@ -82,10 +82,8 @@ MUTATIONS: tuple[Mutation, ...] = (
                          "(re-anchored 2026-09-27: `confirmed_by_prefix` now "
                          "covers both kind C and kind D)",
              path=APP / "crs_mapping.py",
-             anchor="            \"comment_by\": (f\"{confirmed_by_prefix}{f.get('confirmed_by_name') or f['confirmed_by']}\"\n"
-                    "                           if confirmed else unconfirmed_by),\n",
-             replacement="            \"comment_by\": (\"AI Review\"\n"
-                        "                           if confirmed else unconfirmed_by),\n",
+             anchor="                    f\"{confirmed_by_prefix}{f.get('confirmed_by_name') or f['confirmed_by']}\"\n",
+             replacement="                    \"AI Review\"\n",
              target=_T, keyword="under_the_engineers_name", tags=("honesty",)),
     Mutation(id="M1038", phase=86, description="a rejected AI item stays on the sheet",
              path=APP / "crs_mapping.py",
@@ -104,10 +102,8 @@ MUTATIONS: tuple[Mutation, ...] = (
              description="honesty: an unconfirmed AI/web item's Comment By "
                          "goes back to blank instead of naming it a draft",
              path=APP / "crs_mapping.py",
-             anchor="            \"comment_by\": (f\"{confirmed_by_prefix}{f.get('confirmed_by_name') or f['confirmed_by']}\"\n"
-                    "                           if confirmed else unconfirmed_by),\n",
-             replacement="            \"comment_by\": (f\"{confirmed_by_prefix}{f.get('confirmed_by_name') or f['confirmed_by']}\"\n"
-                        "                           if confirmed else \"\"),\n",
+             anchor="                    else unconfirmed_by\n",
+             replacement="                    else \"\"\n",
              target=_T, keyword="comment_by_is_never_blank",
              tags=("honesty", "critical")),
     Mutation(id="M1039", phase=86, runner="vitest",
