@@ -394,6 +394,60 @@ def test_a_part_whose_lines_do_not_name_the_column_marks_its_kind_unconfirmed(
     )
 
 
+#: The s1 review case on #1175: the table's header sits more than
+#: `CONTEXT_LINES` lines below the page top, and a data row holds a kind's
+#: word ("Vendor") without naming a column.
+FAR_TABLE = "\n".join(
+    [f"Note {i}: general text of the sheet, item {i}" for i in range(1, 11)]
+    + ["Item | Required | Offered"]
+    + [
+        f"{label} | {req} {unit} | {off} {unit}"
+        for label, req, off, unit in TABLE_ROWS[:7]
+    ]
+    + ["Vendor reference | ABC | DEF"]
+    + [
+        f"{label} | {req} {unit} | {off} {unit}"
+        for label, req, off, unit in TABLE_ROWS[7:]
+    ]
+)
+
+
+def test_a_header_far_below_the_page_top_is_shown_to_the_part_below_it():
+    out = datasheet_ai._read(FAR_TABLE, 1, _table_reader(16), "fake-local")
+    assert "error" not in out and out["parts"]["read"] >= 3
+    offered = [f for f in out["accepted"] if f["kind"] == "offered"]
+    assert sorted(f["field"] for f in offered) == sorted(OFFERED)
+    assert all(f["value"] == OFFERED[f["field"]] for f in offered)
+
+
+def test_a_kind_word_in_a_data_row_does_not_confirm_the_kind(monkeypatch):
+    """A required value read as offered must not pass as confirmed because a
+    data row of the part says "Vendor reference"."""
+    monkeypatch.setattr(datasheet_ai, "with_context", lambda part, page_text: part)
+    out = datasheet_ai._read(FAR_TABLE, 1, _table_reader(16), "fake-local")
+    swapped = [
+        f
+        for f in out["accepted"]
+        if f["kind"] == "offered" and f["value"] != OFFERED[f["field"]]
+    ]
+    assert swapped, "the test table must make the model guess wrong"
+    assert all(f.get("kind_unconfirmed") for f in swapped)
+
+
+def test_only_a_line_that_names_columns_is_a_header():
+    assert datasheet_ai.header_kinds("Item | Required | Offered") == {
+        "required",
+        "offered",
+    }
+    assert datasheet_ai.header_kinds("Item\tSpecified\tVendor") == {
+        "required",
+        "offered",
+    }
+    assert datasheet_ai.header_kinds("Vendor reference | ABC | DEF") == set()
+    assert datasheet_ai.header_kinds("Offered | 16 barg") == set()
+    assert datasheet_ai.header_kinds("Required Offered") == set()  # one cell: not split
+
+
 def test_the_context_is_the_top_of_the_page_bounded_and_marked():
     part = TABLE.split("\n", 6)[6]
     shown = datasheet_ai.with_context(part, TABLE)

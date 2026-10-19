@@ -372,8 +372,9 @@ def _read_part(
     last = depth >= MAX_SPLITS
     call = _keeping_the_cut(model_call) if last else model_call
     try:
+        shown = with_context(part, page_text)
         got = claude_datasheet.read_page(
-            with_context(part, page_text), page_no, None, call, gate_text=page_text
+            shown, page_no, None, call, gate_text=page_text
         )
     except AnswerCutOff:
         state["cut_again"] += 1
@@ -397,7 +398,7 @@ def _read_part(
     state["cut"] = state["cut"] or bool(got.get("cut_off"))
     state["rejected"].extend(got["rejected"])
     for p in got["accepted"]:
-        p = _part_fact(p, part)
+        p = _part_fact(p, part, shown)
         if p.get("reason"):
             state["rejected"].append(p)
             continue
@@ -409,33 +410,77 @@ def _read_part(
     return []
 
 
+#: How a line is cut into cells: a pipe, a tab, or a run of two spaces.
+_CELLS = re.compile(r"\s*(?:\||\t| {2,})\s*")
+
+
+def header_kinds(line: str) -> set[str]:
+    """The kinds a HEADER line names (#1175 review): a line with no digit at
+    all - a header names columns, it holds no value - one of whose cells IS a
+    kind's word (`_KIND_WORDS`, whole cell, case-folded). A data row that only
+    contains such a word ("Vendor reference | ABC") names no column."""
+    if re.search(r"\d", line or ""):
+        return set()
+    cells = {claude_datasheet._fold(c) for c in _CELLS.split(line.strip()) if c.strip()}
+    return {kind for kind, words in _KIND_WORDS.items() if cells & set(words)}
+
+
+def _nearest_header(lines: list[str], below: int) -> int | None:
+    """The index of the nearest header line above line `below`, or None."""
+    return next((i for i in range(below - 1, -1, -1) if header_kinds(lines[i])), None)
+
+
 def with_context(part: str, page_text: str) -> str:
     """The part as the model is shown it: when the part does not start the
-    page, the page's first lines above it go first, marked CONTEXT ONLY, so
-    a table's column names (required / offered) printed above the cut are
-    seen. Values are not read from there (`_part_fact`)."""
+    page, lines above it go first, marked CONTEXT ONLY - the page's first
+    `CONTEXT_LINES` lines, and the nearest header line above the cut when it
+    is further down - so the column names (required / offered) printed above
+    the cut are seen. Values are not read from there (`_part_fact`)."""
     start = page_text.find(part)
     above = page_text[:start].strip() if start > 0 else ""
     if not above:
         return part
-    context = "\n".join(above.split("\n")[:CONTEXT_LINES])[:CONTEXT_CHARS]
+    lines = above.split("\n")
+    shown = lines[:CONTEXT_LINES]
+    header = _nearest_header(lines, len(lines))
+    if header is not None and header >= CONTEXT_LINES:
+        shown.append(lines[header])
+    context = "\n".join(shown)[-CONTEXT_CHARS:]
     return f"{CONTEXT_OPEN}\n{context}\n{CONTEXT_CLOSE}\n{part}"
 
 
-def _part_fact(p: dict, part: str) -> dict:
-    """A part's accepted reading, checked against the part's OWN lines. A
-    quote not on them (read from the context) is refused (`QUOTE_NOT_IN_PART`).
-    A kind its own lines do not name (no "required" / "offered" / "measured"
-    word, `_KIND_WORDS`) may be a guess - a split can leave the column names
-    above the cut - so the reading is marked `kind_unconfirmed`: it is kept,
-    and `datasheets` writes it for an engineer (never deciding a verdict)."""
-    own = claude_datasheet._fold(part)
-    if not claude_datasheet._contains(
-        own, claude_datasheet._fold(p.get("quote") or "")
-    ):
+def _part_fact(p: dict, part: str, shown: str) -> dict:
+    """A part's accepted reading, checked against what the part's model was
+    SHOWN (`shown`, `with_context`). A quote not on the part's own lines (read
+    from the context) is refused (`QUOTE_NOT_IN_PART`). The kind is confirmed
+    only by the nearest header line above the quote among the lines shown
+    (`header_kinds`): a kind no header names may be a guess - a split can
+    leave the column names above the cut - so the reading is marked
+    `kind_unconfirmed`: it is kept, and `datasheets` writes it for an
+    engineer (never deciding a verdict)."""
+    quote = claude_datasheet._fold(p.get("quote") or "")
+    if not claude_datasheet._contains(claude_datasheet._fold(part), quote):
         return {**p, "reason": QUOTE_NOT_IN_PART}
-    words = _KIND_WORDS.get(p.get("kind") or "", ())
-    if any(claude_datasheet._contains(own, w) for w in words):
+    lines = shown.split("\n")
+    first = next(
+        (
+            claude_datasheet._fold(x)
+            for x in (p.get("quote") or "").splitlines()
+            if x.strip()
+        ),
+        "",
+    )
+    own_from = len(lines) - len(part.split("\n"))
+    at = next(
+        (
+            i
+            for i in range(own_from, len(lines))
+            if first and first in claude_datasheet._fold(lines[i])
+        ),
+        None,
+    )
+    header = _nearest_header(lines, at + 1) if at is not None else None
+    if header is not None and p.get("kind") in header_kinds(lines[header]):
         return p
     box = {**(p.get("provenance") or {}), "kind_unconfirmed": KIND_UNCONFIRMED}
     return {**p, "kind_unconfirmed": True, "provenance": box}
@@ -992,6 +1037,7 @@ __all__ = [
     "ai_unit",
     "engine_setting",
     "field_key",
+    "header_kinds",
     "merge_readings",
     "model_call_for",
     "outcome_counts",
