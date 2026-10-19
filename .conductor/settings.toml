@@ -14,9 +14,10 @@ setup = "bash scripts/conductor/setup.sh"
 archive = "bash scripts/conductor/archive.sh"
 run_mode = "concurrent"
 
-# Preview this workspace's screens against the LIVE app's server (port
-# 8000), on the workspace's own port, so the owner can click through a
-# change before it merges while the live app keeps running.
+# Preview this workspace's screens on the workspace's own port. It never
+# talks to the live app's server (port 8000) unless PREVIEW_AGAINST_LIVE=1
+# is set on purpose: unmerged screens must not write the owner's real
+# reviews. Point VITE_API_TARGET at a workspace backend instead (#1173).
 [scripts.run.screens]
 command = "bash scripts/conductor/run-screens.sh"
 default = true
