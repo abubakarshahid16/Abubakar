@@ -1,5 +1,5 @@
 /**
- * v2.1 L5: "All reviews (N)" - one flat list of every review the page
+ * v2.1 L5: "All reviews you may open (N)" - one flat list of every review the page
  * loaded, newest started first, each with Open. Built from the runs list
  * already on the page (no new endpoint). The chips use the same rules as
  * the document rows.

@@ -7,8 +7,10 @@
  *   | Choose a submittal [find...] [select v] [Start review]      (L1)  |
  *   | or drop a contractor's file here                       (drop zone) |
  *   +--------------------------------------------------------------------+
- *   [Review all not reviewed (N)]                                  (L7)
- *   [Search by file name]                    [All reviews (N)]  (L4, L5)
+ *   [Review all not reviewed (N of the contractor documents listed here)]
+ *     (+ the cut-short note when the documents list is cut short)   (L7)
+ *   [Search by file name]      [All reviews you may open (N)]  (L4, L5)
+ *   "Found by the review" counts comment and Needs-you findings only ...
  *   - Pump datasheet rev B.pdf  [Review ready]
  *       Found by the review: 12 findings, 3 needing your judgement  date
  *                                            [Open] [New review]  (L2, L3)
@@ -25,6 +27,7 @@ import { reviews as reviewsApi } from "../../../../api/client";
 import type { DocumentRecord, ReviewRunSummary } from "../../../../types/api";
 import type { ReadyCounts } from "../../inbox/inboxState";
 import { NewReviewDropZone } from "../NewReviewDropZone";
+import { truncationNote } from "../../reviewFormat";
 import { startRefusal } from "../newReview";
 import { watchRun } from "../reviewWatch";
 import { AllReviewsList } from "./AllReviewsList";
@@ -32,6 +35,12 @@ import { LandingDocumentRow } from "./LandingDocumentRow";
 import { StartReviewBar } from "./StartReviewBar";
 import { allRunsOf, landingRowsOf, matchesName } from "./landingRows";
 import { loadReadyCounts as defaultLoadReadyCounts } from "./readyCounts";
+
+/** Rule 4: what the "Found by the review" line on the rows counts. Shown
+ *  once near the list (not per row), only while some row shows a count. */
+export const LANDING_COUNTS_NOTE =
+  '"Found by the review" counts the findings each review still holds as a comment or as needing your judgement. '
+  + "Findings removed by an engineer are not counted, and the comment sheet groups findings into fewer comment lines.";
 
 export const NOT_ADMIN_LANDING_MESSAGE =
   "Only an administrator can start a review. You can open any review listed below.";
@@ -73,6 +82,10 @@ export function WorkspaceLanding({
   const shownRows = rows.filter((row) => matchesName(row.filename, query));
   const shownItems = allItems.filter((item) => matchesName(item.filename, query));
   const notReviewed = rows.filter((row) => row.state.kind === "not_reviewed");
+  /** Rule 4: the not-reviewed count comes from the contractor documents
+   *  list, which may be cut short; say so where that count is shown. */
+  const documentsCut = truncationNote(documents.length, submittalsTotal, "contractor submittals");
+  const anyCountShown = Object.values(counts).some((c) => c !== null);
 
   // Only the finished, unsigned runs on screen need counts; each id is asked once.
   const wanted = (showAll
@@ -170,11 +183,18 @@ export function WorkspaceLanding({
                 onClick={() => setConfirmAll(true)}
                 className="rounded-[var(--radius-sm)] border border-signal-500 px-3 py-1.5 text-sm font-semibold text-signal-300 disabled:opacity-50"
               >
-                {batching ? "Queuing reviews…" : `Review all not reviewed (${notReviewed.length})`}
+                {batching
+                  ? "Queuing reviews…"
+                  : `Review all not reviewed (${notReviewed.length.toLocaleString("en-US")} of the contractor documents listed here)`}
               </button>
               <span className="text-xs text-slateish-400">
                 Each runs in the background, one at a time. You get a notice when each one is ready.
               </span>
+              {documentsCut && (
+                <span className="basis-full text-xs text-slateish-400" data-testid="review-all-cut-note">
+                  {documentsCut} Documents not listed are not counted or started.
+                </span>
+              )}
             </>
           )}
         </div>
@@ -222,9 +242,12 @@ export function WorkspaceLanding({
                   showAll ? "border-signal-500 bg-signal-500/15 text-signal-300" : "border-ink-600 text-slateish-300"
                 }`}
               >
-                All reviews ({allItems.length.toLocaleString("en-US")})
+                All reviews you may open ({allItems.length.toLocaleString("en-US")})
               </button>
             </div>
+            {anyCountShown && (
+              <p className="text-xs text-slateish-400" data-testid="landing-counts-note">{LANDING_COUNTS_NOTE}</p>
+            )}
             {showAll ? (
               <AllReviewsList items={shownItems} counts={counts} onOpenRun={onOpenRun} />
             ) : shownRows.length === 0 ? (

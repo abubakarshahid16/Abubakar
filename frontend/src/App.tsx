@@ -266,6 +266,10 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
   useEffect(() => {
     if (watchOwnerKnown) setWatchOwner(watchOwner);
   }, [watchOwner, watchOwnerKnown]);
+  // Decision drafts are keyed by the same person (setDraftOwner in check
+  // and signIn, before the session says who): none is read or written
+  // until then.
+  const draftOwnerKnown = watchOwnerKnown;
 
   // The client clears the token on any 401 and calls this. No auto-retry and
   // no refresh flow: there is no refresh token by design.
@@ -508,8 +512,11 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
             <>
               {tryNewDesign}
               {/* v2.1 (N1): decisions not saved yet are kept as a draft
-                  for this review in this tab. */}
-              <CrsDraftContext.Provider value={workspaceLocation.runId}>
+                  for this review in this tab. Only once the app knows
+                  whose drafts these are: on a reload the workspace can
+                  draw while /auth/me is still being asked, and reading
+                  (then writing) under no one would remove the real one. */}
+              <CrsDraftContext.Provider value={draftOwnerKnown ? workspaceLocation.runId : null}>
                 <LeaveSaverContext.Provider value={registerWorkspaceSaver}>
                 <ReviewWorkspace
                   key={workspaceLocation.runId} location={workspaceLocation}
