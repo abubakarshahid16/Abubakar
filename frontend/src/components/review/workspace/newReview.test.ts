@@ -20,6 +20,7 @@ const uploadDisciplines = vi.fn();
 const document = vi.fn();
 const setRoleBulk = vi.fn();
 const startReviewRun = vi.fn();
+const reviewRuns = vi.fn();
 const uploadOne = vi.fn();
 const watchRun = vi.fn();
 
@@ -36,6 +37,7 @@ vi.mock("../../../api/client", () => ({
   },
   reviews: {
     startReviewRun: (...a: unknown[]) => { calls.push("start"); return startReviewRun(...a); },
+    reviewRuns: (...a: unknown[]) => { calls.push("runs"); return reviewRuns(...a); },
   },
 }));
 vi.mock("../../Uploader", () => ({
@@ -46,8 +48,9 @@ vi.mock("./reviewWatch", () => ({
 }));
 
 import {
-  ADMIN_UNKNOWN_MESSAGE, NOT_ADMIN_BEFORE_UPLOAD_MESSAGE, NOT_ADMIN_MESSAGE, ROLE_UNREADABLE_MESSAGE,
-  markAsContractorSubmittal, reviewAgain, startNewReview,
+  ADMIN_UNKNOWN_MESSAGE, ALREADY_RUNNING_MESSAGE, MARK_UNREADABLE_MESSAGE, NOT_ADMIN_BEFORE_UPLOAD_MESSAGE, NOT_ADMIN_MESSAGE,
+  REVIEW_ADMIN_ONLY_MESSAGE, REVIEW_DOCUMENT_UNREADABLE_MESSAGE, REVIEW_REFUSED_UNKNOWN_MESSAGE, ROLE_UNREADABLE_MESSAGE,
+  UPLOADED_UNREADABLE_MESSAGE, loadPriorDecision, markAsContractorSubmittal, priorDecisionOf, reviewAgain, startNewReview,
 } from "./newReview";
 
 const file = new File(["%PDF-1.7"], "Pump datasheet rev B.pdf", { type: "application/pdf" });
@@ -55,7 +58,7 @@ const noWait = { sleep: async () => {}, pollMs: 1, capMs: 60_000 };
 
 beforeEach(() => {
   calls.length = 0;
-  for (const m of [me, uploadDisciplines, document, setRoleBulk, startReviewRun, uploadOne, watchRun]) m.mockReset();
+  for (const m of [me, uploadDisciplines, document, setRoleBulk, startReviewRun, reviewRuns, uploadOne, watchRun]) m.mockReset();
   me.mockResolvedValue({ ok: true, data: { required: true, user: { id: "u-1", email: "sample.admin@example.test", roles: ["admin"] } } });
   uploadDisciplines.mockResolvedValue({ ok: true, data: { required: true, choices: ["Mechanical", "Piping"], default: ["Mechanical"] } });
   uploadOne.mockImplementation(async (_f: File, _d: string[], onProgress: (p: number) => void) => {
@@ -201,7 +204,10 @@ describe("startNewReview", () => {
   it("a partial bulk write (the document named in failed) starts no review", async () => {
     setRoleBulk.mockResolvedValue({ ok: true, data: { document_role: "CONTRACTOR_SUBMITTAL", requested: 1, updated: [], unchanged: [], failed: [{ document_id: "doc-1", reason: "not_found" }] } });
     const outcome = await startNewReview(file, () => {}, noWait);
-    expect(outcome).toEqual({ ok: false, message: NOT_ADMIN_MESSAGE });
+    // The admin gate let the caller in, so it is never "only an administrator".
+    expect(outcome).toEqual({ ok: false, message: MARK_UNREADABLE_MESSAGE });
+    expect(MARK_UNREADABLE_MESSAGE).toMatch(/could not be found or you may not read it/);
+    expect(MARK_UNREADABLE_MESSAGE).not.toMatch(/administrator/);
     expect(startReviewRun).not.toHaveBeenCalled();
   });
 
@@ -240,12 +246,28 @@ describe("startNewReview", () => {
     expect(setRoleBulk).not.toHaveBeenCalled();
   });
 
-  it("a refusal to start is shown exactly as the API worded it", async () => {
+  it("an uploaded document that is gone or unreadable says so plainly", async () => {
+    document.mockReset();
+    document.mockResolvedValue({ ok: false, disconnected: false, error: { code: "not_found", message: "That is not something the backend knows about." } });
+    const outcome = await startNewReview(file, () => {}, noWait);
+    expect(outcome).toEqual({ ok: false, message: UPLOADED_UNREADABLE_MESSAGE });
+    expect(UPLOADED_UNREADABLE_MESSAGE).toMatch(/could not be found or you may not read it/);
+    expect(startReviewRun).not.toHaveBeenCalled();
+  });
+
+  it("an already-running refusal is said plainly, without the raw run id", async () => {
     const words = "a review of this submittal is already queued or running (run-0)";
     startReviewRun.mockResolvedValue({ ok: false, disconnected: false, error: { code: "invalid_parameter", message: words } });
     const outcome = await startNewReview(file, () => {}, noWait);
-    expect(outcome).toEqual({ ok: false, message: words });
+    expect(outcome).toEqual({ ok: false, message: ALREADY_RUNNING_MESSAGE });
     expect(watchRun).not.toHaveBeenCalled();
+  });
+
+  it("any other refusal to start is shown exactly as the API worded it", async () => {
+    const words = "The standards for this document are still being read.";
+    startReviewRun.mockResolvedValue({ ok: false, disconnected: false, error: { code: "invalid_parameter", message: words } });
+    const outcome = await startNewReview(file, () => {}, noWait);
+    expect(outcome).toEqual({ ok: false, message: words });
   });
 });
 
@@ -264,10 +286,61 @@ describe("reviewAgain", () => {
     expect(watchRun).toHaveBeenCalledWith("run-2", "Pump datasheet rev B.pdf");
   });
 
-  it("returns the API's refusal word for word", async () => {
+  it("already running: plain words and the running review's id, never the raw API text", async () => {
     const words = "a review of this submittal is already queued or running (run-1)";
     startReviewRun.mockResolvedValue({ ok: false, disconnected: false, error: { code: "invalid_parameter", message: words } });
-    expect(await reviewAgain("doc-1")).toEqual({ ok: false, message: words });
+    expect(await reviewAgain("doc-1")).toEqual({ ok: false, message: ALREADY_RUNNING_MESSAGE, runningRunId: "run-1" });
     expect(watchRun).not.toHaveBeenCalled();
+  });
+
+  it("a non-administrator's 404 says only an administrator can start a review", async () => {
+    me.mockResolvedValue({ ok: true, data: { required: true, user: { id: "u-2", email: "sample.engineer@example.test", roles: ["engineer"] } } });
+    startReviewRun.mockResolvedValue({ ok: false, disconnected: false, error: { code: "not_found", message: "not found" } });
+    expect(await reviewAgain("doc-1")).toEqual({ ok: false, message: REVIEW_ADMIN_ONLY_MESSAGE, runningRunId: null });
+    expect(REVIEW_ADMIN_ONLY_MESSAGE).toBe("Only an administrator can start a review.");
+  });
+
+  it("an administrator's 404 means the document could not be found or may not be read", async () => {
+    startReviewRun.mockResolvedValue({ ok: false, disconnected: false, error: { code: "not_found", message: "not found" } });
+    const outcome = await reviewAgain("doc-1");
+    expect(outcome).toEqual({ ok: false, message: REVIEW_DOCUMENT_UNREADABLE_MESSAGE, runningRunId: null });
+    expect(REVIEW_DOCUMENT_UNREADABLE_MESSAGE).toMatch(/could not be found or you may not read it/);
+  });
+
+  it("a 404 when who the reader is cannot be checked names both reasons", async () => {
+    me.mockResolvedValue({ ok: false, disconnected: true, error: { code: "internal", message: "Cannot reach the backend." } });
+    startReviewRun.mockResolvedValue({ ok: false, disconnected: false, error: { code: "not_found", message: "not found" } });
+    expect(await reviewAgain("doc-1")).toEqual({ ok: false, message: REVIEW_REFUSED_UNKNOWN_MESSAGE, runningRunId: null });
+  });
+});
+
+describe("priorDecisionOf / loadPriorDecision", () => {
+  const run = (id: string, at: string, extra: Record<string, unknown> = {}) =>
+    ({ review_run_id: id, submittal_document_id: "doc-1", created_at: at, crs_issued_at: null, engineer_final_code: null, ...extra }) as never;
+
+  it("looks only at the document's newest review", () => {
+    const runs = [
+      run("run-1", "2026-03-01T08:00:00Z", { crs_issued_at: "2026-03-02T08:00:00Z" }),
+      run("run-2", "2026-03-05T08:00:00Z"),
+    ];
+    expect(priorDecisionOf("doc-1", runs)).toEqual({ kind: "none" });
+    expect(priorDecisionOf("doc-other", runs)).toEqual({ kind: "none" });
+  });
+
+  it("signed, or with the engineer's final code, asks first", () => {
+    expect(priorDecisionOf("doc-1", [run("run-3", "2026-03-06T08:00:00Z", { crs_issued_at: "2026-03-07T08:00:00Z", engineer_final_code: "Approved" })]))
+      .toEqual({ kind: "signed", finalCode: "Approved" });
+    expect(priorDecisionOf("doc-1", [run("run-3", "2026-03-06T08:00:00Z", { engineer_final_code: "Approved with Comments" })]))
+      .toEqual({ kind: "final_code", finalCode: "Approved with Comments" });
+  });
+
+  it("reads that document's runs; a failure is unknown", async () => {
+    reviewRuns.mockResolvedValueOnce({ ok: true, data: { runs: [run("run-3", "2026-03-06T08:00:00Z", { engineer_final_code: "Approved" })] } });
+    expect(await loadPriorDecision("doc-1")).toEqual({ kind: "final_code", finalCode: "Approved" });
+    expect(reviewRuns).toHaveBeenCalledWith("doc-1");
+    reviewRuns.mockResolvedValueOnce({ ok: false, disconnected: true, error: { code: "internal", message: "Cannot reach the backend." } });
+    expect(await loadPriorDecision("doc-1")).toEqual({ kind: "unknown" });
+    reviewRuns.mockRejectedValueOnce(new Error("boom"));
+    expect(await loadPriorDecision("doc-1")).toEqual({ kind: "unknown" });
   });
 });

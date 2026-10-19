@@ -2,7 +2,7 @@
  * Builder D: "New review" from the landing page in three clicks or fewer,
  * "Review again" in the workspace, and the landing with the switch on / off.
  */
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -116,6 +116,26 @@ describe("NewReviewDropZone", () => {
     expect(onStarted).not.toHaveBeenCalled();
   });
 
+  it("several files dropped: the first is used and the page says so", async () => {
+    const onStarted = vi.fn();
+    render(<NewReviewDropZone onStarted={onStarted} />);
+    const second = new File(["%PDF-1.7"], "Valve datasheet rev A.pdf", { type: "application/pdf" });
+    const zone = screen.getByTestId("new-review-drop-zone").querySelector("div")!;
+    fireEvent.drop(zone, { dataTransfer: { files: [file, second] } });
+    await vi.waitFor(() => expect(onStarted).toHaveBeenCalledWith("run-1"));
+    expect(uploadOne).toHaveBeenCalledTimes(1);
+    expect(uploadOne.mock.calls[0][0]).toBe(file);
+    expect(screen.getByTestId("only-first-file")).toHaveTextContent("Only the first file was used: Pump datasheet rev B.pdf");
+  });
+
+  it("one file dropped: no note about other files", async () => {
+    const onStarted = vi.fn();
+    render(<NewReviewDropZone onStarted={onStarted} />);
+    fireEvent.drop(screen.getByTestId("new-review-drop-zone").querySelector("div")!, { dataTransfer: { files: [file] } });
+    await vi.waitFor(() => expect(onStarted).toHaveBeenCalledWith("run-1"));
+    expect(screen.queryByTestId("only-first-file")).toBeNull();
+  });
+
   it("a server refusal of the role write (404) sees plain words and no review starts", async () => {
     setRoleBulk.mockResolvedValue({ ok: false, disconnected: false, error: { code: "not_found", message: "That is not something the backend knows about." } });
     const onStarted = vi.fn();
@@ -138,15 +158,27 @@ describe("ReviewAgainButton", () => {
     expect(startReviewRun).toHaveBeenCalledWith("doc-1");
   });
 
-  it("shows a refusal exactly as the API said it", async () => {
+  it("already running: plain words, no raw run id, and a button that opens the running review", async () => {
     const words = "a review of this submittal is already queued or running (run-1)";
     startReviewRun.mockResolvedValue({ ok: false, disconnected: false, error: { code: "invalid_parameter", message: words } });
     const onStarted = vi.fn();
-    render(<ReviewAgainButton documentId="doc-1" onStarted={onStarted} />);
+    const onOpenRun = vi.fn();
+    render(<ReviewAgainButton documentId="doc-1" onStarted={onStarted} onOpenRun={onOpenRun} />);
     await userEvent.click(screen.getByRole("button", { name: "Review again" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(words);
-    expect(screen.getByRole("alert").textContent).toBe(words);
+    expect(await screen.findByRole("alert")).toHaveTextContent("A review of this document is already running");
+    expect(screen.getByRole("alert").textContent).not.toContain("run-1");
+    await userEvent.click(screen.getByRole("button", { name: "Open the review that is running" }));
+    expect(onOpenRun).toHaveBeenCalledWith("run-1");
     expect(onStarted).not.toHaveBeenCalled();
+  });
+
+  it("a non-administrator is told only an administrator can start a review (not 'not found')", async () => {
+    me.mockResolvedValue({ ok: true, data: { required: true, user: { id: "u-2", email: "sample.engineer@example.test", roles: ["engineer"] } } });
+    startReviewRun.mockResolvedValue({ ok: false, disconnected: false, error: { code: "not_found", message: "That is not something the backend knows about." } });
+    render(<ReviewAgainButton documentId="doc-1" onStarted={vi.fn()} />);
+    await userEvent.click(screen.getByRole("button", { name: "Review again" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Only an administrator can start a review.");
+    expect(screen.queryByRole("button", { name: "Open the review that is running" })).toBeNull();
   });
 });
 
