@@ -10,15 +10,7 @@ import { useState } from "react";
 import { reviews as reviewsApi } from "../../../api/client";
 import type { ReviewRunSummary } from "../../../types/api";
 import { REVIEW_CODES } from "../../../types/api";
-
-/** One sentence per default code. A configured code with no sentence here
- *  shows its own name only - never an invented explanation. */
-const CODE_WORDS: Record<string, string> = {
-  "Approved": "Everything checked meets the standard; the contractor may go ahead.",
-  "Approved with Comments": "The contractor may go ahead and must answer our comments.",
-  "Rejected / Revise and Resubmit": "The contractor must fix the comments and send it again.",
-  "Manual Review Required": "Not decided here; it needs a fuller engineering review.",
-};
+import { CODE_WORDS } from "../workspace/plainWords";
 
 export function DecisionCard({ run, onDecided }: { run: ReviewRunSummary; onDecided: () => void }) {
   const codes: readonly string[] = run.review_codes?.length ? run.review_codes : REVIEW_CODES;
