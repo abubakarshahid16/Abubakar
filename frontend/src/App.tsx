@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { auth, onSignedOut, setToken } from "./api/client";
 import {
@@ -26,6 +26,12 @@ import { ReviewSheetView } from "./views/ReviewSheetView";
 import { HowReviewedView } from "./views/HowReviewedView";
 import { SubmittalsLandingView } from "./views/SubmittalsLandingView";
 import type { AuthStatus, Me } from "./types/api";
+import { FinishedReviewNotice } from "./components/review/workspace/FinishedReviewNotice";
+import { ReviewWorkspace } from "./components/review/workspace/ReviewWorkspace";
+import { TryNewDesignToggle } from "./components/review/workspace/TryNewDesignToggle";
+import { useWorkspaceSwitch } from "./components/review/workspace/useWorkspaceSwitch";
+import { WORKSPACE_PANEL, isWorkspaceScreen, parseWorkspaceQuery, workspaceSearch } from "./components/review/workspace/workspaceRoute";
+import type { WorkspaceLocation } from "./components/review/workspace/contract";
 import { NavigationContext } from "./components/NavLink";
 import { CRS_SHEET_IS_DEFAULT, INBOX_RECORD, panelForReviewScreen, parseRoute, pathForView, reviewScreenFor, titleForView, type AppRoute } from "./routing";
 
@@ -64,15 +70,64 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
     if (initialView !== "documents") return { kind: "view", view: initialView };
     return parseRoute(window.location.pathname);
   });
+  // Workspace v2: the query string keeps the reader's place on the review
+  // workspace (tab, open row, panel). Read from the address on load, exactly
+  // like the route, so a refresh - or a sign-in in between, which sits above
+  // the Shell and leaves this state alone - lands in the same place.
+  const [search, setSearch] = useState<string>(() => {
+    if (import.meta.env.MODE === "test" || initialView !== "documents") return "";
+    return window.location.search;
+  });
   const view = route.kind === "view" ? route.view : initialView;
   const reviewScreen = route.kind === "view" && route.view === "review" ? reviewScreenFor(route.panel, CRS_SHEET_IS_DEFAULT) : null;
   const onNavigate = useCallback((next: ViewId, recordId?: string, panel?: string) => {
     const nextPath = pathForView(next, recordId, panel);
     if (import.meta.env.MODE !== "test") window.history.pushState({ __epcRoute: true }, "", nextPath);
+    setSearch("");
     setRoute({ kind: "view", view: next, recordId, ...(panel ? { panel } : {}) });
   }, []);
+  // THE WORKSPACE SWITCH: routing.WORKSPACE_IS_DEFAULT || this browser
+  // pressed "Try new design". Off: every review screen is exactly as before.
+  const workspaceSwitch = useWorkspaceSwitch();
+  const switchOn = workspaceSwitch.on;
+  const workspacePanel = route.kind === "view" ? route.panel : undefined;
+  const workspaceLocation = useMemo<WorkspaceLocation | null>(() => {
+    if (route.kind !== "view" || route.view !== "review" || !route.recordId) return null;
+    if (route.recordId === INBOX_RECORD && !route.panel) return null;
+    if (!isWorkspaceScreen(route.panel, switchOn)) return null;
+    return { runId: route.recordId, ...parseWorkspaceQuery(search) };
+  }, [route, switchOn, search]);
+  // Tab / row / panel changes replace the address: no new history entry.
+  const onWorkspaceLocationChange = useCallback((next: WorkspaceLocation) => {
+    const nextSearch = workspaceSearch(next);
+    const nextPath = pathForView("review", next.runId, workspacePanel) + nextSearch;
+    window.history.replaceState({ ...(window.history.state ?? {}), __epcRoute: true }, "", nextPath);
+    setSearch(nextSearch);
+  }, [workspacePanel]);
+  // Links from the workspace's own pieces (the finished notice, "Review
+  // again"): with the switch on, the plain run address already opens the
+  // workspace; with it off they go to the workspace's own address.
+  const openRunInWorkspace = useCallback(
+    (runId: string) => onNavigate("review", runId, switchOn ? undefined : WORKSPACE_PANEL),
+    [onNavigate, switchOn],
+  );
+  const { setOptIn } = workspaceSwitch;
+  const onTryNewDesign = useCallback((on: boolean) => {
+    setOptIn(on);
+    // Off while on the workspace's own address: back to the old screen.
+    if (!on && route.kind === "view" && route.view === "review" && route.recordId && route.panel === WORKSPACE_PANEL) {
+      onNavigate("review", route.recordId);
+    }
+  }, [setOptIn, route, onNavigate]);
+  const tryNewDesign = <TryNewDesignToggle on={switchOn} onChange={onTryNewDesign} />;
+  // SubmittalsLandingView takes `workspace` once builder D adds the prop
+  // (SPEC section 9). A spread, so this compiles before and after that merge.
+  const landingFlags = { workspace: switchOn };
   useEffect(() => {
-    const onPopState = () => setRoute(parseRoute(window.location.pathname));
+    const onPopState = () => {
+      setSearch(window.location.search);
+      setRoute(parseRoute(window.location.pathname));
+    };
     window.addEventListener("popstate", onPopState);
     return () => {
       window.removeEventListener("popstate", onPopState);
@@ -280,6 +335,9 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
         )
       }
     >
+      {/* Workspace v2: "Your review is ready" on any page (it renders
+          nothing until a watched review finishes). */}
+      <FinishedReviewNotice onOpenRun={openRunInWorkspace} />
       {/* ONE connection-level error at a time. With the backend down this
           rendered its banner AND let the view render its own failed-request
           card, so an amber "backend is not running" and a red "HTTP 502"
@@ -352,12 +410,30 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
               sheet since the owner's yes, order 115). The card view is also at
               `/review/<run>/cards`, the new comment sheet at
               `/review/<run>/crs-sheet`, whichever is the default. */}
-          {view === "review" && !(route.kind === "view" && route.panel === "how") && (
-            route.kind === "view" && route.recordId === INBOX_RECORD && !route.panel ? (
-              <SubmittalsLandingView
-                inbox onOpenRun={(runId) => onNavigate("review", runId)}
-                onOpenList={() => onNavigate("review")}
+          {/* Workspace v2: `/review/<run>/workspace` always, `/review/<run>`
+              only with the switch on (isWorkspaceScreen). */}
+          {view === "review" && workspaceLocation && (
+            <>
+              {tryNewDesign}
+              <ReviewWorkspace
+                key={workspaceLocation.runId} location={workspaceLocation}
+                onLocationChange={onWorkspaceLocationChange}
+                onBack={() => onNavigate("review")}
+                onOpenRun={openRunInWorkspace}
+                isAdmin={canAdmin}
               />
+            </>
+          )}
+          {view === "review" && !workspaceLocation && !(route.kind === "view" && route.panel === "how") && (
+            route.kind === "view" && route.recordId === INBOX_RECORD && !route.panel ? (
+              <>
+                {tryNewDesign}
+                <SubmittalsLandingView
+                  {...landingFlags}
+                  inbox onOpenRun={(runId) => onNavigate("review", runId)}
+                  onOpenList={() => onNavigate("review")}
+                />
+              </>
             ) : route.kind === "view" && route.recordId ? (
               reviewScreen?.screen === "cards" ? (
                 <ReviewSheetView
@@ -376,10 +452,14 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
                 />
               )
             ) : (
-              <SubmittalsLandingView
-                onOpenRun={(runId) => onNavigate("review", runId)}
-                onOpenInbox={() => onNavigate("review", INBOX_RECORD)}
-              />
+              <>
+                {tryNewDesign}
+                <SubmittalsLandingView
+                  {...landingFlags}
+                  onOpenRun={(runId) => onNavigate("review", runId)}
+                  onOpenInbox={() => onNavigate("review", INBOX_RECORD)}
+                />
+              </>
             )
           )}
           {/* `canAdmin &&` is the gate, not the absence of a nav entry. Setting

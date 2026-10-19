@@ -24,7 +24,9 @@ export const PANELS: Partial<Record<ViewId, readonly string[]>> = {
   // page behind the scenes (#967 PR 3), so the new sheet cannot share it.
   // "how" (order 95 piece 5): the audit page "How this was reviewed" - a
   // page of its own (`HowReviewedView`), not a Behind-the-scenes panel.
-  review: ["cards", "crs-sheet", "findings", "standards", "steps", "numbers", "crs", "how"],
+  // "workspace" (workspace v2): the one-screen review workspace. Its own
+  // address always opens it, whichever value WORKSPACE_IS_DEFAULT has.
+  review: ["cards", "crs-sheet", "findings", "standards", "steps", "numbers", "crs", "how", "workspace"],
 };
 
 /**
