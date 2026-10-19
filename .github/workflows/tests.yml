@@ -214,6 +214,11 @@ jobs:
         run: python scripts/check_unused_modules.py
       - name: System map is complete
         run: python scripts/check_system_map.py
+      # Order 119.1: contracts/generated/*.ts are written from the backend's
+      # pydantic models; a hand edit, or a model changed without regenerating,
+      # fails here with the diff.
+      - name: Generated contract types match the backend models
+        run: python scripts/gen_contract_types.py --check
       # docs/flags.md lists every boolean setting (#736). The decide-by dates
       # are checked nightly only (order 46): a PR never turns red on a date.
       - name: Every boolean setting is in docs/flags.md
