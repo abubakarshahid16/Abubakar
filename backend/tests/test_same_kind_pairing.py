@@ -550,3 +550,28 @@ def test_a_long_subject_is_cut_with_an_ellipsis():
         _req("x" * 130), _fact("efficiency", "82", "%")
     )
     assert "x" * 120 + "..." in reason
+
+
+def test_the_fields_own_place_in_the_subject_is_where_it_stands_whole():
+    """Measured on stored sheets: the first 'pressure' of "the pressure relief
+    device set pressure" is not where the field "Set pressure" stands, and a
+    participle after it ("marked") names no other thing."""
+    set_pressure = _fact("set pressure", "10", "barg")
+    for subject in (
+        "(c) The pressure relief device set pressure",
+        "set pressure marked on the device",
+    ):
+        req = _req(subject, None, None, kind="statement")
+        assert match_rules.quantity_kind_doubt(req, set_pressure) is None
+
+
+def test_a_joint_field_is_the_weld_joint():
+    weld = _req("the weld joint efficiency", "85", "%")
+    assert (
+        match_rules.quantity_kind_doubt(weld, _fact("joint efficiency", "0.85", None))
+        is None
+    )
+    # a pump's plain efficiency is still not the weld joint's
+    assert (
+        match_rules.quantity_kind_doubt(weld, _fact("efficiency", "82", "%")) == UNSURE
+    )

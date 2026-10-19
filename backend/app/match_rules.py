@@ -595,7 +595,7 @@ def _field_place(requirement: dict, fact: dict) -> dict | None:
     tokens = _tokens(requirement.get("subject"))
     if not field or field[-1] not in tokens:
         return None
-    at = tokens.index(field[-1])
+    at = _field_end(tokens, fact, field[-1])
     own = set(field) | set(
         _tokens(
             " ".join(
@@ -636,12 +636,27 @@ def _field_place(requirement: dict, fact: dict) -> dict | None:
         and after[0] not in _CONJUNCTIONS
         and after[0] not in _word_set("generic_heads")
         and not claims.is_unit(after[0])
+        and not after[0].endswith("ed")  # "set pressure MARKED on the device"
     ):
         next_word = after[0]
     late = any(w in _word_set("phrase_end") for w in tokens[:at]) and not any(
         w in _CONJUNCTIONS for w in tokens[:at]
     )
     return {"modifiers": modifiers, "next_word": next_word, "late": late}
+
+
+def _field_end(tokens: list[str], fact: dict, head: str) -> int:
+    """Index of the field's last word in the subject: the LAST place the
+    field's own name stands whole ("the pressure relief device SET PRESSURE"),
+    else the last place its last word does."""
+    name = [w for w in _tokens(fact.get("field_name")) if w[0].isalnum()]
+    n = len(name)
+    whole = [
+        i + n - 1 for i in range(len(tokens) - n + 1) if n and tokens[i : i + n] == name
+    ]
+    if whole:
+        return whole[-1]
+    return len(tokens) - 1 - tokens[::-1].index(head)
 
 
 def quantity_kind_doubt(requirement: dict, fact: dict | None) -> str | None:
