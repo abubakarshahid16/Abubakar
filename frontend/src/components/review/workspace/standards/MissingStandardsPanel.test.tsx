@@ -9,16 +9,21 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  ADMIN_UPLOADED_MESSAGE, ALREADY_IN_LIBRARY_MESSAGE, MissingStandardsPanel, NON_ADMIN_UPLOADED_MESSAGE,
+  ADMIN_ONLY_REVIEW_MESSAGE, ALREADY_IN_LIBRARY_MESSAGE, MissingStandardsPanel, NON_ADMIN_UPLOADED_MESSAGE,
+  NOT_CHECKED_MESSAGE, READ_IN_READY_MESSAGE, READING_IN_MESSAGE,
 } from "./MissingStandardsPanel";
 
 const uploadOne = vi.fn();
 const me = vi.fn();
 const setRoleBulk = vi.fn();
 const uploadDisciplines = vi.fn();
+const documentRead = vi.fn();
 vi.mock("../../../Uploader", () => ({ uploadOne: (...a: unknown[]) => uploadOne(...a) }));
 vi.mock("../../../../api/client", () => ({
-  api: { uploadDisciplines: (...a: unknown[]) => uploadDisciplines(...a) },
+  api: {
+    uploadDisciplines: (...a: unknown[]) => uploadDisciplines(...a),
+    document: (...a: unknown[]) => documentRead(...a),
+  },
   auth: { me: (...a: unknown[]) => me(...a) },
   classification: { setRoleBulk: (...a: unknown[]) => setRoleBulk(...a) },
 }));
@@ -31,6 +36,7 @@ beforeEach(() => {
   me.mockReset().mockResolvedValue({ ok: true, data: { required: true, user: { roles: ["engineer"] } } });
   setRoleBulk.mockReset().mockResolvedValue({ ok: true, data: { updated: ["doc-new"], failed: [] } });
   uploadDisciplines.mockReset().mockResolvedValue({ ok: true, data: { required: true, default: ["Mechanical"], choices: ["Mechanical"] } });
+  documentRead.mockReset().mockResolvedValue({ ok: true, data: { id: "doc-new", status: "ready" } });
 });
 
 function show(over: Partial<Parameters<typeof MissingStandardsPanel>[0]> = {}) {
@@ -52,7 +58,7 @@ describe("Upload missing standards (T1)", () => {
     me.mockResolvedValue({ ok: true, data: { required: true, user: { roles: ["admin"] } } });
     show();
     await userEvent.upload(screen.getByLabelText("File for API 610"), pdf());
-    expect(await screen.findByRole("status")).toHaveTextContent(ADMIN_UPLOADED_MESSAGE);
+    expect(await screen.findByText(READ_IN_READY_MESSAGE)).toBeInTheDocument();
     expect(uploadOne).toHaveBeenCalledWith(expect.any(File), ["Mechanical"], expect.any(Function));
     expect(setRoleBulk).toHaveBeenCalledWith({ document_ids: ["doc-new"], document_role: "COMPANY_STANDARD" });
   });
@@ -98,5 +104,43 @@ describe("Upload missing standards (T1)", () => {
     expect(screen.getByText("No standards are missing")).toBeInTheDocument();
     expect(screen.queryAllByTestId("missing-standard")).toHaveLength(0);
     expect(screen.getByRole("button", { name: "Review again" })).toBeEnabled();
+  });
+
+  /** Round 2 item 8. MUTATION PROOF: say "No standards are missing" whatever
+   *  `known` says and this fails. */
+  it("a list that could not be checked is said as such, never as none missing", () => {
+    show({ missing: [], known: false });
+    expect(screen.getByText(NOT_CHECKED_MESSAGE)).toBeInTheDocument();
+    expect(screen.queryByText("No standards are missing")).toBeNull();
+  });
+
+  /** Round 2 item 8. MUTATION PROOF: skip the wait (say "done" at once) and
+   *  "Reading it in" never shows: this fails. */
+  it("after an administrator's upload it waits for the file to be read in, then says to review again", async () => {
+    me.mockResolvedValue({ ok: true, data: { required: true, user: { roles: ["admin"] } } });
+    let answer: (v: unknown) => void = () => {};
+    documentRead.mockReturnValueOnce(new Promise((resolve) => { answer = resolve; }));
+    show();
+    await userEvent.upload(screen.getByLabelText("File for API 610"), pdf());
+    expect(await screen.findByText(READING_IN_MESSAGE)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Upload API 610" })).toBeDisabled();
+    answer({ ok: true, data: { id: "doc-new", status: "ready" } });
+    expect(await screen.findByText(READ_IN_READY_MESSAGE)).toBeInTheDocument();
+    expect(documentRead).toHaveBeenCalledWith("doc-new");
+  });
+
+  it("a file that cannot be read in says why", async () => {
+    me.mockResolvedValue({ ok: true, data: { required: true, user: { roles: ["admin"] } } });
+    documentRead.mockResolvedValue({ ok: false, disconnected: false, error: { code: "not_found", message: "gone" } });
+    show();
+    await userEvent.upload(screen.getByLabelText("File for API 610"), pdf());
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+  });
+
+  /** Round 2 item 8. MUTATION PROOF: show the button whatever `isAdmin` says. */
+  it("someone who is not an administrator is not offered Review again, and is told why", () => {
+    show({ isAdmin: false });
+    expect(screen.queryByRole("button", { name: "Review again" })).toBeNull();
+    expect(screen.getByTestId("ws-missing-admin-only")).toHaveTextContent(ADMIN_ONLY_REVIEW_MESSAGE);
   });
 });

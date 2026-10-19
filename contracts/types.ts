@@ -907,6 +907,23 @@ export interface CrsIssueDecisionList {
   decisions: CrsIssueDecision[];
 }
 
+/** PF5 (#885): one contractor copy exactly as issued (backend
+ *  schemas.CrsIssuedCopy). Read only. */
+export interface CrsIssuedCopy {
+  id: string;
+  review_run_id: string;
+  filename: string;
+  sha256: string;
+  size_bytes: number;
+  issued_by: string;
+  issued_at: string;
+}
+
+/** PF5 (#885): a run's issued copies, newest first. */
+export interface CrsIssuedCopyList {
+  copies: CrsIssuedCopy[];
+}
+
 /** PF4 (#884): a run's applicable rules, each in exactly one state. */
 export interface ClauseCoverage {
   review_run_id: string;

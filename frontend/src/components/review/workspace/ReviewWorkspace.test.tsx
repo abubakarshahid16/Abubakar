@@ -8,7 +8,7 @@
  * the sheet always and the restore test fails; pass `null` as openRowKey and
  * the open-row test fails.
  */
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -32,8 +32,10 @@ const issueGateFor = vi.fn();
 vi.mock("../crs/issueGate", () => ({
   useIssueGate: (runId: string) => { issueGateFor(runId); return { gate: null, error: null, reload: vi.fn() }; },
 }));
+/** What the mocked numbers answer now (a test may sign the review). */
+let numbersNow: ReviewNumbers = NUMBERS;
 vi.mock("./numbers", () => ({
-  computeReviewNumbers: () => NUMBERS,
+  computeReviewNumbers: () => numbersNow,
   actionSteps: () => [
     { id: "standards", label: "Upload missing standards (1)", count: 1, done: false, enabled: true },
     { id: "pages", label: "Check unread pages (1)", count: 1, done: false, enabled: true },
@@ -64,10 +66,14 @@ vi.mock("./newReview", () => ({
   reviewAgain: (...a: unknown[]) => reviewAgain(...a),
   loadPriorDecision: (...a: unknown[]) => loadPriorDecision(...a),
 }));
-vi.mock("./decide/useSignerName", () => ({ useSignerName: () => "Sam Engineer" }));
+vi.mock("./decide/useSignerName", () => ({
+  useSignerName: () => "Sam Engineer", useSigner: () => ({ name: "Sam Engineer", signInOff: false }),
+}));
 vi.mock("./sign/SignConfirm", () => ({
-  SignConfirm: ({ open, summary, onClose }: { open: boolean; summary: object; onClose: () => void }) => (open ? (
-    <div role="dialog" aria-label="Preview and confirm">
+  SignConfirm: ({ open, summary, onClose, newerReview }: {
+    open: boolean; summary: object; onClose: () => void; newerReview?: { at: string | null } | null;
+  }) => (open ? (
+    <div role="dialog" aria-label="Preview and confirm" data-newer={newerReview ? newerReview.at ?? "unknown" : "none"}>
       <p data-testid="sign-summary">{JSON.stringify(summary)}</p>
       <button type="button" onClick={onClose}>Cancel signing</button>
     </div>
@@ -103,8 +109,8 @@ vi.mock("./useSignOff", async () => {
   };
 });
 vi.mock("./WorkspaceSheet", () => ({
-  WorkspaceSheet: ({ rows, openRowKey, onOpenRow, footer, decisions }: WorkspaceSheetProps) => (
-    <div data-testid="ws-sheet">
+  WorkspaceSheet: ({ rows, openRowKey, onOpenRow, footer, decisions, readOnly }: WorkspaceSheetProps & { readOnly?: boolean }) => (
+    <div data-testid="ws-sheet" data-read-only={readOnly ? "true" : "false"}>
       <button type="button" onClick={() => decisions.keep("row-b")}>Keep row-b</button>
       <p>{`open row: ${openRowKey ?? "none"}`}</p>
       {rows.map((r) => <button key={r.key} type="button" onClick={() => onOpenRow(r.key)}>{`row ${r.key}`}</button>)}
@@ -117,16 +123,16 @@ vi.mock("./WorkspaceSheet", () => ({
 // panel's "Review again") is the real rule, over the mocked API above.
 vi.mock("./ReviewAgainButton", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./ReviewAgainButton")>()),
-  ReviewAgainButton: ({ documentId, onStarted, mayStart, beforeStart, onOpenRun: openRunning }: {
+  ReviewAgainButton: ({ documentId, onStarted, mayStart, beforeStart, onOpenRun: openRunning, label }: {
     documentId: string; onStarted: (id: string) => void; mayStart?: () => boolean; onOpenRun?: (id: string) => void;
-    beforeStart?: (go: () => void) => void;
+    beforeStart?: (go: () => void) => void; label?: string;
   }) => (
     <>
       <button type="button" onClick={() => {
         const go = () => { startReviewRun(documentId); onStarted("run-2"); };
         if (beforeStart) beforeStart(go); else if (!mayStart || mayStart()) go();
       }}>
-        {`Review again ${documentId}`}
+        {`${label ?? "Review again"} ${documentId}`}
       </button>
       {/* As the real button: the running review opens through onOpenRun, else onStarted. */}
       <button type="button" onClick={() => (openRunning ?? onStarted)("run-running")}>Open the review that is running</button>
@@ -192,6 +198,7 @@ beforeEach(() => {
   loadPriorDecision.mockReset().mockResolvedValue({ kind: "none" });
   window.sessionStorage.clear();
   data.mockReturnValue(ready());
+  numbersNow = NUMBERS;
   vi.restoreAllMocks();
 });
 
@@ -285,7 +292,7 @@ describe("ReviewWorkspace", () => {
     expect(rawSign).toHaveBeenCalledTimes(1);
     expect(screen.getAllByRole("dialog", { name: "Preview and confirm" })).toHaveLength(1);
     expect(screen.getByRole("dialog", { name: "Preview and confirm" })).toBeInTheDocument();
-    expect(JSON.parse(screen.getByTestId("sign-summary").textContent!)).toEqual({ comments: 3, finalCode: null, signer: "Sam Engineer" });
+    expect(JSON.parse(screen.getByTestId("sign-summary").textContent!)).toEqual({ comments: 3, finalCode: null, signer: "Sam Engineer", signInOff: false });
     // The evidence panel closed for the dialog.
     expect(changes.at(-1)).toMatchObject({ row: null, panel: null });
     await user.click(screen.getByRole("button", { name: "Cancel signing" }));
@@ -473,12 +480,70 @@ describe("ReviewWorkspace", () => {
     expect(confirm).not.toHaveBeenCalled();
   });
 
+  /** Round 2 item 3. MUTATION PROOF: go back to `run.status === "failed"`
+   *  as the only not-finished state and the cancelled review shows an empty
+   *  sheet: this fails. */
+  it("a cancelled review, or one in a state this screen does not know, says so and offers New review", async () => {
+    const user = userEvent.setup();
+    data.mockReturnValue(ready({ run: run({ status: "cancelled" }) }));
+    const first = render(<Harness initial={{}} />);
+    expect(screen.getByTestId("ws-not-finished")).toHaveTextContent("This review was cancelled before it finished");
+    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "New review doc-sub" }));
+    expect(startReviewRun).toHaveBeenCalledWith("doc-sub");
+    expect(onOpenRun).toHaveBeenCalledWith("run-2");
+    first.unmount();
+
+    data.mockReturnValue(ready({ run: run({ status: "stalled" }) }));
+    render(<Harness initial={{}} />);
+    expect(screen.getByTestId("ws-not-finished")).toHaveTextContent("This review did not finish, so there is no sheet to show.");
+    expect(screen.getByRole("button", { name: "New review doc-sub" })).toBeInTheDocument();
+  });
+
+  /** Round 2 item 4. MUTATION PROOF: drop the newer-review line (or stop
+   *  passing `newerReview` to SignConfirm) and this fails. */
+  it("an older review says a newer one exists, opens it, and Sign is told it is older", async () => {
+    const user = userEvent.setup();
+    const newer = run({ review_run_id: "run-9", created_at: "2026-10-18T09:00:00Z" });
+    data.mockReturnValue({ ...ready(), newerRun: newer } as WorkspaceRunData);
+    render(<Harness initial={{}} />);
+    const line = screen.getByTestId("ws-newer-review");
+    expect(line).toHaveTextContent(`A newer review of this document exists (${new Date("2026-10-18T09:00:00Z").toLocaleDateString()}).`);
+    await user.click(screen.getByRole("button", { name: "Sign and export" }));
+    expect(screen.getByRole("dialog", { name: "Preview and confirm" })).toHaveAttribute(
+      "data-newer", new Date("2026-10-18T09:00:00Z").toLocaleDateString());
+    await user.click(screen.getByRole("button", { name: "Cancel signing" }));
+    await user.click(within(line).getByRole("button", { name: "Open it" }));
+    expect(onOpenRun).toHaveBeenCalledWith("run-9");
+  });
+
+  it("the newest review shows no newer-review line and Sign is not told otherwise", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={{}} />);
+    expect(screen.queryByTestId("ws-newer-review")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Sign and export" }));
+    expect(screen.getByRole("dialog", { name: "Preview and confirm" })).toHaveAttribute("data-newer", "none");
+  });
+
+  /** Round 2 item 8. MUTATION PROOF: show the header button whatever
+   *  `isAdmin` says and this fails. */
+  it("someone who is not an administrator is not offered Review again, and is told why", () => {
+    render(
+      <ReviewWorkspace
+        location={{ runId: "run-1", tab: "sheet", row: null, panel: null, documentId: "doc-sub" }}
+        onLocationChange={() => {}} onBack={onBack} onOpenRun={onOpenRun} isAdmin={false}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Review again doc-sub" })).toBeNull();
+    expect(screen.getByTestId("ws-review-again-admin-only")).toHaveTextContent("Only an administrator can start a review.");
+  });
+
   it('a failed review offers "Review again", which starts a new review and opens it', async () => {
     const user = userEvent.setup();
     data.mockReturnValue(ready({ run: run({ status: "failed", failure_reason: "the reader stopped" }) }));
     render(<Harness initial={{}} />);
     expect(screen.getByRole("alert")).toHaveTextContent("This review failed: the reader stopped");
-    await user.click(screen.getByRole("button", { name: "Review again doc-sub" }));
+    await user.click(screen.getByRole("button", { name: "New review doc-sub" }));
     expect(startReviewRun).toHaveBeenCalledWith("doc-sub");
     expect(onOpenRun).toHaveBeenCalledWith("run-2");
   });
@@ -577,6 +642,25 @@ describe("ReviewWorkspace saving", () => {
       await act(async () => { vi.advanceTimersByTime(2000); });
       expect(saveCrsDecisions).toHaveBeenCalledTimes(1);
       expect(saveCrsDecisions.mock.calls[0][3]).toEqual(["row-b"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  /** Round 2 item 1. MUTATION PROOF: drop `disabled: numbers.signed` from
+   *  useAutosave (or `readOnly` from the sheet) and this fails. */
+  it("a signed review is read only: no Keep all, the sheet is read only, and nothing is saved", async () => {
+    numbersNow = { ...NUMBERS, signed: true, signedAt: "2026-10-16T10:00:00Z" };
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      render(<Harness initial={{}} />);
+      expect(screen.getByTestId("ws-sheet")).toHaveAttribute("data-read-only", "true");
+      expect(screen.queryByTestId("ws-keep-all")).toBeNull();
+      // Even an edit that reached the decisions some other way is never sent.
+      await user.click(screen.getByRole("button", { name: "Keep row-b" }));
+      await act(async () => { vi.advanceTimersByTime(10000); });
+      expect(saveCrsDecisions).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }

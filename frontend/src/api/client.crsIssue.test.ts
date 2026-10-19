@@ -50,3 +50,16 @@ describe("exportCrs", () => {
     }
   });
 });
+
+/** Round 2 item 6: downloading a copy already issued is a read (GET), never
+ *  the issuing POST. */
+describe("issuedCrsCopy", () => {
+  it("fetches one issued copy with a GET to its own route", async () => {
+    const fetchMock = respond(file('attachment; filename="CRS_a_issued.xlsx"'));
+    const result = await reviews.issuedCrsCopy("run-1", "copy-7");
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/reviews\/runs\/run-1\/crs\/issued\/copy-7$/);
+    expect(init?.method).toBe("GET");
+    expect(result.ok && result.data.filename).toBe("CRS_a_issued.xlsx");
+  });
+});

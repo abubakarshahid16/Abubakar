@@ -23,6 +23,18 @@
  * in-page guard (`leaveGuard`, useLeaveGuard), never window.confirm. Every
  * "Review again" (header and missing standards panel) uses the same rule,
  * useReviewAgain.
+ *
+ * v2.1 round 2 (F1):
+ *  - A signed review is READ ONLY: no decision panel, no Keep / Edit /
+ *    Remove, no table keys, no "Keep all remaining", and automatic saving is
+ *    off (`disabled: numbers.signed`). The footer says "Signed on <date>"
+ *    and the sign-off offers "Download the issued copy".
+ *  - Any run that did not complete (failed, cancelled, or a status this
+ *    screen does not know) shows a plain sentence and a "New review" button,
+ *    never an empty sheet.
+ *  - Opening an older review when a newer review of the same document exists
+ *    says so with a link to the newer one, and Sign asks first.
+ *  - "Review again" is not offered to someone who is not an administrator.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
@@ -37,7 +49,7 @@ import { CrsFooter } from "../crs/CrsFooter";
 import { CrsTabPanel } from "./crs/CrsTabPanel";
 import { KeepAllRemaining } from "./decide/KeepAllRemaining";
 import { useAutosave } from "./decide/useAutosave";
-import { useSignerName } from "./decide/useSignerName";
+import { useSigner } from "./decide/useSignerName";
 import { SignConfirm } from "./sign/SignConfirm";
 import { MissingStandardsPanel } from "./standards/MissingStandardsPanel";
 import { ActionBar } from "./ActionBar";
@@ -72,12 +84,28 @@ function isTab(value: string | undefined): value is WorkspaceTab {
   return value !== undefined && (WORKSPACE_TABS as readonly string[]).includes(value);
 }
 
-/** Queued / running / failed: the same states and words CrsSheetView shows.
- *  A failed run also offers "Review again", so a document whose last review
- *  failed is never a dead end. */
-function RunNotReady({ run, active, onBack, onChanged, onOpenRun, openRun, beforeStart }: {
+/** Why a review that is not running has no sheet, in one plain sentence. */
+export function notFinishedWords(run: ReviewRunSummary): string {
+  if (run.status === "failed") return `This review failed${run.failure_reason ? `: ${run.failure_reason}` : "."}`;
+  if (run.status === "cancelled") return "This review was cancelled before it finished, so there is no sheet to show.";
+  return "This review did not finish, so there is no sheet to show.";
+}
+
+/** "15 Oct 2026" style date for the newer-review line; "" when not known. */
+function dayOf(value: string | null | undefined): string {
+  if (!value) return "";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString();
+}
+
+/** Queued / running / anything else that is not "completed": the same
+ *  states and words CrsSheetView shows. A run that did not finish (failed,
+ *  cancelled or unknown) says why in plain words and offers "New review",
+ *  so a document whose last review did not finish is never a dead end. */
+function RunNotReady({ run, active, onBack, onChanged, onOpenRun, openRun, beforeStart, isAdmin, runs }: {
   run: ReviewRunSummary; active: boolean; onBack: () => void; onChanged: () => void;
   onOpenRun: (runId: string) => void; openRun: (runId: string) => void; beforeStart: (go: () => void) => void;
+  isAdmin?: boolean; runs?: ReviewRunSummary[];
 }) {
   return (
     <section className="mx-auto w-full max-w-7xl space-y-3" aria-labelledby="ws-title" data-testid="review-workspace">
@@ -92,10 +120,13 @@ function RunNotReady({ run, active, onBack, onChanged, onOpenRun, openRun, befor
         </>
       ) : (
         <>
-          <p role="alert" className="text-danger-500">This review failed{run.failure_reason ? `: ${run.failure_reason}` : "."}</p>
-          {run.submittal_document_id && (
-            <ReviewAgainButton documentId={run.submittal_document_id} filename={run.submittal_filename}
-              beforeStart={beforeStart} onStarted={onOpenRun} onOpenRun={openRun} />
+          <p role="alert" data-testid="ws-not-finished" className="text-danger-500">{notFinishedWords(run)}</p>
+          {run.submittal_document_id && isAdmin !== false && (
+            <ReviewAgainButton documentId={run.submittal_document_id} filename={run.submittal_filename} label="New review"
+              runs={runs} beforeStart={beforeStart} onStarted={onOpenRun} onOpenRun={openRun} />
+          )}
+          {run.submittal_document_id && isAdmin === false && (
+            <p className="text-sm text-slateish-400">Only an administrator can start a review.</p>
           )}
         </>
       )}
@@ -104,10 +135,14 @@ function RunNotReady({ run, active, onBack, onChanged, onOpenRun, openRun, befor
   );
 }
 
-export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun, onUnsavedChange, leaveGuard }: ReviewWorkspaceProps) {
+export function ReviewWorkspace({
+  location, onLocationChange, onBack, onOpenRun, onUnsavedChange, leaveGuard, isAdmin,
+}: ReviewWorkspaceProps) {
   const { runId } = location;
   const data = useWorkspaceRun(runId);
   const { load, run, findings, rows, standardsState, missingStandardIds, standardNames, submittal, summary, readiness, active, refresh, refreshError } = data;
+  const documentRuns = data.documentRuns ?? undefined;
+  const newerRun = data.newerRun ?? null;
   const decisions = useCrsDecisions();
   // The issue gate, read exactly as the comment sheet reads it (again
   // whenever the run or its findings are): what the server still wants
@@ -175,21 +210,21 @@ export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun,
   const undoKeepAll = useCallback(() => { decisions.undo(); endUndo(); }, [decisions, endUndo]);
   const canUndo = undoOffered && decisions.canUndo;
 
-  // D4: decisions save by themselves.
-  const autosaveRaw = useAutosave({ runId, rows, decisions, refresh, paused: canUndo });
-  // "Save now" ends the Undo offer: the reader chose to put them on record.
-  const autosave = useMemo(() => ({
-    ...autosaveRaw, saveNow: async () => { endUndo(); await autosaveRaw.saveNow(); },
-  }), [autosaveRaw, endUndo]);
-
   const numbers = useMemo(() => (run ? computeReviewNumbers({
     run, findings, rows, summary,
     missingStandards: missingStandardIds,
     readiness, decisions: decisions.state, unsaved: decisions.unsaved, gate: issueGate.gate,
   }) : null), [run, findings, rows, summary, missingStandardIds, readiness, decisions.state, decisions.unsaved, issueGate.gate]);
+  // D4: decisions save by themselves; never on a signed review (read only).
+  const autosaveRaw = useAutosave({ runId, rows, decisions, refresh, paused: canUndo, disabled: numbers?.signed ?? false });
+  // "Save now" ends the Undo offer: the reader chose to put them on record.
+  const autosave = useMemo(() => ({
+    ...autosaveRaw, saveNow: async () => { endUndo(); await autosaveRaw.saveNow(); },
+  }), [autosaveRaw, endUndo]);
+
   const steps = useMemo(() => (numbers ? actionSteps(numbers) : []), [numbers]);
   const signOffRaw = useSignOff({ runId, rows, decisions, refresh, numbers });
-  const signer = useSignerName();
+  const signer = useSigner();
   // S2: Sign (from the bar or the sign-off panel) runs the issuing checks in
   // useSignOff and, when nothing is left, opens the ONE preview-and-confirm
   // step below (useSignOff owns whether it is open). Only its "Issue to
@@ -275,17 +310,22 @@ export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun,
   const refreshLine = refreshError
     ? <p role="status" data-testid="ws-refresh-error" className="text-sm text-slateish-400">{refreshError}</p>
     : null;
-  if (active || run.status === "failed") {
+  // Only a completed review has a sheet: anything else (failed, cancelled,
+  // a status this screen does not know) says so in plain words.
+  if (active || run.status !== "completed") {
     return (
       <>
         {leaveQuestion}
-        <RunNotReady run={run} active={active} onBack={leave} onChanged={() => void refresh()} onOpenRun={onOpenRun} openRun={openRun} beforeStart={beforeLeave} />
+        <RunNotReady run={run} active={active} onBack={leave} onChanged={() => void refresh()} onOpenRun={onOpenRun}
+          openRun={openRun} beforeStart={beforeLeave} isAdmin={isAdmin} runs={documentRuns} />
         {refreshLine}
       </>
     );
   }
 
   const restored = decisions.restored ?? 0;
+  const readOnly = numbers.signed;
+  const newerAt = newerRun ? dayOf(newerRun.created_at) : "";
   const tab = location.tab;
   const panelOpen = tab === "sheet" && openRowKey !== null;
   const missingNames = numbers.standardsKnown ? numbers.missingStandards : (missingStandardIds ?? []);
@@ -304,11 +344,26 @@ export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun,
         <h1 id="ws-title" className="min-w-0 flex-1 truncate text-2xl font-semibold text-slateish-100">
           {run.submittal_filename ?? "Review"}
         </h1>
-        {run.submittal_document_id && (
+        {run.submittal_document_id && isAdmin !== false && (
           <ReviewAgainButton documentId={run.submittal_document_id} filename={run.submittal_filename}
-            beforeStart={beforeLeave} onStarted={onOpenRun} onOpenRun={openRun} />
+            runs={documentRuns} beforeStart={beforeLeave} onStarted={onOpenRun} onOpenRun={openRun} />
+        )}
+        {run.submittal_document_id && isAdmin === false && (
+          <span data-testid="ws-review-again-admin-only" className="text-xs text-slateish-400">
+            Only an administrator can start a review.
+          </span>
         )}
       </header>
+      {newerRun && (
+        <p role="status" data-testid="ws-newer-review"
+          className="flex flex-wrap items-center gap-2 rounded-[var(--radius-sm)] border border-warn-500/50 bg-warn-500/10 px-3 py-2 text-sm text-slateish-100">
+          <span>A newer review of this document exists{newerAt ? ` (${newerAt})` : ""}.</span>
+          <button type="button" onClick={() => openRun(newerRun.review_run_id)}
+            className="font-semibold text-signal-300 underline-offset-2 hover:underline">
+            Open it
+          </button>
+        </p>
+      )}
 
       <ActionBar run={run} numbers={numbers} steps={steps} onAction={onAction} signOff={signOff}
         autosave={autosave} onCodeRecorded={() => { void refresh(); void issueGate.reload(); }} />
@@ -326,7 +381,7 @@ export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun,
       {standardsOpen && (
         <div className="space-y-2">
           <MissingStandardsPanel runId={runId} documentId={run.submittal_document_id ?? null} missing={missingList}
-            onReviewAgain={standardsAgain.press} />
+            onReviewAgain={standardsAgain.press} known={numbers.standardsKnown} isAdmin={isAdmin} />
           {standardsAgain.busy && <p role="status" className="text-sm text-slateish-400">Starting a new review…</p>}
           <div className="flex flex-col items-start gap-1">{standardsAgain.question}</div>
           <button type="button" onClick={() => { setStandardsOpen(false); go({ tab: "standards" }); }}
@@ -338,19 +393,20 @@ export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun,
       <SignConfirm
         runId={runId} open={signOffRaw.confirmOpen} onClose={signOffRaw.closeConfirm}
         onIssued={() => { void issueGate.reload(); }}
-        summary={{ comments: numbers.comments, finalCode: numbers.finalCode, signer }}
+        summary={{ comments: numbers.comments, finalCode: numbers.finalCode, signer: signer.name, signInOff: signer.signInOff }}
+        newerReview={newerRun ? { at: newerAt || null } : null}
       />
 
       <WorkspaceTabs tab={tab} onTab={onTab}>
         {tab === "sheet" && (
           <div className="space-y-2">
             <SheetCountsLine numbers={numbers} />
-            {!numbers.signed && (
+            {!readOnly && (
               <KeepAllRemaining count={numbers.remainingToKeep} onKeep={keepAll} canUndo={canUndo} onUndo={undoKeepAll} />
             )}
             <WorkspaceSheet
               runId={runId} run={run} rows={rows} submittal={submittal} standardNames={standardNames}
-              decisions={decisions} openRowKey={openRowKey} onOpenRow={onOpenRow} numbers={numbers}
+              decisions={decisions} openRowKey={openRowKey} onOpenRow={onOpenRow} numbers={numbers} readOnly={readOnly}
               footer={(
                 <>
                   <SignOffPanel numbers={numbers} signOff={signOff} run={run} rows={rows} gate={issueGate}
@@ -364,6 +420,7 @@ export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun,
                     }}
                     standards={standardsState.standards} missing={standardsState.missing}
                     standardsError={standardsState.error} rejected={numbers.removed}
+                    signedAt={numbers.signedAt}
                   />
                 </>
               )}

@@ -30,6 +30,9 @@ export interface UseAutosaveArgs {
   refresh: () => Promise<void>;
   /** Hold saving (an Undo is on offer). */
   paused?: boolean;
+  /** Save nothing and start no timer (a signed review). Edits on screen stay
+   *  unsaved and visible. */
+  disabled?: boolean;
   delayMs?: number;
 }
 
@@ -43,7 +46,9 @@ function failureWords(failed: { message: string }[]): string {
   return failed.length === 1 ? first : `${failed.length} decisions did not save. ${first}`;
 }
 
-export function useAutosave({ runId, rows, decisions, refresh, paused = false, delayMs = AUTOSAVE_DELAY_MS }: UseAutosaveArgs): AutosaveStatus {
+export function useAutosave({
+  runId, rows, decisions, refresh, paused = false, disabled = false, delayMs = AUTOSAVE_DELAY_MS,
+}: UseAutosaveArgs): AutosaveStatus {
   const [phase, setPhase] = useState<AutosaveStatus["phase"]>("idle");
   const [message, setMessage] = useState<string | null>(null);
   const latest = useRef({ rows, decisions, refresh });
@@ -61,7 +66,10 @@ export function useAutosave({ runId, rows, decisions, refresh, paused = false, d
   /** The newest saveNow, for the timer and for a save asked mid-save. */
   const saveNowRef = useRef<() => Promise<void>>(async () => {});
 
+  const disabledRef = useRef(disabled);
+  useEffect(() => { disabledRef.current = disabled; });
   const saveNow = useCallback(async () => {
+    if (disabledRef.current) return;
     if (inFlight.current) { again.current = true; return; }
     const { rows: rowsNow, decisions: d } = latest.current;
     const keys = [...d.unsaved];
@@ -99,10 +107,10 @@ export function useAutosave({ runId, rows, decisions, refresh, paused = false, d
 
   const pending = decisions.unsaved.length > 0;
   useEffect(() => {
-    if (!pending || paused || signature === failedSig.current) return;
+    if (!pending || paused || disabled || signature === failedSig.current) return;
     const timer = setTimeout(() => { void saveNowRef.current(); }, delayMs);
     return () => clearTimeout(timer);
-  }, [signature, pending, paused, delayMs]);
+  }, [signature, pending, paused, disabled, delayMs]);
 
   return useMemo(() => ({ phase, message, waiting: paused && pending, saveNow }), [phase, message, paused, pending, saveNow]);
 }

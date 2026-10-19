@@ -10,6 +10,7 @@ import type {
   CrsIssueDecision,
   CrsIssueDecisionList,
   CrsIssueGate,
+  CrsIssuedCopyList,
   ClauseCoverage,
   AnalysisGapsResult,
   AnalysisRecommendationResult,
@@ -74,6 +75,55 @@ export const analysis = {
       body: JSON.stringify(body),
     }),
 };
+
+/** A spreadsheet from the API, with the bearer token, as a `Result` (the
+ *  body is not JSON, so not `request()`). The filename is the server's. */
+async function fetchSpreadsheet(
+  path: string, method: "GET" | "POST", fallbackName: string,
+): Promise<Result<{ blob: Blob; filename: string }>> {
+  let response: Response;
+  try {
+    const headers = new Headers();
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    response = await fetch(`${BASE}${path}`, { headers, method });
+  } catch (e) {
+    return disconnected(
+      e instanceof Error ? e.message : "Network request failed.");
+  }
+  if (!response.ok) {
+    signOutOn401(response.status);
+    let error: ApiError = {
+      code: response.status === 404 ? "not_found" : "internal",
+      message: humanMessage(response.status),
+    };
+    try {
+      const body = await response.json();
+      const raw = body?.detail ?? body;
+      if (raw && typeof raw === "object" && "code" in raw) error = raw as ApiError;
+    } catch {
+      /* keep the fallback */
+    }
+    return { ok: false, disconnected: false, error };
+  }
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const match = /filename="([^"]+)"/.exec(disposition);
+  let blob: Blob;
+  try {
+    blob = await response.blob();
+  } catch (e) {
+    // The status line arrives before the bytes: a dropped connection throws
+    // here, on a response that already said 200.
+    return disconnected(
+      e instanceof Error ? e.message : "The download was interrupted.");
+  }
+  return {
+    ok: true,
+    data: {
+      blob,
+      filename: match?.[1] ?? fallbackName,
+    },
+  };
+}
 
 export const reviews = {
   templates: (params?: { discipline?: string; deliverable_type?: string; active_only?: boolean }) => {
@@ -366,49 +416,21 @@ export const reviews = {
     // it while a page is unread or a finding undecided, and keeps the copy.
     const run = encodeURIComponent(runId);
     const path = copy === "issue" ? `/reviews/runs/${run}/crs/issue` : `/reviews/runs/${run}/crs?copy=${copy}`;
-    let response: Response;
-    try {
-      const headers = new Headers();
-      if (token) headers.set("Authorization", `Bearer ${token}`);
-      response = await fetch(`${BASE}${path}`, { headers, method: copy === "issue" ? "POST" : "GET" });
-    } catch (e) {
-      return disconnected(
-        e instanceof Error ? e.message : "Network request failed.");
-    }
-    if (!response.ok) {
-      signOutOn401(response.status);
-      let error: ApiError = {
-        code: response.status === 404 ? "not_found" : "internal",
-        message: humanMessage(response.status),
-      };
-      try {
-        const body = await response.json();
-        const raw = body?.detail ?? body;
-        if (raw && typeof raw === "object" && "code" in raw) error = raw as ApiError;
-      } catch {
-        /* keep the fallback */
-      }
-      return { ok: false, disconnected: false, error };
-    }
-    const disposition = response.headers.get("Content-Disposition") ?? "";
-    const match = /filename="([^"]+)"/.exec(disposition);
-    let blob: Blob;
-    try {
-      blob = await response.blob();
-    } catch (e) {
-      // The status line arrives before the bytes: a dropped connection throws
-      // here, on a response that already said 200.
-      return disconnected(
-        e instanceof Error ? e.message : "The download was interrupted.");
-    }
-    return {
-      ok: true,
-      data: {
-        blob,
-        filename: match?.[1] ?? `CRS_${runId}.xlsx`,
-      },
-    };
+    return fetchSpreadsheet(path, copy === "issue" ? "POST" : "GET", `CRS_${runId}.xlsx`);
   },
+  /** PF5 (#885): the contractor copies already issued for a run, newest
+   *  first. Read only: listing them issues nothing. */
+  crsIssuedCopies: (runId: string) =>
+    request<CrsIssuedCopyList>(
+      `/reviews/runs/${encodeURIComponent(runId)}/crs/issued`, undefined, hasArrayField("copies"),
+    ),
+  /** PF5 (#885): one issued copy, byte for byte as it was issued (GET; the
+   *  server refuses a copy whose bytes no longer match). Downloading it
+   *  again is NOT issuing: nothing new is made or recorded. */
+  issuedCrsCopy: (runId: string, copyId: string): Promise<Result<{ blob: Blob; filename: string }>> =>
+    fetchSpreadsheet(
+      `/reviews/runs/${encodeURIComponent(runId)}/crs/issued/${encodeURIComponent(copyId)}`, "GET", `CRS_${runId}.xlsx`,
+    ),
   /** Refuse a pairing so no future run proposes it again. */
   rejectPairing: (findingId: string, reason: string) =>
     request<PairRejection>("/reviews/pairs/reject", {
