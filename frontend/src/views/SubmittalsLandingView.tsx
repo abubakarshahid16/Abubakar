@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, reviews as reviewsApi } from "../api/client";
 import type { DocumentRecord, ReviewRunSummary } from "../types/api";
 import { DocumentsFromContractors } from "../components/review/DocumentsFromContractors";
+import { NewReviewDropZone } from "../components/review/workspace/NewReviewDropZone";
 import { InboxList } from "../components/review/inbox/InboxList";
 import { INBOX_IS_DEFAULT } from "../routing";
 import { LIST_MAX, groupRunsByDocument, totalFromResponse } from "../components/review/reviewFormat";
@@ -41,12 +42,24 @@ export async function loadReadyCounts(runId: string): Promise<ReadyCounts | null
   return { findings: comment + needs_you, needs_you };
 }
 
-export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onOpenInbox, onOpenList }: {
+/** Props of the documents list, plus the optional "Past reviews" hook-up
+ *  (`onOpenPastRun`) that builder E adds to DocumentsFromContractors. Typed
+ *  here as an optional extra so this file compiles whether or not E's prop
+ *  is on the base; it is passed only when the workspace switch is on. */
+type DocumentsListProps = Parameters<typeof DocumentsFromContractors>[0] & {
+  onOpenPastRun?: (runId: string) => void;
+};
+
+export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onOpenInbox, onOpenList, workspace = false }: {
   onOpenRun: (runId: string) => void;
   /** Order 95 piece 3: show the inbox (/review/inbox) rather than the list. */
   inbox?: boolean;
   onOpenInbox?: () => void;
   onOpenList?: () => void;
+  /** Review workspace v2 switch (off by default). On: a "New review" drop
+   *  zone above the list, and each row offers its past reviews. Off: the
+   *  page is exactly as before. */
+  workspace?: boolean;
 }) {
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
@@ -191,11 +204,15 @@ export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onO
         </p>
       )}
 
+      {workspace && <NewReviewDropZone onStarted={onOpenRun} />}
+
       {phase.kind === "ready" && !inbox && (
         <DocumentsFromContractors
-          documents={documents} runs={runs} submittalsTotal={submittalsTotal}
-          onReview={(documentId) => void reviewDocument(documentId)}
-          startingDocumentId={startingDocumentId}
+          {...documentsListProps({
+            documents, runs, submittalsTotal,
+            onReview: (documentId) => void reviewDocument(documentId),
+            startingDocumentId,
+          }, workspace ? onOpenRun : undefined)}
         />
       )}
       {phase.kind === "ready" && inbox && (
@@ -211,4 +228,12 @@ export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onO
       )}
     </section>
   );
+}
+
+/** The list's props; `onOpenPastRun` only when given, so with the switch off
+ *  the list receives exactly the props it always did. */
+function documentsListProps(
+  base: DocumentsListProps, onOpenPastRun: ((runId: string) => void) | undefined,
+): DocumentsListProps {
+  return onOpenPastRun ? { ...base, onOpenPastRun } : base;
 }
