@@ -28,7 +28,8 @@ def test_breaches_come_first_then_missing_values_then_questions_never_a_pass():
     paired), which ranks with the engineer's questions (3), and inside a rank
     the row with a datasheet page comes first."""
     rows = build_crs_rows([MI, NER, OK, NC], [], "sheet.pdf")
-    assert [r["row_kind"] for r in rows] == [  # order 139 part 2
+    # order 139 part 2: rank order
+    assert [r["row_kind"] for r in rows] == [
         ROW_KIND_NON_COMPLIANT,
         ROW_KIND_NEEDS_ENGINEER_REVIEW,
         ROW_KIND_MISSING_INFORMATION,
@@ -105,10 +106,13 @@ def test_the_three_and_a_half_buckets_are_tagged_with_distinct_row_kinds():
     kinds = [r["row_kind"] for r in rows]
     # 2f: the requires-another-document and missing-standard rows are Review
     # notes now, not rows of this sheet.
-    assert sorted(kinds) == sorted([  # order 139 part 2: the sheet is in rank order now
-        ROW_KIND_NON_COMPLIANT, ROW_KIND_MISSING_INFORMATION,
+    # order 139 part 2: the sheet is in rank order now, not bucket order
+    expected = [
+        ROW_KIND_NON_COMPLIANT,
+        ROW_KIND_MISSING_INFORMATION,
         ROW_KIND_NEEDS_ENGINEER_REVIEW,
-    ])
+    ]
+    assert sorted(kinds) == sorted(expected)
     assert len(set(kinds)) == len(kinds), "two buckets share one row_kind"
 
 

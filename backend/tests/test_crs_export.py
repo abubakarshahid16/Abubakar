@@ -8,8 +8,9 @@ import io
 
 import openpyxl
 
-from app.crs_export import (COLUMN_HEADER_ROW, EMPTY_COMMENT_TEXT, FIRST_DATA_ROW,
+from app.crs_export import (COLUMN_HEADER_ROW, FIRST_DATA_ROW,
                             HEADER_FIELDS, HEADERS, build_crs)
+from app.crs_export import EMPTY_COMMENT_TEXT
 
 META = {"project": "EXAMPLE PROJECT", "document_title": "Doc T",
         "date_issued": "2026-09-19"}
@@ -192,7 +193,8 @@ def test_the_row_reference_is_the_first_line_of_the_comment_cell():
     # wins); only the internal copy carries the owner's "AI Review Comments"
     # column (2026-09-27), and neither carries the reference as a column.
     assert ws.cell(row=COLUMN_HEADER_ROW, column=8).value == "Standard Reference"
-    assert ws.cell(row=COLUMN_HEADER_ROW, column=9).value == "Priority"  # order 139 part 2 (was #725 F7's Severity)
+    # order 139 part 2: "Priority" where #725 F7's "Severity" was
+    assert ws.cell(row=COLUMN_HEADER_ROW, column=9).value == "Priority"
     assert ws.cell(row=COLUMN_HEADER_ROW, column=10).value is None
     assert [ws.cell(row=COLUMN_HEADER_ROW, column=c).value
             for c in range(1, 8)] == HEADERS

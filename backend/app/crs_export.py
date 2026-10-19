@@ -337,6 +337,7 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
     copy = meta.get("copy") or COPY_INTERNAL
     if copy not in COPIES:
         raise ValueError(f"unknown CRS copy {copy!r}")
+
     # ORDER 139 PART 2 (spec e): NO ROW WITH AN EMPTY COMMENT IS ISSUED. Read
     # on the caller's text, before the "Ref:" line is added (that line alone
     # is not a comment). The issue copy leaves such a row out and COUNTS it
