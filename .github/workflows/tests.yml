@@ -278,7 +278,7 @@ jobs:
   # would leave the merge blocked with no reason shown).
   backend:
     name: backend (pytest)
-    needs: [backend-shard, backend-checks]
+    needs: [backend-shard, backend-checks, app-starts]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -286,9 +286,10 @@ jobs:
       # "= success", not "!= failure": a cancelled or skipped shard fails it too.
       - name: Every shard and the checks job passed
         run: |
-          echo "shards: ${{ needs.backend-shard.result }}, checks: ${{ needs.backend-checks.result }}"
+          echo "shards: ${{ needs.backend-shard.result }}, checks: ${{ needs.backend-checks.result }}, app starts: ${{ needs.app-starts.result }}"
           test "${{ needs.backend-shard.result }}" = "success"
           test "${{ needs.backend-checks.result }}" = "success"
+          test "${{ needs.app-starts.result }}" = "success"
 
       - uses: actions/checkout@v7
 

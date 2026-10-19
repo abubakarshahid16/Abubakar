@@ -116,13 +116,21 @@ def migrate() -> dict:
     if live_guard.is_live_shaped(settings.db_path):
         try:
             backup = live_guard.verified_rollback_point(settings.db_path)["backup_path"]
-        except Exception as exc:  # noqa: BLE001 - startup must not depend on a backup
+        except live_guard.LiveWriteRefused as exc:
+            # Only a refusal: anything else (a malformed database) is not a
+            # missing backup and must not be passed off as one.
             log.warning(
                 "Stored file paths were left as they are: no verified backup "
                 "could be made (%s). Files are still found by their old paths. "
                 "The app starts normally; the next start tries again.",
                 exc,
             )
+            if "integrity" in str(exc):
+                log.error(
+                    "The database backup failed its integrity check. The "
+                    "database itself may be damaged: copy the whole data "
+                    "folder and check that copy before relying on it."
+                )
             return {"rewritten": 0, "backup_path": None, "skipped": str(exc)}
     rewritten = 0
     with conn:

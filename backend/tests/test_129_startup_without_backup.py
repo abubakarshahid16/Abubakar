@@ -11,6 +11,7 @@ on.
 from __future__ import annotations
 
 import logging
+import sqlite3
 
 import pytest
 from fastapi.testclient import TestClient
@@ -86,3 +87,33 @@ def test_with_a_backup_folder_the_rows_are_still_rewritten(live_home_without_bac
     assert result["rewritten"] == 1 and "skipped" not in result
     assert result["backup_path"] and str(backups) in result["backup_path"]
     assert _stored() == "uploads/sheet.pdf"
+
+
+def test_a_damaged_database_is_not_passed_off_as_a_missing_backup(
+    live_home_without_backups, monkeypatch
+):
+    def malformed(_path):
+        raise sqlite3.DatabaseError("database disk image is malformed")
+
+    monkeypatch.setattr(live_guard, "verified_rollback_point", malformed)
+
+    with pytest.raises(sqlite3.DatabaseError):
+        stored_paths.migrate()
+
+
+def test_a_failed_integrity_check_says_the_database_may_be_damaged(
+    live_home_without_backups, monkeypatch, caplog
+):
+    def refused(_path):
+        raise live_guard.LiveWriteRefused("backup failed integrity_check: corrupt")
+
+    monkeypatch.setattr(live_guard, "verified_rollback_point", refused)
+
+    with caplog.at_level(logging.WARNING, logger="uvicorn.error"):
+        result = stored_paths.migrate()
+
+    assert result["rewritten"] == 0 and _stored() == OLD
+    assert any(
+        r.levelno == logging.ERROR and "may be damaged" in r.getMessage()
+        for r in caplog.records
+    )

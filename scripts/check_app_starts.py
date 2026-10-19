@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import socket
 import sqlite3
 import subprocess
 import sys
@@ -38,12 +39,18 @@ OLD_PATH = "D:\\project\\app\\backend\\data\\uploads\\sheet.pdf"
 
 def _env(home: Path, port: int) -> dict[str, str]:
     data = home / "backend" / "data"
+    models = home / "no-models"
     env = dict(os.environ)
+    # Set explicitly, because pydantic still reads a developer's backend/.env:
+    # no drop folder to scan, no login secret to check, no models anywhere.
     env.update(
         DATA_DIR=str(data),
         UPLOAD_DIR=str(data / "uploads"),
         DB_PATH=str(data / "rag_intelligence.sqlite"),
-        EMBED_MODEL_DIR=str(home / "no-models"),
+        EMBED_MODEL_DIR=str(models / "e5-small"),
+        OCR_MODEL_DIR=str(models / "ocr"),
+        WATCH_FOLDER="",
+        AUTH_MODE="disabled",
         PORT=str(port),
         HEAVY_JOB_LOCK="off",
         PYTHONUNBUFFERED="1",
@@ -61,8 +68,24 @@ def _health(port: int) -> dict | None:
         return None
 
 
+def _port_free(port: int) -> bool:
+    with socket.socket() as s:
+        # As uvicorn binds: a closed connection still waiting (TIME_WAIT, left
+        # by the previous start) is no server. Not on Windows, where the same
+        # option would let the probe share a port another server listens on.
+        if os.name != "nt":
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s.bind(("127.0.0.1", port))
+        except OSError:
+            return False
+    return True
+
+
 def start_and_check(home: Path, port: int, timeout: float) -> tuple[bool, str]:
     """(health answered ok, the server's output) for one start in `home`."""
+    if not _port_free(port):
+        return False, f"port {port} is already in use: another server would answer"
     log_path = home / "server.log"
     with log_path.open("w") as log:
         server = subprocess.Popen(
@@ -78,7 +101,8 @@ def start_and_check(home: Path, port: int, timeout: float) -> tuple[bool, str]:
             while time.monotonic() < deadline and server.poll() is None:
                 answer = _health(port)
                 if answer is not None:
-                    ok = answer.get("ok") is True
+                    # Our server, still running - not one that was there before.
+                    ok = answer.get("ok") is True and server.poll() is None
                     break
                 time.sleep(1)
         finally:
@@ -142,8 +166,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{'OK  ' if ok else 'FAIL'} app starts: {name}")
             if not ok:
                 failed = True
+                lines = output.splitlines()
+                reason = [x for x in lines if "Error" in x or "Refused" in x]
+                print("reason:", reason[-1] if reason else lines[-1] if lines else "")
                 print("---- end of the server's output ----")
-                print("\n".join(output.splitlines()[-40:]))
+                print("\n".join(lines[-40:]))
                 break
     return 1 if failed else 0
 
