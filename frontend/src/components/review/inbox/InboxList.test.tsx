@@ -142,7 +142,7 @@ describe("InboxList", () => {
           onReview={vi.fn()} startingDocumentId={null} loadReadyCounts={load}
         />,
       );
-      expect(await screen.findByText(/^Ready: 3 findings to decide, 1 needs you/)).toBeInTheDocument();
+      expect(await screen.findByText(/^Ready\. Found by the review: 3 findings, 1 needing your judgement/)).toBeInTheDocument();
       rerender(
         <InboxList
           documents={[doc()]} runs={[run()]} submittalsTotal={null}
@@ -164,7 +164,7 @@ describe("InboxList", () => {
           onReview={vi.fn()} startingDocumentId={null} loadReadyCounts={load}
         />,
       );
-      expect(await screen.findAllByText(/^Ready: 2 findings to decide, 0 need you/)).toHaveLength(3);
+      expect(await screen.findAllByText(/^Ready\. Found by the review: 2 findings, 0 needing your judgement/)).toHaveLength(3);
       expect(load).toHaveBeenCalledTimes(1);
       expect([...load.mock.calls[0][0]].sort()).toEqual(["run-1", "run-2", "run-3"]);
     });

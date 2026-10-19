@@ -220,7 +220,7 @@ describe("SubmittalsLandingView", () => {
       "run-a": tiers(2, 1), "run-b": tiers(0, 0),
     } } });
     render(<SubmittalsLandingView inbox onOpenRun={vi.fn()} />);
-    expect(await screen.findByText(/^Ready: 3 findings to decide, 1 needs you/)).toBeInTheDocument();
+    expect(await screen.findByText(/^Ready\. Found by the review: 3 findings, 1 needing your judgement/)).toBeInTheDocument();
     expect(reviewRunCounts).toHaveBeenCalledTimes(1);
     expect([...reviewRunCounts.mock.calls[0][0]].sort()).toEqual(["run-a", "run-b", "run-c"]);
     expect(reviewRunSummary).not.toHaveBeenCalled();

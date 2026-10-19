@@ -34,10 +34,12 @@ describe("inboxStateOf", () => {
   it("a completed run is Ready, and its counts show only when they are known", () => {
     const state = inboxStateOf(run());
     expect(stateLabel(state)).toBe("Ready");
-    expect(stateLabel(state, { findings: 3, needs_you: 1 })).toBe("Ready: 3 findings to decide, 1 needs you");
-    expect(stateLabel(state, { findings: 1, needs_you: 1 })).toBe("Ready: 1 finding to decide, 1 needs you");
+    expect(stateLabel(state, { findings: 3, needs_you: 1 })).toBe("Ready. Found by the review: 3 findings, 1 needing your judgement");
+    expect(stateLabel(state, { findings: 1, needs_you: 1 })).toBe("Ready. Found by the review: 1 finding, 1 needing your judgement");
     // A-1126: findings, never "comments" - and large counts with separators.
-    expect(stateLabel(state, { findings: 6584, needs_you: 6557 })).toBe("Ready: 6,584 findings to decide, 6,557 need you");
+    expect(stateLabel(state, { findings: 6584, needs_you: 6557 })).toBe("Ready. Found by the review: 6,584 findings, 6,557 needing your judgement");
+    // v2.1 round 2: never claims what is left to decide.
+    expect(stateLabel(state, { findings: 3, needs_you: 1 })).not.toMatch(/to decide|needs? you\b/);
   });
 
   it("a run whose contractor copy was issued is Signed, before any other status", () => {

@@ -12,7 +12,7 @@
  */
 import type { DocumentRecord, ReviewRunSummary } from "../../../../types/api";
 import { groupRunsByDocument, runStatusLabel } from "../../reviewFormat";
-import { type InboxState, type ReadyCounts, inboxStateOf } from "../../inbox/inboxState";
+import { type InboxState, type ReadyCounts, foundLine, inboxStateOf } from "../../inbox/inboxState";
 
 export interface LandingRow {
   documentId: string;
@@ -123,17 +123,8 @@ export function rowChip(state: InboxState, run: ReviewRunSummary | null = null):
   }
 }
 
-/** "Found by the review: 12 findings, 3 needing your judgement" - the
- *  server's per-run TOTALS, said as what the review found (not what is left
- *  to decide, which only the comment sheet knows), and as findings (the
- *  sheet groups them into fewer comment lines). Nothing when not known. */
-export function foundLine(counts: ReadyCounts | null | undefined): string {
-  if (!counts) return "";
-  const n = counts.findings;
-  const m = counts.needs_you;
-  return `Found by the review: ${n.toLocaleString("en-US")} finding${n === 1 ? "" : "s"}, `
-    + `${m.toLocaleString("en-US")} needing your judgement`;
-}
+/** The landing's "Found by the review: ..." words are the inbox's own. */
+export { foundLine };
 
 /** The line beside a finished review's chip; nothing in any other state. */
 export function countsLine(state: InboxState, counts: ReadyCounts | null): string {

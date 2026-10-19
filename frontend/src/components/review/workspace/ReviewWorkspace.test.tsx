@@ -433,18 +433,30 @@ describe("ReviewWorkspace", () => {
     expect(onBack).not.toHaveBeenCalled();
   });
 
-  /** B/D drafts: the count of decisions brought back is said once.
-   *  MUTATION PROOF: drop the ws-restored line and this fails. */
-  it('says how many unsaved decisions were brought back from this tab\'s draft', async () => {
+  /** B/D drafts (v2.1 round 2): a draft found on opening is asked about
+   *  first ("Bring them back?"), and only "Yes" puts it back on screen.
+   *  MUTATION PROOF: drop RestoreDraftLine and this fails. */
+  it('asks before bringing back unsaved decisions from this tab\'s draft', async () => {
     const user = userEvent.setup();
-    const { draftStorageKey, CrsDraftContext } = await import("../crs/useCrsDecisions");
-    window.sessionStorage.setItem(draftStorageKey("run-1"), JSON.stringify({ decisions: { "row-b": { kind: "keep" }, "row-c": { kind: "keep" } }, opened: [] }));
+    const { draftStorageKey, CrsDraftContext, recordStamp } = await import("../crs/useCrsDecisions");
+    const rows = [
+      { key: "row-a", priorState: "open", findings: [{ id: "f-a" }] },
+      { key: "row-b", priorState: "open", findings: [{ id: "f-b" }] },
+      { key: "row-c", priorState: "open", findings: [{ id: "f-c" }] },
+    ] as unknown as WorkspaceRunData["rows"];
+    data.mockReturnValue(ready({ rows }));
+    window.sessionStorage.setItem(draftStorageKey("run-1"), JSON.stringify({
+      decisions: { "row-b": { kind: "keep" }, "row-c": { kind: "keep" } }, opened: [],
+      stamps: { "row-b": recordStamp(rows[1]), "row-c": recordStamp(rows[2]) },
+    }));
     render(
       <CrsDraftContext.Provider value="run-1">
         <Harness initial={{}} />
       </CrsDraftContext.Provider>,
     );
-    expect(screen.getByTestId("ws-restored")).toHaveTextContent("2 decisions you had not saved were brought back.");
+    expect(screen.getByTestId("ws-restored")).toHaveTextContent("2 decisions you had not saved were found. Bring them back?");
+    await user.click(screen.getByRole("button", { name: "Yes" }));
+    expect(await screen.findByText("2 decisions you had not saved were brought back.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Hide" }));
     expect(screen.queryByTestId("ws-restored")).toBeNull();
   });

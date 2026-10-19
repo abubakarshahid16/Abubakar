@@ -48,6 +48,7 @@ import { useIssueGate } from "../crs/issueGate";
 import { CrsFooter } from "../crs/CrsFooter";
 import { CrsTabPanel } from "./crs/CrsTabPanel";
 import { KeepAllRemaining } from "./decide/KeepAllRemaining";
+import { RestoreDraftLine } from "./decide/RestoreDraftLine";
 import { useAutosave } from "./decide/useAutosave";
 import { useSigner } from "./decide/useSignerName";
 import { SignConfirm } from "./sign/SignConfirm";
@@ -167,17 +168,6 @@ export function ReviewWorkspace({
   // about decisions that no longer exist.
   useEffect(() => () => onUnsavedChange?.(0), [onUnsavedChange]);
 
-  // v2.1 (N1): every move away from the workspace's own buttons asks
-  // through the app's ONE guard (in the page, never a browser pop-up), so
-  // the reader sees one style of question and is never asked twice. Drawn
-  // on its own (no app guard), the workspace keeps the same guard itself.
-  const unsavedRef = useRef(unsavedCount);
-  useLayoutEffect(() => { unsavedRef.current = unsavedCount; }, [unsavedCount]);
-  const ownGuard = useLeaveGuard(useCallback(() => unsavedRef.current, []));
-  const guard = leaveGuard ?? ownGuard.guard;
-  const beforeLeave = useCallback((go: () => void) => { guard("navigate", go); }, [guard]);
-  const leave = useCallback(() => beforeLeave(onBack), [beforeLeave, onBack]);
-  const openRun = useCallback((id: string) => beforeLeave(() => onOpenRun(id)), [beforeLeave, onOpenRun]);
   // "Review again" asks before it starts anything (beforeStart), so it
   // opens the new run without asking a second time.
 
@@ -216,11 +206,29 @@ export function ReviewWorkspace({
     readiness, decisions: decisions.state, unsaved: decisions.unsaved, gate: issueGate.gate,
   }) : null), [run, findings, rows, summary, missingStandardIds, readiness, decisions.state, decisions.unsaved, issueGate.gate]);
   // D4: decisions save by themselves; never on a signed review (read only).
-  const autosaveRaw = useAutosave({ runId, rows, decisions, refresh, paused: canUndo, disabled: numbers?.signed ?? false });
-  // "Save now" ends the Undo offer: the reader chose to put them on record.
+  // "Save now" (and "Save and leave") ends the Undo offer first
+  // (beforeSaveNow): the reader chose to put them on record.
+  const autosaveRaw = useAutosave({
+    runId, rows, decisions, refresh, paused: canUndo, disabled: numbers?.signed ?? false, beforeSaveNow: endUndo,
+  });
+  // The bar and sign-off only need "save now" to finish (the leave question
+  // uses the raw one, which says whether everything saved).
   const autosave = useMemo(() => ({
-    ...autosaveRaw, saveNow: async () => { endUndo(); await autosaveRaw.saveNow(); },
-  }), [autosaveRaw, endUndo]);
+    ...autosaveRaw, saveNow: async () => { await autosaveRaw.saveNow(); },
+  }), [autosaveRaw]);
+
+  // v2.1 (N1): every move away from the workspace's own buttons asks
+  // through the app's ONE guard (in the page, never a browser pop-up), so
+  // the reader sees one style of question and is never asked twice. Drawn
+  // on its own (no app guard), the workspace keeps the same guard itself,
+  // with its own "Save and leave".
+  const unsavedRef = useRef(unsavedCount);
+  useLayoutEffect(() => { unsavedRef.current = unsavedCount; }, [unsavedCount]);
+  const ownGuard = useLeaveGuard(useCallback(() => unsavedRef.current, []), autosaveRaw.saveNow);
+  const guard = leaveGuard ?? ownGuard.guard;
+  const beforeLeave = useCallback((go: () => void) => { guard("navigate", go); }, [guard]);
+  const leave = useCallback(() => beforeLeave(onBack), [beforeLeave, onBack]);
+  const openRun = useCallback((id: string) => beforeLeave(() => onOpenRun(id)), [beforeLeave, onOpenRun]);
 
   const steps = useMemo(() => (numbers ? actionSteps(numbers) : []), [numbers]);
   const signOffRaw = useSignOff({ runId, rows, decisions, refresh, numbers });
@@ -231,9 +239,6 @@ export function ReviewWorkspace({
   // contractor" issues, through issueConfirmed. Save goes through the same
   // automatic saving, so two saves never race.
   const [standardsOpen, setStandardsOpen] = useState(false);
-  // v2.1: "N decisions you had not saved were brought back" (the draft kept
-  // in this tab, useCrsDecisions), until the reader hides it.
-  const [restoredSeen, setRestoredSeen] = useState(false);
   // T1: "Review again" in the missing standards panel asks exactly what the
   // header's "Review again" asks (unsaved decisions, then signed / final
   // code / nothing changed), through the same rule.
@@ -297,7 +302,10 @@ export function ReviewWorkspace({
   };
 
   const leaveQuestion = leaveGuard ? null
-    : <LeaveConfirm pending={ownGuard.pending} onLeave={ownGuard.leave} onStay={ownGuard.stay} />;
+    : (
+      <LeaveConfirm pending={ownGuard.pending} onLeave={ownGuard.leave} onStay={ownGuard.stay}
+        onSaveAndLeave={ownGuard.saveAndLeave} saving={ownGuard.saving} saveError={ownGuard.saveError} />
+    );
 
   if (load.kind === "loading") return <p className="text-slateish-300" data-testid="review-workspace">Loading the sheet…</p>;
   if (load.kind === "error" || !run || !numbers) {
@@ -323,7 +331,6 @@ export function ReviewWorkspace({
     );
   }
 
-  const restored = decisions.restored ?? 0;
   const readOnly = numbers.signed;
   const newerAt = newerRun ? dayOf(newerRun.created_at) : "";
   const tab = location.tab;
@@ -368,16 +375,8 @@ export function ReviewWorkspace({
       <ActionBar run={run} numbers={numbers} steps={steps} onAction={onAction} signOff={signOff}
         autosave={autosave} onCodeRecorded={() => { void refresh(); void issueGate.reload(); }} />
       {refreshLine}
-      {restored > 0 && !restoredSeen && (
-        <p role="status" data-testid="ws-restored" className="flex flex-wrap items-center gap-2 text-sm text-slateish-300">
-          <span>
-            {restored.toLocaleString()} {restored === 1 ? "decision" : "decisions"} you had not saved{" "}
-            {restored === 1 ? "was" : "were"} brought back.
-          </span>
-          <button type="button" onClick={() => setRestoredSeen(true)}
-            className="text-signal-300 underline-offset-2 hover:underline">Hide</button>
-        </p>
-      )}
+      {/* v2.1 round 2: a draft found on opening is asked about first. */}
+      <RestoreDraftLine decisions={decisions} />
       {standardsOpen && (
         <div className="space-y-2">
           <MissingStandardsPanel runId={runId} documentId={run.submittal_document_id ?? null} missing={missingList}
