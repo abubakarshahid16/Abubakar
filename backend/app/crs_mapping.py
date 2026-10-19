@@ -1176,11 +1176,13 @@ def crs_groups(findings: list[dict]) -> list[dict]:
         (ROW_KIND_NEEDS_ENGINEER_REVIEW, questions),
     ):
         keys = _final_keys(bucket)
+        ckeys = _split_comment_keys(_grouped(bucket), keys)
         # The order is set once, over every row kind, by `_sheet_order`.
         for group in _grouped(bucket):
             items.append(
                 {
                     "key": keys[id(group[0])],
+                    "comment_key": ckeys[keys[id(group[0])]],
                     "bucket": _bucket_of(group[0]),
                     "row_kind": kind,
                     "findings": group,
@@ -1203,6 +1205,48 @@ def crs_groups(findings: list[dict]) -> list[dict]:
                     }
                 )
     return _sheet_order(items)
+
+
+def _split_comment_keys(groups: list[list[dict]], keys: dict[int, str]) -> dict[str, str]:
+    """{group key: the permanent-number key of its row}, over one bucket.
+
+    Normally a row's key is its leader's (`finding_comment_key`). When the
+    findings of ONE base group carry different engineer wordings, `_final_keys`
+    splits it into several rows, and a field group's rows would all share the
+    field's key - one number for two rows, and which row held it would depend
+    on where each lands on the sheet. So one of them keeps the key and each
+    other gets its own, made from that key and its wording's digest - the
+    same ":e<digest>" the group key carries, so it depends on nothing but the
+    wording and is the same on every run.
+
+    The row that keeps the key is the one an engineer made theirs (every
+    finding confirmed), then the larger, then the lower wording digest: an
+    edited row that a re-run finds beside a fresh draft of the same field
+    keeps the number it was issued under."""
+    cohorts: dict[tuple[str, str], list[list[dict]]] = {}
+    for group in groups:
+        lead = group[0]
+        cohorts.setdefault(
+            (_key_text(_group_key(lead)), finding_comment_key(lead)), []
+        ).append(group)
+    out: dict[str, str] = {}
+    for (_base, natural), cohort in cohorts.items():
+        anchor = min(
+            cohort,
+            key=lambda g: (
+                not all(_confirmed(f) for f in g),
+                -len(g),
+                keys[id(g[0])],
+            ),
+        )
+        for group in cohort:
+            group_key = keys[id(group[0])]
+            out[group_key] = (
+                natural
+                if group is anchor
+                else comment_key("wording split", natural, group_key.rsplit(":e", 1)[-1])
+            )
+    return out
 
 
 def _sheet_order(items: list[dict]) -> list[dict]:
@@ -1362,7 +1406,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                     # A field row (order 139 part 2) is keyed on the FIELD, never
                     # on whichever clause leads it, so a re-run that adds a
                     # clause keeps its number.
-                    "comment_key": finding_comment_key(f),
+                    "comment_key": item["comment_key"],
                     # Never printed (spec d): every finding's own per-requirement
                     # key, so the numbers earlier per-clause rows hold are found.
                     "member_keys": sorted({finding_member_key(g) for g in group}),
@@ -1377,6 +1421,13 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                     "rule_trust": trust_words(f),
                 }
             )
+            # A row that is not a field row also holds its OWN key (a row split
+            # off by wording has one no finding has), so `main` never takes it
+            # for a field row replacing clauses.
+            if _group_key(f)[0] != "field":
+                rows[-1]["member_keys"] = sorted(
+                    {*rows[-1]["member_keys"], item["comment_key"]}
+                )
             # Spec f: the rank, and the SAME sort key `crs_groups` orders by, so the
             # file's rows and the screen's `crs_order` cannot disagree.
             rows[-1]["priority"] = item["priority"]

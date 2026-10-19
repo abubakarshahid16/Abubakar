@@ -13,6 +13,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { NavigationContext } from "../components/NavLink";
 import type { ReviewFinding, ReviewRunSummary, ReviewRunTierSummary, RunSummaryTierRow } from "../types/api";
+import { STALE_GROUPING_NOTE, UNGROUPED_NOTE } from "../components/review/crs/crsRows";
 import { CrsSheetView } from "./CrsSheetView";
 
 const reviewRuns = vi.fn();
@@ -571,6 +572,30 @@ describe("CrsSheetView reads the run summary (order 95 piece 1, #1111)", () => {
     await userEvent.click(screen.getByRole("button", { name: "Open evidence for Comment 5: Field unread" }));
     await userEvent.click(screen.getByRole("button", { name: "Close evidence" }));
     expect(screen.getByRole("button", { name: /Sign and export/ })).toBeEnabled();
+  });
+
+  /** Release 1b: the kept grouping is not quietly passed off as current.
+   *  The review is still running on the first read (summary answers), the
+   *  next poll finds it done but cannot read the summary: the sheet shows the
+   *  last grouping and says so. MUTATION PROOF: never pass `stale` to the
+   *  note and this fails. */
+  it("a failed summary refresh keeps the last grouping and says it is the last one read", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({ status: "running" })] } });
+      reviewRunSummary.mockResolvedValue({ ok: true, data: summaryOf(
+        findings.map((x) => ({ ...tierRow(x.id, "B", "Comment"), crs_group: x.id, crs_order: 0 })), { crs_grouping: true }) });
+      mount();
+      await waitFor(() => expect(reviewRunSummary).toHaveBeenCalledTimes(1));
+      reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run()] } });
+      reviewRunSummary.mockResolvedValue({ ok: false, disconnected: true, error: { code: "internal", message: "Cannot reach the backend." } });
+      await act(async () => { await vi.advanceTimersByTimeAsync(3100); });
+      await screen.findByTestId("crs-headline");
+      expect(screen.getAllByText(STALE_GROUPING_NOTE)).toHaveLength(1);
+      expect(screen.queryByText(UNGROUPED_NOTE)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("the header links to How this was reviewed at /review/<run>/how through the app's navigation", async () => {
