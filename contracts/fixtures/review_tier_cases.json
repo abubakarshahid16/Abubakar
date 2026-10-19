@@ -163,7 +163,7 @@
       }
     },
     {
-      "name": "a blank on a page in pages_not_read_into_fields: page not read, whatever the status",
+      "name": "a blank on a page not read into fields: page not read, whatever the status",
       "finding": {
         "contractor_page": 9,
         "compliance_status": "MISSING_INFORMATION"
@@ -203,7 +203,7 @@
       }
     },
     {
-      "name": "a finding naming a standard in MISSING_LOCALLY in its rationale: standard not in library",
+      "name": "a finding naming a missing standard in its rationale: standard not in library",
       "finding": {
         "ai_rationale": "Could not check: API-526 is not held locally"
       },
@@ -228,7 +228,7 @@
       }
     },
     {
-      "name": "a blank with no standard: standard not in library",
+      "name": "a blank with no standard behind it: standard not in library",
       "finding": {
         "compliance_status": "MISSING_INFORMATION",
         "standard_document_id": null
@@ -421,83 +421,6 @@
       }
     },
     {
-      "name": "the unread page still comes first in the reason",
-      "finding": {
-        "contractor_page": 4,
-        "compliance_status": "COMPLIANT",
-        "match_method": "field_name"
-      },
-      "facts": "full",
-      "expected": {
-        "tier": "C",
-        "label": "Needs you",
-        "reason": "page not read"
-      }
-    },
-    {
-      "name": "a blank on a page not read into fields: page not read, whatever the status",
-      "finding": {
-        "contractor_page": 9,
-        "compliance_status": "MISSING_INFORMATION"
-      },
-      "facts": "full",
-      "expected": {
-        "tier": "C",
-        "label": "Needs you",
-        "reason": "page not read"
-      }
-    },
-    {
-      "name": "a finding naming a missing standard in its rationale: standard not in library",
-      "finding": {
-        "ai_rationale": "Could not check: API-526 is not held locally"
-      },
-      "facts": "full",
-      "expected": {
-        "tier": "C",
-        "label": "Needs you",
-        "reason": "standard not in library"
-      }
-    },
-    {
-      "name": "a blank with no standard behind it: standard not in library",
-      "finding": {
-        "compliance_status": "MISSING_INFORMATION",
-        "standard_document_id": null
-      },
-      "facts": "full",
-      "expected": {
-        "tier": "C",
-        "label": "Needs you",
-        "reason": "standard not in library"
-      }
-    },
-    {
-      "name": "a field paired by name is an AI guess whatever the status",
-      "finding": {
-        "match_method": "field_name"
-      },
-      "facts": "full",
-      "expected": {
-        "tier": "C",
-        "label": "Needs you",
-        "reason": "AI guess"
-      }
-    },
-    {
-      "name": "a rule proven automatically is Met",
-      "finding": {
-        "compliance_status": "COMPLIANT",
-        "trust_label": "AUTO_PROVEN"
-      },
-      "facts": "full",
-      "expected": {
-        "tier": "A",
-        "label": "Met",
-        "reason": null
-      }
-    },
-    {
       "name": "the unread page still comes before the AI guess in the reason",
       "finding": {
         "contractor_page": 4,
@@ -509,6 +432,130 @@
         "tier": "C",
         "label": "Needs you",
         "reason": "page not read"
+      }
+    },
+    {
+      "name": "a missing standard named only in the requirement: standard not in library",
+      "finding": {
+        "standard_document_id": null,
+        "requirement": "Per API 526 clause 4.1"
+      },
+      "facts": "full",
+      "expected": {
+        "tier": "C",
+        "label": "Needs you",
+        "reason": "standard not in library"
+      }
+    },
+    {
+      "name": "a missing standard named only in the clause: standard not in library",
+      "finding": {
+        "standard_document_id": null,
+        "standard_clause": "API 526 4.1"
+      },
+      "facts": "full",
+      "expected": {
+        "tier": "C",
+        "label": "Needs you",
+        "reason": "standard not in library"
+      }
+    },
+    {
+      "name": "a safety tick on a finding that is not met stays a Comment",
+      "finding": {
+        "compliance_status": "NON_COMPLIANT",
+        "show_for_engineer_tick": true
+      },
+      "facts": "full",
+      "expected": {
+        "tier": "B",
+        "label": "Comment",
+        "reason": null
+      }
+    },
+    {
+      "name": "a value conflict written with an underscore is folded and still found",
+      "finding": {
+        "ai_rationale": "value_conflict between page 2 and page 3"
+      },
+      "facts": "full",
+      "expected": {
+        "tier": "C",
+        "label": "Needs you",
+        "reason": "value conflict"
+      }
+    },
+    {
+      "name": "a legacy rule that met is Met (only UNPROVEN is a rule not proven)",
+      "finding": {
+        "compliance_status": "COMPLIANT",
+        "trust_label": "LEGACY"
+      },
+      "facts": "full",
+      "expected": {
+        "tier": "A",
+        "label": "Met",
+        "reason": null
+      }
+    },
+    {
+      "name": "conflicting values: value conflict",
+      "finding": {
+        "ai_rationale": "Conflicting values on page 2 and page 5"
+      },
+      "facts": "full",
+      "expected": {
+        "tier": "C",
+        "label": "Needs you",
+        "reason": "value conflict"
+      }
+    },
+    {
+      "name": "values conflict: value conflict",
+      "finding": {
+        "ai_rationale": "The two values conflict across the tables"
+      },
+      "facts": "full",
+      "expected": {
+        "tier": "C",
+        "label": "Needs you",
+        "reason": "value conflict"
+      }
+    },
+    {
+      "name": "an unknown unit: unit unknown",
+      "finding": {
+        "ai_rationale": "Unknown unit next to 25"
+      },
+      "facts": "full",
+      "expected": {
+        "tier": "C",
+        "label": "Needs you",
+        "reason": "unit unknown"
+      }
+    },
+    {
+      "name": "a unit that could not be parsed: unit unknown",
+      "finding": {
+        "ai_rationale": "The unit could not be parsed for 25"
+      },
+      "facts": "full",
+      "expected": {
+        "tier": "C",
+        "label": "Needs you",
+        "reason": "unit unknown"
+      }
+    },
+    {
+      "name": "a unit not recognised: unit unknown",
+      "finding": {
+        "ai_rationale": "Unit not recognised for 25"
+      },
+      "facts": "full",
+      "expected": {
+        "tier": "C",
+        "label": "Needs you",
+        "reason": "unit unknown"
       }
     }
   ],
