@@ -35,7 +35,7 @@ const OLD_REASON_WORDS: Record<string, string> = {
  *  the old table above. */
 const NEW_REASON_WORDS: Record<string, string> = {
   "no standard linked": "This is a blank value with no standard behind it, so there was no clause to check. Decide from the datasheet.",
-  "standard outside this review": "The standard this comment rests on was not part of this review (it may be in the library). Add it to the scope, or decide from the datasheet.",
+  "standard outside this review": "The standard this comment rests on was not part of this review (it may be in the library). An engineer can add it with \"Add a standard\" under \"Engineer: change the standards\", or you can decide from the datasheet.",
 };
 const OLD_CODE_WORDS: Record<string, string> = {
   "Approved": "Everything checked meets the standard; the contractor may go ahead.",

@@ -148,7 +148,7 @@ const OTHER_KINDS: Record<string, { one: string; many: string; line: string }> =
   page_reader_only: { one: "value only the page reader looked for", many: "values only the page reader looked for", line: "a value only the page reader looked for" },
   missing_reference: { one: "not in the library", many: "not in the library", line: "a standard that is not in the library" },
 };
-const UNKNOWN_KIND = { one: "of a kind not recognised", many: "of a kind not recognised", line: "an item on the issued copy (kind not recognised)" };
+const UNKNOWN_KIND = { one: "we could not identify", many: "we could not identify", line: "an item on the issued copy that we could not identify" };
 
 /** At most this many "other items" are listed; the rest are counted. */
 export const OTHER_ITEMS_SHOWN = 10;
@@ -173,12 +173,13 @@ export function otherItemCounts(items: CrsIssueGate["open_findings"]): string {
  *  guessed). The standard names are document-derived: they stay on this
  *  local screen and are never logged or sent anywhere. At most
  *  `OTHER_ITEMS_SHOWN` lines; `more` counts the rest of `total`. */
-export function otherItemLines(items: CrsIssueGate["open_findings"]): { lines: { id: string; text: string }[]; more: number; total: number } {
+export function otherItemLines(items: CrsIssueGate["open_findings"]): { lines: { id: string; text: string }[]; more: number; total: number; moreKinds: string } {
   const lines = items.slice(0, OTHER_ITEMS_SHOWN).map((item) => {
     const standard = (item.standard ?? "").trim();
     return { id: item.finding_id, text: standard ? `${kindOf(item).line}: ${standard}` : kindOf(item).line };
   });
-  return { lines, more: Math.max(0, items.length - lines.length), total: items.length };
+  // The hidden rest is still decided by the bulk buttons, so it is named by kind.
+  return { lines, more: Math.max(0, items.length - lines.length), total: items.length, moreKinds: otherItemCounts(items.slice(OTHER_ITEMS_SHOWN)) };
 }
 
 function commentList(numbers: number[]): string {

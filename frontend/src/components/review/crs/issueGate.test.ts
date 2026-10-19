@@ -74,9 +74,9 @@ describe("the other items on the issued copy (order 152.2)", () => {
   });
 
   it("a kind it does not know is said so, never guessed", () => {
-    expect(otherItemLines([item("a", "zzz_new_kind")]).lines[0].text).toBe("an item on the issued copy (kind not recognised)");
-    expect(otherItemLines([item("a", null)]).lines[0].text).toBe("an item on the issued copy (kind not recognised)");
-    expect(otherItemCounts([item("a", "zzz_new_kind")])).toBe("1 of a kind not recognised");
+    expect(otherItemLines([item("a", "zzz_new_kind")]).lines[0].text).toBe("an item on the issued copy that we could not identify");
+    expect(otherItemLines([item("a", null)]).lines[0].text).toBe("an item on the issued copy that we could not identify");
+    expect(otherItemCounts([item("a", "zzz_new_kind")])).toBe("1 we could not identify");
   });
 
   it("the list stops at ten lines and counts the rest", () => {
@@ -86,5 +86,7 @@ describe("the other items on the issued copy (order 152.2)", () => {
     expect(shown.more).toBe(3);
     expect(shown.total).toBe(13);
     expect(otherItemLines(many.slice(0, 10)).more).toBe(0);
+    expect(shown.moreKinds).toBe("3 standards not cited");
+    expect(otherItemLines(many.slice(0, 10)).moreKinds).toBe("");
   });
 });

@@ -189,13 +189,13 @@ function OpenItems({ runId, gate, rows, onJump, onDecided }: {
           </p>
           <ul className="list-disc pl-5 text-xs text-slateish-300">
             {shown.lines.map((line) => <li key={line.id}>{line.text}</li>)}
-            {shown.more > 0 && <li>and {shown.more} more of {shown.total}</li>}
+            {shown.more > 0 && <li>and {shown.more} more of {shown.total} ({shown.moreKinds})</li>}
           </ul>
           <div className="flex flex-wrap items-center gap-2">
             <input aria-label="Reason for the other items" value={reason} placeholder="One reason for all of them"
               onChange={(e) => setReason(e.target.value)} className={input} />
-            <button type="button" disabled={busy} onClick={() => void decideOthers("accept")} className={button}>Keep them</button>
-            <button type="button" disabled={busy} onClick={() => void decideOthers("reject")} className={button}>Leave them off</button>
+            <button type="button" disabled={busy} aria-label={`Keep all ${plural(shown.total, "other item", "other items")}`} onClick={() => void decideOthers("accept")} className={button}>Keep them</button>
+            <button type="button" disabled={busy} aria-label={`Leave all ${plural(shown.total, "other item", "other items")} off`} onClick={() => void decideOthers("reject")} className={button}>Leave them off</button>
           </div>
         </div>
       )}

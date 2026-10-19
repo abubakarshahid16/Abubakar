@@ -42,6 +42,17 @@ describe("BeforeYouSign: other items", () => {
     expect(box).not.toHaveTextContent("STD-Q 12");
   });
 
+  it("names the kinds of the hidden rest, and the bulk buttons say the total", () => {
+    const kinds = ["standard_not_cited", "standard_not_cited", "missing_reference", "pages_not_readable"];
+    mount(Array.from({ length: 14 }, (_, i) => ({
+      finding_id: `f${i}`, row_kind: i < 10 ? "standard_not_cited" : kinds[i - 10], item: i, standard: `STD-Q ${i}`,
+    })));
+    const box = screen.getByTestId("sign-items");
+    expect(box).toHaveTextContent("and 4 more of 14 (2 standards not cited, 1 set of pages that could not be read, 1 not in the library)");
+    expect(screen.getByRole("button", { name: "Keep all 14 other items" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Leave all 14 other items off" })).toBeInTheDocument();
+  });
+
   it("logs no standard name", () => {
     const spies = (["log", "info", "warn", "error", "debug"] as const).map((m) => vi.spyOn(console, m).mockImplementation(() => {}));
     mount([{ finding_id: "a", row_kind: "standard_not_cited", item: 1, standard: "STD-Q 7 clause 2" }]);

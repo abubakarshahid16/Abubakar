@@ -4,7 +4,7 @@ Plain words: "minor" means a blank, or an item nobody has decided yet. It never
 describes a requirement the datasheet failed. Invented data only; no model, no
 socket.
 
-Mutations: M9999-01 .. M9999-05 (scripts/mutations/pr9999_severity_floor.py).
+Mutations: M1201-01 .. M1201-05 (scripts/mutations/pr1201_severity_floor.py).
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import json
 
 import pytest
 
-from app import comparison, review, severity_rule
+from app import comparison, db, severity_rule
 from app import datasheet_checks as dc
 from app.crs_mapping import build_crs_rows, row_severity
 from tests.test_crs_endpoint import _submittal, temp_db  # noqa: F401
@@ -41,7 +41,10 @@ def _result(severity, status=dc.NON_COMPLIANT, **over):
 def _stored(results):
     doc = _submittal()
     return [
-        review.get(w["id"])["severity"]
+        # The raw column: `review.get` floors on read (PR #1201), which would hide the write.
+        db.connect()
+        .execute("SELECT severity FROM review_findings WHERE id = ?", (w["id"],))
+        .fetchone()[0]
         for w in dc.store("run-1", doc, results, pages_read={})
     ]
 

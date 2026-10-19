@@ -1,18 +1,18 @@
-"""Order 152.2 (severity): a failed requirement is never filed minor. Ids M9999-01 to M9999-05."""
+"""Order 152.2 (severity): a failed requirement is never filed minor. Ids M1201-01 to M1201-05."""
 
 from __future__ import annotations
 
 from ._base import APP, Mutation
 
-_T = "tests/test_9999_severity.py"
+_T = "tests/test_1201_severity.py"
 _R = APP / "severity_rule.py"
 _TAG = ("severity", "crs")
 
 
 def _m(n, desc, path, anchor, repl, kw=None):
     return Mutation(
-        id=f"M9999-{n:02d}",
-        phase=9999,
+        id=f"M1201-{n:02d}",
+        phase=1201,
         description=desc,
         path=path,
         anchor=anchor,

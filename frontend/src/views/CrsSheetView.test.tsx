@@ -696,7 +696,7 @@ describe("CrsSheetView: Before you sign (order 121)", () => {
     // 3. Items on the copy that are not sheet rows: one reason for all.
     expect(screen.getByTestId("sign-items")).toHaveTextContent("a standard the datasheet does not cite: STD-Q 7 clause 2");
     await userEvent.type(screen.getByLabelText("Reason for the other items"), "standard not cited is noted for the record");
-    await userEvent.click(screen.getByRole("button", { name: "Keep them" }));
+    await userEvent.click(screen.getByRole("button", { name: /^Keep all \d+ other items?$/ }));
     expect(decideCrsFinding).toHaveBeenCalledWith("run-1", "row-key-std", "accept", "standard not cited is noted for the record");
 
     // 4. The comment: the link opens its row; Keep and Save decide it.
@@ -725,7 +725,7 @@ describe("CrsSheetView: Before you sign (order 121)", () => {
     expect(listed).toHaveTextContent("1 comment on this sheet has no comment number and no decision yet");
     expect(screen.getByTestId("sign-left")).toHaveTextContent("decide 1 other line on the sheet");
     await userEvent.type(screen.getByLabelText("Reason for the other items"), "standard not cited is noted for the record");
-    await userEvent.click(screen.getByRole("button", { name: "Keep them" }));
+    await userEvent.click(screen.getByRole("button", { name: /^Keep all \d+ other items?$/ }));
     expect(decideCrsFinding).toHaveBeenCalledWith("run-1", "row-key-std", "accept", "standard not cited is noted for the record");
     expect(decideCrsFinding).not.toHaveBeenCalledWith("run-1", "met", expect.anything(), expect.anything());
     await userEvent.click(within(listed).getByRole("button"));

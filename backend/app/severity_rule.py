@@ -43,3 +43,13 @@ def effective_severity(finding: dict) -> str:
     if status == UNDECIDED and word in ("", "observation"):
         return FLOOR_UNDECIDED
     return word
+
+
+#: The same rule as `effective_severity`, as the rank of a SQL ORDER BY over
+#: the `severity` and `compliance_status` columns (0 = worst), so a list of
+#: old rows sorts by the word it will be shown with.
+SQL_RANK = (
+    f"CASE WHEN severity = '{ORDER[0]}' THEN 0 "
+    f"WHEN severity = '{FLOOR_FAILED}' OR compliance_status = '{FAILED}' THEN 1 "
+    f"WHEN severity = '{FLOOR_UNDECIDED}' OR compliance_status = '{UNDECIDED}' THEN 2 ELSE 3 END"
+)
