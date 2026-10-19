@@ -96,12 +96,12 @@ def test_the_ledger_says_why_a_page_was_not_sent(vision_on, monkeypatch):
     _with_vision(monkeypatch, VisionFake([{"label": "VOLTAGE", "value": "440"}], kind="table"))
     datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
     reasons = {int(k): v for k, v in page_ledger.coverage(doc)["not_read_reasons"].items()}
-    assert "OCR tier" in reasons[3]
+    assert "the page has no text layer" in reasons[3]
     # Page 2 was read by the vision reader: read (entry 68), and its ledger
     # row still says what the vision reader did.
     ledger = {r["page_no"]: r for r in page_ledger.rows(doc)}
     assert ledger[2]["facts_status"] == "facts"
-    assert "vision reader: page kind 'table'" in ledger[2]["facts_reason"]
+    assert "It called the page a 'table'" in ledger[2]["facts_reason"]
 
 
 def test_the_model_is_never_called_inside_a_write_transaction(vision_on, monkeypatch):

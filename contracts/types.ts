@@ -753,8 +753,8 @@ export interface ReviewRunSummary {
    *  reference/review_codes.json), in policy order. Absent or empty: the
    *  default `REVIEW_CODES`. */
   review_codes?: string[];
-  /** 2e: standards added to / removed from scope since the previous run of
-   *  the same submittal; null when there is no earlier run. */
+  /** 2e: standards used in this run's scope and not the previous completed
+   *  run's of the same submittal, and the reverse; null when there is none. */
   standards_change?: { previous_run_id: string; added: string[]; removed: string[] } | null;
   /** Why a failed run failed, verbatim. Null on a run that did not fail. */
   failure_reason?: string | null;

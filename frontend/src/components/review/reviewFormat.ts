@@ -274,19 +274,26 @@ export function whenLabel(value: string | null | undefined): string {
   return parsed.toLocaleString();
 }
 
-/** 2e: why the in-scope count moved - "Since the previous run: 4 standards
- *  removed (A, B, ...); 1 added (C)". Nothing when there is no earlier run
- *  or nothing changed. */
+/** 2e: why the in-scope count moved since the previous run.
+ *
+ *  NOT "REMOVED" (order 124 item 9, the 120.2 finding). The line said "5
+ *  standards removed", which read as deleted from the library; nothing was
+ *  deleted (a deleted standard takes its scope rows with it). They were in
+ *  the previous run's scope and not in this one, so that is what it says:
+ *  "5 standards were not used in this review (they were used last time)".
+ *  Nothing when there is no earlier run. */
 export function standardsChangeLine(run: ReviewRunSummary): string {
   const change = run.standards_change;
   if (!change) return "";
-  const part = (names: string[], verb: string) => names.length
-    ? `${names.length} standard${names.length === 1 ? "" : "s"} ${verb} (${names.join(", ")})`
+  const count = (n: number) => `${n} standard${n === 1 ? "" : "s"} ${n === 1 ? "was" : "were"}`;
+  const notUsed = change.removed.length
+    ? `${count(change.removed.length)} not used in this review (${change.removed.length === 1 ? "it was" : "they were"} used last time): ${change.removed.join(", ")}.`
     : "";
-  const parts = [part(change.removed, "removed"), part(change.added, "added")].filter(Boolean);
-  return parts.length
-    ? `Since the previous run: ${parts.join("; ")}.`
-    : "Same standards in scope as the previous run.";
+  const newlyUsed = change.added.length
+    ? `${count(change.added.length)} used in this review but not last time: ${change.added.join(", ")}.`
+    : "";
+  return [notUsed, newlyUsed].filter(Boolean).join(" ")
+    || "The same standards were used as in the last review.";
 }
 
 /** Owner order section 1: which KIND of comment a finding is. "" for a
