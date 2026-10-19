@@ -168,6 +168,23 @@ describe("useAutosave: pause, signed review, comments gone (v2.1 round 2)", () =
     expect(result.current.autosave.message).toContain("this comment is no longer on the sheet");
   });
 
+  /** Order 141 D. MUTATION PROOF: stop counting `missing` in useAutosave
+   *  (`dropped`) and this fails: the next good save says "Every decision is
+   *  on the record" while the dropped one never reached it. */
+  it("a decision taken off (its comment left the sheet) stays said after a later save works", async () => {
+    saveCrsDecisions.mockResolvedValueOnce({
+      saved: [], missing: ["gone"], wrote: false,
+      failed: [{ key: "gone", message: "x", words: "A decision was not saved: this comment is no longer on the sheet, so it was taken off your list.", detail: null }],
+    });
+    saveCrsDecisions.mockImplementation(savesAll);
+    const { result } = renderHook(() => useBoth());
+    act(() => result.current.decisions.keep("gone"));
+    await waitFor(() => expect(result.current.autosave.phase).toBe("failed"));
+    act(() => result.current.decisions.keep("b1"));
+    await waitFor(() => expect(result.current.autosave.phase).toBe("saved"));
+    expect(result.current.autosave.dropped).toBe(1);
+  });
+
   it("failures read as plain words, with the server's words folded as detail", async () => {
     saveCrsDecisions.mockResolvedValue({
       saved: [], missing: [], wrote: false,
@@ -224,6 +241,9 @@ describe("the saving line in the bar", () => {
     [autosave({ phase: "saved" }), 0, "Saved. Every decision is on the record."],
     [autosave(), 2, "2 decisions waiting to save..."],
     [autosave({ waiting: true }), 1, "1 decision will save once Undo is gone."],
+    // Order 141 D: never "every decision" while one was taken off unsaved.
+    [autosave({ phase: "saved", dropped: 1 }), 0,
+      "Saved, except 1 decision that was taken off because its comment is no longer on the sheet. Decide that comment again."],
   ])("says %#", (status, unsaved, words) => {
     const n = numbers({ unsaved });
     render(<ActionBar run={RUN} numbers={n} steps={actionSteps(n)} onAction={() => {}} signOff={IDLE} autosave={status} />);

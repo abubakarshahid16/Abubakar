@@ -5,7 +5,7 @@
  * built from the panels the old stacked page showed - moved, not rewritten,
  * so what they say is unchanged (rule 2: one version of each part).
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { reviews as reviewsApi } from "../../../api/client";
 import type {
@@ -205,30 +205,66 @@ function NumbersPage({ run, findings }: BehindTheScenesProps) {
  *  There (`inWorkspace`) the sheet opens by itself, since opening the tab is
  *  asking to see it, and the link to sign on the old comment sheet becomes a
  *  pointer to the workspace's own Sign and export, so the reader never
- *  leaves the workspace to sign. */
-export function CrsSheetPage({ runId, inWorkspace = false }: { runId: string; inWorkspace?: boolean }) {
+ *  leaves the workspace to sign.
+ *
+ *  Order 141 D: both the sheet and the internal copy are read from the
+ *  record. In the workspace `beforeCopy` saves the decisions on screen
+ *  first; when it cannot, the sheet says so above itself and the copy is
+ *  not downloaded (plain words instead), never a copy that silently leaves
+ *  the engineer's Keep / Edit / Remove out. */
+export function CrsSheetPage({ runId, inWorkspace = false, beforeCopy }: {
+  runId: string; inWorkspace?: boolean; beforeCopy?: () => Promise<string | null>;
+}) {
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [preview, setPreview] = useState<CrsPreview | null>(null);
   const [previewing, setPreviewing] = useState(inWorkspace);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  /** Why the sheet on screen may not show every decision; null when it does. */
+  const [copyWaits, setCopyWaits] = useState<string | null>(null);
+  /** True while the decisions on screen are being saved before a read. */
+  const [savingFirst, setSavingFirst] = useState(false);
+  const beforeCopyRef = useRef(beforeCopy);
+  useEffect(() => { beforeCopyRef.current = beforeCopy; }, [beforeCopy]);
 
   // Inside the workspace the tab itself is the request to see the sheet.
   useEffect(() => {
     if (!inWorkspace) return;
     let live = true;
-    void reviewsApi.previewCrs(runId).then((result) => {
+    void (async () => {
+      let waits: string | null = null;
+      if (beforeCopyRef.current) {
+        setSavingFirst(true);
+        waits = await beforeCopyRef.current();
+        if (live) setSavingFirst(false);
+      }
+      if (!live) return;
+      setCopyWaits(waits);
+      const result = await reviewsApi.previewCrs(runId);
       if (!live) return;
       setPreviewing(false);
       if (result.ok) setPreview(result.data);
       else setPreviewError(`The sheet could not be loaded: ${result.error.message}`);
-    });
+    })();
     return () => { live = false; };
   }, [inWorkspace, runId]);
 
   async function exportCrs() {
     setExporting(true);
     setExportError(null);
+    let waits: string | null = null;
+    if (beforeCopy) {
+      setSavingFirst(true);
+      waits = await beforeCopy();
+      setSavingFirst(false);
+    }
+    if (waits) {
+      setExportError(waits);
+      setExporting(false);
+      return;
+    }
+    // Saved now: the sheet on screen is read again if it was missing some.
+    if (copyWaits) { setCopyWaits(null); void refreshPreview(); }
     setExportError(await downloadCrs(runId, "internal"));
     setExporting(false);
   }
@@ -247,6 +283,13 @@ export function CrsSheetPage({ runId, inWorkspace = false }: { runId: string; in
     setPreview(result.data);
   }
 
+  /** Order 141 D: save the decisions on screen, then read the sheet again. */
+  async function readAgain() {
+    const waits = beforeCopy ? await beforeCopy() : null;
+    setCopyWaits(waits);
+    if (!waits) await refreshPreview();
+  }
+
   async function refreshPreview() {
     const result = await reviewsApi.previewCrs(runId);
     if (result.ok) setPreview(result.data); else setPreviewError(result.error.message);
@@ -259,7 +302,7 @@ export function CrsSheetPage({ runId, inWorkspace = false }: { runId: string; in
             nothing, decides nothing and records no judgement. */}
         <button type="button" onClick={() => void exportCrs()} disabled={exporting}
           className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-200 disabled:opacity-50">
-          {exporting ? "Preparing…" : "Export CRS - internal review copy"}
+          {exporting ? (savingFirst ? "Saving your decisions first…" : "Preparing…") : "Export CRS - internal review copy"}
         </button>
         {/* Order 121: the contractor's copy is signed on the comment sheet
             ("Before you sign"), never here; this page only links there.
@@ -275,7 +318,9 @@ export function CrsSheetPage({ runId, inWorkspace = false }: { runId: string; in
           </NavLink>
         )}
         {inWorkspace ? (
-          previewing && <span className="text-sm text-slateish-400">Loading the sheet…</span>
+          previewing && (
+            <span className="text-sm text-slateish-400">{savingFirst ? "Saving your decisions first…" : "Loading the sheet…"}</span>
+          )
         ) : (
           <button type="button" onClick={() => void togglePreview()} disabled={previewing} aria-expanded={preview !== null}
             className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-200 disabled:opacity-50">
@@ -288,6 +333,16 @@ export function CrsSheetPage({ runId, inWorkspace = false }: { runId: string; in
       )}
       {previewError && (
         <p role="alert" className="rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-xs text-danger-500">{previewError}</p>
+      )}
+      {copyWaits && (
+        <p role="status" data-testid="crs-copy-waits"
+          className="flex flex-wrap items-center gap-2 rounded-[var(--radius-sm)] border border-warn-500/50 bg-warn-500/10 px-3 py-2 text-sm text-slateish-100">
+          <span>{copyWaits} The sheet below shows the record as it is now.</span>
+          <button type="button" onClick={() => void readAgain()}
+            className="text-signal-300 underline-offset-2 hover:underline">
+            Save and read the sheet again
+          </button>
+        </p>
       )}
       {preview && <CrsPreviewSheet preview={preview} runId={runId} onChanged={() => void refreshPreview()} />}
       <ReviewNotes key={runId} runId={runId} />

@@ -8,21 +8,26 @@
  *
  * Inside the workspace the sheet opens by itself and signing points to the
  * workspace's own Sign and export, so the reader never leaves this screen.
+ *
+ * Order 141 D: the sheet and its internal copy are read from the record, so
+ * the workspace's decisions on screen are saved first (`beforeCopy`).
  */
 import { CrsSheetPage } from "../../panels/BehindTheScenes";
 
 export interface CrsTabPanelProps {
   runId: string;
+  /** Saves the decisions on screen; null, or plain words why not. */
+  beforeCopy?: () => Promise<string | null>;
 }
 
-export function CrsTabPanel({ runId }: CrsTabPanelProps) {
+export function CrsTabPanel({ runId, beforeCopy }: CrsTabPanelProps) {
   return (
     <section aria-label="Comment Resolution Sheet" data-testid="ws-crs-tab" className="space-y-3">
       <p className="text-sm text-slateish-300">
         The comment sheet as the contractor will see it. Enter the transmittal numbers, bring in the
         contractor&apos;s replies when they come back, and mark each comment Open or Closed.
       </p>
-      <CrsSheetPage key={runId} runId={runId} inWorkspace />
+      <CrsSheetPage key={runId} runId={runId} inWorkspace beforeCopy={beforeCopy} />
     </section>
   );
 }
