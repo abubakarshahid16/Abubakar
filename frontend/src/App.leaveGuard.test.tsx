@@ -2,8 +2,8 @@
  * v2.1 N1: ONE navigation guard for the review workspace.
  *
  * While the workspace reports unsaved decisions, every way out asks in the
- * page first: the browser's Back button, the main menu, "Open this point on
- * the cards view" (the navigation context), a link to Documents (NavLink),
+ * page first: the browser's Back button, the main menu, a link to another
+ * review (the navigation context), a link to Documents (NavLink),
  * and sign-out. With nothing unsaved nothing asks. A chosen sign-out removes
  * the reader's decision drafts; a sign-in that ran out (401) keeps them.
  *
@@ -43,8 +43,9 @@ vi.mock("./views/SubmittalsLandingView", () => ({
 }));
 
 /** A stand-in workspace: reports one unsaved decision on request, and has
- *  the two in-page links the real one has (the cards view through the
- *  navigation context, Documents through NavLink). */
+ *  two in-page links (another review through the navigation context, at an
+ *  old screen's address that now leads into the workspace; Documents
+ *  through NavLink). */
 function FakeWorkspace({ location, onUnsavedChange }: ReviewWorkspaceProps) {
   const navigate = useContext(NavigationContext);
   const register = useContext(LeaveSaverContext);
@@ -55,7 +56,7 @@ function FakeWorkspace({ location, onUnsavedChange }: ReviewWorkspaceProps) {
       <p>{`workspace for ${location.runId}`}</p>
       <button type="button" onClick={() => onUnsavedChange?.(2)}>Make two unsaved decisions</button>
       <button type="button" onClick={() => register?.(async () => { onUnsavedChange?.(0); return true; })}>Offer a save</button>
-      <button type="button" onClick={() => navigate?.("review", location.runId, "cards")}>Open this point on the cards view</button>
+      <button type="button" onClick={() => navigate?.("review", "run-2", "cards")}>Open another review</button>
       <NavLink view="documents">Documents page link</NavLink>
     </div>
   );
@@ -180,15 +181,16 @@ describe("the navigation guard (v2.1 N1)", () => {
     expect(await screen.findByText("standards page")).toBeInTheDocument();
   });
 
-  it("\"Open this point on the cards view\" asks", async () => {
+  it("a link to another review asks", async () => {
     const user = userEvent.setup();
     mockApi();
     await openWorkspaceWithUnsaved(user);
-    await user.click(screen.getByRole("button", { name: "Open this point on the cards view" }));
+    await user.click(screen.getByRole("button", { name: "Open another review" }));
     expect(screen.getByRole("alertdialog")).toBeInTheDocument();
-    expect(screen.queryByText("cards for run-1")).toBeNull();
+    expect(screen.queryByText("workspace for run-2")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Leave this review" }));
-    expect(await screen.findByText("cards for run-1")).toBeInTheDocument();
+    expect(await screen.findByText("workspace for run-2")).toBeInTheDocument();
+    expect(screen.queryByText(/cards for/)).toBeNull();
   });
 
   it("a link to Documents asks", async () => {
@@ -209,8 +211,8 @@ describe("the navigation guard (v2.1 N1)", () => {
     await screen.findByText("reviews landing");
     await goTo("/review/run-1/workspace");
     await screen.findByText("workspace for run-1");
-    await user.click(screen.getByRole("button", { name: "Open this point on the cards view" }));
-    expect(await screen.findByText("cards for run-1")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Open another review" }));
+    expect(await screen.findByText("workspace for run-2")).toBeInTheDocument();
     expect(screen.queryByRole("alertdialog")).toBeNull();
     await goTo("/review");
     expect(await screen.findByText("reviews landing")).toBeInTheDocument();

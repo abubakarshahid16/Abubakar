@@ -33,7 +33,9 @@ export interface CrsEvidenceDrawerProps {
   runId: string;
   standardNames: Map<string, string>;
   onClose: () => void;
-  onOpenCards: () => void;
+  /** The old cards view of this point. Absent inside the review workspace:
+   *  the old review screens are gone there (owner, 19 Oct 2026). */
+  onOpenCards?: () => void;
   /** The element to give the keyboard back to on close. */
   returnTo: HTMLElement | null;
   /** Where this row sits in the list shown, and how to move along it. */
@@ -225,9 +227,11 @@ export function CrsEvidenceDrawer({ row, runId, standardNames, onClose, onOpenCa
             )}
           </section>
         )}
-        <button type="button" onClick={onOpenCards} className="text-sm text-signal-300 underline-offset-2 hover:underline">
-          Open this point on the cards view
-        </button>
+        {onOpenCards && (
+          <button type="button" onClick={onOpenCards} className="text-sm text-signal-300 underline-offset-2 hover:underline">
+            Open this point on the cards view
+          </button>
+        )}
       </div>
     </aside>
   );

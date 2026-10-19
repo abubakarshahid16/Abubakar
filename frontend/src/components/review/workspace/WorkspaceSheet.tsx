@@ -23,10 +23,8 @@
  *    comment after a decision) that the current "Show" choice hides widens
  *    the choice, so the open comment is always in the list.
  */
-import { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { CRS_SHEET_IS_DEFAULT, panelForReviewScreen } from "../../../routing";
-import { NavigationContext } from "../../NavLink";
 import type { RowMode } from "../crs/CrsRow";
 import { CrsTable } from "../crs/CrsTable";
 import { type CrsRow, type Depth, spotCheckKeys, visibleRows } from "../crs/crsRows";
@@ -71,7 +69,6 @@ export function WorkspaceSheet({
   const [selectedKey, setSelectedKey] = useState<string | null>(openRowKey);
   const [mode, setMode] = useState<{ key: string; kind: RowMode } | null>(null);
   const [returnTo, setReturnTo] = useState<HTMLElement | null>(null);
-  const navigate = useContext(NavigationContext);
 
   const plain = useMemo(() => rows.map(plainRow), [rows]);
   const spot = useMemo(() => spotCheckKeys(rows, runId), [rows, runId]);
@@ -139,9 +136,6 @@ export function WorkspaceSheet({
       setDoneNote({ key: rowKey, text: "That was the last comment to decide." });
     }
   }, [orderKeys, numbers.undecidedKeys, markOpened, onOpenRow]);
-  const openCards = useCallback(() => {
-    navigate?.("review", runId, panelForReviewScreen("cards", CRS_SHEET_IS_DEFAULT));
-  }, [navigate, runId]);
 
   const keyActions = useMemo(() => ({
     select: (row: CrsRow) => setSelectedKey(row.key),
@@ -189,7 +183,7 @@ export function WorkspaceSheet({
       {footer}
       {drawerRow && (
         <WorkspaceEvidence row={drawerRow} runId={runId} standardNames={standardNames} returnTo={returnTo}
-          onClose={closeDrawer} onOpenCards={openCards} nav={nav} pager={pager} showKeys={showKeys}
+          onClose={closeDrawer} nav={nav} pager={pager} showKeys={showKeys}
           decide={drawerRow.tier.tier !== "A" && !readOnly ? (
             <DecisionPanel row={drawerRow} decisions={decisions} onDecided={onDecided} showKeys={showKeys}
               note={doneNote?.key === drawerRow.key ? doneNote.text : null} />

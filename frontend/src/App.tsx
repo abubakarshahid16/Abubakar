@@ -21,23 +21,18 @@ import { LoginView, RoleBadge, type LoginOutcome } from "./views/LoginView";
 import { AnalysisModeScreen } from "./views/AnalysisModeScreen";
 import { ReportsScreen } from "./views/ReportsScreen";
 import { DeliverablesView } from "./views/DeliverablesView";
-import { CrsSheetView } from "./views/CrsSheetView";
-import { ReviewSheetView } from "./views/ReviewSheetView";
-import { HowReviewedView } from "./views/HowReviewedView";
 import { SubmittalsLandingView } from "./views/SubmittalsLandingView";
 import type { AuthStatus, Me } from "./types/api";
 import { FinishedReviewNotice } from "./components/review/workspace/FinishedReviewNotice";
 import { clearWatchedReviews, setWatchOwner } from "./components/review/workspace/reviewWatch";
 import { ReviewWorkspace } from "./components/review/workspace/ReviewWorkspace";
-import { TryNewDesignToggle } from "./components/review/workspace/TryNewDesignToggle";
-import { useWorkspaceSwitch } from "./components/review/workspace/useWorkspaceSwitch";
-import { WORKSPACE_PANEL, isWorkspaceScreen, parseWorkspaceQuery, workspaceSearch } from "./components/review/workspace/workspaceRoute";
+import { WORKSPACE_PANEL, reviewPageFor, workspaceSearch } from "./components/review/workspace/workspaceRoute";
 import type { WorkspaceLocation, WorkspaceTab } from "./components/review/workspace/contract";
 import { LeaveConfirm } from "./components/review/workspace/LeaveConfirm";
 import { type LeaveSaver, LeaveSaverContext, useLeaveGuard } from "./components/review/workspace/useLeaveGuard";
 import { CrsDraftContext, clearDecisionDrafts, keepOnlyDraftsOf, setDraftOwner } from "./components/review/crs/useCrsDecisions";
 import { NavigationContext } from "./components/NavLink";
-import { CRS_SHEET_IS_DEFAULT, INBOX_RECORD, panelForReviewScreen, parseRoute, pathForView, reviewScreenFor, titleForView, type AppRoute } from "./routing";
+import { parseRoute, pathForView, titleForView, type AppRoute } from "./routing";
 
 //: One key, named once. A typo in a second literal is a preference that
 //: silently never persists.
@@ -83,7 +78,6 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
     return window.location.search;
   });
   const view = route.kind === "view" ? route.view : initialView;
-  const reviewScreen = route.kind === "view" && route.view === "review" ? reviewScreenFor(route.panel, CRS_SHEET_IS_DEFAULT) : null;
   // v2.1 (N1): the address the app is showing now, so a Back press that
   // the reader takes back (unsaved decisions, "Stay here") can put it back.
   const shownAddress = useRef<string>(
@@ -95,17 +89,26 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
     setSearch("");
     setRoute({ kind: "view", view: next, recordId, ...(panel ? { panel } : {}) });
   }, []);
-  // THE WORKSPACE SWITCH: routing.WORKSPACE_IS_DEFAULT || this browser
-  // pressed "Try new design". Off: every review screen is exactly as before.
-  const workspaceSwitch = useWorkspaceSwitch();
-  const switchOn = workspaceSwitch.on;
-  const workspacePanel = route.kind === "view" ? route.panel : undefined;
-  const workspaceLocation = useMemo<WorkspaceLocation | null>(() => {
-    if (route.kind !== "view" || route.view !== "review" || !route.recordId) return null;
-    if (route.recordId === INBOX_RECORD && !route.panel) return null;
-    if (!isWorkspaceScreen(route.panel, switchOn)) return null;
-    return { runId: route.recordId, ...parseWorkspaceQuery(search) };
-  }, [route, switchOn, search]);
+  // The owner replaced the old review design permanently (19 Oct 2026):
+  // every review address opens the workspace or its first page. Old
+  // screens' addresses are mapped in ONE place (workspaceRoute.reviewPageFor)
+  // and replaced in the address bar below, so old bookmarks still work.
+  const reviewPage = useMemo(() => (
+    route.kind === "view" && route.view === "review" ? reviewPageFor(route.recordId, route.panel, search) : null
+  ), [route, search]);
+  const workspaceLocation: WorkspaceLocation | null = reviewPage?.kind === "workspace" ? reviewPage.location : null;
+  // Only the workspace's own address keeps its third segment.
+  const workspacePanel = route.kind === "view" && route.panel === WORKSPACE_PANEL ? WORKSPACE_PANEL : undefined;
+  // An old screen's address (or the old inbox): show where it now leads,
+  // without a new history entry.
+  useEffect(() => {
+    if (!reviewPage?.redirected) return;
+    const url = new URL(reviewPage.address, window.location.origin);
+    window.history.replaceState({ ...(window.history.state ?? {}), __epcRoute: true }, "", reviewPage.address);
+    shownAddress.current = reviewPage.address;
+    setSearch(url.search);
+    setRoute(parseRoute(url.pathname));
+  }, [reviewPage]);
   // Tab / row / panel changes replace the address: no new history entry.
   const onWorkspaceLocationChange = useCallback((next: WorkspaceLocation) => {
     const nextSearch = workspaceSearch(next);
@@ -115,23 +118,17 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
     setSearch(nextSearch);
   }, [workspacePanel]);
   // Links from the workspace's own pieces (the finished notice, "Review
-  // again"): with the switch on, the plain run address already opens the
-  // workspace; with it off they go to the workspace's own address.
-  const openRunInWorkspace = useCallback(
-    (runId: string) => onNavigate("review", runId, switchOn ? undefined : WORKSPACE_PANEL),
-    [onNavigate, switchOn],
-  );
+  // again"): the plain run address opens the workspace.
+  const openRunInWorkspace = useCallback((runId: string) => onNavigate("review", runId), [onNavigate]);
   // v2.2: "Preview CRS" on the first page opens a review straight on one tab.
   const openRunOnTab = useCallback((runId: string, tab: WorkspaceTab) => {
     const nextSearch = workspaceSearch({ runId, tab, row: null, panel: null, documentId: null });
-    const panel = switchOn ? undefined : WORKSPACE_PANEL;
-    const nextPath = pathForView("review", runId, panel) + nextSearch;
+    const nextPath = pathForView("review", runId) + nextSearch;
     if (import.meta.env.MODE !== "test") window.history.pushState({ __epcRoute: true }, "", nextPath);
     shownAddress.current = nextPath;
     setSearch(nextSearch);
-    setRoute({ kind: "view", view: "review", recordId: runId, ...(panel ? { panel } : {}) });
-  }, [switchOn]);
-  const { setOptIn } = workspaceSwitch;
+    setRoute({ kind: "view", view: "review", recordId: runId });
+  }, []);
   // Decisions on the workspace screen that are not saved yet (it reports
   // them; 0 on every other screen).
   const workspaceUnsaved = useRef(0);
@@ -154,17 +151,6 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
   const guardedNavigate = useCallback((next: ViewId, recordId?: string, panel?: string) => {
     guard("navigate", () => onNavigate(next, recordId, panel));
   }, [guard, onNavigate]);
-  const onTryNewDesign = useCallback((on: boolean) => {
-    const go = () => {
-      setOptIn(on);
-      // Off while on the workspace's own address: back to the old screen.
-      if (!on && route.kind === "view" && route.view === "review" && route.recordId && route.panel === WORKSPACE_PANEL) {
-        onNavigate("review", route.recordId);
-      }
-    };
-    if (on) go(); else guard("switch", go);
-  }, [setOptIn, route, onNavigate, guard]);
-  const tryNewDesign = <TryNewDesignToggle on={switchOn} onChange={onTryNewDesign} />;
   // "Open it" on the finished notice leaves whatever screen the reader is
   // on, the workspace included, so it goes through the guard. False tells
   // the notice the reader has not left (yet), so it stays on screen.
@@ -494,84 +480,33 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
           {view === "analysis" && <AnalysisModeScreen />}
           {view === "reports" && <ReportsScreen />}
           {view === "deliverables" && <DeliverablesView />}
-          {/* #967 PR1: the page opens on the landing list of documents from
-              contractors. */}
-          {/* Order 95 piece 5: "How this was reviewed" is a page of its own
-              (`/review/<run>/how`), not one of the sheet's panels. Both review
-              screens link to it (the new sheet's header among them). */}
-          {view === "review" && route.kind === "view" && route.recordId && route.panel === "how" && (
-            <HowReviewedView
-              key={route.recordId} runId={route.recordId}
-              onBack={() => onNavigate("review", route.recordId)}
-              onOpenRun={(runId) => onNavigate("review", runId)}
-              onOpenSteps={() => onNavigate("review", route.recordId, "steps")}
-            />
-          )}
-          {/* Order 95 piece 2 (Part of #967): which screen `/review/<run>`
-              opens is `routing.CRS_SHEET_IS_DEFAULT` (the new comment
-              sheet since the owner's yes, order 115). The card view is also at
-              `/review/<run>/cards`, the new comment sheet at
-              `/review/<run>/crs-sheet`, whichever is the default. */}
-          {/* Workspace v2: `/review/<run>/workspace` always, `/review/<run>`
-              only with the switch on (isWorkspaceScreen). */}
+          {/* The review workspace replaced the old review design
+              permanently (owner, 19 Oct 2026): `/review` is its first page,
+              `/review/<run>` (and `/review/<run>/workspace`) the workspace.
+              Old screens' addresses lead here through reviewPageFor. */}
           {view === "review" && workspaceLocation && (
-            <>
-              {tryNewDesign}
-              {/* v2.1 (N1): decisions not saved yet are kept as a draft
-                  for this review in this tab. */}
-              <CrsDraftContext.Provider value={workspaceLocation.runId}>
-                <LeaveSaverContext.Provider value={registerWorkspaceSaver}>
-                <ReviewWorkspace
-                  key={workspaceLocation.runId} location={workspaceLocation}
-                  onLocationChange={onWorkspaceLocationChange}
-                  onBack={() => onNavigate("review")}
-                  onOpenRun={openRunInWorkspace}
-                  onUnsavedChange={onWorkspaceUnsaved}
-                  leaveGuard={guard}
-                  isAdmin={canAdmin}
-                />
-                </LeaveSaverContext.Provider>
-              </CrsDraftContext.Provider>
-            </>
+            /* v2.1 (N1): decisions not saved yet are kept as a draft
+               for this review in this tab. */
+            <CrsDraftContext.Provider value={workspaceLocation.runId}>
+              <LeaveSaverContext.Provider value={registerWorkspaceSaver}>
+              <ReviewWorkspace
+                key={workspaceLocation.runId} location={workspaceLocation}
+                onLocationChange={onWorkspaceLocationChange}
+                onBack={() => onNavigate("review")}
+                onOpenRun={openRunInWorkspace}
+                onUnsavedChange={onWorkspaceUnsaved}
+                leaveGuard={guard}
+                isAdmin={canAdmin}
+              />
+              </LeaveSaverContext.Provider>
+            </CrsDraftContext.Provider>
           )}
-          {view === "review" && !workspaceLocation && !(route.kind === "view" && route.panel === "how") && (
-            route.kind === "view" && route.recordId === INBOX_RECORD && !route.panel ? (
-              <>
-                {tryNewDesign}
-                <SubmittalsLandingView
-                  workspace={switchOn} isAdmin={canAdmin}
-                  inbox onOpenRun={(runId) => onNavigate("review", runId)}
-                  onOpenList={() => onNavigate("review")}
-                />
-              </>
-            ) : route.kind === "view" && route.recordId ? (
-              reviewScreen?.screen === "cards" ? (
-                <ReviewSheetView
-                  key={route.recordId} runId={route.recordId} panel={reviewScreen.panel}
-                  onBack={() => onNavigate("review")}
-                  onOpenPanel={(panel) => onNavigate("review", route.recordId, panel ?? panelForReviewScreen("cards", CRS_SHEET_IS_DEFAULT))}
-                  onOpenRun={(runId) => onNavigate("review", runId)}
-                  onOpenStandards={() => onNavigate("standards")}
-                  isAdmin={canAdmin}
-                />
-              ) : (
-                <CrsSheetView
-                  key={route.recordId} runId={route.recordId}
-                  onBack={() => onNavigate("review")}
-                  onOpenCards={() => onNavigate("review", route.recordId, panelForReviewScreen("cards", CRS_SHEET_IS_DEFAULT))}
-                />
-              )
-            ) : (
-              <>
-                {tryNewDesign}
-                <SubmittalsLandingView
-                  workspace={switchOn} isAdmin={canAdmin}
-                  onOpenRun={(runId) => onNavigate("review", runId)}
-                  onOpenRunTab={openRunOnTab}
-                  onOpenInbox={() => onNavigate("review", INBOX_RECORD)}
-                />
-              </>
-            )
+          {view === "review" && reviewPage?.kind === "landing" && (
+            <SubmittalsLandingView
+              workspace isAdmin={canAdmin}
+              onOpenRun={(runId) => onNavigate("review", runId)}
+              onOpenRunTab={openRunOnTab}
+            />
           )}
           {/* `canAdmin &&` is the gate, not the absence of a nav entry. Setting
               the view to "admin" by any other means - a stale state value, a

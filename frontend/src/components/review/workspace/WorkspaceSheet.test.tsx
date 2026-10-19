@@ -172,6 +172,15 @@ describe("WorkspaceSheet", () => {
     expect(row).toHaveAttribute("aria-selected", "true");
   });
 
+  /** Owner, 19 Oct 2026: the old review screens are gone, so the evidence
+   *  panel offers no way back to the old cards view. */
+  it("the evidence panel has no link to the old cards view", async () => {
+    render(<Harness onOpenRow={vi.fn()} start={SEAL_KEY} />);
+    const drawer = await screen.findByRole("dialog");
+    expect(within(drawer).queryByRole("button", { name: /cards view/ })).toBeNull();
+    expect(within(drawer).queryByText(/cards view/)).toBeNull();
+  });
+
   it("keeps the table's keys: J / K move, E edits, R asks why, Enter keeps", async () => {
     const user = userEvent.setup();
     render(<Harness onOpenRow={vi.fn()} />);
