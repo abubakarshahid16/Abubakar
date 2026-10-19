@@ -15,6 +15,8 @@ import { useState } from "react";
 import { reviews as reviewsApi } from "../../api/client";
 import type { DocumentRecord, ReviewFinding, ReviewRunStandard } from "../../types/api";
 import { DocumentPreview } from "../DocumentPreview";
+import { ReasonText } from "./ReasonText";
+import { SENSE_CHECK_RULE, isSenseCheck } from "./reasonWords";
 import { SideBySideEvidence, WhyStandardApplies } from "./SideBySideEvidence";
 import { MIN_REASON } from "./sheet/sheetCards";
 import { useResolvedDocuments } from "./useResolvedDocuments";
@@ -171,14 +173,14 @@ function FindingDetailBody(
       <div>
         <h4 className="text-xs uppercase tracking-wide text-slateish-400">Requirement</h4>
         <p className="mt-1 whitespace-pre-wrap text-sm text-slateish-200">
-          {orNothing(finding.requirement_source_text) || orNothing(finding.requirement)}
+          {isSenseCheck(finding) ? SENSE_CHECK_RULE : orNothing(finding.requirement_source_text) || orNothing(finding.requirement)}
         </p>
       </div>
 
       <div>
         <h4 className="text-xs uppercase tracking-wide text-slateish-400">Why this outcome</h4>
         <p className="mt-1 whitespace-pre-wrap text-sm text-slateish-200">
-          {orNothing(finding.ai_rationale)}
+          <ReasonText text={orNothing(finding.ai_rationale)} />
         </p>
         <p className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slateish-400">
           {finding.match_method && (

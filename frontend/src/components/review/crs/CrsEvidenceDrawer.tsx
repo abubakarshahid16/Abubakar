@@ -19,6 +19,8 @@ import { useEffect, useRef, useState } from "react";
 
 import { reviews as reviewsApi } from "../../../api/client";
 import type { CrsIssueDecision } from "../../../types/api";
+import { ReasonText } from "../ReasonText";
+import { SENSE_CHECK_RULE, isSenseCheck } from "../reasonWords";
 import { orNothing } from "../reviewFormat";
 import { SheetPageImage } from "../sheet/SheetPageImage";
 import { cardTitle, trustLine } from "../sheet/sheetCards";
@@ -147,7 +149,7 @@ export function CrsEvidenceDrawer({ row, runId, standardNames, onClose, onOpenCa
         )}
         <section>
           <h3 className={h}>We noticed</h3>
-          <p className="mt-1 text-sm text-slateish-200">{orNothing(leader.finding)}</p>
+          <p className="mt-1 text-sm text-slateish-200"><ReasonText text={orNothing(leader.finding)} /></p>
           {orNothing(leader.contractor_evidence_text) && (
             <blockquote className="mt-1 border-l-2 border-ink-600 pl-2 text-xs text-slateish-300">
               "{orNothing(leader.contractor_evidence_text)}"{leader.contractor_page ? ` (datasheet p. ${leader.contractor_page})` : ""}
@@ -156,7 +158,9 @@ export function CrsEvidenceDrawer({ row, runId, standardNames, onClose, onOpenCa
         </section>
         <section>
           <h3 className={h}>The rule</h3>
-          <p className="mt-1 text-sm text-slateish-200">{orNothing(leader.requirement_source_text) || orNothing(leader.requirement)}</p>
+          <p className="mt-1 text-sm text-slateish-200">
+            {isSenseCheck(leader) ? SENSE_CHECK_RULE : orNothing(leader.requirement_source_text) || orNothing(leader.requirement)}
+          </p>
           {(standard || leader.standard_clause) && (
             <p className="mt-1 text-xs text-slateish-400">
               {[standard, leader.standard_clause ? `clause ${leader.standard_clause}` : "", leader.standard_page ? `p. ${leader.standard_page}` : ""].filter(Boolean).join(", ")}
@@ -170,7 +174,7 @@ export function CrsEvidenceDrawer({ row, runId, standardNames, onClose, onOpenCa
         {orNothing(leader.ai_rationale) && (
           <section>
             <h3 className={h}>Why the computer said so</h3>
-            <p className="mt-1 whitespace-pre-wrap text-xs text-slateish-300">{orNothing(leader.ai_rationale)}</p>
+            <p className="mt-1 whitespace-pre-wrap text-xs text-slateish-300"><ReasonText text={orNothing(leader.ai_rationale)} /></p>
           </section>
         )}
         <p className="text-xs text-slateish-500">{trustLine(card)}</p>

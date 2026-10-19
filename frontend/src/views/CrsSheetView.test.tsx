@@ -138,6 +138,33 @@ describe("CrsSheetView", () => {
     expect(sheet).not.toHaveTextContent("no_field_matched");
   });
 
+  it("order 120: the drawer says reason codes in plain words and an AI sense check's rule as such", async () => {
+    findings = [
+      f("nf", { compliance_status: "NEEDS_ENGINEER_REVIEW", contractor_page: 2,
+        finding: "no_field_matched: no field read from this datasheet was named",
+        ai_rationale: "no_field_matched: no field read from this datasheet was named in this requirement" }),
+    ];
+    mount();
+    await screen.findByTestId("crs-headline");
+    await userEvent.click(screen.getByRole("button", { name: /Open evidence for Comment 1/ }));
+    const drawer = await screen.findByRole("dialog");
+    expect(drawer).toHaveTextContent("No field read from this datasheet answers this requirement.");
+    expect(drawer).not.toHaveTextContent("no_field_matched");
+  });
+
+  it("order 120: an AI check with no standard shows the sense-check line as its rule, not its topic", async () => {
+    findings = [
+      f("ai", { origin: "ai_engineering_check", compliance_status: "NEEDS_ENGINEER_REVIEW", requirement: "p4",
+        standard_document_id: null, standard_clause: null, ai_rationale: "AI engineering check. Relates to: no standard named." }),
+    ];
+    mount();
+    await screen.findByTestId("crs-headline");
+    await userEvent.click(screen.getByRole("button", { name: /Open evidence for Comment 1/ }));
+    const drawer = await screen.findByRole("dialog");
+    expect(drawer).toHaveTextContent("No standard clause - this is the computer's sense check.");
+    expect(drawer).not.toHaveTextContent(/The rule\s*p4/);
+  });
+
   it("order 117: a slow answer for the run the reader left never replaces the run they moved to", async () => {
     let release: () => void = () => {};
     const gate = new Promise<void>((r) => { release = r; });
