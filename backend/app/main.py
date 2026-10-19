@@ -2630,8 +2630,12 @@ def _replaced_numbers(crs_scope: str, rows: list[dict]) -> None:
 
     A row keyed on its own leader's clause (every row that is not a field
     row) has nothing to replace."""
-    wanted = {k for row in rows for k in row.get("member_keys") or []
-              if row.get("comment_key") not in (row.get("member_keys") or [])}
+    wanted = {
+        k
+        for row in rows
+        for k in row.get("member_keys") or []
+        if row.get("comment_key") not in (row.get("member_keys") or [])
+    }
     if not wanted:
         return
     records = crs_numbers_mod.lookup(crs_scope, sorted(wanted))
@@ -2639,15 +2643,20 @@ def _replaced_numbers(crs_scope: str, rows: list[dict]) -> None:
         members = row.get("member_keys") or []
         if not members or row.get("comment_key") in members:
             continue
-        issued = [records[k] for k in members if k in records
-                  and records[k].get("issued", 1)
-                  and records[k].get("status") != crs_numbers_mod.WITHDRAWN]
+        issued = [
+            records[k]
+            for k in members
+            if k in records
+            and records[k].get("issued", 1)
+            and records[k].get("status") != crs_numbers_mod.WITHDRAWN
+        ]
         if not issued:
             continue
         refs = [r["ref"] for r in sorted(issued, key=lambda r: r["seq"])]
         row["replaces_refs"] = refs
-        line = REPLACES_LINE.format(word="comment" if len(refs) == 1 else "comments",
-                                    refs=", ".join(refs))
+        line = REPLACES_LINE.format(
+            word="comment" if len(refs) == 1 else "comments", refs=", ".join(refs)
+        )
         row["comment"] = "\n".join(p for p in (row.get("comment") or "", line) if p)
         if len(issued) == len(members):
             row["engineer_confirmed"] = True

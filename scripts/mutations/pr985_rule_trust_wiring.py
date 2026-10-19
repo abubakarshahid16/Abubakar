@@ -55,7 +55,6 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M985-16", phase=985,
              description="a held datasheet check silently leaves the CRS",
              path=_M,
-             # Re-anchored 2026-10-19 (order 139 part 2): `_bucket_of` decides it.
              anchor='        if status in ("NON_COMPLIANT", _MISSING_INFORMATION) or f.get("rule_said"):\n',
              replacement='        if status in ("NON_COMPLIANT", _MISSING_INFORMATION):\n',
              target=_T, keyword="every_datasheet_check_is_labelled_too", tags=("honesty", "critical")),
@@ -69,8 +68,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M985-18", phase=985,
              description="the CRS rows carry no trust words",
              path=_M,
-             anchor="                # rule_trust (#947): who stands behind the rule, in words.\n"
-                    "                \"rule_trust\": trust_words(f),\n",
+             anchor="                    # rule_trust (#947): who stands behind the rule, in words.\n"
+                    "                    \"rule_trust\": trust_words(f),\n",
              replacement="",
              target=_T, keyword="every_datasheet_check_is_labelled_too", tags=("honesty",)),
     Mutation(id="M985-19", phase=985,

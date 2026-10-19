@@ -108,7 +108,9 @@ class TierRow(BaseModel):
     crs_priority: int | None = None
     #: order 139 part 2: the rank's word, as the internal copy prints it
     crs_priority_label: (
-        Literal["Out of limit", "Missing value", "Engineer to check", "Engineer's comment"]
+        Literal[
+            "Out of limit", "Missing value", "Engineer to check", "Engineer's comment"
+        ]
         | None
     ) = None
     #: order 139 part 2: the row's place in the sheet's order (0 first) among
@@ -281,8 +283,12 @@ def review_run_summary(
     # `_tiers` (`/counts` asks for up to 200 runs and needs none of it).
     grouping = crs_fields(review_run_id, allowed)
     if grouping is not None:
-        tiers = {**tiers, "rows": [{**row, **grouping.get(row["finding_id"], {})}
-                                   for row in tiers["rows"]]}
+        tiers = {
+            **tiers,
+            "rows": [
+                {**row, **grouping.get(row["finding_id"], {})} for row in tiers["rows"]
+            ],
+        }
     steps = (
         ai_numbers_mod.for_run(
             outcome,
@@ -411,13 +417,23 @@ def crs_row_fields(rows: list[dict], findings: list[dict]) -> dict[str, dict]:
         ids = row.get("finding_ids") or [row.get("finding_id")]
         for finding_id in ids:
             if finding_id:
-                out.setdefault(finding_id, {"crs_group": group, "crs_order": order,
-                                            "crs_action": row.get("crs_action")})
+                out.setdefault(
+                    finding_id,
+                    {
+                        "crs_group": group,
+                        "crs_order": order,
+                        "crs_action": row.get("crs_action"),
+                    },
+                )
         order += 1
     for f in findings:
-        if (f.get("id") and f["id"] not in out and not f.get("origin")
-                and f.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"
-                and f.get("approval_status") != "rejected"):
+        if (
+            f.get("id")
+            and f["id"] not in out
+            and not f.get("origin")
+            and f.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"
+            and f.get("approval_status") != "rejected"
+        ):
             out[f["id"]] = {"crs_note": True}
     return out
 
@@ -429,12 +445,19 @@ def crs_fields(review_run_id: str, allowed) -> dict[str, dict] | None:
     says `crs_grouping: false` and the screen shows one row per finding and
     says so - never a grouping of its own."""
     try:
-        findings = comparison_mod.list_findings(review_run_id, allowed_document_ids=allowed)
+        findings = comparison_mod.list_findings(
+            review_run_id, allowed_document_ids=allowed
+        )
         comparison_mod.attach_crs_context(findings)
-        return crs_row_fields(crs_mapping_mod.build_crs_rows(findings, [], ""), findings)
+        return crs_row_fields(
+            crs_mapping_mod.build_crs_rows(findings, [], ""), findings
+        )
     except Exception:  # the tiers still answer; the screen says grouping is missing
         logging.getLogger(__name__).warning(
-            "run summary: CRS grouping for run %s not computed", review_run_id, exc_info=True)
+            "run summary: CRS grouping for run %s not computed",
+            review_run_id,
+            exc_info=True,
+        )
         return None
 
 

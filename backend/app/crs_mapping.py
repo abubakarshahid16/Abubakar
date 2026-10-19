@@ -210,8 +210,9 @@ def rejected_comment_keys(findings: list[dict]) -> set[str]:
     never carries these forward and `main._mint_crs_numbers` withdraws their
     numbers (less any key a row still on the sheet holds)."""
     rejected = [f for f in findings if _rejected(f)]
-    return ({finding_comment_key(f) for f in rejected}
-            | {finding_member_key(f) for f in rejected})
+    return {finding_comment_key(f) for f in rejected} | {
+        finding_member_key(f) for f in rejected
+    }
 
 
 def _finding_text(f: dict) -> str:
@@ -526,7 +527,7 @@ def _clause_sentence(finding: dict, limit: int = 220) -> str:
 
 
 def _requirement_words(finding: dict, cut: int = 220) -> str:
-    """"requires <subject> not less than 3 mm" - ONLY for a verdict the
+    """ "requires <subject> not less than 3 mm" - ONLY for a verdict the
     arithmetic made (COMPLIANT / NON_COMPLIANT), where the parsed limit is the
     one that was compared. Everywhere else the clause's own sentence is
     quoted: a blank field or an engineer's question must not restate a limit
@@ -637,7 +638,10 @@ def _clauses(group: list[dict]) -> dict[tuple, list[dict]]:
     A finding naming neither is not a clause."""
     out: dict[tuple, list[dict]] = {}
     for g in group:
-        key = (str(g.get("standard_document_id") or ""), str(g.get("standard_clause") or ""))
+        key = (
+            str(g.get("standard_document_id") or ""),
+            str(g.get("standard_clause") or ""),
+        )
         if key != ("", ""):
             out.setdefault(key, []).append(g)
     return out
@@ -685,17 +689,26 @@ def _supporting_clause_lines(group: list[dict]) -> list[str]:
     for members in _clauses(group).values():
         g = members[0]
         ref = _standard_reference(g) or "Requirement"
-        words = (_cut(_reason_words(g), CLAUSE_LINE_CHARS) + "." if question
-                 else _requirement_words(g, CLAUSE_LINE_CHARS))
+        words = (
+            _cut(_reason_words(g), CLAUSE_LINE_CHARS) + "."
+            if question
+            else _requirement_words(g, CLAUSE_LINE_CHARS)
+        )
         more = len({_fold(m.get("requirement_source_text")) for m in members}) - 1
         if more > 0:
-            words += f" (+{more} more requirement{'s' if more != 1 else ''} of this clause)"
-        entries.append((_clause_key(g.get("standard_clause")), ref, f"- {ref}: {words}"))
+            words += (
+                f" (+{more} more requirement{'s' if more != 1 else ''} of this clause)"
+            )
+        entries.append(
+            (_clause_key(g.get("standard_clause")), ref, f"- {ref}: {words}")
+        )
     entries.sort(key=lambda e: (e[0], e[1]))
     n = len(entries)
     lines = [f"Supporting clauses ({n}):", *(e[2] for e in entries[:MAX_CLAUSE_LINES])]
     if n > MAX_CLAUSE_LINES:
-        lines.append(f"- and {n - MAX_CLAUSE_LINES} more of these {n} (see Standard Reference).")
+        lines.append(
+            f"- and {n - MAX_CLAUSE_LINES} more of these {n} (see Standard Reference)."
+        )
     return lines
 
 
@@ -797,10 +810,15 @@ def _grouped(ordered: list[dict]) -> list[list[dict]]:
 
 def _leader_order(f: dict) -> tuple:
     page = f.get("contractor_page")
-    return (not f.get("confirmed_by"), page if isinstance(page, int) else 10 ** 9,
-            str(f.get("equipment_tag") or ""), _fold(f.get("contractor_evidence_text")),
-            _clause_key(f.get("standard_clause")), _fold(f.get("requirement_source_text")),
-            str(f.get("id") or ""))
+    return (
+        not f.get("confirmed_by"),
+        page if isinstance(page, int) else 10**9,
+        str(f.get("equipment_tag") or ""),
+        _fold(f.get("contractor_evidence_text")),
+        _clause_key(f.get("standard_clause")),
+        _fold(f.get("requirement_source_text")),
+        str(f.get("id") or ""),
+    )
 
 
 def _key_text(key: tuple) -> str:
@@ -824,9 +842,15 @@ def _final_keys(ordered: list[dict]) -> dict[int, str]:
     wordings: dict[str, set[str]] = {}
     for f in ordered:
         wordings.setdefault(base[id(f)], set()).add(_fold(f.get("engineer_comment")))
-    return {id(f): base[id(f)] + (
-        ":e" + comment_key("edit", f.get("engineer_comment"))[:12]
-        if len(wordings[base[id(f)]]) > 1 else "") for f in ordered}
+    return {
+        id(f): base[id(f)]
+        + (
+            ":e" + comment_key("edit", f.get("engineer_comment"))[:12]
+            if len(wordings[base[id(f)]]) > 1
+            else ""
+        )
+        for f in ordered
+    }
 
 
 #: Worst first. A row carries the worst severity of the findings it groups.
@@ -848,15 +872,15 @@ def row_severity(group: list[dict]) -> str:
 
 #: What a finding is on the sheet, before grouping (spec section a). One
 #: bucket per row-producing branch of `build_crs_rows`; None = not a row.
-BUCKET_BREACH = "breach"          # NON_COMPLIANT against a standard
-BUCKET_BLANK = "blank"            # MISSING_INFORMATION, paired with a field
-BUCKET_NOT_FOUND = "not_found"    # MISSING_INFORMATION, no field paired
-BUCKET_CHECK = "check"            # a datasheet self-check (kind B)
-BUCKET_QUESTION = "question"      # NEEDS_ENGINEER_REVIEW (not a page note)
-BUCKET_TICK = "tick"              # a safety-tier "meets" for an engineer's tick
-BUCKET_CHAT = "chat"              # an engineer's comment filed from chat
-BUCKET_AI = "ai"                  # an AI engineering check item (kind C)
-BUCKET_WEB = "web"                # a public-web standards check item (kind D)
+BUCKET_BREACH = "breach"  # NON_COMPLIANT against a standard
+BUCKET_BLANK = "blank"  # MISSING_INFORMATION, paired with a field
+BUCKET_NOT_FOUND = "not_found"  # MISSING_INFORMATION, no field paired
+BUCKET_CHECK = "check"  # a datasheet self-check (kind B)
+BUCKET_QUESTION = "question"  # NEEDS_ENGINEER_REVIEW (not a page note)
+BUCKET_TICK = "tick"  # a safety-tier "meets" for an engineer's tick
+BUCKET_CHAT = "chat"  # an engineer's comment filed from chat
+BUCKET_AI = "ai"  # an AI engineering check item (kind C)
+BUCKET_WEB = "web"  # a public-web standards check item (kind D)
 #: The buckets grouped ONE ROW PER DATASHEET FIELD (spec a). A finding of
 #: these buckets with no field label keeps today's one-row-per-requirement key.
 FIELD_GROUPED_BUCKETS = (BUCKET_BLANK, BUCKET_NOT_FOUND, BUCKET_QUESTION)
@@ -886,12 +910,16 @@ ISSUE_PRIORITY_WORDS = {**PRIORITY_WORDS, PRIORITY_ENGINEER_TO_CHECK: "Clarifica
 #: Spec e: COMPANY Comments of an UNCONFIRMED AI / web item. Plain words that
 #: the row is a suggestion awaiting an engineer - never the draft itself,
 #: which stays in "AI Review Comments" (owner order 2d/2f).
-AI_UNCONFIRMED_COMMENT = ("AI suggestion awaiting an engineer's decision - its words are in "
-                          "AI Review Comments. Not issued to the contractor until an engineer "
-                          "confirms it.")
-WEB_UNCONFIRMED_COMMENT = ("Web standards check suggestion awaiting an engineer's decision - its "
-                           "words are in AI Review Comments. Not issued to the contractor until "
-                           "an engineer confirms it.")
+AI_UNCONFIRMED_COMMENT = (
+    "AI suggestion awaiting an engineer's decision - its words are in "
+    "AI Review Comments. Not issued to the contractor until an engineer "
+    "confirms it."
+)
+WEB_UNCONFIRMED_COMMENT = (
+    "Web standards check suggestion awaiting an engineer's decision - its "
+    "words are in AI Review Comments. Not issued to the contractor until "
+    "an engineer confirms it."
+)
 
 #: Spec c: a grouped row lists at most this many supporting clauses, then
 #: "- and K more of these N (see Standard Reference)."
@@ -936,7 +964,11 @@ def _bucket_of(f: dict) -> str | None:
     elif status == "NON_COMPLIANT":
         return BUCKET_BREACH
     elif status == _MISSING_INFORMATION:
-        return BUCKET_BLANK if (f.get("fact_id") or f.get("contractor_page")) else BUCKET_NOT_FOUND
+        return (
+            BUCKET_BLANK
+            if (f.get("fact_id") or f.get("contractor_page"))
+            else BUCKET_NOT_FOUND
+        )
     elif status == "NEEDS_ENGINEER_REVIEW":
         # B3 / 2f: unread-page and page-reader questions are Review notes.
         if not _unread(f) and not _page_reader_only(f):
@@ -950,13 +982,22 @@ def _bucket_of(f: dict) -> str | None:
 #: Buckets whose every finding is a row of its own.
 _ONE_ROW_BUCKETS = (BUCKET_TICK, BUCKET_CHAT, BUCKET_AI, BUCKET_WEB)
 #: Buckets built as a requirement comment (`engineer_comment_text`).
-_REQUIREMENT_BUCKETS = (BUCKET_BREACH, BUCKET_BLANK, BUCKET_NOT_FOUND, BUCKET_CHECK,
-                        BUCKET_QUESTION)
+_REQUIREMENT_BUCKETS = (
+    BUCKET_BREACH,
+    BUCKET_BLANK,
+    BUCKET_NOT_FOUND,
+    BUCKET_CHECK,
+    BUCKET_QUESTION,
+)
 _BUCKET_ROW_KIND = {
-    BUCKET_BREACH: ROW_KIND_NON_COMPLIANT, BUCKET_BLANK: ROW_KIND_MISSING_INFORMATION,
-    BUCKET_NOT_FOUND: ROW_KIND_MISSING_INFORMATION, BUCKET_CHECK: ROW_KIND_DATASHEET_CHECK,
-    BUCKET_QUESTION: ROW_KIND_NEEDS_ENGINEER_REVIEW, BUCKET_TICK: ROW_KIND_SAFETY_TICK,
-    BUCKET_CHAT: ROW_KIND_ENGINEER_COMMENT, BUCKET_AI: ROW_KIND_AI_ENGINEERING_CHECK,
+    BUCKET_BREACH: ROW_KIND_NON_COMPLIANT,
+    BUCKET_BLANK: ROW_KIND_MISSING_INFORMATION,
+    BUCKET_NOT_FOUND: ROW_KIND_MISSING_INFORMATION,
+    BUCKET_CHECK: ROW_KIND_DATASHEET_CHECK,
+    BUCKET_QUESTION: ROW_KIND_NEEDS_ENGINEER_REVIEW,
+    BUCKET_TICK: ROW_KIND_SAFETY_TICK,
+    BUCKET_CHAT: ROW_KIND_ENGINEER_COMMENT,
+    BUCKET_AI: ROW_KIND_AI_ENGINEERING_CHECK,
     BUCKET_WEB: ROW_KIND_WEB_STANDARD_CHECK,
 }
 
@@ -992,7 +1033,6 @@ def finding_member_key(finding: dict) -> str:
     return _subject_key(finding)
 
 
-
 def crs_groups(findings: list[dict]) -> list[dict]:
     """THE ONE GROUPING (spec a, b, f): the finding rows of the CRS, in sheet
     order. Each item: {"key": str (the row's group key, base + any edit
@@ -1018,28 +1058,45 @@ def crs_groups(findings: list[dict]) -> list[dict]:
     # A datasheet check about a field a standard's row already names (the
     # same fact) is that row, not a second one.
     covered = {f.get("fact_id") for f in breaches + blanks if f.get("fact_id")}
-    checks = [f for f in by.get(BUCKET_CHECK, [])
-              if not (f.get("fact_id") and f.get("fact_id") in covered)]
+    checks = [
+        f
+        for f in by.get(BUCKET_CHECK, [])
+        if not (f.get("fact_id") and f.get("fact_id") in covered)
+    ]
     items: list[dict] = []
-    for kind, bucket in ((ROW_KIND_NON_COMPLIANT, breaches),
-                         (ROW_KIND_MISSING_INFORMATION, blanks),
-                         (ROW_KIND_MISSING_INFORMATION, not_found),
-                         (ROW_KIND_DATASHEET_CHECK, checks),
-                         (ROW_KIND_NEEDS_ENGINEER_REVIEW, questions)):
+    for kind, bucket in (
+        (ROW_KIND_NON_COMPLIANT, breaches),
+        (ROW_KIND_MISSING_INFORMATION, blanks),
+        (ROW_KIND_MISSING_INFORMATION, not_found),
+        (ROW_KIND_DATASHEET_CHECK, checks),
+        (ROW_KIND_NEEDS_ENGINEER_REVIEW, questions),
+    ):
         keys = _final_keys(bucket)
         for group in sorted(_grouped(bucket), key=_row_order):
-            items.append({"key": keys[id(group[0])], "bucket": _bucket_of(group[0]),
-                          "row_kind": kind, "findings": group,
-                          "action": group_action(group)})
+            items.append(
+                {
+                    "key": keys[id(group[0])],
+                    "bucket": _bucket_of(group[0]),
+                    "row_kind": kind,
+                    "findings": group,
+                    "action": group_action(group),
+                }
+            )
     # Then, one row each: the safety ticks, the engineer's chat comments, and
     # the AI / web check items (those two in the order given).
     for wanted in ((BUCKET_TICK,), (BUCKET_CHAT,), (BUCKET_AI, BUCKET_WEB)):
         for f in findings:
             bucket = _bucket_of(f)
             if bucket in wanted:
-                items.append({"key": _key_text(_group_key(f)), "bucket": bucket,
-                              "row_kind": _BUCKET_ROW_KIND[bucket], "findings": [f],
-                              "action": None})
+                items.append(
+                    {
+                        "key": _key_text(_group_key(f)),
+                        "bucket": bucket,
+                        "row_kind": _BUCKET_ROW_KIND[bucket],
+                        "findings": [f],
+                        "action": None,
+                    }
+                )
     return _sheet_order(items)
 
 
@@ -1157,43 +1214,48 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             if kind != ROW_KIND_DATASHEET_CHECK:
                 machine = engineer_comment_text(group)
             text = f.get("engineer_comment") or machine
-            rows.append({
-                # THE FINDING'S OWN STORED ID, carried so `crs_export` can mint
-                # a per-row reference that survives a re-export; never printed.
-                "finding_id": f.get("id") or "",
-                # #986: EVERY finding the row stands on. A decision on the row
-                # is a decision on all of them; deciding only the first left
-                # the row open with the next finding behind it.
-                "finding_ids": [g["id"] for g in group if g.get("id")],
-                "document_name": submittal_name,
-                "page_section": _page_section(group),
-                "comment": text,
-                "ai_comment": machine,
-                "edited": text.strip() != machine.strip(),
-                "comment_by": _by(group),
-                "standard_reference": "; ".join(dict.fromkeys(
-                    r for r in (_standard_reference(g) for g in group) if r)),
-                "row_kind": kind,
-                "severity": row_severity(group),
-                "engineer_confirmed": all(_confirmed(g) for g in group),
-                # Never printed: what the permanent CRS number is keyed on.
-                # A field row (order 139 part 2) is keyed on the FIELD, never
-                # on whichever clause leads it, so a re-run that adds a
-                # clause keeps its number.
-                "comment_key": finding_comment_key(f),
-                # Never printed (spec d): every finding's own per-requirement
-                # key, so the numbers earlier per-clause rows hold are found.
-                "member_keys": sorted({finding_member_key(g) for g in group}),
-                # Never printed: the group key the run summary sends the
-                # screen, and the row's first line when it lists two or more
-                # clauses.
-                "crs_group": item["key"],
-                "crs_action": item["action"],
-                # R30: the chain behind the comment (internal copy only).
-                "reasoning": reasoning_text(group),
-                # rule_trust (#947): who stands behind the rule, in words.
-                "rule_trust": trust_words(f),
-            })
+            rows.append(
+                {
+                    # THE FINDING'S OWN STORED ID, carried so `crs_export` can mint
+                    # a per-row reference that survives a re-export; never printed.
+                    "finding_id": f.get("id") or "",
+                    # #986: EVERY finding the row stands on. A decision on the row
+                    # is a decision on all of them; deciding only the first left
+                    # the row open with the next finding behind it.
+                    "finding_ids": [g["id"] for g in group if g.get("id")],
+                    "document_name": submittal_name,
+                    "page_section": _page_section(group),
+                    "comment": text,
+                    "ai_comment": machine,
+                    "edited": text.strip() != machine.strip(),
+                    "comment_by": _by(group),
+                    "standard_reference": "; ".join(
+                        dict.fromkeys(
+                            r for r in (_standard_reference(g) for g in group) if r
+                        )
+                    ),
+                    "row_kind": kind,
+                    "severity": row_severity(group),
+                    "engineer_confirmed": all(_confirmed(g) for g in group),
+                    # Never printed: what the permanent CRS number is keyed on.
+                    # A field row (order 139 part 2) is keyed on the FIELD, never
+                    # on whichever clause leads it, so a re-run that adds a
+                    # clause keeps its number.
+                    "comment_key": finding_comment_key(f),
+                    # Never printed (spec d): every finding's own per-requirement
+                    # key, so the numbers earlier per-clause rows hold are found.
+                    "member_keys": sorted({finding_member_key(g) for g in group}),
+                    # Never printed: the group key the run summary sends the
+                    # screen, and the row's first line when it lists two or more
+                    # clauses.
+                    "crs_group": item["key"],
+                    "crs_action": item["action"],
+                    # R30: the chain behind the comment (internal copy only).
+                    "reasoning": reasoning_text(group),
+                    # rule_trust (#947): who stands behind the rule, in words.
+                    "rule_trust": trust_words(f),
+                }
+            )
 
     # rule_trust (#947 step 8): SAFETY-TIER COMPLIANT, SHOWN FOR A TICK. The
     # rule decided "meets the standard" on its own; because the field is a

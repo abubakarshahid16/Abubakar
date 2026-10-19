@@ -10,6 +10,7 @@ internal CRS rows' `finding_ids`, in the file's order.
 
 Synthetic sheet only (invented fields and clauses).
 """
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -59,7 +60,8 @@ def test_summary_groups_equal_the_files_rows(world):  # noqa: F811
             order[r["crs_group"]] = r["crs_order"]
     summary_rows = [by_group[g] for g in sorted(by_group, key=order.__getitem__)]
     file_rows, *_ = main._crs_content(
-        run, access.AccessScope(user_id=None, allowed_document_ids=scope))
+        run, access.AccessScope(user_id=None, allowed_document_ids=scope)
+    )
     finding_rows = [set(r["finding_ids"]) for r in file_rows if r.get("finding_ids")]
     assert summary_rows == finding_rows and len(finding_rows) == 3
     assert sorted(order.values()) == list(range(len(finding_rows)))
@@ -76,7 +78,9 @@ def test_counts_route_sends_no_groups(world, monkeypatch):  # noqa: F811
     response = TestClient(app).get(f"/api/reviews/runs/counts?ids={run}")
     assert response.status_code == 200, response.text
     assert run in response.json()["counts"]
-    assert all(r.get("crs_group") is None for r in run_summary._tiers(run, None)[0]["rows"])
+    assert all(
+        r.get("crs_group") is None for r in run_summary._tiers(run, None)[0]["rows"]
+    )
 
 
 def test_summary_without_grouping_says_so(world, monkeypatch):  # noqa: F811
@@ -99,12 +103,15 @@ def test_a_question_the_file_puts_in_its_review_notes_is_sent_as_a_note(world): 
     file lists in its Review notes (here an unread page) is `crs_note`, so the
     screen shows it as a note and never as a comment row to decide."""
     from app import db
+
     _sub, run, _scope = world
     [question] = _add_blanks(run, ("8.8",), field="Set pressure")
     with db.connect() as conn:
-        conn.execute("UPDATE review_findings SET compliance_status = 'NEEDS_ENGINEER_REVIEW',"
-                     " reason_code = 'UNREAD_PAGES', ai_rationale = 'UNREAD_PAGES: page 2' WHERE id = ?",
-                     (question,))
+        conn.execute(
+            "UPDATE review_findings SET compliance_status = 'NEEDS_ENGINEER_REVIEW',"
+            " reason_code = 'UNREAD_PAGES', ai_rationale = 'UNREAD_PAGES: page 2' WHERE id = ?",
+            (question,),
+        )
     rows = {r["finding_id"]: r for r in _summary(run)["rows"]}
     assert rows[question]["crs_note"] is True and rows[question]["crs_group"] is None
     assert all(r["crs_note"] is None for fid, r in rows.items() if fid != question)

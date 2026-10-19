@@ -29,7 +29,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         path=APP / "crs_mapping.py",
         # Re-anchored 2026-09-27 (CRS quick wins): the summary row became one
         # row per requirement no field answered (the `not_found` bucket).
-        anchor="                         (ROW_KIND_MISSING_INFORMATION, not_found),\n",
+        anchor="        (ROW_KIND_MISSING_INFORMATION, not_found),\n",
         replacement="",
         target="tests/test_crs_mapping.py",
         keyword="breaches_come_first_then_missing_values",

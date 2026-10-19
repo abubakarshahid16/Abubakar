@@ -16,6 +16,7 @@ keyed on the field. Here, on `main._crs_content` over a seeded run:
 Synthetic sheet only (invented fields and clauses, no client text), via
 `test_review_screen`'s world.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -35,21 +36,36 @@ def _add_blanks(run, clauses=("4.1", "6.2"), field=FIELD) -> list[str]:
     """Two (or more) findings: the same datasheet field left blank, raised by
     different clauses - one field row since order 139 part 2."""
     conn = db.connect()
-    base = dict(conn.execute(
-        "SELECT * FROM review_findings WHERE review_run_id = ? LIMIT 1", (run,)).fetchone())
-    fact = conn.execute("SELECT id FROM submittal_facts WHERE field_label = ?",
-                        (field,)).fetchone()["id"]
+    base = dict(
+        conn.execute(
+            "SELECT * FROM review_findings WHERE review_run_id = ? LIMIT 1", (run,)
+        ).fetchone()
+    )
+    fact = conn.execute(
+        "SELECT id FROM submittal_facts WHERE field_label = ?", (field,)
+    ).fetchone()["id"]
     ids = []
     for clause in clauses:
-        row = {**base, "id": str(uuid.uuid4()), "compliance_status": "MISSING_INFORMATION",
-               "fact_id": fact, "contractor_page": 1, "standard_clause": clause,
-               "requirement_id": None, "matched_phrase": field.lower(),
-               "requirement_source_text": f"{clause} The {field.lower()} shall be stated ({clause}).",
-               "contractor_evidence_text": "", "confirmed_by": None, "engineer_comment": None,
-               "approval_status": "pending"}
+        row = {
+            **base,
+            "id": str(uuid.uuid4()),
+            "compliance_status": "MISSING_INFORMATION",
+            "fact_id": fact,
+            "contractor_page": 1,
+            "standard_clause": clause,
+            "requirement_id": None,
+            "matched_phrase": field.lower(),
+            "requirement_source_text": f"{clause} The {field.lower()} shall be stated ({clause}).",
+            "contractor_evidence_text": "",
+            "confirmed_by": None,
+            "engineer_comment": None,
+            "approval_status": "pending",
+        }
         marks = ",".join("?" for _ in row)
-        conn.execute(f"INSERT INTO review_findings ({','.join(row)}) VALUES ({marks})",
-                     tuple(row.values()))
+        conn.execute(
+            f"INSERT INTO review_findings ({','.join(row)}) VALUES ({marks})",
+            tuple(row.values()),
+        )
         ids.append(row["id"])
     conn.commit()
     return ids
@@ -58,8 +74,11 @@ def _add_blanks(run, clauses=("4.1", "6.2"), field=FIELD) -> list[str]:
 def _member_keys(run, scope, ids) -> list[str]:
     """Each finding's per-clause key - what its own row was numbered under
     before rows were one per field."""
-    findings = [f for f in submittal_review.list_run_findings(run, allowed_document_ids=scope)
-                if f["id"] in ids]
+    findings = [
+        f
+        for f in submittal_review.list_run_findings(run, allowed_document_ids=scope)
+        if f["id"] in ids
+    ]
     comparison.attach_crs_context(findings)
     by_id = {f["id"]: crs_mapping.finding_member_key(f) for f in findings}
     return [by_id[i] for i in ids]
@@ -68,14 +87,23 @@ def _member_keys(run, scope, ids) -> list[str]:
 def _old_number(sub, run, key, *, issued=True) -> str:
     """A number an earlier per-clause row held (issued = an engineer's)."""
     crs_scope, label = main._crs_scope_of(sub)
-    record = crs_numbers.assign(crs_scope, label, [key], document_id=sub, review_run_id=run,
-                                snapshots={key: {"comment": "an earlier per-clause comment"}},
-                                user_id="eng-1", issued=issued)
+    record = crs_numbers.assign(
+        crs_scope,
+        label,
+        [key],
+        document_id=sub,
+        review_run_id=run,
+        snapshots={key: {"comment": "an earlier per-clause comment"}},
+        user_id="eng-1",
+        issued=issued,
+    )
     return record[key]["ref"]
 
 
 def _field_row(rows):
-    [row] = [r for r in rows if r.get("row_kind") == crs_mapping.ROW_KIND_MISSING_INFORMATION]
+    [row] = [
+        r for r in rows if r.get("row_kind") == crs_mapping.ROW_KIND_MISSING_INFORMATION
+    ]
     return row
 
 
@@ -110,7 +138,8 @@ def test_grouped_row_lists_the_earlier_comments_it_replaces(world):  # noqa: F81
         row = _field_row(rows)
         assert row["replaces_refs"] == refs
         assert row["comment"].endswith(
-            f"\nReplaces earlier comments {refs[0]}, {refs[1]} (now one comment per field).")
+            f"\nReplaces earlier comments {refs[0]}, {refs[1]} (now one comment per field)."
+        )
     # The old numbers stay in their table, Open, never reused.
     crs_scope, _label = main._crs_scope_of(sub)
     stored = crs_numbers.lookup(crs_scope, [first, second])
@@ -124,8 +153,12 @@ def test_grouped_row_is_confirmed_only_when_every_member_was(world):  # noqa: F8
     ref = _old_number(sub, run, first)
     rows, *_ = main._crs_content(run, _scope(scope))
     row = _field_row(rows)
-    assert row["engineer_confirmed"] is False, "one of two clauses confirmed is not the row"
-    assert row["comment"].endswith(f"Replaces earlier comment {ref} (now one comment per field).")
+    assert row["engineer_confirmed"] is False, (
+        "one of two clauses confirmed is not the row"
+    )
+    assert row["comment"].endswith(
+        f"Replaces earlier comment {ref} (now one comment per field)."
+    )
     _old_number(sub, run, second)
     rows, *_ = main._crs_content(run, _scope(scope))
     assert _field_row(rows)["engineer_confirmed"] is True
@@ -150,18 +183,28 @@ def test_rejected_field_row_number_is_withdrawn(world):  # noqa: F811
     rows, *_ = main._crs_content(run, _scope(scope))
     field_key = _field_row(rows)["crs_row_key"]
     crs_scope, label = main._crs_scope_of(sub)
-    crs_numbers.assign(crs_scope, label, [field_key], document_id=sub, review_run_id=run,
-                       user_id="eng-1")
+    crs_numbers.assign(
+        crs_scope,
+        label,
+        [field_key],
+        document_id=sub,
+        review_run_id=run,
+        user_id="eng-1",
+    )
     with db.connect() as conn:
-        conn.executemany("UPDATE review_findings SET approval_status = 'rejected' WHERE id = ?",
-                         [(i,) for i in ids])
+        conn.executemany(
+            "UPDATE review_findings SET approval_status = 'rejected' WHERE id = ?",
+            [(i,) for i in ids],
+        )
     _rows, meta, *_ = main._crs_content(run, _scope(scope))
     assert {field_key, first} <= set(meta["rejected_row_keys"])
     main._mint_crs_numbers(run, _scope(scope))
     stored = crs_numbers.lookup(crs_scope, [field_key, first])
     assert stored[field_key]["status"] == crs_numbers.WITHDRAWN
     assert stored[first]["status"] == crs_numbers.WITHDRAWN
-    assert crs_numbers.parse_ref(old), "the old number is kept (never reused), withdrawn"
+    assert crs_numbers.parse_ref(old), (
+        "the old number is kept (never reused), withdrawn"
+    )
 
 
 def test_a_member_key_still_on_the_sheet_is_never_withdrawn(world):  # noqa: F811
@@ -175,8 +218,10 @@ def test_a_member_key_still_on_the_sheet_is_never_withdrawn(world):  # noqa: F81
     assert _member_keys(run, scope, [rejected]) == [member]
     _old_number(sub, run, member)
     with db.connect() as conn:
-        conn.execute("UPDATE review_findings SET approval_status = 'rejected' WHERE id = ?",
-                     (rejected,))
+        conn.execute(
+            "UPDATE review_findings SET approval_status = 'rejected' WHERE id = ?",
+            (rejected,),
+        )
     rows, meta, *_ = main._crs_content(run, _scope(scope))
     row = _field_row(rows)
     assert row["finding_ids"] == [kept]
