@@ -435,7 +435,9 @@ def crs_row_fields(rows: list[dict], findings: list[dict]) -> dict[str, dict]:
                 rank = row.get("priority")
                 if rank is not None:
                     fields["crs_priority"] = rank
-                    fields["crs_priority_label"] = crs_mapping_mod.priority_word(rank) or None
+                    fields["crs_priority_label"] = (
+                        crs_mapping_mod.priority_word(rank) or None
+                    )
                 out.setdefault(finding_id, fields)
         order += 1
     for f in findings:

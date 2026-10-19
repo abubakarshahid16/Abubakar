@@ -70,10 +70,13 @@ MUTATIONS: tuple[Mutation, ...] = (
     ),
     _m(
         "05",
-        "the finding loop ranks every missing-information row as a blank",
+        "the sheet's ranking treats a value not found as a blank",
         _M,
-        "                BUCKET_BLANK if paired(f) else BUCKET_NOT_FOUND\n",
-        "                BUCKET_BLANK\n",
+        '        item["priority"] = row_priority(item["bucket"], group[0].get("compliance_status"))\n',
+        '        item["priority"] = row_priority(\n'
+        '            BUCKET_BLANK if item["bucket"] == BUCKET_NOT_FOUND else item["bucket"],\n'
+        '            group[0].get("compliance_status"),\n'
+        "        )\n",
         _TM,
         "not_found_ranks_with_engineer_to_check",
     ),

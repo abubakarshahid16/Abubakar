@@ -73,12 +73,10 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "old un-itemised summary row, reintroduced",
         path=APP / "crs_mapping.py",
         # Re-anchored 2026-10-09 (#725 F7): groups are now sorted by page and clause.
-        # Re-anchored (order 139 part 2): one sort over every row kind at the
-        # end of build_crs_rows replaced the per-bucket sort.
-        anchor="        for group in _grouped(bucket):",
+        anchor="        for group in sorted(_grouped(bucket), key=_row_order):",
         replacement=(
             "        for group in ([bucket] if bucket and kind == "
-            "ROW_KIND_MISSING_INFORMATION else _grouped(bucket)):"),
+            "ROW_KIND_MISSING_INFORMATION else sorted(_grouped(bucket), key=_row_order)):"),
         target="tests/test_crs_mapping.py",
         keyword="every_missing_value_is_its_own_row_one_per_field",
         tags=("honesty", "critical"),
