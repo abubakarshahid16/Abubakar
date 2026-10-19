@@ -5,6 +5,12 @@ was a pytest or vitest run, the model is shown the trimmed stdout instead
 (`scripts/trim_test_output.py` does the trimming). Everything else - another
 command, another tool, a result in a shape this does not know, any error of
 its own - prints nothing, which leaves the real output exactly as it was.
+
+LIMIT, stated plainly: Claude Code runs PostToolUse only for a command that
+succeeded. A run with a failing test exits non-zero and goes through
+PostToolUseFailure, which can add context but cannot rewrite the output. So
+this hook shortens passing runs only. For a failing run, pipe the command
+through `scripts/trim_test_output.py` (the test-runner agent does).
 It never changes what ran, the exit code, or what is stored. Read only.
 """
 

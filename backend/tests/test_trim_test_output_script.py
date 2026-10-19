@@ -218,3 +218,82 @@ def test_the_hook_is_wired_in_settings_and_the_env_denies_are_kept():
     assert any("trim_test_output.py" in c for c in commands)
     assert "Read(**/backend/.env)" in settings["permissions"]["deny"]
     assert "Edit(**/backend/.env)" in settings["permissions"]["deny"]
+
+
+# ------------------------------------- what the independent review found (all kept)
+
+HEADER_LOOKING_LINE = """=================================== FAILURES ===================================
+___________________________ test_two ___________________________
+
+    def test_two():
+        print("=== step 1 ===")
+>       assert state == "ok"
+E       assert 'bad' == 'ok'
+
+----------------------------- Captured stdout call -----------------------------
+=== step 1 ===
+state=bad
+tests/a.py:3: AssertionError
+=========================== short test summary info ============================
+FAILED tests/a.py::test_two - assert 'bad' == 'ok'
+========================= 1 failed, 2 passed in 0.10s ==========================
+"""
+
+
+def test_a_line_that_only_looks_like_a_section_header_does_not_end_a_failure(trimmer):
+    got = trimmer.trim(HEADER_LOOKING_LINE)
+    assert "=== step 1 ===" in got and "state=bad" in got
+    assert "tests/a.py:3: AssertionError" in got
+
+
+@pytest.mark.parametrize(
+    "crash",
+    [
+        "INTERNALERROR> Traceback (most recent call last):\nINTERNALERROR> KeyError: 'x'",
+        "Fatal Python error: Segmentation fault",
+        "[gw0] node down: Not properly terminated\nreplacing crashed worker gw0",
+        "stray ERROR: db connection lost",
+    ],
+)
+def test_a_crash_printed_before_the_summary_is_never_dropped(trimmer, crash):
+    text = f"tests/test_a.py ...  [100%]\n{crash}\n============ 3 passed in 0.50s ============\n"
+    got = trimmer.trim(text)
+    assert crash.splitlines()[0] in got and "3 passed in 0.50s" in got
+
+
+def test_one_output_holding_a_pytest_and_a_vitest_run_is_left_whole(trimmer):
+    both = (
+        "============ 1 failed, 2 passed in 0.10s ============\n"
+        " FAIL  src/a.test.ts > x\nAssertionError: nope\n\n Test Files  1 failed (1)\n"
+    )
+    assert trimmer.trim(both) == both
+
+
+def test_the_warnings_and_durations_sections_are_dropped_but_the_summary_stays(trimmer):
+    text = (
+        "=============================== warnings summary ===============================\n"
+        "tests/a.py::t\n  /x.py:1: DeprecationWarning: old\n"
+        "============================ slowest 3 durations ===============================\n"
+        "2.15s call     tests/a.py::t\n"
+        "============================== 3 passed in 0.12s ===============================\n"
+    )
+    got = trimmer.trim(text)
+    assert "DeprecationWarning" not in got and "2.15s call" not in got
+    assert "3 passed in 0.12s" in got
+
+
+def test_a_banner_printed_after_the_warnings_is_not_swallowed_with_them(trimmer):
+    text = (
+        "=============================== warnings summary ===============================\n"
+        "tests/a.py::t\n  /x.py:1: DeprecationWarning: old\n"
+        "-- Docs: https://docs.pytest.org\n"
+        "======================= 2 SKIPPED - these proved nothing =======================\n"
+        "  tests/a.py::test_x\n      reason: needs a client file\n"
+        "============================== 3 passed, 2 skipped in 0.12s ====================\n"
+    )
+    got = trimmer.trim(text)
+    assert (
+        "2 SKIPPED - these proved nothing" in got
+        and "reason: needs a client file" in got
+    )
+    assert "DeprecationWarning" not in got

@@ -9,8 +9,8 @@ You run tests and report. You do not fix anything and you do not edit files.
 
 Rules (from CLAUDE.md and the heavy-check rules):
 - Run only the files or test ids you were given. NEVER run the full backend suite; if you were asked to, say so and stop.
-- Backend: `cd backend && python -m pytest <files> -q -p no:cacheprovider`. Python 3.12 only. Do not set `HEAVY_JOB_LOCK`.
-- Frontend: `cd frontend && node node_modules/vitest/vitest.mjs run <paths>` (do not run npm/npx against the repo from a Linux VM).
+- Backend: `cd backend && python -m pytest <files> -q -p no:cacheprovider 2>&1 | python ../scripts/trim_test_output.py; echo "exit=${PIPESTATUS[0]}"`. Python 3.12 only. Do not set `HEAVY_JOB_LOCK`. The trimmer keeps every failure whole and drops only progress and warning noise; `exit=` is the test run's own exit code.
+- Frontend: `cd frontend && node node_modules/vitest/vitest.mjs run <paths> 2>&1 | python ../scripts/trim_test_output.py; echo "exit=${PIPESTATUS[0]}"` (do not run npm/npx against the repo from a Linux VM).
 - Never touch `backend/.env`, never open the live database, never print a secret.
 - If a test needs a model or file that is not present here (for example the e5-small tokenizer), say that is the cause: it is an environment gap, not a code failure. Compare with the base commit only if you were asked to.
 
