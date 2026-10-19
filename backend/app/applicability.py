@@ -257,18 +257,15 @@ def is_materials_standard(entry_or_label: dict | str, table: dict | None = None)
     return any(standard_ids.same_standard(entry_or_label, m) for m in table["materials_standards"])
 
 
-def _equipment_reading(
-    submittal_document_id: str, allowed_document_ids: frozenset[str]
-) -> tuple[set[str], str | None, dict | None, list[dict]]:
+def _equipment_reading(document_id: str, allowed: frozenset[str]) -> tuple:
     """(equipment, source, doubt, facts): `subject_scope.read_equipment` on the
     submittal's own record and facts. Unsure (order 142): empty equipment."""
     from . import classification, subject_scope
 
-    facts = datasheets.list_facts(submittal_document_id, allowed_document_ids=allowed_document_ids)
-    equipment, source, doubt = subject_scope.read_equipment(
-        classification.of_document(submittal_document_id) or {}, facts, subject_scope.vocabulary()
-    )
-    return set(equipment), source, doubt, facts
+    facts = datasheets.list_facts(document_id, allowed_document_ids=allowed)
+    record = classification.of_document(document_id) or {}
+    reading = subject_scope.read_equipment(record, facts, subject_scope.vocabulary())
+    return set(reading[0]), reading[1], reading[2], facts
 
 
 def governing_standards(submittal_document_id: str, library: list[dict],
@@ -281,7 +278,8 @@ def governing_standards(submittal_document_id: str, library: list[dict],
     selected (`governing_standard`, included); one it does not hold is
     returned as not held, never as met. Unknown or unsure type: nothing.
     Returns (candidates by standard id, not-held rows)."""
-    equipment, source, _doubt, _facts = _equipment_reading(submittal_document_id, allowed_document_ids)
+    reading = _equipment_reading(submittal_document_id, allowed_document_ids)
+    equipment, source = reading[0], reading[1]
     if not equipment:
         return {}, []
     table = governing_table()["equipment_types"]
@@ -315,41 +313,42 @@ def _cited_by(cited: list[str], identifier: str) -> bool:
 
 
 def _cited_other_type(
-    cited: list[str], equipment: set[str], source: str | None, own: list[str],
-    stated: list[dict], unsure: bool, gov: dict,
+    cited: list[str], reading: tuple, own: list[str], stated: list[dict]
 ) -> tuple[list[dict], list[dict]]:
     """#754 / order 142: the cited codes that govern only OTHER equipment
     types, as (not applicable, declared check). A code the datasheet states
-    as a field VALUE (`stated`), or one a type of this submittal takes in part
-    (`partial_standards`), is never called not applicable: it is listed for
-    the engineer to check. `own`: the required codes. Unknown type: nothing;
-    unsure type: only the stated codes, for the engineer."""
-    if not (equipment or unsure):
-        return [], []
-    table, this = gov["equipment_types"], ", ".join(sorted(equipment))
+    as a field VALUE, or one this type takes in part (`partial_standards`), is
+    never called not applicable: the engineer checks it. `reading`: (equipment,
+    source); `own`: required codes; no `stated` when the type is unknown."""
+    (equipment, source), gov = reading, governing_table()
+    this, same = ", ".join(sorted(equipment)), standard_ids.same_standard
+    partial = [e for k in sorted(equipment) for e in gov["partial_standards"].get(k, [])]
     not_applicable: list[dict] = []
     declared: list[dict] = []
     for c in dict.fromkeys([*cited, *(s["identifier"] for s in stated)]):
-        others = sorted(k for k, ids in table.items() if k not in equipment and _cited_by(ids, c))
+        others = [k for k, ids in gov["equipment_types"].items() if _cited_by(ids, c)]
+        others = ", ".join(sorted(k for k in others if k not in equipment))
         if not others or _cited_by(own, c) or (c not in cited and _cited_by(cited, c)):
             continue
-        said = next((s for s in stated if standard_ids.same_standard(c, s["identifier"])), None)
-        part = next((e for k in sorted(equipment) for e in gov["partial_standards"].get(k, [])
-                     if standard_ids.same_standard(c, e["standard"])), None)
+        said = next((s for s in stated if same(c, s["identifier"])), None)
+        part = next((e for e in partial if same(c, e["standard"])), None)
         if said is not None:
             page = f" (page {said['page']})" if said.get("page") is not None else ""
-            declared.append({"identifier": c, "reason": (
-                f"the datasheet states {c} as its {said['label'] or 'own field value'}{page}; it is "
-                f"a code for a {', '.join(others)} - engineer to check which equipment this is")})
+            why = f"the datasheet states {c} as its {said['label'] or 'own field value'}"
+            why = f"{why}{page}; it is a code for a {others}"
+            declared.append({"identifier": c, "reason": f"{why} - {_WHICH_TYPE}"})
         elif part is not None:
-            declared.append({"identifier": c, "reason": (
-                f"a {this} takes {c} in part ({part.get('applies_to') or 'some clauses'}); it is "
-                f"also a code for a {', '.join(others)} - engineer to check which clauses apply")})
+            why = f"a {this} takes {c} in part ({part.get('applies_to') or 'some clauses'})"
+            why = f"{why}; it is also a code for a {others}"
+            declared.append({"identifier": c, "reason": f"{why} - {_WHICH_CLAUSES}"})
         elif equipment:
-            not_applicable.append({"identifier": c, "reason": (
-                f"it governs {', '.join(others)}, and this submittal is a {this} "
-                f"(read from its {source})")})
+            why = f"it governs {others}, and this submittal is a {this}"
+            not_applicable.append({"identifier": c, "reason": f"{why} (read from its {source})"})
     return not_applicable, declared
+
+
+_WHICH_TYPE = "engineer to check which equipment this is"
+_WHICH_CLAUSES = "engineer to check which clauses apply"
 
 
 def standards_check(submittal_document_id: str, *, allowed_document_ids: frozenset[str],
@@ -386,7 +385,8 @@ def standards_check(submittal_document_id: str, *, allowed_document_ids: frozens
     cited = list(dict.fromkeys([*referenced, *(
         r["identifier"] for r in library_citations(library, text).values()
         if r["method"] == METHOD_REFERENCED)]))
-    equipment, source, doubt, facts = _equipment_reading(submittal_document_id, allowed_document_ids)
+    reading = _equipment_reading(submittal_document_id, allowed_document_ids)
+    equipment, source, doubt, facts = reading
     gov = governing_table()
     table = gov["equipment_types"]
 
@@ -426,9 +426,11 @@ def standards_check(submittal_document_id: str, *, allowed_document_ids: frozens
         required_not_cited.append({**r, "held": entry is not None,
                                    "standard_document_id": entry["id"] if entry else None})
 
+    stated = subject_scope.stated_codes(facts) if equipment or doubt else []
+    own = [r["identifier"] for r in required]
     cited_not_applicable, declared_check = _cited_other_type(
-        cited, equipment, source, [r["identifier"] for r in required],
-        subject_scope.stated_codes(facts), doubt is not None, gov)
+        cited, (equipment, source), own, stated
+    )
     for condition, where in declared_absent:
         for c in cited:
             if any(standard_ids.same_standard(c, s) for s in condition["standards"]) \
@@ -1090,23 +1092,21 @@ def _hold_on_unsure_type(selected: dict[str, dict], check: dict) -> None:
     type is held for the engineer; a declared code says so. Service, project,
     manual and referenced rows keep their result."""
     unsure = check.get("equipment_unsure")
-    if not unsure:
-        return
     declared = check.get("declared_check") or []
-    for row in selected.values():
+    for row in selected.values() if unsure else ():
         scoped_out = row.pop("excluded_by_scope", None)
         if scoped_out:
-            row["reason"] = (f"{row['reason']}; {scoped_out} - the equipment type "
-                             "is unsure, engineer to check")
+            tail = "the equipment type is unsure, engineer to check"
+            row["reason"] = f"{row['reason']}; {scoped_out} - {tail}"
         if row["method"] in (METHOD_EQUIPMENT, METHOD_SCOPE):
-            row["held_for_engineer"] = (
-                f"held for the engineer to check: it came only from the equipment type ({unsure})")
-        elif row["method"] == METHOD_REFERENCED and row.get("identifier"):
-            said = next((d for d in declared
-                         if standard_ids.same_standard(d["identifier"], row["identifier"])), None)
-            if said is not None:
-                row["reason"] = (f"{row['reason']}; {said['reason']}; the equipment type "
-                                 "is unsure - engineer to confirm")
+            why = f"it came only from the equipment type ({unsure})"
+            row["held_for_engineer"] = f"held for the engineer to check: {why}"
+            continue
+        ident = row.get("identifier") if row["method"] == METHOD_REFERENCED else None
+        said = [d for d in declared if ident and _cited_by([d["identifier"]], ident)]
+        if said:
+            tail = "the equipment type is unsure - engineer to confirm"
+            row["reason"] = f"{row['reason']}; {said[0]['reason']}; {tail}"
 
 
 def select(
@@ -1229,7 +1229,7 @@ def select(
                     f"its scope clause excludes this equipment: {cited}")
         elif row is not None:
             row["scope_decision"] = verdict
-    _hold_on_unsure_type(selected, check)  # order 142: unsure type, the engineer decides
+    _hold_on_unsure_type(selected, check)  # order 142: the engineer decides
 
     if persist:
         _persist(submittal_document_id, review_run_id, selected, allowed_document_ids,
@@ -1629,9 +1629,9 @@ def _persist(submittal_document_id: str, review_run_id: str | None,
         included = is_included(row)
         exclusion = None
         if not included:
-            exclusion = (row.get("excluded_by_scope") or row.get("held_for_engineer")
-                         or CANDIDATE_ONLY_REASON.get(
-                             row["method"], "not evidence that this standard governs the submittal"))
+            held = row.get("excluded_by_scope") or row.get("held_for_engineer")
+            exclusion = held or CANDIDATE_ONLY_REASON.get(
+                row["method"], "not evidence that this standard governs the submittal")
             if scope_not_run and not row.get("excluded_by_scope"):
                 exclusion = f"{exclusion}; {scope_not_run}"
         record_selection(
