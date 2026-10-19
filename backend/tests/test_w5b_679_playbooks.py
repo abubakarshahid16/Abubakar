@@ -14,7 +14,7 @@ import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
-from app import access, ai_task_runner as runner, chunker, db, extract, keyword, playbooks, upload
+from app import access, ai_task_runner as runner, chunker, db, extract, fts_index, playbooks, upload
 from app.config import settings
 from app.main import app
 from app.reasoning_provider import Response
@@ -35,7 +35,7 @@ def temp_storage(tmp_path, monkeypatch):
     install_if_missing(monkeypatch)
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     runner.TASKS.clear()
     yield
     runner.TASKS.clear()

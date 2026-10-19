@@ -73,8 +73,7 @@ MAX_CELL_CHARS = 2_000
 #: The unpacked size of ALL zip entries, declared, checked before opening.
 #: The same ceiling the upload applies to a workbook.
 MAX_UNCOMPRESSED_BYTES = 256 * 1024 * 1024
-#: Entries in the zip. Many tiny entries cost nothing in size and a lot in
-#: syscalls.
+#: Entries in the zip. Many tiny entries cost nothing in size and a lot in syscalls.
 MAX_ZIP_ENTRIES = 5_000
 #: `word/document.xml` alone, declared AND read. It is parsed in memory.
 MAX_DOCX_XML_BYTES = 32 * 1024 * 1024
@@ -211,16 +210,16 @@ def _render(rows: list[tuple[str, ...]], heading: str | None = None) -> str:
 def _merged_ranges(zf: zipfile.ZipFile, sheet_xml: str) -> list[tuple[int, int, int, int]]:
     """(min_row, min_col, max_row, max_col) of every merged range of a sheet.
 
-    Read from the sheet XML because openpyxl's read-only worksheet does not
-    expose merged cells. Streamed with iterparse; only `mergeCell` elements
-    are kept. The zip's bounds were checked before this is reached.
+    From the sheet XML (openpyxl's read-only sheet hides merged cells), streamed
+    with defusedxml's iterparse; the zip's bounds were checked before this.
     """
+    from defusedxml import ElementTree as SafeET
     from openpyxl.utils.cell import range_boundaries
 
     out: list[tuple[int, int, int, int]] = []
     try:
         with zf.open(sheet_xml) as fh:
-            for _event, elem in ET.iterparse(fh, events=("end",)):
+            for _event, elem in SafeET.iterparse(fh, events=("end",)):
                 if elem.tag.endswith("}mergeCell"):
                     ref = elem.get("ref") or ""
                     try:
@@ -231,7 +230,7 @@ def _merged_ranges(zf: zipfile.ZipFile, sheet_xml: str) -> list[tuple[int, int, 
                     if len(out) > MAX_SHEET_ROWS:
                         break
                 elem.clear()
-    except (KeyError, ET.ParseError):
+    except (KeyError, ET.ParseError, ValueError):  # ValueError: defusedxml refused it
         return []
     return out
 
@@ -603,6 +602,7 @@ def office_condition(path: str) -> tuple[str | None, str]:
     except InputError as exc:
         return f"office_{exc.code}", f"the stored file was refused: {exc.message}"
     except Exception as exc:  # noqa: BLE001 - any failure to open is the FILE's condition
+        log.info("datasheet_inputs: Office file unreadable (%s)", type(exc).__name__)
         return "office_damaged", f"the stored file could not be read ({type(exc).__name__})"
     return None, ""
 

@@ -35,6 +35,8 @@ import re
 from pathlib import Path
 
 from . import absence, blank_markers
+from .stated_value import fact_value as _shown
+from .stated_value import said as _said
 
 RULES_PATH = Path(__file__).parent / "reference" / "datasheet_checks.json"
 ORIGIN = "datasheet_check"
@@ -136,10 +138,6 @@ def _label(fact: dict, role: str) -> str:
     rule's role name ("test pressure")."""
     name = str(fact.get("field_label") or fact.get("field_name") or "").strip()
     return name[:1].upper() + name[1:] if name else _pretty(role)
-
-
-def _shown(fact: dict) -> str:
-    return str(fact.get("field_value") or fact.get("raw_value") or "").strip()
 
 
 def _sentence(reason: str) -> str:
@@ -301,7 +299,7 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
                                             and blank_markers.classify(printed)[0]):
                     out.append(_result("DS-M2", MISSING_INFORMATION,
                                        f"{_pretty(role)} is a mandatory field for {equipment_phrase}.",
-                                       f"{_label(fact, role)} is marked '{_shown(fact) or fact.get('blank_marker')}' "
+                                       f"{_label(fact, role)} is marked '{_said(fact) or fact.get('blank_marker')}' "
                                        f"on page {fact.get('page')}; the contractor is to provide the value.",
                                        fact, role, tag))
         # ---- units: present, and of the field's kind
@@ -314,7 +312,7 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
                 if not unit:
                     out.append(_result("DS-U1", MISSING_INFORMATION,
                                        f"{_pretty(role)} needs a unit.",
-                                       f"{_label(fact, role)} is stated as '{_shown(fact)}' on page "
+                                       f"{_label(fact, role)} is stated as '{_said(fact)}' on page "
                                        f"{fact.get('page')} without a unit.", fact, role, tag))
                 elif (found := _unit_kind(unit, rules)) and found != kind:
                     out.append(_result("DS-U2", NON_COMPLIANT,
@@ -354,9 +352,9 @@ def evaluate(facts: list[dict], *, equipment_type: str | None, page_texts: dict[
                                    left[0], rule["left"], tag))
                 continue
             ok = _OPS[rule["op"]](a[0], b[0])
-            calc = (f"{_label(left[0], rule['left'])} {_shown(left[0])} (page {left[0].get('page')}) is "
+            calc = (f"{_label(left[0], rule['left'])} {_said(left[0])} (page {left[0].get('page')}) is "
                     f"{'' if ok else 'not '}{_OP_WORDS[rule['op']]} {_label(right[0], rule['right']).lower()} "
-                    f"{_shown(right[0])} (page {right[0].get('page')}).")
+                    f"{_said(right[0])} (page {right[0].get('page')}).")
             out.append(_result(rule["id"], COMPLIANT if ok else NON_COMPLIANT, rule["text"],
                                calc, left[0], rule["left"], tag))
     # ---- revision block: two or more of the revision table's own headings
@@ -500,7 +498,7 @@ def implausible(fact: dict, role: str, rules: dict) -> str | None:
     if (low is not None and number < low) or (high is not None and number > high):
         span = (f"{low} to {high}" if low is not None and high is not None
                 else f"at most {high}" if high is not None else f"at least {low}")
-        return (f"{_label(fact, role)} {_shown(fact)} (page {fact.get('page')}) is outside the "
+        return (f"{_label(fact, role)} {_said(fact)} (page {fact.get('page')}) is outside the "
                 f"plausible range for this field ({span}); engineer to check the value")
     return None
 
@@ -681,7 +679,7 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
                 phase, hint, hint_role = implied
                 return res(NEEDS_ENGINEER_REVIEW, _sentence(
                     f"the {_pretty(condition['role']).lower()} is not stated, and "
-                    f"{_label(hint, hint_role).lower()} '{_shown(hint)}' (page {hint.get('page')}) "
+                    f"{_label(hint, hint_role).lower()} '{_said(hint)}' (page {hint.get('page')}) "
                     f"suggests {phase}, so this item probably does not apply; engineer to confirm "
                     f"the {_pretty(condition['role']).lower()}"), hint, hint_role)
             if item.get("when_unknown") != "evaluate":
@@ -695,7 +693,7 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
         if not any(_fold(word) in stated for word in condition["any"]):
             return res(NOT_APPLICABLE,
                        f"Does not apply: {_label(cond_fact, condition['role'])} is "
-                       f"'{_shown(cond_fact)}' (page {cond_fact.get('page')}).",
+                       f"'{_said(cond_fact)}' (page {cond_fact.get('page')}).",
                        cond_fact, condition["role"])
     kind = rule["kind"]
     if kind == "calc":
@@ -732,13 +730,13 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
                    get(field)[0])
     if fact.get("is_blank"):
         return res(MISSING_INFORMATION,
-                   f"{_label(fact, field)} is marked '{_shown(fact) or fact.get('blank_marker')}' "
+                   f"{_label(fact, field)} is marked '{_said(fact) or fact.get('blank_marker')}' "
                    f"on page {fact.get('page')}; the contractor is to provide the value.", fact)
     if (doubt := implausible(fact, field, rules)) is not None:
         # R12 (#776): an impossible value is never "stated" or compared.
         return res(NEEDS_ENGINEER_REVIEW, _sentence(doubt), fact)
     noted = f" The sheet marks this value '{fact['value_note']}'." if fact.get("value_note") else ""
-    where = f"{_label(fact, field)} {_shown(fact)} (page {fact.get('page')})"
+    where = f"{_label(fact, field)} {_said(fact)} (page {fact.get('page')})"
     if kind == "required":
         return res(COMPLIANT, f"{where} is stated.{noted}", fact)
     if kind == "allowed":
@@ -753,7 +751,7 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
         # as that percentage; the right-hand value is not needed.
         stated = _number_of_or_none(fact)
         if stated is None:
-            return res(NEEDS_ENGINEER_REVIEW, _sentence(f"'{_shown(fact)}' is not a number"), fact)
+            return res(NEEDS_ENGINEER_REVIEW, _sentence(f"'{_said(fact)}' is not a number"), fact)
         ok = _OPS[rule["op"]](stated, float(rule["percent"]))
         return res(COMPLIANT if ok else NON_COMPLIANT,
                    f"{where} is {'' if ok else 'not '}{_OP_WORDS[rule['op']]} {rule['percent']}% of the "
@@ -801,10 +799,10 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
         if kind == "percent_of":
             factor = float(rule["percent"]) / 100.0
         if kind == "above_by":
-            right_words = (f"{_label(other, rule['right']).lower()} {_shown(other)} (page {other.get('page')}) "
+            right_words = (f"{_label(other, rule['right']).lower()} {_said(other)} (page {other.get('page')}) "
                            f"plus the greater of {rule['percent']}% or {rule['at_least']} {rule['unit']}")
         right_words = ((f"{rule['percent']}% of " if kind == "percent_of" else "")
-                       + f"{_label(other, rule['right']).lower()} {_shown(other)} (page {other.get('page')})")
+                       + f"{_label(other, rule['right']).lower()} {_said(other)} (page {other.get('page')})")
     if (left is None or right is None or left[1] != right[1]
             or (left[2] and right[2] and left[2] != right[2])):
         return res(NEEDS_ENGINEER_REVIEW, _sentence(
@@ -889,7 +887,7 @@ def _number_of(fact: dict, role: str) -> float:
     from . import claims
     number = claims.parse_value(str(fact.get("raw_value")))
     if number is None:
-        raise _NotCalculated(f"the {_pretty(role).lower()} '{_shown(fact)}' is not a number")
+        raise _NotCalculated(f"the {_pretty(role).lower()} '{_said(fact)}' is not a number")
     return number
 
 
@@ -977,7 +975,7 @@ def _back_pressure_kpa_g(get, rules: dict) -> tuple[float, list[dict], str | Non
 
 
 def _quoted(fact: dict, role: str) -> str:
-    return f"{_label(fact, role).lower()} {_shown(fact)} (page {fact.get('page')})"
+    return f"{_label(fact, role).lower()} {_said(fact)} (page {fact.get('page')})"
 
 
 def _conventional(get) -> str | None:
@@ -1137,7 +1135,7 @@ def evaluate_calc(item: dict, field: str, get, res, rules: dict) -> dict:
              f"{source['standard']} {source['clause']} ({calc['name']}) from "
              f"{', '.join(calc['inputs'])}; {calc['coefficients']}")
     within = f" (within {tolerance:g}% for rounding)" if tolerance else ""
-    where = f"{_label(fact, field)} {_shown(fact)} (page {fact.get('page')})"
+    where = f"{_label(fact, field)} {_said(fact)} (page {fact.get('page')})"
     if stated < floor:
         result = res(NON_COMPLIANT, f"{where} is below {basis}{within}.", fact)
     elif calc["lower_bound"]:

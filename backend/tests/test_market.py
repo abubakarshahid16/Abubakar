@@ -15,7 +15,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from app import db, keyword, market
+from app import db, fts_index, market
 from app.config import settings
 from app.main import app
 
@@ -35,7 +35,7 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "market_allow_public_egress", False)
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     (tmp_path / "uploads").mkdir(parents=True, exist_ok=True)
     yield
     db.reset_connection()

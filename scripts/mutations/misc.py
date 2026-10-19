@@ -429,9 +429,11 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M1160", phase=96,
         description="the claude_api routes reach the transport without the USD meter",
         path=APP / "claude_api.py",
-        anchor=("        reader_api.model_call_via(claude_spend.metered(\n"
-                "            transport, step, unbilled=reader_transport_mod.unbilled)))"),
-        replacement="        reader_api.model_call_via(transport))",
+        # re-anchored (#456): the routes go through the route table's model_call
+        anchor=("    budget = claude_budget.Budget(output_limits.model_call_for(\n"
+                "        claude_spend.metered(transport, step, unbilled=reader_transport_mod.unbilled),\n"),
+        replacement=("    budget = claude_budget.Budget(output_limits.model_call_for(\n"
+                     "        transport,\n"),
         target="tests/test_claude_spend_routes.py",
         keyword=("refuses_before or total_cap_counts or written_to_the_ledger or "
                  "stops_the_next_call or over_the_cap or under_the_cap or 409_helper or "

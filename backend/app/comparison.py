@@ -52,8 +52,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import (absence, claims, conditions, datasheets, field_links, match_rules, numparse, page_ledger,
-                requirements_3b, review, schemas, submittal_review)
+from . import (absence, claims, conditions, datasheets, errors, field_links, match_rules, numparse, page_ledger,
+                requirements_3b, review, schemas, stated_value, submittal_review)
 from .config import settings
 from .db import connect
 
@@ -661,7 +661,7 @@ def _compare_range(requirement: dict, fact: dict, *, subject: str | None,
                                         f"{verdict['rationale']}", "limit": shown}
     if all(v["status"] == COMPLIANT for _op, _bound, v in ends):
         first = ends[0][2]
-        return {**first, "rationale": (f"the submitted value {fact.get('raw_value')} "
+        return {**first, "rationale": (f"the submitted value {stated_value.stated(fact.get('raw_value'))} "
                                        f"{fact.get('raw_unit') or ''}".rstrip()
                                        + f" is within the required range {shown}"), "limit": shown}
     other = next(v for _op, _bound, v in ends if v["status"] != COMPLIANT)
@@ -682,7 +682,7 @@ def _compare_nominal(requirement: dict, fact: dict, *, subject: str | None,
     stated = f"{requirement.get('raw_value')} {requirement.get('raw_unit') or ''}".strip()
     verdict = _compare_range({**requirement, "requirement_type": requirements_3b.RANGE_LIMIT},
                              fact, subject=subject, submittal_facts=submittal_facts)
-    observed = " ".join(str(fact.get("field_value") or fact.get("raw_value") or "").split())
+    observed = stated_value.flat(fact.get("field_value") or fact.get("raw_value"))
     if verdict["status"] == COMPLIANT:
         return {**verdict, "limit": stated,
                 "rationale": f"the submitted value {observed} is the stated value {stated} within the precision it is written to"}
@@ -723,7 +723,7 @@ def _compare(requirement: dict, fact: dict | None, *,
     gate. **Omitting it does not skip the gate — it fails it.** A conditional
     `numeric_limit` with no facts supplied returns NEEDS_ENGINEER_REVIEW rather
     than a verdict, so a caller that forgets cannot get a confident answer. That
-    is the same discipline `keyword.search` applies to `allowed_document_ids`:
+    is the same discipline `fts_index.search` applies to `allowed_document_ids`:
     the unsafe default is not available.
     """
     # ISSUE #163, CRITERION 2 & 4 - BEFORE EVERY OTHER BRANCH, INCLUDING THE
@@ -960,17 +960,17 @@ def _compare(requirement: dict, fact: dict | None, *,
         if stated and field_links.asks_only_to_be_stated(clause):
             return {"status": COMPLIANT,
                     "rationale": (f"{STATED_AS_ASKED}: the clause asks for this to be stated on the "
-                                  f"datasheet, and the sheet states it: {stated}"),
+                                  f"datasheet, and the sheet states it: {stated_value.stated(stated)}"),
                     "limit": None, "observed": stated, "exception_applied": None}
         names = field_links.named_values(clause)
         if stated and names and not fact_has_number(fact):
             if field_links.is_named_value(stated, names):
                 return {"status": COMPLIANT,
-                        "rationale": (f"{NAMED_VALUE}: the sheet states {stated!r}, which is one of the "
+                        "rationale": (f"{NAMED_VALUE}: the sheet states {stated_value.stated(stated)!r}, which is one of the "
                                       f"values the clause names ({'; '.join(names)})"),
                         "limit": "; ".join(names), "observed": stated, "exception_applied": None}
             return {"status": NEEDS_ENGINEER_REVIEW,
-                    "rationale": (f"{NAMED_VALUE}: the sheet states {stated!r}; the clause names "
+                    "rationale": (f"{NAMED_VALUE}: the sheet states {stated_value.stated(stated)!r}; the clause names "
                                   f"{'; '.join(names)}. As written it is not one of them. Another name for "
                                   "the same thing is not judged by code: engineer to decide"),
                     "limit": "; ".join(names), "observed": stated, "exception_applied": None}
@@ -1000,7 +1000,7 @@ def _compare(requirement: dict, fact: dict | None, *,
     if spread is not None:
         side = _range_side(governing.get("operator"))
         if side is None:
-            quoted = " ".join((fact.get("field_value") or "").split())
+            quoted = stated_value.flat(fact.get("field_value"))
             return {
                 "status": NEEDS_ENGINEER_REVIEW,
                 "rationale": (
@@ -1018,8 +1018,7 @@ def _compare(requirement: dict, fact: dict | None, *,
         # "-3 to 55 C" is a half-truth a reviewer cannot check.
         fact = {**fact, "raw_value": _plain(chosen),
                 "compared_end": side,
-                "compared_from": " ".join(
-                    (fact.get("field_value") or "").split())}
+                "compared_from": stated_value.flat(fact.get("field_value"))}
 
     if limit is None:
         return {
@@ -1075,7 +1074,7 @@ def _compare(requirement: dict, fact: dict | None, *,
                         else ("required", limit.raw_value))
         return {
             "status": NEEDS_ENGINEER_REVIEW,
-            "rationale": (f"the {which} value {value!r} could not be read as a "
+            "rationale": (f"the {which} value {stated_value.stated(value)!r} could not be read as a "
                           "number, so no comparison was made"),
             "limit": _describe(limit, governing),
             "observed": _describe(observed, fact),
@@ -1108,7 +1107,7 @@ def _compare(requirement: dict, fact: dict | None, *,
     return {
         "status": status,
         "rationale": (
-            f"the submitted value {fact.get('raw_value')} "
+            f"the submitted value {stated_value.stated(fact.get('raw_value'))} "
             f"{fact.get('raw_unit') or ''}".rstrip() +
             f" is {within} the required "
             f"{governing.get('operator') or ''} {governing.get('raw_value')} "
@@ -2183,7 +2182,7 @@ def _insufficient_reason(completeness: dict) -> str:
                     "for a value, so how much of it the review covered was not "
                     "measured")
         else:
-            head = (f"{answered} of the {required} datasheet values the applicable "
+            head = (f"{answered:,} of the {required:,} datasheet values the applicable "
                     f"standards' requirements ask for were found in the fields read "
                     f"from this submittal")
         if cover is not None and cover < COMPLETENESS_THRESHOLD:
@@ -3585,6 +3584,7 @@ MODEL_OUT_OF_RANGE = "model_out_of_range"
 MODEL_NAMED_OTHER = "model_named_other"
 MODEL_UNSTABLE = "model_unstable"
 MODEL_BUDGET = "model_budget"
+MODEL_TRUNCATED = "model_truncated"       # #456: the reply hit its output cap
 MODEL_DECLINED = "model_declined"
 #: The model proposed a pairing and a refusal rule (`match_rules.refusal`)
 #: refused it; the rule's name follows in brackets.
@@ -3727,31 +3727,30 @@ def _ask_claude_for_a_pair(prompt: str) -> tuple[str | None, str | None]:
     """The matcher's question through the ONE Claude lane (R32, 2026-10-11;
     MATCH_ENGINE=claude): only when `reasoning_provider.claude_unavailable`
     says Claude may be used, through `reader_transport.transport()` wrapped in
-    `claude_spend.metered` (the USD caps are checked before the call leaves,
-    every call is in the ledger) - `datasheet_ai._claude_call`'s chain.
-    Returns `(text, None)` or `(None, reason)`; never raises."""
-    import dataclasses
-
+    `claude_spend.metered` (USD caps before the call, every call in the ledger).
+    Returns `(text, None)` or `(None, reason)`; never raises. #456: the cap is
+    the route table's; a reply it cut off is `model_truncated`, never parsed."""
     from . import claude_spend, reader_api, reader_transport
+    from .ai import output_limits
     from .reasoning_provider import claude_unavailable_for_task
     # #501: the matcher's own engine setting, under the provider switch.
     try:
-        code, _why = claude_unavailable_for_task(settings.match_engine)
-        if code is not None:
+        if claude_unavailable_for_task(settings.match_engine)[0] is not None:
             return None, MODEL_UNAVAILABLE
         transport = reader_transport.transport()
         if transport is None:
             return None, MODEL_UNAVAILABLE
-        cfg = dataclasses.replace(reader_api.ReaderSettings.from_env(),
-                                  model=settings.claude_reasoning_model, max_tokens=200,
+        cfg = dataclasses.replace(reader_api.ReaderSettings.from_env(), model=settings.claude_reasoning_model,
                                   timeout_seconds=float(settings.match_timeout_seconds))
-        call = reader_api.model_call_via(claude_spend.metered(
-            transport, MATCH_STEP, unbilled=reader_transport.unbilled), cfg=cfg)
+        call = output_limits.model_call_for(claude_spend.metered(
+            transport, MATCH_STEP, unbilled=reader_transport.unbilled), output_limits.ROUTE_MATCH, cfg=cfg)
         return call(prompt), None
     except (claude_spend.StopRun, claude_spend.BudgetExceeded):
         return None, MODEL_BUDGET
-    except Exception:  # noqa: BLE001 - refused, timed out, or answered wrongly
-        return None, MODEL_UNAVAILABLE
+    except (output_limits.Truncated, output_limits.Unreadable) as exc:
+        return None, MODEL_TRUNCATED if exc.state == output_limits.TRUNCATED else MODEL_MALFORMED
+    except Exception as exc:  # noqa: BLE001 - refused, timed out, or answered wrongly
+        return errors.fell_back("comparison: the Claude pair-choice call failed; the pair stays unchosen", exc, (None, MODEL_UNAVAILABLE))
 
 
 def _json_object_in(text: str | None) -> str:
@@ -3799,8 +3798,8 @@ def _ask_model_once(requirement: dict, candidates: list[dict]) -> tuple[object, 
     try:
         raw = model_transport.post_json(
             "/api/generate", body, timeout=settings.match_timeout_seconds)
-    except Exception:  # noqa: BLE001 - refused, timed out, or answered wrongly
-        return None, MODEL_UNAVAILABLE
+    except Exception as exc:  # noqa: BLE001 - refused, timed out, or answered wrongly
+        return errors.fell_back("comparison: the local pair-choice call failed; the pair stays unchosen", exc, (None, MODEL_UNAVAILABLE))
     return _checked_choice((raw or {}).get("response") or "", candidates)
 
 
@@ -3809,7 +3808,7 @@ def _checked_choice(answer: str, candidates: list[dict]) -> tuple[object, str | 
     try:
         payload = json.loads(answer)
         choice = schemas.PairChoice.model_validate(payload)
-    except Exception:  # noqa: BLE001 - not JSON, or not this shape
+    except ValueError:  # not JSON, or not this shape (pydantic's ValidationError is a ValueError)
         return None, MODEL_MALFORMED
     if choice.choice is not None and not 0 <= choice.choice < len(candidates):
         return None, MODEL_OUT_OF_RANGE
@@ -3928,8 +3927,8 @@ def _document_is_tag_scoped(submittal_document_id: str | None) -> bool:
             " WHERE submittal_document_id = ? AND equipment_tag IS NOT NULL"
             " AND superseded_at IS NULL",           # current facts only (#179)
             (submittal_document_id,)).fetchone()
-    except Exception:  # noqa: BLE001 - a database without the column yet
-        return False
+    except sqlite3.OperationalError as exc:  # a database without the column yet
+        return errors.fell_back("comparison: equipment tags could not be counted; not tag-scoped", exc, False)
     return bool(row and row["n"] >= 2)
 
 
@@ -4059,8 +4058,8 @@ def _rejected_keys_for(requirement: dict) -> set[str]:
                 "SELECT fact_key FROM review_pair_rejections"
                 " WHERE requirement_key = ?", (requirement_key(requirement),))
         }
-    except Exception:  # noqa: BLE001 - a database without the table yet
-        return set()
+    except sqlite3.OperationalError as exc:  # a database without the table yet
+        return errors.fell_back("comparison: pair rejections could not be read; none are applied", exc, set())
 
 
 def _normalise_for_match(text: str | None) -> str:
@@ -4204,7 +4203,7 @@ def _store_run_outcome(review_run_id: str, recommendation: dict,
     conn = connect()
     with conn:
         conn.execute(
-            "UPDATE review_runs SET status = ?, refusal_reason = ?,"
+            "UPDATE review_runs SET status = ?, outcome_json = ?,"
             " updated_at = ?, completed_at = ? WHERE id = ?",
             ("completed", json.dumps({
                 "recommended_code": recommendation["code"],
@@ -4265,7 +4264,7 @@ def record_engineer_code(
     if run is None:
         raise ComparisonError("no review run with that id")
     try:
-        stored = json.loads(run.get("refusal_reason") or "{}")
+        stored = json.loads(run.get("outcome_json") or "{}")
     except (TypeError, ValueError):
         stored = {}
     # THE CODE ITSELF FIRST. An unknown code is not an override of anything,
@@ -4294,7 +4293,7 @@ def record_engineer_code(
     now = _now()
     reason = (override_reason or "").strip() or None
     # THE DECISION GOES IN COLUMNS; THE RECOMMENDATION STAYS WHERE IT WAS.
-    # `refusal_reason` is untouched here, so the AI's original code and its
+    # `outcome_json` is untouched here, so the AI's original code and its
     # sentence survive the engineer's decision - section 15 asks for both to
     # be stored, and a screen that showed only the final one would be hiding
     # what the machine actually said.
@@ -4320,16 +4319,16 @@ def record_engineer_code(
     return outcome
 
 
-def run_outcome(review_run_id: str, *,
-                allowed_document_ids: frozenset[str]) -> dict | None:
-    """The stored recommendation and decision for a run, under the caller's
-    grants."""
-    run = submittal_review.get_review_run(
-        review_run_id, allowed_document_ids=allowed_document_ids)
+def run_outcome(review_run_id: str, *, allowed_document_ids: frozenset[str],
+                run: dict | None = None) -> dict | None:
+    """The stored recommendation and decision for a run, under the caller's grants."""
+    if run is None or run.get("id") != review_run_id:
+        ids = allowed_document_ids  # order 109: `run` is the row the caller read
+        run = submittal_review.get_review_run(review_run_id, allowed_document_ids=ids)
     if run is None:
         return None
     try:
-        return json.loads(run.get("refusal_reason") or "{}")
+        return json.loads(run.get("outcome_json") or "{}")
     except (TypeError, ValueError):
         return {}
 

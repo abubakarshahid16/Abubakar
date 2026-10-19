@@ -113,7 +113,7 @@ def _run(recommended="Manual Review Required") -> str:
     run_id = str(uuid.uuid4())
     outcome = json.dumps({"recommended_code": recommended, "reason": "a reason"}) if recommended else None
     with db.connect() as conn:
-        conn.execute("INSERT INTO review_runs (id,submittal_document_id,status,refusal_reason,"
+        conn.execute("INSERT INTO review_runs (id,submittal_document_id,status,outcome_json,"
                      "created_at,updated_at) VALUES (?,'d1','completed',?,?,?)",
                      (run_id, outcome, NOW, NOW))
     return run_id

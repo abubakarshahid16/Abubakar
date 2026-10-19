@@ -369,7 +369,10 @@ def suggest(filename: str, first_page_text: str,
 #: `equipment_type_evidence.classifier_version` tells a reader whether a row
 #: was produced by the version currently running.
 #: v2 (#183): the title block is read from page text before the chunks.
-EQUIPMENT_TYPE_CLASSIFIER_VERSION = "equipment-type-v2"
+#: v3 (#897): a title naming one type of the equipment vocabulary is read.
+EQUIPMENT_TYPE_CLASSIFIER_VERSION = "equipment-type-v3"
+#: What a title read from the vocabulary scores: the generic pattern's level.
+_VOCABULARY_TITLE_CONFIDENCE = 0.75
 
 #: Matched directly against a CHUNK'S OWN TEXT (not `normalise`d - the quote
 #: stored alongside a hit is exactly what matched, and lower-casing it first
@@ -377,7 +380,8 @@ EQUIPMENT_TYPE_CLASSIFIER_VERSION = "equipment-type-v2"
 #: tolerant. ORDER IS PRIORITY: checked top to bottom, first pattern with any
 #: hit anywhere in the document wins - "Pressure Safety Valve" is checked
 #: before the generic "Pump" pattern so a PSV sheet that happens to mention a
-#: pump elsewhere is never mislabelled.
+#: pump elsewhere is never mislabelled. Titles only (#897): what these miss,
+#: `suggest_equipment_type_from_title` reads from the equipment vocabulary.
 _EQUIPMENT_TYPE_PATTERNS: tuple[tuple[str, "re.Pattern[str]", float], ...] = (
     ("Pressure Safety Valve",
      re.compile(r"pressure\s+safety\s+valves?(?:\s*\(\s*psvs?\s*\))?|\bpsvs?\b", re.I),
@@ -398,11 +402,11 @@ _EQUIPMENT_TYPE_PATTERNS: tuple[tuple[str, "re.Pattern[str]", float], ...] = (
     ("Pressure Vessel", re.compile(r"pressure\s+vessels?", re.I), 0.8),
 )
 
-#: Every `equipment_type` value the classifier above can write - the label
-#: vocabulary other modules must be able to resolve (datasheet_checks looks
-#: each one up in its mandatory-fields table; a test enumerates this tuple so
-#: a new label that falls through to the generic list fails loudly instead
-#: of silently checking less).
+#: Every `equipment_type` value the patterns above can write - the labels the
+#: mandatory-fields table of datasheet_checks must resolve (a test enumerates
+#: this tuple so a new label that falls through to the generic list fails
+#: loudly instead of silently checking less). A title read from the equipment
+#: vocabulary (#897) is title-cased and gets the generic list unless named there.
 EQUIPMENT_TYPE_LABELS: tuple[str, ...] = tuple(
     label for label, _pattern, _confidence in _EQUIPMENT_TYPE_PATTERNS)
 
@@ -426,12 +430,9 @@ class EquipmentTypeEvidence:
     classified_at: str
 
     def as_dict(self) -> dict:
-        return {
-            "page": self.page, "quote": self.quote, "method": self.method,
-            "confidence": self.confidence,
-            "classifier_version": self.classifier_version,
-            "classified_at": self.classified_at,
-        }
+        return {"page": self.page, "quote": self.quote, "method": self.method,
+                "confidence": self.confidence, "classifier_version": self.classifier_version,
+                "classified_at": self.classified_at}
 
 
 def suggest_equipment_type(chunks: Sequence[dict]) -> EquipmentTypeEvidence | None:
@@ -457,13 +458,11 @@ def suggest_equipment_type(chunks: Sequence[dict]) -> EquipmentTypeEvidence | No
             if match is None:
                 continue
             page = chunk.get("page_start")
-            # ON PAGE 1, this is almost always the title block - the same
-            # place a human reads to know what a datasheet is for. Deeper in
-            # the document (the pressure-vessel phrase, which this corpus's
-            # own vessel datasheet carries mainly in its welding and
-            # inspection clauses rather than its cover sheet) it is evidence
-            # from the BODY, and is recorded and scored as such rather than
-            # claimed to be a title match it is not.
+            # ON PAGE 1, this is almost always the title block - where a human
+            # reads what a datasheet is for. Deeper in the document (the
+            # pressure-vessel phrase, carried mainly in welding and inspection
+            # clauses) it is evidence from the BODY, recorded and scored as
+            # such rather than claimed to be a title match it is not.
             is_title = (page or 0) <= 1
             method = "title_phrase_match" if is_title else "body_phrase_match"
             confidence = base_confidence if is_title else round(
@@ -525,25 +524,26 @@ def title_block_lines(pages: Sequence[dict]) -> list[tuple[int, str]]:
 
 def suggest_equipment_type_from_title(lines: Sequence[tuple[int, str]]
                                       ) -> EquipmentTypeEvidence | None:
-    """The equipment type the title block names, in `_EQUIPMENT_TYPE_PATTERNS`
-    priority order, as a `title_phrase_match` on the page the line is on."""
-    for label, pattern, base_confidence in _EQUIPMENT_TYPE_PATTERNS:
-        for page, line in lines:
-            match = pattern.search(line)
-            if match is None:
-                continue
-            return EquipmentTypeEvidence(
-                equipment_type=label, page=page,
-                quote=_SPACE.sub(" ", match.group(0)).strip(),
-                method="title_phrase_match", confidence=base_confidence,
-                classifier_version=EQUIPMENT_TYPE_CLASSIFIER_VERSION,
-                classified_at=_now())
-    return None
+    """The equipment type the title block names: `_EQUIPMENT_TYPE_PATTERNS` in
+    priority order (their exact cover-sheet wording and labels), else the ONE
+    type of the equipment vocabulary the title names (#897,
+    `subject_scope.title_equipment`); none, or two, stays unknown."""
+    from . import subject_scope
+    found = next(((label, page, match.group(0), confidence)
+                  for label, pattern, confidence in _EQUIPMENT_TYPE_PATTERNS
+                  for page, line in lines if (match := pattern.search(line))), None)
+    if found is None and (named := subject_scope.title_equipment(lines, subject_scope.vocabulary())):
+        found = (named[0].title(), named[1], named[2], _VOCABULARY_TITLE_CONFIDENCE)
+    if found is None:
+        return None
+    return EquipmentTypeEvidence(
+        equipment_type=found[0], page=found[1], quote=_SPACE.sub(" ", found[2]).strip(),
+        method="title_phrase_match", confidence=found[3],
+        classifier_version=EQUIPMENT_TYPE_CLASSIFIER_VERSION, classified_at=_now())
 
 
 def _audit_equipment_type_change(document_id: str, *, old_value: str | None,
-                                 evidence: EquipmentTypeEvidence,
-                                 classified_by: str) -> None:
+                                 evidence: EquipmentTypeEvidence, classified_by: str) -> None:
     """One row in `audit_events` per RECLASSIFICATION, never silently dropped.
 
     RESPONSE-SAFE DETAIL ONLY, the same rule `applicability._audit` and the

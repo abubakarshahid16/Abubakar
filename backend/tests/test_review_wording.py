@@ -48,7 +48,7 @@ def _stored_old_run(tmp_path) -> tuple[str, frozenset]:
            "page_coverage": {"pages_total": 1, "fact_pages": [1]},
            "missing_references": [{"identifier": "ABC 1", "status": "MISSING_LOCALLY"}]}
     with db.connect() as conn:
-        conn.execute("UPDATE review_runs SET status = 'completed', refusal_reason = ? WHERE id = ?",
+        conn.execute("UPDATE review_runs SET status = 'completed', outcome_json = ? WHERE id = ?",
                      (json.dumps(old), run))
     return run, scope
 

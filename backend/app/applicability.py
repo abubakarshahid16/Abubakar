@@ -33,7 +33,7 @@ WHAT IS REUSED, NOT REBUILT
 second table and not collapsed to JSON, because it needs joins, permission
 filtering and audit. `standards.selectable_standard_ids` already excludes
 superseded revisions. `datasheets.referenced_standards` already reads the
-identifiers a sheet cites. `keyword.search` is FTS5 for exact standard numbers
+identifiers a sheet cites. `fts_index.search` is FTS5 for exact standard numbers
 and `search.search` is the hybrid path; both take `allowed_document_ids`
 keyword-only, so access filters before ranking rather than after.
 """
@@ -47,7 +47,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import datasheets, keyword, standard_ids, standards, submittal_review
+from . import datasheets, errors, fts_index, standard_ids, standards, submittal_review
 from .db import connect
 
 #: The selection rules, in the priority master plan section 11 gives them.
@@ -803,10 +803,10 @@ def scope_decisions_by_reasoning(library: list[dict], profile: dict,
                 decision = _cached_scope_decision(
                     entry["id"], equipment_type, record, engine, SCOPE_REASONING_STEP)
         except Exception as exc:  # noqa: BLE001 - budget cap, refusal or a down model:
-            # stays with an engineer as "not decided", never crashes the review.
-            # #450: AND SAYS SO. It used to be skipped with no record, so a
-            # model that was down for every standard read as "scope checked,
-            # nothing excluded". The standard is UNKNOWN, with the reason.
+            # stays with an engineer as "not decided", never crashes the review. #450: AND SAYS SO.
+            # It used to be skipped with no record, so a model that was down for every standard read
+            # as "scope checked, nothing excluded". The standard is UNKNOWN, with the reason.
+            errors.fell_back("applicability: scope check failed", exc, None)
             from . import applicability_v2
             out[entry["id"]] = {
                 "decision": applicability_v2.UNKNOWN, "quote": None, "page": None,
@@ -1017,7 +1017,7 @@ def _match_semantic(document_id: str, library: list[dict],
 
     FTS5 over the submittal's own words, restricted to the library ids and to
     the caller's grants - ACCESS FILTERS BEFORE RANKING, never after, which is
-    what `keyword.search`'s keyword-only parameter enforces.
+    what `fts_index.search`'s keyword-only parameter enforces.
 
     THE WEAKEST RULE, AND IT IS TREATED AS ONE. It carries the lowest
     confidence, it is overridden by every other method, and it can never cover
@@ -1035,10 +1035,10 @@ def _match_semantic(document_id: str, library: list[dict],
     if not terms:
         return {}
     try:
-        hits = keyword.search(" OR ".join(terms), limit=limit,
+        hits = fts_index.search(" OR ".join(terms), limit=limit,
                               allowed_document_ids=searchable)
-    except Exception:  # noqa: BLE001 - a retrieval failure is not a selection
-        return {}
+    except Exception as exc:  # noqa: BLE001 - a retrieval failure is not a selection
+        return errors.fell_back("applicability: keyword search failed", exc, {})
     out: dict[str, dict] = {}
     for hit in hits:
         standard_id = hit.get("document_id")

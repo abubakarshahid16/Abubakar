@@ -75,7 +75,7 @@ def _run(doc_id: str, status: str, recommended: str | None = None) -> str:
     with db.connect() as conn:
         conn.execute(
             "INSERT INTO review_runs (id,submittal_document_id,status,"
-            "refusal_reason,created_at,updated_at) VALUES (?,?,?,?,?,?)",
+            "outcome_json,created_at,updated_at) VALUES (?,?,?,?,?,?)",
             (run_id, doc_id, status, outcome, NOW, NOW))
     return run_id
 

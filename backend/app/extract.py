@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 import pymupdf  # PyMuPDF
 
 from . import ocr, states
+from . import stored_paths
 from .config import settings
 from .quality import normalise_text
 from . import tables as tables_mod
@@ -170,13 +171,15 @@ def page_tables_checked(page, raw_text: str) -> tuple[list[dict], str | None]:
     """
     try:
         paths = page.get_drawings()
-    except Exception:  # noqa: BLE001 - geometry that defeats the reader
+    except Exception as exc:  # noqa: BLE001 - geometry that defeats the reader
+        log.debug("extract: get_drawings failed; no table (%s)", type(exc).__name__)
         return [], "table_get_drawings_failed"
     if len(paths) < MIN_TABLE_PATHS:
         return [], None
     try:
         found = page.find_tables(strategy="lines").tables
-    except Exception:  # noqa: BLE001 - same: no table rather than no page
+    except Exception as exc:  # noqa: BLE001 - same: no table rather than no page
+        log.debug("extract: find_tables failed; no table (%s)", type(exc).__name__)
         return [], "table_find_failed"
     if not found:
         return [], None
@@ -196,7 +199,8 @@ def page_tables_checked(page, raw_text: str) -> tuple[list[dict], str | None]:
                 cells = _unrotated_rows(table, cells, derotate)
             rows = [[tables_mod._clean(normalise_text(c or "")) for c in row]
                     for row in cells]
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            log.debug("extract: cells unreadable; skipped (%s)", type(exc).__name__)
             continue
         rows = [row for row in rows if any(cell for cell in row)]
         if not rows:
@@ -393,7 +397,7 @@ def extract_document(doc_id: str, progress=None) -> dict:
     if job is None:
         raise ValueError(f"no extract job for {doc_id}")
 
-    pdf_path = doc["stored_path"]
+    pdf_path = stored_paths.local(doc["stored_path"])
     if not os.path.exists(pdf_path):
         # Row survived but the bytes did not. Fail loudly in the record
         # rather than crashing the worker mid-queue.
@@ -520,7 +524,7 @@ def reroute_document(doc_id: str, *, apply: bool = True) -> dict:
         raise ValueError(f"unknown document {doc_id}")
     result = {"document_id": doc_id, "pages": 0, "stale": 0, "newly_needs_ocr": 0,
               "no_longer_needs_ocr": 0, "requeued": False, "routes": {}, "error": None}
-    if not doc["stored_path"] or not os.path.exists(doc["stored_path"]):
+    if not os.path.exists(stored_paths.local(doc["stored_path"]) or ""):
         result["error"] = "stored file is missing"
         return result
     rows = conn.execute(
@@ -530,7 +534,7 @@ def reroute_document(doc_id: str, *, apply: bool = True) -> dict:
         "SELECT page_no FROM page_ocr WHERE document_id = ?", (doc_id,))}
     updates = []
     newly_pending = 0
-    with pymupdf.open(doc["stored_path"]) as pdf:
+    with pymupdf.open(stored_paths.local(doc["stored_path"])) as pdf:
         for r in rows:
             if not 1 <= r["page_no"] <= pdf.page_count:
                 continue

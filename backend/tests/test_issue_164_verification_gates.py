@@ -309,16 +309,23 @@ def test_criterion_4_no_live_caller_passes_a_model_opinion_into_the_review_run_r
     """
     import inspect
     from app import main as main_mod
+    from app.api import run_standards as run_standards_mod
 
-    source = inspect.getsource(main_mod)
-    # The single call site, isolated so a second one added elsewhere would
-    # still need its own check rather than silently reusing this pass.
-    start = source.index("comparison_mod.run_comparison(")
-    call_site = source[start:start + 200]
-    assert "model_opinions" not in call_site, (
-        "a live caller now passes model_opinions into run_comparison; "
-        "criterion 4 needs re-verification because free model text can "
-        "reach a finding's rationale on the live path")
+    # EVERY call site in the route modules (the standards override moved to
+    # api/run_standards.py in order 117 item 5), each checked on its own.
+    sites = []
+    for module in (main_mod, run_standards_mod):
+        source = inspect.getsource(module)
+        start = source.find("comparison_mod.run_comparison(")
+        while start != -1:
+            sites.append(source[start:start + 200])
+            start = source.find("comparison_mod.run_comparison(", start + 1)
+    assert sites, "no live caller of run_comparison was found to check"
+    for call_site in sites:
+        assert "model_opinions" not in call_site, (
+            "a live caller now passes model_opinions into run_comparison; "
+            "criterion 4 needs re-verification because free model text can "
+            "reach a finding's rationale on the live path")
 
 
 def test_criterion_4_a_model_reason_naming_an_unchosen_candidate_is_rejected(monkeypatch):

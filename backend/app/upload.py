@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import BinaryIO
 
-from . import access, classification, job_queue, states
+from . import access, classification, job_queue, states, stored_paths
 from .config import settings
 from .db import connect
 from .errors import redact
@@ -457,7 +457,7 @@ def ingest(src: BinaryIO, raw_filename: str, *,
                    (id, filename, sha256, size_bytes, stored_path, status,
                     uploaded_at, priority)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (doc_id, filename, sha256, size, str(final_path), status, now,
+                (doc_id, filename, sha256, size, stored_paths.to_stored(final_path), status, now,
                  priority),
             )
             if indexed:
@@ -585,7 +585,8 @@ def _first_page_text(pdf_path: Path) -> str:
             if document.page_count == 0:
                 return ""
             return document.load_page(0).get_text() or ""
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        log.info("upload: page 1 unreadable; no title (%s)", type(exc).__name__)
         return ""
 
 

@@ -88,7 +88,7 @@ def _run(recommended: str | None = comparison.CODE_MANUAL) -> tuple[str, frozens
     with db.connect() as conn:
         conn.execute(
             "INSERT INTO review_runs (id,submittal_document_id,status,"
-            "refusal_reason,created_at,updated_at) VALUES (?,?,'completed',?,?,?)",
+            "outcome_json,created_at,updated_at) VALUES (?,?,'completed',?,?,?)",
             (run_id, doc, outcome, NOW, NOW))
     return run_id, frozenset({doc})
 

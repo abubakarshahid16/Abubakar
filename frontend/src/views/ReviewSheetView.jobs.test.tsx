@@ -15,6 +15,11 @@ vi.mock("../api/client", () => ({
   api: { document: async () => ({ ok: true, data: { id: "d", filename: "pump.pdf", page_count: 1 } }) },
   reviews: {
     reviewRuns: (...a: unknown[]) => reviewRuns(...a),
+    // Order 109: the screen asks for its one run; served from the same fixture.
+    reviewRun: async (id: string) => {
+      const r = await reviewRuns();
+      return r?.ok ? { ok: true, data: r.data.runs.find((x: { review_run_id: string }) => x.review_run_id === id) ?? null } : r;
+    },
     list: (...a: unknown[]) => list(...a),
     crsIssueGate: async () => ({ ok: true, data: { review_run_id: "run-1", issuable: false, final_code_recorded: false, blockers: [], unread_pages: [], open_findings: [] } }),
     reviewRunStandards: async () => ({ ok: true, data: { standards: [] } }),
@@ -27,6 +32,7 @@ vi.mock("../api/client", () => ({
 vi.mock("../components/review/sheet/SheetPageImage", () => ({ SheetPageImage: () => <p>page</p> }));
 vi.mock("../components/review/EvidencePageImage", () => ({ EvidencePageImage: () => <p>page</p> }));
 vi.mock("../components/DocumentPreview", () => ({ DocumentPreview: () => <p>preview</p> }));
+vi.mock("../components/review/sheet/PlainPageImage", () => ({ PlainPageImage: () => <p>preview</p> }));
 
 function run(over: Partial<ReviewRunSummary>): ReviewRunSummary {
   return { review_run_id: "run-1", submittal_document_id: "d", submittal_filename: "pump.pdf",

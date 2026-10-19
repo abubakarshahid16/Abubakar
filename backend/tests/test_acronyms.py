@@ -14,7 +14,7 @@ import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
-from app import acronyms, db, keyword, lexical
+from app import acronyms, db, fts_index, lexical
 from app import answer as answer_mod
 from app.config import settings
 from app.ingest import IngestionWorker
@@ -70,7 +70,7 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "t.sqlite")
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     acronyms.reset_cache()
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     yield

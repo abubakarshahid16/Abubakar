@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import db, keyword, search
+from app import db, fts_index, search
 from app.config import settings
 
 # Parked. Both features these tests assert (the reranker relevance floor and
@@ -54,8 +54,8 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "t.sqlite")
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
-    keyword.reset_vocabulary_cache()
+    fts_index.ensure_schema()
+    fts_index.reset_vocabulary_cache()
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     yield
     db.reset_connection()
@@ -244,7 +244,7 @@ def insert_document(document_id: str, filename: str, chunks) -> None:
                  ordinal + 1, ordinal + 1, section, text, len(text.split()),
                  f"hash-{document_id}-{ordinal}"),
             )
-    keyword.index_document(document_id)
+    fts_index.index_document(document_id)
 
 
 def stub_reranker(monkeypatch, scores: dict[str, float], default: float):

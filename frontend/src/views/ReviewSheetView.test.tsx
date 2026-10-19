@@ -6,10 +6,11 @@
  * "answering opens the next open card" fails; drop the J handler and the
  * keyboard test fails.
  */
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { NavigationContext } from "../components/NavLink";
 import type { CrsIssueGate, ReviewFinding, ReviewRunSummary } from "../types/api";
 import { ReviewSheetView } from "./ReviewSheetView";
 
@@ -24,6 +25,11 @@ vi.mock("../api/client", () => ({
   api: { document: async () => ({ ok: true, data: { id: "doc-sub", filename: "psv.pdf", page_count: 3 } }) },
   reviews: {
     reviewRuns: (...a: unknown[]) => reviewRuns(...a),
+    // Order 109: the screen asks for its one run; served from the same fixture.
+    reviewRun: async (id: string) => {
+      const r = await reviewRuns();
+      return r?.ok ? { ok: true, data: r.data.runs.find((x: { review_run_id: string }) => x.review_run_id === id) ?? null } : r;
+    },
     list: (...a: unknown[]) => list(...a),
     crsIssueGate: (...a: unknown[]) => crsIssueGate(...a),
     reviewRunStandards: (...a: unknown[]) => reviewRunStandards(...a),
@@ -42,6 +48,9 @@ vi.mock("../components/review/sheet/SheetPageImage", () => ({
 }));
 vi.mock("../components/review/EvidencePageImage", () => ({
   EvidencePageImage: ({ side, page }: { side: string; page: number }) => <p>{`${side} page ${page}`}</p>,
+}));
+vi.mock("../components/review/sheet/PlainPageImage", () => ({
+  PlainPageImage: ({ page }: { page: number }) => <p>{`preview page ${page}`}</p>,
 }));
 vi.mock("../components/DocumentPreview", () => ({
   DocumentPreview: ({ page }: { page: number }) => <p>{`preview page ${page}`}</p>,
@@ -90,6 +99,23 @@ beforeEach(() => {
 });
 
 describe("ReviewSheetView", () => {
+  it("order 117: a slow answer for the run the reader left never replaces the run they moved to", async () => {
+    let release: () => void = () => {};
+    const slow = new Promise<void>((r) => { release = r; });
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [
+      run(), run({ review_run_id: "run-2", submittal_filename: "second.pdf" }),
+    ] } });
+    list.mockImplementation(async (q: { review_run_id: string }) => {
+      if (q.review_run_id === "run-1") await slow;
+      return { ok: true, data: { findings } };
+    });
+    const view = render(<ReviewSheetView runId="run-1" onBack={vi.fn()} onOpenPanel={vi.fn()} onOpenRun={vi.fn()} />);
+    view.rerender(<ReviewSheetView runId="run-2" onBack={vi.fn()} onOpenPanel={vi.fn()} onOpenRun={vi.fn()} />);
+    expect(await screen.findByRole("heading", { level: 1, name: "second.pdf" })).toBeInTheDocument();
+    await act(async () => { release(); await slow; });
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("second.pdf");
+  });
+
   it("says how many things need an answer, and opens the first card at its page", async () => {
     render(<ReviewSheetView runId="run-1" onBack={vi.fn()} onOpenPanel={vi.fn()} onOpenRun={vi.fn()} />);
     expect(await screen.findByTestId("sheet-headline"))
@@ -127,9 +153,10 @@ describe("ReviewSheetView", () => {
     render(<ReviewSheetView runId="run-1" onBack={vi.fn()} onOpenPanel={vi.fn()} onOpenRun={vi.fn()} />);
     await screen.findByTestId("sheet-headline");
     expect(screen.getByTestId("sheet-headline")).toHaveTextContent("2 things need your answer");
+    // #1090: the selected card ("a", opened first) is on its card, not listed again
     const marks = within(screen.getByRole("list", { name: "Marked on this page" })).getAllByRole("button");
-    expect(marks.map((m) => m.dataset.mark)).toEqual(["open", "tick"]);
-    expect(marks[1]).toHaveTextContent(/Field s meets the standard/);
+    expect(marks.map((m) => m.dataset.mark)).toEqual(["tick"]);
+    expect(marks[0]).toHaveTextContent(/Field s meets the standard/);
   });
 
   it("marks pages with open cards and moves between cards with J and K", async () => {
@@ -169,24 +196,21 @@ describe("ReviewSheetView", () => {
     expect(decideCrsFinding).toHaveBeenCalledWith("run-1", "a", "accept", expect.any(String));
   });
 
-  it("Send waits for every answer, the decision and the server's gate", async () => {
+  it("order 121: the card view is the older view; it sends the engineer to the comment sheet to sign, never issues itself", async () => {
     findings = findings.map((x) => ({ ...x, confirmed_by: "eng" }));
     reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({ engineer_final_code: "Approved with Comments" })] } });
-    crsIssueGate.mockResolvedValue({ ok: true, data: gate({ issuable: false, blockers: ["1 page(s) of the submittal were not read and no engineer has recorded checking them"] }) });
-    const { unmount } = render(<ReviewSheetView runId="run-1" onBack={vi.fn()} onOpenPanel={vi.fn()} onOpenRun={vi.fn()} />);
-    expect(await screen.findByRole("heading", { name: "What is your overall decision?" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Send comments to contractor" })).toBeDisabled();
-    expect(screen.getByTestId("sheet-headline")).toHaveTextContent(/^Not ready to send yet: 1 page\(s\)/);
-    unmount();
-
     crsIssueGate.mockResolvedValue({ ok: true, data: gate({ issuable: true }) });
-    exportCrs.mockResolvedValue({ ok: false, error: { message: "refused by the server" } });
-    render(<ReviewSheetView runId="run-1" onBack={vi.fn()} onOpenPanel={vi.fn()} onOpenRun={vi.fn()} />);
-    const send = await screen.findByRole("button", { name: "Send comments to contractor" });
-    await vi.waitFor(() => expect(send).toBeEnabled());
-    await userEvent.click(send);
-    expect(exportCrs).toHaveBeenCalledWith("run-1", "issue");
-    expect(await screen.findByRole("alert")).toHaveTextContent("refused by the server");
+    const navigate = vi.fn();
+    render(
+      <NavigationContext.Provider value={navigate}>
+        <ReviewSheetView runId="run-1" onBack={vi.fn()} onOpenPanel={vi.fn()} onOpenRun={vi.fn()} />
+      </NavigationContext.Provider>,
+    );
+    expect(await screen.findByTestId("older-view")).toHaveTextContent("Older view. Decisions are made on the comment sheet.");
+    expect(screen.queryByRole("button", { name: /Send comments to contractor/ })).toBeNull();
+    await userEvent.click(screen.getByRole("link", { name: "Sign and export on the comment sheet" }));
+    expect(navigate).toHaveBeenCalledWith("review", "run-1");
+    expect(exportCrs).not.toHaveBeenCalled();
   });
 
   it("keeps the technical pages behind links, each its own route (#967 PR 3)", async () => {
@@ -200,6 +224,28 @@ describe("ReviewSheetView", () => {
     expect(onOpenPanel).toHaveBeenLastCalledWith("standards");
     await userEvent.click(screen.getByRole("button", { name: "the CRS" }));
     expect(onOpenPanel).toHaveBeenLastCalledWith("crs");
+  });
+
+  it("order 115: the header goes back to the comment sheet, the default at /review/<run>, through the app's navigation", async () => {
+    const navigate = vi.fn();
+    render(
+      <NavigationContext.Provider value={navigate}>
+        <ReviewSheetView runId="run-1" onBack={vi.fn()} onOpenPanel={vi.fn()} onOpenRun={vi.fn()} />
+      </NavigationContext.Provider>,
+    );
+    await screen.findByTestId("sheet-headline");
+    const link = screen.getByRole("link", { name: "Back to the comment sheet" });
+    expect(link).toHaveAttribute("href", "/review/run-1");
+    await userEvent.click(link);
+    expect(navigate).toHaveBeenCalledWith("review", "run-1");
+  });
+
+  it("the behind-the-scenes menu lists only its pages, not the two review screens", async () => {
+    render(<ReviewSheetView runId="run-1" panel="crs" onBack={vi.fn()} onOpenPanel={vi.fn()} onOpenRun={vi.fn()} />);
+    const nav = await screen.findByRole("navigation", { name: "Behind the scenes" });
+    expect(within(nav).getAllByRole("button").map((b) => b.textContent)).toEqual([
+      "← Back to the sheet", "All findings", "The rule books used", "How we checked this document", "AI numbers for this run", "Comment Resolution Sheet",
+    ]);
   });
 
   it("audit 2026-09-30: a standards list that could not be loaded says so on its page", async () => {

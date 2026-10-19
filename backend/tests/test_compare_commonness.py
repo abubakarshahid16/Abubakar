@@ -18,7 +18,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import answer as answer_mod
-from app import chat_comparison, keyword, lexical
+from app import chat_comparison, fts_index, lexical
 from app.main import app
 from tests.test_chat_comparison import temp_storage, upload  # noqa: F401
 
@@ -58,12 +58,12 @@ def library(temp_storage):  # noqa: F811
 
 def test_the_library_is_big_enough_to_judge_commonness(library):
     target, everything = library
-    assert keyword.indexed_count(None, allowed_document_ids=frozenset({target})) >= lexical.MIN_CORPUS_FOR_COMMONNESS
-    inside = keyword.term_occurrences("treatment", None, allowed_document_ids=frozenset({target}))
-    across = keyword.term_occurrences("treatment", None, allowed_document_ids=everything)
+    assert fts_index.indexed_count(None, allowed_document_ids=frozenset({target})) >= lexical.MIN_CORPUS_FOR_COMMONNESS
+    inside = fts_index.term_occurrences("treatment", None, allowed_document_ids=frozenset({target}))
+    across = fts_index.term_occurrences("treatment", None, allowed_document_ids=everything)
     assert inside == across  # the topic lives only in the standard that covers it
-    assert inside > int(keyword.indexed_count(None, allowed_document_ids=frozenset({target})) * lexical.COMMON_TERM_FRACTION)
-    assert across <= int(keyword.indexed_count(None, allowed_document_ids=everything) * lexical.COMMON_TERM_FRACTION)
+    assert inside > int(fts_index.indexed_count(None, allowed_document_ids=frozenset({target})) * lexical.COMMON_TERM_FRACTION)
+    assert across <= int(fts_index.indexed_count(None, allowed_document_ids=everything) * lexical.COMMON_TERM_FRACTION)
 
 
 def test_a_standard_that_covers_the_topic_is_not_refused_as_common(library):

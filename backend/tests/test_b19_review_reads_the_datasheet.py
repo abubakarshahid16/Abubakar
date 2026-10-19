@@ -172,9 +172,9 @@ def test_a_failed_extraction_leaves_nothing_behind_and_says_why(tmp_path, monkey
 
     assert _facts(doc) == [], "a failed extraction left a partial fact set"
     failed = db.connect().execute(
-        "SELECT status, refusal_reason FROM review_runs").fetchone()
+        "SELECT status, outcome_json FROM review_runs").fetchone()
     assert failed["status"] == "failed", "the run was left saying 'running'"
-    assert "fact extraction failed" in failed["refusal_reason"]
+    assert "fact extraction failed" in failed["outcome_json"]
 
     # And the next review, with the fault gone, reads the WHOLE sheet.
     monkeypatch.setattr(datasheets, "create_fact", real)

@@ -17,7 +17,7 @@ import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
-from app import chat, db, keyword
+from app import chat, db, fts_index
 from app import understanding as u
 from app.config import settings
 from app.ingest import IngestionWorker
@@ -145,7 +145,7 @@ def two_standards(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     monkeypatch.setattr(settings, "upload_dir", tmp_path / "uploads")
     monkeypatch.setattr(settings, "db_path", tmp_path / "b6c.sqlite")
-    db.reset_connection(); db.init_db(); keyword.ensure_schema()
+    db.reset_connection(); db.init_db(); fts_index.ensure_schema()
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     client = TestClient(app)
     ids = {}

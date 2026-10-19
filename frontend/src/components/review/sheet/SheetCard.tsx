@@ -13,8 +13,12 @@ import { useEffect, useRef, useState } from "react";
 
 import { reviews as reviewsApi } from "../../../api/client";
 import type { ReviewFinding } from "../../../types/api";
+import { SENSE_CHECK_RULE, isSenseCheck } from "../reasonWords";
 import { orNothing } from "../reviewFormat";
-import { type SheetCard as Card, cardTitle, groupLine, isAgreed, isNotNeeded, isTickFinding, trustLine, MIN_REASON } from "./sheetCards";
+import {
+  type ClauseGroup, type SheetCard as Card, cardTitle, clauseGroups, clauseSummary, findingNoun, groupLine, hasNoClause,
+  isAgreed, isNotNeeded, isTickFinding, trustLine, MIN_REASON,
+} from "./sheetCards";
 
 export const AGREE_REASON = "Engineer agreed on the review page: ask the contractor.";
 /** rule_trust (#947): the tick is the PF5 accept on the finding; the server
@@ -119,7 +123,6 @@ function OpenCard({ card, runId, standardNames, onOpenRule, onAnswered, onShowOn
     onAnswered();
   }
 
-  const standard = standardNames.get(leader.standard_document_id ?? "") ?? "";
   const working = busy.kind === "working";
   return (
     <article
@@ -151,21 +154,7 @@ function OpenCard({ card, runId, standardNames, onOpenRule, onAnswered, onShowOn
         )}
       </section>
 
-      <section>
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-slateish-400">The rule</h4>
-        <p className="mt-1 line-clamp-3 text-sm text-slateish-200">
-          {orNothing(leader.requirement_source_text) || orNothing(leader.requirement)}
-        </p>
-        {(standard || leader.standard_clause) && (
-          <button
-            type="button" onClick={() => onOpenRule(leader)}
-            className="mt-1 text-xs text-signal-300 underline-offset-2 hover:underline"
-          >
-            {[standard, leader.standard_clause ? `clause ${leader.standard_clause}` : ""].filter(Boolean).join(", ")}
-            {leader.standard_page ? ` · open page ${leader.standard_page}` : " · open the rule"}
-          </button>
-        )}
-      </section>
+      <RuleSection card={card} standardNames={standardNames} onOpenRule={onOpenRule} />
 
       {tick ? (
         <section>
@@ -256,6 +245,65 @@ function OpenCard({ card, runId, standardNames, onOpenRule, onAnswered, onShowOn
 
       <p className="text-xs text-slateish-500">{trustLine(card)}</p>
     </article>
+  );
+}
+
+const NO_CLAUSE = "No clause names this field.";
+
+/** The words of "open the rule" for one clause, as the single-clause card has always shown them. */
+function clauseWords(group: ClauseGroup, standardNames: Map<string, string>): string {
+  const standard = standardNames.get(group.standardId) ?? "";
+  const name = [standard, group.clause ? `clause ${group.clause}` : ""].filter(Boolean).join(", ");
+  const page = group.leader.standard_page;
+  return `${name}${page ? ` · open page ${page}` : " · open the rule"}`;
+}
+
+/**
+ * "The rule" (#1094): a card's findings may cite many clauses, because a
+ * placeholder card groups blanks by outcome and wording, not by requirement.
+ * One shared clause is shown as the rule; more than one is shown as the list
+ * of every clause with what it raised, and never one of them as THE rule.
+ */
+function RuleSection({ card, standardNames, onOpenRule }: Pick<SheetCardProps, "card" | "standardNames" | "onOpenRule">) {
+  const groups = clauseGroups(card);
+  const heading = <h4 className="text-xs font-semibold uppercase tracking-wide text-slateish-400">The rule</h4>;
+  const linkClass = "text-xs text-signal-300 underline-offset-2 hover:underline";
+  if (groups.length === 1) {
+    const [group] = groups;
+    const leader = group.leader;
+    return (
+      <section>
+        {heading}
+        <p className="mt-1 line-clamp-3 text-sm text-slateish-200">
+          {isSenseCheck(leader) ? SENSE_CHECK_RULE : orNothing(leader.requirement_source_text) || orNothing(leader.requirement)}
+        </p>
+        {hasNoClause(leader)
+          ? <p className="mt-1 text-xs text-slateish-400">{NO_CLAUSE}</p>
+          : <button type="button" onClick={() => onOpenRule(leader)} className={`mt-1 ${linkClass}`}>{clauseWords(group, standardNames)}</button>}
+      </section>
+    );
+  }
+  const noun = findingNoun(card);
+  return (
+    <section>
+      {heading}
+      <details className="mt-1 text-sm text-slateish-200">
+        <summary className="cursor-pointer">{clauseSummary(groups, noun)}: no single rule covers this card, each {noun.replace(/s$/, "")} is listed with its own</summary>
+        <ul className="mt-2 space-y-2 text-xs text-slateish-300" data-testid="clause-list">
+          {groups.map((group) => (
+            <li key={`${group.standardId}\u001f${group.clause}`}>
+              {hasNoClause(group.leader)
+                ? <span className="text-slateish-400">{NO_CLAUSE}</span>
+                : <button type="button" onClick={() => onOpenRule(group.leader)} className={linkClass}>{clauseWords(group, standardNames)}</button>}
+              <span className="text-slateish-400">
+                {" · "}{group.count} {group.count === 1 ? noun.replace(/s$/, "") : noun}
+                {group.fields.length > 0 ? `: ${group.fields.join(", ")}` : ""}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </details>
+    </section>
   );
 }
 

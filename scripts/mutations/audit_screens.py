@@ -17,6 +17,10 @@ _DELIV = FRONTEND_SRC / "views" / "DeliverablesView.tsx"
 _DASH = FRONTEND_SRC / "views" / "DashboardViewContent.tsx"
 _PROV = FRONTEND_SRC / "components" / "chat" / "Provenance.tsx"
 _CLIENT = FRONTEND_SRC / "api" / "client.ts"
+#: Order 79b split client.ts: the page-image code now lives in core.ts, the CRS
+#: workbook download in review.ts.
+_CORE = FRONTEND_SRC / "api" / "core.ts"
+_REVIEW = FRONTEND_SRC / "api" / "review.ts"
 _UPLOADER = FRONTEND_SRC / "components" / "Uploader.tsx"
 
 _T_ROUTING = "src/routing.test.ts"
@@ -130,7 +134,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     # Re-anchored 2026-10-17 (#967 item 5): the refusal also returns the marks counts.
     Mutation(id="M1517", phase=1517, runner="vitest",
              description="a 401 on a page image leaves the dead token in place",
-             path=_CLIENT,
+             path=_CORE,
              anchor="    if (!response.ok) {\n"
                     "      signOutOn401(response.status);\n"
                     "      return { url: null, answerLocated: null, marksLocated: null, marksTotal: null };",
@@ -147,7 +151,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              tags=("auth",)),
     Mutation(id="M1519", phase=1519, runner="vitest",
              description="a 401 on the CRS workbook leaves the dead token in place",
-             path=_CLIENT,
+             path=_REVIEW,
              anchor="    if (!response.ok) {\n"
                     "      signOutOn401(response.status);\n"
                     "      let error: ApiError = {",

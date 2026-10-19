@@ -17,11 +17,14 @@ Claude call, and it is charged the same way.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
-from . import applicability, datasheets, standards
+from . import applicability, datasheets, standards, stored_paths
 from . import search as search_mod
 from .db import connect
+
+log = logging.getLogger(__name__)
 
 #: Anthropic tool-use definitions. `web_search` and `look_at_page` are added
 #: by the caller only when that lane is actually usable this turn
@@ -376,12 +379,13 @@ def run_look_at_page(input: dict, *, allowed_document_ids: frozenset[str],
                             "per answer)"), None
     try:
         import pymupdf
-        with pymupdf.open(doc["stored_path"]) as pdf:
+        with pymupdf.open(stored_paths.local(doc["stored_path"])) as pdf:
             if not (1 <= page_no <= pdf.page_count):
                 return ToolRun("look_at_page", input, "Looked at a page", False,
                                note="page out of range"), None
             image = vision_reader.render(pdf[page_no - 1])
     except Exception as exc:  # noqa: BLE001 - a page that cannot render is reported, not raised
+        log.info("chat_tools: look_at_page render failed (%s)", type(exc).__name__)
         return ToolRun("look_at_page", input, "Looked at a page", False,
                        note=f"could not render this page: {type(exc).__name__}"), None
     pages_used.append((document_id, page_no))

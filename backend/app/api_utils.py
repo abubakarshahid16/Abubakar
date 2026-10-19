@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from fastapi import HTTPException, Request
 
-from . import errors
+from . import access, errors
 from .db import connect
 
 #: Hard ceiling on any page size. Without one, `limit=999999` returns
@@ -90,3 +90,66 @@ def retrievable_clause(value: str) -> str:
         "false": " AND retrievable = 0",
         "all": "",
     }[value]
+
+
+def _require_identity_to_write(scope: access.AccessScope) -> None:
+    """A conversation nobody owns is one nobody can ever read again.
+
+    Under `demo_required` a caller with no identity resolves to an empty scope,
+    and every READ correctly returns nothing. A WRITE that succeeded would
+    manufacture an orphan - the same shape as #79 on uploads - so it is refused
+    with the same 401 /api/auth/me gives, rather than accepted into a void.
+    """
+    if scope.unrestricted or scope.user_id:
+        return
+    raise HTTPException(
+        status_code=401,
+        detail=errors.safe_error(errors.UNAUTHENTICATED, "sign in to continue"),
+    )
+
+
+def _require_named_reviewer(scope: access.AccessScope, what: str) -> None:
+    """A decision nobody signed is not a decision - the rule the finding route
+    applies to a confirmation."""
+    _require_identity_to_write(scope)
+    if scope.user_id is None:
+        raise HTTPException(
+            status_code=401,
+            detail=errors.safe_error(
+                errors.UNAUTHENTICATED, f"{what} must name the person who did it"
+            ),
+        )
+
+
+def _deliverable_visible(item: dict, scope: access.AccessScope) -> bool:
+    """May this caller touch this deliverable? (r2 S3)
+
+    A deliverable tied to a document follows that document's grant. One with NO
+    document used to be open to every identified caller, including one with no
+    grant at all; it now needs the admin capability or at least one grant.
+    """
+    document_id = item.get("document_id")
+    if document_id:
+        return scope.may_read(document_id)
+    return scope.is_admin or bool(scope.allowed_document_ids)
+
+
+def _actor_from_scope(scope: access.AccessScope) -> dict | None:
+    """Who to name in the audit trail for an ENGINEER'S action.
+
+    `admin.current_admin` is the wrong dependency for these: it is a GATE as
+    well as a lookup, and a non-admin gets its deliberately silent 404. That
+    is right for the admin surface and wrong for an engineer's own work - it
+    made recording a final review code (section 15, an engineer's action)
+    impossible for anyone but an admin, and said "not found" while doing it.
+    This resolves the name without deciding anything about permission; the
+    route's own scope has already done that.
+    """
+    if not scope.user_id:
+        return None
+    row = (
+        connect()
+        .execute("SELECT id, email FROM users WHERE id = ?", (scope.user_id,))
+        .fetchone()
+    )
+    return dict(row) if row else {"id": scope.user_id}

@@ -14,7 +14,7 @@ import secrets
 import pytest
 from fastapi.testclient import TestClient
 
-from app import (access, auth, comparison, datasheets, db, job_queue, keyword, review_jobs,
+from app import (access, auth, comparison, datasheets, db, job_queue, fts_index, review_jobs,
                  standards, submittal_review)
 from app.config import config_version, settings
 from app.main import app
@@ -35,7 +35,7 @@ def temp_storage(tmp_path, monkeypatch):
     db.init_db()
     submittal_review.ensure_schema()
     submittal_review.migrate_facts_to_per_document()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     access.set_user_resolver(auth.resolve_user_id)
     yield
     access.set_user_resolver(None)
@@ -53,7 +53,7 @@ def _doc(doc_id, role, text):
         conn.execute("INSERT INTO chunks (id,document_id,filename,ordinal,page_start,page_end,section,"
                      "kind,text,token_count,content_hash,retrievable) VALUES (?,?,?,0,1,1,'1',"
                      "'prose',?,1,?,1)", (f"{doc_id}-c1", doc_id, f"{doc_id}.pdf", text, f"h-{doc_id}"))
-    keyword.index_document(doc_id)
+    fts_index.index_document(doc_id)
     return doc_id
 
 
@@ -189,7 +189,7 @@ def test_a_failure_is_retried_then_poisoned_with_the_reason_on_the_run(world, mo
         conn.execute("UPDATE jobs SET state = 'running', claimed_by = ? WHERE id = ?", (W, job_id))
     assert review_jobs.run(job_id, W) == job_queue.POISONED
     run = _run_row(run_id)
-    assert run["status"] == "failed" and "synthetic comparison failure" in run["refusal_reason"]
+    assert run["status"] == "failed" and "synthetic comparison failure" in run["outcome_json"]
 
 
 def test_the_review_runs_under_the_requesters_grants(world):

@@ -12,7 +12,7 @@ comment does not fail a build.
 import pymupdf
 import pytest
 
-from app import answer, coverage, db, keyword, lexical
+from app import answer, coverage, db, fts_index, lexical
 from app.config import settings
 
 SCOPE = frozenset({"doc_a", "doc_b"})
@@ -25,7 +25,7 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "t.sqlite")
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     yield
     db.reset_connection()
@@ -164,11 +164,15 @@ def test_distinctive_terms_are_never_asked_for_per_document(monkeypatch):
     # the spy is never called - which would make this test pass vacuously,
     # asserting nothing. `seen and ...` below is what catches that.
     monkeypatch.setattr(
-        keyword, "indexed_count",
-        lambda document_id=None, *, allowed_document_ids: 400)
+        fts_index,
+        "indexed_count",
+        lambda document_id=None, *, allowed_document_ids: 400,
+    )
     monkeypatch.setattr(
-        keyword, "term_occurrences",
-        lambda term, document_id=None, *, allowed_document_ids: 3)
+        fts_index,
+        "term_occurrences",
+        lambda term, document_id=None, *, allowed_document_ids: 3,
+    )
     monkeypatch.setattr(lexical, "distinctive_terms", spy)
 
     terms = coverage.distinguishing_terms(
@@ -266,7 +270,7 @@ def test_a_readers_own_document_filter_is_not_second_guessed():
 def test_every_row_comes_from_the_allowed_scope_and_nothing_else():
     """A row for a document outside the scope would leak that it exists.
 
-    The same failure `keyword.py:230-237` argues against, and the reason there
+    The same failure `fts_index.py:230-237` argues against, and the reason there
     is no `out_of_scope` status to put such a row in.
     """
     result = report(

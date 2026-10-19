@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "backend"))
 
 from app import answer as answer_mod  # noqa: E402
-from app import keyword  # noqa: E402
+from app import fts_index  # noqa: E402
 from app.db import init_db  # noqa: E402
 
 QUESTIONS = ROOT / "eval" / "questions.json"
@@ -60,7 +60,7 @@ def main() -> int:
     args = ap.parse_args()
 
     init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
 
     # Loaded through the harness's own reader, so both scripts accept either
     # a bare array or a set with its corpus provenance recorded.

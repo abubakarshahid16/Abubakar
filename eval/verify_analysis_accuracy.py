@@ -1,6 +1,6 @@
 """Prove the three analysis accuracy fixes (a288653) survive the map-reduce merge.
 
-eval/score_analysis_gold.py cannot do this: it imports app.keyword and calls
+eval/score_analysis_gold.py cannot do this: it imports app.fts_index and calls
 search() directly, so it measures the RAW retrieval layer BEFORE the
 analysis-layer scoping, cap and percentage recall are applied. That harness
 documents the original defect; it does not exercise the fix.

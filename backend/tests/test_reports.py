@@ -20,7 +20,7 @@ import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
-from app import access, chat, db, keyword, reports
+from app import access, chat, db, fts_index, reports, stored_paths
 from app.config import config_version, settings
 from app.ingest import IngestionWorker
 from app.main import app
@@ -59,7 +59,7 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "t.sqlite")
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     yield
     db.reset_connection()
@@ -130,7 +130,7 @@ def _all_ids():
 def pdf_of(record) -> pymupdf.Document:
     row = db.connect().execute("SELECT stored_path FROM reports WHERE id = ?",
                                (record["id"],)).fetchone()
-    return pymupdf.open(row["stored_path"])
+    return pymupdf.open(stored_paths.local(row["stored_path"]))
 
 
 def all_text(doc) -> str:
@@ -501,7 +501,7 @@ def test_a_tampered_file_is_detected():
     rec = reports.generate(answered_message()["id"], access.unrestricted_scope())
     row = db.connect().execute("SELECT stored_path FROM reports WHERE id = ?",
                                (rec["id"],)).fetchone()
-    with open(row["stored_path"], "ab") as fh:
+    with open(stored_paths.local(row["stored_path"]), "ab") as fh:
         fh.write(b"\n%tampered")
     assert reports.verify(rec["id"], access.unrestricted_scope())["file_intact"] is False
 

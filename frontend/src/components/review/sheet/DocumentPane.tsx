@@ -13,8 +13,8 @@
 import { useEffect, useRef, useState } from "react";
 
 import type { DocumentRecord, ReviewFinding } from "../../../types/api";
-import { DocumentPreview } from "../../DocumentPreview";
 import { EvidencePageImage } from "../EvidencePageImage";
+import { PlainPageImage } from "./PlainPageImage";
 import { type SheetCard, cardTitle, isTickFinding, marksOn } from "./sheetCards";
 import { SheetPageImage } from "./SheetPageImage";
 
@@ -60,6 +60,8 @@ export function DocumentPane({ runId, submittal, cards, selected, view, pulse = 
   const page = view.page ?? pages[0] ?? null;
   const onPageCards = cards.filter((c) => page !== null && c.pages.includes(page));
   const marks = marksOn(onPageCards, page);
+  // #1090: the selected card's title is on its card; listed again here it read as a second line.
+  const listed = onPageCards.filter((c) => c.key !== selected?.key);
 
   return (
     <section aria-label="The datasheet" className="space-y-3">
@@ -95,9 +97,7 @@ export function DocumentPane({ runId, submittal, cards, selected, view, pulse = 
         ) : marks.length > 0 && page !== null ? (
           <SheetPageImage runId={runId} page={page} marks={marks} />
         ) : submittal && page !== null ? (
-          <div className="h-[36rem] max-sm:h-[20rem]">
-            <DocumentPreview doc={submittal} page={page} />
-          </div>
+          <PlainPageImage documentId={submittal.id} page={page} />
         ) : (
           <p className="rounded-[var(--radius-sm)] border border-dashed border-ink-600 p-3 text-xs text-slateish-500">
             The datasheet could not be opened from this screen.
@@ -105,14 +105,14 @@ export function DocumentPane({ runId, submittal, cards, selected, view, pulse = 
         )}
       </div>
 
-      {onPageCards.length > 0 && !view.rule && (
+      {listed.length > 0 && !view.rule && (
         <ul aria-label="Marked on this page" className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-          {onPageCards.map((c) => (
+          {listed.map((c) => (
             <li key={c.key}>
               <button
                 type="button" onClick={() => onSelectCard(c)}
                 data-mark={c.state !== "open" ? "answered" : isTickFinding(c.findings[0]) ? "tick" : "open"}
-                className={`underline decoration-2 underline-offset-4 ${c.state !== "open" ? "decoration-slateish-500 text-slateish-400" : isTickFinding(c.findings[0]) ? "decoration-signal-500 text-slateish-100" : "decoration-warn-500 text-slateish-100"} ${selected?.key === c.key ? "font-semibold" : ""}`}
+                className={`underline decoration-2 underline-offset-4 ${c.state !== "open" ? "decoration-slateish-500 text-slateish-400" : isTickFinding(c.findings[0]) ? "decoration-signal-500 text-slateish-100" : "decoration-warn-500 text-slateish-100"}`}
               >
                 {cardTitle(c)}
               </button>

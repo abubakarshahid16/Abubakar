@@ -48,8 +48,8 @@ MUTATIONS: tuple[Mutation, ...] = (
              path=_CRS,
              # Re-anchored 2026-09-27 (CRS quick wins): the engineer's edit wins
              # over `engineer_comment_text` in `build_crs_rows`.
-             anchor='                text = f.get("engineer_comment") or engineer_comment_text(group)\n',
-             replacement='                text = engineer_comment_text(group)\n',
+             anchor='            text = f.get("engineer_comment") or machine\n',
+             replacement='            text = machine\n',
              target=_T, keyword="edit_is_the_crs_comment", tags=("honesty", "critical")),
     # ---- from the honesty group (2026-09-27): unread pages name their reason
     Mutation(id="M1133", phase=95,

@@ -14,7 +14,13 @@ export function MetricWarningRow({ warning }: { warning: MetricWarning }) {
       {warning.document_id
         ? <NavLink view="documents" recordId={warning.document_id} className="text-slateish-300 underline-offset-2 hover:underline">{warning.message}</NavLink>
         : <NavLink view="deliverables" className="text-slateish-300 underline-offset-2 hover:underline">{warning.message}</NavLink>}
-      <span className="ms-2 font-mono text-xs uppercase tracking-wide text-slateish-500">{warning.code}</span>
+      {/* The code on its own line, named for a screen reader: a margin alone
+          kept it apart on screen, but the text ran "...on thisINTERNAL" when
+          read aloud or copied (order 88c, #1097). */}
+      {" "}
+      <span className="mt-0.5 block font-mono text-xs uppercase tracking-wide text-slateish-500">
+        <span className="sr-only">Technical detail: </span>{warning.code}
+      </span>
     </span>
   </li>;
 }

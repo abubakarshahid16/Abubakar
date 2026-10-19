@@ -47,7 +47,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import datasheets
+from app import datasheets, page_reason_words
 
 
 TITLE_BLOCK = ("DOCUMENT NO.", "DS-0000-DAS-I-01")
@@ -272,7 +272,11 @@ def test_a_single_equipment_sheet_still_strips_its_header():
 
 def test_a_page_with_no_pairs_says_exactly_that():
     assert datasheets._unparsed_reason([], {}) == (
-        "no label-value pairs recovered from this page")
+        "No labelled values were found on this page (it may be a drawing or a scan)."
+    )
+    assert page_reason_words.unparsed_detail(0, {}) == (
+        "no label-value pairs recovered from this page"
+    )
 
 
 def test_a_page_whose_pairs_were_filtered_names_the_filters():
@@ -283,23 +287,32 @@ def test_a_page_whose_pairs_were_filtered_names_the_filters():
     covered both a scanned page with no text and a rule that was too strict,
     and those want opposite responses.
     """
-    reason = datasheets._unparsed_reason(
-        [("a", "1")] * 190,
-        {"value gate": 120, "duplicate": 50, "furniture": 20})
+    dropped = {"value gate": 120, "duplicate": 50, "furniture": 20}
+    reason = datasheets._unparsed_reason([("a", "1")] * 190, dropped)
+    detail = page_reason_words.unparsed_detail(190, dropped)
 
-    assert "190 label-value pairs were recovered" in reason
-    assert "120 by value gate" in reason
-    assert "50 by duplicate" in reason
-    assert "20 by furniture" in reason
-    assert "no label-value pairs recovered" not in reason, (
-        "the page reported the one failure it did NOT have")
+    # Order 124 item 9: the stored reason is plain words, the counts are
+    # the detail.
+    assert reason.startswith("Nothing on this page was read as a datasheet value")
+    assert "text the reader could not take as a value" in reason
+    assert "repeats of text already read on this page" in reason
+    assert "a header or footer repeated on other pages" in reason
+    assert "190 label-value pairs were recovered" in detail
+    assert "120 by value gate" in detail
+    assert "50 by duplicate" in detail
+    assert "20 by furniture" in detail
+    assert "No labelled values were found" not in reason, (
+        "the page reported the one failure it did NOT have"
+    )
 
 
 def test_the_counts_are_ordered_by_size_so_the_cause_reads_first():
-    reason = datasheets._unparsed_reason(
-        [("a", "1")] * 10, {"furniture": 9, "duplicate": 1})
+    dropped = {"furniture": 9, "duplicate": 1}
+    reason = datasheets._unparsed_reason([("a", "1")] * 10, dropped)
+    detail = page_reason_words.unparsed_detail(10, dropped)
 
-    assert reason.index("9 by furniture") < reason.index("1 by duplicate")
+    assert detail.index("9 by furniture") < detail.index("1 by duplicate")
+    assert reason.index("header or footer") < reason.index("repeats of text")
 
 
 def test_a_page_that_recovered_pairs_never_claims_it_recovered_none():
@@ -307,4 +320,8 @@ def test_a_page_that_recovered_pairs_never_claims_it_recovered_none():
     a page with pairs must not print the empty-page sentence."""
     for dropped in ({"furniture": 3}, {"value gate": 3}, {}):
         reason = datasheets._unparsed_reason([("a", "1")] * 3, dropped)
-        assert "no label-value pairs recovered" not in reason
+        assert "No labelled values were found" not in reason
+        assert (
+            "no label-value pairs recovered"
+            not in page_reason_words.unparsed_detail(3, dropped)
+        )

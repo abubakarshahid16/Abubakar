@@ -28,6 +28,7 @@ was asked for.
 """
 from __future__ import annotations
 
+from . import deliverables, review, risks
 from .db import connect
 
 
@@ -52,6 +53,9 @@ def _scope_sql(column: str, allowed_document_ids: frozenset[str],
     return " AND (" + " OR ".join(parts) + ")", args
 
 
+_KINDS = ("deliverable", "finding", "risk", "stakeholder")
+
+
 def search(query: str, *, allowed_document_ids: frozenset[str],
            include_unowned: bool, kind: str | None = None) -> list[dict]:
     """Records matching `query`, never more than the caller may read.
@@ -63,6 +67,10 @@ def search(query: str, *, allowed_document_ids: frozenset[str],
     term = f"%{query.strip()}%"
     if not query.strip():
         return []
+    # #1105: it reads these modules' tables, and can be the first call on a
+    # fresh database; it must not fail on a table not created yet.
+    for module in (deliverables, review, risks):
+        module.ensure_schema()
     out: list[dict] = []
     if kind in (None, "deliverable"):
         where, scope_args = _scope_sql("document_id", allowed_document_ids,
@@ -122,4 +130,9 @@ def search(query: str, *, allowed_document_ids: frozenset[str],
                          "label": row["display_name"] or row["email"],
                          "wbs_code": None, "document_id": None}
             for row in connect().execute(sql, [term, term, *scope_args]).fetchall())
-    return out[:100]
+    # EVERY MATCH, NEVER A SILENT CUT (order 117 item 5): this used to end in
+    # `out[:100]`, so a 101st match vanished and `/records` said "Found 100".
+    # The route pages it and states the total; the order is fixed so a page
+    # is the same page each time.
+    out.sort(key=lambda row: (_KINDS.index(row["kind"]), str(row["id"])))
+    return out

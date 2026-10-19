@@ -28,7 +28,7 @@ import sqlite3
 import numpy as np
 import pytest
 
-from app import db, embedder, keyword, metrics, schemas, vector_store, vectorcache
+from app import db, embedder, fts_index, metrics, schemas, vector_store, vectorcache
 from app.config import settings
 from app.db import connect
 from app.embedder import EMBEDDING_DIM, embedding_tag
@@ -43,7 +43,7 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "vector_backend", "auto")
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     vector_store.reset()
     yield
     vector_store.reset()

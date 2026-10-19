@@ -133,10 +133,10 @@ def test_a_run_with_no_ai_record_shows_nothing(stub, monkeypatch):
     the card carries no AI numbers at all, rather than a row of zeros."""
     run, _scope, _ = _matched_run(stub, monkeypatch, (0, "same quantity"))
     with db.connect() as conn:
-        stored = json.loads(conn.execute("SELECT refusal_reason FROM review_runs WHERE id = ?",
-                                         (run,)).fetchone()["refusal_reason"])
+        stored = json.loads(conn.execute("SELECT outcome_json FROM review_runs WHERE id = ?",
+                                         (run,)).fetchone()["outcome_json"])
         stored.pop("ai_matcher")
-        conn.execute("UPDATE review_runs SET refusal_reason = ? WHERE id = ?",
+        conn.execute("UPDATE review_runs SET outcome_json = ? WHERE id = ?",
                      (json.dumps(stored), run))
     assert _card(run)["ai_numbers"] is None
     body = TestClient(app).get(f"/api/reviews/runs/{run}/ai-numbers").json()

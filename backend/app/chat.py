@@ -42,7 +42,7 @@ from . import chat_model
 from . import chat_presentation
 from . import corpus as corpus_mod
 from . import intent as intent_mod
-from . import keyword
+from . import fts_index
 from . import search as search_mod
 from . import understanding as understanding_mod
 from .config import settings
@@ -186,7 +186,7 @@ def is_followup(question: str) -> bool:
     # not inject an unrelated prior designator into it. Short designator
     # phrases such as "system 4?" remain follow-ups through the completeness
     # rule below.
-    if len(_content_words(question)) >= 2 and not keyword.find_designators(question):
+    if len(_content_words(question)) >= 2 and not fts_index.find_designators(question):
         return False
     return not is_complete_question(lowered)
 
@@ -200,12 +200,12 @@ def soft_identifiers(carried: list[str]) -> list[str]:
     retrieval and is never a requirement. Designators ("system 1") are not
     here: the conflict rule already governs which one a follow-up keeps.
     """
-    return [c for c in carried if keyword.IDENTIFIER.findall(c) == [c]]
+    return [c for c in carried if fts_index.IDENTIFIER.findall(c) == [c]]
 
 
 def _designator_words(question: str) -> set[str]:
     """The designator NOUNS present, e.g. {"system"} for "system 4"."""
-    return {d.partition(" ")[0] for d in keyword.find_designators(question)}
+    return {d.partition(" ")[0] for d in fts_index.find_designators(question)}
 
 
 #: A pressure-class rating written the way engineers type it: "150#", "600 lb".
@@ -255,7 +255,7 @@ def resolve_followup(
     if not prior_questions or not is_followup(question):
         return question, []
 
-    have_identifiers = set(keyword.IDENTIFIER.findall(question))
+    have_identifiers = set(fts_index.IDENTIFIER.findall(question))
     have_families = {identifier_family(i) for i in have_identifiers}
     have_designator_words = _designator_words(question)
     # "150#" / "600 lb" is a class designator by another spelling, and a bare
@@ -264,7 +264,7 @@ def resolve_followup(
     if _RATING.search(question):
         have_designator_words.add("class")
     if "#number" in have_families:
-        have_designator_words |= keyword.STRUCTURAL_DESIGNATORS
+        have_designator_words |= fts_index.STRUCTURAL_DESIGNATORS
     have_words = set(_content_words(question))
     # A question that names a value of its own ("150#") does not borrow the
     # earlier value ("600") as a loose topic word: the new value replaces it.
@@ -274,7 +274,7 @@ def resolve_followup(
 
     # Most recent first: the nearest question is the one being followed up.
     for prior in reversed(prior_questions[-FOLLOWUP_WINDOW:]):
-        for ident in keyword.IDENTIFIER.findall(prior):
+        for ident in fts_index.IDENTIFIER.findall(prior):
             if ident in have_identifiers or ident in carried:
                 continue
             family = identifier_family(ident)
@@ -283,7 +283,7 @@ def resolve_followup(
             carried.append(ident)
             have_identifiers.add(ident)
             have_families.add(family)
-        for des in keyword.find_designators(prior):
+        for des in fts_index.find_designators(prior):
             word = des.partition(" ")[0]
             # The conflict rule, and the reason this module exists in this
             # shape: if the new question says "system 4", carrying "system 1"
@@ -317,7 +317,7 @@ def resolve_followup(
         # "system no. 1" into a question about system 4 is the same wrong
         # answer by a quieter route.
         designator_tokens = {
-            t for d in keyword.find_designators(borrowed_from)
+            t for d in fts_index.find_designators(borrowed_from)
             for t in d.lower().split()
         }
         skip = have_words | {w for c in carried for w in _content_words(c)}

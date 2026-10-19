@@ -172,6 +172,32 @@
         "power transformers"
       ]
     },
+    "pressure transmitter": {
+      "kind": "equipment",
+      "synonyms": [
+        "pressure transmitters",
+        "differential pressure transmitter",
+        "differential pressure transmitters"
+      ]
+    },
+    "temperature transmitter": {
+      "kind": "equipment",
+      "synonyms": [
+        "temperature transmitters"
+      ]
+    },
+    "flow transmitter": {
+      "kind": "equipment",
+      "synonyms": [
+        "flow transmitters"
+      ]
+    },
+    "level transmitter": {
+      "kind": "equipment",
+      "synonyms": [
+        "level transmitters"
+      ]
+    },
     "battery": {
       "kind": "equipment",
       "synonyms": [

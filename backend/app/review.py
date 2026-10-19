@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pymupdf
 
+from . import finding_query
 from .db import add_column_if_missing, connect, schema_once
 from .config import settings
 
@@ -230,16 +231,16 @@ def ensure_schema() -> None:
             # RACE-SAFE, because this runs on read paths. See
             # `db.add_column_if_missing`.
             add_column_if_missing(conn, "review_findings", name, definition)
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_review_findings_document "
-                     "ON review_findings(document_id, status, updated_at DESC)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_review_findings_due "
-                     "ON review_findings(due_date, status)")
-        # Created here rather than in the CREATE TABLE above, because on a
-        # database written by an earlier build the column does not exist until
-        # the ALTER block above has run.
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_review_findings_run "
-                     "ON review_findings(review_run_id, compliance_status, "
-                     "updated_at DESC)")
+        for _index in (
+            "idx_review_findings_document ON review_findings(document_id, status, updated_at DESC)",
+            "idx_review_findings_due ON review_findings(due_date, status)",
+            # Created here rather than in the CREATE TABLE above: on a database written
+            # by an earlier build the column does not exist until the ALTER block has run.
+            "idx_review_findings_run ON review_findings(review_run_id, compliance_status, updated_at DESC)",
+            # Order 109: a run's equipment tags for the review list, from the index alone.
+            "idx_review_findings_run_tag ON review_findings(review_run_id, equipment_tag)",
+        ):
+            conn.execute("CREATE INDEX IF NOT EXISTS " + _index)
         # THE DUPLICATE GATE'S INDEX. `comparison.create_finding` asks for an
         # unconfirmed finding with this run AND this requirement; with only
         # the index above, SQLite read every earlier finding of the run to
@@ -612,40 +613,31 @@ def get(finding_id: str) -> dict | None:
     return _row(row) if row else None
 
 
-def list_findings(*, document_id: str | None = None, status: str | None = None,
-                  review_run_id: str | None = None,
-                  allowed_document_ids: frozenset[str] | None = None) -> list[dict]:
+def list_findings(
+    *,
+    document_id: str | None = None,
+    status: str | None = None,
+    review_run_id: str | None = None,
+    allowed_document_ids: frozenset[str] | None = None,
+    limit: int | None = None,
+    offset: int = 0,
+) -> list[dict]:
+    """Most severe first; `limit=None` is every finding. Scope: `finding_query`."""
     ensure_schema()
-    clauses: list[str] = []
-    args: list[str] = []
-    if document_id:
-        clauses.append("document_id = ?")
-        args.append(document_id)
-    if review_run_id:
-        # ONE RUN'S FINDINGS. A comparison run produces one finding per
-        # requirement - 1,580 on this corpus - so without this the only way to
-        # see a run's output through the API is to fetch every finding ever
-        # written and filter in the client.
-        #
-        # FILTERED IN THE QUERY, never after it. `metrics._where` carries the
-        # reason: post-filtering works until someone adds a LIMIT, and then it
-        # silently returns the wrong page.
-        clauses.append("review_run_id = ?")
-        args.append(review_run_id)
-    if status:
-        clauses.append("status = ?")
-        args.append(status)
-    if allowed_document_ids is not None:
-        if not allowed_document_ids:
-            return []
-        marks = ",".join("?" for _ in allowed_document_ids)
-        clauses.append(f"document_id IN ({marks})")
-        args.extend(sorted(allowed_document_ids))
-    sql = "SELECT * FROM review_findings"
-    if clauses:
-        sql += " WHERE " + " AND ".join(clauses)
-    sql += (" ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'major' THEN 1 "
-            "WHEN 'minor' THEN 2 ELSE 3 END, updated_at DESC")
+    found = finding_query.where(
+        document_id, status, review_run_id, allowed_document_ids
+    )
+    if found is None:
+        return []
+    sql, args = "SELECT * FROM review_findings" + found[0], found[1]
+    # `id` last, so a page boundary falls in the same place on every call.
+    sql += (
+        " ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'major' THEN 1 "
+        "WHEN 'minor' THEN 2 ELSE 3 END, updated_at DESC, id"
+    )
+    if limit is not None:
+        sql += " LIMIT ? OFFSET ?"
+        args = [*args, limit, offset]
     findings = [_row(row) for row in connect().execute(sql, args).fetchall()]
     attach_scope_decisions(findings)
     return withhold_unreadable_standards(findings, allowed_document_ids)
@@ -792,20 +784,25 @@ def render_report(document_id: str, *,
     # #437: the file carries the document it quotes in its name, so a delete
     # of the document can find and remove it (`remove_report_files`).
     path = report_dir / f"engineering-review-{_file_tag(document_id)}-{uuid.uuid4()}.pdf"
+    # #633 item 6: EVERY LINE IS WRAPPED AND MAY CONTINUE ON THE NEXT PAGE
+    # (`pdf_flow`), and the header says which run this is, whether it
+    # completed, and what it could not read or hold (`export_status`).
+    from . import export_status, pdf_flow
+
+    run, header = export_status.pdf_header_lines(document_id, allowed_document_ids)
     pdf = pymupdf.open()
-    page = pdf.new_page()
-    y = 48
-    page.insert_text((48, y), "ENGINEERING SUBMITTAL REVIEW", fontsize=18, fontname="hebo", color=(0.07, 0.23, 0.32))
-    y += 24
-    page.insert_text((48, y), f"Document: {doc['filename']}", fontsize=10, fontname="helv")
-    y += 15
-    page.insert_text((48, y), f"Generated: {_now()}  ·  Findings: {len(findings)}", fontsize=9, fontname="helv", color=(0.3, 0.35, 0.4))
-    y += 24
-    page.draw_rect(pymupdf.Rect(48, y, 548, y + 34), color=(0.7, 0.32, 0.04), fill=(1, 0.97, 0.91), width=0.8)
-    page.insert_textbox(pymupdf.Rect(58, y + 7, 538, y + 28),
-                        "AI-assisted record. A qualified engineer must review and approve before use.",
-                        fontsize=9, fontname="helv", color=(0.45, 0.2, 0.02))
-    y += 52
+    flow = pdf_flow.Flow(pdf)
+    flow.text("ENGINEERING SUBMITTAL REVIEW", fontsize=18, fontname="hebo", color=(0.07, 0.23, 0.32))
+    flow.gap(6)
+    flow.text(f"Document: {doc['filename']}", fontsize=10)
+    flow.text(f"Generated: {_now()}  ·  Findings: {len(findings)}", fontsize=9, color=(0.3, 0.35, 0.4))
+    for line in header:
+        flow.text(line, fontsize=9, fontname="hebo" if line.startswith("Run ") else "helv",
+                  color=(0.7, 0.1, 0.1) if line.startswith("Run ") else (0.3, 0.35, 0.4))
+    flow.gap(9)
+    flow.box("AI-assisted record. A qualified engineer must review and approve before use.",
+             fontsize=9, color=(0.45, 0.2, 0.02), border=(0.7, 0.32, 0.04), fill=(1, 0.97, 0.91))
+    flow.gap(12)
     for index, finding in enumerate(findings, 1):
         block = (
             f"{index}. [{finding['severity'].upper()}] {finding['category'].replace('_', ' ')}\n"
@@ -820,26 +817,20 @@ def render_report(document_id: str, *,
             f"Disposition: {finding.get('disposition') or 'not recorded'}  |  Approval: {finding.get('approval_status') or 'pending'}\n"
             f"Status: {finding['status']}  |  Escalation level: {finding['escalation_level']}"
         )
-        # #633: THE BOX IS SIZED TO THE TEXT. It was a fixed 150 or 190 points, and
-        # `insert_textbox` draws nothing past its rectangle, so a long finding was
-        # cut off with no sign. About 100 characters fit a line at this size.
-        wrapped_lines = sum(max(1, -(-len(line) // 100)) for line in block.splitlines())
-        height = min(700, max(150, int(wrapped_lines * 8.5 * 1.25) + 24))
-        if y + height > 770:
-            page = pdf.new_page()
-            y = 48
-        page.draw_rect(pymupdf.Rect(48, y, 548, y + height), color=(0.65, 0.72, 0.75), fill=(0.96, 0.98, 0.98), width=0.5)
-        rest = page.insert_textbox(pymupdf.Rect(58, y + 8, 538, y + height - 8), block, fontsize=8.5, fontname="helv", lineheight=1.25)
-        if rest < 0:
-            # Still too long for one page: say so on the box, never cut silently.
-            page.insert_text((58, y + height - 4),
-                             "[TEXT CONTINUES - NOT SHOWN HERE. Open this finding in the review screen.]",
-                             fontsize=7, fontname="hebo", color=(0.7, 0.1, 0.1))
-        y += height + 12
-    if not findings:
-        page.insert_text((48, y), "No review findings have been recorded for this document.", fontsize=10, fontname="helv")
-        page.insert_text((48, y + 14), "This is NOT a statement that the document was reviewed and found acceptable.",
-                         fontsize=9, fontname="hebo", color=(0.7, 0.1, 0.1))
+        # The box is as tall as its wrapped text and continues on the next page
+        # when it must. It was a fixed box that cut a long finding off silently,
+        # then one that printed "TEXT CONTINUES - NOT SHOWN HERE" (#633).
+        flow.box(block, border=(0.65, 0.72, 0.75), fill=(0.96, 0.98, 0.98))
+        flow.gap(12)
+    if not findings and export_status.incomplete(run):
+        # A run that did not complete has no "nothing recorded": it stopped.
+        flow.text(export_status.status_line(run["status"], run["reason"]) + ". Findings were not "
+                  "recorded because the review did not complete, not because none were found.",
+                  fontsize=10, fontname="hebo", color=(0.7, 0.1, 0.1))
+    elif not findings:
+        flow.text("No review findings have been recorded for this document.", fontsize=10)
+        flow.text("This is NOT a statement that the document was reviewed and found acceptable.",
+                  fontsize=9, fontname="hebo", color=(0.7, 0.1, 0.1))
     pdf.save(str(path))
     pdf.close()
     return path

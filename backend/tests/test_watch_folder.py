@@ -20,7 +20,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app import access, db
+from app import access, db, stored_paths
 from app import watcher as watcher_mod
 from app.config import settings
 from app.db import connect
@@ -132,7 +132,7 @@ def test_a_stable_pdf_is_ingested_exactly_once_across_three_scans(drop_folder):
     assert source.read_bytes() == body, "the watcher modified the source file"
     # ...and the bytes really did land in managed storage.
     stored = connect().execute("SELECT stored_path FROM documents").fetchone()["stored_path"]
-    assert Path(stored).read_bytes() == body
+    assert Path(stored_paths.local(stored)).read_bytes() == body
 
 
 def test_a_file_still_being_written_is_not_ingested_until_it_stops_changing(drop_folder):

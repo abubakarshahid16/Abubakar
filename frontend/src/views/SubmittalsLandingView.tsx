@@ -9,24 +9,90 @@
  * findings table - is unchanged; this page only decides which run to open,
  * starting one if none exists yet.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, reviews as reviewsApi } from "../api/client";
 import type { DocumentRecord, ReviewRunSummary } from "../types/api";
 import { DocumentsFromContractors } from "../components/review/DocumentsFromContractors";
+import { InboxList } from "../components/review/inbox/InboxList";
+import { INBOX_IS_DEFAULT } from "../routing";
 import { LIST_MAX, groupRunsByDocument, totalFromResponse } from "../components/review/reviewFormat";
+import { type ReadyCounts, anyMoving, inboxStateOf } from "../components/review/inbox/inboxState";
+
+/** Order 95 piece 3: while a review is queued or running, the list re-reads
+ *  on this interval so its state moves without a refresh. */
+export const INBOX_REFRESH_MS = 15_000;
 
 type Phase = { kind: "loading" } | { kind: "ready" } | { kind: "error"; message: string };
 
-export function SubmittalsLandingView({ onOpenRun }: { onOpenRun: (runId: string) => void }) {
+/** Order 95 piece 3: what "Review all not reviewed" did, document by document. */
+interface BatchResult {
+  asked: number;
+  queued: number;
+  refused: { filename: string; message: string }[];
+}
+
+/** Order 117 item 5: the most run ids one counts request may carry; the
+ *  server answers 422 above this. */
+export const RUN_COUNTS_MAX_IDS = 200;
+
+/** #1114 / order 117 item 5: the Ready labels' counts, for many runs at once
+ *  - one counts request per RUN_COUNTS_MAX_IDS ids, not one full summary per
+ *  run. A run absent from the answer, or in a request that failed, maps to
+ *  null and its row says "Ready" alone; a failure never shows 0. */
+export async function loadReadyCounts(runIds: string[]): Promise<Record<string, ReadyCounts | null>> {
+  const out: Record<string, ReadyCounts | null> = {};
+  const chunks: string[][] = [];
+  for (let i = 0; i < runIds.length; i += RUN_COUNTS_MAX_IDS) chunks.push(runIds.slice(i, i + RUN_COUNTS_MAX_IDS));
+  await Promise.all(chunks.map(async (chunk) => {
+    let got: Record<string, { comment: number; needs_you: number }> | null = null;
+    try {
+      const res = await reviewsApi.reviewRunCounts(chunk);
+      if (res.ok) got = res.data.counts;
+    } catch {
+      got = null;
+    }
+    for (const id of chunk) {
+      const c = got && Object.prototype.hasOwnProperty.call(got, id) ? got[id] : undefined;
+      out[id] = c ? { findings: c.comment + c.needs_you, needs_you: c.needs_you } : null;
+    }
+  }));
+  return out;
+}
+
+export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onOpenInbox, onOpenList }: {
+  onOpenRun: (runId: string) => void;
+  /** Order 95 piece 3: show the inbox (/review/inbox) rather than the list. */
+  inbox?: boolean;
+  onOpenInbox?: () => void;
+  onOpenList?: () => void;
+}) {
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [submittalsTotal, setSubmittalsTotal] = useState<number | null>(null);
   const [runs, setRuns] = useState<ReviewRunSummary[]>([]);
   const [startingDocumentId, setStartingDocumentId] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
+  const [batch, setBatch] = useState<BatchResult | null>(null);
+  const [batching, setBatching] = useState(false);
 
-  const load = useCallback(async () => {
+  // Order 109: ONE list request at a time. React's StrictMode runs the
+  // first effect twice in development (the owner's app runs `npm run dev`),
+  // and the 15 s refresh fired while a slow list was still loading; both
+  // sent a second full list request. A load already on its way is reused.
+  const inFlight = useRef<Promise<void> | null>(null);
+  const load = useCallback(() => {
+    inFlight.current ??= fetchBoth().finally(() => { inFlight.current = null; });
+    return inFlight.current;
+  }, []);
+  /** After the engineer changed something: a fresh list, read after any
+   *  load already on its way (which may predate the change). */
+  const reload = useCallback(async () => {
+    await inFlight.current;
+    await load();
+  }, [load]);
+
+  const fetchBoth = async () => {
     const [subs, runsResult] = await Promise.all([
       api.documents({ document_role: ["CONTRACTOR_SUBMITTAL"], limit: LIST_MAX }),
       reviewsApi.reviewRuns(),
@@ -39,9 +105,17 @@ export function SubmittalsLandingView({ onOpenRun }: { onOpenRun: (runId: string
     setDocuments(subs.ok ? subs.data : []);
     setRuns(runsResult.data.runs);
     setPhase({ kind: "ready" });
-  }, []);
+  };
 
   useEffect(() => { void load(); }, [load]);
+
+  const moving = inbox && phase.kind === "ready"
+    && anyMoving(groupRunsByDocument(runs).map((group) => inboxStateOf(group.latest)));
+  useEffect(() => {
+    if (!moving) return undefined;
+    const timer = window.setInterval(() => { void load(); }, INBOX_REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, [moving, load]);
 
   async function reviewDocument(documentId: string) {
     const existing = groupRunsByDocument(runs).find((group) => group.documentId === documentId);
@@ -60,6 +134,25 @@ export function SubmittalsLandingView({ onOpenRun }: { onOpenRun: (runId: string
       return;
     }
     onOpenRun(result.data.review_run_id);
+  }
+
+  /** Order 95 piece 3: queue a background review for each document never
+   *  reviewed, one request each, in list order. The job queue runs them one
+   *  at a time; nothing is opened. A refusal is reported per document, never
+   *  dropped, and never retried silently. */
+  async function reviewAll(targets: { documentId: string; filename: string }[]) {
+    setBatching(true);
+    setBatch(null);
+    const refused: BatchResult["refused"] = [];
+    let queued = 0;
+    for (const target of targets) {
+      const result = await reviewsApi.startReviewRun(target.documentId);
+      if (result.ok) queued += 1;
+      else refused.push({ filename: target.filename, message: result.error.message });
+    }
+    setBatch({ asked: targets.length, queued, refused });
+    setBatching(false);
+    await reload();
   }
 
   return (
@@ -90,11 +183,49 @@ export function SubmittalsLandingView({ onOpenRun }: { onOpenRun: (runId: string
         </p>
       )}
 
-      {phase.kind === "ready" && (
+      {batch && (
+        <div role="status" className="rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 px-4 py-3 text-sm text-slateish-200">
+          <p>Queued {batch.queued} of {batch.asked} reviews asked for.</p>
+          {batch.refused.length > 0 && (
+            <ul className="mt-1 list-disc pl-5 text-danger-500">
+              {batch.refused.map((r) => <li key={r.filename}>{r.filename}: {r.message}</li>)}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {!inbox && onOpenInbox && (
+        <p className="text-sm text-slateish-300">
+          <button type="button" onClick={onOpenInbox} className="font-medium text-signal-400 hover:underline">
+            Try the new inbox
+          </button>{" "}
+          - where each review stands, filtered to what needs you. This list stays the default for now.
+        </p>
+      )}
+      {inbox && onOpenList && (
+        <p className="text-sm text-slateish-300">
+          <button type="button" onClick={onOpenList} className="font-medium text-signal-400 hover:underline">
+            Back to the current list
+          </button>
+        </p>
+      )}
+
+      {phase.kind === "ready" && !inbox && (
         <DocumentsFromContractors
           documents={documents} runs={runs} submittalsTotal={submittalsTotal}
           onReview={(documentId) => void reviewDocument(documentId)}
           startingDocumentId={startingDocumentId}
+        />
+      )}
+      {phase.kind === "ready" && inbox && (
+        <InboxList
+          documents={documents} runs={runs} submittalsTotal={submittalsTotal}
+          onReview={(documentId) => void reviewDocument(documentId)}
+          onOpenRun={onOpenRun}
+          onReviewAll={(targets) => void reviewAll(targets)}
+          reviewingAll={batching}
+          startingDocumentId={startingDocumentId}
+          loadReadyCounts={loadReadyCounts}
         />
       )}
     </section>

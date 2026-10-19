@@ -36,9 +36,13 @@ figure is what stops that looking like success.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
+from . import stored_paths
 from .db import connect
+
+log = logging.getLogger(__name__)
 
 #: A recovered table must have at least this many rows and columns before it is
 #: called a table. A 1xN strip is a run of text that happened to sit inside
@@ -218,7 +222,7 @@ def parse_page_tables(stored_path: str, page_no: int) -> list[list[list[str]]]:
     """
     from . import datasheet_inputs
 
-    if datasheet_inputs.is_office_input(stored_path):
+    if datasheet_inputs.is_office_input(stored_path := stored_paths.local(stored_path)):
         # DATASHEET_OFFICE_INPUT seam: MuPDF opens an .xlsx/.docx and reads it
         # badly; an office file's rows come from `datasheet_inputs` instead.
         return []
@@ -255,7 +259,8 @@ def parse_page_tables(stored_path: str, page_no: int) -> list[list[list[str]]]:
         # only duplicate that. Returning nothing is correct - and is no longer
         # the ONLY thing that happens, which was the defect.
         return []
-    except Exception:  # noqa: BLE001 - geometry that defeats the finder
+    except Exception as exc:  # noqa: BLE001 - geometry that defeats the finder
+        log.debug("tables: table finder failed; no table (%s)", type(exc).__name__)
         return []
 
 

@@ -4,7 +4,7 @@ import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
-from app import db, keyword, lexical, states
+from app import db, fts_index, lexical, states
 from app.chunker import chunk_document
 from app.config import settings
 from app.extract import extract_document
@@ -35,7 +35,7 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "t.sqlite")
     db.reset_connection()
     db.init_db()
-    keyword.ensure_schema()
+    fts_index.ensure_schema()
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     yield
     db.reset_connection()
@@ -66,24 +66,24 @@ def upload(client, name="spec.pdf", blocks=(SPEC, OTHER)) -> str:
 def test_identifiers_survive_tokenisation():
     """The default tokenizer splits 5.3.2 into three tokens, destroying exactly
     the lookups lexical search exists to get right."""
-    q = keyword.build_match_query("what is clause 5.3.2 of API 610")
+    q = fts_index.build_match_query("what is clause 5.3.2 of API 610")
     assert '"5.3.2"' in q
     assert '"API 610"' in q or '"610"' in q
 
 
 def test_identifiers_are_required_not_merely_preferred():
     """A question naming API 610 is asking about API 610."""
-    q = keyword.build_match_query("vibration limit per API 610")
+    q = fts_index.build_match_query("vibration limit per API 610")
     assert " AND " in q, f"identifier was not required: {q}"
 
 
 def test_a_question_with_no_usable_tokens_returns_nothing_rather_than_erroring():
-    assert keyword.build_match_query("?? !!") == ""
-    assert keyword.search("?? !!", allowed_document_ids=_scope()) == []
+    assert fts_index.build_match_query("?? !!") == ""
+    assert fts_index.search("?? !!", allowed_document_ids=_scope()) == []
 
 
 def test_conversational_stopwords_do_not_enter_the_match_query():
-    q = keyword.build_match_query("can you tell me about Design team leader")
+    q = fts_index.build_match_query("can you tell me about Design team leader")
     # Each ordinary word is OR-ed with its singular/plural (word_forms);
     # none of can/you/tell/me/about may appear in any form.
     assert q == ('("design" OR "designs" OR "team" OR "teams" OR "leader" '
@@ -91,9 +91,10 @@ def test_conversational_stopwords_do_not_enter_the_match_query():
 
 
 def test_exact_content_phrase_is_built_separately_from_the_recall_query():
-    assert keyword.build_phrase_query(
-        "can you tell me about Design team leader"
-    ) == '"Design team leader"'
+    assert (
+        fts_index.build_phrase_query("can you tell me about Design team leader")
+        == '"Design team leader"'
+    )
 
 
 def test_exact_glossary_phrase_outranks_repeated_scattered_words():
@@ -117,7 +118,7 @@ def test_exact_glossary_phrase_outranks_repeated_scattered_words():
     )
     conn.commit()
 
-    hits = keyword.search(
+    hits = fts_index.search(
         "can you tell me about Design team leader",
         allowed_document_ids=frozenset({"doc16"}),
     )
@@ -158,12 +159,15 @@ def test_the_glossary_phrase_survives_a_crowd_of_scattered_word_matches():
     scope = frozenset({"doc16"})
     # Precondition, so the test cannot pass for the wrong reason: broad recall
     # ALONE really does push the glossary chunk out of a limit of 5.
-    recall_only = keyword._run_match(
-        conn, keyword.build_match_query(question),
-        *keyword._scope_clause(None, scope), 5)
+    recall_only = fts_index._run_match(
+        conn,
+        fts_index.build_match_query(question),
+        *fts_index._scope_clause(None, scope),
+        5,
+    )
     assert "glossary" not in [h["chunk_id"] for h in recall_only]
 
-    hits = keyword.search(question, limit=5, allowed_document_ids=scope)
+    hits = fts_index.search(question, limit=5, allowed_document_ids=scope)
     assert hits[0]["chunk_id"] == "glossary"
     assert len(hits) == 5
 
@@ -179,7 +183,7 @@ def _two_documents(open_text: str, secret_text: str) -> None:
          (secret_text, "secret.pdf", "secret1", "secret")],
     )
     conn.commit()
-    keyword.reset_vocabulary_cache()
+    fts_index.reset_vocabulary_cache()
 
 
 def test_a_spelling_correction_never_names_a_word_only_an_unreadable_document_holds():
@@ -192,13 +196,16 @@ def test_a_spelling_correction_never_names_a_word_only_an_unreadable_document_ho
         "Hydroprocessing reactor internals are described in this annex.",
     )
     # Control: for a caller who MAY read it, the correction is real.
-    assert keyword.spelling_corrections(
+    assert fts_index.spelling_corrections(
         "hydroprocesing", allowed_document_ids=frozenset({"secret"})
     ) == {"hydroprocesing": "hydroprocessing"}
 
-    assert keyword.spelling_corrections(
-        "hydroprocesing", allowed_document_ids=frozenset({"open"})
-    ) == {}
+    assert (
+        fts_index.spelling_corrections(
+            "hydroprocesing", allowed_document_ids=frozenset({"open"})
+        )
+        == {}
+    )
 
 
 def test_a_closer_word_the_caller_may_not_read_does_not_hide_one_they_may():
@@ -210,14 +217,16 @@ def test_a_closer_word_the_caller_may_not_read_does_not_hide_one_they_may():
         "Bolts shall be hot-dip galvanising grade to the project standard.",
         "Galvanizing of the secret skid follows the vendor procedure.",
     )
-    assert keyword.spelling_corrections(
+    assert fts_index.spelling_corrections(
         "galvanizng", allowed_document_ids=frozenset({"open"})
     ) == {"galvanizng": "galvanising"}
 
 
 def test_a_malformed_query_does_not_raise():
     # FTS5 treats several characters as syntax; every token is quoted
-    assert isinstance(keyword.search('AND OR NOT " ( )', allowed_document_ids=_scope()), list)
+    assert isinstance(
+        fts_index.search('AND OR NOT " ( )', allowed_document_ids=_scope()), list
+    )
 
 
 # ------------------------------------------------------- ordering guarantee
@@ -231,14 +240,14 @@ def test_a_document_is_searchable_before_a_single_vector_exists():
 
     extract_document(doc_id)
     chunk_document(doc_id)
-    keyword.index_document(doc_id)
+    fts_index.index_document(doc_id)
 
     vectors = db.connect().execute(
         "SELECT COUNT(*) FROM chunk_vectors WHERE document_id = ?", (doc_id,)
     ).fetchone()[0]
     assert vectors == 0, "this test is meaningless if embedding already ran"
 
-    hits = keyword.search("API 610 vibration limit", allowed_document_ids=_scope())
+    hits = fts_index.search("API 610 vibration limit", allowed_document_ids=_scope())
     assert hits, "keyword search returned nothing without vectors"
     assert hits[0]["document_id"] == doc_id
 
@@ -265,14 +274,14 @@ def test_the_document_becomes_answerable_at_the_indexing_stage():
 
     extract_document(doc_id)
     chunk_document(doc_id)
-    keyword.index_document(doc_id)
+    fts_index.index_document(doc_id)
     worker._set_state(doc_id, states.PARTIALLY_SEARCHABLE)
 
     status = db.connect().execute(
         "SELECT status FROM documents WHERE id = ?", (doc_id,)
     ).fetchone()["status"]
     assert states.is_answerable(status)
-    assert keyword.search("vibration limit", allowed_document_ids=_scope())
+    assert fts_index.search("vibration limit", allowed_document_ids=_scope())
 
 
 # --------------------------------------------------------------- exclusions
@@ -288,10 +297,12 @@ def test_search_never_returns_a_non_retrievable_chunk():
     conn = db.connect()
     with conn:
         conn.execute("UPDATE chunks SET retrievable = 0 WHERE document_id = ?", (doc_id,))
-    keyword.index_document(doc_id)
+    fts_index.index_document(doc_id)
 
-    assert keyword.indexed_count(doc_id, allowed_document_ids=_scope()) == 0
-    assert keyword.search("vibration limit API 610", allowed_document_ids=_scope()) == []
+    assert fts_index.indexed_count(doc_id, allowed_document_ids=_scope()) == 0
+    assert (
+        fts_index.search("vibration limit API 610", allowed_document_ids=_scope()) == []
+    )
 
 
 def test_reindexing_replaces_rather_than_duplicates():
@@ -300,10 +311,10 @@ def test_reindexing_replaces_rather_than_duplicates():
     extract_document(doc_id)
     chunk_document(doc_id)
 
-    first = keyword.index_document(doc_id)["indexed"]
-    keyword.index_document(doc_id)
-    keyword.index_document(doc_id)
-    assert keyword.indexed_count(doc_id, allowed_document_ids=_scope()) == first
+    first = fts_index.index_document(doc_id)["indexed"]
+    fts_index.index_document(doc_id)
+    fts_index.index_document(doc_id)
+    assert fts_index.indexed_count(doc_id, allowed_document_ids=_scope()) == first
 
 
 def test_rechunking_invalidates_the_index():
@@ -312,21 +323,23 @@ def test_rechunking_invalidates_the_index():
     doc_id = upload(client)
     extract_document(doc_id)
     chunk_document(doc_id)
-    keyword.index_document(doc_id)
-    assert keyword.indexed_count(doc_id, allowed_document_ids=_scope()) > 0
+    fts_index.index_document(doc_id)
+    assert fts_index.indexed_count(doc_id, allowed_document_ids=_scope()) > 0
 
     chunk_document(doc_id, force=True)
-    assert keyword.indexed_count(doc_id, allowed_document_ids=_scope()) == 0, "stale index survived a rebuild"
+    assert fts_index.indexed_count(doc_id, allowed_document_ids=_scope()) == 0, (
+        "stale index survived a rebuild"
+    )
 
 
 def test_deleting_a_document_removes_it_from_the_index():
     client = TestClient(app)
     doc_id = upload(client)
     IngestionWorker().process(doc_id)
-    assert keyword.indexed_count(doc_id, allowed_document_ids=_scope()) > 0
+    assert fts_index.indexed_count(doc_id, allowed_document_ids=_scope()) > 0
 
     TestClient(app).delete(f"/api/documents/{doc_id}?confirm=true")
-    assert keyword.indexed_count(doc_id, allowed_document_ids=_scope()) == 0
+    assert fts_index.indexed_count(doc_id, allowed_document_ids=_scope()) == 0
 
 
 # ---------------------------------------------------------------- endpoint
@@ -384,7 +397,7 @@ def _index(client, name, blocks) -> str:
     doc_id = upload(client, name=name, blocks=blocks)
     extract_document(doc_id)
     chunk_document(doc_id)
-    keyword.index_document(doc_id)
+    fts_index.index_document(doc_id)
     return doc_id
 
 
@@ -410,20 +423,21 @@ def test_a_term_only_in_an_unreadable_document_counts_as_absent():
 
     # Corpus-wide the term really is there, so the assertion below is about
     # SCOPE, not about the term being missing from the whole corpus.
-    assert keyword.term_occurrences(
-        "Inconel", allowed_document_ids=_scope()) > 0, "precondition"
+    assert fts_index.term_occurrences("Inconel", allowed_document_ids=_scope()) > 0, (
+        "precondition"
+    )
 
-    assert keyword.term_occurrences("Inconel", allowed_document_ids=mine) == 0, (
+    assert fts_index.term_occurrences("Inconel", allowed_document_ids=mine) == 0, (
         "a caller learned that a term exists in a document they may not read")
 
     # The denominator the gate judges commonness against is the caller's
     # corpus too, not everybody's.
-    assert (keyword.indexed_count(allowed_document_ids=mine)
-            < keyword.indexed_count(allowed_document_ids=_scope()))
+    assert fts_index.indexed_count(allowed_document_ids=mine) < fts_index.indexed_count(
+        allowed_document_ids=_scope()
+    )
 
     # NOT VACUOUS: a term that IS in the readable document still counts.
-    assert keyword.term_occurrences(
-        "vibration", allowed_document_ids=mine) > 0
+    assert fts_index.term_occurrences("vibration", allowed_document_ids=mine) > 0
 
 
 def test_an_empty_scope_counts_nothing_rather_than_everything():
@@ -434,9 +448,10 @@ def test_an_empty_scope_counts_nothing_rather_than_everything():
     client = TestClient(app)
     _index(client, "readable.pdf", (SPEC,))
 
-    assert keyword.indexed_count(allowed_document_ids=frozenset()) == 0
-    assert keyword.term_occurrences(
-        "vibration", allowed_document_ids=frozenset()) == 0
+    assert fts_index.indexed_count(allowed_document_ids=frozenset()) == 0
+    assert (
+        fts_index.term_occurrences("vibration", allowed_document_ids=frozenset()) == 0
+    )
 
     verdict = lexical.assess(
         "what is the vibration limit", "any text at all",

@@ -38,8 +38,8 @@ MUTATIONS: tuple[Mutation, ...] = (
              description="a stated value that is not a named one is called a breach by code",
              path=_C,
              anchor='''            return {"status": NEEDS_ENGINEER_REVIEW,
-                    "rationale": (f"{NAMED_VALUE}: the sheet states {stated!r}; the clause names "''',
+                    "rationale": (f"{NAMED_VALUE}: the sheet states {stated_value.stated(stated)!r}; the clause names "''',
              replacement='''            return {"status": NON_COMPLIANT,
-                    "rationale": (f"{NAMED_VALUE}: the sheet states {stated!r}; the clause names "''',
+                    "rationale": (f"{NAMED_VALUE}: the sheet states {stated_value.stated(stated)!r}; the clause names "''',
              target=_T, keyword="does_not_name", tags=("honesty",)),
 )
