@@ -1605,7 +1605,8 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             "standard_reference": relates if origin == _AI_ORIGIN and not f.get("engineer_comment") else "",
             "row_kind": row_kind,
             "severity": row_severity([f]),
-            "engineer_confirmed": confirmed, "engineer_worded": bool(f.get("engineer_comment")),
+            "engineer_confirmed": confirmed,
+            "engineer_worded": bool(f.get("engineer_comment")),
             # The machine's finding text, not the engineer's edit of it, so
             # confirming or re-wording an AI/web item keeps its number.
             "comment_key": finding_comment_key(f),
