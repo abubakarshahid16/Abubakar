@@ -11,8 +11,8 @@ _W = REPO / ".github" / "workflows" / "tests-windows.yml"
 
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1780", phase=1780, description="the Windows job runs on Linux",
-             path=_W, anchor="    runs-on: windows-latest\n",
-             replacement="    runs-on: ubuntu-latest\n",
+             path=_W, anchor="    name: backend on Windows shard ${{ matrix.group }}/3\n    runs-on: windows-latest\n",
+             replacement="    name: backend on Windows shard ${{ matrix.group }}/3\n    runs-on: ubuntu-latest\n",
              target=_T, keyword="job_runs_on_windows", tags=("ci",)),
     Mutation(id="M1781", phase=1781, description="the suite is narrowed with a -k filter",
              path=_W, anchor="          python -m pytest -q -n auto -p ci_test_ids --splits 3",
@@ -39,8 +39,8 @@ MUTATIONS: tuple[Mutation, ...] = (
              replacement="permissions:\n  contents: write\n",
              target=_T, keyword="no_more_than_read_access", tags=("ci", "security")),
     Mutation(id="M1787", phase=1787, description="a different Python from the Linux job",
-             path=_W, anchor='          python-version: "3.12"\n',
-             replacement='          python-version: "3.11"\n',
+             path=_W, anchor='      - uses: actions/setup-python@v7\n        with:\n          python-version: "3.12"\n',
+             replacement='      - uses: actions/setup-python@v7\n        with:\n          python-version: "3.11"\n',
              target=_T, keyword="same_python", tags=("ci",)),
     Mutation(id="M1788", phase=1788, description="no time limit on the job",
              path=_W, anchor="    timeout-minutes: 45\n",

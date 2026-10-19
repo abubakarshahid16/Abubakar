@@ -157,12 +157,13 @@ def test_the_suite_runs_in_three_parallel_shards(job):
 
 
 def test_the_aggregate_needs_every_shard_and_proves_each_test_ran_once(agg):
-    assert agg["needs"] == ["backend-windows-shard"]
+    assert agg["needs"] == ["backend-windows-shard", "app-starts-windows"]
     # Without always() a failed shard SKIPS the aggregate, and a skipped
     # check does not report failure.
     assert agg.get("if") == "always()"
     runs = "\n".join(s.get("run", "") for s in agg["steps"])
     assert 'test "${{ needs.backend-windows-shard.result }}" = "success"' in runs
+    assert 'test "${{ needs.app-starts-windows.result }}" = "success"' in runs
     assert (
         "ci_test_ids.py compare --full test-ids/full.txt test-ids/shard-1.txt "
         "test-ids/shard-2.txt test-ids/shard-3.txt"
@@ -181,9 +182,11 @@ def test_the_aggregate_fails_on_a_failed_cancelled_or_skipped_shard(agg, bad):
         s for s in agg["steps"] if s.get("name") == "Every Windows shard passed"
     )
 
-    def run(result):
-        script = step["run"].replace(
-            "${{ needs.backend-windows-shard.result }}", result
+    def run(result, starts="success"):
+        script = (
+            step["run"]
+            .replace("${{ needs.backend-windows-shard.result }}", result)
+            .replace("${{ needs.app-starts-windows.result }}", starts)
         )
         return subprocess.run(
             [bash, "-e", "-c", script], capture_output=True
@@ -191,6 +194,28 @@ def test_the_aggregate_fails_on_a_failed_cancelled_or_skipped_shard(agg, bad):
 
     assert run("success") == 0
     assert run(bad) != 0
+    assert run("success", bad) != 0
+
+
+def test_the_app_start_check_runs_on_windows_too(win):
+    """Order 135: the owner's app runs on Windows; #1159's job is Linux only."""
+    starts = win["jobs"]["app-starts-windows"]
+    assert str(starts["runs-on"]).startswith("windows")
+    runs = "\n".join(s.get("run", "") for s in starts["steps"])
+    assert "python scripts/check_app_starts.py" in runs
+    linux = yaml.safe_load(LINUX.read_text(encoding="utf-8"))["jobs"]["backend-shard"]
+    want = next(
+        s["with"]["python-version"]
+        for s in linux["steps"]
+        if str(s.get("uses", "")).startswith("actions/setup-python")
+    )
+    got = next(
+        s["with"]["python-version"]
+        for s in starts["steps"]
+        if str(s.get("uses", "")).startswith("actions/setup-python")
+    )
+    assert got == want
+    assert 1 <= starts["timeout-minutes"] <= 30
 
 
 def test_windows_durations_never_reach_the_linux_shards(job, agg):
