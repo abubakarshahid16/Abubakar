@@ -300,6 +300,10 @@ export interface ReviewWorkspaceProps {
 export interface WorkspaceTabsProps {
   tab: WorkspaceTab;
   onTab: (tab: WorkspaceTab) => void;
+  /** v2.2: "simple" shows Comment sheet, CRS preview and replies and one
+   *  "Details" tab that holds the engineer tabs in a second small row;
+   *  "detailed" (the default here) shows every tab in one strip. */
+  mode?: "simple" | "detailed";
   /** The tab's content (A renders it). */
   children?: ReactNode;
 }
