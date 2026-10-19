@@ -51,23 +51,47 @@ export async function loadPastReviews(documentId: string): Promise<{ ok: true; r
   return { ok: true, reviews: pastReviewsOf(documentId, res.data.runs) };
 }
 
+/** The batched counts route takes at most this many ids per request (the
+ *  server refuses more with 422); the same limit the inbox uses. */
+export const PAST_REVIEW_COUNTS_MAX_IDS = 200;
+
 /**
- * TODO ADAPTER: the runs list carries no count. Today one
- * `reviewsApi.reviewRunSummary(runId)` per run, read only when the list is
+ * TODO ADAPTER: the runs list carries no count. Today
+ * `reviewsApi.reviewRunCounts(ids)` (GET /api/reviews/runs/counts, PR #1160),
+ * one request per PAST_REVIEW_COUNTS_MAX_IDS ids, read only when the list is
  * opened: counts.comment + counts.needs_you, i.e. FINDINGS the engineer
  * decides on. That is not the comment sheet's row count (the sheet groups
  * findings into rows with `buildCrsRows`, which would need four reads per
  * run), so the list labels it "findings to decide", never "comments".
- * Null when it fails - an unknown count is never shown as 0.
+ * Each id is null when the server left it out (unknown or not readable),
+ * when its request failed or threw, or when a count is not a number - an
+ * unknown count is never shown as 0.
  */
-export async function loadCommentCount(runId: string): Promise<number | null> {
-  try {
-    const res = await reviewsApi.reviewRunSummary(runId);
-    if (!res.ok) return null;
-    const { comment, needs_you } = res.data.counts;
-    if (typeof comment !== "number" || typeof needs_you !== "number") return null;
-    return comment + needs_you;
-  } catch {
-    return null;
+export async function loadCommentCounts(runIds: string[]): Promise<Record<string, number | null>> {
+  const out: Record<string, number | null> = {};
+  const chunks: string[][] = [];
+  for (let i = 0; i < runIds.length; i += PAST_REVIEW_COUNTS_MAX_IDS) {
+    chunks.push(runIds.slice(i, i + PAST_REVIEW_COUNTS_MAX_IDS));
   }
+  await Promise.all(chunks.map(async (chunk) => {
+    let got: Record<string, unknown> | null = null;
+    try {
+      const res = await reviewsApi.reviewRunCounts(chunk);
+      if (res.ok) got = res.data.counts as Record<string, unknown>;
+    } catch {
+      got = null;
+    }
+    for (const id of chunk) {
+      const c = got && Object.prototype.hasOwnProperty.call(got, id) ? got[id] : undefined;
+      const { comment, needs_you } = (c && typeof c === "object" ? c : {}) as { comment?: unknown; needs_you?: unknown };
+      out[id] = typeof comment === "number" && typeof needs_you === "number" ? comment + needs_you : null;
+    }
+  }));
+  return out;
+}
+
+/** One run's count, through the same batched route (kept for the
+ *  contract's export). Null when unknown - never 0. */
+export async function loadCommentCount(runId: string): Promise<number | null> {
+  return (await loadCommentCounts([runId]))[runId] ?? null;
 }

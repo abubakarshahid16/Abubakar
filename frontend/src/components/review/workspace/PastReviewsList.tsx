@@ -2,8 +2,8 @@
  * OWNER: builder E. The compact past-reviews list.
  *
  * One line per review: date, result, findings to decide, signed yes/no.
- * The counts are read lazily (one `loadCommentCount` per review) when the
- * list mounts, i.e. when it is opened. They count findings (comment +
+ * The counts are read lazily, in one batched `loadCommentCounts` call for
+ * all rows that need one, when the list mounts, i.e. when it is opened. They count findings (comment +
  * needs-you), not the comment sheet's rows, and say so. A count that is
  * unknown or failed shows nothing - never 0. A signed review has nothing
  * left to decide, so it shows no count (its "Signed: yes" says it) and its
@@ -13,7 +13,7 @@ import { useEffect, useState } from "react";
 
 import { whenLabel } from "../reviewFormat";
 import type { PastReviewsListProps } from "./contract";
-import { loadCommentCount } from "./pastReviews";
+import { loadCommentCounts } from "./pastReviews";
 
 function findingsLabel(count: number | null): string {
   if (count == null) return "";
@@ -26,10 +26,10 @@ export function PastReviewsList({ reviews, onOpenRun }: PastReviewsListProps) {
 
   useEffect(() => {
     let alive = true;
-    for (const review of reviews) {
-      if (review.signed || review.commentCount != null) continue;
-      void loadCommentCount(review.runId).then((count) => {
-        if (alive) setCounts((was) => ({ ...was, [review.runId]: count }));
+    const ids = reviews.filter((r) => !r.signed && r.commentCount == null).map((r) => r.runId);
+    if (ids.length > 0) {
+      void loadCommentCounts(ids).then((got) => {
+        if (alive) setCounts((was) => ({ ...was, ...got }));
       });
     }
     return () => { alive = false; };
