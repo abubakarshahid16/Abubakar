@@ -25,6 +25,8 @@ import re
 
 import pymupdf
 
+from . import stored_paths
+
 log = logging.getLogger(__name__)
 
 #: Below this many characters a fragment is too generic to locate safely.
@@ -95,7 +97,7 @@ def locate(
     if not fragments:
         return [], None
 
-    with pymupdf.open(pdf_path) as doc:
+    with pymupdf.open(stored_paths.local(pdf_path)) as doc:
         if not 1 <= page_no <= doc.page_count:
             return [], None
         page = doc.load_page(page_no - 1)

@@ -42,7 +42,7 @@ from __future__ import annotations
 import json
 import re
 
-from . import access, highlight
+from . import access, highlight, stored_paths
 from .api_utils import require_document
 
 #: What kind of box was drawn - shown to the engineer in words.
@@ -352,6 +352,7 @@ def side(current: dict, side: str, scope: access.AccessScope) -> dict:
             and scope.may_read(document_id)):
         # #785 point 3: no value found, so no page cited - show where to look.
         doc = dict(require_document(document_id, scope))
+        doc["stored_path"] = stored_paths.local(doc.get("stored_path"))
         if doc.get("pagination") == "flow" or not doc.get("stored_path"):
             return {"document": None, "page": None, "rects": [], "box": None,
                     "reason": f"no value was found for {current.get('contractor_section') or 'this field'}"}

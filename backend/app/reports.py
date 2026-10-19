@@ -54,7 +54,7 @@ from pathlib import Path
 
 import pymupdf
 
-from . import access, chat
+from . import access, chat, stored_paths
 from .config import config_version, settings
 from .db import connect
 
@@ -538,7 +538,7 @@ def generate(message_id: str, scope: access.AccessScope) -> dict:
              snapshot["question"], snapshot["resolved_question"],
              snapshot_json.decode("utf-8"), _sha(snapshot_json),
              snapshot["config_version"], RENDERER, TEMPLATE_VERSION,
-             str(path), report_sha, len(pdf), page_count),
+             stored_paths.to_stored(path), report_sha, len(pdf), page_count),
         )
         for d in snapshot["documents"]:
             conn.execute(
@@ -684,7 +684,7 @@ def stored_path(report_id: str, scope: access.AccessScope) -> Path:
     row = _require(report_id, scope)
     if not row["stored_path"]:
         raise ReportNotFound(report_id)
-    return Path(row["stored_path"])
+    return Path(stored_paths.local(row["stored_path"]))
 
 
 def verify(report_id: str, scope: access.AccessScope) -> dict:
@@ -695,7 +695,7 @@ def verify(report_id: str, scope: access.AccessScope) -> dict:
     """
     row = _require(report_id, scope)
     snapshot_intact = _sha(row["snapshot_json"].encode("utf-8")) == row["snapshot_sha256"]
-    path = Path(row["stored_path"]) if row["stored_path"] else None
+    path = Path(stored_paths.local(row["stored_path"])) if row["stored_path"] else None
     file_intact = bool(path and path.exists() and _sha(path.read_bytes()) == row["report_sha256"])
 
     drift: list[str] = []
@@ -737,7 +737,7 @@ def on_document_deleted(document_id: str) -> None:
     for rid in ids:
         row = conn.execute("SELECT stored_path FROM reports WHERE id = ?", (rid,)).fetchone()
         if row and row["stored_path"]:
-            Path(row["stored_path"]).unlink(missing_ok=True)
+            Path(stored_paths.local(row["stored_path"])).unlink(missing_ok=True)
         with conn:
             conn.execute(
                 "UPDATE reports SET stored_path = NULL, suppressed_reason = ? WHERE id = ?",
