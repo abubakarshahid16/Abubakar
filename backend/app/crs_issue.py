@@ -37,7 +37,7 @@ from pathlib import Path
 
 from . import page_ledger
 from .config import settings
-from .crs_mapping import ROW_KIND_SAFETY_TICK, row_has_no_text
+from .crs_mapping import ROW_KIND_SAFETY_TICK, row_has_no_issuable_text
 from .db import connect
 
 PAGE, FINDING = "page", "finding"
@@ -61,23 +61,33 @@ NO_PAGE_COVERAGE = (
 )
 
 
-def no_text_blocker(n: int) -> str:
+def no_text_blocker(refs: list[str]) -> str:
     """Order 139 part 2 (spec e): the blocker for confirmed rows that would
-    reach the contractor with an empty COMPANY Comments cell."""
-    return f"{n} confirmed comment(s) on the sheet have no text"
+    reach the contractor with an empty COMPANY Comments cell. 1b: it NAMES
+    the comments (their numbers) and says what to do."""
+    named = ", ".join(refs)
+    if len(refs) == 1:
+        return (
+            f"Comment {named} has no text, so it cannot be issued: confirm or "
+            "edit the same item in a review, or close the comment"
+        )
+    return (
+        f"{len(refs)} confirmed comments have no text, so they cannot be "
+        f"issued ({named}): confirm or edit each in a review, or close it"
+    )
 
 
 def _issued_without_text(row: dict) -> bool:
     """A row the issue copy would carry (`crs_export.build_crs_view`: an
-    engineer confirmed it, it is not rejected, not a safety tick and not an
-    AI draft) whose comment text is empty. The export leaves such a row out
-    as a last guard; this gate is what normally stops it."""
+    engineer confirmed it, it is not rejected and not a safety tick) whose
+    comment text is empty or only a waiting sentence. A row that still holds
+    an AI draft counts too (1b): its number may be issued. The export leaves
+    such a row out as a last guard; this gate is what normally stops it."""
     return (
         row.get("engineer_confirmed") is True
         and not row.get("engineer_rejected")
         and row.get("row_kind") != ROW_KIND_SAFETY_TICK
-        and not str(row.get("ai_review_comment") or "").strip()
-        and row_has_no_text(row)
+        and row_has_no_issuable_text(row)
     )
 
 
@@ -263,7 +273,11 @@ def open_items(
         )
     # Order 139 part 2 (spec e): every line issued has plain text, or is not
     # issued - a confirmed row with an empty comment blocks the issue.
-    no_text = sum(1 for row in rows if _issued_without_text(row))
+    no_text = [
+        str(row.get("crs_ref") or f"on row {n}")
+        for n, row in enumerate(rows, start=1)
+        if _issued_without_text(row)
+    ]
     if no_text:
         blockers.append(no_text_blocker(no_text))
     return {

@@ -214,13 +214,17 @@ Supporting clauses (<n>):
   BEFORE the `Ref:` prefix:
   - internal copy: an empty comment prints `EMPTY_COMMENT_TEXT` = "No comment
     text was produced for this row. An engineer must write it before this
-    row can be issued." and the row gets `comment_missing: True`;
+    row can be issued." and the row gets `comment_missing: True` (1b: a
+    NUMBERED row prints `EMPTY_ISSUED_COMMENT_TEXT` instead - which comment,
+    and what to do);
   - issue copy: such a row is never printed; the view carries
     `rows_withheld_no_text: <n>` (0 when none), never silent.
 - Issue gate (`crs_issue.open_items`, Builder B): a row that would go on the
-  issue copy (engineer_confirmed, not rejected, not a safety tick, no
-  ai_review_comment) with empty comment text is a blocker:
-  `"<n> confirmed comment(s) on the sheet have no text"`. So the export's
+  issue copy (engineer_confirmed, not rejected, not a safety tick)
+  with empty comment text is a blocker:
+  `crs_issue.no_text_blocker(refs)` (1b: it names the comment number(s); a
+  confirmed row that still holds a draft counts too, since its number may be
+  issued; a waiting sentence is never text). So the export's
   drop above is a last guard, never the normal path.
 
 ## f. Priority and order (decided)

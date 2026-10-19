@@ -959,6 +959,37 @@ def row_has_no_text(row: dict) -> bool:
     return text in WAITING_COMMENTS and not draft
 
 
+def row_has_no_issuable_text(row: dict) -> bool:
+    """`row_has_no_text` for a row that is about to be ISSUED (1b): a waiting
+    sentence is never text a contractor is sent, draft beside it or not - the
+    draft is the machine's, and an issued number's row can carry both."""
+    return row_has_no_text(row) or (
+        str(row.get("comment") or "").strip() in WAITING_COMMENTS
+    )
+
+
+def carry_issued_wording(row: dict, snapshot: dict) -> None:
+    """1b: AN ISSUED NUMBER KEEPS THE ENGINEER'S WORDS. A later run raises the
+    same AI/web item again as an unconfirmed draft (the row holds
+    `ai_review_comment`, its COMPANY Comments is the waiting sentence), but
+    its key already holds an issued number, so the row is the engineer's
+    comment. It then carries what that number last said - the snapshot - on
+    both copies; the draft stays in AI Review Comments, internal only. A
+    snapshot with no words (a number saved empty or as a waiting sentence by
+    an older build) leaves the row EMPTY, so it is counted and blocks the
+    issue instead of printing "not issued" beside an issued number. A row
+    without a draft already holds its own words and is left alone."""
+    if not str(row.get("ai_review_comment") or "").strip():
+        return
+    words = str(snapshot.get("comment") or "").strip()
+    if words in WAITING_COMMENTS:
+        words = ""
+    row["comment"] = words
+    by = str(snapshot.get("comment_by") or "").strip()
+    if words and by:
+        row["comment_by"] = by
+
+
 #: Spec c: a grouped row lists at most this many supporting clauses, then
 #: "- and K more of these N (see Standard Reference)."
 MAX_CLAUSE_LINES = 10

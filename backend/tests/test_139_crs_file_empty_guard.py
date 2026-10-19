@@ -149,7 +149,10 @@ def test_internal_copy_names_a_row_with_no_text():
     numbered = ce.build_crs_view(
         [_row(2, comment="", crs_ref="CRS-INV-001")], {"copy": "internal"}
     )
-    assert numbered["rows"][0]["comment"] == ce.EMPTY_COMMENT_TEXT
+    # 1b: a NUMBERED row was issued - it says which comment and what to do
+    assert numbered["rows"][0]["comment"] == ce.empty_comment_text("CRS-INV-001")
+    assert numbered["rows"][0]["comment"].startswith("Comment CRS-INV-001 was issued")
+    assert "An engineer must write it" not in numbered["rows"][0]["comment"]
 
 
 def test_an_unconfirmed_ai_row_is_internal_with_its_waiting_sentence():
@@ -194,27 +197,21 @@ def test_gate_blocks_a_confirmed_row_with_no_text():
     ]
     gate = crs_issue.open_items("run-1", rows, COVERED)
     assert gate["issuable"] is False
-    assert gate["blockers"] == [crs_issue.no_text_blocker(1)]
-    assert gate["blockers"][0] == "1 confirmed comment(s) on the sheet have no text"
+    assert gate["blockers"] == [crs_issue.no_text_blocker(["on row 1"])]
+    assert gate["blockers"][0].startswith("Comment on row 1 has no text")
 
 
 def test_gate_ignores_rows_the_issue_copy_would_not_carry():
     """Only a row that would reach the contractor counts: not an unconfirmed
-    draft (that is an undecided finding already), not a safety tick, not a
-    row holding an AI draft, not one an engineer rejected."""
+    draft (that is an undecided finding already), not a safety tick,
+    not one an engineer rejected. (A confirmed row that still holds an AI
+    draft is NOT ignored since 1b: see test_1b_issued_ai_comment.)"""
     rows = [
         {
             "finding_id": "t",
             "row_kind": m.ROW_KIND_SAFETY_TICK,
             "engineer_confirmed": True,
             "comment": "",
-        },
-        {
-            "finding_id": "a",
-            "row_kind": "missing_information",
-            "engineer_confirmed": True,
-            "comment": "",
-            "ai_review_comment": "a draft",
         },
         {
             "finding_id": "r",
@@ -248,7 +245,7 @@ def test_a_carried_forward_waiting_sentence_is_never_issued():
         assert internal["comment_missing"] is True
         assert sentence not in internal["comment"]
         gate = crs_issue.open_items("run-1", [carried], COVERED)
-        assert gate["blockers"] == [crs_issue.no_text_blocker(1)]
+        assert gate["blockers"] == [crs_issue.no_text_blocker(["on row 1"])]
     # beside its draft the sentence IS the row's text (internal copy)
     draft = _row(2, comment=m.AI_UNCONFIRMED_COMMENT, ai_review_comment="a draft")
     assert m.row_has_no_text(draft) is False
