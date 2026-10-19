@@ -8,12 +8,13 @@ import { useState } from "react";
 import type { ReviewAgainButtonProps } from "./contract";
 import { reviewAgain } from "./newReview";
 
-export function ReviewAgainButton({ documentId, filename = null, onStarted }: ReviewAgainButtonProps) {
+export function ReviewAgainButton({ documentId, filename = null, onStarted, mayStart }: ReviewAgainButtonProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function run() {
     if (busy) return;
+    if (mayStart && !mayStart()) return;
     setBusy(true);
     setError(null);
     const outcome = await reviewAgain(documentId, filename);

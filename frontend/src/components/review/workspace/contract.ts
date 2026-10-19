@@ -24,6 +24,9 @@ export type { CrsRow, CrsDecisions, DecisionState, StandardsState };
 /* ------------------------------------------------------------------ A: URL */
 
 /** The tabs inside the workspace. "sheet" is the comment sheet (default). */
+/** Same words CrsSheetView uses when leaving with unsaved decisions. */
+export const LEAVE_WARNING = "Some decisions on this sheet are not saved yet. Leave without saving them?";
+
 export const WORKSPACE_TABS = ["sheet", "how", "findings", "standards", "steps", "numbers"] as const;
 export type WorkspaceTab = (typeof WORKSPACE_TABS)[number];
 
@@ -228,6 +231,9 @@ export interface ReviewWorkspaceProps {
   onBack: () => void;
   onOpenRun: (runId: string) => void;
   isAdmin?: boolean;
+  /** Told how many decisions are on screen only, so the app can ask before
+   *  a move it makes itself (turning off "Try new design") drops them. */
+  onUnsavedChange?: (count: number) => void;
 }
 
 export interface WorkspaceTabsProps {
@@ -277,6 +283,9 @@ export interface WorkspaceSheetProps {
   /** The row whose evidence is open (URL `row` with `panel=evidence`). */
   openRowKey: string | null;
   onOpenRow: (rowKey: string | null) => void;
+  /** The one source of counts: the table's folded "met / not applicable"
+   *  line shows these, never its own count of the rows. */
+  numbers: ReviewNumbers;
   /** Rendered under the table: B's SignOffPanel. */
   footer?: ReactNode;
 }
@@ -294,6 +303,9 @@ export interface ReviewAgainButtonProps {
   documentId: string;
   filename?: string | null;
   onStarted: (runId: string) => void;
+  /** Asked before anything starts; false stops the press (for example the
+   *  reader chose to stay with unsaved decisions). */
+  mayStart?: () => boolean;
 }
 
 export interface FinishedReviewNoticeProps {

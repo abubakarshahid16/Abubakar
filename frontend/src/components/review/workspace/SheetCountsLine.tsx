@@ -20,8 +20,8 @@ export function SheetCountsLine({ numbers }: SheetCountsLineProps) {
     <Part key="c" n={numbers.comments} one="comment" many="comments" count="comments" />,
     <Part key="y" n={numbers.needsYou} one="needs you" many="need you" count="needsYou" />,
   ];
-  if (numbers.met > 0) parts.push(<Part key="m" n={numbers.met} one="met" many="met" />);
-  if (numbers.notApplicable > 0) parts.push(<Part key="n" n={numbers.notApplicable} one="not applicable" many="not applicable" />);
+  if (numbers.met > 0) parts.push(<Part key="m" n={numbers.met} one="met" many="met" count="met" />);
+  if (numbers.notApplicable > 0) parts.push(<Part key="n" n={numbers.notApplicable} one="not applicable" many="not applicable" count="notApplicable" />);
   if (numbers.anotherDocument > 0) parts.push(<Part key="a" n={numbers.anotherDocument} one="for another document" many="for another document" />);
   if (numbers.unreadPages.length > 0) {
     parts.push(<Part key="p" n={numbers.unreadPages.length} one="page not read" many="pages not read" count="unreadPages" />);

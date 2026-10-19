@@ -9,7 +9,7 @@
  * component only reads `location` and asks for changes via
  * `onLocationChange`, so a refresh reopens the same place.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary } from "../../../types/api";
 import { HowReviewedView } from "../../../views/HowReviewedView";
@@ -27,11 +27,8 @@ import { useWorkspaceRun } from "./useWorkspaceRun";
 import { WorkspaceSheet } from "./WorkspaceSheet";
 import { WorkspaceTabs } from "./WorkspaceTabs";
 import {
-  WORKSPACE_TABS, type ActionStepId, type ReviewWorkspaceProps, type WorkspaceLocation, type WorkspaceTab,
+  LEAVE_WARNING, WORKSPACE_TABS, type ActionStepId, type ReviewWorkspaceProps, type WorkspaceLocation, type WorkspaceTab,
 } from "./contract";
-
-/** Same words CrsSheetView uses when leaving with unsaved decisions. */
-const LEAVE_WARNING = "Some decisions on this sheet are not saved yet. Leave without saving them?";
 
 /** The behind-the-scenes panels that are tabs here. */
 const PANEL_TABS: readonly WorkspaceTab[] = ["findings", "standards", "steps", "numbers"];
@@ -40,9 +37,12 @@ function isTab(value: string | undefined): value is WorkspaceTab {
   return value !== undefined && (WORKSPACE_TABS as readonly string[]).includes(value);
 }
 
-/** Queued / running / failed: the same states and words CrsSheetView shows. */
-function RunNotReady({ run, active, onBack, onChanged }: {
+/** Queued / running / failed: the same states and words CrsSheetView shows.
+ *  A failed run also offers "Review again", so a document whose last review
+ *  failed is never a dead end. */
+function RunNotReady({ run, active, onBack, onChanged, onOpenRun, mayLeave }: {
   run: ReviewRunSummary; active: boolean; onBack: () => void; onChanged: () => void;
+  onOpenRun: (runId: string) => void; mayLeave: () => boolean;
 }) {
   return (
     <section className="mx-auto w-full max-w-7xl space-y-3" aria-labelledby="ws-title" data-testid="review-workspace">
@@ -56,14 +56,20 @@ function RunNotReady({ run, active, onBack, onChanged }: {
           <ReviewJobControl run={run} onChanged={onChanged} />
         </>
       ) : (
-        <p role="alert" className="text-danger-500">This review failed{run.failure_reason ? `: ${run.failure_reason}` : "."}</p>
+        <>
+          <p role="alert" className="text-danger-500">This review failed{run.failure_reason ? `: ${run.failure_reason}` : "."}</p>
+          {run.submittal_document_id && (
+            <ReviewAgainButton documentId={run.submittal_document_id} filename={run.submittal_filename}
+              mayStart={mayLeave} onStarted={onOpenRun} />
+          )}
+        </>
       )}
       <button type="button" onClick={onBack} className="text-sm text-signal-300 underline-offset-2 hover:underline">← Reviews</button>
     </section>
   );
 }
 
-export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun }: ReviewWorkspaceProps) {
+export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun, onUnsavedChange }: ReviewWorkspaceProps) {
   const { runId } = location;
   const data = useWorkspaceRun(runId);
   const { load, run, findings, rows, standardsState, standardNames, submittal, summary, readiness, active, refresh } = data;
@@ -80,6 +86,18 @@ export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun 
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [unsavedCount]);
+  useEffect(() => { onUnsavedChange?.(unsavedCount); }, [unsavedCount, onUnsavedChange]);
+  // Clear the count when this screen goes away, so the app does not ask
+  // about decisions that no longer exist.
+  useEffect(() => () => onUnsavedChange?.(0), [onUnsavedChange]);
+
+  // Every move away inside the app asks first, as CrsSheetView's `leave`
+  // does: the decisions live only in this screen until they are saved.
+  const mayLeave = useCallback(() => unsavedCount === 0 || window.confirm(LEAVE_WARNING), [unsavedCount]);
+  const leave = useCallback(() => { if (mayLeave()) onBack(); }, [mayLeave, onBack]);
+  const openRun = useCallback((id: string) => { if (mayLeave()) onOpenRun(id); }, [mayLeave, onOpenRun]);
+  // "Review again" asks before it starts anything (mayStart), so it opens
+  // the new run without asking a second time.
 
   // Keep the document in the address once the run names it, so a refresh
   // before the run loads still knows the document.
@@ -126,7 +144,7 @@ export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun 
       </p>
     );
   }
-  if (active || run.status === "failed") return <RunNotReady run={run} active={active} onBack={onBack} onChanged={() => void refresh()} />;
+  if (active || run.status === "failed") return <RunNotReady run={run} active={active} onBack={leave} onChanged={() => void refresh()} onOpenRun={onOpenRun} mayLeave={mayLeave} />;
 
   const tab = location.tab;
   return (
@@ -135,12 +153,13 @@ export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun 
       data-testid="review-workspace" data-run={runId}
     >
       <header className="flex flex-wrap items-center gap-3">
-        <button type="button" onClick={onBack} className="text-sm text-signal-300 underline-offset-2 hover:underline">← Reviews</button>
+        <button type="button" onClick={leave} className="text-sm text-signal-300 underline-offset-2 hover:underline">← Reviews</button>
         <h1 id="ws-title" className="min-w-0 flex-1 truncate text-2xl font-semibold text-slateish-100">
           {run.submittal_filename ?? "Review"}
         </h1>
         {run.submittal_document_id && (
-          <ReviewAgainButton documentId={run.submittal_document_id} filename={run.submittal_filename} onStarted={onOpenRun} />
+          <ReviewAgainButton documentId={run.submittal_document_id} filename={run.submittal_filename}
+            mayStart={mayLeave} onStarted={onOpenRun} />
         )}
       </header>
 
@@ -152,7 +171,7 @@ export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun 
             <SheetCountsLine numbers={numbers} />
             <WorkspaceSheet
               runId={runId} run={run} rows={rows} submittal={submittal} standardNames={standardNames}
-              decisions={decisions} openRowKey={openRowKey} onOpenRow={onOpenRow}
+              decisions={decisions} openRowKey={openRowKey} onOpenRow={onOpenRow} numbers={numbers}
               footer={<SignOffPanel numbers={numbers} signOff={signOff} />}
             />
           </div>
@@ -161,7 +180,7 @@ export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun 
           <HowReviewedView
             key={runId} runId={runId}
             onBack={() => onTab("sheet")}
-            onOpenRun={onOpenRun}
+            onOpenRun={openRun}
             onOpenSteps={() => onTab("steps")}
           />
         )}

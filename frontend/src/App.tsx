@@ -31,7 +31,7 @@ import { ReviewWorkspace } from "./components/review/workspace/ReviewWorkspace";
 import { TryNewDesignToggle } from "./components/review/workspace/TryNewDesignToggle";
 import { useWorkspaceSwitch } from "./components/review/workspace/useWorkspaceSwitch";
 import { WORKSPACE_PANEL, isWorkspaceScreen, parseWorkspaceQuery, workspaceSearch } from "./components/review/workspace/workspaceRoute";
-import type { WorkspaceLocation } from "./components/review/workspace/contract";
+import { LEAVE_WARNING, type WorkspaceLocation } from "./components/review/workspace/contract";
 import { NavigationContext } from "./components/NavLink";
 import { CRS_SHEET_IS_DEFAULT, INBOX_RECORD, panelForReviewScreen, parseRoute, pathForView, reviewScreenFor, titleForView, type AppRoute } from "./routing";
 
@@ -112,7 +112,13 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
     [onNavigate, switchOn],
   );
   const { setOptIn } = workspaceSwitch;
+  // Decisions on the workspace screen that are not saved yet (it reports
+  // them). Turning the switch off swaps the screen, so ask first, with the
+  // same words as every other way out of the sheet.
+  const workspaceUnsaved = useRef(0);
+  const onWorkspaceUnsaved = useCallback((count: number) => { workspaceUnsaved.current = count; }, []);
   const onTryNewDesign = useCallback((on: boolean) => {
+    if (!on && workspaceUnsaved.current > 0 && !window.confirm(LEAVE_WARNING)) return;
     setOptIn(on);
     // Off while on the workspace's own address: back to the old screen.
     if (!on && route.kind === "view" && route.view === "review" && route.recordId && route.panel === WORKSPACE_PANEL) {
@@ -417,6 +423,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
                 onLocationChange={onWorkspaceLocationChange}
                 onBack={() => onNavigate("review")}
                 onOpenRun={openRunInWorkspace}
+                onUnsavedChange={onWorkspaceUnsaved}
                 isAdmin={canAdmin}
               />
             </>

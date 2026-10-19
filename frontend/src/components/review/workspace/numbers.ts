@@ -69,10 +69,17 @@ export function pagesDetail(pages: number[]): string {
   return `${pages.length === 1 ? "Page" : "Pages"} ${spoken(pageList(pages))}`;
 }
 
+/** The old sheet's words for Sign waiting on unopened "Needs you" rows
+ *  (CrsHeader). */
+export function unopenedNeedsYouHelp(count: number): string {
+  return `Open the ${count} "Needs you" ${count === 1 ? "row" : "rows"} first.`;
+}
+
 /** The four buttons of "What you need to do", always in this order:
  *  standards, pages, decide, sign. A step with nothing left is done (a
  *  quiet tick), never hidden. Sign is enabled only when the other three are
- *  done, nothing is unsaved and the run is not signed yet. */
+ *  done, every "Needs you" row has been opened (as the old sheet's
+ *  CrsHeader canSign), nothing is unsaved and the run is not signed yet. */
 export function actionSteps(numbers: ReviewNumbers): ActionStep[] {
   const standards = numbers.missingStandards.length;
   const pages = numbers.unreadPages.length;
@@ -80,6 +87,8 @@ export function actionSteps(numbers: ReviewNumbers): ActionStep[] {
   const blockersClear = standards === 0 && pages === 0 && decide === 0;
   const pagesHelp = pagesDetail(numbers.unreadPages);
   const standardsHelp = numbers.missingStandards.join(", ");
+  const unopened = numbers.unopenedNeedsYou;
+  const signHelp = !numbers.signed && unopened > 0 ? unopenedNeedsYouHelp(unopened) : "";
   return [
     {
       id: "standards", label: `Upload missing standards (${standards})`, count: standards,
@@ -95,7 +104,9 @@ export function actionSteps(numbers: ReviewNumbers): ActionStep[] {
     },
     {
       id: "sign", label: numbers.signed ? "Signed" : "Sign and export", count: null,
-      done: numbers.signed, enabled: blockersClear && numbers.unsaved === 0 && !numbers.signed,
+      done: numbers.signed,
+      enabled: blockersClear && unopened === 0 && numbers.unsaved === 0 && !numbers.signed,
+      ...(signHelp ? { detail: signHelp } : {}),
     },
   ];
 }

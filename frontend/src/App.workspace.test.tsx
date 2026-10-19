@@ -37,8 +37,9 @@ vi.mock("./views/SubmittalsLandingView", () => ({
   ),
 }));
 vi.mock("./components/review/workspace/ReviewWorkspace", () => ({
-  ReviewWorkspace: ({ location, onLocationChange, onOpenRun }: ReviewWorkspaceProps) => (
+  ReviewWorkspace: ({ location, onLocationChange, onOpenRun, onUnsavedChange }: ReviewWorkspaceProps) => (
     <div>
+      <button type="button" onClick={() => onUnsavedChange?.(1)}>Make an unsaved decision</button>
       <p>{`workspace for ${location.runId}`}</p>
       <p data-testid="ws-location">{JSON.stringify(location)}</p>
       <button type="button" onClick={() => onLocationChange({ ...location, tab: "findings", row: "row-2", panel: "evidence" })}>
@@ -167,6 +168,28 @@ describe("Try new design", () => {
     await screen.findByText("landing workspace=true");
     await goTo("/review/run-1/workspace");
     await screen.findByText("workspace for run-1");
+    await user.click(screen.getByRole("switch", { name: "Try new design" }));
+    expect(await screen.findByText("crs sheet for run-1")).toBeInTheDocument();
+  });
+});
+
+describe("turning the switch off with unsaved decisions", () => {
+  it("asks first and stays on the workspace when the reader says no", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem(WORKSPACE_OPT_IN_KEY, "on");
+    mockApi();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<App initialView="review" />);
+    await screen.findByText("landing workspace=true");
+    await goTo("/review/run-1");
+    await screen.findByText("workspace for run-1");
+    await user.click(screen.getByRole("button", { name: "Make an unsaved decision" }));
+    await user.click(screen.getByRole("switch", { name: "Try new design" }));
+    expect(confirm).toHaveBeenCalledWith("Some decisions on this sheet are not saved yet. Leave without saving them?");
+    expect(screen.getByText("workspace for run-1")).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Try new design" })).toBeChecked();
+
+    confirm.mockReturnValue(true);
     await user.click(screen.getByRole("switch", { name: "Try new design" }));
     expect(await screen.findByText("crs sheet for run-1")).toBeInTheDocument();
   });

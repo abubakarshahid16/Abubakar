@@ -10,8 +10,9 @@
  * jump and closing all report through `onOpenRow`; the screen above writes
  * the URL and hands the new key back as `openRowKey`.
  *
- * Counts are not made here: the header line and the sign-off panel (the
- * `footer`) take theirs from computeReviewNumbers.
+ * Counts are not made here: the header line, the table's folded line (from
+ * the `numbers` prop) and the sign-off panel (the `footer`) take theirs from
+ * computeReviewNumbers.
  */
 import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 
@@ -19,7 +20,8 @@ import { CRS_SHEET_IS_DEFAULT, panelForReviewScreen } from "../../../routing";
 import { NavigationContext } from "../../NavLink";
 import type { RowMode } from "../crs/CrsRow";
 import { CrsTable } from "../crs/CrsTable";
-import { type CrsRow, type Depth, rowCounts, spotCheckKeys, visibleRows } from "../crs/crsRows";
+import { type CrsRow, type Depth, spotCheckKeys, visibleRows } from "../crs/crsRows";
+import type { TierCounts } from "../crs/tiers";
 import { commentPages, firstRowOnPage, stepRow } from "../crs/evidenceNav";
 import { useCrsKeys } from "../crs/useCrsKeys";
 import type { WorkspaceSheetProps } from "./contract";
@@ -36,7 +38,7 @@ function returnTarget(prev: HTMLElement | null, rowKey: string): HTMLElement | n
 }
 
 export function WorkspaceSheet({
-  runId, run, rows, submittal, standardNames, decisions, openRowKey, onOpenRow, footer,
+  runId, run, rows, submittal, standardNames, decisions, openRowKey, onOpenRow, numbers, footer,
 }: WorkspaceSheetProps) {
   const [depth, setDepth] = useState<Depth>("standard");
   const [showMet, setShowMet] = useState(false);
@@ -53,7 +55,12 @@ export function WorkspaceSheet({
   }
 
   const plain = useMemo(() => rows.map(plainRow), [rows]);
-  const counts = useMemo(() => rowCounts(rows), [rows]);
+  // The folded "met / not applicable" line shows the workspace's one set of
+  // numbers (computeReviewNumbers), so it matches the count line above.
+  const counts = useMemo<TierCounts>(() => ({
+    met: numbers.met, notApplicable: numbers.notApplicable, anotherDocument: numbers.anotherDocument,
+    comment: numbers.comments - numbers.needsYou, needsYou: numbers.needsYou,
+  }), [numbers.met, numbers.notApplicable, numbers.anotherDocument, numbers.comments, numbers.needsYou]);
   const spot = useMemo(() => spotCheckKeys(rows, runId), [rows, runId]);
   const shown = useMemo(() => visibleRows(plain, depth, showMet, spot), [plain, depth, showMet, spot]);
   const pagesWithComments = useMemo(() => commentPages(shown), [shown]);

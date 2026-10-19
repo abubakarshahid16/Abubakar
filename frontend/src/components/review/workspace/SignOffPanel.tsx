@@ -27,6 +27,12 @@ export function SignOffPanel({ numbers, signOff }: SignOffPanelProps) {
           {numbers.comments === 1 ? "comment" : "comments"} left to decide
           {" · "}
           <span data-unsaved>{numbers.unsaved.toLocaleString()}</span> not saved
+          {numbers.unopenedNeedsYou > 0 && (
+            <>
+              {" · "}Sign and export waits until you have opened the {numbers.unopenedNeedsYou.toLocaleString()}{" "}
+              {numbers.unopenedNeedsYou === 1 ? "row" : "rows"} marked &quot;Needs you&quot;.
+            </>
+          )}
         </span>
       )}
       <div className="ml-auto flex flex-wrap gap-2">
@@ -38,7 +44,7 @@ export function SignOffPanel({ numbers, signOff }: SignOffPanelProps) {
           className={`${BUTTON} border-ink-600 text-slateish-100`}>
           Download working copy
         </button>
-        <button type="button" disabled={!canSign} onClick={() => void signOff.sign()}
+        <button type="button" disabled={!canSign} onClick={() => void signOff.sign()} title={signStep?.detail}
           className={`${BUTTON} ${canSign ? "border-signal-500 bg-signal-500 text-ink-950" : "border-ink-700 text-slateish-500"}`}>
           {numbers.signed ? "Signed" : "Sign and export"}
         </button>

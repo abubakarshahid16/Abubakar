@@ -101,6 +101,16 @@ describe("one source of numbers", () => {
     expect(where("missingStandards")).toBe(2);
   });
 
+  it("met and not applicable on the count line are the helper's (clauses when the run has them)", () => {
+    const n = numbersFor({ run: { ...RUN, requirement_split: { does_not_apply: 7 } } as unknown as ReviewRunSummary });
+    expect(n.met).toBe(1);
+    expect(n.notApplicable).toBe(7);
+    renderAll(n);
+    const line = screen.getByTestId("ws-sheet-counts");
+    expect(line.querySelector('[data-count="met"]')?.textContent).toBe(String(n.met));
+    expect(line.querySelector('[data-count="notApplicable"]')?.textContent).toBe(String(n.notApplicable));
+  });
+
   it("the expected numbers for this fixture", () => {
     const n = numbersFor();
     expect(n.comments).toBe(5);
@@ -176,6 +186,25 @@ const ALL_DECIDED: DecisionState = {
 };
 
 describe("Sign and export", () => {
+  it('stays off while a "Needs you" row was kept from the table but never opened, as the old sheet', () => {
+    // Every row decided and saved, standards and pages clear, but c2 was
+    // never opened.
+    const notOpened: DecisionState = { decisions: ALL_DECIDED.decisions, opened: { c1: true } };
+    const input: Partial<ReviewNumbersInput> = {
+      missingStandards: [], readiness: null, run: { ...RUN, page_coverage: null } as unknown as ReviewRunSummary,
+      decisions: notOpened, unsaved: [],
+    };
+    const n = numbersFor(input);
+    expect(n.undecided).toBe(0);
+    expect(n.unopenedNeedsYou).toBe(1);
+    expect(actionSteps(n).find((s) => s.id === "sign")?.enabled).toBe(false);
+    render(<Harness input={input} refresh={vi.fn().mockResolvedValue(undefined)} decisions={fakeDecisions(notOpened, [])} />);
+    for (const b of screen.getAllByRole("button", { name: "Sign and export" })) expect(b).toBeDisabled();
+    expect(screen.getByTestId("ws-verdict").textContent).toContain("Not signed yet.");
+    expect(screen.getByTestId("ws-sign-waits")).toHaveTextContent('Open the 1 "Needs you" row first.');
+    expect(screen.getByTestId("ws-sign-off")).toHaveTextContent('opened the 1 row marked "Needs you"');
+  });
+
   it("stays off until standards, pages and decisions are clear and saved, then calls downloadCrs issue", async () => {
     const refresh = vi.fn().mockResolvedValue(undefined);
     const decisions = fakeDecisions(ALL_DECIDED, []);

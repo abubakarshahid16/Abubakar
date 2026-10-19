@@ -16,6 +16,8 @@ import type { ReviewFinding, ReviewRunSummary } from "../../../types/api";
 import { buildCrsRows } from "../crs/crsRows";
 import { EMPTY_FACTS } from "../crs/tiers";
 import { useCrsDecisions } from "../crs/useCrsDecisions";
+import type { ReviewNumbers } from "./contract";
+import { computeReviewNumbers } from "./numbers";
 import { WorkspaceSheet } from "./WorkspaceSheet";
 
 const crsDecisions = vi.fn();
@@ -51,13 +53,22 @@ const ROWS = buildCrsRows(FINDINGS, EMPTY_FACTS, new Map([["std-1", "API 610"]])
 const FLANGE_KEY = ROWS.find((r) => r.findings[0].id === "flange")!.key;
 const SEAL_KEY = ROWS.find((r) => r.findings[0].id === "seal")!.key;
 
-function Harness({ onOpenRow, start = null }: { onOpenRow: (key: string | null) => void; start?: string | null }) {
+function numbersOf(run: ReviewRunSummary = RUN): ReviewNumbers {
+  return computeReviewNumbers({
+    run, findings: FINDINGS, rows: ROWS, summary: null, missingStandards: [], readiness: null,
+    decisions: { decisions: {}, opened: {} }, unsaved: [],
+  });
+}
+
+function Harness({ onOpenRow, start = null, numbers = numbersOf() }: {
+  onOpenRow: (key: string | null) => void; start?: string | null; numbers?: ReviewNumbers;
+}) {
   const decisions = useCrsDecisions();
   const [open, setOpen] = useState<string | null>(start);
   return (
     <WorkspaceSheet
       runId="run-1" run={RUN} rows={ROWS} submittal={null} standardNames={new Map([["std-1", "API 610"]])}
-      decisions={decisions} openRowKey={open}
+      decisions={decisions} openRowKey={open} numbers={numbers}
       onOpenRow={(key) => { onOpenRow(key); setOpen(key); }}
       footer={<p data-testid="footer">Sign-off goes here</p>}
     />
@@ -117,6 +128,17 @@ describe("WorkspaceSheet", () => {
     await user.click(screen.getByRole("button", { name: "Close evidence" }));
     expect(onOpenRow).toHaveBeenLastCalledWith(null);
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("the folded met / not applicable line shows the workspace's numbers, not its own row count", () => {
+    // 7 clauses judged not applicable on the run, no not-applicable rows: the
+    // count line says 7, so the table's fold must say 7 too.
+    const numbers = numbersOf({ ...RUN, requirement_split: { does_not_apply: 7 } } as unknown as ReviewRunSummary);
+    expect(numbers.notApplicable).toBe(7);
+    render(<Harness onOpenRow={vi.fn()} numbers={numbers} />);
+    expect(screen.getByTestId("met-line").textContent).toContain(
+      `${numbers.met} met, ${numbers.notApplicable} not applicable`,
+    );
   });
 
   it("opens the drawer for an openRowKey given from outside", async () => {

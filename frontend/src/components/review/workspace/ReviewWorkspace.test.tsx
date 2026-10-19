@@ -18,6 +18,8 @@ import type { ActionBarProps, ReviewNumbers, WorkspaceLocation, WorkspaceRunData
 import { ReviewWorkspace } from "./ReviewWorkspace";
 
 const data = vi.fn<() => WorkspaceRunData>();
+/** Stands in for the API call the real ReviewAgainButton makes. */
+const startReviewRun = vi.fn();
 vi.mock("./useWorkspaceRun", () => ({ useWorkspaceRun: () => data() }));
 
 const NUMBERS: ReviewNumbers = {
@@ -48,8 +50,9 @@ vi.mock("./useSignOff", () => ({
   useSignOff: () => ({ busy: false, message: null, error: null, save: vi.fn(), sign: vi.fn(), workingCopy: vi.fn() }),
 }));
 vi.mock("./WorkspaceSheet", () => ({
-  WorkspaceSheet: ({ rows, openRowKey, onOpenRow, footer }: WorkspaceSheetProps) => (
+  WorkspaceSheet: ({ rows, openRowKey, onOpenRow, footer, decisions }: WorkspaceSheetProps) => (
     <div data-testid="ws-sheet">
+      <button type="button" onClick={() => decisions.keep("row-b")}>Keep row-b</button>
       <p>{`open row: ${openRowKey ?? "none"}`}</p>
       {rows.map((r) => <button key={r.key} type="button" onClick={() => onOpenRow(r.key)}>{`row ${r.key}`}</button>)}
       <button type="button" onClick={() => onOpenRow(null)}>Close evidence</button>
@@ -58,8 +61,10 @@ vi.mock("./WorkspaceSheet", () => ({
   ),
 }));
 vi.mock("./ReviewAgainButton", () => ({
-  ReviewAgainButton: ({ documentId, onStarted }: { documentId: string; onStarted: (id: string) => void }) => (
-    <button type="button" onClick={() => onStarted("run-2")}>{`Review again ${documentId}`}</button>
+  ReviewAgainButton: ({ documentId, onStarted, mayStart }: { documentId: string; onStarted: (id: string) => void; mayStart?: () => boolean }) => (
+    <button type="button" onClick={() => { if (!mayStart || mayStart()) { startReviewRun(documentId); onStarted("run-2"); } }}>
+      {`Review again ${documentId}`}
+    </button>
   ),
 }));
 vi.mock("../../../views/HowReviewedView", () => ({
@@ -115,7 +120,9 @@ beforeEach(() => {
   changes.length = 0;
   onOpenRun.mockReset();
   onBack.mockReset();
+  startReviewRun.mockReset();
   data.mockReturnValue(ready());
+  vi.restoreAllMocks();
 });
 
 describe("ReviewWorkspace", () => {
@@ -187,6 +194,49 @@ describe("ReviewWorkspace", () => {
     expect(onOpenRun).toHaveBeenCalledWith("run-2");
     await user.click(screen.getByRole("button", { name: "← Reviews" }));
     expect(onBack).toHaveBeenCalled();
+  });
+
+  it('with an unsaved decision, "Reviews" and "Review again" ask first and stay when the reader says no', async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const unsaved = vi.fn();
+    data.mockReturnValue(ready());
+    render(
+      <ReviewWorkspace
+        location={{ runId: "run-1", tab: "sheet", row: null, panel: null, documentId: "doc-sub" }}
+        onLocationChange={() => {}} onBack={onBack} onOpenRun={onOpenRun} onUnsavedChange={unsaved}
+      />,
+    );
+    // Nothing unsaved: leaving does not ask.
+    await user.click(screen.getByRole("button", { name: "← Reviews" }));
+    expect(confirm).not.toHaveBeenCalled();
+    expect(onBack).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", { name: "Keep row-b" }));
+    expect(unsaved).toHaveBeenLastCalledWith(1);
+    await user.click(screen.getByRole("button", { name: "← Reviews" }));
+    expect(confirm).toHaveBeenCalledWith("Some decisions on this sheet are not saved yet. Leave without saving them?");
+    expect(onBack).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("button", { name: "Review again doc-sub" }));
+    expect(startReviewRun).not.toHaveBeenCalled();
+    expect(onOpenRun).not.toHaveBeenCalled();
+
+    // The reader says yes: both go.
+    confirm.mockReturnValue(true);
+    await user.click(screen.getByRole("button", { name: "← Reviews" }));
+    expect(onBack).toHaveBeenCalledTimes(2);
+    await user.click(screen.getByRole("button", { name: "Review again doc-sub" }));
+    expect(onOpenRun).toHaveBeenCalledWith("run-2");
+  });
+
+  it('a failed review offers "Review again", which starts a new review and opens it', async () => {
+    const user = userEvent.setup();
+    data.mockReturnValue(ready({ run: run({ status: "failed", failure_reason: "the reader stopped" }) }));
+    render(<Harness initial={{}} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("This review failed: the reader stopped");
+    await user.click(screen.getByRole("button", { name: "Review again doc-sub" }));
+    expect(startReviewRun).toHaveBeenCalledWith("doc-sub");
+    expect(onOpenRun).toHaveBeenCalledWith("run-2");
   });
 
   it("writes the document into the address once the run names it", () => {

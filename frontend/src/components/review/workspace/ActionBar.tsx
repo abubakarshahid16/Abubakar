@@ -36,6 +36,7 @@ export function ActionBar({ run, numbers, steps, onAction, signOff }: ActionBarP
   const [pagesOpen, setPagesOpen] = useState(false);
   const [reread, setReread] = useState<Reread>({ busy: false, message: null, error: null });
   const pagesStep = steps.find((s) => s.id === "pages");
+  const signHelp = steps.find((s) => s.id === "sign")?.detail ?? null;
 
   const press = (step: ActionStep) => {
     if (step.id === "sign") { void signOff.sign(); return; }
@@ -68,6 +69,7 @@ export function ActionBar({ run, numbers, steps, onAction, signOff }: ActionBarP
             key={step.id} type="button" data-step={step.id} data-done={step.done ? "true" : "false"}
             disabled={!step.enabled || signOff.busy}
             aria-expanded={step.id === "pages" && step.enabled ? pagesOpen : undefined}
+            title={step.id === "sign" && step.detail ? step.detail : undefined}
             onClick={() => press(step)}
             className={`${BUTTON} ${step.id === "sign"
               ? (step.enabled ? "border-signal-500 bg-signal-500 text-ink-950" : "border-ink-700 text-slateish-500")
@@ -78,6 +80,7 @@ export function ActionBar({ run, numbers, steps, onAction, signOff }: ActionBarP
           </button>
         ))}
       </div>
+      {signHelp && <p data-testid="ws-sign-waits" className="text-sm text-slateish-300">{signHelp}</p>}
       {pagesOpen && pagesStep && !pagesStep.done && (
         <div data-testid="ws-unread-pages" className="flex flex-wrap items-center gap-2 text-sm text-slateish-300">
           <span>{pagesStep.detail}</span>
