@@ -2557,15 +2557,19 @@ def _mint_crs_numbers(review_run_id: str | None, scope: access.AccessScope) -> N
         mine = [row for row in rows
                 if row.get("engineer_confirmed") and row.get("crs_row_key")
                 and row.get("row_kind") != crs_mapping_mod.ROW_KIND_CARRIED_FORWARD]
+        # #1178 review: a row still holding an AI/web draft prints a waiting
+        # sentence, not the words an engineer confirmed under this number -
+        # its stored text is kept, never overwritten.
+        snapshots = {
+            row["crs_row_key"]: row
+            for row in mine
+            if not str(row.get("ai_review_comment") or "").strip()
+        }
         if mine:
             crs_numbers_mod.assign(
                 crs_scope, label, [row["crs_row_key"] for row in mine],
                 document_id=submittal_id, review_run_id=review_run_id,
-                # #1178 review: a row still holding an AI/web draft prints a
-                # waiting sentence, not the words an engineer confirmed under
-                # this number - its stored text is kept, never overwritten.
-                snapshots={row["crs_row_key"]: row for row in mine
-                           if not str(row.get("ai_review_comment") or "").strip()},
+                snapshots=snapshots,
                 user_id=scope.user_id)
         # A comment confirmed (so numbered) and then rejected is withdrawn -
         # never issued, never carried forward (audit 2026-09-30).
