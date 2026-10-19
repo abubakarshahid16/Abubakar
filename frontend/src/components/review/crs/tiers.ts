@@ -32,24 +32,20 @@
  * will hand the same facts from the server, and this signature stays.
  */
 import type {
-  PageCoverage, ReviewFinding, ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary, RunSummaryTierCounts, RunSummaryTierRow,
+  PageCoverage, ReviewFinding, ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary, RunSummaryTier,
+  RunSummaryTierCounts, RunSummaryTierLabel, RunSummaryTierReason, RunSummaryTierRow,
 } from "../../../types/api";
 
-export type Tier = "A" | "B" | "C";
+/** The tier words are the server's (`backend/app/api/run_summary.py`
+ *  `TierRow`, generated into contracts/generated/run_summary.ts, order
+ *  119.1): one list, so the screen cannot name a tier the server never sends. */
+export type Tier = RunSummaryTier;
 
 /** The words on the row. Never a percentage (spec 1.2). */
-export type TierLabel = "Met" | "Not applicable" | "Another document" | "Comment" | "Needs you";
+export type TierLabel = RunSummaryTierLabel;
 
 /** The closed list of reason words for a Tier C row (spec 1.2). */
-export type TierReason =
-  | "page not read"
-  | "standard not in library"
-  | "AI guess"
-  | "rule not proven"
-  | "safety field"
-  | "condition unsettled"
-  | "value conflict"
-  | "unit unknown";
+export type TierReason = RunSummaryTierReason;
 
 export interface TierResult {
   tier: Tier;

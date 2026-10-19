@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .. import (
     access,
@@ -41,11 +41,19 @@ BOUNDARY = "findings of this run, on the submittal you may read"
 RUNS_MAX_PAGE_SIZE = 200
 
 
+def _ts(name: str) -> dict:
+    """The TypeScript type a `dict` field is written as (order 119.1)."""
+    return {"tsType": name}
+
+
 class ReviewRunList(ListPage):
     runs: list[schemas.ReviewRunSummary]
 
 
 class TierCounts(BaseModel):
+    """Counts over every finding of the run; `removed` = rejected by an
+    engineer (in no tier); `total` includes the removed ones."""
+
     met: int
     not_applicable: int
     another_document: int
@@ -56,6 +64,9 @@ class TierCounts(BaseModel):
 
 
 class TierRow(BaseModel):
+    """One finding still in a tier, in screen order (Comment, Needs you, Met;
+    then page, no page last; then clause)."""
+
     finding_id: str
     #: A met / not applicable, B comment, C needs you (tiers.ts `Tier`)
     tier: Literal["A", "B", "C"]
@@ -91,10 +102,14 @@ class StandardClauses(BaseModel):
 class HowReviewed(BaseModel):
     """The stored fields, as the run detail returns them; null when not stored."""
 
-    requirement_split: dict | None = None
-    page_coverage: dict | None = None
-    completeness: dict | None = None
-    reader: dict | None = None
+    requirement_split: dict | None = Field(
+        None, json_schema_extra=_ts("RequirementSplit")
+    )
+    page_coverage: dict | None = Field(None, json_schema_extra=_ts("PageCoverage"))
+    completeness: dict | None = Field(
+        None, json_schema_extra=_ts('ReviewRunSummary["completeness"]')
+    )
+    reader: dict | None = Field(None, json_schema_extra=_ts("AiStepNumbers"))
     #: order 96: pages the AI reader timed out on; null when no reader record
     timed_out_pages: list[int] | None = None
     #: order 96: stamped on the run's job; null when the run has no job row
@@ -108,6 +123,10 @@ class HowReviewed(BaseModel):
 
 
 class RunSummary(BaseModel):
+    """`GET /api/reviews/runs/{id}/summary`, the run as the CRS-first Sheet
+    shows it. The tiers are `review_tiers`'s, the same rules as the screen's
+    `crs/tiers.ts`. Display only."""
+
     review_run_id: str
     status: str
     boundary: str
