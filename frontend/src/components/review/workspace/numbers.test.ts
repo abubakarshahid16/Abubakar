@@ -135,21 +135,27 @@ describe("computeReviewNumbers", () => {
     expect(computeReviewNumbers(input({ findings, summary: summary(0) })).removed).toBe(0);
   });
 
-  it("unread pages: run's pages and readiness merged, duplicates gone, ascending", () => {
-    const r = run({ page_coverage: { pages_not_read_into_fields: [9, 4] } } as Partial<ReviewRunSummary>);
+  it("unread pages (order 127): the run's one list; readiness adds no page when the run holds it", () => {
+    const r = run({ unread_pages: [9, 4], page_coverage: { pages_not_read_into_fields: [9] } } as Partial<ReviewRunSummary>);
     const n = computeReviewNumbers(input({ run: r, readiness: readiness({ unread_pages: [12, 4, 9, 12] }) }));
-    expect(n.unreadPages).toEqual([4, 9, 12]);
+    expect(n.unreadPages).toEqual([4, 9]);
   });
 
-  it("unread pages: readiness unknown (null) uses the run's pages only", () => {
-    const r = run({ page_coverage: { pages_not_read_into_fields: [3] } } as Partial<ReviewRunSummary>);
+  it("unread pages: readiness stands in, sorted and unique, only when the run does not hold the list", () => {
+    const r = run({ unread_pages: null } as Partial<ReviewRunSummary>);
+    expect(computeReviewNumbers(input({ run: r, readiness: readiness({ unread_pages: [12, 4, 12] }) })).unreadPages).toEqual([4, 12]);
+    expect(computeReviewNumbers(input({ run: r, readiness: null })).unreadPages).toEqual([]);
+  });
+
+  it("unread pages: readiness unknown (null) uses the run's list only", () => {
+    const r = run({ unread_pages: [3] } as Partial<ReviewRunSummary>);
     expect(computeReviewNumbers(input({ run: r, readiness: null })).unreadPages).toEqual([3]);
     expect(computeReviewNumbers(input({ readiness: null })).unreadPages).toEqual([]);
   });
 
-  it("unread pages: from the summary's how_reviewed (pages not read + timed out) when sent", () => {
-    const s = summary(0, { page_coverage: { pages_not_read_into_fields: [5] }, timed_out_pages: [2, 5] });
-    expect(computeReviewNumbers(input({ summary: s, readiness: readiness({ unread_pages: [7] }) })).unreadPages).toEqual([2, 5, 7]);
+  it("unread pages: from the summary's how_reviewed one list when sent, not the code readers' keys", () => {
+    const s = summary(0, { unread_pages: [2, 5], page_coverage: { pages_not_read_into_fields: [5] }, timed_out_pages: [9] });
+    expect(computeReviewNumbers(input({ summary: s, readiness: readiness({ unread_pages: [7] }) })).unreadPages).toEqual([2, 5]);
   });
 
   it("missing standards: input and readiness merged, unique, in first-seen order", () => {

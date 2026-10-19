@@ -134,9 +134,10 @@ export interface ReviewNumbers {
   anotherDocument: number;
   /** Findings an engineer already removed. */
   removed: number;
-  /** Pages not read, sorted, unique. When the issue gate is known: the
+  /** Pages still to check, sorted, unique. When the issue gate is known: the
    *  pages it still wants ticked (so the bar and "Before you sign" agree);
-   *  else headlineFieldsOf + readiness. */
+   *  else the run's one list (order 127, `headlineFieldsOf`), or readiness's
+   *  pages when the run does not hold that list. */
   unreadPages: number[];
   /** Missing standard identifiers, unique. Only the full list when
    *  `standardsKnown`; otherwise what was read so far. */

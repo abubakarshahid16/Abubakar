@@ -34,6 +34,10 @@ export function computeReviewNumbers(input: ReviewNumbersInput): ReviewNumbers {
   const { run, findings, rows, summary, readiness, decisions, gate } = input;
   const counts = rowCounts(rows);
   const fields = headlineFieldsOf(run, summary?.how_reviewed ?? null);
+  // Order 127: the run's one list of unread pages (the server's, the one the
+  // sheet header and the issue gate count). The submittal's own page record
+  // (readiness) stands in only when the run does not hold that list.
+  const runListHeld = (summary ? summary.how_reviewed?.unread_pages : run.unread_pages) != null;
   const commentRows = rows.filter((r) => r.tier.tier !== "A");
   const undecidedKeys = commentRows
     .filter((r) => !decisions.decisions[r.key] && r.priorState !== "agreed")
@@ -59,7 +63,7 @@ export function computeReviewNumbers(input: ReviewNumbersInput): ReviewNumbers {
     // the same number, and a ticked page drops off everywhere.
     unreadPages: gate
       ? uniqueSortedPages(gate.unread_pages.map((p) => p.page))
-      : uniqueSortedPages([...fields.unreadPages, ...(readiness?.unread_pages ?? [])]),
+      : runListHeld ? fields.unreadPages : uniqueSortedPages(readiness?.unread_pages ?? []),
     missingStandards: uniqueStrings([...(input.missingStandards ?? []), ...(readiness?.standards_missing ?? [])]),
     // Unknown is never "none": both lists need their reads to have answered.
     standardsKnown: input.missingStandards !== null && readiness !== null,
