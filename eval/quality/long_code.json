@@ -34,7 +34,7 @@
   "backend/app/review.py": 836,
   "backend/app/schemas.py": 4097,
   "backend/app/search.py": 1229,
-  "backend/app/standards.py": 1916,
+  "backend/app/standards.py": 1924,
   "backend/app/submittal_review.py": 1188,
   "backend/app/synthesis.py": 1823,
   "backend/app/watcher.py": 903
