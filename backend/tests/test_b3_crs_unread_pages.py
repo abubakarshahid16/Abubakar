@@ -25,9 +25,19 @@ def _f(i: int, status: str, rationale: str = "") -> dict:
 
 
 def _run() -> list[dict]:
-    return ([_f(i, "NEEDS_ENGINEER_REVIEW", UNREAD) for i in range(74)]
-            + [_f(100, "NEEDS_ENGINEER_REVIEW", "UNIT_MISMATCH: bar vs mm")]
-            + [_f(200 + i, "MISSING_INFORMATION") for i in range(3)])
+    # f100: a unit mismatch is about a value READ from the sheet, so it has its
+    # field and page (#139: a question with neither is a Review note).
+    return (
+        [_f(i, "NEEDS_ENGINEER_REVIEW", UNREAD) for i in range(74)]
+        + [
+            {
+                **_f(100, "NEEDS_ENGINEER_REVIEW", "UNIT_MISMATCH: bar vs mm"),
+                "fact_id": "fact-100",
+                "contractor_page": 4,
+            }
+        ]
+        + [_f(200 + i, "MISSING_INFORMATION") for i in range(3)]
+    )
 
 
 def test_unread_page_findings_are_one_review_note_not_74_contractor_rows():

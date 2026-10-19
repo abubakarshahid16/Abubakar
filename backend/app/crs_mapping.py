@@ -13,7 +13,8 @@ not itemized here" row hid a vibration breach, a hydrotest shortfall and a
 nozzle-size breach on the audit's planted-defect sheets; a blank "vendor to
 advise" value is the most common comment a reviewing engineer writes, so it
 is a row of its own. NOT_IN_DOCUMENT_SCOPE, unread-page and page-reader
-questions stay off the sheet as Review notes (owner order 2f), each note
+questions, and questions with no datasheet field or page behind them (#139),
+stay off the sheet as Review notes (owner order 2f), each note
 counting its own boundary. The comment is written in an engineer's voice
 (`engineer_comment_text`), Page/Section is the DATASHEET's page and field,
 the standard and clause ride in `standard_reference`, and every row carries
@@ -157,6 +158,26 @@ def _unread(finding: dict) -> bool:
 def _page_reader_only(finding: dict) -> bool:
     return (finding.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"
             and _reason(finding) == _PAGE_READER_ONLY_MARKER)
+
+
+def _no_datasheet_field(finding: dict) -> bool:
+    """#139: a standard's question with NO datasheet field behind it - no
+    value read and no datasheet page (a tie between fields, a pairing step that
+    did not run). It is the standard's sentence, not a reading of the sheet,
+    so it is the engineer's to-do (a Review note), never a CRS line - unless
+    an engineer has confirmed it, which makes it their comment, or it is a
+    verdict held for an unproven rule (`rule_said`, #947), which is the
+    engineer's decision on that rule."""
+    return (
+        finding.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"
+        and finding.get("origin")
+        not in (_DATASHEET_ORIGIN, _AI_ORIGIN, _WEB_ORIGIN, "chat")
+        and not (finding.get("fact_id") or finding.get("contractor_page"))
+        and not _unread(finding)
+        and not _page_reader_only(finding)
+        and not _confirmed(finding)
+        and not finding.get("rule_said")
+    )
 
 
 def _ai_relates_to(finding: dict) -> str:
@@ -303,6 +324,12 @@ NOTE_OTHER_DOCUMENT = "Requires another document"
 #: the note claimed 9, 2 were true).
 NOTE_NO_FIELD = "No datasheet field found - engineer to check"
 _NO_FIELD_MARKER = "no_field_matched"
+#: #139: a requirement left for an engineer with no datasheet field behind it
+#: (`_no_datasheet_field`). It was a CRS line with an empty Page/Section - a
+#: standard's sentence printed as if it were a comment on the sheet.
+NOTE_FIELD_NOT_IDENTIFIED = "Datasheet field not identified - engineer to check"
+#: How many of a note's clause references are listed before "and N more".
+_NOTE_REFERENCES = 6
 #: Review conditions (2026-09-30): a requirement the datasheet's own facts
 #: put OUTSIDE its condition ("for pipes larger than 2 inch" against NPS 1).
 #: NOT a contractor comment and NOT a breach - there is nothing for the
@@ -381,6 +408,7 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
                                  "was found for them. They do not name another document; "
                                  "check each against the datasheet, or the document "
                                  "that governs it.")})
+    notes.extend(_field_not_identified_notes(findings))
     for f in findings:
         if (f.get("compliance_status") == _NOT_APPLICABLE
                 and _reason(f) == _CONDITION_NOT_MET_MARKER):
@@ -392,6 +420,41 @@ def build_review_notes(findings: list[dict], missing_references: list[str],
     if outcome is not None:
         from .clause_coverage import outcome_notes
         notes.extend(outcome_notes(outcome, findings))
+    return notes
+
+
+def _field_not_identified_notes(findings: list[dict]) -> list[dict]:
+    """#139: the questions with no datasheet field behind them, one note per
+    standard with its count and the clauses (`_no_datasheet_field`)."""
+    unplaced: dict[str, list[str]] = {}
+    for f in findings:
+        if not _rejected(f) and _no_datasheet_field(f):
+            std = f.get("standard_name") or f.get("standard_document_id") or ""
+            unplaced.setdefault(str(std), []).append(_standard_reference(f))
+    notes: list[dict] = []
+    for name in sorted(unplaced):
+        refs = list(dict.fromkeys(r for r in unplaced[name] if r))
+        n = len(unplaced[name])
+        listed = "; ".join(refs[:_NOTE_REFERENCES]) + (
+            f"; and {len(refs) - _NOTE_REFERENCES} more"
+            if len(refs) > _NOTE_REFERENCES
+            else ""
+        )
+        notes.append(
+            {
+                "note": NOTE_FIELD_NOT_IDENTIFIED,
+                "standard": name,
+                "count": n,
+                "detail": (
+                    f"{n} of this run's findings from {name or 'this standard'} "
+                    "were left for an engineer with no datasheet field and no "
+                    "datasheet page behind them"
+                    + (f" ({listed})" if listed else "")
+                    + ". They are not comments on the datasheet; find the "
+                    "field, or decide that the requirement does not apply."
+                ),
+            }
+        )
     return notes
 
 
@@ -1009,7 +1072,15 @@ def _bucket_of(f: dict) -> str | None:
         )
     elif status == "NEEDS_ENGINEER_REVIEW":
         # B3 / 2f: unread-page and page-reader questions are Review notes.
-        if not _unread(f) and not _page_reader_only(f):
+        # #1177 (#139): so is a standard's question with no datasheet field and
+        # no page behind it (`_no_datasheet_field`): one note per standard,
+        # never a CRS line. Decided HERE, in the one place that says what is a
+        # row, so the file and the screen's `crs_note` agree.
+        if (
+            not _unread(f)
+            and not _page_reader_only(f)
+            and not _no_datasheet_field(f)
+        ):
             return BUCKET_QUESTION
         return None
     if f.get("show_for_engineer_tick") and status == "COMPLIANT":
@@ -1316,8 +1387,8 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
     `main._crs_content`.
 
     Never rows: rejected findings; UNREAD_PAGES and PAGE_READER_ONLY
-    questions and NOT_IN_DOCUMENT_SCOPE (all Review notes, B3/2f); a
-    COMPLIANT result.
+    questions, questions with no datasheet field behind them (#139) and
+    NOT_IN_DOCUMENT_SCOPE (all Review notes, B3/2f); a COMPLIANT result.
     """
     rows: list[dict] = []
     #: order 139 part 2: rows[i]'s place on the sheet (`finding_row_sort_key`)
