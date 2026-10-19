@@ -47,6 +47,8 @@ export type WorkspaceSheetProps = SheetContractProps & {
   /** Order 139 part 2: how many findings the file lists in its Review notes
    *  instead of as rows (`serverNoteCount`); said once under the table. */
   serverNotes?: number;
+  /** Release 1b: the grouping shown is the last one that could be read. */
+  groupingStale?: boolean;
 };
 
 /** The narrowest "Show" choice that still lists `row` (as visibleRows). */
@@ -67,7 +69,7 @@ function returnTarget(prev: HTMLElement | null, rowKey: string): HTMLElement | n
 
 export function WorkspaceSheet({
   runId, rows, submittal, standardNames, decisions, openRowKey, onOpenRow, numbers, footer, readOnly = false, showKeys = true,
-  serverNotes = 0,
+  serverNotes = 0, groupingStale = false,
 }: WorkspaceSheetProps) {
   const [depth, setDepth] = useState<Depth>("standard");
   const [showMet, setShowMet] = useState(false);
@@ -185,7 +187,7 @@ export function WorkspaceSheet({
         clausesNotApplicable={numbers.notApplicableClauses}
         tierHeader="Kind" readOnly={readOnly} showKeys={showKeys}
       />
-      <SheetGroupingNote rows={rows} notes={serverNotes} />
+      <SheetGroupingNote rows={rows} notes={serverNotes} stale={groupingStale} />
       {footer}
       {drawerRow && (
         <WorkspaceEvidence row={drawerRow} runId={runId} standardNames={standardNames} returnTo={returnTo}

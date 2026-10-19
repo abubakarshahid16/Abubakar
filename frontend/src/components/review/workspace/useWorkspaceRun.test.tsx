@@ -190,6 +190,37 @@ describe("useWorkspaceRun", () => {
     expect(result.current.summary?.crs_grouping).toBe(true);
   });
 
+  /** Release 1b: the kept grouping is not quietly passed off as current.
+   *  MUTATION PROOF: never set `groupingStale` (or set it on a first failed
+   *  read) and this fails. */
+  it("a failed summary refresh after a good one says the grouping is the last one read, until a read succeeds", async () => {
+    const good = {
+      ok: true,
+      data: {
+        review_run_id: "run-1", crs_grouping: true,
+        rows: ["a", "b"].map((finding_id) => ({ finding_id, tier: "B", label: "Comment", crs_group: "field:x", crs_order: 0 })),
+      },
+    };
+    reviewRunSummary.mockResolvedValue(good);
+    const { result } = renderHook(() => useWorkspaceRun("run-1"));
+    await waitFor(() => expect(result.current.rows.map((r) => r.key)).toEqual(["crs:field:x"]));
+    expect(result.current.groupingStale).toBe(false);
+    reviewRunSummary.mockResolvedValueOnce({ ok: false, error: { message: "Cannot reach the backend." } });
+    await act(async () => { await result.current.refresh(); });
+    expect(result.current.rows.map((r) => r.key)).toEqual(["crs:field:x"]);
+    expect(result.current.groupingStale).toBe(true);
+    await act(async () => { await result.current.refresh(); });
+    expect(result.current.groupingStale).toBe(false);
+  });
+
+  it("a summary that never answered is not 'stale': the one-row-per-finding note already says it", async () => {
+    const { result } = renderHook(() => useWorkspaceRun("run-1"));
+    await waitFor(() => expect(result.current.load).toEqual({ kind: "ready" }));
+    await act(async () => { await result.current.refresh(); });
+    expect(result.current.summary).toBeNull();
+    expect(result.current.groupingStale).toBe(false);
+  });
+
   it("a failed first load is still an error (nothing good to keep)", async () => {
     reviewRun.mockResolvedValue({ ok: false, error: { message: "Cannot reach the backend." } });
     const { result } = renderHook(() => useWorkspaceRun("run-1"));

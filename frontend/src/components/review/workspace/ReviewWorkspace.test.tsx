@@ -111,8 +111,8 @@ vi.mock("./useSignOff", async () => {
   };
 });
 vi.mock("./WorkspaceSheet", () => ({
-  WorkspaceSheet: ({ rows, openRowKey, onOpenRow, footer, decisions, readOnly }: WorkspaceSheetProps & { readOnly?: boolean }) => (
-    <div data-testid="ws-sheet" data-read-only={readOnly ? "true" : "false"}>
+  WorkspaceSheet: ({ rows, openRowKey, onOpenRow, footer, decisions, readOnly, groupingStale }: WorkspaceSheetProps & { readOnly?: boolean; groupingStale?: boolean }) => (
+    <div data-testid="ws-sheet" data-read-only={readOnly ? "true" : "false"} data-grouping-stale={groupingStale ? "true" : "false"}>
       <button type="button" onClick={() => decisions.keep("row-b")}>Keep row-b</button>
       <p>{`open row: ${openRowKey ?? "none"}`}</p>
       {rows.map((r) => <button key={r.key} type="button" onClick={() => onOpenRow(r.key)}>{`row ${r.key}`}</button>)}
@@ -369,6 +369,13 @@ describe("ReviewWorkspace", () => {
   });
 
   /** S4. MUTATION PROOF: drop CrsFooter from the sheet's footer and this fails. */
+  /** Release 1b. MUTATION PROOF: stop handing `groupingStale` to the sheet and this fails. */
+  it("hands the sheet whether its grouping is the last one that could be read", () => {
+    data.mockReturnValue({ ...ready(), groupingStale: true } as WorkspaceRunData);
+    render(<Harness initial={{}} />);
+    expect(screen.getByTestId("ws-sheet")).toHaveAttribute("data-grouping-stale", "true");
+  });
+
   it("S4: the honesty footer sits under the sheet", () => {
     render(<Harness initial={{}} />);
     expect(screen.getByTestId("ws-sheet")).toContainElement(screen.getByTestId("crs-footer"));
