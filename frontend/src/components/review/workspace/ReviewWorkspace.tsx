@@ -395,7 +395,10 @@ export function ReviewWorkspace({
         runId={runId} open={signOffRaw.confirmOpen} onClose={signOffRaw.closeConfirm}
         onIssued={() => { void issueGate.reload(); }}
         summary={{ comments: numbers.comments, finalCode: numbers.finalCode, signer: signer.name, signInOff: signer.signInOff }}
-        newerReview={newerRun ? { at: newerAt || null } : null}
+        // Not known whether a newer review exists (the document's reviews
+        // could not be read, or not yet): the step asks before issuing.
+        newerReview={newerRun ? { at: newerAt || null }
+          : run?.submittal_document_id && data.documentRuns == null ? "unknown" : null}
       />
 
       <WorkspaceTabs tab={tab} onTab={onTab}>

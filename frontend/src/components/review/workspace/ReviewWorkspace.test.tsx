@@ -71,9 +71,10 @@ vi.mock("./decide/useSignerName", () => ({
 }));
 vi.mock("./sign/SignConfirm", () => ({
   SignConfirm: ({ open, summary, onClose, newerReview }: {
-    open: boolean; summary: object; onClose: () => void; newerReview?: { at: string | null } | null;
+    open: boolean; summary: object; onClose: () => void; newerReview?: { at: string | null } | null | "unknown";
   }) => (open ? (
-    <div role="dialog" aria-label="Preview and confirm" data-newer={newerReview ? newerReview.at ?? "unknown" : "none"}>
+    <div role="dialog" aria-label="Preview and confirm"
+      data-newer={newerReview === "unknown" ? "not known" : newerReview ? newerReview.at ?? "no date" : "none"}>
       <p data-testid="sign-summary">{JSON.stringify(summary)}</p>
       <button type="button" onClick={onClose}>Cancel signing</button>
     </div>
@@ -575,10 +576,21 @@ describe("ReviewWorkspace", () => {
 
   it("the newest review shows no newer-review line and Sign is not told otherwise", async () => {
     const user = userEvent.setup();
+    data.mockReturnValue({ ...ready(), documentRuns: [run()] } as WorkspaceRunData);
     render(<Harness initial={{}} />);
     expect(screen.queryByTestId("ws-newer-review")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Sign and export" }));
     expect(screen.getByRole("dialog", { name: "Preview and confirm" })).toHaveAttribute("data-newer", "none");
+  });
+
+  /** #1168 follow-up. MUTATION PROOF: pass `null` when the document's
+   *  reviews could not be read and this fails (the warning failed open). */
+  it("when the document's reviews could not be read, Sign is told it is not known whether a newer one exists", async () => {
+    const user = userEvent.setup();
+    data.mockReturnValue({ ...ready(), documentRuns: null, newerRun: null } as WorkspaceRunData);
+    render(<Harness initial={{}} />);
+    await user.click(screen.getByRole("button", { name: "Sign and export" }));
+    expect(screen.getByRole("dialog", { name: "Preview and confirm" })).toHaveAttribute("data-newer", "not known");
   });
 
   /** Round 2 item 8. MUTATION PROOF: show the header button whatever
