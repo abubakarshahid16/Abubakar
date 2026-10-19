@@ -459,6 +459,8 @@ def _production_facts(path: Path, spec: dict, model_call) -> dict:
                                 ("engine", "unavailable", "stopped", "pages_read", "agreed",
                                  "conflicts", "ai_only", "facts_written", "dropped",
                                  "proposals_rejected")}
+        # Form mode (#882): which reader ran and the form pass's own counts.
+        reading["ai_reader"].update(reader=ai.get("reader"), form=ai.get("form"))
     return reading
 
 
