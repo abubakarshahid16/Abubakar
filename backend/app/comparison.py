@@ -2323,6 +2323,17 @@ def _run_comparison(
     names = {r["id"]: r["filename"] for r in connect().execute(
         "SELECT id, filename FROM documents WHERE id IN (%s)" % ",".join(
             "?" for _ in standard_ids), standard_ids)} if standard_ids else {}
+    # #139 A CODE CITED FOR ONE ITEM applies through the cited clauses only;
+    # the rest does not apply, with the reason (`subject_scope.citation_gate`).
+    from . import applicability as applicability_mod
+    from . import subject_scope
+
+    cited = applicability_mod.cited_clause_scope(
+        submittal_id, applicable, allowed_document_ids=allowed_document_ids
+    )
+    cited_scope = subject_scope.citation_gate(requirements, cited, names)
+    requirements = cited_scope["kept"]
+    extra_not_applied.extend(cited_scope["items"])
     gated = table_gate.gate(requirements, facts, standard_names=names)
     all_requirements = len(requirements)
     requirements = gated["kept"]
@@ -2352,7 +2363,6 @@ def _run_comparison(
     # when it has no specific subject, or when either is unclear; the rest are
     # counted and grouped on the run, never dropped silently. See
     # `subject_scope`.
-    from . import subject_scope
     in_scope = len(requirements)
     scoped = subject_scope.gate(
         requirements, classification=stored, facts=facts,
@@ -2374,7 +2384,6 @@ def _run_comparison(
     # #725 F5 A MATERIALS STANDARD applies only to material fields: NACE's
     # alloy-composition table rows are not checks for a datasheet that states
     # no such material (6,702 of them were on one PSV review).
-    from . import applicability as applicability_mod
     materials = subject_scope.materials_gate(
         requirements, facts=facts, standard_labels=standard_labels,
         is_materials_standard=applicability_mod.is_materials_standard)
@@ -2920,6 +2929,8 @@ def _run_comparison(
         split = {**split, "clause_checks": clause_checks}
     if checklist_note:
         split = {**split, "checklist": checklist_note}
+    if cited_scope["summary"]:  # #139: standards cited only for named clauses
+        split = {**split, "cited_clauses": cited_scope["summary"]}
     if checklist_coverage:
         split = {**split, "checklist_coverage": checklist_coverage}
     # Owner order 2026-10-11: the run says which reader read the sheet - the

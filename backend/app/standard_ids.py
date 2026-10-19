@@ -473,6 +473,128 @@ def cited_standards(text: str) -> list[str]:
     return list(seen.values())
 
 
+# ---------------------------------------- #139: the clauses a citation names
+#
+# A datasheet that cites a code FOR ONE ITEM ("<code>, UW-52 (for spot
+# radiography)", "XYZ-100 Section 4", "clause 4.2 of XYZ-100") applies that
+# part of the code, not every requirement in it. The grammar is generic: clause
+# identifiers printed NEXT TO the standard's identifier, with an optional
+# keyword, a list joined by "," / "and", and an optional parenthesised purpose.
+# Nothing here names a standard, a datasheet or a layout. A bare number with no
+# keyword ("API 610 (6.12.1.1)", "NACE MR 0175 11") is never read as a clause:
+# datasheets print form-item numbers and editions there.
+
+#: The kind of clause each keyword introduces.
+_CLAUSE_KEYWORD = re.compile(
+    r"(?P<appendix>(?:(?:non-?)?mandatory\s+|normative\s+|informative\s+)?"
+    r"(?:appendix|appendices|annex(?:es)?))\b\.?"
+    r"|(?P<article>articles?)\b\.?"
+    r"|(?P<number>paragraphs?|paras?|clauses?|cl|sections?|sec|§{1,2})(?:\b\.?|(?<=§))",
+    re.IGNORECASE,
+)
+_CLAUSE_ID = {
+    "appendix": re.compile(r"(?:[A-Z]{1,3}|\d{1,3})(?![A-Za-z0-9])"),
+    "article": re.compile(r"\d{1,3}(?![\d.])"),
+    "number": re.compile(r"\d{1,3}(?:\.\d{1,3}){0,5}(?![\d])"),
+}
+#: A lettered paragraph id that needs no keyword ("UW-52", "UG-99(b)"):
+#: letters, a dash, a number; any "(b)(1)" sub-paragraph marks are read and
+#: the paragraph itself is what is cited (the wider, safer reading).
+_LETTERED_ID = re.compile(
+    r"(?P<id>[A-Z]{1,4}-\d{1,4}[A-Z]?)(?:\([a-z0-9]{1,3}\))*(?![A-Za-z0-9-])"
+)
+#: "(for spot radiography)" - what the clause is cited for; read past, kept as words.
+_PURPOSE = re.compile(r"\s*\((?P<purpose>[^()]{1,80})\)")
+_LIST_JOIN = re.compile(r"\s*(?:,|;|&|/|\band\b|\bor\b)\s*", re.IGNORECASE)
+_LEAD = re.compile(r"[\s,;:]*")
+#: "<clause> of <standard>": the joining word before a citation.
+_BEFORE_JOIN = re.compile(r"\s*\b(?:of|in)\s+(?:the\s+)?\Z", re.IGNORECASE)
+
+
+def _clause_item(
+    text: str, pos: int, kind: str | None
+) -> tuple[list[tuple[str, str]], int, str | None]:
+    """One clause reference at `pos`: (clauses, end, kind). A keyword sets the
+    kind; a list after it ("Articles 2 and 22") keeps it. `kind` is the kind
+    carried from the item before, for a bare id in a list."""
+    keyword = _CLAUSE_KEYWORD.match(text, pos)
+    if keyword is not None:
+        kind = next(k for k in ("appendix", "article", "number") if keyword.group(k))
+        at = keyword.end()
+        while at < len(text) and text[at] in " \t":
+            at += 1
+        found = _CLAUSE_ID[kind].match(text, at)
+        return (
+            ([(kind, found.group(0).upper())], found.end(), kind)
+            if found
+            else ([], pos, None)
+        )
+    lettered = _LETTERED_ID.match(text, pos)
+    if lettered is not None:
+        return [("lettered", lettered.group("id"))], lettered.end(), "lettered"
+    if kind in _CLAUSE_ID:
+        found = _CLAUSE_ID[kind].match(text, pos)
+        if found is not None:
+            return [(kind, found.group(0).upper())], found.end(), kind
+    return [], pos, None
+
+
+def _clause_list(text: str, pos: int) -> tuple[list[tuple[str, str]], int]:
+    """Clause references from `pos` on, joined by "," / "and", each with an
+    optional purpose in brackets. ([], pos) when none starts there."""
+    clauses: list[tuple[str, str]] = []
+    kind: str | None = None
+    end = pos
+    at = pos
+    while True:
+        found, stop, kind = _clause_item(text, at, kind if clauses else None)
+        if not found:
+            break
+        clauses.extend(found)
+        purpose = _PURPOSE.match(text, stop)
+        end = purpose.end() if purpose else stop
+        join = _LIST_JOIN.match(text, end)
+        if join is None or join.end() == end:
+            break
+        at = join.end()
+    return clauses, end
+
+
+def clause_qualifiers(text: str, start: int, stop: int) -> list[tuple[str, str]]:
+    """The clauses a citation at `text[start:stop]` names, in order: after it
+    ("<code>, UW-51 and UW-52 (for spot radiography)", "XYZ-100 Section 4") or
+    before it with "of" / "in" ("clause 4.2 of XYZ-100"). [] when the citation
+    names the standard alone - then the WHOLE standard is what is cited.
+    Each clause is (kind, id): kind is "lettered", "number", "appendix" or
+    "article"."""
+    lead = _LEAD.match(text, stop)
+    after, _ = _clause_list(text, lead.end() if lead else stop)
+    if after:
+        return after
+    window = text[max(0, start - 160) : start]
+    join = _BEFORE_JOIN.search(window)
+    if join is None:
+        return []
+    head = window[: join.start()]
+    for at in range(len(head)):
+        if at and head[at - 1].isalnum():
+            continue
+        found, end = _clause_list(head, at)
+        if found and not head[end:].strip():
+            return found
+    return []
+
+
+def clause_label(clause: tuple[str, str]) -> str:
+    """A cited clause as an engineer writes it."""
+    kind, ident = clause
+    return {
+        "appendix": f"Appendix {ident}",
+        "article": f"Article {ident}",
+        "number": f"clause {ident}",
+    }.get(kind, ident)
+
+
 # ------------------------------------------------------------------ the edition
 
 #: A four-digit year in a filename or a title: the edition it is a copy of.

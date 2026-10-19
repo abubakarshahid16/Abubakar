@@ -537,6 +537,120 @@ def _around(line: str, start: int, stop: int) -> str:
     return line[lo:hi].strip()
 
 
+# ------------------------------------- #139: the clauses a citation names
+
+
+def _applies_whole(
+    submittal_document_id: str,
+    library: list[dict],
+    referenced: dict[str, dict],
+    allowed_document_ids: frozenset[str],
+) -> set[str]:
+    """The cited standards that apply WHOLE for another reason as well: the
+    equipment type or a declared service requires it, it is classified for
+    this equipment, service or project, or its own scope clause covers it."""
+    whole = {
+        sid for sid, a in referenced.items() if a.get("scope_decision") == "APPLICABLE"
+    }
+    check = standards_check(
+        submittal_document_id, allowed_document_ids=allowed_document_ids
+    )
+    for r in check["required"]:
+        entry = find_standard(library, r["identifier"])
+        if entry is not None:
+            whole.add(entry["id"])
+    profile = _submittal_profile(submittal_document_id)
+    for field, method in (
+        ("equipment_type", METHOD_EQUIPMENT),
+        ("service", METHOD_SERVICE),
+        ("project", METHOD_PROJECT),
+    ):
+        whole |= set(_match_attribute(library, profile, field, method))
+    return whole
+
+
+def _citations_on_page(
+    flat: str, candidates: list[dict]
+) -> list[tuple[dict, int, int]]:
+    """Every citation of a candidate on one page: (entry, start, end). The
+    built-in citation reader first, then each candidate's own recorded number
+    (#702's company standards) on a same-length upper copy, so the positions
+    are the page's; a second reading of the same citation is not counted."""
+    spans = [
+        (raw, s, e, None) for raw, s, e in datasheets.referenced_standard_spans(flat)
+    ]
+    upper = standard_ids._DASHES.sub("-", flat.replace("_", " ")).upper()
+    for entry in candidates:
+        names = (
+            entry.get("document_number"),
+            library_identifier(entry.get("filename") or ""),
+        )
+        for pattern in filter(
+            None, (standard_ids._token_pattern(n) for n in names if n)
+        ):
+            spans.extend(
+                (m.group(0), m.start(), m.end(), entry) for m in pattern.finditer(upper)
+            )
+    out: list[tuple[dict, int, int]] = []
+    for raw, s, e, named in spans:
+        entry = named or find_standard(candidates, raw)
+        if entry is not None and not any(
+            o["id"] == entry["id"] and s < oe and os_ < e for o, os_, oe in out
+        ):
+            out.append((entry, s, e))
+    return out
+
+
+def cited_clause_scope(
+    submittal_document_id: str,
+    applicable: list[dict],
+    *,
+    allowed_document_ids: frozenset[str],
+) -> dict[str, dict]:
+    """#139: {standard id: {"clauses", "pages"}} for every applied standard
+    the datasheet names ONLY for named clauses.
+
+    A standard is narrowed only when ALL of these hold, so this can only ever
+    NARROW a review, never widen it (rule 5's direction):
+      * it is applied BECAUSE the datasheet names it (`referenced`) - not by
+        an engineer, and not for any other reason as well (`_applies_whole`);
+      * EVERY place the datasheet names it names clauses too - one bare
+        citation anywhere means the whole standard is cited.
+    Whether the clauses exist in the standard is checked against the
+    standard's own text by `subject_scope.citation_gate`, which narrows."""
+    referenced = {
+        a["standard_document_id"]: a
+        for a in applicable
+        if a.get("selection_method") == METHOD_REFERENCED
+    }
+    library = [e for e in _library(allowed_document_ids) if e["id"] in referenced]
+    if not library:
+        return {}
+    whole = _applies_whole(
+        submittal_document_id, library, referenced, allowed_document_ids
+    )
+    candidates = [e for e in library if e["id"] not in whole]
+    if not candidates:
+        return {}
+    found: dict[str, dict] = {}
+    bare: set[str] = set()
+    for row in connect().execute(
+        "SELECT page_no, text FROM pages WHERE document_id = ? ORDER BY page_no",
+        (submittal_document_id,),
+    ):
+        flat = " ".join((row["text"] or "").split())
+        for entry, s, e in _citations_on_page(flat, candidates):
+            clauses = standard_ids.clause_qualifiers(flat, s, e)
+            if not clauses:
+                bare.add(entry["id"])
+                continue
+            into = found.setdefault(entry["id"], {"clauses": [], "pages": []})
+            into["clauses"].extend(c for c in clauses if c not in into["clauses"])
+            if row["page_no"] not in into["pages"]:
+                into["pages"].append(row["page_no"])
+    return {sid: v for sid, v in found.items() if sid not in bare}
+
+
 # ------------------------------------------------ B5: the scope decision
 
 def load_taxonomy() -> dict | None:

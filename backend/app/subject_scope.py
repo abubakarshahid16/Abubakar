@@ -390,3 +390,255 @@ def materials_gate(requirements: list[dict], *, facts: list[dict], standard_labe
             continue
         items.append({"requirement": requirement, "code": "not_material_field", "detail": detail})
     return {"kept": kept, "items": items}
+
+
+# ------------------------------------------------- #139: the cited clauses only
+#
+# A datasheet that cites a code for ONE ITEM ("<code>, UW-52 (for spot
+# radiography)") applies that clause, not the whole code. Which standards are
+# cited that way, and for which clauses, is `applicability.cited_clause_scope`;
+# this gate finds those clauses in the standard's OWN text and keeps only the
+# requirements inside them. It can only NARROW: a clause the standard's text
+# does not show is never used to drop anything, and a requirement it cannot
+# place with certainty stays a check.
+
+#: The rest of a heading line after its id: nothing, a bracket ("(normative)"),
+#: or a title whose first word is capitalised. A running footer ("UW-51 - UW-52")
+#: and a sentence ("UW-52 shall apply") are not headings. Case-sensitive.
+_TITLE_REST = r"(?=\s*$|\s+\(|\s+[A-Z][A-Za-z]+)"
+_HEADINGS = (
+    (
+        "appendix",
+        re.compile(
+            r"^(?i:(?:(?:non-?)?mandatory\s+|normative\s+|informative\s+)?"
+            r"(?:appendix|annex))\s+(?P<id>[A-Z]{1,3}|\d{1,3})(?![A-Za-z0-9])"
+            + _TITLE_REST
+        ),
+    ),
+    ("article", re.compile(r"^(?i:article)\s+(?P<id>\d{1,3})(?![\d.])" + _TITLE_REST)),
+    (
+        "lettered",
+        re.compile(r"^(?P<id>[A-Z]{1,4}-\d{1,4}[A-Z]?)(?![A-Za-z0-9-])" + _TITLE_REST),
+    ),
+    # A numbered clause needs a title word of three letters or more: "6 in."
+    # and "3 L" inside a sentence are not clause 6 and clause 3.
+    (
+        "number",
+        re.compile(r"^(?P<id>\d{1,3}(?:\.\d{1,3}){0,5})\.?(?=\s+[A-Z][A-Za-z]{2,})"),
+    ),
+)
+#: How much of a sentence's folded opening is looked for on its page, and the
+#: least that is enough to place it.
+_PLACE_CHARS = 48
+_PLACE_MIN = 16
+
+
+def _key(text: object) -> str:
+    return re.sub(r"[^0-9a-z]", "", numparse.fold(text or ""))
+
+
+def _heading(line: str) -> tuple[str, str] | None:
+    for kind, pattern in _HEADINGS:
+        found = pattern.match(line)
+        if found is not None:
+            return kind, found.group("id").upper()
+    return None
+
+
+def _numbers(ident: str) -> tuple[int, ...]:
+    return tuple(int(p) for p in ident.split("."))
+
+
+def _ends(clause: tuple[str, str], head: tuple[str, str]) -> bool:
+    """Does heading `head` close the section of `clause`?"""
+    kind, ident = clause
+    if head == clause:
+        return False
+    if head[0] == "appendix":
+        return True
+    if kind in ("lettered", "article"):
+        return head[0] == kind
+    if kind == "number" and head[0] == "number":
+        return _numbers(head[1]) > _numbers(ident) and not head[1].startswith(
+            ident + "."
+        )
+    return False
+
+
+class StandardText:
+    """A standard's page text, folded for placing sentences, with the
+    position of every line. `pages`: [(page number, text)] in page order."""
+
+    def __init__(self, pages: list[tuple[int, str]]) -> None:
+        self.lines: list[str] = []
+        self.offsets: list[int] = []
+        self.page_bounds: dict[int, tuple[int, int]] = {}
+        parts: list[str] = []
+        at = 0
+        for page, text in pages:
+            start = at
+            for raw in (text or "").splitlines():
+                line = " ".join(raw.split())
+                if not line:
+                    continue
+                self.lines.append(line)
+                self.offsets.append(at)
+                folded = _key(line)
+                parts.append(folded)
+                at += len(folded)
+            self.page_bounds[page] = (start, at)
+        self.offsets.append(at)
+        self.folded = "".join(parts)
+
+    def spans(self, clause: tuple[str, str]) -> list[tuple[int, int]]:
+        """Where `clause` runs: from each heading of it to the next heading
+        that closes it (the end of the text for the last)."""
+        out: list[tuple[int, int]] = []
+        opened: int | None = None
+        for index, line in enumerate(self.lines):
+            head = _heading(line)
+            if head is None:
+                continue
+            if opened is not None and _ends(clause, head):
+                out.append((self.offsets[opened], self.offsets[index]))
+                opened = None
+            if opened is None and head == clause:
+                opened = index
+        if opened is not None:
+            out.append((self.offsets[opened], self.offsets[-1]))
+        return out
+
+    def place(self, requirement: dict) -> int | None:
+        """Where the requirement's sentence starts, or None when it cannot be
+        placed for certain (not found once, or too short to be sure)."""
+        key = _key(
+            requirement.get("source_text") or requirement.get("requirement_text")
+        )[:_PLACE_CHARS]
+        if len(key) < _PLACE_MIN:
+            return None
+        bounds = self.page_bounds.get(_page_of(requirement))
+        if bounds is not None:
+            # A sentence may run on to the next page.
+            at = self.folded.find(key, bounds[0], bounds[1] + len(key))
+            if at != -1:
+                return at
+        first = self.folded.find(key)
+        if first != -1 and self.folded.find(key, first + 1) == -1:
+            return first
+        return None
+
+
+def _page_of(requirement: dict) -> int | None:
+    return requirement.get("page") or requirement.get("chunk_page")
+
+
+def _stored_clause_in(clause_text: object, clause: tuple[str, str]) -> bool:
+    """Is a requirement's stored clause number `clause` or one of its parts?"""
+    stored = re.sub(r"\s+", "", str(clause_text or "")).upper()
+    kind, ident = clause
+    if not stored or kind == "article":
+        return False
+    if stored == ident:
+        return True
+    tails = {
+        "lettered": "(.",
+        "number": ".",
+        "appendix": "-" if ident.isdigit() else ".-",
+    }[kind]
+    return stored.startswith(ident) and stored[len(ident) : len(ident) + 1] in tuple(
+        tails
+    )
+
+
+def standard_pages(standard_id: str) -> list[tuple[int, str]]:
+    """A standard's page text, in page order."""
+    from .db import connect
+
+    return [
+        (r["page_no"], r["text"] or "")
+        for r in connect().execute(
+            "SELECT page_no, text FROM pages WHERE document_id = ? ORDER BY page_no",
+            (standard_id,),
+        )
+    ]
+
+
+def _inside(requirement: dict, text: StandardText, spans: dict) -> bool:
+    """Is the requirement inside one of the cited clauses (`spans`: the
+    clauses the standard's text shows, each with where it runs)? Its stored
+    clause number first, then where its sentence sits. A sentence that cannot
+    be placed is outside only when its whole page lies outside every clause;
+    a page touching one keeps it a check."""
+    if any(_stored_clause_in(requirement.get("clause"), c) for c in spans):
+        return True
+    runs = [run for clause_runs in spans.values() for run in clause_runs]
+    at = text.place(requirement)
+    if at is not None:
+        return any(lo <= at < hi for lo, hi in runs)
+    bounds = text.page_bounds.get(_page_of(requirement))
+    return bounds is None or any(lo < bounds[1] and bounds[0] < hi for lo, hi in runs)
+
+
+def citation_gate(
+    requirements: list[dict],
+    cited: dict[str, dict],
+    standard_labels: dict[str, str],
+    *,
+    pages_of=standard_pages,
+    label=None,
+) -> dict:
+    """#139: a standard the datasheet cites only for named clauses keeps only
+    the requirements inside those clauses (and their sub-clauses).
+
+    `cited`: {standard id: {"clauses": [(kind, id)], "pages": [...]}} from
+    `applicability.cited_clause_scope`. A requirement is inside a clause when
+    its stored clause number is that clause or a part of it, or its sentence
+    lies between the clause's heading and the next heading in the standard's
+    own text (`_inside`). A cited clause the standard's text does not show
+    narrows nothing, and a standard none of whose cited clauses it shows
+    passes untouched, as does every standard not in `cited`. Returns
+    {"kept", "items", "summary"}; items carry `outside_cited_clauses`."""
+    from .standard_ids import clause_label
+
+    label = label or clause_label
+    out_ids: set[int] = set()
+    items: list[dict] = []
+    summary: list[dict] = []
+    for sid, scope in cited.items():
+        rows = [r for r in requirements if r.get("standard_document_id") == sid]
+        text = StandardText(pages_of(sid)) if rows else None
+        spans = {c: text.spans(c) for c in scope["clauses"]} if text else {}
+        found = {
+            c: s
+            for c, s in spans.items()
+            if s or any(_stored_clause_in(r.get("clause"), c) for r in rows)
+        }
+        name = standard_labels.get(sid) or sid
+        where = ", ".join(str(p) for p in scope.get("pages") or [])
+        detail = (
+            f"the datasheet cites {name} only for {', '.join(label(c) for c in found)}"
+            + (f" (page {where})" if where else "")
+            + ", and this requirement is outside them"
+        )
+        out = [r for r in rows if found and not _inside(r, text, found)]
+        out_ids.update(id(r) for r in out)
+        items.extend(
+            {"requirement": r, "code": "outside_cited_clauses", "detail": detail}
+            for r in out
+        )
+        if rows:
+            summary.append(
+                {
+                    "standard_document_id": sid,
+                    "standard": name,
+                    "clauses": [label(c) for c in scope["clauses"]],
+                    "clauses_not_found": [
+                        label(c) for c in scope["clauses"] if c not in found
+                    ],
+                    "pages": list(scope.get("pages") or []),
+                    "kept": len(rows) - len(out),
+                    "not_applied": len(out),
+                }
+            )
+    kept = [r for r in requirements if id(r) not in out_ids]
+    return {"kept": kept, "items": items, "summary": summary}
