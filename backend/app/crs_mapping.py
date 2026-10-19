@@ -1019,10 +1019,9 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                          (ROW_KIND_MISSING_INFORMATION, not_found),
                          (ROW_KIND_DATASHEET_CHECK, checks),
                          (ROW_KIND_NEEDS_ENGINEER_REVIEW, questions)):
-        # Order 139 part 2: the sheet's order is set once, at the end, over
-        # every row kind (`finding_row_sort_key`); this sort only fixes the
-        # order rows are built in.
-        for group in sorted(_grouped(bucket), key=_row_order):
+        # Order 139 part 2: no per-bucket sort - the sheet's order is set
+        # once, at the end, over every row kind (`finding_row_sort_key`).
+        for group in _grouped(bucket):
             f = group[0]
             # Spec f: a blank and a not-found share `row_kind`, not a rank.
             rank_kind = _FINDING_ROW_BUCKET.get(kind) or (

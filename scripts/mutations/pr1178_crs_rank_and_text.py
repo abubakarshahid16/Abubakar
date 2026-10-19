@@ -1,8 +1,7 @@
 """Order 139 part 2, item 5 (#779): every CRS line has plain COMPANY Comments
 text or is not issued, and the sheet is ranked - out of limit, missing value,
 engineer to check - on every row kind. `crs_mapping.py` and `crs_export.py`
-are in the danger zone (rule 6). Placeholder ids M139-4x/5x until the PR
-exists (rule 12)."""
+are in the danger zone (rule 6). Ids M1178-01..15 (rule 12)."""
 
 from __future__ import annotations
 
@@ -19,8 +18,8 @@ def _m(
     n: str, desc: str, path, anchor: str, repl: str, target: str, kw: str
 ) -> Mutation:
     return Mutation(
-        id=f"M139-{n}",
-        phase=139,
+        id=f"M1178-{n}",
+        phase=1178,
         description=desc,
         path=path,
         anchor=anchor,
@@ -34,7 +33,7 @@ def _m(
 MUTATIONS: tuple[Mutation, ...] = (
     # ------------------------------------------------ crs_mapping: the rank
     _m(
-        "41",
+        "01",
         "the rank is left out of the sort key (rows go by page again)",
         _M,
         '    return (priority, *_row_order(group), str(key or ""))\n',
@@ -43,7 +42,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         "rows_rank_out_of_limit_then_missing_then_engineer_to_check",
     ),
     _m(
-        "42",
+        "02",
         "the datasheet page is left out of the sort key inside a rank",
         _M,
         '    return (priority, *_row_order(group), str(key or ""))\n',
@@ -52,7 +51,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         "within_a_rank_rows_go_by_page_then_clause",
     ),
     _m(
-        "43",
+        "03",
         "an unconfirmed AI/web item's COMPANY Comments is empty again",
         _M,
         '            "comment": text if confirmed else unconfirmed_comment,\n',
@@ -61,7 +60,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         "every_internal_row_has_company_comment_text",
     ),
     _m(
-        "44",
+        "04",
         "a value not found is ranked 'Missing value' (asks the contractor)",
         _M,
         "    BUCKET_NOT_FOUND: PRIORITY_ENGINEER_TO_CHECK,\n",
@@ -70,7 +69,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         "not_found_ranks_with_engineer_to_check",
     ),
     _m(
-        "45",
+        "05",
         "the finding loop ranks every missing-information row as a blank",
         _M,
         "                BUCKET_BLANK if paired(f) else BUCKET_NOT_FOUND\n",
@@ -79,7 +78,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         "not_found_ranks_with_engineer_to_check",
     ),
     _m(
-        "46",
+        "06",
         "the required-vs-cited rows sort without their rank (last again)",
         _M,
         '    return (priority, 10**9, (10**6,), _fold(identifier), str(key or ""))\n',
@@ -88,7 +87,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         "rank_holds_across_every_row_kind",
     ),
     _m(
-        "47",
+        "07",
         "a datasheet check out of limit is not ranked first",
         _M,
         '    if kind == BUCKET_CHECK:\n        if compliance_status == "NON_COMPLIANT":\n',
@@ -98,7 +97,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     ),
     # ------------------------------------------- crs_export: the Priority column
     _m(
-        "51",
+        "08",
         "the Priority column prints the severity ('minor') again",
         _E,
         '                  entry["standard_reference"], entry.get("priority_label", "")]',
@@ -107,7 +106,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         "priority_column_prints_the_rank_word",
     ),
     _m(
-        "52",
+        "09",
         "the issue copy prints the internal word for rank 3",
         _E,
         '    return {"priority": priority, "priority_label": priority_word(priority, copy)}\n',
@@ -116,7 +115,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         "issue_copy_says_clarification_for_rank_three",
     ),
     _m(
-        "53",
+        "10",
         "a row with no rank prints a guessed word",
         _E,
         "        return PRIORITY_CARRIED_FORWARD\n    return None\n",
@@ -125,7 +124,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         "row_without_priority_prints_nothing",
     ),
     _m(
-        "54",
+        "11",
         "a carried-forward row prints no rank",
         _E,
         '    if finding.get("row_kind") == ROW_KIND_CARRIED_FORWARD:\n        return PRIORITY_CARRIED_FORWARD\n',
@@ -134,7 +133,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         "row_without_priority_prints_nothing",
     ),
     _m(
-        "58",
+        "12",
         "the view re-sorts the rows (the order is not the sheet's)",
         _E,
         "    rows = []\n    seen: set[str] = set()\n",
@@ -145,7 +144,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     ),
     # ------------------------------------- crs_export: the empty-comment guard
     _m(
-        "55",
+        "13",
         "the issue copy carries a row with no comment text",
         _E,
         "        findings = [f for f in findings if not _no_text(f)]\n",
@@ -154,7 +153,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         "issue_copy_never_carries_a_row_with_no_text",
     ),
     _m(
-        "56",
+        "14",
         "the issue copy leaves rows out without counting them",
         _E,
         "        withheld_no_text = sum(1 for f in findings if _no_text(f))\n",
@@ -163,7 +162,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         "issue_copy_never_carries_a_row_with_no_text",
     ),
     _m(
-        "57",
+        "15",
         "the internal copy prints an empty COMPANY Comments cell",
         _E,
         "        if comment_missing:\n            comment = EMPTY_COMMENT_TEXT\n",
