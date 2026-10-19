@@ -7,7 +7,7 @@
  * - `rowChip`: the plain status chip (L3). Built on the inbox's own state
  *   rules (`inboxStateOf`), so the two lists never disagree. It carries no
  *   count: `countsLine` says the server's totals as what the review found.
- * - `allRunsOf`: every run, newest started first, for "All reviews (N)" (L5).
+ * - `allRunsOf`: every run, newest started first, for "All reviews you may open (N)" (L5).
  * - `matchesName`: the search box (L4).
  */
 import type { DocumentRecord, ReviewRunSummary } from "../../../../types/api";

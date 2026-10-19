@@ -39,8 +39,8 @@ import { loadReadyCounts as defaultLoadReadyCounts } from "./readyCounts";
 /** Rule 4: what the "Found by the review" line on the rows counts. Shown
  *  once near the list (not per row), only while some row shows a count. */
 export const LANDING_COUNTS_NOTE =
-  '"Found by the review" counts comment and Needs-you findings only: what each review found, including any already decided. '
-  + "The comment sheet groups findings into fewer comment lines.";
+  '"Found by the review" counts the findings each review still holds as a comment or as needing your judgement. '
+  + "Findings removed by an engineer are not counted, and the comment sheet groups findings into fewer comment lines.";
 
 export const NOT_ADMIN_LANDING_MESSAGE =
   "Only an administrator can start a review. You can open any review listed below.";

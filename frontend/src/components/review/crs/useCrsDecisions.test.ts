@@ -115,6 +115,27 @@ describe("useCrsDecisions: the per-review draft (v2.1 N1, round 2)", () => {
     expect(again.result.current.pendingRestore).toBeNull();
   });
 
+  /** #1168 follow-up. MUTATION PROOF: reset the record (or the decisions)
+   *  when the draft id goes from null to the review and this fails. */
+  it("when the app learns whose drafts these are, the sheet and the decisions on screen stay, and the draft can come back", () => {
+    setDraftOwner("user-a");
+    const first = open("run-1");
+    act(() => first.result.current.keep(a));
+    first.unmount();
+    // A reload: the screen draws before the owner is known (no draft id).
+    setDraftOwner(null);
+    const hook = renderHook(({ id }: { id: string | null }) => useCrsDecisions(id), { initialProps: { id: null as string | null } });
+    act(() => hook.result.current.observeRecord?.(rows, false));
+    act(() => hook.result.current.remove(b, "Duplicate"));
+    setDraftOwner("user-a");
+    hook.rerender({ id: "run-1" });
+    expect(hook.result.current.state.decisions).toEqual({ [b]: { kind: "remove", reason: "Duplicate" } });
+    expect(hook.result.current.pendingRestore).toEqual({ count: 1 });
+    act(() => hook.result.current.restoreDraft?.());
+    expect(hook.result.current.state.decisions[a]).toEqual({ kind: "keep" });
+    expect(hook.result.current.state.decisions[b]).toEqual({ kind: "remove", reason: "Duplicate" });
+  });
+
   it("a decision whose row changed on the record since, or left the sheet, is dropped and counted", () => {
     const first = open("run-1");
     act(() => first.result.current.keep(a));

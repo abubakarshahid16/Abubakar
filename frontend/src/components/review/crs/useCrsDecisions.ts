@@ -325,15 +325,22 @@ export function useCrsDecisions(draftRunId?: string | null): CrsDecisions {
   const [saved, setSaved] = useState<Record<string, Decision>>({});
   if (draftFor !== runId) {
     const next = splitDraft(readDecisionDraft(runId));
+    // From no draft to this review's draft on the same screen: the app has
+    // just learned whose drafts these are (a reload). The sheet and the
+    // decisions already on screen stay; only the draft is read now. A
+    // different review is a fresh screen.
+    const ownerJustKnown = draftFor === null;
     setDraftFor(runId);
-    setState({ decisions: {}, opened: {} });
     setHeld(next.held);
     setPending(next.pending);
-    setSaved({});
-    setAccepted(null);
     setRestored(0);
     setRestoreDropped(0);
-    setRecord(null);
+    if (!ownerJustKnown) {
+      setState({ decisions: {}, opened: {} });
+      setSaved({});
+      setAccepted(null);
+      setRecord(null);
+    }
   }
   const locked = record?.locked ?? false;
   // The record is known: the held opened marks come back, checked.

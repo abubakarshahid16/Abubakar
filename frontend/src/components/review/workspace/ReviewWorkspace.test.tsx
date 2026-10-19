@@ -312,6 +312,20 @@ describe("ReviewWorkspace", () => {
     expect(reviewAgain).not.toHaveBeenCalled();
   });
 
+  /** #1168 follow-up. MUTATION PROOF: hand the not-finished screen's
+   *  "New review" a cached `runs` list again and this fails. */
+  it('a review that did not finish: its "New review" also re-reads the latest review at click time', async () => {
+    const user = userEvent.setup();
+    realHeaderButton = true;
+    loadPriorDecision.mockImplementation(async (_id: string, held?: ReviewRunSummary[]) => (
+      held ? { kind: "none" } : { kind: "final_code", finalCode: "C" }));
+    data.mockReturnValue({ ...ready({ run: run({ status: "failed" }) }), documentRuns: [run()] } as WorkspaceRunData);
+    render(<Harness initial={{}} />);
+    await user.click(screen.getByRole("button", { name: "New review" }));
+    expect(await screen.findByRole("group", { name: "Start a new review?" })).toHaveTextContent('final code "C"');
+    expect(reviewAgain).not.toHaveBeenCalled();
+  });
+
   it('the missing standards panel\'s "Review again" asks about unsaved decisions first, in the page', async () => {
     const user = userEvent.setup();
     const confirm = vi.spyOn(window, "confirm");

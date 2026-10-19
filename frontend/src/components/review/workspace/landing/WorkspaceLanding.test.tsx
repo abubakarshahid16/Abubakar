@@ -267,13 +267,14 @@ describe("WorkspaceLanding: every count states its boundary (rule 4)", () => {
     expect(screen.queryByTestId("review-all-cut-note")).toBeNull();
   });
 
-  it("one note near the list says the Found by the review counts are comment and Needs-you findings only", async () => {
+  it("one note near the list says what the Found by the review counts hold, and that removed findings are left out", async () => {
     renderLanding();
     await waitFor(() => expect(within(rowOf("Pump")).getByTestId("row-counts")).toBeInTheDocument());
     const notes = screen.getAllByTestId("landing-counts-note");
     expect(notes).toHaveLength(1);
     expect(notes[0]).toHaveTextContent(LANDING_COUNTS_NOTE);
-    expect(LANDING_COUNTS_NOTE).toContain("comment and Needs-you findings only");
+    expect(LANDING_COUNTS_NOTE).toContain("still holds as a comment or as needing your judgement");
+    expect(LANDING_COUNTS_NOTE).toContain("Findings removed by an engineer are not counted");
     expect(within(rowOf("Pump")).queryByTestId("landing-counts-note")).toBeNull();
   });
 
