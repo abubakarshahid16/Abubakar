@@ -65,6 +65,8 @@ function run(over: Partial<ReviewRunSummary> = {}): ReviewRunSummary {
     recommended_code: "Approved with Comments", recommended_reason: "Two values do not meet the standard.",
     requirement_split: { checked: 100, applies_not_checked: 0, does_not_apply: 4362, total: 4462, applies_not_checked_reasons: [], does_not_apply_reasons: [], repeats_ignored: null, unchecked_share: 0 },
     page_coverage: { pages_total: 12, fact_pages: [1, 2, 3], pages_not_read_into_fields: [4, 9], not_read_reasons: {} },
+    // Order 127: the run's unread pages, one definition (made-up).
+    unread_pages: [4, 9],
     engineer_final_code: null, ...over,
   } as ReviewRunSummary;
 }
@@ -192,14 +194,14 @@ describe("CrsSheetView", () => {
   it("renders the headline from the rows and the run's stored fields, the code and the seven columns", async () => {
     mount();
     expect(await screen.findByTestId("crs-headline")).toHaveTextContent(
-      "5 comments, 2 need your judgement. 1 value met, 4,362 clauses not applicable (hidden). The reader gave up on pages 4 and 9.",
+      "5 comments, 2 need your judgement. 1 value met, 4,362 clauses not applicable (hidden). 2 of 12 pages were not read (4 and 9).",
     );
     expect(screen.getByTestId("crs-code")).toHaveTextContent("Proposed code: Approved with Comments. Two values do not meet the standard.");
     expect(await screen.findByText(/Equipment: Pressure safety valve · Revision B/)).toBeInTheDocument();
     const headers = within(screen.getByRole("grid")).getAllByRole("columnheader").map((h) => h.textContent);
     expect(headers).toEqual(["Tier", "Comment no.", "Page or section", "Item", "Clause and standard", "Observation", "Required action", "Status", "Actions"]);
     expect(screen.getByTestId("crs-footer")).toHaveTextContent("Run run-1");
-    expect(screen.getByTestId("crs-footer")).toHaveTextContent("Pages read: 3 of 12; not read: 4, 9.");
+    expect(screen.getByTestId("crs-footer")).toHaveTextContent("Pages not read: 2 of 12 (4, 9).");
     expect(screen.getByTestId("crs-footer")).toHaveTextContent("Standards used: 1 (API 520.pdf); missing from the library: 1 (API 526).");
     expect(screen.queryByTestId("crs-rejected")).not.toBeInTheDocument();
     expect(screen.getByTestId("crs-footer")).toHaveTextContent("Rows on this sheet: 3 Comment, 2 Needs you, 1 Met, 0 Not applicable, 1 Another document");
@@ -481,7 +483,7 @@ function summaryOf(rows: RunSummaryTierRow[], over: Partial<ReviewRunTierSummary
       requirement_split: { checked: 90, applies_not_checked: 0, does_not_apply: 1200, total: 1290, applies_not_checked_reasons: [], does_not_apply_reasons: [], repeats_ignored: null, unchecked_share: 0 },
       page_coverage: { pages_total: 12, fact_pages: [1, 2, 3], pages_not_read_into_fields: [4], not_read_reasons: {} },
       completeness: null, reader: null, timed_out_pages: [7], code_version: null, config_version: null,
-      stage_seconds: null, clauses_by_standard: null,
+      stage_seconds: null, clauses_by_standard: null, unread_pages: [4, 7],
     },
     ...over,
   };
@@ -512,10 +514,11 @@ describe("CrsSheetView reads the run summary (order 95 piece 1, #1111)", () => {
     mount();
     // Order 112: the server's finding counts (11 + 3 comments, 40 met) do not
     // make the headline: the table's 5 comment rows and 1 met row do. The
-    // server's does_not_apply (1,200), its unread pages (4 read into no
-    // field, 7 timed out) and its stored trace (900 + 180 s) do.
+    // server's does_not_apply (1,200), its unread pages (order 127: the one
+    // list `how_reviewed.unread_pages`, 4 and 7) and its stored trace
+    // (900 + 180 s) do.
     expect(await screen.findByTestId("crs-headline")).toHaveTextContent(
-      "5 comments, 2 need your judgement. 1 value met, 1,200 clauses not applicable (hidden). Read in 18 min; the reader gave up on pages 4 and 7.",
+      "5 comments, 2 need your judgement. 1 value met, 1,200 clauses not applicable (hidden). Read in 18 min; 2 of 12 pages were not read (4 and 7).",
     );
     expect(rows().filter((r) => !/^Met/.test(within(r).getAllByRole("cell")[0].textContent ?? ""))).toHaveLength(5);
     expect(reviewRunSummary).toHaveBeenCalledWith("run-1");
@@ -527,7 +530,7 @@ describe("CrsSheetView reads the run summary (order 95 piece 1, #1111)", () => {
   it("when the summary 404s (route not on this server), the screen's own tiers stand in and one small note says so", async () => {
     mount();
     expect(await screen.findByTestId("crs-headline")).toHaveTextContent(
-      "5 comments, 2 need your judgement. 1 value met, 4,362 clauses not applicable (hidden). The reader gave up on pages 4 and 9.",
+      "5 comments, 2 need your judgement. 1 value met, 4,362 clauses not applicable (hidden). 2 of 12 pages were not read (4 and 9).",
     );
     expect(screen.getByTestId("crs-tier-source")).toHaveTextContent("Tiers worked out on this screen: the run summary was not available from the server.");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -602,7 +605,9 @@ describe("CrsSheetView: Before you sign (order 121)", () => {
     recorded = { code: false, page4: false, a: false, other: false };
     findings = [f("a", { contractor_page: 1 })];
     reviewRuns.mockImplementation(async () => ({ ok: true, data: { runs: [run({
-      engineer_final_code: recorded.code ? "Approved with Comments" : null, recommended_code: "Approved with Comments" })] } }));
+      engineer_final_code: recorded.code ? "Approved with Comments" : null, recommended_code: "Approved with Comments",
+      // Order 127: header and box count the same list: page 4 only.
+      unread_pages: [4] })] } }));
     crsIssueGate.mockImplementation(async () => {
       const unread = recorded.page4 ? [] : [{ page: 4, reason: "vision reader: page kind 'cover'" }];
       const open = [
@@ -611,7 +616,7 @@ describe("CrsSheetView: Before you sign (order 121)", () => {
       ];
       const blockers = [...(recorded.code ? [] : ["no final code"]), ...(unread.length ? ["pages"] : []), ...(open.length ? ["findings"] : [])];
       return { ok: true, data: { review_run_id: "run-1", issuable: blockers.length === 0, final_code_recorded: recorded.code,
-        blockers, unread_pages: unread, open_findings: open } };
+        blockers, unread_pages: unread, open_findings: open, checked_pages: recorded.page4 ? [4] : [], pages_total: 12 } };
     });
     decideCode.mockImplementation(async () => { recorded.code = true; return { ok: true, data: {} }; });
     decideCrsPage.mockImplementation(async () => { recorded.page4 = true; return { ok: true, data: {} }; });
@@ -638,6 +643,8 @@ describe("CrsSheetView: Before you sign (order 121)", () => {
     expect(screen.getByTestId("sign-page-4")).toHaveTextContent(
       "Page 4 was not read: it looks like a cover page (the computer's guess). Tick if you checked it yourself.");
     expect(screen.getByTestId("sign-page-4")).not.toHaveTextContent("vision reader");
+    // Order 127: the count carries its total and says what is left to tick.
+    expect(screen.getByTestId("sign-pages")).toHaveTextContent("1 of 12 pages was not read: 0 checked by an engineer, 1 left to tick.");
 
     // 1. The final code: the computer's proposal is pre-selected and named.
     const proposal = within(screen.getByTestId("sign-code")).getByRole("radio", { name: /Approved with Comments/ });
@@ -655,7 +662,7 @@ describe("CrsSheetView: Before you sign (order 121)", () => {
     await userEvent.type(screen.getByLabelText("What you checked on page 4"), " - cover page, title block only");
     await userEvent.click(screen.getByRole("button", { name: "I checked page 4" }));
     expect(decideCrsPage).toHaveBeenCalledWith("run-1", 4, "ok - cover page, title block only");
-    await waitFor(() => expect(screen.getByTestId("sign-pages")).toHaveTextContent("Every page was read or checked"));
+    await waitFor(() => expect(screen.getByTestId("sign-pages")).toHaveTextContent("1 of 12 pages was not read: checked by an engineer."));
 
     // 3. Items on the copy that are not sheet rows: one reason for all.
     expect(screen.getByTestId("sign-items")).toHaveTextContent("a standard the datasheet does not cite");
