@@ -61,12 +61,13 @@ import { useLeaveGuard } from "./useLeaveGuard";
 import { SheetCountsLine } from "./SheetCountsLine";
 import { SignOffPanel } from "./SignOffPanel";
 import { useSignOff } from "./useSignOff";
+import { useViewMode, type ViewMode } from "./useViewMode";
 import { useWorkspaceRun } from "./useWorkspaceRun";
 import { WorkspaceSheet } from "./WorkspaceSheet";
 import { WorkspaceTabs } from "./WorkspaceTabs";
 import {
-  LEAVE_WARNING, WORKSPACE_TABS, type ActionStepId, type ReviewWorkspaceProps, type SignOff, type WorkspaceLocation,
-  type WorkspaceTab,
+  LEAVE_WARNING, WORKSPACE_TABS, type ActionStep, type ActionStepId, type ReviewNumbers, type ReviewWorkspaceProps,
+  type SignOff, type WorkspaceLocation, type WorkspaceTab,
 } from "./contract";
 
 /** How long "Undo" stays on offer after "Keep all remaining comments";
@@ -83,6 +84,83 @@ const PANEL_TABS: readonly WorkspaceTab[] = ["findings", "standards", "steps", "
 
 function isTab(value: string | undefined): value is WorkspaceTab {
   return value !== undefined && (WORKSPACE_TABS as readonly string[]).includes(value);
+}
+
+/** v2.2: remembers that the reader hid the one-line help (this browser). */
+export const REVIEW_HELP_HIDDEN_KEY = "rag.workspace.reviewHelpHidden";
+
+function readHelpHidden(): boolean {
+  try {
+    return localStorage.getItem(REVIEW_HELP_HIDDEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeHelpHidden(): void {
+  try {
+    localStorage.setItem(REVIEW_HELP_HIDDEN_KEY, "1");
+  } catch {
+    /* storage unavailable: hidden for this page only */
+  }
+}
+
+/** v2.2: the one-line help under the title, in plain words. Every fact
+ *  comes from the page's one `computeReviewNumbers` result and its
+ *  `actionSteps`; nothing is counted here. Null when no line is true (for
+ *  example the final code is not known yet, or Sign still waits for pages
+ *  or standards): no line rather than a wrong one. */
+export function reviewHelpWords(numbers: ReviewNumbers, steps: readonly ActionStep[]): string | null {
+  if (numbers.signed) {
+    return "This review is signed. The CRS was issued; you can still read it and import the contractor's replies.";
+  }
+  if (numbers.undecided > 0) {
+    return "Go through each comment: Keep it, Edit the wording, or Remove it. Your choices save by themselves.";
+  }
+  if (numbers.finalCodeRecorded === false) {
+    return "All comments are decided. Record the final code, then preview the CRS and sign.";
+  }
+  if (steps.find((s) => s.id === "sign")?.enabled) {
+    return "Everything is done. Preview the CRS, then sign to issue it to the contractor.";
+  }
+  return null;
+}
+
+function ReviewHelpLine({ words }: { words: string | null }) {
+  const [hidden, setHidden] = useState(readHelpHidden);
+  if (hidden || !words) return null;
+  return (
+    <p data-testid="ws-review-help" className="flex flex-wrap items-baseline gap-2 text-sm text-slateish-300">
+      <span>{words}</span>
+      <button type="button" aria-label="Hide this help" onClick={() => { writeHelpHidden(); setHidden(true); }}
+        className="text-xs text-signal-300 underline-offset-2 hover:underline">
+        Hide
+      </button>
+    </p>
+  );
+}
+
+/** v2.2: the small "Simple | Detailed" switch, top right next to "Try new
+ *  design". It takes no line of its own (zero height, like that switch). */
+export function ViewModeSwitch({ mode, onMode }: { mode: ViewMode; onMode: (mode: ViewMode) => void }) {
+  const option = (value: ViewMode, label: string) => (
+    <button type="button" aria-pressed={mode === value} onClick={() => onMode(value)}
+      className={mode === value
+        ? "rounded-[var(--radius-sm)] bg-ink-700 px-1.5 text-slateish-100"
+        : "px-1.5 text-slateish-400 hover:text-slateish-200"}>
+      {label}
+    </button>
+  );
+  return (
+    <div className="relative h-0" data-testid="ws-view-mode">
+      <div role="group" aria-label="View"
+        className="absolute -top-5 right-36 inline-flex items-center gap-0.5 text-xs leading-4">
+        {option("simple", "Simple")}
+        <span aria-hidden="true" className="text-slateish-500">|</span>
+        {option("detailed", "Detailed")}
+      </div>
+    </div>
+  );
 }
 
 /** Why a review that is not running has no sheet, in one plain sentence. */
@@ -140,6 +218,7 @@ export function ReviewWorkspace({
   location, onLocationChange, onBack, onOpenRun, onUnsavedChange, leaveGuard, isAdmin,
 }: ReviewWorkspaceProps) {
   const { runId } = location;
+  const view = useViewMode();
   const data = useWorkspaceRun(runId);
   const { load, run, findings, rows, standardsState, missingStandardIds, standardNames, submittal, summary, readiness, active, refresh, refreshError } = data;
   const documentRuns = data.documentRuns ?? undefined;
@@ -346,6 +425,7 @@ export function ReviewWorkspace({
       data-testid="review-workspace" data-run={runId} data-panel-open={panelOpen ? "true" : "false"}
     >
       {leaveQuestion}
+      <ViewModeSwitch mode={view.mode} onMode={view.setMode} />
       <header className="flex flex-wrap items-center gap-3">
         <button type="button" onClick={leave} className="text-sm text-signal-300 underline-offset-2 hover:underline">← Reviews</button>
         <h1 id="ws-title" className="min-w-0 flex-1 truncate text-2xl font-semibold text-slateish-100">
@@ -361,6 +441,7 @@ export function ReviewWorkspace({
           </span>
         )}
       </header>
+      <ReviewHelpLine words={reviewHelpWords(numbers, steps)} />
       {newerRun && (
         <p role="status" data-testid="ws-newer-review"
           className="flex flex-wrap items-center gap-2 rounded-[var(--radius-sm)] border border-warn-500/50 bg-warn-500/10 px-3 py-2 text-sm text-slateish-100">
@@ -396,7 +477,7 @@ export function ReviewWorkspace({
         newerReview={newerRun ? { at: newerAt || null } : null}
       />
 
-      <WorkspaceTabs tab={tab} onTab={onTab}>
+      <WorkspaceTabs tab={tab} onTab={onTab} mode={view.mode}>
         {tab === "sheet" && (
           <div className="space-y-2">
             <SheetCountsLine numbers={numbers} />

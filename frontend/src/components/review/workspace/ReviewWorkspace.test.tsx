@@ -14,8 +14,9 @@ import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ReviewRunSummary } from "../../../types/api";
-import type { ActionBarProps, ReviewNumbers, WorkspaceLocation, WorkspaceRunData, WorkspaceSheetProps } from "./contract";
-import { ReviewWorkspace } from "./ReviewWorkspace";
+import type { ActionBarProps, ActionStep, ReviewNumbers, WorkspaceLocation, WorkspaceRunData, WorkspaceSheetProps } from "./contract";
+import { REVIEW_HELP_HIDDEN_KEY, ReviewWorkspace, reviewHelpWords } from "./ReviewWorkspace";
+import { VIEW_MODE_KEY } from "./useViewMode";
 
 const data = vi.fn<() => WorkspaceRunData>();
 /** Stands in for the API call the real ReviewAgainButton makes. */
@@ -197,6 +198,7 @@ beforeEach(() => {
   reviewAgain.mockReset();
   loadPriorDecision.mockReset().mockResolvedValue({ kind: "none" });
   window.sessionStorage.clear();
+  window.localStorage.clear();
   data.mockReturnValue(ready());
   numbersNow = NUMBERS;
   vi.restoreAllMocks();
@@ -356,6 +358,9 @@ describe("ReviewWorkspace", () => {
   it("tab clicks change the address; How, the panels and their own links stay inside the workspace", async () => {
     const user = userEvent.setup();
     render(<Harness initial={{}} />);
+    // Simple view (the default): the engineer tabs sit under "Details".
+    await user.click(screen.getByRole("tab", { name: "Details" }));
+    expect(changes.at(-1)?.tab).toBe("how");
     await user.click(screen.getByRole("tab", { name: "How this was reviewed" }));
     expect(changes.at(-1)?.tab).toBe("how");
     expect(screen.getByText("how page for run-1")).toBeInTheDocument();
@@ -676,5 +681,69 @@ describe("ReviewWorkspace saving", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("ReviewWorkspace v2.2: Simple / Detailed view", () => {
+  /** MUTATION PROOF: drop `mode={view.mode}` from WorkspaceTabs and the
+   *  Simple strip shows every tab, so this fails. */
+  it("Simple is the default: Comment sheet, CRS preview and replies and Details; the switch shows Detailed", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={{}} />);
+    const sw = within(screen.getByRole("group", { name: "View" }));
+    expect(sw.getByRole("button", { name: "Simple" })).toHaveAttribute("aria-pressed", "true");
+    expect(sw.getByRole("button", { name: "Detailed" })).toHaveAttribute("aria-pressed", "false");
+    const main = within(screen.getByRole("tablist", { name: "Review sections" }));
+    expect(main.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Comment sheet", "CRS preview and replies", "Details"]);
+    expect(screen.queryByRole("tab", { name: "Findings" })).toBeNull();
+
+    await user.click(sw.getByRole("button", { name: "Detailed" }));
+    expect(sw.getByRole("button", { name: "Detailed" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(screen.getByRole("tablist", { name: "Review sections" })).getAllByRole("tab")).toHaveLength(7);
+    expect(screen.queryByRole("tab", { name: "Details" })).toBeNull();
+    expect(window.localStorage.getItem(VIEW_MODE_KEY)).toBe("detailed");
+  });
+
+  it("a link to ?tab=steps in Simple view opens the steps tab with the Details row open", () => {
+    render(<Harness initial={{ tab: "steps" }} />);
+    expect(screen.getByRole("tab", { name: "Details" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tablist", { name: "Details" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Steps" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("panel steps")).toBeInTheDocument();
+  });
+});
+
+describe("ReviewWorkspace v2.2: the one-line help", () => {
+  const steps = (signEnabled: boolean): ActionStep[] => [
+    { id: "sign", label: "Sign and export", count: null, done: false, enabled: signEnabled },
+  ];
+
+  it("says the next thing in plain words, from the numbers only", () => {
+    expect(reviewHelpWords({ ...NUMBERS, undecided: 2 }, steps(false)))
+      .toBe("Go through each comment: Keep it, Edit the wording, or Remove it. Your choices save by themselves.");
+    expect(reviewHelpWords({ ...NUMBERS, undecided: 0, finalCodeRecorded: false }, steps(false)))
+      .toBe("All comments are decided. Record the final code, then preview the CRS and sign.");
+    expect(reviewHelpWords({ ...NUMBERS, undecided: 0, finalCodeRecorded: true, finalCode: "2" }, steps(true)))
+      .toBe("Everything is done. Preview the CRS, then sign to issue it to the contractor.");
+    expect(reviewHelpWords({ ...NUMBERS, undecided: 0, signed: true, signedAt: "2026-10-19" }, steps(false)))
+      .toBe("This review is signed. The CRS was issued; you can still read it and import the contractor's replies.");
+  });
+
+  it("says nothing it cannot back: a final code not known yet, or Sign still waiting", () => {
+    expect(reviewHelpWords({ ...NUMBERS, undecided: 0, finalCodeRecorded: null }, steps(false))).toBeNull();
+    expect(reviewHelpWords({ ...NUMBERS, undecided: 0, finalCodeRecorded: true }, steps(false))).toBeNull();
+  });
+
+  /** MUTATION PROOF: drop the ReviewHelpLine and this fails. */
+  it("shows under the title and Hide keeps it hidden in this browser", async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(<Harness initial={{}} />);
+    expect(screen.getByTestId("ws-review-help")).toHaveTextContent("Go through each comment");
+    await user.click(screen.getByRole("button", { name: "Hide this help" }));
+    expect(screen.queryByTestId("ws-review-help")).toBeNull();
+    expect(window.localStorage.getItem(REVIEW_HELP_HIDDEN_KEY)).toBe("1");
+    unmount();
+    render(<Harness initial={{}} />);
+    expect(screen.queryByTestId("ws-review-help")).toBeNull();
   });
 });
