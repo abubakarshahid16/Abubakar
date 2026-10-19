@@ -338,6 +338,24 @@ describe("Compare with this one", () => {
     expect(compare[0]).toHaveFocus();
   });
 
+  /** v2.2 review 1. MUTATION PROOF: read or show the count of the review on
+   *  screen and this fails (its numbers come from the page's one source). */
+  it("on the review page, the review on screen shows no count of its own and its count is not read", async () => {
+    const unsigned = pastReviewsOf("doc-1", [
+      run({ review_run_id: "run-1", created_at: "2026-10-01T08:00:00Z" }),
+      run({ review_run_id: "run-4", created_at: "2026-10-07T08:00:00Z" }),
+    ]);
+    reviewRunCounts.mockResolvedValue(batch({ "run-1": [7, 2], "run-4": [5, 1] }));
+    render(<PastReviewsList reviews={unsigned} onOpenRun={vi.fn()} currentRunId="run-4" />);
+    await waitFor(() => expect(screen.getByText(/9 findings/)).toBeInTheDocument());
+    expect(reviewRunCounts).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(reviewRunCounts.mock.calls[0])).not.toContain("run-4");
+    expect(screen.queryByText(/6 findings/)).toBeNull();
+    const own = screen.getAllByRole("listitem")[0];
+    expect(within(own).getByText("This review")).toBeInTheDocument();
+    expect(within(own).getAllByRole("button")[0]).toHaveAttribute("aria-current", "true");
+  });
+
   it("says in plain words when a review could not be read", async () => {
     serve("run-1");
     render(<PastReviewsList reviews={rows} onOpenRun={vi.fn()} currentRunId="run-3" />);

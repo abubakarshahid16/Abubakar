@@ -47,7 +47,9 @@ export function PastReviewsList({ reviews, onOpenRun, currentRunId = null }: Pas
 
   useEffect(() => {
     let alive = true;
-    const ids = reviews.filter((r) => !r.signed).map((r) => r.runId);
+    // The review on screen is left out: its own numbers are on the page
+    // (one source of numbers), so its "found" count is not read or shown.
+    const ids = reviews.filter((r) => !r.signed && r.runId !== currentRunId).map((r) => r.runId);
     if (ids.length === 0) return undefined;
     void loadPastReviewCounts(ids).then((got) => {
       if (alive) setCounts((was) => ({ ...was, ...got }));
@@ -55,20 +57,22 @@ export function PastReviewsList({ reviews, onOpenRun, currentRunId = null }: Pas
     return () => { alive = false; };
     // Re-read only when the set of runs changes, not on every new array.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runKey]);
+  }, [runKey, currentRunId]);
 
   if (reviews.length === 0) return null;
-  const anyCount = reviews.some((r) => !r.signed && counts[r.runId]);
+  const anyCount = reviews.some((r) => !r.signed && r.runId !== currentRunId && counts[r.runId]);
 
   return (
     <div>
       <ul aria-label="All reviews of this file" className="divide-y divide-ink-700 rounded-[var(--radius-sm)] border border-ink-700">
         {reviews.map((review) => {
-          const words = review.signed ? "" : pastCountsLabel(counts[review.runId]);
+          const own = review.runId === currentRunId;
+          const words = own ? "This review" : review.signed ? "" : pastCountsLabel(counts[review.runId]);
           return (
             <li key={review.runId} className="flex items-stretch">
               <button
                 type="button"
+                aria-current={own ? "true" : undefined}
                 onClick={() => onOpenRun(review.runId)}
                 className="grid min-w-0 flex-1 grid-cols-2 gap-x-3 gap-y-1 px-3 py-2 text-left text-xs text-slateish-300 hover:bg-ink-800 sm:grid-cols-4"
               >
