@@ -534,6 +534,24 @@ describe("ReviewWorkspace", () => {
     expect(onOpenRun).toHaveBeenCalledWith("run-9");
   });
 
+  /** v2.2. MUTATION PROOF: stop drawing the earlier-reviews list on the
+   *  review page (or stop passing currentRunId) and this fails. */
+  it("the review page lists every review of the file and offers Compare on an earlier one", async () => {
+    const user = userEvent.setup();
+    const earlier = run({ review_run_id: "run-0", created_at: "2026-10-10T09:00:00Z" });
+    const current = ready().run!;
+    data.mockReturnValue({ ...ready(), documentRuns: [current, earlier] } as WorkspaceRunData);
+    render(<Harness initial={{}} />);
+    const box = screen.getByTestId("ws-past-reviews");
+    await user.click(within(box).getByRole("button", { name: /All reviews of this file \(2\)/ }));
+    expect(within(box).getAllByRole("button", { name: /Compare with this one/ })).toHaveLength(1);
+  });
+
+  it("a file with one review shows no earlier-reviews list", () => {
+    render(<Harness initial={{}} />);
+    expect(screen.queryByTestId("ws-past-reviews")).toBeNull();
+  });
+
   it("the newest review shows no newer-review line and Sign is not told otherwise", async () => {
     const user = userEvent.setup();
     render(<Harness initial={{}} />);

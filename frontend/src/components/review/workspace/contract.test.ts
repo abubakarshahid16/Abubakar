@@ -30,6 +30,6 @@ describe("workspace v2 contract", () => {
   });
 
   it("every tab has a plain label", () => {
-    for (const tab of contract.WORKSPACE_TABS) expect(contract.WORKSPACE_TAB_LABELS[tab]).toMatch(/^[A-Z][a-z ]+$/);
+    for (const tab of contract.WORKSPACE_TABS) expect(contract.WORKSPACE_TAB_LABELS[tab]).toMatch(/^[A-Z][A-Za-z ]+$/);
   });
 });

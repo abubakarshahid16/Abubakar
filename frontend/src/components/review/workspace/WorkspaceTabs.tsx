@@ -25,7 +25,7 @@ const DETAILS_ID = "ws-tab-details";
 /** The tabs a manager or new user needs, in Simple view. */
 export const SIMPLE_TABS: readonly WorkspaceTab[] = ["sheet", "crs"];
 /** The engineer tabs, under "Details" in Simple view. */
-export const DETAIL_TABS: readonly WorkspaceTab[] = WORKSPACE_TABS.filter((t) => !SIMPLE_TABS.includes(t));
+export const DETAIL_TABS: readonly WorkspaceTab[] = ["how", "findings", "standards", "steps", "numbers"];
 
 type Slot = WorkspaceTab | "details";
 

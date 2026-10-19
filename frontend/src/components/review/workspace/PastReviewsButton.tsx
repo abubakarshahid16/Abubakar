@@ -12,7 +12,10 @@ import type { PastReviewsButtonProps } from "./contract";
 import { PastReviewsList } from "./PastReviewsList";
 import { pastReviewsOf } from "./pastReviews";
 
-export function PastReviewsButton({ documentId, runs, onOpenRun }: PastReviewsButtonProps) {
+/** v2.2: on the review page, `currentRunId` is the review on screen; the list
+ *  then offers "Compare with this one" on each earlier finished review. */
+export function PastReviewsButton({ documentId, runs, onOpenRun, currentRunId = null }:
+  PastReviewsButtonProps & { currentRunId?: string | null }) {
   const reviews = useMemo(() => pastReviewsOf(documentId, runs), [documentId, runs]);
   const [open, setOpen] = useState(false);
   const listId = useId();
@@ -32,7 +35,7 @@ export function PastReviewsButton({ documentId, runs, onOpenRun }: PastReviewsBu
       </button>
       {open && (
         <div id={listId} className="mt-2">
-          <PastReviewsList reviews={reviews} onOpenRun={onOpenRun} />
+          <PastReviewsList reviews={reviews} onOpenRun={onOpenRun} currentRunId={currentRunId} />
         </div>
       )}
     </div>

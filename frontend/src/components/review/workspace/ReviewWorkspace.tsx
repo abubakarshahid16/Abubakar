@@ -64,6 +64,7 @@ import { useSignOff } from "./useSignOff";
 import { useViewMode, type ViewMode } from "./useViewMode";
 import { useWorkspaceRun } from "./useWorkspaceRun";
 import { WorkspaceSheet } from "./WorkspaceSheet";
+import { PastReviewsButton } from "./PastReviewsButton";
 import { WorkspaceTabs } from "./WorkspaceTabs";
 import {
   LEAVE_WARNING, WORKSPACE_TABS, type ActionStep, type ActionStepId, type ReviewNumbers, type ReviewWorkspaceProps,
@@ -442,6 +443,12 @@ export function ReviewWorkspace({
         )}
       </header>
       <ReviewHelpLine words={reviewHelpWords(numbers, steps)} />
+      {run.submittal_document_id && documentRuns && documentRuns.length > 1 && (
+        <div data-testid="ws-past-reviews">
+          <PastReviewsButton documentId={run.submittal_document_id} runs={documentRuns}
+            onOpenRun={openRun} currentRunId={runId} />
+        </div>
+      )}
       {newerRun && (
         <p role="status" data-testid="ws-newer-review"
           className="flex flex-wrap items-center gap-2 rounded-[var(--radius-sm)] border border-warn-500/50 bg-warn-500/10 px-3 py-2 text-sm text-slateish-100">
