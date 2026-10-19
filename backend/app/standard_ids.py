@@ -479,10 +479,13 @@ def cited_standards(text: str) -> list[str]:
 # radiography)", "XYZ-100 Section 4", "clause 4.2 of XYZ-100") applies that
 # part of the code, not every requirement in it. The grammar is generic: clause
 # identifiers printed NEXT TO the standard's identifier, with an optional
-# keyword, a list joined by "," / "and", and an optional parenthesised purpose.
-# Nothing here names a standard, a datasheet or a layout. A bare number with no
-# keyword ("API 610 (6.12.1.1)", "NACE MR 0175 11") is never read as a clause:
-# datasheets print form-item numbers and editions there.
+# keyword, a list joined by "," / "and", a range ("UG-20 to UG-25", "4.1-4.5"),
+# and an optional parenthesised purpose. Nothing here names a standard, a
+# datasheet or a layout. A bare number with no keyword ("API 610 (6.12.1.1)",
+# "NACE MR 0175 11") is never read as a clause: datasheets print form-item
+# numbers and editions there. A list that cannot be read for certain (a range
+# whose two ends are not of one numbering) reads as None: the citation is then
+# taken to cite the WHOLE standard - never narrowed on a guess.
 
 #: The kind of clause each keyword introduces.
 _CLAUSE_KEYWORD = re.compile(
@@ -506,6 +509,13 @@ _LETTERED_ID = re.compile(
 #: "(for spot radiography)" - what the clause is cited for; read past, kept as words.
 _PURPOSE = re.compile(r"\s*\((?P<purpose>[^()]{1,80})\)")
 _LIST_JOIN = re.compile(r"\s*(?:,|;|&|/|\band\b|\bor\b)\s*", re.IGNORECASE)
+#: Between the two ends of a range: "to", "through", "thru", a dash.
+_RANGE_JOIN = re.compile(
+    r"\s*(?:\bto\b|\bthrough\b|\bthru\b|[-\u2013\u2014])\s*", re.IGNORECASE
+)
+#: The most clauses one range is read as; a longer one is not a citation of
+#: "one item" and is not narrowed on.
+_RANGE_MAX = 60
 _LEAD = re.compile(r"[\s,;:]*")
 #: "<clause> of <standard>": the joining word before a citation.
 _BEFORE_JOIN = re.compile(r"\s*\b(?:of|in)\s+(?:the\s+)?\Z", re.IGNORECASE)
@@ -539,9 +549,54 @@ def _clause_item(
     return [], pos, None
 
 
-def _clause_list(text: str, pos: int) -> tuple[list[tuple[str, str]], int]:
-    """Clause references from `pos` on, joined by "," / "and", each with an
-    optional purpose in brackets. ([], pos) when none starts there."""
+class CitedClause(tuple):
+    """A cited clause, (kind, id) - equal to the plain pair - that knows
+    whether the datasheet printed it or it lies INSIDE a printed range
+    ("UG-21" of "UG-20 to UG-25"): a numbering may skip an id inside a range,
+    so only the printed ends must exist in the standard."""
+
+    def __new__(cls, kind: str, ident: str, in_range: bool = False):
+        clause = super().__new__(cls, (kind, ident))
+        clause.in_range = in_range
+        return clause
+
+
+def _range(
+    first: tuple[str, str], last: tuple[str, str]
+) -> list[tuple[str, str]] | None:
+    """Every clause from `first` to `last`, or None when the two ends are not
+    of one numbering (another kind, another letter prefix, another parent
+    clause, another depth), run backwards, or span more than `_RANGE_MAX`."""
+    kind, a = first
+    if last[0] != kind:
+        return None
+    b = last[1]
+    if kind == "lettered":
+        (pa, na), (pb, nb) = a.split("-", 1), b.split("-", 1)
+        if pa != pb or not (na.isdigit() and nb.isdigit()):
+            return None
+        make, lo, hi = (lambda n: f"{pa}-{n}"), int(na), int(nb)
+    elif kind == "number":
+        ha, _, ta = a.rpartition(".")
+        hb, _, tb = b.rpartition(".")
+        if ha != hb:
+            return None
+        make, lo, hi = (lambda n: f"{ha}.{n}" if ha else str(n)), int(ta), int(tb)
+    elif a.isdigit() and b.isdigit():
+        make, lo, hi = str, int(a), int(b)
+    elif len(a) == len(b) == 1 and a.isalpha() and b.isalpha():
+        make, lo, hi = chr, ord(a), ord(b)
+    else:
+        return None
+    if not 0 <= hi - lo < _RANGE_MAX:
+        return None
+    return [CitedClause(kind, make(n), lo < n < hi) for n in range(lo, hi + 1)]
+
+
+def _clause_list(text: str, pos: int) -> tuple[list[tuple[str, str]] | None, int]:
+    """Clause references from `pos` on, joined by "," / "and", each a clause
+    or a range, with an optional purpose in brackets. ([], pos) when none
+    starts there; (None, pos) when a range cannot be read for certain."""
     clauses: list[tuple[str, str]] = []
     kind: str | None = None
     end = pos
@@ -550,6 +605,17 @@ def _clause_list(text: str, pos: int) -> tuple[list[tuple[str, str]], int]:
         found, stop, kind = _clause_item(text, at, kind if clauses else None)
         if not found:
             break
+        dash = _RANGE_JOIN.match(text, stop)
+        last, after, _ = (
+            _clause_item(text, dash.end(), kind)
+            if dash and dash.end() > stop
+            else ([], stop, None)
+        )
+        if last:
+            found = _range(found[0], last[0])
+            if found is None:
+                return None, pos
+            stop = after
         clauses.extend(found)
         purpose = _PURPOSE.match(text, stop)
         end = purpose.end() if purpose else stop
@@ -560,16 +626,17 @@ def _clause_list(text: str, pos: int) -> tuple[list[tuple[str, str]], int]:
     return clauses, end
 
 
-def clause_qualifiers(text: str, start: int, stop: int) -> list[tuple[str, str]]:
+def clause_qualifiers(text: str, start: int, stop: int) -> list[tuple[str, str]] | None:
     """The clauses a citation at `text[start:stop]` names, in order: after it
     ("<code>, UW-51 and UW-52 (for spot radiography)", "XYZ-100 Section 4") or
     before it with "of" / "in" ("clause 4.2 of XYZ-100"). [] when the citation
-    names the standard alone - then the WHOLE standard is what is cited.
+    names the standard alone - then the WHOLE standard is what is cited - and
+    None when the clauses cannot be read for certain (treated the same way).
     Each clause is (kind, id): kind is "lettered", "number", "appendix" or
     "article"."""
     lead = _LEAD.match(text, stop)
     after, _ = _clause_list(text, lead.end() if lead else stop)
-    if after:
+    if after is None or after:
         return after
     window = text[max(0, start - 160) : start]
     join = _BEFORE_JOIN.search(window)
@@ -580,7 +647,7 @@ def clause_qualifiers(text: str, start: int, stop: int) -> list[tuple[str, str]]
         if at and head[at - 1].isalnum():
             continue
         found, end = _clause_list(head, at)
-        if found and not head[end:].strip():
+        if found is None or (found and not head[end:].strip()):
             return found
     return []
 

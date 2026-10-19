@@ -165,7 +165,9 @@ def _no_datasheet_field(finding: dict) -> bool:
     value read and no datasheet page (a tie between fields, a pairing step that
     did not run). It is the standard's sentence, not a reading of the sheet,
     so it is the engineer's to-do (a Review note), never a CRS line - unless
-    an engineer has confirmed it, which makes it their comment."""
+    an engineer has confirmed it, which makes it their comment, or it is a
+    verdict held for an unproven rule (`rule_said`, #947), which is the
+    engineer's decision on that rule."""
     return (
         finding.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"
         and finding.get("origin")
@@ -174,6 +176,7 @@ def _no_datasheet_field(finding: dict) -> bool:
         and not _unread(finding)
         and not _page_reader_only(finding)
         and not _confirmed(finding)
+        and not finding.get("rule_said")
     )
 
 
@@ -414,8 +417,8 @@ def _field_not_identified_notes(findings: list[dict]) -> list[dict]:
     unplaced: dict[str, list[str]] = {}
     for f in findings:
         if not _rejected(f) and _no_datasheet_field(f):
-            name = str(f.get("standard_name") or f.get("standard_document_id") or "")
-            unplaced.setdefault(name, []).append(_standard_reference(f))
+            std = f.get("standard_name") or f.get("standard_document_id") or ""
+            unplaced.setdefault(str(std), []).append(_standard_reference(f))
     notes: list[dict] = []
     for name in sorted(unplaced):
         refs = list(dict.fromkeys(r for r in unplaced[name] if r))
@@ -431,7 +434,7 @@ def _field_not_identified_notes(findings: list[dict]) -> list[dict]:
                 "standard": name,
                 "count": n,
                 "detail": (
-                    f"{n} of this run's requirements from {name or 'this standard'} "
+                    f"{n} of this run's findings from {name or 'this standard'} "
                     "were left for an engineer with no datasheet field and no "
                     "datasheet page behind them"
                     + (f" ({listed})" if listed else "")

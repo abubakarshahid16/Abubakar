@@ -56,6 +56,44 @@ def test_clauses_printed_after_a_citation_are_read():
     ]
 
 
+def test_a_range_of_clauses_is_read_whole():
+    lettered = [("lettered", f"ZT-{n}") for n in range(20, 26)]
+    assert _qualifiers("XYZ-100, ZT-20 to ZT-25", "XYZ-100") == lettered
+    assert (
+        _qualifiers("XYZ-100, ZT-20 through ZT-25 (for welds)", "XYZ-100") == lettered
+    )
+    assert _qualifiers("XYZ-100, ZT-20 thru ZT-25", "XYZ-100") == lettered
+    assert _qualifiers("XYZ-100, ZT-20 - ZT-25", "XYZ-100") == lettered
+    numbered = [("number", f"4.{n}") for n in range(1, 6)]
+    assert _qualifiers("XYZ-100 clauses 4.1 to 4.5", "XYZ-100") == numbered
+    assert _qualifiers("XYZ-100 clauses 4.1-4.5", "XYZ-100") == numbered
+    assert _qualifiers("XYZ-100 Annex A to C", "XYZ-100") == [
+        ("appendix", "A"),
+        ("appendix", "B"),
+        ("appendix", "C"),
+    ]
+    # only the printed ends must exist: a numbering may skip an id inside
+    inside = _qualifiers("XYZ-100, ZT-20 to ZT-22", "XYZ-100")
+    assert [getattr(c, "in_range", False) for c in inside] == [False, True, False]
+
+
+def test_a_range_that_cannot_be_read_for_certain_narrows_nothing():
+    # ends of two numberings: not read as one clause, never as part of one
+    for text in (
+        "XYZ-100, ZT-20 to QX-25",
+        "XYZ-100 clause 4.1 to 5.2",
+        "XYZ-100 clause 4.1 to 4.9.2",
+        "XYZ-100, ZT-25 to ZT-20",
+    ):
+        assert _qualifiers(text, "XYZ-100") is None, text
+
+
+def test_a_dash_that_is_not_a_range_ends_the_list():
+    assert _qualifiers("XYZ-100, ZT-32 - spot examination", "XYZ-100") == [
+        ("lettered", "ZT-32")
+    ]
+
+
 def test_a_clause_printed_before_a_citation_with_of_is_read():
     assert _qualifiers("Marking per clause 4.2 of XYZ-100.", "XYZ-100") == [
         ("number", "4.2")
@@ -173,14 +211,100 @@ def test_a_clause_the_standard_does_not_show_narrows_nothing():
     assert out["summary"][0]["clauses_not_found"] == ["PX-101"]
 
 
+def test_one_cited_clause_the_standard_does_not_show_narrows_nothing_of_it():
+    # ZT-32 is shown, ZT-99 is not: the citation was not read for certain, so
+    # ZT-99's requirements are never dropped as "outside the cited clauses"
+    out = _gate([("lettered", "ZT-32"), ("lettered", "ZT-99")])
+    assert len(out["kept"]) == 6 and out["items"] == []
+    [summary] = out["summary"]
+    assert summary["clauses_not_found"] == ["ZT-99"] and summary["narrowed"] is False
+
+
+def test_a_range_inside_which_the_numbering_skips_an_id_still_narrows():
+    # the standard has no ZT-31 heading; only the ends ZT-30 and ZT-32 are printed
+    clauses = standard_ids.clause_qualifiers("QRS 12, ZT-30 to ZT-32", 0, 6)
+    pages = [PAGES[0], (2, PAGES[1][1].replace("ZT-31\n", "")), *PAGES[2:]]
+    out = subject_scope.citation_gate(
+        [FULL, SPOT, HARD],
+        {"std": {"clauses": clauses, "pages": []}},
+        {},
+        pages_of=lambda sid: pages,
+    )
+    assert [r["id"] for r in out["kept"]] == ["full", "spot"]
+    assert out["summary"][0]["narrowed"] is True
+
+
+def test_titles_after_a_dash_or_a_colon_are_headings():
+    pages = [
+        (
+            1,
+            "APPENDIX Q - ROUNDED INDICATIONS\nRounded marks shall be recorded.\n"
+            "Annex R: Porosity Charts\nPorosity charts shall be attached.\n"
+            "ANNEX S\nSurface finish shall be stated.\n",
+        )
+    ]
+    reqs = [
+        _req("q", 1, "Rounded marks shall be recorded."),
+        _req("r", 1, "Porosity charts shall be attached."),
+        _req("s", 1, "Surface finish shall be stated."),
+    ]
+    out = subject_scope.citation_gate(
+        reqs,
+        {"std": {"clauses": [("appendix", "Q"), ("appendix", "R")], "pages": []}},
+        {},
+        pages_of=lambda sid: pages,
+    )
+    assert [r["id"] for r in out["kept"]] == ["q", "r"]
+    assert out["summary"][0]["narrowed"] is True
+
+
+def test_a_running_header_or_a_table_row_does_not_end_a_numbered_clause():
+    header = "{n} QRS 12 WIDGET STANDARD"
+    pages = [
+        (1, header.format(n=5) + "\n5 Scope\nThe scope shall be stated.\n"),
+        (2, header.format(n=6) + "\n6 Materials\nThe material shall be stated.\n"),
+        (
+            3,
+            header.format(n=7) + "\nThe bolting grade shall be stated.\n"
+            "150 Carbon steel 19.6\nThe flange rating shall be stated.\n",
+        ),
+        (
+            4,
+            header.format(n=8) + "\nThe gasket shall be stated.\n"
+            "7 Testing\nThe test pressure shall be recorded.\n",
+        ),
+    ]
+    reqs = [
+        _req(k, page, t)
+        for k, page, t in (
+            ("scope", 1, "The scope shall be stated."),
+            ("material", 2, "The material shall be stated."),
+            ("bolting", 3, "The bolting grade shall be stated."),
+            ("flange", 3, "The flange rating shall be stated."),
+            ("gasket", 4, "The gasket shall be stated."),
+            ("test", 4, "The test pressure shall be recorded."),
+        )
+    ]
+    out = subject_scope.citation_gate(
+        reqs,
+        {"std": {"clauses": [("number", "6")], "pages": []}},
+        {},
+        pages_of=lambda sid: pages,
+    )
+    assert [r["id"] for r in out["kept"]] == ["material", "bolting", "flange", "gasket"]
+
+
 def test_a_stored_clause_number_inside_the_cited_clause_is_kept():
+    # page 4 lies outside ZT-32 and the words are on no page: only its stored
+    # clause number keeps it
     stray = _req(
         "stray",
-        9,
+        4,
         "Words that appear on no page of the standard at all.",
         clause="ZT-32(c)",
     )
-    out = _gate([("lettered", "ZT-32")], reqs=(stray, HARD))
+    unplaced = {**stray, "id": "unplaced", "clause": None}
+    out = _gate([("lettered", "ZT-32")], reqs=(stray, unplaced, HARD))
     assert [r["id"] for r in out["kept"]] == ["stray"]
 
 
@@ -271,13 +395,27 @@ def _doc(doc_id, filename, role, pages, **meta):
             )
 
 
-def _review(datasheet_line: str):
-    _doc("std", "XYZ-100.pdf", "COMPANY_STANDARD", PAGES, document_number="XYZ-100")
+def _review(
+    datasheet_line: str,
+    *,
+    std_meta=None,
+    scope_decision=None,
+    next_page=None,
+):
+    _doc(
+        "std",
+        "XYZ-100.pdf",
+        "COMPANY_STANDARD",
+        PAGES,
+        document_number="XYZ-100",
+        **(std_meta or {}),
+    )
+    page = f"WELD EXAMINATION\nDESIGN PRESSURE 10 barg\n{datasheet_line}\n"
     _doc(
         "sub",
         "sheet.pdf",
         "CONTRACTOR_SUBMITTAL",
-        [(1, f"WELD EXAMINATION\n{datasheet_line}\nDESIGN PRESSURE 10 barg\n")],
+        [(1, page), *([(2, next_page)] if next_page else [])],
         equipment_type="Widget",
     )
     ids = {}
@@ -307,8 +445,9 @@ def _review(datasheet_line: str):
         )
         conn.execute(
             "INSERT INTO review_applicable_standards (id,review_run_id,standard_document_id,"
-            "selection_method,included,created_at) VALUES (?,?,?,'referenced',1,?)",
-            (str(uuid.uuid4()), run, "std", NOW),
+            "selection_method,included,created_at,scope_decision)"
+            " VALUES (?,?,?,'referenced',1,?,?)",
+            (str(uuid.uuid4()), run, "std", NOW, scope_decision),
         )
     result = comparison.run_comparison(
         run, allowed_document_ids=frozenset({"std", "sub"})
@@ -394,3 +533,80 @@ def test_a_missing_value_is_still_a_crs_line_never_dropped():
     }
     rows = crs_mapping.build_crs_rows([missing], [], "sheet.pdf")
     assert [r["row_kind"] for r in rows] == [crs_mapping.ROW_KIND_MISSING_INFORMATION]
+
+
+CITED_LINE = "Spot examination to XYZ-100, ZT-32 (for spot examination)"
+
+
+def _all_checked(stored, ids):
+    return all(
+        stored[ids[k]]["state"] == scope_ledger.CHECKED
+        for k in ("full", "spot", "hard")
+    )
+
+
+def test_one_bare_citation_anywhere_means_the_whole_standard(temp_storage):
+    _result, stored, ids = _review(f"{CITED_LINE}\nDesign to XYZ-100.")
+    assert _all_checked(stored, ids)
+
+
+def test_a_bare_citation_split_over_a_page_break_means_the_whole_standard(
+    temp_storage,
+):
+    _result, stored, ids = _review(
+        f"{CITED_LINE}\nDesign to XYZ-", next_page="100 for every weld.\n"
+    )
+    assert _all_checked(stored, ids)
+
+
+def test_clauses_split_over_a_page_break_are_read(temp_storage):
+    _result, stored, ids = _review(
+        "Spot examination to XYZ-100,", next_page="ZT-32 (for spot examination)\n"
+    )
+    assert stored[ids["spot"]]["state"] == scope_ledger.CHECKED
+    assert stored[ids["hard"]]["reason_code"] == "outside_cited_clauses"
+
+
+def test_a_standard_classified_for_this_equipment_applies_whole(temp_storage):
+    _result, stored, ids = _review(CITED_LINE, std_meta={"equipment_type": "Widget"})
+    assert _all_checked(stored, ids)
+
+
+def test_a_standard_whose_scope_covers_this_equipment_applies_whole(temp_storage):
+    _result, stored, ids = _review(CITED_LINE, scope_decision="APPLICABLE")
+    assert _all_checked(stored, ids)
+
+
+def test_a_failing_cited_clause_step_narrows_nothing_and_never_fails_the_review(
+    temp_storage, monkeypatch, caplog
+):
+    # the citation reader or a standard's text failing must not take the
+    # review down: every requirement stays a check, and the run says why
+    from app import applicability
+
+    def broken(*_args, **_kwargs):
+        raise RuntimeError("invented failure")
+
+    monkeypatch.setattr(applicability, "cited_clause_scope", broken)
+    with caplog.at_level("WARNING", logger="app.subject_scope"):
+        result, stored, ids = _review(CITED_LINE)
+    assert _all_checked(stored, ids)
+    [summary] = result["requirement_split"]["cited_clauses"]
+    assert (
+        "nothing was narrowed" in summary["not_run"]
+        and "RuntimeError" in summary["not_run"]
+    )
+    assert any("cited-clause scope failed" in r.getMessage() for r in caplog.records)
+    assert not any("invented failure" in r.getMessage() for r in caplog.records)
+
+
+def test_a_verdict_held_for_an_unproven_rule_stays_a_crs_line():
+    held = _finding("h1", rule_said="COMPLIANT")
+    rows = crs_mapping.build_crs_rows([held], [], "sheet.pdf")
+    assert [r["finding_id"] for r in rows] == ["h1"]
+
+
+def test_the_note_counts_findings():
+    notes = crs_mapping.build_review_notes([_finding("u1"), _finding("u2")], [])
+    [note] = [n for n in notes if n["note"] == crs_mapping.NOTE_FIELD_NOT_IDENTIFIED]
+    assert note["count"] == 2 and "2 of this run's findings" in note["detail"]

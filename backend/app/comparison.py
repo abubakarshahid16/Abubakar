@@ -2328,10 +2328,9 @@ def _run_comparison(
     from . import applicability as applicability_mod
     from . import subject_scope
 
-    cited = applicability_mod.cited_clause_scope(
-        submittal_id, applicable, allowed_document_ids=allowed_document_ids
+    cited_scope = subject_scope.citation_gate_for_run(
+        requirements, submittal_id, applicable, names, allowed_document_ids
     )
-    cited_scope = subject_scope.citation_gate(requirements, cited, names)
     requirements = cited_scope["kept"]
     extra_not_applied.extend(cited_scope["items"])
     gated = table_gate.gate(requirements, facts, standard_names=names)

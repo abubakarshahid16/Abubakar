@@ -403,9 +403,14 @@ def materials_gate(requirements: list[dict], *, facts: list[dict], standard_labe
 # place with certainty stays a check.
 
 #: The rest of a heading line after its id: nothing, a bracket ("(normative)"),
-#: or a title whose first word is capitalised. A running footer ("UW-51 - UW-52")
-#: and a sentence ("UW-52 shall apply") are not headings. Case-sensitive.
-_TITLE_REST = r"(?=\s*$|\s+\(|\s+[A-Z][A-Za-z]+)"
+#: or a title whose first word is capitalised, after a space or a " - " / ":"
+#: separator ("APPENDIX Q - ROUNDED INDICATIONS", "Annex A: Title"). A running
+#: footer ("UW-51 - UW-52": the "title" is another id) and a sentence ("UW-52
+#: shall apply") are not headings. Case-sensitive.
+_TITLE_WORD = r"[A-Z][A-Za-z]{2,}(?![-\d])"
+_TITLE_REST = (
+    r"(?=\s*$|\s+\(|\s*[-\u2013\u2014:]\s*" + _TITLE_WORD + r"|\s+[A-Z][A-Za-z]+)"
+)
 _HEADINGS = (
     (
         "appendix",
@@ -424,7 +429,11 @@ _HEADINGS = (
     # and "3 L" inside a sentence are not clause 6 and clause 3.
     (
         "number",
-        re.compile(r"^(?P<id>\d{1,3}(?:\.\d{1,3}){0,5})\.?(?=\s+[A-Z][A-Za-z]{2,})"),
+        re.compile(
+            r"^(?P<id>\d{1,3}(?:\.\d{1,3}){0,5})\.?(?=\s+[A-Z][A-Za-z]{2,}|\s*[-\u2013\u2014:]\s*"
+            + _TITLE_WORD
+            + ")"
+        ),
     ),
 )
 #: How much of a sentence's folded opening is looked for on its page, and the
@@ -449,6 +458,19 @@ def _numbers(ident: str) -> tuple[int, ...]:
     return tuple(int(p) for p in ident.split("."))
 
 
+def _follows(head: tuple[int, ...], clause: tuple[int, ...]) -> bool:
+    """Is numbered heading `head` a plausible NEXT clause after `clause` - its
+    next sibling, or the next clause of one of its parents (4.1 -> 4.2, 5,
+    5.1)? A page header "12 <title>" or a table row "150 Carbon steel" inside
+    clause 4.1 is not, and does not end it."""
+    return any(
+        head[: k - 1] == clause[: k - 1]
+        and len(head) >= k
+        and head[k - 1] == clause[k - 1] + 1
+        for k in range(1, len(clause) + 1)
+    )
+
+
 def _ends(clause: tuple[str, str], head: tuple[str, str]) -> bool:
     """Does heading `head` close the section of `clause`?"""
     kind, ident = clause
@@ -459,10 +481,30 @@ def _ends(clause: tuple[str, str], head: tuple[str, str]) -> bool:
     if kind in ("lettered", "article"):
         return head[0] == kind
     if kind == "number" and head[0] == "number":
-        return _numbers(head[1]) > _numbers(ident) and not head[1].startswith(
-            ident + "."
-        )
+        return _follows(_numbers(head[1]), _numbers(ident))
     return False
+
+
+#: A line repeated in the same place (the first or last lines of a page) on
+#: at least this share of a standard's pages - and on 3 pages or more - is a
+#: running header or footer, never a heading. Digits do not count, so "12
+#: <title>" and "13 <title>" are one header.
+_RUNNING_SHARE = 0.25
+_RUNNING_EDGE = 3
+_RUNNING_LETTERS = 6
+
+
+def _running_lines(pages: list[list[str]]) -> set[str]:
+    """The digit-free forms of the running headers and footers of `pages`."""
+    seen: dict[str, set[int]] = {}
+    for number, lines in enumerate(pages):
+        for line in lines[:_RUNNING_EDGE] + lines[-_RUNNING_EDGE:]:
+            # a bare clause id ("UW-52", "4.1") is never a running line: with
+            # its digits gone, every heading of a part would look alike
+            if len(re.findall(r"[A-Za-z]", line)) >= _RUNNING_LETTERS:
+                seen.setdefault(re.sub(r"\d+", "#", line), set()).add(number)
+    least = max(3, _RUNNING_SHARE * len(pages))
+    return {form for form, where in seen.items() if len(where) >= least}
 
 
 class StandardText:
@@ -475,12 +517,14 @@ class StandardText:
         self.page_bounds: dict[int, tuple[int, int]] = {}
         parts: list[str] = []
         at = 0
-        for page, text in pages:
+        split = [
+            [" ".join(r.split()) for r in (t or "").splitlines() if r.strip()]
+            for _, t in pages
+        ]
+        self.running = _running_lines(split)
+        for (page, _text), lines in zip(pages, split, strict=True):
             start = at
-            for raw in (text or "").splitlines():
-                line = " ".join(raw.split())
-                if not line:
-                    continue
+            for line in lines:
                 self.lines.append(line)
                 self.offsets.append(at)
                 folded = _key(line)
@@ -497,7 +541,7 @@ class StandardText:
         opened: int | None = None
         for index, line in enumerate(self.lines):
             head = _heading(line)
-            if head is None:
+            if head is None or re.sub(r"\d+", "#", line) in self.running:
                 continue
             if opened is not None and _ends(clause, head):
                 out.append((self.offsets[opened], self.offsets[index]))
@@ -594,10 +638,13 @@ def citation_gate(
     `applicability.cited_clause_scope`. A requirement is inside a clause when
     its stored clause number is that clause or a part of it, or its sentence
     lies between the clause's heading and the next heading in the standard's
-    own text (`_inside`). A cited clause the standard's text does not show
-    narrows nothing, and a standard none of whose cited clauses it shows
-    passes untouched, as does every standard not in `cited`. Returns
-    {"kept", "items", "summary"}; items carry `outside_cited_clauses`."""
+    own text (`_inside`). The standard is narrowed only when its text shows
+    EVERY clause the datasheet printed (a clause inside a printed range may be
+    skipped by the numbering): one it does not show means the citation was not
+    read for certain, and nothing of that standard is narrowed - the summary
+    says which clause and that it was not narrowed. Every standard not in
+    `cited` passes untouched. Returns {"kept", "items", "summary"}; items
+    carry `outside_cited_clauses`."""
     from .standard_ids import clause_label
 
     label = label or clause_label
@@ -606,39 +653,75 @@ def citation_gate(
     summary: list[dict] = []
     for sid, scope in cited.items():
         rows = [r for r in requirements if r.get("standard_document_id") == sid]
-        text = StandardText(pages_of(sid)) if rows else None
-        spans = {c: text.spans(c) for c in scope["clauses"]} if text else {}
-        found = {
-            c: s
-            for c, s in spans.items()
-            if s or any(_stored_clause_in(r.get("clause"), c) for r in rows)
-        }
+        if not rows:
+            continue
+        text = StandardText(pages_of(sid))
+        found = {}
+        for c in scope["clauses"]:
+            runs = text.spans(c)
+            if runs or any(_stored_clause_in(r.get("clause"), c) for r in rows):
+                found[c] = runs
+        missing = [
+            c
+            for c in scope["clauses"]
+            if c not in found and not getattr(c, "in_range", False)
+        ]
         name = standard_labels.get(sid) or sid
         where = ", ".join(str(p) for p in scope.get("pages") or [])
         detail = (
-            f"the datasheet cites {name} only for {', '.join(label(c) for c in found)}"
+            f"the datasheet cites {name} only for "
+            + ", ".join(label(c) for c in found)
             + (f" (page {where})" if where else "")
             + ", and this requirement is outside them"
         )
-        out = [r for r in rows if found and not _inside(r, text, found)]
+        out = [] if missing else [r for r in rows if not _inside(r, text, found)]
         out_ids.update(id(r) for r in out)
         items.extend(
             {"requirement": r, "code": "outside_cited_clauses", "detail": detail}
             for r in out
         )
-        if rows:
-            summary.append(
-                {
-                    "standard_document_id": sid,
-                    "standard": name,
-                    "clauses": [label(c) for c in scope["clauses"]],
-                    "clauses_not_found": [
-                        label(c) for c in scope["clauses"] if c not in found
-                    ],
-                    "pages": list(scope.get("pages") or []),
-                    "kept": len(rows) - len(out),
-                    "not_applied": len(out),
-                }
-            )
+        summary.append(
+            {
+                "standard_document_id": sid,
+                "standard": name,
+                "clauses": [label(c) for c in scope["clauses"]],
+                "clauses_not_found": [label(c) for c in missing],
+                "narrowed": not missing,
+                "pages": list(scope.get("pages") or []),
+                "kept": len(rows) - len(out),
+                "not_applied": len(out),
+            }
+        )
     kept = [r for r in requirements if id(r) not in out_ids]
     return {"kept": kept, "items": items, "summary": summary}
+
+
+def citation_gate_for_run(
+    requirements: list[dict],
+    submittal_document_id: str,
+    applicable: list[dict],
+    standard_labels: dict[str, str],
+    allowed_document_ids: frozenset[str],
+) -> dict:
+    """`citation_gate` for one review run, with the run's cited clauses
+    (`applicability.cited_clause_scope`). A narrowing step must never take a
+    review down: if reading the citations or a standard's text fails, NOTHING
+    is narrowed (every requirement stays a check), the failure is logged by
+    type (`errors.fell_back`) and the run's summary says the step did not run."""
+    from . import applicability, errors
+
+    try:
+        cited = applicability.cited_clause_scope(
+            submittal_document_id, applicable, allowed_document_ids=allowed_document_ids
+        )
+        return citation_gate(requirements, cited, standard_labels)
+    except Exception as exc:  # noqa: BLE001 - logged; must never fail the review
+        not_run = {
+            "not_run": f"the cited-clause scope could not be read ({type(exc).__name__}); "
+            "nothing was narrowed"
+        }
+        return errors.fell_back(
+            "subject_scope: the cited-clause scope failed; nothing is narrowed",
+            exc,
+            {"kept": list(requirements), "items": [], "summary": [not_run]},
+        )

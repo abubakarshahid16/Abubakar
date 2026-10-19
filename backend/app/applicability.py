@@ -569,13 +569,11 @@ def _applies_whole(
     return whole
 
 
-def _citations_on_page(
-    flat: str, candidates: list[dict]
-) -> list[tuple[dict, int, int]]:
-    """Every citation of a candidate on one page: (entry, start, end). The
+def _citations_in(flat: str, candidates: list[dict]) -> list[tuple[dict, int, int]]:
+    """Every citation of a candidate in `flat`: (entry, start, end). The
     built-in citation reader first, then each candidate's own recorded number
     (#702's company standards) on a same-length upper copy, so the positions
-    are the page's; a second reading of the same citation is not counted."""
+    are the text's; a second reading of the same citation is not counted."""
     spans = [
         (raw, s, e, None) for raw, s, e in datasheets.referenced_standard_spans(flat)
     ]
@@ -615,7 +613,11 @@ def cited_clause_scope(
       * it is applied BECAUSE the datasheet names it (`referenced`) - not by
         an engineer, and not for any other reason as well (`_applies_whole`);
       * EVERY place the datasheet names it names clauses too - one bare
-        citation anywhere means the whole standard is cited.
+        citation anywhere means the whole standard is cited. Read in the
+        submittal's page text, every page in order and joined, so a citation
+        or its clauses split over a page break is read whole. Not the chunk
+        text: a table chunk lists its cells out of printed order, so a clause
+        printed next to a citation is not next to it there.
     Whether the clauses exist in the standard is checked against the
     standard's own text by `subject_scope.citation_gate`, which narrows."""
     referenced = {
@@ -632,22 +634,30 @@ def cited_clause_scope(
     candidates = [e for e in library if e["id"] not in whole]
     if not candidates:
         return {}
-    found: dict[str, dict] = {}
-    bare: set[str] = set()
+    starts: list[tuple[int, int]] = []  # (offset, page number)
+    flat = ""
     for row in connect().execute(
         "SELECT page_no, text FROM pages WHERE document_id = ? ORDER BY page_no",
         (submittal_document_id,),
     ):
-        flat = " ".join((row["text"] or "").split())
-        for entry, s, e in _citations_on_page(flat, candidates):
-            clauses = standard_ids.clause_qualifiers(flat, s, e)
-            if not clauses:
-                bare.add(entry["id"])
+        starts.append((len(flat), row["page_no"]))
+        flat += " ".join((row["text"] or "").split()) + " "
+    found: dict[str, dict] = {}
+    bare: set[str] = set()
+    for entry, s, e in _citations_in(flat, candidates):
+        clauses = standard_ids.clause_qualifiers(flat, s, e)
+        if not clauses:
+            bare.add(entry["id"])
+            continue
+        into = found.setdefault(entry["id"], {"clauses": [], "pages": []})
+        for c in clauses:
+            # a clause printed outright wins over the same id inside a range
+            if c in into["clauses"] and getattr(c, "in_range", False):
                 continue
-            into = found.setdefault(entry["id"], {"clauses": [], "pages": []})
-            into["clauses"].extend(c for c in clauses if c not in into["clauses"])
-            if row["page_no"] not in into["pages"]:
-                into["pages"].append(row["page_no"])
+            into["clauses"] = [k for k in into["clauses"] if k != c] + [c]
+        page = max(p for at, p in starts if at <= s)
+        if page not in into["pages"]:
+            into["pages"].append(page)
     return {sid: v for sid, v in found.items() if sid not in bare}
 
 
