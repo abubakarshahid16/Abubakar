@@ -97,9 +97,22 @@ describe("removed and counts", () => {
   });
 });
 
+/** A value as JSON with its object keys sorted, so equal inputs give equal text. */
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0));
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
 describe("the table is not vacuous", () => {
-  it("holds at least 30 cases, one per reason word and per tiered status, and both D1 and D2", () => {
-    expect(TABLE.cases.length).toBeGreaterThanOrEqual(30);
+  it("holds at least 30 distinct cases, one per reason word and per tiered status, and both D1 and D2", () => {
+    const unique = new Set(TABLE.cases.map((c) => canonical([c.finding, c.facts, c.expected])));
+    expect(unique.size).toBeGreaterThanOrEqual(30);
+    // a case that repeats another's input and answer adds nothing
+    expect(unique.size).toBe(TABLE.cases.length);
     const reasons = new Set(TABLE.cases.map((c) => c.expected.reason));
     for (const word of TIER_RULES.reasons) expect(reasons, word).toContain(word);
     const statuses = new Set(TABLE.cases.map((c) => findingOf(c.finding).compliance_status));
