@@ -11,6 +11,7 @@
  * changes what a run computes or stores (CLAUDE.md rule 10: frontend only).
  */
 import type { DocumentRecord, ReviewRunSummary } from "../../types/api";
+import { PastReviews } from "./PastReviews";
 import { groupRunsByDocument, runStatusLabel, truncationNote, whenLabel } from "./reviewFormat";
 
 /** NULL RENDERS AS NOTHING - a document with no run yet says so in words,
@@ -25,25 +26,30 @@ function latestRunLabel(latest: ReviewRunSummary | undefined): string {
  *  run is never silently dropped from the landing page for a reason the
  *  reader cannot see. */
 function rowsFor(documents: DocumentRecord[], runs: ReviewRunSummary[]) {
-  const byId = new Map<string, { documentId: string; filename: string; latest?: ReviewRunSummary }>();
-  for (const doc of documents) byId.set(doc.id, { documentId: doc.id, filename: doc.filename });
+  const byId = new Map<string, {
+    documentId: string; filename: string; latest?: ReviewRunSummary; earlier: ReviewRunSummary[];
+  }>();
+  for (const doc of documents) byId.set(doc.id, { documentId: doc.id, filename: doc.filename, earlier: [] });
   for (const group of groupRunsByDocument(runs)) {
     const existing = byId.get(group.documentId);
     byId.set(group.documentId, {
       documentId: group.documentId,
       filename: existing?.filename ?? group.latest.submittal_filename ?? "(unnamed document)",
       latest: group.latest,
+      earlier: group.earlier,
     });
   }
   return [...byId.values()];
 }
 
 export function DocumentsFromContractors(
-  { documents, runs, submittalsTotal, onReview, startingDocumentId }: {
+  { documents, runs, submittalsTotal, onReview, onOpenRun, startingDocumentId }: {
     documents: DocumentRecord[];
     runs: ReviewRunSummary[];
     submittalsTotal: number | null;
     onReview: (documentId: string) => void;
+    /** Order 123 item 5: open one of a document's past reviews. */
+    onOpenRun?: (runId: string) => void;
     startingDocumentId: string | null;
   },
 ) {
@@ -91,6 +97,7 @@ export function DocumentsFromContractors(
             >
               {startingDocumentId === row.documentId ? "Starting…" : "Review"}
             </button>
+            {onOpenRun && <PastReviews runs={row.earlier} onOpenRun={onOpenRun} />}
           </li>
         ))}
       </ul>

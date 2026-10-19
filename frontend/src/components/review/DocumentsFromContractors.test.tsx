@@ -85,4 +85,42 @@ describe("DocumentsFromContractors", () => {
     );
     expect(screen.getByText("No documents from contractors yet")).toBeInTheDocument();
   });
+
+  // Order 123 item 5: an earlier review opens from the list in two clicks
+  // (Past reviews, Open); before, it was reachable only by typing its address.
+  it("lists a document's past reviews and opens an old one in two clicks", async () => {
+    const onOpenRun = vi.fn();
+    const onReview = vi.fn();
+    render(
+      <DocumentsFromContractors
+        documents={[doc()]}
+        runs={[
+          run({ review_run_id: "run-new", created_at: "2026-10-03T00:00:00Z" }),
+          run({ review_run_id: "run-old", created_at: "2026-10-01T00:00:00Z",
+            engineer_final_code: "B", decided_by_name: "Ali", findings_total: 12 }),
+          run({ review_run_id: "run-mid", created_at: "2026-10-02T00:00:00Z", recommended_code: "C" }),
+        ]}
+        submittalsTotal={null} onReview={onReview} onOpenRun={onOpenRun} startingDocumentId={null}
+      />,
+    );
+    // The newest run stays behind Review; only the two before it are past.
+    await userEvent.click(screen.getByText("Past reviews (2)"));
+    expect(screen.getByText(/Code B, decided by Ali · 12 findings recorded/)).toBeInTheDocument();
+    expect(screen.getByText(/Suggested code C, not decided yet/)).toBeInTheDocument();
+    const opens = screen.getAllByRole("button", { name: /Open the review of/ });
+    expect(opens).toHaveLength(2);
+    await userEvent.click(opens[1]);
+    expect(onOpenRun).toHaveBeenCalledWith("run-old");
+    expect(onReview).not.toHaveBeenCalled();
+  });
+
+  it("shows no past-reviews line for a document reviewed once", () => {
+    render(
+      <DocumentsFromContractors
+        documents={[doc()]} runs={[run()]} submittalsTotal={null}
+        onReview={vi.fn()} onOpenRun={vi.fn()} startingDocumentId={null}
+      />,
+    );
+    expect(screen.queryByTestId("past-reviews")).not.toBeInTheDocument();
+  });
 });

@@ -195,6 +195,7 @@ export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onO
         <DocumentsFromContractors
           documents={documents} runs={runs} submittalsTotal={submittalsTotal}
           onReview={(documentId) => void reviewDocument(documentId)}
+          onOpenRun={onOpenRun}
           startingDocumentId={startingDocumentId}
         />
       )}
