@@ -130,10 +130,39 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # Order 135: the owner's app runs on Windows, and #1159's "does the app
+  # start?" job runs on Linux only. The same script, the same two starts
+  # (a fresh data folder; old paths with no backup folder), on Windows.
+  app-starts-windows:
+    name: does the app start? (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      # `id: py` also keeps M1787's anchor (the shard's setup) unique.
+      - uses: actions/setup-python@v7
+        id: py
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+
+      - name: Start the backend and ask /api/health
+        run: python scripts/check_app_starts.py --timeout 180
+
   # The old job's name, so the check a train waits for keeps its name.
   backend-windows:
     name: backend on Windows (pytest, informational)
-    needs: [backend-windows-shard]
+    needs: [backend-windows-shard, app-starts-windows]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -167,3 +196,9 @@ jobs:
           path: backend/.test_durations
           key: windows-test-durations-${{ github.run_id }}
           enableCrossOsArchive: true
+
+      # Last, so a failed start never skips the nightly durations refresh.
+      - name: The app started on Windows
+        run: |
+          echo "app starts: ${{ needs.app-starts-windows.result }}"
+          test "${{ needs.app-starts-windows.result }}" = "success"
