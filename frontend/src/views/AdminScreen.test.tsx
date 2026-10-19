@@ -101,6 +101,17 @@ describe("unbuilt routes", () => {
 });
 
 describe("offline is not a failed request", () => {
+  it("#620: shows the Company standards waiting for confirmation when the client serves them", async () => {
+    render(<AdminScreen client={client({
+      heldCompanyStandards: vi.fn(async () => ok({
+        standards: [{ id: "std-1", filename: "sample-company-standard.pdf", uploaded_at: null }],
+        total: 1, limit: null, offset: 0, confirm_from: "2026-10-18T00:00:00",
+      })),
+    })} />);
+    expect(await screen.findByRole("heading", { name: "Company standards waiting for confirmation" })).toBeInTheDocument();
+    expect(await screen.findByTestId("admin-held-std-1")).toHaveTextContent("sample-company-standard.pdf");
+  });
+
   it("renders the disconnected state, not an error card", async () => {
     render(<AdminScreen client={client({ users: vi.fn(async () => offline()) })} />);
     await waitFor(() =>

@@ -347,6 +347,8 @@ export interface AdminViewProps {
   busyKey: string | null;
   /** The read-only Database section, passed in already built so this view
    *  keeps no transport of its own. Absent in tests that do not care. */
+  /** #620: Company standards waiting for an administrator's confirmation. */
+  companyStandardsSection?: React.ReactNode;
   databaseSection?: React.ReactNode;
 }
 
@@ -655,6 +657,8 @@ export function AdminView(props: AdminViewProps) {
           </ul>
         )}
       </section>
+
+      {props.companyStandardsSection}
 
       {props.databaseSection}
 
