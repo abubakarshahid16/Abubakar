@@ -11,12 +11,16 @@ import { groupRunsByDocument, runStatusLabel } from "../reviewFormat";
 import type { PastReview } from "./contract";
 
 /** What a past review came to, in plain words. The engineer's final code
- *  wins, then the AI's recommended code, then the run's status. Review codes
- *  are the configured labels ("Approved with Comments") that every existing
- *  screen already prints as they are, so they pass through unchanged; only
- *  the status (a database value such as "completed") is translated. */
+ *  is shown as it is; when there is none, the AI's recommended code is shown
+ *  as "Proposed: <code>" so it never reads like the engineer's decision;
+ *  with neither, the run's status. Review codes are the configured labels
+ *  ("Approved with Comments") that every existing screen already prints as
+ *  they are; only the status (a database value such as "completed") is
+ *  translated. */
 function resultWords(run: ReviewRunSummary): string {
-  return run.engineer_final_code || run.recommended_code || runStatusLabel(run.status);
+  if (run.engineer_final_code) return run.engineer_final_code;
+  if (run.recommended_code) return `Proposed: ${run.recommended_code}`;
+  return runStatusLabel(run.status);
 }
 
 /** Pure: that document's runs, newest first (the same order as

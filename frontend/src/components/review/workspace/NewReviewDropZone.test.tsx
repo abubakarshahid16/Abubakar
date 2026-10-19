@@ -7,6 +7,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const calls: string[] = [];
+const me = vi.fn();
 const uploadDisciplines = vi.fn();
 const document = vi.fn();
 const documents = vi.fn();
@@ -23,6 +24,7 @@ vi.mock("../../../api/client", () => ({
     document: (...a: unknown[]) => { calls.push("document"); return document(...a); },
     documents: (...a: unknown[]) => documents(...a),
   },
+  auth: { me: (...a: unknown[]) => { calls.push("me"); return me(...a); } },
   classification: { setRoleBulk: (...a: unknown[]) => { calls.push("mark"); return setRoleBulk(...a); } },
   reviews: {
     startReviewRun: (...a: unknown[]) => { calls.push("start"); return startReviewRun(...a); },
@@ -44,7 +46,8 @@ vi.mock("../DocumentsFromContractors", () => ({
 
 import { NewReviewDropZone } from "./NewReviewDropZone";
 import { ReviewAgainButton } from "./ReviewAgainButton";
-import { NOT_ADMIN_MESSAGE } from "./newReview";
+import { NOT_ADMIN_BEFORE_UPLOAD_MESSAGE, NOT_ADMIN_MESSAGE } from "./newReview";
+import { WATCH_STORAGE_KEY } from "./reviewWatch";
 import { SubmittalsLandingView } from "../../../views/SubmittalsLandingView";
 
 const file = new File(["%PDF-1.7"], "Pump datasheet rev B.pdf", { type: "application/pdf" });
@@ -52,7 +55,8 @@ const file = new File(["%PDF-1.7"], "Pump datasheet rev B.pdf", { type: "applica
 beforeEach(() => {
   calls.length = 0;
   sessionStorage.clear();
-  for (const m of [uploadDisciplines, document, documents, setRoleBulk, startReviewRun, reviewRuns, reviewRun, uploadOne, listProps]) m.mockReset();
+  for (const m of [me, uploadDisciplines, document, documents, setRoleBulk, startReviewRun, reviewRuns, reviewRun, uploadOne, listProps]) m.mockReset();
+  me.mockResolvedValue({ ok: true, data: { required: true, user: { id: "u-1", email: "sample.admin@example.test", roles: ["admin"] } } });
   uploadDisciplines.mockResolvedValue({ ok: true, data: { required: true, choices: ["Mechanical"], default: ["Mechanical"] } });
   uploadOne.mockResolvedValue({ phase: "done", documentId: "doc-1", duplicateOf: null, awaitingGrant: false });
   setRoleBulk.mockResolvedValue({ ok: true, data: { document_role: "CONTRACTOR_SUBMITTAL", requested: 1, updated: ["doc-1"], unchanged: [], failed: [] } });
@@ -73,11 +77,46 @@ describe("NewReviewDropZone", () => {
     await user.upload(screen.getByLabelText("Choose a contractor file to review"), file); // click 2
 
     await vi.waitFor(() => expect(onStarted).toHaveBeenCalledWith("run-1"));
-    expect(calls).toEqual(["disciplines", "upload", "mark", "document", "start"]);
+    expect(calls).toEqual(["me", "disciplines", "upload", "mark", "document", "start"]);
     expect(screen.getByRole("status")).toHaveTextContent("The review has started.");
   });
 
-  it("a non-admin sees plain words and no review starts", async () => {
+  it("a non-admin is told to ask an administrator and nothing is uploaded", async () => {
+    me.mockResolvedValue({ ok: true, data: { required: true, user: { id: "u-2", email: "sample.engineer@example.test", roles: ["engineer"] } } });
+    const onStarted = vi.fn();
+    render(<NewReviewDropZone onStarted={onStarted} />);
+    await userEvent.upload(screen.getByLabelText("Choose a contractor file to review"), file);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(NOT_ADMIN_BEFORE_UPLOAD_MESSAGE);
+    expect(uploadOne).not.toHaveBeenCalled();
+    expect(setRoleBulk).not.toHaveBeenCalled();
+    expect(onStarted).not.toHaveBeenCalled();
+  });
+
+  it("isAdmin={false} from the screen refuses without asking or uploading", async () => {
+    render(<NewReviewDropZone onStarted={vi.fn()} isAdmin={false} />);
+    await userEvent.upload(screen.getByLabelText("Choose a contractor file to review"), file);
+    expect(await screen.findByRole("alert")).toHaveTextContent(NOT_ADMIN_BEFORE_UPLOAD_MESSAGE);
+    expect(calls).toEqual([]);
+  });
+
+  it("leaving mid-way: the review still starts and is watched, but the reader is not moved to it", async () => {
+    let release!: () => void;
+    startReviewRun.mockImplementation(() => new Promise((resolve) => {
+      release = () => resolve({ ok: true, data: { review_run_id: "run-5", submittal_filename: "Pump datasheet rev B.pdf" } });
+    }));
+    const onStarted = vi.fn();
+    const { unmount } = render(<NewReviewDropZone onStarted={onStarted} />);
+    await userEvent.upload(screen.getByLabelText("Choose a contractor file to review"), file);
+    await vi.waitFor(() => expect(startReviewRun).toHaveBeenCalled());
+
+    unmount();
+    release();
+    await vi.waitFor(() => expect(sessionStorage.getItem(WATCH_STORAGE_KEY) ?? "").toContain("run-5"));
+    expect(onStarted).not.toHaveBeenCalled();
+  });
+
+  it("a server refusal of the role write (404) sees plain words and no review starts", async () => {
     setRoleBulk.mockResolvedValue({ ok: false, disconnected: false, error: { code: "not_found", message: "That is not something the backend knows about." } });
     const onStarted = vi.fn();
     render(<NewReviewDropZone onStarted={onStarted} />);
