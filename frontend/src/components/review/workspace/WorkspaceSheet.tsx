@@ -23,10 +23,8 @@
  *    comment after a decision) that the current "Show" choice hides widens
  *    the choice, so the open comment is always in the list.
  */
-import { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { CRS_SHEET_IS_DEFAULT, panelForReviewScreen } from "../../../routing";
-import { NavigationContext } from "../../NavLink";
 import type { RowMode } from "../crs/CrsRow";
 import { CrsTable } from "../crs/CrsTable";
 import { type CrsRow, type Depth, spotCheckKeys, visibleRows } from "../crs/crsRows";
@@ -42,6 +40,9 @@ import { nextUndecided } from "./decide/nextUndecided";
 export type WorkspaceSheetProps = SheetContractProps & {
   /** A signed review: the sheet is a record to read, nothing to decide. */
   readOnly?: boolean;
+  /** v2.2 round 2: key hints ("J / K ...") are drawn in Detailed view only;
+   *  Simple view shows none. The keys themselves keep working. */
+  showKeys?: boolean;
 };
 
 /** The narrowest "Show" choice that still lists `row` (as visibleRows). */
@@ -61,14 +62,13 @@ function returnTarget(prev: HTMLElement | null, rowKey: string): HTMLElement | n
 }
 
 export function WorkspaceSheet({
-  runId, rows, submittal, standardNames, decisions, openRowKey, onOpenRow, numbers, footer, readOnly = false,
+  runId, rows, submittal, standardNames, decisions, openRowKey, onOpenRow, numbers, footer, readOnly = false, showKeys = true,
 }: WorkspaceSheetProps) {
   const [depth, setDepth] = useState<Depth>("standard");
   const [showMet, setShowMet] = useState(false);
   const [selectedKey, setSelectedKey] = useState<string | null>(openRowKey);
   const [mode, setMode] = useState<{ key: string; kind: RowMode } | null>(null);
   const [returnTo, setReturnTo] = useState<HTMLElement | null>(null);
-  const navigate = useContext(NavigationContext);
 
   const plain = useMemo(() => rows.map(plainRow), [rows]);
   const spot = useMemo(() => spotCheckKeys(rows, runId), [rows, runId]);
@@ -136,9 +136,6 @@ export function WorkspaceSheet({
       setDoneNote({ key: rowKey, text: "That was the last comment to decide." });
     }
   }, [orderKeys, numbers.undecidedKeys, markOpened, onOpenRow]);
-  const openCards = useCallback(() => {
-    navigate?.("review", runId, panelForReviewScreen("cards", CRS_SHEET_IS_DEFAULT));
-  }, [navigate, runId]);
 
   const keyActions = useMemo(() => ({
     select: (row: CrsRow) => setSelectedKey(row.key),
@@ -181,14 +178,14 @@ export function WorkspaceSheet({
         spot={spot} selectedKey={selectedKey} onSelect={selectRow} onOpenEvidence={openEvidence}
         mode={mode} onMode={changeMode} decisions={decisions}
         clausesNotApplicable={numbers.notApplicableClauses}
-        tierHeader="Kind" readOnly={readOnly}
+        tierHeader="Kind" readOnly={readOnly} showKeys={showKeys}
       />
       {footer}
       {drawerRow && (
         <WorkspaceEvidence row={drawerRow} runId={runId} standardNames={standardNames} returnTo={returnTo}
-          onClose={closeDrawer} onOpenCards={openCards} nav={nav} pager={pager}
+          onClose={closeDrawer} nav={nav} pager={pager} showKeys={showKeys}
           decide={drawerRow.tier.tier !== "A" && !readOnly ? (
-            <DecisionPanel row={drawerRow} decisions={decisions} onDecided={onDecided}
+            <DecisionPanel row={drawerRow} decisions={decisions} onDecided={onDecided} showKeys={showKeys}
               note={doneNote?.key === drawerRow.key ? doneNote.text : null} />
           ) : null} />
       )}

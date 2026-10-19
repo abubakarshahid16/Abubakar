@@ -33,7 +33,9 @@ export interface CrsEvidenceDrawerProps {
   runId: string;
   standardNames: Map<string, string>;
   onClose: () => void;
-  onOpenCards: () => void;
+  /** The old cards view of this point. Absent inside the review workspace:
+   *  the old review screens are gone there (owner, 19 Oct 2026). */
+  onOpenCards?: () => void;
   /** The element to give the keyboard back to on close. */
   returnTo: HTMLElement | null;
   /** Where this row sits in the list shown, and how to move along it. */
@@ -48,6 +50,8 @@ export interface CrsEvidenceDrawerProps {
   /** Optional block shown under the row's reason (the review workspace's
    *  plain words with their codes under "Details"). Absent: nothing changes. */
   extra?: ReactNode;
+  /** v2.2 round 2: the "J / K" hint; the workspace's Simple view hides it. */
+  showKeys?: boolean;
 }
 
 function isTyping(target: EventTarget | null): boolean {
@@ -55,7 +59,7 @@ function isTyping(target: EventTarget | null): boolean {
   return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
 }
 
-export function CrsEvidenceDrawer({ row, runId, standardNames, onClose, onOpenCards, returnTo, nav, pager, extra }: CrsEvidenceDrawerProps) {
+export function CrsEvidenceDrawer({ row, runId, standardNames, onClose, onOpenCards, returnTo, nav, pager, extra, showKeys = true }: CrsEvidenceDrawerProps) {
   const closeRef = useRef<HTMLButtonElement | null>(null);
   // The page shown: the row's own, until the engineer looks at another one.
   const [viewPage, setViewPage] = useState<number | null>(row.page);
@@ -128,7 +132,7 @@ export function CrsEvidenceDrawer({ row, runId, standardNames, onClose, onOpenCa
           <span data-testid="drawer-position">{nav.position ?? `Item ${nav.index + 1} of ${nav.total}`}</span>
           <button type="button" onClick={nav.onNext ?? undefined} disabled={!nav.onNext}
             className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5 disabled:opacity-40">Next →</button>
-          <span className="text-xs text-slateish-500">J / K</span>
+          {showKeys && <span className="text-xs text-slateish-500">J / K</span>}
         </nav>
       )}
       <div className="mt-3 space-y-4">
@@ -223,9 +227,11 @@ export function CrsEvidenceDrawer({ row, runId, standardNames, onClose, onOpenCa
             )}
           </section>
         )}
-        <button type="button" onClick={onOpenCards} className="text-sm text-signal-300 underline-offset-2 hover:underline">
-          Open this point on the cards view
-        </button>
+        {onOpenCards && (
+          <button type="button" onClick={onOpenCards} className="text-sm text-signal-300 underline-offset-2 hover:underline">
+            Open this point on the cards view
+          </button>
+        )}
       </div>
     </aside>
   );

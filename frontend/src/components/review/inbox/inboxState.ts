@@ -78,6 +78,10 @@ export interface ReadyCounts {
   findings: number;
   /** Of those, the ones that need the engineer's judgement. */
   needs_you: number;
+  /** v2.2: comment-sheet rows still waiting for a decision (Keep / Edit /
+   *  Remove), counted by the server the same way the sheet counts them.
+   *  Absent or null: not known (an older server) - never shown as 0. */
+  undecided?: number | null;
 }
 
 /** "Found by the review: 12 findings, 3 needing your judgement": the

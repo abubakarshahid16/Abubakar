@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, reviews as reviewsApi } from "../api/client";
 import { loadReadyCounts } from "../components/review/workspace/landing/readyCounts";
+import type { WorkspaceTab } from "../components/review/workspace/contract";
 import { WorkspaceLanding } from "../components/review/workspace/landing/WorkspaceLanding";
 import type { DocumentRecord, ReviewRunSummary } from "../types/api";
 import { DocumentsFromContractors } from "../components/review/DocumentsFromContractors";
@@ -48,8 +49,10 @@ interface BatchResult {
  *  landing pieces; re-exported here unchanged for the old screens and tests. */
 export { RUN_COUNTS_MAX_IDS, loadReadyCounts } from "../components/review/workspace/landing/readyCounts";
 
-export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onOpenInbox, onOpenList, workspace = false, isAdmin }: {
+export function SubmittalsLandingView({ onOpenRun, onOpenRunTab, inbox = INBOX_IS_DEFAULT, onOpenInbox, onOpenList, workspace = false, isAdmin }: {
   onOpenRun: (runId: string) => void;
+  /** v2.2: open a review straight on one tab ("Preview CRS"). Left out, no such button. */
+  onOpenRunTab?: (runId: string, tab: WorkspaceTab) => void;
   /** Whether the reader is an administrator; New review refuses a
    *  non-admin before any upload. Left out, the drop zone asks the server. */
   isAdmin?: boolean;
@@ -220,7 +223,7 @@ export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onO
         <WorkspaceLanding
           documents={documents} runs={runs} submittalsTotal={submittalsTotal}
           documentsFailed={documentsFailed} isAdmin={isAdmin}
-          onOpenRun={onOpenRun} onReload={reload}
+          onOpenRun={onOpenRun} onOpenRunTab={onOpenRunTab} onReload={reload}
           loadReadyCounts={loadReadyCounts}
         />
       )}

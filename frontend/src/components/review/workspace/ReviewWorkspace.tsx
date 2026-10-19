@@ -39,7 +39,7 @@
  *    says so with a link to the newer one, and Sign asks first.
  *  - "Review again" is not offered to someone who is not an administrator.
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary } from "../../../types/api";
 import { HowReviewedView } from "../../../views/HowReviewedView";
@@ -64,12 +64,15 @@ import { useLeaveGuard } from "./useLeaveGuard";
 import { SheetCountsLine } from "./SheetCountsLine";
 import { SignOffPanel } from "./SignOffPanel";
 import { useSignOff } from "./useSignOff";
+import { useViewMode } from "./useViewMode";
+import { ViewModeSwitch } from "./ViewModeSwitch";
 import { useWorkspaceRun } from "./useWorkspaceRun";
 import { WorkspaceSheet } from "./WorkspaceSheet";
+import { PastReviewsButton } from "./PastReviewsButton";
 import { WorkspaceTabs } from "./WorkspaceTabs";
 import {
-  LEAVE_WARNING, WORKSPACE_TABS, type ActionStepId, type ReviewWorkspaceProps, type SignOff, type WorkspaceLocation,
-  type WorkspaceTab,
+  LEAVE_WARNING, WORKSPACE_TABS, type ActionStep, type ActionStepId, type ReviewNumbers, type ReviewWorkspaceProps,
+  type SignOff, type WorkspaceLocation, type WorkspaceTab,
 } from "./contract";
 
 /** How long "Undo" stays on offer after "Keep all remaining comments";
@@ -86,6 +89,60 @@ const PANEL_TABS: readonly WorkspaceTab[] = ["findings", "standards", "steps", "
 
 function isTab(value: string | undefined): value is WorkspaceTab {
   return value !== undefined && (WORKSPACE_TABS as readonly string[]).includes(value);
+}
+
+/** v2.2: remembers that the reader hid the one-line help (this browser). */
+export const REVIEW_HELP_HIDDEN_KEY = "rag.workspace.reviewHelpHidden";
+
+function readHelpHidden(): boolean {
+  try {
+    return localStorage.getItem(REVIEW_HELP_HIDDEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeHelpHidden(): void {
+  try {
+    localStorage.setItem(REVIEW_HELP_HIDDEN_KEY, "1");
+  } catch {
+    /* storage unavailable: hidden for this page only */
+  }
+}
+
+/** v2.2: the one-line help under the title, in plain words. Every fact
+ *  comes from the page's one `computeReviewNumbers` result and its
+ *  `actionSteps`; nothing is counted here. Null when no line is true (for
+ *  example the final code is not known yet, or Sign still waits for pages
+ *  or standards): no line rather than a wrong one. */
+export function reviewHelpWords(numbers: ReviewNumbers, steps: readonly ActionStep[]): string | null {
+  if (numbers.signed) {
+    return "This review is signed. The CRS was issued; you can still read it and import the contractor's replies.";
+  }
+  if (numbers.undecided > 0) {
+    return "Go through each comment: Keep it, Edit the wording, or Remove it. Your choices save by themselves.";
+  }
+  if (numbers.finalCodeRecorded === false) {
+    return "All comments are decided. Record the final code, then preview the CRS and sign.";
+  }
+  if (steps.find((s) => s.id === "sign")?.enabled) {
+    return "Everything is done. Preview the CRS, then sign to issue it to the contractor.";
+  }
+  return null;
+}
+
+function ReviewHelpLine({ words }: { words: string | null }) {
+  const [hidden, setHidden] = useState(readHelpHidden);
+  if (hidden || !words) return null;
+  return (
+    <p data-testid="ws-review-help" className="flex flex-wrap items-baseline gap-2 text-sm text-slateish-300">
+      <span>{words}</span>
+      <button type="button" aria-label="Hide this help" onClick={() => { writeHelpHidden(); setHidden(true); }}
+        className="text-xs text-signal-300 underline-offset-2 hover:underline">
+        Hide
+      </button>
+    </p>
+  );
 }
 
 /** Why a review that is not running has no sheet, in one plain sentence. */
@@ -139,10 +196,26 @@ function RunNotReady({ run, active, onBack, onChanged, onOpenRun, openRun, befor
   );
 }
 
+/** v2.2 round 2: in Simple view a part a manager rarely needs is folded
+ *  behind one summary line. It stays in the page, only folded (the honesty
+ *  footer must always be there). Detailed view shows it open, as before. */
+function FoldInSimple({ simple, summary, testId, children }: {
+  simple: boolean; summary: string; testId: string; children: ReactNode;
+}) {
+  if (!simple) return <>{children}</>;
+  return (
+    <details data-testid={testId}>
+      <summary className="cursor-pointer text-xs text-slateish-300">{summary}</summary>
+      <div className="mt-2">{children}</div>
+    </details>
+  );
+}
+
 export function ReviewWorkspace({
   location, onLocationChange, onBack, onOpenRun, onUnsavedChange, leaveGuard, isAdmin,
 }: ReviewWorkspaceProps) {
   const { runId } = location;
+  const view = useViewMode();
   const data = useWorkspaceRun(runId);
   const { load, run, findings, rows, standardsState, missingStandardIds, standardNames, submittal, summary, readiness, active, refresh, refreshError } = data;
   const newerRun = data.newerRun ?? null;
@@ -254,6 +327,9 @@ export function ReviewWorkspace({
   useEffect(() => {
     if (pagesAsked === 0 || tabNow !== "sheet") return;
     const box = document.querySelector<HTMLElement>('[data-testid="sign-pages"]');
+    // Simple view: "Before you sign" may be folded; open it so the ticks show.
+    const fold = box?.closest("details");
+    if (fold) fold.open = true;
     box?.scrollIntoView?.({ block: "center", behavior: "smooth" });
   }, [pagesAsked, tabNow]);
 
@@ -350,9 +426,10 @@ export function ReviewWorkspace({
       {leaveQuestion}
       <header className="flex flex-wrap items-center gap-3">
         <button type="button" onClick={leave} className="text-sm text-signal-300 underline-offset-2 hover:underline">← Reviews</button>
-        <h1 id="ws-title" className="min-w-0 flex-1 truncate text-2xl font-semibold text-slateish-100">
+        <h1 id="ws-title" className="min-w-[12rem] flex-1 truncate text-2xl font-semibold text-slateish-100">
           {run.submittal_filename ?? "Review"}
         </h1>
+        <ViewModeSwitch mode={view.mode} onMode={view.setMode} />
         {run.submittal_document_id && isAdmin !== false && (
           <ReviewAgainButton documentId={run.submittal_document_id} filename={run.submittal_filename}
             beforeStart={beforeLeave} onStarted={onOpenRun} onOpenRun={openRun} />
@@ -363,6 +440,13 @@ export function ReviewWorkspace({
           </span>
         )}
       </header>
+      <ReviewHelpLine words={reviewHelpWords(numbers, steps)} />
+      {run.submittal_document_id && data.documentRuns && data.documentRuns.length > 1 && (
+        <div data-testid="ws-past-reviews">
+          <PastReviewsButton documentId={run.submittal_document_id} runs={data.documentRuns}
+            onOpenRun={openRun} currentRunId={runId} />
+        </div>
+      )}
       {newerRun && (
         <p role="status" data-testid="ws-newer-review"
           className="flex flex-wrap items-center gap-2 rounded-[var(--radius-sm)] border border-warn-500/50 bg-warn-500/10 px-3 py-2 text-sm text-slateish-100">
@@ -401,7 +485,7 @@ export function ReviewWorkspace({
           : run?.submittal_document_id && data.documentRuns == null ? "unknown" : null}
       />
 
-      <WorkspaceTabs tab={tab} onTab={onTab}>
+      <WorkspaceTabs tab={tab} onTab={onTab} mode={view.mode}>
         {tab === "sheet" && (
           <div className="space-y-2">
             <SheetCountsLine numbers={numbers} />
@@ -411,21 +495,28 @@ export function ReviewWorkspace({
             <WorkspaceSheet
               runId={runId} run={run} rows={rows} submittal={submittal} standardNames={standardNames}
               decisions={decisions} openRowKey={openRowKey} onOpenRow={onOpenRow} numbers={numbers} readOnly={readOnly}
+              showKeys={view.mode === "detailed"}
               footer={(
                 <>
                   <SignOffPanel numbers={numbers} signOff={signOff} run={run} rows={rows} gate={issueGate}
-                    onRunChanged={() => void refresh()} onJump={(row) => onOpenRow(row.key)} />
-                  {/* S4: the honesty footer, as under the comment sheet. */}
-                  <CrsFooter
-                    run={run}
-                    counts={{
-                      met: numbers.met, notApplicable: numbers.notApplicableRows, anotherDocument: numbers.anotherDocument,
-                      comment: numbers.comments - numbers.needsYou, needsYou: numbers.needsYou,
-                    }}
-                    standards={standardsState.standards} missing={standardsState.missing}
-                    standardsError={standardsState.error} rejected={numbers.removed}
-                    signedAt={numbers.signedAt}
-                  />
+                    onRunChanged={() => void refresh()} onJump={(row) => onOpenRow(row.key)}
+                    folded={view.mode === "simple"} />
+                  {/* S4: the honesty footer, as under the comment sheet. v2.2
+                      round 2: Simple view folds it behind one line; it stays
+                      on the page (the honesty rule), only folded. */}
+                  <FoldInSimple simple={view.mode === "simple"} testId="ws-honesty-fold"
+                    summary="How these comments were counted">
+                    <CrsFooter
+                      run={run}
+                      counts={{
+                        met: numbers.met, notApplicable: numbers.notApplicableRows, anotherDocument: numbers.anotherDocument,
+                        comment: numbers.comments - numbers.needsYou, needsYou: numbers.needsYou,
+                      }}
+                      standards={standardsState.standards} missing={standardsState.missing}
+                      standardsError={standardsState.error} rejected={numbers.removed}
+                      signedAt={numbers.signedAt}
+                    />
+                  </FoldInSimple>
                 </>
               )}
             />

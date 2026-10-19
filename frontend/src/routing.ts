@@ -44,18 +44,25 @@ export const PANELS: Partial<Record<ViewId, readonly string[]>> = {
  * keeps the old card view (and its behind-the-scenes pages, the old "crs"
  * page among them, keep their addresses). Set it back to false only on the
  * owner's word.
+ *
+ * Since 19 Oct 2026 (WORKSPACE_IS_DEFAULT below) the App no longer shows
+ * either old screen: their addresses open the workspace. Old pieces still
+ * build their links through this pair until the clean-up removes them.
  */
 export const CRS_SHEET_IS_DEFAULT = true;
 
 /**
- * THE WORKSPACE SWITCH (workspace v2, planner team). When true, `/review/<run>`
- * opens the one-screen review workspace (`components/review/workspace`).
- * False: nothing changes for anyone who has not pressed "Try new design"
- * (a per-browser choice, see `workspace/useWorkspaceSwitch.ts`). The
- * workspace's own address `/review/<run>/workspace` (builder A adds it to
- * PANELS) works whichever value this has. Flip only on the owner's word.
+ * THE WORKSPACE (workspace v2, planner team). True: the owner replaced the
+ * old review design permanently on 19 Oct 2026 (written order, 19:50 PKT).
+ * Every review address opens the one-screen review workspace
+ * (`components/review/workspace`); there is no "Try new design" switch any
+ * more, and the old screens' addresses (`/review/<run>/cards`,
+ * `/crs-sheet`, `/findings`, ..., and `/review/inbox`) lead into the
+ * workspace through `workspaceRoute.reviewPageFor`, so old bookmarks still
+ * work. `/review/<run>/workspace` keeps working too. The old components stay
+ * in the tree, unreachable, until a later clean-up removes them.
  */
-export const WORKSPACE_IS_DEFAULT = false;
+export const WORKSPACE_IS_DEFAULT = true;
 
 /** The third path segment that always opens each review screen. */
 export const REVIEW_SCREEN_PANELS = { cards: "cards", crsSheet: "crs-sheet" } as const;

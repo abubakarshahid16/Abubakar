@@ -10,8 +10,8 @@ import { WORKSPACE_IS_DEFAULT } from "../../../routing";
 describe("workspace v2 contract", () => {
   afterEach(() => { vi.restoreAllMocks(); localStorage.clear(); });
 
-  it("is off by default", () => {
-    expect(WORKSPACE_IS_DEFAULT).toBe(false);
+  it("is the only review design (owner, 19 Oct 2026)", () => {
+    expect(WORKSPACE_IS_DEFAULT).toBe(true);
   });
 
   it("opens the workspace only on its own address, or with the switch on", () => {
@@ -30,6 +30,6 @@ describe("workspace v2 contract", () => {
   });
 
   it("every tab has a plain label", () => {
-    for (const tab of contract.WORKSPACE_TABS) expect(contract.WORKSPACE_TAB_LABELS[tab]).toMatch(/^[A-Z][a-z ]+$/);
+    for (const tab of contract.WORKSPACE_TABS) expect(contract.WORKSPACE_TAB_LABELS[tab]).toMatch(/^[A-Z][A-Za-z ]+$/);
   });
 });

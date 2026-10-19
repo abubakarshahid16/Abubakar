@@ -190,6 +190,10 @@ export function actionSteps(numbers: ReviewNumbers): ActionStep[] {
         id: "code", label: code === null ? `Record the final code (${NOT_READ_YET})` : "Record the final code",
         count: null, done: false, enabled: !numbers.signed,
       },
+    // v2.2: a look, not a task: never done, never counted. The bar is drawn
+    // only for a finished review, so it is always open, signed or not (a
+    // signed review shows the copy that was issued).
+    { id: "preview", label: "Preview CRS", count: null, done: false, enabled: true },
     {
       id: "sign", label: numbers.signed ? "Signed" : "Sign and export", count: null,
       done: numbers.signed,

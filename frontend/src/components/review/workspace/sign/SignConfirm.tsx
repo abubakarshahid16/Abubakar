@@ -27,12 +27,13 @@
  * (`newerReview="unknown"`): the step says so in one plain line and asks
  * for the same tick before "Issue to contractor".
  */
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
-import { reviews as reviewsApi } from "../../../../api/client";
-import type { CrsPreview } from "../../../../types/api";
-import { CrsPreviewSheet } from "../../CrsPreviewSheet";
 import { issueConfirmed } from "../useSignOff";
+import { CrsLook, contractorView } from "./CrsLook";
+
+/** Kept here too: older callers import it from this file. */
+export { contractorView };
 
 export interface SignConfirmProps {
   runId: string;
@@ -51,19 +52,6 @@ export interface SignConfirmProps {
   newerReview?: { at: string | null } | null | "unknown";
 }
 
-/** Columns and notes the server marks as internal: the contractor's copy
- *  does not carry them, so the preview of that copy does not show them. */
-const INTERNAL_COLUMNS = new Set(["AI Review Comments", "Reasoning (internal)", "Rule trust (internal)"]);
-
-/** The preview as the contractor's copy lays it out. */
-export function contractorView(preview: CrsPreview): CrsPreview {
-  return {
-    ...preview,
-    columns: preview.columns.filter((c) => !INTERNAL_COLUMNS.has(c) && !/\(internal\)\s*$/i.test(c)),
-    review_notes: [],
-  };
-}
-
 /** "12 comments, final code 2, signed by Sam Lee." Unknown parts are said
  *  as unknown, never as 0. */
 export function summaryLine(summary: SignConfirmProps["summary"]): string {
@@ -77,8 +65,6 @@ export function summaryLine(summary: SignConfirmProps["summary"]): string {
   const line = parts.join(", ");
   return `${line[0].toUpperCase()}${line.slice(1)}.`;
 }
-
-type Preview = { kind: "loading" } | { kind: "ready"; preview: CrsPreview } | { kind: "error"; message: string };
 
 /** The question when the review being signed is not the newest one. */
 export function olderReviewWarning(at: string | null): string {
@@ -106,36 +92,25 @@ export function SignConfirm({ runId, open, onClose, onIssued, summary, newerRevi
    *  back to it when the step closes. */
   const opener = useRef<HTMLElement | null>(null);
   const [olderOk, setOlderOk] = useState(false);
-  const [preview, setPreview] = useState<Preview>({ kind: "loading" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async (live: () => boolean) => {
-    const result = await reviewsApi.previewCrs(runId);
-    if (!live()) return;
-    setPreview(result.ok ? { kind: "ready", preview: result.data } : { kind: "error", message: result.error.message });
-  }, [runId]);
-
-  // Read the sheet again every time the step opens: what is issued is what
-  // the server holds now, not what it held the last time.
+  // The sheet is read again every time the step opens (CrsLook mounts with
+  // it): what is issued is what the server holds now.
   useEffect(() => {
     if (!open) return;
-    let live = true;
-    setPreview({ kind: "loading" });
     setError(null);
     setOlderOk(false);
     const active = document.activeElement as HTMLElement | null;
     opener.current = active && active !== document.body ? active : null;
-    void load(() => live);
     headingRef.current?.focus();
     return () => {
-      live = false;
       // Closed: the keyboard goes back to the Sign button that opened it.
       const back = opener.current;
       opener.current = null;
       if (back && back.isConnected) back.focus();
     };
-  }, [open, load]);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -195,19 +170,8 @@ export function SignConfirm({ runId, open, onClose, onIssued, summary, newerRevi
           file is made by the server, which leaves out anything no engineer confirmed, and a copy is kept on
           record. Nothing is sent until you press &quot;Issue to contractor&quot;.
         </p>
-        {preview.kind === "loading" && <p className="text-slateish-400">Loading the sheet…</p>}
-        {preview.kind === "error" && (
-          <p role="alert" data-testid="ws-sign-preview-error" className="text-warn-500">
-            The preview of the sheet could not be loaded ({preview.message}). You can still issue it; the server
-            makes the file either way.
-          </p>
-        )}
-        {preview.kind === "ready" && (
-          <div className="max-h-[55vh] overflow-auto">
-            <CrsPreviewSheet readOnly preview={contractorView(preview.preview)} runId={runId}
-              onChanged={() => void load(() => true)} />
-          </div>
-        )}
+        <CrsLook runId={runId} errorTestId="ws-sign-preview-error"
+          failNote="You can still issue it; the server makes the file either way." />
         {asksFirst && (
           <div role="group" aria-label="Signing an older review" data-testid="ws-sign-older"
             className="space-y-1 rounded-[var(--radius-sm)] border border-warn-500/50 bg-warn-500/10 p-2">

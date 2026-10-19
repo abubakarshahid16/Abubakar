@@ -22,18 +22,28 @@ import type { DocumentRecord, ReviewRunSummary } from "../../../types/api";
 import { DocumentsFromContractors } from "../DocumentsFromContractors";
 import { groupRunsByDocument } from "../reviewFormat";
 import { PastReviewsButton } from "./PastReviewsButton";
-import { PastReviewsList } from "./PastReviewsList";
+import { PastReviewsList, comparableReviews } from "./PastReviewsList";
 import { loadCommentCount, loadPastReviews, pastReviewsOf } from "./pastReviews";
 
 const reviewRuns = vi.fn();
 const reviewRunSummary = vi.fn();
 const reviewRunCounts = vi.fn();
+const reviewRun = vi.fn();
+const list = vi.fn();
+const reviewRunStandards = vi.fn();
+const anyWrite = vi.fn();
 
 vi.mock("../../../api/client", () => ({
   reviews: {
     reviewRuns: (...args: unknown[]) => reviewRuns(...args),
     reviewRunSummary: (...args: unknown[]) => reviewRunSummary(...args),
     reviewRunCounts: (...args: unknown[]) => reviewRunCounts(...args),
+    reviewRun: (...args: unknown[]) => reviewRun(...args),
+    list: (...args: unknown[]) => list(...args),
+    reviewRunStandards: (...args: unknown[]) => reviewRunStandards(...args),
+    update: (...args: unknown[]) => anyWrite(...args),
+    decide: (...args: unknown[]) => anyWrite(...args),
+    confirm: (...args: unknown[]) => anyWrite(...args),
   },
 }));
 
@@ -69,6 +79,7 @@ beforeEach(() => {
   reviewRuns.mockReset();
   reviewRunSummary.mockReset();
   reviewRunCounts.mockReset();
+  for (const fn of [reviewRun, list, reviewRunStandards, anyWrite]) fn.mockReset();
 });
 
 describe("pastReviewsOf", () => {
@@ -178,6 +189,8 @@ describe("PastReviewsList", () => {
     for (const row of rows) {
       expect(row.querySelector('[data-field="findings"]')).toBeEmptyDOMElement();
       expect(row.querySelector('[data-field="date"]')?.textContent).not.toBe("");
+      // v2.2 one date style: "19 Oct 2026, 12:20".
+      expect(row.querySelector('[data-field="date"]')?.textContent).toMatch(/^\d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2}$/);
     }
     expect(screen.queryByText(/^0 /)).not.toBeInTheDocument();
     expect(screen.queryByTestId("past-counts-note")).toBeNull();
@@ -259,5 +272,103 @@ describe("DocumentsFromContractors with onOpenPastRun", () => {
     expect(reviewRuns).not.toHaveBeenCalled();
     expect(reviewRunSummary).not.toHaveBeenCalled();
     expect(reviewRunCounts).not.toHaveBeenCalled();
+  });
+});
+
+/* ------------------------------------------------ v2.2: compare reviews */
+
+describe("Compare with this one", () => {
+  // doc-1: run-3 (newest, signed), run-2 (failed), run-1 (oldest, finished).
+  const rows = pastReviewsOf("doc-1", RUNS);
+  const finding = (id: string, requirementId: string | null, text: string) => ({
+    id, document_id: "doc-1", requirement: "", finding: text, required_action: "", standard_document_id: "std-1",
+    requirement_id: requirementId, approval_status: "pending", compliance_status: "NON_COMPLIANT", status: "open",
+  });
+  const sheets: Record<string, ReturnType<typeof finding>[]> = {
+    "run-3": [finding("n1", "r-1", "Pressure below the minimum"), finding("n2", "r-2", "Noise level missing")],
+    "run-1": [finding("o1", "r-1", "Pressure too low"), finding("o3", "r-9", "Paint colour not stated")],
+  };
+
+  function serve(failRun?: string) {
+    reviewRun.mockImplementation(async (id: string) => (id === failRun
+      ? { ok: false, disconnected: true, error: { code: "x", message: "socket closed" } }
+      : { ok: true, data: run({ review_run_id: id }) }));
+    list.mockImplementation(async ({ review_run_id }: { review_run_id: string }) => ({ ok: true, data: { findings: sheets[review_run_id] ?? [] } }));
+    reviewRunStandards.mockResolvedValue({ ok: true, data: { standards: [], missing_references: [] } });
+    reviewRunSummary.mockImplementation(async (id: string) => ({
+      ok: true,
+      data: { rows: (sheets[id] ?? []).map((f) => ({ finding_id: f.id, tier: "B", label: "Comment", reason: null })), counts: {}, how_reviewed: {} },
+    }));
+    reviewRunCounts.mockResolvedValue(batch({}));
+  }
+
+  it("is offered only on earlier finished reviews, and only when the review on screen is named", () => {
+    expect([...comparableReviews(rows, "run-3")]).toEqual(["run-1"]);
+    expect(comparableReviews(rows, "run-1").size).toBe(0);
+    expect(comparableReviews(rows, null).size).toBe(0);
+  });
+
+  it("opens a dialog with the three lists and their boundary; Escape closes it and returns the keyboard", async () => {
+    serve();
+    render(<PastReviewsList reviews={rows} onOpenRun={vi.fn()} currentRunId="run-3" />);
+    const compare = screen.getAllByRole("button", { name: /^Compare with this one/ });
+    expect(compare).toHaveLength(1);
+    await userEvent.click(compare[0]);
+
+    const dialog = screen.getByRole("dialog", { name: /What changed since the review of 1 Oct 2026/ });
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    await waitFor(() => expect(within(dialog).getByTestId("compare-new-count")).toHaveTextContent("1 new comment since the review of 1 Oct 2026"));
+    expect(within(dialog).getByTestId("compare-gone-count")).toHaveTextContent("1 comment gone since the review of 1 Oct 2026");
+    expect(within(dialog).getByTestId("compare-still-count")).toHaveTextContent("1 comment in both reviews (this one and the review of 1 Oct 2026)");
+    expect(within(within(dialog).getByTestId("compare-new")).getByText("Noise level missing")).toBeInTheDocument();
+    expect(within(within(dialog).getByTestId("compare-gone")).getByText("Paint colour not stated")).toBeInTheDocument();
+    expect(within(within(dialog).getByTestId("compare-still")).getByText("Pressure below the minimum")).toBeInTheDocument();
+    // Not read as a decision status.
+    expect(within(dialog).getByRole("heading", { name: "In both reviews" })).toBeInTheDocument();
+    expect(within(dialog).queryByText(/still open/i)).toBeNull();
+    expect(within(dialog).getByText(/does not change any decision/)).toBeInTheDocument();
+    expect(list).toHaveBeenCalledWith({ review_run_id: "run-3" });
+    expect(list).toHaveBeenCalledWith({ review_run_id: "run-1" });
+    // Read only: nothing was written.
+    expect(anyWrite).not.toHaveBeenCalled();
+
+    // The keyboard stays inside: Tab from the only button comes back to it.
+    const close = within(dialog).getByRole("button", { name: "Close" });
+    expect(close).toHaveFocus();
+    await userEvent.tab();
+    expect(close).toHaveFocus();
+
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(compare[0]).toHaveFocus();
+  });
+
+  /** v2.2 review 1. MUTATION PROOF: read or show the count of the review on
+   *  screen and this fails (its numbers come from the page's one source). */
+  it("on the review page, the review on screen shows no count of its own and its count is not read", async () => {
+    const unsigned = pastReviewsOf("doc-1", [
+      run({ review_run_id: "run-1", created_at: "2026-10-01T08:00:00Z" }),
+      run({ review_run_id: "run-4", created_at: "2026-10-07T08:00:00Z" }),
+    ]);
+    reviewRunCounts.mockResolvedValue(batch({ "run-1": [7, 2], "run-4": [5, 1] }));
+    render(<PastReviewsList reviews={unsigned} onOpenRun={vi.fn()} currentRunId="run-4" />);
+    await waitFor(() => expect(screen.getByText(/9 findings/)).toBeInTheDocument());
+    expect(reviewRunCounts).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(reviewRunCounts.mock.calls[0])).not.toContain("run-4");
+    expect(screen.queryByText(/6 findings/)).toBeNull();
+    const own = screen.getAllByRole("listitem")[0];
+    expect(within(own).getByText("This review")).toBeInTheDocument();
+    expect(within(own).getAllByRole("button")[0]).toHaveAttribute("aria-current", "true");
+  });
+
+  it("says in plain words when a review could not be read", async () => {
+    serve("run-1");
+    render(<PastReviewsList reviews={rows} onOpenRun={vi.fn()} currentRunId="run-3" />);
+    await userEvent.click(screen.getByRole("button", { name: /^Compare with this one/ }));
+    const error = await screen.findByTestId("compare-error");
+    expect(error).toHaveTextContent("Could not read one of the two reviews to compare them. The server could not be reached.");
+    expect(screen.queryByTestId("compare-new")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });

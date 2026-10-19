@@ -18,12 +18,26 @@ import { useState } from "react";
 
 import { BeforeYouSign } from "../crs/BeforeYouSign";
 import { downloadIssuedCopy } from "./sign/issuedCopy";
-import type { SignOffPanelProps } from "./contract";
+import type { ReviewNumbers, SignOffPanelProps as PanelContractProps } from "./contract";
 import { actionSteps, signedDate } from "./numbers";
+
+export type SignOffPanelProps = PanelContractProps & {
+  /** v2.2 round 2 (Simple view): "Before you sign" folds behind one line
+   *  that says how much is left. It opens by itself only while something
+   *  there still stops Sign and export. Detailed view: shown open. */
+  folded?: boolean;
+};
+
+/** The folded box's one line, from the one source (`numbers.signLeft`). */
+export function beforeYouSignSummary(numbers: Pick<ReviewNumbers, "signLeft">): string {
+  const n = numbers.signLeft.length;
+  if (n === 0) return "Before you sign: all done.";
+  return `Before you sign: ${n} ${n === 1 ? "thing" : "things"} still to do (${numbers.signLeft.join("; ")}).`;
+}
 
 const BUTTON = "rounded-[var(--radius-sm)] border px-3 py-1.5 text-sm disabled:cursor-not-allowed";
 
-export function SignOffPanel({ numbers, signOff, run, rows, gate, onRunChanged, onJump }: SignOffPanelProps) {
+export function SignOffPanel({ numbers, signOff, run, rows, gate, onRunChanged, onJump, folded = false }: SignOffPanelProps) {
   const signStep = actionSteps(numbers).find((s) => s.id === "sign");
   const canSign = Boolean(signStep?.enabled) && !signOff.busy;
   const when = signedDate(numbers.signedAt);
@@ -37,9 +51,18 @@ export function SignOffPanel({ numbers, signOff, run, rows, gate, onRunChanged, 
     <section data-testid="ws-sign-off" aria-label="Sign-off"
       className="mt-4 space-y-3 rounded-[var(--radius-md)] border border-ink-700 p-3 text-sm text-slateish-300">
       <h3 className="sr-only">Sign-off</h3>
-      {!numbers.signed && (
+      {!numbers.signed && (folded ? (
+        <details data-testid="ws-before-sign-fold" open={numbers.signLeft.length > 0}>
+          <summary data-testid="ws-before-sign-summary" className="cursor-pointer text-slateish-100">
+            {beforeYouSignSummary(numbers)}
+          </summary>
+          <div className="mt-2">
+            <BeforeYouSign run={run} rows={rows} state={gate} onRunChanged={onRunChanged} onJump={onJump} />
+          </div>
+        </details>
+      ) : (
         <BeforeYouSign run={run} rows={rows} state={gate} onRunChanged={onRunChanged} onJump={onJump} />
-      )}
+      ))}
       <div className="flex flex-wrap items-center gap-3">
         {numbers.signed ? (
           <span>{when ? `Signed on ${when}.` : "Signed."}</span>

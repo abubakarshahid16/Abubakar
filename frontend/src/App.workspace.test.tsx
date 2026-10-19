@@ -1,17 +1,16 @@
 /**
- * Workspace v2 (builder A): the switch, the routes and the address.
+ * Workspace v2: the routes and the address. Owner, 19 Oct 2026: the
+ * workspace replaced the old review design permanently. There is no "Try
+ * new design" switch; a stored opt-in (or a blocked storage) changes
+ * nothing; every review address opens the workspace or its first page; the
+ * query string keeps the reader's place.
  *
- * With the switch off and no opt-in nothing changes (`/review/<run>` is the
- * comment sheet, App.review.test.tsx stays green unchanged); the workspace's
- * own address always works; "Try new design" turns `/review/<run>` into the
- * workspace; a blocked storage falls back to the old screen; the query
- * string keeps the reader's place.
- *
- * MUTATION PROOF: make isWorkspaceScreen ignore the switch and the first
- * test fails; drop "workspace" from PANELS.review and the second is refused
- * as an unknown address; stop reading window.location.search on popstate and
- * the restore test fails; use pushState for tab changes and the history test
- * fails.
+ * MUTATION PROOF: decide what shows from this browser's stored choice again
+ * (useWorkspaceSwitch(false)) and "a stored opt-out changes nothing" fails; render the TryNewDesignToggle again
+ * and "no switch" fails; drop "workspace" from PANELS.review and its own
+ * address is refused; stop reading window.location.search on popstate and
+ * the restore test fails; use pushState for tab changes and the history
+ * test fails.
  */
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -35,8 +34,13 @@ vi.mock("./views/ReviewSheetView", () => ({
   ReviewSheetView: ({ runId, panel }: { runId: string; panel?: string }) => <p>{`cards for ${runId}${panel ? ` panel ${panel}` : ""}`}</p>,
 }));
 vi.mock("./views/SubmittalsLandingView", () => ({
-  SubmittalsLandingView: ({ workspace, inbox }: { workspace?: boolean; inbox?: boolean }) => (
-    <p>{`landing${inbox ? " inbox" : ""} workspace=${String(Boolean(workspace))}`}</p>
+  SubmittalsLandingView: ({ workspace, inbox, onOpenRunTab }: {
+    workspace?: boolean; inbox?: boolean; onOpenRunTab?: (runId: string, tab: "crs") => void;
+  }) => (
+    <div>
+      <p>{`landing${inbox ? " inbox" : ""} workspace=${String(Boolean(workspace))}`}</p>
+      {onOpenRunTab && <button type="button" onClick={() => onOpenRunTab("run-7", "crs")}>Preview CRS</button>}
+    </div>
   ),
 }));
 vi.mock("./components/review/workspace/ReviewWorkspace", () => ({
@@ -95,114 +99,68 @@ afterEach(() => {
   window.history.pushState({}, "", "/");
 });
 
-describe("workspace switch off (the default)", () => {
-  it("/review/<run> is still the comment sheet and the landing gets workspace=false", async () => {
+describe("the workspace is the only review design", () => {
+  it("/review is the workspace's first page and /review/<run> the workspace, with no switch", async () => {
     mockApi();
     render(<App initialView="review" />);
-    expect(await screen.findByText("landing workspace=false")).toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: "Try new design" })).not.toBeChecked();
+    expect(await screen.findByText("landing workspace=true")).toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: "Try new design" })).toBeNull();
     await goTo("/review/run-1");
-    expect(await screen.findByText("crs sheet for run-1")).toBeInTheDocument();
-    expect(screen.queryByText(/workspace for/)).not.toBeInTheDocument();
-    await goTo("/review/run-1/cards");
-    expect(await screen.findByText("cards for run-1")).toBeInTheDocument();
-    await goTo("/review/run-1/how");
-    expect(await screen.findByText("how page for run-1")).toBeInTheDocument();
+    expect(await screen.findByText("workspace for run-1")).toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: "Try new design" })).toBeNull();
+    expect(screen.queryByText(/crs sheet for|cards for|how page for/)).toBeNull();
   });
 
-  it("/review/<run>/workspace opens the workspace anyway", async () => {
+  it("/review/<run>/workspace keeps working", async () => {
     mockApi();
     render(<App initialView="review" />);
-    await screen.findByText("landing workspace=false");
+    await screen.findByText("landing workspace=true");
     await goTo("/review/run-1/workspace");
     expect(await screen.findByText("workspace for run-1")).toBeInTheDocument();
     expect(where()).toEqual({ runId: "run-1", tab: "sheet", row: null, panel: null, documentId: null });
   });
 
-  it("the inbox stays the inbox", async () => {
-    localStorage.setItem(WORKSPACE_OPT_IN_KEY, "on");
-    mockApi();
-    render(<App initialView="review" />);
-    await screen.findByText("landing workspace=true");
-    await goTo("/review/inbox");
-    expect(await screen.findByText("landing inbox workspace=true")).toBeInTheDocument();
-  });
-});
-
-describe("Try new design", () => {
-  it("an opt-in in storage turns /review/<run> into the workspace", async () => {
-    localStorage.setItem(WORKSPACE_OPT_IN_KEY, "on");
+  it("a stored opt-out of the old switch changes nothing", async () => {
+    localStorage.setItem(WORKSPACE_OPT_IN_KEY, "off");
     mockApi();
     render(<App initialView="review" />);
     expect(await screen.findByText("landing workspace=true")).toBeInTheDocument();
     await goTo("/review/run-1");
     expect(await screen.findByText("workspace for run-1")).toBeInTheDocument();
-    // The other screens keep their own addresses.
-    await goTo("/review/run-1/crs-sheet");
-    expect(await screen.findByText("crs sheet for run-1")).toBeInTheDocument();
   });
 
-  it("a blocked storage falls back to the old screen, no crash", async () => {
+  it("a blocked storage changes nothing, no crash", async () => {
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("blocked"); });
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("blocked"); });
     mockApi();
     render(<App initialView="review" />);
-    expect(await screen.findByText("landing workspace=false")).toBeInTheDocument();
-    await goTo("/review/run-1");
-    expect(await screen.findByText("crs sheet for run-1")).toBeInTheDocument();
-  });
-
-  it("pressing it on the landing turns the switch on and remembers it; off on the workspace goes back", async () => {
-    const user = userEvent.setup();
-    mockApi();
-    render(<App initialView="review" />);
-    await screen.findByText("landing workspace=false");
-    await user.click(screen.getByRole("switch", { name: "Try new design" }));
     expect(await screen.findByText("landing workspace=true")).toBeInTheDocument();
-    expect(localStorage.getItem(WORKSPACE_OPT_IN_KEY)).toBe("on");
     await goTo("/review/run-1");
     expect(await screen.findByText("workspace for run-1")).toBeInTheDocument();
-    await user.click(screen.getByRole("switch", { name: "Try new design" }));
-    expect(await screen.findByText("crs sheet for run-1")).toBeInTheDocument();
-    expect(localStorage.getItem(WORKSPACE_OPT_IN_KEY)).toBeNull();
   });
 
-  it("switching off on the workspace's own address returns to the old screen of that run", async () => {
-    const user = userEvent.setup();
-    localStorage.setItem(WORKSPACE_OPT_IN_KEY, "on");
+  it("the old inbox address leads to the workspace's first page", async () => {
     mockApi();
     render(<App initialView="review" />);
     await screen.findByText("landing workspace=true");
-    await goTo("/review/run-1/workspace");
-    await screen.findByText("workspace for run-1");
-    await user.click(screen.getByRole("switch", { name: "Try new design" }));
-    expect(await screen.findByText("crs sheet for run-1")).toBeInTheDocument();
+    await goTo("/review/inbox");
+    expect(await screen.findByText("landing workspace=true")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/review");
   });
-});
 
-describe("turning the switch off with unsaved decisions", () => {
-  /** v2.1 N1: asked in the page, not with a browser pop-up. */
-  it("asks first in the page and stays on the workspace when the reader says stay", async () => {
+  it("an old screen's address opens the workspace on that tab and keeps the address tidy", async () => {
     const user = userEvent.setup();
-    localStorage.setItem(WORKSPACE_OPT_IN_KEY, "on");
     mockApi();
-    const confirm = vi.spyOn(window, "confirm");
     render(<App initialView="review" />);
     await screen.findByText("landing workspace=true");
-    await goTo("/review/run-1");
-    await screen.findByText("workspace for run-1");
-    await user.click(screen.getByRole("button", { name: "Make an unsaved decision" }));
-    await user.click(screen.getByRole("switch", { name: "Try new design" }));
-    expect(screen.getByRole("alertdialog")).toHaveTextContent("You have 1 decision on this review that is not saved yet.");
-    await user.click(screen.getByRole("button", { name: "Stay here" }));
-    expect(screen.queryByRole("alertdialog")).toBeNull();
-    expect(screen.getByText("workspace for run-1")).toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: "Try new design" })).toBeChecked();
-
-    await user.click(screen.getByRole("switch", { name: "Try new design" }));
-    await user.click(screen.getByRole("button", { name: "Go to the old screen" }));
-    expect(await screen.findByText("crs sheet for run-1")).toBeInTheDocument();
-    expect(confirm).not.toHaveBeenCalled();
+    await goTo("/review/run-1/standards");
+    expect(await screen.findByText("workspace for run-1")).toBeInTheDocument();
+    expect(where()).toEqual({ runId: "run-1", tab: "standards", row: null, panel: null, documentId: null });
+    expect(window.location.pathname + window.location.search).toBe("/review/run-1?tab=standards");
+    // Moving on from there writes the plain run address, never the old one.
+    await user.click(screen.getByRole("button", { name: "Open findings" }));
+    expect(window.location.pathname).toBe("/review/run-1");
+    expect(window.location.search).toBe("?tab=findings&row=row-2&panel=evidence");
   });
 });
 
@@ -210,16 +168,26 @@ describe("the address keeps the place", () => {
   it("reloading with ?tab=standards&row=X&panel=evidence restores the place", async () => {
     mockApi();
     render(<App initialView="review" />);
-    await screen.findByText("landing workspace=false");
+    await screen.findByText("landing workspace=true");
     await goTo("/review/run-1/workspace?tab=standards&row=row-x&panel=evidence");
     expect(await screen.findByText("workspace for run-1")).toBeInTheDocument();
     expect(where()).toEqual({ runId: "run-1", tab: "standards", row: "row-x", panel: "evidence", documentId: null });
   });
 
+  it("v2.2: Preview CRS on the first page opens that review straight on the CRS tab", async () => {
+    const user = userEvent.setup();
+    mockApi();
+    render(<App initialView="review" />);
+    await screen.findByText("landing workspace=true");
+    await user.click(screen.getByRole("button", { name: "Preview CRS" }));
+    expect(await screen.findByText("workspace for run-7")).toBeInTheDocument();
+    expect(where()).toEqual({ runId: "run-7", tab: "crs", row: null, panel: null, documentId: null });
+  });
+
   it("a junk query opens the default place", async () => {
     mockApi();
     render(<App initialView="review" />);
-    await screen.findByText("landing workspace=false");
+    await screen.findByText("landing workspace=true");
     await goTo("/review/run-1/workspace?tab=%%%&panel=nope");
     expect(await screen.findByText("workspace for run-1")).toBeInTheDocument();
     expect(where()).toMatchObject({ tab: "sheet", panel: null });
@@ -229,7 +197,7 @@ describe("the address keeps the place", () => {
     const user = userEvent.setup();
     mockApi();
     render(<App initialView="review" />);
-    await screen.findByText("landing workspace=false");
+    await screen.findByText("landing workspace=true");
     await goTo("/review/run-1/workspace");
     await screen.findByText("workspace for run-1");
     const depth = window.history.length;
@@ -240,30 +208,20 @@ describe("the address keeps the place", () => {
     expect(where()).toMatchObject({ tab: "findings", row: "row-2", panel: "evidence" });
   });
 
-  it("links from the new pieces open the workspace address while the switch is off", async () => {
+  it("links from the new pieces open the workspace at the plain run address", async () => {
     const user = userEvent.setup();
-    mockApi();
-    render(<App initialView="review" />);
-    await screen.findByText("landing workspace=false");
-    await user.click(screen.getByRole("button", { name: "Open finished review" }));
-    expect(await screen.findByText("workspace for run-9")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Review again" }));
-    expect(await screen.findByText("workspace for run-5")).toBeInTheDocument();
-  });
-
-  it("with the switch on they open the plain run address (which is the workspace)", async () => {
-    const user = userEvent.setup();
-    localStorage.setItem(WORKSPACE_OPT_IN_KEY, "on");
     mockApi();
     render(<App initialView="review" />);
     await screen.findByText("landing workspace=true");
     await user.click(screen.getByRole("button", { name: "Open finished review" }));
     expect(await screen.findByText("workspace for run-9")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Review again" }));
+    expect(await screen.findByText("workspace for run-5")).toBeInTheDocument();
   });
 });
 
 /** SF1: "Open it" on the finished notice leaves the workspace, so it asks
- *  about unsaved decisions first, like the switch.
+ *  about unsaved decisions first.
  *  MUTATION PROOF: pass openRunInWorkspace to the notice again and the
  *  first half fails (it leaves without asking). */
 describe("the finished notice with unsaved decisions", () => {
@@ -271,7 +229,7 @@ describe("the finished notice with unsaved decisions", () => {
     const user = userEvent.setup();
     mockApi();
     render(<App initialView="review" />);
-    await screen.findByText("landing workspace=false");
+    await screen.findByText("landing workspace=true");
     await goTo("/review/run-1/workspace");
     await screen.findByText("workspace for run-1");
     await user.click(screen.getByRole("button", { name: "Make an unsaved decision" }));
@@ -290,7 +248,7 @@ describe("the finished notice with unsaved decisions", () => {
     mockApi();
     const confirm = vi.spyOn(window, "confirm");
     render(<App initialView="review" />);
-    await screen.findByText("landing workspace=false");
+    await screen.findByText("landing workspace=true");
     await user.click(screen.getByRole("button", { name: "Open finished review" }));
     expect(await screen.findByText("workspace for run-9")).toBeInTheDocument();
     expect(confirm).not.toHaveBeenCalled();
@@ -305,7 +263,7 @@ describe("signing out clears the review-ready list", () => {
     const user = userEvent.setup();
     mockApi(SIGNED_IN);
     render(<App initialView="review" />);
-    await screen.findByText("landing workspace=false");
+    await screen.findByText("landing workspace=true");
     // Signed in (the badge shows) before anything is watched.
     const signOut = (await screen.findAllByRole("button", { name: "Sign out" }))[0];
     act(() => { watchRun("run-1", "Private datasheet.pdf"); });
@@ -327,7 +285,7 @@ describe("signing out clears the review-ready list", () => {
   it("a 401 from the server clears the list like sign-out does", async () => {
     mockApi(SIGNED_IN);
     render(<App initialView="review" />);
-    await screen.findByText("landing workspace=false");
+    await screen.findByText("landing workspace=true");
     await screen.findAllByRole("button", { name: "Sign out" });
     act(() => { watchRun("run-1", "Private datasheet.pdf"); });
     expect(sessionStorage.getItem(watchStorageKey("user-a"))).toContain("Private datasheet.pdf");

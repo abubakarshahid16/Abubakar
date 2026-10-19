@@ -43,7 +43,7 @@ export const WORKSPACE_TAB_LABELS: Record<WorkspaceTab, string> = {
   numbers: "Numbers",
   // The comment sheet as issued: the contractor's replies, transmittal
   // numbers, which comments are open or closed (the old "crs" page).
-  crs: "Contractor copy and replies",
+  crs: "CRS preview and replies",
 };
 
 /** The right-hand panel. Only the evidence drawer for now. */
@@ -190,14 +190,16 @@ export interface ReviewNumbers {
   signedAt: string | null;
 }
 
-export type ActionStepId = "standards" | "pages" | "decide" | "code" | "sign";
+/** v2.2: "preview" (Preview CRS) sits between the final code and Sign: a
+ *  read-only look at the sheet as the contractor gets it. */
+export type ActionStepId = "standards" | "pages" | "decide" | "code" | "preview" | "sign";
 
 /** One button of the "What you need to do" bar, in bar order. */
 export interface ActionStep {
   id: ActionStepId;
   /** Plain words with the count, e.g. "Upload missing standards (2)". */
   label: string;
-  /** The count shown; null for "sign". */
+  /** The count shown; null for "code", "preview" and "sign". */
   count: number | null;
   /** Nothing left to do for this step. */
   done: boolean;
@@ -300,6 +302,10 @@ export interface ReviewWorkspaceProps {
 export interface WorkspaceTabsProps {
   tab: WorkspaceTab;
   onTab: (tab: WorkspaceTab) => void;
+  /** v2.2: "simple" shows Comment sheet, CRS preview and replies and one
+   *  "Details" tab that holds the engineer tabs in a second small row;
+   *  "detailed" (the default here) shows every tab in one strip. */
+  mode?: "simple" | "detailed";
   /** The tab's content (A renders it). */
   children?: ReactNode;
 }
