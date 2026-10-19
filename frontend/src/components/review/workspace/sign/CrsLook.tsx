@@ -1,6 +1,7 @@
 /**
  * OWNER: builder C (v2.2). The read-only look at the comment sheet as the
- * contractor gets it: the server's own preview (`reviewsApi.previewCrs`)
+ * contractor gets it: the server's own preview of the CONTRACTOR'S copy
+ * (`reviewsApi.previewCrs(runId, "issue")`: unconfirmed and AI-only rows left out)
  * drawn by `CrsPreviewSheet readOnly`, with the internal-only columns and
  * notes left out (`contractorView`). Used by "Preview and confirm"
  * (SignConfirm) and by the "Preview CRS" step of the bar (ActionBar).
@@ -43,7 +44,7 @@ export function CrsLook({ runId, failNote = "", errorTestId = "ws-crs-look-error
   const [preview, setPreview] = useState<Preview>({ kind: "loading" });
 
   const load = useCallback(async (live: () => boolean) => {
-    const result = await reviewsApi.previewCrs(runId);
+    const result = await reviewsApi.previewCrs(runId, "issue");
     if (!live()) return;
     setPreview(result.ok ? { kind: "ready", preview: result.data } : { kind: "error", message: result.error.message });
   }, [runId]);

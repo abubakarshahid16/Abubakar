@@ -115,6 +115,9 @@ describe("Preview and confirm (S2)", () => {
     expect(within(region).getByText("Design pressure is below API 610.")).toBeInTheDocument();
     expect(within(region).queryByText("internal note")).toBeNull();
     expect(within(region).queryByText(/Review notes - internal/)).toBeNull();
+    // #1171 blocker: the rows are the contractor's copy (copy=issue), not the
+    // internal copy with its unconfirmed rows.
+    expect(previewCrs).toHaveBeenCalledWith("run-1", "issue");
   });
 
   it("does not open while something is left, and says what in plain words", async () => {

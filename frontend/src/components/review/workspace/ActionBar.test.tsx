@@ -118,7 +118,9 @@ describe("Preview CRS (v2.2)", () => {
     expect(button).toHaveAttribute("aria-expanded", "true");
     const box = screen.getByTestId("ws-crs-preview");
     expect(await within(box).findByText("Design pressure is below the standard.")).toBeInTheDocument();
-    expect(previewCrs).toHaveBeenCalledWith("run-1");
+    // #1171 blocker (cloud, s2): the look reads the CONTRACTOR'S copy, so
+    // unconfirmed and AI-only rows the issued file leaves out never show.
+    expect(previewCrs).toHaveBeenCalledWith("run-1", "issue");
     await userEvent.click(within(box).getByRole("button", { name: "Close preview" }));
     expect(screen.queryByTestId("ws-crs-preview")).toBeNull();
   });

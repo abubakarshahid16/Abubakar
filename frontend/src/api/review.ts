@@ -326,9 +326,11 @@ export const reviews = {
       undefined,
       hasArrayField("steps"),
     ),
-  previewCrs: (runId: string) =>
+  /** `copy: "issue"`: the rows the contractor's copy carries (unconfirmed
+   *  and AI-only rows left out by the server); default: the internal copy. */
+  previewCrs: (runId: string, copy?: "internal" | "issue") =>
     request<CrsPreview>(
-      `/reviews/runs/${encodeURIComponent(runId)}/crs/preview`,
+      `/reviews/runs/${encodeURIComponent(runId)}/crs/preview${copy === "issue" ? "?copy=issue" : ""}`,
       undefined,
       hasArrayField("rows"),
     ),

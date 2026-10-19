@@ -63,3 +63,24 @@ describe("issuedCrsCopy", () => {
     expect(result.ok && result.data.filename).toBe("CRS_a_issued.xlsx");
   });
 });
+
+/** #1171 blocker (cloud, s2): "Preview CRS" and the sign step show the
+ *  CONTRACTOR'S copy, so they ask the preview route for copy=issue (the
+ *  server leaves out unconfirmed and AI-only rows there). A plain preview
+ *  stays the internal copy. MUTATION PROOF: drop the query and this fails. */
+describe("previewCrs", () => {
+  const json = () => new Response(JSON.stringify({ columns: [], rows: [] }),
+    { status: 200, headers: { "Content-Type": "application/json" } });
+
+  it("asks for the contractor's copy when told to", async () => {
+    const fetchMock = respond(json());
+    await reviews.previewCrs("run-1", "issue");
+    expect(fetchMock.mock.calls[0][0]).toMatch(/\/reviews\/runs\/run-1\/crs\/preview\?copy=issue$/);
+  });
+
+  it("keeps the plain preview the internal copy", async () => {
+    const fetchMock = respond(json());
+    await reviews.previewCrs("run-1");
+    expect(fetchMock.mock.calls[0][0]).toMatch(/\/reviews\/runs\/run-1\/crs\/preview$/);
+  });
+});
