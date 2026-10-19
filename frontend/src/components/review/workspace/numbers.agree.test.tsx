@@ -50,7 +50,7 @@ function row(key: string, tier: Tier, prior: "open" | "agreed" = "open"): CrsRow
 
 const RUN = {
   review_run_id: "run-1", submittal_document_id: "doc-1", submittal_filename: "Pump datasheet rev B.pdf", status: "completed",
-  page_coverage: { pages_not_read_into_fields: [9, 4] },
+  page_coverage: { pages_not_read_into_fields: [9, 4] }, unread_pages: [4, 9, 12],
 } as unknown as ReviewRunSummary;
 
 const READINESS: ReviewReadiness = {
@@ -193,7 +193,7 @@ describe("Check unread pages", () => {
   });
 
   it("a done step shows as a tick, not hidden, and cannot be pressed", () => {
-    const n = numbersFor({ readiness: NONE_LEFT, run: { ...RUN, page_coverage: null } as unknown as ReviewRunSummary });
+    const n = numbersFor({ readiness: NONE_LEFT, run: { ...RUN, page_coverage: null, unread_pages: null } as unknown as ReviewRunSummary });
     render(<ActionBar run={RUN} numbers={n} steps={actionSteps(n)} onAction={() => {}} signOff={IDLE} />);
     const pages = screen.getByRole("button", { name: /Check unread pages/ });
     expect(pages).toBeDisabled();

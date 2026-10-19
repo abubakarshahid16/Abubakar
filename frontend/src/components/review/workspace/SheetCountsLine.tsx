@@ -1,6 +1,6 @@
 /**
  * OWNER: builder B. The comment sheet's one count line, e.g. "12 comments,
- * 3 need you, 40 met, 7 not applicable, 3 pages not read". Every number is
+ * 3 need you, 40 met, 7 not applicable, 3 pages to check". Every number is
  * `computeReviewNumbers`'s; nothing is counted here.
  */
 import type { ReactNode } from "react";
@@ -31,7 +31,7 @@ export function SheetCountsLine({ numbers }: SheetCountsLineProps) {
   }
   if (numbers.anotherDocument > 0) parts.push(<Part key="a" n={numbers.anotherDocument} one="for another document" many="for another document" />);
   if (numbers.pagesKnown && numbers.unreadPages.length > 0) {
-    parts.push(<Part key="p" n={numbers.unreadPages.length} one="page not read" many="pages not read" count="unreadPages" />);
+    parts.push(<Part key="p" n={numbers.unreadPages.length} one="page to check" many="pages to check" count="unreadPages" />);
   }
   if (numbers.standardsKnown && numbers.missingStandards.length > 0) {
     parts.push(<Part key="s" n={numbers.missingStandards.length} one="standard missing" many="standards missing" count="missingStandards" />);
