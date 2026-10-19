@@ -16,7 +16,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         phase=1177,
         description="a question with no datasheet field is a CRS line again",
         path=_M,
-        anchor="    questions = [f for f in questions if not _no_datasheet_field(f)]  # #139\n",
+        anchor="            and not _no_datasheet_field(f)\n",
         replacement="",
         target=_T,
         keyword="review_note_not_a_crs_line",
