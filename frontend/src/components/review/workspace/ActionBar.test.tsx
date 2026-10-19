@@ -7,7 +7,7 @@
  * ActionBar and "opens the sheet under the bar" fails; drop `readOnly` from
  * CrsLook and "is a look only" fails.
  */
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -145,6 +145,43 @@ describe("Preview CRS (v2.2)", () => {
     await userEvent.click(screen.getByRole("button", { name: "Preview CRS" }));
     expect(await within(screen.getByTestId("ws-crs-preview")).findByText("Design pressure is below the standard.")).toBeInTheDocument();
     expect(issueContractorCopy).not.toHaveBeenCalled();
+  });
+
+  /** #1171 review, item 7. MUTATION PROOF: drop the note and the first
+   *  check fails; drop `key={saves}` on CrsLook and the second fails. */
+  it("says when decisions are not saved yet, so the preview does not show them", async () => {
+    const n = { ...numbers(), unsaved: 2 };
+    renderBar(n);
+    await userEvent.click(screen.getByRole("button", { name: "Preview CRS" }));
+    expect(screen.getByTestId("ws-crs-preview-unsaved")).toHaveTextContent(
+      "2 decisions are not saved yet, so this preview does not show them. The preview reads the sheet again after each save.",
+    );
+  });
+
+  it("no unsaved decisions: no note", async () => {
+    renderBar(numbers());
+    await userEvent.click(screen.getByRole("button", { name: "Preview CRS" }));
+    await within(screen.getByTestId("ws-crs-preview")).findByText("Design pressure is below the standard.");
+    expect(screen.queryByTestId("ws-crs-preview-unsaved")).toBeNull();
+  });
+
+  it("reads the sheet again each time a save finishes while it is open", async () => {
+    const n = numbers();
+    const autosave = (phase: "idle" | "saving" | "saved") => ({ phase, message: null, waiting: false, saveNow: vi.fn(async () => {}) });
+    const bar = (phase: "idle" | "saving" | "saved") => (
+      <ActionBar run={RUN} numbers={n} steps={actionSteps(n)} onAction={vi.fn()} signOff={IDLE} autosave={autosave(phase)} />
+    );
+    const { rerender } = render(bar("idle"));
+    await userEvent.click(screen.getByRole("button", { name: "Preview CRS" }));
+    await within(screen.getByTestId("ws-crs-preview")).findByText("Design pressure is below the standard.");
+    expect(previewCrs).toHaveBeenCalledTimes(1);
+    rerender(bar("saving"));
+    expect(previewCrs).toHaveBeenCalledTimes(1);
+    rerender(bar("saved"));
+    await waitFor(() => expect(previewCrs).toHaveBeenCalledTimes(2));
+    rerender(bar("saving"));
+    rerender(bar("saved"));
+    await waitFor(() => expect(previewCrs).toHaveBeenCalledTimes(3));
   });
 
   it("says in plain words when the sheet cannot be loaded", async () => {

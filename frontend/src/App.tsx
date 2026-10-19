@@ -120,7 +120,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
   // Links from the workspace's own pieces (the finished notice, "Review
   // again"): the plain run address opens the workspace.
   const openRunInWorkspace = useCallback((runId: string) => onNavigate("review", runId), [onNavigate]);
-  // v2.2: "Preview CRS" on the first page opens a review straight on one tab.
+  // v2.2: "Open CRS" on the first page opens a review straight on one tab.
   const openRunOnTab = useCallback((runId: string, tab: WorkspaceTab) => {
     const nextSearch = workspaceSearch({ runId, tab, row: null, panel: null, documentId: null });
     const nextPath = pathForView("review", runId) + nextSearch;

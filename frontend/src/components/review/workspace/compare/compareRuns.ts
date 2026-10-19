@@ -12,7 +12,10 @@
  * and the item the value was read for. Findings carry fresh ids on every
  * review, so ids are never used. A line whose findings name no requirement,
  * or that found no partner that way, is then matched by its normalised
- * comment text (case, spaces and punctuation ignored).
+ * comment text (case, spaces and punctuation ignored), but only when at
+ * least one of the two lines has no identity: two lines whose identities
+ * differ are two different comments, however alike their words (#1171
+ * review, item 3).
  *
  * `loadCommentLines` reads one review's sheet with the SAME four reads the
  * workspace uses (useWorkspaceRun: reviewRun, list, reviewRunStandards,
@@ -47,6 +50,11 @@ export function findingIdentity(f: ReviewFinding): string | null {
   return ["req", f.standard_document_id ?? "", f.requirement_id, norm(f.equipment_tag), norm(fieldOf(f))].join("|");
 }
 
+/** True when any of the line's findings has an identity. */
+function hasIdentity(row: CrsRow): boolean {
+  return row.findings.some((f) => findingIdentity(f) !== null);
+}
+
 /** The line's comment text, normalised: what the contractor would read. */
 export function lineText(row: CrsRow): string {
   return norm([row.observation, row.requiredAction].filter(Boolean).join(" "));
@@ -79,7 +87,9 @@ export function compareRuns(currentRows: CrsRow[], earlierRows: CrsRow[]): RunCo
     }
   });
 
-  // Pass 2: by normalised comment text, for the lines still unmatched.
+  // Pass 2: by normalised comment text, for the lines still unmatched, and
+  // never between two lines that both have an identity (pass 1 already found
+  // those identities differ, so the lines are different comments).
   const byText = new Map<string, number[]>();
   earlier.forEach((row, i) => {
     if (taken.has(i)) return;
@@ -89,7 +99,10 @@ export function compareRuns(currentRows: CrsRow[], earlierRows: CrsRow[]): RunCo
   current.forEach((row, ci) => {
     if (partner.has(ci)) return;
     const t = lineText(row);
-    const hit = t ? (byText.get(t) ?? []).find((ei) => !taken.has(ei)) : undefined;
+    const identified = hasIdentity(row);
+    const hit = t
+      ? (byText.get(t) ?? []).find((ei) => !taken.has(ei) && !(identified && hasIdentity(earlier[ei])))
+      : undefined;
     if (hit !== undefined) { partner.set(ci, hit); taken.add(hit); }
   });
 

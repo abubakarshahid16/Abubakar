@@ -39,7 +39,7 @@ vi.mock("./views/SubmittalsLandingView", () => ({
   }) => (
     <div>
       <p>{`landing${inbox ? " inbox" : ""} workspace=${String(Boolean(workspace))}`}</p>
-      {onOpenRunTab && <button type="button" onClick={() => onOpenRunTab("run-7", "crs")}>Preview CRS</button>}
+      {onOpenRunTab && <button type="button" onClick={() => onOpenRunTab("run-7", "crs")}>Open CRS</button>}
     </div>
   ),
 }));
@@ -174,12 +174,12 @@ describe("the address keeps the place", () => {
     expect(where()).toEqual({ runId: "run-1", tab: "standards", row: "row-x", panel: "evidence", documentId: null });
   });
 
-  it("v2.2: Preview CRS on the first page opens that review straight on the CRS tab", async () => {
+  it("v2.2: Open CRS on the first page opens that review straight on the CRS tab", async () => {
     const user = userEvent.setup();
     mockApi();
     render(<App initialView="review" />);
     await screen.findByText("landing workspace=true");
-    await user.click(screen.getByRole("button", { name: "Preview CRS" }));
+    await user.click(screen.getByRole("button", { name: "Open CRS" }));
     expect(await screen.findByText("workspace for run-7")).toBeInTheDocument();
     expect(where()).toEqual({ runId: "run-7", tab: "crs", row: null, panel: null, documentId: null });
   });

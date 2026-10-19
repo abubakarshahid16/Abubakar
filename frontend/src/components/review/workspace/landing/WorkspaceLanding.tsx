@@ -20,8 +20,8 @@
  * review page). Simple folds away the engineer extras (the long "Found by
  * the review" line; the flat "All reviews" list starts folded); Detailed
  * shows everything. A one-line help sits on top (Hide is remembered). A
- * finished review offers "Preview CRS", which opens it on the CRS tab. The
- * chip says the exact number left to decide when the server knows it.
+ * finished review offers "Open CRS", which opens it on the CRS tab. The
+ * chip never says how many are left to decide: no server sends that number.
  *
  * Every start from this page is watched (`watchRun`), so the "ready" notice
  * appears wherever the reader goes (L6). A non-administrator sees a plain
@@ -94,7 +94,7 @@ export function WorkspaceLanding({
   isAdmin?: boolean;
   onOpenRun: (runId: string) => void;
   /** v2.2: open a review straight on one tab (same navigation as Open).
-   *  Left out, no "Preview CRS" button is drawn. */
+   *  Left out, no "Open CRS" button is drawn. */
   onOpenRunTab?: (runId: string, tab: WorkspaceTab) => void;
   onReload: () => Promise<void> | void;
   loadReadyCounts?: (runIds: string[]) => Promise<Record<string, ReadyCounts | null>>;
