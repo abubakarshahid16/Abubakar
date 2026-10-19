@@ -19,6 +19,19 @@ export interface RunSummaryTierCounts {
   total: number;
 }
 
+/** The sheet's counts (order 152.2, `review_counts.sheet_counts`), each in the unit its field names: `comments`, `needs_you`, `met`, `not_applicable` and `another_document` are ROWS of the CRS sheet; `findings_in_comments` is the findings those comment rows hold; `review_notes` the findings the file puts in its Review notes; `removed` the findings an engineer removed; `findings` every finding of the run. The inbox's `/counts` are findings (TierCounts), not rows. */
+export interface RunSummarySheetCounts {
+  comments: number;
+  needs_you: number;
+  met: number;
+  not_applicable: number;
+  another_document: number;
+  findings_in_comments: number;
+  review_notes: number;
+  removed: number;
+  findings: number;
+}
+
 /** One finding still in a tier, in the server's order (Comment, Needs you, Met; then page, no page last; then clause). The sheet keys rows by id and lays out its own order. */
 export interface RunSummaryTierRow {
   finding_id: string;
@@ -82,6 +95,8 @@ export interface ReviewRunTierSummary {
   how_reviewed: RunSummaryHowReviewed;
   /** order 139 part 2: set true by a server that sends each row's `crs_group` (the sheet's grouping); absent or false otherwise */
   crs_grouping?: boolean;
+  /** order 152.2: the sheet's counts in rows, from the same grouping; null when the grouping could not be computed (never zeros) */
+  sheet?: RunSummarySheetCounts | null;
 }
 
 /** `GET /api/reviews/runs/counts`: the tier counts of many runs in one call, each the same as that run's `/summary` `counts`. A run that is not there, or that the caller may not read, is absent, never zeros. */
