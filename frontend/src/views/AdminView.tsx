@@ -345,10 +345,10 @@ export interface AdminViewProps {
   onRetry: () => void;
   /** A row-level action in flight, so the row it belongs to can say so. */
   busyKey: string | null;
-  /** The read-only Database section, passed in already built so this view
-   *  keeps no transport of its own. Absent in tests that do not care. */
   /** #620: Company standards waiting for an administrator's confirmation. */
   companyStandardsSection?: React.ReactNode;
+  /** The read-only Database section, passed in already built so this view
+   *  keeps no transport of its own. Absent in tests that do not care. */
   databaseSection?: React.ReactNode;
 }
 
