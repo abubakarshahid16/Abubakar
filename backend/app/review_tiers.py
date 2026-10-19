@@ -1,8 +1,13 @@
 """Order 95 piece 1: the CRS-first Sheet's tiers, one per finding, on the server.
 
-THE SAME RULES AS `frontend/src/components/review/crs/tiers.ts` (spec section
-2, order 96 item 5), so the export, the footer and the screen read one answer.
-A change to one is a change to both; `test_95_run_summary.py` pins the table.
+The rules' DATA lives in ONE place, `reference/review_tiers.json` (order 133):
+statuses, labels, reason words and the order they are told in, the phrases,
+the fold, the screen order and the count keys. This module and the screen's
+`frontend/src/components/review/crs/tiers.ts` (through the generated
+`contracts/generated/review_tiers.ts`) both read it; neither keeps a status,
+label, reason word, order or phrase of its own. The logic is pinned on both
+sides by one case table, `contracts/fixtures/review_tier_cases.json`
+(`test_133_one_truth_tiers.py` and `crs/tiers.parity.test.ts`).
 
   Tier A  "Met" / "Not applicable"  COMPLIANT / NOT_APPLICABLE / NOT_IN_DOCUMENT_SCOPE
           / "Another document"      (the clause names another document).
@@ -26,25 +31,39 @@ read, nothing is decided or written. A finding an engineer removed
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from .comparison import _pairing_unconfirmed
 
-A, B, C = "A", "B", "C"
-REMOVED = "removed"
-PAGE_NOT_READ = "page not read"
-NOT_IN_LIBRARY = "standard not in library"
-UNSETTLED = "condition unsettled"
+RULES_PATH = Path(__file__).parent / "reference" / "review_tiers.json"
+RULES: dict = json.loads(RULES_PATH.read_text(encoding="utf-8"))
 
-_TIER_C = {"NEEDS_ENGINEER_REVIEW", "CONDITIONAL"}
-_CONFLICT = re.compile(
-    r"\bvalue conflict\b|\bconflicting values?\b|\bvalues? conflict\b"
-)
-_UNIT = re.compile(
-    r"\bunit unknown\b|\bunknown unit\b"
-    r"|\bunit (?:not|could not be) (?:read|recognised|recognized|parsed)\b"
-)
+A, B, C = RULES["tiers"]
+#: the tier of a finding an engineer removed, and its count key
+REMOVED = "removed"
+# The reason words, in the order of `TierRow.reason` (test_133 pins the two).
+(
+    PAGE_NOT_READ,
+    NOT_IN_LIBRARY,
+    AI_GUESS,
+    RULE_NOT_PROVEN,
+    SAFETY_FIELD,
+    UNSETTLED,
+    VALUE_CONFLICT,
+    UNIT_UNKNOWN,
+) = RULES["reasons"]
+
+_NEEDS_YOU = (RULES["needs_you"]["tier"], RULES["needs_you"]["label"])
+_TIER_C = frozenset(RULES["tier_c_statuses"])
+_STATUS_TIERS = {
+    status: (row["tier"], row["label"]) for status, row in RULES["status_tiers"].items()
+}
+_MISSING = RULES["missing_information"]
+_PHRASES = {word: re.compile(source) for word, source in RULES["phrases"].items()}
+_FOLD = re.compile(RULES["fold"]["pattern"])
 
 
 @dataclass(frozen=True)
@@ -61,7 +80,7 @@ class RunFacts:
 
 
 def _fold(text: str | None) -> str:
-    return re.sub(r"[\s_-]+", " ", (text or "").lower()).strip()
+    return _FOLD.sub(RULES["fold"]["replace"], (text or "").lower()).strip()
 
 
 def page_not_read(finding: dict, facts: RunFacts) -> bool:
@@ -100,49 +119,56 @@ def standard_in_library(finding: dict, facts: RunFacts) -> bool:
     return facts.library_standard_ids is None or standard in facts.library_standard_ids
 
 
-def _conflict_word(finding: dict) -> str | None:
-    why = _fold(finding.get("ai_rationale"))
-    if _CONFLICT.search(why):
-        return "value conflict"
-    if _UNIT.search(why):
-        return "unit unknown"
-    return None
+def _phrase(word: str):
+    """The predicate for a reason told by a phrase in the rationale."""
+
+    def holds(finding: dict, _facts: RunFacts) -> bool:
+        return bool(_PHRASES[word].search(_fold(finding.get("ai_rationale"))))
+
+    return holds
 
 
 def safety_tick_open(finding: dict) -> bool:
     """rule_trust (#947): a safety field shown for the engineer's own tick, not ticked yet."""
     return (
         bool(finding.get("show_for_engineer_tick"))
-        and finding.get("compliance_status") == "COMPLIANT"
+        and finding.get("compliance_status") == RULES["safety_tick_status"]
         and not finding.get("confirmed_by")
     )
+
+
+#: one predicate per reason word other than the status's own; the order they
+#: are asked in is the data's `unsettled_order`
+PREDICATES = {
+    PAGE_NOT_READ: page_not_read,
+    NOT_IN_LIBRARY: lambda f, facts: missing_standard_of(f, facts) is not None,
+    AI_GUESS: lambda f, _facts: _pairing_unconfirmed(f),
+    RULE_NOT_PROVEN: lambda f, _facts: (
+        f.get("trust_label") == RULES["rule_not_proven_trust_label"]
+    ),
+    SAFETY_FIELD: lambda f, _facts: safety_tick_open(f),
+    VALUE_CONFLICT: _phrase(VALUE_CONFLICT),
+    UNIT_UNKNOWN: _phrase(UNIT_UNKNOWN),
+}
 
 
 def _unsettled_reason(finding: dict, facts: RunFacts) -> str | None:
     """The fact, other than the status, that makes this finding Tier C, in the
     order the reason is told (tiers.ts `unsettledReason`); None when none holds."""
-    if page_not_read(finding, facts):
-        return PAGE_NOT_READ
-    if missing_standard_of(finding, facts) is not None:
-        return NOT_IN_LIBRARY
-    if _pairing_unconfirmed(finding):
-        return "AI guess"
-    if finding.get("trust_label") == "UNPROVEN":
-        return "rule not proven"
-    if safety_tick_open(finding):
-        return "safety field"
-    return _conflict_word(finding)
+    return next(
+        (w for w in RULES["unsettled_order"] if PREDICATES[w](finding, facts)), None
+    )
 
 
 def _needs_you_reason(finding: dict, facts: RunFacts) -> str:
     unsettled = _unsettled_reason(finding, facts)
     if unsettled:
         return unsettled
-    if finding.get(
-        "compliance_status"
-    ) == "MISSING_INFORMATION" and not standard_in_library(finding, facts):
-        return NOT_IN_LIBRARY
-    return UNSETTLED
+    if finding.get("compliance_status") == _MISSING[
+        "status"
+    ] and not standard_in_library(finding, facts):
+        return _MISSING["not_in_library_reason"]
+    return RULES["fallback_reason"]
 
 
 def tier_of(
@@ -150,27 +176,22 @@ def tier_of(
 ) -> tuple[str, str | None, str | None]:
     """(tier, label, reason) for one finding; (``REMOVED``, None, None) when an
     engineer removed it. Only a Tier C row carries a reason."""
-    if finding.get("approval_status") == "rejected":
+    if finding.get("approval_status") == RULES["removed"]["approval_status"]:
         return REMOVED, None, None
     status = finding.get("compliance_status") or ""
     if status in _TIER_C or _unsettled_reason(finding, facts) is not None:
-        return C, "Needs you", _needs_you_reason(finding, facts)
-    if status == "COMPLIANT":
-        return A, "Met", None
-    if status == "NOT_APPLICABLE":
-        return A, "Not applicable", None
-    if status == "NOT_IN_DOCUMENT_SCOPE":
-        return A, "Another document", None
-    if status == "NON_COMPLIANT":
-        return B, "Comment", None
-    if status == "MISSING_INFORMATION":
+        return (*_NEEDS_YOU, _needs_you_reason(finding, facts))
+    if status in _STATUS_TIERS:
+        return (*_STATUS_TIERS[status], None)
+    if status == _MISSING["status"]:
         if standard_in_library(finding, facts):
-            return B, "Comment", None
-        return C, "Needs you", NOT_IN_LIBRARY
-    return C, "Needs you", UNSETTLED
+            in_library = _MISSING["in_library"]
+            return in_library["tier"], in_library["label"], None
+        return (*_NEEDS_YOU, _MISSING["not_in_library_reason"])
+    return (*_NEEDS_YOU, RULES["fallback_reason"])
 
 
-_SCREEN_ORDER = {B: 0, C: 1, A: 2}
+_SCREEN_ORDER = {tier: i for i, tier in enumerate(RULES["screen_order"])}
 
 
 def _order(row: dict) -> tuple:
@@ -185,24 +206,15 @@ def _order(row: dict) -> tuple:
 
 def summarise(findings: list[dict], facts: RunFacts = RunFacts()) -> dict:
     """Headline counts (tiers.ts `countTiers`, plus removed and total) and one
-    row per finding still in a tier, in screen order: Comment, Needs you, Met;
-    then contractor page (no page last), then clause."""
-    counts = {
-        "met": 0,
-        "not_applicable": 0,
-        "another_document": 0,
-        "comment": 0,
-        "needs_you": 0,
-        REMOVED: 0,
-    }
+    row per finding still in a tier, in the server's order: tier by the data's
+    `screen_order` (Comment, Needs you, Met), then contractor page (no page
+    last), then clause. The CRS sheet does not use this order: it keys the
+    rows by finding id and lays out its own (`crsRows.ts`)."""
+    counts = dict.fromkeys([*RULES["count_keys"].values(), REMOVED], 0)
     rows = []
     for f in findings:
         tier, label, reason = tier_of(f, facts)
-        counts[
-            {REMOVED: REMOVED, B: "comment", C: "needs_you"}.get(tier)
-            or {"Met": "met", "Another document": "another_document"}.get(label or "")
-            or "not_applicable"
-        ] += 1
+        counts[REMOVED if tier == REMOVED else RULES["count_keys"][label]] += 1
         if tier != REMOVED:
             rows.append(
                 {
