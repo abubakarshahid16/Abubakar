@@ -37,13 +37,20 @@ def test_the_required_check_is_an_aggregate_that_needs_every_shard(jobs):
     carriers = [j for j in jobs.values() if j["name"] == "backend (pytest)"]
     assert len(carriers) == 1, "exactly one job carries the required name"
     agg = carriers[0]
-    assert set(agg["needs"]) == {"backend-shard", "backend-checks"}
+    assert set(agg["needs"]) == {"backend-shard", "backend-checks", "app-starts"}
     # Without always() a failed shard SKIPS the aggregate, and a skipped
     # required check does not report failure.
     assert agg.get("if") == "always()"
     script = "\n".join(_runs(agg))
     assert 'test "${{ needs.backend-shard.result }}" = "success"' in script
     assert 'test "${{ needs.backend-checks.result }}" = "success"' in script
+    assert 'test "${{ needs.app-starts.result }}" = "success"' in script
+
+
+def test_the_app_start_check_runs_the_real_server(jobs):
+    """Order 129: #1151 stopped the app from starting and no check caught it."""
+    runs = "\n".join(_runs(jobs["app-starts"]))
+    assert "python scripts/check_app_starts.py" in runs
 
 
 def test_every_shard_runs_its_own_third_of_the_suite(jobs):
@@ -118,14 +125,21 @@ def test_the_aggregate_fails_on_a_failed_cancelled_or_skipped_shard(jobs, bad):
         pytest.skip("bash not available")
     step = next(s for s in jobs["backend"]["steps"] if s.get("name") == "Every shard and the checks job passed")
 
-    def run(shard, checks):
-        script = (step["run"].replace("${{ needs.backend-shard.result }}", shard)
-                  .replace("${{ needs.backend-checks.result }}", checks))
-        return subprocess.run([bash, "-e", "-c", script], capture_output=True).returncode
+    def run(shard, checks, starts="success"):
+        script = (
+            step["run"]
+            .replace("${{ needs.backend-shard.result }}", shard)
+            .replace("${{ needs.backend-checks.result }}", checks)
+            .replace("${{ needs.app-starts.result }}", starts)
+        )
+        return subprocess.run(
+            [bash, "-e", "-c", script], capture_output=True
+        ).returncode
 
     assert run("success", "success") == 0
     assert run(bad, "success") != 0
     assert run("success", bad) != 0
+    assert run("success", "success", bad) != 0
 
 
 def test_the_nightly_job_proves_every_slow_test_ran(jobs):
