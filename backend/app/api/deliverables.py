@@ -98,21 +98,33 @@ def update_deliverable(deliverable_id: str, body: schemas.DeliverableUpdate,
 
 @router.get("/api/deliverables/{deliverable_id}/history", response_model=schemas.DeliverableEventList,
             responses=schemas.ERRORS_404)
-def deliverable_history(deliverable_id: str, scope: access.AccessScope = Depends(access.current_scope)):
+def deliverable_history(
+    deliverable_id: str,
+    limit: int | None = limit_param(),
+    offset: int = offset_param(),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
     item = deliverables_mod.get(deliverable_id)
     if item is None or not _deliverable_visible(item, scope):
         raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no deliverable with that id"))
-    return {"events": deliverables_mod.history(deliverable_id)}
+    return page_body("events", deliverables_mod.history(deliverable_id), limit, offset)
 
 
 @router.get("/api/deliverables/{deliverable_id}/stakeholders",
             response_model=schemas.DeliverableStakeholderList,
             responses=schemas.ERRORS_404)
-def deliverable_stakeholders(deliverable_id: str, scope: access.AccessScope = Depends(access.current_scope)):
+def deliverable_stakeholders(
+    deliverable_id: str,
+    limit: int | None = limit_param(),
+    offset: int = offset_param(),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
     item = deliverables_mod.get(deliverable_id)
     if item is None or not _deliverable_visible(item, scope):
         raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no deliverable with that id"))
-    return {"stakeholders": deliverables_mod.stakeholders(deliverable_id)}
+    return page_body(
+        "stakeholders", deliverables_mod.stakeholders(deliverable_id), limit, offset
+    )
 
 
 @router.put("/api/deliverables/{deliverable_id}/stakeholders",
@@ -126,8 +138,10 @@ def replace_deliverable_stakeholders(
     item = deliverables_mod.get(deliverable_id)
     if item is None or not _deliverable_visible(item, scope):
         raise HTTPException(status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no deliverable with that id"))
-    return {"stakeholders": deliverables_mod.replace_stakeholders(
-        deliverable_id, [a.model_dump() for a in body.assignments], actor_user_id=scope.user_id)}
+    # The same body as the list: every assignment now held, with its total.
+    stakeholders = deliverables_mod.replace_stakeholders(
+        deliverable_id, [a.model_dump() for a in body.assignments], actor_user_id=scope.user_id)
+    return page_body("stakeholders", stakeholders, None, 0)
 
 
 @router.get("/api/deliverables/{deliverable_id}/workspace",
@@ -234,8 +248,12 @@ def set_summary_schedule(body: schemas.SummarySchedule,
 
 
 @router.get("/api/management/escalation-rules", response_model=schemas.EscalationRuleList)
-def list_escalation_rules(scope: access.AccessScope = Depends(access.current_scope)):
-    return {"rules": deliverables_mod.escalation_rules()}
+def list_escalation_rules(
+    limit: int | None = limit_param(),
+    offset: int = offset_param(),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    return page_body("rules", deliverables_mod.escalation_rules(), limit, offset)
 
 
 @router.get("/api/management/report", response_class=FileResponse,

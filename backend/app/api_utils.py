@@ -132,3 +132,24 @@ def _deliverable_visible(item: dict, scope: access.AccessScope) -> bool:
     if document_id:
         return scope.may_read(document_id)
     return scope.is_admin or bool(scope.allowed_document_ids)
+
+
+def _actor_from_scope(scope: access.AccessScope) -> dict | None:
+    """Who to name in the audit trail for an ENGINEER'S action.
+
+    `admin.current_admin` is the wrong dependency for these: it is a GATE as
+    well as a lookup, and a non-admin gets its deliberately silent 404. That
+    is right for the admin surface and wrong for an engineer's own work - it
+    made recording a final review code (section 15, an engineer's action)
+    impossible for anyone but an admin, and said "not found" while doing it.
+    This resolves the name without deciding anything about permission; the
+    route's own scope has already done that.
+    """
+    if not scope.user_id:
+        return None
+    row = (
+        connect()
+        .execute("SELECT id, email FROM users WHERE id = ?", (scope.user_id,))
+        .fetchone()
+    )
+    return dict(row) if row else {"id": scope.user_id}

@@ -215,7 +215,10 @@ def records(query: str, *, allowed_document_ids: frozenset[str], include_unowned
                                      include_unowned=include_unowned)
     lines = [f"- **{r.get('title') or r.get('label') or r.get('id')}**"
              + (f" - {r['kind']}" if r.get("kind") else "") for r in found[:10]]
-    text = (f"Found {len(found)} workflow record{'' if len(found) == 1 else 's'} for \"{query}\":\n"
+    # Every match is counted now (order 117 item 5), so a long result says
+    # that only the first 10 are listed rather than implying they are all.
+    shown = f" (the first {len(lines)} shown)" if len(found) > len(lines) else ""
+    text = (f"Found {len(found)} workflow record{'' if len(found) == 1 else 's'} for \"{query}\"{shown}:\n"
             + "\n".join(lines)) if found else f"No workflow records match \"{query}\"."
     return {**base, "answer_type": "records", "answer": text, "reason": None,
             "records": found[:10], "seconds": timer.seconds()}
