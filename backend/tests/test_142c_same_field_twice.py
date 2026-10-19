@@ -9,7 +9,7 @@ all blank) is one field, the other copies are named; different values stay an
 engineer's question, each copy named once with its page and value.
 
 Invented field names and values only (CLAUDE.md rules 1 and 3).
-Mutation proofs: MPRNUM-01 .. MPRNUM-03 (scripts/mutations/pr142c_same_field_twice.py).
+Mutation proofs: M1185-01 .. M1185-04 (scripts/mutations/pr1185_same_field_twice.py).
 """
 
 from __future__ import annotations
