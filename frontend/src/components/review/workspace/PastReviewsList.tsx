@@ -17,8 +17,8 @@
  */
 import { useEffect, useRef, useState } from "react";
 
-import { whenLabel } from "../reviewFormat";
 import type { ReadyCounts } from "../inbox/inboxState";
+import { dayTimeWords } from "./landing/dateWords";
 import { CompareReviews } from "./compare/CompareReviews";
 import type { PastReview, PastReviewsListProps } from "./contract";
 import { PAST_COUNTS_NOTE, type PastReviewRow, loadPastReviewCounts, pastCountsLabel, signedWords } from "./pastReviews";
@@ -76,7 +76,7 @@ export function PastReviewsList({ reviews, onOpenRun, currentRunId = null }: Pas
                 onClick={() => onOpenRun(review.runId)}
                 className="grid min-w-0 flex-1 grid-cols-2 gap-x-3 gap-y-1 px-3 py-2 text-left text-xs text-slateish-300 hover:bg-ink-800 sm:grid-cols-4"
               >
-                <span data-field="date">{whenLabel(review.createdAt)}</span>
+                <span data-field="date">{dayTimeWords(review.createdAt)}</span>
                 <span data-field="result" className="font-semibold text-slateish-100">{review.result}</span>
                 <span data-field="findings">{words}</span>
                 <span data-field="signed">{signedWords(review as PastReviewRow)}</span>
@@ -85,7 +85,7 @@ export function PastReviewsList({ reviews, onOpenRun, currentRunId = null }: Pas
                 <button
                   type="button"
                   data-testid="compare-with"
-                  aria-label={`Compare with this one (review of ${whenLabel(review.createdAt) || "an earlier date"})`}
+                  aria-label={`Compare with this one (review of ${dayTimeWords(review.createdAt) || "an earlier date"})`}
                   onClick={(e) => { opener.current = e.currentTarget; setComparing(review); }}
                   className="shrink-0 px-3 text-xs text-signal-300 underline-offset-2 hover:underline"
                 >

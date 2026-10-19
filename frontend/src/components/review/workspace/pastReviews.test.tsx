@@ -189,6 +189,8 @@ describe("PastReviewsList", () => {
     for (const row of rows) {
       expect(row.querySelector('[data-field="findings"]')).toBeEmptyDOMElement();
       expect(row.querySelector('[data-field="date"]')?.textContent).not.toBe("");
+      // v2.2 one date style: "19 Oct 2026, 12:20".
+      expect(row.querySelector('[data-field="date"]')?.textContent).toMatch(/^\d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2}$/);
     }
     expect(screen.queryByText(/^0 /)).not.toBeInTheDocument();
     expect(screen.queryByTestId("past-counts-note")).toBeNull();
@@ -317,10 +319,13 @@ describe("Compare with this one", () => {
     expect(dialog).toHaveAttribute("aria-modal", "true");
     await waitFor(() => expect(within(dialog).getByTestId("compare-new-count")).toHaveTextContent("1 new comment since the review of 1 Oct 2026"));
     expect(within(dialog).getByTestId("compare-gone-count")).toHaveTextContent("1 comment gone since the review of 1 Oct 2026");
-    expect(within(dialog).getByTestId("compare-still-count")).toHaveTextContent("1 comment still open from the review of 1 Oct 2026");
+    expect(within(dialog).getByTestId("compare-still-count")).toHaveTextContent("1 comment in both reviews (this one and the review of 1 Oct 2026)");
     expect(within(within(dialog).getByTestId("compare-new")).getByText("Noise level missing")).toBeInTheDocument();
     expect(within(within(dialog).getByTestId("compare-gone")).getByText("Paint colour not stated")).toBeInTheDocument();
     expect(within(within(dialog).getByTestId("compare-still")).getByText("Pressure below the minimum")).toBeInTheDocument();
+    // Not read as a decision status.
+    expect(within(dialog).getByRole("heading", { name: "In both reviews" })).toBeInTheDocument();
+    expect(within(dialog).queryByText(/still open/i)).toBeNull();
     expect(within(dialog).getByText(/does not change any decision/)).toBeInTheDocument();
     expect(list).toHaveBeenCalledWith({ review_run_id: "run-3" });
     expect(list).toHaveBeenCalledWith({ review_run_id: "run-1" });

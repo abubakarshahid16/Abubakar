@@ -6,7 +6,7 @@
  */
 import type { ReadyCounts } from "../../inbox/inboxState";
 import { inboxStateOf } from "../../inbox/inboxState";
-import { whenLabel } from "../../reviewFormat";
+import { dayTimeWords } from "./dateWords";
 import { StatusChip } from "./LandingDocumentRow";
 import { type RunListItem, countsLine, rowChip } from "./landingRows";
 
@@ -25,7 +25,7 @@ export function AllReviewsList({ items, counts, onOpenRun }: {
         const known = counts[run.review_run_id] ?? null;
         const chip = rowChip(state, run, known);
         const found = countsLine(state, known);
-        const started = whenLabel(run.created_at) || "date not recorded";
+        const started = dayTimeWords(run.created_at) || "date not recorded";
         return (
           <li key={run.review_run_id} className="flex flex-wrap items-center gap-3 px-4 py-2" data-testid="all-reviews-row">
             <div className="min-w-0 flex-1">

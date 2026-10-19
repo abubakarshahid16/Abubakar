@@ -4,7 +4,7 @@
  * `compareRuns` is pure: it takes the comment lines of two reviews of the
  * same file (the comment sheet's own lines, built by `buildCrsRows`) and
  * sorts them into three plain lists: new this time, gone since last time,
- * and still open. Only comments are compared (lines that met the standard
+ * and in both reviews. Only comments are compared (lines that met the standard
  * are not comments and are left out).
  *
  * Matching: a line is the same comment in both reviews when they share a
@@ -24,6 +24,7 @@ import type { ReviewFinding } from "../../../../types/api";
 import { type CrsRow, buildCrsRows } from "../../crs/crsRows";
 import { runFactsOf, serverTiersOf } from "../../crs/tiers";
 import { fieldOf } from "../../sheet/sheetCards";
+import { dayWords } from "../landing/dateWords";
 import { type PlainError, plainError } from "../plainError";
 
 export interface RunComparison {
@@ -99,11 +100,9 @@ export function compareRuns(currentRows: CrsRow[], earlierRows: CrsRow[]): RunCo
   };
 }
 
-/** "12 Oct 2026"; "" when not known. */
+/** "12 Oct 2026"; "" when not known (the one date style, landing/dateWords). */
 export function reviewDay(value: string | null | undefined): string {
-  if (!value) return "";
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  return dayWords(value);
 }
 
 function comments(n: number): string {
@@ -114,11 +113,11 @@ function comments(n: number): string {
 export function comparisonLines(c: RunComparison, earlierAt: string | null | undefined): { added: string; gone: string; still: string } {
   const day = reviewDay(earlierAt);
   const since = day ? `since the review of ${day}` : "since the earlier review";
-  const from = day ? `from the review of ${day}` : "from the earlier review";
+  const both = day ? `in both reviews (this one and the review of ${day})` : "in both reviews";
   return {
     added: `${c.added.length.toLocaleString()} new ${c.added.length === 1 ? "comment" : "comments"} ${since}`,
     gone: `${comments(c.gone.length)} gone ${since}`,
-    still: `${comments(c.still.length)} still open ${from}`,
+    still: `${comments(c.still.length)} ${both}`,
   };
 }
 

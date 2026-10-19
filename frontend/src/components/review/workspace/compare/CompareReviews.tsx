@@ -2,7 +2,7 @@
  * OWNER: builder E (v2.2). "What changed since the last review", for the
  * engineer: the comments of this review side by side with an earlier review
  * of the same file, in three plain lists (new this time, gone since last
- * time, still open), each with its count and its boundary ("3 new comments
+ * time, in both reviews), each with its count and its boundary ("3 new comments
  * since the review of 12 Oct 2026").
  *
  * A dialog: the keyboard stays inside while it is open (Tab and Shift+Tab go
@@ -115,7 +115,7 @@ export function CompareReviews({ currentRunId, earlierRunId, earlierAt, onClose 
               empty="No new comments." />
             <Group title="Gone since last time" line={lines.gone} rows={state.result.gone} testId="compare-gone"
               empty="No comments have gone." />
-            <Group title="Still open" line={lines.still} rows={state.result.still} testId="compare-still"
+            <Group title="In both reviews" line={lines.still} rows={state.result.still} testId="compare-still"
               empty="No comments carried over." />
           </div>
         )}

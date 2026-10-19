@@ -247,9 +247,9 @@ export function WorkspaceLanding({
         </div>
       )}
 
-      <section aria-labelledby="landing-list-title" className="space-y-3">
+      <section aria-labelledby="landing-list-title" className="space-y-3 pb-20" data-testid="landing-list">
         <h2 id="landing-list-title" className="text-lg font-semibold text-slateish-100">
-          {showAll ? "All reviews" : "Documents from contractors"}
+          {showAll ? "All reviews" : "Your submittals"}
         </h2>
         {rows.length === 0 ? (
           <div className="rounded-[var(--radius-md)] border border-dashed border-ink-600 bg-ink-850 p-6" data-testid="landing-empty">

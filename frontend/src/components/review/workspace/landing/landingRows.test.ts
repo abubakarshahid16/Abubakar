@@ -94,10 +94,22 @@ describe("rowChip exact counts (v2.2)", () => {
     expect(rowChip(ready, done, { findings: 9, needs_you: 2, undecided: 4 })).toEqual({ text: "4 left to decide", tone: "attention" });
     expect(rowChip(ready, done, { findings: 9, needs_you: 2, undecided: 1234 }).text).toBe("1,234 left to decide");
   });
-  it("exactly 0 (and not signed) says Ready to sign, even with a final code", () => {
-    expect(rowChip(ready, done, { findings: 9, needs_you: 0, undecided: 0 })).toEqual({ text: "Ready to sign", tone: "ready" });
+  it("exactly 0 (and not signed) says All comments decided, even with a final code; never Ready to sign", () => {
+    expect(rowChip(ready, done, { findings: 9, needs_you: 0, undecided: 0 })).toEqual({ text: "All comments decided", tone: "ready" });
     const coded = run({ status: "completed", engineer_final_code: "Approved" });
-    expect(rowChip(inboxStateOf(coded), coded, { findings: 1, needs_you: 0, undecided: 0 }).text).toBe("Ready to sign");
+    expect(rowChip(inboxStateOf(coded), coded, { findings: 1, needs_you: 0, undecided: 0 }).text).toBe("All comments decided");
+    expect(rowChip(ready, done, { findings: 9, needs_you: 3, undecided: 0 }).text).not.toMatch(/Ready to sign/);
+  });
+  it("a finished, unsigned review that needs the engineer says Waiting for you, not a calm green", () => {
+    expect(rowChip(ready, done, { findings: 9, needs_you: 2 })).toEqual({ text: "Waiting for you", tone: "attention" });
+    expect(rowChip(ready, done, { findings: 9, needs_you: 2, undecided: null })).toEqual({ text: "Waiting for you", tone: "attention" });
+    const coded = run({ status: "completed", engineer_final_code: "Approved" });
+    expect(rowChip(inboxStateOf(coded), coded, { findings: 1, needs_you: 1, undecided: null })).toEqual({ text: "Waiting for you", tone: "attention" });
+    // A known number still wins.
+    expect(rowChip(ready, done, { findings: 9, needs_you: 2, undecided: 3 }).text).toBe("3 left to decide");
+    // Signed stays Signed.
+    const signed = run({ status: "completed", crs_issued_at: "2026-10-18T09:00:00Z" });
+    expect(rowChip(inboxStateOf(signed), signed, { findings: 9, needs_you: 2 }).text).toBe("Signed");
   });
   it("null or absent keeps today's words and never shows 0", () => {
     expect(rowChip(ready, done, { findings: 9, needs_you: 0, undecided: null }).text).toBe("Review ready");

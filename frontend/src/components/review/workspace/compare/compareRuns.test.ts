@@ -96,7 +96,7 @@ describe("comparisonLines", () => {
     expect(comparisonLines(c, at)).toEqual({
       added: "1 new comment since the review of 12 Oct 2026",
       gone: "0 comments gone since the review of 12 Oct 2026",
-      still: "2 comments still open from the review of 12 Oct 2026",
+      still: "2 comments in both reviews (this one and the review of 12 Oct 2026)",
     });
     expect(comparisonLines(c, null).added).toBe("1 new comment since the earlier review");
   });

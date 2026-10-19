@@ -150,7 +150,9 @@ describe("WorkspaceLanding: the rows (L2, L3, L4, L9)", () => {
       .toHaveTextContent("Found by the review: 12 findings, 3 needing your judgement"));
     expect(loadCounts).toHaveBeenCalledTimes(1);
     expect(loadCounts).toHaveBeenCalledWith(["run-1"]);
-    expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveTextContent(/^Review ready$/);
+    // 3 need the engineer and the number left is not known: honest "Waiting for you", attention tone.
+    expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveTextContent(/^Waiting for you$/);
+    expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveAttribute("data-tone", "attention");
     expect(screen.queryByText(/Ready to sign|to decide|need you\b/)).toBeNull();
     expect(within(rowOf("Heat exchanger")).getByTestId("status-chip")).toHaveTextContent("Not reviewed");
   });
@@ -331,19 +333,21 @@ describe("WorkspaceLanding v2.2: Simple | Detailed, Preview CRS, exact counts, h
     await waitFor(() => expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveTextContent(/^5 left to decide$/));
   });
 
-  it("undecided 0 says Ready to sign, in green", async () => {
+  it("undecided 0 says All comments decided, in green (never Ready to sign)", async () => {
     loadCounts.mockResolvedValue({ "run-1": { findings: 12, needs_you: 3, undecided: 0 } });
     renderLanding();
-    await waitFor(() => expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveTextContent(/^Ready to sign$/));
+    await waitFor(() => expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveTextContent(/^All comments decided$/));
+    expect(screen.queryByText(/Ready to sign/)).toBeNull();
     expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveAttribute("data-tone", "ready");
   });
 
-  it("undecided null keeps Review ready and never shows 0", async () => {
+  it("undecided null with some needing the engineer says Waiting for you and never shows 0", async () => {
     loadCounts.mockResolvedValue({ "run-1": { findings: 12, needs_you: 3, undecided: null } });
     renderLanding();
     await waitFor(() => expect(loadCounts).toHaveBeenCalled());
     await waitFor(() => expect(within(rowOf("Pump")).getByTestId("row-counts")).toBeInTheDocument());
-    expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveTextContent(/^Review ready$/);
+    expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveTextContent(/^Waiting for you$/);
+    expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveAttribute("data-tone", "attention");
     expect(screen.queryByText(/0 left to decide/)).toBeNull();
   });
 
@@ -370,5 +374,20 @@ describe("WorkspaceLanding v2.2: Simple | Detailed, Preview CRS, exact counts, h
     await userEvent.click(screen.getByRole("button", { name: "Hide this help" }));
     expect(screen.queryByTestId("landing-help")).toBeNull();
     spy.mockRestore();
+  });
+
+  it("v2.2 round 2: the list title is not the page title again, and the list leaves room for the floating search button", () => {
+    renderLanding();
+    expect(screen.getByRole("heading", { name: "Your submittals" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Documents from contractors" })).toBeNull();
+    expect(screen.getByTestId("landing-list").className).toMatch(/\bpb-20\b/);
+  });
+
+  it("v2.2 round 2: rows and All reviews say dates one way: day month year, time", async () => {
+    renderLanding();
+    const style = /^\d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2}$/;
+    expect(within(rowOf("Pump")).getByTestId("row-date").textContent).toMatch(style);
+    await userEvent.click(screen.getByRole("button", { name: "All reviews (4)" }));
+    expect(screen.getAllByText(/^Started \d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2}$/)).toHaveLength(4);
   });
 });

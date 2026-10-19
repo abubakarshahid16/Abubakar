@@ -12,9 +12,9 @@
 import type { ReviewRunSummary } from "../../../../types/api";
 import type { ReadyCounts } from "../../inbox/inboxState";
 import { ReviewJobControl } from "../../panels/ReviewJobControl";
-import { whenLabel } from "../../reviewFormat";
 import { PastReviewsButton } from "../PastReviewsButton";
 import { ReviewAgainButton } from "../ReviewAgainButton";
+import { dayTimeWords } from "./dateWords";
 import { type ChipTone, type LandingRow, countsLine, hasFinishedReview, rowChip } from "./landingRows";
 
 const TONE: Record<ChipTone, string> = {
@@ -65,7 +65,7 @@ export function LandingDocumentRow({ row, counts, allRuns, mayStart, onOpenRun, 
             <StatusChip tone={chip.tone} text={chip.text} />
             {detail && <span data-testid="row-counts">{detail}</span>}
             {step && <span data-testid="row-step">Now: {step}</span>}
-            {row.activityAt && <span>{whenLabel(row.activityAt)}</span>}
+            {dayTimeWords(row.activityAt) && <span data-testid="row-date">{dayTimeWords(row.activityAt)}</span>}
           </p>
         </div>
         {row.latest && (

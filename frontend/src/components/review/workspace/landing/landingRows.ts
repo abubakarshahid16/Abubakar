@@ -97,10 +97,13 @@ export interface Chip {
 /** L3: the status chip, from the run's own state, plus (v2.2) the exact
  *  number still waiting for a decision when the server knows it:
  *  `counts.undecided` a number above 0 says "N left to decide"; exactly 0
- *  (and not signed) says "Ready to sign". When `undecided` is null or absent
- *  the chip keeps the honest wording ("Review ready", or a final code
- *  recorded): the server's other counts are what the review FOUND, not what
- *  is left, so an unknown number is never shown, and never as 0. */
+ *  (and not signed) says "All comments decided" (not "Ready to sign": the
+ *  final code, pages and standards may still be open). When `undecided` is
+ *  null or absent and the server says some findings need the engineer
+ *  (`needs_you` > 0), the finished review says "Waiting for you" in the
+ *  attention tone, never a calm green. Otherwise the honest wording stays
+ *  ("Review ready", or a final code recorded). An unknown number is never
+ *  shown, and never as 0. */
 export function rowChip(state: InboxState, run: ReviewRunSummary | null = null, counts: ReadyCounts | null = null): Chip {
   switch (state.kind) {
     case "not_reviewed":
@@ -114,7 +117,8 @@ export function rowChip(state: InboxState, run: ReviewRunSummary | null = null, 
     case "ready": {
       const left = undecidedOf(counts);
       if (left !== null && left > 0) return { text: `${left.toLocaleString("en-US")} left to decide`, tone: "attention" };
-      if (left === 0) return { text: "Ready to sign", tone: "ready" };
+      if (left === 0) return { text: "All comments decided", tone: "ready" };
+      if (left === null && needsYouOf(counts) > 0) return { text: "Waiting for you", tone: "attention" };
       if (run?.engineer_final_code) return { text: "Final code recorded, not signed", tone: "ready" };
       return { text: "Review ready", tone: "ready" };
     }
@@ -133,6 +137,12 @@ export function rowChip(state: InboxState, run: ReviewRunSummary | null = null, 
 export function undecidedOf(counts: ReadyCounts | null | undefined): number | null {
   const n = counts?.undecided;
   return typeof n === "number" && Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
+}
+
+/** The server's "needing your judgement" total, or 0 when not known. */
+function needsYouOf(counts: ReadyCounts | null | undefined): number {
+  const n = counts?.needs_you;
+  return typeof n === "number" && Number.isFinite(n) && n > 0 ? n : 0;
 }
 
 /** Whether "Preview CRS" may be offered: the latest review has finished
