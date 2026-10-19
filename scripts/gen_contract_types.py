@@ -89,6 +89,7 @@ def modules() -> tuple[Module, ...]:
                 (("TierRow", "tier"), "RunSummaryTier"),
                 (("TierRow", "label"), "RunSummaryTierLabel"),
                 (("TierRow", "reason"), "RunSummaryTierReason"),
+                (("TierRow", "crs_priority_label"), "RunSummaryCrsPriorityLabel"),
             ),
         ),
     )

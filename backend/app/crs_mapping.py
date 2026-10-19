@@ -705,6 +705,136 @@ def row_severity(group: list[dict]) -> str:
     return next((s for s in SEVERITY_ORDER if s in found), "")
 
 
+# --------------------------------------------------------------------------
+# ORDER 139 PART 2 - one comment per datasheet field, a real order, no empty
+# COMPANY Comments. CONTRACT STUBS (architect, docs/order-139-part2-spec.md).
+# Builder A fills in the bodies; Builder B (crs_export, main, run_summary)
+# and Builder C (the screen, through the run summary) code against these
+# names and shapes now. Nothing calls the NotImplementedError stubs yet.
+# --------------------------------------------------------------------------
+
+#: What a finding is on the sheet, before grouping (spec section a). One
+#: bucket per row-producing branch of `build_crs_rows`; None = not a row.
+BUCKET_BREACH = "breach"          # NON_COMPLIANT against a standard
+BUCKET_BLANK = "blank"            # MISSING_INFORMATION, paired with a field
+BUCKET_NOT_FOUND = "not_found"    # MISSING_INFORMATION, no field paired
+BUCKET_CHECK = "check"            # a datasheet self-check (kind B)
+BUCKET_QUESTION = "question"      # NEEDS_ENGINEER_REVIEW (not a page note)
+BUCKET_TICK = "tick"              # a safety-tier "meets" for an engineer's tick
+BUCKET_CHAT = "chat"              # an engineer's comment filed from chat
+BUCKET_AI = "ai"                  # an AI engineering check item (kind C)
+BUCKET_WEB = "web"                # a public-web standards check item (kind D)
+#: The buckets grouped ONE ROW PER DATASHEET FIELD (spec a). A finding of
+#: these buckets with no field label keeps today's one-row-per-requirement key.
+FIELD_GROUPED_BUCKETS = (BUCKET_BLANK, BUCKET_NOT_FOUND, BUCKET_QUESTION)
+
+#: The rank of a CRS row, most important first (spec f). The sheet is sorted
+#: by it, then datasheet page, then clause, then field - on screen and in the
+#: file. `priority` (int) rides on every row; the words are printed in the
+#: "Priority" column (it replaces the "Severity" column, which said "minor"
+#: on 324 of 329 rows). Never "high"/"low": a rank is not a confidence.
+PRIORITY_OUT_OF_LIMIT = 1
+PRIORITY_MISSING_VALUE = 2
+PRIORITY_ENGINEER_TO_CHECK = 3
+PRIORITY_ENGINEERS_COMMENT = 4
+PRIORITY_CARRIED_FORWARD = 5
+PRIORITY_WORDS = {
+    PRIORITY_OUT_OF_LIMIT: "Out of limit",
+    PRIORITY_MISSING_VALUE: "Missing value",
+    PRIORITY_ENGINEER_TO_CHECK: "Engineer to check",
+    PRIORITY_ENGINEERS_COMMENT: "Engineer's comment",
+    PRIORITY_CARRIED_FORWARD: "Carried forward",
+}
+#: The contractor's copy: a rank-3 row reaches it only once an engineer made
+#: it theirs, and to the contractor it is a request to clarify, not an
+#: internal to-do. Every other word is the same.
+ISSUE_PRIORITY_WORDS = {**PRIORITY_WORDS, PRIORITY_ENGINEER_TO_CHECK: "Clarification"}
+
+#: Spec e: COMPANY Comments of an UNCONFIRMED AI / web item. Plain words that
+#: the row is a suggestion awaiting an engineer - never the draft itself,
+#: which stays in "AI Review Comments" (owner order 2d/2f).
+AI_UNCONFIRMED_COMMENT = ("AI suggestion awaiting an engineer's decision - its words are in "
+                          "AI Review Comments. Not issued to the contractor until an engineer "
+                          "confirms it.")
+WEB_UNCONFIRMED_COMMENT = ("Web standards check suggestion awaiting an engineer's decision - its "
+                           "words are in AI Review Comments. Not issued to the contractor until "
+                           "an engineer confirms it.")
+
+#: Spec c: a grouped row lists at most this many supporting clauses, then
+#: "- and K more of these N (see Standard Reference)."
+MAX_CLAUSE_LINES = 10
+#: Spec c: each listed clause's own words are cut to this many characters.
+CLAUSE_LINE_CHARS = 160
+
+
+def priority_word(priority: int | None, copy: str = "internal") -> str:
+    """The Priority column's word for a rank, in the words of the copy
+    ("internal" or "issue"). "" for a row with no rank (a caller from before
+    ranks existed) - never a guessed word."""
+    words = ISSUE_PRIORITY_WORDS if copy == "issue" else PRIORITY_WORDS
+    return words.get(priority, "") if isinstance(priority, int) else ""
+
+
+def crs_bucket(finding: dict) -> str | None:
+    """Which row-producing branch of `build_crs_rows` this ONE finding takes
+    (a BUCKET_* constant), or None when it is never a row (rejected, a page
+    note, NOT_IN_DOCUMENT_SCOPE, NOT_APPLICABLE, a plain COMPLIANT). Per
+    finding only: the list-level rule (a datasheet check whose fact a breach
+    or blank row already names is not a row) is `crs_groups`'s."""
+    raise NotImplementedError("order 139 part 2: Builder A")
+
+
+def crs_group_key(finding: dict) -> str | None:
+    """The BASE grouping key of one finding (spec a), or None when it is not
+    a row. Field-grouped buckets with a field label:
+    "field:" + field_comment_key(bucket, label). Every other row-producing
+    finding: "req:" + a digest of today's `_group_key` parts (bucket
+    included), or "one:<finding id>" for a finding that is its own row (no
+    requirement text, a safety tick, chat, AI, web). `crs_groups` may add an
+    ":e<digest>" suffix when the findings of one base group carry different
+    engineer wordings."""
+    raise NotImplementedError("order 139 part 2: Builder A")
+
+
+def field_comment_key(bucket: str, label: str) -> str:
+    """Spec d: the PERMANENT-NUMBER key of a field-grouped row -
+    `comment_key("field group", bucket, label)`. The field and what kind of
+    row it is, never which clauses happen to raise it, which tags, or the
+    leader: a re-run that adds or drops a clause keeps the number."""
+    raise NotImplementedError("order 139 part 2: Builder A")
+
+
+def finding_member_key(finding: dict) -> str:
+    """Spec d: the per-requirement key a finding's comment had BEFORE order
+    139 part 2 (`_subject_key`) - what an earlier per-clause row's number is
+    stored under. A grouped row carries its findings' member keys
+    (`member_keys`) so `main._crs_content` can find numbers an engineer
+    already confirmed on the old per-clause rows."""
+    return _subject_key(finding)
+
+
+def row_priority(kind: str, compliance_status: str | None = None) -> int:
+    """Spec f: the rank of a row from what it is. `kind` is a BUCKET_*
+    constant for a finding row (a blank and a not-found share a row_kind but
+    not a rank), or a ROW_KIND_* for a row with no finding
+    (standard_not_cited 2, standard_not_applicable 3, carried_forward 5).
+    `compliance_status` is read only for a datasheet check (NON_COMPLIANT 1,
+    MISSING_INFORMATION 2, otherwise 3)."""
+    raise NotImplementedError("order 139 part 2: Builder A")
+
+
+def crs_groups(findings: list[dict]) -> list[dict]:
+    """THE ONE GROUPING (spec a, b, f): the finding rows of the CRS, in sheet
+    order. Each item: {"key": str (the row's group key, base + any edit
+    suffix), "bucket": str, "row_kind": str, "priority": int, "findings":
+    [finding dicts, leader first], "action": str | None (the row's first
+    line when it lists two or more clauses, else None)}. `build_crs_rows`
+    builds its finding rows from this, and the run summary sends each
+    finding's key, rank, order and action to the screen from it - so the
+    screen and the file cannot group or order differently."""
+    raise NotImplementedError("order 139 part 2: Builder A")
+
+
 def _clause_key(clause: object) -> tuple:
     return tuple(int(p) if p.isdigit() else 10 ** 6 for p in re.findall(r"\w+", str(clause or ""))) or (10 ** 6,)
 

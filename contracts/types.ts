@@ -466,8 +466,16 @@ export interface CrsPreviewRow {
   /** CRS quick wins: the standard and clause the comment rests on, in the
    *  "Standard Reference" column after the client's seven. */
   standard_reference?: string;
-  /** #725 F7: worst severity of the grouped findings (critical, major, minor, observation). */
+  /** #725 F7: worst severity of the grouped findings (critical, major, minor, observation).
+   *  Order 139 part 2: no longer printed; the "Priority" column replaced it. */
   severity?: string;
+  /** Order 139 part 2: the row's rank (1 out of limit, 2 missing value, 3
+   *  engineer to check, 4 engineer's comment, 5 carried forward). Null or
+   *  absent from a server that sent no rank. */
+  priority?: number | null;
+  /** Order 139 part 2: the rank's word as this copy prints it in the
+   *  "Priority" column; "" when the row has no rank (never a guess). */
+  priority_label?: string;
   /** Owner order 2f: an unconfirmed AI engineering check item's text, shown
    *  in the "AI Review Comments" column of the internal copy only. */
   ai_review_comment?: string;

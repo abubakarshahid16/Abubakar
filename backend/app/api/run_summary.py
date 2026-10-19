@@ -98,6 +98,24 @@ class TierRow(BaseModel):
     equipment_tag: str | None = None
     #: order 96: the cited standard not held that this finding rests on
     missing_standard_id: str | None = None
+    #: order 139 part 2: the CRS row this finding lands on
+    #: (`crs_mapping.crs_groups`); findings sharing it are ONE row on screen
+    #: and in the file. Null: not a row of the CRS, or not computed (/counts)
+    crs_group: str | None = None
+    #: order 139 part 2: the row's rank, 1 first (`crs_mapping.PRIORITY_WORDS`)
+    crs_priority: int | None = None
+    #: order 139 part 2: the rank's word, as the internal copy prints it
+    crs_priority_label: (
+        Literal["Out of limit", "Missing value", "Engineer to check", "Engineer's comment"]
+        | None
+    ) = None
+    #: order 139 part 2: the row's place in the sheet's order (0 first) among
+    #: this run's finding rows - the file's order
+    crs_order: int | None = None
+    #: order 139 part 2: the row's first line as the file prints it ("Contractor
+    #: to provide Corrosion allowance."), on a row listing two or more clauses;
+    #: null on a row of one clause, whose words are the finding's own
+    crs_action: str | None = None
 
 
 class StandardClauses(BaseModel):
@@ -146,6 +164,11 @@ class RunSummary(BaseModel):
     counts: TierCounts
     rows: list[TierRow]
     how_reviewed: HowReviewed
+    #: order 139 part 2: true when every row's crs_* fields were computed
+    #: (`crs_mapping.crs_groups`). False (or absent, from an older server):
+    #: the screen shows one row per finding and says the sheet's grouping
+    #: could not be read - never a grouping of its own
+    crs_grouping: bool = False
 
 
 class RunCountsBatch(BaseModel):
