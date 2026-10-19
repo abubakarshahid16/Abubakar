@@ -95,6 +95,8 @@ def seed_old_path(home: Path) -> None:
     """A row written on another machine, in the database the first start
     created, and its file in this data folder."""
     data = home / "backend" / "data"
+    if data.resolve().is_relative_to(ROOT):
+        raise SystemExit(f"refusing to write inside the checkout: {data}")
     (data / "uploads").mkdir(parents=True, exist_ok=True)
     (data / "uploads" / "sheet.pdf").write_bytes(b"%PDF-1.4\n")
     conn = sqlite3.connect(data / "rag_intelligence.sqlite")
