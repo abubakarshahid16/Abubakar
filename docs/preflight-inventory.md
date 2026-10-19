@@ -35,7 +35,7 @@ Everything else the plan names by path **exists**.
 
 All twelve exist at the stated paths:
 
-`db.py` · `main.py` · `schemas.py` · `search.py` · `keyword.py` ·
+`db.py` · `main.py` · `schemas.py` · `search.py` · `fts_index.py` ·
 `vectorcache.py` · `answer.py` · `chat.py` · `metrics.py` · `errors.py` ·
 `config.py` · `upload.py`
 
