@@ -279,7 +279,7 @@ export function ReviewDashboardPanel(
                   <th scope="col" className="px-3 py-2">Document</th>
                   <th scope="col" className="px-3 py-2">Equipment</th>
                   <th scope="col" className="px-3 py-2">Findings</th>
-                  <th scope="col" className="px-3 py-2">Recommended</th>
+                  <th scope="col" className="px-3 py-2">Suggested code</th>
                   <th scope="col" className="px-3 py-2">Status</th>
                   <th scope="col" className="px-3 py-2"><span className="sr-only">Open</span></th>
                 </tr>

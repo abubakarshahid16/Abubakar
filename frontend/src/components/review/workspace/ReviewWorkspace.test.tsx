@@ -68,10 +68,16 @@ vi.mock("./WorkspaceSheet", () => ({
   ),
 }));
 vi.mock("./ReviewAgainButton", () => ({
-  ReviewAgainButton: ({ documentId, onStarted, mayStart }: { documentId: string; onStarted: (id: string) => void; mayStart?: () => boolean }) => (
-    <button type="button" onClick={() => { if (!mayStart || mayStart()) { startReviewRun(documentId); onStarted("run-2"); } }}>
-      {`Review again ${documentId}`}
-    </button>
+  ReviewAgainButton: ({ documentId, onStarted, mayStart, onOpenRun: openRunning }: {
+    documentId: string; onStarted: (id: string) => void; mayStart?: () => boolean; onOpenRun?: (id: string) => void;
+  }) => (
+    <>
+      <button type="button" onClick={() => { if (!mayStart || mayStart()) { startReviewRun(documentId); onStarted("run-2"); } }}>
+        {`Review again ${documentId}`}
+      </button>
+      {/* As the real button: "Open the review that is running" uses onOpenRun, else onStarted. */}
+      <button type="button" onClick={() => (openRunning ?? onStarted)("run-running")}>{`Open running ${documentId}`}</button>
+    </>
   ),
 }));
 vi.mock("../../../views/HowReviewedView", () => ({
@@ -239,6 +245,9 @@ describe("ReviewWorkspace", () => {
     expect(onBack).toHaveBeenCalledTimes(1);
     await user.click(screen.getByRole("button", { name: "Review again doc-sub" }));
     expect(startReviewRun).not.toHaveBeenCalled();
+    expect(onOpenRun).not.toHaveBeenCalled();
+    // Order 132 item 4: "Open the review that is running" asks too.
+    await user.click(screen.getByRole("button", { name: "Open running doc-sub" }));
     expect(onOpenRun).not.toHaveBeenCalled();
 
     // The reader says yes: both go.

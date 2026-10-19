@@ -42,8 +42,11 @@ export async function loadReadyCounts(runId: string): Promise<ReadyCounts | null
   return { findings: comment + needs_you, needs_you };
 }
 
-export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onOpenInbox, onOpenList, workspace = false }: {
+export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onOpenInbox, onOpenList, workspace = false, isAdmin }: {
   onOpenRun: (runId: string) => void;
+  /** Whether the reader is an administrator; New review refuses a
+   *  non-admin before any upload. Left out, the drop zone asks the server. */
+  isAdmin?: boolean;
   /** Order 95 piece 3: show the inbox (/review/inbox) rather than the list. */
   inbox?: boolean;
   onOpenInbox?: () => void;
@@ -196,7 +199,7 @@ export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onO
         </p>
       )}
 
-      {workspace && <NewReviewDropZone onStarted={onOpenRun} />}
+      {workspace && <NewReviewDropZone onStarted={onOpenRun} isAdmin={isAdmin} />}
 
       {phase.kind === "ready" && !inbox && (
         <DocumentsFromContractors

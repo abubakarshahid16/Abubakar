@@ -61,7 +61,7 @@ function RunNotReady({ run, active, onBack, onChanged, onOpenRun, mayLeave }: {
           <p role="alert" className="text-danger-500">This review failed{run.failure_reason ? `: ${run.failure_reason}` : "."}</p>
           {run.submittal_document_id && (
             <ReviewAgainButton documentId={run.submittal_document_id} filename={run.submittal_filename}
-              mayStart={mayLeave} onStarted={onOpenRun} />
+              mayStart={mayLeave} onStarted={onOpenRun} onOpenRun={(id) => { if (mayLeave()) onOpenRun(id); }} />
           )}
         </>
       )}
@@ -189,7 +189,7 @@ export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun,
         </h1>
         {run.submittal_document_id && (
           <ReviewAgainButton documentId={run.submittal_document_id} filename={run.submittal_filename}
-            mayStart={mayLeave} onStarted={onOpenRun} />
+            mayStart={mayLeave} onStarted={onOpenRun} onOpenRun={openRun} />
         )}
       </header>
 
