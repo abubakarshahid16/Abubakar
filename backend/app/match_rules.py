@@ -461,10 +461,6 @@ def quantity_nouns() -> dict[str, frozenset[str]]:
     }
 
 
-def generic_modifiers() -> frozenset[str]:
-    return frozenset(w.lower() for w in _kind_words("generic_modifiers") or [])
-
-
 def _tokens(text: str | None) -> list[str]:
     return _TOKEN.findall((text or "").lower())
 
@@ -581,12 +577,14 @@ def _field_place(requirement: dict, fact: dict) -> dict | None:
     """Where the field's own words stand in the requirement's subject, or None
     when its last word is not there (a synonym or a model pairing on an idea):
 
-      * `modifiers` - words that say WHOSE quantity it is: right before the
+      * `modifiers` - nouns naming ANOTHER THING whose quantity it is (a
+        joint, a liquid, an oil, a seal: `subject_nouns`), right before the
         field's words ("weld joint" efficiency, "flushing liquid"
         temperature) or after them through "of" ("the efficiency of the
         ligaments"), that the fact's name, label and section do not share.
-        Generic words, numbers, letters, the equipment's own name and the
-        side/part qualifiers rule 5 judges are not counted;
+        An adjective or state word (rated, normal, design, operating) or a
+        part of the same equipment (shaft, casing) does not change whose
+        quantity it is and is not counted;
       * `next_word` - a word right after the field's words in the same
         phrase: the field is then a modifier of something else ("bearing
         TEMPERATURE", "bearing SURFACE", "temperature RISE");
@@ -606,9 +604,13 @@ def _field_place(requirement: dict, fact: dict) -> dict | None:
             )
         )
     )
-    ignore = (
-        own | generic_modifiers() | set(DOMAIN_NOUNS) | set(_PLURALS) | qualifiers()
-    )
+    subjects = _word_set("subject_nouns")
+
+    def names_another_thing(word: str) -> bool:
+        if word in own or word.rstrip("s") in own:
+            return False
+        return word in subjects or word.rstrip("s") in subjects
+
     modifiers: set[str] = set()
     for word in reversed(tokens[max(0, at - 6) : at]):
         if (
@@ -618,13 +620,13 @@ def _field_place(requirement: dict, fact: dict) -> dict | None:
             or word in _CONJUNCTIONS
         ):
             break
-        if _is_word(word) and word not in ignore:
+        if _is_word(word) and names_another_thing(word):
             modifiers.add(word)
     after = tokens[at + 1 : at + 4]
     next_word = None
     if after[:1] == ["of"]:
         rest = [w for w in after[1:] if w not in _word_set("determiners")]
-        if rest and _is_word(rest[0]) and rest[0] not in ignore:
+        if rest and _is_word(rest[0]) and names_another_thing(rest[0]):
             modifiers.add(rest[0])
     elif (
         after
@@ -684,14 +686,12 @@ def quantity_kind_doubt(requirement: dict, fact: dict | None) -> str | None:
 
 def quantity_kind_reason(requirement: dict, fact: dict) -> str:
     """The plain words of a QUANTITY_KIND_UNSURE hold, for the finding."""
-    what = (
-        " ".join(str(requirement.get("subject") or "").split())[:120]
-        or "this requirement"
-    )
+    what = " ".join(str(requirement.get("subject") or "").split())
+    what = (what[:120] + "...") if len(what) > 120 else (what or "this requirement")
     label = fact.get("field_label") or fact.get("field_name") or "the field"
     return (
         f"{QUANTITY_KIND_UNSURE}: the requirement is about '{what}' and the datasheet "
-        f"field '{label}' may be a different quantity; the pair was not compared"
+        f"field '{label}' may be a different quantity, so its result is set aside"
     )
 
 

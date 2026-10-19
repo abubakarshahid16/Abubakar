@@ -618,21 +618,52 @@ _HELD_ON_UNSURE_KIND = frozenset(
 )
 
 
-def _hold_unsure_kind(verdict: dict, requirement: dict, fact: dict | None) -> dict:
+#: A rationale that already leads with its own machine reason ("unit_mismatch:",
+#: "LOW_TRUST_VALUE:"): an engineer question asked for that reason keeps it.
+_LEADING_CODE = re.compile(r"^(?:[a-z_]+|[A-Z][A-Z_]+):")
+
+
+def _hold_unsure_kind(
+    verdict: dict, requirement: dict, fact: dict | None, match: dict
+) -> dict:
     """ORDER 139: a pair `match_rules.quantity_kind_doubt` cannot show to be the
     same quantity is an engineer's check with a plain reason, never a finding;
-    the pair is kept so the suggested field is seen. Two DIFFERENT kinds were
-    refused by `match_rules.refusal` (rule 6) and never get here."""
+    the pair is kept so the suggested field is seen, and what was said before
+    (who paired it, a page, a unit or trust note) is kept after the reason. A
+    question already asked for its own coded reason keeps that code and gains
+    the kind reason as a note. A statement whose only named field rule 6
+    refused (another kind) is the engineer's to look for, not "no field"."""
+    old = verdict.get("rationale") or ""
+    if fact is None:
+        refused = [
+            r["name"]
+            for r in match.get("refused") or ()
+            if r.get("reason") == match_rules.QUANTITY_KIND
+        ]
+        if not refused or verdict.get("status") != NOT_IN_DOCUMENT_SCOPE:
+            return verdict
+        return {
+            **verdict,
+            "status": NEEDS_ENGINEER_REVIEW,
+            "rationale": (
+                f"{match_rules.QUANTITY_KIND}: the datasheet field "
+                f"'{', '.join(sorted(set(refused)))}' is named in this requirement but "
+                "states a different kind of quantity, so it was not paired; the value "
+                "may be elsewhere on the sheet - an engineer must look"
+            ),
+        }
     if (
-        fact is None
-        or verdict.get("status") not in _HELD_ON_UNSURE_KIND
+        verdict.get("status") not in _HELD_ON_UNSURE_KIND
         or match_rules.quantity_kind_doubt(requirement, fact) is None
     ):
         return verdict
+    reason = match_rules.quantity_kind_reason(requirement, fact)
+    if verdict.get("status") == NEEDS_ENGINEER_REVIEW and _LEADING_CODE.match(old):
+        return {**verdict, "rationale": f"{old} (also {reason})"}
     return {
         **verdict,
         "status": NEEDS_ENGINEER_REVIEW,
-        "rationale": match_rules.quantity_kind_reason(requirement, fact),
+        "rationale": f"{reason}. Set aside: {old}" if old else reason,
     }
 
 
@@ -1561,7 +1592,8 @@ _REASON_CODES = (
     CONDITION_NOT_MET,
     "UNREAD_PAGES",
     "PAGE_READER_ONLY",
-    match_rules.QUANTITY_KIND_UNSURE,
+    match_rules.QUANTITY_KIND_UNSURE,  # before its prefix, `quantity_kind`
+    match_rules.QUANTITY_KIND,
 )
 
 
@@ -2833,7 +2865,7 @@ def _run_comparison(
                     verdict = {**verdict, "rationale": (
                         f"{verdict.get('rationale') or ''} ({'; '.join(notes)})")}
             # ORDER 139: SAME QUANTITY KIND, whichever method made the pair.
-            verdict = _hold_unsure_kind(verdict, governing_requirement, fact)
+            verdict = _hold_unsure_kind(verdict, governing_requirement, fact, match)
             if (requirement.get("id"), (fact or {}).get("id")) in rejected_pairs:
                 rejected_requirements.add(requirement.get("id"))
                 continue

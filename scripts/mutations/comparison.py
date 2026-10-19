@@ -1043,7 +1043,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="the unsure-kind hold is never applied: a pump efficiency "
         "reads NON_COMPLIANT against a weld joint efficiency rule",
         path=APP / "comparison.py",
-        anchor="            verdict = _hold_unsure_kind(verdict, governing_requirement, fact)\n",
+        anchor="            verdict = _hold_unsure_kind(verdict, governing_requirement, fact, match)\n",
         replacement="",
         target="tests/test_same_kind_pairing.py",
         keyword="engineer_to_check or ai_matchers_pair",
@@ -1067,9 +1067,43 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="the unsure-kind hold stores no reason code, so the CRS cannot "
         "say why the engineer must check",
         path=APP / "comparison.py",
-        anchor="    match_rules.QUANTITY_KIND_UNSURE,\n)\n",
-        replacement=")\n",
+        anchor="    match_rules.QUANTITY_KIND_UNSURE,  # before its prefix, `quantity_kind`\n",
+        replacement="",
         target="tests/test_same_kind_pairing.py",
         keyword="engineer_to_check",
+    ),
+    Mutation(
+        id="M1176-04",
+        phase=1176,
+        description="a statement whose only named field rule 6 refused reads "
+        "'no field read from this datasheet was found' again",
+        path=APP / "comparison.py",
+        anchor='        if not refused or verdict.get("status") != NOT_IN_DOCUMENT_SCOPE:\n',
+        replacement="        if True:\n",
+        target="tests/test_same_kind_pairing.py",
+        keyword="not_no_field",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M1176-05",
+        phase=1176,
+        description="the unsure-kind hold drops what was said before it: who "
+        "paired it (the AI matcher), the page, the unit and trust notes",
+        path=APP / "comparison.py",
+        anchor='        "rationale": f"{reason}. Set aside: {old}" if old else reason,\n',
+        replacement='        "rationale": reason,\n',
+        target="tests/test_same_kind_pairing.py",
+        keyword="ai_matchers_pair or engineer_to_check",
+    ),
+    Mutation(
+        id="M1176-06",
+        phase=1176,
+        description="an engineer question asked for its own coded reason "
+        "(unit mismatch) is re-coded as the kind doubt",
+        path=APP / "comparison.py",
+        anchor='    if verdict.get("status") == NEEDS_ENGINEER_REVIEW and _LEADING_CODE.match(old):\n',
+        replacement="    if False:\n",
+        target="tests/test_same_kind_pairing.py",
+        keyword="keeps_it_and_gains",
     ),
 )

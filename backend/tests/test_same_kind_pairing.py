@@ -307,14 +307,9 @@ def _assert_engineer_to_check(found, fact):
     assert found["reason_code"] == UNSURE
     assert found["fact_id"] == fact["id"]  # the suggested field stays visible
     rationale = found["ai_rationale"]
+    # the kind reason first; what the comparison said is kept, as set aside
     assert rationale.startswith(f"{UNSURE}:")
-    for verdict_words in (
-        "COMPLIANT",
-        "outside the required",
-        "within the required",
-        "leaves this field to be provided",
-    ):
-        assert verdict_words not in rationale
+    assert "its result is set aside. Set aside: " in rationale
 
 
 def test_weld_joint_efficiency_against_a_pump_efficiency_is_engineer_to_check(world):
@@ -368,6 +363,9 @@ def test_the_ai_matchers_pair_meets_the_same_gate(world, monkeypatch):
     )
     assert found["match_method"] == comparison.METHOD_MODEL_CHOICE
     _assert_engineer_to_check(found, fact)
+    assert (
+        comparison.MODEL_PAIR_PREFIX in found["ai_rationale"]
+    )  # who paired it is kept
 
 
 def test_a_flow_blank_is_not_paired_with_a_bearing_temperature_limit(world):
@@ -467,3 +465,88 @@ def test_a_vibration_limit_in_um_pairs_and_decides_against_a_blank(world):
     )
     assert found["fact_id"] == fact["id"]
     assert found["compliance_status"] == comparison.MISSING_INFORMATION
+
+
+# ------------------- an adjective or a part of the same equipment never holds
+@pytest.mark.parametrize(
+    "subject, value, unit, operator, label, raw",
+    [
+        (
+            "the normal operating temperature",
+            "120",
+            "°C",
+            "<=",
+            "Operating temperature",
+            "76.7 °C",
+        ),
+        ("the shaft vibration", "3.0", "mm/s", "<=", "Vibration", "2.1 mm/s"),
+        ("the rated efficiency", "70", "%", ">=", "Efficiency", "82 %"),
+        (
+            "the casing design pressure",
+            "20",
+            "barg",
+            ">=",
+            "Design pressure",
+            "25 barg",
+        ),
+    ],
+)
+def test_a_state_word_or_a_part_still_decides(
+    world, subject, value, unit, operator, label, raw
+):
+    """Review of #1176: only a noun naming ANOTHER THING (a joint, a liquid)
+    holds a pair; rated, normal, design, operating, shaft and casing do not."""
+    _req_row, [fact], found = _review(
+        f"{subject.capitalize()} shall be {value} {unit}.",
+        _limit(subject, value, unit, operator),
+        [(label, raw, None)],
+    )
+    assert found["fact_id"] == fact["id"]
+    assert found["compliance_status"] == comparison.COMPLIANT
+    assert found["reason_code"] is None
+
+
+def test_a_part_word_against_a_blank_is_still_the_contractors_to_provide(world):
+    _req_row, [fact], found = _review(
+        "The shaft vibration shall not exceed 3.0 mm/s.",
+        _limit("the shaft vibration", "3.0", "mm/s"),
+        [("Vibration", "______ mm/s", (True, "______"))],
+    )
+    assert found["fact_id"] == fact["id"]
+    assert found["compliance_status"] == comparison.MISSING_INFORMATION
+
+
+def test_a_statement_whose_field_is_another_kind_is_not_no_field(world):
+    """Rule 6 refused the field the statement names: that is not "no field
+    read from this datasheet was found" - the engineer looks, told why."""
+    _req_row, _facts, found = _review(
+        "The bearing temperature shall be monitored.",
+        {"subject": "The bearing temperature", "requirement_type": "statement"},
+        [("Bearing", "120 m3/h", None)],
+    )
+    assert found["fact_id"] is None
+    assert found["compliance_status"] == comparison.NEEDS_ENGINEER_REVIEW
+    assert found["reason_code"] == match_rules.QUANTITY_KIND
+    assert comparison.NO_FIELD_MATCHED not in found["ai_rationale"]
+
+
+def test_a_question_with_its_own_reason_keeps_it_and_gains_the_kind_note(world):
+    """A unit mismatch is the engineer's question already; the kind doubt is
+    added as a note, not written over it."""
+    _req_row, [fact], found = _review(
+        "The weld joint efficiency shall be not less than 85 %.",
+        _limit("the weld joint efficiency", "85", "%", ">="),
+        [("Efficiency", "0.82", None)],
+    )
+    assert found["fact_id"] == fact["id"]
+    assert found["compliance_status"] == comparison.NEEDS_ENGINEER_REVIEW
+    rationale = found["ai_rationale"]
+    assert rationale.startswith(f"{comparison.UNIT_MISMATCH}:")
+    assert f"(also {UNSURE}:" in rationale
+
+
+def test_a_long_subject_is_cut_with_an_ellipsis():
+    reason = match_rules.quantity_kind_reason(
+        _req("x" * 130), _fact("efficiency", "82", "%")
+    )
+    assert "x" * 120 + "..." in reason
