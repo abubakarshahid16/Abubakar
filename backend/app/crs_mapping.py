@@ -715,15 +715,15 @@ def row_severity(group: list[dict]) -> str:
 
 #: What a finding is on the sheet, before grouping (spec section a). One
 #: bucket per row-producing branch of `build_crs_rows`; None = not a row.
-BUCKET_BREACH = "breach"          # NON_COMPLIANT against a standard
-BUCKET_BLANK = "blank"            # MISSING_INFORMATION, paired with a field
-BUCKET_NOT_FOUND = "not_found"    # MISSING_INFORMATION, no field paired
-BUCKET_CHECK = "check"            # a datasheet self-check (kind B)
-BUCKET_QUESTION = "question"      # NEEDS_ENGINEER_REVIEW (not a page note)
-BUCKET_TICK = "tick"              # a safety-tier "meets" for an engineer's tick
-BUCKET_CHAT = "chat"              # an engineer's comment filed from chat
-BUCKET_AI = "ai"                  # an AI engineering check item (kind C)
-BUCKET_WEB = "web"                # a public-web standards check item (kind D)
+BUCKET_BREACH = "breach"  # NON_COMPLIANT against a standard
+BUCKET_BLANK = "blank"  # MISSING_INFORMATION, paired with a field
+BUCKET_NOT_FOUND = "not_found"  # MISSING_INFORMATION, no field paired
+BUCKET_CHECK = "check"  # a datasheet self-check (kind B)
+BUCKET_QUESTION = "question"  # NEEDS_ENGINEER_REVIEW (not a page note)
+BUCKET_TICK = "tick"  # a safety-tier "meets" for an engineer's tick
+BUCKET_CHAT = "chat"  # an engineer's comment filed from chat
+BUCKET_AI = "ai"  # an AI engineering check item (kind C)
+BUCKET_WEB = "web"  # a public-web standards check item (kind D)
 #: The buckets grouped ONE ROW PER DATASHEET FIELD (spec a). A finding of
 #: these buckets with no field label keeps today's one-row-per-requirement key.
 FIELD_GROUPED_BUCKETS = (BUCKET_BLANK, BUCKET_NOT_FOUND, BUCKET_QUESTION)
@@ -753,12 +753,16 @@ ISSUE_PRIORITY_WORDS = {**PRIORITY_WORDS, PRIORITY_ENGINEER_TO_CHECK: "Clarifica
 #: Spec e: COMPANY Comments of an UNCONFIRMED AI / web item. Plain words that
 #: the row is a suggestion awaiting an engineer - never the draft itself,
 #: which stays in "AI Review Comments" (owner order 2d/2f).
-AI_UNCONFIRMED_COMMENT = ("AI suggestion awaiting an engineer's decision - its words are in "
-                          "AI Review Comments. Not issued to the contractor until an engineer "
-                          "confirms it.")
-WEB_UNCONFIRMED_COMMENT = ("Web standards check suggestion awaiting an engineer's decision - its "
-                           "words are in AI Review Comments. Not issued to the contractor until "
-                           "an engineer confirms it.")
+AI_UNCONFIRMED_COMMENT = (
+    "AI suggestion awaiting an engineer's decision - its words are in "
+    "AI Review Comments. Not issued to the contractor until an engineer "
+    "confirms it."
+)
+WEB_UNCONFIRMED_COMMENT = (
+    "Web standards check suggestion awaiting an engineer's decision - its "
+    "words are in AI Review Comments. Not issued to the contractor until "
+    "an engineer confirms it."
+)
 
 #: Spec c: a grouped row lists at most this many supporting clauses, then
 #: "- and K more of these N (see Standard Reference)."

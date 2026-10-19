@@ -107,7 +107,9 @@ class TierRow(BaseModel):
     crs_priority: int | None = None
     #: order 139 part 2: the rank's word, as the internal copy prints it
     crs_priority_label: (
-        Literal["Out of limit", "Missing value", "Engineer to check", "Engineer's comment"]
+        Literal[
+            "Out of limit", "Missing value", "Engineer to check", "Engineer's comment"
+        ]
         | None
     ) = None
     #: order 139 part 2: the row's place in the sheet's order (0 first) among
