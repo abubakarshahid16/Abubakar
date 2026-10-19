@@ -5,7 +5,9 @@
  * The counts are read lazily (one `loadCommentCount` per review) when the
  * list mounts, i.e. when it is opened. They count findings (comment +
  * needs-you), not the comment sheet's rows, and say so. A count that is
- * unknown or failed shows nothing - never 0.
+ * unknown or failed shows nothing - never 0. A signed review has nothing
+ * left to decide, so it shows no count (its "Signed: yes" says it) and its
+ * count is not read.
  */
 import { useEffect, useState } from "react";
 
@@ -25,7 +27,7 @@ export function PastReviewsList({ reviews, onOpenRun }: PastReviewsListProps) {
   useEffect(() => {
     let alive = true;
     for (const review of reviews) {
-      if (review.commentCount != null) continue;
+      if (review.signed || review.commentCount != null) continue;
       void loadCommentCount(review.runId).then((count) => {
         if (alive) setCounts((was) => ({ ...was, [review.runId]: count }));
       });
@@ -40,7 +42,7 @@ export function PastReviewsList({ reviews, onOpenRun }: PastReviewsListProps) {
   return (
     <ul aria-label="Past reviews" className="divide-y divide-ink-700 rounded-[var(--radius-sm)] border border-ink-700">
       {reviews.map((review) => {
-        const count = review.commentCount ?? counts[review.runId] ?? null;
+        const count = review.signed ? null : review.commentCount ?? counts[review.runId] ?? null;
         return (
           <li key={review.runId}>
             <button

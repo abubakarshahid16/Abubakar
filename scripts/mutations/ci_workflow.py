@@ -13,8 +13,8 @@ _T = "tests/test_ci_workflow.py"
 
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M2047", phase=2047, description="the required aggregate is skipped when a shard fails",
-             path=_W, anchor="    needs: [backend-shard, backend-checks]\n    if: always()\n",
-             replacement="    needs: [backend-shard, backend-checks]\n",
+             path=_W, anchor="    needs: [backend-shard, backend-checks, app-starts]\n    if: always()\n",
+             replacement="    needs: [backend-shard, backend-checks, app-starts]\n",
              target=_T, keyword="aggregate_that_needs_every_shard", tags=("ci",)),
     Mutation(id="M2048", phase=2048, description="every shard runs the whole suite",
              path=_W, anchor="--splits 3 --group ${{ matrix.group }} ",

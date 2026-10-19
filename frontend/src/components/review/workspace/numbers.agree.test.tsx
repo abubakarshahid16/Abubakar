@@ -498,6 +498,44 @@ describe("unknown blocker counts never count as done", () => {
     expect(actionSteps(n).find((s) => s.id === "pages")).toMatchObject({ count: 0, done: true });
   });
 
+  /** B2 (round 2): a run with no page record. The issue gate answers an
+   *  empty unread list plus its "no page coverage" blocker; that empty list
+   *  is "nobody could count", so no tick, no "(0)", and plain words that the
+   *  page record is missing. Readiness is either not read or its ledger is
+   *  not current.
+   *  MUTATION PROOF: let pagesKnown be `gate !== null || readiness current`
+   *  again (drop the no-page-record check) and this fails (the button reads
+   *  "✓Check unread pages (0)"). */
+  it.each([
+    ["readiness not read", null],
+    ["page ledger missing", { ...NONE_LEFT, ledger_state: "missing" as const }],
+  ])("no page record (issue gate: empty list + no page coverage), %s: never a tick with 0", async (_name, readiness) => {
+    const noRecord = gate({
+      issuable: false, unread_pages: [],
+      blockers: ["no page coverage is recorded for this run, so no page can be called read"],
+    });
+    const n = numbersFor({ ...allClear, missingStandards: [], readiness: readiness ?? null, gate: noRecord });
+    expect(n.pagesKnown).toBe(false);
+    expect(n.pageRecordMissing).toBe(true);
+    const step = actionSteps(n).find((s) => s.id === "pages")!;
+    expect(step).toMatchObject({ count: null, done: false, enabled: true, label: "Check unread pages (cannot read yet)" });
+    expect(actionSteps(n).find((s) => s.id === "sign")?.enabled).toBe(false);
+    renderAll(n, IDLE, noRecord, CLEAR_RUN);
+    const bar = screen.getByTestId("ws-action-bar");
+    const button = bar.querySelector<HTMLButtonElement>('[data-step="pages"]')!;
+    expect(button.getAttribute("data-done")).toBe("false");
+    expect(button.textContent).toBe("Check unread pages (cannot read yet)");
+    expect(button.textContent).not.toContain("✓");
+    expect(button.textContent).not.toContain("(0)");
+    expect(bar.querySelector('[data-count="unreadPages"]')).toBeNull();
+    expect(screen.getByTestId("ws-sign-waits")).toHaveTextContent("The record of which pages were read is missing");
+    await userEvent.click(button);
+    expect(screen.getByTestId("ws-page-record-missing")).toHaveTextContent(
+      "The record of which pages were read is missing for this review, so no page can be called read yet.",
+    );
+    for (const b of screen.getAllByRole("button", { name: "Sign and export" })) expect(b).toBeDisabled();
+  });
+
   /** SF8: pressing an unknown pages step opens the pages box, which says the
    *  pages are not known instead of listing none. */
   it("an unknown pages step opens and says the pages are not known", async () => {

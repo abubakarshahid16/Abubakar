@@ -41,6 +41,11 @@ function rowsFor(documents: DocumentRecord[], runs: ReviewRunSummary[]): Row[] {
   return [...byId.values()];
 }
 
+/** Only the asked ids, each a count or null (never undefined). */
+function pick(got: Record<string, ReadyCounts | null>, ids: string[]): Record<string, ReadyCounts | null> {
+  return Object.fromEntries(ids.map((id) => [id, Object.hasOwn(got, id) ? got[id] : null]));
+}
+
 export function InboxList(
   {
     documents, runs, submittalsTotal, onReview, onOpenRun, onReviewAll, reviewingAll, startingDocumentId,
@@ -55,9 +60,10 @@ export function InboxList(
     onReviewAll?: (targets: { documentId: string; filename: string }[]) => void;
     reviewingAll?: boolean;
     startingDocumentId: string | null;
-    /** #1114: a Ready run's comment counts, from its run summary; null when
-     *  they could not be read, and then the row says "Ready" alone. */
-    loadReadyCounts?: (runId: string) => Promise<ReadyCounts | null>;
+    /** #1114 / order 117 item 5: the Ready runs' counts, many in one call;
+     *  null for a run whose counts could not be read, and then the row says
+     *  "Ready" alone. */
+    loadReadyCounts?: (runIds: string[]) => Promise<Record<string, ReadyCounts | null>>;
   },
 ) {
   const [filter, setFilter] = useState<InboxFilter>("needs_me");
@@ -72,14 +78,14 @@ export function InboxList(
   const wantedKey = wanted.join(",");
   useEffect(() => {
     if (!loadReadyCounts || !wantedKey) return;
-    for (const id of wantedKey.split(",")) {
-      if (asked.current.has(id)) continue;
-      asked.current.add(id);
-      void loadReadyCounts(id).then(
-        (got) => setCounts((prev) => ({ ...prev, [id]: got })),
-        () => setCounts((prev) => ({ ...prev, [id]: null })),
-      );
-    }
+    // Order 117 item 5: every not-yet-asked id on screen in ONE call.
+    const ids = wantedKey.split(",").filter((id) => !asked.current.has(id));
+    if (ids.length === 0) return;
+    for (const id of ids) asked.current.add(id);
+    void loadReadyCounts(ids).then(
+      (got) => setCounts((prev) => ({ ...prev, ...pick(got, ids) })),
+      () => setCounts((prev) => ({ ...prev, ...pick({}, ids) })),
+    );
   }, [loadReadyCounts, wantedKey]);
   const notReviewed = rows.filter((row) => row.state.kind === "not_reviewed");
   const boundary = truncationNote(documents.length, submittalsTotal, "contractor submittals");

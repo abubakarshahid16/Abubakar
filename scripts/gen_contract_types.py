@@ -63,6 +63,7 @@ def modules() -> tuple[Module, ...]:
                 (rs.StandardClauses, "RunSummaryStandardClauses"),
                 (rs.HowReviewed, "RunSummaryHowReviewed"),
                 (rs.RunSummary, "ReviewRunTierSummary"),
+                (rs.RunCountsBatch, "ReviewRunCountsBatch"),
             ),
             unions=(
                 (("TierRow", "tier"), "RunSummaryTier"),

@@ -8,7 +8,7 @@
  * "all" and the Needs-me test fails; drop the earlier runs and the last
  * run test fails.
  */
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -134,8 +134,8 @@ describe("InboxList", () => {
   });
 
   describe("#1114: a Ready row's comment counts", () => {
-    it("shows the counts read from the run's own summary, asking once per run", async () => {
-      const load = vi.fn().mockResolvedValue({ findings: 3, needs_you: 1 });
+    it("shows the counts read for the run, asking once per run", async () => {
+      const load = vi.fn().mockResolvedValue({ "run-1": { findings: 3, needs_you: 1 } });
       const { rerender } = render(
         <InboxList
           documents={[doc()]} runs={[run()]} submittalsTotal={null}
@@ -150,11 +150,47 @@ describe("InboxList", () => {
         />,
       );
       expect(load).toHaveBeenCalledTimes(1);
-      expect(load).toHaveBeenCalledWith("run-1");
+      expect(load).toHaveBeenCalledWith(["run-1"]);
     });
 
-    it("says Ready alone when the counts cannot be read", async () => {
-      const load = vi.fn().mockResolvedValue(null);
+    it("order 117 item 5: asks for three Ready rows' counts in ONE call", async () => {
+      const ids = ["1", "2", "3"];
+      const load = vi.fn().mockResolvedValue(Object.fromEntries(ids.map((i) => [`run-${i}`, { findings: 2, needs_you: 0 }])));
+      render(
+        <InboxList
+          documents={ids.map((i) => doc({ id: `doc-${i}`, filename: `sheet-${i}.pdf` }))}
+          runs={ids.map((i) => run({ review_run_id: `run-${i}`, submittal_document_id: `doc-${i}`, submittal_filename: `sheet-${i}.pdf` }))}
+          submittalsTotal={null}
+          onReview={vi.fn()} startingDocumentId={null} loadReadyCounts={load}
+        />,
+      );
+      expect(await screen.findAllByText(/^Ready: 2 findings to decide, 0 need you/)).toHaveLength(3);
+      expect(load).toHaveBeenCalledTimes(1);
+      expect([...load.mock.calls[0][0]].sort()).toEqual(["run-1", "run-2", "run-3"]);
+    });
+
+    it("asks only for a Ready run it has not asked about, when a new one arrives", async () => {
+      const load = vi.fn(async (ids: string[]) => Object.fromEntries(ids.map((id) => [id, { findings: 1, needs_you: 0 }])));
+      const second = run({ review_run_id: "run-2", submittal_document_id: "doc-2", submittal_filename: "sheet-2.pdf" });
+      const { rerender } = render(
+        <InboxList
+          documents={[doc(), doc({ id: "doc-2", filename: "sheet-2.pdf" })]} runs={[run()]} submittalsTotal={null}
+          onReview={vi.fn()} startingDocumentId={null} loadReadyCounts={load}
+        />,
+      );
+      await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+      rerender(
+        <InboxList
+          documents={[doc(), doc({ id: "doc-2", filename: "sheet-2.pdf" })]} runs={[run(), second]} submittalsTotal={null}
+          onReview={vi.fn()} startingDocumentId={null} loadReadyCounts={load}
+        />,
+      );
+      await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+      expect(load.mock.calls[1][0]).toEqual(["run-2"]);
+    });
+
+    it("says Ready alone, never 0, for a run absent from the answer", async () => {
+      const load = vi.fn().mockResolvedValue({});
       render(
         <InboxList
           documents={[doc()]} runs={[run()]} submittalsTotal={null}
@@ -162,11 +198,29 @@ describe("InboxList", () => {
         />,
       );
       await vi.waitFor(() => expect(load).toHaveBeenCalled());
+      // Let the answer arrive and be drawn before reading the row.
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
       expect(screen.getByTestId("inbox-state").textContent).toMatch(/^Ready ·/);
+      expect(screen.getByTestId("inbox-state").textContent).not.toMatch(/\d+ finding|need/);
+    });
+
+    it("says Ready alone when the counts request fails", async () => {
+      const load = vi.fn().mockRejectedValue(new Error("network"));
+      render(
+        <InboxList
+          documents={[doc()]} runs={[run()]} submittalsTotal={null}
+          onReview={vi.fn()} startingDocumentId={null} loadReadyCounts={load}
+        />,
+      );
+      await vi.waitFor(() => expect(load).toHaveBeenCalled());
+      // Let the answer arrive and be drawn before reading the row.
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+      expect(screen.getByTestId("inbox-state").textContent).toMatch(/^Ready ·/);
+      expect(screen.getByTestId("inbox-state").textContent).not.toMatch(/\d+ finding|need/);
     });
 
     it("does not ask for a run that is not Ready", () => {
-      const load = vi.fn().mockResolvedValue({ findings: 1, needs_you: 0 });
+      const load = vi.fn().mockResolvedValue({ "run-1": { findings: 1, needs_you: 0 } });
       render(
         <InboxList
           documents={[doc()]} runs={[run({ status: "failed" })]} submittalsTotal={null}

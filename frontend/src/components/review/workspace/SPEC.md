@@ -103,9 +103,10 @@ screens never disagree):
 | unreadPages | when the issue gate is known: its `unread_pages` (pages still to tick); else union of `headlineFieldsOf(...).unreadPages` and `readiness?.unread_pages ?? []`; unique, ascending |
 | signLeft | `signLeft({ gate }, run, rows)` from crs/issueGate.ts; never empty while the gate is unknown |
 | missingStandards | unique of `input.missingStandards` and `readiness?.standards_missing ?? []` |
-| standardsKnown / pagesKnown | standardsKnown: false while the standards read failed (`missingStandards` null) or readiness is null. pagesKnown: false while both the issue gate and readiness are not known (loading or failed). An unknown count is never 0: its step is not done, shows "could not read this yet" with no number, and Sign stays off ("Waiting to read the standards and page checks.") |
+| standardsKnown / pagesKnown | standardsKnown: false while the standards read failed (`missingStandards` null) or readiness is null. pagesKnown: true only when readiness answered from a current page ledger (`ledger_state === "current"`) or the issue gate answered from a page record (no "no page coverage" blocker); false otherwise (loading, failed, stale ledger, no page record). An unknown count is never 0: its step is not done, shows "could not read this yet" with no number, and Sign stays off ("Waiting to read the standards and page checks.") |
 | undecided / undecidedKeys | comment rows where `decisions.decisions[key]` is absent and `priorState !== "agreed"`, in row order |
 | unopenedNeedsYou | tier C rows not in `decisions.opened` |
+| pageRecordMissing | the issue gate answered with its "no page coverage" blocker (the run has no page record). Its empty `unread_pages` then means "nobody could count", so pagesKnown is false even if readiness is current: the pages step shows "cannot read yet" (no tick, no number) and says the record of which pages were read is missing |
 | unsaved | `input.unsaved.length` |
 | signed / signedAt | `run.crs_issued_at` present |
 
