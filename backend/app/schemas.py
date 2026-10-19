@@ -2349,8 +2349,15 @@ class CrsIssueGate(BaseModel):
     issuable: bool
     final_code_recorded: bool
     blockers: list[str]
+    #: the unread pages NO engineer has ticked yet (what is left to tick)
     unread_pages: list[CrsUnreadPage]
     open_findings: list[CrsOpenFinding]
+    #: order 127: the unread pages an engineer ticked as checked; with
+    #: `unread_pages` it is exactly the run summary's `unread_pages`
+    checked_pages: list[int] = []
+    #: order 127: the submittal's page count as the run stored it; null when
+    #: not known (no page coverage), never 0
+    pages_total: int | None = None
 
 
 class CrsIssueDecisionRequest(BaseModel):
@@ -2760,6 +2767,10 @@ class ReviewRunSummary(BaseModel):
     # fields, which were not and why. Null for a run made before the ledger
     # existed; null renders as nothing, never as "every page read".
     page_coverage: dict | None = None
+    #: order 127: the run's unread pages, one definition
+    #: (`page_ledger.run_unread_pages`), the same list as the run summary's
+    #: `how_reviewed.unread_pages`; null when not known, never "none"
+    unread_pages: list[int] | None = None
     #: #598: standards-table values this run did NOT compare because the
     #: submittal has no field that answers them, one grouped line per
     #: standard with the tables behind it. Empty for a run that predates it.

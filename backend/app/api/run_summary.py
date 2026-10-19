@@ -117,6 +117,11 @@ class HowReviewed(BaseModel):
     reader: dict | None = Field(None, json_schema_extra=_ts("AiStepNumbers"))
     #: order 96: pages the AI reader timed out on; null when no reader record
     timed_out_pages: list[int] | None = None
+    #: order 127: THE run's unread pages, one definition
+    #: (`page_ledger.run_unread_pages`, the same the issue gate asks ticks
+    #: for), before any engineer's tick; null when the run stored no page
+    #: coverage or no page total (not known, never "none")
+    unread_pages: list[int] | None = None
     #: order 96: stamped on the run's job; null when the run has no job row
     code_version: str | None = None
     config_version: str | None = None
