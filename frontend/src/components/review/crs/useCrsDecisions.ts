@@ -26,6 +26,11 @@
  * counted (`restoreDropped`). On a signed review (`observeRecord(rows,
  * true)`) nothing is offered and the draft is removed.
  *
+ * v2.1 follow-up: the rows marked opened carry the same stamp
+ * (`openedStamps`). A mark comes back only once the record is known, and
+ * only for a row still on the sheet whose record did not change since; a
+ * "Needs you" row changed meanwhile must be opened again.
+ *
  * The workspace tells the hook what the record holds through
  * `observeRecord`, which useAutosave calls with the rows it saves against.
  */
@@ -180,9 +185,19 @@ function isDecision(value: unknown): value is Decision {
  *  opened, and per decision the record's state of its row at the time. */
 export interface DecisionDraft extends DecisionState {
   stamps: Record<string, string>;
+  /** Per row marked opened, the record's state of that row at the time. */
+  openedStamps: Record<string, string>;
 }
 
-const EMPTY_DRAFT: DecisionDraft = { decisions: {}, opened: {}, stamps: {} };
+const EMPTY_DRAFT: DecisionDraft = { decisions: {}, opened: {}, stamps: {}, openedStamps: {} };
+
+function stringsOf(value: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (value && typeof value === "object") {
+    for (const [key, v] of Object.entries(value as Record<string, unknown>)) if (typeof v === "string") out[key] = v;
+  }
+  return out;
+}
 
 /** What the record holds for a row, as one string: the row's state and each
  *  finding's approval, engineer comment and confirmation. Two equal stamps
@@ -200,7 +215,7 @@ export function readDecisionDraft(runId: string | null): DecisionDraft {
   try {
     const raw = window.sessionStorage.getItem(draftStorageKey(runId));
     if (!raw) return EMPTY_DRAFT;
-    const parsed = JSON.parse(raw) as { decisions?: unknown; opened?: unknown; stamps?: unknown };
+    const parsed = JSON.parse(raw) as { decisions?: unknown; opened?: unknown; stamps?: unknown; openedStamps?: unknown };
     const decisions: Record<string, Decision> = {};
     if (parsed.decisions && typeof parsed.decisions === "object") {
       for (const [key, value] of Object.entries(parsed.decisions as Record<string, unknown>)) {
@@ -209,13 +224,7 @@ export function readDecisionDraft(runId: string | null): DecisionDraft {
     }
     const opened: Record<string, true> = {};
     if (Array.isArray(parsed.opened)) for (const key of parsed.opened) if (typeof key === "string") opened[key] = true;
-    const stamps: Record<string, string> = {};
-    if (parsed.stamps && typeof parsed.stamps === "object") {
-      for (const [key, value] of Object.entries(parsed.stamps as Record<string, unknown>)) {
-        if (typeof value === "string") stamps[key] = value;
-      }
-    }
-    return { decisions, opened, stamps };
+    return { decisions, opened, stamps: stringsOf(parsed.stamps), openedStamps: stringsOf(parsed.openedStamps) };
   } catch {
     return EMPTY_DRAFT;
   }
@@ -230,16 +239,25 @@ function writeDecisionDraft(runId: string, draft: DecisionDraft): void {
     if (Object.keys(draft.decisions).length === 0) { removeDecisionDraft(runId); return; }
     window.sessionStorage.setItem(draftStorageKey(runId), JSON.stringify({
       decisions: draft.decisions, opened: Object.keys(draft.opened), stamps: draft.stamps,
+      openedStamps: draft.openedStamps,
     }));
   } catch {
     /* blocked or full storage: the decisions live only on screen */
   }
 }
 
+/** Opened marks still waiting for the record (their stamps not checked yet). */
+interface HeldOpened {
+  opened: Record<string, true>;
+  stamps: Record<string, string>;
+}
+
 /** The draft to keep now: what is unsaved on screen (stamped with the record
- *  as it is now), plus a draft still waiting for the reader's answer. */
+ *  as it is now), plus a draft still waiting for the reader's answer, plus
+ *  opened marks still waiting for the record. */
 function draftToKeep(
   state: DecisionState, unsaved: string[], rows: CrsRow[] | null, pending: DecisionDraft | null,
+  held: HeldOpened | null = null,
 ): DecisionDraft {
   const decisions: Record<string, Decision> = { ...(pending?.decisions ?? {}) };
   const stamps: Record<string, string> = { ...(pending?.stamps ?? {}) };
@@ -252,14 +270,37 @@ function draftToKeep(
     if (row) stamps[key] = recordStamp(row); else delete stamps[key];
   }
   for (const key of Object.keys(stamps)) if (!decisions[key]) delete stamps[key];
-  return { decisions, opened: { ...(pending?.opened ?? {}), ...state.opened }, stamps };
+  const opened = { ...(held?.opened ?? {}), ...(pending?.opened ?? {}), ...state.opened };
+  const openedStamps: Record<string, string> = { ...(held?.stamps ?? {}), ...(pending?.openedStamps ?? {}) };
+  for (const key of Object.keys(state.opened)) {
+    const row = byKey.get(key);
+    if (row) openedStamps[key] = recordStamp(row);
+  }
+  for (const key of Object.keys(openedStamps)) if (!opened[key]) delete openedStamps[key];
+  return { decisions, opened, stamps, openedStamps };
+}
+
+/** The opened marks whose row is still on the sheet and unchanged on the
+ *  record since the mark was kept (a mark with no stamp is not kept). */
+function checkedOpened(opened: Record<string, true>, stamps: Record<string, string>, rows: CrsRow[]): Record<string, true> {
+  const byKey = new Map(rows.map((row) => [row.key, row]));
+  const back: Record<string, true> = {};
+  for (const key of Object.keys(opened)) {
+    const row = byKey.get(key);
+    const stamp = stamps[key];
+    if (row && stamp && stamp === recordStamp(row)) back[key] = true;
+  }
+  return back;
 }
 
 /** A draft as first read: only decisions wait for an answer; rows opened
- *  alone come back at once (opening a row changes nothing on the record). */
-function splitDraft(draft: DecisionDraft): { pending: DecisionDraft | null; opened: Record<string, true> } {
-  if (Object.keys(draft.decisions).length === 0) return { pending: null, opened: draft.opened };
-  return { pending: draft, opened: {} };
+ *  alone come back by themselves (opening a row changes nothing on the
+ *  record), but only once the record is known and their stamps checked. */
+function splitDraft(draft: DecisionDraft): { pending: DecisionDraft | null; held: HeldOpened | null } {
+  if (Object.keys(draft.decisions).length === 0) {
+    return { pending: null, held: Object.keys(draft.opened).length ? { opened: draft.opened, stamps: draft.openedStamps } : null };
+  }
+  return { pending: draft, held: null };
 }
 
 export function useCrsDecisions(draftRunId?: string | null): CrsDecisions {
@@ -268,7 +309,9 @@ export function useCrsDecisions(draftRunId?: string | null): CrsDecisions {
   // The draft is read once per review (a different review id reads its own).
   const [draftFor, setDraftFor] = useState(runId);
   const [first] = useState(() => splitDraft(readDecisionDraft(runId)));
-  const [state, setState] = useState<DecisionState>(() => ({ decisions: {}, opened: first.opened }));
+  const [state, setState] = useState<DecisionState>(() => ({ decisions: {}, opened: {} }));
+  /** Opened marks from the draft, waiting for the record to check them. */
+  const [held, setHeld] = useState<HeldOpened | null>(first.held);
   /** A draft waiting for "Yes" or "Discard": not on screen, never saved. */
   const [pending, setPending] = useState<DecisionDraft | null>(first.pending);
   const [restored, setRestored] = useState(0);
@@ -282,16 +325,30 @@ export function useCrsDecisions(draftRunId?: string | null): CrsDecisions {
   const [saved, setSaved] = useState<Record<string, Decision>>({});
   if (draftFor !== runId) {
     const next = splitDraft(readDecisionDraft(runId));
+    // From no draft to this review's draft on the same screen: the app has
+    // just learned whose drafts these are (a reload). The sheet and the
+    // decisions already on screen stay; only the draft is read now. A
+    // different review is a fresh screen.
+    const ownerJustKnown = draftFor === null;
     setDraftFor(runId);
-    setState({ decisions: {}, opened: next.opened });
+    setHeld(next.held);
     setPending(next.pending);
-    setSaved({});
-    setAccepted(null);
     setRestored(0);
     setRestoreDropped(0);
-    setRecord(null);
+    if (!ownerJustKnown) {
+      setState({ decisions: {}, opened: {} });
+      setSaved({});
+      setAccepted(null);
+      setRecord(null);
+    }
   }
   const locked = record?.locked ?? false;
+  // The record is known: the held opened marks come back, checked.
+  if (held && record) {
+    const back = record.locked ? {} : checkedOpened(held.opened, held.stamps, record.rows);
+    setHeld(null);
+    if (Object.keys(back).length) setState((s) => ({ ...s, opened: { ...back, ...s.opened } }));
+  }
 
   const set = useCallback((key: string, decision: Decision | null) => {
     setAccepted(null);
@@ -396,7 +453,8 @@ export function useCrsDecisions(draftRunId?: string | null): CrsDecisions {
     }
     setAccepted(null);
     // A decision the reader took meanwhile wins over the draft's.
-    setState((s) => ({ decisions: { ...back, ...s.decisions }, opened: { ...pending.opened, ...s.opened } }));
+    const openedBack = checkedOpened(pending.opened, pending.openedStamps, record.rows);
+    setState((s) => ({ decisions: { ...back, ...s.decisions }, opened: { ...openedBack, ...s.opened } }));
     setRestored(Object.keys(back).length);
     setRestoreDropped(dropped);
     setPending(null);
@@ -414,8 +472,8 @@ export function useCrsDecisions(draftRunId?: string | null): CrsDecisions {
   useEffect(() => {
     if (!runId || draftFor !== runId) return;
     if (locked) { removeDecisionDraft(runId); return; }
-    writeDecisionDraft(runId, draftToKeep(state, unsaved, record?.rows ?? null, pending));
-  }, [runId, draftFor, state, unsaved, record, pending, locked]);
+    writeDecisionDraft(runId, draftToKeep(state, unsaved, record?.rows ?? null, pending, held));
+  }, [runId, draftFor, state, unsaved, record, pending, held, locked]);
 
   const pendingRestore = useMemo(
     () => (pending && !locked ? { count: Object.keys(pending.decisions).length } : null), [pending, locked]);
