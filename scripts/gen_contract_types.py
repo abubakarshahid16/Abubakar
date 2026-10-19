@@ -17,15 +17,21 @@ an error, never a silent `unknown`.
 
 Models move here block by block: add a `Module` (or a model to one) and
 delete the hand-written copy from `contracts/types.ts` in the same PR.
+
+Order 133: a `DataModule` is a generated file written from rule data rather
+than a model (the review tiers, `scripts/gen_tier_rules.py`); it is written and
+checked the same way.
 """
 
 from __future__ import annotations
 
 import argparse
 import difflib
+import importlib.util
 import inspect
 import re
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -71,6 +77,33 @@ def modules() -> tuple[Module, ...]:
                 (("TierRow", "reason"), "RunSummaryTierReason"),
             ),
         ),
+    )
+
+
+@dataclass(frozen=True)
+class DataModule:
+    """One generated file written from rule data, not from a model (order
+    133): `render` returns the file's whole text."""
+
+    filename: str
+    source: str
+    render: Callable[[], str]
+
+
+def _script(name: str):
+    """A sibling script, loaded by path (this file is also loaded by path)."""
+    spec = importlib.util.spec_from_file_location(
+        name, Path(__file__).with_name(f"{name}.py")
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def data_modules() -> tuple[DataModule, ...]:
+    tiers = _script("gen_tier_rules")
+    return (
+        DataModule(filename=tiers.FILENAME, source=tiers.SOURCE, render=tiers.render),
     )
 
 
@@ -172,7 +205,9 @@ class _Renderer:
         ]
 
 
-def render(module: Module) -> str:
+def render(module: Module | DataModule) -> str:
+    if isinstance(module, DataModule):
+        return module.render()
     defs: dict = {}
     for model, _ in module.models:
         defs.update(model.model_json_schema().get("$defs", {}))
@@ -193,7 +228,7 @@ def render(module: Module) -> str:
     return "\n".join([*head, "", *body]).replace("\n\n\n", "\n\n") + "\n"
 
 
-def drift(module: Module, directory: Path = GENERATED) -> list[str]:
+def drift(module: Module | DataModule, directory: Path = GENERATED) -> list[str]:
     """The unified diff from the committed file to the model's rendering;
     empty when they agree. A missing file is all drift."""
     path = directory / module.filename
@@ -215,7 +250,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     failed = False
-    for module in modules():
+    for module in (*modules(), *data_modules()):
         if args.check:
             diff = drift(module)
             if diff:

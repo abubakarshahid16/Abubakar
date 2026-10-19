@@ -1,0 +1,58 @@
+{
+  "_about": "Order 133 (117a item 4): the review tiers' rules as data, the one source. backend/app/review_tiers.py reads this file; scripts/gen_contract_types.py writes it into contracts/generated/review_tiers.ts, which the screen's crs/tiers.ts reads. contracts/fixtures/review_tier_cases.json holds the cases both sides must pass. Display only: no stored status or verdict is decided here.",
+  "tiers": ["A", "B", "C"],
+  "labels": ["Met", "Not applicable", "Another document", "Comment", "Needs you"],
+  "reasons": [
+    "page not read",
+    "standard not in library",
+    "AI guess",
+    "rule not proven",
+    "safety field",
+    "condition unsettled",
+    "value conflict",
+    "unit unknown"
+  ],
+  "needs_you": {"tier": "C", "label": "Needs you"},
+  "tier_c_statuses": ["NEEDS_ENGINEER_REVIEW", "CONDITIONAL"],
+  "status_tiers": {
+    "COMPLIANT": {"tier": "A", "label": "Met"},
+    "NOT_APPLICABLE": {"tier": "A", "label": "Not applicable"},
+    "NOT_IN_DOCUMENT_SCOPE": {"tier": "A", "label": "Another document"},
+    "NON_COMPLIANT": {"tier": "B", "label": "Comment"}
+  },
+  "missing_information": {
+    "status": "MISSING_INFORMATION",
+    "in_library": {"tier": "B", "label": "Comment"},
+    "not_in_library_reason": "standard not in library"
+  },
+  "unsettled_order": [
+    "page not read",
+    "standard not in library",
+    "AI guess",
+    "rule not proven",
+    "safety field",
+    "value conflict",
+    "unit unknown"
+  ],
+  "fallback_reason": "condition unsettled",
+  "phrases": {
+    "value conflict": "\\bvalue conflict\\b|\\bconflicting values?\\b|\\bvalues? conflict\\b",
+    "unit unknown": "\\bunit unknown\\b|\\bunknown unit\\b|\\bunit (?:not|could not be) (?:read|recognised|recognized|parsed)\\b"
+  },
+  "fold": {"pattern": "[\\s_-]+", "replace": " "},
+  "pairing_guess": {
+    "always": ["field_name"],
+    "held": {"match_method": "model", "compliance_status": "NEEDS_ENGINEER_REVIEW"}
+  },
+  "rule_not_proven_trust_label": "UNPROVEN",
+  "safety_tick_status": "COMPLIANT",
+  "removed": {"approval_status": "rejected"},
+  "screen_order": ["B", "C", "A"],
+  "count_keys": {
+    "Met": "met",
+    "Not applicable": "not_applicable",
+    "Another document": "another_document",
+    "Comment": "comment",
+    "Needs you": "needs_you"
+  }
+}
