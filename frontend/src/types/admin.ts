@@ -186,6 +186,35 @@ export interface AdminClient {
   dbTables?(): Promise<AdminResult<{ tables: DbTable[] }>>;
   dbTable?(name: string): Promise<AdminResult<DbTableInfo>>;
   dbRows?(name: string, limit: number, offset: number): Promise<AdminResult<DbRows>>;
+  /** #620: Company standards waiting for an administrator's confirmation, and
+   *  the confirm. Optional so an injected test double may omit them. */
+  heldCompanyStandards?(): Promise<AdminResult<HeldCompanyStandardList>>;
+  confirmCompanyStandard?(documentId: string): Promise<AdminResult<CompanyStandardConfirmed>>;
+}
+
+/** #620: one Company standard a non-administrator uploaded on or after the
+ *  cut-off, not yet confirmed. `GET /api/admin/company-standards/held`. */
+export interface HeldCompanyStandard {
+  id: string;
+  filename: string | null;
+  /** when its uploader's grant was written */
+  uploaded_at: string | null;
+}
+
+export interface HeldCompanyStandardList {
+  standards: HeldCompanyStandard[];
+  total: number;
+  limit: number | null;
+  offset: number;
+  /** the boundary: uploads before this count as confirmed and are not listed */
+  confirm_from: string | null;
+}
+
+/** `POST /api/admin/company-standards/{id}/confirm`. */
+export interface CompanyStandardConfirmed {
+  document_id: string;
+  /** true when this call confirmed it; false when it already was */
+  confirmed: boolean;
 }
 
 /**

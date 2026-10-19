@@ -30,6 +30,7 @@ import type {
 } from "../types/admin";
 import { reportResponseStatus } from "../api/client";
 import { AdminView } from "./AdminView";
+import { CompanyStandardsSection } from "./admin/CompanyStandardsSection";
 import { DatabaseSection } from "./admin/DatabaseSection";
 
 const BASE = "/api";
@@ -140,6 +141,10 @@ export function makeAdminClient(token: () => string | null): AdminClient {
         + `?limit=${limit}&offset=${offset}`,
         token(),
       ),
+    // #620: the held Company standards, and the confirm (idempotent, audited).
+    heldCompanyStandards: () => adminRequest("/admin/company-standards/held", token()),
+    confirmCompanyStandard: (id) =>
+      adminRequest(`/admin/company-standards/${encodeURIComponent(id)}/confirm`, token(), { method: "POST" }),
   };
 }
 
@@ -298,6 +303,7 @@ export function AdminScreen({
       onRevoke={(body) => void changeGrant(body, false)}
       onRetry={() => void load()}
       busyKey={busyKey}
+      companyStandardsSection={<CompanyStandardsSection client={api} />}
       databaseSection={<DatabaseSection client={api} />}
     />
   );
