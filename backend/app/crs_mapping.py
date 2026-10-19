@@ -876,10 +876,16 @@ _FINDING_ROW_BUCKET = {
 }
 
 
+def _rank_row(row: dict, priority: int, group: list[dict]) -> tuple:
+    """Spec f: put the finding row's rank on it; return its place on the sheet."""
+    row["priority"] = priority
+    return finding_row_sort_key(priority, group, row["comment_key"])
+
+
 def standards_row_sort_key(priority: int, identifier: str, key: str) -> tuple:
     """Spec f: a required-vs-cited row (no finding, no page) sorts inside its
     rank after every finding row of that rank, by the standard's name."""
-    return (priority, 10 ** 9, (10 ** 6,), _fold(identifier), str(key or ""))
+    return (priority, 10**9, (10**6,), _fold(identifier), str(key or ""))
 
 
 def crs_groups(findings: list[dict]) -> list[dict]:
@@ -931,7 +937,6 @@ def standards_check_rows(check: dict | None, submittal_name: str) -> list[dict]:
             "comment_by": "AI Review", "standard_reference": ident,
             "row_kind": ROW_KIND_STANDARD_NOT_CITED, "severity": "",
             "engineer_confirmed": False,
-            "priority": row_priority(ROW_KIND_STANDARD_NOT_CITED),
             "comment_key": comment_key("standard not cited", standard_ids.key(ident)),
         })
     for r in (check or {}).get("cited_not_applicable") or []:
@@ -943,9 +948,11 @@ def standards_check_rows(check: dict | None, submittal_name: str) -> list[dict]:
             "comment_by": "AI Review", "standard_reference": ident,
             "row_kind": ROW_KIND_STANDARD_NOT_APPLICABLE, "severity": "",
             "engineer_confirmed": False,
-            "priority": row_priority(ROW_KIND_STANDARD_NOT_APPLICABLE),
             "comment_key": comment_key("standard not applicable", standard_ids.key(ident)),
         })
+    # Order 139 part 2 (spec f): not referenced 2, not applicable 3.
+    for row in rows:
+        row["priority"] = row_priority(row["row_kind"])
     return rows
 
 
@@ -1043,7 +1050,6 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                     r for r in (_standard_reference(g) for g in group) if r)),
                 "row_kind": kind,
                 "severity": row_severity(group),
-                "priority": row_priority(rank_kind, f.get("compliance_status")),
                 "engineer_confirmed": all(_confirmed(g) for g in group),
                 # Never printed: what the permanent CRS number is keyed on.
                 "comment_key": _subject_key(f),
@@ -1052,11 +1058,8 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                 # rule_trust (#947): who stands behind the rule, in words.
                 "rule_trust": trust_words(f),
             })
-            sort_keys.append(
-                finding_row_sort_key(
-                    rows[-1]["priority"], group, rows[-1]["comment_key"]
-                )
-            )
+            rank = row_priority(rank_kind, f.get("compliance_status"))
+            sort_keys.append(_rank_row(rows[-1], rank, group))
 
     # rule_trust (#947 step 8): SAFETY-TIER COMPLIANT, SHOWN FOR A TICK. The
     # rule decided "meets the standard" on its own; because the field is a
@@ -1076,12 +1079,11 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             "row_kind": ROW_KIND_SAFETY_TICK,
             "severity": "",
             "engineer_confirmed": _confirmed(f),
-            "priority": row_priority(BUCKET_TICK),
             "comment_key": comment_key("safety tick", _subject_key(f)),
             "reasoning": reasoning_text([f]),
             "rule_trust": trust_words(f),
         })
-        sort_keys.append(finding_row_sort_key(rows[-1]["priority"], [f], rows[-1]["comment_key"]))
+        sort_keys.append(_rank_row(rows[-1], row_priority(BUCKET_TICK), [f]))
 
     # An engineer's own comments, filed from chat: individual comments to the
     # contractor, the engineer's rather than the machine's.
@@ -1100,12 +1102,11 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             "standard_reference": "",
             "row_kind": ROW_KIND_ENGINEER_COMMENT,
             "severity": row_severity([f]),
-            "priority": row_priority(BUCKET_CHAT),
             "engineer_confirmed": True,
             # An engineer's own free-text comment IS its subject.
             "comment_key": finding_comment_key(f),
         })
-        sort_keys.append(finding_row_sort_key(rows[-1]["priority"], [f], rows[-1]["comment_key"]))
+        sort_keys.append(_rank_row(rows[-1], row_priority(BUCKET_CHAT), [f]))
 
     # Owner order 2d/2f and 2d-2: AI engineering check (kind C) and public-web
     # standards check (kind D) items. Neither is ever a verdict - a question
@@ -1155,7 +1156,6 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             "standard_reference": relates if origin == _AI_ORIGIN and not f.get("engineer_comment") else "",
             "row_kind": row_kind,
             "severity": row_severity([f]),
-            "priority": row_priority(BUCKET_AI if origin == _AI_ORIGIN else BUCKET_WEB),
             "engineer_confirmed": confirmed,
             # The machine's finding text, not the engineer's edit of it, so
             # confirming or re-wording an AI/web item keeps its number.
@@ -1163,7 +1163,8 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             # R30: the chain behind the item (internal copy only).
             "reasoning": reasoning_text([f]),
         })
-        sort_keys.append(finding_row_sort_key(rows[-1]["priority"], [f], rows[-1]["comment_key"]))
+        rank = row_priority(BUCKET_AI if origin == _AI_ORIGIN else BUCKET_WEB)
+        sort_keys.append(_rank_row(rows[-1], rank, [f]))
 
     # #754 F5b: the required-vs-cited result, one row per standard.
     rows.extend(standards_check_rows(standards_check, submittal_name))
