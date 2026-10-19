@@ -56,9 +56,20 @@ ROWS = [
 PAGE = "\n".join(f"{label} {value} {unit}" for label, value, unit in ROWS)
 
 
+def _context_and_own(prompt: str) -> tuple[str, str]:
+    """The context lines a part is shown (`datasheet_ai.with_context`) and
+    the part's own text, from the page text `claude_datasheet.build_prompt`
+    put after "PAGE n:"."""
+    text = prompt.rsplit("\nPAGE ", 1)[1].split("\n", 1)[1]
+    if not text.startswith(datasheet_ai.CONTEXT_OPEN):
+        return "", text
+    context, own = text.split("\n" + datasheet_ai.CONTEXT_CLOSE + "\n", 1)
+    return context[len(datasheet_ai.CONTEXT_OPEN) + 1 :], own
+
+
 def _page_of(prompt: str) -> str:
-    """The page text `claude_datasheet.build_prompt` put after "PAGE n:"."""
-    return prompt.rsplit("\nPAGE ", 1)[1].split("\n", 1)[1]
+    """The text the model is asked to read values from (no context lines)."""
+    return _context_and_own(prompt)[1]
 
 
 def _facts(text: str) -> list[dict]:
@@ -281,6 +292,121 @@ def test_the_local_engine_raises_the_cut_off_with_its_text(monkeypatch):
     out = datasheet_ai.read_page_text_with_ai(PAGE, 1, "ollama")
     assert "error" not in out and len(out["accepted"]) == len(ROWS)
     assert posted == [8, 4, 4, 6, 6]
+
+
+# ============================================================ a split table's columns
+
+#: A made-up Required / Offered table: (label, required, offered, unit).
+TABLE_ROWS = [
+    ("Design pressure", "10", "16", "barg"),
+    ("Design temperature", "120", "150", "degC"),
+    ("Rated flow", "40", "42", "m3/h"),
+    ("Rated head", "50", "55", "m"),
+    ("Motor power", "70", "75", "kW"),
+    ("Impeller diameter", "250", "260", "mm"),
+    ("Suction pressure", "2", "2.5", "barg"),
+    ("Minimum flow", "10", "12", "m3/h"),
+    ("Nozzle size", "80", "100", "mm"),
+    ("Shaft power", "60", "64", "kW"),
+]
+TABLE = "\n".join(
+    ["Item | Required | Offered"]
+    + [f"{label} | {req} {unit} | {off} {unit}" for label, req, off, unit in TABLE_ROWS]
+)
+OFFERED = {label: off for label, _req, off, _unit in TABLE_ROWS}
+
+
+def _table_reader(max_facts: int = 10, reads_context: bool = False):
+    """A local engine for the table. It names the columns right only when
+    it SEES the header line (on its part, or in the context it was shown);
+    without it, it guesses - and swaps them. Cut off above `max_facts`."""
+
+    def call(prompt: str) -> str:
+        context, own = _context_and_own(prompt)
+        header_seen = "Required | Offered" in context + "\n" + own
+        lines = (context + "\n" + own) if reads_context else own
+        facts = []
+        for line in lines.split("\n"):
+            cells = [c.strip() for c in line.split("|")]
+            if len(cells) != 3 or not cells[1][:1].isdigit():
+                continue
+            (req, unit), (off, _u) = cells[1].split(" "), cells[2].split(" ")
+            first, second = (
+                ("required", "offered") if header_seen else ("offered", "required")
+            )
+            for value, kind in ((req, first), (off, second)):
+                facts.append(
+                    {
+                        "field": cells[0],
+                        "value": value,
+                        "unit": unit,
+                        "quote": line,
+                        "kind": kind,
+                    }
+                )
+        if len(facts) > max_facts:
+            raise AnswerCutOff(_cut(facts))
+        return json.dumps({"facts": facts})
+
+    return call
+
+
+def test_a_part_below_a_table_header_is_shown_the_header_and_reads_the_columns_right():
+    """cloud-2's blocker on #1175: a split left "Required | Offered" above the
+    cut, the part's model guessed and swapped the columns, and the gate does
+    not check the kind. Each part is now shown the top of the page as context."""
+    out = datasheet_ai._read(TABLE, 1, _table_reader(), "fake-local")
+    assert "error" not in out and out["parts"]["read"] >= 3
+    offered = [f for f in out["accepted"] if f["kind"] == "offered"]
+    assert sorted(f["field"] for f in offered) == sorted(OFFERED)
+    assert all(f["value"] == OFFERED[f["field"]] for f in offered)
+
+
+def test_a_part_never_takes_a_value_from_its_context_lines():
+    out = datasheet_ai._read(TABLE, 1, _table_reader(reads_context=True), "fake-local")
+    assert out["counts"].get(datasheet_ai.QUOTE_NOT_IN_PART, 0) > 0
+    offered = [f for f in out["accepted"] if f["kind"] == "offered"]
+    assert all(f["value"] == OFFERED[f["field"]] for f in offered)
+
+
+def test_a_part_whose_lines_do_not_name_the_column_marks_its_kind_unconfirmed(
+    monkeypatch,
+):
+    """Belt and braces: even when the model guesses the columns, a value from
+    a part whose own lines do not name its column never decides on its own."""
+    monkeypatch.setattr(datasheet_ai, "with_context", lambda part, page_text: part)
+    out = datasheet_ai._read(TABLE, 1, _table_reader(), "fake-local")
+    swapped = [
+        f
+        for f in out["accepted"]
+        if f["kind"] == "offered" and f["value"] != OFFERED[f["field"]]
+    ]
+    assert swapped, "the test table must make the model guess wrong"
+    assert all(f.get("kind_unconfirmed") for f in swapped)
+    assert all(
+        f["provenance"]["kind_unconfirmed"] == datasheet_ai.KIND_UNCONFIRMED
+        for f in swapped
+    )
+    # a part that prints the header names the columns itself: not marked
+    named = [f for f in out["accepted"] if not f.get("kind_unconfirmed")]
+    assert named and all(
+        f["value"] == OFFERED[f["field"]] for f in named if f["kind"] == "offered"
+    )
+
+
+def test_the_context_is_the_top_of_the_page_bounded_and_marked():
+    part = TABLE.split("\n", 6)[6]
+    shown = datasheet_ai.with_context(part, TABLE)
+    assert shown.startswith(datasheet_ai.CONTEXT_OPEN) and shown.endswith(part)
+    context = shown.split(datasheet_ai.CONTEXT_CLOSE)[0]
+    assert "Item | Required | Offered" in context
+    assert (
+        len(context) <= datasheet_ai.CONTEXT_CHARS + len(datasheet_ai.CONTEXT_OPEN) + 2
+    )
+    assert (
+        datasheet_ai.with_context(TABLE.split("\n", 1)[0], TABLE)
+        == TABLE.split("\n", 1)[0]
+    )
 
 
 # ============================================================ what the run says

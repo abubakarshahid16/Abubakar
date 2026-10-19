@@ -321,6 +321,22 @@ def split_text(text: str) -> list[str]:
     return _halves(text, "\n", OVERLAP_LINES) or _halves(text, " ", OVERLAP_WORDS)
 
 
+#: A part that does not start the page is shown the page's first lines above
+#: it, CONTEXT ONLY (`with_context`): at most this many lines and characters.
+CONTEXT_LINES = 8
+CONTEXT_CHARS = 800
+CONTEXT_OPEN = (
+    "[CONTEXT ONLY - the top of this page, for column names; "
+    "do not read values from these lines]"
+)
+CONTEXT_CLOSE = "[END OF CONTEXT - read values only from the lines below]"
+#: A part's reading whose quote is not on the part's own lines.
+QUOTE_NOT_IN_PART = "quote_not_in_part"
+#: Written into the provenance of a part's reading whose kind its lines do not name.
+KIND_UNCONFIRMED = (
+    "read from part of a split page whose own lines do not name the column "
+    "(required / offered / measured); an engineer checks the value"
+)
 #: Said on a part still cut off at the last split before it finished a value.
 CUT_BEFORE_ANY = "the answer was cut off before one value was finished"
 
@@ -356,7 +372,9 @@ def _read_part(
     last = depth >= MAX_SPLITS
     call = _keeping_the_cut(model_call) if last else model_call
     try:
-        got = claude_datasheet.read_page(part, page_no, None, call, gate_text=page_text)
+        got = claude_datasheet.read_page(
+            with_context(part, page_text), page_no, None, call, gate_text=page_text
+        )
     except AnswerCutOff:
         state["cut_again"] += 1
         return [(p, depth + 1) for p in split_text(part)] or [(part, MAX_SPLITS)]
@@ -377,14 +395,50 @@ def _read_part(
         return []
     state["read"] += 1
     state["cut"] = state["cut"] or bool(got.get("cut_off"))
+    state["rejected"].extend(got["rejected"])
     for p in got["accepted"]:
+        p = _part_fact(p, part)
+        if p.get("reason"):
+            state["rejected"].append(p)
+            continue
         # the overlap reads a row twice: one fact, whichever part quoted it
         key = tuple(p.get(k) for k in ("field_name", "value", "unit", "kind"))
         if key not in state["seen"]:
             state["seen"].add(key)
             state["accepted"].append({**p, "page": page_no})
-    state["rejected"].extend(got["rejected"])
     return []
+
+
+def with_context(part: str, page_text: str) -> str:
+    """The part as the model is shown it: when the part does not start the
+    page, the page's first lines above it go first, marked CONTEXT ONLY, so
+    a table's column names (required / offered) printed above the cut are
+    seen. Values are not read from there (`_part_fact`)."""
+    start = page_text.find(part)
+    above = page_text[:start].strip() if start > 0 else ""
+    if not above:
+        return part
+    context = "\n".join(above.split("\n")[:CONTEXT_LINES])[:CONTEXT_CHARS]
+    return f"{CONTEXT_OPEN}\n{context}\n{CONTEXT_CLOSE}\n{part}"
+
+
+def _part_fact(p: dict, part: str) -> dict:
+    """A part's accepted reading, checked against the part's OWN lines. A
+    quote not on them (read from the context) is refused (`QUOTE_NOT_IN_PART`).
+    A kind its own lines do not name (no "required" / "offered" / "measured"
+    word, `_KIND_WORDS`) may be a guess - a split can leave the column names
+    above the cut - so the reading is marked `kind_unconfirmed`: it is kept,
+    and `datasheets` writes it for an engineer (never deciding a verdict)."""
+    own = claude_datasheet._fold(part)
+    if not claude_datasheet._contains(
+        own, claude_datasheet._fold(p.get("quote") or "")
+    ):
+        return {**p, "reason": QUOTE_NOT_IN_PART}
+    words = _KIND_WORDS.get(p.get("kind") or "", ())
+    if any(claude_datasheet._contains(own, w) for w in words):
+        return p
+    box = {**(p.get("provenance") or {}), "kind_unconfirmed": KIND_UNCONFIRMED}
+    return {**p, "kind_unconfirmed": True, "provenance": box}
 
 
 def _parts_outcome(state: dict, page_no: int, engine: str | None) -> dict:
