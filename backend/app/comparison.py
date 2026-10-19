@@ -2683,9 +2683,13 @@ def _run_comparison(
                     **verdict,
                     "status": NEEDS_ENGINEER_REVIEW,
                     "rationale": (
-                        f"{AMBIGUOUS_MATCH}: more than one submitted field is named "
-                        f"inside this requirement ({', '.join(match['candidates'])}); "
-                        "no value was chosen, because choosing one arbitrarily "
+                        (f"{AMBIGUOUS_MATCH}: the submitted field this requirement "
+                         "names is read more than once, with different values "
+                         f"({'; '.join(match['candidates'])}); "
+                         if match.get("same_field_copies") else
+                         f"{AMBIGUOUS_MATCH}: more than one submitted field is named "
+                         f"inside this requirement ({', '.join(match['candidates'])}); ")
+                        + "no value was chosen, because choosing one arbitrarily "
                         "would attach a real number to the wrong requirement"),
                 }
             # B3: "NOT FOUND" IS NOT "NOT PRESENT". A requirement no field answered
@@ -2795,6 +2799,9 @@ def _run_comparison(
                 if match.get("synonym"):
                     notes.append(f"field linked through the synonym table as "
                                  f"'{match['synonym']}'")
+                if match.get("same_field_copies") and match.get("candidates"):
+                    notes.append("the same field is also on the sheet, with the same "
+                                 f"value or blank: {', '.join(match['candidates'])}")
                 if requirement.get("unit_from_clause_text"):
                     notes.append(f"the clause's unit {requirement.get('raw_unit')!r} was "
                                  "read from its own text beside its number")
@@ -3317,6 +3324,62 @@ def _item_of(hit: dict) -> str | None:
     return hit.get("item") or hit["fact"].get("equipment_tag")
 
 
+def _copy_label(fact: dict, fallback: str) -> str:
+    return f"{fact.get('field_label') or fallback} (page {fact.get('page')})"
+
+
+def _value_signature(fact: dict) -> tuple:
+    """What one filled copy of a field says, for "do the copies agree".
+
+    The normalised number and unit when the fact has them; a range by its two
+    ends; otherwise the stated words (`raw_value`, or `field_value` for a
+    categorical field) with case and spacing folded. A copy that states
+    nothing readable agrees with no other copy: its own id is its signature,
+    so it can never be merged into "the same value"."""
+    unit = " ".join(str(fact.get("raw_unit") or fact.get("unit") or "").lower().split())
+    if fact_range(fact) is not None:
+        low, high = fact_range(fact)
+        return ("range", low, high, unit)
+    if fact.get("value") is not None:
+        return ("number", float(fact["value"]), str(fact.get("unit") or unit).lower())
+    words = " ".join(str(fact.get("raw_value") or fact.get("field_value") or "").lower().split())
+    return ("text", words, unit) if words else ("unread", fact.get("id"))
+
+
+def _copy_value_text(fact: dict) -> str:
+    if fact_range(fact) is not None and fact.get("raw_value") in (None, ""):
+        text = f"{fact.get('value_min')} to {fact.get('value_max')}"
+    else:
+        text = str(fact.get("raw_value") or fact.get("field_value") or "").strip()
+    unit = str(fact.get("raw_unit") or "").strip()
+    return f"{text} {unit}".strip()
+
+
+def _resolve_field_copies(best: list[dict], refused: list[dict]) -> dict:
+    """The same canonical field found more than once on the sheet.
+
+    All blank: one blank field. All filled copies carry the same value: one
+    field, the others named. Different values: still a tie for an engineer -
+    a number is never picked between two numbers - but each copy is named
+    once, with its page and value, instead of the same name repeated."""
+    ordered = sorted(best, key=lambda h: (h["fact"].get("page") or 0,
+                                          h["fact"].get("field_label") or ""))
+    filled = [h for h in ordered if not h["fact"].get("is_blank")]
+    name = ordered[0]["name"]
+    if filled and len({_value_signature(h["fact"]) for h in filled}) > 1:
+        return {"fact": None, "matched_phrase": None, "method": None,
+                "reason": AMBIGUOUS_MATCH, "refused": refused,
+                "same_field_copies": True,
+                "candidates": sorted({f"{_copy_label(h['fact'], h['name'])}: "
+                                      f"{_copy_value_text(h['fact'])}" for h in filled})}
+    chosen = (filled or ordered)[0]
+    return {"fact": chosen["fact"], "matched_phrase": chosen["name"],
+            "method": METHOD_CONTAINMENT, "reason": None, "refused": refused,
+            "synonym": chosen["synonym"], "same_field_copies": True,
+            "candidates": sorted({_copy_label(h["fact"], name)
+                                  for h in ordered if h is not chosen})}
+
+
 def _resolve_hits(requirement: dict, facts: list[dict], hits: list[dict], *,
                   sheet_kind: str | None) -> dict:
     """The rules, then longest-wins, then the tie - shared by the numeric and
@@ -3358,6 +3421,14 @@ def _resolve_hits(requirement: dict, facts: list[dict], hits: list[dict], *,
                     "method": METHOD_CONTAINMENT, "reason": None, "candidates": [],
                     "refused": refused, "synonym": ordered[0]["synonym"],
                     "items": [h["fact"] for h in ordered]}
+        if (len({h["key"] for h in best}) == 1
+                and len({_item_of(h) for h in best}) == 1):
+            # ONE FIELD READ MORE THAN ONCE (order 142 fix C): the same
+            # canonical name, no different item - the sheet states one field
+            # on two pages, or twice. That is not "more than one field is
+            # named"; it is one field, and the only question is whether its
+            # copies agree. See `_resolve_field_copies`.
+            return _resolve_field_copies(best, refused)
         return {**none, "reason": AMBIGUOUS_MATCH,
                 "candidates": sorted(h["name"] for h in best),
                 "refused": refused}
