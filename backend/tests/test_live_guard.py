@@ -236,8 +236,7 @@ RAW_WRITERS_ALLOWED = {
     "backup_db.py": "writes only the backup file it has just created exclusively",
     "reader_score_standard.py": "writes only its own backup-API copy",
     "mutation_check.py": "the matches are mutation anchor strings, not connections",
-    "check_app_starts.py": "writes only the database in the temporary folder it "
-                           "has just created, and refuses any folder in the checkout",
+    "check_app_starts.py": "writes only the database in its own new temp folder",
 }
 
 
