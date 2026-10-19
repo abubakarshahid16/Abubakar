@@ -11,7 +11,10 @@
  * decisions); drop it from the tab's sheet read and "the CRS tab saves
  * first" fails (the sheet is read while the Keep is on screen only); drop
  * the draft check in ReviewWorkspace `beforeCopy`, or the `beforeCopy` call
- * in useSignOff's working copy, and "a draft waiting" fails.
+ * in useSignOff's working copy, and "a draft waiting" fails. Order 144:
+ * skip the export's own `beforeCopy` and "Export saves first" fails; drop
+ * the "Saving your decisions first…" words, the `ws-undo-ended` line or the
+ * preview's `ws-crs-preview-draft` line and their tests fail.
  */
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -87,7 +90,7 @@ beforeEach(() => {
   confirm.mockReset().mockImplementation(savedOk);
   previewCrs.mockReset().mockImplementation(async () => {
     calls.push("preview");
-    return { ok: true, data: { rows: [] } };
+    return { ok: true, data: { rows: [], columns: [], review_notes: [] } };
   });
   downloadCrs.mockReset().mockImplementation(async (_run: string, copy: string) => { calls.push(`download ${copy}`); return null; });
 });
@@ -104,19 +107,47 @@ describe("decisions reach the record before a copy of the sheet is read (order 1
     expect(calls.indexOf("preview")).toBeGreaterThan(calls.indexOf("confirm a"));
   });
 
-  it("the CRS tab's internal copy waits for the save of a decision just taken", async () => {
+  it("the CRS tab's internal copy saves first: a decision the tab could not save on opening is saved by Export", async () => {
     const user = userEvent.setup();
+    // The save the tab makes on opening fails; the one Export makes works.
+    confirm.mockImplementationOnce(async () => ({ ok: false, disconnected: false, error: { code: "internal", message: "no" } }));
     render(<Harness />);
-    await user.click(screen.getByRole("tab", { name: /CRS/ }));
-    await screen.findByTestId("crs-preview-sheet");
-    await user.click(screen.getByRole("tab", { name: /Comment sheet/ }));
     await user.click(screen.getAllByRole("button", { name: /^Keep comment/ })[0]);
     await user.click(screen.getByRole("tab", { name: /CRS/ }));
-    await user.click(await screen.findByRole("button", { name: /Export CRS - internal review copy/ }));
+    expect(await screen.findByTestId("crs-copy-waits")).toBeInTheDocument();
+    expect(calls).not.toContain("confirm a");
+    await user.click(screen.getByRole("button", { name: /Export CRS - internal review copy/ }));
     await waitFor(() => expect(downloadCrs).toHaveBeenCalledWith("run-1", "internal"));
-    // The Keep reached the record before the copy was asked for.
+    // Export's own save put the Keep on the record before the copy was asked for.
     expect(calls.indexOf("confirm a")).toBeGreaterThanOrEqual(0);
     expect(calls.indexOf("download internal")).toBeGreaterThan(calls.indexOf("confirm a"));
+  });
+
+  it("while the CRS tab saves first, it says so (not just \"Loading\")", async () => {
+    const user = userEvent.setup();
+    let release: () => void = () => {};
+    confirm.mockImplementationOnce((id: string) => new Promise((resolve) => {
+      release = () => { calls.push(`confirm ${id}`); resolve({ ok: true, data: {} }); };
+    }));
+    render(<Harness />);
+    await user.click(screen.getAllByRole("button", { name: /^Keep comment/ })[0]);
+    await user.click(screen.getByRole("tab", { name: /CRS/ }));
+    expect(await screen.findByText("Saving your decisions first…")).toBeInTheDocument();
+    release();
+    await screen.findByTestId("crs-preview-sheet");
+    expect(screen.queryByText("Saving your decisions first…")).toBeNull();
+  });
+
+  it("opening the CRS tab during the Keep all Undo saves them, and says the Undo is gone", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.click(screen.getByTestId("ws-keep-all"));
+    await user.click(screen.getByRole("button", { name: "Yes, keep them" }));
+    expect(screen.getByTestId("ws-keep-all-done")).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: /CRS/ }));
+    await screen.findByTestId("crs-preview-sheet");
+    expect(confirm).toHaveBeenCalledTimes(3);
+    expect(screen.getByTestId("ws-undo-ended")).toHaveTextContent("Keep all was saved; Undo is no longer offered.");
   });
 
   it("a decision that could not be saved: the CRS tab's internal copy is not downloaded, and the tab says why", async () => {
@@ -146,5 +177,9 @@ describe("decisions reach the record before a copy of the sheet is read (order 1
     await user.click(within(tab).getByRole("button", { name: /Export CRS - internal review copy/ }));
     await waitFor(() => expect(within(tab).getByRole("alert")).toHaveTextContent("had not saved earlier is waiting"));
     expect(downloadCrs).not.toHaveBeenCalled();
+    // The bar's Preview CRS says it too (order 144 item 1).
+    await user.click(screen.getByRole("button", { name: "Preview CRS" }));
+    expect(await screen.findByTestId("ws-crs-preview-draft")).toHaveTextContent(
+      "1 decision from an earlier visit is not on the record, so this preview does not show it: bring it back or discard it first.");
   });
 });

@@ -222,6 +222,8 @@ export function CrsSheetPage({ runId, inWorkspace = false, beforeCopy }: {
   const [previewError, setPreviewError] = useState<string | null>(null);
   /** Why the sheet on screen may not show every decision; null when it does. */
   const [copyWaits, setCopyWaits] = useState<string | null>(null);
+  /** True while the decisions on screen are being saved before a read. */
+  const [savingFirst, setSavingFirst] = useState(false);
   const beforeCopyRef = useRef(beforeCopy);
   useEffect(() => { beforeCopyRef.current = beforeCopy; }, [beforeCopy]);
 
@@ -230,7 +232,12 @@ export function CrsSheetPage({ runId, inWorkspace = false, beforeCopy }: {
     if (!inWorkspace) return;
     let live = true;
     void (async () => {
-      const waits = beforeCopyRef.current ? await beforeCopyRef.current() : null;
+      let waits: string | null = null;
+      if (beforeCopyRef.current) {
+        setSavingFirst(true);
+        waits = await beforeCopyRef.current();
+        if (live) setSavingFirst(false);
+      }
       if (!live) return;
       setCopyWaits(waits);
       const result = await reviewsApi.previewCrs(runId);
@@ -245,7 +252,12 @@ export function CrsSheetPage({ runId, inWorkspace = false, beforeCopy }: {
   async function exportCrs() {
     setExporting(true);
     setExportError(null);
-    const waits = beforeCopy ? await beforeCopy() : null;
+    let waits: string | null = null;
+    if (beforeCopy) {
+      setSavingFirst(true);
+      waits = await beforeCopy();
+      setSavingFirst(false);
+    }
     if (waits) {
       setExportError(waits);
       setExporting(false);
@@ -290,7 +302,7 @@ export function CrsSheetPage({ runId, inWorkspace = false, beforeCopy }: {
             nothing, decides nothing and records no judgement. */}
         <button type="button" onClick={() => void exportCrs()} disabled={exporting}
           className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-200 disabled:opacity-50">
-          {exporting ? "Preparing…" : "Export CRS - internal review copy"}
+          {exporting ? (savingFirst ? "Saving your decisions first…" : "Preparing…") : "Export CRS - internal review copy"}
         </button>
         {/* Order 121: the contractor's copy is signed on the comment sheet
             ("Before you sign"), never here; this page only links there.
@@ -306,7 +318,9 @@ export function CrsSheetPage({ runId, inWorkspace = false, beforeCopy }: {
           </NavLink>
         )}
         {inWorkspace ? (
-          previewing && <span className="text-sm text-slateish-400">Loading the sheet…</span>
+          previewing && (
+            <span className="text-sm text-slateish-400">{savingFirst ? "Saving your decisions first…" : "Loading the sheet…"}</span>
+          )
         ) : (
           <button type="button" onClick={() => void togglePreview()} disabled={previewing} aria-expanded={preview !== null}
             className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-200 disabled:opacity-50">

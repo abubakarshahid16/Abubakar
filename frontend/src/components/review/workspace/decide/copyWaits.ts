@@ -7,6 +7,11 @@
  * shows instead of a copy that silently leaves the decisions out.
  */
 
+/** Saving for a copy ended the "Keep all remaining" Undo offer. */
+export const KEEP_ALL_SAVED_FOR_COPY = "Keep all was saved; Undo is no longer offered.";
+/** ... and the save did not work (the copy says why). */
+export const UNDO_ENDED_FOR_COPY = "Undo of Keep all is no longer offered.";
+
 function them(count: number): string {
   return count === 1 ? "it" : "them";
 }

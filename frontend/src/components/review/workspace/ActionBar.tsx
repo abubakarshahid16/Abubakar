@@ -77,7 +77,7 @@ function SavingLine({ autosave, unsaved }: { autosave: AutosaveStatus; unsaved: 
   );
 }
 
-export function ActionBar({ run, numbers, steps, onAction, signOff, autosave, onCodeRecorded }: ActionBarProps) {
+export function ActionBar({ run, numbers, steps, onAction, signOff, autosave, onCodeRecorded, draftWaiting = 0 }: ActionBarProps) {
   const [pagesOpen, setPagesOpen] = useState(false);
   const [codeOpen, setCodeOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -203,6 +203,13 @@ export function ActionBar({ run, numbers, steps, onAction, signOff, autosave, on
               {numbers.unsaved === 1
                 ? "1 decision is not saved yet, so this preview does not show it. The preview reads the sheet again after each save."
                 : `${numbers.unsaved.toLocaleString()} decisions are not saved yet, so this preview does not show them. The preview reads the sheet again after each save.`}
+            </p>
+          )}
+          {!numbers.signed && draftWaiting > 0 && (
+            <p role="status" className="text-warn-500" data-testid="ws-crs-preview-draft">
+              {draftWaiting === 1
+                ? "1 decision from an earlier visit is not on the record, so this preview does not show it: bring it back or discard it first."
+                : `${draftWaiting.toLocaleString()} decisions from an earlier visit are not on the record, so this preview does not show them: bring them back or discard them first.`}
             </p>
           )}
           <CrsLook key={saves} runId={run.review_run_id} errorTestId="ws-crs-preview-error" />

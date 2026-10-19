@@ -347,6 +347,9 @@ export interface ActionBarProps {
   autosave?: AutosaveStatus;
   /** The final code was recorded from the bar: read the run again. */
   onCodeRecorded?: () => void;
+  /** Order 141 D: decisions in a draft from an earlier visit still waiting
+   *  for "Bring them back" / "Discard" (absent or 0 when none). */
+  draftWaiting?: number;
 }
 
 export interface SheetCountsLineProps {

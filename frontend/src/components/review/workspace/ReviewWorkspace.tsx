@@ -50,7 +50,9 @@ import { useCrsDecisions } from "../crs/useCrsDecisions";
 import { useIssueGate } from "../crs/issueGate";
 import { CrsFooter, standardsErrorLine } from "../crs/CrsFooter";
 import { CrsTabPanel } from "./crs/CrsTabPanel";
-import { draftWaitsForCopy, notSavedForCopy } from "./decide/copyWaits";
+import {
+  KEEP_ALL_SAVED_FOR_COPY, UNDO_ENDED_FOR_COPY, draftWaitsForCopy, notSavedForCopy,
+} from "./decide/copyWaits";
 import { KeepAllRemaining } from "./decide/KeepAllRemaining";
 import { RestoreDraftLine } from "./decide/RestoreDraftLine";
 import { useAutosave } from "./decide/useAutosave";
@@ -257,6 +259,8 @@ export function ReviewWorkspace({
   // D3: "Keep all remaining comments" offers Undo for a short while; saving
   // waits until it is gone, so Undo never has to take back a saved decision.
   const [undoOffered, setUndoOffered] = useState(false);
+  /** Order 141 D: said when saving for a copy ended the Undo offer. */
+  const [undoEnded, setUndoEnded] = useState<string | null>(null);
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (undoTimer.current) clearTimeout(undoTimer.current); }, []);
   const endUndo = useCallback(() => {
@@ -265,6 +269,7 @@ export function ReviewWorkspace({
     setUndoOffered(false);
   }, []);
   const keepAll = useCallback(() => {
+    setUndoEnded(null);
     const kept = decisions.acceptAll(rows);
     if (kept > 0) {
       if (undoTimer.current) clearTimeout(undoTimer.current);
@@ -314,10 +319,16 @@ export function ReviewWorkspace({
   const draftWaitingRef = useRef(draftWaiting);
   useLayoutEffect(() => { draftWaitingRef.current = draftWaiting; }, [draftWaiting]);
   const saveAll = autosaveRaw.saveNow;
+  // Saving for a copy ends a "Keep all" Undo offer (the record has no
+  // "unconfirm"); the screen says so rather than let the Undo vanish.
+  const undoOfferedRef = useRef(canUndo);
+  useLayoutEffect(() => { undoOfferedRef.current = canUndo; }, [canUndo]);
   const beforeCopy = useCallback(async (): Promise<string | null> => {
     if (draftWaitingRef.current > 0) return draftWaitsForCopy(draftWaitingRef.current);
-    if (await saveAll()) return null;
-    return notSavedForCopy(unsavedRef.current);
+    const endsUndo = undoOfferedRef.current;
+    const saved = await saveAll();
+    if (endsUndo) setUndoEnded(saved ? KEEP_ALL_SAVED_FOR_COPY : UNDO_ENDED_FOR_COPY);
+    return saved ? null : notSavedForCopy(unsavedRef.current);
   }, [saveAll]);
 
   const steps = useMemo(() => (numbers ? actionSteps(numbers) : []), [numbers]);
@@ -474,10 +485,12 @@ export function ReviewWorkspace({
       )}
 
       <ActionBar run={run} numbers={numbers} steps={steps} onAction={onAction} signOff={signOff}
-        autosave={autosave} onCodeRecorded={() => { void refresh(); void issueGate.reload(); }} />
+        autosave={autosave} onCodeRecorded={() => { void refresh(); void issueGate.reload(); }}
+        draftWaiting={draftWaiting} />
       {refreshLine}
       {/* v2.1 round 2: a draft found on opening is asked about first. */}
       <RestoreDraftLine decisions={decisions} />
+      {undoEnded && <p role="status" data-testid="ws-undo-ended" className="text-sm text-slateish-300">{undoEnded}</p>}
       {standardsOpen && (
         <div className="space-y-2">
           <MissingStandardsPanel runId={runId} documentId={run.submittal_document_id ?? null} missing={missingList}

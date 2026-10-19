@@ -75,12 +75,16 @@ export function useSignOff({ runId, rows, decisions, refresh, numbers, beforeCop
     if (outcome.wrote) await refresh();
   }, [runId, rows, decisions, refresh]);
 
+  const draftWaiting = decisions.pendingRestore?.count ?? 0;
   const checks = useCallback((): IssueChecks => ({
     unsaved: decisions.unsaved.length,
+    // Order 141 D: a draft still waiting for an answer holds Sign; signing
+    // would issue without it and then delete it.
+    draftWaiting,
     unopenedNeedsYou: numbers ? numbers.unopenedNeedsYou : 0,
     // Not loaded yet is never "nothing left".
     signLeft: numbers ? numbers.signLeft : ["what is left could not be checked"],
-  }), [decisions.unsaved.length, numbers]);
+  }), [decisions.unsaved.length, draftWaiting, numbers]);
 
   /** Opens the confirm step; issues nothing. */
   const sign = useCallback(async () => {
