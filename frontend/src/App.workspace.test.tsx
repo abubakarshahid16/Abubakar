@@ -23,6 +23,7 @@ import { signOutOn401 } from "./api/core";
 import { WORKSPACE_OPT_IN_KEY } from "./components/review/workspace/workspaceRoute";
 import type { ReviewWorkspaceProps } from "./components/review/workspace/contract";
 import { WATCH_STORAGE_KEY, watchRun, watchStorageKey } from "./components/review/workspace/reviewWatch";
+import { draftStorageKey } from "./components/review/crs/useCrsDecisions";
 
 vi.mock("./views/CrsSheetView", () => ({
   CrsSheetView: ({ runId }: { runId: string }) => <p>{`crs sheet for ${runId}`}</p>,
@@ -68,9 +69,10 @@ function json(body: unknown): Response {
 
 const SIGNED_IN = { id: "user-a", email: "a@example.test", display_name: "Engineer A", roles: ["reviewer"] };
 
-function mockApi(signedIn: typeof SIGNED_IN | null = null) {
+function mockApi(signedIn: typeof SIGNED_IN | null = null, loginAs: typeof SIGNED_IN | null = null) {
   vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
+    if (url.includes("/auth/login")) return Promise.resolve(json({ token: "token-b", user: loginAs }));
     if (url.includes("/auth/me")) return Promise.resolve(json(signedIn ? { required: true, user: signedIn } : { required: false, user: null }));
     if (url.includes("/documents")) return Promise.resolve(json([]));
     if (url.includes("/metrics")) return Promise.resolve(json({ refresh_seconds: 15 }));
@@ -353,5 +355,37 @@ describe("signing out clears the review-ready list", () => {
     expect(await screen.findByRole("button", { name: /sign in/i })).toBeInTheDocument();
     act(() => { watchRun("run-2", null); });
     expect(sessionStorage.getItem(WATCH_STORAGE_KEY)).not.toContain("Private datasheet.pdf");
+  });
+});
+
+/** A decision draft can hold wording from the document. A sign-in that ran
+ *  out keeps it for the same person, never for the next one on the tab.
+ *  MUTATION PROOF: drop keepOnlyDraftsOf from App's check or signIn and
+ *  the matching test fails. */
+describe("another person's decision drafts never survive into the next sign-in", () => {
+  it("a reload that learns who is signed in removes every other person's draft", async () => {
+    sessionStorage.setItem(draftStorageKey("run-1", "user-z"), JSON.stringify({ decisions: { k: { kind: "keep" } } }));
+    sessionStorage.setItem(draftStorageKey("run-1", "user-a"), JSON.stringify({ decisions: { k: { kind: "keep" } } }));
+    mockApi(SIGNED_IN);
+    render(<App initialView="review" />);
+    await screen.findAllByRole("button", { name: "Sign out" });
+    expect(sessionStorage.getItem(draftStorageKey("run-1", "user-z"))).toBeNull();
+    expect(sessionStorage.getItem(draftStorageKey("run-1", "user-a"))).not.toBeNull();
+  });
+
+  it("after a session runs out, the next person who signs in does not inherit the draft", async () => {
+    const user = userEvent.setup();
+    const other = { ...SIGNED_IN, id: "user-b", email: "b@example.test", display_name: "Engineer B" };
+    mockApi(SIGNED_IN, other);
+    render(<App initialView="review" />);
+    await screen.findAllByRole("button", { name: "Sign out" });
+    sessionStorage.setItem(draftStorageKey("run-1", "user-a"), JSON.stringify({ decisions: { k: { kind: "keep" } } }));
+
+    act(() => { signOutOn401(401); });
+    await user.type(await screen.findByLabelText("Email"), "b@example.test");
+    await user.type(screen.getByLabelText("Password"), "pw");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    await screen.findAllByRole("button", { name: "Sign out" });
+    expect(sessionStorage.getItem(draftStorageKey("run-1", "user-a"))).toBeNull();
   });
 });

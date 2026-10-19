@@ -56,6 +56,7 @@ def _env(home: Path, port: int) -> dict[str, str]:
         PORT=str(port),
         HEAVY_JOB_LOCK="off",
         PYTHONUNBUFFERED="1",
+        PYTHONUTF8="1",  # the log file stays UTF-8 on Windows too
     )
     return env
 
@@ -155,7 +156,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=8790)
     args = parser.parse_args(argv)
 
-    with tempfile.TemporaryDirectory(prefix="app-starts-") as tmp:
+    # On Windows an indexer or antivirus may still hold server.log or the -wal
+    # file for a moment: a cleanup error must not fail a start that passed.
+    with tempfile.TemporaryDirectory(
+        prefix="app-starts-", ignore_cleanup_errors=True
+    ) as tmp:
         home = Path(tmp) / "checkout"
         (home / "backend" / "data").mkdir(parents=True)
         failed = False

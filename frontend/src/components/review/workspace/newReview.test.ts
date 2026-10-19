@@ -45,14 +45,17 @@ vi.mock("../../../api/client", () => ({
 vi.mock("../../Uploader", () => ({
   uploadOne: (...a: unknown[]) => { calls.push("upload"); return uploadOne(...a); },
 }));
+/** Who is signed in, as reviewWatch counts it: bumped to act out a sign-out. */
+let generation = 0;
 vi.mock("./reviewWatch", () => ({
   watchRun: (...a: unknown[]) => { calls.push("watch"); return watchRun(...a); },
+  watchGeneration: () => generation,
 }));
 
 import {
   ADMIN_UNKNOWN_MESSAGE, ALREADY_RUNNING_MESSAGE, MARK_UNREADABLE_MESSAGE, NOT_ADMIN_BEFORE_UPLOAD_MESSAGE, NOT_ADMIN_MESSAGE,
   REVIEW_ADMIN_ONLY_MESSAGE, REVIEW_DOCUMENT_UNREADABLE_MESSAGE, REVIEW_REFUSED_UNKNOWN_MESSAGE, ROLE_UNREADABLE_MESSAGE,
-  UPLOADED_UNREADABLE_MESSAGE, type AskFirst, continueNewReview, loadPriorDecision, markAndReview, markAsContractorSubmittal, priorDecisionOf, reviewAgain, startNewReview,
+  SIGNED_OUT_AFTER_START_MESSAGE, SIGNED_OUT_MESSAGE, UPLOADED_UNREADABLE_MESSAGE, type AskFirst, continueNewReview, loadPriorDecision, markAndReview, markAsContractorSubmittal, priorDecisionOf, reviewAgain, startNewReview,
 } from "./newReview";
 
 const file = new File(["%PDF-1.7"], "Pump datasheet rev B.pdf", { type: "application/pdf" });
@@ -60,6 +63,7 @@ const noWait = { sleep: async () => {}, pollMs: 1, capMs: 60_000 };
 
 beforeEach(() => {
   calls.length = 0;
+  generation = 0;
   for (const m of [me, uploadDisciplines, document, setRoleBulk, startReviewRun, reviewRuns, uploadOne, watchRun]) m.mockReset();
   me.mockResolvedValue({ ok: true, data: { required: true, user: { id: "u-1", email: "sample.admin@example.test", roles: ["admin"] } } });
   uploadDisciplines.mockResolvedValue({ ok: true, data: { required: true, choices: ["Mechanical", "Piping"], default: ["Mechanical"] } });
@@ -431,6 +435,63 @@ describe("v2.1 L10: markAndReview (only after the administrator confirmed)", () 
     const outcome = await markAndReview({ documentId: "doc-8", role: null }, "x.pdf", () => {}, { ...noWait, isAdmin: false });
     expect(outcome).toEqual({ ok: false, message: NOT_ADMIN_BEFORE_UPLOAD_MESSAGE });
     expect(setRoleBulk).not.toHaveBeenCalled();
+    expect(startReviewRun).not.toHaveBeenCalled();
+  });
+});
+
+describe("S1: a new review stops when the signed-in person changes", () => {
+  it("a sign-out while the document is read in: no start, no watch, and it says so", async () => {
+    document.mockReset();
+    document.mockResolvedValue({ ok: true, data: { id: "doc-1", status: "extracting" } });
+    const phases: NewReviewPhase[] = [];
+    const outcome = await startNewReview(file, (p) => phases.push(p), { ...noWait, sleep: async () => { generation += 1; } });
+
+    expect(outcome).toEqual({ ok: false, message: SIGNED_OUT_MESSAGE });
+    expect(phases.at(-1)).toEqual({ kind: "error", message: SIGNED_OUT_MESSAGE });
+    expect(calls).toEqual(["me", "disciplines", "upload", "mark", "document"]);
+  });
+
+  it("a sign-out during the upload stops before the role is written", async () => {
+    uploadOne.mockImplementation(async () => { generation += 1; return { phase: "done", documentId: "doc-1", duplicateOf: null, awaitingGrant: false }; });
+    const outcome = await startNewReview(file, () => {}, noWait);
+
+    expect(outcome).toEqual({ ok: false, message: SIGNED_OUT_MESSAGE });
+    expect(setRoleBulk).not.toHaveBeenCalled();
+    expect(startReviewRun).not.toHaveBeenCalled();
+  });
+
+  it("a sign-out once the document is read in stops before the review is started", async () => {
+    document.mockReset();
+    document.mockImplementation(async () => { generation += 1; return { ok: true, data: { id: "doc-1", status: "ready" } }; });
+    const outcome = await startNewReview(file, () => {}, noWait);
+
+    expect(outcome).toEqual({ ok: false, message: SIGNED_OUT_MESSAGE });
+    expect(startReviewRun).not.toHaveBeenCalled();
+  });
+
+  it("a sign-out just after the server took the review says it runs on, never 'stopped', and does not watch it", async () => {
+    startReviewRun.mockImplementation(async () => { generation += 1; return { ok: true, data: { review_run_id: "run-2", submittal_filename: "x.pdf" } }; });
+    const outcome = await startNewReview(file, () => {}, noWait);
+
+    expect(outcome).toEqual({ ok: false, message: SIGNED_OUT_AFTER_START_MESSAGE });
+    expect(watchRun).not.toHaveBeenCalled();
+  });
+
+  it("the confirmed re-mark stops too: no role write after a sign-out", async () => {
+    me.mockImplementation(async () => { generation += 1; return { ok: true, data: { required: true, user: { id: "u-1", email: "a@example.test", roles: ["admin"] } } }; });
+    const outcome = await markAndReview({ documentId: "doc-8", role: "COMPANY_STANDARD" }, "x.pdf", () => {}, noWait);
+
+    expect(outcome).toEqual({ ok: false, message: SIGNED_OUT_MESSAGE });
+    expect(setRoleBulk).not.toHaveBeenCalled();
+  });
+
+  it("a confirmed ask-first stops too when the person changes while it waits", async () => {
+    document.mockReset();
+    document.mockResolvedValue({ ok: true, data: { id: "doc-7", status: "extracting" } });
+    const ask = { documentId: "doc-7", filename: "x.pdf", prior: { kind: "signed" } } as unknown as AskFirst;
+    const outcome = await continueNewReview(ask, () => {}, { ...noWait, sleep: async () => { generation += 1; } });
+
+    expect(outcome).toEqual({ ok: false, message: SIGNED_OUT_MESSAGE });
     expect(startReviewRun).not.toHaveBeenCalled();
   });
 });
