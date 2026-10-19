@@ -52,8 +52,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import (absence, claims, conditions, datasheets, errors, field_links, match_rules, numparse, page_ledger,
-                requirements_3b, review, schemas, stated_value, submittal_review)
+from . import (absence, claims, conditions, datasheets, errors, field_copies, field_links, match_rules, numparse,
+                page_ledger, requirements_3b, review, schemas, stated_value, submittal_review)
 from .config import settings
 from .db import connect
 
@@ -2803,11 +2803,7 @@ def _run_comparison(
                 verdict = {
                     **verdict,
                     "status": NEEDS_ENGINEER_REVIEW,
-                    "rationale": (
-                        f"{AMBIGUOUS_MATCH}: more than one submitted field is named "
-                        f"inside this requirement ({', '.join(match['candidates'])}); "
-                        "no value was chosen, because choosing one arbitrarily "
-                        "would attach a real number to the wrong requirement"),
+                    "rationale": field_copies.ambiguous_rationale(match),
                 }
             # B3: "NOT FOUND" IS NOT "NOT PRESENT". A requirement no field answered
             # is only the contractor's omission if every page was read into fields.
@@ -2916,6 +2912,7 @@ def _run_comparison(
                 if match.get("synonym"):
                     notes.append(f"field linked through the synonym table as "
                                  f"'{match['synonym']}'")
+                notes.extend(field_copies.copies_notes(match))
                 if requirement.get("unit_from_clause_text"):
                     notes.append(f"the clause's unit {requirement.get('raw_unit')!r} was "
                                  "read from its own text beside its number")
@@ -3495,6 +3492,9 @@ def _resolve_hits(requirement: dict, facts: list[dict], hits: list[dict], *,
                     "method": METHOD_CONTAINMENT, "reason": None, "candidates": [],
                     "refused": refused, "synonym": ordered[0]["synonym"],
                     "items": [h["fact"] for h in ordered]}
+        if len({h["key"] for h in best}) == 1 and len({_item_of(h) for h in best}) == 1:
+            # ONE FIELD READ MORE THAN ONCE is one field (order 142 fix C).
+            return field_copies.resolve(best, refused)
         return {**none, "reason": AMBIGUOUS_MATCH,
                 "candidates": sorted(h["name"] for h in best),
                 "refused": refused}
