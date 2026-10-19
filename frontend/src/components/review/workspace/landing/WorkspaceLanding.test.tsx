@@ -365,6 +365,28 @@ describe("WorkspaceLanding v2.2: Simple | Detailed, Open CRS, counts, help", () 
     expect(screen.queryByRole("list", { name: "All reviews" })).toBeNull();
   });
 
+  /** Rule 4 note follows its count line. MUTATION PROOF: show the note on
+   *  `anyCountKnown` alone and the Simple check fails; hide it in Simple
+   *  outright and the "All reviews" check fails. */
+  it("the counts note shows only where a count line shows: not with Simple's folded rows, yes in Detailed and in All reviews", async () => {
+    localStorage.removeItem(VIEW_MODE_KEY);
+    renderLanding();
+    await waitFor(() => expect(loadCounts).toHaveBeenCalled());
+    // Simple: the rows hide their count line, so no note about it.
+    await waitFor(() => expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveTextContent(/^Waiting for you$/));
+    expect(within(rowOf("Pump")).queryByTestId("row-counts")).toBeNull();
+    expect(screen.queryByTestId("landing-counts-note")).toBeNull();
+    // Simple, but the All reviews list is open: it shows counts, so the note shows.
+    await userEvent.click(screen.getByRole("button", { name: "All reviews you may open (4)" }));
+    expect(await screen.findByTestId("landing-counts-note")).toHaveTextContent('"Found by the review" counts');
+    await userEvent.click(screen.getByRole("button", { name: "All reviews you may open (4)" }));
+    expect(screen.queryByTestId("landing-counts-note")).toBeNull();
+    // Detailed: the rows show their count line and the note with it.
+    await userEvent.click(screen.getByRole("button", { name: "Detailed" }));
+    expect(await within(rowOf("Pump")).findByTestId("row-counts")).toBeInTheDocument();
+    expect(screen.getByTestId("landing-counts-note")).toBeInTheDocument();
+  });
+
   it("Open CRS opens a finished review on the CRS tab; not drawn for waiting, running, failed or unreviewed rows", async () => {
     const { onOpenRunTab, onOpenRun } = renderLanding();
     await userEvent.click(within(rowOf("Pump")).getByRole("button", { name: "Open the CRS of Pump datasheet rev B.pdf" }));

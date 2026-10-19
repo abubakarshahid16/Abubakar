@@ -66,7 +66,9 @@ function writeHelpHidden(): void {
   }
 }
 /** Rule 4: what the "Found by the review" line on the rows counts. Shown
- *  once near the list (not per row), only while some row shows a count. */
+ *  once near the list (not per row), only while a count line is on screen:
+ *  Simple view folds the rows' count line, so the note folds with it; the
+ *  "All reviews" list shows its counts in either view, so it keeps the note. */
 export const LANDING_COUNTS_NOTE =
   '"Found by the review" counts the findings each review still holds as a comment or as needing your judgement. '
   + "Findings removed by an engineer are not counted, and the comment sheet groups findings into fewer comment lines.";
@@ -125,7 +127,10 @@ export function WorkspaceLanding({
   /** Rule 4: the not-reviewed count comes from the contractor documents
    *  list, which may be cut short; say so where that count is shown. */
   const documentsCut = truncationNote(documents.length, submittalsTotal, "contractor submittals");
-  const anyCountShown = Object.values(counts).some((c) => c !== null);
+  const anyCountKnown = Object.values(counts).some((c) => c !== null);
+  // The same rule as the count lines themselves: the rows show theirs only in
+  // Detailed view (LandingDocumentRow `simple`); the flat list always does.
+  const anyCountShown = anyCountKnown && (showAll || !simple);
 
   // Only the finished, unsigned runs on screen need counts; each id is asked once.
   const wanted = (showAll
