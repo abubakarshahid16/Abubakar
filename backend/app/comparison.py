@@ -611,6 +611,31 @@ def _hold_low_trust_breach(verdict: dict, fact: dict | None) -> dict:
         f"{verdict.get('rationale') or ''}")}
 
 
+#: Order 139: statuses a pair of unsure quantity kind may not keep - a verdict,
+#: the contractor's blank, a condition, an engineer question asked for less.
+_HELD_ON_UNSURE_KIND = frozenset(
+    {COMPLIANT, NON_COMPLIANT, MISSING_INFORMATION, CONDITIONAL, NEEDS_ENGINEER_REVIEW}
+)
+
+
+def _hold_unsure_kind(verdict: dict, requirement: dict, fact: dict | None) -> dict:
+    """ORDER 139: a pair `match_rules.quantity_kind_doubt` cannot show to be the
+    same quantity is an engineer's check with a plain reason, never a finding;
+    the pair is kept so the suggested field is seen. Two DIFFERENT kinds were
+    refused by `match_rules.refusal` (rule 6) and never get here."""
+    if (
+        fact is None
+        or verdict.get("status") not in _HELD_ON_UNSURE_KIND
+        or match_rules.quantity_kind_doubt(requirement, fact) is None
+    ):
+        return verdict
+    return {
+        **verdict,
+        "status": NEEDS_ENGINEER_REVIEW,
+        "rationale": match_rules.quantity_kind_reason(requirement, fact),
+    }
+
+
 def compare(requirement: dict, fact: dict | None, *,
             subject: str | None = None,
             submittal_facts: list[dict] | None = None) -> dict:
@@ -1530,8 +1555,14 @@ def _prepare_finding(
 
 #: #921: the leading token of a rationale, as a stored CODE. The only place
 #: that reads the words is here, where the words are written.
-_REASON_CODES = (REQUIRES_OTHER_DOCUMENT, NO_FIELD_MATCHED, CONDITION_NOT_MET,
-                 "UNREAD_PAGES", "PAGE_READER_ONLY")
+_REASON_CODES = (
+    REQUIRES_OTHER_DOCUMENT,
+    NO_FIELD_MATCHED,
+    CONDITION_NOT_MET,
+    "UNREAD_PAGES",
+    "PAGE_READER_ONLY",
+    match_rules.QUANTITY_KIND_UNSURE,
+)
 
 
 def reason_code_of(rationale: str | None) -> str | None:
@@ -2801,6 +2832,8 @@ def _run_comparison(
                 if notes:
                     verdict = {**verdict, "rationale": (
                         f"{verdict.get('rationale') or ''} ({'; '.join(notes)})")}
+            # ORDER 139: SAME QUANTITY KIND, whichever method made the pair.
+            verdict = _hold_unsure_kind(verdict, governing_requirement, fact)
             if (requirement.get("id"), (fact or {}).get("id")) in rejected_pairs:
                 rejected_requirements.add(requirement.get("id"))
                 continue

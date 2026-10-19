@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import json
 import re
+from functools import cache, lru_cache
 from pathlib import Path
 
 from . import claims
@@ -70,9 +71,17 @@ EQUIPMENT_DOMAIN = "equipment_domain"
 TABLE_LOOKUP_INPUT = "table_lookup_input"
 COMPOUND_TERM = "compound_term"
 QUALIFIER = "qualifier"
+#: Rule 6 (order 139): the two sides name different kinds of quantity.
+QUANTITY_KIND = "quantity_kind"
 
 REASONS: tuple[str, ...] = (
-    UNIT_DIMENSION, EQUIPMENT_DOMAIN, TABLE_LOOKUP_INPUT, COMPOUND_TERM, QUALIFIER)
+    UNIT_DIMENSION,
+    EQUIPMENT_DOMAIN,
+    TABLE_LOOKUP_INPUT,
+    COMPOUND_TERM,
+    QUALIFIER,
+    QUANTITY_KIND,
+)
 
 # ------------------------------------------------------------------ domains
 #: Ten kinds of equipment a clause names when it applies to one kind only. The
@@ -394,6 +403,287 @@ def qualifier_conflict(requirement: dict, field_name: str) -> bool:
     return False
 
 
+# ------------------------------------------------------------------ rule 6
+# SAME QUANTITY KIND (order 139). A requirement pairs only with a datasheet
+# value of the same kind of quantity. FOUND on a real pump review: a blank
+# field printing "m3/h" was paired with bearing-temperature and vibration
+# clauses, a blank pump efficiency with weld-joint efficiency rules, and the
+# process pumping temperature with a flush-liquid temperature limit - each a
+# real word shared, each a different quantity.
+#
+# THE KIND IS READ, NEVER GUESSED: a side's own unit first (`claims` holds
+# every unit and its dimension; nothing here is a second unit table), the
+# unit a BLANK cell prints beside its empty slot second, and only when a side
+# states no unit, the noun that names its quantity (`quantity_nouns`, mapped
+# onto the same `claims` dimensions). Then:
+#   * two known kinds that differ    -> the pair is REFUSED (rule 6);
+#   * a kind one side cannot tell,
+#     or a subject or medium the
+#     field does not share           -> the pair is UNSURE: kept so the
+#                                       engineer sees it, never a verdict.
+#: Why a pairing that no rule refuses still may not carry a verdict.
+QUANTITY_KIND_UNSURE = "quantity_kind_unsure"
+
+_CONJUNCTIONS = frozenset({"and", "or", "nor"})
+_TOKEN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*|[^\sa-z0-9]")
+
+
+def _is_word(token: str) -> bool:
+    """A word that can name something: two letters or more, no digit (a
+    clause label, a material grade or a number says nothing about whose
+    quantity it is)."""
+    return len(token) > 1 and token[0].isalpha() and not any(c.isdigit() for c in token)
+
+
+@lru_cache(maxsize=1)
+def _kind_data() -> dict:
+    return json.loads(QUALIFIERS_PATH.read_text(encoding="utf-8"))
+
+
+def _kind_words(key: str):
+    return _kind_data().get(key)
+
+
+@cache
+def _word_set(key: str) -> frozenset[str]:
+    """`phrase_end`, `determiners`, `generic_heads`: see the data's `_about`."""
+    return frozenset(w.lower() for w in _kind_words(key) or [])
+
+
+def quantity_nouns() -> dict[str, str]:
+    """noun -> the `claims.unit_dimension` family of the quantity it names."""
+    return {k.lower(): v for k, v in (_kind_words("quantity_nouns") or {}).items()}
+
+
+def generic_modifiers() -> frozenset[str]:
+    return frozenset(w.lower() for w in _kind_words("generic_modifiers") or [])
+
+
+def _tokens(text: str | None) -> list[str]:
+    return _TOKEN.findall((text or "").lower())
+
+
+def printed_unit(fact: dict) -> str | None:
+    """The unit a fact states: its own unit column, or - for a BLANK cell -
+    the unit printed beside the empty slot ("_____ m3/h", "____ (%)",
+    "____ bar g @ ____ C": the quantity is the part before "@", what follows
+    is the condition it is stated at). None when no unit is printed."""
+    own = fact.get("raw_unit") or fact.get("unit")
+    if own:
+        return own
+    if not fact.get("is_blank"):
+        return None
+    from .datasheets import primary_unit
+
+    text = re.sub("[_*.\u2013\u2014-]+", " ", str(fact.get("field_value") or ""))
+    text = text.split("@")[0].strip()
+    bracket = re.fullmatch(r"\(\s*([^()]+?)\s*\)", text)
+    return primary_unit(bracket.group(1) if bracket else text)
+
+
+def _unit_kind(unit: str | None) -> str | None:
+    base = claims.base_unit(unit)
+    return claims.unit_dimension(base) if base else None
+
+
+def _phrase_heads(text: str | None) -> set[str]:
+    """The kinds named by the quantity nouns that HEAD the leading noun
+    phrases of `text` - "the minimum thickness or the maximum allowable
+    working pressure of the shell" -> {length, pressure}. A noun phrase ends
+    at a preposition or verb; its head is its last word (trailing letters,
+    numbers and generic words such as "factor" or "value" skipped)."""
+    nouns = quantity_nouns()
+    heads: set[str] = set()
+    phrase: list[str] = []
+    ended = False
+
+    def close():
+        words = [
+            w
+            for w in phrase
+            if len(w) > 1 and not w.isdigit() and w not in _word_set("generic_heads")
+        ]
+        if words and words[-1] in nouns:
+            heads.add(nouns[words[-1]])
+
+    for token in _tokens(text):
+        if token in _CONJUNCTIONS:
+            if not ended:
+                close()
+            phrase, ended = [], False
+        elif ended:
+            continue
+        elif token in _word_set("phrase_end"):
+            close()
+            ended = True
+        elif token[0].isalnum():
+            phrase.append(token)
+        elif phrase and token not in ("(", ")", "'", "\u2019"):
+            # "(h) Maximum bearing stress": a label in brackets is not a
+            # phrase boundary; any other punctuation ends the phrase.
+            close()
+            ended = True
+    if not ended:
+        close()
+    return heads
+
+
+def requirement_kinds(requirement: dict) -> tuple[frozenset[str], str | None]:
+    """`(kinds, source)` of what a requirement constrains. Its OWN unit wins
+    ("unit"); a requirement with none is read from the quantity nouns that
+    head its subject ("noun"). Empty when it names no quantity."""
+    kind = _unit_kind(requirement.get("raw_unit") or requirement.get("unit"))
+    if kind:
+        return frozenset({kind}), "unit"
+    heads = _phrase_heads(requirement.get("subject"))
+    return frozenset(heads), ("noun" if heads else None)
+
+
+def _field_words(fact: dict) -> list[str]:
+    from . import field_links
+
+    name = str(fact.get("field_name") or "")
+    return [
+        w for w in _tokens(f"{name} {field_links.field_of(name)[0]}") if w[0].isalnum()
+    ]
+
+
+def fact_kind(fact: dict) -> tuple[str | None, str | None]:
+    """`(kind, source)` of a datasheet value: its unit (incl. the unit a blank
+    prints, "unit"), else the quantity noun its field name ends in ("noun")."""
+    kind = _unit_kind(printed_unit(fact))
+    if kind:
+        return kind, "unit"
+    heads = _phrase_heads(fact.get("field_name"))
+    return (next(iter(heads)), "noun") if len(heads) == 1 else (None, None)
+
+
+def quantity_kind_conflict(requirement: dict, fact: dict) -> bool:
+    """True when both sides name a quantity kind and the kinds differ - a
+    flow against a temperature, a pressure against a duration."""
+    kinds, _source = requirement_kinds(requirement)
+    kind, _fact_source = fact_kind(fact)
+    return bool(kinds) and kind is not None and kind not in kinds
+
+
+def _field_place(requirement: dict, fact: dict) -> dict | None:
+    """Where the field's own words stand in the requirement's subject, or None
+    when its last word is not there (a synonym or a model pairing on an idea):
+
+      * `modifiers` - words that say WHOSE quantity it is: right before the
+        field's words ("weld joint" efficiency, "flushing liquid"
+        temperature) or after them through "of" ("the efficiency of the
+        ligaments"), that the fact's name, label and section do not share.
+        Generic words, numbers, letters, the equipment's own name and the
+        side/part qualifiers rule 5 judges are not counted;
+      * `next_word` - a word right after the field's words in the same
+        phrase: the field is then a modifier of something else ("bearing
+        TEMPERATURE", "bearing SURFACE", "temperature RISE");
+      * `late` - the field's words stand only after a preposition, in a
+        phrase that is not what the requirement constrains ("the minimum
+        wall thickness FOR fittings")."""
+    field = _field_words(fact)
+    tokens = _tokens(requirement.get("subject"))
+    if not field or field[-1] not in tokens:
+        return None
+    at = tokens.index(field[-1])
+    own = set(field) | set(
+        _tokens(
+            " ".join(
+                str(fact.get(k) or "")
+                for k in ("field_label", "section", "section_heading")
+            )
+        )
+    )
+    ignore = (
+        own | generic_modifiers() | set(DOMAIN_NOUNS) | set(_PLURALS) | qualifiers()
+    )
+    modifiers: set[str] = set()
+    for word in reversed(tokens[max(0, at - 6) : at]):
+        if (
+            not word[0].isalnum()
+            or word in _word_set("phrase_end")
+            or word in _word_set("determiners")
+            or word in _CONJUNCTIONS
+        ):
+            break
+        if _is_word(word) and word not in ignore:
+            modifiers.add(word)
+    after = tokens[at + 1 : at + 4]
+    next_word = None
+    if after[:1] == ["of"]:
+        rest = [w for w in after[1:] if w not in _word_set("determiners")]
+        if rest and _is_word(rest[0]) and rest[0] not in ignore:
+            modifiers.add(rest[0])
+    elif (
+        after
+        and _is_word(after[0])
+        and after[0] not in own
+        and after[0] not in _word_set("phrase_end")
+        and after[0] not in _CONJUNCTIONS
+        and after[0] not in _word_set("generic_heads")
+        and not claims.is_unit(after[0])
+    ):
+        next_word = after[0]
+    late = any(w in _word_set("phrase_end") for w in tokens[:at]) and not any(
+        w in _CONJUNCTIONS for w in tokens[:at]
+    )
+    return {"modifiers": modifiers, "next_word": next_word, "late": late}
+
+
+def quantity_kind_doubt(requirement: dict, fact: dict | None) -> str | None:
+    """QUANTITY_KIND_UNSURE when the pairing cannot be shown to be the same
+    quantity, else None. A doubt never refuses - it HOLDS the verdict for an
+    engineer, whichever method made the pair (containment, field name, the
+    AI matcher, a question, a rule). Only when a side names a quantity kind
+    (a unit, a quantity noun): a pairing of two categorical words is not this
+    rule's question.
+
+      * the requirement's subject names whose quantity it is and the field
+        does not share it: a pump "Efficiency" against weld joint
+        efficiency, a "Pumping temperature" against flushing liquid
+        temperature;
+      * the field's words modify another word of the subject: "bearing
+        temperature" against a field "Bearing" that states no kind, a field
+        "Bearing" in m3/h against "the bearing surface";
+      * the requirement constrains a quantity and the field, which states
+        none, appears only after a preposition: "the minimum wall thickness
+        for fittings" against a field "Fittings".
+    """
+    if fact is None:
+        return None
+    kinds, _source = requirement_kinds(requirement)
+    kind, fact_source = fact_kind(fact)
+    if not kinds and kind is None:
+        return None
+    place = _field_place(requirement, fact)
+    if place is None:
+        return None
+    if place["modifiers"]:
+        return QUANTITY_KIND_UNSURE
+    nxt = place["next_word"]
+    if nxt and (
+        nxt in quantity_nouns() or nxt in derived_after() or fact_source == "unit"
+    ):
+        return QUANTITY_KIND_UNSURE
+    if kinds and kind is None and place["late"]:
+        return QUANTITY_KIND_UNSURE
+    return None
+
+
+def quantity_kind_reason(requirement: dict, fact: dict) -> str:
+    """The plain words of a QUANTITY_KIND_UNSURE hold, for the finding."""
+    what = (
+        " ".join(str(requirement.get("subject") or "").split())[:120]
+        or "this requirement"
+    )
+    label = fact.get("field_label") or fact.get("field_name") or "the field"
+    return (
+        f"{QUANTITY_KIND_UNSURE}: the requirement is about '{what}' and the datasheet "
+        f"field '{label}' may be a different quantity; the pair was not compared"
+    )
+
+
 # ------------------------------------------------------------------ together
 # ------------------------------------------- a model pairing's own doubts
 #: Why a MODEL-proposed pairing that no rule refuses is still not sure enough
@@ -454,6 +744,8 @@ def refusal(requirement: dict, fact: dict, *, sheet: str | None) -> str | None:
     """The first rule that refuses this pairing, by name, or None to allow it."""
     if unit_dimension_conflict(requirement, fact):
         return UNIT_DIMENSION
+    if quantity_kind_conflict(requirement, fact):
+        return QUANTITY_KIND
     if equipment_domain_conflict(requirement, sheet):
         return EQUIPMENT_DOMAIN
     if table_lookup_input_conflict(requirement, fact.get("field_name") or ""):

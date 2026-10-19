@@ -1036,4 +1036,40 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="test_review_codes_are_configurable",
         tags=("honesty",),
     ),
+    # ---- order 139 fix 2: same quantity kind (ids renamed to the PR number) --
+    Mutation(
+        id="M139B-01",
+        phase=139,
+        description="the unsure-kind hold is never applied: a pump efficiency "
+        "reads NON_COMPLIANT against a weld joint efficiency rule",
+        path=APP / "comparison.py",
+        anchor="            verdict = _hold_unsure_kind(verdict, governing_requirement, fact)\n",
+        replacement="",
+        target="tests/test_same_kind_pairing.py",
+        keyword="engineer_to_check or ai_matchers_pair",
+        tags=("honesty", "critical"),
+    ),
+    Mutation(
+        id="M139B-02",
+        phase=139,
+        description="an unsure-kind pair of a BLANK field keeps MISSING_INFORMATION: "
+        "the contractor is asked for a weld value the field is not",
+        path=APP / "comparison.py",
+        anchor="    {COMPLIANT, NON_COMPLIANT, MISSING_INFORMATION, CONDITIONAL, NEEDS_ENGINEER_REVIEW}\n",
+        replacement="    {COMPLIANT, NON_COMPLIANT, CONDITIONAL, NEEDS_ENGINEER_REVIEW}\n",
+        target="tests/test_same_kind_pairing.py",
+        keyword="blank_pump_efficiency",
+        tags=("honesty",),
+    ),
+    Mutation(
+        id="M139B-03",
+        phase=139,
+        description="the unsure-kind hold stores no reason code, so the CRS cannot "
+        "say why the engineer must check",
+        path=APP / "comparison.py",
+        anchor="    match_rules.QUANTITY_KIND_UNSURE,\n)\n",
+        replacement=")\n",
+        target="tests/test_same_kind_pairing.py",
+        keyword="engineer_to_check",
+    ),
 )
