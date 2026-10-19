@@ -66,3 +66,9 @@ export interface ReviewRunTierSummary {
   rows: RunSummaryTierRow[];
   how_reviewed: RunSummaryHowReviewed;
 }
+
+/** `GET /api/reviews/runs/counts`: the tier counts of many runs in one call, each the same as that run's `/summary` `counts`. A run that is not there, or that the caller may not read, is absent, never zeros. */
+export interface ReviewRunCountsBatch {
+  boundary: string;
+  counts: Record<string, RunSummaryTierCounts>;
+}

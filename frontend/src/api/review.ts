@@ -34,6 +34,7 @@ import type {
   ReviewRunMissingReference,
   ReviewRunSummary,
   ReviewRunTierSummary,
+  ReviewRunCountsBatch,
   ReviewFinding,
   ReviewFindingCreate,
   ReviewFindingUpdate,
@@ -173,6 +174,17 @@ export const reviews = {
       (b) => hasArrayField("rows")(b) && typeof (b as { counts?: unknown }).counts === "object"
         && (b as { counts?: unknown }).counts !== null
         && typeof (b as { how_reviewed?: unknown }).how_reviewed === "object",
+    ),
+  /** Order 117 item 5: the headline counts of many runs in ONE request,
+   *  for the inbox's Ready rows. 1 to 200 ids; the server refuses more
+   *  (422). A run that does not exist, or that the caller may not read, is
+   *  absent from `counts` - never a row of zeros. */
+  reviewRunCounts: (ids: string[]) =>
+    request<ReviewRunCountsBatch>(
+      `/reviews/runs/counts?${ids.map((id) => "ids=" + encodeURIComponent(id)).join("&")}`,
+      undefined,
+      (b) => typeof (b as { counts?: unknown }).counts === "object"
+        && (b as { counts?: unknown }).counts !== null,
     ),
   /** Which standards a run considered, INCLUDING the ones not applied - the
    *  engineer's add-a-standard list. */
