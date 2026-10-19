@@ -130,6 +130,14 @@ export function setWatchOwner(user: string | null): void {
   notify();
 }
 
+/** A number that changes whenever the signed-in person changes or signs out
+ *  (`setWatchOwner`, `clearWatchedReviews`). A task that takes minutes (a new
+ *  review) reads it at the start and stops when it differs, so it never goes
+ *  on with the next person's sign-in. */
+export function watchGeneration(): number {
+  return epoch;
+}
+
 /** Sign-out: forget every watched and finished review, in memory and in
  *  this tab's storage (the signed-in user's key and the shared one). */
 export function clearWatchedReviews(): void {

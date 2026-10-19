@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReviewFinding } from "../../../types/api";
 import { buildCrsRows } from "./crsRows";
 import { EMPTY_FACTS } from "./tiers";
-import { CrsDraftContext, clearDecisionDrafts, draftStorageKey, setDraftOwner, useCrsDecisions } from "./useCrsDecisions";
+import { CrsDraftContext, clearDecisionDrafts, draftStorageKey, keepOnlyDraftsOf, setDraftOwner, useCrsDecisions } from "./useCrsDecisions";
 
 function f(id: string, page: number): ReviewFinding {
   return {
@@ -208,6 +208,18 @@ describe("useCrsDecisions: the per-review draft (v2.1 N1, round 2)", () => {
     expect(sessionStorage.getItem(draftStorageKey("run-1", "user-a"))).toBeNull();
     expect(sessionStorage.getItem(draftStorageKey("run-2", "user-a"))).toBeNull();
     expect(sessionStorage.getItem(draftStorageKey("run-1", "user-b"))).toBe("{}");
+  });
+
+  it("keepOnlyDraftsOf removes every other person's drafts and keeps that person's and anything else", () => {
+    sessionStorage.setItem(draftStorageKey("run-1", "user-a"), "{}");
+    sessionStorage.setItem(draftStorageKey("run-1", "user-b"), "{}");
+    sessionStorage.setItem(draftStorageKey("run-2", null), "{}");
+    sessionStorage.setItem("something.else", "x");
+    keepOnlyDraftsOf("user-b");
+    expect(sessionStorage.getItem(draftStorageKey("run-1", "user-a"))).toBeNull();
+    expect(sessionStorage.getItem(draftStorageKey("run-2", null))).toBeNull();
+    expect(sessionStorage.getItem(draftStorageKey("run-1", "user-b"))).toBe("{}");
+    expect(sessionStorage.getItem("something.else")).toBe("x");
   });
 
   it("the old screen (no review id) keeps no draft at all", () => {

@@ -144,6 +144,24 @@ export function clearDecisionDrafts(user: string | null = draftOwner): void {
   }
 }
 
+/** Someone is signed in (or a reload learned who): remove every draft in
+ *  this tab that is not theirs. A sign-in that ran out keeps its drafts
+ *  for the same person, but never for the next one: a draft can hold
+ *  wording from the document, and they may not be granted it. */
+export function keepOnlyDraftsOf(user: string | null): void {
+  try {
+    const mine = `${DRAFT_STORAGE_KEY}.${user ?? "anyone"}.`;
+    const doomed: string[] = [];
+    for (let i = 0; i < window.sessionStorage.length; i += 1) {
+      const key = window.sessionStorage.key(i);
+      if (key?.startsWith(`${DRAFT_STORAGE_KEY}.`) && !key.startsWith(mine)) doomed.push(key);
+    }
+    for (const key of doomed) window.sessionStorage.removeItem(key);
+  } catch {
+    /* blocked storage: nothing was kept */
+  }
+}
+
 /** The review whose decisions get a draft, given by the app around the
  *  workspace. Null (the default) means no draft. */
 export const CrsDraftContext = createContext<string | null>(null);
