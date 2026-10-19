@@ -376,8 +376,11 @@ def _evaluate_numeric(condition: str, facts: list[dict]) -> dict:
         return _result(UNKNOWN, SHAPE_NUMERIC, condition,
                        f"the comparator {match.group('cmp')!r} is not one this "
                        f"system parses")
-    limit = claims.normalise(match.group("value"), unit)
-    if limit.normalized_value is None:
+    # THE THRESHOLD CARRIES THE OPERATOR; the fact is the value tested against
+    # it. Order 141 B: the operator used to sit on the FACT, which reversed it
+    # ("greater than 25 mm" read a 30 mm thickness as not satisfied).
+    limit = claims.normalise(match.group("value"), unit, operator)
+    if limit.normalized_value is None and not claims.is_temperature_scale(unit):
         return _result(UNKNOWN, SHAPE_NUMERIC, condition,
                        f"the threshold unit {unit!r} is not in the unit table")
 
@@ -394,10 +397,9 @@ def _evaluate_numeric(condition: str, facts: list[dict]) -> dict:
         name = _fold(fact.get("field_name"))
         if not any(_contains_term(name, w) for w in subject_words):
             continue
-        observed = claims.normalise(
-            str(fact.get("raw_value") or ""),
-            str(fact.get("raw_unit") or fact.get("unit") or ""))
-        if observed.normalized_value is None:
+        fact_unit = str(fact.get("raw_unit") or fact.get("unit") or "")
+        observed = claims.normalise(str(fact.get("raw_value") or ""), fact_unit)
+        if observed.normalized_value is None and not claims.is_temperature_scale(fact_unit):
             continue
         if _low_trust(fact):
             return _result(
@@ -405,17 +407,16 @@ def _evaluate_numeric(condition: str, facts: list[dict]) -> dict:
                 f"{_where(fact)}, and {_low_trust(fact)}; the condition is not "
                 f"decided on a value not yet trusted")
         # Routed through claims, so the B20 dimension guard applies: a length
-        # against a temperature is undecidable, never a pass.
-        verdict = claims._compatible(
-            claims.normalise(str(fact.get("raw_value") or ""),
-                             str(fact.get("raw_unit") or fact.get("unit") or ""),
-                             operator),
-            limit)
+        # against a temperature is undecidable, never a pass. Two units of one
+        # quantity (°F against °C) are converted there (order 141 B).
+        crossed = claims.compare_across_units(observed, limit)
+        verdict = crossed.verdict if crossed is not None else claims._compatible(observed, limit)
         if verdict is None:
             return _result(
                 UNKNOWN, SHAPE_NUMERIC, condition,
-                f"{fact.get('field_name')!r} and the threshold cannot be "
-                f"compared; no conversion is guessed")
+                (crossed.obstacle if crossed is not None and crossed.obstacle else
+                 f"{fact.get('field_name')!r} and the threshold cannot be "
+                 f"compared; no conversion is guessed"))
         state = SATISFIED if verdict else NOT_SATISFIED
         return _result(state, SHAPE_NUMERIC, condition,
                        f"{fact.get('field_name')!r} = "

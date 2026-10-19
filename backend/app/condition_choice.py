@@ -228,6 +228,8 @@ def _quantity(kind: str, text: str, unit_from: str | None = None) -> tuple[float
             return v / 25.4, "mm"
         return None
     if kind == "temperature":
+        # Order 141 B: only °F and °C are read here (`_DEG_F` / `_DEG_C`); the
+        # review's unit comparison reads `claims.TEMPERATURE_SCALES`.
         if re.fullmatch(_DEG_F, unit, re.I):
             return (v - 32) * 5 / 9, "F"
         return v, "C"

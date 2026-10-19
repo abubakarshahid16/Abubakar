@@ -1933,14 +1933,10 @@ DUAL_UNIT_TOLERANCE = 0.02
 
 
 def _celsius(value: float, unit: str) -> float | None:
-    folded = unit.replace("°", "").replace("º", "").strip().lower()
-    if folded in {"c", "degc", "deg c"}:
-        return value
-    if folded in {"f", "degf", "deg f"}:
-        return (value - 32.0) * 5.0 / 9.0
-    if folded == "k":
-        return value - 273.15
-    return None
+    """`value` in °C, through the one temperature table (`claims`, order 141 B)."""
+    folded = claims._fold_unit(unit.replace("º", "°"))
+    scale = claims.TEMPERATURE_SCALES.get(folded) if folded in ("c", "degc", "f", "degf", "k") else None
+    return None if scale is None else value * scale[0] + scale[1] - 273.15
 
 
 def same_quantity_twice(v1: str, u1: str, v2: str, u2: str) -> bool:
