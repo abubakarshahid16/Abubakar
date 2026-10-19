@@ -230,10 +230,13 @@ def _identity(item: dict | None) -> tuple:
 
 
 def _call(model_call, prompt: str) -> tuple[str | None, Reason | None]:
+    """A limit (`StopRun`) is NOT caught here: it goes up to `_read_page`,
+    which records WHICH limit (its `count_key`, e.g. "document_not_approved")
+    as `datasheet_ai` does - not one generic "stopped" for every cap."""
     try:
         return model_call(prompt), None
     except StopRun:
-        return None, Reason.MODEL_STOPPED
+        raise
     except Exception as exc:  # noqa: BLE001 - never into ingestion; the failure is recorded as a named reason
         log.info("form_reader: model call failed (%s)", type(exc).__name__)
         return None, Reason.MODEL_TIMED_OUT if datasheet_ai.is_timeout(exc) else Reason.MODEL_FAILED
@@ -354,7 +357,16 @@ def _read_page(reading: FormReading, page: int, text: str, model_call, rules: di
     errors: list[Reason] = []
     groups = batches(reading.fields, batch_size)
     for group in groups:
-        facts, rejected, gone, err = read_batch(group, text, page, model_call, rules, runs)
+        try:
+            facts, rejected, gone, err = read_batch(
+                group, text, page, model_call, rules, runs
+            )
+        except StopRun as exc:
+            facts, gone, err = [], set(), Reason.MODEL_STOPPED
+            rejected = [
+                {"field_key": f.key, "page": page, "reason": err.value} for f in group
+            ]
+            reading.stopped = exc.count_key
         reading.rejected.extend(rejected)
         absent.update(gone)
         for fact in facts:
@@ -362,7 +374,6 @@ def _read_page(reading: FormReading, page: int, text: str, model_call, rules: di
         if err is not None:
             errors.append(err)
             if err is Reason.MODEL_STOPPED:
-                reading.stopped = err.value
                 break
     if errors and len(errors) >= len(groups):
         reading.errors[page] = f"form reader could not read this page ({errors[0].value})"

@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import math
 import os
 import re
 from pathlib import Path
@@ -111,12 +112,28 @@ def test_hybrid_reads_the_xlsx_through_the_real_extract_path(key):
     assert rules["found"] < s["found"]
 
 
+def _form_and_merge_calls(reading: dict, merge_calls: int) -> int:
+    """Production's default reader (#882, DATASHEET_READER_MODE=form) makes two
+    passes: the form reader, one call per batch of its field list, and the
+    merge reader (`datasheet_ai.read_pages`, two runs of each page). A form
+    page is a call per batch whether it was read or failed: the stand-in
+    models here answer the merge reader's shape only, so the form's page
+    fails (`model_malformed`) and the facts come from the merge pass."""
+    ai = reading["ai_reader"]
+    assert ai["reader"] == "form_reader" and ai["form"]["fields"] > 0
+    form = ai["form"]
+    batches = math.ceil(form["fields"] / settings.form_reader_batch_size)
+    return merge_calls + batches * (form["pages_read"] + form["pages_failed"])
+
+
 @pytest.mark.slow
 def test_hybrid_reads_a_pdf_through_the_real_extract_path(key):
     entry = key["files"]["ds07_gate_valve_free_text.pdf"]
     reading = bench.read_file_with("hybrid:oracle", FREE_TEXT,
                                    model_call=bench.oracle_model_call(entry))
-    assert reading["status"] == "read" and reading["calls"] == 2   # two runs of one page
+    assert reading["status"] == "read"
+    # merge: two runs of one page
+    assert reading["calls"] == _form_and_merge_calls(reading, 2) > 2
     assert "extract" in reading["stages"] and "chunk" in reading["stages"]
     assert reading["ai_reader"]["ai_only"] >= 5
     assert any(f["method"] == datasheet_ai.EXTRACTION_METHOD for f in reading["facts"])
@@ -298,7 +315,8 @@ def test_hybrid_claude_is_productions_engine_metered_by_claude_spend(monkeypatch
     call, usage_fn = bench.build_model_call("hybrid:claude")
     assert isinstance(call, claude_budget.Budget) and call.step == datasheet_ai.STEP
     reading = bench.read_file_with("hybrid:claude", PSV, model_call=call)
-    assert reading["status"] == "read" and reading["calls"] == 2 and len(sent) == 2
+    assert reading["status"] == "read"
+    assert reading["calls"] == len(sent) == _form_and_merge_calls(reading, 2) > 2
     assert claude_spend.spent(datasheet_ai.STEP) > 0      # production's step, the one ledger
     assert usage_fn()["estimated_usd"] > 0
 
