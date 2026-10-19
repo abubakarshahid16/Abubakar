@@ -328,6 +328,9 @@ export interface AutosaveStatus {
   /** True while an "Undo" of "Keep all remaining comments" is offered:
    *  saving waits until it is gone, so Undo never has to unsave anything. */
   waiting: boolean;
+  /** Order 141 D: decisions taken off this visit because their comment is
+   *  no longer on the sheet (never saved); absent or 0 when none. */
+  dropped?: number;
   /** Save every unsaved decision now. */
   saveNow: () => Promise<void>;
 }
@@ -344,6 +347,9 @@ export interface ActionBarProps {
   autosave?: AutosaveStatus;
   /** The final code was recorded from the bar: read the run again. */
   onCodeRecorded?: () => void;
+  /** Order 141 D: decisions in a draft from an earlier visit still waiting
+   *  for "Bring them back" / "Discard" (absent or 0 when none). */
+  draftWaiting?: number;
 }
 
 export interface SheetCountsLineProps {
@@ -372,6 +378,10 @@ export interface UseSignOffArgs {
   /** The shared numbers: Sign checks `unsaved`, `unopenedNeedsYou` and
    *  `signLeft` from here before it asks the server. null = not loaded. */
   numbers: ReviewNumbers | null;
+  /** Order 141 D: runs before the working copy is downloaded; saves the
+   *  decisions on screen and answers null, or plain words why the copy
+   *  would leave decisions out (then nothing is downloaded). */
+  beforeCopy?: () => Promise<string | null>;
 }
 
 export interface WorkspaceSheetProps {
