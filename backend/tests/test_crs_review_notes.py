@@ -74,12 +74,13 @@ def test_the_issue_copy_has_no_review_notes_the_internal_copy_does():
     assert "name their own evidence" not in text
 
 
-def _scoped_run(doc: str, created_at: str, standards: list[tuple[str, str]]) -> str:
+def _scoped_run(doc: str, created_at: str, standards: list[tuple[str, str]],
+                status: str = "completed") -> str:
     run_id = str(uuid.uuid4())
     with db.connect() as conn:
         conn.execute("INSERT INTO review_runs (id,submittal_document_id,status,outcome_json,"
-                     "created_at,updated_at) VALUES (?,?,'completed',?,?,?)",
-                     (run_id, doc, json.dumps({"recommended_code": None, "reason": None}),
+                     "created_at,updated_at) VALUES (?,?,?,?,?,?)",
+                     (run_id, doc, status, json.dumps({"recommended_code": None, "reason": None}),
                       created_at, created_at))
         for std_id, name in standards:
             conn.execute("INSERT OR IGNORE INTO documents (id,filename,sha256,size_bytes,"
@@ -103,6 +104,21 @@ def test_a_run_says_which_standards_came_into_or_left_scope():
     assert runs[first]["standards_change"] is None
     assert runs[second]["standards_change"] == {
         "previous_run_id": first, "added": ["STD-C.pdf"], "removed": ["STD-B.pdf"]}
+
+
+def test_the_change_is_against_the_previous_completed_run_not_a_failed_one():
+    """Order 124 item 9 (the 120.2 finding): a failed run between two
+    completed ones never chose its scope for good, so the newer completed run
+    is compared with the older completed one, not with the failure."""
+    doc = _submittal()
+    a, b = ("s-a", "STD-A.pdf"), ("s-b", "STD-B.pdf")
+    first = _scoped_run(doc, "2026-09-20T00:00:00Z", [a, b])
+    _scoped_run(doc, "2026-09-21T00:00:00Z", [a], status="failed")
+    third = _scoped_run(doc, "2026-09-22T00:00:00Z", [a, b])
+    runs = {r["review_run_id"]: r for r in _client(doc, "s-a", "s-b")
+            .get("/api/reviews/runs").json()["runs"]}
+    assert runs[third]["standards_change"] == {
+        "previous_run_id": first, "added": [], "removed": []}
 
 
 def test_a_standard_the_caller_cannot_read_is_not_named_in_the_change():
