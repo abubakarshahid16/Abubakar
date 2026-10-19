@@ -2653,7 +2653,7 @@ def _replaced_numbers(crs_scope: str, rows: list[dict]) -> None:
     field) stands on clauses that were comments of their own before. READ
     ONLY; marks the rows.
 
-      * Every ISSUED, not withdrawn number of one of its clauses is listed:
+      * Every ISSUED, still OPEN number of one of its clauses is listed:
         `replaces_refs`, and a last line of the comment. While the field row
         is not confirmed those comments stay on the sheet as carried-forward
         rows (in the contractor's copy too: `_crs_content` counts a member
@@ -2686,7 +2686,11 @@ def _replaced_numbers(crs_scope: str, rows: list[dict]) -> None:
             for k in members
             if k in records
             and records[k].get("issued", 1)
-            and records[k].get("status") != crs_numbers_mod.WITHDRAWN
+            # OPEN only (cloud's #1179 review): a CLOSED number is a comment
+            # the reviewer already resolved. It is neither "stays on the
+            # sheet" (it is not carried: `open_elsewhere` is Open only) nor a
+            # confirmation of the field row; a WITHDRAWN one is no comment.
+            and records[k].get("status") == crs_numbers_mod.OPEN
         ]
         if not issued:
             continue
