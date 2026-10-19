@@ -5,7 +5,7 @@ import type { AiStepNumbers, PageCoverage, RequirementSplit, ReviewRunSummary } 
 
 export type RunSummaryTier = "A" | "B" | "C";
 export type RunSummaryTierLabel = "Met" | "Not applicable" | "Another document" | "Comment" | "Needs you";
-export type RunSummaryTierReason = "page not read" | "standard not in library" | "AI guess" | "rule not proven" | "safety field" | "condition unsettled" | "value conflict" | "unit unknown";
+export type RunSummaryTierReason = "page not read" | "standard not in library" | "AI guess" | "rule not proven" | "safety field" | "condition unsettled" | "value conflict" | "unit unknown" | "no standard linked" | "standard outside this review";
 export type RunSummaryCrsPriorityLabel = "Out of limit" | "Missing value" | "Engineer to check" | "Engineer's comment";
 
 /** Counts over every finding of the run; `removed` = rejected by an engineer (in no tier); `total` includes the removed ones. */

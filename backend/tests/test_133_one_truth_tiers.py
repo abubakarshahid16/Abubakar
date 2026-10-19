@@ -215,7 +215,13 @@ def test_one_predicate_per_unsettled_reason_and_no_other():
         *RULES["unsettled_order"],
         RULES["fallback_reason"],
         RULES["missing_information"]["not_in_library_reason"],
+        RULES["missing_information"]["no_standard_reason"],
+        RULES["missing_information"]["outside_review_reason"],
     }
+    assert not {
+        RULES["missing_information"]["no_standard_reason"],
+        RULES["missing_information"]["outside_review_reason"],
+    } & set(RULES["unsettled_order"])
 
 
 def _is_rules_key_read(node: ast.Constant, parent: ast.AST | None) -> bool:
@@ -271,6 +277,7 @@ RULE_WORDS = {
     RULES["missing_information"]["status"],
     *RULES["phrases"].values(),
     RULES["fold"]["pattern"],
+    RULES["ident_match"],
     RULES["word_edge"]["token"],
     RULES["word_edge"]["python"],
     RULES["word_edge"]["javascript"],

@@ -2324,8 +2324,7 @@ class CrsHeaderField(BaseModel):
 
     THE LABEL TRAVELS WITH THE VALUE. The template's wording is the client's,
     down to the double space in "CONTRACTOR  Transmittal No.:", and a screen
-    that re-typed it would be showing its own words over their document.
-    """
+    that re-typed it would be showing its own words over their document."""
 
     label: str
     value: str
@@ -2340,11 +2339,12 @@ class CrsOpenFinding(BaseModel):
     finding_id: str
     row_kind: str | None = None
     item: int
+    standard: str | None = None  #: the row's standard, as the sheet prints it
 
 
 class CrsIssueGate(BaseModel):
     """PF5 (#885): what still stands between a run and its contractor copy.
-    `issuable` only when nothing does. Ids, counts and reasons only."""
+    `issuable` only when nothing does. Ids, counts, reasons; names: screen only."""
     review_run_id: str
     issuable: bool
     final_code_recorded: bool
