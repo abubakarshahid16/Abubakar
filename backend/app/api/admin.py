@@ -182,7 +182,7 @@ def admin_held_company_standards(
     request: Request,
     limit: int | None = limit_param(),
     offset: int = offset_param(),
-    actor: dict | None = Depends(admin_mod.current_admin),
+    _actor: dict | None = Depends(admin_mod.current_admin),
 ):
     """#620 (owner's option a): the Company standards a non-administrator
     uploaded on or after the cut-off that wait for an administrator's
