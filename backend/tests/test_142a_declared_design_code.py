@@ -106,6 +106,27 @@ def test_unsure_holds_type_only_standards_for_the_engineer():
     assert stored["included"] == 0 and "engineer" in stored["exclusion_reason"]
 
 
+def test_a_held_type_standard_keeps_its_service_match():
+    """A standard matching both the disputed type and the declared service
+    is included by its service, never held as "only from the type"."""
+    std = _doc(
+        "std_both",
+        "both.pdf",
+        "COMPANY_STANDARD",
+        document_number="XQ-9002",
+        equipment_type="Heat Exchanger",
+        service="Hydrogen",
+    )
+    sub = _sheet(service="Hydrogen")
+    result = applicability.select(
+        sub, allowed_document_ids=_scope(sub, std), persist=False
+    )
+    row = {r["standard_document_id"]: r for r in result["selected"]}[std]
+    assert row["included"] is True
+    assert row["method"] == applicability.METHOD_SERVICE
+    assert not row.get("held_for_engineer")
+
+
 def _scope_says_not_applicable(monkeypatch, standard_id):
     def fake(candidates, profile, heartbeat=None):
         return {

@@ -58,10 +58,13 @@ class Vocabulary:
 
     def __init__(self, data: dict) -> None:
         self.kind: dict[str, str] = {}
+        self.drivers: set[str] = set()
         self.phrases: dict[str, set[str]] = {}
         for name, entry in (data.get("types") or {}).items():
             canonical = _fold(name)
             self.kind[canonical] = (entry or {}).get("kind", EQUIPMENT)
+            if (entry or {}).get("driver"):
+                self.drivers.add(canonical)
             for spelling in [name, *((entry or {}).get("synonyms") or ())]:
                 folded = _fold(spelling)
                 if folded:
@@ -187,19 +190,22 @@ def _codes_of(types: set[str], table: dict) -> list[str]:
 
 
 def _governed_types(identifier: str, table: dict, vocab: Vocabulary) -> list[str]:
-    """The equipment types (not components) whose governing codes include it."""
+    """The equipment types whose governing codes include it: not components,
+    and not drivers (a motor's code on a pump sheet is about its motor)."""
     from . import standard_ids
 
     return sorted(
         kind
         for kind, codes in table["equipment_types"].items()
-        if vocab.kind.get(kind) == EQUIPMENT
+        if vocab.kind.get(kind) == EQUIPMENT and kind not in vocab.drivers
         and any(standard_ids.same_standard(identifier, c) for c in codes)
     )
 
 
 def _sheet_text(classification: dict) -> str:
-    """The submittal's own retrievable text, when the record names it."""
+    """The submittal's own retrievable text, when the record names it. Rule 5:
+    only the submittal under review, which its caller already reads; the text
+    never leaves this module, it only decides whether the sheet names a code."""
     document_id = classification.get("document_id")
     if not document_id:
         return ""
@@ -220,12 +226,13 @@ def equipment_doubt(
 ) -> dict | None:
     """Why the equipment reading `named` is in doubt, or None (order 142).
 
-    In doubt, with no engineer confirmation, when (D) a code a fact states as
-    its value governs another equipment type, is none of the named types'
-    own or partial codes, and the sheet names no such code anywhere (fact
-    values or its own text); or (T) the type came from the classification and
-    the title names equipment types it shares none with. Returns
-    {"named", "declared": [{identifier, governs, page, label}], "title",
+    In doubt, with no engineer confirmation, when a code a fact states as its
+    value governs another equipment type, is none of the named types' own or
+    partial codes, and the sheet names no such code anywhere (fact values or
+    its own text). A fact whose own label names a type the code governs is
+    about that sub-item ("Motor: IEC 60034"), not the sheet. The title alone
+    is never a doubt: it often names the protected or driven equipment.
+    Returns {"named", "declared": [{identifier, governs, page, label}],
     "reason"}."""
     classification = classification or {}
     if (
@@ -246,7 +253,8 @@ def equipment_doubt(
     declared = []
     for code in stated:
         governs = _governed_types(code["identifier"], table, vocab)
-        if governs and not set(governs) & named and not is_own(code["identifier"]):
+        about = named | vocab.equipment_in(code["label"] or "")
+        if governs and not set(governs) & about and not is_own(code["identifier"]):
             declared.append({**code, "governs": governs})
     if declared and (
         any(is_own(c["identifier"]) for c in stated)
@@ -255,48 +263,26 @@ def equipment_doubt(
         )
     ):
         declared = []
-    title = (
-        sorted(vocab.equipment_in(classification.get("title")))
-        if source == "classification"
-        else []
-    )
-    if set(title) & named:
-        title = []
-    if not declared and not title:
+    if not declared:
         return None
     return {
         "named": sorted(named),
         "declared": declared,
-        "title": title,
-        "reason": _doubt_reason(sorted(named), source, declared, title),
+        "reason": _doubt_reason(sorted(named), source, declared),
     }
 
 
-def _doubt_reason(
-    named: list[str], source: str | None, declared: list[dict], title: list[str]
-) -> str:
+def _doubt_reason(named: list[str], source: str | None, declared: list[dict]) -> str:
     """The plain sentence for the engineer. Built from data, no fixed names."""
-    this = " / ".join(named)
-    parts = []
-    if declared:
-        first = declared[0]
-        where = (
-            f"its {first['label']}"
-            if first["label"]
-            else "the value of one of its fields"
-        )
-        page = f" (page {first['page']})" if first.get("page") is not None else ""
-        parts.append(
-            f"the datasheet states {first['identifier']} as {where}{page}, a code for a "
-            f"{' / '.join(first['governs'])}, and names no code for a {this}"
-        )
-    if title:
-        parts.append(f"its title names a {' / '.join(title)}")
+    this, first = " / ".join(named), declared[0]
+    where = f"its {first['label']}" if first["label"] else "one of its field values"
+    page = f" (page {first['page']})" if first.get("page") is not None else ""
     return (
         f"equipment type unsure: read as {this} (from its {source or 'record'}), but "
-        + "; and ".join(parts)
-        + ". An engineer should confirm the equipment type; until then "
-        "no standard or requirement is ruled out by equipment type."
+        f"the datasheet states {first['identifier']} as {where}{page}, a code for a "
+        f"{' / '.join(first['governs'])}, and names no code for a {this}. An "
+        "engineer should confirm the equipment type; until then no requirement "
+        "is ruled out, and no standard added, by equipment type."
     )
 
 

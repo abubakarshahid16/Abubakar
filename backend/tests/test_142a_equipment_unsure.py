@@ -137,9 +137,26 @@ def test_a_pump_sheet_citing_its_own_code_somewhere_stays_a_pump():
         {"pump"},
         "classification",
     )
-    # Contrast: with no pump code anywhere, the motor code alone is a doubt.
-    alone = subject_scope.submittal_equipment(cls, facts[:1], vocab)
-    assert alone == (set(), "unsure")
+    # A motor drives the pump: its code alone, or under a label that does not
+    # name it, is about the driver and never a doubt (vocabulary `driver`).
+    assert (
+        subject_scope.submittal_equipment(cls, facts[:1], vocab)[1] == "classification"
+    )
+    driver = [
+        {"field_label": "Driver standard", "field_value": "IEC 60034-1", "page": 2}
+    ]
+    assert subject_scope.submittal_equipment(cls, driver, vocab)[1] == "classification"
+
+
+def test_a_code_under_a_label_naming_its_own_type_is_about_that_sub_item():
+    """A vessel sheet listing its relief valve's code: the label names the
+    type the code governs, so the fact is about the valve, not the sheet."""
+    cls = {"equipment_type": "Pressure Vessel"}
+    vocab = subject_scope.vocabulary()
+    sub_item = [{"field_label": "Relief valve", "field_value": "API 526", "page": 2}]
+    assert subject_scope.read_equipment(cls, sub_item, vocab)[2] is None
+    plain = [{"field_label": "Design code", "field_value": "API 526", "page": 2}]
+    assert subject_scope.read_equipment(cls, plain, vocab)[1] == "unsure"
 
 
 def test_an_engineer_confirmed_type_is_never_unsure():
@@ -168,26 +185,21 @@ def test_an_engineer_confirmed_type_is_never_unsure():
     assert out["summary"]["equipment_unsure"] is None
 
 
-def test_a_title_that_names_another_type_makes_it_unsure():
-    cls = {"equipment_type": "Heat Exchanger", "title": "Knockout drum data sheet"}
-    equipment, source, doubt = subject_scope.read_equipment(
-        cls, [], subject_scope.vocabulary()
-    )
-    assert (equipment, source) == (set(), "unsure")
-    assert doubt["title"] == ["pressure vessel"] and doubt["declared"] == []
-    assert "title" in doubt["reason"] and "engineer" in doubt["reason"]
-    out = _gate(cls, [])
-    assert out["summary"]["kept_equipment_unknown"] == 1
-    assert out["summary"]["equipment_source"] == "unsure"
-    # A title that agrees is no doubt.
-    agree = {
-        "equipment_type": "Heat Exchanger",
-        "title": "Shell and tube exchanger data sheet",
+def test_a_title_alone_is_never_a_doubt():
+    """A title often names the protected or driven equipment ("KO drum
+    overpressure protection"): a relief valve stays a relief valve."""
+    vocab = subject_scope.vocabulary()
+    psv = {
+        "equipment_type": "Pressure Safety Valve",
+        "title": "Knockout drum relief data sheet",
     }
-    assert (
-        subject_scope.read_equipment(agree, [], subject_scope.vocabulary())[1]
-        == "classification"
+    assert subject_scope.read_equipment(psv, [], vocab) == (
+        {"relief valve"},
+        "classification",
+        None,
     )
+    hx = {"equipment_type": "Heat Exchanger", "title": "Knockout drum data sheet"}
+    assert subject_scope.read_equipment(hx, [], vocab)[1] == "classification"
 
 
 def test_stated_codes_reads_values_not_labels():

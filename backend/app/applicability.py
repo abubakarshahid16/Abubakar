@@ -1085,15 +1085,21 @@ def _semantic_cannot_cover_a_missing_reference(
     return selected, missing
 
 
-def _hold_on_unsure_type(selected: dict[str, dict], check: dict) -> None:
-    """Order 142: when the equipment type is unsure, nothing is ruled in or
-    out by it. AI-first: the scope reasoning still ran; its exclusion becomes
-    "engineer to check", never applied. A row included only by the disputed
-    type is held for the engineer; a declared code says so. Service, project,
-    manual and referenced rows keep their result."""
+def _hold_on_unsure_type(selected: dict, check: dict, library: list, profile: dict):
+    """Order 142: an unsure equipment type rules nothing in or out. AI-first:
+    the scope reasoning ran, but no row is excluded by it ("engineer to
+    check"). A row from the type alone is held for the engineer, or falls
+    back to its service or project match; a declared code says so."""
     unsure = check.get("equipment_unsure")
     declared = check.get("declared_check") or []
-    for row in selected.values() if unsure else ():
+    other: dict = {}
+    if unsure:
+        other = _match_attribute(library, profile, "project", METHOD_PROJECT)
+        other |= _match_attribute(library, profile, "service", METHOD_SERVICE)
+    for sid, row in list(selected.items()) if unsure else ():
+        if row["method"] in (METHOD_EQUIPMENT, METHOD_SCOPE) and sid in other:
+            note = row.get("excluded_by_scope")
+            row = selected[sid] = {**other[sid], "excluded_by_scope": note}
         scoped_out = row.pop("excluded_by_scope", None)
         if scoped_out:
             tail = "the equipment type is unsure, engineer to check"
@@ -1161,11 +1167,8 @@ def select(
                 selected[standard_id] = dict(row)
 
     missing = [
-        # Listed by THE IDENTIFIER THE DATASHEET USED, not by a canonical form
-        # this system prefers. An engineer goes looking for the string their
-        # document wrote. ONE helper (#452): this list used to be rebuilt here
-        # from the identifiers that survived selection, which loses a citation
-        # whenever two spellings reach the same standard.
+        # By THE IDENTIFIER THE DATASHEET USED (the string an engineer looks
+        # for). ONE helper (#452): a rebuilt list lost a spelling.
         {"identifier": identifier,
          "reason": "cited by the submittal and not present in the library"}
         for identifier in missing_references(library, referenced)
@@ -1181,16 +1184,13 @@ def select(
             if page is not None:
                 row["reason"] = f"{row['reason']} (page {page})"
 
-    # B5: THE SCOPE DECISION on every standard that has a stored, verified
-    # scope record. Owner request 2026-09-28: by AI reasoning
-    # (`applicability_reasoning_enabled`, on by default since #736), no manual
-    # taxonomy - or, when it is turned off, the older taxonomy-matched path (`applicability_v2`),
-    # which already reports "not run" when no taxonomy is approved.
+    # B5: THE SCOPE DECISION on every standard with a verified scope record:
+    # by AI reasoning (owner 2026-09-28, on since #736), or when that is off
+    # the taxonomy path (`applicability_v2`, "not run" with no taxonomy).
     from .config import settings as _settings
     if _settings.applicability_reasoning_enabled:
-        # #946: cap the pool asked about - see `_scope_reasoning_candidates`.
-        # The non-AI taxonomy path below is cheap (a local table lookup, no
-        # model call) and is left scanning the whole library unchanged.
+        # #946: cap the pool asked about (`_scope_reasoning_candidates`); the
+        # cheap non-AI taxonomy path below still scans the whole library.
         scope_candidates = _scope_reasoning_candidates(
             library, selected, submittal_document_id, allowed_document_ids,
             cap=_settings.applicability_scope_reasoning_candidate_cap)
@@ -1229,7 +1229,7 @@ def select(
                     f"its scope clause excludes this equipment: {cited}")
         elif row is not None:
             row["scope_decision"] = verdict
-    _hold_on_unsure_type(selected, check)  # order 142: the engineer decides
+    _hold_on_unsure_type(selected, check, library, profile)  # order 142
 
     if persist:
         _persist(submittal_document_id, review_run_id, selected, allowed_document_ids,

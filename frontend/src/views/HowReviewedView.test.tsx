@@ -250,6 +250,21 @@ describe("HowReviewedView on a full run", () => {
   });
 });
 
+describe("HowReviewedView with an unsure equipment type (order 142)", () => {
+  it("shows why the type is unsure instead of saying the equipment is not named", async () => {
+    const run = fullRun();
+    const reason = "equipment type unsure: read as heat exchanger (from its classification), but the datasheet "
+      + "states ASME VIII as its Design code (page 1), a code for a pressure vessel. An engineer should confirm the equipment type.";
+    run.applicability = { submittal_equipment: [], equipment_source: "unsure", checked_general: 3, checked_matching: 0,
+                          kept_equipment_unknown: 5, not_applied: 0, equipment_unsure: reason };
+    mount(run);
+    const line = await screen.findByTestId("clauses-applicability");
+    expect(line).toHaveTextContent(reason);
+    expect(line).toHaveTextContent("5 kept because the equipment type is unsure");
+    expect(line).not.toHaveTextContent("not named");
+  });
+});
+
 describe("HowReviewedView on a minimal run", () => {
   it('shows "not recorded on this review" instead of 0 or blank for every missing field', async () => {
     mount(minimalRun(), { standards: [], missing_references: [] });
