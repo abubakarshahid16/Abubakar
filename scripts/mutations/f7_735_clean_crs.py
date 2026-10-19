@@ -29,9 +29,11 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(7104, "the row severity is the first finding's, not the worst", _M,
        "    return next((s for s in SEVERITY_ORDER if s in found), \"\")",
        "    return str(group[0].get(\"severity\") or \"\")", "worst_severity"),
+    # Re-anchored (order 139 part 2): rows are placed by ONE sort over every
+    # row kind at the end of build_crs_rows, not per bucket.
     _m(7105, "rows are not ordered by page and clause", _M,
-       "        for group in sorted(_grouped(bucket), key=_row_order):\n",
-       "        for group in _grouped(bucket):\n", "ordered_by_page"),
+       "    return [rows[i] for i in sorted(range(len(rows)), key=sort_keys.__getitem__)]\n",
+       "    return rows\n", "ordered_by_page"),
     _m(7106, "clauses sort as text (8.10 before 8.2)", _M,
        "    return tuple(int(p) if p.isdigit() else 10 ** 6 for p in re.findall(r\"\\w+\", str(clause or \"\"))) or (10 ** 6,)",
        "    return (str(clause or \"\"),)", "ordered_by_page"),
@@ -39,7 +41,9 @@ MUTATIONS: tuple[Mutation, ...] = (
        "    return [sorted(groups[k], key=_leader_order) for k in order]",
        "    return [sorted(groups[k], key=lambda f: not f.get(\"confirmed_by\")) for k in order]",
        "number_key"),
-    _m(7108, "the workbook leaves the severity out", _E,
-       "                  entry[\"standard_reference\"], entry.get(\"severity\", \"\")]",
+    # Re-anchored (order 139 part 2): column I prints the row's Priority word
+    # where it printed the severity.
+    _m(7108, "the workbook leaves the priority (formerly severity) column empty", _E,
+       "                  entry[\"standard_reference\"], entry.get(\"priority_label\", \"\")]",
        "                  entry[\"standard_reference\"], \"\"]", "severity_column"),
 )

@@ -139,7 +139,8 @@ export function CrsPreviewSheet(
               <td className="border border-ink-600 px-2 py-1 align-top text-slateish-300">
                 {row.page_section}
               </td>
-              <td className="whitespace-pre-line border border-ink-600 px-2 py-1 align-top text-slateish-200">
+              <td data-comment-missing={row.comment_missing ? "true" : undefined}
+                className={`whitespace-pre-line border border-ink-600 px-2 py-1 align-top ${row.comment_missing ? "text-warn-500" : "text-slateish-200"}`}>
                 {row.comment}
               </td>
               <td className="border border-ink-600 px-2 py-1 align-top text-slateish-300">
@@ -168,7 +169,14 @@ export function CrsPreviewSheet(
                   {row.standard_reference ?? ""}
                 </td>
               )}
-              {/* #725 F7: the severity, after Standard Reference, both copies. */}
+              {/* Order 139 part 2: the row's rank word, after Standard
+                  Reference, both copies (it replaced #725 F7's Severity). */}
+              {preview.columns.includes("Priority") && (
+                <td data-testid="crs-priority" className="border border-ink-600 px-2 py-1 align-top text-slateish-300">
+                  {row.priority_label ?? ""}
+                </td>
+              )}
+              {/* A sheet from a server before order 139 part 2. */}
               {preview.columns.includes("Severity") && (
                 <td className="border border-ink-600 px-2 py-1 align-top text-slateish-300">
                   {row.severity ?? ""}
@@ -198,6 +206,16 @@ export function CrsPreviewSheet(
           ))}
         </tbody>
       </table>
+
+      {/* Order 139 part 2: a row with no comment text is never issued - and
+          never left out silently. */}
+      {(preview.rows_withheld_no_text ?? 0) > 0 && (
+        <p className="text-xs font-semibold text-warn-500" role="note" data-testid="crs-withheld-no-text">
+          {preview.rows_withheld_no_text} {preview.rows_withheld_no_text === 1 ? "row was" : "rows were"} left
+          off this copy because {preview.rows_withheld_no_text === 1 ? "it has" : "they have"} no comment
+          text. An engineer must write the text before {preview.rows_withheld_no_text === 1 ? "it" : "they"} can be issued.
+        </p>
+      )}
 
       {/* Owner order 2f: the engineer's internal notes, on their own sheet -
           never in COMPANY Comments, and not in the contractor's copy. */}

@@ -10,6 +10,7 @@ import openpyxl
 
 from app.crs_export import (COLUMN_HEADER_ROW, FIRST_DATA_ROW,
                             HEADER_FIELDS, HEADERS, build_crs)
+from app.crs_export import EMPTY_COMMENT_TEXT
 
 META = {"project": "EXAMPLE PROJECT", "document_title": "Doc T",
         "date_issued": "2026-09-19"}
@@ -192,7 +193,8 @@ def test_the_row_reference_is_the_first_line_of_the_comment_cell():
     # wins); only the internal copy carries the owner's "AI Review Comments"
     # column (2026-09-27), and neither carries the reference as a column.
     assert ws.cell(row=COLUMN_HEADER_ROW, column=8).value == "Standard Reference"
-    assert ws.cell(row=COLUMN_HEADER_ROW, column=9).value == "Severity"  # #725 F7
+    # order 139 part 2: "Priority" where #725 F7's "Severity" was
+    assert ws.cell(row=COLUMN_HEADER_ROW, column=9).value == "Priority"
     assert ws.cell(row=COLUMN_HEADER_ROW, column=10).value is None
     assert [ws.cell(row=COLUMN_HEADER_ROW, column=c).value
             for c in range(1, 8)] == HEADERS
@@ -257,11 +259,14 @@ def test_two_identical_rows_still_get_two_distinct_references():
 
 def test_a_row_with_no_comment_still_carries_its_reference():
     """A gap row with empty text must still be answerable by number, and must
-    not open with a stray blank line."""
+    not open with a stray blank line. Order 139 part 2 (spec e): its COMPANY
+    Comments says no text was produced - never an empty cell."""
     ws = load([{"document_name": "d", "page_section": "References",
                 "comment": "", "finding_id": "missing-reference:X"}], SUB)
     value = _comment(ws)
-    assert value.startswith("Ref: RF-") and "\n" not in value
+    first, _, rest = value.partition("\n")  # order 139 part 2
+    assert first.startswith("Ref: RF-") and "\n" not in first
+    assert rest == EMPTY_COMMENT_TEXT  # order 139 part 2
 
 
 # ------------------------------------------------ the company name is config

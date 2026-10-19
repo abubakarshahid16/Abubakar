@@ -1,0 +1,135 @@
+{
+  "_about": "Order 139 part 2 (docs/order-139-part2-spec.md): the CRS grouping and order cases BOTH sides must pass. Backend: crs_mapping.crs_groups over each case's findings (base_finding with the case's finding laid over it; a null overrides) must give exactly `expected_rows`, in order: each row's finding ids (compared as a SET - the leader is the server's), its priority and word, its action line (null on a row of one clause) and its clause count (distinct standard_document_id + standard_clause). Every id in `not_on_sheet` is in no row. Frontend: crs/crsGroups.parity.test.ts turns `expected_rows` into the run summary's per-finding fields (crs_group = 'row-<index>', crs_order = index, crs_priority, crs_priority_label, crs_action) and buildCrsRows must show one row per expected row, with exactly those findings, in that order, and none of `not_on_sheet` in a grouped row. The fields under base_finding are the ones the server's grouping reads after comparison.attach_crs_context (crs_field_label, requirement_limit). Invented data only - no client document, no real standard text.",
+  "base_finding": {
+    "id": "x",
+    "compliance_status": "MISSING_INFORMATION",
+    "origin": null,
+    "requirement_id": null,
+    "requirement_source_text": null,
+    "requirement_limit": null,
+    "standard_document_id": "std-1",
+    "standard_name": "STD-100.pdf",
+    "standard_clause": null,
+    "standard_page": 4,
+    "contractor_page": 1,
+    "contractor_section": null,
+    "contractor_evidence_text": "",
+    "fact_id": null,
+    "crs_field_label": null,
+    "crs_is_blank": true,
+    "matched_phrase": null,
+    "equipment_tag": "P-101",
+    "engineer_comment": null,
+    "confirmed_by": null,
+    "approval_status": "pending",
+    "ai_rationale": "",
+    "reason_code": null,
+    "finding": "",
+    "required_action": "",
+    "severity": "minor"
+  },
+  "cases": [
+    {
+      "name": "three blanks of one field from three clauses are ONE row",
+      "findings": [
+        {"id": "b1", "standard_clause": "4.3", "requirement_source_text": "4.3 Corrosion allowance shall be stated.", "crs_field_label": "Corrosion allowance", "fact_id": "fact-1", "contractor_page": 2},
+        {"id": "b2", "standard_clause": "5.1", "requirement_source_text": "5.1 The corrosion allowance shall be not less than 3 mm.", "crs_field_label": "Corrosion allowance", "fact_id": "fact-1", "contractor_page": 2},
+        {"id": "b3", "standard_document_id": "std-2", "standard_name": "STD-200.pdf", "standard_clause": "2.2", "requirement_source_text": "2.2 Corrosion allowance shall be given for each pressure part.", "crs_field_label": "Corrosion allowance", "fact_id": "fact-1", "contractor_page": 2}
+      ],
+      "expected_rows": [
+        {"finding_ids": ["b1", "b2", "b3"], "priority": 2, "priority_label": "Missing value", "action": "Contractor to provide Corrosion allowance.", "clause_count": 3}
+      ],
+      "not_on_sheet": []
+    },
+    {
+      "name": "a blank and a not-found of the same field stay two rows (different actions)",
+      "findings": [
+        {"id": "c1", "standard_clause": "3.1", "requirement_source_text": "3.1 Design pressure shall be stated.", "crs_field_label": "Design pressure", "fact_id": "fact-2", "contractor_page": 1},
+        {"id": "c2", "standard_clause": "3.4", "requirement_source_text": "3.4 Design pressure shall be stated on the datasheet.", "contractor_page": null, "crs_is_blank": null, "requirement_limit": {"subject": "Design pressure"}},
+        {"id": "c3", "standard_clause": "6.2", "requirement_source_text": "6.2 Design pressure shall be given in barg.", "contractor_page": null, "crs_is_blank": null, "requirement_limit": {"subject": "Design pressure"}}
+      ],
+      "expected_rows": [
+        {"finding_ids": ["c1"], "priority": 2, "priority_label": "Missing value", "action": null, "clause_count": 1},
+        {"finding_ids": ["c2", "c3"], "priority": 3, "priority_label": "Engineer to check", "action": "Engineer to check whether the datasheet states Design pressure: no field this system read was paired with it.", "clause_count": 2}
+      ],
+      "not_on_sheet": []
+    },
+    {
+      "name": "breaches stay one row per problem, by page then clause",
+      "findings": [
+        {"id": "d2", "compliance_status": "NON_COMPLIANT", "standard_clause": "7.2", "requirement_source_text": "7.2 Hydrotest pressure shall be held for not less than 30 min.", "crs_field_label": "Hydrotest pressure", "fact_id": "fact-3", "contractor_page": 3, "contractor_evidence_text": "10 barg", "crs_is_blank": false},
+        {"id": "d1", "compliance_status": "NON_COMPLIANT", "standard_clause": "7.1", "requirement_source_text": "7.1 Hydrotest pressure shall be not less than 15 barg.", "crs_field_label": "Hydrotest pressure", "fact_id": "fact-3", "contractor_page": 3, "contractor_evidence_text": "10 barg", "crs_is_blank": false}
+      ],
+      "expected_rows": [
+        {"finding_ids": ["d1"], "priority": 1, "priority_label": "Out of limit", "action": null, "clause_count": 1},
+        {"finding_ids": ["d2"], "priority": 1, "priority_label": "Out of limit", "action": null, "clause_count": 1}
+      ],
+      "not_on_sheet": []
+    },
+    {
+      "name": "engineer-to-check questions of one field are ONE row",
+      "findings": [
+        {"id": "e1", "compliance_status": "NEEDS_ENGINEER_REVIEW", "standard_clause": "8.1", "requirement_source_text": "8.1 Rated power shall be not less than 11 kW.", "matched_phrase": "Rated power", "fact_id": "fact-4", "contractor_page": 4, "contractor_evidence_text": "15 hp", "crs_is_blank": false, "reason_code": "unit_mismatch", "ai_rationale": "unit_mismatch: the requirement is in kW and the value in hp; they were not compared."},
+        {"id": "e2", "compliance_status": "NEEDS_ENGINEER_REVIEW", "standard_clause": "8.3", "requirement_source_text": "8.3 Rated power shall include a 10 % margin.", "matched_phrase": "Rated power", "fact_id": "fact-4", "contractor_page": 4, "contractor_evidence_text": "15 hp", "crs_is_blank": false, "reason_code": "LOW_TRUST_VALUE", "ai_rationale": "LOW_TRUST_VALUE: the value was read with low trust."}
+      ],
+      "expected_rows": [
+        {"finding_ids": ["e1", "e2"], "priority": 3, "priority_label": "Engineer to check", "action": "Engineer to check Rated power.", "clause_count": 2}
+      ],
+      "not_on_sheet": []
+    },
+    {
+      "name": "questions with no field label keep one row per requirement",
+      "findings": [
+        {"id": "f1", "compliance_status": "NEEDS_ENGINEER_REVIEW", "standard_clause": "9.1", "requirement_source_text": "9.1 Materials shall suit the service.", "contractor_page": null, "crs_is_blank": null, "reason_code": "ambiguous_match", "ai_rationale": "ambiguous_match: no single field answered it."},
+        {"id": "f2", "compliance_status": "NEEDS_ENGINEER_REVIEW", "standard_clause": "9.2", "requirement_source_text": "9.2 Coatings shall suit the site climate.", "contractor_page": null, "crs_is_blank": null, "reason_code": "ambiguous_match", "ai_rationale": "ambiguous_match: no single field answered it."}
+      ],
+      "expected_rows": [
+        {"finding_ids": ["f1"], "priority": 3, "priority_label": "Engineer to check", "action": null, "clause_count": 1},
+        {"finding_ids": ["f2"], "priority": 3, "priority_label": "Engineer to check", "action": null, "clause_count": 1}
+      ],
+      "not_on_sheet": []
+    },
+    {
+      "name": "the same engineer wording on a field's findings stays one row; a different one splits off",
+      "findings": [
+        {"id": "g1", "standard_clause": "10.1", "requirement_source_text": "10.1 Flange rating shall be stated.", "crs_field_label": "Flange rating", "fact_id": "fact-5", "contractor_page": 2, "engineer_comment": "Contractor to state the flange rating class.", "confirmed_by": "eng-1"},
+        {"id": "g2", "standard_clause": "10.2", "requirement_source_text": "10.2 Flange rating shall match the piping class.", "crs_field_label": "Flange rating", "fact_id": "fact-5", "contractor_page": 2, "engineer_comment": "Contractor to state the flange rating class.", "confirmed_by": "eng-1"},
+        {"id": "g3", "standard_clause": "10.3", "requirement_source_text": "10.3 Flange rating shall be given per nozzle.", "crs_field_label": "Flange rating", "fact_id": "fact-5", "contractor_page": 2}
+      ],
+      "expected_rows": [
+        {"finding_ids": ["g1", "g2"], "priority": 2, "priority_label": "Missing value", "action": "Contractor to provide Flange rating.", "clause_count": 2},
+        {"finding_ids": ["g3"], "priority": 2, "priority_label": "Missing value", "action": null, "clause_count": 1}
+      ],
+      "not_on_sheet": []
+    },
+    {
+      "name": "an AI item is its own row; met, not applicable and rejected findings are no row",
+      "findings": [
+        {"id": "h1", "compliance_status": null, "origin": "ai_engineering_check", "standard_document_id": null, "standard_name": null, "standard_page": null, "contractor_section": "Design pressure", "finding": "Check the design pressure against the relief valve set pressure.", "ai_rationale": "Plausibility check. Relates to: STD-100."},
+        {"id": "h2", "compliance_status": "COMPLIANT", "standard_clause": "11.1", "requirement_source_text": "11.1 Speed shall be stated.", "crs_field_label": "Speed", "fact_id": "fact-6", "contractor_evidence_text": "1480 rpm", "crs_is_blank": false},
+        {"id": "h3", "compliance_status": "NOT_APPLICABLE", "standard_clause": "11.2", "requirement_source_text": "11.2 Jacket pressure shall be stated for jacketed pumps.", "reason_code": "condition_not_met"},
+        {"id": "h4", "standard_clause": "11.3", "requirement_source_text": "11.3 Seal plan shall be stated.", "crs_field_label": "Seal plan", "fact_id": "fact-7", "approval_status": "rejected"}
+      ],
+      "expected_rows": [
+        {"finding_ids": ["h1"], "priority": 3, "priority_label": "Engineer to check", "action": null, "clause_count": 0}
+      ],
+      "not_on_sheet": ["h2", "h3", "h4"]
+    },
+    {
+      "name": "rank first (out of limit, missing value, engineer to check), then datasheet page",
+      "findings": [
+        {"id": "i1", "standard_clause": "12.1", "requirement_source_text": "12.1 Speed shall be stated.", "crs_field_label": "Speed", "fact_id": "fact-8", "contractor_page": 1},
+        {"id": "i2", "compliance_status": "NON_COMPLIANT", "standard_clause": "12.2", "requirement_source_text": "12.2 Flow shall be not less than 50 m3/h.", "crs_field_label": "Flow", "fact_id": "fact-9", "contractor_page": 5, "contractor_evidence_text": "40 m3/h", "crs_is_blank": false},
+        {"id": "i3", "compliance_status": "NEEDS_ENGINEER_REVIEW", "standard_clause": "12.3", "requirement_source_text": "12.3 Head shall be stated at rated flow.", "crs_field_label": "Head", "fact_id": "fact-10", "contractor_page": 1, "contractor_evidence_text": "see curve", "crs_is_blank": false, "reason_code": "LOW_TRUST_VALUE", "ai_rationale": "LOW_TRUST_VALUE: the value was read with low trust."},
+        {"id": "i4", "standard_clause": "12.4", "requirement_source_text": "12.4 NPSH required shall be stated.", "crs_field_label": "NPSH required", "fact_id": "fact-11", "contractor_page": 3}
+      ],
+      "expected_rows": [
+        {"finding_ids": ["i2"], "priority": 1, "priority_label": "Out of limit", "action": null, "clause_count": 1},
+        {"finding_ids": ["i1"], "priority": 2, "priority_label": "Missing value", "action": null, "clause_count": 1},
+        {"finding_ids": ["i4"], "priority": 2, "priority_label": "Missing value", "action": null, "clause_count": 1},
+        {"finding_ids": ["i3"], "priority": 3, "priority_label": "Engineer to check", "action": null, "clause_count": 1}
+      ],
+      "not_on_sheet": []
+    }
+  ]
+}

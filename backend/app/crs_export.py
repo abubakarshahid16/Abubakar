@@ -26,7 +26,13 @@ from openpyxl import Workbook
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
-from .crs_mapping import ROW_KIND_SAFETY_TICK
+from .crs_mapping import (
+    PRIORITY_CARRIED_FORWARD,
+    ROW_KIND_CARRIED_FORWARD,
+    ROW_KIND_SAFETY_TICK,
+    priority_word,
+)
+from .crs_mapping import row_has_no_text as _no_text
 
 ARIAL = "Arial"
 THIN = Side(style="thin")
@@ -75,11 +81,24 @@ WIDTHS = {"A": 11.7, "B": 25.8, "C": 21.8, "D": 93.5, "E": 23.0, "F": 25.0,
 #: / submittal p1", which is not where the contractor looks.
 STANDARD_COLUMN = "Standard Reference"
 STANDARD_COLUMN_WIDTH = 26.0
-#: #725 F7: the comment's severity (the worst of the findings it groups:
-#: critical, major, minor, observation), after Standard Reference, in BOTH
-#: copies. None of the client's seven columns moves or is renamed.
-SEVERITY_COLUMN = "Severity"
-SEVERITY_COLUMN_WIDTH = 12.0
+#: Order 139 part 2 (spec f): the row's RANK, after Standard Reference, in
+#: BOTH copies (column I) - "Out of limit", "Missing value", "Engineer to
+#: check" ("Clarification" on the issue copy), "Engineer's comment",
+#: "Carried forward" (`crs_mapping.priority_word`). It replaced #725 F7's
+#: "Severity" column (ours, not one of the client's seven), which printed
+#: "minor" on 324 of 329 rows and so said nothing. A row with no rank prints
+#: nothing, never a guessed word. The row's `severity` stays in the view
+#: (back-compat) but is no longer printed.
+PRIORITY_COLUMN = "Priority"
+PRIORITY_COLUMN_WIDTH = 16.0
+#: Order 139 part 2 (spec e): what the INTERNAL copy's COMPANY Comments cell
+#: says for a row that reached the sheet with no comment text - never an
+#: empty cell. Such a row is never on the issue copy (`build_crs_view`), and
+#: the issue gate refuses a confirmed one (`crs_issue.open_items`).
+EMPTY_COMMENT_TEXT = (
+    "No comment text was produced for this row. An engineer must write it "
+    "before this row can be issued."
+)
 #: OWNER DECISION 2026-09-27 (order 2f): a NEW LAST column for the AI
 #: engineering check's unconfirmed items, so the engineer sees them on the
 #: sheet before confirming. No existing column moves or is renamed.
@@ -253,6 +272,26 @@ def _ai_column(finding: dict, copy: str) -> str:
     return text
 
 
+def _priority_of(finding: dict) -> int | None:
+    """The row's rank as the caller sent it (`crs_mapping.build_crs_rows`
+    puts one on every row it makes). A carried-forward row, appended by
+    `main._crs_content` from an earlier comment's snapshot, holds no kind to
+    rank by: its kind IS its rank (5). Any other row without one has none -
+    the Priority cell prints nothing rather than a guess."""
+    priority = finding.get("priority")
+    if isinstance(priority, int) and not isinstance(priority, bool):
+        return priority
+    if finding.get("row_kind") == ROW_KIND_CARRIED_FORWARD:
+        return PRIORITY_CARRIED_FORWARD
+    return None
+
+
+def _rank_cells(finding: dict, copy: str) -> dict:
+    """Spec f: the row's rank and the word THIS copy prints for it."""
+    priority = _priority_of(finding)
+    return {"priority": priority, "priority_label": priority_word(priority, copy)}
+
+
 def build_crs_view(findings: list[dict], meta: dict) -> dict:
     """What a CRS says, with nothing in it about how it is drawn.
 
@@ -299,6 +338,15 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
     copy = meta.get("copy") or COPY_INTERNAL
     if copy not in COPIES:
         raise ValueError(f"unknown CRS copy {copy!r}")
+
+    # ORDER 139 PART 2 (spec e): NO ROW WITH AN EMPTY COMMENT IS ISSUED. Read
+    # on the caller's text, before the "Ref:" line is added (that line alone
+    # is not a comment). The issue copy leaves such a row out and COUNTS it
+    # (`rows_withheld_no_text`), never silently; the internal copy prints
+    # EMPTY_COMMENT_TEXT in its place and marks the row `comment_missing`. A
+    # waiting sentence with no draft beside it is no text either
+    # (`crs_mapping.row_has_no_text`, #1178 review).
+    withheld_no_text = 0
     if copy == COPY_ISSUE:
         # ISSUE TO CONTRACTOR: ENGINEER-CONFIRMED ROWS ONLY (CRS quick wins,
         # audit crs.md defect 9). An unconfirmed AI item is a draft, and a
@@ -314,11 +362,16 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
                     # rule_trust: a safety tick is the engineer's own check,
                     # never a comment to the contractor - ticked or not.
                     and f.get("row_kind") != ROW_KIND_SAFETY_TICK]
+        withheld_no_text = sum(1 for f in findings if _no_text(f))
+        findings = [f for f in findings if not _no_text(f)]
 
     rows = []
     seen: set[str] = set()
     for n, finding in enumerate(findings, start=1):
+        comment_missing = _no_text(finding)
         comment = str(finding.get("comment", ""))
+        if comment_missing:
+            comment = EMPTY_COMMENT_TEXT
         ref = row_reference(run_id, finding)
         # Two DIFFERENT rows landing on one reference would let a contractor
         # answer the wrong comment. Re-mint with a salt until the sheet's
@@ -380,6 +433,10 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
             "rule_trust": (str(finding.get("rule_trust") or "")
                            if copy == COPY_INTERNAL else ""),
         })
+        # Order 139 part 2: the row's rank and this copy's word for it (spec
+        # f), and whether the caller sent no comment text (spec e; internal
+        # copy only - the issue copy never carries such a row).
+        rows[-1].update(_rank_cells(finding, copy), comment_missing=comment_missing)
 
     return {
         # Absent parts print nothing: an unset company must not leave the title starting with a blank line.
@@ -391,11 +448,15 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
         # a plausible-looking transmittal number lies about its own provenance.
         "header": [{"label": label, "value": meta.get(key, "") or ""}
                    for label, key in HEADER_FIELDS],
-        "columns": list(HEADERS) + [STANDARD_COLUMN, SEVERITY_COLUMN]
+        "columns": list(HEADERS) + [STANDARD_COLUMN, PRIORITY_COLUMN]
                    + ([AI_COLUMN, REASONING_COLUMN, TRUST_COLUMN]
                       if copy == COPY_INTERNAL else []),
         "crs_copy": copy,
         "rows": rows,
+        # Spec e: rows left off THIS copy because they had no comment text
+        # (issue copy only; 0 when none, and always 0 on the internal copy,
+        # which prints them with EMPTY_COMMENT_TEXT). Never silent.
+        "rows_withheld_no_text": withheld_no_text,
         "recommended_code": meta.get("recommended_code") or "",
         # THE ISSUE COPY CARRIES THE ENGINEER'S CODE, NOT THE MACHINE'S
         # REASONING (quick wins, defect 9): "2 standards the datasheet cites
@@ -492,7 +553,7 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         ws.column_dimensions[col].width = width
     internal = view["crs_copy"] == COPY_INTERNAL
     ws.column_dimensions["H"].width = STANDARD_COLUMN_WIDTH
-    ws.column_dimensions["I"].width = SEVERITY_COLUMN_WIDTH
+    ws.column_dimensions["I"].width = PRIORITY_COLUMN_WIDTH
     if internal:
         ws.column_dimensions["J"].width = AI_COLUMN_WIDTH
         ws.column_dimensions["K"].width = REASONING_COLUMN_WIDTH
@@ -534,7 +595,7 @@ def build_crs(findings: list[dict], meta: dict) -> bytes:
         values = [entry["item_no"], entry["document_name"],
                   entry["page_section"], comment, entry["comment_by"],
                   entry["contractor_response"], entry["final_resolution"],
-                  entry["standard_reference"], entry.get("severity", "")]
+                  entry["standard_reference"], entry.get("priority_label", "")]
         if internal:
             values.extend([entry["ai_review_comment"], entry["reasoning"],
                            entry.get("rule_trust", "")])

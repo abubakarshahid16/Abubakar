@@ -705,6 +705,223 @@ def row_severity(group: list[dict]) -> str:
     return next((s for s in SEVERITY_ORDER if s in found), "")
 
 
+# --------------------------------------------------------------------------
+# ORDER 139 PART 2 - one comment per datasheet field, a real order, no empty
+# COMPANY Comments. CONTRACT STUBS (architect, docs/order-139-part2-spec.md).
+# Builder A fills in the bodies; Builder B (crs_export, main, run_summary)
+# and Builder C (the screen, through the run summary) code against these
+# names and shapes now. Nothing calls the NotImplementedError stubs yet.
+# --------------------------------------------------------------------------
+
+#: What a finding is on the sheet, before grouping (spec section a). One
+#: bucket per row-producing branch of `build_crs_rows`; None = not a row.
+BUCKET_BREACH = "breach"  # NON_COMPLIANT against a standard
+BUCKET_BLANK = "blank"  # MISSING_INFORMATION, paired with a field
+BUCKET_NOT_FOUND = "not_found"  # MISSING_INFORMATION, no field paired
+BUCKET_CHECK = "check"  # a datasheet self-check (kind B)
+BUCKET_QUESTION = "question"  # NEEDS_ENGINEER_REVIEW (not a page note)
+BUCKET_TICK = "tick"  # a safety-tier "meets" for an engineer's tick
+BUCKET_CHAT = "chat"  # an engineer's comment filed from chat
+BUCKET_AI = "ai"  # an AI engineering check item (kind C)
+BUCKET_WEB = "web"  # a public-web standards check item (kind D)
+#: The buckets grouped ONE ROW PER DATASHEET FIELD (spec a). A finding of
+#: these buckets with no field label keeps today's one-row-per-requirement key.
+FIELD_GROUPED_BUCKETS = (BUCKET_BLANK, BUCKET_NOT_FOUND, BUCKET_QUESTION)
+
+#: The rank of a CRS row, most important first (spec f). The sheet is sorted
+#: by it, then datasheet page, then clause, then field - on screen and in the
+#: file. `priority` (int) rides on every row; the words are printed in the
+#: "Priority" column (it replaces the "Severity" column, which said "minor"
+#: on 324 of 329 rows). Never "high"/"low": a rank is not a confidence.
+PRIORITY_OUT_OF_LIMIT = 1
+PRIORITY_MISSING_VALUE = 2
+PRIORITY_ENGINEER_TO_CHECK = 3
+PRIORITY_ENGINEERS_COMMENT = 4
+PRIORITY_CARRIED_FORWARD = 5
+PRIORITY_WORDS = {
+    PRIORITY_OUT_OF_LIMIT: "Out of limit",
+    PRIORITY_MISSING_VALUE: "Missing value",
+    PRIORITY_ENGINEER_TO_CHECK: "Engineer to check",
+    PRIORITY_ENGINEERS_COMMENT: "Engineer's comment",
+    PRIORITY_CARRIED_FORWARD: "Carried forward",
+}
+#: The contractor's copy: a rank-3 row reaches it only once an engineer made
+#: it theirs, and to the contractor it is a request to clarify, not an
+#: internal to-do. Every other word is the same.
+ISSUE_PRIORITY_WORDS = {**PRIORITY_WORDS, PRIORITY_ENGINEER_TO_CHECK: "Clarification"}
+
+#: Spec e: COMPANY Comments of an UNCONFIRMED AI / web item. Plain words that
+#: the row is a suggestion awaiting an engineer - never the draft itself,
+#: which stays in "AI Review Comments" (owner order 2d/2f).
+AI_UNCONFIRMED_COMMENT = (
+    "AI suggestion awaiting an engineer's decision - its words are in "
+    "AI Review Comments. Not issued to the contractor until an engineer "
+    "confirms it."
+)
+WEB_UNCONFIRMED_COMMENT = (
+    "Web standards check suggestion awaiting an engineer's decision - its "
+    "words are in AI Review Comments. Not issued to the contractor until "
+    "an engineer confirms it."
+)
+
+#: The two waiting sentences. They are text ONLY beside the draft they point
+#: to (a row's "AI Review Comments"); anywhere else - a carried-forward
+#: snapshot, a row whose draft is gone - they say nothing true.
+WAITING_COMMENTS = frozenset({AI_UNCONFIRMED_COMMENT, WEB_UNCONFIRMED_COMMENT})
+
+
+def row_has_no_text(row: dict) -> bool:
+    """Spec e, one home (rule 8): a CRS row with no comment text a contractor
+    could be sent - an empty comment, or a waiting sentence with no draft
+    beside it. `crs_export` never issues such a row and `crs_issue` blocks
+    the issue on a confirmed one."""
+    text = str(row.get("comment") or "").strip()
+    if not text:
+        return True
+    draft = str(row.get("ai_review_comment") or "").strip()
+    return text in WAITING_COMMENTS and not draft
+
+
+#: Spec c: a grouped row lists at most this many supporting clauses, then
+#: "- and K more of these N (see Standard Reference)."
+MAX_CLAUSE_LINES = 10
+#: Spec c: each listed clause's own words are cut to this many characters.
+CLAUSE_LINE_CHARS = 160
+
+
+def priority_word(priority: int | None, copy: str = "internal") -> str:
+    """The Priority column's word for a rank, in the words of the copy
+    ("internal" or "issue"). "" for a row with no rank (a caller from before
+    ranks existed) - never a guessed word."""
+    words = ISSUE_PRIORITY_WORDS if copy == "issue" else PRIORITY_WORDS
+    return words.get(priority, "") if isinstance(priority, int) else ""
+
+
+def crs_bucket(finding: dict) -> str | None:
+    """Which row-producing branch of `build_crs_rows` this ONE finding takes
+    (a BUCKET_* constant), or None when it is never a row (rejected, a page
+    note, NOT_IN_DOCUMENT_SCOPE, NOT_APPLICABLE, a plain COMPLIANT). Per
+    finding only: the list-level rule (a datasheet check whose fact a breach
+    or blank row already names is not a row) is `crs_groups`'s."""
+    raise NotImplementedError("order 139 part 2: Builder A")
+
+
+def crs_group_key(finding: dict) -> str | None:
+    """The BASE grouping key of one finding (spec a), or None when it is not
+    a row. Field-grouped buckets with a field label:
+    "field:" + field_comment_key(bucket, label). Every other row-producing
+    finding: "req:" + a digest of today's `_group_key` parts (bucket
+    included), or "one:<finding id>" for a finding that is its own row (no
+    requirement text, a safety tick, chat, AI, web). `crs_groups` may add an
+    ":e<digest>" suffix when the findings of one base group carry different
+    engineer wordings."""
+    raise NotImplementedError("order 139 part 2: Builder A")
+
+
+def field_comment_key(bucket: str, label: str) -> str:
+    """Spec d: the PERMANENT-NUMBER key of a field-grouped row -
+    `comment_key("field group", bucket, label)`. The field and what kind of
+    row it is, never which clauses happen to raise it, which tags, or the
+    leader: a re-run that adds or drops a clause keeps the number."""
+    raise NotImplementedError("order 139 part 2: Builder A")
+
+
+def finding_member_key(finding: dict) -> str:
+    """Spec d: the per-requirement key a finding's comment had BEFORE order
+    139 part 2 (`_subject_key`) - what an earlier per-clause row's number is
+    stored under. A grouped row carries its findings' member keys
+    (`member_keys`) so `main._crs_content` can find numbers an engineer
+    already confirmed on the old per-clause rows."""
+    return _subject_key(finding)
+
+
+def row_priority(kind: str, compliance_status: str | None = None) -> int:
+    """Spec f: the rank of a row from what it is. `kind` is a BUCKET_*
+    constant for a finding row (a blank and a not-found share a row_kind but
+    not a rank), or a ROW_KIND_* for a row with no finding
+    (standard_not_cited 2, standard_not_applicable 3, carried_forward 5).
+    `compliance_status` is read only for a datasheet check (NON_COMPLIANT 1,
+    MISSING_INFORMATION 2, otherwise 3).
+
+    A kind it does not know is refused (ValueError), never given a guessed
+    rank; `ROW_KIND_MISSING_INFORMATION` is one of those on purpose - the
+    caller must say whether the field was blank or not found."""
+    if kind == BUCKET_CHECK:
+        if compliance_status == "NON_COMPLIANT":
+            return PRIORITY_OUT_OF_LIMIT
+        if compliance_status == _MISSING_INFORMATION:
+            return PRIORITY_MISSING_VALUE
+        return PRIORITY_ENGINEER_TO_CHECK
+    if kind not in _RANK_OF_KIND:
+        raise ValueError(f"no CRS rank for row kind {kind!r}")
+    return _RANK_OF_KIND[kind]
+
+
+#: Spec f: the rank of every row kind that does not depend on its status. A
+#: blank asks the contractor for a value (2); a value NOT FOUND is the
+#: system's miss until an engineer says otherwise (honesty audit 50), so it
+#: ranks with the engineer's questions (3), never with "missing value". An
+#: engineer's chat comment is theirs - the system does not know how important
+#: it is (4); a carried-forward row holds no kind to rank by (5).
+_RANK_OF_KIND = {
+    BUCKET_BREACH: PRIORITY_OUT_OF_LIMIT,
+    ROW_KIND_NON_COMPLIANT: PRIORITY_OUT_OF_LIMIT,
+    BUCKET_BLANK: PRIORITY_MISSING_VALUE,
+    ROW_KIND_STANDARD_NOT_CITED: PRIORITY_MISSING_VALUE,
+    BUCKET_NOT_FOUND: PRIORITY_ENGINEER_TO_CHECK,
+    BUCKET_QUESTION: PRIORITY_ENGINEER_TO_CHECK,
+    ROW_KIND_NEEDS_ENGINEER_REVIEW: PRIORITY_ENGINEER_TO_CHECK,
+    BUCKET_TICK: PRIORITY_ENGINEER_TO_CHECK,
+    BUCKET_AI: PRIORITY_ENGINEER_TO_CHECK,
+    BUCKET_WEB: PRIORITY_ENGINEER_TO_CHECK,
+    ROW_KIND_STANDARD_NOT_APPLICABLE: PRIORITY_ENGINEER_TO_CHECK,
+    BUCKET_CHAT: PRIORITY_ENGINEERS_COMMENT,
+    ROW_KIND_CARRIED_FORWARD: PRIORITY_CARRIED_FORWARD,
+}
+
+
+def finding_row_sort_key(priority: int, group: list[dict], key: str) -> tuple:
+    """Spec f: where a FINDING row sits on the sheet - rank first, then the
+    lowest datasheet page (none last), the leader's clause, the field as the
+    row prints it, and the row's own key. Total: the order of two rows never
+    depends on the rest of the list. `crs_groups` / the run summary order by
+    the same key so the screen and the file cannot disagree."""
+    return (priority, *_row_order(group), str(key or ""))
+
+
+#: The finding loop's row kinds whose bucket is the kind itself (a
+#: missing-information row is a blank or a not-found, read from the finding).
+_FINDING_ROW_BUCKET = {
+    ROW_KIND_NON_COMPLIANT: BUCKET_BREACH,
+    ROW_KIND_DATASHEET_CHECK: BUCKET_CHECK,
+    ROW_KIND_NEEDS_ENGINEER_REVIEW: BUCKET_QUESTION,
+}
+
+
+def _rank_row(row: dict, priority: int, group: list[dict]) -> tuple:
+    """Spec f: put the finding row's rank on it; return its place on the sheet."""
+    row["priority"] = priority
+    return finding_row_sort_key(priority, group, row["comment_key"])
+
+
+def standards_row_sort_key(priority: int, identifier: str, key: str) -> tuple:
+    """Spec f: a required-vs-cited row (no finding, no page) sorts inside its
+    rank after every finding row of that rank, by the standard's name."""
+    return (priority, 10**9, (10**6,), _fold(identifier), str(key or ""))
+
+
+def crs_groups(findings: list[dict]) -> list[dict]:
+    """THE ONE GROUPING (spec a, b, f): the finding rows of the CRS, in sheet
+    order. Each item: {"key": str (the row's group key, base + any edit
+    suffix), "bucket": str, "row_kind": str, "priority": int, "findings":
+    [finding dicts, leader first], "action": str | None (the row's first
+    line when it lists two or more clauses, else None)}. `build_crs_rows`
+    builds its finding rows from this, and the run summary sends each
+    finding's key, rank, order and action to the screen from it - so the
+    screen and the file cannot group or order differently."""
+    raise NotImplementedError("order 139 part 2: Builder A")
+
+
 def _clause_key(clause: object) -> tuple:
     return tuple(int(p) if p.isdigit() else 10 ** 6 for p in re.findall(r"\w+", str(clause or ""))) or (10 ** 6,)
 
@@ -755,6 +972,9 @@ def standards_check_rows(check: dict | None, submittal_name: str) -> list[dict]:
             "engineer_confirmed": False,
             "comment_key": comment_key("standard not applicable", standard_ids.key(ident)),
         })
+    # Order 139 part 2 (spec f): not referenced 2, not applicable 3.
+    for row in rows:
+        row["priority"] = row_priority(row["row_kind"])
     return rows
 
 
@@ -780,15 +1000,23 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
         carries - `crs_export` drops the rest there, so an AI draft or an
         internal question never leaves the building.
 
-    Order: breaches, then values left blank, then values not found, then
-    datasheet self-checks, then the engineer's open questions, then the
-    engineer's own chat comments, then AI/web check items.
+    ORDER (order 139 part 2, spec f): BY RANK, most important first - out of
+    limit (1), missing value (2), engineer to check (3), the engineer's own
+    chat comments (4) - then by datasheet page, clause and field
+    (`finding_row_sort_key`); the required-vs-cited rows sort inside their
+    rank after its finding rows. Every row carries its `priority`; the
+    Priority column prints its word. The kind of row no longer decides the
+    order: a blank on p.1 comes before a datasheet check's missing value on
+    p.3, both rank 2. Carried-forward rows (rank 5) are appended last by
+    `main._crs_content`.
 
     Never rows: rejected findings; UNREAD_PAGES and PAGE_READER_ONLY
     questions and NOT_IN_DOCUMENT_SCOPE (all Review notes, B3/2f); a
     COMPLIANT result.
     """
     rows: list[dict] = []
+    #: order 139 part 2: rows[i]'s place on the sheet (`finding_row_sort_key`)
+    sort_keys: list[tuple] = []
     findings = [f for f in findings if not _rejected(f)]
     standard = [f for f in findings
                 if f.get("origin") not in (_DATASHEET_ORIGIN, _AI_ORIGIN, _WEB_ORIGIN, "chat")]
@@ -813,8 +1041,14 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                          (ROW_KIND_MISSING_INFORMATION, not_found),
                          (ROW_KIND_DATASHEET_CHECK, checks),
                          (ROW_KIND_NEEDS_ENGINEER_REVIEW, questions)):
-        for group in sorted(_grouped(bucket), key=_row_order):
+        # Order 139 part 2: no per-bucket sort - the sheet's order is set
+        # once, at the end, over every row kind (`finding_row_sort_key`).
+        for group in _grouped(bucket):
             f = group[0]
+            # Spec f: a blank and a not-found share `row_kind`, not a rank.
+            rank_kind = _FINDING_ROW_BUCKET.get(kind) or (
+                BUCKET_BLANK if paired(f) else BUCKET_NOT_FOUND
+            )
             machine = _finding_text(f)  # 95 6b: kept as ai_comment
             if kind != ROW_KIND_DATASHEET_CHECK:
                 machine = engineer_comment_text(group)
@@ -845,6 +1079,8 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                 # rule_trust (#947): who stands behind the rule, in words.
                 "rule_trust": trust_words(f),
             })
+            rank = row_priority(rank_kind, f.get("compliance_status"))
+            sort_keys.append(_rank_row(rows[-1], rank, group))
 
     # rule_trust (#947 step 8): SAFETY-TIER COMPLIANT, SHOWN FOR A TICK. The
     # rule decided "meets the standard" on its own; because the field is a
@@ -868,6 +1104,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             "reasoning": reasoning_text([f]),
             "rule_trust": trust_words(f),
         })
+        sort_keys.append(_rank_row(rows[-1], row_priority(BUCKET_TICK), [f]))
 
     # An engineer's own comments, filed from chat: individual comments to the
     # contractor, the engineer's rather than the machine's.
@@ -890,6 +1127,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             # An engineer's own free-text comment IS its subject.
             "comment_key": finding_comment_key(f),
         })
+        sort_keys.append(_rank_row(rows[-1], row_priority(BUCKET_CHAT), [f]))
 
     # Owner order 2d/2f and 2d-2: AI engineering check (kind C) and public-web
     # standards check (kind D) items. Neither is ever a verdict - a question
@@ -921,11 +1159,18 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
         # engineer confirms it, never blank.
         unconfirmed_by = _AI_UNCONFIRMED_BY if origin == _AI_ORIGIN else _WEB_UNCONFIRMED_BY
         row_kind = ROW_KIND_AI_ENGINEERING_CHECK if origin == _AI_ORIGIN else ROW_KIND_WEB_STANDARD_CHECK
+        # Order 139 part 2 (spec e): COMPANY Comments is NEVER EMPTY. An
+        # unconfirmed item's cell says, in plain words, that it is a suggestion
+        # awaiting an engineer and where its words are - never the draft
+        # itself, which stays in "AI Review Comments" (owner order 2d/2f).
+        unconfirmed_comment = (
+            AI_UNCONFIRMED_COMMENT if origin == _AI_ORIGIN else WEB_UNCONFIRMED_COMMENT
+        )
         rows.append({
             "finding_id": f.get("id") or "",
             "document_name": submittal_name,
             "page_section": where,
-            "comment": text if confirmed else "",
+            "comment": text if confirmed else unconfirmed_comment,
             "comment_by": (f"{confirmed_by_prefix}{f.get('confirmed_by_name') or f['confirmed_by']}"
                            if confirmed else unconfirmed_by),
             "ai_review_comment": "" if confirmed else text,
@@ -939,13 +1184,21 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             # R30: the chain behind the item (internal copy only).
             "reasoning": reasoning_text([f]),
         })
+        rank = row_priority(BUCKET_AI if origin == _AI_ORIGIN else BUCKET_WEB)
+        sort_keys.append(_rank_row(rows[-1], rank, [f]))
 
     # #754 F5b: the required-vs-cited result, one row per standard.
     rows.extend(standards_check_rows(standards_check, submittal_name))
+    sort_keys.extend(
+        standards_row_sort_key(r["priority"], r["standard_reference"], r["comment_key"])
+        for r in rows[len(sort_keys) :]
+    )
 
     # OWNER ORDER 2f: THE INTERNAL NOTES LEFT THIS SHEET. Requirements that
     # need another document, pages not yet read, values the page reader did
     # not find, and cited standards not in the library are the ENGINEER'S
     # to-do list - the "Review notes" sheet (`build_review_notes`), which the
     # contractor's copy does not carry.
-    return rows
+    # Order 139 part 2 (spec f): THE SHEET'S ORDER IS ITS RANK. Every row
+    # kind sorts on one key, so "out of limit" is never below 300 questions.
+    return [rows[i] for i in sorted(range(len(rows)), key=sort_keys.__getitem__)]

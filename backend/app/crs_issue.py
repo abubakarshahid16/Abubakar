@@ -37,6 +37,7 @@ from pathlib import Path
 
 from . import page_ledger
 from .config import settings
+from .crs_mapping import ROW_KIND_SAFETY_TICK, row_has_no_text
 from .db import connect
 
 PAGE, FINDING = "page", "finding"
@@ -58,6 +59,26 @@ REMOVAL_REASONS = {
 NO_PAGE_COVERAGE = (
     "no page coverage is recorded for this run, so no page can be called read"
 )
+
+
+def no_text_blocker(n: int) -> str:
+    """Order 139 part 2 (spec e): the blocker for confirmed rows that would
+    reach the contractor with an empty COMPANY Comments cell."""
+    return f"{n} confirmed comment(s) on the sheet have no text"
+
+
+def _issued_without_text(row: dict) -> bool:
+    """A row the issue copy would carry (`crs_export.build_crs_view`: an
+    engineer confirmed it, it is not rejected, not a safety tick and not an
+    AI draft) whose comment text is empty. The export leaves such a row out
+    as a last guard; this gate is what normally stops it."""
+    return (
+        row.get("engineer_confirmed") is True
+        and not row.get("engineer_rejected")
+        and row.get("row_kind") != ROW_KIND_SAFETY_TICK
+        and not str(row.get("ai_review_comment") or "").strip()
+        and row_has_no_text(row)
+    )
 
 
 class IssueError(ValueError):
@@ -240,6 +261,11 @@ def open_items(
         blockers.append(
             f"{len(findings)} finding(s) on the sheet have no engineer's decision"
         )
+    # Order 139 part 2 (spec e): every line issued has plain text, or is not
+    # issued - a confirmed row with an empty comment blocks the issue.
+    no_text = sum(1 for row in rows if _issued_without_text(row))
+    if no_text:
+        blockers.append(no_text_blocker(no_text))
     return {
         "unread_pages": unread,
         "checked_pages": checked_pages,
