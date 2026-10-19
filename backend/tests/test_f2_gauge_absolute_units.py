@@ -87,7 +87,9 @@ def test_a_gauge_value_against_an_absolute_limit_goes_to_an_engineer_with_the_re
     assert "gauge" in verdict["rationale"] and "absolute" in verdict["rationale"]
     assert "atmospheric pressure is not recorded" in verdict["rationale"]
     # where no conversion is possible the reason is still named (`_reference_obstacle`)
-    why = comparison._reference_obstacle(claims.normalise("340", "psig"), claims.normalise("24", "bara"))
+    why = comparison._reference_obstacle(
+        claims.normalise("340", "psig"), claims.normalise("24", "bara")
+    )
     assert why and "gauge" in why and "absolute" in why
 
 

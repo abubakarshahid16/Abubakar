@@ -16,6 +16,7 @@ honest reading gives the same answer:
 Different quantities (a length against a temperature) stay uncompared.
 Invented values only.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -24,15 +25,31 @@ from app import claims, comparison, datasheet_checks
 
 
 def _requirement(value: str, unit: str, operator: str = "<=") -> dict:
-    return {"id": "r", "standard_document_id": None, "requirement_type": "numeric_limit",
-            "requirement_text": "An invented limit.", "operator": operator,
-            "raw_value": value, "raw_unit": unit, "field": "design temperature", "exceptions": []}
+    return {
+        "id": "r",
+        "standard_document_id": None,
+        "requirement_type": "numeric_limit",
+        "requirement_text": "An invented limit.",
+        "operator": operator,
+        "raw_value": value,
+        "raw_unit": unit,
+        "field": "design temperature",
+        "exceptions": [],
+    }
 
 
 def _fact(value: str, unit: str) -> dict:
-    return {"id": "f", "document_id": None, "field_name": "design temperature",
-            "field_label": "Design temperature", "field_value": f"{value} {unit}",
-            "raw_value": value, "raw_unit": unit, "is_blank": 0, "blank_marker": None}
+    return {
+        "id": "f",
+        "document_id": None,
+        "field_name": "design temperature",
+        "field_label": "Design temperature",
+        "field_value": f"{value} {unit}",
+        "raw_value": value,
+        "raw_unit": unit,
+        "is_blank": 0,
+        "blank_marker": None,
+    }
 
 
 def _status(limit: tuple, value: tuple) -> str:
@@ -43,10 +60,15 @@ def _why(limit: tuple, value: tuple) -> str:
     return comparison.compare(_requirement(*limit), _fact(*value))["rationale"]
 
 
-C, NC, ENG = comparison.COMPLIANT, comparison.NON_COMPLIANT, comparison.NEEDS_ENGINEER_REVIEW
+C, NC, ENG = (
+    comparison.COMPLIANT,
+    comparison.NON_COMPLIANT,
+    comparison.NEEDS_ENGINEER_REVIEW,
+)
 
 
 # ------------------------------------------------------------ temperatures
+
 
 def test_a_fahrenheit_limit_and_a_celsius_value_are_compared():
     # 300 °F is 148.9 °C
@@ -74,7 +96,7 @@ def test_a_converted_value_at_the_limit_goes_to_an_engineer_not_a_verdict():
     verdict = comparison.compare(_requirement("650", "°F"), _fact("343", "°C"))
     assert verdict["status"] == ENG
     assert "printed precision" in verdict["rationale"]
-    assert _status(("650", "°F"), ("340", "°C")) == C          # control: clear of the limit
+    assert _status(("650", "°F"), ("340", "°C")) == C  # control: clear of the limit
     # the other direction: 149.9 °C is 301.82 °F, and "302 °F" is printed to 0.5
     other = comparison.compare(_requirement("149.9", "°C", ">="), _fact("302", "°F"))
     assert other["status"] == ENG and "printed precision" in other["rationale"]
@@ -110,12 +132,13 @@ def test_fahrenheit_and_celsius_readings_that_disagree_go_to_an_engineer():
 
 # --------------------------------------------------------------- pressures
 
+
 def test_psi_bar_and_kpa_are_compared():
-    assert _status(("10", "bar"), ("140", "psi")) == C           # 9.65 bar
-    assert _status(("10", "bar"), ("150", "psi")) == NC          # 10.34 bar
+    assert _status(("10", "bar"), ("140", "psi")) == C  # 9.65 bar
+    assert _status(("10", "bar"), ("150", "psi")) == NC  # 10.34 bar
     assert _status(("1000", "kPa"), ("10.5", "bar")) == NC
     assert _status(("1", "MPa"), ("950", "kPa")) == C
-    assert _status(("10", "bar"), ("1000", "kPa")) == C          # exactly the limit
+    assert _status(("10", "bar"), ("1000", "kPa")) == C  # exactly the limit
 
 
 def test_a_pressure_converted_near_its_limit_goes_to_an_engineer():
@@ -146,7 +169,7 @@ def test_an_absolute_limit_and_a_gauge_value_the_atmosphere_decides_go_to_an_eng
 
 def test_an_absolute_value_against_a_limit_with_no_reference_is_still_not_compared():
     """Only a STATED reference on both sides is converted (R32 stays)."""
-    for limit in (("10", "bar"), ("1000", "kPa")):            # one unit, and two
+    for limit in (("10", "bar"), ("1000", "kPa")):  # one unit, and two
         verdict = comparison.compare(_requirement(*limit), _fact("5", "bara"))
         assert verdict["status"] == ENG
         assert "no reference" in verdict["rationale"]
@@ -154,40 +177,56 @@ def test_an_absolute_value_against_a_limit_with_no_reference_is_still_not_compar
 
 # ----------------------------------------------------------------- lengths
 
+
 def test_inches_and_millimetres_are_compared():
     assert _status(("2", "in"), ("50", "mm")) == C
     assert _status(("2", "in"), ("52", "mm")) == NC
-    assert _status(("2", "in"), ("51", "mm")) == ENG             # 50.8 mm, within the printing
+    assert _status(("2", "in"), ("51", "mm")) == ENG  # 50.8 mm, within the printing
 
 
 # --------------------------------------------------- different quantities
+
 
 def test_different_quantities_stay_uncompared():
     verdict = comparison.compare(_requirement("10", "mm"), _fact("5", "°C"))
     assert verdict["status"] == ENG
     assert "no conversion is guessed" in verdict["rationale"]
-    assert claims.compare_across_units(claims.normalise("5", "°C"), claims.normalise("10", "mm")) is None
+    assert (
+        claims.compare_across_units(
+            claims.normalise("5", "°C"), claims.normalise("10", "mm")
+        )
+        is None
+    )
 
 
 def _guard(requirement_unit: str, fact_unit: str) -> bool:
     """The unit guard as `run_comparison` and the candidate filter call it."""
     requirement = {"raw_value": "300", "raw_unit": requirement_unit, "operator": "<="}
     fact = {"raw_value": "140", "raw_unit": fact_unit, "is_blank": 0}
-    return comparison._units_comparable(requirement, fact, comparison._unit_measure(requirement),
-                                        comparison._unit_measure(fact))
+    return comparison._units_comparable(
+        requirement,
+        fact,
+        comparison._unit_measure(requirement),
+        comparison._unit_measure(fact),
+    )
 
 
-@pytest.mark.parametrize("left,right", [("°F", "°C"), ("°C", "°F"), ("K", "°C"), ("degF", "K")])
+@pytest.mark.parametrize(
+    "left,right", [("°F", "°C"), ("°C", "°F"), ("K", "°C"), ("degF", "K")]
+)
 def test_the_run_unit_guard_lets_two_temperature_scales_through(left, right):
     assert _guard(left, right) is True
 
 
-@pytest.mark.parametrize("left,right", [("mm", "°C"), ("°F", "psi"), ("dB(A)", "dB"), ("years", "hours")])
+@pytest.mark.parametrize(
+    "left,right", [("mm", "°C"), ("°F", "psi"), ("dB(A)", "dB"), ("years", "hours")]
+)
 def test_the_run_unit_guard_still_refuses_different_quantities(left, right):
     assert _guard(left, right) is False
 
 
 # --------------------------------------------------------------- one home
+
 
 def test_the_api520_calculations_read_the_same_temperature_table_and_atmosphere():
     assert datasheet_checks._TEMPERATURE is claims.TEMPERATURE_SCALES
