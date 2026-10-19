@@ -9,7 +9,9 @@
  * while the run is queued or running. Once the run has shown, a read that
  * fails keeps the last good data (`refreshError` says so) instead of
  * replacing the screen with an error. Rows are built with `buildCrsRows`,
- * exactly as the comment sheet builds them.
+ * exactly as the comment sheet builds them, grouped as the server's run
+ * summary groups them (order 139 part 2); a failed summary read keeps the
+ * run's last good summary.
  *
  * v2.1 round 2: once the run names its document, the document's reviews are
  * read ONCE (`reviewsApi.reviewRuns(documentId)`), so the screen can say
@@ -21,7 +23,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api, reviews as reviewsApi } from "../../../api/client";
 import type { DocumentRecord, ReviewFinding, ReviewReadiness, ReviewRunSummary, ReviewRunTierSummary } from "../../../types/api";
-import { buildCrsRows } from "../crs/crsRows";
+import { buildCrsRows, serverGroupsOf, serverNoteCount } from "../crs/crsRows";
 import { runFactsOf, serverTiersOf } from "../crs/tiers";
 import type { StandardsState, WorkspaceLoad, WorkspaceRunData } from "./contract";
 import { plainErrorText } from "./plainError";
@@ -48,6 +50,9 @@ export interface WorkspaceRunState extends WorkspaceRunData {
   /** The newest review of the same document started after this one (not a
    *  failed or cancelled one); null when there is none or it is not known. */
   newerRun?: ReviewRunSummary | null;
+  /** Order 139 part 2: how many findings the file lists in its Review notes
+   *  instead of as rows (`serverNoteCount`); 0 without a server grouping. */
+  serverNotes?: number;
 }
 
 /** Statuses of a review that never made a sheet: a newer one of these does
@@ -105,7 +110,10 @@ export function useWorkspaceRun(runId: string): WorkspaceRunState {
     setRefreshError(null);
     setRun(found);
     setFindings(listed.data.findings);
-    setSummary(sum.ok ? sum.data : null);
+    // Order 139 part 2: a failed summary read keeps this run's last good
+    // summary, so the rows do not flip between the file's grouping and one
+    // row per finding under the engineer's open decisions.
+    setSummary((prev) => (sum.ok ? sum.data : prev?.review_run_id === runId ? prev : null));
     setStandardsState(stds.ok
       ? { standards: stds.data.standards, missing: stds.data.missing_references ?? [], error: null }
       : { standards: null, missing: [], error: plainErrorText(COULD_NOT_READ_STANDARDS, stds) });
@@ -162,10 +170,14 @@ export function useWorkspaceRun(runId: string): WorkspaceRunState {
     ? null : standardsState.missing.map((m) => m.identifier)), [standardsState]);
   const facts = useMemo(() => runFactsOf(run, standardsState.standards, standardsState.missing), [run, standardsState]);
   const server = useMemo(() => (summary ? serverTiersOf(summary.rows) : null), [summary]);
-  const rows = useMemo(() => buildCrsRows(findings, facts, standardNames, server), [findings, facts, standardNames, server]);
+  // Order 139 part 2: the file's rows, as the server grouped them.
+  const groups = useMemo(() => serverGroupsOf(summary), [summary]);
+  const rows = useMemo(
+    () => buildCrsRows(findings, facts, standardNames, server, groups), [findings, facts, standardNames, server, groups]);
+  const serverNotes = useMemo(() => serverNoteCount(findings, groups), [findings, groups]);
 
   return {
     load, run, findings, rows, standardsState, missingStandardIds, standardNames, submittal, summary, readiness, active, refresh,
-    refreshError, documentRuns, newerRun,
+    refreshError, documentRuns, newerRun, serverNotes,
   };
 }

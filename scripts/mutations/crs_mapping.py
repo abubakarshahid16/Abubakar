@@ -29,7 +29,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         path=APP / "crs_mapping.py",
         # Re-anchored 2026-09-27 (CRS quick wins): the summary row became one
         # row per requirement no field answered (the `not_found` bucket).
-        anchor="                         (ROW_KIND_MISSING_INFORMATION, not_found),\n",
+        anchor="        (ROW_KIND_MISSING_INFORMATION, not_found),\n",
         replacement="",
         target="tests/test_crs_mapping.py",
         keyword="breaches_come_first_then_missing_values",
@@ -44,8 +44,9 @@ MUTATIONS: tuple[Mutation, ...] = (
                     "contractor comment again (B3)",
         path=APP / "crs_mapping.py",
         # Re-anchored 2026-09-26: the line also excludes PAGE_READER_ONLY (M1023).
-        anchor="                and not _unread(f) and not _page_reader_only(f)]\n",
-        replacement="                and not _page_reader_only(f)]\n",
+        # Re-anchored 2026-10-19 (order 139 part 2): `_bucket_of` decides it.
+        anchor="        if not _unread(f) and not _page_reader_only(f):\n",
+        replacement="        if not _page_reader_only(f):\n",
         # Re-targeted 2026-10-01: the test was renamed (the one summary is now a
         # Review note), so the old keyword selected nothing.
         target="tests/test_b3_crs_unread_pages.py",

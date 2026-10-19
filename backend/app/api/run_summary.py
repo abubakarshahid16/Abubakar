@@ -9,6 +9,7 @@ of many runs, from the same helper as the summary's.
 
 from __future__ import annotations
 
+import logging
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -103,9 +104,11 @@ class TierRow(BaseModel):
     #: (`crs_mapping.crs_groups`); findings sharing it are ONE row on screen
     #: and in the file. Null: not a row of the CRS, or not computed (/counts)
     crs_group: str | None = None
-    #: order 139 part 2: the row's rank, 1 first (`crs_mapping.PRIORITY_WORDS`)
+    #: order 139 part 2 section f (a separate change): the row's rank, 1 first
+    #: (`crs_mapping.PRIORITY_WORDS`); not sent yet - null until that change
     crs_priority: int | None = None
-    #: order 139 part 2: the rank's word, as the internal copy prints it
+    #: order 139 part 2 section f: the rank's word, as the internal copy is to
+    #: print it; null until that change
     crs_priority_label: (
         Literal[
             "Out of limit", "Missing value", "Engineer to check", "Engineer's comment"
@@ -116,9 +119,18 @@ class TierRow(BaseModel):
     #: this run's finding rows - the file's order
     crs_order: int | None = None
     #: order 139 part 2: the row's first line as the file prints it ("Contractor
-    #: to provide Corrosion allowance."), on a row listing two or more clauses;
-    #: null on a row of one clause, whose words are the finding's own
+    #: to provide Corrosion allowance."), on a field row asking two or more
+    #: things (clauses, or requirements of one clause); null on a row whose
+    #: one sentence is the finding's own
     crs_action: str | None = None
+    #: order 139 part 2: true on a finding that would be a comment but that
+    #: the CRS file put on NO row - a standard's engineer-to-check finding
+    #: counted in the file's Review notes (an unread page, a value only the
+    #: page reader looked for, a requirement with no datasheet field), or a
+    #: datasheet check about a value a breach or blank row already raises.
+    #: The screen shows it as a note, never as a comment to decide. Null
+    #: otherwise
+    crs_note: bool | None = None
 
 
 class StandardClauses(BaseModel):
@@ -269,7 +281,17 @@ def review_run_summary(
             detail=errors.safe_error(errors.NOT_FOUND, "no review run with that id"),
         )
     tiers, outcome, split, timed_out = _tiers(review_run_id, allowed)
-    _attach_crs_priority(tiers["rows"], review_run_id, allowed)
+    # Order 139 part 2: the CRS row each finding lands on, its place in the
+    # sheet's order and its action line - computed HERE only, never in
+    # `_tiers` (`/counts` asks for up to 200 runs and needs none of it).
+    grouping = crs_fields(review_run_id, allowed)
+    if grouping is not None:
+        tiers = {
+            **tiers,
+            "rows": [
+                {**row, **grouping.get(row["finding_id"], {})} for row in tiers["rows"]
+            ],
+        }
     steps = (
         ai_numbers_mod.for_run(
             outcome,
@@ -286,6 +308,7 @@ def review_run_summary(
         "status": run.get("status") or "pending",
         "boundary": BOUNDARY,
         **tiers,
+        "crs_grouping": grouping is not None,
         "how_reviewed": {
             "requirement_split": split,
             "page_coverage": outcome.get("page_coverage"),
@@ -375,35 +398,84 @@ def review_run_detail(
     return main_mod._run_summary(run, scope)
 
 
-def crs_priorities(findings: list[dict]) -> dict[str, int]:
-    """Order 139 part 2 (spec f): {finding id: the rank of the CRS row it
-    lands on}, from `crs_mapping.build_crs_rows` - the function the file is
-    built from, so the screen's rank word is the Priority column's. A finding
-    that is no row of the sheet (met, not applicable, a page note, rejected,
-    a datasheet check another row already names) is absent: no rank, never a
-    guessed one."""
-    out: dict[str, int] = {}
-    for row in crs_mapping_mod.build_crs_rows(findings, [], ""):
-        ids = row.get("finding_ids") or (
-            [row["finding_id"]] if row.get("finding_id") else []
-        )
+def crs_row_fields(rows: list[dict], findings: list[dict]) -> dict[str, dict]:
+    """{finding id: {crs_group, crs_order, crs_action, crs_priority,
+    crs_priority_label}} from the CRS rows
+    `crs_mapping.build_crs_rows` built: the group key of the row the finding
+    lands on, the row's place (0 first) among the sheet's FINDING rows in
+    the sheet's own order, and its action line. The rows are the file's, so
+    the screen groups and orders exactly as the file does (spec b).
+
+    A finding on NO row that would otherwise be a comment is {crs_note: True}:
+    a standard's NEEDS_ENGINEER_REVIEW finding (the file counts it in its
+    Review notes: unread page, page reader only, no datasheet field), or a
+    finding `crs_mapping.crs_bucket` gives a row kind that the list-level
+    rule left off (a datasheet check about a value a breach or blank row
+    already raises). Read from the rows the file actually built, never from
+    a second copy of the rules that decide it, so it stays true whichever
+    rule moves a finding off the rows. Any other finding on no row (met, not
+    applicable, rejected) is absent."""
+    out: dict[str, dict] = {}
+    order = 0
+    for row in rows:
+        group = row.get("crs_group")
+        if not group:
+            continue  # a row with no finding (standards check, carried forward)
+        ids = row.get("finding_ids") or [row.get("finding_id")]
         for finding_id in ids:
-            out.setdefault(finding_id, row["priority"])
+            if finding_id:
+                fields = {
+                    "crs_group": group,
+                    "crs_order": order,
+                    "crs_action": row.get("crs_action"),
+                }
+                # Spec f: the row's rank, from the SAME build, so the screen's
+                # rank word is the Priority column's. A row with no rank (a
+                # server that sent none) leaves the fields out: never a guess.
+                rank = row.get("priority")
+                if rank is not None:
+                    fields["crs_priority"] = rank
+                    fields["crs_priority_label"] = crs_mapping_mod.priority_word(rank) or None
+                out.setdefault(finding_id, fields)
+        order += 1
+    for f in findings:
+        if (
+            f.get("id")
+            and f["id"] not in out
+            and f.get("approval_status") != "rejected"
+            and (
+                (
+                    not f.get("origin")
+                    and f.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"
+                )
+                or crs_mapping_mod.crs_bucket(f) is not None
+            )
+        ):
+            out[f["id"]] = {"crs_note": True}
     return out
 
 
-def _attach_crs_priority(rows: list[dict], review_run_id: str, allowed) -> None:
-    """`crs_priority` / `crs_priority_label` on each tier row whose finding is
-    a row of the CRS. `/summary` only: `/counts` (up to 200 runs) never pays
-    for building the sheet."""
-    findings = comparison_mod.list_findings(review_run_id, allowed_document_ids=allowed)
-    ranks = crs_priorities(findings)
-    for row in rows:
-        rank = ranks.get(row.get("finding_id"))
-        if rank is None:
-            continue
-        row["crs_priority"] = rank
-        row["crs_priority_label"] = crs_mapping_mod.priority_word(rank) or None
+def crs_fields(review_run_id: str, allowed) -> dict[str, dict] | None:
+    """The run's findings through the ONE grouping the CRS file uses, over
+    the same findings and context `main._crs_content` reads. None when it
+    could not be computed (logged with the run id only): the summary then
+    says `crs_grouping: false` and the screen shows one row per finding and
+    says so - never a grouping of its own."""
+    try:
+        findings = comparison_mod.list_findings(
+            review_run_id, allowed_document_ids=allowed
+        )
+        comparison_mod.attach_crs_context(findings)
+        return crs_row_fields(
+            crs_mapping_mod.build_crs_rows(findings, [], ""), findings
+        )
+    except Exception:  # the tiers still answer; the screen says grouping is missing
+        logging.getLogger(__name__).warning(
+            "run summary: CRS grouping for run %s not computed",
+            review_run_id,
+            exc_info=True,
+        )
+        return None
 
 
 def _facts(

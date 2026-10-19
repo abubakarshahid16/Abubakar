@@ -131,6 +131,10 @@ describe("CrsSheetView", () => {
       })),
       f("nf", { contractor_page: 2, finding: "no_field_matched: the datasheet has no row for this value" }),
     ];
+    // order 139 part 2: the server's grouping (the file's rows) makes the 13 blanks one row.
+    reviewRunSummary.mockResolvedValue({ ok: true, data: summaryOf(findings.map((x) => ({
+      finding_id: x.id, tier: "B", label: "Comment", crs_group: x.id === "nf" ? "nf" : "field:k", crs_order: x.id === "nf" ? 1 : 0,
+    })), { crs_grouping: true }) });
     mount();
     // 13 blanks make one row, plus one more: 2 rows on the table, 14 findings behind them.
     expect(await screen.findByTestId("crs-headline")).toHaveTextContent(/^2 comments \(14 findings\)/);

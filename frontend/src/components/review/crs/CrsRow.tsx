@@ -9,6 +9,7 @@
 import { memo, useEffect, useRef, useState } from "react";
 
 import type { CrsRow as Row } from "./crsRows";
+import { SupportingClauses } from "./SupportingClauses";
 import { type Decision, REMOVE_REASONS, type RemoveReason, decisionWords, wordingOf } from "./useCrsDecisions";
 
 export type RowMode = "edit" | "remove" | null;
@@ -81,7 +82,10 @@ export const CrsRow = memo(function CrsRow(props: CrsRowProps) {
       ) : (
         <>
           <td className={`px-2 py-2 text-sm text-slateish-200 ${removed ? "line-through" : ""}`}>{words.observation}</td>
-          <td className={`px-2 py-2 text-sm text-slateish-100 ${removed ? "line-through" : ""}`}>{words.requiredAction}</td>
+          <td className={`px-2 py-2 text-sm text-slateish-100 ${removed ? "line-through" : ""}`}>
+            {words.requiredAction}
+            <SupportingClauses row={row} />
+          </td>
         </>
       )}
       <td className="px-2 py-2 text-sm text-slateish-300" data-testid="row-status">{decisionWords(decision, row)}</td>
