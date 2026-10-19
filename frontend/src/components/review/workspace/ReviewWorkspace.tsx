@@ -22,7 +22,10 @@
  * issueConfirmed -> issueContractorCopy. Leaving asks through the app's one
  * in-page guard (`leaveGuard`, useLeaveGuard), never window.confirm. Every
  * "Review again" (header and missing standards panel) uses the same rule,
- * useReviewAgain.
+ * useReviewAgain. None of them is handed the runs list this screen read on
+ * opening: a final code recorded or a signature made since would make that
+ * list say "nothing decided" and start a fresh review without asking, so
+ * each press reads the document's latest review again (loadPriorDecision).
  *
  * v2.1 round 2 (F1):
  *  - A signed review is READ ONLY: no decision panel, no Keep / Edit /
@@ -160,10 +163,10 @@ function dayOf(value: string | null | undefined): string {
  *  states and words CrsSheetView shows. A run that did not finish (failed,
  *  cancelled or unknown) says why in plain words and offers "New review",
  *  so a document whose last review did not finish is never a dead end. */
-function RunNotReady({ run, active, onBack, onChanged, onOpenRun, openRun, beforeStart, isAdmin, runs }: {
+function RunNotReady({ run, active, onBack, onChanged, onOpenRun, openRun, beforeStart, isAdmin }: {
   run: ReviewRunSummary; active: boolean; onBack: () => void; onChanged: () => void;
   onOpenRun: (runId: string) => void; openRun: (runId: string) => void; beforeStart: (go: () => void) => void;
-  isAdmin?: boolean; runs?: ReviewRunSummary[];
+  isAdmin?: boolean;
 }) {
   return (
     <section className="mx-auto w-full max-w-7xl space-y-3" aria-labelledby="ws-title" data-testid="review-workspace">
@@ -181,7 +184,7 @@ function RunNotReady({ run, active, onBack, onChanged, onOpenRun, openRun, befor
           <p role="alert" data-testid="ws-not-finished" className="text-danger-500">{notFinishedWords(run)}</p>
           {run.submittal_document_id && isAdmin !== false && (
             <ReviewAgainButton documentId={run.submittal_document_id} filename={run.submittal_filename} label="New review"
-              runs={runs} beforeStart={beforeStart} onStarted={onOpenRun} onOpenRun={openRun} />
+              beforeStart={beforeStart} onStarted={onOpenRun} onOpenRun={openRun} />
           )}
           {run.submittal_document_id && isAdmin === false && (
             <p className="text-sm text-slateish-400">Only an administrator can start a review.</p>
@@ -215,7 +218,6 @@ export function ReviewWorkspace({
   const view = useViewMode();
   const data = useWorkspaceRun(runId);
   const { load, run, findings, rows, standardsState, missingStandardIds, standardNames, submittal, summary, readiness, active, refresh, refreshError } = data;
-  const documentRuns = data.documentRuns ?? undefined;
   const newerRun = data.newerRun ?? null;
   const decisions = useCrsDecisions();
   // The issue gate, read exactly as the comment sheet reads it (again
@@ -401,7 +403,7 @@ export function ReviewWorkspace({
       <>
         {leaveQuestion}
         <RunNotReady run={run} active={active} onBack={leave} onChanged={() => void refresh()} onOpenRun={onOpenRun}
-          openRun={openRun} beforeStart={beforeLeave} isAdmin={isAdmin} runs={documentRuns} />
+          openRun={openRun} beforeStart={beforeLeave} isAdmin={isAdmin} />
         {refreshLine}
       </>
     );
@@ -430,7 +432,7 @@ export function ReviewWorkspace({
         <ViewModeSwitch mode={view.mode} onMode={view.setMode} />
         {run.submittal_document_id && isAdmin !== false && (
           <ReviewAgainButton documentId={run.submittal_document_id} filename={run.submittal_filename}
-            runs={documentRuns} beforeStart={beforeLeave} onStarted={onOpenRun} onOpenRun={openRun} />
+            beforeStart={beforeLeave} onStarted={onOpenRun} onOpenRun={openRun} />
         )}
         {run.submittal_document_id && isAdmin === false && (
           <span data-testid="ws-review-again-admin-only" className="text-xs text-slateish-400">
@@ -439,9 +441,9 @@ export function ReviewWorkspace({
         )}
       </header>
       <ReviewHelpLine words={reviewHelpWords(numbers, steps)} />
-      {run.submittal_document_id && documentRuns && documentRuns.length > 1 && (
+      {run.submittal_document_id && data.documentRuns && data.documentRuns.length > 1 && (
         <div data-testid="ws-past-reviews">
-          <PastReviewsButton documentId={run.submittal_document_id} runs={documentRuns}
+          <PastReviewsButton documentId={run.submittal_document_id} runs={data.documentRuns}
             onOpenRun={openRun} currentRunId={runId} />
         </div>
       )}
@@ -477,7 +479,10 @@ export function ReviewWorkspace({
         runId={runId} open={signOffRaw.confirmOpen} onClose={signOffRaw.closeConfirm}
         onIssued={() => { void issueGate.reload(); }}
         summary={{ comments: numbers.comments, finalCode: numbers.finalCode, signer: signer.name, signInOff: signer.signInOff }}
-        newerReview={newerRun ? { at: newerAt || null } : null}
+        // Not known whether a newer review exists (the document's reviews
+        // could not be read, or not yet): the step asks before issuing.
+        newerReview={newerRun ? { at: newerAt || null }
+          : run?.submittal_document_id && data.documentRuns == null ? "unknown" : null}
       />
 
       <WorkspaceTabs tab={tab} onTab={onTab} mode={view.mode}>

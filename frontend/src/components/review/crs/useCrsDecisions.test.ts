@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReviewFinding } from "../../../types/api";
 import { buildCrsRows } from "./crsRows";
 import { EMPTY_FACTS } from "./tiers";
-import { CrsDraftContext, clearDecisionDrafts, draftStorageKey, keepOnlyDraftsOf, setDraftOwner, useCrsDecisions } from "./useCrsDecisions";
+import { CrsDraftContext, clearDecisionDrafts, draftStorageKey, keepOnlyDraftsOf, recordStamp, setDraftOwner, useCrsDecisions } from "./useCrsDecisions";
 
 function f(id: string, page: number): ReviewFinding {
   return {
@@ -115,6 +115,27 @@ describe("useCrsDecisions: the per-review draft (v2.1 N1, round 2)", () => {
     expect(again.result.current.pendingRestore).toBeNull();
   });
 
+  /** #1168 follow-up. MUTATION PROOF: reset the record (or the decisions)
+   *  when the draft id goes from null to the review and this fails. */
+  it("when the app learns whose drafts these are, the sheet and the decisions on screen stay, and the draft can come back", () => {
+    setDraftOwner("user-a");
+    const first = open("run-1");
+    act(() => first.result.current.keep(a));
+    first.unmount();
+    // A reload: the screen draws before the owner is known (no draft id).
+    setDraftOwner(null);
+    const hook = renderHook(({ id }: { id: string | null }) => useCrsDecisions(id), { initialProps: { id: null as string | null } });
+    act(() => hook.result.current.observeRecord?.(rows, false));
+    act(() => hook.result.current.remove(b, "Duplicate"));
+    setDraftOwner("user-a");
+    hook.rerender({ id: "run-1" });
+    expect(hook.result.current.state.decisions).toEqual({ [b]: { kind: "remove", reason: "Duplicate" } });
+    expect(hook.result.current.pendingRestore).toEqual({ count: 1 });
+    act(() => hook.result.current.restoreDraft?.());
+    expect(hook.result.current.state.decisions[a]).toEqual({ kind: "keep" });
+    expect(hook.result.current.state.decisions[b]).toEqual({ kind: "remove", reason: "Duplicate" });
+  });
+
   it("a decision whose row changed on the record since, or left the sheet, is dropped and counted", () => {
     const first = open("run-1");
     act(() => first.result.current.keep(a));
@@ -132,6 +153,37 @@ describe("useCrsDecisions: the per-review draft (v2.1 N1, round 2)", () => {
     expect(again.result.current.state.decisions).toEqual({ [a]: { kind: "keep" } });
     expect(again.result.current.restored).toBe(1);
     expect(again.result.current.restoreDropped).toBe(2);
+  });
+
+  /** v2.1 follow-up: opened marks carry the same stamp as decisions. A
+   *  "Needs you" row whose record changed since, or that left the sheet,
+   *  does not come back opened. MUTATION PROOF: bring `pending.opened` back
+   *  unchecked in restoreDraft (or the held marks unchecked) and these fail. */
+  it("an opened mark whose row changed on the record since, or left the sheet, does not come back", () => {
+    const first = open("run-1");
+    act(() => first.result.current.keep(a));
+    act(() => first.result.current.markOpened(b));
+    act(() => first.result.current.markOpened(c));
+    act(() => first.result.current.markOpened(a));
+    first.unmount();
+    const stored = JSON.parse(sessionStorage.getItem(draftStorageKey("run-1")) ?? "{}");
+    expect(Object.keys(stored.openedStamps).sort()).toEqual([a, b, c].sort());
+    // Someone confirmed comment b meanwhile; comment c left the sheet.
+    const changed = buildCrsRows([f("a", 1), { ...f("b", 2), confirmed_by: "someone" }], EMPTY_FACTS, new Map());
+    const again = open("run-1", changed);
+    act(() => again.result.current.restoreDraft?.());
+    expect(again.result.current.state.opened).toEqual({ [a]: true });
+  });
+
+  it("opened marks kept alone come back only once the record is known, and only for unchanged rows", () => {
+    const stampOf = (key: string) => recordStamp(rows.find((r) => r.key === key)!);
+    sessionStorage.setItem(draftStorageKey("run-1"), JSON.stringify({
+      decisions: {}, opened: [a, b, c], stamps: {}, openedStamps: { [a]: stampOf(a), [b]: "an older state" },
+    }));
+    const hook = renderHook(() => useCrsDecisions("run-1"));
+    expect(hook.result.current.state.opened).toEqual({});
+    act(() => hook.result.current.observeRecord?.(rows, false));
+    expect(hook.result.current.state.opened).toEqual({ [a]: true });
   });
 
   it("Discard throws the draft away", () => {

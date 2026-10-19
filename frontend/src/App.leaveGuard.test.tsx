@@ -26,7 +26,8 @@ import App from "./App";
 import { setToken } from "./api/client";
 import { signOutOn401 } from "./api/core";
 import { NavLink, NavigationContext } from "./components/NavLink";
-import { draftStorageKey } from "./components/review/crs/useCrsDecisions";
+import { draftStorageKey, useCrsDecisions } from "./components/review/crs/useCrsDecisions";
+import { WORKSPACE_OPT_IN_KEY } from "./components/review/workspace/workspaceRoute";
 import { LeaveSaverContext } from "./components/review/workspace/useLeaveGuard";
 import type { ReviewWorkspaceProps } from "./components/review/workspace/contract";
 
@@ -48,12 +49,15 @@ vi.mock("./views/SubmittalsLandingView", () => ({
  *  through NavLink). */
 function FakeWorkspace({ location, onUnsavedChange }: ReviewWorkspaceProps) {
   const navigate = useContext(NavigationContext);
+  // As the real one: the decisions hook, keyed by the app's CrsDraftContext.
+  const decisions = useCrsDecisions();
   const register = useContext(LeaveSaverContext);
   // As the real one: nothing is reported unsaved once it is gone.
   useEffect(() => () => onUnsavedChange?.(0), [onUnsavedChange]);
   return (
     <div>
       <p>{`workspace for ${location.runId}`}</p>
+      <p data-testid="draft-offer">{decisions.pendingRestore ? `draft of ${decisions.pendingRestore.count}` : "no draft"}</p>
       <button type="button" onClick={() => onUnsavedChange?.(2)}>Make two unsaved decisions</button>
       <button type="button" onClick={() => register?.(async () => { onUnsavedChange?.(0); return true; })}>Offer a save</button>
       <button type="button" onClick={() => navigate?.("review", "run-2", "cards")}>Open another review</button>
@@ -244,5 +248,39 @@ describe("sign-out and a sign-in that ran out (v2.1 N1)", () => {
     act(() => { signOutOn401(401); });
     expect(await screen.findByRole("button", { name: /sign in/i })).toBeInTheDocument();
     expect(sessionStorage.getItem(draftKey)).not.toBeNull();
+  });
+});
+
+/** v2.1 follow-up: a reload draws the workspace while /auth/me is still
+ *  being asked. The decision draft must not be read (or written) under no
+ *  one in that time: it read `anyone.<run>` (empty), then wrote that empty
+ *  draft under the person once they were known, removing the real one.
+ *  MUTATION PROOF: hand CrsDraftContext the run id while the session is
+ *  still checking and this fails (the draft is removed, nothing is offered). */
+describe("a reload keeps the decision draft (v2.1 follow-up)", () => {
+  it("a draft kept for the person is still there and offered once /auth/me answers late", async () => {
+    const draftKey = draftStorageKey("run-1", "user-a");
+    sessionStorage.setItem(draftKey, JSON.stringify({ decisions: { "row-1": { kind: "keep" } }, opened: [], stamps: {} }));
+    localStorage.setItem(WORKSPACE_OPT_IN_KEY, "on");
+    let answerMe: (r: Response) => void = () => {};
+    const me = new Promise<Response>((resolve) => { answerMe = resolve; });
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/auth/me")) return me;
+      if (url.includes("/documents")) return Promise.resolve(json([]));
+      if (url.includes("/metrics")) return Promise.resolve(json({ refresh_seconds: 15 }));
+      return Promise.resolve(json({ ok: true, embed_model_present: true, answer_model_configured: true, ingestion: { alive: true, stalled: false, busy: false } }));
+    }));
+    render(<App initialView="review" />);
+    // A reload of /review/run-1 (the switch on): the workspace is drawn
+    // while the session is still being checked.
+    await goTo("/review/run-1");
+    expect(await screen.findByText("workspace for run-1")).toBeInTheDocument();
+    expect(screen.getByTestId("draft-offer")).toHaveTextContent("no draft");
+    expect(sessionStorage.getItem(draftKey)).not.toBeNull();
+    await act(async () => { answerMe(json({ required: true, user: SIGNED_IN })); });
+    await screen.findAllByRole("button", { name: "Sign out" });
+    expect(await screen.findByText("draft of 1")).toBeInTheDocument();
+    expect(JSON.parse(sessionStorage.getItem(draftKey) ?? "{}").decisions).toEqual({ "row-1": { kind: "keep" } });
   });
 });

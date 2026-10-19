@@ -86,4 +86,28 @@ describe("the old issue gate is fenced off (order 121)", () => {
     expect(sources[`/${ISSUER}`]).toMatch(/issueWaitsFor\(checks\)/);
     expect(sources[`/${ISSUER}`]).toMatch(/signLeft/);
   });
+
+  // The workspace's confirm step (#1168): "Issue to contractor" reaches the
+  // issuer through `issueConfirmed(runId)`, exported by useSignOff.ts, which
+  // runs the on-screen sign-off's issuer with its live checks. Only the
+  // confirm step may use it; any other file naming it in code (a call, an
+  // import, a renamed import) would be a second way to issue.
+  const CONFIRMED_HOME = "src/components/review/workspace/useSignOff.ts";
+
+  /** The file's text with comments taken out, so a mention in a comment
+   *  is not a use. */
+  function code(text: string): string {
+    return text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+  }
+
+  it("only the confirm step calls issueConfirmed, and it is defined in the workspace sign-off", () => {
+    expect(code(sources[`/${CONFIRMED_HOME}`])).toMatch(/export async function issueConfirmed\(/);
+    expect(code(sources[`/${CONFIRMED_HOME}`])).toMatch(/issueContractorCopy\(runId, checks\(\)\)/);
+    const users = Object.entries(sources)
+      .map(([name, text]) => [name.replace(/^\//, ""), code(text)] as const)
+      .filter(([file, text]) => file !== CONFIRMED_HOME && /\bissueConfirmed\b/.test(text))
+      .map(([file]) => file)
+      .sort();
+    expect(users).toEqual(["src/components/review/workspace/sign/SignConfirm.tsx"]);
+  });
 });

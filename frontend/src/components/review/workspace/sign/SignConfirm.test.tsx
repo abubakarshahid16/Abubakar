@@ -15,7 +15,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CrsPreview } from "../../../../types/api";
 import type { CrsDecisions, ReviewNumbers } from "../contract";
 import { NO_SIGN_OFF_MESSAGE, issueConfirmed, useSignOff } from "../useSignOff";
-import { SignConfirm, contractorView, olderReviewWarning, summaryLine } from "./SignConfirm";
+import { NEWER_REVIEW_UNKNOWN, SignConfirm, contractorView, olderReviewWarning, summaryLine } from "./SignConfirm";
 
 const downloadCrs = vi.fn();
 const previewCrs = vi.fn();
@@ -50,7 +50,7 @@ const decisions = (unsaved: string[] = []) =>
 
 function Harness({ numbers = CLEAR, unsaved = [], onIssued = vi.fn(), refresh = vi.fn().mockResolvedValue(undefined), newerReview = null }: {
   numbers?: ReviewNumbers | null; unsaved?: string[]; onIssued?: () => void; refresh?: () => Promise<void>;
-  newerReview?: { at: string | null } | null;
+  newerReview?: { at: string | null } | null | "unknown";
 }) {
   const signOff = useSignOff({ runId: "run-1", rows: [], decisions: decisions(unsaved), refresh, numbers });
   return (
@@ -225,6 +225,56 @@ describe("Preview and confirm (S2)", () => {
     expect(issue).toBeEnabled();
     await user.click(issue);
     expect(downloadCrs).toHaveBeenCalledWith("run-1", "issue");
+  });
+
+  /** #1168 follow-up. "Issue to contractor" runs the issuer useSignOff
+   *  registered, with the checks as they are at click time, not as they were
+   *  when Sign opened the step. MUTATION PROOF (done once by hand): pass
+   *  empty checks to issueContractorCopy in useSignOff's issuer and both
+   *  cases issue (downloadCrs "issue" is called), so this fails. */
+  it("Issue refuses when a decision went unsaved or a Needs you row is unopened after the step opened", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<Harness />);
+    await user.click(screen.getByRole("button", { name: "Sign and export" }));
+    const dialog = await screen.findByRole("dialog");
+
+    rerender(<Harness unsaved={["b1"]} />);
+    await user.click(within(dialog).getByRole("button", { name: "Issue to contractor" }));
+    expect(await screen.findByTestId("ws-sign-error")).toHaveTextContent("Save the 1 decision on screen first.");
+    expect(downloadCrs).not.toHaveBeenCalled();
+
+    rerender(<Harness numbers={{ unopenedNeedsYou: 1, signLeft: [] } as unknown as ReviewNumbers} />);
+    await user.click(within(dialog).getByRole("button", { name: "Issue to contractor" }));
+    await waitFor(() => expect(screen.getByTestId("ws-sign-error")).toHaveTextContent(/marked "Needs you"/));
+    expect(downloadCrs).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  /** #1168 follow-up: the newer-review check fails closed. MUTATION PROOF
+   *  (done once by hand): treat "unknown" as "this is the newest" and Issue
+   *  is enabled with no line shown, so this fails. */
+  it("when it could not be checked whether a newer review exists, it says so and Issue waits for the tick", async () => {
+    const user = userEvent.setup();
+    render(<Harness newerReview="unknown" />);
+    await user.click(screen.getByRole("button", { name: "Sign and export" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByTestId("ws-sign-older")).toHaveTextContent(NEWER_REVIEW_UNKNOWN);
+    expect(NEWER_REVIEW_UNKNOWN).toBe("Whether a newer review of this document exists could not be checked.");
+    expect(within(dialog).queryByText(/You are signing an older review/)).toBeNull();
+    const issue = within(dialog).getByRole("button", { name: "Issue to contractor" });
+    expect(issue).toBeDisabled();
+    await user.click(within(dialog).getByRole("checkbox", { name: "Yes, sign this older review anyway" }));
+    expect(issue).toBeEnabled();
+    await user.click(issue);
+    expect(downloadCrs).toHaveBeenCalledWith("run-1", "issue");
+  });
+
+  it("known to be the newest review: no line, no tick", async () => {
+    render(<Harness newerReview={null} />);
+    await userEvent.click(screen.getByRole("button", { name: "Sign and export" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).queryByTestId("ws-sign-older")).toBeNull();
+    expect(within(dialog).getByRole("button", { name: "Issue to contractor" })).toBeEnabled();
   });
 
   it("says the signer is not known when sign-in is off", () => {
