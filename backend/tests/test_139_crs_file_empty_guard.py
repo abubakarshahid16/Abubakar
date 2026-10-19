@@ -226,3 +226,29 @@ def test_gate_ignores_rows_the_issue_copy_would_not_carry():
     ]
     gate = crs_issue.open_items("run-1", rows, COVERED)
     assert gate["blockers"] == [] and gate["issuable"] is True
+
+
+# ------------------------------- #1178 review: the waiting sentence alone
+
+
+def test_a_carried_forward_waiting_sentence_is_never_issued():
+    """A waiting sentence is text only beside its draft. Stored under an
+    issued number and carried forward with no AI Review Comments beside it,
+    it would tell the contractor something false: the issue copy leaves it
+    out and counts it, the internal copy says no text was produced, and the
+    gate blocks the issue."""
+    for sentence in (m.AI_UNCONFIRMED_COMMENT, m.WEB_UNCONFIRMED_COMMENT):
+        carried = _row(
+            9, comment=sentence, row_kind=m.ROW_KIND_CARRIED_FORWARD, priority=None
+        )
+        issue = ce.build_crs_view([_row(1), carried], {"copy": ce.COPY_ISSUE})
+        assert [r["page_section"] for r in issue["rows"]] == ["p.1"]
+        assert issue["rows_withheld_no_text"] == 1
+        internal = ce.build_crs_view([carried], {"copy": ce.COPY_INTERNAL})["rows"][0]
+        assert internal["comment_missing"] is True
+        assert sentence not in internal["comment"]
+        gate = crs_issue.open_items("run-1", [carried], COVERED)
+        assert gate["blockers"] == [crs_issue.no_text_blocker(1)]
+    # beside its draft the sentence IS the row's text (internal copy)
+    draft = _row(2, comment=m.AI_UNCONFIRMED_COMMENT, ai_review_comment="a draft")
+    assert m.row_has_no_text(draft) is False

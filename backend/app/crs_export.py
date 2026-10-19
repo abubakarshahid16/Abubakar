@@ -32,6 +32,7 @@ from .crs_mapping import (
     ROW_KIND_SAFETY_TICK,
     priority_word,
 )
+from .crs_mapping import row_has_no_text as _no_text
 
 ARIAL = "Arial"
 THIN = Side(style="thin")
@@ -342,10 +343,9 @@ def build_crs_view(findings: list[dict], meta: dict) -> dict:
     # on the caller's text, before the "Ref:" line is added (that line alone
     # is not a comment). The issue copy leaves such a row out and COUNTS it
     # (`rows_withheld_no_text`), never silently; the internal copy prints
-    # EMPTY_COMMENT_TEXT in its place and marks the row `comment_missing`.
-    def _no_text(finding: dict) -> bool:
-        return not str(finding.get("comment") or "").strip()
-
+    # EMPTY_COMMENT_TEXT in its place and marks the row `comment_missing`. A
+    # waiting sentence with no draft beside it is no text either
+    # (`crs_mapping.row_has_no_text`, #1178 review).
     withheld_no_text = 0
     if copy == COPY_ISSUE:
         # ISSUE TO CONTRACTOR: ENGINEER-CONFIRMED ROWS ONLY (CRS quick wins,

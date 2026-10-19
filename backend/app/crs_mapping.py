@@ -764,6 +764,24 @@ WEB_UNCONFIRMED_COMMENT = (
     "an engineer confirms it."
 )
 
+#: The two waiting sentences. They are text ONLY beside the draft they point
+#: to (a row's "AI Review Comments"); anywhere else - a carried-forward
+#: snapshot, a row whose draft is gone - they say nothing true.
+WAITING_COMMENTS = frozenset({AI_UNCONFIRMED_COMMENT, WEB_UNCONFIRMED_COMMENT})
+
+
+def row_has_no_text(row: dict) -> bool:
+    """Spec e, one home (rule 8): a CRS row with no comment text a contractor
+    could be sent - an empty comment, or a waiting sentence with no draft
+    beside it. `crs_export` never issues such a row and `crs_issue` blocks
+    the issue on a confirmed one."""
+    text = str(row.get("comment") or "").strip()
+    if not text:
+        return True
+    draft = str(row.get("ai_review_comment") or "").strip()
+    return text in WAITING_COMMENTS and not draft
+
+
 #: Spec c: a grouped row lists at most this many supporting clauses, then
 #: "- and K more of these N (see Standard Reference)."
 MAX_CLAUSE_LINES = 10

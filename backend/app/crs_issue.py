@@ -37,7 +37,7 @@ from pathlib import Path
 
 from . import page_ledger
 from .config import settings
-from .crs_mapping import ROW_KIND_SAFETY_TICK
+from .crs_mapping import ROW_KIND_SAFETY_TICK, row_has_no_text
 from .db import connect
 
 PAGE, FINDING = "page", "finding"
@@ -77,7 +77,7 @@ def _issued_without_text(row: dict) -> bool:
         and not row.get("engineer_rejected")
         and row.get("row_kind") != ROW_KIND_SAFETY_TICK
         and not str(row.get("ai_review_comment") or "").strip()
-        and not str(row.get("comment") or "").strip()
+        and row_has_no_text(row)
     )
 
 

@@ -78,7 +78,7 @@ export interface ReviewRunTierSummary {
   counts: RunSummaryTierCounts;
   rows: RunSummaryTierRow[];
   how_reviewed: RunSummaryHowReviewed;
-  /** order 139 part 2: true when every row's crs_* fields were computed (`crs_mapping.crs_groups`). False (or absent, from an older server): the screen shows one row per finding and says the sheet's grouping could not be read - never a grouping of its own */
+  /** order 139 part 2: set true by a server that sends each row's `crs_group` (the sheet's grouping); absent or false otherwise */
   crs_grouping?: boolean;
 }
 

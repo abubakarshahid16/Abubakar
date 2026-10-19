@@ -106,13 +106,13 @@ def test_the_three_and_a_half_buckets_are_tagged_with_distinct_row_kinds():
     kinds = [r["row_kind"] for r in rows]
     # 2f: the requires-another-document and missing-standard rows are Review
     # notes now, not rows of this sheet.
-    # order 139 part 2: the sheet is in rank order now, not bucket order
-    expected = [
+    # order 139 part 2: rank order - the breach (1), then the question on
+    # p.4 and the value not found (both 3; the paged row first)
+    assert kinds == [
         ROW_KIND_NON_COMPLIANT,
-        ROW_KIND_MISSING_INFORMATION,
         ROW_KIND_NEEDS_ENGINEER_REVIEW,
+        ROW_KIND_MISSING_INFORMATION,
     ]
-    assert sorted(kinds) == sorted(expected)
     assert len(set(kinds)) == len(kinds), "two buckets share one row_kind"
 
 

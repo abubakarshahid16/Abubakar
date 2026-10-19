@@ -1,7 +1,7 @@
 """Order 139 part 2, item 5 (#779): every CRS line has plain COMPANY Comments
 text or is not issued, and the sheet is ranked - out of limit, missing value,
 engineer to check - on every row kind. `crs_mapping.py` and `crs_export.py`
-are in the danger zone (rule 6). Ids M1178-01..15 (rule 12)."""
+are in the danger zone (rule 6). Ids M1178-01..16 (rule 12)."""
 
 from __future__ import annotations
 
@@ -169,5 +169,15 @@ MUTATIONS: tuple[Mutation, ...] = (
         "",
         _TE,
         "internal_copy_names_a_row_with_no_text",
+    ),
+    # ------------- #1178 review: a waiting sentence alone is no text
+    _m(
+        "16",
+        "a waiting sentence with no draft beside it counts as comment text",
+        _M,
+        "    return text in WAITING_COMMENTS and not draft\n",
+        "    return False\n",
+        _TE,
+        "carried_forward_waiting_sentence_is_never_issued",
     ),
 )
