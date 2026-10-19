@@ -35,7 +35,7 @@ import { WORKSPACE_PANEL, isWorkspaceScreen, parseWorkspaceQuery, workspaceSearc
 import type { WorkspaceLocation } from "./components/review/workspace/contract";
 import { LeaveConfirm } from "./components/review/workspace/LeaveConfirm";
 import { type LeaveSaver, LeaveSaverContext, useLeaveGuard } from "./components/review/workspace/useLeaveGuard";
-import { CrsDraftContext, clearDecisionDrafts, setDraftOwner } from "./components/review/crs/useCrsDecisions";
+import { CrsDraftContext, clearDecisionDrafts, keepOnlyDraftsOf, setDraftOwner } from "./components/review/crs/useCrsDecisions";
 import { NavigationContext } from "./components/NavLink";
 import { CRS_SHEET_IS_DEFAULT, INBOX_RECORD, panelForReviewScreen, parseRoute, pathForView, reviewScreenFor, titleForView, type AppRoute } from "./routing";
 
@@ -233,7 +233,10 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
       // Whose decision drafts may come back, said BEFORE the workspace can
       // draw (it reads its draft as it first draws).
       if (!r.data.required) setDraftOwner(null);
-      else if (r.data.user) setDraftOwner(r.data.user.id);
+      else if (r.data.user) {
+        setDraftOwner(r.data.user.id);
+        keepOnlyDraftsOf(r.data.user.id);
+      }
       setSession(r.data.required ? { s: "required", me: r.data.user } : { s: "disabled" });
     } else if (r.disconnected) {
       // A disconnected backend is NOT a signed-out user, and it is not a
@@ -285,6 +288,8 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
         setToken(r.data.token);
         tokenRef.current = r.data.token;
         setDraftOwner(r.data.user?.id ?? null);
+        // Another person's draft (their sign-in ran out on this tab) goes.
+        keepOnlyDraftsOf(r.data.user?.id ?? null);
         setSession({ s: "required", me: r.data.user });
         return { ok: true };
       }
