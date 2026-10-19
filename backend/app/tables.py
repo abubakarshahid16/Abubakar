@@ -39,6 +39,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
+from . import stored_paths
 from .db import connect
 
 log = logging.getLogger(__name__)
@@ -221,7 +222,7 @@ def parse_page_tables(stored_path: str, page_no: int) -> list[list[list[str]]]:
     """
     from . import datasheet_inputs
 
-    if datasheet_inputs.is_office_input(stored_path):
+    if datasheet_inputs.is_office_input(stored_path := stored_paths.local(stored_path)):
         # DATASHEET_OFFICE_INPUT seam: MuPDF opens an .xlsx/.docx and reads it
         # badly; an office file's rows come from `datasheet_inputs` instead.
         return []
