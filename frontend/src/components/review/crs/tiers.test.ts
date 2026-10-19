@@ -46,13 +46,26 @@ describe("tierOfGroup and countTiers", () => {
 });
 
 describe("runFactsOf", () => {
-  it("reads the run's own stored fields and the standards list", () => {
+  const coverage = { pages_total: 10, fact_pages: [1, 2], pages_not_read_into_fields: [4, 9], not_read_reasons: { "9": "AI reader timed out", "4": null } };
+  it("reads the run's own stored fields, the reader record and the standards list", () => {
     const facts2 = runFactsOf(
-      { page_coverage: { pages_total: 10, fact_pages: [1, 2], pages_not_read_into_fields: [4, 9], not_read_reasons: { "9": "AI reader timed out", "4": null } } },
+      {
+        page_coverage: coverage,
+        requirement_split: {
+          checked: 2, applies_not_checked: 0, does_not_apply: 0, total: 2,
+          reader: { engine: "ollama", pages: 10, timed_out: [7] },
+        },
+      } as never,
       [{ standard_document_id: "std-1", included: true }, { standard_document_id: "std-2", included: false }] as never,
       [{ identifier: "API 526", status: "MISSING_LOCALLY" }, { identifier: "ASME VIII", status: "OBTAINED" }],
     );
-    expect(facts2).toEqual({ pagesNotRead: [4, 9], readerTimedOutPages: [9], missingStandards: ["API 526"], libraryStandardIds: ["std-1"] });
+    expect(facts2).toEqual({ pagesNotRead: [4, 9], readerTimedOutPages: [7], missingStandards: ["API 526"], libraryStandardIds: ["std-1"] });
+  });
+  it("a page note that says 'timed out' is no time-out without a reader record (order 135, D3)", () => {
+    // Page 9 stays a page not read into fields; it is not called timed out on a note's words.
+    const facts2 = runFactsOf({ page_coverage: coverage, requirement_split: null }, null, []);
+    expect(facts2.pagesNotRead).toEqual([4, 9]);
+    expect(facts2.readerTimedOutPages).toEqual([]);
   });
   it("a run without a ledger and a failed standards list claim nothing", () => {
     expect(runFactsOf(null, null, [])).toEqual(EMPTY_FACTS);
