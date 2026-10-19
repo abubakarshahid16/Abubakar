@@ -196,7 +196,7 @@ describe("CrsSheetView", () => {
     expect(await screen.findByTestId("crs-headline")).toHaveTextContent(
       "5 comments, 2 need your judgement. 1 value met, 4,362 clauses not applicable (hidden). 2 of 12 pages were not fully read (4 and 9).",
     );
-    expect(screen.getByTestId("crs-code")).toHaveTextContent("Proposed code: Approved with Comments. Two values do not meet the standard.");
+    expect(screen.getByTestId("crs-code")).toHaveTextContent("Suggested code: Approved with Comments. Two values do not meet the standard.");
     expect(await screen.findByText(/Equipment: Pressure safety valve · Revision B/)).toBeInTheDocument();
     const headers = within(screen.getByRole("grid")).getAllByRole("columnheader").map((h) => h.textContent);
     expect(headers).toEqual(["Tier", "Comment no.", "Page or section", "Item", "Clause and standard", "Observation", "Required action", "Status", "Actions"]);

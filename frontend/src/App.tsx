@@ -453,7 +453,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
               <>
                 {tryNewDesign}
                 <SubmittalsLandingView
-                  workspace={switchOn}
+                  workspace={switchOn} isAdmin={canAdmin}
                   inbox onOpenRun={(runId) => onNavigate("review", runId)}
                   onOpenList={() => onNavigate("review")}
                 />
@@ -479,7 +479,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
               <>
                 {tryNewDesign}
                 <SubmittalsLandingView
-                  workspace={switchOn}
+                  workspace={switchOn} isAdmin={canAdmin}
                   onOpenRun={(runId) => onNavigate("review", runId)}
                   onOpenInbox={() => onNavigate("review", INBOX_RECORD)}
                 />
