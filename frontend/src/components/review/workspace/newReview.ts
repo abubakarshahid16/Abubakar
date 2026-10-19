@@ -13,6 +13,10 @@
  *      read, and only one already marked as a contractor submittal goes on.
  *      Any other role (a standard, a contract document...) or a role that
  *      cannot be read stops here with nothing changed.
+ *      A file already in the library as a contractor submittal is asked
+ *      about first (`loadPriorDecision`: signed / final code / nothing
+ *      changed), exactly as New review on a row; yes goes on
+ *      (`continueNewReview`), Cancel starts nothing.
  *   3. waiting   - `api.document(id)` until the document is read in, with a
  *      time cap so the screen never waits forever.
  *   4. starting  - `reviewsApi.startReviewRun(documentId)`.
@@ -30,6 +34,7 @@ import { ROLE_OPTIONS } from "../../classification/MetadataEditor";
 import type { ApiError, ReviewRunSummary } from "../../../types/api";
 import { groupRunsByDocument } from "../reviewFormat";
 import type { NewReviewOutcome, NewReviewPhase, ReviewAgainOutcome } from "./contract";
+import { priorDecisionWords } from "./priorDecisionWords";
 import { watchRun } from "./reviewWatch";
 
 /** How often the document is re-read while it is being read in. */
@@ -163,9 +168,24 @@ export interface OfferMark {
   role: string | null;
 }
 
+/** v2.1: a dropped file that is already in the library as a contractor
+ *  submittal is asked about first, by the same rule as "New review" on a
+ *  row (`loadPriorDecision`): its latest review is signed, carries the
+ *  engineer's final code, or nothing changed since. Nothing is started
+ *  until the reader says yes (`continueNewReview`). */
+export interface AskFirst {
+  documentId: string;
+  filename: string;
+  prior: PriorDecision;
+}
+
 /** `startNewReview`'s answer: the contract's, plus the re-mark offer when a
- *  duplicate holds another role. */
-export type StartNewReviewResult = NewReviewOutcome | { ok: false; message: string; offerMark: OfferMark };
+ *  duplicate holds another role, or the ask-first question when a duplicate
+ *  submittal's latest review is signed, coded or unchanged. */
+export type StartNewReviewResult =
+  | NewReviewOutcome
+  | { ok: false; message: string; offerMark: OfferMark }
+  | { ok: false; message: string; askFirst: AskFirst };
 
 /** The confirm question for the re-mark offer, in plain words. */
 export function markOfferWords(offer: OfferMark): string {
@@ -237,6 +257,14 @@ export async function startNewReview(
       fail(held.message);
       return held.offerMark ? { ok: false, message: held.message, offerMark: held.offerMark } : { ok: false, message: held.message };
     }
+    // The same "asks first" rule as New review on a row: a signed, coded or
+    // unchanged latest review is asked about before anything starts.
+    const prior = await loadPriorDecision(documentId);
+    if (prior.kind !== "none") {
+      onPhase({ kind: "idle" });
+      const message = priorDecisionWords(prior);
+      return { ok: false, message, askFirst: { documentId, filename: file.name, prior } };
+    }
   } else {
     onPhase({ kind: "marking" });
     const marked = await markAsContractorSubmittal(documentId);
@@ -244,6 +272,16 @@ export async function startNewReview(
   }
 
   return readInAndStart(documentId, file.name, onPhase, options);
+}
+
+/** The reader said yes to the ask-first question for a dropped file already
+ *  in the library: wait until read in, start and watch, as any new review. */
+export async function continueNewReview(
+  ask: AskFirst,
+  onPhase: (phase: NewReviewPhase) => void,
+  options: NewReviewOptions = {},
+): Promise<NewReviewOutcome> {
+  return readInAndStart(ask.documentId, ask.filename, onPhase, options);
 }
 
 /** Steps 3 and 4: wait until read in, start, watch. Shared by a new upload

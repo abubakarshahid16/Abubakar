@@ -21,12 +21,21 @@ import { InboxList } from "../components/review/inbox/InboxList";
 import { INBOX_IS_DEFAULT } from "../routing";
 import { LIST_MAX, groupRunsByDocument, totalFromResponse } from "../components/review/reviewFormat";
 import { anyMoving, inboxStateOf } from "../components/review/inbox/inboxState";
+import { type FailedResult, plainError } from "../components/review/workspace/plainError";
 
 /** Order 95 piece 3: while a review is queued or running, the list re-reads
  *  on this interval so its state moves without a refresh. */
 export const INBOX_REFRESH_MS = 15_000;
 
-type Phase = { kind: "loading" } | { kind: "ready" } | { kind: "error"; message: string };
+type Phase =
+  | { kind: "loading" }
+  | { kind: "ready" }
+  /** `failure`: the failed result, so the switch-on page can say it in
+   *  plain words (`plainError`); switch off shows `message` as before. */
+  | { kind: "error"; message: string; failure: FailedResult };
+
+/** v2.1 (N2): the lead of the switch-on page's load error. */
+const LANDING_LOAD_LEAD = "Could not load the list of reviews.";
 
 /** Order 95 piece 3: what "Review all not reviewed" did, document by document. */
 interface BatchResult {
@@ -87,7 +96,7 @@ export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onO
       reviewsApi.reviewRuns(),
     ]);
     if (!runsResult.ok) {
-      setPhase({ kind: "error", message: runsResult.error.message });
+      setPhase({ kind: "error", message: runsResult.error.message, failure: runsResult });
       return;
     }
     setSubmittalsTotal(subs.ok ? totalFromResponse(subs.response) : null);
@@ -164,11 +173,12 @@ export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onO
       </header>
 
       {phase.kind === "loading" && <p className="text-slateish-300">Loading documents…</p>}
-      {phase.kind === "error" && (
+      {phase.kind === "error" && !workspace && (
         <p role="alert" className="rounded-[var(--radius-md)] border border-danger-500/40 bg-danger-500/10 px-4 py-3 text-danger-500">
           {phase.message}
         </p>
       )}
+      {phase.kind === "error" && workspace && <PlainLoadError failure={phase.failure} />}
       {startError && (
         <p role="alert" className="rounded-[var(--radius-md)] border border-danger-500/40 bg-danger-500/10 px-4 py-3 text-danger-500">
           {startError}
@@ -186,7 +196,9 @@ export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onO
         </div>
       )}
 
-      {!inbox && onOpenInbox && (
+      {/* Switch on: the new first page replaces the list, so the "try the
+          inbox, this list stays the default" teaser would be untrue. */}
+      {!inbox && onOpenInbox && !workspace && (
         <p className="text-sm text-slateish-300">
           <button type="button" onClick={onOpenInbox} className="font-medium text-signal-400 hover:underline">
             Try the new inbox
@@ -234,5 +246,22 @@ export function SubmittalsLandingView({ onOpenRun, inbox = INBOX_IS_DEFAULT, onO
         />
       )}
     </section>
+  );
+}
+
+/** v2.1 (N2): the load error in plain words; the server's own words are
+ *  folded away under "Details" for whoever has to look into it. */
+function PlainLoadError({ failure }: { failure: FailedResult }) {
+  const { words, detail } = plainError(LANDING_LOAD_LEAD, failure);
+  return (
+    <div role="alert" data-testid="landing-load-error" className="rounded-[var(--radius-md)] border border-danger-500/40 bg-danger-500/10 px-4 py-3 text-danger-500">
+      <p>{words}</p>
+      {detail && (
+        <details className="mt-1 text-xs text-slateish-300">
+          <summary className="cursor-pointer">Details</summary>
+          <p className="mt-1 break-words">{detail}</p>
+        </details>
+      )}
+    </div>
   );
 }

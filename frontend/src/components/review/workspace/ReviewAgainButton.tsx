@@ -17,6 +17,7 @@ import { useState } from "react";
 import type { ReviewRunSummary } from "../../../types/api";
 import type { ReviewAgainButtonProps } from "./contract";
 import { type PriorDecision, loadPriorDecision, reviewAgain } from "./newReview";
+import { priorDecisionWords } from "./priorDecisionWords";
 
 /** `onOpenRun`: opens a run (the one already running). Left out, `onStarted`
  *  is used, which opens a run in every screen that shows this button.
@@ -41,20 +42,7 @@ type Props = ReviewAgainButtonProps & {
 /** What `useReviewAgain` needs: the button's props without its looks. */
 export type ReviewAgainArgs = Pick<Props, "documentId" | "filename" | "onStarted" | "mayStart" | "onOpenRun" | "runs" | "disabled" | "beforeStart">;
 
-function askWords(prior: PriorDecision): string {
-  switch (prior.kind) {
-    case "signed":
-      return "The latest review of this document is already signed. Start a new review anyway? The signed review stays as it is.";
-    case "final_code":
-      return `An engineer already chose the final code "${prior.finalCode}" on the latest review of this document. `
-        + "Start a new review anyway? That review stays as it is.";
-    case "nothing_changed":
-      return "Nothing has changed since the latest review of this document (same file, same standards), "
-        + "so a new review will most likely say the same. Start a new review anyway? That review stays as it is.";
-    default:
-      return "Could not check whether the latest review of this document is already signed. Start a new review anyway?";
-  }
-}
+const askWords = priorDecisionWords;
 
 const primary = "rounded-[var(--radius-md)] bg-signal-500 px-3 py-1.5 text-sm font-medium text-ink-950 hover:bg-signal-400 disabled:opacity-50";
 const secondary = "rounded-[var(--radius-md)] border border-ink-600 px-3 py-1.5 text-sm font-medium text-slateish-100 hover:border-signal-500 disabled:opacity-50";

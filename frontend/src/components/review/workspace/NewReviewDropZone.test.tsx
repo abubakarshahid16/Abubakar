@@ -250,3 +250,33 @@ describe("NewReviewDropZone: a file already in the library under another role (v
     expect(uploadOne).not.toHaveBeenCalled();
   });
 });
+
+describe("NewReviewDropZone: a file already in the library as a contractor submittal (v2.1)", () => {
+  beforeEach(() => {
+    uploadOne.mockResolvedValue({ phase: "done", documentId: "doc-7", duplicateOf: "doc-7", awaitingGrant: false });
+    document.mockResolvedValue({ ok: true, data: { id: "doc-7", status: "ready", document_role: "CONTRACTOR_SUBMITTAL" } });
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [{
+      review_run_id: "run-old", submittal_document_id: "doc-7", status: "completed", created_at: "2026-10-01T08:00:00Z",
+      crs_issued_at: "2026-10-02T08:00:00Z",
+    }] } });
+  });
+
+  it("asks first when its latest review is signed; Cancel starts nothing, Yes starts and opens it", async () => {
+    const onStarted = vi.fn();
+    const user = userEvent.setup();
+    render(<NewReviewDropZone onStarted={onStarted} isAdmin />);
+    await user.upload(screen.getByLabelText("Choose a contractor file to review"), file);
+    const ask = await screen.findByTestId("drop-ask-first");
+    expect(ask).toHaveTextContent("already signed");
+    expect(startReviewRun).not.toHaveBeenCalled();
+    await user.click(within(ask).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByTestId("drop-ask-first")).toBeNull();
+    expect(startReviewRun).not.toHaveBeenCalled();
+
+    await user.upload(screen.getByLabelText("Choose a contractor file to review"), file);
+    await user.click(within(await screen.findByTestId("drop-ask-first")).getByRole("button", { name: "Yes, start a new review" }));
+    await vi.waitFor(() => expect(onStarted).toHaveBeenCalledWith("run-1"));
+    expect(startReviewRun).toHaveBeenCalledTimes(1);
+    expect(setRoleBulk).not.toHaveBeenCalled();
+  });
+});

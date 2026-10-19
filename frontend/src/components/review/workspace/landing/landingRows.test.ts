@@ -42,11 +42,14 @@ describe("landingRowsOf (L4)", () => {
 });
 
 describe("rowChip (L3, L9)", () => {
-  it("says each state in plain words, with counts only when known (never 0 for unknown)", () => {
+  it("says each state in plain words, and never claims what is left to decide", () => {
     expect(rowChip(inboxStateOf(undefined), null).text).toBe("Not reviewed");
-    expect(rowChip(inboxStateOf(run({ status: "completed" })), null).text).toBe("Ready");
-    expect(rowChip(inboxStateOf(run({ status: "completed" })), { findings: 12, needs_you: 3 }).text).toBe("3 need you");
-    expect(rowChip(inboxStateOf(run({ status: "completed" })), { findings: 12, needs_you: 0 }).text).toBe("Ready to sign");
+    const done = run({ status: "completed" });
+    expect(rowChip(inboxStateOf(done), done).text).toBe("Review ready");
+    const coded = run({ status: "completed", engineer_final_code: "Approved" });
+    expect(rowChip(inboxStateOf(coded), coded).text).toBe("Final code recorded, not signed");
+    const signedCoded = run({ crs_issued_at: "2026-10-09T08:00:00Z", engineer_final_code: "Approved" });
+    expect(rowChip(inboxStateOf(signedCoded), signedCoded).text).toBe("Signed");
     expect(rowChip(inboxStateOf(run({ crs_issued_at: "2026-10-09T08:00:00Z" })), null).text).toBe("Signed");
     expect(rowChip(inboxStateOf(run({ status: "queued" })), null).text).toBe("Waiting to start");
     const running = run({
@@ -60,10 +63,12 @@ describe("rowChip (L3, L9)", () => {
     expect(rowChip(inboxStateOf(run({ status: "failed" })), null).text).toBe("Failed: no reason was recorded");
   });
 
-  it("the counts line names findings, and is empty when unknown", () => {
+  it("the counts line says what the review found (totals, not what is left), and is empty when unknown", () => {
     const ready = inboxStateOf(run({ status: "completed" }));
-    expect(countsLine(ready, { findings: 1234, needs_you: 3 })).toBe("1,234 findings to decide");
+    expect(countsLine(ready, { findings: 1234, needs_you: 3 })).toBe("Found by the review: 1,234 findings, 3 needing your judgement");
+    expect(countsLine(ready, { findings: 1, needs_you: 1 })).toBe("Found by the review: 1 finding, 1 needing your judgement");
     expect(countsLine(ready, null)).toBe("");
+    expect(countsLine(inboxStateOf(run({ status: "running" })), { findings: 2, needs_you: 1 })).toBe("");
   });
 });
 

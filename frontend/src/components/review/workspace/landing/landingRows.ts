@@ -4,9 +4,9 @@
  * - `landingRowsOf`: one row per contractor document (and per document a
  *   run names whose record is missing, so no run is dropped silently),
  *   newest activity first (L4).
- * - `rowChip`: the plain status chip with counts (L3). Built on the inbox's
- *   own state rules (`inboxStateOf`), so the two lists never disagree. An
- *   unknown count is never 0: the chip then says "Ready" alone.
+ * - `rowChip`: the plain status chip (L3). Built on the inbox's own state
+ *   rules (`inboxStateOf`), so the two lists never disagree. It carries no
+ *   count: `countsLine` says the server's totals as what the review found.
  * - `allRunsOf`: every run, newest started first, for "All reviews (N)" (L5).
  * - `matchesName`: the search box (L4).
  */
@@ -94,9 +94,12 @@ export interface Chip {
   tone: ChipTone;
 }
 
-/** L3: the status chip. Counts come from the server's per-run counts
- *  (`loadReadyCounts`); null (not read yet, or failed) renders no number. */
-export function rowChip(state: InboxState, counts: ReadyCounts | null): Chip {
+/** L3: the status chip, from the run's own state only. It never claims
+ *  what is left to decide: the server's per-run counts are what the review
+ *  FOUND, not what the engineer has still to decide, so no chip says "Ready
+ *  to sign" or "N need you". A finished review whose engineer already chose
+ *  a final code (but nobody signed) says exactly that. */
+export function rowChip(state: InboxState, run: ReviewRunSummary | null = null): Chip {
   switch (state.kind) {
     case "not_reviewed":
       return { text: "Not reviewed", tone: "quiet" };
@@ -107,11 +110,8 @@ export function rowChip(state: InboxState, counts: ReadyCounts | null): Chip {
       return { text: `Running${where}`, tone: "moving" };
     }
     case "ready":
-      if (!counts) return { text: "Ready", tone: "ready" };
-      if (counts.needs_you > 0) {
-        return { text: `${counts.needs_you.toLocaleString("en-US")} need${counts.needs_you === 1 ? "s" : ""} you`, tone: "attention" };
-      }
-      return { text: "Ready to sign", tone: "ready" };
+      if (run?.engineer_final_code) return { text: "Final code recorded, not signed", tone: "ready" };
+      return { text: "Review ready", tone: "ready" };
     case "signed":
       return { text: "Signed", tone: "done" };
     case "failed":
@@ -123,13 +123,22 @@ export function rowChip(state: InboxState, counts: ReadyCounts | null): Chip {
   }
 }
 
-/** The line beside a Ready chip: how many findings the server counted, said
- *  as findings (the sheet groups them into fewer comment lines). Nothing
- *  when not known. */
-export function countsLine(state: InboxState, counts: ReadyCounts | null): string {
-  if (state.kind !== "ready" || !counts) return "";
+/** "Found by the review: 12 findings, 3 needing your judgement" - the
+ *  server's per-run TOTALS, said as what the review found (not what is left
+ *  to decide, which only the comment sheet knows), and as findings (the
+ *  sheet groups them into fewer comment lines). Nothing when not known. */
+export function foundLine(counts: ReadyCounts | null | undefined): string {
+  if (!counts) return "";
   const n = counts.findings;
-  return `${n.toLocaleString("en-US")} finding${n === 1 ? "" : "s"} to decide`;
+  const m = counts.needs_you;
+  return `Found by the review: ${n.toLocaleString("en-US")} finding${n === 1 ? "" : "s"}, `
+    + `${m.toLocaleString("en-US")} needing your judgement`;
+}
+
+/** The line beside a finished review's chip; nothing in any other state. */
+export function countsLine(state: InboxState, counts: ReadyCounts | null): string {
+  if (state.kind !== "ready") return "";
+  return foundLine(counts);
 }
 
 /** L5: every run with its file name, newest started first. */

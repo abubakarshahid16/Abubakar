@@ -139,20 +139,35 @@ describe("WorkspaceLanding: the rows (L2, L3, L4, L9)", () => {
     expect(screen.getByTestId("landing-no-match")).toBeInTheDocument();
   });
 
-  it("L3: plain chips with counts from one counts request; unknown counts show no number", async () => {
+  it("L3: the chip never claims what is left to decide; the counts are said as what the review found", async () => {
     renderLanding();
-    await waitFor(() => expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveTextContent("3 need you"));
+    await waitFor(() => expect(within(rowOf("Pump")).getByTestId("row-counts"))
+      .toHaveTextContent("Found by the review: 12 findings, 3 needing your judgement"));
     expect(loadCounts).toHaveBeenCalledTimes(1);
     expect(loadCounts).toHaveBeenCalledWith(["run-1"]);
-    expect(within(rowOf("Pump")).getByTestId("row-counts")).toHaveTextContent("12 findings to decide");
+    expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveTextContent(/^Review ready$/);
+    expect(screen.queryByText(/Ready to sign|to decide|need you\b/)).toBeNull();
     expect(within(rowOf("Heat exchanger")).getByTestId("status-chip")).toHaveTextContent("Not reviewed");
   });
 
-  it("L3: a Ready row whose counts failed says Ready, never 0", async () => {
+  it("L3: counts of zero needing judgement never turn into 'Ready to sign'", async () => {
+    loadCounts.mockResolvedValue({ "run-1": { findings: 4, needs_you: 0 } });
+    renderLanding();
+    await waitFor(() => expect(within(rowOf("Pump")).getByTestId("row-counts")).toHaveTextContent("4 findings, 0 needing your judgement"));
+    expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveTextContent(/^Review ready$/);
+    expect(screen.queryByText(/Ready to sign/)).toBeNull();
+  });
+
+  it("L3: a final code recorded but not signed says so", async () => {
+    renderLanding({ runs: [run({ review_run_id: "run-1", submittal_document_id: "doc-1", engineer_final_code: "Approved with Comments" })] });
+    expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveTextContent("Final code recorded, not signed");
+  });
+
+  it("L3: a finished row whose counts failed shows no number, never 0", async () => {
     loadCounts.mockResolvedValue({ "run-1": null });
     renderLanding();
     await waitFor(() => expect(loadCounts).toHaveBeenCalled());
-    expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveTextContent(/^Ready$/);
+    expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveTextContent(/^Review ready$/);
     expect(within(rowOf("Pump")).queryByTestId("row-counts")).toBeNull();
   });
 
@@ -186,12 +201,13 @@ describe("WorkspaceLanding: the rows (L2, L3, L4, L9)", () => {
     await waitFor(() => expect(onReload).toHaveBeenCalled());
   });
 
-  it("W5: Past reviews (N) folds out under a reviewed row", async () => {
+  it("W5: All reviews of this file (N), the latest included, folds out under a reviewed row", async () => {
     reviewRunCounts.mockResolvedValue({ ok: true, data: { boundary: "", counts: { "run-1": { comment: 4, needs_you: 2 } } } });
     renderLanding();
-    await userEvent.click(within(rowOf("Pump")).getByRole("button", { name: "Past reviews (2)" }));
-    const list = within(rowOf("Pump")).getByRole("list", { name: "Past reviews" });
-    expect(await within(list).findByText("6 findings, 2 need you")).toBeInTheDocument();
+    await userEvent.click(within(rowOf("Pump")).getByRole("button", { name: "All reviews of this file (2)" }));
+    const list = within(rowOf("Pump")).getByRole("list", { name: "All reviews of this file" });
+    expect(within(list).getAllByRole("button")).toHaveLength(2);
+    expect(await within(list).findByText("Found by the review: 6 findings, 2 needing your judgement")).toBeInTheDocument();
     expect(within(list).getByText("Signed")).toBeInTheDocument();
   });
 });
@@ -217,12 +233,27 @@ describe("WorkspaceLanding: All reviews and Review all (L5, L7)", () => {
       : { ok: true, data: { review_run_id: `run-${id}`, submittal_filename: null } }));
     const { onReload, onOpenRun } = renderLanding({ documents: docs });
     await userEvent.click(screen.getByRole("button", { name: "Review all not reviewed (2)" }));
+    // Asks once before anything starts.
+    expect(screen.getByTestId("review-all-question")).toHaveTextContent("Start 2 reviews? They run one after another.");
+    expect(startReviewRun).not.toHaveBeenCalled();
+    await userEvent.click(within(screen.getByRole("group", { name: "Start all the reviews?" })).getByRole("button", { name: "Yes" }));
     expect(await screen.findByText("Queued 1 of 2 reviews asked for.")).toBeInTheDocument();
     expect(screen.getByText(/Compressor sheet.pdf: A review of this document is already running./)).toBeInTheDocument();
     expect(watchRun).toHaveBeenCalledTimes(1);
     expect(watchRun).toHaveBeenCalledWith("run-doc-4", "Heat exchanger sheet.pdf");
     expect(onReload).toHaveBeenCalled();
     expect(onOpenRun).not.toHaveBeenCalled();
+  });
+});
+
+describe("WorkspaceLanding: Review all asks once (L7)", () => {
+  it("Cancel starts nothing and brings the button back", async () => {
+    renderLanding();
+    await userEvent.click(screen.getByRole("button", { name: "Review all not reviewed (1)" }));
+    expect(screen.getByTestId("review-all-question")).toHaveTextContent("Start 1 review? They run one after another.");
+    await userEvent.click(within(screen.getByRole("group", { name: "Start all the reviews?" })).getByRole("button", { name: "Cancel" }));
+    expect(startReviewRun).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Review all not reviewed (1)" })).toBeInTheDocument();
   });
 });
 
