@@ -222,12 +222,12 @@ describe("actionSteps", () => {
   }));
   const step = (steps: ReturnType<typeof actionSteps>, id: string) => steps.find((s) => s.id === id)!;
 
-  it("gives the five steps in fixed order with their counts; the final code is a step before Sign (S1)", () => {
+  it("gives the six steps in fixed order with their counts; final code, then Preview CRS, then Sign (S1, v2.2)", () => {
     const steps = actionSteps(busy);
-    expect(steps.map((s) => s.id)).toEqual(["standards", "pages", "decide", "code", "sign"]);
+    expect(steps.map((s) => s.id)).toEqual(["standards", "pages", "decide", "code", "preview", "sign"]);
     expect(steps.map((s) => s.label)).toEqual([
       "Upload missing standards (2)", "Check unread pages (3)", "Decide comments (3)",
-      "Record the final code (not known yet)", "Sign and export",
+      "Record the final code (not known yet)", "Preview CRS", "Sign and export",
     ]);
     expect(steps[1].detail).toBe("Pages 4, 9 and 12");
     expect(step(steps, "sign").enabled).toBe(false);
@@ -247,8 +247,10 @@ describe("actionSteps", () => {
   it("a step with 0 is done (shown, not hidden); sign opens only when all are clear and saved", () => {
     const clear = computeReviewNumbers(input({ rows: [row("a1", "A")], gate: gate() }));
     const steps = actionSteps(clear);
-    expect(steps).toHaveLength(5);
+    expect(steps).toHaveLength(6);
     expect(steps.slice(0, 4).every((s) => s.done && !s.enabled)).toBe(true);
+    // Preview CRS is a look, not a task: never done, always open.
+    expect(step(steps, "preview")).toMatchObject({ done: false, enabled: true, count: null });
     expect(step(steps, "sign").enabled).toBe(true);
     expect(step(actionSteps({ ...clear, unsaved: 1 }), "sign").enabled).toBe(false);
     expect(step(actionSteps({ ...clear, unreadPages: [2] }), "sign").enabled).toBe(false);
@@ -294,6 +296,8 @@ describe("actionSteps", () => {
     expect(sign.done).toBe(true);
     expect(sign.enabled).toBe(false);
     expect(step(actionSteps(signed), "code")).toMatchObject({ done: true, enabled: false });
+    // A signed review can still be looked at.
+    expect(step(actionSteps(signed), "preview")).toMatchObject({ label: "Preview CRS", done: false, enabled: true, count: null });
   });
 
   it("pages detail says pages the way a person does", () => {

@@ -1,8 +1,9 @@
 /**
- * OWNER: builder B. "What you need to do": the verdict in one sentence and
- * the five buttons in fixed order (standards, pages, decide, final code,
- * sign), the saving line with "Save now", and the final code control that
- * opens from the bar. Every number here comes from `computeReviewNumbers` /
+ * OWNER: builder B (v2.2: builder C). "What you need to do": the verdict in
+ * one sentence and the numbered steps in fixed order (standards, pages,
+ * decide, final code, Preview CRS, sign), the saving line with "Save now", and the final code control that
+ * opens from the bar. "Preview CRS" opens the read-only look at the sheet
+ * (sign/CrsLook) under the bar; it issues nothing. Every number here comes from `computeReviewNumbers` /
  * `actionSteps`; this file counts nothing itself.
  */
 import { useState } from "react";
@@ -13,9 +14,10 @@ import type { ActionBarProps, ActionStep, ActionStepId, AutosaveStatus } from ".
 import { verdictPieces } from "./numbers";
 import { type PlainError, plainError } from "./plainError";
 import { PlainErrorLine } from "./PlainErrorLine";
+import { CrsLook } from "./sign/CrsLook";
 
 /** The data-count name of each step's number (the shared counts). */
-const STEP_COUNT: Record<Exclude<ActionStepId, "sign" | "code">, "missingStandards" | "unreadPages" | "undecided"> = {
+const STEP_COUNT: Record<Exclude<ActionStepId, "sign" | "code" | "preview">, "missingStandards" | "unreadPages" | "undecided"> = {
   standards: "missingStandards",
   pages: "unreadPages",
   decide: "undecided",
@@ -24,7 +26,7 @@ const STEP_COUNT: Record<Exclude<ActionStepId, "sign" | "code">, "missingStandar
 const BUTTON = "inline-flex items-center gap-1 rounded-[var(--radius-sm)] border px-3 py-1.5 text-sm disabled:cursor-not-allowed";
 
 function StepLabel({ step }: { step: ActionStep }) {
-  if (step.id === "sign" || step.id === "code" || step.count === null) return <>{step.label}</>;
+  if (step.id === "sign" || step.id === "code" || step.id === "preview" || step.count === null) return <>{step.label}</>;
   // The label carries "(N)"; N is shown from `step.count` so it can be marked.
   const words = step.label.replace(/\s*\(\d[\d,]*\)\s*$/, "");
   return (
@@ -67,6 +69,7 @@ function SavingLine({ autosave, unsaved }: { autosave: AutosaveStatus; unsaved: 
 export function ActionBar({ run, numbers, steps, onAction, signOff, autosave, onCodeRecorded }: ActionBarProps) {
   const [pagesOpen, setPagesOpen] = useState(false);
   const [codeOpen, setCodeOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [reread, setReread] = useState<Reread>({ busy: false, message: null, error: null });
   const pagesStep = steps.find((s) => s.id === "pages");
   const signHelp = steps.find((s) => s.id === "sign")?.detail ?? null;
@@ -75,6 +78,7 @@ export function ActionBar({ run, numbers, steps, onAction, signOff, autosave, on
     if (step.id === "sign") { void signOff.sign(); return; }
     if (step.id === "pages") setPagesOpen((open) => !open);
     if (step.id === "code") setCodeOpen((open) => !open);
+    if (step.id === "preview") setPreviewOpen((open) => !open);
     onAction(step.id);
   };
 
@@ -100,24 +104,34 @@ export function ActionBar({ run, numbers, steps, onAction, signOff, autosave, on
           ? <span key={i} data-count={piece.count}>{piece.text}</span>
           : <span key={i}>{piece.text}</span>))}
       </p>
-      <div className="flex flex-wrap items-center gap-2">
-        {steps.map((step) => (
-          <button
-            key={step.id} type="button" data-step={step.id} data-done={step.done ? "true" : "false"}
-            disabled={!step.enabled || signOff.busy}
-            aria-expanded={step.id === "pages" && step.enabled ? pagesOpen
-              : step.id === "code" && step.enabled ? codeOpen : undefined}
-            title={step.id === "sign" && step.detail ? step.detail : undefined}
-            onClick={() => press(step)}
-            className={`${BUTTON} ${step.id === "sign"
-              ? (step.enabled ? "border-signal-500 bg-signal-500 text-ink-950" : "border-ink-700 text-slateish-500")
-              : step.done ? "border-ink-700 text-slateish-500" : "border-ink-600 text-slateish-100"} ${step.id === "sign" ? "ml-auto" : ""}`}
-          >
-            {step.done && step.id !== "sign" && <span aria-label="done">{"✓"}</span>}
-            <StepLabel step={step} />
-          </button>
+      <ol aria-label="Steps, in order" className="flex flex-wrap items-center gap-2">
+        {steps.map((step, i) => (
+          <li key={step.id} className={`flex items-center gap-1 ${step.id === "sign" ? "ml-auto" : ""}`}>
+            {/* The step number is drawn beside the button, not in its name:
+                the list already says the order to a screen reader. */}
+            <span aria-hidden="true" data-step-number={i + 1}
+              className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-xs font-semibold ${step.done
+                ? "bg-ink-700 text-slateish-500" : "bg-ink-600 text-slateish-100"}`}>
+              {i + 1}
+            </span>
+            <button
+              type="button" data-step={step.id} data-done={step.done ? "true" : "false"}
+              disabled={!step.enabled || signOff.busy}
+              aria-expanded={step.id === "pages" && step.enabled ? pagesOpen
+                : step.id === "code" && step.enabled ? codeOpen
+                  : step.id === "preview" && step.enabled ? previewOpen : undefined}
+              title={step.id === "sign" && step.detail ? step.detail : undefined}
+              onClick={() => press(step)}
+              className={`${BUTTON} ${step.id === "sign"
+                ? (step.enabled ? "border-signal-500 bg-signal-500 text-ink-950" : "border-ink-700 text-slateish-500")
+                : step.done ? "border-ink-700 text-slateish-500" : "border-ink-600 text-slateish-100"}`}
+            >
+              {step.done && step.id !== "sign" && <span aria-label="done">{"✓"}</span>}
+              <StepLabel step={step} />
+            </button>
+          </li>
         ))}
-      </div>
+      </ol>
       {signHelp && <p data-testid="ws-sign-waits" className="text-sm text-slateish-300">{signHelp}</p>}
       {pagesOpen && pagesStep && !pagesStep.done && (
         <div data-testid="ws-unread-pages" className="flex flex-wrap items-center gap-2 text-sm text-slateish-300">
@@ -145,6 +159,23 @@ export function ActionBar({ run, numbers, steps, onAction, signOff, autosave, on
       {codeOpen && !numbers.signed && numbers.finalCodeRecorded !== true && (
         <div data-testid="ws-final-code">
           <FinalCode run={run} onChanged={() => { setCodeOpen(false); onCodeRecorded?.(); }} />
+        </div>
+      )}
+      {previewOpen && (
+        <div role="group" aria-label="Preview of the comment sheet" data-testid="ws-crs-preview"
+          className="space-y-2 rounded-[var(--radius-sm)] border border-ink-700 p-3 text-sm text-slateish-200">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-slateish-300">
+              {numbers.signed
+                ? "This is the comment sheet as it stands now. It is a look only."
+                : "This is the comment sheet as the contractor would get it. It is a look only: nothing is sent."}
+            </p>
+            <button type="button" onClick={() => setPreviewOpen(false)}
+              className={`${BUTTON} border-ink-600 text-slateish-100`}>
+              Close preview
+            </button>
+          </div>
+          <CrsLook runId={run.review_run_id} errorTestId="ws-crs-preview-error" />
         </div>
       )}
       {autosave && <SavingLine autosave={autosave} unsaved={numbers.unsaved} />}
