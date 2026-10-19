@@ -1,10 +1,11 @@
 /**
  * OWNER: builder E. The compact past-reviews list.
  *
- * One line per review: date, result, comments, signed yes/no. Comment
- * counts are read lazily (one `loadCommentCount` per review) when the list
- * mounts, i.e. when it is opened. A count that is unknown or failed shows
- * nothing - never 0.
+ * One line per review: date, result, findings to decide, signed yes/no.
+ * The counts are read lazily (one `loadCommentCount` per review) when the
+ * list mounts, i.e. when it is opened. They count findings (comment +
+ * needs-you), not the comment sheet's rows, and say so. A count that is
+ * unknown or failed shows nothing - never 0.
  */
 import { useEffect, useState } from "react";
 
@@ -12,9 +13,9 @@ import { whenLabel } from "../reviewFormat";
 import type { PastReviewsListProps } from "./contract";
 import { loadCommentCount } from "./pastReviews";
 
-function commentsLabel(count: number | null): string {
+function findingsLabel(count: number | null): string {
   if (count == null) return "";
-  return count === 1 ? "1 comment" : `${count} comments`;
+  return `${count.toLocaleString("en-US")} ${count === 1 ? "finding" : "findings"} to decide`;
 }
 
 export function PastReviewsList({ reviews, onOpenRun }: PastReviewsListProps) {
@@ -49,7 +50,7 @@ export function PastReviewsList({ reviews, onOpenRun }: PastReviewsListProps) {
             >
               <span data-field="date">{whenLabel(review.createdAt)}</span>
               <span data-field="result" className="font-semibold text-slateish-100">{review.result}</span>
-              <span data-field="comments">{commentsLabel(count)}</span>
+              <span data-field="findings">{findingsLabel(count)}</span>
               <span data-field="signed">{review.signed ? "Signed: yes" : "Signed: no"}</span>
             </button>
           </li>

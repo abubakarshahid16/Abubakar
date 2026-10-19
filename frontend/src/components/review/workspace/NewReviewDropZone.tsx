@@ -4,7 +4,8 @@
  * file", then the file in the picker) or one drag; never more than three.
  *
  * Each step is said in plain words while it runs; a failure stops there and
- * says why, and no review is started.
+ * says why, and no review is started. One review takes one file: when
+ * several are dropped, the first is used and the page says so.
  *
  * Leaving the page mid-way does not cancel the review (it may still start,
  * and the finished notice still says so), but nothing moves the reader to
@@ -32,6 +33,8 @@ function phaseWords(phase: NewReviewPhase, filename: string | null): string | nu
 export function NewReviewDropZone({ onStarted, isAdmin }: NewReviewDropZoneProps & { isAdmin?: boolean }) {
   const [phase, setPhase] = useState<NewReviewPhase>({ kind: "idle" });
   const [filename, setFilename] = useState<string | null>(null);
+  /** Said when several files were dropped: one review takes one file. */
+  const [onlyFirst, setOnlyFirst] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const mounted = useRef(true);
@@ -42,9 +45,11 @@ export function NewReviewDropZone({ onStarted, isAdmin }: NewReviewDropZoneProps
   const busy = phase.kind !== "idle" && phase.kind !== "error" && phase.kind !== "started";
 
   async function begin(files: FileList | File[] | null) {
-    const file = files ? Array.from(files)[0] : undefined;
+    const all = files ? Array.from(files) : [];
+    const file = all[0];
     if (!file || busy) return;
     setFilename(file.name);
+    setOnlyFirst(all.length > 1 ? file.name : null);
     const outcome = await startNewReview(file, (next) => {
       if (mounted.current) setPhase(next);
     }, { isAdmin });
@@ -92,6 +97,9 @@ export function NewReviewDropZone({ onStarted, isAdmin }: NewReviewDropZoneProps
             e.target.value = "";
           }}
         />
+        {onlyFirst && (
+          <p data-testid="only-first-file" className="mt-3 text-sm text-slateish-300">Only the first file was used: {onlyFirst}</p>
+        )}
         {words && (
           <p role="status" className="mt-3 text-sm text-slateish-200">{words}</p>
         )}

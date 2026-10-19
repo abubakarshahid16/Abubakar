@@ -12,14 +12,15 @@ import type { PastReview } from "./contract";
 
 /** What a past review came to, in plain words. The engineer's final code
  *  is shown as it is; when there is none, the AI's recommended code is shown
- *  as "Proposed: <code>" so it never reads like the engineer's decision;
+ *  as "Suggested: <code>" (the word the decision card uses for the AI's
+ *  code) so it never reads like the engineer's decision;
  *  with neither, the run's status. Review codes are the configured labels
  *  ("Approved with Comments") that every existing screen already prints as
  *  they are; only the status (a database value such as "completed") is
  *  translated. */
 function resultWords(run: ReviewRunSummary): string {
   if (run.engineer_final_code) return run.engineer_final_code;
-  if (run.recommended_code) return `Proposed: ${run.recommended_code}`;
+  if (run.recommended_code) return `Suggested: ${run.recommended_code}`;
   return runStatusLabel(run.status);
 }
 
@@ -51,10 +52,13 @@ export async function loadPastReviews(documentId: string): Promise<{ ok: true; r
 }
 
 /**
- * TODO ADAPTER: the runs list carries no comment count. Today one
+ * TODO ADAPTER: the runs list carries no count. Today one
  * `reviewsApi.reviewRunSummary(runId)` per run, read only when the list is
- * opened (counts.comment + counts.needs_you); null when it fails - an
- * unknown count is never shown as 0.
+ * opened: counts.comment + counts.needs_you, i.e. FINDINGS the engineer
+ * decides on. That is not the comment sheet's row count (the sheet groups
+ * findings into rows with `buildCrsRows`, which would need four reads per
+ * run), so the list labels it "findings to decide", never "comments".
+ * Null when it fails - an unknown count is never shown as 0.
  */
 export async function loadCommentCount(runId: string): Promise<number | null> {
   try {
