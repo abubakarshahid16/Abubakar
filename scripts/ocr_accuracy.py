@@ -41,7 +41,7 @@ import re
 import sqlite3
 import statistics
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -149,7 +149,14 @@ def sample_pages(db: sqlite3.Connection, n: int, per_doc: int, seed: int,
     return [(r[0], r[1], r[2], r[3]) for r in picked[:n]]
 
 
-def _map_path(stored: str, mapping: list[tuple[str, str]]) -> str:
+def _map_path(stored: str, mapping: list[tuple[str, str]],
+              data_dir: Path | None = None) -> str:
+    """Where a stored file is on this machine. A relative value (order 121 C:
+    stored relative to the data folder) is read under `data_dir`; an absolute
+    one written on another machine goes through --path-map."""
+    if data_dir is not None and not (PureWindowsPath(stored).is_absolute()
+                                     or PurePosixPath(stored).is_absolute()):
+        return str(Path(data_dir) / PurePosixPath(stored.replace("\\", "/")))
     for src, dst in mapping:
         if stored.lower().startswith(src.lower()):
             return dst + stored[len(src):].replace("\\", "/")
@@ -164,6 +171,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--seed", type=int, default=20260929)
     ap.add_argument("--path-map", action="append", default=[],
                     help="'<stored prefix>=<local prefix>' when the PDFs moved")
+    ap.add_argument("--data-dir", type=Path, default=None,
+                    help="the data folder the --db copy belongs to; a relative "
+                         "stored path is read under it (default: this machine's)")
     ap.add_argument("--out", type=Path)
     ap.add_argument("--offset", type=int, default=0,
                     help="skip this many sampled pages (to run the sample in slices)")
@@ -198,7 +208,7 @@ def main(argv: list[str] | None = None) -> int:
     for i, (doc_id, stored, page_no, truth) in enumerate(sample):
         if not args.offset <= i < end:
             continue
-        path = _map_path(stored, mapping)
+        path = _map_path(stored, mapping, args.data_dir or settings.data_dir)
         try:
             with pymupdf.open(path) as pdf:
                 png = pdf.load_page(page_no - 1).get_pixmap(dpi=settings.ocr_dpi).tobytes("png")

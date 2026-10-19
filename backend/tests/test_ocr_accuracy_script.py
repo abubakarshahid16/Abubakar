@@ -66,3 +66,14 @@ def test_the_scan_estimate_changes_the_image():
     Image.new("RGB", (200, 100), "white").save(buf, format="PNG")
     out = m.degrade(buf.getvalue(), seed=3)
     assert out != buf.getvalue() and Image.open(io.BytesIO(out)).format == "JPEG"
+
+
+def test_a_relative_stored_path_is_read_under_the_data_folder(tmp_path):
+    """Order 121 C: an upload is stored relative to the data folder, so the
+    sample reads it under --data-dir; an absolute path still goes through
+    --path-map."""
+    assert m._map_path("uploads/a.pdf", [], tmp_path) == str(tmp_path / "uploads" / "a.pdf")
+    assert (
+        m._map_path(r"D:\project\Rag_chatbot\u\a.pdf", [(r"D:\project\Rag_chatbot", "/mnt/R")], tmp_path)
+        == "/mnt/R/u/a.pdf"
+    )
