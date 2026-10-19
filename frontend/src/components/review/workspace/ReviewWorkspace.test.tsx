@@ -829,6 +829,26 @@ describe("ReviewWorkspace v2.2: Simple / Detailed view", () => {
     expect(screen.getByTestId("crs-footer").closest("details")).toBeNull();
   });
 
+  /** #1171 review, item 6. MUTATION PROOF: drop the line outside the fold
+   *  and the Simple check fails. */
+  it("Simple view says outside the fold when the standards list could not be loaded", async () => {
+    const user = userEvent.setup();
+    data.mockReturnValue(ready({ standardsState: { standards: null, missing: [], error: "server error 500" } }));
+    render(<Harness initial={{}} />);
+    const line = screen.getByTestId("ws-standards-error");
+    expect(line).toHaveTextContent("Standards: the list could not be loaded (server error 500).");
+    expect(line.closest("details")).toBeNull();
+    // Detailed shows the footer open, which already says it: no second copy.
+    await user.click(within(screen.getByRole("group", { name: "View" })).getByRole("button", { name: "Detailed" }));
+    expect(screen.queryByTestId("ws-standards-error")).toBeNull();
+    expect(within(screen.getByTestId("crs-footer")).getByText(/the list could not be loaded/)).toBeInTheDocument();
+  });
+
+  it("Simple view with the standards list loaded adds no line outside the fold", () => {
+    render(<Harness initial={{}} />);
+    expect(screen.queryByTestId("ws-standards-error")).toBeNull();
+  });
+
   it("a link to ?tab=steps in Simple view opens the steps tab with the Details row open", () => {
     render(<Harness initial={{ tab: "steps" }} />);
     expect(screen.getByRole("tab", { name: "Details" })).toHaveAttribute("aria-selected", "true");

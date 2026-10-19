@@ -46,12 +46,19 @@ function pagesLine(run: ReviewRunSummary): string {
     : `Pages not fully read: none of ${pc.pages_total}.`;
 }
 
+/** The one sentence for a standards list that could not be loaded. The
+ *  workspace's Simple view also shows it outside its fold (#1171 review,
+ *  item 6), so the words live here once. */
+export function standardsErrorLine(error: string): string {
+  return `Standards: the list could not be loaded (${error}).`;
+}
+
 export function CrsFooter({ run, counts, standards, missing, standardsError, rejected, codeVersion, signedAt }: CrsFooterProps) {
   const signed = signedAt === undefined ? run.crs_issued_at ?? null : signedAt;
   const signedWhen = whenLabel(signed);
   const used = standards ? standards.filter((s) => s.included) : null;
   const standardsLine = standardsError
-    ? `Standards: the list could not be loaded (${standardsError}).`
+    ? standardsErrorLine(standardsError)
     : used
       ? `Standards used: ${used.length}${used.length ? ` (${used.map((s) => s.filename ?? s.standard_document_id).join(", ")})` : ""}`
         + `; missing from the library: ${missing.length}${missing.length ? ` (${missing.map((m) => m.identifier).join(", ")})` : ""}.`
