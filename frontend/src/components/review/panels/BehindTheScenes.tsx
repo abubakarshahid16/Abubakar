@@ -11,10 +11,10 @@ import { reviews as reviewsApi } from "../../../api/client";
 import type {
   CrsPreview, DocumentRecord, ReviewFinding, ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary,
 } from "../../../types/api";
-import { PANELS } from "../../../routing";
+import { CRS_SHEET_IS_DEFAULT, PANELS, panelForReviewScreen } from "../../../routing";
+import { NavLink } from "../../NavLink";
 import { ReviewPipeline } from "../../../views/ReviewPipeline";
 import { AiNumbersPanel } from "../AiNumbersPanel";
-import { CrsIssueGatePanel } from "../CrsIssueGatePanel";
 import { CrsPreviewSheet } from "../CrsPreviewSheet";
 import { downloadCrs } from "../downloadCrs";
 import { FindingDetail } from "../FindingDetail";
@@ -191,7 +191,7 @@ function NumbersPage({ run, findings }: BehindTheScenesProps) {
 /** The deliverable without leaving the application: the sheet on screen from
  *  the same builder as the file, the two exports, and what still stands
  *  between this run and the contractor's copy (PF5). */
-function CrsPage({ run, onChanged }: BehindTheScenesProps) {
+function CrsPage({ run }: BehindTheScenesProps) {
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [preview, setPreview] = useState<CrsPreview | null>(null);
@@ -199,7 +199,7 @@ function CrsPage({ run, onChanged }: BehindTheScenesProps) {
   const [previewError, setPreviewError] = useState<string | null>(null);
   const runId = run.review_run_id;
 
-  async function exportCrs(copy: "internal" | "issue") {
+  async function exportCrs(copy: "internal") {
     setExporting(true);
     setExportError(null);
     setExportError(await downloadCrs(runId, copy));
@@ -234,25 +234,17 @@ function CrsPage({ run, onChanged }: BehindTheScenesProps) {
           className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-200 disabled:opacity-50">
           {exporting ? "Preparing…" : "Export CRS - internal review copy"}
         </button>
-        {/* Owner order 2f: the contractor's copy. SAFETY GATE (2026-09-27):
-            a copy meant to leave the building must carry a human's decision -
-            disabled here AND refused with 409 on the server. PF5 (#885):
-            issuing is a POST that is also refused while a page is unread or
-            a finding undecided (the reasons are shown below). */}
-        <button type="button" onClick={() => void exportCrs("issue")}
-          disabled={exporting || !run.engineer_final_code}
-          className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-200 disabled:opacity-50">
-          Issue CRS to contractor
-        </button>
-        {!run.engineer_final_code && (
-          <p className="text-xs text-slateish-400">An engineer must record the final code before issue.</p>
-        )}
+        {/* Order 121: the contractor's copy is signed on the comment sheet
+            ("Before you sign"), never here; this page only links there. */}
+        <NavLink view="review" recordId={runId} panel={panelForReviewScreen("crsSheet", CRS_SHEET_IS_DEFAULT)}
+          className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-signal-300">
+          Sign and export on the comment sheet
+        </NavLink>
         <button type="button" onClick={() => void togglePreview()} disabled={previewing} aria-expanded={preview !== null}
           className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-200 disabled:opacity-50">
           {previewing ? "Loading…" : preview ? "Hide CRS preview" : "Preview CRS"}
         </button>
       </div>
-      <CrsIssueGatePanel runId={runId} onChange={onChanged} />
       {exportError && (
         <p role="alert" className="rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-xs text-danger-500">{exportError}</p>
       )}

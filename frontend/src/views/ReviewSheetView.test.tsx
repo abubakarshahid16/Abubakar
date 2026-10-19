@@ -196,24 +196,21 @@ describe("ReviewSheetView", () => {
     expect(decideCrsFinding).toHaveBeenCalledWith("run-1", "a", "accept", expect.any(String));
   });
 
-  it("Send waits for every answer, the decision and the server's gate", async () => {
+  it("order 121: the card view is the older view; it sends the engineer to the comment sheet to sign, never issues itself", async () => {
     findings = findings.map((x) => ({ ...x, confirmed_by: "eng" }));
     reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run({ engineer_final_code: "Approved with Comments" })] } });
-    crsIssueGate.mockResolvedValue({ ok: true, data: gate({ issuable: false, blockers: ["1 page(s) of the submittal were not read and no engineer has recorded checking them"] }) });
-    const { unmount } = render(<ReviewSheetView runId="run-1" onBack={vi.fn()} onOpenPanel={vi.fn()} onOpenRun={vi.fn()} />);
-    expect(await screen.findByRole("heading", { name: "What is your overall decision?" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Send comments to contractor" })).toBeDisabled();
-    expect(screen.getByTestId("sheet-headline")).toHaveTextContent(/^Not ready to send yet: 1 page\(s\)/);
-    unmount();
-
     crsIssueGate.mockResolvedValue({ ok: true, data: gate({ issuable: true }) });
-    exportCrs.mockResolvedValue({ ok: false, error: { message: "refused by the server" } });
-    render(<ReviewSheetView runId="run-1" onBack={vi.fn()} onOpenPanel={vi.fn()} onOpenRun={vi.fn()} />);
-    const send = await screen.findByRole("button", { name: "Send comments to contractor" });
-    await vi.waitFor(() => expect(send).toBeEnabled());
-    await userEvent.click(send);
-    expect(exportCrs).toHaveBeenCalledWith("run-1", "issue");
-    expect(await screen.findByRole("alert")).toHaveTextContent("refused by the server");
+    const navigate = vi.fn();
+    render(
+      <NavigationContext.Provider value={navigate}>
+        <ReviewSheetView runId="run-1" onBack={vi.fn()} onOpenPanel={vi.fn()} onOpenRun={vi.fn()} />
+      </NavigationContext.Provider>,
+    );
+    expect(await screen.findByTestId("older-view")).toHaveTextContent("Older view. Decisions are made on the comment sheet.");
+    expect(screen.queryByRole("button", { name: /Send comments to contractor/ })).toBeNull();
+    await userEvent.click(screen.getByRole("link", { name: "Sign and export on the comment sheet" }));
+    expect(navigate).toHaveBeenCalledWith("review", "run-1");
+    expect(exportCrs).not.toHaveBeenCalled();
   });
 
   it("keeps the technical pages behind links, each its own route (#967 PR 3)", async () => {

@@ -26,6 +26,9 @@ const confirm = vi.fn();
 const update = vi.fn();
 const decideCrsFinding = vi.fn();
 const crsDecisions = vi.fn();
+const crsIssueGate = vi.fn();
+const decideCrsPage = vi.fn();
+const decideCode = vi.fn();
 
 vi.mock("../api/client", () => ({
   api: { document: async () => ({ ok: true, data: { id: "doc-sub", filename: "psv.pdf", page_count: 12, equipment_type: "Pressure safety valve", revision: "B" } }) },
@@ -44,6 +47,9 @@ vi.mock("../api/client", () => ({
     update: (...a: unknown[]) => update(...a),
     decideCrsFinding: (...a: unknown[]) => decideCrsFinding(...a),
     crsDecisions: (...a: unknown[]) => crsDecisions(...a),
+    crsIssueGate: (...a: unknown[]) => crsIssueGate(...a),
+    decideCrsPage: (...a: unknown[]) => decideCrsPage(...a),
+    decideCode: (...a: unknown[]) => decideCode(...a),
     cancelJob: vi.fn(),
   },
 }));
@@ -95,6 +101,11 @@ beforeEach(() => {
   update.mockReset().mockResolvedValue({ ok: true, data: {} });
   decideCrsFinding.mockReset().mockResolvedValue({ ok: true, data: {} });
   crsDecisions.mockReset().mockResolvedValue({ ok: true, data: { decisions: [] } });
+  // Order 121: the gate is clear unless a test says otherwise.
+  crsIssueGate.mockReset().mockResolvedValue({ ok: true, data: {
+    review_run_id: "run-1", issuable: true, final_code_recorded: true, blockers: [], unread_pages: [], open_findings: [] } });
+  decideCrsPage.mockReset().mockResolvedValue({ ok: true, data: {} });
+  decideCode.mockReset().mockResolvedValue({ ok: true, data: {} });
 });
 
 function mount() {
@@ -554,5 +565,111 @@ describe("CrsSheetView reads the run summary (order 95 piece 1, #1111)", () => {
     expect(link).toHaveAttribute("href", "/review/run-1/cards");
     await userEvent.click(link);
     expect(navigate).toHaveBeenCalledWith("review", "run-1", "cards");
+  });
+});
+
+describe("CrsSheetView: Before you sign (order 121)", () => {
+  // The server's gate, worked out from what the screen has recorded so far.
+  let recorded: { code: boolean; page4: boolean; a: boolean; other: boolean };
+  beforeEach(() => {
+    recorded = { code: false, page4: false, a: false, other: false };
+    findings = [f("a", { contractor_page: 1 })];
+    reviewRuns.mockImplementation(async () => ({ ok: true, data: { runs: [run({
+      engineer_final_code: recorded.code ? "Approved with Comments" : null, recommended_code: "Approved with Comments" })] } }));
+    crsIssueGate.mockImplementation(async () => {
+      const unread = recorded.page4 ? [] : [{ page: 4, reason: "vision reader: page kind 'cover'" }];
+      const open = [
+        ...(recorded.a ? [] : [{ finding_id: "a", row_kind: "non_compliant", item: 1 }]),
+        ...(recorded.other ? [] : [{ finding_id: "row-key-std", row_kind: "standard_not_cited", item: 2 }]),
+      ];
+      const blockers = [...(recorded.code ? [] : ["no final code"]), ...(unread.length ? ["pages"] : []), ...(open.length ? ["findings"] : [])];
+      return { ok: true, data: { review_run_id: "run-1", issuable: blockers.length === 0, final_code_recorded: recorded.code,
+        blockers, unread_pages: unread, open_findings: open } };
+    });
+    decideCode.mockImplementation(async () => { recorded.code = true; return { ok: true, data: {} }; });
+    decideCrsPage.mockImplementation(async () => { recorded.page4 = true; return { ok: true, data: {} }; });
+    decideCrsFinding.mockImplementation(async (_run: string, id: string) => {
+      if (id === "row-key-std") recorded.other = true;
+      return { ok: true, data: {} };
+    });
+    confirm.mockImplementation(async (id: string) => { if (id === "a") recorded.a = true; return { ok: true, data: {} }; });
+  });
+
+  it("signs a run from the sheet alone: code, unread page, comments and other items, then Sign and export", async () => {
+    mount();
+    await screen.findByTestId("crs-headline");
+    const sign = () => screen.getByRole("button", { name: /Sign and export/ });
+    const left = await screen.findByTestId("sign-left");
+    expect(left).toHaveTextContent("record the final code; tick 1 unread page; decide comment 1; decide 1 other item on the issued copy");
+    expect(sign()).toBeDisabled();
+    // No raw finding list, no engine words outside Technical details.
+    const box = screen.getByTestId("before-you-sign");
+    expect(box).not.toHaveTextContent(/Item \d+ has no engineer's decision/);
+    expect(within(box).getByText("Technical details")).toBeTruthy();
+
+    // 1. The final code: the computer's proposal is pre-selected and named.
+    const proposal = within(screen.getByTestId("sign-code")).getByRole("radio", { name: /Approved with Comments/ });
+    expect(proposal).toBeChecked();
+    expect(screen.getByTestId("sign-code")).toHaveTextContent("(the computer's proposal)");
+    await userEvent.click(screen.getByRole("button", { name: "Record the final code" }));
+    expect(decideCode).toHaveBeenCalledWith("run-1", "Approved with Comments", null);
+    await waitFor(() => expect(screen.getByTestId("sign-code")).toHaveTextContent("Final code recorded: Approved with Comments."));
+
+    // 2. The unread page: a short reason is refused, a real one is recorded.
+    await userEvent.type(screen.getByLabelText("What you checked on page 4"), "ok");
+    await userEvent.click(screen.getByRole("button", { name: "I checked page 4" }));
+    expect(within(screen.getByTestId("sign-pages")).getByRole("alert")).toHaveTextContent("10 characters at least");
+    expect(decideCrsPage).not.toHaveBeenCalled();
+    await userEvent.type(screen.getByLabelText("What you checked on page 4"), " - cover page, title block only");
+    await userEvent.click(screen.getByRole("button", { name: "I checked page 4" }));
+    expect(decideCrsPage).toHaveBeenCalledWith("run-1", 4, "ok - cover page, title block only");
+    await waitFor(() => expect(screen.getByTestId("sign-pages")).toHaveTextContent("Every page was read or checked"));
+
+    // 3. Items on the copy that are not sheet rows: one reason for all.
+    expect(screen.getByTestId("sign-items")).toHaveTextContent("a standard the datasheet does not cite");
+    await userEvent.type(screen.getByLabelText("Reason for the other items"), "standard not cited is noted for the record");
+    await userEvent.click(screen.getByRole("button", { name: "Keep them" }));
+    expect(decideCrsFinding).toHaveBeenCalledWith("run-1", "row-key-std", "accept", "standard not cited is noted for the record");
+
+    // 4. The comment: the link opens its row; Keep and Save decide it.
+    await userEvent.click(within(screen.getByTestId("sign-items")).getByRole("button", { name: "1" }));
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Close evidence" }));
+    await userEvent.click(screen.getByRole("button", { name: "Keep comment 1" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save decisions" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: /Before you sign: all done/ })).toBeTruthy());
+    expect(screen.queryByTestId("sign-left")).toBeNull();
+
+    await userEvent.click(sign());
+    expect(exportCrs).toHaveBeenCalledWith("run-1", "issue");
+  });
+
+  it("a sheet row with no comment number is listed with a link to open it, never decided in bulk", async () => {
+    findings = [f("a", { contractor_page: 1 }), f("met", { compliance_status: "COMPLIANT", contractor_page: 2 })];
+    recorded = { code: true, page4: true, a: true, other: false };
+    crsIssueGate.mockImplementation(async () => ({ ok: true, data: {
+      review_run_id: "run-1", issuable: false, final_code_recorded: true, blockers: ["findings"], unread_pages: [],
+      open_findings: [{ finding_id: "met", row_kind: "safety_tick", item: 1 },
+        ...(recorded.other ? [] : [{ finding_id: "row-key-std", row_kind: "standard_not_cited", item: 2 }])] } }));
+    mount();
+    await screen.findByTestId("crs-headline");
+    const listed = await screen.findByTestId("sign-unnumbered");
+    expect(listed).toHaveTextContent("1 row on this sheet has no comment number and no decision yet");
+    expect(screen.getByTestId("sign-left")).toHaveTextContent("decide 1 other row on the sheet");
+    await userEvent.type(screen.getByLabelText("Reason for the other items"), "standard not cited is noted for the record");
+    await userEvent.click(screen.getByRole("button", { name: "Keep them" }));
+    expect(decideCrsFinding).toHaveBeenCalledWith("run-1", "row-key-std", "accept", "standard not cited is noted for the record");
+    expect(decideCrsFinding).not.toHaveBeenCalledWith("run-1", "met", expect.anything(), expect.anything());
+    await userEvent.click(within(listed).getByRole("button"));
+    expect(screen.getByRole("dialog")).toBeTruthy();
+  });
+
+  it("when the gate cannot be read, Sign waits and the box says so with a way to check again", async () => {
+    crsIssueGate.mockResolvedValue({ ok: false, disconnected: true, error: { code: "internal", message: "Cannot reach the backend." } });
+    mount();
+    await screen.findByTestId("crs-headline");
+    expect(await within(screen.getByTestId("before-you-sign")).findByRole("alert")).toHaveTextContent("Cannot reach the backend.");
+    expect(screen.getByRole("button", { name: /Sign and export/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Check again" })).toBeTruthy();
   });
 });

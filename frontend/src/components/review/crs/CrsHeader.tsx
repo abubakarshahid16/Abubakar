@@ -31,18 +31,21 @@ export interface CrsHeaderProps {
   save: { unsaved: number; busy: boolean; onSave: () => void; message: string | null; error: string | null };
   acceptAll: { confirming: boolean; onAsk: () => void; onConfirm: () => void; onCancel: () => void; canUndo: boolean; onUndo: () => void; kept: number | null };
   sign: { busy: boolean; onSign: () => void; onWorkingCopy: () => void; message: string | null; error: string | null };
+  /** Order 121: what the issue gate still wants ("record the final code",
+   *  "tick 2 unread pages", ...); Sign and export waits while any is left. */
+  signLeft?: string[];
   onBack: () => void;
 }
 
 export function CrsHeader({
-  run, submittal, counts, headlineFields, findingsInComments = null, tierSource = "server", unopened, remaining, save, acceptAll, sign, onBack,
+  run, submittal, counts, headlineFields, findingsInComments = null, tierSource = "server", unopened, remaining, save, acceptAll, sign, signLeft = [], onBack,
 }: CrsHeaderProps) {
   const equipment = orNothing(submittal?.equipment_type) || run.equipment_tags.join(", ");
   const revision = orNothing(submittal?.revision);
   const code = orNothing(run.engineer_final_code) || orNothing(run.recommended_code);
   // Nothing is exported while a decision is on screen only (piece 6c).
   const canExport = save.unsaved === 0 && !save.busy && !sign.busy;
-  const canSign = canExport && unopened.length === 0;
+  const canSign = canExport && unopened.length === 0 && signLeft.length === 0;
   const primary = "rounded-[var(--radius-sm)] bg-signal-500 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50";
   const secondary = "rounded-[var(--radius-sm)] border border-ink-600 px-3 py-2 text-sm text-slateish-100 disabled:opacity-50";
   return (
@@ -104,7 +107,8 @@ export function CrsHeader({
         <span className="ml-auto flex flex-wrap items-center gap-2">
           <button type="button" onClick={sign.onWorkingCopy} disabled={!canExport} className={secondary}>Download working copy</button>
           <button type="button" onClick={sign.onSign} disabled={!canSign} className={primary}
-            title={unopened.length > 0 ? `Open the ${unopened.length} "Needs you" ${unopened.length === 1 ? "row" : "rows"} first.` : undefined}>
+            title={unopened.length > 0 ? `Open the ${unopened.length} "Needs you" ${unopened.length === 1 ? "row" : "rows"} first.`
+              : signLeft.length > 0 ? `Before you sign: ${signLeft.join("; ")}.` : undefined}>
             {sign.busy ? "Exporting…" : "Sign and export"}
           </button>
         </span>

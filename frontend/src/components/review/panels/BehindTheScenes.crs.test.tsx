@@ -218,20 +218,11 @@ describe("the download the preview sits beside", () => {
     expect(previewCrs).not.toHaveBeenCalled();
   });
 
-  it("offers the contractor's copy as its own export (order 2f), once an engineer has decided", async () => {
-    exportCrs.mockResolvedValue({ ok: true, data: { blob: new Blob(["x"]), filename: "CRS_drum_2026-09-20_issue-to-contractor.xlsx" } });
+  it("order 121: the contractor's copy is not issued here; the page links to the comment sheet instead", async () => {
     page({ run: run({ engineer_final_code: "Approved" }) });
-    await userEvent.click(screen.getByRole("button", { name: "Issue CRS to contractor" }));
-    expect(exportCrs).toHaveBeenCalledWith("run-1", "issue");
-  });
-
-  it("SAFETY GATE: refuses to issue the contractor's copy before an engineer records the final code", async () => {
-    page();
-    const button = screen.getByRole("button", { name: "Issue CRS to contractor" });
-    expect(button).toBeDisabled();
-    expect(screen.getByText("An engineer must record the final code before issue.")).toBeInTheDocument();
-    await userEvent.click(button);
-    expect(exportCrs).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Issue CRS to contractor" })).toBeNull();
+    expect(screen.getByText("Sign and export on the comment sheet")).toBeInTheDocument();
+    expect(exportCrs).not.toHaveBeenCalledWith("run-1", "issue");
   });
 });
 
@@ -262,9 +253,10 @@ describe("2f: the engineer's internal notes are their own table, not comments", 
     expect(previewCrs).toHaveBeenCalledWith("run-1");
   });
 
-  it("PF5: shows what still stands before the contractor's copy, under the issue button", async () => {
+  it("order 121: the old issue gate (one line per raw finding) is no longer on this page", async () => {
     page({ run: run({ engineer_final_code: "Approved" }) });
-    expect(await screen.findByText("Not ready to issue to the contractor")).toBeInTheDocument();
-    expect(screen.getByTestId("finding-f-1")).toHaveTextContent("Item 1 has no engineer's decision.");
+    expect(await screen.findByText("Sign and export on the comment sheet")).toBeInTheDocument();
+    expect(screen.queryByText(/Not ready to issue to the contractor/)).toBeNull();
+    expect(screen.queryByText(/has no engineer's decision/)).toBeNull();
   });
 });
