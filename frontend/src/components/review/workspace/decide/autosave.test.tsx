@@ -259,7 +259,7 @@ describe("Record the final code (S1)", () => {
     const n = numbers({ finalCodeRecorded: false });
     render(<ActionBar run={RUN} numbers={n} steps={actionSteps(n)} onAction={() => {}} signOff={IDLE} onCodeRecorded={onCodeRecorded} />);
     const ids = [...document.querySelectorAll("[data-step]")].map((b) => b.getAttribute("data-step"));
-    expect(ids).toEqual(["standards", "pages", "decide", "code", "sign"]);
+    expect(ids).toEqual(["standards", "pages", "decide", "code", "preview", "sign"]);
     await userEvent.click(screen.getByRole("button", { name: "Record the final code" }));
     const box = screen.getByTestId("ws-final-code");
     expect(box).toHaveTextContent("(the computer's proposal)");

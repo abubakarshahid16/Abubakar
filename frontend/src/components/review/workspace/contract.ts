@@ -190,14 +190,16 @@ export interface ReviewNumbers {
   signedAt: string | null;
 }
 
-export type ActionStepId = "standards" | "pages" | "decide" | "code" | "sign";
+/** v2.2: "preview" (Preview CRS) sits between the final code and Sign: a
+ *  read-only look at the sheet as the contractor gets it. */
+export type ActionStepId = "standards" | "pages" | "decide" | "code" | "preview" | "sign";
 
 /** One button of the "What you need to do" bar, in bar order. */
 export interface ActionStep {
   id: ActionStepId;
   /** Plain words with the count, e.g. "Upload missing standards (2)". */
   label: string;
-  /** The count shown; null for "sign". */
+  /** The count shown; null for "code", "preview" and "sign". */
   count: number | null;
   /** Nothing left to do for this step. */
   done: boolean;

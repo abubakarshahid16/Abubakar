@@ -170,8 +170,12 @@ describe("one source of numbers", () => {
     expect(screen.getByTestId("ws-verdict").textContent).toBe("5 comments, 2 need your judgement. Not signed yet.");
     expect(within(bar).getAllByRole("button").map((b) => b.textContent)).toEqual([
       "Upload missing standards (2)", "Check unread pages (3)", "Decide comments (3)", "Record the final code (not known yet)",
-      "Sign and export",
+      "Preview CRS", "Sign and export",
     ]);
+    // v2.2: each step is numbered beside its button (1 to 6), in bar order.
+    expect([...bar.querySelectorAll("[data-step-number]")].map((el) => el.textContent)).toEqual(["1", "2", "3", "4", "5", "6"]);
+    // Preview CRS carries no count: every number in the bar is one of the shared counts.
+    expect(bar.querySelector('[data-step="preview"] [data-count]')).toBeNull();
   });
 });
 
@@ -574,7 +578,8 @@ describe("unknown blocker counts never count as done", () => {
     renderAll(n, IDLE, CLEAR_GATE, CLEAR_RUN);
     const bar = screen.getByTestId("ws-action-bar");
     expect(within(bar).getAllByRole("button").map((b) => b.textContent)).toEqual([
-      "✓Upload missing standards (0)", "✓Check unread pages (0)", "✓Decide comments (0)", "✓Final code recorded", "Sign and export",
+      "✓Upload missing standards (0)", "✓Check unread pages (0)", "✓Decide comments (0)", "✓Final code recorded", "Preview CRS",
+      "Sign and export",
     ]);
     expect(screen.queryByTestId("ws-sign-waits")).toBeNull();
     expect(screen.getByTestId("ws-verdict").textContent).toBe("5 comments, 2 need your judgement. Ready to sign.");
