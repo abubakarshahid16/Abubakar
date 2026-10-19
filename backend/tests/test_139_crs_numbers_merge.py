@@ -317,7 +317,7 @@ def test_a_member_key_still_on_the_sheet_is_never_withdrawn(world):  # noqa: F81
 
 
 def _close(sub, ref: str) -> None:
-    crs_scope, label = main._crs_scope_of(sub)
+    crs_scope, _label = main._crs_scope_of(sub)
     seq = crs_numbers.parse_ref(ref)[1]
     crs_numbers.set_status(crs_scope, seq, crs_numbers.CLOSED, user_id="eng-1")
 
