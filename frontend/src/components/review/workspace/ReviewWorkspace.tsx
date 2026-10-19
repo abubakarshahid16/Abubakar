@@ -41,9 +41,9 @@ function isTab(value: string | undefined): value is WorkspaceTab {
 /** Queued / running / failed: the same states and words CrsSheetView shows.
  *  A failed run also offers "Review again", so a document whose last review
  *  failed is never a dead end. */
-function RunNotReady({ run, active, onBack, onChanged, onOpenRun, mayLeave }: {
+function RunNotReady({ run, active, onBack, onChanged, onOpenRun, openRun, mayLeave }: {
   run: ReviewRunSummary; active: boolean; onBack: () => void; onChanged: () => void;
-  onOpenRun: (runId: string) => void; mayLeave: () => boolean;
+  onOpenRun: (runId: string) => void; openRun: (runId: string) => void; mayLeave: () => boolean;
 }) {
   return (
     <section className="mx-auto w-full max-w-7xl space-y-3" aria-labelledby="ws-title" data-testid="review-workspace">
@@ -61,7 +61,7 @@ function RunNotReady({ run, active, onBack, onChanged, onOpenRun, mayLeave }: {
           <p role="alert" className="text-danger-500">This review failed{run.failure_reason ? `: ${run.failure_reason}` : "."}</p>
           {run.submittal_document_id && (
             <ReviewAgainButton documentId={run.submittal_document_id} filename={run.submittal_filename}
-              mayStart={mayLeave} onStarted={onOpenRun} />
+              mayStart={mayLeave} onStarted={onOpenRun} onOpenRun={openRun} />
           )}
         </>
       )}
@@ -170,7 +170,7 @@ export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun,
   if (active || run.status === "failed") {
     return (
       <>
-        <RunNotReady run={run} active={active} onBack={leave} onChanged={() => void refresh()} onOpenRun={onOpenRun} mayLeave={mayLeave} />
+        <RunNotReady run={run} active={active} onBack={leave} onChanged={() => void refresh()} onOpenRun={onOpenRun} openRun={openRun} mayLeave={mayLeave} />
         {refreshLine}
       </>
     );
@@ -189,7 +189,7 @@ export function ReviewWorkspace({ location, onLocationChange, onBack, onOpenRun,
         </h1>
         {run.submittal_document_id && (
           <ReviewAgainButton documentId={run.submittal_document_id} filename={run.submittal_filename}
-            mayStart={mayLeave} onStarted={onOpenRun} />
+            mayStart={mayLeave} onStarted={onOpenRun} onOpenRun={openRun} />
         )}
       </header>
 

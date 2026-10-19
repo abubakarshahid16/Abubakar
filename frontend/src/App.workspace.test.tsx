@@ -19,6 +19,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
 import { setToken } from "./api/client";
+import { signOutOn401 } from "./api/core";
 import { WORKSPACE_OPT_IN_KEY } from "./components/review/workspace/workspaceRoute";
 import type { ReviewWorkspaceProps } from "./components/review/workspace/contract";
 import { WATCH_STORAGE_KEY, watchRun, watchStorageKey } from "./components/review/workspace/reviewWatch";
@@ -309,6 +310,27 @@ describe("signing out clears the review-ready list", () => {
     expect(sessionStorage.getItem(watchStorageKey("user-a"))).toBeNull();
     expect(sessionStorage.getItem(WATCH_STORAGE_KEY)).toBeNull();
     // Whatever is watched next is not the last person's list.
+    act(() => { watchRun("run-2", null); });
+    expect(sessionStorage.getItem(WATCH_STORAGE_KEY)).not.toContain("Private datasheet.pdf");
+  });
+
+  /** A 401 from the server signs the reader out the same way: the list
+   *  goes too.
+   *  MUTATION PROOF: drop clearWatchedReviews() from App's onSignedOut
+   *  handler and this fails. */
+  it("a 401 from the server clears the list like sign-out does", async () => {
+    mockApi(SIGNED_IN);
+    render(<App initialView="review" />);
+    await screen.findByText("landing workspace=false");
+    await screen.findAllByRole("button", { name: "Sign out" });
+    act(() => { watchRun("run-1", "Private datasheet.pdf"); });
+    expect(sessionStorage.getItem(watchStorageKey("user-a"))).toContain("Private datasheet.pdf");
+
+    // What every transport calls when the server answers 401.
+    act(() => { signOutOn401(401); });
+    expect(sessionStorage.getItem(watchStorageKey("user-a"))).toBeNull();
+    expect(sessionStorage.getItem(WATCH_STORAGE_KEY)).toBeNull();
+    expect(await screen.findByRole("button", { name: /sign in/i })).toBeInTheDocument();
     act(() => { watchRun("run-2", null); });
     expect(sessionStorage.getItem(WATCH_STORAGE_KEY)).not.toContain("Private datasheet.pdf");
   });

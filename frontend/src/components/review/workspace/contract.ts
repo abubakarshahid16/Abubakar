@@ -145,11 +145,16 @@ export interface ReviewNumbers {
    *  not known. Then the missing standards count is unknown: the step is
    *  not done and no number is shown. */
   standardsKnown: boolean;
-  /** False while neither the issue gate nor the page checks (readiness)
-   *  are known. Then the
+  /** False while neither the issue gate nor a current page ledger
+   *  (readiness) is known, or while the gate says there is no page record.
+   *  Then the
    *  unread pages count is unknown: the step is not done and no number is
    *  shown. */
   pagesKnown: boolean;
+  /** True when the issue gate says the run has no page record at all ("no
+   *  page coverage" blocker). Then `pagesKnown` is false and the pages step
+   *  says the record is missing. */
+  pageRecordMissing: boolean;
   /** Comment rows with no decision yet and not agreed earlier. */
   undecided: number;
   /** Their row keys, in sheet order (the "Decide comments" button opens the first). */

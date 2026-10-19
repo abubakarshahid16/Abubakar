@@ -83,7 +83,11 @@ export function ActionBar({ run, numbers, steps, onAction, signOff }: ActionBarP
       {signHelp && <p data-testid="ws-sign-waits" className="text-sm text-slateish-300">{signHelp}</p>}
       {pagesOpen && pagesStep && !pagesStep.done && (
         <div data-testid="ws-unread-pages" className="flex flex-wrap items-center gap-2 text-sm text-slateish-300">
-          {pagesStep.count === null ? (
+          {pagesStep.count === null && pagesStep.detail ? (
+            <span data-testid="ws-page-record-missing">
+              {pagesStep.detail} Look through the pages yourself, or ask for the pages to be read again.
+            </span>
+          ) : pagesStep.count === null ? (
             <span>
               The page checks cannot be read yet, so it is not known which pages were left unread. Look through
               the pages yourself, or ask for the pages to be read again.

@@ -24,7 +24,7 @@ vi.mock("./useWorkspaceRun", () => ({ useWorkspaceRun: () => data() }));
 
 const NUMBERS: ReviewNumbers = {
   comments: 3, needsYou: 1, findingsInComments: 4, met: 10, notApplicableRows: 2, notApplicableClauses: null, anotherDocument: 0, removed: 0,
-  unreadPages: [4], missingStandards: ["API 610"], standardsKnown: true, pagesKnown: true, undecided: 2, undecidedKeys: ["row-b", "row-c"],
+  unreadPages: [4], missingStandards: ["API 610"], standardsKnown: true, pagesKnown: true, pageRecordMissing: false, undecided: 2, undecidedKeys: ["row-b", "row-c"],
   unopenedNeedsYou: 1, unsaved: 0, signLeft: ["tick 1 unread page"], signed: false, signedAt: null,
 };
 /** The issue gate the workspace reads (as the comment sheet): a stand-in. */
@@ -68,10 +68,16 @@ vi.mock("./WorkspaceSheet", () => ({
   ),
 }));
 vi.mock("./ReviewAgainButton", () => ({
-  ReviewAgainButton: ({ documentId, onStarted, mayStart }: { documentId: string; onStarted: (id: string) => void; mayStart?: () => boolean }) => (
-    <button type="button" onClick={() => { if (!mayStart || mayStart()) { startReviewRun(documentId); onStarted("run-2"); } }}>
-      {`Review again ${documentId}`}
-    </button>
+  ReviewAgainButton: ({ documentId, onStarted, mayStart, onOpenRun: openRunning }: {
+    documentId: string; onStarted: (id: string) => void; mayStart?: () => boolean; onOpenRun?: (id: string) => void;
+  }) => (
+    <>
+      <button type="button" onClick={() => { if (!mayStart || mayStart()) { startReviewRun(documentId); onStarted("run-2"); } }}>
+        {`Review again ${documentId}`}
+      </button>
+      {/* As the real button: the running review opens through onOpenRun, else onStarted. */}
+      <button type="button" onClick={() => (openRunning ?? onStarted)("run-running")}>Open the review that is running</button>
+    </>
   ),
 }));
 vi.mock("../../../views/HowReviewedView", () => ({
@@ -247,6 +253,36 @@ describe("ReviewWorkspace", () => {
     expect(onBack).toHaveBeenCalledTimes(2);
     await user.click(screen.getByRole("button", { name: "Review again doc-sub" }));
     expect(onOpenRun).toHaveBeenCalledWith("run-2");
+  });
+
+  /** S4: "Open the review that is running" leaves the sheet too, so it asks
+   *  first like "← Reviews" and "Review again".
+   *  MUTATION PROOF: drop `onOpenRun={openRun}` from the header's
+   *  ReviewAgainButton and this fails (the run opens without asking). */
+  it('with an unsaved decision, "Open the review that is running" asks first and stays when the reader says no', async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    data.mockReturnValue(ready());
+    render(
+      <ReviewWorkspace
+        location={{ runId: "run-1", tab: "sheet", row: null, panel: null, documentId: "doc-sub" }}
+        onLocationChange={() => {}} onBack={onBack} onOpenRun={onOpenRun}
+      />,
+    );
+    // Nothing unsaved: it opens without asking.
+    await user.click(screen.getByRole("button", { name: "Open the review that is running" }));
+    expect(confirm).not.toHaveBeenCalled();
+    expect(onOpenRun).toHaveBeenLastCalledWith("run-running");
+    onOpenRun.mockClear();
+
+    await user.click(screen.getByRole("button", { name: "Keep row-b" }));
+    await user.click(screen.getByRole("button", { name: "Open the review that is running" }));
+    expect(confirm).toHaveBeenCalledWith("Some decisions on this sheet are not saved yet. Leave without saving them?");
+    expect(onOpenRun).not.toHaveBeenCalled();
+
+    confirm.mockReturnValue(true);
+    await user.click(screen.getByRole("button", { name: "Open the review that is running" }));
+    expect(onOpenRun).toHaveBeenCalledWith("run-running");
   });
 
   it('a failed review offers "Review again", which starts a new review and opens it', async () => {

@@ -39,6 +39,10 @@ export function computeReviewNumbers(input: ReviewNumbersInput): ReviewNumbers {
     .filter((r) => !decisions.decisions[r.key] && r.priorState !== "agreed")
     .map((r) => r.key);
   const signedAt = run.crs_issued_at ?? null;
+  // The issue gate answers an empty unread list AND a "no page coverage"
+  // blocker when the run has no page record at all: that empty list means
+  // "nobody could count", never "none unread".
+  const pageRecordMissing = gate !== null && gate.blockers.some(isNoPageCoverage);
   return {
     comments: counts.comment + counts.needsYou,
     needsYou: counts.needsYou,
@@ -59,11 +63,15 @@ export function computeReviewNumbers(input: ReviewNumbersInput): ReviewNumbers {
     missingStandards: uniqueStrings([...(input.missingStandards ?? []), ...(readiness?.standards_missing ?? [])]),
     // Unknown is never "none": both lists need their reads to have answered.
     standardsKnown: input.missingStandards !== null && readiness !== null,
-    // The page count is known only when someone could count it: the issue
-    // gate answered, or readiness answered from a page ledger that is
-    // current. A ledger that is missing, stale or built for another file
-    // gives an empty list that means "not counted", never "none unread".
-    pagesKnown: gate !== null || (readiness !== null && readiness.ledger_state === "current"),
+    // The page count is known only when someone could count it: readiness
+    // answered from a page ledger that is current, or the issue gate
+    // answered from a page record (it lists unread pages, or has none left
+    // and no "no page coverage" blocker). A ledger that is missing, stale or
+    // built for another file, or a gate with no page record, gives an empty
+    // list that means "not counted", never "none unread".
+    pagesKnown: !pageRecordMissing
+      && ((readiness !== null && readiness.ledger_state === "current") || gate !== null),
+    pageRecordMissing,
     undecided: undecidedKeys.length,
     undecidedKeys,
     unopenedNeedsYou: rows.filter((r) => r.tier.tier === "C" && !decisions.opened[r.key]).length,
@@ -92,6 +100,16 @@ export function unopenedNeedsYouHelp(count: number): string {
   return `Open the ${count} "Needs you" ${count === 1 ? "row" : "rows"} first.`;
 }
 
+/** The issue gate's blocker for a run with no page record (backend
+ *  crs_issue.NO_PAGE_COVERAGE starts with these words). */
+function isNoPageCoverage(blocker: string): boolean {
+  return blocker.trim().toLowerCase().startsWith("no page coverage");
+}
+
+/** What the pages step says when the run has no page record. */
+export const PAGE_RECORD_MISSING =
+  "The record of which pages were read is missing for this review, so no page can be called read yet.";
+
 /** Words for a step whose count could not be read (never shown as 0). */
 export const NOT_READ_YET = "cannot read yet";
 
@@ -117,7 +135,7 @@ export function actionSteps(numbers: ReviewNumbers): ActionStep[] {
   const standardsHelp = standards ? numbers.missingStandards.join(", ") : "";
   const unopened = numbers.unopenedNeedsYou;
   const signHelp = numbers.signed ? ""
-    : !countsKnown ? WAITING_FOR_CHECKS
+    : !countsKnown ? (numbers.pageRecordMissing ? PAGE_RECORD_MISSING : WAITING_FOR_CHECKS)
       : unopened > 0 ? unopenedNeedsYouHelp(unopened)
         : numbers.signLeft.length > 0 ? `Before you sign: ${numbers.signLeft.join("; ")}.` : "";
   return [
@@ -128,7 +146,10 @@ export function actionSteps(numbers: ReviewNumbers): ActionStep[] {
         done: standards === 0, enabled: standards > 0, ...(standardsHelp ? { detail: standardsHelp } : {}),
       },
     pages === null
-      ? { id: "pages", label: `Check unread pages (${NOT_READ_YET})`, count: null, done: false, enabled: true }
+      ? {
+        id: "pages", label: `Check unread pages (${NOT_READ_YET})`, count: null, done: false, enabled: true,
+        ...(numbers.pageRecordMissing ? { detail: PAGE_RECORD_MISSING } : {}),
+      }
       : {
         id: "pages", label: `Check unread pages (${pages})`, count: pages,
         done: pages === 0, enabled: pages > 0, ...(pagesHelp ? { detail: pagesHelp } : {}),

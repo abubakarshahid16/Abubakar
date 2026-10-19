@@ -127,11 +127,12 @@ describe("PastReviewsButton", () => {
     await userEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     const list = screen.getByRole("list", { name: "Past reviews" });
-    await waitFor(() => expect(within(list).getByText("5 findings to decide")).toBeInTheDocument());
-    expect(within(list).getByText("1 finding to decide")).toBeInTheDocument();
+    await waitFor(() => expect(within(list).getByText("1 finding to decide")).toBeInTheDocument());
+    // run-3 is signed: no "to decide" count, and its count is not read.
+    expect(within(list).queryByText("5 findings to decide")).not.toBeInTheDocument();
     // Findings, not the comment sheet's rows: never labelled "comments".
     expect(within(list).queryByText(/comments?$/)).not.toBeInTheDocument();
-    expect(reviewRunSummary).toHaveBeenCalledTimes(3);
+    expect(reviewRunSummary).toHaveBeenCalledTimes(2);
 
     await userEvent.click(within(list).getByText("Rejected / Revise and Resubmit"));
     expect(onOpenRun).toHaveBeenCalledWith("run-3");
@@ -146,7 +147,7 @@ describe("PastReviewsList", () => {
   it("shows date, result, findings and signed yes/no; a failed count shows nothing, never 0", async () => {
     reviewRunSummary.mockResolvedValue({ ok: false, disconnected: false, error: { code: "not_found", message: "no" } });
     render(<PastReviewsList reviews={pastReviewsOf("doc-1", RUNS)} onOpenRun={vi.fn()} />);
-    await waitFor(() => expect(reviewRunSummary).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(reviewRunSummary).toHaveBeenCalledTimes(2));
     const rows = screen.getAllByRole("button");
     expect(rows).toHaveLength(3);
     expect(within(rows[0]).getByText("Signed: yes")).toBeInTheDocument();
@@ -160,15 +161,29 @@ describe("PastReviewsList", () => {
     expect(screen.queryByText(/^0 /)).not.toBeInTheDocument();
   });
 
+  /** S2: a signed review has nothing left to decide. */
+  it("a signed review shows no findings-to-decide count and does not read one", async () => {
+    reviewRunSummary.mockResolvedValue(summary(5, 2));
+    const signed = pastReviewsOf("doc-1", RUNS).filter((r) => r.runId === "run-3");
+    expect(signed[0].signed).toBe(true);
+    // Even a count handed in with the row is not shown on a signed review.
+    render(<PastReviewsList reviews={[{ ...signed[0], commentCount: 7 }]} onOpenRun={vi.fn()} />);
+    const row = screen.getByRole("button");
+    expect(within(row).getByText("Signed: yes")).toBeInTheDocument();
+    expect(row.querySelector('[data-field="findings"]')).toBeEmptyDOMElement();
+    expect(screen.queryByText(/to decide/)).not.toBeInTheDocument();
+    expect(reviewRunSummary).not.toHaveBeenCalled();
+  });
+
   it("writes a large count with thousands separators", async () => {
     reviewRunSummary.mockResolvedValue(summary(1200, 34));
-    render(<PastReviewsList reviews={pastReviewsOf("doc-1", RUNS).slice(0, 1)} onOpenRun={vi.fn()} />);
+    render(<PastReviewsList reviews={pastReviewsOf("doc-1", RUNS).filter((r) => r.runId === "run-1")} onOpenRun={vi.fn()} />);
     expect(await screen.findByText("1,234 findings to decide")).toBeInTheDocument();
   });
 
   it("a known count of zero is shown as 0 (only an unknown count is blank)", async () => {
     reviewRunSummary.mockResolvedValue(summary(0, 0));
-    render(<PastReviewsList reviews={pastReviewsOf("doc-1", RUNS).slice(0, 1)} onOpenRun={vi.fn()} />);
+    render(<PastReviewsList reviews={pastReviewsOf("doc-1", RUNS).filter((r) => r.runId === "run-1")} onOpenRun={vi.fn()} />);
     expect(await screen.findByText("0 findings to decide")).toBeInTheDocument();
   });
 });
