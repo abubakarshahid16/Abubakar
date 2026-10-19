@@ -34,7 +34,7 @@ import type {
   ReviewRunMissingReference,
   ReviewRunSummary,
   ReviewRunTierSummary,
-  RunSummaryTierCounts,
+  ReviewRunCountsBatch,
   ReviewFinding,
   ReviewFindingCreate,
   ReviewFindingUpdate,
@@ -180,7 +180,7 @@ export const reviews = {
    *  (422). A run that does not exist, or that the caller may not read, is
    *  absent from `counts` - never a row of zeros. */
   reviewRunCounts: (ids: string[]) =>
-    request<{ boundary: string; counts: Record<string, RunSummaryTierCounts> }>(
+    request<ReviewRunCountsBatch>(
       `/reviews/runs/counts?${ids.map((id) => "ids=" + encodeURIComponent(id)).join("&")}`,
       undefined,
       (b) => typeof (b as { counts?: unknown }).counts === "object"
