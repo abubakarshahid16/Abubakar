@@ -1,0 +1,31 @@
+"$schema" = "https://conductor.build/schemas/settings.repo.schema.json"
+
+# Conductor (Mac app that runs several Claude Code agents at once, each in
+# its own git worktree). One workspace = one task = one branch = one PR.
+#
+# Setup installs the backend and screen packages INSIDE the workspace.
+# It never copies backend/.env (keys and the Claude spend switch stay in
+# the live app only) and never touches the live database: a workspace's
+# backend/data is its own, empty folder (see CLAUDE.md, "Only the server
+# writes the live DB").
+
+[scripts]
+setup = "bash scripts/conductor/setup.sh"
+archive = "bash scripts/conductor/archive.sh"
+run_mode = "concurrent"
+
+# Preview this workspace's screens on the workspace's own port. It never
+# talks to the live app's server (port 8000) unless PREVIEW_AGAINST_LIVE=1
+# is set on purpose: unmerged screens must not write the owner's real
+# reviews. Point VITE_API_TARGET at a workspace backend instead (#1173).
+[scripts.run.screens]
+command = "bash scripts/conductor/run-screens.sh"
+default = true
+icon = "monitor"
+available_in = "local"
+
+# The related tests only (the full suite runs on GitHub).
+[scripts.run.tests]
+command = "bash scripts/conductor/test-changed.sh"
+icon = "flask-conical"
+available_in = "local"
