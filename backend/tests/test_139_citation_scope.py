@@ -378,7 +378,7 @@ def test_a_contents_page_has_no_headings():
         "ZT-34 Marking 5",
     ]
     body = ["ZT-32", "SPOT EXAMINATION", "One spot shall be examined."]
-    assert subject_scope._headings([contents, body]) == [None] * 6 + [
+    assert subject_scope._headings([contents, body])[0] == [None] * 6 + [
         ("lettered", "ZT-32"),
         None,
         None,
@@ -392,7 +392,7 @@ def test_a_numbered_id_alone_with_its_title_on_the_next_line_is_a_heading():
             "6 Materials\n6.1\nCasing\nThe casing material shall be stated.\n"
             "150\nCarbon steel\nThe casing grade shall be stated.\n"
             "5 Carbon steel 19.6\nThe casing finish shall be stated.\n"
-            "6.2\nImpeller\nThe impeller material shall be stated.\n"
+            "6.2 Impeller\nThe impeller material shall be stated.\n"
             "7 Testing\nThe test pressure shall be recorded.\n",
         )
     ]
@@ -417,6 +417,89 @@ def test_a_numbered_id_alone_with_its_title_on_the_next_line_is_a_heading():
         "casing grade",
         "casing finish",
     ]
+
+
+def test_a_page_number_alone_never_ends_a_cited_clause():
+    # "12" on its own line, then the running header: no clause 12 here
+    pages = [
+        (1, "10\nQRS Widget Standard\n10 Scope\nThe scope shall be stated.\n"),
+        (2, "11\nQRS Widget Standard\n11 Pumps\nThe pump shall be stated.\n"),
+        (3, "12\nQRS Widget Standard\nThe seal shall be stated.\n"),
+        (4, "13\nQRS Widget Standard\n12 Testing\nThe test shall be recorded.\n"),
+    ]
+    reqs = [
+        _req(k, page, f"The {k} shall be {v}.")
+        for k, page, v in (
+            ("scope", 1, "stated"),
+            ("pump", 2, "stated"),
+            ("seal", 3, "stated"),
+            ("test", 4, "recorded"),
+        )
+    ]
+    out = subject_scope.citation_gate(
+        reqs,
+        {"std": {"clauses": [("number", "11")], "pages": []}},
+        {},
+        pages_of=lambda sid: pages,
+    )
+    assert [r["id"] for r in out["kept"]] == ["pump", "seal"]
+    # nor does it OPEN clause 12: the real heading "12 Testing" does
+    out = subject_scope.citation_gate(
+        reqs,
+        {"std": {"clauses": [("number", "12")], "pages": []}},
+        {},
+        pages_of=lambda sid: pages,
+    )
+    assert [r["id"] for r in out["kept"]] == ["test"]
+
+
+def test_a_bare_number_heading_opens_but_never_ends_a_clause():
+    pages = [
+        (
+            1,
+            "11 Pumps\nThe pump shall be stated.\n12\nSeal chamber notes\n"
+            "The seal shall be stated.\n12 Testing\nThe test shall be recorded.\n",
+        )
+    ]
+    reqs = [
+        _req(k, 1, f"The {k} shall be {v}.")
+        for k, v in (("pump", "stated"), ("seal", "stated"), ("test", "recorded"))
+    ]
+    out = subject_scope.citation_gate(
+        reqs,
+        {"std": {"clauses": [("number", "11")], "pages": []}},
+        {},
+        pages_of=lambda sid: pages,
+    )
+    assert [r["id"] for r in out["kept"]] == ["pump", "seal"]
+
+
+def test_after_an_end_not_read_for_certain_the_rest_is_the_engineers():
+    # "5 Carbon steel flanges" may be a table row inside 4.1: what follows it
+    # is unsure until 4.2, which ends 4.1 for certain
+    pages = [
+        (
+            1,
+            "4.1 Pressure\nThe design pressure shall be stated.\n"
+            "5 Carbon steel flanges\nThe flange class shall be stated.\n"
+            "4.2 Temperature\nThe design temperature shall be stated.\n",
+        )
+    ]
+    reqs = [
+        _req(k, 1, f"The {k} shall be stated.")
+        for k in ("design pressure", "flange class", "design temperature")
+    ]
+    out = subject_scope.citation_gate(
+        reqs,
+        {"std": {"clauses": [("number", "4.1")], "pages": []}},
+        {},
+        pages_of=lambda sid: pages,
+    )
+    assert [r["id"] for r in out["kept"]] == ["design pressure"]
+    assert [i["requirement"]["id"] for i in out["unsure"]] == ["flange class"]
+    assert all(i["code"] == "applicability_unsure" for i in out["unsure"])
+    assert [i["requirement"]["id"] for i in out["items"]] == ["design temperature"]
+    assert out["summary"][0]["unsure"] == 1
 
 
 def test_an_unsure_reading_never_rules_a_requirement_out():
@@ -815,7 +898,17 @@ def test_a_review_on_an_unsure_reading_leaves_the_rest_for_the_engineer(
         "cited_clause_scope",
         lambda *_a, **_k: {"std": {"clauses": [unsure], "pages": [1]}},
     )
+    seen = {}
+    real = comparison.recommend_code
+
+    def spy(*args, **kwargs):
+        seen.update(kwargs.get("unchecked_counts") or {})
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(comparison, "recommend_code", spy)
     result, stored, ids = _review(CITED_LINE)
+    # the review code is told how many were left unchecked for this cause
+    assert seen["unsure_citation"] == 2
     assert stored[ids["spot"]]["state"] == scope_ledger.CHECKED
     for key in ("full", "hard"):
         assert stored[ids[key]]["state"] == scope_ledger.APPLIES_NOT_CHECKED
@@ -833,3 +926,30 @@ def test_the_note_counts_findings():
     notes = crs_mapping.build_review_notes([_finding("u1"), _finding("u2")], [])
     [note] = [n for n in notes if n["note"] == crs_mapping.NOTE_FIELD_NOT_IDENTIFIED]
     assert note["count"] == 2 and "2 of this run's findings" in note["detail"]
+
+
+def test_the_manual_review_reason_names_the_unsure_citation_cause():
+    met = [{"compliance_status": comparison.COMPLIANT}] * 3
+    sufficient = {
+        "sufficient": True,
+        "fields_read": 100,
+        "fields_estimated": 100,
+        "extraction_coverage": 1.0,
+    }
+    result = comparison.recommend_code(
+        met,
+        sufficient,
+        unchecked_counts={"not_compared": 120, "checked": 3, "unsure_citation": 100},
+    )
+    assert result["code"] == comparison.CODE_MANUAL
+    assert (
+        "120 of 123 requirements that apply to this submittal were not checked (100 "
+        "because the datasheet's citation does not say for certain which clauses of the "
+        "standard apply - the engineer decides; 20 with no matching field, or text that "
+        "could not be read)"
+    ) in result["reason"]
+    # with no unsure citation, the cause reads as before
+    plain = comparison.recommend_code(
+        met, sufficient, unchecked_counts={"not_compared": 900, "checked": 3}
+    )
+    assert "(no matching field, or text that could not be read)" in plain["reason"]

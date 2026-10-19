@@ -493,14 +493,17 @@ def _next_number(ident: str, last: str | None) -> bool:
     return ident.startswith(last + ".") or _follows(_numbers(ident), _numbers(last))
 
 
-def _headings(pages: list[list[str]]) -> list[tuple[str, str] | None]:
-    """The heading each line opens (None for a line that opens none), in
-    reading order. Never a heading: a running header or footer, a contents
-    entry or a table row (`_NOT_A_TITLE`), any line of a contents page. A
-    numbered id alone on its line with a title on the next line is one, when
-    it is a plausible next numbered clause (`_next_number`)."""
+def _headings(pages: list[list[str]]) -> tuple[list[tuple[str, str] | None], set[int]]:
+    """(the heading each line opens - None for a line that opens none - in
+    reading order, the indexes of the BARE ones). Never a heading: a running
+    header or footer, a contents entry or a table row (`_NOT_A_TITLE`), any
+    line of a contents page. A numbered id alone on its line with a title on
+    the next line is a BARE heading when it is a plausible next numbered
+    clause (`_next_number`) and the next line is no running header: it may
+    open a cited clause, never end one (a page number reads the same way)."""
     running = _running_lines(pages)
     out: list[tuple[str, str] | None] = []
+    bare_at: set[int] = set()
     last: str | None = None
     for lines in pages:
         shapes = [s for s in map(_heading_shape, lines) if s]
@@ -519,18 +522,17 @@ def _headings(pages: list[list[str]]) -> list[tuple[str, str] | None]:
                 and bare
                 and i + 1 < len(lines)
                 and re.match(_TITLE_WORD, lines[i + 1])
+                and re.sub(r"\d+", "#", lines[i + 1]) not in running
+                and _next_number(bare.group("id"), page_last)
             ):
-                head = (
-                    ("number", bare.group("id"))
-                    if _next_number(bare.group("id"), page_last)
-                    else None
-                )
+                head = ("number", bare.group("id"))
+                bare_at.add(len(out) + i)
             if head and head[0] == "number":
                 page_last = head[1]
             heads.append(head)
         last = page_last
         out.extend(heads)
-    return out
+    return out, bare_at
 
 
 def _numbers(ident: str) -> tuple[int, ...]:
@@ -562,6 +564,32 @@ def _ends(clause: tuple[str, str], head: tuple[str, str]) -> bool:
     if kind == "number" and head[0] == "number":
         return _follows(_numbers(head[1]), _numbers(ident))
     return False
+
+
+def _sequence(ident: str) -> tuple:
+    """An id as (its family, its place in it): "AB-12" (AB, 12), "4.2"
+    ((4,), 2), "7" ((), 7), "B" ((), 2)."""
+    if "-" in ident:
+        prefix, _, number = ident.partition("-")
+        digits = re.match(r"\d+", number)
+        return prefix, int(digits.group(0)) if digits else -1
+    if ident.replace(".", "").isdigit():
+        parts = _numbers(ident)
+        return parts[:-1], parts[-1]
+    return "letter", ord(ident[0]) if len(ident) == 1 else -1
+
+
+def _ends_for_certain(clause: tuple[str, str], head: tuple[str, str]) -> bool:
+    """Is `head` read FOR CERTAIN as the end of `clause`: another id of the
+    same kind and family ("AB-12" -> "AB-13", "4.1" -> "4.2", Appendix 7 ->
+    8; a lower one too, "AB-12" -> "AB-10": the "AB-12" opened was a
+    contents line or a cross-reference)? Any other heading that closes it
+    (another part, "5" after "4.1") may be a table row or a stray line: the
+    end is not certain."""
+    if head[0] != clause[0]:
+        return False
+    (fh, nh), (fc, nc) = _sequence(head[1]), _sequence(clause[1])
+    return fh == fc and nh != nc and nh >= 0 and nc >= 0
 
 
 #: A line repeated in the same place (the first or last lines of a page) on
@@ -600,7 +628,7 @@ class StandardText:
             [" ".join(r.split()) for r in (t or "").splitlines() if r.strip()]
             for _, t in pages
         ]
-        self.heads = _headings(split)
+        self.heads, self.bare = _headings(split)
         for (page, _text), lines in zip(pages, split, strict=True):
             start = at
             for line in lines:
@@ -613,21 +641,30 @@ class StandardText:
         self.offsets.append(at)
         self.folded = "".join(parts)
 
-    def spans(self, clause: tuple[str, str]) -> list[tuple[int, int]]:
-        """Where `clause` runs: from each heading of it to the next heading
-        that closes it (the end of the text for the last)."""
-        out: list[tuple[int, int]] = []
+    def spans(self, clause: tuple[str, str]) -> list[tuple[int, int, int]]:
+        """Where `clause` runs: (start, soft end, end) from each heading of it.
+        Only a heading read for certain (`_ends_for_certain`) ENDS it; one
+        that only may be its end (`_ends`) marks the soft end, after which a
+        requirement is the engineer's question, never "outside". A bare
+        heading (`_headings`) ends nothing."""
+        out: list[tuple[int, int, int]] = []
         opened: int | None = None
+        soft: int | None = None
         for index, head in enumerate(self.heads):
             if head is None:
                 continue
-            if opened is not None and _ends(clause, head):
-                out.append((self.offsets[opened], self.offsets[index]))
-                opened = None
+            if opened is not None and index not in self.bare and _ends(clause, head):
+                if not _ends_for_certain(clause, head):
+                    soft = self.offsets[index] if soft is None else soft
+                    continue
+                end = self.offsets[index]
+                out.append((self.offsets[opened], end if soft is None else soft, end))
+                opened = soft = None
             if opened is None and head == clause:
                 opened = index
         if opened is not None:
-            out.append((self.offsets[opened], self.offsets[-1]))
+            end = self.offsets[-1]
+            out.append((self.offsets[opened], end if soft is None else soft, end))
         return out
 
     def place(self, requirement: dict) -> int | None:
@@ -685,24 +722,34 @@ def standard_pages(standard_id: str) -> list[tuple[int, str]]:
     ]
 
 
-def _inside(requirement: dict, text: StandardText, spans: dict) -> bool:
-    """Is the requirement inside one of the cited clauses (`spans`: the
-    clauses the standard's text shows, each with where it runs)? Its stored
-    clause number first, then where its sentence sits. A sentence that cannot
-    be placed is outside only when its whole page lies outside every clause;
-    a page touching one keeps it a check. A clause found only by stored
-    clause numbers has no place in the text, so a requirement with no stored
-    number cannot be shown to lie outside it: it stays a check."""
+#: Where a requirement lies against the cited clauses (`_where`).
+INSIDE, UNSURE, OUTSIDE = "inside", "unsure", "outside"
+
+
+def _where(requirement: dict, text: StandardText, spans: dict) -> str:
+    """INSIDE, UNSURE or OUTSIDE the cited clauses (`spans`: the clauses the
+    standard's text shows, each with where it runs). Its stored clause number
+    first, then where its sentence sits: before a clause's soft end inside,
+    between the soft end and the end UNSURE (the end was not read for
+    certain). A sentence that cannot be placed is outside only when its whole
+    page lies outside every clause; a page touching one keeps it a check. A
+    clause found only by stored clause numbers has no place in the text, so
+    a requirement with no stored number cannot be shown outside it."""
     if any(_stored_clause_in(requirement.get("clause"), c) for c in spans):
-        return True
+        return INSIDE
     if not requirement.get("clause") and any(not runs for runs in spans.values()):
-        return True
+        return INSIDE
     runs = [run for clause_runs in spans.values() for run in clause_runs]
     at = text.place(requirement)
     if at is not None:
-        return any(lo <= at < hi for lo, hi in runs)
+        if any(lo <= at < soft for lo, soft, _hi in runs):
+            return INSIDE
+        return UNSURE if any(soft <= at < hi for _lo, soft, hi in runs) else OUTSIDE
     bounds = text.page_bounds.get(_page_of(requirement))
-    return bounds is None or any(lo < bounds[1] and bounds[0] < hi for lo, hi in runs)
+    touches = bounds is None or any(
+        lo < bounds[1] and bounds[0] < hi for lo, _s, hi in runs
+    )
+    return INSIDE if touches else OUTSIDE
 
 
 def _found_clauses(text: StandardText, rows: list[dict], clauses: list) -> dict:
@@ -715,10 +762,19 @@ def _found_clauses(text: StandardText, rows: list[dict], clauses: list) -> dict:
     for c in clauses:
         runs = text.spans(c)
         if any(_stored_clause_in(r.get("clause"), c) for r in rows) or any(
-            lo <= at < hi for at in placed for lo, hi in runs
+            lo <= at < soft for at in placed for lo, soft, _hi in runs
         ):
             found[c] = runs
     return found
+
+
+def _past_soft_end_item(name: str, cited_for: str) -> dict:
+    return {
+        "code": "applicability_unsure",
+        "detail": f"the datasheet cites {name} for {cited_for}; this requirement "
+        "follows a line that may or may not end the cited clause - the engineer "
+        "decides whether it applies",
+    }
 
 
 def _outside_item(name: str, cited_for: str, sure: bool) -> dict:
@@ -781,15 +837,20 @@ def citation_gate(
             if c not in found and not getattr(c, "in_range", False)
         ]
         name = standard_labels.get(sid) or sid
-        where = ", ".join(str(p) for p in scope.get("pages") or [])
+        pages = ", ".join(str(p) for p in scope.get("pages") or [])
         cited_for = ", ".join(label(c) for c in found) + (
-            f" (page {where})" if where else ""
+            f" (page {pages})" if pages else ""
         )
         sure = all(getattr(c, "sure", True) for c in scope["clauses"])
         item = _outside_item(name, cited_for, sure)
-        out = [] if missing else [r for r in rows if not _inside(r, text, found)]
-        out_ids.update(id(r) for r in out)
+        where = {} if missing else {id(r): _where(r, text, found) for r in rows}
+        out = [r for r in rows if where.get(id(r)) == OUTSIDE]
+        soft = [r for r in rows if where.get(id(r)) == UNSURE]
+        out_ids.update(id(r) for r in out + soft)
         (items if sure else unsure).extend({"requirement": r, **item} for r in out)
+        unsure.extend(
+            {"requirement": r, **_past_soft_end_item(name, cited_for)} for r in soft
+        )
         summary.append(
             {
                 "standard_document_id": sid,
@@ -799,8 +860,9 @@ def citation_gate(
                 "narrowed": not missing,
                 "sure": sure,
                 "pages": list(scope.get("pages") or []),
-                "kept": len(rows) - len(out),
+                "kept": len(rows) - len(out) - len(soft),
                 "outside": len(out),
+                "unsure": len(soft),
             }
         )
     kept = [r for r in requirements if id(r) not in out_ids]

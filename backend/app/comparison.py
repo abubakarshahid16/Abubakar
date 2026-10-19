@@ -1776,6 +1776,22 @@ def completeness_for_run(
     }
 
 
+def _unchecked_causes(counts: dict) -> str:
+    """Why the requirements that apply were not checked, each cause with its
+    count (#139): the cited-clause step's unsure ones are not "no field"."""
+    unsure = min(counts.get("unsure_citation", 0), counts.get("not_compared", 0))
+    rest = counts.get("not_compared", 0) - unsure
+    if not unsure:
+        return "no matching field, or text that could not be read"
+    causes = [
+        f"{unsure} because the datasheet's citation does not say for certain "
+        "which clauses of the standard apply - the engineer decides"
+    ]
+    if rest:
+        causes.append(f"{rest} with no matching field, or text that could not be read")
+    return "; ".join(causes)
+
+
 def recommend_code(findings: list[dict], completeness: dict, *,
                    codes: tuple[str, ...] | None = None,
                    missing_references: list[str] | tuple[str, ...] = (),
@@ -1809,8 +1825,8 @@ def recommend_code(findings: list[dict], completeness: dict, *,
         applies_n = unchecked_n + counts.get("checked", 0)
         result = {**result, "code": codes[3],
                   "reason": (f"Manual review: {unchecked_n} of {applies_n} requirements that apply "
-                             "to this submittal were not checked (no matching field, or text that "
-                             "could not be read), so the rest cannot be called met"),
+                             f"to this submittal were not checked ({_unchecked_causes(counts)}), "
+                             "so the rest cannot be called met"),
                   "unchecked_share": round(share, 3)}
     # PF3 (#883): AN INCOMPLETE READING CANNOT BE APPROVED. A page the AI reader
     # timed out on, or that no reader read into fields, is a page nobody has
@@ -2944,7 +2960,8 @@ def _run_comparison(
     unchecked_counts = {
         "not_compared": split["applies_not_checked"],
         "not_applied": split["does_not_apply"],
-        "checked": split["checked"]}
+        "checked": split["checked"],
+        "unsure_citation": len(cited_scope["unsure"])}
     recommendation = recommend_code(findings, coverage,
                                     missing_references=missing_references or (),
                                     page_coverage=pages_read,
