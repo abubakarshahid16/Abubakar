@@ -10,9 +10,13 @@ on:
   pull_request_review_comment:
     types: [created]
 
-# One run per pull request or issue; a newer comment replaces a running one.
+# One run per pull request or issue; a newer @claude comment replaces a running
+# one. Any OTHER comment (Claude's own "working..." comment, a session's post)
+# gets its own group by run id: its job is skipped by the `if:` below, but a
+# shared group would let that skipped run cancel the review in progress
+# (found by s2 on the first real use).
 concurrency:
-  group: claude-${{ github.event.issue.number || github.event.pull_request.number }}
+  group: ${{ startsWith(github.event.comment.body, '@claude') && format('claude-{0}', github.event.issue.number || github.event.pull_request.number) || github.run_id }}
   cancel-in-progress: true
 
 jobs:
