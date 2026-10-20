@@ -53,7 +53,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import (absence, claims, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
-                page_ledger, paragraph_ids, requirements_3b, review, schemas, stated_value, submittal_review)
+                page_ledger, requirements_3b, review, schemas, stated_value, submittal_review)
 from .config import settings
 from .db import connect
 
@@ -4238,14 +4238,14 @@ def attach_crs_context(findings: list[dict]) -> list[dict]:
     """
     req_ids = sorted({f["requirement_id"] for f in findings if f.get("requirement_id")})
     fact_ids = sorted({f["fact_id"] for f in findings if f.get("fact_id")})
-    # A-761b: a standard whose "clauses" are table numbers gets no clause number on the CRS, never "cl. 0.3".
-    from . import standards as standards_mod
+    # A-761b: a standard whose "clauses" are table numbers gets no clause number on the CRS.
+    from . import paragraph_ids, standards as standards_mod
     known = standards_mod.paragraph_ids_known(
         {f.get("standard_document_id") for f in findings if f.get("standard_document_id")})
     for f in findings:
         if f.get("standard_document_id") in known:
             f["clause_identified"] = known[f["standard_document_id"]]
-    paragraph_ids.attach(findings)  # order 161 C: the paragraph the standard's own text names
+    paragraph_ids.attach(findings)
     requirements: dict = {}
     facts: dict = {}
     conn = connect()

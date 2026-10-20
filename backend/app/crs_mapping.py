@@ -26,7 +26,7 @@ kind its own colour without re-deciding what the sheet says.
 import hashlib
 import re
 
-from . import method_notes, severity_rule, standard_ids
+from . import method_notes, paragraph_ids, severity_rule, standard_ids
 
 INCLUDED_STATUSES = ("NON_COMPLIANT", "NEEDS_ENGINEER_REVIEW", "MISSING_INFORMATION")
 
@@ -476,13 +476,8 @@ def _standard_reference(finding: dict) -> str:
     std = _std_short(finding.get("standard_name") or finding.get("standard_document_id"))
     if not std:
         return ""
-    clause = finding.get("standard_clause")
     page = finding.get("standard_page")
-    # A-761b: a table number is never printed as a clause; order 161 C: the paragraph its own text names is.
-    if not clause or finding.get("clause_identified") is False:
-        std += " (paragraph not identified)" if clause and not finding.get("paragraph_id") else ""
-        clause = finding.get("paragraph_id")
-    return std + (f" cl. {clause}" if clause else "") + (f" (p.{page})" if page else "")
+    return std + paragraph_ids.cited(finding) + (f" (p.{page})" if page else "")
 
 
 def _field_label(finding: dict) -> str:

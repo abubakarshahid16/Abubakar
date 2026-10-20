@@ -191,6 +191,21 @@ def paragraph_for(
     return ident + _sub_marks(window, at, position)
 
 
+def cited(finding: dict) -> str:
+    """What a CRS standard reference prints after the standard's name: " cl. 4.3"
+    for a clause that is a paragraph id; for a table number (`clause_identified`
+    False) or no clause, " cl. <paragraph>" when the standard's own text names
+    one (`paragraph_id`), else " (paragraph not identified)" for a table number
+    (never the table number itself) and nothing for no clause."""
+    clause = finding.get("standard_clause")
+    if clause and finding.get("clause_identified") is not False:
+        return f" cl. {clause}"
+    paragraph = finding.get("paragraph_id")
+    if paragraph:
+        return f" cl. {paragraph}"
+    return " (paragraph not identified)" if clause else ""
+
+
 def attach(findings: list[dict]) -> None:
     """Set `paragraph_id` on every finding of a standard whose clause is not a
     paragraph id (`clause_identified` False) or is missing, when the standard's
