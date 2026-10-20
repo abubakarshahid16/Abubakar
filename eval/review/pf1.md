@@ -114,6 +114,45 @@ Both print counts only. The output: per document `<id>.datasheet.pdf`,
 invented`), and `index.json` (document, equipment type, held out, layout,
 pages, files, items by kind).
 
+## The report (`scripts/pf1_report.py`)
+
+```powershell
+python scripts\pf1_report.py --set D:\project\pf1-set\set --runs D:\project\pf1-set\runs\main-1 --json report.json --check
+```
+
+Reads the set's `index.json` and keys, and per sheet `<id>.findings.json`
+(`review_score.py export`) and `<id>.run.json` (`pf1-run/1`: `mode` main or
+checklists_off, `status`, `minutes`, `pages_read`, `pages_total`). Prints the
+per-type table and totals, counts only: defects caught (and as a plain
+Does-not-meet), **false Meets on planted defects (the hard rule, 0)**, correct
+items confirmed Meets / wrongly flagged, keyed items decided, citations valid,
+pages read, minutes. A sheet with no run is listed, never scored as zeros; an
+unfinished run says INCOMPLETE beside its numbers; two modes in one report are
+refused (the MAIN score and the diagnostic are never added). Held-out sheets are
+in the totals and never named. `--check` exits 1 on any false Meets.
+
+**From the runner to the report (`scripts/pf1_collect.py`).** `pf1_run.py` writes
+`<id>.run.json` (the review run's id, job state, minutes). Run
+
+```powershell
+python scripts\pf1_collect.py --db COPY-OF-THE-TEST-SERVERS.sqlite --runs D:\project\pf1-runs\main-1 --mode main --model qwen3.5:4b
+```
+
+on a **copy** of the test server's database (read-only). It writes
+`<id>.findings.json` and completes each record with the **declared** `--mode`
+(`main` = the normal client workflow, `checklists_off` = diagnostic only; never
+guessed), the page counts and the AI use of the stored outcome. A record with no
+review run id is left as it is. Run the two modes into two folders.
+
+The report also prints the four numbers of the **Stage E pass mark** (owner
+decision, order 170.1): recall, precision, false Meets and valid citations, and
+the AI use each run record states (`ai`: a small object such as the reader's
+engine and whether Claude was used; "not recorded" is said, never assumed
+empty). `--bar stage-e` sets them against the bar (recall >= 85%, precision >=
+80%, 0 false Meets, 100% valid citations; a number with no denominator is
+"cannot tell", never a pass). A PF1 set has no pass mark until the owner sets
+one after its baseline.
+
 ## Scoring and reporting (#881)
 
 * **MAIN score** = the normal client workflow as a client would run it.
