@@ -57,6 +57,8 @@ REMOVED = "removed"
     UNSETTLED,
     VALUE_CONFLICT,
     UNIT_UNKNOWN,
+    NO_STANDARD_LINKED,
+    OUTSIDE_REVIEW,
 ) = RULES["reasons"]
 
 _NEEDS_YOU = (RULES["needs_you"]["tier"], RULES["needs_you"]["label"])
@@ -71,6 +73,7 @@ _PHRASES = {
     for word, source in RULES["phrases"].items()
 }
 _FOLD = re.compile(RULES["fold"]["pattern"])
+_IDENT = RULES["ident_match"].replace(_WORD["token"], _WORD["python"])
 
 
 @dataclass(frozen=True)
@@ -81,8 +84,8 @@ class RunFacts:
     reader_timed_out_pages: frozenset[int] = frozenset()
     #: identifiers of cited standards the library does not hold (MISSING_LOCALLY)
     missing_standards: tuple[str, ...] = ()
-    #: the standards the run compared against; None when not known - then
-    #: nothing is called "not in library" on that ground alone
+    #: the standards INCLUDED in this review (not the whole library); None when
+    #: not known - then nothing is called "outside this review" on that ground
     library_standard_ids: frozenset[str] | None = field(default=None)
 
 
@@ -99,7 +102,8 @@ def page_not_read(finding: dict, facts: RunFacts) -> bool:
 
 def missing_standard_of(finding: dict, facts: RunFacts) -> str | None:
     """The first missing standard the finding names in its sources, requirement,
-    rationale or clause (tiers.ts `citesMissingStandard`), or None."""
+    rationale or clause, between word edges (tiers.ts `citesMissingStandard`),
+    or None. A name is not looked for inside a longer one."""
     if not facts.missing_standards:
         return None
     parts = [
@@ -110,20 +114,26 @@ def missing_standard_of(finding: dict, facts: RunFacts) -> str | None:
     ]
     text = _fold(" \n ".join(str(p) for p in parts if p))
     return next(
-        (
-            ident
-            for ident in facts.missing_standards
-            if _fold(ident) and _fold(ident) in text
-        ),
+        (i for i in facts.missing_standards if _fold(i) and _names(_fold(i), text)),
         None,
     )
 
 
-def standard_in_library(finding: dict, facts: RunFacts) -> bool:
+def _names(ident: str, text: str) -> bool:
+    return bool(re.search(_IDENT.replace("{ident}", re.escape(ident)), text))
+
+
+def blank_reason(finding: dict, facts: RunFacts) -> str | None:
+    """Why a blank (MISSING_INFORMATION) needs a person, or None when it is a
+    Comment (tiers.ts `blankReason`). The tier is the same as ever: a blank
+    without an included standard is Tier C. Only the word is told true: no
+    standard behind it, or a standard that is not in this review's list (it may
+    well be in the library). A list that failed to load claims nothing."""
     standard = finding.get("standard_document_id")
     if not standard:
-        return False
-    return facts.library_standard_ids is None or standard in facts.library_standard_ids
+        return NO_STANDARD_LINKED
+    library = facts.library_standard_ids
+    return None if library is None or standard in library else OUTSIDE_REVIEW
 
 
 def _phrase(word: str):
@@ -171,10 +181,8 @@ def _needs_you_reason(finding: dict, facts: RunFacts) -> str:
     unsettled = _unsettled_reason(finding, facts)
     if unsettled:
         return unsettled
-    if finding.get("compliance_status") == _MISSING[
-        "status"
-    ] and not standard_in_library(finding, facts):
-        return _MISSING["not_in_library_reason"]
+    if finding.get("compliance_status") == _MISSING["status"]:
+        return blank_reason(finding, facts) or RULES["fallback_reason"]
     return RULES["fallback_reason"]
 
 
@@ -191,10 +199,11 @@ def tier_of(
     if status in _STATUS_TIERS:
         return (*_STATUS_TIERS[status], None)
     if status == _MISSING["status"]:
-        if standard_in_library(finding, facts):
+        reason = blank_reason(finding, facts)
+        if reason is None:
             in_library = _MISSING["in_library"]
             return in_library["tier"], in_library["label"], None
-        return (*_NEEDS_YOU, _MISSING["not_in_library_reason"])
+        return (*_NEEDS_YOU, reason)
     return (*_NEEDS_YOU, RULES["fallback_reason"])
 
 

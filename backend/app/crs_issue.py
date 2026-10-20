@@ -37,7 +37,11 @@ from pathlib import Path
 
 from . import crs_machine_words, page_ledger
 from .config import settings
-from .crs_mapping import ROW_KIND_SAFETY_TICK, row_has_no_text
+from .crs_mapping import (
+    ROW_KIND_CARRIED_FORWARD,
+    ROW_KIND_SAFETY_TICK,
+    row_has_no_issuable_text,
+)
 from .db import connect
 
 PAGE, FINDING = "page", "finding"
@@ -61,23 +65,59 @@ NO_PAGE_COVERAGE = (
 )
 
 
-def no_text_blocker(n: int) -> str:
+def no_text_blocker(refs: list[str], closable: list[str] | None = None) -> str:
     """Order 139 part 2 (spec e): the blocker for confirmed rows that would
-    reach the contractor with an empty COMPANY Comments cell."""
-    return f"{n} confirmed comment(s) on the sheet have no text"
+    reach the contractor with an empty COMPANY Comments cell. 1b: it NAMES
+    the comments (their numbers) and says what to do. `closable` are the ones
+    CARRIED FORWARD from an earlier run: closing those clears them. Closing a
+    comment this run raised again does not, so it is never offered there."""
+    named = ", ".join(refs)
+    closable = [r for r in closable or [] if r in refs]
+    if len(refs) == 1:
+        return (
+            f"Comment {named} has no text, so it cannot be issued: confirm or "
+            "edit the same item in a review"
+            + (", or close the comment" if closable else "")
+        )
+    text = (
+        f"{len(refs)} confirmed comments have no text, so they cannot be "
+        f"issued ({named}): confirm or edit each in a review"
+    )
+    if closable:
+        text += f"; {', '.join(closable)} can also be closed"
+    return text
 
 
 def _issued_without_text(row: dict) -> bool:
     """A row the issue copy would carry (`crs_export.build_crs_view`: an
-    engineer confirmed it, it is not rejected, not a safety tick and not an
-    AI draft) whose comment text is empty. The export leaves such a row out
-    as a last guard; this gate is what normally stops it."""
+    engineer confirmed it, it is not rejected and not a safety tick) whose
+    comment text is empty or only a waiting sentence. A row that still holds
+    an AI draft counts too (1b): its number may be issued. The export leaves
+    such a row out as a last guard; this gate is what normally stops it."""
     return (
         row.get("engineer_confirmed") is True
         and not row.get("engineer_rejected")
         and row.get("row_kind") != ROW_KIND_SAFETY_TICK
-        and not str(row.get("ai_review_comment") or "").strip()
-        and row_has_no_text(row)
+        and row_has_no_issuable_text(row)
+    )
+
+
+def _no_text_blocker_of(rows: list[dict]) -> str | None:
+    """The blocker for confirmed rows with no issuable text, or None."""
+    no_text = [
+        (str(row.get("crs_ref") or f"on row {n}"), row)
+        for n, row in enumerate(rows, start=1)
+        if _issued_without_text(row)
+    ]
+    if not no_text:
+        return None
+    return no_text_blocker(
+        [ref for ref, _row in no_text],
+        [
+            ref
+            for ref, row in no_text
+            if row.get("row_kind") == ROW_KIND_CARRIED_FORWARD
+        ],
     )
 
 
@@ -214,8 +254,9 @@ def open_items(
     the run's stored page coverage; `reader` its `requirement_split.reader`.
     Returns {unread_pages: [{page, reason}] (left to tick), checked_pages
     (pages of the same list an engineer ticked), pages_total, open_findings:
-    [{finding_id, row_kind, item}], blockers: [plain words], issuable: bool}.
-    `unread_pages` and `checked_pages` together are exactly
+    [{finding_id, row_kind, item, standard}], blockers: [plain words], issuable: bool}.
+    `standard` is the row's standard as the sheet prints it: document-derived,
+    for the local screen only, never logged. `unread_pages` and `checked_pages` together are exactly
     `page_ledger.run_unread_pages` (order 127). Read only."""
     blockers: list[str] = []
     unread, checked_pages, pages_total = _page_items(
@@ -250,7 +291,12 @@ def open_items(
         # real review_findings id, when the row has none. #986: the decide
         # route accepts that key and records the decision against it.
         findings.append(
-            {"finding_id": subject, "row_kind": row.get("row_kind") or None, "item": n}
+            {
+                "finding_id": subject,
+                "row_kind": row.get("row_kind") or None,
+                "item": n,
+                "standard": row.get("standard_reference") or None,
+            }
         )
     if unread:
         blockers.append(
@@ -263,9 +309,9 @@ def open_items(
         )
     # Order 139 part 2 (spec e): every line issued has plain text, or is not
     # issued - a confirmed row with an empty comment blocks the issue.
-    no_text = sum(1 for row in rows if _issued_without_text(row))
+    no_text = _no_text_blocker_of(rows)
     if no_text:
-        blockers.append(no_text_blocker(no_text))
+        blockers.append(no_text)
     # Order 152.2: no machine wording in a cell written for the contractor.
     blockers.extend(crs_machine_words.blockers(crs_machine_words.scan_issue_rows(rows)))
     return {

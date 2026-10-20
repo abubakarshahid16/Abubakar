@@ -34,7 +34,7 @@ import json
 import re
 from pathlib import Path
 
-from . import absence, blank_markers, claims
+from . import absence, blank_markers, claims, severity_rule
 from .stated_value import fact_value as _shown
 from .stated_value import said as _said
 
@@ -1197,9 +1197,8 @@ def store(review_run_id: str, submittal_id: str, results: list[dict], *,
         # with no run and no origin, invisible to the run that made it.
         finding = review_mod.create({
             "document_id": submittal_id, "category": "technical_query",
-            "severity": (r["severity"] if r.get("checklist") and status == NON_COMPLIANT
-                         else "major" if status == NON_COMPLIANT
-                         else "observation" if status == COMPLIANT else "minor"),
+            "severity": severity_rule.stored_severity(
+                status, r["severity"] if r.get("checklist") else None),
             "requirement": r["text"][:4000], "finding": f"{LABEL}: {detail}"[:4000],
             "required_action": ("Contractor to correct the datasheet." if status == NON_COMPLIANT
                                 else "Contractor to provide the value." if status == MISSING_INFORMATION

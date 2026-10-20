@@ -10,7 +10,7 @@
 import { cleanup, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { ReviewRunSummary } from "../../../types/api";
+import type { ReviewRunStandard, ReviewRunSummary } from "../../../types/api";
 import { CrsFooter } from "./CrsFooter";
 
 const counts = { comment: 1, needsYou: 0, met: 0, notApplicable: 0, anotherDocument: 0 };
@@ -85,5 +85,30 @@ describe("CrsFooter plain words and the signed line", () => {
     expect(text).not.toContain("run-made-up");
     expect(text).toContain("On this sheet: 3 comments, 1 needs your judgement, 2 met the standard, 0 not applicable, 1 for another document");
     expect(text).not.toMatch(/Rows on this sheet|\bRun\b/);
+  });
+});
+
+describe("CrsFooter held-for-the-engineer note", () => {
+  const sentence = "1 standard was held for the engineer because the equipment type is unsure; "
+    + "their requirements were not checked. Counted among the standards in your library that this review considered.";
+  const std = [{ standard_document_id: "std-a", filename: "Made-up code A.pdf", included: true }] as unknown as ReviewRunStandard[];
+  function footer(heldNote?: string | null) {
+    cleanup();
+    const { getByTestId, queryByTestId } = render(
+      <CrsFooter run={runOf({ unread_pages: [] })} counts={counts} standards={std} missing={[]} standardsError={null} rejected={0} heldNote={heldNote} />);
+    return { text: getByTestId("crs-footer").textContent, held: queryByTestId("crs-footer-held") };
+  }
+  it("prints the sentence in one extra paragraph", () => {
+    const { held } = footer(sentence);
+    expect(held?.tagName).toBe("P");
+    expect(held?.textContent).toBe(sentence);
+  });
+  it("a sure sheet's footer is byte-identical to today's", () => {
+    const today = footer(undefined);
+    const nul = footer(null);
+    expect(today.held).toBeNull();
+    expect(nul.held).toBeNull();
+    expect(nul.text).toBe(today.text);
+    expect(footer(sentence).text).toBe(today.text!.replace("On this sheet", `${sentence}On this sheet`));
   });
 });

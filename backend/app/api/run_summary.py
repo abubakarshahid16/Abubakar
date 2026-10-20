@@ -112,6 +112,8 @@ class TierRow(BaseModel):
             "condition unsettled",
             "value conflict",
             "unit unknown",
+            "no standard linked",
+            "standard outside this review",
         ]
         | None
     ) = None

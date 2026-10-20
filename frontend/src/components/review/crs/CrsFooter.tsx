@@ -26,6 +26,8 @@ export interface CrsFooterProps {
   /** When the contractor's copy was issued. Absent: the run's own
    *  `crs_issued_at`. Set: the review is signed. */
   signedAt?: string | null;
+  /** The server's sentence for standards held for the engineer; absent: nothing is shown. */
+  heldNote?: string | null;
 }
 
 function count(n: number, one: string, many: string): string {
@@ -53,7 +55,7 @@ export function standardsErrorLine(error: string): string {
   return `Standards: the list could not be loaded (${error}).`;
 }
 
-export function CrsFooter({ run, counts, standards, missing, standardsError, rejected, codeVersion, signedAt }: CrsFooterProps) {
+export function CrsFooter({ run, counts, standards, missing, standardsError, rejected, codeVersion, signedAt, heldNote }: CrsFooterProps) {
   const signed = signedAt === undefined ? run.crs_issued_at ?? null : signedAt;
   const signedWhen = whenLabel(signed);
   const used = standards ? standards.filter((s) => s.included) : null;
@@ -72,6 +74,7 @@ export function CrsFooter({ run, counts, standards, missing, standardsError, rej
       </p>
       <p>{pagesLine(run)}</p>
       {standardsLine && <p>{standardsLine}</p>}
+      {heldNote && <p data-testid="crs-footer-held">{heldNote}</p>}
       <p>
         On this sheet: {count(counts.comment, "comment", "comments")}, {counts.needsYou} {counts.needsYou === 1 ? "needs" : "need"} your judgement, {counts.met} met the standard, {counts.notApplicable} not applicable, {counts.anotherDocument} for another document
         {run.requirement_split ? ` · requirements: ${run.requirement_split.checked} checked, ${run.requirement_split.applies_not_checked} apply but not checked, ${run.requirement_split.does_not_apply} not applicable` : ""}.

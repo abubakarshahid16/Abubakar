@@ -37,6 +37,7 @@ export interface ReviewRunStandardList {
   standards: ReviewRunStandard[];
   /** B5: standards the submittal CITES that the library does not hold, each `MISSING_LOCALLY`, as stored on the run. Empty when none, or when the run predates this field. Never paged: all of them on every page. */
   missing_references?: ReviewRunMissingReference[];
-  /** #620: Company standards this run left out because they wait for an administrator's confirmation; null when none (or an older run). */
+  /** #620: Company standards left out, waiting for an administrator; null when none. */
   held_for_confirmation?: ReviewRunHeldForConfirmation | null;
+  held_for_engineer?: ReviewRunHeldForConfirmation | null;
 }

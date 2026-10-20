@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pymupdf
 
-from . import finding_query
+from . import finding_query, severity_rule
 from .db import add_column_if_missing, connect, schema_once
 from .config import settings
 
@@ -276,7 +276,7 @@ def _row(row) -> dict:
         result["unresolved_evidence"] = json.loads(result.get("unresolved_evidence") or "[]")
     except (TypeError, ValueError):
         result["unresolved_evidence"] = []
-    return result
+    return {**result, "severity": severity_rule.effective_severity(result)}
 
 
 #: What a finding says where the standard it was decided against is one the
@@ -631,10 +631,7 @@ def list_findings(
         return []
     sql, args = "SELECT * FROM review_findings" + found[0], found[1]
     # `id` last, so a page boundary falls in the same place on every call.
-    sql += (
-        " ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'major' THEN 1 "
-        "WHEN 'minor' THEN 2 ELSE 3 END, updated_at DESC, id"
-    )
+    sql += f" ORDER BY {severity_rule.SQL_RANK}, updated_at DESC, id"
     if limit is not None:
         sql += " LIMIT ? OFFSET ?"
         args = [*args, limit, offset]

@@ -63,6 +63,7 @@ export function HowReviewedView({ runId, onBack, onOpenRun, onOpenSteps }: {
           record: {
             standards: stds.data.standards, missing: stds.data.missing_references ?? [],
             held: stds.data.held_for_confirmation ?? null,
+            heldEngineer: stds.data.held_for_engineer ?? null,
           },
           error: null,
         }

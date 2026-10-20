@@ -96,6 +96,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `form_reader` | Read the form of a datasheet page with a model and verify every answer in code |
 | `form_reader_fields` | Build a datasheet type's field list, schema and prompt from reference data |
 | `form_reader_run` | Run the form reader over a datasheet for extraction |
+| `severity_rule` | One rule for a severity word: a failed requirement is never minor |
 | `datasheet_checks` | Datasheet self-checks (kind B): what a datasheet says against ITSELF |
 | `datasheet_inputs` | Datasheet INPUTS other than a PDF text layer: Excel, Word, scanned pages |
 | `datasheets` | Read a contractor datasheet into facts |
@@ -120,6 +121,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `front_matter` | Front matter: passages that describe a document rather than answer from it |
 | `geometry_reader` | Geometry reader: tables and forms read from PDF positions (#193 section 5.1) |
 | `glossary` | Engineering synonyms: the words people type -> the words documents print |
+| `held_standards` | Marks and counts the standards a review held for the engineer (equipment type unsure), with the caller's boundary |
 | `heavy_lock` | One lock for the heavy jobs on a machine (#680) |
 | `highlight` | Locating a quoted answer on the rendered page |
 | `hooks_check` | Say at boot when this checkout's git hooks are not switched on |
@@ -137,6 +139,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `market_providers` | Three tiers of public information, one row shape, and no socket in sight |
 | `market_transport` | The one place in this codebase that may open a socket to the public internet |
 | `match_rules` | Rules that decide WHICH containment hit a requirement may be paired with |
+| `method_notes` | Order 159: marks the notes on HOW a pairing was made, so the engineer's copy keeps them and the contractor's copy leaves them off |
 | `metrics` | Everything the dashboard shows, and nothing it does not measure |
 | `model_evidence` | Verification of a local model's quoted evidence (B5 bounded model assistance, owner-approved 2026-09-25) |
 | `model_memory` | Free the memory the local answer models hold (#666) |
