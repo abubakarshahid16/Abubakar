@@ -31,6 +31,10 @@ class FakeServer:
 
     def request(self, method, path, json_body=None, file=None, fields=None):
         self.calls.append((method, path))
+        if path == "/api/health":
+            return 200, self.script.get(
+                "health", {"ok": True, "database_live_shaped": False}
+            )
         if path == "/api/auth/login":
             ok = json_body["password"] == "right"
             return (200, {"token": "t"}) if ok else (401, None)
@@ -213,7 +217,7 @@ def test_a_held_out_sheet_is_skipped_unless_asked_and_one_bad_sheet_does_not_hid
     "url, flag, message",
     [
         ("http://127.0.0.1:11435", False, "--test-server"),
-        ("http://127.0.0.1:8000", True, "live app's"),
+        ("http://127.0.0.1:8000", True, "live app has run on"),
         ("http://127.0.0.1", True, None),
         ("http://example.com:11435", True, "on this machine"),
         ("ftp://127.0.0.1:11435", True, "must be an http"),
@@ -257,3 +261,27 @@ def test_a_sheet_whose_ingestion_failed_never_starts_a_review():
     assert record["status"] == "error"
     assert "ingestion ended failed" in record["error"]
     assert ("POST", "/api/reviews/run") not in server.calls
+
+
+@pytest.mark.parametrize("port", [8000, 8001])
+def test_the_ports_the_live_app_has_run_on_are_refused(port):
+    # The owner's laptop app has run on 8001 as well as the default 8000.
+    with pytest.raises(pf1_run.RunError, match="live app has run on"):
+        pf1_run.check_server(f"http://127.0.0.1:{port}", True)
+    assert pf1_run.check_server("http://127.0.0.1:11435", True)
+
+
+def test_a_diagnostic_copy_must_be_named_and_must_not_be_live_shaped(tmp_path):
+    copy = tmp_path / "copy.sqlite"
+    copy.write_bytes(b"")
+    assert pf1_run.check_db_copy(str(copy)) == str(copy)
+    with pytest.raises(pf1_run.RunError, match="name the diagnostic copy"):
+        pf1_run.check_db_copy(None)
+    live_dir = tmp_path / "backend" / "data"
+    live_dir.mkdir(parents=True)
+    live = live_dir / "rag_intelligence.sqlite"
+    live.write_bytes(b"")
+    with pytest.raises(pf1_run.RunError, match="live database's shape"):
+        pf1_run.check_db_copy(str(live))
+    with pytest.raises(pf1_run.RunError, match="not a file"):
+        pf1_run.check_db_copy(str(tmp_path / "missing.sqlite"))

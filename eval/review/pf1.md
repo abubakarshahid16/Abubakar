@@ -141,11 +141,16 @@ test server's database with `scripts/review_score.py export --run RUN_ID`, then
 ```powershell
 $env:PF1_PASSWORD = "..."   # read from the environment, never an argument
 python scripts\pf1_run.py --set D:\project\pf1-set\set --out D:\project\pf1-set\runs `
-    --server http://127.0.0.1:11435 --test-server --email EMAIL --discipline DISCIPLINE
+    --server http://127.0.0.1:11435 --test-server --db-copy D:\project\pf1-copy.sqlite `
+    --email EMAIL --discipline DISCIPLINE
 ```
 
 It refuses a server not named `--test-server`, one that is not on this machine,
-and port 8000 (the live app). Held-out sheets are skipped unless
+and ports 8000 and 8001 (the ports the live app has run on); it also needs
+`--db-copy` naming the diagnostic copy the run will be exported from (it must
+exist and must not have the live database's shape). The runner cannot see which
+database the server holds: the port and the copy are a backstop, so start the
+test server on a copy yourself. Held-out sheets are skipped unless
 `--include-held-out` (only the merger session uses it); `--only ID` runs one
 sheet; `--no-standards` when the library already holds the standards. Prints
 counts only. The runner's tests use a fake server: the first real run on the

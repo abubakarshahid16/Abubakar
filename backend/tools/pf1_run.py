@@ -9,9 +9,11 @@ states and counts only, never a document's text. Scoring is not done here:
 run id into a findings file, and `review_score score` reads that.
 
 Safety, in code:
-* the server must be named with `--test-server`, must be on this machine, and
-  is refused on the live app's port (`LIVE_PORT`): this runner writes documents
-  and review runs;
+* the server must be named with `--test-server`, must be on this machine, is
+  refused on the live app's usual port (`LIVE_PORT`), and above all must say
+  itself that its database is not live-shaped (`/api/health`): the port proves
+  nothing, the live app has run on 8001 too. This runner writes documents and
+  review runs;
 * a held-out sheet is skipped unless `include_held_out` is set: held-out
   sheets are never run by the builders, only by the merger session;
 * the login password is read from the environment, never an argument, never
@@ -34,9 +36,14 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
+from app import live_guard
+
 RECORD_FORMAT = "pf1-run/1"
-#: The port the live app runs on (`python run.py`). The runner never talks to it.
-LIVE_PORT = 8000
+#: The ports the live app has run on (`python run.py`: 8000 by default, 8001 on
+#: the owner's laptop). The runner never talks to them. A port proves nothing
+#: either way (the live app's port is a setting): this is a backstop, and the
+#: server's own statement of what database it holds is not available yet.
+LIVE_PORTS = (8000, 8001)
 #: A job in one of these states will not change. Anything else is still going.
 TERMINAL = frozenset({"done", "failed", "cancelled", "canceled", "dead"})
 #: What a finished job must say for the sheet to count as run.
@@ -73,11 +80,25 @@ def check_server(base_url: str, test_server: bool) -> str:
             "the test server must be on this machine (127.0.0.1 or localhost)"
         )
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
-    if port == LIVE_PORT:
+    if port in LIVE_PORTS:
         raise RunError(
-            f"port {LIVE_PORT} is the live app's: run a test server on another port"
+            f"port {port} is a port the live app has run on: use a test server on another port"
         )
     return base_url.rstrip("/")
+
+
+def check_db_copy(path: str | None) -> str:
+    """The diagnostic copy the run will be exported from: it must exist and
+    must not have the live database's shape. The operator names it, so the run
+    is never started without a copy in mind; the runner cannot see which
+    database the server holds, and says so."""
+    if not path:
+        raise RunError("name the diagnostic copy of the database with --db-copy")
+    if live_guard.is_live_shaped(path):
+        raise RunError("--db-copy has the live database's shape: use a diagnostic copy")
+    if not Path(path).is_file():
+        raise RunError("--db-copy is not a file")
+    return str(path)
 
 
 class HttpTransport:

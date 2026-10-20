@@ -1,7 +1,8 @@
 """Run a PF1 set through a TEST server and write run records (#881).
 
     python scripts/pf1_run.py --set D:\\project\\pf1-set\\set --out D:\\project\\pf1-set\\runs \\
-        --server http://127.0.0.1:11435 --test-server --email EMAIL --discipline DISCIPLINE
+        --server http://127.0.0.1:11435 --test-server --db-copy D:\\project\\pf1-copy.sqlite \\
+        --email EMAIL --discipline DISCIPLINE
 
 The password is read from the environment variable PF1_PASSWORD, never from an
 argument. Held-out sheets are skipped unless --include-held-out. Prints COUNTS
@@ -37,6 +38,10 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="the server is a test server, not the live app",
     )
+    parser.add_argument(
+        "--db-copy",
+        help="the diagnostic copy of the database the run will be exported from",
+    )
     parser.add_argument("--email", required=True)
     parser.add_argument("--discipline", action="append", default=[])
     parser.add_argument(
@@ -57,6 +62,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         base = pf1_run.check_server(args.server, args.test_server)
+        pf1_run.check_db_copy(args.db_copy)
         password = os.environ.get("PF1_PASSWORD", "")
         if not password:
             raise pf1_run.RunError("set PF1_PASSWORD in the environment")
