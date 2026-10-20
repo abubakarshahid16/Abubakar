@@ -220,9 +220,12 @@ def test_a_graphite_only_part_applies_to_a_graphite_vessel(temp_storage):
         "quote": "Shell material: Impervious graphite block",
         "is_that": "yes",
     }
+    # the model's "yes" is taken from the stated line only when that line names
+    # the part's construction: it is read for the graphite part, and for the
+    # titanium part the same answer names nothing, so that one is held
     out = _gate(FakeModel(construction=yes), facts=GRAPHITE)
-    assert _ids(out["kept"]) == ["aa", "zz", "tt"]
-    assert out["items"] == [] and out["held"] == []
+    assert _ids(out["kept"]) == ["aa", "zz"]
+    assert out["items"] == [] and _ids(out["held"]) == ["tt"]
 
 
 def test_no_construction_stated_goes_to_the_engineer(temp_storage):
@@ -340,7 +343,9 @@ def test_a_heading_that_starts_no_division_ends_the_one_before_it(temp_storage):
     }
     out = _gate(FakeModel(), pages=[*PAGES, appendix], reqs=(GENERAL, TITAN, formula))
     assert _ids(out["items"]) == ["tt"]
-    assert "f" in _ids(out["kept"])
+    # the break opens no part the model confirms; what follows it inherits the
+    # titanium part's exclusion DOWNGRADED to a hold, never kept, never excluded
+    assert "f" not in _ids(out["kept"]) and _ids(out["held"]) == ["f"]
 
 
 def test_a_page_with_two_headings_starts_no_division_and_ends_the_one_before(
@@ -360,7 +365,8 @@ def test_a_page_with_two_headings_starts_no_division_and_ends_the_one_before(
         "source_text": "1-1 Cylindrical shells shall be designed with formula one.",
     }
     out = _gate(FakeModel(), pages=[*PAGES, both], reqs=(TITAN, formula))
-    assert _ids(out["items"]) == ["tt"] and _ids(out["kept"]) == ["f"]
+    assert _ids(out["items"]) == ["tt"] and _ids(out["held"]) == ["f"]
+    assert out["kept"] == []
 
 
 def test_the_division_s_own_scope_is_read_never_a_sub_clause_s():
