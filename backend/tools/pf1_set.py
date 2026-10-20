@@ -22,7 +22,7 @@ THREE RULES THE BUILDER ENFORCES, because a wrong key proves nothing:
      not held out. The output folder is refused when it is inside one.
      THE ONE EXCEPTION (planner, option (a), 20 Oct 2026): with `allow_in_git`
      the TUNING sheets of the invented group may be built into
-     `tests/data/pf1/`, so a GitHub Actions run can review them. Never a
+     `backend/tests/fixtures/synthetic/pf1/`, so a GitHub Actions run can review them. Never a
      sheet with `held_out: true`, never the library group (it carries text of
      the client's standards), never another folder: the builder refuses the
      whole build, naming a count, and writes nothing.
@@ -419,14 +419,16 @@ def answer_key(doc: dict) -> dict:
             "complete_for_flags": complete, "items": key_items(doc)}
 
 
-IN_GIT_FOLDER = ("tests", "data", "pf1")
+#: The one folder binaries may be tracked in: the no-client-data guard
+#: (`secret-scan.yml`) refuses a tracked .pdf anywhere else.
+IN_GIT_FOLDER = ("backend", "tests", "fixtures", "synthetic", "pf1")
 
 
 def tuning_only(spec: dict, out: Path) -> None:
     """The exception to rule 3: raises unless the build is the invented
-    TUNING sheets into `tests/data/pf1/`. Counts only in the message."""
-    if Path(out).resolve().parts[-3:] != IN_GIT_FOLDER:
-        raise SpecError("--allow-in-git writes only into a folder tests/data/pf1")
+    TUNING sheets into `backend/tests/fixtures/synthetic/pf1/`. Counts only in the message."""
+    if Path(out).resolve().parts[-5:] != IN_GIT_FOLDER:
+        raise SpecError("--allow-in-git writes only into a folder backend/tests/fixtures/synthetic/pf1")
     docs = spec["documents"]
     held = sum(1 for d in docs if d["held_out"])
     library = sum(1 for d in docs if library_standards(d))

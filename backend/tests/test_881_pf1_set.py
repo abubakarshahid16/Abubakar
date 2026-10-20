@@ -259,7 +259,7 @@ def test_a_library_sheet_whose_answers_cannot_be_traced_is_refused(change, messa
 
 def _repo(tmp_path):
     (tmp_path / ".git").mkdir()
-    return tmp_path / "tests" / "data" / "pf1"
+    return tmp_path / "backend" / "tests" / "fixtures" / "synthetic" / "pf1"
 
 
 def test_inside_a_repository_the_build_is_still_refused_without_the_flag(tmp_path):
@@ -269,7 +269,7 @@ def test_inside_a_repository_the_build_is_still_refused_without_the_flag(tmp_pat
     assert not out.exists()
 
 
-def test_the_flag_lets_invented_tuning_sheets_into_tests_data_pf1(tmp_path):
+def test_the_flag_lets_invented_tuning_sheets_into_the_synthetic_pf1_folder(tmp_path):
     out = _repo(tmp_path)
     index = pf1_set.build(_spec(_with_clause_5_1(_doc())), out, allow_in_git=True)
     assert [d["id"] for d in index["documents"]] == ["pf1-t-pump"]
@@ -301,9 +301,9 @@ def test_a_library_group_sheet_is_never_written_into_a_repository_even_with_the_
     assert not out.exists()
 
 
-def test_the_flag_writes_only_into_a_folder_named_tests_data_pf1(tmp_path):
+def test_the_flag_writes_only_into_the_synthetic_pf1_folder(tmp_path):
     (tmp_path / ".git").mkdir()
-    with pytest.raises(pf1_set.SpecError, match="tests/data/pf1"):
+    with pytest.raises(pf1_set.SpecError, match="synthetic/pf1"):
         pf1_set.build(
             _spec(_with_clause_5_1(_doc())), tmp_path / "elsewhere", allow_in_git=True
         )

@@ -33,7 +33,7 @@ def main(argv: list[str] | None = None) -> int:
             cmd.add_argument(
                 "--allow-in-git",
                 action="store_true",
-                help="build invented TUNING sheets into tests/data/pf1 (never held-out or library)",
+                help="build invented TUNING sheets into backend/tests/fixtures/synthetic/pf1 (never held-out or library)",
             )
     args = parser.parse_args(argv)
     try:
