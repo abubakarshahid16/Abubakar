@@ -2461,14 +2461,14 @@ def _run_comparison(
         standard_names=names)
     requirements = scoped["kept"]
     requirements_not_applied = scoped["not_applied"]
-    # #638 A REQUIREMENT FOR A SERVICE THE SUBMITTAL SAYS IT IS NOT IN does
-    # not apply (sour service on a sheet declaring no H2S). Declared absent
-    # only: an unstated service keeps it a check. See `service_scope`.
+    # #638/orders 180: a service the sheet declares absent, or a sentence stating no requirement,
+    # does not apply; one naming a service the sheet does not state is held. See `service_scope`.
     from . import service_scope
     standard_labels = standard_labels_mod.labels(standard_ids, names)
     serviced = service_scope.gate(requirements, facts=facts, standard_labels=standard_labels)
     requirements = serviced["kept"]
     extra_not_applied.extend(serviced["items"])
+    held_items.extend(serviced["held"])
     service_declarations = serviced["declarations"]
     # #725 F5 A MATERIALS STANDARD applies only to material fields: NACE's
     # alloy-composition table rows are not checks for a datasheet that states
