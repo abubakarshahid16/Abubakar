@@ -95,7 +95,7 @@ def _is_title(title: str) -> bool:
     )
 
 
-def _run_in(rest: str) -> str | None:
+def _run_in(rest: str, limit: int | None = MAX_TITLE) -> str | None:
     """For the text after an identifier that starts with a title in CAPITALS and
     goes on in the same line: the sub-paragraph marker that follows the title
     ("a", "1", or "" for none), else None when it is not a run-in heading. The
@@ -110,7 +110,7 @@ def _run_in(rest: str) -> str | None:
         if word.endswith((".", ":")):
             break
     title = " ".join(caps)
-    if sum(c.isalpha() for c in title) < 3 or len(title) > MAX_TITLE:
+    if sum(c.isalpha() for c in title) < 3 or (limit and len(title) > limit):
         return None
     after = words[len(caps) :]
     if not after:
@@ -191,6 +191,28 @@ def _sub_marks(text: str, start: int, stop: int, inline: str = "") -> str:
     return (f"({letter})" if letter else "") + (f"({digit})" if digit else "")
 
 
+def _unplaced_heading(
+    text: str, start: int, stop: int, skip: frozenset[str] = frozenset()
+) -> bool:
+    """True when a line after `start`, up to and including the one at `stop`,
+    opens like a heading of ANY shape (an identifier, then a title in capitals
+    that goes on in the same line, of any length) that the numbering did not
+    recognise (a title over `MAX_TITLE` is not): the paragraph in force is then
+    not the one found before it. A contents entry or table row (a number or
+    dot leaders after the title) is not a heading. Unsure is "not identified",
+    never the paragraph before."""
+    for at, line in _lines(text):
+        if not start < at <= stop:
+            continue
+        for pattern in SHAPES.values():
+            m = pattern.match(line)
+            if not m or m.group("id") in skip:
+                continue
+            if _run_in(m.group("rest"), limit=None) is not None:
+                return True
+    return False
+
+
 def _normal(text: str) -> str:
     return " ".join(str(text or "").split())
 
@@ -217,8 +239,9 @@ def paragraph_for(
     heading line is under that heading), looking back through up to
     `LOOK_BACK` earlier chunks, with the sub-paragraph in force. None when the
     sentence is too short to place, is not in its chunk exactly once, or no
-    heading precedes it. `heads` is each chunk's `headings`, when already
-    known (the per-standard memo)."""
+    heading precedes it, or when a line between that heading and the sentence
+    opens like a heading the numbering did not recognise. `heads` is each
+    chunk's `headings`, when already known (the per-standard memo)."""
     probe = _normal(source_text)[:80]
     if len(probe) < MIN_PROBE:
         return None
@@ -240,6 +263,8 @@ def paragraph_for(
     before = "\n".join(chunks[first:index])
     window = (before + "\n" if before else "") + chunks[index]
     position = (len(before) + 1 if before else 0) + here
+    if _unplaced_heading(window, at, position, skip):
+        return None
     return ident + _sub_marks(window, at, position, inline)
 
 

@@ -452,3 +452,44 @@ def test_a_standard_is_read_once_per_attach_however_many_findings_it_has(monkeyp
         "XQ-20(a)",
         "XQ-20(b)(1)",
     ]
+
+
+# A heading the numbering does not recognise (its CAPITALS title is longer than
+# a title may be) between a recognised heading and the sentence.
+LONG_HEADING = (
+    "Q-3 MATERIAL BASIS FOR THE PLATE AND ITS WELDED ATTACHMENTS AND THE LIMITS ON "
+    "THE FORMING OF BOTH IN THIS PART (a) General words about it."
+)
+UNRECOGNISED = (
+    RUN_IN
+    + LONG_HEADING
+    + "\n"
+    + "The plate shall be of the stated grade and of no other grade.\n"
+)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        # the sentence is under the unrecognised heading, not under XQ-20
+        "The plate shall be of the stated grade and of no other grade.",
+        # the sentence opens with the unrecognised heading itself
+        LONG_HEADING,
+    ],
+)
+def test_an_unrecognised_heading_before_the_sentence_gives_no_paragraph(source):
+    shape = paragraph_ids.dominant_shape([UNRECOGNISED])
+    assert shape == "prefixed"
+    got = paragraph_ids.paragraph_for([UNRECOGNISED], 0, source, shape)
+    assert got is None  # unsure is "not identified", never the paragraph before
+
+
+def test_a_recognised_paragraph_before_the_unrecognised_one_is_still_read():
+    shape = paragraph_ids.dominant_shape([UNRECOGNISED])
+    got = paragraph_ids.paragraph_for(
+        [UNRECOGNISED],
+        0,
+        "The minimum metal temperature used in design shall be the lowest expected.",
+        shape,
+    )
+    assert got == "XQ-20(b)"

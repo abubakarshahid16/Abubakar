@@ -187,4 +187,15 @@ MUTATIONS: tuple[Mutation, ...] = (
         keyword="read_once_per_attach",
         tags=_TAGS,
     ),
+    Mutation(
+        id="M1218-17",
+        phase=1218,
+        description="a heading the numbering did not recognise is stepped over: the paragraph before it is returned",
+        path=_P,
+        anchor="    if _unplaced_heading(window, at, position, skip):\n",
+        replacement="    if False:\n",
+        target=_T,
+        keyword="unrecognised_heading",
+        tags=_TAGS,
+    ),
 )
