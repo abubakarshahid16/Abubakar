@@ -1,6 +1,6 @@
 name: Claude Code
 
-# Runs only when the repository owner writes "@claude" in a comment (order
+# Runs only when the repository owner starts a pull request comment with "@claude" (order
 # 163.7). Nothing here runs on pull_request, push, issue creation or a
 # schedule: an automatic review of every PR would use up the weekly allowance.
 
@@ -17,9 +17,14 @@ concurrency:
 
 jobs:
   claude:
+    # Every session posts as the owner's account, so "contains @claude" would
+    # fire on any post that quotes it. The comment must START with @claude, and
+    # be on a pull request (a review comment always is; an issue comment only
+    # when the issue is a pull request).
     if: |
-      contains(github.event.comment.body, '@claude') &&
-      github.event.comment.author_association == 'OWNER'
+      startsWith(github.event.comment.body, '@claude') &&
+      github.event.comment.author_association == 'OWNER' &&
+      (github.event_name == 'pull_request_review_comment' || github.event.issue.pull_request != null)
     runs-on: ubuntu-latest
     permissions:
       contents: read
