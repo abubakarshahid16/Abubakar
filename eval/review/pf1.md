@@ -156,3 +156,22 @@ sheet; `--no-standards` when the library already holds the standards. Prints
 counts only. The runner's tests use a fake server: the first real run on the
 Mac is what proves the routes still match.
 
+## The GitHub CPU workflow (order 171)
+
+`.github/workflows/pf1-cpu.yml` (manual only) reviews every invented **tuning**
+sheet of `tests/data/pf1/` in parallel, one job per sheet, with Ollama on the
+runner's CPU, then scores them with `scripts/pf1_report.py` and posts the counts
+on the tracking issue. Scores count; **timings do not** (speed is measured on
+the Mac). `scripts/pf1_ci_guard.py` decides which sheets may go: exactly that
+folder, never a sheet marked `held_out`, never the library group (it carries
+standard text), never a file outside the folder; one such sheet refuses the
+whole run. No secret, no Claude call; the default token only posts the result.
+The dispatcher names the Ollama release and the model tag (the Mac's), because
+the workflow must not guess them. One run at a time; 300 minutes per job at
+most; each job prints the minutes it used.
+
+Feasibility is not proven: a 4B model on a shared CPU runner may not finish a
+sheet inside the limit, and the dry run on two sheets is what says so. If a
+run would need more than 600 minutes in total, the held-out and the slow
+sheets stay on the Mac queue.
+
