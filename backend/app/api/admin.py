@@ -70,9 +70,12 @@ def _database_is_live_shaped() -> bool:
     return live_guard.is_live_shaped(settings.db_path)
 
 
-@router.get("/api/admin/database-shape", response_model=DatabaseShape,
-            dependencies=[Depends(admin_mod.current_admin)],
-            responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+@router.get(
+    "/api/admin/database-shape",
+    response_model=DatabaseShape,
+    dependencies=[Depends(admin_mod.current_admin)],
+    responses={**schemas.ERRORS_404, **schemas.ERRORS_422},
+)
 def admin_database_shape(request: Request):
     """Does this server hold a live-shaped database? A tool that writes test
     documents and review runs (the PF1 runner) asks this before it writes,
