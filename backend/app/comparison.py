@@ -623,25 +623,41 @@ _HELD_ON_UNSURE_KIND = frozenset(
 _LEADING_CODE = re.compile(r"^(?:[a-z_]+|[A-Z][A-Z_]+):")
 
 
-def _required_value_only(verdict: dict, requirement: dict, purchaser_facts: list[dict],
-                         sheet: str | None) -> dict:
+def _required_value_only(
+    verdict: dict, requirement: dict, purchaser_facts: list[dict], sheet: str | None
+) -> dict:
     """#882: when the only value the sheet gives a clause is the purchaser's own
     required one, the finding says the submittal states no offered value and
     names the page the requirement was read on. Any other verdict is returned
     as it came."""
     if verdict.get("status") not in (MISSING_INFORMATION, NOT_IN_DOCUMENT_SCOPE):
         return verdict
-    seen = {r["name"] for r in match_by_containment(
-        requirement, purchaser_facts, sheet_kind=sheet)["refused"]
-        if r["reason"] == match_rules.REQUIRED_KIND}
-    pages = sorted({f["page"] for f in purchaser_facts if f.get("page") is not None
-                    and _normalise_for_match(f.get("field_name")) in seen})
+    seen = {
+        r["name"]
+        for r in match_by_containment(requirement, purchaser_facts, sheet_kind=sheet)[
+            "refused"
+        ]
+        if r["reason"] == match_rules.REQUIRED_KIND
+    }
+    pages = sorted(
+        {
+            f["page"]
+            for f in purchaser_facts
+            if f.get("page") is not None
+            and _normalise_for_match(f.get("field_name")) in seen
+        }
+    )
     if not pages:
         return verdict
-    return {**verdict, "status": MISSING_INFORMATION, "rationale": (
-        f"{REQUIRED_VALUE_ONLY}: the submittal does not state an offered value; the "
-        "sheet's only value for this field is the purchaser's required one "
-        f"(page {', '.join(str(n) for n in pages)}), which is not the contractor's submission")}
+    return {
+        **verdict,
+        "status": MISSING_INFORMATION,
+        "rationale": (
+            f"{REQUIRED_VALUE_ONLY}: the submittal does not state an offered value; the "
+            "sheet's only value for this field is the purchaser's required one "
+            f"(page {', '.join(str(n) for n in pages)}), which is not the contractor's submission"
+        ),
+    }
 
 
 def _hold_unsure_kind(
@@ -2834,7 +2850,8 @@ def _run_comparison(
             # #882: A REQUIRED VALUE IS CONTEXT, NEVER THE SUBMISSION.
             if fact is None and purchaser_facts and not rule_verdict:
                 verdict = _required_value_only(
-                    verdict, governing_requirement, purchaser_facts, sheet)
+                    verdict, governing_requirement, purchaser_facts, sheet
+                )
             # B3: "NOT FOUND" IS NOT "NOT PRESENT". A requirement no field answered
             # is only the contractor's omission if every page was read into fields.
             if fact is None and verdict.get("status") == MISSING_INFORMATION:
