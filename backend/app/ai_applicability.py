@@ -113,7 +113,7 @@ def gate(requirements: list[dict], *, classification: dict | None, facts: list[d
     vocab = subject_scope.vocabulary()
     equipment, _ = subject_scope.submittal_equipment(classification, facts, vocab)
     head = context(classification, facts)
-    model = getattr(provider, "requested_model", None) or ai_task_runner.settings.ai_task_model
+    model = getattr(provider, "requested_model", None) or ai_task_runner.model_in_use()
     kept: list[dict] = []
     items: list[dict] = []
     notes: dict = {}
@@ -706,18 +706,38 @@ def _item(requirement: dict, found: dict, standard_labels: dict, model: str) -> 
     }
 
 
+def _unread_item(requirement: dict, passage: tuple, standard_labels: dict) -> dict:
+    """The ledger item for a requirement of a division whose scope sentence the
+    model did not read: held, so no verdict rests on a screen that never ran."""
+    sid = requirement.get("standard_document_id")
+    div, _text, page = passage
+    where = f"{div['heading']} of {standard_labels.get(sid) or sid}"
+    return {
+        "requirement": requirement,
+        "code": "applicability_unsure",
+        "detail": (
+            f"{where}"
+            + (f" (page {page})" if page is not None else "")
+            + " may be limited to another construction, and its scope sentence could "
+            "not be read (the model was not reached or did not answer); an engineer "
+            "decides whether this clause applies"
+        ),
+        "decided_by": "code:scope-not-read",
+    }
+
+
 def _division_gate(
     requirements, *, classification, facts, standard_labels, provider, limit, pages_of
 ) -> dict:
     model = (
-        getattr(provider, "requested_model", None)
-        or ai_task_runner.settings.ai_task_model
+        getattr(provider, "requested_model", None) or ai_task_runner.model_in_use()
     )
     where, passages, counts = _place(requirements, pages_of)
     order = sorted(counts, key=lambda key: -counts[key])
     asked = order if limit is None else order[:limit]
     stated = stated_construction(classification, facts)
     decided: dict[tuple[str, int], dict] = {}
+    unread: set[tuple[str, int]] = set()
     summary = dict.fromkeys(("read", "could_not_read", "limited"), 0)
     summary.update(divisions=len(order), not_read_limit=len(order) - len(asked))
     run: dict = {}
@@ -725,7 +745,12 @@ def _division_gate(
         div, passage, page = passages[key]
         scope = _read(SCOPE_TASK, passage, provider, run)
         summary["could_not_read" if scope is None else "read"] += 1
-        if scope is None or scope.get("limited") != "yes":
+        if scope is None:
+            # The step did not run for this division: its requirements are
+            # HELD for the engineer, never compared to a verdict (order 173.2).
+            unread.add(key)
+            continue
+        if scope.get("limited") != "yes":
             continue
         summary["limited"] += 1
         verdict, line = _division_decision(
@@ -747,12 +772,18 @@ def _division_gate(
         "applicability_unsure": [],
     }
     for r in requirements:
-        found = decided.get(where.get(id(r)))
-        if found is None:
+        key = where.get(id(r))
+        found = decided.get(key)
+        if found is None and key in unread:
+            out["applicability_unsure"].append(_unread_item(r, passages[key], standard_labels))
+        elif found is None:
             kept.append(r)
         else:
             item = _item(r, found, standard_labels, model)
             out[item["code"]].append(item)
     items, held = out["outside_division_scope"], out["applicability_unsure"]
     summary.update(does_not_apply=len(items), held=len(held))
+    status = ai_task_runner.model_status()
+    if status["fallback"]:
+        summary["model_fallback"] = f"{status['reason']}; {status['used']} read the scopes"
     return {"kept": kept, "items": items, "held": held, "summary": summary}
