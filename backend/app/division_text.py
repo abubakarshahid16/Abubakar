@@ -302,17 +302,137 @@ def sub_of(subs: list[dict], where: dict) -> dict[int, list[tuple]]:
     return out
 
 
-def unscreened(unit: dict, where: dict, skipped: list | None) -> set[int]:
-    """The requirements of `unit` whose sub-headings were not screened:
-    `skipped` is the sub-headings left out of the screen (None: all of the
-    unit's, as when no screen ran or it failed). A requirement placed only by
-    its page (no line) is never screened by heading, so it is always in."""
+def unscreened(
+    unit: dict, where: dict, skipped: list | None, *, screened: bool = True
+) -> tuple[set[int], set[int]]:
+    """(failed, by_page): the requirements of `unit` whose sub-headings were not
+    screened. `failed` - HELD, the screen did not carry them: `skipped` is the
+    sub-headings left out of the screen (None: all of the unit's, as when no
+    screen ran or it failed). `by_page` - kept but counted, a requirement that
+    is not a failed read: placed only by its page (no line, so never screened
+    by heading) while the screen ran, or in a part whose sub-headings are never
+    screened (`screened=False`: a candidate start)."""
     text = unit["text"]
     mine = {rid: ln for rid, (key, ln) in where.items() if key == unit["key"]}
-    return {
+    if not screened:
+        return set(), set(mine)
+    failed = {
         rid
         for rid, ln in mine.items()
         if skipped is None
-        or ln is None
-        or any(s["line"] <= ln and text.offsets[ln] < s["end"] for s in skipped)
+        or (
+            ln is not None
+            and any(s["line"] <= ln and text.offsets[ln] < s["end"] for s in skipped)
+        )
+    }
+    return failed, {rid for rid, ln in mine.items() if ln is None} - failed
+
+
+#: What a part or sub-part that was NOT READ is held for, and the summary count
+#: of the requirements held for it.
+_NOT_READ = {
+    "scope": "the model did not read this part's scope sentence (unavailable, "
+    "timed out, or an invalid reply)",
+    "beyond": "this part's scope sentence was not read: the run's limit on parts "
+    "read was reached",
+    "screen": "the model did not screen the sub-headings of this part for a limit "
+    "of their own (unavailable, timed out, an invalid reply, or the run's limit "
+    "was reached)",
+}
+NOT_READ_COUNTS = {
+    "scope": "requirements_held_scope_not_read",
+    "construction": "requirements_held_construction_not_read",
+    "beyond": "requirements_beyond_limit",
+    "screen": "requirements_subparts_not_screened",
+}
+
+
+def not_read_rec(unit: dict, why: str, scope: dict | None = None) -> dict:
+    """The decision for a unit nothing was read for (`why`: a key of
+    `NOT_READ_COUNTS`): HELD for the engineer, never compared and never a pass.
+    `scope` is the scope reading when only the construction step failed."""
+    status = "beyond" if why == "beyond" else "unread" if why != "screen" else "read"
+    return {
+        "status": status,
+        "verdict": "held",
+        "not_read": why,
+        "scope": scope,
+        "unit": unit,
+    }
+
+
+def _not_read_item(requirement: dict, rec: dict, standard_labels: dict) -> dict:
+    """The ledger item for a requirement of a part that was not read. The
+    detail names the part's heading and the standard, and quotes the standard's
+    scope sentence only where it was read (as every other hold does)."""
+    sid = requirement.get("standard_document_id")
+    unit, why = rec["unit"], rec["not_read"]
+    head = f"{unit['div']['heading']} of {standard_labels.get(sid) or sid}"
+    page = f" (page {unit['page']})" if unit["page"] is not None else ""
+    if why == "construction":
+        scope = rec["scope"]
+        reason = (
+            f"applies only to {scope['construction'].strip()}: "
+            f'"{scope["quote"].strip()}"; the model did not read whether this '
+            "equipment is of that construction (unavailable, timed out, or an "
+            "invalid reply)"
+        )
+        detail = f"{head}{page} {reason}"
+    else:
+        detail = f"{head}{page}: {_NOT_READ[why]}"
+    return {
+        "requirement": requirement,
+        "code": "applicability_unsure",
+        "detail": f"{detail}; an engineer decides",
+        "decided_by": "code:scope-not-read",
+    }
+
+
+def ledger_item(
+    requirement: dict, rec: dict, standard_labels: dict, model: str
+) -> dict:
+    """The ledger item for a requirement of a decided part. The detail quotes
+    only the standard's own sentence and the datasheet's stated line."""
+    if rec.get("not_read"):
+        return _not_read_item(requirement, rec, standard_labels)
+    sid = requirement.get("standard_document_id")
+    scope, unit = rec["scope"], rec["unit"]
+    head = f"{unit['div']['heading']} of {standard_labels.get(sid) or sid}"
+    page = f" (page {unit['page']})" if unit["page"] is not None else ""
+    if scope.get("limited") == "yes":
+        construction, quote = scope["construction"].strip(), scope["quote"].strip()
+        said = f'{head} applies only to {construction}: "{quote}"{page}'
+        tail = (
+            "; the datasheet does not settle whether this equipment is of that "
+            "construction - an engineer decides"
+        )
+    else:
+        said = (
+            f"{head}{page}: the model could not tell whether this part is "
+            "limited by its own scope to one construction"
+        )
+        tail = "; an engineer decides"
+    code = "applicability_unsure"
+    if rec["verdict"] == "does_not_apply":
+        code = "outside_division_scope"
+        tail = (
+            f'; the datasheet states "{rec["line"]}, another material of that '
+            "family (the model read the scope sentence and the stated line; code decided)"
+        )
+    elif rec.get("via"):
+        tail = (
+            f'; this clause follows the heading "{rec["via"]}", which could not be '
+            "confirmed as the start of a new part - an engineer decides"
+        )
+    elif rec.get("line"):  # a start found by shape: held, never excluded
+        tail = (
+            f'; the datasheet states "{rec["line"]}, but this heading was found by '
+            "its shape and is not confirmed as the start of a part - "
+            "an engineer decides"
+        )
+    return {
+        "requirement": requirement,
+        "code": code,
+        "detail": said + tail,
+        "decided_by": f"ai:{model}+code",
     }

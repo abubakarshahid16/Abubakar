@@ -22,6 +22,7 @@ import type { CrsIssueDecision } from "../../../types/api";
 import { ReasonText } from "../ReasonText";
 import { SENSE_CHECK_RULE, isSenseCheck } from "../reasonWords";
 import { orNothing } from "../reviewFormat";
+import { ConfirmPageValues } from "../sheet/ConfirmPageValues";
 import { SheetPageImage } from "../sheet/SheetPageImage";
 import { cardTitle, trustLine } from "../sheet/sheetCards";
 import type { CrsRow } from "./crsRows";
@@ -52,6 +53,8 @@ export interface CrsEvidenceDrawerProps {
   extra?: ReactNode;
   /** v2.2 round 2: the "J / K" hint; the workspace's Simple view hides it. */
   showKeys?: boolean;
+  /** Order 164.1: values were confirmed on the shown page, so the rows are read again. */
+  onValuesConfirmed?: () => void;
 }
 
 function isTyping(target: EventTarget | null): boolean {
@@ -59,7 +62,7 @@ function isTyping(target: EventTarget | null): boolean {
   return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
 }
 
-export function CrsEvidenceDrawer({ row, runId, standardNames, onClose, onOpenCards, returnTo, nav, pager, extra, showKeys = true }: CrsEvidenceDrawerProps) {
+export function CrsEvidenceDrawer({ row, runId, standardNames, onClose, onOpenCards, returnTo, nav, pager, extra, showKeys = true, onValuesConfirmed }: CrsEvidenceDrawerProps) {
   const closeRef = useRef<HTMLButtonElement | null>(null);
   // The page shown: the row's own, until the engineer looks at another one.
   const [viewPage, setViewPage] = useState<number | null>(row.page);
@@ -211,6 +214,9 @@ export function CrsEvidenceDrawer({ row, runId, standardNames, onClose, onOpenCa
         {typeof viewPage === "number" && (
           <SheetPageImage runId={runId} page={viewPage}
             marks={row.findings.filter((f) => f.contractor_page === viewPage).map((f) => ({ findingId: f.id, state: "open" as const }))} />
+        )}
+        {typeof viewPage === "number" && (
+          <ConfirmPageValues key={`${runId}:${viewPage}`} runId={runId} page={viewPage} onConfirmed={onValuesConfirmed} />
         )}
         {history.length > 0 && (
           <section>

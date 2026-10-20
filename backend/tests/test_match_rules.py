@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import comparison, match_rules
+from app import comparison, match_rules, required_values
 
 
 def requirement(subject, text=None, **over):
@@ -338,6 +338,7 @@ class TestRefusal:
             match_rules.COMPOUND_TERM,
             match_rules.QUALIFIER,
             match_rules.QUANTITY_KIND,
+            required_values.REQUIRED_KIND,
         }
 
     def test_no_rule_fires_on_the_plain_case(self):

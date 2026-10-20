@@ -258,3 +258,28 @@ def test_an_answer_inside_one_code_fence_is_read_and_a_cut_off_one_is_not():
     for raw in (f"{fence}json\n{whole[:-9]}", f"{fence}json\n{whole[:-9]}\n{fence}", f"Here you go:\n{whole}"):
         assert claude_datasheet.parse_response(raw) == ([], "model_malformed"), raw[:16]
     assert settings.datasheet_ai_claude_max_tokens >= 8192
+
+
+def test_a_form_reader_value_whose_quote_is_on_the_page_is_trusted_the_same_way():
+    """Order 161 item A: the form reader (the default since #1004) writes its
+    own `reader` into the provenance, so its proved values were held as
+    LOW_TRUST_VALUE on the AI reader's spelling alone."""
+    from app import comparison, datasheet_ai, form_reader, provenance
+
+    assert comparison.ai_quote_proved is provenance.ai_quote_proved
+    assert provenance.PROVED_QUOTE_READERS == {datasheet_ai.READER, form_reader.READER}
+    box = '{"reader": "form_reader", "engine": "ollama", "model": "m1", "quote_on_page": true}'
+    assert comparison.low_trust_reason(_model_fact(bbox=box)) is None
+    # the proof still has to be there, and the other holds still hold
+    unproved = '{"reader": "form_reader", "engine": "ollama", "quote_on_page": false}'
+    assert comparison.low_trust_reason(_model_fact(bbox=unproved)) is not None
+    assert (
+        comparison.low_trust_reason(_model_fact(bbox=box, validation_state="conflict"))
+        is not None
+    )
+    assert (
+        comparison.low_trust_reason(
+            _model_fact(bbox='{"reader": "other_reader", "quote_on_page": true}')
+        )
+        is not None
+    )

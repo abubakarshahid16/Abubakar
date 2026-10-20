@@ -53,9 +53,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import (absence, claims, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
-                page_ledger, requirements_3b, review, schemas, stated_value, submittal_review)
+                page_ledger, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
 from .config import settings
 from .db import connect
+from .provenance import ai_quote_proved
 
 # ----------------------------------------------------------------- statuses
 
@@ -569,18 +570,6 @@ def low_trust_reason(fact: dict | None) -> str | None:
         if ai_quote_proved(fact):
             return None
         return "the value was read by the model reader and no engineer has confirmed it"
-    return None
-
-
-def ai_quote_proved(fact: dict | None) -> dict | None:
-    """The AI reader's provenance (`engine`, `model`) when this fact was read
-    by `datasheet_ai` and the code proved its quote on the page; else None."""
-    try:
-        box = json.loads((fact or {}).get("bbox") or "{}")
-    except (TypeError, ValueError):
-        return None
-    if isinstance(box, dict) and box.get("reader") == "datasheet_ai" and box.get("quote_on_page") is True:
-        return box
     return None
 
 
@@ -1773,8 +1762,7 @@ def qualify_by_pages(verdict: dict, pages: dict) -> dict:
             f"{page_ledger.page_list(page_reader_only)}. No value for this "
             f"requirement was found in the fields read from {where} of {total}")}
     return {**verdict, "rationale": (
-        f"{verdict.get('rationale') or ''}; fields were read from every page "
-        f"({where} of {total})")}
+        f"{verdict.get('rationale') or ''}; {page_ledger.every_page_read(pages, where, total)}")}
 
 
 def _confidence_label(value: float) -> str:
@@ -2419,14 +2407,13 @@ def _run_comparison(
 
     facts = datasheets.list_facts(
         submittal_id, allowed_document_ids=allowed_document_ids)
+    facts, purchaser_facts = required_values.split(facts)
     # #598 A TABLE CELL IS A CHECK ONLY WHEN THE SUBMITTAL HAS A FIELD THAT
     # ANSWERS IT. The rest are counted, one grouped line per standard, in the
     # run's outcome; a definition or unconfirmed garbled text is never a check.
     # See `table_gate`.
     from . import table_gate
-    names = {r["id"]: r["filename"] for r in connect().execute(
-        "SELECT id, filename FROM documents WHERE id IN (%s)" % ",".join(
-            "?" for _ in standard_ids), standard_ids)} if standard_ids else {}
+    names = standard_labels_mod.filenames(standard_ids)
     # #139 A CODE CITED FOR ONE ITEM applies through the cited clauses only;
     # the rest does not apply, with the reason (`subject_scope.citation_gate`).
     from . import applicability as applicability_mod
@@ -2474,16 +2461,14 @@ def _run_comparison(
         standard_names=names)
     requirements = scoped["kept"]
     requirements_not_applied = scoped["not_applied"]
-    # #638 A REQUIREMENT FOR A SERVICE THE SUBMITTAL SAYS IT IS NOT IN does
-    # not apply (sour service on a sheet declaring no H2S). Declared absent
-    # only: an unstated service keeps it a check. See `service_scope`.
+    # #638/orders 180: a service the sheet declares absent, or a sentence stating no requirement,
+    # does not apply; one naming a service the sheet does not state is held. See `service_scope`.
     from . import service_scope
-    standard_labels = {sid: " ".join(filter(None, (
-        names.get(sid), (classification_mod.of_document(sid) or {}).get("document_number"),
-        (classification_mod.of_document(sid) or {}).get("title")))) for sid in standard_ids}
+    standard_labels = standard_labels_mod.labels(standard_ids, names)
     serviced = service_scope.gate(requirements, facts=facts, standard_labels=standard_labels)
     requirements = serviced["kept"]
     extra_not_applied.extend(serviced["items"])
+    held_items.extend(serviced["held"])
     service_declarations = serviced["declarations"]
     # #725 F5 A MATERIALS STANDARD applies only to material fields: NACE's
     # alloy-composition table rows are not checks for a datasheet that states
@@ -2805,6 +2790,7 @@ def _run_comparison(
                     "status": NEEDS_ENGINEER_REVIEW,
                     "rationale": field_copies.ambiguous_rationale(match),
                 }
+            verdict = required_values.only_required_value(verdict, governing_requirement, purchaser_facts, sheet, fact, rule_verdict)  # #882
             # B3: "NOT FOUND" IS NOT "NOT PRESENT". A requirement no field answered
             # is only the contractor's omission if every page was read into fields.
             if fact is None and verdict.get("status") == MISSING_INFORMATION:
@@ -3106,6 +3092,7 @@ def _run_comparison(
         "requirements_excluded": gated["excluded"],
         "table_values_not_compared": table_values_not_compared,
         "facts_in_scope": len(facts),
+        "purchaser_values_not_used": len(purchaser_facts),
         "matches_attempted": matches_attempted,
         "matches_made": matches_made,
         "model_matches": model_matches,
@@ -3809,7 +3796,7 @@ def candidate_facts(requirement: dict, facts: list[dict]) -> list[dict]:
     tag_scoped = facts_are_tag_scoped(facts)
     out = []
     for fact in facts:
-        if not fact_has_number(fact) or fact.get("is_blank"):
+        if not fact_has_number(fact) or fact.get("is_blank") or required_values.is_purchaser_kind(fact):
             continue
         if not _units_comparable(requirement, fact,
                                  requirement_unit, _unit_measure(fact)):

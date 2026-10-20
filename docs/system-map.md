@@ -92,6 +92,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `crs_issue` | PF5 (#885): the contractor-copy gate (unread pages, undecided findings), the engineer's recorded decisions, and the archive of each issued copy with its sha256 |
 | `crs_ai_drafts` | Make the AI / web drafts of one field one CRS row; a placeholder draft is no row |
 | `crs_item_series` | Make a series of items (N1 to N8) one CRS row |
+| `crs_blank_fields` | Make the blank fields no clause asks about one CRS row, in full sentences |
 | `crs_mapping` | Write the CRS comment text |
 | `crs_numbers` | Permanent CRS comment numbers and everything that happens to a comment after it is issued: the contractor's re |
 | `crs_wording` | AI-worded CRS comments, with a code lock on every number, unit, clause, page and standard |
@@ -166,6 +167,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `reader_transport` | The one place in this codebase that may open a socket to the standards reader |
 | `reasoning_provider` | One interface for "give this bounded packet to a model and tell me exactly what answered" |
 | `reports` | Single-answer evidence reports, rendered from a frozen snapshot |
+| `required_values` | A value the reader recorded as the purchaser's requirement is never the contractor's submitted value (#882, A-1246) |
 | `requirement_quality` | Two gates on what becomes a requirement: definitions and unreadable text |
 | `requirement_split` | Every requirement in a run's scope is in ONE of three honest groups (#678) |
 | `requirements_3b` | Phase 3B: structured requirements - limits, units, conditions, exceptions |
@@ -188,9 +190,11 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `scope_ledger` | Every requirement in a review's scope ends in exactly ONE state, with a reason (#677) |
 | `scores` | Scores that know which scale they are on |
 | `search` | Hybrid retrieval: FTS5 + dense vectors, fused with RRF, then reranked |
+| `clause_support` | Orders 180: a sentence that states no requirement is never a supporting clause; one naming a service the sheet does not state is held |
 | `sentence_guard` | Where a sentence does NOT end |
 | `service_scope` | Service-condition scope (#638, #677): a requirement that applies only in a service the submittal says it is NO |
 | `sheet_page` | #967 item 5: the Sheet's datasheet page with every card's value underlined on it by the server (one router route; ids and states only in the URL) |
+| `standard_labels` | How a review names its standards: library file name, recorded number and title |
 | `standard_ids` | ONE matcher for standard identifiers (W3, #452; audit A02, A03) |
 | `standards` | The Standards Library: clause hierarchy, atomic requirements, revisions |
 | `standards_acquisition` | Standards beyond the client's own: WHERE to get a missing one, and a record of getting it |

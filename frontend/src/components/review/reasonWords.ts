@@ -31,6 +31,7 @@ export const REASON_CODE_WORDS: Record<string, string> = {
   LOW_TRUST_VALUE: "The value as read is not trusted enough for a verdict until you check it on the page.",
   UNREAD_PAGES: "Pages of this submittal were not read, so the value may be on a page nobody read.",
   PAGE_READER_ONLY: "Only the page reader looked for this value, and it did not find it.",
+  required_value_only: "The datasheet gives only the required value for this field, not the value offered, so there is nothing to check yet.",
   RULE_EVALUATED: "Worked out by an approved rule.",
 };
 
