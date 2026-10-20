@@ -41,6 +41,9 @@ test-results/
 # The made-up datasheet benchmark (scripts/make_datasheet_bench.py): every
 # value invented. Anchored at the repository root, where the tests live.
 !backend/tests/fixtures/synthetic/datasheets/*.pdf
+# The PF1 tuning set (backend/tests/fixtures/synthetic/pf1/, #881): invented sheets and
+# standards only; held-out sheets never go in Git.
+!backend/tests/fixtures/synthetic/pf1/*.pdf
 
 # Scratch folders left by audit runs (pytest basetemp and similar). Ignored
 # explicitly because their subfolders can be permission-denied, which makes git
