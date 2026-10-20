@@ -260,9 +260,13 @@ export function pageCoverageLine(run: ReviewRunSummary): string {
   const read = pc.fact_pages.length;
   const head = `Fields read from ${read} of ${pc.pages_total} pages`
     + (read ? ` (${read === 1 ? "page" : "pages"} ${pageList(pc.fact_pages)})` : "");
+  // Order 165: pages both readers read and found no checklist field on are
+  // said apart from the pages fields were read from, never merged into them.
+  const none = pc.pages_read_no_field ?? [];
+  const noField = none.length ? `; ${none.length === 1 ? "page" : "pages"} ${pageList(none)} read, no checklist field found` : "";
   const unread = pc.pages_not_read_into_fields;
-  if (!unread.length) return `${head}.`;
-  return `${head}; ${unread.length === 1 ? "page" : "pages"} ${pageList(unread)}`
+  if (!unread.length) return `${head}${noField}.`;
+  return `${head}${noField}; ${unread.length === 1 ? "page" : "pages"} ${pageList(unread)}`
     + " not read into fields, so a value not found may still be there.";
 }
 
@@ -400,9 +404,15 @@ export function groupRunsByDocument<T extends { submittal_document_id: string; c
 /** Owner order section 3: the readiness strip's page line, with its
  *  denominator. Nothing when the page count is unknown (null renders as
  *  nothing). */
-export function pagesReadLine(r: { pages_total: number | null; pages_read: number | null }): string {
+export function pagesReadLine(r: {
+  pages_total: number | null; pages_read: number | null; pages_read_no_field?: number[];
+}): string {
   if (r.pages_total == null || r.pages_read == null) return "";
-  return `Pages read: ${r.pages_read} of ${r.pages_total}`;
+  // Order 165: pages two readers read and found no checklist field on are said
+  // apart from the pages fields were read from, so the pages add up.
+  const none = r.pages_read_no_field ?? [];
+  const noField = none.length ? `; ${none.length === 1 ? "page" : "pages"} ${pageList(none)} read, no checklist field found` : "";
+  return `Pages read: ${r.pages_read} of ${r.pages_total}${noField}`;
 }
 
 /** Owner order section 3: comments grouped by topic, so ten findings about
