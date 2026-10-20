@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any
@@ -241,6 +242,60 @@ def post_json(path: str, body: dict, *, timeout: float) -> Any:
         return response.json()
 
 
+#: Seconds to wait before the one retry of a timed-out local call. Short on
+#: purpose: a timeout is usually the engine busy loading or swapping, and a
+#: second try a moment later often answers; a long wait would only eat the
+#: document's time budget.
+TIMEOUT_RETRY_BACKOFF_S = 3.0
+
+_RETRY_LOCK = threading.Lock()
+_TIMEOUT_RETRIES = 0
+
+
+def timeout_retries() -> int:
+    """How many timed-out local calls were retried by THIS process since start
+    (or `reset_timeout_retries`). A count only - no text, no path - so a run
+    can report it (the reader's summary reads the difference before/after)."""
+    with _RETRY_LOCK:
+        return _TIMEOUT_RETRIES
+
+
+def reset_timeout_retries() -> None:
+    global _TIMEOUT_RETRIES
+    with _RETRY_LOCK:
+        _TIMEOUT_RETRIES = 0
+
+
+def is_timeout_error(exc: BaseException) -> bool:
+    """By TYPE, never by message: httpx's timeout family or a plain
+    `TimeoutError`. A refusal or an HTTP status error is not one."""
+    return isinstance(exc, (httpx.TimeoutException, TimeoutError))
+
+
+def post_json_retrying(path: str, body: dict, *, timeout: float) -> Any:
+    """`post_json`, but a call that TIMED OUT is tried once more.
+
+    ONE retry after `TIMEOUT_RETRY_BACKOFF_S`, then the second failure is
+    raised exactly as `post_json` would have raised it (no endless loop, no
+    swallowed error). Only a timeout is retried: a refused host, an HTTP error
+    status or a malformed reply is a different failure and is raised at once.
+    Every attempt still goes through `post_json`, so the host check, the
+    runner options and the body are the same on both. Local lane only; the
+    Claude lanes in `reader_transport` are unchanged.
+    """
+    global _TIMEOUT_RETRIES
+    try:
+        return post_json(path, body, timeout=timeout)
+    except Exception as exc:  # re-raised below unless it is a timeout
+        if not is_timeout_error(exc):
+            raise
+    with _RETRY_LOCK:
+        _TIMEOUT_RETRIES += 1
+    log.info("answer model call timed out; retrying once after %.1f s", TIMEOUT_RETRY_BACKOFF_S)
+    time.sleep(TIMEOUT_RETRY_BACKOFF_S)
+    return post_json(path, body, timeout=timeout)
+
+
 class _Abort:
     """Stop a request in flight - including one still waiting for its first byte.
 
@@ -370,5 +425,6 @@ def get_json(path: str, *, timeout: float, required: bool = True) -> Any | None:
 
 
 __all__ = [
-    "ModelHostRefused", "close_shared_client", "endpoint", "get_json", "host_key", "post_json", "remote_audit",
+    "ModelHostRefused", "close_shared_client", "endpoint", "get_json", "host_key", "post_json", "post_json_retrying",
+    "remote_audit", "reset_timeout_retries", "timeout_retries",
 ]

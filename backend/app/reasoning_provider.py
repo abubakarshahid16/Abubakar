@@ -245,13 +245,19 @@ class OllamaProvider:
 
     name = OLLAMA
 
-    def __init__(self, model: str | None = None, *, timeout: float = 900.0) -> None:
+    def __init__(self, model: str | None = None, *, timeout: float = 900.0,
+                 retry_timeouts: bool = False) -> None:
         #: Configuration's ANSWER, not the engine's. Recorded separately from
         #: the tag the response reports, so the two can disagree visibly.
         self.requested_model = model or settings.answer_model
         #: Seconds. A 9B model on this four-core CPU takes minutes on a long
         #: packet; model_transport requires the caller to choose.
         self.timeout = timeout
+        #: One retry of a call that TIMED OUT (order 163.3). Off by default: a
+        #: caller that has decided a timed-out page is not asked again (the
+        #: review AI check) keeps that; the datasheet and form readers turn it
+        #: on, so one slow answer does not void a sheet.
+        self.retry_timeouts = retry_timeouts
 
     def stream(self, packet: Packet, on_text, cancel=None) -> Response:
         """`reason`, streamed: `on_text(piece)` as text arrives; `cancel`
@@ -282,7 +288,8 @@ class OllamaProvider:
             body["format"] = packet.json_schema
         started = time.time()
         try:
-            raw = model_transport.post_json("/api/generate", body, timeout=self.timeout)
+            post = model_transport.post_json_retrying if self.retry_timeouts else model_transport.post_json
+            raw = post("/api/generate", body, timeout=self.timeout)
         # Broad on purpose, and it RE-RAISES: every transport failure becomes a
         # named refusal rather than an empty answer. No `noqa` is needed -
         # ruff's blind-except rule is about swallowing, which this does not do.

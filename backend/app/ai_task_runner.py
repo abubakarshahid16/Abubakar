@@ -140,10 +140,125 @@ def _now() -> str:
 
 # ------------------------------------------------------------------ one task
 
-def cache_key(spec: TaskSpec, model: str, text: str) -> str:
-    material = "\x00".join([spec.name, spec.version, model,
-                            json.dumps(spec.schema, sort_keys=True), text])
+def _key_of(name: str, version: str, model: str, schema: dict | None, text: str) -> str:
+    material = "\x00".join([name, version, model, json.dumps(schema, sort_keys=True), text])
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
+def cache_key(spec: TaskSpec, model: str, text: str) -> str:
+    return _key_of(spec.name, spec.version, model, spec.schema, text)
+
+
+# ------------------------------------------- raw local answers (reader, matcher)
+#
+# The datasheet reader and the AI matcher call the local engine with a prompt
+# they build themselves, not through `run_task`. They reuse THIS table and
+# THIS key shape (task, version, model, schema, exact input) for the raw
+# answer text, so there is one cache, not two. A reuse is allowed only when
+# every part of the key is unchanged: the prompt text (which carries the page
+# text and the rule inputs), the prompt version, the model's identity and the
+# answer schema. The reused text then goes through exactly the code gates a
+# fresh answer goes through; the cache decides nothing.
+
+#: How long a model's identity (tag + digest) is trusted before it is asked
+#: for again. Short, so a model pulled mid-session is noticed within seconds.
+IDENTITY_TTL_S = 30.0
+_IDENTITY_MEMO: dict[str, tuple[float, str | None]] = {}
+
+
+def model_identity(requested: str) -> str | None:
+    """`tag@digest` of the local model as the engine reports it (`/api/tags`),
+    or None when it cannot be told - in which case nothing is cached or reused
+    (a floating tag that was re-pulled must not reuse an old model's answer).
+    The probe sends nothing derived from a document."""
+    now = time.monotonic()
+    hit = _IDENTITY_MEMO.get(requested)
+    if hit is not None and now - hit[0] < IDENTITY_TTL_S:
+        return hit[1]
+    identity: str | None = None
+    try:
+        tags = model_transport.get_json("/api/tags", timeout=3.0, required=False) or {}
+        for entry in tags.get("models") or []:
+            names = {str(entry.get("name") or ""), str(entry.get("model") or "")}
+            if requested in names or f"{requested}:latest" in names:
+                digest = str(entry.get("digest") or "")
+                if digest:
+                    identity = f"{entry.get('name') or requested}@{digest}"
+                break
+    except Exception as exc:  # noqa: BLE001 - logged (type only); an unreachable engine means "no cache"
+        _log.info("model identity unavailable (%s); the answer cache is skipped", type(exc).__name__)
+    _IDENTITY_MEMO[requested] = (now, identity)
+    return identity
+
+
+def answer_cache_key(task: str, version: str, identity: str, schema: dict | None,
+                     prompt: str, nth: int = 0) -> str:
+    """The key of one raw local answer. `nth` is which time this exact prompt
+    has been asked in a row: a stability check asks the SAME question twice to
+    see whether the model agrees with itself, and the second ask must be its
+    own entry or the check would compare an answer with its own copy."""
+    return _key_of(task, version, identity, schema, f"{nth}\x00{prompt}")
+
+
+def cached_answer(key: str) -> str | None:
+    """The stored raw answer for `key`, or None. Best effort: a database that
+    cannot be read is a miss, never a failed read of the sheet."""
+    try:
+        ensure_schema()
+        hit = _cache_get(key)
+    except Exception as exc:  # noqa: BLE001 - logged (type only); the cache must never fail a review
+        _log.info("answer cache unreadable (%s); asking the model", type(exc).__name__)
+        return None
+    text = hit.get("text") if isinstance(hit, dict) else None
+    return text if isinstance(text, str) else None
+
+
+def store_answer(key: str, task: str, version: str, identity: str, text: str) -> None:
+    """Keep a raw answer that was already accepted as complete (not cut off).
+    Local database only; best effort, like `cached_answer`."""
+    try:
+        ensure_schema()
+        conn = connect()
+        with conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO ai_task_cache (key, task, version, model, result_json,"
+                " created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (key, task, version, identity, json.dumps({"text": text}), _now()))
+    except Exception as exc:  # noqa: BLE001 - logged (type only); the cache must never fail a review
+        _log.info("answer cache not written (%s)", type(exc).__name__)
+
+
+def reuse_or_ask(task: str, version: str, model: str, schema: dict | None, prompt: str,
+                 ask: Callable[[], str], *, asked: dict[str, int] | None = None,
+                 nth: int = 0, keep_if: Callable[[str], bool] | None = None) -> str:
+    """The stored answer to this exact question, or `ask()` (and keep what it
+    answers). ONE home for the reuse rule (order 163.3).
+
+    A stored answer is reused only when ALL of these are unchanged: the prompt
+    text (page text and rule inputs are in it), `version`, the model's identity
+    (tag + digest as the engine reports it) and `schema`. Anything different -
+    or an engine whose identity cannot be told - calls `ask()` as before.
+    `ask` raises on a failure, and a failure is never stored. `keep_if` stores
+    only an answer the caller's own code check accepted. `asked` counts how
+    often this prompt was asked through it (or `nth` says): each ask is its own
+    entry, so a stability check that asks twice still compares two answers.
+    The reused text is returned to the caller, whose gates run on it exactly as
+    on a fresh one: the cache decides nothing.
+    """
+    identity = model_identity(model)
+    if identity is None:
+        return ask()
+    if asked is not None:
+        nth = asked.get(prompt, 0)
+        asked[prompt] = nth + 1
+    key = answer_cache_key(task, version, identity, schema, prompt, nth)
+    reused = cached_answer(key)
+    if reused is not None:
+        return reused
+    text = ask()
+    if text and (keep_if is None or keep_if(text)):
+        store_answer(key, task, version, identity, text)
+    return text
 
 
 def _cache_get(key: str) -> dict | None:
