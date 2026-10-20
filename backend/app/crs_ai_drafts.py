@@ -61,7 +61,10 @@ def merge(findings: list[dict]) -> None:
                 f.get("contractor_page"),
                 section,
                 confirmed,
-                _fold(f.get("engineer_comment")),
+                # A confirmed draft is the engineer's own comment: two different
+                # ones are never merged (their wording is part of the key).
+                _fold(f.get("engineer_comment"))
+                or (_fold(cm._finding_text(f)) if confirmed else ""),
             )
             groups.setdefault(key, []).append(f)
     for key, group in groups.items():

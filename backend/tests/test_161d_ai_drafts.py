@@ -99,6 +99,17 @@ def test_a_confirmed_draft_is_never_merged_with_an_unconfirmed_one():
     assert sorted(r["engineer_confirmed"] for r in rows) == [False, True]
 
 
+def test_a_confirmed_draft_never_joins_an_unconfirmed_one_with_the_same_words():
+    words = "Contractor to provide the minimum operating pressure."
+    findings = [
+        _ai("a", "One.", engineer_comment=words),
+        _ai("b", "Two.", engineer_comment=words, confirmed_by="eng-1"),
+    ]
+    rows = _rows(findings)
+    assert len(rows) == 2
+    assert sorted(r["engineer_confirmed"] for r in rows) == [False, True]
+
+
 def test_the_key_of_a_merged_row_does_not_depend_on_the_drafts_or_their_order():
     keys = set()
     for findings in (
@@ -150,3 +161,23 @@ def test_grouping_twice_gives_the_same_rows():
     assert [r["ai_review_comment"] for r in first] == [
         r["ai_review_comment"] for r in second
     ]
+
+
+def test_two_different_confirmed_drafts_are_two_rows_and_the_issue_copy_has_no_note():
+    findings = [
+        _ai("a", "A minimum operating pressure is required.", confirmed_by="eng-1"),
+        _ai("b", "The minimum operating pressure is blank.", confirmed_by="eng-1"),
+    ]
+    rows = _rows(findings)
+    assert len(rows) == 2
+    assert all("differ; all are kept" not in r["comment"] for r in rows)
+
+
+def test_two_identical_confirmed_drafts_are_one_row():
+    findings = [
+        _ai("a", "Confirm the guard.", confirmed_by="eng-1"),
+        _ai("b", "confirm the guard.", confirmed_by="eng-1"),
+    ]
+    rows = _rows(findings)
+    assert len(rows) == 1
+    assert "differ; all are kept" not in rows[0]["comment"]

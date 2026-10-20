@@ -49,7 +49,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         _S,
         "            confirmed,\n",
         "            False,\n",
-        "never_merged_with_an_unconfirmed",
+        "never_merged_with_an_unconfirmed or never_joins_an_unconfirmed",
     ),
     _m(
         "04",
@@ -106,5 +106,13 @@ MUTATIONS: tuple[Mutation, ...] = (
         "    crs_ai_drafts.merge(findings)\n    findings = [f for f in findings if not _rejected(f)]\n",
         "    findings = [f for f in findings if not _rejected(f)]\n",
         "screen_groups",
+    ),
+    _m(
+        "11",
+        "two different confirmed drafts merge, and the note for the engineer reaches the contractor's copy",
+        _S,
+        '                or (_fold(cm._finding_text(f)) if confirmed else ""),\n',
+        '                or "",\n',
+        "different_confirmed_drafts",
     ),
 )
