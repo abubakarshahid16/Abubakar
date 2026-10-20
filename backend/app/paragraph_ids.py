@@ -16,6 +16,10 @@ no shape clearly dominates, or the requirement's own sentence is not found in
 its chunk, the answer is None and the CRS keeps saying "paragraph not
 identified": unsure is never guessed (CLAUDE.md rule 4).
 
+A heading is either a line of its own (a title in Title Case or capitals) or a
+RUN-IN heading: the identifier, a title in CAPITALS, and the text of the
+paragraph (often its first sub-paragraph "(a)") on the same line.
+
 DISPLAY ONLY. Read only: it sets `paragraph_id` on a finding in memory, beside
 `standard_clause`, which is left exactly as it was - the permanent comment
 numbers are keyed on the requirement, never on this. No network; nothing is
@@ -25,40 +29,41 @@ logged.
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 
+from .config import settings
 from .db import connect
 
-#: The numbering shapes: an identifier at the start of a line, then its title.
-#: A shape is a SHAPE (letters, digits, separators), never a list of codes.
+#: The numbering shapes: an identifier at the start of a line, then the rest of
+#: the line. A shape is a SHAPE (letters, digits, separators), never a list of
+#: codes.
 SHAPES: dict[str, re.Pattern] = {
     # 4.3.2 Title - dotted numbers
-    "dotted": re.compile(
-        r"^(?P<id>\d{1,3}(?:\.\d{1,3}){0,5})\.?\s+(?P<title>[A-Z].*)$"
-    ),
+    "dotted": re.compile(r"^(?P<id>\d{1,3}(?:\.\d{1,3}){0,5})\.?\s+(?P<rest>\S.*)$"),
     # A.2.1 Title - an annex letter, then dotted numbers
-    "annex": re.compile(
-        r"^(?P<id>[A-Z]\.\d{1,3}(?:\.\d{1,3}){0,4})\s+(?P<title>[A-Z].*)$"
-    ),
+    "annex": re.compile(r"^(?P<id>[A-Z]\.\d{1,3}(?:\.\d{1,3}){0,4})\s+(?P<rest>\S.*)$"),
     # AB-20 Title, XY-12.1 Title - letters, a hyphen, a number
     "prefixed": re.compile(
-        r"^(?P<id>[A-Z]{1,5}-\d{1,4}(?:\.\d{1,3})*)\s+(?P<title>[A-Z].*)$"
+        r"^(?P<id>[A-Z]{1,5}-\d{1,4}(?:\.\d{1,3})*)\s+(?P<rest>\S.*)$"
     ),
     # 12-4.1 Title - a number, a hyphen, a number
     "numbered_hyphen": re.compile(
-        r"^(?P<id>\d{1,3}-\d{1,3}(?:\.\d{1,3})*)\s+(?P<title>[A-Z].*)$"
+        r"^(?P<id>\d{1,3}-\d{1,3}(?:\.\d{1,3})*)\s+(?P<rest>\S.*)$"
     ),
 }
 #: A sub-paragraph marker at the start of a line: (a) or (1).
 _SUB = re.compile(r"^\((?P<mark>[a-z]|\d{1,2})\)(?=\s)")
 #: A number standing alone in a title ("Hot 5 bar"): a table row, not a heading.
 _NUMBER_WORD = re.compile(r"(?<![\w.])\d+(?:[.,]\d+)?(?![\w.])")
+#: A word of a title in capitals: letters, with hyphens, slashes and ampersands
+#: inside it, and an optional closing full stop or colon.
+_CAPS_WORD = re.compile(r"^[A-Z][A-Z\-/&,]*[.:]?$")
 
 #: A standard's numbering is the shape holding MORE THAN HALF of its distinct
-#: headings (and more than any other shape), and only when there are enough
-#: of them to mean it.
+#: headings, and only when there are enough of them to mean it.
 MIN_HEADINGS = 8
 MIN_SHARE = 0.5
-#: An identifier that opens a line in this many chunks or more is a running
+#: An identifier that opens a line in more than this many chunks is a running
 #: header or a repeated table row, not a heading.
 MAX_CHUNKS_PER_HEADING = 2
 #: A requirement sentence shorter than this (folded) is too generic to locate.
@@ -81,7 +86,7 @@ def _lines(text: str) -> list[tuple[int, str]]:
 
 
 def _is_title(title: str) -> bool:
-    """A heading's title is short, does not read as a sentence (no closing
+    """A heading line's title is short, does not read as a sentence (no closing
     full stop, comma or semicolon) and holds no number of its own."""
     title = title.strip()
     return (
@@ -91,18 +96,55 @@ def _is_title(title: str) -> bool:
     )
 
 
+def _run_in(rest: str) -> str | None:
+    """For the text after an identifier that starts with a title in CAPITALS and
+    goes on in the same line: the sub-paragraph marker that follows the title
+    ("a", "1", or "" for none), else None when it is not a run-in heading. The
+    text after the title must be empty, a marker, or begin with a letter: a
+    number there is a table row or a contents entry."""
+    words = rest.split()
+    caps: list[str] = []
+    for word in words:
+        if not _CAPS_WORD.match(word):
+            break
+        caps.append(word)
+        if word.endswith((".", ":")):
+            break
+    title = " ".join(caps)
+    if sum(c.isalpha() for c in title) < 3 or len(title) > MAX_TITLE:
+        return None
+    after = words[len(caps) :]
+    if not after:
+        return ""
+    m = _SUB.match(after[0] + " ")
+    if m:
+        return m.group("mark")
+    return "" if after[0][0].isalpha() else None
+
+
+def _heading(rest: str) -> str | None:
+    """The inline sub-paragraph marker ("" when none) of a heading line whose
+    text after the identifier is `rest`, or None when the line is not a
+    heading: a contents entry ("title . . . . 25"), a sentence, a table row."""
+    if rest[0].isupper() and _is_title(rest):
+        return ""
+    return _run_in(rest)
+
+
 def headings(
     text: str, shape: str, skip: frozenset[str] = frozenset()
-) -> list[tuple[int, str]]:
-    """[(offset, id)] of the heading lines of `shape` in `text`: a line that
-    begins with the identifier, then a title that is a title (`_is_title`).
+) -> list[tuple[int, str, str]]:
+    """[(offset, id, inline marker)] of the heading lines of `shape` in `text`:
+    a line that begins with the identifier and goes on as a title (`_heading`).
     Identifiers in `skip` (running headers) are not headings."""
     pattern = SHAPES[shape]
     out = []
     for at, line in _lines(text):
         m = pattern.match(line)
-        if m and m.group("id") not in skip and _is_title(m.group("title")):
-            out.append((at, m.group("id")))
+        if m and m.group("id") not in skip:
+            inline = _heading(m.group("rest"))
+            if inline is not None:
+                out.append((at, m.group("id"), inline))
     return out
 
 
@@ -112,7 +154,7 @@ def running_headers(texts: list[str]) -> frozenset[str]:
     seen: dict[str, int] = {}
     for text in texts:
         for shape in SHAPES:
-            for ident in {i for _, i in headings(text, shape)}:
+            for ident in {i for _, i, _ in headings(text, shape)}:
                 seen[ident] = seen.get(ident, 0) + 1
     return frozenset(i for i, n in seen.items() if n > MAX_CHUNKS_PER_HEADING)
 
@@ -122,7 +164,7 @@ def dominant_shape(texts: list[str], skip: frozenset[str] = frozenset()) -> str 
     when there are too few headings, or no shape holds MORE than half of them
     (two shapes with the same number of headings are not a numbering)."""
     ids = {
-        shape: {i for t in texts for _, i in headings(t, shape, skip)}
+        shape: {i for t in texts for _, i, _ in headings(t, shape, skip)}
         for shape in SHAPES
     }
     total = sum(len(v) for v in ids.values())
@@ -132,11 +174,12 @@ def dominant_shape(texts: list[str], skip: frozenset[str] = frozenset()) -> str 
     return None
 
 
-def _sub_marks(text: str, start: int, stop: int) -> str:
-    """The sub-paragraph "(b)(2)" in force at `stop`, for markers after `start`."""
-    letter = digit = ""
+def _sub_marks(text: str, start: int, stop: int, inline: str = "") -> str:
+    """The sub-paragraph "(b)(2)" in force at `stop`: the marker on the heading
+    line itself (`inline`), then the line-leading markers after `start`."""
+    letter, digit = ("", inline) if inline.isdigit() else (inline, "")
     for at, line in _lines(text):
-        if not start <= at < stop:
+        if not start < at < stop:
             continue
         m = _SUB.match(line)
         if not m:
@@ -184,11 +227,15 @@ def paragraph_for(
     before = "\n".join(chunks[first:index])
     window = (before + "\n" if before else "") + chunks[index]
     position = (len(before) + 1 if before else 0) + here
-    found = [(at, i) for at, i in headings(window, shape, skip) if at < position]
+    found = [
+        (at, i, inline)
+        for at, i, inline in headings(window, shape, skip)
+        if at < position
+    ]
     if not found:
         return None
-    at, ident = found[-1]
-    return ident + _sub_marks(window, at, position)
+    at, ident, inline = found[-1]
+    return ident + _sub_marks(window, at, position, inline)
 
 
 def cited(finding: dict) -> str:
@@ -204,6 +251,44 @@ def cited(finding: dict) -> str:
     if paragraph:
         return f" cl. {paragraph}"
     return " (paragraph not identified)" if clause else ""
+
+
+@lru_cache(maxsize=4)
+def _standard(standard: str, chunks: int, characters: int, version: str):  # noqa: ARG001
+    """(texts, {chunk id: index}, numbering shape, running headers) of one
+    standard's own chunks. Cached on the standard, its number of chunks and
+    their total size and newest row (and the database they are in), so a
+    re-chunked standard is read again and a CRS preview
+    or export does not scan thousands of chunks twice."""
+    rows = (
+        connect()
+        .execute(
+            "SELECT id, text FROM chunks WHERE document_id = ? ORDER BY ordinal",
+            [standard],
+        )
+        .fetchall()
+    )
+    texts = [r["text"] or "" for r in rows]
+    skip = running_headers(texts)
+    return (
+        texts,
+        {r["id"]: i for i, r in enumerate(rows)},
+        dominant_shape(texts, skip),
+        skip,
+    )
+
+
+def _read(standard: str):
+    size = (
+        connect()
+        .execute(
+            "SELECT count(*) AS n, coalesce(sum(length(text)), 0) AS c,"
+            " coalesce(max(rowid), 0) AS r FROM chunks WHERE document_id = ?",
+            [standard],
+        )
+        .fetchone()
+    )
+    return _standard(standard, size["n"], size["c"], f"{settings.db_path}:{size['r']}")
 
 
 def attach(findings: list[dict]) -> None:
@@ -231,25 +316,8 @@ def attach(findings: list[dict]) -> None:
             part,
         ):
             requirements[r["id"]] = (r["chunk_id"], r["source_text"])
-    by_standard: dict[
-        str, tuple[list[str], dict[str, int], str | None, frozenset[str]]
-    ] = {}
     for f in wanted:
-        standard = f["standard_document_id"]
-        if standard not in by_standard:
-            rows = conn.execute(
-                "SELECT id, text FROM chunks WHERE document_id = ? ORDER BY ordinal",
-                [standard],
-            ).fetchall()
-            texts = [r["text"] or "" for r in rows]
-            skip = running_headers(texts)
-            by_standard[standard] = (
-                texts,
-                {r["id"]: i for i, r in enumerate(rows)},
-                dominant_shape(texts, skip),
-                skip,
-            )
-        texts, position, shape, skip = by_standard[standard]
+        texts, position, shape, skip = _read(f["standard_document_id"])
         chunk_id, source_text = requirements.get(f["requirement_id"], (None, None))
         if shape is None or chunk_id not in position or not source_text:
             continue

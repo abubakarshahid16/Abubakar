@@ -305,3 +305,94 @@ def test_the_sub_paragraph_survives_a_heading_in_an_earlier_chunk():
         paragraph_ids.paragraph_for([first, second], 1, second, "prefixed")
         == "XQ-30(b)"
     )
+
+
+# ------------------------ the real shape found on the owner's data: run-in headings
+
+RUN_IN = "\n".join(
+    f"XQ-{i} GENERAL RULES NUMBER (a) Some words of the first paragraph number {i}."
+    for i in range(30, 40)
+) + (
+    "\nXQ-20 DESIGN TEMPERATURE (a) Maximum. Except as required in the note below, the maximum"
+    " temperature used in design shall be the mean metal temperature across the thickness."
+    "\n(b) Minimum. The minimum metal temperature used in design shall be the lowest expected."
+    "\n(1) A detail of the minimum that carries its own limit for the design of the part.\n"
+)
+
+
+@pytest.mark.parametrize(
+    "source, expected",
+    [
+        (
+            "Except as required in the note below, the maximum temperature used in design",
+            "XQ-20(a)",
+        ),
+        (
+            "The minimum metal temperature used in design shall be the lowest expected.",
+            "XQ-20(b)",
+        ),
+        (
+            "A detail of the minimum that carries its own limit for the design of the part.",
+            "XQ-20(b)(1)",
+        ),
+    ],
+)
+def test_a_run_in_heading_names_the_paragraph_and_its_sub_paragraph(source, expected):
+    shape = paragraph_ids.dominant_shape([RUN_IN])
+    assert shape == "prefixed"
+    assert paragraph_ids.paragraph_for([RUN_IN], 0, source, shape) == expected
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "XQ-77 DESIGN TEMPERATURE . . . . . . . . . 25",  # a contents entry with a dot leader
+        "XQ-77 DESIGN TEMPERATURE 25",  # a page number follows the title
+        "XQ-77 HOT 5 bar",  # a table row
+    ],
+)
+def test_a_contents_entry_or_a_table_row_is_not_a_run_in_heading(line):
+    text = RUN_IN + line + "\nThe vessel shall be tested at 5 bar in full.\n"
+    got = paragraph_ids.paragraph_for(
+        [text], 0, "The vessel shall be tested at 5 bar in full.", "prefixed"
+    )
+    assert got == "XQ-20(b)(1)"  # the last real heading, not XQ-77
+
+
+@pytest.mark.usefixtures("temp_storage")
+def test_the_standard_is_read_once_and_read_again_when_its_chunks_change():
+    _std, ids = _standard_with([RUN_IN])
+    req = _requirement(
+        ids[0],
+        "The minimum metal temperature used in design shall be the lowest expected.",
+    )
+    findings = [
+        {
+            "requirement_id": req,
+            "standard_document_id": "std",
+            "standard_clause": "0.3",
+            "clause_identified": False,
+        }
+    ]
+    paragraph_ids.attach(findings)
+    assert findings[0]["paragraph_id"] == "XQ-20(b)"
+    with (
+        db.connect() as conn
+    ):  # a chunk is added: the cache must not serve the old reading
+        conn.execute(
+            "INSERT INTO chunks (id,document_id,filename,ordinal,page_start,page_end,section,kind,text,"
+            "token_count,content_hash,retrievable) VALUES ('c9','std','std.pdf',9,1,1,NULL,'prose',?,1,'h9',1)",
+            (
+                "XQ-50 NEW RULE (a) A brand new paragraph that follows all the others in the standard.",
+            ),
+        )
+    again = [
+        {
+            "requirement_id": req,
+            "standard_document_id": "std",
+            "standard_clause": "0.3",
+            "clause_identified": False,
+        }
+    ]
+    paragraph_ids.attach(again)
+    assert again[0]["paragraph_id"] == "XQ-20(b)"
