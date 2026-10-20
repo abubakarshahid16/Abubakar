@@ -60,10 +60,40 @@ def test_a_blank_a_clause_requires_keeps_its_own_row():
 
 def test_two_findings_of_one_field_are_one_entry_with_the_full_label():
     group = [
-        _blank("a", "Radial", 1, crs_field_label="Radial"),
-        _blank("b", "Radial - Offered", 3, crs_field_label="Radial - Offered"),
+        _blank("a", "Stable", 1, crs_field_label="Stable"),
+        _blank("b", "Stable - Radial", 3, crs_field_label="Stable - Radial"),
     ]
-    assert crs_blank_fields.entries(group) == [("Radial - Offered", [1, 3])]
+    assert crs_blank_fields.entries(group) == [("Stable - Radial", [1, 3])]
+
+
+def test_two_labels_that_differ_after_the_dash_are_two_fields_and_both_are_named():
+    group = [
+        _blank("a", "Flow - Rated", 1, crs_field_label="Flow - Rated"),
+        _blank("b", "Flow - Offered", 1, crs_field_label="Flow - Offered"),
+        _blank("c", "Flow", 2, crs_field_label="Flow"),
+    ]
+    assert crs_blank_fields.entries(group) == [
+        ("Flow - Offered", [1]),
+        ("Flow - Rated", [1]),
+        ("Flow", [2]),
+    ]
+    text = crs_blank_fields.comment(group)
+    assert "Flow - Rated (p.1)" in text and "Flow - Offered (p.1)" in text
+
+
+def test_a_long_list_is_capped_with_a_true_count():
+    many = [
+        _blank(f"f{i}", f"Field {i:03d}", 1)
+        for i in range(crs_blank_fields.MAX_FIELDS + 5)
+    ]
+    text = crs_blank_fields.comment(many)
+    assert text.count("(p.1)") == crs_blank_fields.MAX_FIELDS
+    assert "and 5 more of these 35" in text
+
+
+def test_a_blank_with_no_readable_name_is_counted_not_dropped():
+    group = [_blank("a", "Fittings", 1), _blank("b", "", None, crs_field_label=None)]
+    assert "1 with no readable field name" in crs_blank_fields.comment(group)
 
 
 def test_the_row_number_does_not_depend_on_which_fields_are_blank():
@@ -83,9 +113,9 @@ def test_a_blank_with_a_clause_is_not_grouped_and_a_breach_is_untouched():
 
 
 def test_a_group_with_no_readable_label_still_says_what_to_do():
-    assert crs_blank_fields.comment([_blank("a", "", None)]).startswith(
-        "Contractor to complete"
-    )
+    text = crs_blank_fields.comment([_blank("a", "", None, crs_field_label=None)])
+    assert text.startswith(crs_blank_fields.HEADLINE)
+    assert "1 with no readable field name" in text
 
 
 def test_page_list_keeps_the_shape_the_findings_use():
@@ -101,3 +131,14 @@ def test_a_not_found_mandatory_field_is_not_a_blank_row():
         requirement_source_text="Datasheet checklist DS-M1: X is a mandatory field.",
     )
     assert not crs_blank_fields.is_unrequired_blank(not_found)
+
+
+def test_two_columns_of_one_material_row_are_both_named():
+    group = [
+        _blank("a", "Material - Casing", 1, crs_field_label="Material - Casing"),
+        _blank("b", "Material - Impeller", 2, crs_field_label="Material - Impeller"),
+    ]
+    assert crs_blank_fields.entries(group) == [
+        ("Material - Casing", [1]),
+        ("Material - Impeller", [2]),
+    ]

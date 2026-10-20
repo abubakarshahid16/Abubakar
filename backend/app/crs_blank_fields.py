@@ -8,9 +8,10 @@ ONE row: "These fields are left blank; contractor to complete: A (p.1), B
 (p.2)." A blank field that a real clause requires keeps its own row, with that
 clause, as before.
 
-The wording is a full sentence built from what is known, never a bare label. The field is named as the reader quoted it on the page (the longest of
-its spellings, so a trailing fragment never stands for it) and two findings of
-the same field are one entry. Nothing here names a datasheet, a field or a
+The wording is a full sentence built from what is known, never a bare label.
+A field is named as the reader quoted it on the page (the longest of its
+spellings, so a fragment never stands for it); two labels that differ are two
+fields and both are named. Nothing here names a datasheet, a field or a
 layout (rule 13): it reads the finding's own fields only.
 """
 
@@ -22,6 +23,8 @@ BLANK_RULE = "DS-M2"
 #: What the permanent number of the one row is keyed on: the kind of row, not
 #: which fields a run happens to find blank.
 ROW_KEY = "blank fields"
+#: At most this many fields are named in the one comment.
+MAX_FIELDS = 30
 HEADLINE = "These fields are left blank; contractor to complete: "
 
 
@@ -41,31 +44,37 @@ def _spelling(f: dict) -> str:
     )
 
 
-def _same_field(label: str) -> str:
-    """The field a spelling names: the row label before a " - <column>" tail,
-    folded."""
-    return label.partition(" - ")[0].strip().lower()
-
-
 def entries(group: list[dict]) -> list[tuple[str, list[int]]]:
-    """[(the field as quoted, its pages)], in first-page order. Findings of one
-    field (same label before any column tail) are one entry, labelled by the
-    longest spelling; a finding with no label is not an entry."""
-    fields: dict[str, dict] = {}
+    """[(the field as quoted, its pages)], in first-page order. Two spellings of
+    one field are one entry when one is a fragment of the other (the shorter
+    is the start of the longer on a word boundary, case-folded: the longer is
+    the full label as quoted). Two labels that differ after a " - " are two
+    fields and both stay; a fragment that several longer labels extend is not
+    guessed into one of them. A finding with no label is not an entry (see
+    `unlabelled`)."""
+    spelled: dict[str, dict] = {}
     for g in group:
         label = _spelling(g)
         if not label:
             continue
-        entry = fields.setdefault(_same_field(label), {"label": label, "pages": set()})
-        if len(label) > len(entry["label"]):
-            entry["label"] = label
+        entry = spelled.setdefault(label.lower(), {"label": label, "pages": set()})
         if isinstance(g.get("contractor_page"), int):
             entry["pages"].add(g["contractor_page"])
-    ordered = sorted(
-        fields.values(),
-        key=lambda e: (min(e["pages"]) if e["pages"] else 10**9, e["label"].lower()),
-    )
-    return [(e["label"], sorted(e["pages"])) for e in ordered]
+    kept: list[dict] = []
+    for key in sorted(spelled, key=len, reverse=True):
+        entry = spelled[key]
+        longer = [k for k in kept if k["key"].startswith(key + " ")]
+        if len(longer) == 1:
+            longer[0]["pages"] |= entry["pages"]
+        else:
+            kept.append({"key": key, **entry})
+    kept.sort(key=lambda e: (min(e["pages"]) if e["pages"] else 10**9, e["key"]))
+    return [(e["label"], sorted(e["pages"])) for e in kept]
+
+
+def unlabelled(group: list[dict]) -> int:
+    """How many findings of the row name no field the reader quoted."""
+    return sum(1 for g in group if not _spelling(g))
 
 
 def page_list(pages: list[int]) -> str:
@@ -88,11 +97,21 @@ def _where(pages: list[int]) -> str:
 
 
 def comment(group: list[dict]) -> str:
-    """The row's comment: one plain sentence naming every field and its pages."""
+    """The row's comment: one plain sentence naming every field and its pages.
+    At most MAX_FIELDS are named; the rest are counted, never dropped silently."""
     named = entries(group)
-    if not named:
+    parts = [f"{label}{_where(p)}" for label, p in named[:MAX_FIELDS]]
+    if len(named) > MAX_FIELDS:
+        parts.append(
+            f"and {len(named) - MAX_FIELDS} more of these {len(named)} (see the datasheet pages)"
+        )
+    if unlabelled(group):
+        parts.append(
+            f"{unlabelled(group)} with no readable field name (see the datasheet pages)"
+        )
+    if not parts:
         return "Contractor to complete the fields left blank on the datasheet."
-    return HEADLINE + "; ".join(f"{label}{_where(p)}" for label, p in named) + "."
+    return HEADLINE + "; ".join(parts) + "."
 
 
 def page_section(group: list[dict]) -> str:
