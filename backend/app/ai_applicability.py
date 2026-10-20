@@ -45,6 +45,7 @@ from .division_text import (  # noqa: F401 - re-exported: the names tests and ca
     scope_passage,
     sub_of,
     sub_units,
+    unscreened,
 )
 
 CATEGORIES = ["other_equipment", "service_condition_not_met", "informative_note",
@@ -524,7 +525,12 @@ def _decide_unit(unit: dict, ctx: dict) -> dict:
     """Read one unit (spends one read of the run's budget) and decide:
     {"status": "read" | "unread" | "beyond", "verdict": "kept" | "held" |
     "does_not_apply", "scope", "unit", ...}. "unsure" is held for the engineer;
-    a model that cannot be read leaves the unit kept, and the gate counts it."""
+    a model that cannot be read leaves the unit kept, and the gate counts it.
+    A candidate start (found by shape or break) can only be held, never
+    excluded, even when the model confirms it: nothing checks it is a real
+    start of a part."""
+    from . import clause_scope
+
     summary = ctx["summary"]
     if ctx["budget"] is not None and ctx["budget"] <= 0:
         summary["not_read_limit"] += 1
@@ -555,7 +561,10 @@ def _decide_unit(unit: dict, ctx: dict) -> dict:
     rec["own"] = True
     if verdict == "applies":
         return rec
-    return {**rec, "verdict": "held" if verdict == "unsure" else verdict, "line": line}
+    verdict = "held" if verdict == "unsure" else verdict
+    if unit["kind"] == "candidate":  # found by shape: nothing checks it is a start
+        verdict = clause_scope.downgrade(verdict)
+    return {**rec, "verdict": verdict, "line": line}
 
 
 def _subparts(unit: dict, wanted: set, ctx: dict) -> tuple[list[dict], list | None]:
@@ -563,7 +572,8 @@ def _subparts(unit: dict, wanted: set, ctx: dict) -> tuple[list[dict], list | No
     limited to a material, form, construction or grade (each verified by
     `clause_scope`), and the sub-headings that were NOT screened - None when
     none of them was (the run's budget is spent or the model stopped), else the
-    ones past the titles one read can carry."""
+    ones past the titles one read can carry. A screen that fails (a reply that
+    does not fit, a model error) is not a screen with none flagged: None."""
     from . import clause_scope
 
     found = clause_scope.subclause_units(
@@ -577,23 +587,9 @@ def _subparts(unit: dict, wanted: set, ctx: dict) -> tuple[list[dict], list | No
         ctx["budget"] -= 1
     head = found[: clause_scope.MAX_TITLES]
     flagged = clause_scope.screen_titles(head, ctx["provider"], ctx["run"])
-    if ctx["run"].get("stopped"):  # the screen itself found the model down
-        return flagged, None
+    if flagged is None or ctx["run"].get("stopped"):  # the screen failed
+        return [], None
     return flagged, found[clause_scope.MAX_TITLES :]
-
-
-def _unscreened(unit: dict, where: dict, skipped: list | None) -> set[int]:
-    """The requirements of a division whose sub-headings were not screened
-    (`skipped` as `_subparts` returns it); one with no known line is in none."""
-    text = unit["text"]
-    mine = {rid: ln for rid, (key, ln) in where.items() if key == unit["key"] and ln}
-    if skipped is None:
-        return set(mine)
-    return {
-        rid
-        for rid, ln in mine.items()
-        if any(s["line"] <= ln and text.offsets[ln] < s["end"] for s in skipped)
-    }
 
 
 def _read_all(units: dict, where: dict, ctx: dict) -> tuple[dict, dict]:
@@ -601,8 +597,9 @@ def _read_all(units: dict, where: dict, ctx: dict) -> tuple[dict, dict]:
     flagged sub-parts (also those holding no requirement of their own but an
     inner sub-part's) the largest first, all within the run's budget.
     Returns ({key: decision}, {id(requirement): [sub-part keys, outer first]});
-    `ctx["unscreened"]` gets the requirements whose division's sub-headings
-    were not screened."""
+    `ctx["unscreened"]` gets the requirements whose sub-headings were not
+    screened: the screen failed, was not run or did not carry them, they sit
+    in a kept candidate start (never screened) or have no line."""
     recs: dict[tuple, dict] = {}
     subs: list[dict] = []
     ctx["unscreened"] = set()
@@ -615,8 +612,10 @@ def _read_all(units: dict, where: dict, ctx: dict) -> tuple[dict, dict]:
         if unit["kind"] == "division" and open_part:
             lines = {ln for key, ln in where.values() if key == unit["key"]}
             flagged, skipped = _subparts(unit, lines - {None}, ctx)
-            ctx["unscreened"] |= _unscreened(unit, where, skipped)
+            ctx["unscreened"] |= unscreened(unit, where, skipped)
             subs += sub_units(unit, flagged)
+        elif unit["kind"] == "candidate" and open_part:  # never sub-screened
+            ctx["unscreened"] |= unscreened(unit, where, None)
     subs_of = sub_of(subs, where)
     for sub in sorted(subs, key=lambda s: -s["count"]):
         if sub["count"]:
@@ -638,7 +637,8 @@ def _effective(requirement: dict, where, sub_map, recs, units) -> dict | None:
     start the model did not confirm as a new part inherits the part before it
     DOWNGRADED (excluded -> held), unless the model was unsure of it, which
     holds: a false break never rescues a clause from a limited part, and code
-    never excludes on inheritance."""
+    never excludes on inheritance or on a candidate's own reading (a start
+    found by shape or break can only hold; `_decide_unit` caps it)."""
     from . import clause_scope
 
     placed = where.get(id(requirement))
@@ -690,6 +690,12 @@ def _item(requirement: dict, rec: dict, standard_labels: dict, model: str) -> di
         tail = (
             f'; this clause follows the heading "{rec["via"]}", which could not be '
             "confirmed as the start of a new part - an engineer decides"
+        )
+    elif rec.get("line"):  # a start found by shape: held, never excluded
+        tail = (
+            f'; the datasheet states "{rec["line"]}, but this heading was found by '
+            "its shape and is not confirmed as the start of a part - "
+            "an engineer decides"
         )
     return {
         "requirement": requirement,

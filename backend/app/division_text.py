@@ -300,3 +300,19 @@ def sub_of(subs: list[dict], where: dict) -> dict[int, list[tuple]]:
     for sub in subs:
         sub["count"] = sum(1 for keys in out.values() if sub["key"] in keys)
     return out
+
+
+def unscreened(unit: dict, where: dict, skipped: list | None) -> set[int]:
+    """The requirements of `unit` whose sub-headings were not screened:
+    `skipped` is the sub-headings left out of the screen (None: all of the
+    unit's, as when no screen ran or it failed). A requirement placed only by
+    its page (no line) is never screened by heading, so it is always in."""
+    text = unit["text"]
+    mine = {rid: ln for rid, (key, ln) in where.items() if key == unit["key"]}
+    return {
+        rid
+        for rid, ln in mine.items()
+        if skipped is None
+        or ln is None
+        or any(s["line"] <= ln and text.offsets[ln] < s["end"] for s in skipped)
+    }

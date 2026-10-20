@@ -7,11 +7,13 @@ that starts a page. This module widens WHAT IS READ, never what is decided:
   finder made, or a line of the SHAPE "capitalised word, then an id"); the
   model reads each; one it is unsure of holds its requirements, one it does
   not confirm inherits the part before it (`downgrade`: it can only hold,
-  never exclude, never rescue);
+  never exclude, never rescue); a start found by shape or break can only HOLD,
+  even when the model confirms it, because nothing checks it is a real part;
 - `subclause_units` lists the sub-headings of one division that hold a wanted
   requirement, their extent taken from the standard's own headings;
 - `screen_titles` asks the model which of those titles say the rules there are
-  limited; CODE keeps only a title that is verbatim one it supplied.
+  limited; CODE keeps only a title that is verbatim one it supplied, and says
+  None when the read failed (so the caller counts it, never "none flagged").
 
 No standard, part, material or layout is named and no word list decides:
 a shape only proposes, the model reads, code verifies, an engineer decides.
@@ -140,33 +142,12 @@ product form, construction or grade, each copied exactly as written. Leave out
 every title that names no such limit. Return an empty list when none does."""
 
 
-def _titles_of(text: str) -> list[str]:
-    return [t.strip() for t in text.splitlines() if t.strip()]
-
-
-def _subscope_problems(data: dict, text: str) -> list[str]:
-    """Code's check: every returned title is one of the supplied titles."""
-    from . import ai_applicability
-
-    supplied = _titles_of(text)
-    return [
-        "a title is not one of the supplied titles"
-        for t in data.get("titles") or []
-        if not any(
-            ai_applicability.folded_in(t, s, least=3)
-            and ai_applicability.folded_in(s, t, least=3)
-            for s in supplied
-        )
-    ][:1]
-
-
 SUBSCOPE_TASK = ai_task_runner.register(
     ai_task_runner.TaskSpec(
         name="subclause_scope",
         version="v1",
         instruction=SUBSCOPE_INSTRUCTION,
         schema=SUBSCOPE_SCHEMA,
-        check=_subscope_problems,
         num_predict=output_limits.max_tokens_for(
             output_limits.ROUTE_CLAUSE_APPLICABILITY
         ),
@@ -174,18 +155,25 @@ SUBSCOPE_TASK = ai_task_runner.register(
 )
 
 
-def screen_titles(units: list[dict], provider, run: dict) -> list[dict]:
+def screen_titles(units: list[dict], provider, run: dict) -> list[dict] | None:
     """The units whose title the model flagged as limited, verified by code:
     a returned title counts only when it is, letters and digits alone, one of
-    the supplied titles. A read that fails or a stopped model flags none; only
-    the first `MAX_TITLES` units are offered, and the gate counts the
-    requirements under the rest (and under a division not screened at all)."""
+    the supplied titles; a title that is not (invented) is dropped on its own,
+    it does not discard the valid ones of the same reply. None when the read
+    failed (a reply that does not fit, a model error, a stopped model): the
+    caller must count the requirements as not screened, never as screened with
+    none flagged. Only the first `MAX_TITLES` units are offered; the gate
+    counts the requirements under the rest."""
     from . import ai_applicability
 
+    if not units:
+        return []
     data = ai_applicability._read(
         SUBSCOPE_TASK, "\n".join(u["title"] for u in units[:MAX_TITLES]), provider, run
     )
-    returned = {subject_scope._key(t) for t in (data or {}).get("titles") or []}
+    if data is None:
+        return None
+    returned = {subject_scope._key(t) for t in data.get("titles") or []}
     return [u for u in units[:MAX_TITLES] if subject_scope._key(u["title"]) in returned]
 
 

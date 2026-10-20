@@ -282,6 +282,13 @@ def test_a_sub_part_the_model_did_not_flag_changes_nothing(stub):
 AA_PAGE = PAGES[0]
 
 
+def assert_a_hold_for_the_engineer(detail: str) -> None:
+    """The hold quotes the standard's scope sentence and the datasheet's stated
+    line, and says an engineer decides."""
+    assert TI_SCOPE in detail and '"Shell material: Carbon steel plate XQ-70' in detail
+    assert "found by its shape" in detail and "an engineer decides" in detail
+
+
 @pytest.mark.parametrize(
     "heading",
     [
@@ -295,7 +302,7 @@ AA_PAGE = PAGES[0]
         "Annex A-1 Rules for titanium",
     ],
 )
-def test_a_part_with_a_heading_of_another_shape_is_read_and_decided(stub, heading):
+def test_a_part_with_a_heading_of_another_shape_is_read_and_held(stub, heading):
     page = (2, f"{heading}\n{TI_SCOPE}\nXX-2 Titanium welds shall be shielded.\n")
     weld = req("weld", 2, "XX-2 Titanium welds shall be shielded.")
     named = [
@@ -306,11 +313,13 @@ def test_a_part_with_a_heading_of_another_shape_is_read_and_decided(stub, headin
     assert named == [("part", "AA")]  # the finder alone does not see it
     stub.heads = [heading]
     out = gate(FakeModel(scope=titanium_if_named), [AA_PAGE, page], (GENERAL, weld))
-    assert _ids(out["items"]) == ["weld"] and _ids(out["kept"]) == ["aa"]
-    assert out["summary"]["candidates_read"] == 1
+    # found by shape, so it can only HOLD (never excluded), with the reasons
+    assert _ids(out["held"]) == ["weld"] and _ids(out["kept"]) == ["aa"]
+    assert out["items"] == [] and out["summary"]["candidates_read"] == 1
+    assert_a_hold_for_the_engineer(out["held"][0]["detail"])
 
 
-def test_a_heading_in_the_middle_of_a_page_is_read_not_skipped(stub):
+def test_a_heading_in_the_middle_of_a_page_is_read_and_held_not_skipped(stub):
     filler = "".join(f"Background line {n} of the code.\n" for n in range(8))
     page = (
         2,
@@ -324,7 +333,9 @@ def test_a_heading_in_the_middle_of_a_page_is_read_not_skipped(stub):
         [AA_PAGE, page],
         (GENERAL, TITAN | {"page": 2}),
     )
-    assert _ids(out["items"]) == ["tt"] and _ids(out["kept"]) == ["aa"]
+    assert _ids(out["held"]) == ["tt"] and _ids(out["kept"]) == ["aa"]
+    assert out["items"] == []
+    assert_a_hold_for_the_engineer(out["held"][0]["detail"])
 
 
 JACKET_PAGE = (
@@ -515,3 +526,54 @@ def test_titles_past_the_one_read_are_counted_with_the_real_module(store, monkey
 def test_nothing_unscreened_leaves_the_count_out(store):
     out = gate(flags(), [NEST_PAGE], (SEAL, SEAL_OUT))
     assert "requirements_subparts_not_screened" not in out["summary"]
+
+
+# ------------------- a start found by shape only holds; a failed screen is counted
+
+TABLE_PAGE = (
+    2,
+    "Table 4 Weld notes\n"
+    + TI_SCOPE
+    + "\nThe nameplate shall be of stainless steel.\n",
+)
+NAMEPLATE = req("plate", 2, "The nameplate shall be of stainless steel.")
+
+
+def test_a_shape_start_the_model_confirms_is_held_never_excluded(store):
+    # the REAL candidate finder proposes "Table 4 Weld notes"; the model says
+    # "limited to titanium" and the sheet states carbon steel: before, the
+    # nameplate clause was set aside as outside the part; nothing checks that
+    # a table title starts a part, so it can only be held
+    model = FakeModel(scope=titanium_if_named)
+    out = gate(model, [AA_PAGE, TABLE_PAGE], (GENERAL, NAMEPLATE))
+    assert out["items"] == [] and _ids(out["kept"]) == ["aa"]
+    assert _ids(out["held"]) == ["plate"]
+    assert_a_hold_for_the_engineer(out["held"][0]["detail"])
+    assert out["summary"]["candidates_read"] == 1
+
+
+def test_a_failed_title_screen_counts_its_requirements_as_not_screened(store):
+    model = flags()
+    model.replies["titles"] = lambda prompt: {"nonsense": 1}  # fits no schema
+    out = gate(model, [NEST_PAGE], (SEAL, SEAL_OUT))
+    assert _ids(out["kept"]) == ["seal", "plate"]
+    assert out["summary"]["requirements_subparts_not_screened"] == 2
+    assert "stopped" not in out["summary"]  # the model was not down
+
+
+def test_requirements_placed_only_by_page_are_counted_as_not_screened(store):
+    ghost = req("ghost", 1, "The pump shall be tested before it is dispatched.")
+    out = gate(flags(), [NEST_PAGE], (SEAL, ghost))
+    assert _ids(out["kept"]) == ["seal", "ghost"]  # kept, never skipped silently
+    assert out["summary"]["requirements_subparts_not_screened"] == 1
+
+
+def test_requirements_in_a_kept_candidate_start_are_counted_as_not_screened(stub):
+    stub.heads = ["Appendix 9 (jacketed vessels)"]
+    out = gate(
+        FakeModel(scope=NOT_LIMITED),
+        [AA_PAGE, (2, JACKET_PAGE[1])],
+        (GENERAL, JACKET | {"page": 2}),
+    )
+    assert _ids(out["kept"]) == ["aa", "jacket"]
+    assert out["summary"]["requirements_subparts_not_screened"] == 1

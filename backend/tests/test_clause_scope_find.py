@@ -190,15 +190,16 @@ class Titles:
 
     requested_model = "test-model"
 
-    def __init__(self, titles=None, fail=None):
+    def __init__(self, titles=None, fail=None, reply=None):
         self.titles, self.fail, self.prompts = titles or [], fail, []
+        self.reply = reply  # a whole reply, instead of {"titles": titles}
 
     def reason(self, packet):
         self.prompts.append(packet.prompt)
         if self.fail:
             raise ProviderRefused(self.fail)
         return Response(
-            text=json.dumps({"titles": self.titles}),
+            text=json.dumps(self.reply or {"titles": self.titles}),
             provider="ollama",
             model_tag="test-model",
             digest="d",
@@ -219,10 +220,15 @@ def test_a_verbatim_flagged_title_is_kept(temp_storage):
     assert model.prompts[0].endswith("4.2 Acrylic windows\n4.3 Seals\n")
 
 
-def test_an_invented_title_is_never_kept(temp_storage):
+def test_an_invented_title_is_dropped_and_the_valid_one_kept(temp_storage):
     model = Titles(["4.2 Acrylic windows", "4.9 Bronze castings"])
+    assert clause_scope.screen_titles(UNITS, model, {}) == [UNITS[0]]
+    assert len(model.prompts) == 1  # the reply is not rejected and asked again
+
+
+def test_a_reply_of_only_invented_titles_was_read_and_flags_none(temp_storage):
+    model = Titles(["4.9 Bronze castings"])
     assert clause_scope.screen_titles(UNITS, model, {}) == []
-    assert len(model.prompts) == 2  # the reply was rejected and asked again
 
 
 def test_code_ignores_an_invented_title_even_when_the_task_check_is_off(
@@ -239,14 +245,19 @@ def test_code_ignores_an_invented_title_even_when_the_task_check_is_off(
     assert clause_scope.screen_titles(UNITS, model, {}) == [UNITS[1]]
 
 
-def test_a_failed_or_stopped_read_flags_nothing(temp_storage):
-    assert clause_scope.screen_titles(UNITS, Titles(fail="offline"), {}) == []
+def test_a_failed_or_stopped_read_is_none_not_an_empty_list(temp_storage):
+    assert clause_scope.screen_titles(UNITS, Titles(fail="offline"), {}) is None
     model = Titles(["4.3 Seals"])
-    assert clause_scope.screen_titles(UNITS, model, {"stopped": "x"}) == []
+    assert clause_scope.screen_titles(UNITS, model, {"stopped": "x"}) is None
     assert model.prompts == []
     fresh = Titles(["4.3 Seals"])
-    assert clause_scope.screen_titles([], fresh, {}) == []
+    assert clause_scope.screen_titles([], fresh, {}) == []  # nothing to screen
     assert fresh.prompts == []
+
+
+def test_a_reply_that_fits_no_schema_is_a_failed_read(temp_storage):
+    model = Titles(reply={"nonsense": 1})
+    assert clause_scope.screen_titles(UNITS, model, {}) is None
 
 
 def test_the_task_is_registered_and_logs_no_text(temp_storage, caplog):
