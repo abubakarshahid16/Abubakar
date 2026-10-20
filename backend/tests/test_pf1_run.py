@@ -285,3 +285,41 @@ def test_a_diagnostic_copy_must_be_named_and_must_not_be_live_shaped(tmp_path):
         pf1_run.check_db_copy(str(live))
     with pytest.raises(pf1_run.RunError, match="not a file"):
         pf1_run.check_db_copy(str(tmp_path / "missing.sqlite"))
+
+
+def test_a_poisoned_review_job_is_final_at_once_not_after_the_timeout():
+    # `poisoned` is how a job really fails now; `failed` is only the legacy value.
+    server = FakeServer(states={"rev1": "poisoned"})
+    record = _run(server, timeout=3600.0)
+    assert record["status"] == "not_completed"
+    assert record["job_state"] == "poisoned"
+    assert record["error"] is None
+    assert server.polls == 4  # one poll per job: it did not poll on to the timeout
+
+
+def test_a_poisoned_ingestion_stops_the_sheet_with_the_state_named():
+    server = FakeServer(states={"ing2": "poisoned"})
+    record = _run(server)
+    assert record["status"] == "error"
+    assert "ingestion ended poisoned" in record["error"]
+
+
+def test_every_final_state_the_server_writes_ends_the_wait():
+    from app import job_queue
+
+    going = {job_queue.QUEUED, job_queue.RUNNING, job_queue.RETRYING}
+    final = {job_queue.DONE, job_queue.POISONED, job_queue.CANCELLED}
+    assert final <= pf1_run.TERMINAL
+    assert not going & pf1_run.TERMINAL
+
+
+def test_a_job_that_cannot_be_read_three_times_in_a_row_ends_the_wait_with_the_status():
+    class NoJob(FakeServer):
+        def request(self, method, path, json_body=None, file=None, fields=None):
+            if path.startswith("/api/jobs/"):
+                return 404, None
+            return super().request(method, path, json_body, file, fields)
+
+    record = _run(NoJob(), timeout=3600.0)
+    assert record["status"] == "error"
+    assert "could not be read (HTTP 404, 3 times)" in record["error"]

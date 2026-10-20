@@ -45,7 +45,11 @@ RECORD_FORMAT = "pf1-run/1"
 #: server's own statement of what database it holds is not available yet.
 LIVE_PORTS = (8000, 8001)
 #: A job in one of these states will not change. Anything else is still going.
-TERMINAL = frozenset({"done", "failed", "cancelled", "canceled", "dead"})
+#: `poisoned` is how a job really fails now (failed `job_max_retries + 1` times);
+#: `failed` is only the pre-#177 legacy value. Held to `app.job_queue` by a test.
+TERMINAL = frozenset({"done", "failed", "poisoned", "cancelled", "canceled", "dead"})
+#: This many answers in a row that are not a job (404, 5xx) end the wait.
+UNANSWERED_LIMIT = 3
 #: What a finished job must say for the sheet to count as run.
 OK_STATES = frozenset({"done"})
 
@@ -179,8 +183,14 @@ def wait_job(
     if not job_id:
         return "done"
     start = clock()
+    unanswered = 0
     while True:
         status, body = transport.request("GET", f"/api/jobs/{job_id}")
+        unanswered = unanswered + 1 if status != 200 else 0
+        if unanswered >= UNANSWERED_LIMIT:
+            raise RunError(
+                f"job {job_id} could not be read (HTTP {status}, {unanswered} times)"
+            )
         state = str((body or {}).get("state") or "") if status == 200 else ""
         if state in TERMINAL:
             return state
