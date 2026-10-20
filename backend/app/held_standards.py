@@ -16,12 +16,16 @@ from .db import connect
 HELD_UNSURE_TYPE = "equipment_unsure"
 #: Orders 180.1 item 5: the sheet does not say which type of equipment it is.
 HELD_SUBTYPE_UNSURE = "subtype_unsure"
+#: Orders 180.1 item 6: the run's own standards check judged the standard not
+#: applicable to this equipment (the type is sure; the standard is not for it).
+HELD_NOT_APPLICABLE = "judged_not_applicable"
 
 #: code -> the reason in the sentence. An unknown code is held for the engineer
 #: without a reason; it never borrows the unsure wording.
 _WHY = {
     HELD_UNSURE_TYPE: " because the equipment type is unsure",
     HELD_SUBTYPE_UNSURE: " because the datasheet does not state which type of equipment it is",
+    HELD_NOT_APPLICABLE: " because the run's standards check judged this equipment outside their scope",
 }
 
 
@@ -39,6 +43,17 @@ def mark(
             f"AND standard_document_id IN ({marks})",
             (code, review_run_id, *standard_ids),
         )
+
+
+def mark_rows(review_run_id: str, selected: dict) -> None:
+    """Flag the held rows of a selection, each with its own reason code (a row
+    says its `held_code`; one that says none is the unsure-type hold)."""
+    by_code: dict[str, list[str]] = {}
+    for sid, row in selected.items():
+        if row.get("held_for_engineer"):
+            by_code.setdefault(row.get("held_code") or HELD_UNSURE_TYPE, []).append(sid)
+    for code, ids in by_code.items():
+        mark(review_run_id, ids, code)
 
 
 def note(

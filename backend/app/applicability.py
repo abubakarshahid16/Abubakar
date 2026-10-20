@@ -49,7 +49,7 @@ from pathlib import Path
 
 from . import datasheets, errors, fts_index, standard_ids, standards, submittal_review
 from .db import connect
-from .held_standards import mark
+from .held_standards import mark_rows
 
 #: The selection rules, in the priority master plan section 11 gives them.
 #:
@@ -1293,8 +1293,7 @@ def select(
                 selected[standard_id] = dict(row)
 
     missing = [
-        # By THE IDENTIFIER THE DATASHEET USED (the string an engineer looks
-        # for). ONE helper (#452): a rebuilt list lost a spelling.
+        # By THE IDENTIFIER THE DATASHEET USED; ONE helper (#452: a rebuilt list lost a spelling).
         {"identifier": identifier,
          "reason": "cited by the submittal and not present in the library"}
         for identifier in missing_references(library, referenced)
@@ -1310,9 +1309,9 @@ def select(
             if page is not None:
                 row["reason"] = f"{row['reason']} (page {page})"
 
-    # B5: THE SCOPE DECISION on every standard with a verified scope record:
-    # by AI reasoning (owner 2026-09-28, on since #736), or when that is off
-    # the taxonomy path (`applicability_v2`, "not run" with no taxonomy).
+    # B5: THE SCOPE DECISION on every standard with a verified scope record: by AI reasoning
+    # (owner 2026-09-28, on since #736), or when off the taxonomy path (`applicability_v2`).
+    from . import standard_judgment
     from .config import settings as _settings
     if _settings.applicability_reasoning_enabled:
         # #946: cap the pool asked about (`_scope_reasoning_candidates`); the
@@ -1356,6 +1355,7 @@ def select(
         elif row is not None:
             row["scope_decision"] = verdict
     _hold_on_unsure_type(selected, check, library, profile)  # order 142
+    standard_judgment.hold(selected, check, library, find_standard)
 
     if persist:
         _persist(submittal_document_id, review_run_id, selected, allowed_document_ids,
@@ -1765,7 +1765,7 @@ def _persist(submittal_document_id: str, review_run_id: str | None,
             evidence_page=row.get("evidence_page"),
             evidence_quote=row.get("evidence_quote"),
             scope_decision=row.get("scope_decision"))
-    mark(review_run_id, [i for i, r in selected.items() if r.get("held_for_engineer")])
+    mark_rows(review_run_id, selected)
     for entry in _library(allowed_document_ids):
         if entry["id"] in selected:
             continue

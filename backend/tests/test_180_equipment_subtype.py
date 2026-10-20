@@ -208,3 +208,46 @@ def test_an_unsure_standard_is_selected_held_with_its_own_reason_not_dropped():
         assert "held for the engineer" in row["held_for_engineer"]
         assert row["held_code"] == "subtype_unsure"
         assert applicability.is_included(row) is False
+
+
+def test_the_run_stores_and_says_why_an_unsure_type_standard_was_held():
+    import uuid
+
+    from app import held_standards
+
+    monkey = settings.applicability_reasoning_enabled
+    settings.applicability_reasoning_enabled = False
+    try:
+        for std in ("API 610", "API 674"):
+            _doc(
+                std.replace(" ", ""),
+                "COMPANY_STANDARD",
+                f"{std} text",
+                document_number=std,
+            )
+        _doc("sub", "CONTRACTOR_SUBMITTAL", "Pump data sheet", equipment_type="Pump")
+        run = str(uuid.uuid4())
+        with db.connect() as conn:
+            conn.execute(
+                "INSERT INTO review_runs (id,submittal_document_id,status,created_at,updated_at)"
+                " VALUES (?,?,'pending',?,?)",
+                (run, "sub", NOW, NOW),
+            )
+        allowed = frozenset({"sub", "API610", "API674"})
+        applicability.select(
+            "sub", allowed_document_ids=allowed, review_run_id=run, persist=True
+        )
+    finally:
+        settings.applicability_reasoning_enabled = monkey
+    codes = {
+        r["standard_document_id"]: r["held_reason"]
+        for r in db.connect().execute(
+            "SELECT standard_document_id, held_reason FROM review_applicable_standards"
+            " WHERE review_run_id = ?",
+            (run,),
+        )
+    }
+    assert codes["API610"] == codes["API674"] == held_standards.HELD_SUBTYPE_UNSURE
+    sentence = held_standards.note(run, allowed)["sentence"]
+    assert "does not state which type of equipment it is" in sentence
+    assert "equipment type is unsure" not in sentence
