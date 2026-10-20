@@ -515,6 +515,8 @@ export interface ReviewReadiness {
   pages_total: number | null;
   /** #1017: null when the page ledger is not one to count on (`ledger_state`). */
   pages_read: number | null;
+  /** Order 165: pages read with no checklist field found; not in `pages_read`. */
+  pages_read_no_field?: number[];
   unread_pages: number[];
   /** #1017: current / missing / stale / not_as_submittal. A read never rebuilds
    *  the ledger; `ledger_note` says what does when it is not current. */
@@ -769,6 +771,10 @@ export interface PageCoverage {
   native?: Record<string, number>;
   facts?: Record<string, number>;
   pages_read_only_by_page_reader?: number[];
+  /** Order 165: pages the code readers and the AI reader both read and found no
+   *  checklist field on - read, but not in `fact_pages` (pages fields were read
+   *  from). Absent on a run stored before this. */
+  pages_read_no_field?: number[];
   /** PF3 (#883): the pages the configured AI reader did not read, and why. */
   pages_ai_not_read?: number[];
   ai_not_read_reasons?: Record<string, string>;

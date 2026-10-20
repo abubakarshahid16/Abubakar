@@ -61,6 +61,38 @@ VISION_NOT_RECORDED_STALE = ("vision routing has not been recorded for this page
                              "re-run extraction (\"Read unread pages\") to record it")
 
 
+#: Said for a `no_fields` page the coverage does NOT count as read: no page of
+#: the sheet gave a single field, so "two readers found none" proves nothing
+#: (a wrong document, a text layer that is noise).
+NO_FIELD_ANYWHERE = (
+    "Both readers found no field on this page, but no page of this sheet gave a "
+    "field, so it is not counted as read"
+)
+
+
+def _not_clean(row: dict) -> str | None:
+    """Why a `no_fields` page is NOT counted as read after all, or None. The
+    two readers read the text the page has; that proves nothing when the text
+    layer was not usable (OCR pending or failed, no text) or when the picture
+    reader was needed and could not be asked."""
+    if row["ocr_status"] in ("pending", "failed") or row["native_status"] == "empty":
+        return (
+            "Both readers found no field on this page, but its text layer was "
+            "not usable (OCR not done or failed, or no text), so it is not counted as read"
+        )
+    reason = str(row["vision_reason"] or "")
+    if (
+        "unavailable" in reason
+        or "vision page budget is spent" in reason
+        or "no text layer" in reason
+    ):
+        return (
+            "Both readers found no field on this page, but the picture reader "
+            "could not be asked about it, so it is not counted as read"
+        )
+    return None
+
+
 def read_page_empty(ai_run: dict, page: int) -> bool:
     """Order 165: did the AI reader READ this page and put nothing forward on
     it? True only when the page has a reading with no error, no accepted
@@ -85,6 +117,8 @@ def read_page_empty(ai_run: dict, page: int) -> bool:
                 "cut_off",
                 "parts",
                 "stopped",
+                "merge_rejected",
+                "merge_counts",
             )
         )
     )
@@ -449,8 +483,8 @@ def every_page_read(pages: dict, where: str, total: int) -> str:
     if not none:
         return f"fields were read from every page ({where} of {total})"
     return (f"every page was read: fields from {where} of {total}; "
-            f"page{'s' if len(none) != 1 else ''} {page_list(none)} held no field "
-            "for the code readers or the AI reader")
+            f"page{'s' if len(none) != 1 else ''} {page_list(none)} "
+            "read, no checklist field found")
 
 
 def run_reader(outcome: dict | None) -> dict | None:
@@ -563,6 +597,15 @@ def coverage(document_id: str) -> dict:
         v: sum(1 for r in ledger if r[key] == v) for v in sorted({r[key] for r in ledger})}
     not_read = [r for r in ledger if r["facts_status"] in NOT_READ_INTO_FIELDS]
     fact_pages = [r["page_no"] for r in ledger if r["facts_status"] == "facts"]
+    no_field, demoted = [], {}
+    for r in ledger:
+        if r["facts_status"] == READ_NO_FIELD:
+            why = _not_clean(r) if fact_pages else NO_FIELD_ANYWHERE
+            if why:
+                demoted[str(r["page_no"])] = why
+                not_read.append(r)
+            else:
+                no_field.append(r["page_no"])
     sources = {r["facts_recorded_by"] for r in ledger if r["facts_recorded_by"]}
     return {
         "pages_total": len(ledger),
@@ -573,8 +616,11 @@ def coverage(document_id: str) -> dict:
         "fact_pages": fact_pages,
         "pages_read_only_by_page_reader": _page_reader_only(document_id, fact_pages),
         "pages_not_read_into_fields": [r["page_no"] for r in not_read],
-        "not_read_reasons": {str(r["page_no"]): r["facts_reason"] for r in not_read},
-        "pages_read_no_field": [r["page_no"] for r in ledger if r["facts_status"] == READ_NO_FIELD],
+        "not_read_reasons": {
+            str(r["page_no"]): demoted.get(str(r["page_no"])) or r["facts_reason"]
+            for r in not_read
+        },
+        "pages_read_no_field": no_field,
         "facts_source": (sources.pop() if len(sources) == 1
                          else "mixed" if sources else None),
     }
@@ -670,6 +716,7 @@ def readiness_pages(document_id: str) -> dict:
     return {
         "pages_total": cov.get("pages_total"),
         "pages_read": len(cov.get("fact_pages") or []) if ledger_state == CURRENT else None,
+        "pages_read_no_field": cov.get("pages_read_no_field") or [],
         "unread_pages": cov.get("pages_not_read_into_fields") or [],
         "unread_page_reasons": cov.get("not_read_reasons") or {},
         "ledger_state": ledger_state,

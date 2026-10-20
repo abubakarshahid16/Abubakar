@@ -2524,6 +2524,9 @@ class ReviewReadiness(BaseModel):
     #: #1017: null when the page ledger is not one a reader may count on
     #: (`ledger_state` says why) - never 0 for "nobody looked".
     pages_read: int | None = None
+    #: Order 165: pages two readers read and found no checklist field on -
+    #: read, but not counted in `pages_read` (pages fields were read from).
+    pages_read_no_field: list[int] = []
     unread_pages: list[int] = []
     #: #1017: current / missing / stale / not_as_submittal. A GET never rebuilds
     #: the ledger; the writers do (ingest, reading the sheet into fields, a

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import comparison, datasheet_ai, datasheets, page_ledger
+from app import comparison, datasheets, db, form_reader_run, page_ledger
 from app.config import settings
 from tests.test_datasheet_ai import (  # noqa: F401 - the autouse temp_storage
     FakeModel,
@@ -78,7 +78,7 @@ def test_a_cover_page_both_readers_found_nothing_on_is_read_not_unread(
     assert cov["fact_pages"] == [2]
     row = page_ledger.rows(doc)[0]
     assert row["facts_status"] == page_ledger.READ_NO_FIELD
-    assert "neither found a datasheet field" in row["facts_reason"]
+    assert row["facts_reason"].startswith("Read, no checklist field found")
 
 
 def test_with_the_ai_reader_off_the_cover_page_stays_unread(tmp_path, monkeypatch):
@@ -128,7 +128,7 @@ def test_an_absent_value_is_no_longer_called_unread_when_every_page_was_read(
         out["status"] != comparison.NEEDS_ENGINEER_REVIEW
         or "page reader" in out["rationale"]
     )
-    assert "page 1 held no field" in out["rationale"]
+    assert "page 1 read, no checklist field found" in out["rationale"]
 
 
 def test_the_rationale_never_says_fields_were_read_from_a_page_that_held_none():
@@ -194,3 +194,97 @@ def test_a_page_with_a_recorded_reason_or_no_reading_or_unread_parts_is_not_empt
         is False
     )
     assert page_ledger.read_page_empty({"pages": {1: page}}, 2) is False
+
+
+def test_a_whole_page_refusal_beside_a_clean_form_page_keeps_the_page_unread():
+    """Form mode (the default): the form read the page cleanly and found nothing;
+    the whole-page reader proposed a value the code refused. Merging keeps that
+    refusal apart, so the page is not 'empty'."""
+    form = {
+        "pages": {1: {"accepted": [], "rejected": [], "counts": {}}},
+        "reasons": {},
+        "partly_read": {},
+        "stopped": None,
+        "seconds": 0,
+    }
+    merge = {
+        "pages": {
+            1: {
+                "accepted": [],
+                "rejected": [{"reason": "quote_not_on_page"}],
+                "counts": {"quote_not_on_page": 1},
+            }
+        }
+    }
+    assert page_ledger.read_page_empty(form, 1) is True
+    merged = form_reader_run.add_merge_reading(form, merge)
+    assert page_ledger.read_page_empty(merged, 1) is False
+    assert merged["pages"][1]["counts"] == {}  # the form's own tallies are as before
+
+
+def test_a_sheet_where_no_page_gave_a_field_does_not_count_its_pages_as_read(
+    tmp_path, monkeypatch
+):
+    _use(monkeypatch, FakeModel([]))
+    import pymupdf
+
+    path = tmp_path / "blank.pdf"
+    pdf = pymupdf.open()
+    for _ in range(2):
+        page = pdf.new_page(width=600, height=500)
+        page.insert_text((44, 60), "MECHANICAL DATASHEET INVENTED", fontsize=10)
+    pdf.save(str(path))
+    pdf.close()
+    doc = _ingest(str(path))
+    datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
+    cov = _coverage(doc)
+    assert cov["pages_read_no_field"] == []
+    assert cov["pages_not_read_into_fields"] == [1, 2]
+    assert "not counted as read" in cov["not_read_reasons"]["1"]
+
+
+def test_a_page_whose_text_layer_was_not_usable_is_not_counted_as_read(
+    tmp_path, monkeypatch
+):
+    _use(monkeypatch, FakeModel([]))
+    doc = _ingest(_pdf(tmp_path / "d.pdf"))
+    datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE page_ledger SET ocr_status = 'failed' WHERE document_id = ? AND page_no = 1",
+            (doc,),
+        )
+    cov = _coverage(doc)
+    assert cov["pages_read_no_field"] == []
+    assert 1 in cov["pages_not_read_into_fields"]
+    assert "text layer was not usable" in cov["not_read_reasons"]["1"]
+
+
+def test_a_page_the_picture_reader_could_not_be_asked_about_is_not_counted_as_read(
+    tmp_path, monkeypatch
+):
+    _use(monkeypatch, FakeModel([]))
+    doc = _ingest(_pdf(tmp_path / "d.pdf"))
+    datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE page_ledger SET vision_status = 'not_attempted', vision_reason = ? "
+            "WHERE document_id = ? AND page_no = 1",
+            ("routed: ..., but the vision reader is unavailable (down)", doc),
+        )
+    cov = _coverage(doc)
+    assert 1 in cov["pages_not_read_into_fields"] and cov["pages_read_no_field"] == []
+    assert "picture reader" in cov["not_read_reasons"]["1"]
+
+
+def test_the_readiness_strip_names_the_pages_read_with_no_field_apart_from_the_read_and_unread(
+    tmp_path, monkeypatch
+):
+    _use(monkeypatch, FakeModel([]))
+    doc = _ingest(_pdf(tmp_path / "d.pdf"))
+    datasheets.extract_facts(doc, allowed_document_ids=frozenset({doc}))
+    strip = page_ledger.readiness_pages(doc)
+    assert strip["pages_total"] == 2
+    assert strip["pages_read"] == 1  # fields were read from one page
+    assert strip["pages_read_no_field"] == [1]
+    assert strip["unread_pages"] == []
