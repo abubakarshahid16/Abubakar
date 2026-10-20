@@ -49,6 +49,8 @@ export type WorkspaceSheetProps = SheetContractProps & {
   serverNotes?: number;
   /** Release 1b: the grouping shown is the last one that could be read. */
   groupingStale?: boolean;
+  /** Order 164.1: values were confirmed on a page; the workspace reads the run again. */
+  onValuesConfirmed?: () => void;
 };
 
 /** The narrowest "Show" choice that still lists `row` (as visibleRows). */
@@ -69,7 +71,7 @@ function returnTarget(prev: HTMLElement | null, rowKey: string): HTMLElement | n
 
 export function WorkspaceSheet({
   runId, rows, submittal, standardNames, decisions, openRowKey, onOpenRow, numbers, footer, readOnly = false, showKeys = true,
-  serverNotes = 0, groupingStale = false,
+  serverNotes = 0, groupingStale = false, onValuesConfirmed,
 }: WorkspaceSheetProps) {
   const [depth, setDepth] = useState<Depth>("standard");
   const [showMet, setShowMet] = useState(false);
@@ -191,7 +193,7 @@ export function WorkspaceSheet({
       {footer}
       {drawerRow && (
         <WorkspaceEvidence row={drawerRow} runId={runId} standardNames={standardNames} returnTo={returnTo}
-          onClose={closeDrawer} nav={nav} pager={pager} showKeys={showKeys}
+          onClose={closeDrawer} nav={nav} pager={pager} showKeys={showKeys} onValuesConfirmed={onValuesConfirmed}
           decide={drawerRow.tier.tier !== "A" && !readOnly ? (
             <DecisionPanel row={drawerRow} decisions={decisions} onDecided={onDecided} showKeys={showKeys}
               note={doneNote?.key === drawerRow.key ? doneNote.text : null} />

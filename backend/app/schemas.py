@@ -2386,6 +2386,33 @@ class CrsIssueDecisionList(ListPage):
     decisions: list[CrsIssueDecision]
 
 
+class PageFact(BaseModel):
+    """One value the program read on a page, as the engineer sees it before
+    confirming: the field, the value with its unit, and the quote it came from.
+    `conflict` is a value two readers read differently (confirmed one at a
+    time, never in bulk); `needs_check` is a value the review does not yet
+    trust (a confirmed one is trusted whatever read it)."""
+
+    fact_id: str
+    field: str
+    value: str | None = None
+    unit: str | None = None
+    quote: str | None = None
+    confirmed: bool
+    conflict: bool
+    needs_check: bool
+
+
+class PageFactList(BaseModel):
+    """The values read on one page of a review's datasheet; the boundary says
+    whose values these are (rule 4: every count states its boundary)."""
+
+    review_run_id: str
+    page: int
+    facts: list[PageFact]
+    boundary: str
+
+
 class FactBatchConfirmRequest(BaseModel):
     """Order 161 A: the values of one page an engineer ticked, by id."""
 

@@ -2814,3 +2814,37 @@ export interface CrsTransmittals {
   company_transmittal: string;
   contractor_transmittal: string;
 }
+
+/** Order 164.1: one value the program read on a page, before an engineer
+ *  confirms it. `conflict` = two readers read it differently (confirmed one at a
+ *  time, never in bulk); `needs_check` = the review does not yet trust it. */
+export interface PageFact {
+  fact_id: string;
+  field: string;
+  value: string | null;
+  unit: string | null;
+  quote: string | null;
+  confirmed: boolean;
+  conflict: boolean;
+  needs_check: boolean;
+}
+
+/** The values read on one page of a review's datasheet, with the boundary said. */
+export interface PageFactList {
+  review_run_id: string;
+  page: number;
+  facts: PageFact[];
+  boundary: string;
+}
+
+/** What a batch confirmation did; every count is for this review run. */
+export interface FactBatchConfirmation {
+  review_run_id: string;
+  confirmed: number;
+  already_confirmed: number;
+  held_before: number;
+  held_after: number;
+  status_before: Record<string, number>;
+  status_after: Record<string, number>;
+  boundary: string;
+}
