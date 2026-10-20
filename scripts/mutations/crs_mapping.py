@@ -87,7 +87,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="Page/Section prints the standard's file name instead of "
                     "the datasheet's own field",
         path=APP / "crs_mapping.py",
-        anchor="    field = _field_label(f)\n    tags = _items(group)\n    where = (f\"p.{_page_list(pages)}\" if pages else \"\")",
+        anchor="    field = _field_label(f) + crs_item_series.items_suffix(group)\n    tags = _items(group)\n    where = (f\"p.{_page_list(pages)}\" if pages else \"\")",
         replacement="    field = f.get(\"standard_name\")\n    tags = _items(group)\n    where = (f\"p.{_page_list(pages)}\" if pages else \"\")",
         target="tests/test_crs_mapping.py",
         keyword="page_section_is_the_datasheet_and_the_standard_has_its_own_column",

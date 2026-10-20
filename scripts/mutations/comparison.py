@@ -434,7 +434,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M145", phase=11,
         description="ASK ONCE INSTEAD OF TWICE, so a coin toss becomes a finding",
         path=APP / "comparison.py",
-        anchor="    second, reason = _ask_model_once(requirement, candidates)",
+        anchor="    second, reason = _ask_model_once(requirement, candidates, nth=1)",
         replacement="    second, reason = first, None",
         target="tests/test_model_matching.py",
         keyword="disagree_make_no_pairing",

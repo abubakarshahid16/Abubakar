@@ -30,6 +30,7 @@ from .. import clause_coverage as clause_coverage_mod
 from .. import comparison as comparison_mod
 from .. import crs_mapping as crs_mapping_mod
 from .. import crs_wording as crs_wording_mod
+from .. import held_reasons as held_reasons_mod
 from .. import page_ledger as page_ledger_mod
 from .. import requirement_split as requirement_split_mod
 from .. import review_counts as review_counts_mod
@@ -203,6 +204,10 @@ class RunSummary(BaseModel):
     counts: TierCounts
     rows: list[TierRow]
     how_reviewed: HowReviewed
+    #: order 161 C: why each finding held for the engineer was held
+    #: (`held_reasons.counts`): {reason: findings}, most common first; every
+    #: held finding has one, so the counts add up to the held findings
+    held_reasons: dict[str, int] = {}
     #: order 139 part 2: set true by a server that sends each row's
     #: `crs_group` (the sheet's grouping); absent or false otherwise
     crs_grouping: bool = False
@@ -241,10 +246,9 @@ def _tiers(review_run_id: str, allowed) -> tuple[dict, dict, dict | None, list |
         outcome.get("unchecked_counts")
     )
     timed_out = reader_timed_out_pages(split)
-    tiers = review_tiers.summarise(
-        comparison_mod.list_findings(review_run_id, allowed_document_ids=allowed),
-        _facts(review_run_id, outcome, timed_out),
-    )
+    findings = comparison_mod.list_findings(review_run_id, allowed_document_ids=allowed)
+    tiers = review_tiers.summarise(findings, _facts(review_run_id, outcome, timed_out))
+    tiers["held_reasons"] = held_reasons_mod.counts(findings)
     return tiers, outcome, split, timed_out
 
 
@@ -488,6 +492,7 @@ def crs_row_fields(rows: list[dict], findings: list[dict]) -> dict[str, dict]:
                     and f.get("compliance_status") == "NEEDS_ENGINEER_REVIEW"
                 )
                 or crs_mapping_mod.crs_bucket(f) is not None
+                or f.get("crs_skip")
             )
         ):
             out[f["id"]] = {"crs_note": True}

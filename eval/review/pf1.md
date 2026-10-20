@@ -114,6 +114,45 @@ Both print counts only. The output: per document `<id>.datasheet.pdf`,
 invented`), and `index.json` (document, equipment type, held out, layout,
 pages, files, items by kind).
 
+## The report (`scripts/pf1_report.py`)
+
+```powershell
+python scripts\pf1_report.py --set D:\project\pf1-set\set --runs D:\project\pf1-set\runs\main-1 --json report.json --check
+```
+
+Reads the set's `index.json` and keys, and per sheet `<id>.findings.json`
+(`review_score.py export`) and `<id>.run.json` (`pf1-run/1`: `mode` main or
+checklists_off, `status`, `minutes`, `pages_read`, `pages_total`). Prints the
+per-type table and totals, counts only: defects caught (and as a plain
+Does-not-meet), **false Meets on planted defects (the hard rule, 0)**, correct
+items confirmed Meets / wrongly flagged, keyed items decided, citations valid,
+pages read, minutes. A sheet with no run is listed, never scored as zeros; an
+unfinished run says INCOMPLETE beside its numbers; two modes in one report are
+refused (the MAIN score and the diagnostic are never added). Held-out sheets are
+in the totals and never named. `--check` exits 1 on any false Meets.
+
+**From the runner to the report (`scripts/pf1_collect.py`).** `pf1_run.py` writes
+`<id>.run.json` (the review run's id, job state, minutes). Run
+
+```powershell
+python scripts\pf1_collect.py --db COPY-OF-THE-TEST-SERVERS.sqlite --runs D:\project\pf1-runs\main-1 --mode main --model qwen3.5:4b
+```
+
+on a **copy** of the test server's database (read-only). It writes
+`<id>.findings.json` and completes each record with the **declared** `--mode`
+(`main` = the normal client workflow, `checklists_off` = diagnostic only; never
+guessed), the page counts and the AI use of the stored outcome. A record with no
+review run id is left as it is. Run the two modes into two folders.
+
+The report also prints the four numbers of the **Stage E pass mark** (owner
+decision, order 170.1): recall, precision, false Meets and valid citations, and
+the AI use each run record states (`ai`: a small object such as the reader's
+engine and whether Claude was used; "not recorded" is said, never assumed
+empty). `--bar stage-e` sets them against the bar (recall >= 85%, precision >=
+80%, 0 false Meets, 100% valid citations; a number with no denominator is
+"cannot tell", never a pass). A PF1 set has no pass mark until the owner sets
+one after its baseline.
+
 ## Scoring and reporting (#881)
 
 * **MAIN score** = the normal client workflow as a client would run it.
@@ -127,3 +166,34 @@ pages, files, items by kind).
   as a false positive even when it is right; read that number with this in
   mind until the scorer sets such findings apart.
 * Held-out types are scored, but their per-item results stay with the scorer.
+
+## Running the set (runner)
+
+`scripts/pf1_run.py` sends each sheet of the built set through a **test**
+server: upload (the invented group also uploads its invented standard, sets it
+as a company standard and extracts it), start the review, wait for its job,
+write `<id>.run.json` (run id, job state, minutes; no document text) and
+`run-index.json`. It does not score: export the findings from a copy of the
+test server's database with `scripts/review_score.py export --run RUN_ID`, then
+`score`.
+
+```powershell
+$env:PF1_PASSWORD = "..."   # read from the environment, never an argument
+python scripts\pf1_run.py --set D:\project\pf1-set\set --out D:\project\pf1-set\runs `
+    --server http://127.0.0.1:11435 --test-server --db-copy D:\project\pf1-copy.sqlite `
+    --email EMAIL --discipline DISCIPLINE
+```
+
+It refuses a server not named `--test-server`, one that is not on this machine,
+and ports 8000 and 8001 (the ports the live app has run on); it also needs
+`--db-copy` naming the diagnostic copy the run will be exported from (it must
+exist and must not have the live database's shape). Above all the server must say itself that its
+database is not live-shaped (`GET /api/admin/database-shape`, an admin route; a
+server that says true or cannot say is refused before any write; the
+unauthenticated `/api/health` is not widened). The port and the copy are a
+backstop; start the test server on a copy yourself. Held-out sheets are skipped unless
+`--include-held-out` (only the merger session uses it); `--only ID` runs one
+sheet; `--no-standards` when the library already holds the standards. Prints
+counts only. The runner's tests use a fake server: the first real run on the
+Mac is what proves the routes still match.
+

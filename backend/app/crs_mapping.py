@@ -26,7 +26,10 @@ kind its own colour without re-deciding what the sheet says.
 import hashlib
 import re
 
-from . import method_notes, severity_rule, standard_ids
+from . import crs_ai_drafts, crs_item_series, method_notes, severity_rule, standard_ids
+
+# isort: split
+from . import paragraph_ids
 
 INCLUDED_STATUSES = ("NON_COMPLIANT", "NEEDS_ENGINEER_REVIEW", "MISSING_INFORMATION")
 
@@ -209,6 +212,8 @@ def finding_comment_key(f: dict) -> str:
     FIELD's key (`field_comment_key`), never its own clause's; the key its
     comment had before that is `finding_member_key`."""
     origin = f.get("origin")
+    if f.get("crs_key"):
+        return f["crs_key"]
     if origin == "chat":
         return comment_key(
             "chat", f.get("engineer_comment") or f.get("finding"),
@@ -307,7 +312,7 @@ def _subject_key(f: dict) -> str:
     return comment_key(
         "requirement",
         f.get("requirement_source_text") or f.get("finding"),
-        f.get("crs_field_label") or f.get("matched_phrase") or f.get("contractor_section"),
+        crs_item_series.own_label(f) or f.get("matched_phrase") or f.get("contractor_section"),
         f.get("contractor_evidence_text"),
         f.get("contractor_page"),
         f.get("origin") == _DATASHEET_ORIGIN,
@@ -476,13 +481,8 @@ def _standard_reference(finding: dict) -> str:
     std = _std_short(finding.get("standard_name") or finding.get("standard_document_id"))
     if not std:
         return ""
-    clause = finding.get("standard_clause")
     page = finding.get("standard_page")
-    # A-761b: a standard whose clause values are table numbers, not paragraph
-    # ids (`standards.paragraph_ids_known`), never prints them as a clause.
-    if clause and finding.get("clause_identified") is False:
-        return std + " (paragraph not identified)" + (f" (p.{page})" if page else "")
-    return std + (f" cl. {clause}" if clause else "") + (f" (p.{page})" if page else "")
+    return std + paragraph_ids.cited(finding) + (f" (p.{page})" if page else "")
 
 
 def _field_label(finding: dict) -> str:
@@ -556,7 +556,7 @@ def _page_section(group: list[dict]) -> str:
     Never the standard's file name - that is the Standard Reference column."""
     f = group[0]
     pages = sorted({g.get("contractor_page") for g in group if g.get("contractor_page")})
-    field = _field_label(f)
+    field = _field_label(f) + crs_item_series.items_suffix(group)
     tags = _items(group)
     where = (f"p.{_page_list(pages)}" if pages else "")
     if field:
@@ -659,7 +659,7 @@ def engineer_comment_text(group: list[dict]) -> str:
     f = group[0]
     refs = list(dict.fromkeys(r for r in (_standard_reference(g) for g in group) if r))
     ref = "; ".join(refs) or "Requirement"
-    field = _field_label(f)
+    field = _field_label(f) + crs_item_series.items_suffix(group)
     tags = _items(group)
     pages = sorted({g.get("contractor_page") for g in group if g.get("contractor_page")})
     where = " ".join(p for p in (
@@ -679,9 +679,9 @@ def engineer_comment_text(group: list[dict]) -> str:
         # each (order 139 part 2: a field row holds one finding per clause
         # AND tag, and a tag's value is said once).
         per_tag = "; ".join(dict.fromkeys(
-            f"{g.get('equipment_tag') or 'untagged'} {_provided(g)}"
+            f"{crs_item_series.item_name(g)} {_provided(g)}"
             + (f" (p.{g['contractor_page']})" if g.get("contractor_page") else "")
-            for g in group))
+            for g in sorted(group, key=crs_item_series.in_series_order)))
         said = f"Datasheet {field or 'value'}: {per_tag}."
     else:
         said = f"Datasheet {where} {_provided(f)}." if where else f"The datasheet {_provided(f)}."
@@ -1086,6 +1086,8 @@ def _bucket_of(f: dict) -> str | None:
     rejected finding's comment key is the key of the row it would land on."""
     origin = f.get("origin")
     status = f.get("compliance_status")
+    if f.get("crs_skip"):
+        return None
     if origin == "chat":
         return BUCKET_CHAT
     if origin == _AI_ORIGIN:
@@ -1255,6 +1257,8 @@ def crs_groups(findings: list[dict]) -> list[dict]:
 
     Rejected findings are not rows; a datasheet check about a fact a breach
     or blank row already names is that row, not a second one."""
+    crs_item_series.merge(findings)
+    crs_ai_drafts.merge(findings)
     findings = [f for f in findings if not _rejected(f)]
     by: dict[str, list[dict]] = {}
     for f in findings:
@@ -1265,8 +1269,7 @@ def crs_groups(findings: list[dict]) -> list[dict]:
     blanks = by.get(BUCKET_BLANK, [])
     not_found = by.get(BUCKET_NOT_FOUND, [])
     questions = by.get(BUCKET_QUESTION, [])
-    # A datasheet check about a field a standard's row already names (the
-    # same fact) is that row, not a second one.
+    # A datasheet check about a fact a standard's row already names is that row.
     covered = {f.get("fact_id") for f in breaches + blanks if f.get("fact_id")}
     checks = [
         f
@@ -1519,7 +1522,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                     "comment_key": item["comment_key"],
                     # Never printed (spec d): every finding's own per-requirement
                     # key, so the numbers earlier per-clause rows hold are found.
-                    "member_keys": sorted({finding_member_key(g) for g in group}),
+                    "member_keys": crs_item_series.member_keys(group),
                     # Never printed: the group key the run summary sends the
                     # screen, and the row's first line when it asks two or more
                     # things.
@@ -1592,10 +1595,8 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
         })
         sort_keys.append(_rank_row(rows[-1], row_priority(BUCKET_CHAT), [f]))
 
-    # Owner order 2d/2f and 2d-2: AI engineering check (kind C) and public-web
-    # standards check (kind D) items. Neither is ever a verdict - a question
-    # for the contractor once an engineer has confirmed it, and until then a
-    # draft in its own column that COMPANY Comments never holds.
+    # Owner order 2d/2f, 2d-2: AI (kind C) and web (kind D) check items - never
+    # a verdict; a draft in its own column until an engineer confirms it.
     for f in _one_row_findings(items, BUCKET_AI, BUCKET_WEB):
         origin = f.get("origin")
         if origin not in (_AI_ORIGIN, _WEB_ORIGIN) or f.get("approval_status") == "rejected":
@@ -1617,15 +1618,11 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             f.get("contractor_section") or "") if p)
         confirmed = bool(f.get("confirmed_by"))
         confirmed_by_prefix = _AI_CONFIRMED_BY if origin == _AI_ORIGIN else _WEB_CONFIRMED_BY
-        # Owner order group HONESTY (2026-09-27): unconfirmed is a state, not
-        # an absence - "Comment By" says whose draft it is even before an
-        # engineer confirms it, never blank.
+        # HONESTY (2026-09-27): "Comment By" says whose draft it is, never blank.
         unconfirmed_by = _AI_UNCONFIRMED_BY if origin == _AI_ORIGIN else _WEB_UNCONFIRMED_BY
         row_kind = ROW_KIND_AI_ENGINEERING_CHECK if origin == _AI_ORIGIN else ROW_KIND_WEB_STANDARD_CHECK
-        # Order 139 part 2 (spec e): COMPANY Comments is NEVER EMPTY. An
-        # unconfirmed item's cell says, in plain words, that it is a suggestion
-        # awaiting an engineer and where its words are - never the draft
-        # itself, which stays in "AI Review Comments" (owner order 2d/2f).
+        # Spec e: COMPANY Comments is never empty; an unconfirmed item's cell
+        # says it awaits an engineer, the draft stays in "AI Review Comments".
         unconfirmed_comment = (
             AI_UNCONFIRMED_COMMENT if origin == _AI_ORIGIN else WEB_UNCONFIRMED_COMMENT
         )
@@ -1656,6 +1653,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                 "reasoning": reasoning_text([f]),
             }
         )
+        rows[-1].update(crs_ai_drafts.row_extras(f))
         rank = row_priority(BUCKET_AI if origin == _AI_ORIGIN else BUCKET_WEB)
         sort_keys.append(_rank_row(rows[-1], rank, [f]))
 
