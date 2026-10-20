@@ -28,6 +28,9 @@ import re
 
 from . import crs_ai_drafts, crs_item_series, method_notes, severity_rule, standard_ids
 
+# isort: split
+from . import paragraph_ids
+
 INCLUDED_STATUSES = ("NON_COMPLIANT", "NEEDS_ENGINEER_REVIEW", "MISSING_INFORMATION")
 
 #: Read by `crs_export` to colour a row. Never printed. One tag per bucket
@@ -478,13 +481,8 @@ def _standard_reference(finding: dict) -> str:
     std = _std_short(finding.get("standard_name") or finding.get("standard_document_id"))
     if not std:
         return ""
-    clause = finding.get("standard_clause")
     page = finding.get("standard_page")
-    # A-761b: a standard whose clause values are table numbers, not paragraph
-    # ids (`standards.paragraph_ids_known`), never prints them as a clause.
-    if clause and finding.get("clause_identified") is False:
-        return std + " (paragraph not identified)" + (f" (p.{page})" if page else "")
-    return std + (f" cl. {clause}" if clause else "") + (f" (p.{page})" if page else "")
+    return std + paragraph_ids.cited(finding) + (f" (p.{page})" if page else "")
 
 
 def _field_label(finding: dict) -> str:
