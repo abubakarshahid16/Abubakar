@@ -127,3 +127,32 @@ pages, files, items by kind).
   as a false positive even when it is right; read that number with this in
   mind until the scorer sets such findings apart.
 * Held-out types are scored, but their per-item results stay with the scorer.
+
+## Running the set (runner)
+
+`scripts/pf1_run.py` sends each sheet of the built set through a **test**
+server: upload (the invented group also uploads its invented standard, sets it
+as a company standard and extracts it), start the review, wait for its job,
+write `<id>.run.json` (run id, job state, minutes; no document text) and
+`run-index.json`. It does not score: export the findings from a copy of the
+test server's database with `scripts/review_score.py export --run RUN_ID`, then
+`score`.
+
+```powershell
+$env:PF1_PASSWORD = "..."   # read from the environment, never an argument
+python scripts\pf1_run.py --set D:\project\pf1-set\set --out D:\project\pf1-set\runs `
+    --server http://127.0.0.1:11435 --test-server --db-copy D:\project\pf1-copy.sqlite `
+    --email EMAIL --discipline DISCIPLINE
+```
+
+It refuses a server not named `--test-server`, one that is not on this machine,
+and ports 8000 and 8001 (the ports the live app has run on); it also needs
+`--db-copy` naming the diagnostic copy the run will be exported from (it must
+exist and must not have the live database's shape). The runner cannot see which
+database the server holds: the port and the copy are a backstop, so start the
+test server on a copy yourself. Held-out sheets are skipped unless
+`--include-held-out` (only the merger session uses it); `--only ID` runs one
+sheet; `--no-standards` when the library already holds the standards. Prints
+counts only. The runner's tests use a fake server: the first real run on the
+Mac is what proves the routes still match.
+
