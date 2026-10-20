@@ -338,6 +338,7 @@ class TestRefusal:
             match_rules.COMPOUND_TERM,
             match_rules.QUALIFIER,
             match_rules.QUANTITY_KIND,
+            match_rules.REQUIRED_KIND,
         }
 
     def test_no_rule_fires_on_the_plain_case(self):
