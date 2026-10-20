@@ -260,7 +260,9 @@ def test_with_the_model_failing_nothing_is_excluded_and_nothing_is_compared(
     assert out["kept"] == [] and out["items"] == []
     assert _ids(out["held"]) == ["aa", "zz", "tt"]
     assert {h["code"] for h in out["held"]} == {"applicability_unsure"}
-    assert all("could not be read" in h["detail"] for h in out["held"])
+    assert all(
+        "did not read this part's scope sentence" in h["detail"] for h in out["held"]
+    )
     assert all(h["decided_by"] == "code:scope-not-read" for h in out["held"])
     assert out["summary"]["could_not_read"] == 3
 
@@ -301,7 +303,16 @@ def test_a_construction_not_in_the_scope_sentence_is_ignored(temp_storage):
 def test_a_no_resting_on_a_line_that_is_not_stated_is_ignored(temp_storage):
     invented = {**NOT_GRAPHITE, "quote": "Shell material: stainless steel"}
     out = _gate(FakeModel(construction=invented))
-    assert _ids(out["kept"]) == ["aa", "zz", "tt"] and out["items"] == []
+    # the reply cannot be used (refused after one retry): the construction was
+    # not read, so the limited parts are held - not compared, not excluded
+    assert _ids(out["kept"]) == ["aa"] and out["items"] == []
+    assert _ids(out["held"]) == ["zz", "tt"]
+    assert all(h["decided_by"] == "code:scope-not-read" for h in out["held"])
+    assert all(
+        "did not read whether this equipment is of that construction" in h["detail"]
+        for h in out["held"]
+    )
+    assert out["summary"]["requirements_held_construction_not_read"] == 2
 
 
 def test_any_stated_value_naming_the_construction_sends_it_to_the_engineer(
@@ -687,6 +698,6 @@ def test_a_review_whose_scope_step_could_not_run_holds_the_division_not_a_verdic
     for name in ("zz", "tt"):
         assert stored[ids[name]]["state"] == scope_ledger.APPLIES_NOT_CHECKED
         assert stored[ids[name]]["reason_code"] == "applicability_unsure"
-        assert "could not be read" in stored[ids[name]]["reason"]
+        assert "did not read this part's scope" in stored[ids[name]]["reason"]
         assert not any(f.get("requirement_id") == ids[name] for f in result["findings"])
     assert result["requirement_split"]["division_scope"]["could_not_read"] == 3

@@ -344,7 +344,10 @@ def model_status() -> dict:
         "fallback": False,
         "engine_asked": names is not None,
     }
-    if names is None or _holds(names, configured):
+    if names is None:
+        return status
+    if _holds(names, configured):
+        _logged.clear()  # recovered: a later fall-back is a change worth one line
         return status
     if _holds(names, settings.answer_model):
         status.update(
