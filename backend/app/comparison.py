@@ -3900,9 +3900,20 @@ def _json_object_in(text: str | None) -> str:
     return text[start:end + 1] if 0 <= start < end else text
 
 
-def _ask_model_once(requirement: dict, candidates: list[dict]) -> tuple[object, str | None]:
-    """One call. Returns `(PairChoice, None)` or `(None, reason)`."""
-    from . import model_transport
+#: Part of the stored-answer key of the pair-choice call: change it when the
+#: instruction, the options or the answer shape of `_ask_model_once` change.
+MATCH_PROMPT_VERSION = "match-pair-choice-1"
+
+
+def _ask_model_once(
+    requirement: dict, candidates: list[dict], nth: int = 0
+) -> tuple[object, str | None]:
+    """One call. Returns `(PairChoice, None)` or `(None, reason)`.
+
+    `nth` says which ask of the same question this is (the stability check
+    asks twice): each ask is its own stored answer, so a reused pair of
+    answers is the pair the model really gave."""
+    from . import ai_task_runner, model_transport
     if (str(settings.match_engine or "ollama").strip().lower()) == "claude":
         answer, why = _ask_claude_for_a_pair(build_prompt(requirement, candidates))
         if why is not None:
@@ -3935,12 +3946,31 @@ def _ask_model_once(requirement: dict, candidates: list[dict]) -> tuple[object, 
             "num_batch": settings.num_batch,
         },
     }
-    try:
-        raw = model_transport.post_json(
+
+    # REUSE (order 163.3): the stored answer to the same prompt, options,
+    # prompt version and model, kept only when it passed the code check; the
+    # reused text is checked by `_checked_choice` exactly like a fresh one.
+    def ask() -> str:
+        raw = model_transport.post_json_retrying(
             "/api/generate", body, timeout=settings.match_timeout_seconds)
+        return (raw or {}).get("response") or ""
+
+    try:
+        answer = ai_task_runner.reuse_or_ask(
+            "match-pair-choice",
+            MATCH_PROMPT_VERSION,
+            str(body["model"]),
+            None,
+            json.dumps(
+                {"prompt": body["prompt"], "options": body["options"]}, sort_keys=True
+            ),
+            ask,
+            nth=nth,
+            keep_if=lambda text: _checked_choice(text, candidates)[1] is None,
+        )
     except Exception as exc:  # noqa: BLE001 - refused, timed out, or answered wrongly
         return errors.fell_back("comparison: the local pair-choice call failed; the pair stays unchosen", exc, (None, MODEL_UNAVAILABLE))
-    return _checked_choice((raw or {}).get("response") or "", candidates)
+    return _checked_choice(answer, candidates)
 
 
 def _checked_choice(answer: str, candidates: list[dict]) -> tuple[object, str | None]:
@@ -4006,7 +4036,7 @@ def match_by_model(requirement: dict, facts: list[dict], *,
         return _none_match(MODEL_BUDGET)
     if budget is not None:
         budget.spend()
-    second, reason = _ask_model_once(requirement, candidates)
+    second, reason = _ask_model_once(requirement, candidates, nth=1)
     if reason is not None:
         return _none_match(reason)
     if first.choice != second.choice:
@@ -4238,14 +4268,14 @@ def attach_crs_context(findings: list[dict]) -> list[dict]:
     """
     req_ids = sorted({f["requirement_id"] for f in findings if f.get("requirement_id")})
     fact_ids = sorted({f["fact_id"] for f in findings if f.get("fact_id")})
-    # A-761b: a standard whose "clauses" are table numbers gets no clause
-    # number on the CRS ("paragraph not identified"), never "cl. 0.3".
+    from . import paragraph_ids
     from . import standards as standards_mod
     known = standards_mod.paragraph_ids_known(
         {f.get("standard_document_id") for f in findings if f.get("standard_document_id")})
     for f in findings:
         if f.get("standard_document_id") in known:
             f["clause_identified"] = known[f["standard_document_id"]]
+    paragraph_ids.attach(findings)
     requirements: dict = {}
     facts: dict = {}
     conn = connect()
