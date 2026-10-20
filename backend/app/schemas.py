@@ -2386,6 +2386,29 @@ class CrsIssueDecisionList(ListPage):
     decisions: list[CrsIssueDecision]
 
 
+class FactBatchConfirmRequest(BaseModel):
+    """Order 161 A: the values of one page an engineer ticked, by id."""
+
+    model_config = ConfigDict(extra="forbid")
+    fact_ids: list[str] = Field(min_length=1, max_length=200)
+
+
+class FactBatchConfirmation(BaseModel):
+    """What a batch confirmation did, every count saying its boundary: the
+    values of this batch, and the findings of this review run before and after
+    it was judged again (`held_before`/`held_after`: findings held as "the value
+    is not trusted yet")."""
+
+    review_run_id: str
+    confirmed: int
+    already_confirmed: int
+    held_before: int
+    held_after: int
+    status_before: dict[str, int]
+    status_after: dict[str, int]
+    boundary: str
+
+
 class FactConfirmation(BaseModel):
     """#473: one datasheet value an engineer has confirmed. `confirmed_by`
     is never null here - an unsigned confirmation is refused (401)."""

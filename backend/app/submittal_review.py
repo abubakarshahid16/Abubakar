@@ -926,6 +926,96 @@ def confirm_fact(fact_id: str, *, allowed_document_ids: frozenset[str],
     return dict(row)
 
 
+class FactsNotConfirmable(ValueError):
+    """`confirm_facts` refused the whole batch: `missing` ids the caller may not
+    read, or that are on another submittal (the same answer for both);
+    `stale` ids a re-read superseded; `conflicts` ids of values two readers read
+    differently, which are confirmed one at a time (order 164.1), never in a
+    batch of several."""
+
+    def __init__(
+        self,
+        missing: list[str],
+        stale: list[str],
+        conflicts: list[str] | None = None,
+    ):
+        super().__init__("not confirmable")
+        self.missing, self.stale = missing, stale
+        self.conflicts = conflicts or []
+
+
+def confirm_facts(
+    fact_ids: list[str],
+    *,
+    submittal_document_id: str,
+    allowed_document_ids: frozenset[str],
+    confirmed_by: str,
+) -> dict:
+    """Order 161 A: an engineer confirms several values of ONE submittal at once.
+
+    ALL OR NONE, in one transaction: every id must be a current fact of this
+    submittal the caller may read, else `FactsNotConfirmable` and nothing is
+    written. The per-value rules of `confirm_fact` hold for each: the actor is
+    required, a value already confirmed keeps its first name and time, one
+    audit row per newly confirmed value carries ids only (rule 1). Returns
+    `{"confirmed": [new ids], "already": [ids]}`."""
+    if not confirmed_by:
+        raise ValueError("a confirmation must name the engineer")
+    ids = list(dict.fromkeys(fact_ids))
+    ensure_schema()
+    where, args = _scope_clause(allowed_document_ids, "submittal_document_id")
+    conn = connect()
+    with conn:
+        rows = {}
+        for fact_id in ids:
+            row = conn.execute(
+                "SELECT * FROM submittal_facts"
+                + where
+                + " AND id = ? AND submittal_document_id = ?",
+                (*args, fact_id, submittal_document_id),
+            ).fetchone()
+            if row is not None:
+                rows[fact_id] = row
+        missing = [i for i in ids if i not in rows]
+        stale = [i for i, r in rows.items() if r["superseded_at"] is not None]
+        # A value two readers read differently is confirmed on its own: in a
+        # batch of several it would be blessed with the ones beside it.
+        conflicts = [
+            i
+            for i, r in rows.items()
+            if len(ids) > 1
+            and (r["validation_state"] or "").strip().lower() == "conflict"
+        ]
+        if missing or stale or conflicts:
+            raise FactsNotConfirmable(missing, stale, conflicts)
+        now = _now()
+        confirmed, already = [], []
+        for fact_id, row in rows.items():
+            if row["confirmed_by"] is not None:
+                already.append(fact_id)
+                continue
+            conn.execute(
+                "UPDATE submittal_facts SET confirmed_by = ?, confirmed_at = ?, updated_at = ?"
+                " WHERE id = ? AND confirmed_by IS NULL",
+                (confirmed_by, now, now, fact_id),
+            )
+            conn.execute(
+                """INSERT INTO audit_events
+                       (at, actor_user_id, actor_username, action,
+                        resource_type, resource_id, outcome, detail)
+                   VALUES (?, ?, ?, 'fact.confirmed', 'review', ?, 'ok', ?)""",
+                (
+                    now,
+                    confirmed_by,
+                    confirmed_by[:200],
+                    fact_id,
+                    f"document={submittal_document_id}",
+                ),
+            )
+            confirmed.append(fact_id)
+    return {"confirmed": confirmed, "already": already}
+
+
 def list_applicable_standards(
     review_run_id: str, *, allowed_document_ids: frozenset[str],
     include_excluded: bool = True,
