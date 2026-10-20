@@ -48,7 +48,7 @@ from contextvars import ContextVar
 
 from . import (blank_markers, claims, datasheet_inputs, errors, numparse, orphan_guard, page_ledger,
                page_reason_words, provenance, row_noise, standard_ids, stored_paths,
-               submittal_review, tables)
+               slot_options, submittal_review, tables)
 from .config import settings
 from .db import connect
 
@@ -1135,9 +1135,6 @@ def split_label_value(cells: list[str]) -> list[tuple[str, str]]:
         # the form "the value looks like a label, so re-anchor" also discards
         # `Insulation | None`, where `None` is a real answer that happens to
         # read like a word.
-        if _CROSS_REFERENCE.fullmatch(part):
-            index += 1
-            continue
         # AND SO DOES AN ANNEX CLAUSE (`D.6.1`, `A.4`) OR A LIST OF CLAUSES
         # (`8.2.1, A.5, B.3.2`) - issue #179, measured on the real vessel
         # sheet: `10 | D.6.1 | <label, wrapped onto two lines> | not
@@ -1146,11 +1143,13 @@ def split_label_value(cells: list[str]) -> list[tuple[str, str]]:
         # a fragment that names nothing. A plain `5.7` is NOT skipped here:
         # in a text block that is as likely a value (a 1.6 mm corrosion
         # allowance) as a clause.
-        if _LETTERED_CLAUSE.fullmatch(part):
+        if not part or _CROSS_REFERENCE.fullmatch(part) or _LETTERED_CLAUSE.fullmatch(part):
             index += 1
             continue
-        if not part:
-            index += 1
+        taken = slot_options.pairs_at(parts, slot, index, is_field_label, _finish_pair)
+        if taken is not None:
+            pairs.extend(taken[0])
+            index += taken[1]
             continue
         label = part
         value = parts[index + 1] if index + 1 < len(parts) else ""
