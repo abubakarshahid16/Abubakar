@@ -696,6 +696,31 @@ def clause_label(clause: tuple[str, str]) -> str:
 _EDITION_YEAR = re.compile(r"(?<![\dA-Za-z.])((?:19[5-9]|20[0-4])\d)(?![\dA-Za-z])")
 
 
+#: #665: an edition the DOCUMENT states in words: "2020 Edition", "Edition
+#: 2020", "Edition: 2020". Anchored to the word, so a year that is a date, a
+#: clause number or a price is never read as the edition.
+_EDITION_STATED = re.compile(
+    r"(?i)\b((?:19[5-9]|20[0-4])\d)\s+edition\b"
+    r"|\bedition\b[\s:,.-]*(?:of\s+)?((?:19[5-9]|20[0-4])\d)(?![\dA-Za-z])")
+#: A stated edition this soon after one of these words is the one REPLACED.
+_REPLACED_BEFORE = re.compile(
+    r"(?i)(supersed\w*|replac\w*|revision\s+of|revises|previous|earlier|withdrawn)\W+(?:\w+\W+){0,3}$")
+
+
+def edition_in_text(text: str) -> str | None:
+    """The edition the document's own words state ("2020 Edition", "Edition
+    2020"), or None. The FIRST stated edition wins - a title page names its
+    own edition before any it replaces - and an edition introduced by
+    "supersedes", "replaces", "revision of" and the like is skipped. Never
+    guessed: a year with no "edition" beside it says nothing here."""
+    text = text or ""
+    for m in _EDITION_STATED.finditer(text):
+        if _REPLACED_BEFORE.search(text[max(0, m.start() - 60):m.start()]):
+            continue
+        return m.group(1) or m.group(2)
+    return None
+
+
 def edition_of(text: str) -> str | None:
     """The edition year printed in `text` ("ASME B16.5-2020.pdf" -> "2020"), or
     None when none is printed. The LAST year wins: a title that names an older
