@@ -68,7 +68,7 @@ def test_two_findings_of_one_field_are_one_entry_with_the_full_label():
 
 def test_the_row_number_does_not_depend_on_which_fields_are_blank():
     one = crs_groups([_blank("a", "Fittings", 1)])
-    two = crs_groups([_blank("a", "Fittings", 1), _blank("b", "Gaskets", 2)])
+    two = crs_groups([_blank("a", "Fittings", 3), _blank("b", "Gaskets", 1)])
     assert one[0]["comment_key"] == two[0]["comment_key"]
     assert len(two) == 1
 
@@ -91,3 +91,13 @@ def test_a_group_with_no_readable_label_still_says_what_to_do():
 def test_page_list_keeps_the_shape_the_findings_use():
     assert crs_blank_fields.page_list([7, 1, 2, 3]) == "1-3, 7"
     assert crs_mapping._page_list([2]) == "2"
+
+
+def test_a_not_found_mandatory_field_is_not_a_blank_row():
+    not_found = _blank(
+        "n",
+        "Fittings",
+        None,
+        requirement_source_text="Datasheet checklist DS-M1: X is a mandatory field.",
+    )
+    assert not crs_blank_fields.is_unrequired_blank(not_found)
