@@ -934,13 +934,17 @@ def list_page_facts(
     value to confirm); blanks are not values. Newest reading first per field."""
     ensure_schema()
     where, args = _scope_clause(allowed_document_ids, "submittal_document_id")
-    rows = connect().execute(
-        "SELECT * FROM submittal_facts"
-        + where
-        + " AND submittal_document_id = ? AND page = ? AND superseded_at IS NULL"
-        " AND COALESCE(is_blank, 0) = 0 ORDER BY field_name, created_at DESC",
-        (*args, submittal_document_id, page),
-    ).fetchall()
+    rows = (
+        connect()
+        .execute(
+            "SELECT * FROM submittal_facts"
+            + where
+            + " AND submittal_document_id = ? AND page = ? AND superseded_at IS NULL"
+            " AND COALESCE(is_blank, 0) = 0 ORDER BY field_name, created_at DESC",
+            (*args, submittal_document_id, page),
+        )
+        .fetchall()
+    )
     return [dict(r) for r in rows]
 
 
