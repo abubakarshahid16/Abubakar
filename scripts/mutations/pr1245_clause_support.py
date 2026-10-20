@@ -26,7 +26,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         phase=1245,
         description="a list of items is kept as a requirement",
         path=APP / "clause_support.py",
-        anchor="    return len(re.findall(r\"[,;]\", text)) >= 2\n",
+        anchor='    return len(re.findall(r"[,;]", text)) >= 2\n',
         replacement="    return False\n",
         target=_T,
         keyword="states_no_requirement",
