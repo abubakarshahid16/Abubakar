@@ -1,6 +1,6 @@
 # PF1 invented-sheet test set on GitHub's CPU machines (#881, order 171).
 #
-# Reviews every INVENTED TUNING sheet of `tests/data/pf1/` in parallel (one job
+# Reviews every INVENTED TUNING sheet of `backend/tests/fixtures/synthetic/pf1/` in parallel (one job
 # per sheet) with the same local model as the Mac (Ollama, CPU only), then
 # collects and scores them with `scripts/pf1_collect.py` and
 # `scripts/pf1_report.py` (both #1233) and posts the counts on the tracking
@@ -10,7 +10,7 @@
 #   * `workflow_dispatch` only: started by hand or by the Mac test queue, never
 #     on a push or a schedule.
 #   * Invented tuning sheets only. `scripts/pf1_ci_guard.py` reads exactly
-#     `tests/data/pf1/` and refuses the whole run when any sheet is held out,
+#     `backend/tests/fixtures/synthetic/pf1/` and refuses the whole run when any sheet is held out,
 #     is of the library group (it carries standard text) or names a file
 #     outside that folder. No real document, no approved datasheet, ever.
 #   * No secret is used: only the default token, and only to post the result
@@ -191,7 +191,7 @@ jobs:
 
       - name: Review the sheet
         run: |
-          python scripts/pf1_run.py --set tests/data/pf1 --out "$WORK/runs" \
+          python scripts/pf1_run.py --set backend/tests/fixtures/synthetic/pf1 --out "$WORK/runs" \
             --server http://127.0.0.1:18080 --test-server --no-login \
             --db-copy "$WORK/pf1.sqlite" --only "$SHEET" --timeout 16000
 
@@ -266,7 +266,7 @@ jobs:
           # `--check` exits 1 on any false Meets (the hard rule is 0): post the
           # counts first, then fail the job.
           set +e
-          python scripts/pf1_report.py --set tests/data/pf1 --runs runs \
+          python scripts/pf1_report.py --set backend/tests/fixtures/synthetic/pf1 --runs runs \
             --json report.json --check > report.md
           status=$?
           set -e

@@ -2,7 +2,7 @@
 
 The workflow (`.github/workflows/pf1-cpu.yml`) runs on GitHub's machines, so it
 may only ever see INVENTED TUNING sheets: the folder it reads is exactly
-`tests/data/pf1/`; a sheet marked `held_out`, a sheet of the library group
+`backend/tests/fixtures/synthetic/pf1/`; a sheet marked `held_out`, a sheet of the library group
 (which carries text from the standards) and any file that is not a plain name
 inside that folder are refused, and the whole run with them. The decision
 lives here, not in YAML, so it is tested.
@@ -19,7 +19,7 @@ from pathlib import Path
 
 INDEX_FORMAT = "pf1-index/1"
 #: The only folder the workflow reads, relative to the repository root.
-SET_DIR = Path("tests") / "data" / "pf1"
+SET_DIR = Path("backend") / "tests" / "fixtures" / "synthetic" / "pf1"
 
 
 #: A sheet id goes into a job name and a shell command: lower case, digits, dashes.
@@ -45,7 +45,7 @@ def _inside(folder: Path, name: object) -> Path:
 
 
 def check_folder(repo: Path, folder: str | Path) -> Path:
-    """The set folder, only when it is exactly `<repo>/tests/data/pf1`."""
+    """The set folder, only when it is exactly `<repo>/backend/tests/fixtures/synthetic/pf1`."""
     path = Path(folder).resolve()
     if path != (Path(repo) / SET_DIR).resolve():
         raise Refused(

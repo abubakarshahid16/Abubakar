@@ -200,7 +200,7 @@ Mac is what proves the routes still match.
 ## The GitHub CPU workflow (order 171)
 
 `.github/workflows/pf1-cpu.yml` (manual only) reviews every invented **tuning**
-sheet of `tests/data/pf1/` in parallel, one job per sheet, with Ollama on the
+sheet of `backend/tests/fixtures/synthetic/pf1/` in parallel, one job per sheet, with Ollama on the
 runner's CPU, then collects them (`scripts/pf1_collect.py`) and scores them with
 `scripts/pf1_report.py` and posts the counts on the tracking issue. Scores count; **timings do not** (speed is measured on
 the Mac). `scripts/pf1_ci_guard.py` decides which sheets may go: exactly that

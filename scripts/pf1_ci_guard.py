@@ -2,7 +2,7 @@
 
     python scripts/pf1_ci_guard.py plan [--only ID ...]
 
-Reads only `tests/data/pf1/`. Exit 2 and a plain message when any sheet is held
+Reads only `backend/tests/fixtures/synthetic/pf1/`. Exit 2 and a plain message when any sheet is held
 out, is of the library group, or names a file outside that folder.
 """
 

@@ -1,4 +1,4 @@
-"""The PF1 CPU workflow runs only invented tuning sheets in `tests/data/pf1/` (#881, order 171).
+"""The PF1 CPU workflow runs only invented tuning sheets in `backend/tests/fixtures/synthetic/pf1/` (#881, order 171).
 
 The guard is what stands between a GitHub runner and a held-out sheet, a sheet
 planted against the library's standards, or a file outside the set folder.
