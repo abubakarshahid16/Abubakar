@@ -433,7 +433,8 @@ def tuning_only(spec: dict, out: Path) -> None:
     if held or library:
         raise SpecError(
             f"--allow-in-git is for invented tuning sheets only: {held} held-out and "
-            f"{library} library-group document(s) in this spec; nothing was written")
+            f"{library} library-group document(s) in this spec; nothing was written"
+        )
 
 
 def build(spec: dict, out_dir: str | Path, *, allow_in_git: bool = False) -> dict:
@@ -443,7 +444,9 @@ def build(spec: dict, out_dir: str | Path, *, allow_in_git: bool = False) -> dic
     out = Path(out_dir)
     if inside_a_git_repository(out):
         if not allow_in_git:
-            raise SpecError(f"{out} is inside a git repository: the set and its answers stay out of git")
+            raise SpecError(
+                f"{out} is inside a git repository: the set and its answers stay out of git"
+            )
         tuning_only(spec, out)
     files: dict[str, bytes] = {}
     entries = []

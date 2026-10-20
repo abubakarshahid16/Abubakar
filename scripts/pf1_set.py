@@ -30,8 +30,11 @@ def main(argv: list[str] | None = None) -> int:
         cmd.add_argument("--spec", required=True)
         if name == "build":
             cmd.add_argument("--out", required=True)
-            cmd.add_argument("--allow-in-git", action="store_true",
-                             help="build invented TUNING sheets into tests/data/pf1 (never held-out or library)")
+            cmd.add_argument(
+                "--allow-in-git",
+                action="store_true",
+                help="build invented TUNING sheets into tests/data/pf1 (never held-out or library)",
+            )
     args = parser.parse_args(argv)
     try:
         spec = json.loads(Path(args.spec).read_text(encoding="utf-8"))
