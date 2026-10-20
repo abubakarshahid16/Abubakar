@@ -641,7 +641,7 @@ describe("CrsSheetView: Before you sign (order 121)", () => {
       const unread = recorded.page4 ? [] : [{ page: 4, reason: "vision reader: page kind 'cover'" }];
       const open = [
         ...(recorded.a ? [] : [{ finding_id: "a", row_kind: "non_compliant", item: 1 }]),
-        ...(recorded.other ? [] : [{ finding_id: "row-key-std", row_kind: "standard_not_cited", item: 2 }]),
+        ...(recorded.other ? [] : [{ finding_id: "row-key-std", row_kind: "standard_not_cited", item: 2, standard: "STD-Q 7 clause 2" }]),
       ];
       const blockers = [...(recorded.code ? [] : ["no final code"]), ...(unread.length ? ["pages"] : []), ...(open.length ? ["findings"] : [])];
       return { ok: true, data: { review_run_id: "run-1", issuable: blockers.length === 0, final_code_recorded: recorded.code,
@@ -661,7 +661,7 @@ describe("CrsSheetView: Before you sign (order 121)", () => {
     await screen.findByTestId("crs-headline");
     const sign = () => screen.getByRole("button", { name: /Sign and export/ });
     const left = await screen.findByTestId("sign-left");
-    expect(left).toHaveTextContent("record the final code; tick 1 unread page; decide comment 1; decide 1 other item on the issued copy");
+    expect(left).toHaveTextContent("record the final code; tick 1 unread page; decide comment 1; decide 1 other item on the issued copy (1 standard not cited)");
     expect(sign()).toBeDisabled();
     // No raw finding list, no engine words outside Technical details.
     const box = screen.getByTestId("before-you-sign");
@@ -694,9 +694,9 @@ describe("CrsSheetView: Before you sign (order 121)", () => {
     await waitFor(() => expect(screen.getByTestId("sign-pages")).toHaveTextContent("1 of 12 pages was not fully read; an engineer checked it."));
 
     // 3. Items on the copy that are not sheet rows: one reason for all.
-    expect(screen.getByTestId("sign-items")).toHaveTextContent("a standard the datasheet does not cite");
+    expect(screen.getByTestId("sign-items")).toHaveTextContent("a standard the datasheet does not cite: STD-Q 7 clause 2");
     await userEvent.type(screen.getByLabelText("Reason for the other items"), "standard not cited is noted for the record");
-    await userEvent.click(screen.getByRole("button", { name: "Keep them" }));
+    await userEvent.click(screen.getByRole("button", { name: /^Keep all \d+ other items?$/ }));
     expect(decideCrsFinding).toHaveBeenCalledWith("run-1", "row-key-std", "accept", "standard not cited is noted for the record");
 
     // 4. The comment: the link opens its row; Keep and Save decide it.
@@ -725,7 +725,7 @@ describe("CrsSheetView: Before you sign (order 121)", () => {
     expect(listed).toHaveTextContent("1 comment on this sheet has no comment number and no decision yet");
     expect(screen.getByTestId("sign-left")).toHaveTextContent("decide 1 other line on the sheet");
     await userEvent.type(screen.getByLabelText("Reason for the other items"), "standard not cited is noted for the record");
-    await userEvent.click(screen.getByRole("button", { name: "Keep them" }));
+    await userEvent.click(screen.getByRole("button", { name: /^Keep all \d+ other items?$/ }));
     expect(decideCrsFinding).toHaveBeenCalledWith("run-1", "row-key-std", "accept", "standard not cited is noted for the record");
     expect(decideCrsFinding).not.toHaveBeenCalledWith("run-1", "met", expect.anything(), expect.anything());
     await userEvent.click(within(listed).getByRole("button"));

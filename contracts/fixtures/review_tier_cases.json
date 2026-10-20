@@ -22,6 +22,16 @@
       "missing_standards": [],
       "library_standard_ids": null
     },
+    "short_id": {
+      "pages_not_read": [],
+      "reader_timed_out_pages": [],
+      "missing_standards": [
+        "STD-A 5"
+      ],
+      "library_standard_ids": [
+        "std-1"
+      ]
+    },
     "library_unknown": {
       "pages_not_read": [
         4,
@@ -215,7 +225,7 @@
       }
     },
     {
-      "name": "a blank whose standard is not in the library: standard not in library",
+      "name": "a blank whose standard is not in this review: standard outside this review",
       "finding": {
         "compliance_status": "MISSING_INFORMATION",
         "standard_document_id": "std-gone"
@@ -224,11 +234,11 @@
       "expected": {
         "tier": "C",
         "label": "Needs you",
-        "reason": "standard not in library"
+        "reason": "standard outside this review"
       }
     },
     {
-      "name": "a blank with no standard behind it: standard not in library",
+      "name": "a blank with no standard behind it: no standard linked",
       "finding": {
         "compliance_status": "MISSING_INFORMATION",
         "standard_document_id": null
@@ -237,7 +247,150 @@
       "expected": {
         "tier": "C",
         "label": "Needs you",
+        "reason": "no standard linked"
+      }
+    },
+    {
+      "name": "a missing standard is not found inside a longer clause number: STD-A 5 in STD-A 52 stays Met",
+      "finding": {
+        "compliance_status": "COMPLIANT",
+        "standard_clause": "STD-A 52 clause 3"
+      },
+      "facts": "short_id",
+      "expected": {
+        "tier": "A",
+        "label": "Met",
+        "reason": null
+      }
+    },
+    {
+      "name": "a missing standard named exactly in the clause: a met row is Needs you, standard not in library",
+      "finding": {
+        "compliance_status": "COMPLIANT",
+        "standard_clause": "STD-A 5 clause 3"
+      },
+      "facts": "short_id",
+      "expected": {
+        "tier": "C",
+        "label": "Needs you",
         "reason": "standard not in library"
+      }
+    },
+    {
+      "name": "a missing standard followed by a letter is another name: stays Met",
+      "finding": {
+        "compliance_status": "COMPLIANT",
+        "standard_clause": "STD-A 5a clause 3"
+      },
+      "facts": "short_id",
+      "expected": {
+        "tier": "A",
+        "label": "Met",
+        "reason": null
+      }
+    },
+    {
+      "name": "a missing standard preceded by a digit is another name: stays Met",
+      "finding": {
+        "compliance_status": "COMPLIANT",
+        "standard_clause": "7STD-A 5 clause 3"
+      },
+      "facts": "short_id",
+      "expected": {
+        "tier": "A",
+        "label": "Met",
+        "reason": null
+      }
+    },
+    {
+      "name": "a missing standard followed by a non-ASCII letter is another name: stays Met",
+      "finding": {
+        "compliance_status": "COMPLIANT",
+        "standard_clause": "STD-A 5\u00e9 clause 3"
+      },
+      "facts": "short_id",
+      "expected": {
+        "tier": "A",
+        "label": "Met",
+        "reason": null
+      }
+    },
+    {
+      "name": "a missing standard preceded by a non-ASCII letter is another name: stays Met",
+      "finding": {
+        "compliance_status": "COMPLIANT",
+        "standard_clause": "\u00e9STD-A 5 clause 3"
+      },
+      "facts": "short_id",
+      "expected": {
+        "tier": "A",
+        "label": "Met",
+        "reason": null
+      }
+    },
+    {
+      "name": "a missing standard followed by a hyphen and a number is the same standard (the hyphen is a separator)",
+      "finding": {
+        "compliance_status": "COMPLIANT",
+        "standard_clause": "STD-A 5-1 clause 3"
+      },
+      "facts": "short_id",
+      "expected": {
+        "tier": "C",
+        "label": "Needs you",
+        "reason": "standard not in library"
+      }
+    },
+    {
+      "name": "a missing standard in brackets is found",
+      "finding": {
+        "compliance_status": "COMPLIANT",
+        "standard_clause": "(STD-A 5) clause 3"
+      },
+      "facts": "short_id",
+      "expected": {
+        "tier": "C",
+        "label": "Needs you",
+        "reason": "standard not in library"
+      }
+    },
+    {
+      "name": "a missing standard followed by an underscore is found (the underscore is a separator)",
+      "finding": {
+        "compliance_status": "COMPLIANT",
+        "standard_clause": "STD-A 5_2"
+      },
+      "facts": "short_id",
+      "expected": {
+        "tier": "C",
+        "label": "Needs you",
+        "reason": "standard not in library"
+      }
+    },
+    {
+      "name": "a blank with no standard behind it when the standards list could not be loaded: no standard linked",
+      "finding": {
+        "compliance_status": "MISSING_INFORMATION",
+        "standard_document_id": null
+      },
+      "facts": "library_unknown",
+      "expected": {
+        "tier": "C",
+        "label": "Needs you",
+        "reason": "no standard linked"
+      }
+    },
+    {
+      "name": "a blank with a standard when the standards list could not be loaded claims nothing: Comment",
+      "finding": {
+        "compliance_status": "MISSING_INFORMATION",
+        "standard_document_id": "std-gone"
+      },
+      "facts": "library_unknown",
+      "expected": {
+        "tier": "B",
+        "label": "Comment",
+        "reason": null
       }
     },
     {
