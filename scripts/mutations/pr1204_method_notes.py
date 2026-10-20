@@ -1,4 +1,4 @@
-"""Order 159 (PR number to be set): the pairing note stays off the contractor
+"""Order 159 (PR #1204): the pairing note stays off the contractor
 copy. `comparison.py` is in the danger zone (rule 6); `crs_mapping.py` too."""
 
 from __future__ import annotations

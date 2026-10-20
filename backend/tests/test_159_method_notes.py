@@ -2,7 +2,7 @@
 contractor's copy of the CRS and stays on the engineer's.
 
 Invented field names only (CLAUDE.md rules 1 and 3).
-Mutation proofs: M9999-01 .. M9999-03 (scripts/mutations/pr9999_method_notes.py).
+Mutation proofs: M1204-01 .. M1204-03 (scripts/mutations/pr1204_method_notes.py).
 """
 
 from __future__ import annotations
