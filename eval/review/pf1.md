@@ -114,6 +114,23 @@ Both print counts only. The output: per document `<id>.datasheet.pdf`,
 invented`), and `index.json` (document, equipment type, held out, layout,
 pages, files, items by kind).
 
+## The report (`scripts/pf1_report.py`)
+
+```powershell
+python scripts\pf1_report.py --set D:\project\pf1-set\set --runs D:\project\pf1-set\runs\main-1 --json report.json --check
+```
+
+Reads the set's `index.json` and keys, and per sheet `<id>.findings.json`
+(`review_score.py export`) and `<id>.run.json` (`pf1-run/1`: `mode` main or
+checklists_off, `status`, `minutes`, `pages_read`, `pages_total`). Prints the
+per-type table and totals, counts only: defects caught (and as a plain
+Does-not-meet), **false Meets on planted defects (the hard rule, 0)**, correct
+items confirmed Meets / wrongly flagged, keyed items decided, citations valid,
+pages read, minutes. A sheet with no run is listed, never scored as zeros; an
+unfinished run says INCOMPLETE beside its numbers; two modes in one report are
+refused (the MAIN score and the diagnostic are never added). Held-out sheets are
+in the totals and never named. `--check` exits 1 on any false Meets.
+
 ## Scoring and reporting (#881)
 
 * **MAIN score** = the normal client workflow as a client would run it.
