@@ -160,3 +160,16 @@ def test_a_standard_for_another_pump_type_is_not_selected_for_the_review():
     library = applicability._library(allowed)
     chosen, _missing = applicability.governing_standards("sub", library, allowed)
     assert {v["identifier"] for v in chosen.values()} == {"API 610"}
+
+
+def test_a_rotary_seal_or_metering_word_on_a_centrifugal_sheet_does_not_pull_in_other_pump_types():
+    table = applicability.governing_table()
+    text = "Centrifugal pump data sheet. Rotary seal, metering of flush, end suction casing."
+    assert equipment_subtype.classify("pump", "API 676", text, table)[0] == "other"
+    assert equipment_subtype.classify("pump", "API 675", text, table)[0] == "other"
+    assert equipment_subtype.classify(
+        "pump", "API 610", "End suction process pump", table
+    )[0] == ("required")
+    assert equipment_subtype.classify("pump", "API 676", "Gear pump data sheet", table)[
+        0
+    ] == ("required")

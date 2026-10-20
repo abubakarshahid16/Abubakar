@@ -103,7 +103,10 @@
      "centrifugal",
      "overhung",
      "between bearings",
-     "vertical turbine"
+     "vertical turbine",
+     "end suction",
+     "split case",
+     "double suction"
     ],
     "reciprocating": [
      "reciprocating",
@@ -111,12 +114,12 @@
      "plunger pump"
     ],
     "metering": [
-     "metering",
+     "metering pump",
      "controlled volume",
      "dosing pump"
     ],
     "rotary": [
-     "rotary",
+     "rotary pump",
      "gear pump",
      "screw pump",
      "vane pump",
@@ -154,7 +157,7 @@
     "rotary": [
      "rotary screw",
      "screw compressor",
-     "rotary"
+     "rotary compressor"
     ]
    },
    "standards": {
