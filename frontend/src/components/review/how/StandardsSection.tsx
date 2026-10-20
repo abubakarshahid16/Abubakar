@@ -24,6 +24,8 @@ export interface StandardsRecord {
   missing: ReviewRunMissingReference[];
   /** #620: Company standards left out while they wait for an administrator. */
   held?: ReviewRunHeldForConfirmation | null;
+  /** Standards held for the engineer because the equipment type was unsure: the server's own sentence. */
+  heldEngineer?: ReviewRunHeldForConfirmation | null;
 }
 
 const STANDARDS_SOURCE = "the run's standards record (GET /api/reviews/runs/{id}/standards)";
@@ -94,6 +96,9 @@ export function StandardsSection({ run, record, error }: {
         </div>
       )}
       {included && included.length === 0 && <p className="text-sm text-slateish-400">No standard was selected for this review.</p>}
+      {record?.heldEngineer && (
+        <p data-testid="standards-held-for-engineer" className="text-sm text-warn-500">{record.heldEngineer.sentence}</p>
+      )}
       {record?.held && (
         // #620: the run's own sentence, with its boundary; never a bare count.
         <p data-testid="standards-held-for-confirmation" className="text-sm text-warn-500">{record.held.sentence}</p>

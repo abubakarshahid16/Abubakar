@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { reviews as reviewsApi } from "../../../api/client";
 import type {
-  CrsPreview, DocumentRecord, ReviewFinding, ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary,
+  CrsPreview, DocumentRecord, ReviewFinding, ReviewRunHeldForConfirmation, ReviewRunMissingReference, ReviewRunStandard, ReviewRunSummary,
 } from "../../../types/api";
 import { CRS_SHEET_IS_DEFAULT, PANELS, panelForReviewScreen } from "../../../routing";
 import { NavLink } from "../../NavLink";
@@ -40,6 +40,8 @@ export interface StandardsState {
   standards: ReviewRunStandard[] | null;
   missing: ReviewRunMissingReference[];
   error: string | null;
+  /** Standards held for the engineer (unsure equipment type); absent when none. */
+  held?: ReviewRunHeldForConfirmation | null;
 }
 
 export interface BehindTheScenesProps {
