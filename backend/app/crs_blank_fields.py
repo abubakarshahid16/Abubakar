@@ -105,3 +105,18 @@ def page_section(group: list[dict]) -> str:
         }
     )
     return f"p.{page_list(pages)} - Fields left blank" if pages else "Fields left blank"
+
+
+def is_row(group: list[dict]) -> bool:
+    """Is this group the one blank-fields row?"""
+    return is_unrequired_blank(group[0])
+
+
+def comment_or(group: list[dict], other) -> str:
+    """The blank-fields row's comment, else `other(group)`."""
+    return comment(group) if is_row(group) else other(group)
+
+
+def section_or(group: list[dict], other) -> str:
+    """The blank-fields row's page and field, else `other(group)`."""
+    return page_section(group) if is_row(group) else other(group)

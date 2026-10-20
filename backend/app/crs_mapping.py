@@ -1486,9 +1486,8 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             group, kind = item["findings"], item["row_kind"]
             f = group[0]
             machine = _finding_text(f)  # 95 6b: kept as ai_comment
-            blanks = _group_key(f)[0] == "blanks"
-            if blanks or kind != ROW_KIND_DATASHEET_CHECK:
-                machine = (crs_blank_fields.comment if blanks else engineer_comment_text)(group)
+            if kind != ROW_KIND_DATASHEET_CHECK or crs_blank_fields.is_row(group):
+                machine = crs_blank_fields.comment_or(group, engineer_comment_text)
             text = f.get("engineer_comment") or machine
             rows.append(
                 {
@@ -1500,9 +1499,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
                     # the row open with the next finding behind it.
                     "finding_ids": [g["id"] for g in group if g.get("id")],
                     "document_name": submittal_name,
-                    "page_section": (
-                        crs_blank_fields.page_section(group) if blanks else _page_section(group)
-                    ),
+                    "page_section": crs_blank_fields.section_or(group, _page_section),
                     "comment": text,
                     "ai_comment": machine,
                     "edited": text.strip() != machine.strip(),
