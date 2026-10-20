@@ -64,6 +64,7 @@ export function pageFacts(run: ReviewRunSummary) {
                       "requirement_split.reader.timed_out"),
     // Absent = the run did not record it; never read as "no page unread".
     notRead: sourced(pc?.pages_not_read_into_fields ?? null, "page_coverage.pages_not_read_into_fields"),
+    readNoField: sourced(pc?.pages_read_no_field ?? null, "page_coverage.pages_read_no_field"),
     notReadReasons: pc?.not_read_reasons ?? {},
     aiNotRead: sourced(pc?.pages_ai_not_read ?? null, "page_coverage.pages_ai_not_read"),
     aiNotReadReasons: pc?.ai_not_read_reasons ?? {},
@@ -127,6 +128,11 @@ export function pagesMeaning(run: ReviewRunSummary): string {
   }
   if (p.notRead.value === null) {
     sentences.push("Which pages were not read into fields is not recorded on this review.");
+  }
+  // Order 165: counted apart from the pages fields were read from.
+  const none = p.readNoField.value;
+  if (none && none.length) {
+    sentences.push(`${none.length} of ${total} pages (${none.length === 1 ? "page" : "pages"} ${pageList(none)}) were read and held no checklist field: the code readers and the AI reader both found none. They are not counted as pages fields were read from.`);
   }
   return sentences.join(" ");
 }
