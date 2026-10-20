@@ -13,6 +13,8 @@ Pure function over the selection dict; the lookup is passed in.
 
 from __future__ import annotations
 
+from .held_standards import HELD_NOT_APPLICABLE
+
 
 def hold(selected: dict, check: dict, library: list, find) -> None:
     """Mark, in place, every selected standard the check judged not applicable."""
@@ -24,3 +26,4 @@ def hold(selected: dict, check: dict, library: list, find) -> None:
                 "held for the engineer to check: this run judged it not applicable "
                 f"({item['reason']})"
             )
+            row["held_code"] = HELD_NOT_APPLICABLE

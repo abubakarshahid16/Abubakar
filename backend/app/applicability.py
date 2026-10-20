@@ -49,7 +49,7 @@ from pathlib import Path
 
 from . import datasheets, errors, fts_index, standard_ids, standards, submittal_review
 from .db import connect
-from .held_standards import mark
+from .held_standards import mark_rows
 
 #: The selection rules, in the priority master plan section 11 gives them.
 #:
@@ -1768,7 +1768,7 @@ def _persist(submittal_document_id: str, review_run_id: str | None,
             evidence_page=row.get("evidence_page"),
             evidence_quote=row.get("evidence_quote"),
             scope_decision=row.get("scope_decision"))
-    mark(review_run_id, [i for i, r in selected.items() if r.get("held_for_engineer")])
+    mark_rows(review_run_id, selected)
     for entry in _library(allowed_document_ids):
         if entry["id"] in selected:
             continue

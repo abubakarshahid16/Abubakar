@@ -99,3 +99,47 @@ def test_the_helper_marks_only_listed_standards_and_never_overwrites_a_hold():
     assert "r1" in selected["a"]["held_for_engineer"]
     assert selected["b"]["held_for_engineer"] == "x"
     assert standard_judgment.hold({}, {}, [], find) is None
+
+
+def test_the_run_says_the_standard_was_judged_not_applicable_not_that_the_type_is_unsure():
+    import uuid
+
+    from app import held_standards
+
+    _doc(
+        "vessel",
+        "COMPANY_STANDARD",
+        "pressure vessel code",
+        document_number="ASME VIII",
+    )
+    _doc("pump", "COMPANY_STANDARD", "centrifugal pump code", document_number="API 610")
+    _doc(
+        "sub",
+        "CONTRACTOR_SUBMITTAL",
+        "Centrifugal pump. Design code: ASME VIII. API 610.",
+        equipment_type="Pump",
+    )
+    run = str(uuid.uuid4())
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO review_runs (id,submittal_document_id,status,created_at,updated_at)"
+            " VALUES (?,?,'pending',?,?)",
+            (run, "sub", NOW, NOW),
+        )
+    allowed = frozenset({"vessel", "pump", "sub"})
+    applicability.select(
+        "sub", allowed_document_ids=allowed, review_run_id=run, persist=True
+    )
+    stored = {
+        r["standard_document_id"]: r["held_reason"]
+        for r in db.connect().execute(
+            "SELECT standard_document_id, held_reason FROM review_applicable_standards"
+            " WHERE review_run_id = ?",
+            (run,),
+        )
+    }
+    assert stored["vessel"] == held_standards.HELD_NOT_APPLICABLE
+    assert stored.get("pump") is None
+    sentence = held_standards.note(run, allowed)["sentence"]
+    assert "judged this equipment outside their scope" in sentence
+    assert "equipment type is unsure" not in sentence
