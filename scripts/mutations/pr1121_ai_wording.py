@@ -26,7 +26,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         phase=1121,
         description="a datasheet check's machine wording is the generic comment text",
         path=APP / "crs_mapping.py",
-        anchor="            if kind != ROW_KIND_DATASHEET_CHECK:\n",
+        anchor="            if blanks or kind != ROW_KIND_DATASHEET_CHECK:\n",
         replacement="            if True:\n",
         target=_T,
         keyword="datasheet_check_keeps_its_own",
