@@ -170,6 +170,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `reranker` | Cross-encoder reranking, local and CPU-only |
 | `review_tiers` | Order 95: each finding of a run in ONE tier (comment / needs you / met or not applicable) with a reason word; rules from reference/review_tiers.json, the data the screen reads too (order 133); display only |
 | `review_counts` | Order 152.2: the CRS sheet's counts in ROWS (comments, needs you, met), the findings behind the comment rows, Review notes and removed, from the run's findings and the file's grouping, each with its unit; the run summary sends it as `sheet`; display only |
+| `held_reasons` | Order 161 C (163.4): a reason for EVERY finding held for the engineer (stored code, else the program's own leading code, else whether a datasheet field was paired), counted in the run summary; display and measurement only, no rationale, code or verdict changes |
 | `review` | Persistent workflow records for AI-assisted engineering reviews |
 | `finding_query` | The one scope filter of the review-findings list and its count, so a page and its total agree (order 117 item 5) |
 | `paging` | The fields every paged list response carries: `total` (the page's denominator), `limit`, `offset`; a bare-list route's page with its total in `X-Total-Count` (order 117 item 5) |
