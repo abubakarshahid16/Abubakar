@@ -18,9 +18,10 @@ from __future__ import annotations
 
 import re
 
-#: A label token that is an item INDEX: up to three letters then up to three
-#: digits ("N3", "M12", "2").
-INDEX_TOKEN = re.compile(r"^([A-Za-z]{0,3})(\d{1,3})$")
+#: A label token that is an item INDEX: one to three letters then up to three
+#: digits ("N3", "M12"). A bare number is a rating or a size, never an index
+#: ("Class 150" and "Class 300" are two ratings, not two items).
+INDEX_TOKEN = re.compile(r"^([A-Za-z]{1,3})(\d{1,3})$")
 #: A series row names at most this many items, then "and k more".
 MAX_ITEM_MARKS = 12
 
@@ -41,12 +42,15 @@ def merge(findings: list[dict]) -> None:
     """In place and idempotent. Findings whose field labels differ ONLY in one
     index token, and that share bucket, page and clause set, get the label
     without the index (`crs_field_label`: "Size") and keep their own mark in
-    `crs_item_mark` ("N1")."""
+    `crs_item_mark` ("N1") and their own label in `crs_item_label` ("N1 Size"),
+    which keeps their per-finding number key (`crs_mapping._subject_key`) the
+    one earlier runs stored."""
     from . import crs_mapping as cm  # crs_mapping imports this module
 
     cohorts: dict[tuple, dict[tuple, dict]] = {}
     for f in findings:
-        if cm._rejected(f) or f.get("crs_item_mark"):
+        # An engineer's own comment is never re-labelled under their feet.
+        if cm._rejected(f) or cm._confirmed(f) or f.get("crs_item_mark"):
             continue
         bucket = cm._bucket_of(f)
         if bucket not in cm.FIELD_GROUPED_BUCKETS:
@@ -76,6 +80,7 @@ def merge(findings: list[dict]) -> None:
             continue
         for f, tokens, i, token in members:
             claimed.add(id(f))
+            f["crs_item_label"] = " ".join(tokens)
             f["crs_field_label"] = " ".join(tokens[:i] + tokens[i + 1 :])
             f["crs_item_mark"] = token
 
@@ -104,3 +109,16 @@ def items_suffix(group: list[dict]) -> str:
     if len(found) > MAX_ITEM_MARKS:
         found = [*found[:MAX_ITEM_MARKS], f"and {len(found) - MAX_ITEM_MARKS} more"]
     return f", items {', '.join(found)}" if found else ""
+
+
+def own_label(finding: dict) -> str | None:
+    """The finding's field label as the datasheet printed it ("N1 Size"), kept
+    for its per-finding number key even after the series gave it a shared one."""
+    return finding.get("crs_item_label") or finding.get("crs_field_label")
+
+
+def item_name(finding: dict) -> str:
+    """Who a value belongs to in a row that lists several: the equipment tag
+    and the item's mark ("V-100 N1"), else "untagged"."""
+    parts = [finding.get("equipment_tag"), finding.get("crs_item_mark")]
+    return " ".join(str(p) for p in parts if p) or "untagged"

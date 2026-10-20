@@ -307,7 +307,7 @@ def _subject_key(f: dict) -> str:
     return comment_key(
         "requirement",
         f.get("requirement_source_text") or f.get("finding"),
-        f.get("crs_field_label") or f.get("matched_phrase") or f.get("contractor_section"),
+        crs_item_series.own_label(f) or f.get("matched_phrase") or f.get("contractor_section"),
         f.get("contractor_evidence_text"),
         f.get("contractor_page"),
         f.get("origin") == _DATASHEET_ORIGIN,
@@ -681,7 +681,7 @@ def engineer_comment_text(group: list[dict]) -> str:
         # each (order 139 part 2: a field row holds one finding per clause
         # AND tag, and a tag's value is said once).
         per_tag = "; ".join(dict.fromkeys(
-            f"{g.get('crs_item_mark') or g.get('equipment_tag') or 'untagged'} {_provided(g)}"
+            f"{crs_item_series.item_name(g)} {_provided(g)}"
             + (f" (p.{g['contractor_page']})" if g.get("contractor_page") else "")
             for g in sorted(group, key=crs_item_series.in_series_order)))
         said = f"Datasheet {field or 'value'}: {per_tag}."

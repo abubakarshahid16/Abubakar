@@ -147,3 +147,48 @@ def test_a_rejected_item_does_not_make_a_series():
     rows = _field_rows(_rows(findings))
     assert len(rows) == 1
     assert "N1 Size" in rows[0]["page_section"]
+
+
+def test_a_series_on_two_tags_says_which_tag_has_which_value():
+    findings = []
+    for tag, values in (("V-100", ["4", "2"]), ("V-200", ["9", "9"])):
+        for i, value in enumerate(values, start=1):
+            findings.append(_item(f"{tag}-{i}", f"N{i} Size", value, equipment_tag=tag))
+    rows = _field_rows(_rows(findings))
+    assert len(rows) == 1
+    text = rows[0]["comment"]
+    assert "V-100 N1 states 4" in text
+    assert "V-200 N1 states 9" in text
+    assert "V-200 N2 states 9" in text
+
+
+def test_an_engineers_confirmed_comment_is_never_relabelled_or_merged():
+    findings = _series(lambda i: f"N{i} Size", ["4", "2", "3"])
+    findings[0]["confirmed_by"] = "eng-1"
+    findings[0]["engineer_comment"] = "Contractor to confirm the N1 size."
+    rows = _field_rows(_rows(findings))
+    assert len(rows) == 2
+    confirmed = [r for r in rows if r["engineer_confirmed"]]
+    assert len(confirmed) == 1
+    assert "N1 Size" in confirmed[0]["page_section"]
+    assert (
+        "items N2, N3"
+        in [r for r in rows if not r["engineer_confirmed"]][0]["page_section"]
+    )
+
+
+def test_ratings_and_sizes_are_not_items_of_a_series():
+    findings = [
+        _item("a", "Class 150 Flange", "x"),
+        _item("b", "Class 300 Flange", "y"),
+    ]
+    rows = _field_rows(_rows(findings))
+    assert len(rows) == 2
+    assert all("items" not in r["page_section"] for r in rows)
+
+
+def test_the_merged_row_keeps_the_per_item_number_keys_earlier_runs_stored():
+    findings = _series(lambda i: f"N{i} Size", ["4", "2"])
+    before = {crs_mapping.finding_member_key(dict(f)) for f in findings}
+    row = _field_rows(_rows(findings))[0]
+    assert set(row["member_keys"]) == before
