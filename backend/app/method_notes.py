@@ -24,20 +24,36 @@ def wrap(notes: list[str]) -> str:
 
 def split_method_notes(text: str | None) -> tuple[str, str]:
     """`(reason without the notes, the notes)`. No marker: `(text, "")`,
-    unchanged. An open marker never closed is left in the reason untouched."""
+    unchanged. A block runs from its open marker to the LAST close marker
+    after it (a field name may contain the close marker itself), and every
+    block is taken off; an open marker never closed takes the rest of the
+    text with it, so no raw marker is ever left in the reason."""
     text = text or ""
-    start = text.find(OPEN)
-    if start < 0:
-        return text, ""
-    end = text.find(CLOSE, start + len(OPEN))
-    if end < 0:
-        return text, ""
-    notes = text[start + len(OPEN) : end]
-    before, after = text[:start].rstrip(), text[end + len(CLOSE) :].lstrip()
-    return (f"{before} {after}" if before and after else before or after), notes
+    found: list[str] = []
+    while (start := text.find(OPEN)) >= 0:
+        end = text.rfind(CLOSE, start + len(OPEN))
+        stop = end + len(CLOSE) if end >= 0 else len(text)
+        found.append(text[start + len(OPEN) : end if end >= 0 else len(text)])
+        before, after = text[:start].rstrip(), text[stop:].lstrip()
+        text = f"{before} {after}" if before and after else before or after
+    return text, "; ".join(found)
 
 
 def reason_of(finding: dict) -> str:
     """A finding's rationale without the pairing notes: what a contractor-facing
     cell may be built from."""
     return split_method_notes(finding.get("ai_rationale"))[0]
+
+
+def why_bits(rationale: str | None) -> list[str]:
+    """The internal copy's "Why" parts: the reason, then how the pairing was
+    made (the notes), each only when there is something to say."""
+    reason, notes = split_method_notes(rationale)
+    return [
+        part
+        for part in (
+            f"Why: {reason.strip()}" if reason.strip() else "",
+            f"How paired: {notes}" if notes else "",
+        )
+        if part
+    ]

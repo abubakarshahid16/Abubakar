@@ -1573,7 +1573,7 @@ def _prepare_finding(
         "category": category,
         "severity": severity,
         "requirement": requirement.get("requirement_text") or "",
-        "finding": comment or rationale,
+        "finding": comment or method_notes.split_method_notes(rationale)[0],
         "required_action": _required_action(status),
         "confidence": _confidence_label(confidence),
         "contractor_page": (fact or {}).get("page"),

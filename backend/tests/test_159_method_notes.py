@@ -66,8 +66,6 @@ def test_split_round_trips():
 def test_text_without_a_marker_is_returned_untouched():
     for text in ("", None, "plain reason (not a pairing note)", "  spaced  "):
         assert method_notes.split_method_notes(text) == (text or "", "")
-    unclosed = f"reason {method_notes.OPEN}never closed"
-    assert method_notes.split_method_notes(unclosed) == (unclosed, "")
 
 
 def test_notes_in_the_middle_leave_the_rest_in_order():
@@ -79,27 +77,62 @@ def test_notes_in_the_middle_leave_the_rest_in_order():
 
 
 @pytest.mark.usefixtures("temp_storage")
-def test_a_synonym_pairing_keeps_its_note_off_the_contractor_comment(monkeypatch):
-    findings = _paired_findings(monkeypatch)
-    assert len(findings) == 1
-    stored = findings[0]
-    # the note is on the finding, between the marker
-    assert method_notes.OPEN in stored["ai_rationale"]
-    assert SYNONYM_PHRASE in stored["ai_rationale"]
+def test_the_pairing_note_is_stored_on_the_rationale(monkeypatch):
+    stored = _paired_findings(monkeypatch)[0]["ai_rationale"]
+    assert method_notes.OPEN in stored and SYNONYM_PHRASE in stored
 
-    rows = _rows(findings)
+
+@pytest.mark.usefixtures("temp_storage")
+def test_the_finding_column_carries_the_reason_only(monkeypatch):
+    # The review screen prefills "Edit comment" from this column; an engineer's
+    # saved comment is not scanned by the issue gate.
+    stored = _paired_findings(monkeypatch)[0]
+    for text in (stored["finding"], stored["required_action"] or ""):
+        assert "[[" not in text and "]]" not in text
+        assert SYNONYM_PHRASE not in text
+        assert "also on the sheet" not in text
+    assert stored["finding"].strip()
+
+
+@pytest.mark.usefixtures("temp_storage")
+def test_synonym_pairing_keeps_its_note_off_the_contractor_comment(monkeypatch):
+    rows = _rows(_paired_findings(monkeypatch))
     assert len(rows) == 1
     assert SYNONYM_PHRASE not in rows[0]["comment"]
     assert "the same field is also on the sheet" not in rows[0]["comment"]
-    assert method_notes.OPEN not in rows[0]["comment"]
+    assert "[[" not in rows[0]["comment"]
     assert mw.scan_issue_rows([{**rows[0], "engineer_confirmed": True}]) == []
 
 
 @pytest.mark.usefixtures("temp_storage")
-def test_the_internal_copy_keeps_the_note(monkeypatch):
-    rows = _rows(_paired_findings(monkeypatch))
-    assert SYNONYM_PHRASE in rows[0]["reasoning"]
-    assert "the same field is also on the sheet" in rows[0]["reasoning"]
+def test_the_internal_copy_keeps_the_note_as_how_paired(monkeypatch):
+    why = _rows(_paired_findings(monkeypatch))[0]["reasoning"]
+    assert "How paired: " in why
+    assert SYNONYM_PHRASE in why and "the same field is also on the sheet" in why
+    assert "[[" not in why and "]]" not in why
+
+
+def test_the_internal_why_column_splits_reason_and_notes():
+    f = _finding(f"the units differ. {method_notes.wrap(['n1', 'n2'])}")
+    why = crs_mapping.reasoning_text([f])
+    assert "Why: the units differ" in why and "How paired: n1; n2" in why
+    assert "[[" not in why
+
+
+def test_a_close_marker_inside_a_note_leaks_no_fragment():
+    text = f"reason. {method_notes.wrap(['field x]] and y'])} tail."
+    assert method_notes.split_method_notes(text) == (
+        "reason. tail.",
+        "field x]] and y",
+    )
+
+
+def test_two_blocks_and_an_unclosed_block_are_all_taken_off():
+    two = f"a {method_notes.wrap(['n1'])} b {method_notes.wrap(['n2'])} c"
+    reason, notes = method_notes.split_method_notes(two)
+    assert "[[" not in reason and "]]" not in reason and "n1" in notes and "n2" in notes
+    reason, notes = method_notes.split_method_notes(f"a {method_notes.OPEN}n1")
+    assert reason == "a" and notes == "n1"
 
 
 # ------------------------------------------- every note kind, built by hand

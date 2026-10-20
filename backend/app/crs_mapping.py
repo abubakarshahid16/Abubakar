@@ -545,9 +545,7 @@ def reasoning_text(group: list[dict]) -> str:
         status = f.get("compliance_status")
         if status:
             bits.append(f"Result: {_RESULT_WORDS.get(status, status)}")
-        why = str(f.get("ai_rationale") or "").strip()
-        if why:
-            bits.append(f"Why: {why}")
+        bits.extend(method_notes.why_bits(f.get("ai_rationale")))
         if bits:
             lines.append(". ".join(bits))
     return "\n".join(dict.fromkeys(lines))

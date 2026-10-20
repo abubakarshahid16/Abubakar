@@ -25,4 +25,10 @@ MUTATIONS: tuple[Mutation, ...] = (
              anchor='''verdict = {**verdict, "rationale": f"{reason} {note}"}''',
              replacement='''verdict = {**verdict, "rationale": f"{reason}"}''',
              target=_T, keyword="internal_copy_keeps_the_note", tags=("honesty",)),
+    Mutation(id="M9999-04", phase=9999,
+             description="the finding column is written from the whole rationale, pairing note included, so the screen's Edit comment starts from it",
+             path=APP / "comparison.py",
+             anchor='''"finding": comment or method_notes.split_method_notes(rationale)[0],''',
+             replacement='''"finding": comment or rationale,''',
+             target=_T, keyword="finding_column_carries_the_reason_only", tags=("honesty",)),
 )
