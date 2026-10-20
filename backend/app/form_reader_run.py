@@ -292,6 +292,12 @@ def add_merge_reading(form_run: dict, merge_run: dict) -> dict:
             else:
                 more.append(f)
         mine["accepted"] = [*mine["accepted"], *more]
+        # What the whole-page reader put forward and the code refused is kept
+        # apart: a page is "read, no field found" only when NOTHING was
+        # proposed (`page_ledger.read_page_empty`). The form's own counts are
+        # not touched, so the reader's tallies read as before.
+        mine["merge_rejected"] = extra.get("rejected") or []
+        mine["merge_counts"] = extra.get("counts") or {}
         mine.update({k: extra[k] for k in ("cut_off", "parts") if extra.get(k)})
         added += len(more)
     form_run["added_from_merge"] = added
