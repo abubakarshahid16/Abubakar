@@ -38,7 +38,7 @@ import { SheetGroupingNote } from "../components/review/crs/SheetGroupingNote";
 import { CrsTable } from "../components/review/crs/CrsTable";
 import type { RowMode } from "../components/review/crs/CrsRow";
 import {
-  type CrsRow, type Depth, buildCrsRows, headlineFieldsOf, rowCounts, serverGroupsOf, serverNoteCount, splitRejected,
+  type CrsRow, type Depth, buildCrsRows, headlineFieldsOf, serverGroupsOf, sheetCountsOf, serverNoteCount, splitRejected,
   spotCheckKeys, visibleRows,
 } from "../components/review/crs/crsRows";
 import { commentPages, firstRowOnPage, stepRow } from "../components/review/crs/evidenceNav";
@@ -99,7 +99,7 @@ function useRunData(runId: string) {
     setStaleRun(!sum.ok && summaryReadFor.current === runId ? runId : null);
     setSummary((prev) => (sum.ok ? sum.data : prev?.review_run_id === runId ? prev : null));
     setStandardsState(stds.ok
-      ? { standards: stds.data.standards, missing: stds.data.missing_references ?? [], error: null }
+      ? { standards: stds.data.standards, missing: stds.data.missing_references ?? [], error: null, held: stds.data.held_for_engineer ?? null }
       : { standards: null, missing: [], error: stds.error.message });
     setLoad({ kind: "ready" });
   }, [runId]);
@@ -222,13 +222,15 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
   const groups = useMemo(() => serverGroupsOf(summary), [summary]);
   const rows = useMemo(
     () => buildCrsRows(findings, facts, standardNames, server, groups), [findings, facts, standardNames, server, groups]);
-  const counts = useMemo(() => rowCounts(rows), [rows]);
+  // Order 152.2: one seam for the comment counts (the server's `summary.sheet`
+  // when the switch is on, else the rows counted here).
+  const sheetCounts = useMemo(() => sheetCountsOf(rows, summary), [rows, summary]);
+  const counts = sheetCounts.counts;
   // Order 112: the headline counts the table's rows (their tiers are the
   // server's when it sent them) and names the findings behind the comment
   // rows second; its stored fields are the server's when it sent them.
   const headlineCounts = counts;
-  const findingsInComments = useMemo(
-    () => rows.filter((r) => r.tier.tier !== "A").reduce((n, r) => n + r.findings.length, 0), [rows]);
+  const findingsInComments = sheetCounts.findingsInComments;
   const headlineFields = useMemo(() => (run ? headlineFieldsOf(run, summary?.how_reviewed ?? null) : undefined), [run, summary]);
   const rejected = useMemo(() => summary?.counts.removed ?? splitRejected(findings).rejected, [summary, findings]);
   const spot = useMemo(() => spotCheckKeys(rows, runId), [rows, runId]);
@@ -304,7 +306,8 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
         clausesNotApplicable={run.requirement_split?.does_not_apply ?? null}
       />
       <SheetGroupingNote rows={rows} notes={serverNoteCount(findings, groups)} stale={groupingStale} />
-      <CrsFooter run={run} counts={counts} standards={standardsState.standards} missing={standardsState.missing} standardsError={standardsState.error} rejected={rejected} />
+      <CrsFooter run={run} counts={counts} standards={standardsState.standards} missing={standardsState.missing} standardsError={standardsState.error} rejected={rejected}
+        heldNote={standardsState.held?.sentence ?? null} />
       {drawerRow && (
         <CrsEvidenceDrawer row={drawerRow} runId={runId} standardNames={standardNames} returnTo={returnTo}
           onClose={() => setDrawerKey(null)} onOpenCards={onOpenCards}

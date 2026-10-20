@@ -26,7 +26,9 @@ export const TIER_RULES = {
     "safety field",
     "condition unsettled",
     "value conflict",
-    "unit unknown"
+    "unit unknown",
+    "no standard linked",
+    "standard outside this review"
   ],
   "needs_you": {
     "tier": "C",
@@ -60,7 +62,9 @@ export const TIER_RULES = {
       "tier": "B",
       "label": "Comment"
     },
-    "not_in_library_reason": "standard not in library"
+    "not_in_library_reason": "standard not in library",
+    "no_standard_reason": "no standard linked",
+    "outside_review_reason": "standard outside this review"
   },
   "unsettled_order": [
     "page not read",
@@ -79,6 +83,8 @@ export const TIER_RULES = {
     "javascript": "[\\p{L}\\p{N}_]",
     "javascript_flags": "u"
   },
+  "ident_match": "(?<!{word})(?:{ident})(?!{word})",
+  "ident_match_about": "A missing standard is found in a finding's folded text only between word edges (the same {word} token as the phrases), so 'std a 5' is not found in 'std a 52'. Each engine puts its escaped, folded identifier in place of {ident}.",
   "phrases": {
     "value conflict": "(?<!{word})(?:value conflict|conflicting values?|values? conflict)(?!{word})",
     "unit unknown": "(?<!{word})(?:unit unknown|unknown unit|unit (?:not|could not be) (?:read|recognised|recognized|parsed))(?!{word})"

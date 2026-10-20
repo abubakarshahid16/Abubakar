@@ -290,6 +290,38 @@ export function rowCounts(rows: CrsRow[]): TierCounts {
   return countTiers(rows.map((r) => r.tier));
 }
 
+/** Order 152.2: the switch for reading the sheet's counts from the server
+ *  (`summary.sheet`, `review_counts.sheet_counts`) instead of counting the
+ *  rows here. OFF unless `VITE_SERVER_COUNTS` is "1": the screen's own count
+ *  stays the one shown until the Mac proof passes. */
+export function serverCountsOn(): boolean {
+  return import.meta.env.VITE_SERVER_COUNTS === "1";
+}
+
+/** The sheet's comment counts in ROWS, and the findings those rows hold: one
+ *  seam both the sheet header and the workspace numbers read. With the switch
+ *  on and the server's `sheet` present they are the server's (one source);
+ *  otherwise they are counted from `rows`, as before. */
+export function sheetCountsOf(
+  rows: CrsRow[], summary: ReviewRunTierSummary | null | undefined, useServer: boolean = serverCountsOn(),
+): { counts: TierCounts; findingsInComments: number } {
+  const sheet = useServer ? summary?.sheet : null;
+  if (sheet) {
+    return {
+      counts: {
+        met: sheet.met, notApplicable: sheet.not_applicable, anotherDocument: sheet.another_document,
+        // the server sends the comment rows and the needs-you rows together
+        comment: sheet.comments - sheet.needs_you, needsYou: sheet.needs_you,
+      },
+      findingsInComments: sheet.findings_in_comments,
+    };
+  }
+  return {
+    counts: rowCounts(rows),
+    findingsInComments: rows.filter((r) => r.tier.tier !== "A").reduce((n, r) => n + r.findings.length, 0),
+  };
+}
+
 /** A small, stable random number source: the same run id gives the same
  *  spot-check rows on every visit (mulberry32 over a string hash). */
 function seeded(seed: string): () => number {

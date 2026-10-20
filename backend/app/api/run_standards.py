@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from .. import access, errors, schemas
+from .. import access, errors, held_standards, schemas
 from .. import applicability as applicability_mod
 from .. import comparison as comparison_mod
 from .. import paging as paging_mod
@@ -81,6 +81,9 @@ def _run_standards_payload(review_run_id: str, scope: access.AccessScope,
         **paging_mod.page_body("standards", out, limit, offset),
         "missing_references": outcome.get("missing_references") or [],
         "held_for_confirmation": _held_note(outcome, scope),
+        "held_for_engineer": held_standards.note(
+            review_run_id, scope.allowed_document_ids
+        ),
     }
 
 

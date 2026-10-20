@@ -79,6 +79,7 @@ def modules() -> tuple[Module, ...]:
             source="backend/app/api/run_summary.py",
             models=(
                 (rs.TierCounts, "RunSummaryTierCounts"),
+                (rs.SheetCounts, "RunSummarySheetCounts"),
                 (rs.TierRow, "RunSummaryTierRow"),
                 (rs.StandardClauses, "RunSummaryStandardClauses"),
                 (rs.HowReviewed, "RunSummaryHowReviewed"),

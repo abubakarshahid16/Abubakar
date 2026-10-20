@@ -150,7 +150,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         "13",
         "the issue copy carries a row with no comment text",
         _E,
-        "        findings = [f for f in findings if not _no_text(f)]\n",
+        "        findings = [f for f in findings if not _no_issuable_text(f)]\n",
         "",
         _TE,
         "issue_copy_never_carries_a_row_with_no_text",
@@ -159,7 +159,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         "14",
         "the issue copy leaves rows out without counting them",
         _E,
-        "        withheld_no_text = sum(1 for f in findings if _no_text(f))\n",
+        "        withheld_no_text = sum(1 for f in findings if _no_issuable_text(f))\n",
         "        withheld_no_text = 0\n",
         _TE,
         "issue_copy_never_carries_a_row_with_no_text",
@@ -168,7 +168,15 @@ MUTATIONS: tuple[Mutation, ...] = (
         "15",
         "the internal copy prints an empty COMPANY Comments cell",
         _E,
-        "        if comment_missing:\n            comment = EMPTY_COMMENT_TEXT\n",
+        "        if comment_missing:\n"
+        '            # "was issued" is true only of an engineer\'s confirmed comment; a\n'
+        "            # machine draft's number (not issued) has the plain sentence.\n"
+        "            comment = empty_comment_text(\n"
+        '                str(finding.get("crs_ref") or "")\n'
+        '                if finding.get("engineer_confirmed") is True\n'
+        '                else "",\n'
+        '                finding.get("row_kind") == ROW_KIND_CARRIED_FORWARD,\n'
+        "            )\n",
         "",
         _TE,
         "internal_copy_names_a_row_with_no_text",

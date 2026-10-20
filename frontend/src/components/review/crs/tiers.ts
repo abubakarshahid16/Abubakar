@@ -22,8 +22,11 @@
  *           to the engineer. The first fact in `unsettled_order` names it.
  *   Else    `status_tiers[status]` (Tier A "Met" / "Not applicable" /
  *           "Another document", Tier B "Comment").
- *   Else    `missing_information`: Tier B when the standard IS in the
- *           library, else Tier C "standard not in library".
+ *   Else    `missing_information`: Tier B when the blank has a standard
+ *           in this review's list, else Tier C with the TRUE reason
+ *           (`blankReason`): "no standard linked" or "standard outside this
+ *           review". "standard not in library" is said only of a standard
+ *           the submittal cites and the library does not hold.
  *   Else    a status the table does not know: Tier C `fallback_reason`.
  *
  * DISPLAY ONLY. No stored status changes here, and the run's verdicts are
@@ -70,9 +73,10 @@ export interface RunFacts {
   /** Identifiers of standards the submittal cites that the library does not
    *  hold (MISSING_LOCALLY), e.g. "API 526". */
   missingStandards: string[];
-  /** Ids of the standards the run compared against (the library). Null when
-   *  the list could not be loaded: then nothing is called "not in library"
-   *  on that ground alone - a failed list is not an empty one. */
+  /** Ids of the standards this review compared against (its included
+   *  standards, not the whole library). Null when the list could not be
+   *  loaded: then nothing is said of a blank's standard on that ground
+   *  alone - a failed list is not an empty one. */
   libraryStandardIds: string[] | null;
 }
 
@@ -123,9 +127,21 @@ export function pageNotRead(finding: ReviewFinding, facts: RunFacts): boolean {
   return facts.pagesNotRead.includes(page) || facts.readerTimedOutPages.includes(page);
 }
 
-/** The finding cites a standard the library does not hold. A finding with
- *  no library standard behind it that names a missing one, in its sources,
- *  its requirement or its rationale, is such a finding. */
+const IDENT_MATCH: string = TIER_RULES.ident_match;
+
+/** The folded identifier is found in the folded text only between word
+ *  edges (data: `ident_match`), so "std a 5" is not found in "std a 52". */
+function names(foldedIdent: string, foldedText: string): boolean {
+  const escaped = foldedIdent.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const source = IDENT_MATCH.replaceAll(WORD_EDGE.token, WORD_EDGE.javascript).replace("{ident}", () => escaped);
+  return new RegExp(source, WORD_EDGE.javascript_flags).test(foldedText);
+}
+
+/** The finding names a standard the library does not hold, in its sources,
+ *  requirement, rationale or clause, between word edges. This is a plain
+ *  look at the words: it does not check whether the finding also rests on a
+ *  standard that is held. That is on purpose (a held Tier C row must not turn
+ *  into a Comment), so no "in-library guard" belongs here. */
 export function citesMissingStandard(finding: ReviewFinding, facts: RunFacts): boolean {
   if (facts.missingStandards.length === 0) return false;
   const text = fold([
@@ -133,15 +149,20 @@ export function citesMissingStandard(finding: ReviewFinding, facts: RunFacts): b
   ].filter(Boolean).join(" \n "));
   return facts.missingStandards.some((id) => {
     const needle = fold(id);
-    return needle.length > 0 && text.includes(needle);
+    return needle.length > 0 && names(needle, text);
   });
 }
 
-/** The finding rests on a standard the library holds. */
-export function standardInLibrary(finding: ReviewFinding, facts: RunFacts): boolean {
-  if (!finding.standard_document_id) return false;
-  if (facts.libraryStandardIds === null) return true;
-  return facts.libraryStandardIds.includes(finding.standard_document_id);
+/** Why a blank (MISSING_INFORMATION) needs a person, or null when it is a
+ *  Comment. The tier is as ever: a blank without a standard in this
+ *  review's list is Tier C; only the word is true. No standard behind it:
+ *  "no standard linked". A standard that is not in this review's list (it may
+ *  well be in the library): "standard outside this review". A list that
+ *  failed to load claims nothing. Mirrors `blank_reason` in review_tiers.py. */
+export function blankReason(finding: ReviewFinding, facts: RunFacts): TierReason | null {
+  if (!finding.standard_document_id) return MISSING_INFORMATION.no_standard_reason;
+  if (facts.libraryStandardIds === null) return null;
+  return facts.libraryStandardIds.includes(finding.standard_document_id) ? null : MISSING_INFORMATION.outside_review_reason;
 }
 
 /** Mirrors `_pairing_unconfirmed` in backend/app/comparison.py (#921), from
@@ -198,9 +219,7 @@ function needsYou(reason: TierReason): TierResult {
 function needsYouReason(finding: ReviewFinding, facts: RunFacts): TierReason {
   const unsettled = unsettledReason(finding, facts);
   if (unsettled) return unsettled;
-  if (finding.compliance_status === MISSING_INFORMATION.status && !standardInLibrary(finding, facts)) {
-    return MISSING_INFORMATION.not_in_library_reason;
-  }
+  if (finding.compliance_status === MISSING_INFORMATION.status) return blankReason(finding, facts) ?? FALLBACK_REASON;
   return FALLBACK_REASON;
 }
 
@@ -214,8 +233,9 @@ export function tierOf(finding: ReviewFinding, facts: RunFacts = EMPTY_FACTS): T
   const placed = STATUS_TIERS.get(status);
   if (placed) return { tier: placed.tier, label: placed.label, reason: null };
   if (status === MISSING_INFORMATION.status) {
-    if (standardInLibrary(finding, facts)) return { ...MISSING_INFORMATION.in_library, reason: null };
-    return needsYou(MISSING_INFORMATION.not_in_library_reason);
+    const reason = blankReason(finding, facts);
+    if (reason === null) return { ...MISSING_INFORMATION.in_library, reason: null };
+    return needsYou(reason);
   }
   // A status this table does not know is never swept quietly: it needs a person.
   return needsYou(FALLBACK_REASON);

@@ -125,7 +125,7 @@ export function useWorkspaceRun(runId: string): WorkspaceRunState {
     setStaleRun(!sum.ok && summaryReadFor.current === runId ? runId : null);
     setSummary((prev) => (sum.ok ? sum.data : prev?.review_run_id === runId ? prev : null));
     setStandardsState(stds.ok
-      ? { standards: stds.data.standards, missing: stds.data.missing_references ?? [], error: null }
+      ? { standards: stds.data.standards, missing: stds.data.missing_references ?? [], error: null, held: stds.data.held_for_engineer ?? null }
       : { standards: null, missing: [], error: plainErrorText(COULD_NOT_READ_STANDARDS, stds) });
     setLoad({ kind: "ready" });
     // Readiness (unread pages, missing standards) is read after the run,

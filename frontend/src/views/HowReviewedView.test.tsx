@@ -240,6 +240,19 @@ describe("HowReviewedView on a full run", () => {
     expect(await screen.findByTestId("standards-held-for-confirmation")).toHaveTextContent(sentence);
   });
 
+  it("shows the standards held for the engineer, and nothing when none were held", async () => {
+    const sentence = "2 standards were held for the engineer because the equipment type is unsure; "
+      + "their requirements were not checked. Counted among the standards in your library that this review considered.";
+    mount(fullRun(), { ...standardsRecord, held_for_engineer: { count: 2, standard_document_ids: ["a", "b"], sentence } });
+    expect(await screen.findByTestId("standards-held-for-engineer")).toHaveTextContent(sentence);
+  });
+
+  it("shows nothing extra when the run held no standard for the engineer", async () => {
+    mount(fullRun());
+    await screen.findByTestId("standards-in-scope");
+    expect(screen.queryByTestId("standards-held-for-engineer")).toBeNull();
+  });
+
   it("links each missing standard to the Documents screen for upload", async () => {
     const navigate = mount(fullRun());
     const missing = await screen.findByTestId("standards-missing");
