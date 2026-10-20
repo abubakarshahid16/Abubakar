@@ -77,7 +77,10 @@ def test_a_standard_for_another_pump_type_is_not_required_of_a_centrifugal_pump(
     assert equipment_subtype.classify("pump", "API 610", text, table)[0] == "required"
     assert equipment_subtype.classify("pump", "API 674", text, table)[0] == "other"
     assert equipment_subtype.classify("pump", "api 682", text, table)[0] == "required"
-    assert equipment_subtype.identifiers("pump", text, table) == ["API 610", "API 682"]
+    assert equipment_subtype.identifiers("pump", text, table) == [
+        ("API 610", "required"),
+        ("API 682", "required"),
+    ]
 
 
 def test_a_sheet_that_states_no_pump_type_asks_the_engineer_for_every_typed_standard():
@@ -87,7 +90,9 @@ def test_a_sheet_that_states_no_pump_type_asks_the_engineer_for_every_typed_stan
             equipment_subtype.classify("pump", std, "Pump data sheet", table)[0]
             == "unsure"
         )
-    assert equipment_subtype.identifiers("pump", "Pump data sheet", table) == []
+    assert [
+        v for _i, v in equipment_subtype.identifiers("pump", "Pump data sheet", table)
+    ] == ["unsure"] * 5
 
 
 def test_a_type_or_standard_the_table_does_not_know_behaves_as_before():
@@ -168,8 +173,38 @@ def test_a_rotary_seal_or_metering_word_on_a_centrifugal_sheet_does_not_pull_in_
     assert equipment_subtype.classify("pump", "API 676", text, table)[0] == "other"
     assert equipment_subtype.classify("pump", "API 675", text, table)[0] == "other"
     assert equipment_subtype.classify(
-        "pump", "API 610", "End suction process pump", table
+        "pump", "API 610", "End suction pump data sheet", table
     )[0] == ("required")
     assert equipment_subtype.classify("pump", "API 676", "Gear pump data sheet", table)[
         0
     ] == ("required")
+
+
+def test_a_sheet_that_names_two_pump_types_is_unsure_for_both_never_decided_by_one_word():
+    table = applicability.governing_table()
+    text = "Centrifugal pump data sheet. Spare: reciprocating pump, not supplied."
+    assert equipment_subtype.classify("pump", "API 610", text, table)[0] == "unsure"
+    assert equipment_subtype.classify("pump", "API 674", text, table)[0] == "unsure"
+
+
+def test_a_reciprocating_engine_driver_does_not_make_a_centrifugal_pump_reciprocating():
+    table = applicability.governing_table()
+    text = "Centrifugal pump data sheet. Driver: reciprocating engine."
+    assert equipment_subtype.classify("pump", "API 674", text, table)[0] == "other"
+    assert equipment_subtype.classify("pump", "API 610", text, table)[0] == "required"
+
+
+def test_an_unsure_standard_is_selected_held_with_its_own_reason_not_dropped():
+    for std in ("API 610", "API 674"):
+        _doc(
+            std.replace(" ", ""), "COMPANY_STANDARD", f"{std} text", document_number=std
+        )
+    _doc("sub", "CONTRACTOR_SUBMITTAL", "Pump data sheet", equipment_type="Pump")
+    allowed = frozenset({"sub", "API610", "API674"})
+    library = applicability._library(allowed)
+    chosen, _missing = applicability.governing_standards("sub", library, allowed)
+    assert {v["identifier"] for v in chosen.values()} == {"API 610", "API 674"}
+    for row in chosen.values():
+        assert "held for the engineer" in row["held_for_engineer"]
+        assert row["held_code"] == "subtype_unsure"
+        assert applicability.is_included(row) is False

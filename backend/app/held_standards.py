@@ -14,10 +14,15 @@ from __future__ import annotations
 from .db import connect
 
 HELD_UNSURE_TYPE = "equipment_unsure"
+#: Orders 180.1 item 5: the sheet does not say which type of equipment it is.
+HELD_SUBTYPE_UNSURE = "subtype_unsure"
 
 #: code -> the reason in the sentence. An unknown code is held for the engineer
 #: without a reason; it never borrows the unsure wording.
-_WHY = {HELD_UNSURE_TYPE: " because the equipment type is unsure"}
+_WHY = {
+    HELD_UNSURE_TYPE: " because the equipment type is unsure",
+    HELD_SUBTYPE_UNSURE: " because the datasheet does not state which type of equipment it is",
+}
 
 
 def mark(

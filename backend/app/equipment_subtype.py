@@ -48,7 +48,9 @@ def classify(
     if not governed:
         return "required", []
     stated = _stated(spec.get("subtypes") or {}, text)
-    if not stated:
+    if len(stated) != 1:
+        # none stated, or two types named (a pump with a reciprocating driver,
+        # a spare of another type): the sheet does not say which it is
         return "unsure", list(governed)
     return ("required" if stated & set(governed) else "other"), list(governed)
 
@@ -73,14 +75,35 @@ def required(equipment, source, text, table, by) -> list[dict]:
     return out
 
 
-def identifiers(kind: str, text: str, table: dict) -> list[str]:
-    """The standards of `kind` to select for the review: those whose sub-type
-    the sheet states (or that have none). Unsure ones are asked, not compared."""
-    return [
-        i
-        for i in table["equipment_types"].get(kind, [])
-        if classify(kind, i, text, table)[0] == "required"
-    ]
+def identifiers(kind: str, text: str, table: dict) -> list[tuple[str, str]]:
+    """[(standard, "required" | "unsure")] to select for the review: those whose
+    sub-type the sheet states (or that have none) are compared; an unsure one is
+    selected HELD for the engineer (never compared, never dropped silently)."""
+    out = []
+    for i in table["equipment_types"].get(kind, []):
+        verdict = classify(kind, i, text, table)[0]
+        if verdict != "other":
+            out.append((i, verdict))
+    return out
+
+
+def row(identifier: str, verdict: str, where: str) -> dict:
+    """The selection row of a governing standard; held when its sub-type is unsure."""
+    from .applicability import METHOD_GOVERNING
+    from .held_standards import HELD_SUBTYPE_UNSURE
+
+    out = {
+        "method": METHOD_GOVERNING,
+        "identifier": identifier,
+        "reason": f"{identifier} governs a {where}",
+    }
+    if verdict == "unsure":
+        out["held_for_engineer"] = (
+            "held for the engineer to check: the datasheet does not state which type it is "
+            "(or names more than one), and this standard governs one type only"
+        )
+        out["held_code"] = HELD_SUBTYPE_UNSURE
+    return out
 
 
 def not_cited_words(r: dict) -> str:

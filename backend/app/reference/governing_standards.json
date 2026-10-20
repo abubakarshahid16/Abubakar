@@ -101,21 +101,21 @@
    "subtypes": {
     "centrifugal": [
      "centrifugal",
-     "overhung",
-     "between bearings",
-     "vertical turbine",
-     "end suction",
-     "split case",
-     "double suction"
+     "overhung pump",
+     "between bearings pump",
+     "vertical turbine pump",
+     "end suction pump",
+     "split case pump",
+     "double suction pump"
     ],
     "reciprocating": [
-     "reciprocating",
+     "reciprocating pump",
      "piston pump",
      "plunger pump"
     ],
     "metering": [
      "metering pump",
-     "controlled volume",
+     "controlled volume pump",
      "dosing pump"
     ],
     "rotary": [
@@ -124,7 +124,7 @@
      "screw pump",
      "vane pump",
      "lobe pump",
-     "progressive cavity"
+     "progressive cavity pump"
     ]
    },
    "standards": {
@@ -152,7 +152,7 @@
      "centrifugal"
     ],
     "reciprocating": [
-     "reciprocating"
+     "reciprocating compressor"
     ],
     "rotary": [
      "rotary screw",

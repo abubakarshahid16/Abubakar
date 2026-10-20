@@ -284,7 +284,7 @@ def governing_standards(submittal_document_id: str, library: list[dict],
     equipment, source = reading[0], reading[1]
     if not equipment:
         return {}, []
-    from . import equipment_subtype
+    from . import equipment_subtype as subtype
 
     table = governing_table()
     text = _submittal_text(submittal_document_id, allowed_document_ids)
@@ -292,7 +292,7 @@ def governing_standards(submittal_document_id: str, library: list[dict],
     not_held: list[dict] = []
     seen: set[str] = set()
     for kind in sorted(equipment):
-        for identifier in equipment_subtype.identifiers(kind, text, table):
+        for identifier, verdict in subtype.identifiers(kind, text, table):
             key = standard_ids.key(identifier)
             if key in seen:
                 continue
@@ -303,8 +303,7 @@ def governing_standards(submittal_document_id: str, library: list[dict],
                 not_held.append({"identifier": identifier,
                                  "reason": f"governs a {where} and is not present in the library"})
             elif entry["id"] not in selected:
-                selected[entry["id"]] = {"method": METHOD_GOVERNING, "identifier": identifier,
-                                         "reason": f"{identifier} governs a {where}"}
+                selected[entry["id"]] = subtype.row(identifier, verdict, where)
     return selected, not_held
 
 
