@@ -81,7 +81,9 @@ def _run_standards_payload(review_run_id: str, scope: access.AccessScope,
         **paging_mod.page_body("standards", out, limit, offset),
         "missing_references": outcome.get("missing_references") or [],
         "held_for_confirmation": _held_note(outcome, scope),
-        "held_for_engineer": held_standards.note(review_run_id, scope.allowed_document_ids),
+        "held_for_engineer": held_standards.note(
+            review_run_id, scope.allowed_document_ids
+        ),
     }
 
 

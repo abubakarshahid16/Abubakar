@@ -20,7 +20,9 @@ HELD_UNSURE_TYPE = "equipment_unsure"
 _WHY = {HELD_UNSURE_TYPE: " because the equipment type is unsure"}
 
 
-def mark(review_run_id: str, standard_ids: list[str], code: str = HELD_UNSURE_TYPE) -> None:
+def mark(
+    review_run_id: str, standard_ids: list[str], code: str = HELD_UNSURE_TYPE
+) -> None:
     """Flag the held rows of a run. An engineer's own row is never flagged."""
     if not review_run_id or not standard_ids:
         return
@@ -30,17 +32,30 @@ def mark(review_run_id: str, standard_ids: list[str], code: str = HELD_UNSURE_TY
             "UPDATE review_applicable_standards SET held_reason = ? "
             "WHERE review_run_id = ? AND included = 0 AND selection_method != 'manual' "
             f"AND standard_document_id IN ({marks})",
-            (code, review_run_id, *standard_ids))
+            (code, review_run_id, *standard_ids),
+        )
 
 
-def note(review_run_id: str, allowed_document_ids: frozenset[str] | None) -> dict | None:
+def note(
+    review_run_id: str, allowed_document_ids: frozenset[str] | None
+) -> dict | None:
     """The run's held-for-the-engineer note, or None when there is nothing to say."""
-    rows = connect().execute(
-        "SELECT standard_document_id, held_reason FROM review_applicable_standards "
-        "WHERE review_run_id = ? AND included = 0 AND held_reason IS NOT NULL "
-        "ORDER BY standard_document_id", (review_run_id,)).fetchall()
-    kept = [r for r in rows
-            if allowed_document_ids is None or r["standard_document_id"] in allowed_document_ids]
+    rows = (
+        connect()
+        .execute(
+            "SELECT standard_document_id, held_reason FROM review_applicable_standards "
+            "WHERE review_run_id = ? AND included = 0 AND held_reason IS NOT NULL "
+            "ORDER BY standard_document_id",
+            (review_run_id,),
+        )
+        .fetchall()
+    )
+    kept = [
+        r
+        for r in rows
+        if allowed_document_ids is None
+        or r["standard_document_id"] in allowed_document_ids
+    ]
     if not kept:
         return None
     n = len(kept)
@@ -50,6 +65,9 @@ def note(review_run_id: str, allowed_document_ids: frozenset[str] | None) -> dic
     return {
         "count": n,
         "standard_document_ids": [r["standard_document_id"] for r in kept],
-        "sentence": (f"{n} {verb} held for the engineer{why}; their requirements were not "
-                     "checked (of the standards in your library that this review considered)."),
+        "sentence": (
+            f"{n} {verb} held for the engineer{why}; their requirements were not "
+            "checked. Counted among the standards in your library that this "
+            "review considered."
+        ),
     }

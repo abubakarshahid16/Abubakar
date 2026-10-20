@@ -11,7 +11,7 @@ import { StandardsSection } from "./StandardsSection";
 
 const run = { review_run_id: "run-made-up", standards_in_scope: 1 } as unknown as ReviewRunSummary;
 const sentence = "2 standards were held for the engineer because the equipment type is unsure; "
-  + "their requirements were not checked (of the standards in your library that this review considered).";
+  + "their requirements were not checked. Counted among the standards in your library that this review considered.";
 
 function show(heldEngineer: { count: number; sentence: string } | null | undefined) {
   cleanup();

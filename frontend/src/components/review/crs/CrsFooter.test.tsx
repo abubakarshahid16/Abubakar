@@ -90,7 +90,7 @@ describe("CrsFooter plain words and the signed line", () => {
 
 describe("CrsFooter held-for-the-engineer note", () => {
   const sentence = "1 standard was held for the engineer because the equipment type is unsure; "
-    + "their requirements were not checked (of the standards in your library that this review considered).";
+    + "their requirements were not checked. Counted among the standards in your library that this review considered.";
   const std = [{ standard_document_id: "std-a", filename: "Made-up code A.pdf", included: true }] as unknown as ReviewRunStandard[];
   function footer(heldNote?: string | null) {
     cleanup();

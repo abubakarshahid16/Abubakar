@@ -242,7 +242,7 @@ describe("HowReviewedView on a full run", () => {
 
   it("shows the standards held for the engineer, and nothing when none were held", async () => {
     const sentence = "2 standards were held for the engineer because the equipment type is unsure; "
-      + "their requirements were not checked (of the standards in your library that this review considered).";
+      + "their requirements were not checked. Counted among the standards in your library that this review considered.";
     mount(fullRun(), { ...standardsRecord, held_for_engineer: { count: 2, standard_document_ids: ["a", "b"], sentence } });
     expect(await screen.findByTestId("standards-held-for-engineer")).toHaveTextContent(sentence);
   });

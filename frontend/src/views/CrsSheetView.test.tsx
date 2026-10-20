@@ -209,7 +209,18 @@ describe("CrsSheetView", () => {
     expect(screen.getByTestId("crs-footer")).toHaveTextContent("Pages not fully read: 2 of 12 (4, 9).");
     expect(screen.getByTestId("crs-footer")).toHaveTextContent("Standards used: 1 (API 520.pdf); missing from the library: 1 (API 526).");
     expect(screen.queryByTestId("crs-rejected")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("crs-footer-held")).not.toBeInTheDocument();
     expect(screen.getByTestId("crs-footer")).toHaveTextContent("On this sheet: 3 comments, 2 need your judgement, 1 met the standard, 0 not applicable, 1 for another document");
+  });
+
+  it("shows the server's held-for-the-engineer sentence in the footer", async () => {
+    reviewRunStandards.mockResolvedValue({ ok: true, data: {
+      standards: [{ standard_document_id: "std-1", filename: "API 520.pdf", included: true }],
+      missing_references: [],
+      held_for_engineer: { count: 1, standard_document_ids: ["std-2"], sentence: "Invented: one standard was held." },
+    } });
+    mount();
+    expect(await screen.findByTestId("crs-footer-held")).toHaveTextContent("Invented: one standard was held.");
   });
 
   it("hides Tier A by default behind one line, except the spot check, and shows it on click", async () => {
