@@ -7,9 +7,10 @@ datasheet field, so a row never quotes a sentence that cannot support it.
   1. A SENTENCE THAT STATES NO REQUIREMENT IS NEVER A SUPPORTING CLAUSE. A
      statement with no requirement word (shall, must, required, to be, a limit
      word) and no number, written as a list of items, is a description, not a
-     check ("the package holds a, b, c, d"). It is set aside as "does not
-     apply: states no requirement", so a blank field it was paired with says
-     "no clause found" instead of quoting a list.
+     check ("the package holds a, b, c, d"). It is HELD for the engineer
+     ("applies, not checked: it states no requirement"), never compared and
+     never listed as support, so a blank field it was paired with says "no
+     clause found" instead of quoting a list. Unsure is held, never excluded.
   2. A SENTENCE THAT NAMES ITS OWN SERVICE, APPLICATION OR SEAL PLAN APPLIES
      ONLY WHEN THE DATASHEET STATES THE SAME ONE. The words that name it are
      read from the sentence's own wording (a "<words> service" or
@@ -26,14 +27,17 @@ from __future__ import annotations
 
 import re
 
-from . import requirements_3b, scope_ledger
+from . import requirements_3b
 
 #: A word that makes a sentence a requirement, or a limit.
 _REQUIRES = re.compile(
     r"\b(?:shall|must|should|required?|requires?|requirements?|needs?\s+to|has\s+to|"
     r"have\s+to|will|(?:is|are|be|being)\s+to|to\s+be|"
     r"not\s+(?:less|more|greater|smaller|lower|higher|exceed\w*|permitted|allowed)|"
-    r"minimum|maximum|at\s+least|at\s+most|up\s+to|limited|prohibit\w*|only|unless|except)\b",
+    r"minimum|maximum|at\s+least|at\s+most|up\s+to|limited|prohibit\w*|only|unless|except|"
+    r"provide\w*|suppl(?:y|ied|ies)|furnish\w*|include\w*|install\w*|fit(?:ted)?|equip\w*|"
+    r"ensur\w*|comply|complies|conform\w*|perform\w*|test(?:ed)?|inspect\w*|mark(?:ed)?|"
+    r"label(?:l?ed)?|use[ds]?|apply|applied)\b",
     re.IGNORECASE,
 )
 
@@ -146,28 +150,38 @@ def sheet_text(facts: list[dict]) -> str:
     return re.sub(r"\s+", " ", " ".join(parts)).casefold()
 
 
+def _words(text: str) -> str:
+    return " " + " ".join(re.findall(r"[a-z0-9]+", text.casefold())) + " "
+
+
 def _stated(phrase: str, sheet: str) -> bool:
+    """Does the sheet state this phrase? Its words, whole and in order, side by
+    side (so "water" is not stated by "seawater", nor "sulfur molten" by two
+    unrelated fields); a "Plan <n>" code by its code."""
     if phrase.startswith("plan "):
         return re.search(rf"\bplan\s*{re.escape(phrase[5:])}\b", sheet) is not None
-    return all(word in sheet for word in phrase.split())
+    return _words(phrase) in _words(sheet)
 
 
-def set_aside_non_requirements(requirements: list[dict]) -> dict:
-    """{"kept", "items"}: rule 1. A sentence that states no requirement does not apply."""
+def hold_non_requirements(requirements: list[dict]) -> dict:
+    """{"kept", "held"}: rule 1. A sentence that states no requirement is held."""
     kept: list[dict] = []
-    items: list[dict] = []
+    held: list[dict] = []
     for requirement in requirements:
         if states_no_requirement(requirement):
-            items.append(
+            held.append(
                 {
                     "requirement": requirement,
-                    "code": "no_requirement_stated",
-                    "detail": scope_ledger.REASONS["no_requirement_stated"][1],
+                    "code": "applicability_unsure",
+                    "detail": (
+                        "it lists items and states no requirement (no must, shall, "
+                        "provide or limit); an engineer decides whether it asks for anything"
+                    ),
                 }
             )
         else:
             kept.append(requirement)
-    return {"kept": kept, "items": items}
+    return {"kept": kept, "held": held}
 
 
 def hold_unstated_services(
@@ -209,7 +223,7 @@ def known_words(names: list[str]) -> frozenset[str]:
 
 
 def gate(requirements: list[dict], *, facts: list[dict]) -> dict:
-    """Both rules in order: {"kept", "items", "held"}."""
-    first = set_aside_non_requirements(requirements)
+    """Both rules in order: {"kept", "held"}."""
+    first = hold_non_requirements(requirements)
     second = hold_unstated_services(first["kept"], facts=facts)
-    return {"kept": second["kept"], "items": first["items"], "held": second["held"]}
+    return {"kept": second["kept"], "held": first["held"] + second["held"]}

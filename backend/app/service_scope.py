@@ -152,10 +152,9 @@ def gate(requirements: list[dict], *, facts: list[dict],
     requirement that does not apply, the shape #678's counts take],
     "declarations": {condition: what the sheet says, or None}, "held": [...]
     (applies, not checked: the sentence names a service the sheet does not
-    state, `clause_support`)}. Order kept. Also sets aside a sentence that
-    states no requirement (`clause_support`, orders 180)."""
+    state, or that states no requirement, `clause_support`)}. Order kept."""
     labels = standard_labels or {}
-    support = clause_support.set_aside_non_requirements(requirements)
+    support = clause_support.hold_non_requirements(requirements)
     requirements = support["kept"]
     conds = conditions(path)
     declared = {c["name"]: declaration(c, facts) for c in conds}
@@ -166,7 +165,7 @@ def gate(requirements: list[dict], *, facts: list[dict],
             r.get("standard_document_id") for r in requirements if r.get("standard_document_id")}))
     headings_by_standard = headings_by_standard or {}
     kept: list[dict] = []
-    items: list[dict] = list(support["items"])
+    items: list[dict] = []
     for requirement in requirements:
         label = labels.get(requirement.get("standard_document_id") or "", "")
         out = None
@@ -191,5 +190,5 @@ def gate(requirements: list[dict], *, facts: list[dict],
         "kept": unstated["kept"],
         "items": items,
         "declarations": declared,
-        "held": unstated["held"],
+        "held": support["held"] + unstated["held"],
     }

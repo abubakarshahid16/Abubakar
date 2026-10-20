@@ -18,7 +18,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         anchor='    held_items.extend(serviced["held"])\n',
         replacement="    pass\n",
         target=_T,
-        keyword="sets_a_list_aside_and_holds",
+        keyword="holds_a_list_and_a_sentence",
         tags=_TAGS,
     ),
     Mutation(

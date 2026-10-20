@@ -81,15 +81,29 @@ def test_every_requirement_word_keeps_the_sentence(word):
     )
 
 
-def test_the_gate_sets_a_list_aside_with_its_reason_and_keeps_the_rest():
+def test_the_gate_holds_a_list_with_its_reason_and_keeps_the_rest():
     out = clause_support.gate([LIST, SHALL], facts=[fact("Type", "centrifugal")])
     assert [r["id"] for r in out["kept"]] == ["s"]
-    [item] = out["items"]
-    assert item["code"] == "no_requirement_stated"
+    [item] = out["held"]
+    # unsure is held, never excluded (order 143)
+    assert item["code"] == "applicability_unsure"
     assert "states no requirement" in item["detail"]
-    assert (
-        scope_ledger.REASONS["no_requirement_stated"][0] == scope_ledger.DOES_NOT_APPLY
-    )
+    assert "items" not in out
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Provide a drain, a vent, and a pressure gauge connection on the casing.",
+        "Equip the casing with a drain, a vent and a gauge connection.",
+        "The casing includes a drain, a vent, and a gauge connection.",
+        "Fit a drain, vent and gauge connection.",
+        "Supply gaskets, bolts, and studs with each flange.",
+        "Seal flush lines shall be tubing, valves, and fittings.",
+    ],
+)
+def test_a_sentence_with_an_obligation_or_an_imperative_verb_is_not_a_list(text):
+    assert not clause_support.states_no_requirement(req("x", text))
 
 
 # ------------------------------------------------- rule 2: a service the sheet must state
@@ -117,7 +131,23 @@ def test_a_sentence_naming_a_service_the_sheet_does_not_state_is_held_not_listed
     assert {h["requirement"]["id"] for h in out["held"]} == {"p", "d", "a"}
     assert {h["code"] for h in out["held"]} == {"service_unknown"}
     assert any('"plan 32"' in h["detail"] for h in out["held"])
-    assert out["items"] == []
+
+
+def test_a_service_word_inside_a_longer_word_or_split_across_fields_is_not_stated():
+    water = req("w", "Seals shall be flushed for water service.")
+    assert clause_support.named_conditions(water) == ["water"]
+    assert clause_support.gate([water], facts=[fact("Fluid", "seawater")])["held"]
+    split = req("m", "Parts shall resist corrosion in molten sulfur application.")
+    apart = [fact("Medium", "molten salt"), fact("Contaminant", "sulfur")]
+    assert clause_support.gate([split], facts=apart)["held"]
+    assert (
+        clause_support.gate([split], facts=[fact("Medium", "Molten sulfur")])["held"]
+        == []
+    )
+    assert (
+        clause_support.gate([water], facts=[fact("Fluid", "water, treated")])["held"]
+        == []
+    )
 
 
 def test_the_same_service_on_the_sheet_keeps_the_sentence():
@@ -138,8 +168,8 @@ def test_a_blank_field_states_nothing_and_a_sheet_with_no_text_holds_nothing():
 def test_the_service_gate_carries_both_results_to_the_run():
     out = service_scope.gate([LIST, SEAL, SHALL], facts=FACTS)
     assert [r["id"] for r in out["kept"]] == ["s"]
-    assert [i["requirement"]["id"] for i in out["items"]] == ["l"]
-    assert [h["requirement"]["id"] for h in out["held"]] == ["p"]
+    assert out["items"] == []
+    assert [h["requirement"]["id"] for h in out["held"]] == ["l", "p"]
 
 
 # ------------------------------------------------------------------- on a review
@@ -186,7 +216,7 @@ def _doc(doc_id, role, text, **meta):
         )
 
 
-def test_a_review_sets_a_list_aside_and_holds_a_sentence_for_another_service(
+def test_a_review_holds_a_list_and_a_sentence_for_another_service(
     temp_storage,
 ):
     _doc("std", "COMPANY_STANDARD", "x", document_number="STD-1")
@@ -234,8 +264,9 @@ def test_a_review_sets_a_list_aside_and_holds_a_sentence_for_another_service(
         run, allowed_document_ids=frozenset({"std", "sub"})
     )
     stored = {d["requirement_id"]: d for d in scope_ledger.decisions_for(run)}
-    assert stored[ids["list"]]["state"] == scope_ledger.DOES_NOT_APPLY
-    assert stored[ids["list"]]["reason_code"] == "no_requirement_stated"
+    assert stored[ids["list"]]["state"] == scope_ledger.APPLIES_NOT_CHECKED
+    assert stored[ids["list"]]["reason_code"] == "applicability_unsure"
+    assert "states no requirement" in stored[ids["list"]]["reason"]
     assert stored[ids["plan"]]["state"] == scope_ledger.APPLIES_NOT_CHECKED
     assert stored[ids["plan"]]["reason_code"] == "service_unknown"
     assert "plan 32" in stored[ids["plan"]]["reason"]
