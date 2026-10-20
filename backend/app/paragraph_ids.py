@@ -16,7 +16,8 @@ no shape clearly dominates, or the requirement's own sentence is not found in
 its chunk, the answer is None and the CRS keeps saying "paragraph not
 identified": unsure is never guessed (CLAUDE.md rule 4).
 
-A heading is either a line of its own (a title in Title Case or capitals) or a
+A heading is either a line of its own (a short, capital-initial, number-free
+line that does not end in a full stop: Title Case or capitals) or a
 RUN-IN heading: the identifier, a title in CAPITALS, and the text of the
 paragraph (often its first sub-paragraph "(a)") on the same line.
 
@@ -86,7 +87,8 @@ def _lines(text: str) -> list[tuple[int, str]]:
 
 def _is_title(title: str) -> bool:
     """A heading line's title is short, does not read as a sentence (no closing
-    full stop, comma or semicolon) and holds no number of its own."""
+    full stop, comma or semicolon) and holds no number of its own. It does not
+    check the case of the words: any such capital-initial line passes."""
     title = title.strip()
     return (
         2 <= len(title) <= MAX_TITLE
@@ -212,7 +214,18 @@ def _unplaced_heading(
     before it. A contents entry or table row (a number or dot leaders after
     the title) is not a heading. A heading in none of the four shapes ("E-3"
     alone on its line, "APPENDIX E", "A1-2 TITLE") is not seen: shape alone
-    cannot tell. Unsure is "not identified", never the paragraph before."""
+    cannot tell. Unsure is "not identified", never the paragraph before.
+
+    Known limits, both pinned by tests. (1) A Title Case heading whose sentence
+    follows on the same line with no marker ("A.1 General Requirements The weld
+    shall ...") is not seen: a Title Case run followed by a lowercase word cannot
+    be told from prose without a word list, so the paragraph before is returned.
+    (2) The guard fails safe: ANY short, capital-initial, number-free line
+    that starts with an identifier of ANOTHER shape between the heading and the
+    sentence (an unmarked list item, a footer) gives None; likelier in
+    list-heavy standards. A line of the standard's OWN shape that looks like a
+    heading is read as one (a list item "2 Welds shall be examined" in a
+    dotted standard): shape alone cannot tell them apart."""
     for at, line in _lines(text):
         if not start < at <= stop:
             continue
