@@ -396,3 +396,59 @@ def test_the_standard_is_read_once_and_read_again_when_its_chunks_change():
     ]
     paragraph_ids.attach(again)
     assert again[0]["paragraph_id"] == "XQ-20(b)"
+
+
+@pytest.mark.parametrize(
+    "text, shape, source, expected",
+    [
+        (
+            RUN_IN,
+            "prefixed",
+            "XQ-31 GENERAL RULES NUMBER (a) Some words of the first paragraph number 31.",
+            "XQ-31(a)",
+        ),
+        (
+            STYLE_PREFIXED,
+            "prefixed",
+            "XQ-20 DESIGN CONDITIONS\n(a) General words about design.",
+            "XQ-20",
+        ),
+    ],
+)
+def test_a_sentence_that_opens_with_its_own_heading_is_under_that_heading(
+    text, shape, source, expected
+):
+    # The heading line that starts the sentence is the sentence's heading, not
+    # the paragraph before it (a wrong citation, shown with no sign of a guess).
+    assert paragraph_ids.paragraph_for([text], 0, source, shape) == expected
+
+
+@pytest.mark.usefixtures("temp_storage")
+def test_a_standard_is_read_once_per_attach_however_many_findings_it_has(monkeypatch):
+    _std, ids = _standard_with([RUN_IN])
+    sources = [
+        "The minimum metal temperature used in design shall be the lowest expected.",
+        "Except as required in the note below, the maximum temperature used in design",
+        "A detail of the minimum that carries its own limit for the design of the part.",
+    ]
+    findings = [
+        {
+            "requirement_id": _requirement(ids[0], source),
+            "standard_document_id": "std",
+            "standard_clause": "0.3",
+            "clause_identified": False,
+        }
+        for source in sources
+    ]
+    reads = []
+    real = paragraph_ids._read
+    monkeypatch.setattr(
+        paragraph_ids, "_read", lambda std: reads.append(std) or real(std)
+    )
+    paragraph_ids.attach(findings)
+    assert reads == ["std"]
+    assert [f["paragraph_id"] for f in findings] == [
+        "XQ-20(b)",
+        "XQ-20(a)",
+        "XQ-20(b)(1)",
+    ]

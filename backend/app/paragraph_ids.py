@@ -210,30 +210,36 @@ def paragraph_for(
     source_text: str,
     shape: str,
     skip: frozenset[str] = frozenset(),
+    heads: list[list[tuple[int, str, str]]] | None = None,
 ) -> str | None:
     """The paragraph id the requirement's `source_text` sits under: the last
-    heading of `shape` before it, looking back through up to `LOOK_BACK`
-    earlier chunks, with the sub-paragraph in force. None when the sentence is
-    too short to place, is not in its chunk exactly once, or no heading
-    precedes it."""
+    heading of `shape` at or before it (a sentence that opens with its own
+    heading line is under that heading), looking back through up to
+    `LOOK_BACK` earlier chunks, with the sub-paragraph in force. None when the
+    sentence is too short to place, is not in its chunk exactly once, or no
+    heading precedes it. `heads` is each chunk's `headings`, when already
+    known (the per-standard memo)."""
     probe = _normal(source_text)[:80]
     if len(probe) < MIN_PROBE:
         return None
     here = _position_of(chunks[index], probe)
     if here is None:
         return None
-    first = max(0, index - LOOK_BACK)
-    before = "\n".join(chunks[first:index])
-    window = (before + "\n" if before else "") + chunks[index]
-    position = (len(before) + 1 if before else 0) + here
-    found = [
-        (at, i, inline)
-        for at, i, inline in headings(window, shape, skip)
-        if at < position
-    ]
+
+    def of(i: int) -> list[tuple[int, str, str]]:
+        return heads[i] if heads is not None else headings(chunks[i], shape, skip)
+
+    found = [h for h in of(index) if h[0] <= here]
+    first = index
+    while not found and first > max(0, index - LOOK_BACK):
+        first -= 1
+        found = of(first)
     if not found:
         return None
     at, ident, inline = found[-1]
+    before = "\n".join(chunks[first:index])
+    window = (before + "\n" if before else "") + chunks[index]
+    position = (len(before) + 1 if before else 0) + here
     return ident + _sub_marks(window, at, position, inline)
 
 
@@ -257,8 +263,8 @@ _CACHE_SIZE = 4
 
 
 def _load(standard: str):
-    """(texts, {chunk id: index}, numbering shape, running headers) of one
-    standard's own chunks."""
+    """(texts, {chunk id: index}, numbering shape, running headers, each
+    chunk's headings) of one standard's own chunks."""
     rows = (
         connect()
         .execute(
@@ -269,12 +275,9 @@ def _load(standard: str):
     )
     texts = [r["text"] or "" for r in rows]
     skip = running_headers(texts)
-    return (
-        texts,
-        {r["id"]: i for i, r in enumerate(rows)},
-        dominant_shape(texts, skip),
-        skip,
-    )
+    shape = dominant_shape(texts, skip)
+    heads = [headings(t, shape, skip) for t in texts] if shape else []
+    return (texts, {r["id"]: i for i, r in enumerate(rows)}, shape, skip, heads)
 
 
 def _read(standard: str):
@@ -324,11 +327,17 @@ def attach(findings: list[dict]) -> None:
             part,
         ):
             requirements[r["id"]] = (r["chunk_id"], r["source_text"])
+    reads: dict[str, tuple] = {}
     for f in wanted:
-        texts, position, shape, skip = _read(f["standard_document_id"])
+        standard = f["standard_document_id"]
+        if standard not in reads:
+            reads[standard] = _read(standard)
+        texts, position, shape, skip, heads = reads[standard]
         chunk_id, source_text = requirements.get(f["requirement_id"], (None, None))
         if shape is None or chunk_id not in position or not source_text:
             continue
-        paragraph = paragraph_for(texts, position[chunk_id], source_text, shape, skip)
+        paragraph = paragraph_for(
+            texts, position[chunk_id], source_text, shape, skip, heads
+        )
         if paragraph:
             f["paragraph_id"] = paragraph
