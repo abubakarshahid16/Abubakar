@@ -294,8 +294,7 @@ class TestCompoundTerm:
         # a blank with no unit printed: a field in bar would be another
         # quantity than a temperature (rule 6) and is refused for that
         result = comparison.match_by_containment(
-            req,
-            [fact("Bearing", is_blank=True, raw_value=None, raw_unit=None, unit=None)],
+            req, [fact("Bearing", raw_value="sleeve", raw_unit=None, unit=None)]
         )
         assert result["fact"]["field_name"] == "Bearing"
         assert result["refused"] == []
@@ -338,6 +337,7 @@ class TestRefusal:
             match_rules.COMPOUND_TERM,
             match_rules.QUALIFIER,
             match_rules.QUANTITY_KIND,
+            match_rules.NOT_ASKED,
         }
 
     def test_no_rule_fires_on_the_plain_case(self):
