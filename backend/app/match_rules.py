@@ -60,7 +60,7 @@ import re
 from functools import cache, lru_cache
 from pathlib import Path
 
-from . import claims
+from . import claims, required_values
 
 # ------------------------------------------------------------------ reasons
 #: Why a containment hit was refused. Every refusal carries one of these so a
@@ -73,7 +73,6 @@ COMPOUND_TERM = "compound_term"
 QUALIFIER = "qualifier"
 #: Rule 6 (order 139): the two sides name different kinds of quantity.
 QUANTITY_KIND = "quantity_kind"
-REQUIRED_KIND = "required_kind"
 
 REASONS: tuple[str, ...] = (
     UNIT_DIMENSION,
@@ -82,7 +81,7 @@ REASONS: tuple[str, ...] = (
     COMPOUND_TERM,
     QUALIFIER,
     QUANTITY_KIND,
-    REQUIRED_KIND,
+    required_values.REQUIRED_KIND,
 )
 
 # ------------------------------------------------------------------ domains
@@ -781,16 +780,10 @@ def model_pairing_doubt(requirement: dict, fact: dict) -> str | None:
     return None
 
 
-def is_purchaser_kind(fact: dict | None) -> bool:
-    """#882: the reader recorded this value as the PURCHASER'S requirement
-    (`section` = `model:required`); a code-reader fact has no kind."""
-    return str((fact or {}).get("section") or "").strip().lower() == "model:required"
-
-
 def refusal(requirement: dict, fact: dict, *, sheet: str | None) -> str | None:
     """The first rule that refuses this pairing, by name, or None to allow it."""
-    if is_purchaser_kind(fact):
-        return REQUIRED_KIND
+    if required_values.is_purchaser_kind(fact):
+        return required_values.REQUIRED_KIND
     if unit_dimension_conflict(requirement, fact):
         return UNIT_DIMENSION
     if quantity_kind_conflict(requirement, fact):
