@@ -18,25 +18,23 @@ NOW = "2026-10-20T00:00:00Z"
 
 def _pad(prefix: str, n: int) -> str:
     """Enough other headings of one style that a standard has a numbering."""
-    return "\n".join(
-        f"{prefix}{i} Filler heading {i}\nSome text {i}." for i in range(n)
-    )
+    return "\n".join(f"{prefix}{i} Filler heading\nSome text {i}." for i in range(n))
 
 
 # A: letters-hyphen-number paragraph ids with lettered sub-paragraphs.
 STYLE_PREFIXED = (
     _pad("XQ-", 9)
     + "\nXQ-20 DESIGN CONDITIONS\n(a) General words about design.\n"
-    + "(b) The maximum design pressure shall not exceed 12 bar at 80 degrees.\n(1) A detail under it.\n"
+    + "(b) The maximum design pressure shall not exceed 12 bar at 80 degrees.\n(1) A detail under it that matters for the design.\n"
 )
 # B: dotted numbers.
 STYLE_DOTTED = (
-    "\n".join(f"{i}.{i} Section {i}\nText {i}." for i in range(1, 10))
+    "\n".join(f"{i}.{i} Section\nText {i}." for i in range(1, 10))
     + "\n5.3.2 Wall thickness\nThe wall thickness shall be at least 6 mm.\n"
 )
 # C (held out): a number, a hyphen, a number.
 STYLE_HELD_OUT = (
-    "\n".join(f"{i}-{i} Part {i}\nText {i}." for i in range(1, 10))
+    "\n".join(f"{i}-{i} Part\nText {i}." for i in range(1, 10))
     + "\n12-4.1 Test pressure\nThe test pressure shall be 1.5 times the design pressure.\n"
 )
 
@@ -49,7 +47,11 @@ STYLE_HELD_OUT = (
             "The maximum design pressure shall not exceed 12 bar",
             "XQ-20(b)",
         ),
-        (STYLE_PREFIXED, "A detail under it.", "XQ-20(b)(1)"),
+        (
+            STYLE_PREFIXED,
+            "A detail under it that matters for the design.",
+            "XQ-20(b)(1)",
+        ),
         (STYLE_DOTTED, "The wall thickness shall be at least 6 mm.", "5.3.2"),
         (
             STYLE_HELD_OUT,
@@ -83,9 +85,7 @@ def test_unsure_is_none_never_a_guess():
     assert (
         paragraph_ids.dominant_shape([few]) is None
     )  # too few headings to be a numbering
-    mixed = (
-        _pad("XQ-", 5) + "\n" + "\n".join(f"{i}.{i} S{i} Title\nT" for i in range(1, 6))
-    )
+    mixed = _pad("XQ-", 5) + "\n" + "\n".join(f"{i}.{i} Title\nT" for i in range(1, 6))
     assert paragraph_ids.dominant_shape([mixed]) is None  # no shape holds half
     assert (
         paragraph_ids.paragraph_for(
@@ -231,3 +231,77 @@ def test_the_crs_cites_the_paragraph_instead_of_saying_it_is_not_identified():
         "paragraph_id": "ignored",
     }
     assert "cl. 5.3" in crs_mapping._standard_reference(ok)
+
+
+# ----------------------------- what the independent review found: never a wrong paragraph
+
+BODY = _pad("XQ-", 9) + "\nXQ-21 Scope\n(a) intro\n"
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "XQ-20 shall apply to the vessel when hot.",
+        "XQ-20 shall apply to the vessel when hot and tested",  # no closing full stop
+    ],
+)
+def test_a_cross_reference_line_is_not_a_heading(line):
+    text = BODY + line + "\nThe vessel shall be tested at 5 bar.\n"
+    got = paragraph_ids.paragraph_for(
+        [text], 0, "The vessel shall be tested at 5 bar.", "prefixed"
+    )
+    assert got == "XQ-21(a)"  # not XQ-20
+
+
+@pytest.mark.parametrize(
+    "row", ["XQ-99 Hot 5 bar", "XQ-99 Design pressure is exceeded."]
+)
+def test_a_table_row_or_a_sentence_is_not_a_heading(row):
+    text = BODY + row + "\nThe vessel shall be tested at 5 bar.\n"
+    got = paragraph_ids.paragraph_for(
+        [text], 0, "The vessel shall be tested at 5 bar.", "prefixed"
+    )
+    assert got == "XQ-21(a)"
+
+
+def test_a_running_header_in_many_chunks_is_not_a_heading():
+    chunks = [f"XQ-500 Welded Tanks\nBody text {i} of this page.\n" for i in range(4)]
+    chunks[3] = BODY + "XQ-500 Welded Tanks\nThe vessel shall be tested at 5 bar.\n"
+    skip = paragraph_ids.running_headers(chunks)
+    assert "XQ-500" in skip
+    got = paragraph_ids.paragraph_for(
+        chunks, 3, "The vessel shall be tested at 5 bar.", "prefixed", skip
+    )
+    assert got == "XQ-21(a)"
+
+
+def test_a_sentence_that_occurs_twice_cannot_be_placed():
+    text = (
+        _pad("XQ-", 9)
+        + "\nXQ-21 First\nThe pump shall be sealed against leakage.\nXQ-22 Second\n"
+        + "The pump shall be sealed against leakage.\n"
+    )
+    assert (
+        paragraph_ids.paragraph_for(
+            [text], 0, "The pump shall be sealed against leakage.", "prefixed"
+        )
+        is None
+    )
+
+
+def test_a_sentence_too_short_to_place_is_none():
+    assert paragraph_ids.paragraph_for([STYLE_PREFIXED], 0, "Yes.", "prefixed") is None
+
+
+def test_two_shapes_with_the_same_number_of_headings_are_not_a_numbering():
+    tied = _pad("XQ-", 10) + "\n" + "\n".join(f"{i}.{i} Title\nT" for i in range(1, 11))
+    assert paragraph_ids.dominant_shape([tied]) is None
+
+
+def test_the_sub_paragraph_survives_a_heading_in_an_earlier_chunk():
+    first = _pad("XQ-", 9) + "\nXQ-30 LATER RULES\n(b) The first part of the rule.\n"
+    second = "The continuing sentence of that paragraph says something specific."
+    assert (
+        paragraph_ids.paragraph_for([first, second], 1, second, "prefixed")
+        == "XQ-30(b)"
+    )
