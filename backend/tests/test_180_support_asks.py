@@ -15,9 +15,9 @@ from app import (
     datasheets,
     db,
     match_rules,
-    statement_asks,
     scope_ledger,
     standards,
+    statement_asks,
     submittal_review,
 )
 from app.config import settings
@@ -32,7 +32,7 @@ def req(text, kind="statement"):
 NOT_ASKING = [
     "Weld repairs shall be re-examined and the results noted on a data report.",
     "Ultrasonic examination shall be performed on all butt welds.",
-    "The pump bearing temperature shall be monitored continuously.",
+    "Welders shall be qualified before work starts and records kept.",
 ]
 ASKING = [
     "The vendor shall state the ultrasonic examination extent.",
@@ -167,3 +167,13 @@ def test_a_blank_field_is_supported_only_by_the_clause_that_asks_for_it(temp_sto
     stored = {d["requirement_id"]: d for d in scope_ledger.decisions_for(run)}
     assert stored[ids["asks"]]["reason_code"] == "missing_information"
     assert stored[ids["repair"]]["reason_code"] != "missing_information"
+
+
+def test_a_statement_that_names_its_value_or_carries_one_still_asks():
+    named = "The casing material shall be carbon steel or stainless steel grade 316."
+    assert statement_asks.asks_to_state(req(named))
+    rated = "Nozzle flanges shall have a minimum pressure rating of Class 300."
+    assert statement_asks.asks_to_state(req(rated))
+    assert statement_asks.asks_to_state(
+        {**req(NOT_ASKING[0]), "raw_value": "Class 300"}
+    )

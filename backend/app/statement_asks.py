@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import re
 
+from . import field_links
+
 #: A stating verb after a modal or "to (be)" ("shall be specified", "vendor to
 #: state"), or opening the sentence ("Provide the ...").
 _ASKS_TO_STATE = re.compile(
@@ -25,12 +27,23 @@ _ASKS_TO_STATE = re.compile(
 
 
 def asks_to_state(requirement: dict) -> bool:
-    """True unless this is a plain statement that asks for no stated value."""
+    """True unless this is a plain statement that asks for no stated value.
+
+    A statement asks when it says the sheet must state something, or when it
+    carries a value of its own that the field answers: a value it names ("shall
+    be carbon steel or stainless steel grade 316"), a closed class or rating
+    (`field_links.categorical_requirement`), or a parsed value."""
     if requirement.get("requirement_type") != "statement":
+        return True
+    if requirement.get("raw_value") not in (None, ""):
         return True
     text = " ".join(
         str(
             requirement.get("source_text") or requirement.get("requirement_text") or ""
         ).split()
     )
-    return _ASKS_TO_STATE.search(text) is not None
+    return (
+        _ASKS_TO_STATE.search(text) is not None
+        or bool(field_links.named_values(text))
+        or field_links.categorical_requirement(text) is not None
+    )
