@@ -182,7 +182,8 @@ one after its baseline.
 
 `scripts/pf1_run.py` sends each sheet of the built set through a **test**
 server: upload (the invented group also uploads its invented standard, sets it
-as a company standard and extracts it), start the review, wait for its job,
+as a company standard, records its document number from the index (the review
+includes a standard only by its recorded number) and extracts it), start the review, wait for its job,
 write `<id>.run.json` (run id, job state, minutes; no document text) and
 `run-index.json`. It does not score: export the findings from a copy of the
 test server's database with `scripts/review_score.py export --run RUN_ID`, then
