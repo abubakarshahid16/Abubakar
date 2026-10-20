@@ -104,7 +104,7 @@ def test_a_fallback_is_a_warning_on_the_metrics_surface(monkeypatch, tmp_path):
         ai_task_runner._tags_cache.clear()
         _engine(monkeypatch, ["other:1b"])
         [none] = ai_task_runner.warnings()
-        assert "held for the engineer" in none["message"]
+        assert "part-scope step holds" in none["message"]
     finally:
         db.reset_connection()
 
