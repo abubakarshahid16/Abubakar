@@ -123,3 +123,11 @@ def test_a_heading_after_a_filled_slot_is_still_a_heading():
     out, out_slots = slot_options.fold(parts, slots, datasheets.is_field_label)
     assert out == ["Material", "GRADE", "HEAD - Radial", "___", "HEAD - Axial", "___"]
     assert out_slots == [False, True, False, True, False, True]
+
+
+def test_a_value_in_front_of_two_filled_slot_fields_keeps_its_label():
+    # Slot cells that carry an answer written on the drawn line (`80`, `10`).
+    parts = ["Fluid", "Water", "Design temperature", "80", "Design pressure", "10"]
+    slots = [False, False, False, True, False, True]
+    out, out_slots = slot_options.fold(parts, slots, datasheets.is_field_label)
+    assert (out, out_slots) == (parts, slots)
