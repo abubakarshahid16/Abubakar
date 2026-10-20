@@ -3,7 +3,7 @@ and no placeholder text ever takes a CRS row (planner answer on #692).
 
 Two AI drafts about the same datasheet field ("Minimum operating pressure"
 twice) were two rows. `merge` marks them: the lowest id leads, carries both
-drafts' words (`crs_text`), every id (`crs_merged_ids`), the key a number could
+drafts' words (as its `finding`), every id (`crs_merged_ids`), the key a number could
 have been issued under (`crs_member_keys`) and a key that depends on the field
 alone (`crs_key`, so the row's number survives a draft being added or
 dropped); the others are `crs_skip`. When the drafts differ the row keeps all
@@ -72,7 +72,7 @@ def merge(findings: list[dict]) -> None:
         lead["crs_member_keys"] = sorted(cm.finding_comment_key(f) for f in group)
         lead["crs_merged_ids"] = [f.get("id") for f in group if f.get("id")]
         lead["crs_key"] = cm.comment_key("ai drafts of one field", *key[:3])
-        lead["crs_text"] = _drafts_text(cm, group)
+        lead["finding"], lead["required_action"] = _drafts_text(cm, group), ""
         if lead["origin"] == cm._AI_ORIGIN:
             names = dict.fromkeys(n for n in map(cm._ai_relates_to, group) if n)
             lead["ai_rationale"] = (
@@ -97,3 +97,13 @@ def _drafts_text(cm, group: list[dict]) -> str:
         return drafts[0]
     numbered = " ".join(f"({i}) {d}" for i, d in enumerate(distinct.values(), 1))
     return f"{len(distinct)} drafts about this field differ; all are kept. {numbered}"
+
+
+def row_extras(finding: dict) -> dict:
+    """What a row built from this finding adds: every finding it stands on
+    (a decision on the row decides all of them, #986) and the keys its drafts
+    were numbered under."""
+    return {
+        "finding_ids": finding.get("crs_merged_ids") or [finding.get("id") or ""],
+        "member_keys": finding.get("crs_member_keys") or [],
+    }

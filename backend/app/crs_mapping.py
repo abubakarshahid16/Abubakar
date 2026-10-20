@@ -239,7 +239,7 @@ def rejected_comment_keys(findings: list[dict]) -> set[str]:
 
 
 def _finding_text(f: dict) -> str:
-    return f.get("crs_text") or " ".join(p for p in (f.get("finding"), f.get("required_action")) if p)
+    return " ".join(p for p in (f.get("finding"), f.get("required_action")) if p)
 
 
 #: The shapes a stored "Comment By" names one person in, as `_by`, the
@@ -1236,6 +1236,7 @@ def crs_groups(findings: list[dict]) -> list[dict]:
     blanks = by.get(BUCKET_BLANK, [])
     not_found = by.get(BUCKET_NOT_FOUND, [])
     questions = by.get(BUCKET_QUESTION, [])
+    # A datasheet check about a fact a standard's row already names is that row.
     covered = {f.get("fact_id") for f in breaches + blanks if f.get("fact_id")}
     checks = [
         f
@@ -1594,8 +1595,6 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
         )
         rows.append({
             "finding_id": f.get("id") or "",
-            "finding_ids": f.get("crs_merged_ids") or [f.get("id") or ""],
-            "member_keys": f.get("crs_member_keys") or [],
             "document_name": submittal_name,
             "page_section": where,
             "comment": text if confirmed else unconfirmed_comment,
@@ -1613,6 +1612,7 @@ def build_crs_rows(findings: list[dict], missing_references: list[str],
             # R30: the chain behind the item (internal copy only).
             "reasoning": reasoning_text([f]),
         })
+        rows[-1].update(crs_ai_drafts.row_extras(f))
         rank = row_priority(BUCKET_AI if origin == _AI_ORIGIN else BUCKET_WEB)
         sort_keys.append(_rank_row(rows[-1], rank, [f]))
 
