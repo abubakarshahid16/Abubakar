@@ -563,6 +563,68 @@ def describe(user_id: str) -> dict | None:
 # -------------------------------------------------------------- the resolver
 
 
+# ------------------------------------------------------------ the cookie session
+#
+# Owner order 164.2: the browser's login lives in an HttpOnly cookie, so the
+# page never holds the token and a reload keeps the user signed in. The token
+# is the SAME signed blob (same 8 hours, same revoke and deactivate checks);
+# only where the browser keeps it changes. A bearer header still works and
+# wins: it is not cookie-borne, so it needs none of the CSRF layers below.
+
+COOKIE_NAME = "rag_session"
+#: A write that rides on the cookie must carry this header: a page on another
+#: site cannot set it without a CORS preflight, and the CORS list is the dev
+#: origin only.
+CSRF_HEADER = "x-requested-with"
+CSRF_VALUE = "rag-ui"
+SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+#: The Vite dev origins (the same list the CORS middleware allows).
+DEV_ORIGINS = ("http://127.0.0.1:5173", "http://localhost:5173")
+
+
+def _origin_ok(request: Request) -> bool:
+    """No Origin header (a tool, not a browser page) is fine; a browser page's
+    Origin must be this server's own host or the dev origin."""
+    origin = request.headers.get("origin")
+    if origin is None:
+        return True
+    if origin in DEV_ORIGINS:
+        return True
+    own = (request.headers.get("host") or "").lower()
+    return bool(own) and origin.lower().partition("://")[2] == own
+
+
+def csrf_ok(request: Request) -> bool:
+    """True when a cookie-borne request may act: reads always, a write only with
+    the custom header AND a matching Origin."""
+    if request.method in SAFE_METHODS:
+        return True
+    return request.headers.get(CSRF_HEADER) == CSRF_VALUE and _origin_ok(request)
+
+
+def cookie_secure(request: Request) -> bool:
+    """`Secure` on the cookie. `auto` (the default): when the request came over
+    https (directly or by `X-Forwarded-Proto`). Browsers differ on a Secure
+    cookie over plain http on loopback (Safari drops it), so plain loopback is
+    not Secure under `auto`; `true` / `false` force it."""
+    mode = str(settings.auth_cookie_secure or "auto").strip().lower()
+    if mode in ("true", "false"):
+        return mode == "true"
+    forwarded = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
+    return request.url.scheme == "https" or forwarded == "https"
+
+
+def set_session_cookie(response, request: Request, token: str) -> None:
+    response.set_cookie(
+        COOKIE_NAME, token, max_age=settings.auth_token_seconds, path="/",
+        httponly=True, samesite="strict", secure=cookie_secure(request))
+
+
+def clear_session_cookie(response, request: Request) -> None:
+    response.delete_cookie(COOKIE_NAME, path="/", httponly=True, samesite="strict",
+                           secure=cookie_secure(request))
+
+
 def resolve_user_id(request: Request) -> str | None:
     """The entire client-influenced surface of authorisation.
 
@@ -575,14 +637,19 @@ def resolve_user_id(request: Request) -> str | None:
     """
     header = request.headers.get("authorization") or ""
     scheme, _, token = header.partition(" ")
-    if scheme.lower() != "bearer" or not token.strip():
-        return None
-    user_id = read_token(token.strip())
+    token = token.strip()
+    if scheme.lower() != "bearer" or not token:
+        # Order 164.2: the browser's cookie. A write on it must also pass the
+        # CSRF layers; one that does not is simply not signed in.
+        token = request.cookies.get(COOKIE_NAME) or ""
+        if not token or not csrf_ok(request):
+            return None
+    user_id = read_token(token)
     if not user_id:
         return None
     row = connect().execute(
         "SELECT id FROM users WHERE id = ? AND is_active = 1 AND token_epoch = ?",
-        (user_id, _token_epoch(token.strip())),
+        (user_id, _token_epoch(token)),
     ).fetchone()
     return row["id"] if row else None
 

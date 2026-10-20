@@ -53,7 +53,7 @@ import type {
   ReviewTraceability,
 } from "../types/api";
 
-import { BASE, request, disconnected, humanMessage, hasArrayField, hasNumberField, downloadReport, signOutOn401, token } from "./core";
+import { BASE, request, disconnected, humanMessage, hasArrayField, hasNumberField, downloadReport, signOutOn401, markSession } from "./core";
 import type { DownloadResult, Result, SheetMark } from "./core";
 export const analysis = {
   summary: (body: AnalysisRequest) =>
@@ -84,7 +84,7 @@ async function fetchSpreadsheet(
   let response: Response;
   try {
     const headers = new Headers();
-    if (token) headers.set("Authorization", `Bearer ${token}`);
+    markSession(headers);
     response = await fetch(`${BASE}${path}`, { headers, method });
   } catch (e) {
     return disconnected(

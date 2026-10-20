@@ -315,6 +315,9 @@ class Settings(BaseSettings):
     #: and an ingest runs for minutes, so a short token means a login screen
     #: appearing in the middle of a demo.
     auth_token_seconds: int = 8 * 60 * 60
+    #: Order 164.2: `Secure` on the sign-in cookie. `auto`: when the request is
+    #: https; `true` / `false` force it (see `auth.cookie_secure`).
+    auth_cookie_secure: str = "auto"
     #: Failed logins per email before a lockout, and the window. In memory,
     #: never a table: a row per failed login would let anyone who can reach
     #: the port write to the SQLite file ingestion is using.

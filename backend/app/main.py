@@ -258,7 +258,7 @@ async def _orphaning_refused(_request: Request, exc: orphan_guard.OrphaningRefus
 # Vite dev server only. No wildcard - this API serves document content.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
+    allow_origins=list(auth_mod.DEV_ORIGINS),
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=[paging_mod.TOTAL_HEADER],  # a bare list's total (order 117 item 5)
@@ -631,8 +631,9 @@ def _require_owned_conversation(conversation_id: str, scope: access.AccessScope)
 
 @app.post("/api/auth/login", response_model=schemas.LoginResult,
           responses={**schemas.ERRORS_422})
-def login(body: schemas.LoginRequest, request: Request):
-    """Exchange credentials for a bearer token.
+def login(body: schemas.LoginRequest, request: Request, response: Response):
+    """Exchange credentials for a bearer token, or (`session: "cookie"`, the
+    browser's way) for an HttpOnly cookie with no token in the body.
 
     Unauthenticated by construction - it is how a caller becomes
     authenticated. It is also the only unauthenticated WRITER in the API, and
@@ -647,8 +648,13 @@ def login(body: schemas.LoginRequest, request: Request):
         # transports (a raw ASGI test call), and None simply means the email
         # bucket alone applies.
         client_host = request.client.host if request.client else None
-        return auth_mod.login(body.email, body.password,
-                              client_host=client_host)
+        result = auth_mod.login(body.email, body.password,
+                                client_host=client_host)
+        if body.session == "cookie":
+            # Order 164.2: the page never holds the token.
+            auth_mod.set_session_cookie(response, request, result["token"])
+            result = {**result, "token": None}
+        return result
     except auth_mod.AuthError as exc:
         headers = ({"Retry-After": str(exc.retry_after)}
                    if exc.retry_after else None)
@@ -657,6 +663,15 @@ def login(body: schemas.LoginRequest, request: Request):
             detail=errors.safe_error(exc.code, exc.message),
             headers=headers,
         ) from exc
+
+
+@app.post("/api/auth/logout", response_model=schemas.LogoutResult)
+def logout(request: Request, response: Response):
+    """Forget the browser's sign-in: clear the cookie. No session is needed (a
+    sign-out of nobody is still fine) and nothing is written. A bearer token,
+    held by a tool, is the tool's to drop; use `/api/auth/revoke` to end it."""
+    auth_mod.clear_session_cookie(response, request)
+    return {"signed_out": True}
 
 
 @app.post("/api/auth/password/reset", response_model=schemas.PasswordResetResult,

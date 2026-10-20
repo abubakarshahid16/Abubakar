@@ -28,7 +28,7 @@ import type {
   GrantRequest,
   LoadFailure,
 } from "../types/admin";
-import { reportResponseStatus } from "../api/client";
+import { SESSION_HEADER, reportResponseStatus } from "../api/client";
 import { AdminView } from "./AdminView";
 import { CompanyStandardsSection } from "./admin/CompanyStandardsSection";
 import { DatabaseSection } from "./admin/DatabaseSection";
@@ -55,6 +55,7 @@ async function adminRequest<T>(
   let response: Response;
   try {
     const headers = new Headers(init?.headers);
+    headers.set(SESSION_HEADER.name, SESSION_HEADER.value); // the cookie rides by itself
     if (token) headers.set("Authorization", `Bearer ${token}`);
     response = await fetch(`${BASE}${path}`, { ...init, headers });
   } catch (e) {
