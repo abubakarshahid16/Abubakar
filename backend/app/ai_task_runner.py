@@ -377,7 +377,8 @@ def warnings() -> list[dict]:
     tail = (
         f"They run on {status['used']} instead."
         if status["fallback"]
-        else "They cannot read, so the clauses they screen are held for the engineer."
+        else "They cannot read: the part-scope step holds what it could not read "
+        "for the engineer, and the other steps report \"could not read\"."
     )
     return [
         {
