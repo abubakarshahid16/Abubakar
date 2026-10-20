@@ -24,8 +24,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         phase=1210,
         description="any named reader's value counts as proved, so a reader no check stands behind is trusted",
         path=APP / "comparison.py",
-        anchor="""box.get("reader") in _PROVED_QUOTE_READERS and""",
-        replacement="""box.get("reader") and""",
+        anchor="""        and box.get("reader") in _PROVED_QUOTE_READERS
+""",
+        replacement="""        and box.get("reader")
+""",
         target=_T,
         keyword="form_reader_value_whose_quote",
         tags=("honesty",),

@@ -586,7 +586,11 @@ def ai_quote_proved(fact: dict | None) -> dict | None:
         box = json.loads((fact or {}).get("bbox") or "{}")
     except (TypeError, ValueError):
         return None
-    if isinstance(box, dict) and box.get("reader") in _PROVED_QUOTE_READERS and box.get("quote_on_page") is True:
+    if (
+        isinstance(box, dict)
+        and box.get("reader") in _PROVED_QUOTE_READERS
+        and box.get("quote_on_page") is True
+    ):
         return box
     return None
 
