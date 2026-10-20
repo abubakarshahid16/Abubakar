@@ -64,10 +64,12 @@ def test_a_blank_the_contractor_left_is_still_the_contractors():
 
 
 def test_a_row_carries_the_worst_severity_of_its_findings():
-    rows = build_crs_rows([_nc("PSV-1", "12 barg", 2, severity="minor"),
-                           _nc("PSV-2", "13 barg", 2, severity="major")], [], "psv.pdf")
-    assert rows[0]["severity"] == "major"
-    assert build_crs_rows([dict(_nc("PSV-1", "12 barg", 2), severity=None)], [], "p.pdf")[0]["severity"] == ""
+    rows = build_crs_rows([_nc("PSV-1", "12 barg", 2, severity="major"),
+                           _nc("PSV-2", "13 barg", 2, severity="critical")], [], "psv.pdf")
+    assert rows[0]["severity"] == "critical"
+    # Nothing recorded on a finding that is not a failure reads as nothing; a failed one is never "".
+    blank = dict(_nc("PSV-1", "TBA", 2), severity=None, compliance_status="MISSING_INFORMATION")
+    assert build_crs_rows([blank], [], "p.pdf")[0]["severity"] == ""
 
 
 def test_rows_in_a_group_are_ordered_by_page_then_clause():

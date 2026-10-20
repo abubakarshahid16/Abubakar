@@ -86,6 +86,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `coverage` | Which documents the question was about, and which of them the answer used |
 | `clause_coverage` | PF4 (#884): the run's applicable rules in exactly one state (checked / sent to the engineer / not checked), checklist-covered apart, read from the scope ledger |
 | `crs_export` | CRS (Comment Resolution Sheet) generator - client CRS format |
+| `crs_machine_words` | Order 152.2: finds machine wording (code names, model/engine names, internal phrases) in the contractor copy's machine-written cells; the issue gate refuses it |
 | `crs_issue` | PF5 (#885): the contractor-copy gate (unread pages, undecided findings), the engineer's recorded decisions, and the archive of each issued copy with its sha256 |
 | `crs_mapping` | Write the CRS comment text |
 | `crs_numbers` | Permanent CRS comment numbers and everything that happens to a comment after it is issued: the contractor's re |
@@ -95,6 +96,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `form_reader` | Read the form of a datasheet page with a model and verify every answer in code |
 | `form_reader_fields` | Build a datasheet type's field list, schema and prompt from reference data |
 | `form_reader_run` | Run the form reader over a datasheet for extraction |
+| `severity_rule` | One rule for a severity word: a failed requirement is never minor |
 | `datasheet_checks` | Datasheet self-checks (kind B): what a datasheet says against ITSELF |
 | `datasheet_inputs` | Datasheet INPUTS other than a PDF text layer: Excel, Word, scanned pages |
 | `datasheets` | Read a contractor datasheet into facts |
@@ -119,6 +121,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `front_matter` | Front matter: passages that describe a document rather than answer from it |
 | `geometry_reader` | Geometry reader: tables and forms read from PDF positions (#193 section 5.1) |
 | `glossary` | Engineering synonyms: the words people type -> the words documents print |
+| `held_standards` | Marks and counts the standards a review held for the engineer (equipment type unsure), with the caller's boundary |
 | `heavy_lock` | One lock for the heavy jobs on a machine (#680) |
 | `highlight` | Locating a quoted answer on the rendered page |
 | `hooks_check` | Say at boot when this checkout's git hooks are not switched on |
@@ -136,6 +139,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `market_providers` | Three tiers of public information, one row shape, and no socket in sight |
 | `market_transport` | The one place in this codebase that may open a socket to the public internet |
 | `match_rules` | Rules that decide WHICH containment hit a requirement may be paired with |
+| `method_notes` | Order 159: marks the notes on HOW a pairing was made, so the engineer's copy keeps them and the contractor's copy leaves them off |
 | `metrics` | Everything the dashboard shows, and nothing it does not measure |
 | `model_evidence` | Verification of a local model's quoted evidence (B5 bounded model assistance, owner-approved 2026-09-25) |
 | `model_memory` | Free the memory the local answer models hold (#666) |
@@ -163,6 +167,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `requirements_3b` | Phase 3B: structured requirements - limits, units, conditions, exceptions |
 | `reranker` | Cross-encoder reranking, local and CPU-only |
 | `review_tiers` | Order 95: each finding of a run in ONE tier (comment / needs you / met or not applicable) with a reason word; rules from reference/review_tiers.json, the data the screen reads too (order 133); display only |
+| `review_counts` | Order 152.2: the CRS sheet's counts in ROWS (comments, needs you, met), the findings behind the comment rows, Review notes and removed, from the run's findings and the file's grouping, each with its unit; the run summary sends it as `sheet`; display only |
 | `review` | Persistent workflow records for AI-assisted engineering reviews |
 | `finding_query` | The one scope filter of the review-findings list and its count, so a page and its total agree (order 117 item 5) |
 | `paging` | The fields every paged list response carries: `total` (the page's denominator), `limit`, `offset`; a bare-list route's page with its total in `X-Total-Count` (order 117 item 5) |

@@ -10,7 +10,7 @@
  */
 import type { ActionStep, ReviewNumbers, ReviewNumbersInput } from "./contract";
 import type { ReviewRunSummary } from "../../../types/api";
-import { headlineFieldsOf, rowCounts, splitRejected } from "../crs/crsRows";
+import { headlineFieldsOf, sheetCountsOf, splitRejected } from "../crs/crsRows";
 import { signLeft } from "../crs/issueGate";
 import { needsYouFirst } from "../crs/issueContractorCopy";
 import { pageList } from "../reviewFormat";
@@ -33,7 +33,7 @@ function uniqueStrings(list: string[]): string[] {
 
 export function computeReviewNumbers(input: ReviewNumbersInput): ReviewNumbers {
   const { run, findings, rows, summary, readiness, decisions, gate } = input;
-  const counts = rowCounts(rows);
+  const { counts, findingsInComments } = sheetCountsOf(rows, summary);
   const fields = headlineFieldsOf(run, summary?.how_reviewed ?? null);
   // Order 127: the run's one list of unread pages (the server's, the one the
   // sheet header and the issue gate count). The submittal's own page record
@@ -51,7 +51,7 @@ export function computeReviewNumbers(input: ReviewNumbersInput): ReviewNumbers {
   return {
     comments: counts.comment + counts.needsYou,
     needsYou: counts.needsYou,
-    findingsInComments: commentRows.reduce((sum, r) => sum + r.findings.length, 0),
+    findingsInComments,
     met: counts.met,
     // Rows and clauses are different things: the table folds ROWS (as
     // CrsSheetView's rowCounts), the clause count is said on its own.

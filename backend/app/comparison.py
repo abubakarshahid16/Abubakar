@@ -52,7 +52,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import (absence, claims, conditions, datasheets, errors, field_copies, field_links, match_rules, numparse,
+from . import (absence, claims, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
                 page_ledger, requirements_3b, review, schemas, stated_value, submittal_review)
 from .config import settings
 from .db import connect
@@ -1573,7 +1573,7 @@ def _prepare_finding(
         "category": category,
         "severity": severity,
         "requirement": requirement.get("requirement_text") or "",
-        "finding": comment or rationale,
+        "finding": comment or method_notes.split_method_notes(rationale)[0],
         "required_action": _required_action(status),
         "confidence": _confidence_label(confidence),
         "contractor_page": (fact or {}).get("page"),
@@ -2917,8 +2917,8 @@ def _run_comparison(
                     notes.append(f"the clause's unit {requirement.get('raw_unit')!r} was "
                                  "read from its own text beside its number")
                 if notes:
-                    verdict = {**verdict, "rationale": (
-                        f"{verdict.get('rationale') or ''} ({'; '.join(notes)})")}
+                    reason, note = verdict.get("rationale") or "", method_notes.wrap(notes)
+                    verdict = {**verdict, "rationale": f"{reason} {note}"}
             # ORDER 139: SAME QUANTITY KIND, whichever method made the pair.
             verdict = _hold_unsure_kind(
                 verdict, governing_requirement, fact, match, model_reason

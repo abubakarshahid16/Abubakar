@@ -21,18 +21,10 @@ import { reviews as reviewsApi } from "../../../api/client";
 import type { CrsIssueGate, ReviewRunSummary } from "../../../types/api";
 import { REVIEW_CODES } from "../../../types/api";
 import type { CrsRow } from "./crsRows";
-import { type IssueGateState, MIN_SIGN_REASON, plural, signLeft, splitOpenItems, unreadPagesLine } from "./issueGate";
+import { type IssueGateState, MIN_SIGN_REASON, otherItemLines, plural, signLeft, splitOpenItems, unreadPagesLine } from "./issueGate";
 import { unreadPageLine } from "./pageReasons";
 import { type PlainError, plainError } from "../workspace/plainError";
 import { PlainErrorLine } from "../workspace/PlainErrorLine";
-
-const OTHER_KIND_WORDS: Record<string, string> = {
-  standard_not_cited: "a standard the datasheet does not cite",
-  standard_not_applicable: "a standard found not to apply",
-  pages_not_readable: "pages that could not be read",
-  page_reader_only: "a value only the page reader looked for",
-  missing_reference: "a standard that is not in the library",
-};
 
 const box = "space-y-2 rounded-[var(--radius-sm)] border p-3";
 const input = "min-w-0 flex-1 rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-2 py-1 text-sm text-slateish-100";
@@ -144,6 +136,8 @@ function OpenItems({ runId, gate, rows, onJump, onDecided }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const split = splitOpenItems(gate, rows);
+  // Standard names in this list come from the documents: they are drawn on this local screen only and never logged.
+  const shown = otherItemLines(split.others);
   const done = split.comments.length === 0 && split.unnumbered.length === 0 && split.others.length === 0;
   async function decideOthers(decision: "accept" | "reject") {
     if (reason.trim().length < MIN_SIGN_REASON) { setError(`Write your reason first (${MIN_SIGN_REASON} characters at least).`); return; }
@@ -194,15 +188,14 @@ function OpenItems({ runId, gate, rows, onJump, onDecided }: {
             {plural(split.others.length, "other item", "other items")} on the issued copy {split.others.length === 1 ? "is" : "are"} not on this sheet and {split.others.length === 1 ? "has" : "have"} no decision:
           </p>
           <ul className="list-disc pl-5 text-xs text-slateish-300">
-            {split.others.map((item) => (
-              <li key={item.finding_id}>{OTHER_KIND_WORDS[item.row_kind ?? ""] ?? "an item on the issued copy"}</li>
-            ))}
+            {shown.lines.map((line) => <li key={line.id}>{line.text}</li>)}
+            {shown.more > 0 && <li>and {shown.more} more of {shown.total} ({shown.moreKinds})</li>}
           </ul>
           <div className="flex flex-wrap items-center gap-2">
             <input aria-label="Reason for the other items" value={reason} placeholder="One reason for all of them"
               onChange={(e) => setReason(e.target.value)} className={input} />
-            <button type="button" disabled={busy} onClick={() => void decideOthers("accept")} className={button}>Keep them</button>
-            <button type="button" disabled={busy} onClick={() => void decideOthers("reject")} className={button}>Leave them off</button>
+            <button type="button" disabled={busy} aria-label={`Keep all ${plural(shown.total, "other item", "other items")}`} onClick={() => void decideOthers("accept")} className={button}>Keep them</button>
+            <button type="button" disabled={busy} aria-label={`Leave all ${plural(shown.total, "other item", "other items")} off`} onClick={() => void decideOthers("reject")} className={button}>Leave them off</button>
           </div>
         </div>
       )}
