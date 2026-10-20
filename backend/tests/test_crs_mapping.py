@@ -72,7 +72,7 @@ def test_every_missing_value_is_its_own_row_one_per_field():
     assert noise["comment"] == (
         'SAES-G-905 cl. 4.1 (p.1): "The noise level shall not exceed 85 dB(A) at 1 m." '
         "Datasheet p.1, Noise level (P-101A, P-101B) is left to be provided ('*'). "
-        "Contractor to provide Noise level.")
+        "Contractor to complete the field 'Noise level' (left blank).")
     # #725 F7: rows are ordered by page, then clause (4.1, 4.5, 4.7).
     assert "VENDOR TO ADVISE" in rows[1]["comment"] and "Seal type" in rows[1]["page_section"]
     assert not any("not itemized" in r["comment"] for r in rows)

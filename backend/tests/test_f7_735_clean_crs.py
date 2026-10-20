@@ -60,7 +60,7 @@ def test_a_blank_the_contractor_left_is_still_the_contractors():
     blank = dict(NC, compliance_status="MISSING_INFORMATION", id="b", equipment_tag="PSV-1",
                  contractor_evidence_text="TBA", contractor_page=2, crs_is_blank=True, severity="minor")
     [row] = build_crs_rows([blank], [], "psv.pdf")
-    assert "Contractor to provide" in row["comment"]
+    assert "Contractor to complete the field" in row["comment"]
 
 
 def test_a_row_carries_the_worst_severity_of_its_findings():

@@ -629,7 +629,7 @@ def _action(finding: dict, field: str) -> str:
                 "deviation request with justification for Company approval.")
     if status == _MISSING_INFORMATION:
         if finding.get("fact_id") or finding.get("contractor_page"):
-            return f"Contractor to provide {what}."
+            return crs_blank_fields.provide_words(finding, field)
         # #725 F7: NOT PAIRED IS THE SYSTEM'S MISS UNTIL AN ENGINEER SAYS
         # OTHERWISE. No field read from the sheet answered it; the sheet may
         # state it under another name. Never "Contractor to state" here.
@@ -686,7 +686,7 @@ def engineer_comment_text(group: list[dict]) -> str:
         # row asking two or more things says what to do once, what the sheet
         # says once, then every clause behind it (capped, with the count).
         return "\n".join([group_action(group), said, *clause_lines])
-    return f"{lead} {said} {_action(f, field)}"
+    return f"{lead} {said} {_action(crs_blank_fields.action_leader(group), field)}"
 
 
 def _clauses(group: list[dict]) -> dict[tuple, list[dict]]:
@@ -750,7 +750,7 @@ def point_count(group: list[dict]) -> int:
 def group_action(group: list[dict]) -> str | None:
     """Spec c: the first line of a FIELD row asking two or more things (two
     clauses, or two requirements or reasons of one clause) - the action once,
-    for the field ("Contractor to provide Corrosion allowance."). None for any
+    for the field ("Contractor to complete the field 'Corrosion allowance' (left blank)."). None for any
     other row, whose one sentence already says everything it asks."""
     if not _is_field_row(group) or point_count(group) < 2:
         return None
@@ -758,7 +758,7 @@ def group_action(group: list[dict]) -> str | None:
     field = _field_label(f)
     if _bucket_of(f) == BUCKET_QUESTION:
         return f"Engineer to check {field}."
-    return _action(f, field)
+    return _action(crs_blank_fields.action_leader(group), field)
 
 
 def _supporting_clause_lines(group: list[dict]) -> list[str]:
